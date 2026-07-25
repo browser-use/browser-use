@@ -4,6 +4,7 @@ import os
 import platform
 import re
 import signal
+import threading
 import time
 from collections.abc import Callable, Coroutine
 from fnmatch import fnmatch
@@ -46,7 +47,25 @@ def sanitize_url_candidate(url: str) -> str:
 	# "https://example.com/search.\\n2. Next step". Those are task text,
 	# not part of the URL.
 	candidate = re.split(r'\\[nrt]', candidate, maxsplit=1)[0]
-	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
+	# Strip trailing sentence punctuation. Closing parentheses/brackets are kept
+	# only when balanced with a matching opener (e.g. Wikipedia URLs ending in
+	# "..._(programming_language)"); unbalanced trailing closers, and any
+	# trailing openers, are stripped so prose punctuation does not bleed in.
+	while candidate:
+		last = candidate[-1]
+		if last in '.,;:!?':
+			candidate = candidate[:-1]
+		elif last in ')]':
+			open_char = '(' if last == ')' else '['
+			if candidate.count(open_char) < candidate.count(last):
+				candidate = candidate[:-1]
+			else:
+				break
+		elif last in '([':
+			candidate = candidate[:-1]
+		else:
+			break
+	return candidate
 
 
 # Lazy import for error types
@@ -76,10 +95,12 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 @lru_cache(maxsize=128)
 def _get_redact_pattern_and_mapping(
 	sensitive_values_tuple: tuple[tuple[str, str], ...],
-) -> tuple[re.Pattern[str] | None, dict[str, str], dict[str, str]]:
-	"""Build and compile a single-pass regex pattern and a lookup map.
+) -> tuple[re.Pattern[str] | None, dict[str, str], list[tuple[str, str]]]:
+	"""Build and compile a literal-only regex pattern plus lookup maps.
 
-	This function is cached to prevent re-compilation overhead across operations.
+	The pattern matches raw secret values only (no ``<secret>`` tag handling),
+	which avoids cascade re-redaction of already-generated tags. Results are
+	cached so the same set of secrets is not recompiled across redaction calls.
 	"""
 	secret_to_keys: dict[str, list[str]] = {}
 	for key, secret in sensitive_values_tuple:
@@ -90,59 +111,54 @@ def _get_redact_pattern_and_mapping(
 		secret_to_keys.setdefault(secret_str, []).append(key_str)
 
 	if not secret_to_keys:
-		return None, {}, {}
+		return None, {}, []
 
 	sorted_secrets = sorted(secret_to_keys.keys(), key=len, reverse=True)
 	escaped_secrets = [re.escape(s) for s in sorted_secrets]
-	pattern_str = r'(<secret>[\s\S]*?</secret>)|(' + '|'.join(escaped_secrets) + ')'
-	pattern = re.compile(pattern_str)
+	pattern = re.compile('|'.join(escaped_secrets))
 
 	replacement_mapping = {secret: f'<secret>{", ".join(sorted(keys))}</secret>' for secret, keys in secret_to_keys.items()}
-	plain_mapping = {secret: ', '.join(sorted(keys)) for secret, keys in secret_to_keys.items()}
+	# Pre-sorted by secret length descending so callers can iterate longest-first
+	# without re-sorting on every redaction call.
+	plain_mapping = [(secret, ', '.join(sorted(secret_to_keys[secret]))) for secret in sorted_secrets]
 
 	return pattern, replacement_mapping, plain_mapping
-
-
-_last_sensitive_tuple: tuple[tuple[str, str], ...] | None = None
 
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
 	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks.
 
-	Uses a cached single-pass regex replacement to avoid cascade re-redaction.
+	Raw secrets are matched in a single pass via a cached literal-only regex, and
+	pre-existing ``<secret>...</secret>`` tags are split out beforehand so their
+	inner contents are redacted separately without re-scanning for tags.
 	"""
-	global _last_sensitive_tuple
-
 	if not isinstance(value, str) or not value or not sensitive_values:
 		return value
 
 	sensitive_tuple = tuple(sorted((str(k), str(v)) for k, v in sensitive_values.items()))
-
-	if sensitive_tuple != _last_sensitive_tuple:
-		_get_redact_pattern_and_mapping.cache_clear()
-		_last_sensitive_tuple = sensitive_tuple
-
 	pattern, mapping, plain_mapping = _get_redact_pattern_and_mapping(sensitive_tuple)
 
 	if not pattern:
 		return value
 
-	def replace(match: re.Match[str]) -> str:
-		if match.group(1) is not None:
-			full_tag = match.group(1)
-			inner_content = full_tag[8:-9]
-			has_secret = False
-			for secret, keys_str in sorted(plain_mapping.items(), key=lambda x: len(x[0]), reverse=True):
-				if secret in inner_content:
-					inner_content = inner_content.replace(secret, keys_str)
-					has_secret = True
-			if has_secret:
-				return f'<secret>{inner_content}</secret>'
-			return full_tag
-		secret = match.group(2)
-		return mapping[secret]
+	# Split on existing tags: odd-indexed parts are tag contents (between the
+	# <secret> and </secret> markers), even-indexed parts are unredacted text.
+	parts = re.split(r'(<secret>[\s\S]*?</secret>)', value)
+	for i, part in enumerate(parts):
+		if i % 2 == 1:
+			# Existing tag: redact raw secrets inside it, longest-first.
+			inner = part[len('<secret>') : -len('</secret>')]
+			if not inner:
+				continue
+			for secret, keys_str in plain_mapping:
+				if secret in inner:
+					inner = inner.replace(secret, keys_str)
+			parts[i] = f'<secret>{inner}</secret>'
+		else:
+			# Unredacted text: replace raw secrets with placeholder tags.
+			parts[i] = pattern.sub(lambda m: mapping[m.group(0)], part)
 
-	return pattern.sub(replace, value)
+	return ''.join(parts)
 
 
 def _get_openai_bad_request_error() -> type | None:
@@ -536,10 +552,13 @@ def time_execution_async(
 
 def singleton(cls):
 	instance = [None]
+	lock = threading.Lock()
 
 	def wrapper(*args, **kwargs):
 		if instance[0] is None:
-			instance[0] = cls(*args, **kwargs)
+			with lock:
+				if instance[0] is None:
+					instance[0] = cls(*args, **kwargs)
 		return instance[0]
 
 	return wrapper
@@ -707,17 +726,18 @@ def get_browser_use_version() -> str:
 		package_root = Path(__file__).parent.parent
 		pyproject_path = package_root / 'pyproject.toml'
 
-		# Try to read version from pyproject.toml
+		# Try to read version from pyproject.toml via tomllib (parses the TOML
+		# structure so we resolve [project].version rather than the first
+		# ``version =`` line anywhere in the file).
 		if pyproject_path.exists():
-			import re
+			import tomllib
 
 			with open(pyproject_path, encoding='utf-8') as f:
-				content = f.read()
-				match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
-				if match:
-					version = f'{match.group(1)}'
-					os.environ['LIBRARY_VERSION'] = version  # used by bubus event_schema so all Event schemas include versioning
-					return version
+				data = tomllib.load(f)
+			version = data['project']['version']
+			version = f'{version}'
+			os.environ['LIBRARY_VERSION'] = version  # used by bubus event_schema so all Event schemas include versioning
+			return version
 
 		# If pyproject.toml doesn't exist, try getting version from pip
 		from importlib.metadata import version as get_version
@@ -781,8 +801,8 @@ def _browser_use_version_key(version: str) -> tuple[tuple[int, ...], int, int, i
 
 
 @cache
-def get_git_info() -> dict[str, str] | None:
-	"""Get git information if installed from git repository"""
+def _get_git_info_cached() -> dict[str, str] | None:
+	"""Get git information if installed from git repository (cached, do not mutate)."""
 	try:
 		import subprocess
 
@@ -821,6 +841,12 @@ def get_git_info() -> dict[str, str] | None:
 	except Exception as e:
 		logger.debug(f'Error getting git info: {type(e).__name__}: {e}')
 		return None
+
+
+def get_git_info() -> dict[str, str] | None:
+	"""Return a copy of the cached git info so callers cannot mutate the cached dict."""
+	info = _get_git_info_cached()
+	return info.copy() if info else None
 
 
 def _log_pretty_path(path: str | Path | None) -> str:
