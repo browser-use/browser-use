@@ -732,7 +732,7 @@ def get_browser_use_version() -> str:
 		if pyproject_path.exists():
 			import tomllib
 
-			with open(pyproject_path, encoding='utf-8') as f:
+			with open(pyproject_path, 'rb') as f:
 				data = tomllib.load(f)
 			version = data['project']['version']
 			version = f'{version}'
