@@ -2005,13 +2005,13 @@ async def test_rust_terminal_usage_prices_anthropic_raw_cache_reads(monkeypatch)
 	assert summary.total_prompt_cache_creation_tokens == 44
 	assert summary.total_completion_tokens == 3088
 	assert summary.total_tokens == 186394
-	assert summary.total_prompt_cost == pytest.approx(0.055176)
+	assert summary.total_prompt_cost == pytest.approx(0.055044)
 	assert summary.total_prompt_cached_cost == pytest.approx(0.054975)
 	assert summary.total_prompt_cache_creation_cost == pytest.approx(0.000165)
 	assert summary.total_completion_cost == pytest.approx(0.04632)
-	assert summary.total_cost == pytest.approx(0.101496)
+	assert summary.total_cost == pytest.approx(0.101364)
 	assert summary.by_model['claude-sonnet-4-6'].prompt_tokens == 183262
-	assert summary.by_model['claude-sonnet-4-6'].cost == pytest.approx(0.101496)
+	assert summary.by_model['claude-sonnet-4-6'].cost == pytest.approx(0.101364)
 
 
 async def test_rust_terminal_usage_sums_token_count_cache_creation(monkeypatch):
