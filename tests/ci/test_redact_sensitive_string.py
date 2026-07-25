@@ -132,6 +132,21 @@ def test_redact_sensitive_string_secret_spanning_tags():
 	assert 'abc</secret>xyz<secret>def' not in actual
 
 
+def test_redact_sensitive_string_idempotent_when_secret_equals_key_list():
+	"""
+	Verify idempotence: if a secret value equals the key list text used inside a
+	generated placeholder tag, re-redacting the tag must not produce nested tags.
+	"""
+	sensitive_values = {
+		'password': 'password',
+	}
+	input_str = '<secret>password</secret> and password'
+	expected = '<secret>password</secret> and <secret>password</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
 def test_redact_sensitive_string_nested_pre_existing_tags():
 	"""
 	Verify that nested pre-existing <secret> tags are parsed using balanced
@@ -143,6 +158,37 @@ def test_redact_sensitive_string_nested_pre_existing_tags():
 	}
 	input_str = '<secret>outer <secret>supersecret</secret> inner</secret>'
 	expected = '<secret>outer <secret>password</secret> inner</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
+def test_redact_sensitive_string_secret_is_full_tag():
+	"""
+	Verify that a configured secret that is itself a full balanced <secret> tag
+	(e.g. "<secret>foo</secret>") is redacted rather than mistaken for a
+	pre-existing placeholder and leaked unchanged.
+	"""
+	sensitive_values = {
+		'password': '<secret>foo</secret>',
+	}
+	# Appearing as raw plaintext.
+	input_str = 'leak: <secret>foo</secret>'
+	expected = 'leak: <secret>password</secret>'
+	assert redact_sensitive_string(input_str, sensitive_values) == expected
+	assert '<secret>foo</secret>' not in redact_sensitive_string(input_str, sensitive_values)
+
+
+def test_redact_sensitive_string_empty_tag_preserved():
+	"""
+	Verify that an empty pre-existing <secret></secret> marker is preserved
+	rather than silently removed from the message.
+	"""
+	sensitive_values = {
+		'password': 'supersecret',
+	}
+	input_str = 'before <secret></secret> after'
+	expected = 'before <secret></secret> after'
 
 	actual = redact_sensitive_string(input_str, sensitive_values)
 	assert actual == expected

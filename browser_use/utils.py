@@ -114,8 +114,7 @@ def _get_redact_pattern_and_mapping(
 		return None, {}, []
 
 	sorted_secrets = sorted(secret_to_keys.keys(), key=len, reverse=True)
-	escaped_secrets = [re.escape(s) for s in sorted_secrets]
-	pattern = re.compile('|'.join(escaped_secrets))
+	pattern = re.compile('|'.join(re.escape(s) for s in sorted_secrets))
 
 	replacement_mapping = {secret: f'<secret>{", ".join(sorted(keys))}</secret>' for secret, keys in secret_to_keys.items()}
 	# Pre-sorted by secret length descending so callers can iterate longest-first
@@ -129,39 +128,45 @@ def _split_secret_tags(value: str) -> list[str]:
 	"""Split *value* around balanced ``<secret>...</secret>`` pairs.
 
 	Returns a list of alternating segments: plain text, tag inner content, plain
-	text, ... Unclosed or stray tags are left as plain text.
+	text, ... Unclosed or stray tags are left as plain text. Uses str.find (C
+	speed) rather than a per-character scan.
 	"""
 	open_tag = '<secret>'
 	close_tag = '</secret>'
 	open_len = len(open_tag)
 	close_len = len(close_tag)
 
-	positions: list[tuple[int, int]] = []
-	stack: list[int] = []
+	parts = []
+	last = 0
 	i = 0
 	n = len(value)
 
 	while i < n:
-		if value.startswith(open_tag, i):
-			stack.append(i)
-			i += open_len
-		elif value.startswith(close_tag, i):
-			if stack:
-				start = stack.pop()
-				if not stack:
-					positions.append((start, i + close_len))
-			i += close_len
-		else:
-			i += 1
-
-	parts = []
-	last = 0
-	for start, end in positions:
+		start = value.find(open_tag, i)
+		if start == -1:
+			break
+		# Find the close marker that balances this open, respecting nesting.
+		depth = 1
+		j = start + open_len
+		while depth:
+			next_close = value.find(close_tag, j)
+			next_open = value.find(open_tag, j)
+			if next_open != -1 and (next_close == -1 or next_open < next_close):
+				depth += 1
+				j = next_open + open_len
+			elif next_close != -1:
+				depth -= 1
+				j = next_close + close_len
+			else:
+				break
+		if depth:
+			break  # unclosed tag: everything from `last` stays plain text
 		parts.append(value[last:start])
-		parts.append(value[start + open_len : end - close_len])
-		last = end
-	parts.append(value[last:])
+		parts.append(value[start + open_len : j - close_len])
+		last = j
+		i = j
 
+	parts.append(value[last:])
 	return parts
 
 
@@ -169,10 +174,9 @@ def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str
 	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks.
 
 	Raw secrets are matched in a single pass via a cached literal-only regex, and
-	pre-existing ``<secret>...</secret>`` tags are split out beforehand so their
-	inner contents are redacted separately without re-scanning for tags. Balanced
-	tag pairs are respected, so nested or overlapping tags are not broken at the
-	first closing marker.
+	pre-existing ``<secret>...</secret>`` tags are split out beforehand (with
+	balanced-pair parsing) so their inner contents are redacted separately
+	without re-scanning tag boundaries.
 	"""
 	if not isinstance(value, str) or not value or not sensitive_values:
 		return value
@@ -183,13 +187,33 @@ def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str
 	if not pattern:
 		return value
 
+	# Fast path: no existing <secret> tags means a single regex substitution.
+	if '<secret>' not in value:
+		return pattern.sub(lambda m: mapping[m.group(0)], value)
+
 	# Split on balanced existing tags: odd-indexed parts are tag contents, even
 	# parts are unredacted text.
 	parts = _split_secret_tags(value)
+	key_list_strings = {keys_str for _, keys_str in plain_mapping}
 	for i, part in enumerate(parts):
 		if i % 2 == 1:
 			# Existing tag: redact raw secrets inside it, longest-first.
 			if not part:
+				# Preserve empty markers as-is instead of deleting them.
+				parts[i] = '<secret></secret>'
+				continue
+			# A configured secret may itself look like a full balanced tag
+			# (e.g. "<secret>foo</secret>"). Redact it instead of mistaking it
+			# for a pre-existing placeholder, which would leak the raw value.
+			full_tag = f'<secret>{part}</secret>'
+			if full_tag in mapping:
+				parts[i] = mapping[full_tag]
+				continue
+			# If the tag already contains exactly a generated key list, it is a
+			# placeholder from a previous redaction pass and should stay unchanged
+			# to keep redaction idempotent.
+			if part in key_list_strings:
+				parts[i] = full_tag
 				continue
 			inner = part
 			for secret, keys_str in plain_mapping:
