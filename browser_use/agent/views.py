@@ -542,6 +542,8 @@ class PlanState(BaseModel):
 			step = self.find_current_step()
 			if step:
 				step.status = PlanNodeStatus.COMPLETED
+				# Auto-advance to the next step in the plan
+				self.advance_step()
 			self.consecutive_failures = 0  # progress made, reset
 			self.step_replan_count = 0
 
@@ -633,15 +635,15 @@ class PlanState(BaseModel):
 		return '\n'.join(lines)
 
 	def log_plan(self, logger: logging.Logger) -> None:
-		"""Log the current plan tree at DEBUG level."""
-		logger.debug('━━━ Plan State ━━━')
+		"""Log the current plan tree at INFO level."""
+		logger.info('━━━ Plan State ━━━')
 		for i, step in enumerate(self.steps):
 			arrow = '→' if i == self.current_step_index else ' '
 			status_icon = {PlanNodeStatus.PENDING: '○', PlanNodeStatus.CURRENT: '▸', PlanNodeStatus.COMPLETED: '✓', PlanNodeStatus.FAILED: '✗', PlanNodeStatus.SKIPPED: '–'}.get(step.status, '?')
 			line = f'  {arrow} Step {i}: {status_icon} {step.description}'
 			if step.retry_count > 0:
 				line += f' (retry {step.retry_count}/{step.max_retries})'
-			logger.debug(line)
+			logger.info(line)
 			if step.alternatives:
 				for alt in step.alternatives:
 					alt_icon = {PlanNodeStatus.PENDING: '○', PlanNodeStatus.CURRENT: '▸', PlanNodeStatus.COMPLETED: '✓', PlanNodeStatus.FAILED: '✗', PlanNodeStatus.SKIPPED: '–'}.get(alt.status, '?')
@@ -650,7 +652,7 @@ class PlanState(BaseModel):
 						alt_line += f' (retry {alt.retry_count}/{alt.max_retries})'
 					if alt.result:
 						alt_line += f' → {alt.result}'
-					logger.debug(alt_line)
+					logger.info(alt_line)
 
 
 class AgentBrain(BaseModel):

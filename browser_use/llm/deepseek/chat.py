@@ -43,6 +43,12 @@ class ChatDeepSeek(BaseChatModel):
 	timeout: float | httpx.Timeout | None = None
 	client_params: dict[str, Any] | None = None
 
+	@staticmethod
+	def _is_reasoning_model(model: str) -> bool:
+		"""Check if the model is a DeepSeek reasoning model that doesn't support tool_choice."""
+		model_lower = model.lower()
+		return any(kw in model_lower for kw in ['reasoner', '/thinking', '-r1', '-thinking', '-v4'])
+
 	@property
 	def provider(self) -> str:
 		return 'deepseek'
@@ -154,6 +160,9 @@ class ChatDeepSeek(BaseChatModel):
 						}
 					]
 					tool_choice = {'type': 'function', 'function': {'name': tool_name}}
+					# Reasoning models (deepseek-v4-pro, deepseek-reasoner, etc.) reject tool_choice
+					if self._is_reasoning_model(self.model):
+						tool_choice = None
 				resp = await client.chat.completions.create(  # type: ignore
 					model=self.model,
 					messages=ds_messages,  # type: ignore
