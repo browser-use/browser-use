@@ -84,13 +84,43 @@ Cloud profile cookie sync reference: https://github.com/browser-use/browser-harn
 
 ## Page Workflow
 
-- Screenshots first: use `capture_screenshot()` to understand visible state.
-- Clicking: screenshot -> read pixel -> `click_at_xy(x, y)` -> screenshot again.
+- Prefer to find elements with the accessibility tree, not screenshots: `cdp("Accessibility.getFullAXTree")["nodes"]` has every element's role, name, and `backendDOMNodeId` — filter in Python before printing (it is thousands of nodes). Coordinates: `q = cdp("DOM.getBoxModel", backendNodeId=n)["model"]["content"]; x, y = sum(q[0::2])/4, sum(q[1::2])/4` (viewport px, ready for `click_at_xy`; negative/oversized means scroll first).
+- Clicking: AX node -> box center -> `click_at_xy(x, y)` -> verify with a targeted `js(...)`/`page_info()` check.
+- Fall back to raw HTML via `js(...)` only when the AX tree lacks the element (canvas, exotic widgets); screenshot when layout or imagery matters.
 - After navigation, call `wait_for_load()`.
 - If the current tab is stale or internal, call `ensure_real_tab()`.
 - Use `js(...)` for DOM inspection or extraction when coordinates are the wrong tool.
 - Login walls: stop and ask. Exception: use available SSO automatically when Chrome is already signed in; still stop for passwords, MFA, consent, or ambiguous account choice.
 - Raw CDP is available with `cdp("Domain.method", ...)`.
+
+## Recordings and Videos
+
+Fresh installs do not record. Users can enable local background traces:
+
+```bash
+browser-use recordings enable
+browser-use recordings disable
+browser-use recordings
+```
+
+`BH_RECORD=1` or `BH_RECORD=0` overrides the preference for one process. Any
+natural nudge to “record,” “show,” “demo,” or “make a video” opts in that task;
+significant work alone does not.
+
+Before browser work, call `start_recording(name, title=...)`, retain its exact
+returned directory, and call `stop_recording()` after verifying the result.
+Never replace that path with `recordings --latest`. For a request made after
+the task, use:
+
+```bash
+browser-use recordings --latest
+```
+
+Use it only if timestamps and pages match; otherwise say the work was not
+captured. Never reenact a completed task. For a video, follow
+[make-video.md](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/make-video.md).
+If sub-agents are available, they may handle post-production from the exact
+recording path while the main agent returns the task result.
 
 ## Interaction Skills
 
@@ -104,6 +134,7 @@ If you get stuck on a browser mechanic, check https://github.com/browser-use/bro
 - drag-and-drop.md
 - dropdowns.md
 - iframes.md
+- make-video.md
 - network-requests.md
 - print-as-pdf.md
 - profile-sync.md

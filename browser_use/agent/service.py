@@ -330,10 +330,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.output_model_schema is not None:
 			self.tools.browser.use_structured_output_action(self.output_model_schema)  # type: ignore[attr-defined]
 
-		# Extraction schema: explicit param takes priority, otherwise auto-bridge from output_model_schema
+		# Per-page extract uses a schema only when the caller explicitly asks for one.
+		# It must NOT inherit output_model_schema: that describes the final task result
+		# (e.g. {summary, step_results}), which is the wrong shape for a single-page
+		# extraction and, on the browser-use gateway, routes extract into the agent
+		# action protocol and breaks it.
 		self.extraction_schema = extraction_schema
-		if self.extraction_schema is None and self.output_model_schema is not None:
-			self.extraction_schema = self.output_model_schema.model_json_schema()
 
 		# Core components - task enhancement now has access to output_model_schema from tools
 		self.task = self._enhance_task_with_schema(task, output_model_schema)
@@ -1360,7 +1362,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Look for common URL patterns
 		patterns = [
-			r'https?://[^\s<>"\']+',  # Full URLs with http/https
+			r'(?:https?|file)://[^\s<>"\']+',  # Full URLs
 			r'(?:www\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?',  # Domain names with subdomains and optional paths
 		]
 
@@ -1445,11 +1447,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		}
 
 		found_urls = []
+		matched_spans: list[tuple[int, int]] = []
 		for pattern in patterns:
 			matches = re.finditer(pattern, task_without_emails)
 			for match in matches:
 				url = match.group(0)
 				original_position = match.start()  # Store original position before URL modification
+
+				# Skip fragments of URLs already matched by earlier pattern
+				if any(match.start() < end and match.end() > start for start, end in matched_spans):
+					continue
+				matched_spans.append((match.start(), match.end()))
 
 				# Remove trailing punctuation that's not part of URLs
 				url = sanitize_url_candidate(url)
@@ -1458,13 +1466,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					self.logger.debug(f'Excluding placeholder URL from auto-navigation: {url}')
 					continue
 
-				# Check if URL ends with a file extension that should be excluded
 				url_lower = url.lower()
+				has_scheme = url_lower.startswith(('http://', 'https://', 'file://'))
+
+				# Check if URL ends with file extension
 				should_exclude = False
-				for ext in excluded_extensions:
-					if f'.{ext}' in url_lower:
+				if not url_lower.startswith('file://'):
+					for ext in excluded_extensions:
+						if f'.{ext}' in url_lower:
+							should_exclude = True
+							break
+					if not has_scheme and '.htm' in url_lower:
 						should_exclude = True
-						break
 
 				if should_exclude:
 					self.logger.debug(f'Excluding URL with file extension from auto-navigation: {url}')
@@ -1480,7 +1493,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					continue
 
 				# Add https:// if missing (after excluded words check to avoid position calculation issues)
-				if not url.startswith(('http://', 'https://')):
+				if not has_scheme:
 					url = 'https://' + url
 
 				found_urls.append(url)
@@ -1814,6 +1827,584 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.history.add_item(history_item)
 			self.logger.debug('📝 Saved initial actions to history as step 0')
 			self.logger.debug('Initial actions completed')
+
+	async def _wait_for_minimum_elements(
+		self,
+		min_elements: int,
+		timeout: float = 30.0,
+		poll_interval: float = 1.0,
+	) -> BrowserStateSummary | None:
+		"""Wait for the page to have at least min_elements interactive elements.
+
+		This helps handle SPA pages where shadow DOM and dynamic content
+		may not be immediately available even when document.readyState is 'complete'.
+
+		Args:
+			min_elements: Minimum number of interactive elements to wait for
+			timeout: Maximum time to wait in seconds
+			poll_interval: Time between polling attempts in seconds
+
+		Returns:
+			BrowserStateSummary if minimum elements found, None if timeout
+		"""
+		assert self.browser_session is not None, 'BrowserSession is not set up'
+
+		start_time = time.time()
+		last_count = 0
+
+		while (time.time() - start_time) < timeout:
+			state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+			if state and state.dom_state.selector_map:
+				current_count = len(state.dom_state.selector_map)
+				if current_count >= min_elements:
+					self.logger.debug(f'✅ Page has {current_count} elements (needed {min_elements}), proceeding with action')
+					return state
+				if current_count != last_count:
+					self.logger.debug(
+						f'⏳ Waiting for elements: {current_count}/{min_elements} '
+						f'(timeout in {timeout - (time.time() - start_time):.1f}s)'
+					)
+					last_count = current_count
+			await asyncio.sleep(poll_interval)
+
+		# Return last state even if we didn't reach min_elements
+		self.logger.warning(f'⚠️ Timeout waiting for {min_elements} elements, proceeding with {last_count} elements')
+		return await self.browser_session.get_browser_state_summary(include_screenshot=False)
+
+	def _count_expected_elements_from_history(self, history_item: AgentHistory) -> int:
+		"""Estimate the minimum number of elements expected based on history.
+
+		Uses the action indices from the history to determine the minimum
+		number of elements the page should have. If an action targets index N,
+		the page needs at least N+1 elements in the selector_map.
+		"""
+		if not history_item.model_output or not history_item.model_output.action:
+			return 0
+
+		max_index = -1  # Use -1 to indicate no index found yet
+		for action in history_item.model_output.action:
+			# Get the element index this action targets
+			index = action.get_index()
+			if index is not None:
+				max_index = max(max_index, index)
+
+		# Need at least max_index + 1 elements (indices are 0-based)
+		# Cap at 50 to avoid waiting forever for very high indices
+		# max_index >= 0 means we found at least one action with an index
+		return min(max_index + 1, 50) if max_index >= 0 else 0
+
+	async def _execute_history_step(
+		self,
+		history_item: AgentHistory,
+		delay: float,
+		ai_step_llm: BaseChatModel | None = None,
+		wait_for_elements: bool = False,
+	) -> list[ActionResult]:
+		"""Execute a single step from history with element validation.
+
+		For extract actions, uses AI to re-evaluate the content since page content may have changed.
+
+		Args:
+			history_item: The history step to execute
+			delay: Delay before executing the step
+			ai_step_llm: Optional LLM to use for AI steps
+			wait_for_elements: If True, wait for minimum elements before element matching
+		"""
+		assert self.browser_session is not None, 'BrowserSession is not set up'
+
+		await asyncio.sleep(delay)
+
+		# Optionally wait for minimum elements before element matching (useful for SPAs)
+		if wait_for_elements:
+			# Determine if we need to wait for elements (actions that interact with DOM elements)
+			needs_element_matching = False
+			if history_item.model_output:
+				for i, action in enumerate(history_item.model_output.action):
+					action_data = action.model_dump(exclude_unset=True)
+					action_name = next(iter(action_data.keys()), None)
+					# Actions that need element matching
+					if action_name in ('click', 'input', 'hover', 'select_option', 'drag_and_drop'):
+						historical_elem = (
+							history_item.state.interacted_element[i] if i < len(history_item.state.interacted_element) else None
+						)
+						if historical_elem is not None:
+							needs_element_matching = True
+							break
+
+			# If we need element matching, wait for minimum elements before proceeding
+			if needs_element_matching:
+				min_elements = self._count_expected_elements_from_history(history_item)
+				if min_elements > 0:
+					state = await self._wait_for_minimum_elements(min_elements, timeout=15.0, poll_interval=1.0)
+				else:
+					state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+			else:
+				state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+		else:
+			state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+		if not state or not history_item.model_output:
+			raise ValueError('Invalid state or model output')
+
+		results = []
+		pending_actions = []
+
+		for i, action in enumerate(history_item.model_output.action):
+			# Check if this is an extract action - use AI step instead
+			action_data = action.model_dump(exclude_unset=True)
+			action_name = next(iter(action_data.keys()), None)
+
+			if action_name == 'extract':
+				# Execute any pending actions first to maintain correct order
+				# (e.g., if step is [click, extract], click must happen before extract)
+				if pending_actions:
+					batch_results = await self.multi_act(pending_actions)
+					results.extend(batch_results)
+					pending_actions = []
+
+				# Now execute AI step for extract action
+				extract_params = action_data['extract']
+				query = extract_params.get('query', '')
+				extract_links = extract_params.get('extract_links', False)
+
+				self.logger.info(f'🤖 Using AI step for extract action: {query[:50]}...')
+				ai_result = await self._execute_ai_step(
+					query=query,
+					include_screenshot=False,  # Match original extract behavior
+					extract_links=extract_links,
+					ai_step_llm=ai_step_llm,
+				)
+				results.append(ai_result)
+			else:
+				# For non-extract actions, update indices and collect for batch execution
+				historical_elem = history_item.state.interacted_element[i]
+				updated_action = await self._update_action_indices(
+					historical_elem,
+					action,
+					state,
+				)
+				if updated_action is None:
+					# Build informative error message with diagnostic info
+					elem_info = self._format_element_for_error(historical_elem)
+					selector_map = state.dom_state.selector_map or {}
+					selector_count = len(selector_map)
+
+					# Find elements with same node_name for diagnostics
+					hist_node = historical_elem.node_name.lower() if historical_elem else ''
+					similar_elements = []
+					if historical_elem and historical_elem.attributes:
+						for idx, elem in selector_map.items():
+							if elem.node_name.lower() == hist_node and elem.attributes:
+								elem_aria = elem.attributes.get('aria-label', '')
+								if elem_aria:
+									similar_elements.append(f'{idx}:{elem_aria[:30]}')
+									if len(similar_elements) >= 5:
+										break
+
+					diagnostic = ''
+					if similar_elements:
+						diagnostic = f'\n  Available <{hist_node.upper()}> with aria-label: {similar_elements}'
+					elif hist_node:
+						same_node_count = sum(1 for e in selector_map.values() if e.node_name.lower() == hist_node)
+						diagnostic = (
+							f'\n  Found {same_node_count} <{hist_node.upper()}> elements (none with matching identifiers)'
+						)
+
+					raise ValueError(
+						f'Could not find matching element for action {i} in current page.\n'
+						f'  Looking for: {elem_info}\n'
+						f'  Page has {selector_count} interactive elements.{diagnostic}\n'
+						f'  Tried: EXACT hash → STABLE hash → XPATH → AX_NAME → ATTRIBUTE matching'
+					)
+				pending_actions.append(updated_action)
+
+		# Execute any remaining pending actions
+		if pending_actions:
+			batch_results = await self.multi_act(pending_actions)
+			results.extend(batch_results)
+
+		return results
+
+	async def _update_action_indices(
+		self,
+		historical_element: DOMInteractedElement | None,
+		action: ActionModel,  # Type this properly based on your action model
+		browser_state_summary: BrowserStateSummary,
+	) -> ActionModel | None:
+		"""
+		Update action indices based on current page state.
+		Returns updated action or None if element cannot be found.
+
+		Cascading matching strategy (tries each level in order):
+		1. EXACT: Full element_hash match (includes all attributes + ax_name)
+		2. STABLE: Hash with dynamic CSS classes filtered out (focus, hover, animation, etc.)
+		3. XPATH: XPath string match (structural position in DOM)
+		4. AX_NAME: Accessible name match from accessibility tree (robust for dynamic menus)
+		5. ATTRIBUTE: Unique attribute match (name, id, aria-label) for old history files
+		"""
+		if not historical_element or not browser_state_summary.dom_state.selector_map:
+			return action
+
+		selector_map = browser_state_summary.dom_state.selector_map
+		selector_items = list(selector_map.items())
+		if historical_element.frame_id:
+			same_frame_items = [
+				(index, element) for index, element in selector_items if element.frame_id == historical_element.frame_id
+			]
+			if same_frame_items:
+				selector_items = same_frame_items + [
+					(index, element) for index, element in selector_items if element.frame_id != historical_element.frame_id
+				]
+		highlight_index: int | None = None
+		match_level: MatchLevel | None = None
+
+		# Debug: log what we're looking for and what's available
+		self.logger.info(
+			f'🔍 Searching for element: <{historical_element.node_name}> '
+			f'hash={historical_element.element_hash} stable_hash={historical_element.stable_hash}'
+		)
+		# Log what elements are in selector_map for debugging
+		if historical_element.node_name:
+			hist_name = historical_element.node_name.lower()
+			matching_nodes = [
+				(idx, elem.node_name, elem.attributes.get('name') if elem.attributes else None)
+				for idx, elem in selector_items
+				if elem.node_name.lower() == hist_name
+			]
+			self.logger.info(
+				f'🔍 Selector map has {len(selector_map)} elements, '
+				f'{len(matching_nodes)} are <{hist_name.upper()}>: {matching_nodes}'
+			)
+
+		# Level 1: EXACT hash match
+		for idx, elem in selector_items:
+			if elem.element_hash == historical_element.element_hash:
+				highlight_index = idx
+				match_level = MatchLevel.EXACT
+				break
+
+		if highlight_index is None:
+			self.logger.debug(f'EXACT hash match failed (checked {len(selector_map)} elements)')
+
+		# Level 2: STABLE hash match (dynamic classes filtered)
+		# Use stored stable_hash (computed at save time from EnhancedDOMTreeNode - single source of truth)
+		if highlight_index is None and historical_element.stable_hash is not None:
+			for idx, elem in selector_items:
+				if elem.compute_stable_hash() == historical_element.stable_hash:
+					highlight_index = idx
+					match_level = MatchLevel.STABLE
+					self.logger.info('Element matched at STABLE level (dynamic classes filtered)')
+					break
+			if highlight_index is None:
+				self.logger.debug('STABLE hash match failed')
+		elif highlight_index is None:
+			self.logger.debug('STABLE hash match skipped (no stable_hash in history)')
+
+		# Level 3: XPATH match
+		if highlight_index is None and historical_element.x_path:
+			for idx, elem in selector_items:
+				if elem.xpath == historical_element.x_path:
+					highlight_index = idx
+					match_level = MatchLevel.XPATH
+					self.logger.info(f'Element matched at XPATH level: {historical_element.x_path}')
+					break
+			if highlight_index is None:
+				self.logger.debug(f'XPATH match failed for: {historical_element.x_path[-60:]}')
+
+		# Level 4: ax_name (accessible name) match - robust for dynamic SPAs with menus
+		# This uses the accessible name from the accessibility tree which is stable
+		# even when DOM structure changes (e.g., dynamically generated menu items)
+		if highlight_index is None and historical_element.ax_name:
+			hist_name = historical_element.node_name.lower()
+			hist_ax_name = historical_element.ax_name
+			for idx, elem in selector_items:
+				# Match by node type and accessible name
+				elem_ax_name = elem.ax_node.name if elem.ax_node else None
+				if elem.node_name.lower() == hist_name and elem_ax_name == hist_ax_name:
+					highlight_index = idx
+					match_level = MatchLevel.AX_NAME
+					self.logger.info(f'Element matched at AX_NAME level: "{hist_ax_name}"')
+					break
+			if highlight_index is None:
+				# Log available ax_names for debugging
+				same_type_ax_names = [
+					(idx, elem.ax_node.name if elem.ax_node else None)
+					for idx, elem in selector_items
+					if elem.node_name.lower() == hist_name and elem.ax_node and elem.ax_node.name
+				]
+				self.logger.debug(
+					f'AX_NAME match failed for <{hist_name.upper()}> ax_name="{hist_ax_name}". '
+					f'Page has {len(same_type_ax_names)} <{hist_name.upper()}> with ax_names: '
+					f'{same_type_ax_names[:5]}{"..." if len(same_type_ax_names) > 5 else ""}'
+				)
+
+		# Level 5: Unique attribute fallback (for old history files without stable_hash)
+		if highlight_index is None and historical_element.attributes:
+			hist_attrs = historical_element.attributes
+			hist_name = historical_element.node_name.lower()
+
+			# Try matching by unique identifiers: name, id, or aria-label
+			for attr_key in ['name', 'id', 'aria-label']:
+				if attr_key in hist_attrs and hist_attrs[attr_key]:
+					for idx, elem in selector_items:
+						if (
+							elem.node_name.lower() == hist_name
+							and elem.attributes
+							and elem.attributes.get(attr_key) == hist_attrs[attr_key]
+						):
+							highlight_index = idx
+							match_level = MatchLevel.ATTRIBUTE
+							self.logger.info(f'Element matched via {attr_key} attribute: {hist_attrs[attr_key]}')
+							break
+					if highlight_index is not None:
+						break
+
+			if highlight_index is None:
+				tried_attrs = [k for k in ['name', 'id', 'aria-label'] if k in hist_attrs and hist_attrs[k]]
+				# Log what was tried and what's available on the page for debugging
+				same_node_elements = [
+					(idx, elem.attributes.get('aria-label') or elem.attributes.get('id') or elem.attributes.get('name'))
+					for idx, elem in selector_items
+					if elem.node_name.lower() == hist_name and elem.attributes
+				]
+				self.logger.info(
+					f'🔍 ATTRIBUTE match failed for <{hist_name.upper()}> '
+					f'(tried: {tried_attrs}, looking for: {[hist_attrs.get(k) for k in tried_attrs]}). '
+					f'Page has {len(same_node_elements)} <{hist_name.upper()}> elements with identifiers: '
+					f'{same_node_elements[:5]}{"..." if len(same_node_elements) > 5 else ""}'
+				)
+
+		if highlight_index is None:
+			return None
+
+		old_index = action.get_index()
+		if old_index != highlight_index:
+			action.set_index(highlight_index)
+			level_name = match_level.name if match_level else 'UNKNOWN'
+			self.logger.info(f'Element index updated {old_index} → {highlight_index} (matched at {level_name} level)')
+
+		return action
+
+	def _format_element_for_error(self, elem: DOMInteractedElement | None) -> str:
+		"""Format element info for error messages during history rerun."""
+		if elem is None:
+			return '<no element recorded>'
+
+		parts = [f'<{elem.node_name}>']
+
+		# Add key identifying attributes
+		if elem.attributes:
+			for key in ['name', 'id', 'aria-label', 'type']:
+				if key in elem.attributes and elem.attributes[key]:
+					parts.append(f'{key}="{elem.attributes[key]}"')
+
+		# Add hash info
+		parts.append(f'hash={elem.element_hash}')
+		if elem.stable_hash:
+			parts.append(f'stable_hash={elem.stable_hash}')
+
+		# Add xpath (truncated)
+		if elem.x_path:
+			xpath_short = elem.x_path if len(elem.x_path) <= 60 else f'...{elem.x_path[-57:]}'
+			parts.append(f'xpath="{xpath_short}"')
+
+		return ' '.join(parts)
+
+	def _is_redundant_retry_step(
+		self,
+		current_item: AgentHistory,
+		previous_item: AgentHistory | None,
+		previous_step_succeeded: bool,
+	) -> bool:
+		"""
+		Detect if current step is a redundant retry of the previous step.
+
+		This handles cases where the original run needed to click the same element multiple
+		times due to slow page response, but during replay the first click already succeeded.
+		When the page has already navigated, subsequent retry clicks on the same element
+		would fail because that element no longer exists.
+
+		Returns True if:
+		- Previous step succeeded
+		- Both steps target the same element (by element_hash, stable_hash, or xpath)
+		- Both steps perform the same action type (e.g., both are clicks)
+		"""
+		if not previous_item or not previous_step_succeeded:
+			return False
+
+		# Get interacted elements from both steps (first action in each)
+		curr_elements = current_item.state.interacted_element
+		prev_elements = previous_item.state.interacted_element
+
+		if not curr_elements or not prev_elements:
+			return False
+
+		curr_elem = curr_elements[0] if curr_elements else None
+		prev_elem = prev_elements[0] if prev_elements else None
+
+		if not curr_elem or not prev_elem:
+			return False
+
+		# Check if same element by various matching strategies
+		same_by_hash = curr_elem.element_hash == prev_elem.element_hash
+		same_by_stable_hash = (
+			curr_elem.stable_hash is not None
+			and prev_elem.stable_hash is not None
+			and curr_elem.stable_hash == prev_elem.stable_hash
+		)
+		same_by_xpath = curr_elem.x_path == prev_elem.x_path
+
+		if not (same_by_hash or same_by_stable_hash or same_by_xpath):
+			return False
+
+		# Check if same action type
+		curr_actions = current_item.model_output.action if current_item.model_output else []
+		prev_actions = previous_item.model_output.action if previous_item.model_output else []
+
+		if not curr_actions or not prev_actions:
+			return False
+
+		# Get the action type (first key in the action dict)
+		curr_action_data = curr_actions[0].model_dump(exclude_unset=True)
+		prev_action_data = prev_actions[0].model_dump(exclude_unset=True)
+
+		curr_action_type = next(iter(curr_action_data.keys()), None)
+		prev_action_type = next(iter(prev_action_data.keys()), None)
+
+		if curr_action_type != prev_action_type:
+			return False
+
+		self.logger.debug(
+			f'🔄 Detected redundant retry: both steps target same element '
+			f'<{curr_elem.node_name}> with action "{curr_action_type}"'
+		)
+
+		return True
+
+	def _is_menu_opener_step(self, history_item: AgentHistory | None) -> bool:
+		"""
+		Detect if a step opens a dropdown/menu.
+
+		Checks for common patterns indicating a menu opener:
+		- Element has aria-haspopup attribute
+		- Element has data-gw-click="toggleSubMenu" (Guidewire pattern)
+		- Element has expand-button in class name
+		- Element role is "menuitem" with aria-expanded
+
+		Returns True if the step appears to open a dropdown/submenu.
+		"""
+		if not history_item or not history_item.state or not history_item.state.interacted_element:
+			return False
+
+		elem = history_item.state.interacted_element[0] if history_item.state.interacted_element else None
+		if not elem:
+			return False
+
+		attrs = elem.attributes or {}
+
+		# Check for common menu opener indicators
+		if attrs.get('aria-haspopup') in ('true', 'menu', 'listbox'):
+			return True
+		if attrs.get('data-gw-click') == 'toggleSubMenu':
+			return True
+		if 'expand-button' in attrs.get('class', ''):
+			return True
+		if attrs.get('role') == 'menuitem' and attrs.get('aria-expanded') in ('false', 'true'):
+			return True
+		if attrs.get('role') == 'button' and attrs.get('aria-expanded') in ('false', 'true'):
+			return True
+
+		return False
+
+	def _is_menu_item_element(self, elem: 'DOMInteractedElement | None') -> bool:
+		"""
+		Detect if an element is a menu item that appears inside a dropdown/menu.
+
+		Checks for:
+		- role="menuitem", "option", "menuitemcheckbox", "menuitemradio"
+		- Element is inside a menu structure (has menu-related parent indicators)
+		- ax_name is set (menu items typically have accessible names)
+
+		Returns True if the element appears to be a menu item.
+		"""
+		if not elem:
+			return False
+
+		attrs = elem.attributes or {}
+
+		# Check for menu item roles
+		role = attrs.get('role', '')
+		if role in ('menuitem', 'option', 'menuitemcheckbox', 'menuitemradio', 'treeitem'):
+			return True
+
+		# Elements in Guidewire menus have these patterns
+		if 'gw-action--inner' in attrs.get('class', ''):
+			return True
+		if 'menuitem' in attrs.get('class', '').lower():
+			return True
+
+		# If element has an ax_name and looks like it could be in a menu
+		# This is a softer check - only used if the previous step was a menu opener
+		if elem.ax_name and elem.ax_name not in ('', None):
+			# Common menu container classes
+			elem_class = attrs.get('class', '').lower()
+			if any(x in elem_class for x in ['dropdown', 'popup', 'menu', 'submenu', 'action']):
+				return True
+
+		return False
+
+	async def _reexecute_menu_opener(
+		self,
+		opener_item: AgentHistory,
+		ai_step_llm: 'BaseChatModel | None' = None,
+	) -> bool:
+		"""
+		Re-execute a menu opener step to re-open a closed dropdown.
+
+		This is used when a menu item can't be found because the dropdown
+		closed during the wait between steps.
+
+		Returns True if re-execution succeeded, False otherwise.
+		"""
+		try:
+			self.logger.info('🔄 Re-opening dropdown/menu by re-executing previous step...')
+			# Use a minimal delay - we want to quickly re-open the menu
+			await self._execute_history_step(opener_item, delay=0.5, ai_step_llm=ai_step_llm, wait_for_elements=False)
+			# Small delay to let the menu render
+			await asyncio.sleep(0.3)
+			return True
+		except Exception as e:
+			self.logger.warning(f'Failed to re-open dropdown: {e}')
+			return False
+
+	async def load_and_rerun(
+		self,
+		history_file: str | Path | None = None,
+		variables: dict[str, str] | None = None,
+		**kwargs,
+	) -> list[ActionResult]:
+		"""
+		Load history from file and rerun it, optionally substituting variables.
+
+		Args:
+			history_file: Path to the history file
+			variables: Optional dict mapping variable names to new values (e.g. {'email': 'new@example.com'})
+			**kwargs: Additional arguments passed to rerun_history:
+				- max_retries: Maximum retries per action (default: 3)
+				- skip_failures: Continue on failure (default: True)
+				- delay_between_actions: Delay when no saved interval (default: 2.0s)
+				- max_step_interval: Cap on saved step_interval (default: 45.0s)
+				- summary_llm: Custom LLM for final summary
+				- ai_step_llm: Custom LLM for extract re-evaluation
+		"""
+		if not history_file:
+			history_file = 'AgentHistory.json'
+		history = AgentHistoryList.load_from_file(history_file, self.AgentOutput)
+
+		# Substitute variables if provided
+		if variables:
+			history = self._substitute_variables_in_history(history, variables)
+
+		return await self.rerun_history(history, **kwargs)
 
 	def save_history(self, file_path: str | Path | None = None) -> None:
 		"""Save the history to a file with sensitive data filtering"""
