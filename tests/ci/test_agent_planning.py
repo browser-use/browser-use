@@ -58,7 +58,11 @@ def _make_agent_output(**overrides) -> AgentOutput:
 			'evaluation_previous_goal': 'Success',
 			'memory': 'mem',
 			'next_goal': 'goal',
-			**{k: [s.model_dump() for s in v] if k == 'plan_update' and v and isinstance(v[0], PlanUpdateStep) else v for k, v in overrides.items() if k in ('plan_update',)},
+			**{
+				k: [s.model_dump() for s in v] if k == 'plan_update' and v and isinstance(v[0], PlanUpdateStep) else v
+				for k, v in overrides.items()
+				if k in ('plan_update',)
+			},
 			'action': [{'done': {'text': 'ok', 'success': True}}],
 		}
 	)

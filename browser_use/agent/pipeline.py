@@ -182,16 +182,21 @@ class ContextPreparer(BaseContextPreparer):
 		return self._agent.state.plan_state.render()
 
 	def _inject_replan_nudge(self) -> None:
+		"""Inject a replan nudge when stall detection threshold is met."""
 		if not self._agent.settings.enable_planning or self._agent.state.plan_state is None:
 			return
-		if self._agent.state.plan_state.current_step_all_alternatives_failed():
-			step = self._agent.state.plan_state.find_current_step()
-			step_desc = step.description if step else 'current step'
+		if self._agent.settings.planning_replan_on_stall <= 0:
+			return
+		if self._agent.state.plan_state.consecutive_failures >= self._agent.settings.planning_replan_on_stall:
 			msg = (
-				f'ALL ALTERNATIVES FAILED for step "{step_desc}". '
-				'All retries exhausted. Output a `plan_update` with revised steps to continue.'
+				'REPLAN SUGGESTED: You have failed '
+				f'{self._agent.state.plan_state.consecutive_failures} consecutive times. '
+				'Your current plan may need revision. '
+				'Output a new `plan_update` with revised steps to recover.'
 			)
-			self._agent.logger.info(f'\U0001f4cb Replan nudge: all alternatives failed for step "{step_desc}"')
+			self._agent.logger.info(
+				f'\U0001f4cb Replan nudge injected after {self._agent.state.plan_state.consecutive_failures} consecutive failures'
+			)
 			self._agent.message_manager._add_context_message(UserMessage(content=msg))
 
 	def _inject_exploration_nudge(self) -> None:
