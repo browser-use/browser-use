@@ -23,8 +23,10 @@ Or as an MCP server in Claude Desktop or other MCP clients:
     }
 """
 
+import base64
 import os
 import sys
+import tempfile
 
 # Set environment variables BEFORE any browser_use imports to prevent early logging
 os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'critical'
@@ -285,11 +287,11 @@ class BrowserUseServer:
 								'description': 'Whether to include a screenshot of the current page',
 								'default': False,
 							},
-							'save_screenshot_to_file': {
+							'save_to_file': {
 								'type': 'boolean',
-								'description': 'If include_screenshot is true, saves to a file instead of returning raw data (recommended to avoid context bloat)',
-								'default': False,
-							}
+								'description': 'When include_screenshot is true, save the image to a temp file and return its path instead of embedding the raw base64 blob. Strongly recommended to avoid API 400 errors from context bloat.',
+								'default': True,
+							},
 						},
 					},
 				),
@@ -324,7 +326,10 @@ class BrowserUseServer:
 				),
 				types.Tool(
 					name='browser_screenshot',
-					description='Take a screenshot of the current page. By default, saves to a file to prevent context bloat. Set return_image_data to true to get the actual image data.',
+					description=(
+						'Take a screenshot of the current page. By default saves to a temp file and returns the '
+						'path, avoiding context bloat. Set save_to_file=false to receive the raw image data instead.'
+					),
 					inputSchema={
 						'type': 'object',
 						'properties': {
@@ -333,10 +338,10 @@ class BrowserUseServer:
 								'description': 'Whether to capture the full scrollable page or just the visible viewport',
 								'default': False,
 							},
-							'return_image_data': {
+							'save_to_file': {
 								'type': 'boolean',
-								'description': 'If true, returns the raw image data. If false (default), saves to a file and returns the path.',
-								'default': False,
+								'description': 'Save the screenshot to a temp file and return its path instead of embedding raw data. Default true to prevent context poisoning.',
+								'default': True,
 							},
 						},
 					},
@@ -540,12 +545,12 @@ class BrowserUseServer:
 
 			elif tool_name == 'browser_get_state':
 				state_json, screenshot_b64, filepath = await self._get_browser_state(
-					arguments.get('include_screenshot', False),
-					arguments.get('save_screenshot_to_file', False)
+					include_screenshot=arguments.get('include_screenshot', False),
+					save_to_file=arguments.get('save_to_file', True),
 				)
 				content: list[types.TextContent | types.ImageContent] = [types.TextContent(type='text', text=state_json)]
 				if filepath:
-					content.append(types.TextContent(type='text', text=f"Screenshot saved to: {filepath}"))
+					content.append(types.TextContent(type='text', text=f'screenshot saved to: {filepath}'))
 				if screenshot_b64:
 					content.append(types.ImageContent(type='image', data=screenshot_b64, mimeType='image/png'))
 				return content
@@ -555,12 +560,12 @@ class BrowserUseServer:
 
 			elif tool_name == 'browser_screenshot':
 				meta_json, screenshot_b64, filepath = await self._screenshot(
-					arguments.get('full_page', False),
-					arguments.get('return_image_data', False)
+					full_page=arguments.get('full_page', False),
+					save_to_file=arguments.get('save_to_file', True),
 				)
 				content: list[types.TextContent | types.ImageContent] = [types.TextContent(type='text', text=meta_json)]
 				if filepath:
-					content.append(types.TextContent(type='text', text=f"Screenshot saved to: {filepath}"))
+					content.append(types.TextContent(type='text', text=f'screenshot saved to: {filepath}'))
 				if screenshot_b64:
 					content.append(types.ImageContent(type='image', data=screenshot_b64, mimeType='image/png'))
 				return content
@@ -893,8 +898,18 @@ class BrowserUseServer:
 		else:
 			return f"Typed '{text}' into element {index}"
 
-	async def _get_browser_state(self, include_screenshot: bool = False, save_screenshot_to_file: bool = False) -> tuple[str, str | None, str | None]:
-		"""Get current browser state. Returns (state_json, screenshot_b64 | None, filepath | None)."""
+	async def _get_browser_state(
+		self,
+		include_screenshot: bool = False,
+		save_to_file: bool = True,
+	) -> tuple[str, str | None, str | None]:
+		"""Get current browser state.
+
+		Returns:
+			A 3-tuple of (state_json, screenshot_b64 | None, filepath | None).
+			Exactly one of screenshot_b64 and filepath will be non-None when
+			include_screenshot is True; both are None otherwise.
+		"""
 		if not self.browser_session:
 			return 'Error: No browser session active', None, None
 
@@ -936,27 +951,21 @@ class BrowserUseServer:
 				elem_info['href'] = element.attributes['href']
 			result['interactive_elements'].append(elem_info)
 
-		# Return screenshot separately as ImageContent instead of embedding base64 in JSON
-		screenshot_b64 = None
-		filepath = None
+		screenshot_b64: str | None = None
+		filepath: str | None = None
 		if include_screenshot and state.screenshot:
-			if save_screenshot_to_file:
-				import base64
-				import tempfile
-				import os
-				fd, path = tempfile.mkstemp(suffix='.png', prefix='browser_use_screenshot_')
-				with os.fdopen(fd, 'wb') as f:
-					f.write(base64.b64decode(state.screenshot))
-				filepath = path
-			else:
-				screenshot_b64 = state.screenshot
-				
-			# Include viewport dimensions in JSON so LLM can map pixels to coordinates
+			# Include viewport dimensions so the LLM can map screenshot pixels to coordinates
 			if state.page_info:
 				result['screenshot_dimensions'] = {
 					'width': state.page_info.viewport_width,
 					'height': state.page_info.viewport_height,
 				}
+			if save_to_file:
+				# Decode the base64 blob and write to a temp file to avoid embedding large
+				# data directly in the MCP tool result, which causes API 400 errors on replay.
+				filepath = self._save_screenshot_to_temp(state.screenshot)
+			else:
+				screenshot_b64 = state.screenshot
 
 		return json.dumps(result, indent=2), screenshot_b64, filepath
 
@@ -987,40 +996,71 @@ class BrowserUseServer:
 			return f'No element found for selector: {selector}' if selector else 'Error: Could not get page HTML'
 		return html
 
-	async def _screenshot(self, full_page: bool = False, return_image_data: bool = False) -> tuple[str, str | None, str | None]:
-		"""Take a screenshot. Returns (metadata_json, screenshot_b64 | None, filepath | None)."""
+	async def _screenshot(
+		self,
+		full_page: bool = False,
+		save_to_file: bool = True,
+	) -> tuple[str, str | None, str | None]:
+		"""Take a screenshot of the current page.
+
+		Args:
+			full_page: Capture the full scrollable page instead of only the viewport.
+			save_to_file: When True (default), write the PNG to a temp file and return
+				its path.  When False, encode the bytes as base64 and return the data
+				directly.  Prefer the default to avoid embedding large blobs in the MCP
+				tool result that poison the conversation context.
+
+		Returns:
+			A 3-tuple of (metadata_json, screenshot_b64 | None, filepath | None).
+			Exactly one of screenshot_b64 and filepath will be non-None.
+		"""
 		if not self.browser_session:
 			return 'Error: No browser session active', None, None
 
-		import base64
-		import tempfile
-		import os
-
 		self._update_session_activity(self.browser_session.id)
-		
-		filepath = None
-		b64 = None
-		
-		if not return_image_data:
-			fd, path = tempfile.mkstemp(suffix='.png', prefix='browser_use_screenshot_')
-			os.close(fd)
-			filepath = path
-			data = await self.browser_session.take_screenshot(path=filepath, full_page=full_page)
-		else:
-			data = await self.browser_session.take_screenshot(full_page=full_page)
-			b64 = base64.b64encode(data).decode()
 
-		# Return screenshot separately as ImageContent instead of embedding base64 in JSON
+		screenshot_b64: str | None = None
+		filepath: str | None = None
+
+		raw_bytes: bytes = await self.browser_session.take_screenshot(full_page=full_page)
+		if save_to_file:
+			filepath = self._save_screenshot_to_temp(base64.b64encode(raw_bytes).decode())
+		else:
+			screenshot_b64 = base64.b64encode(raw_bytes).decode()
+
 		state = await self.browser_session.get_browser_state_summary()
 		result: dict[str, Any] = {
-			'size_bytes': len(data),
+			'size_bytes': os.path.getsize(filepath) if filepath else len(raw_bytes),
 		}
 		if state.page_info:
 			result['viewport'] = {
 				'width': state.page_info.viewport_width,
 				'height': state.page_info.viewport_height,
 			}
-		return json.dumps(result), b64, filepath
+		return json.dumps(result), screenshot_b64, filepath
+
+	def _save_screenshot_to_temp(self, screenshot_b64: str) -> str:
+		"""Decode a base64 PNG string and write it to a temporary file.
+
+		The caller owns the file and is responsible for deleting it when done.
+		The file is created with a descriptive prefix so it is easy to identify
+		in /tmp (or the OS temp dir) during debugging.
+
+		Args:
+			screenshot_b64: Base64-encoded PNG bytes.
+
+		Returns:
+			Absolute path to the written PNG file.
+		"""
+		fd, path = tempfile.mkstemp(suffix='.png', prefix='browser_use_screenshot_')
+		try:
+			with os.fdopen(fd, 'wb') as fh:
+				fh.write(base64.b64decode(screenshot_b64))
+		except Exception:
+			os.close(fd)
+			os.unlink(path)
+			raise
+		return path
 
 	async def _extract_content(self, query: str, extract_links: bool = False) -> str:
 		"""Extract content from current page."""
