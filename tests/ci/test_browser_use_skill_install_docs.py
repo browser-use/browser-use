@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from browser_use.skills.browser_use import as_browser_use_skill
+
 ROOT = Path(__file__).resolve().parents[2]
 BROWSER_USE_REPO_SKILL_URL = 'https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md'
 EXPECTED_SKILL_INSTALL_PATHS = (
@@ -14,6 +16,20 @@ EXPECTED_SKILL_INSTALL_PATHS = (
 	Path('.gemini') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.config') / 'opencode' / 'skills' / 'browser-use' / 'SKILL.md',
 )
+
+
+def test_browser_use_skill_copies_are_synchronized_and_honor_explicit_requests():
+	repository_skill = (ROOT / 'skills' / 'browser-use' / 'SKILL.md').read_text(encoding='utf-8')
+	packaged_skill = (ROOT / 'browser_use' / 'skills' / 'browser-use' / 'SKILL.md').read_text(encoding='utf-8')
+	explicit_request_guidance = (
+		'If the user explicitly asks you to use `browser-use` or a browser, use it; '
+		'this section only governs tool choice when the user did not specify one.'
+	)
+
+	assert repository_skill == packaged_skill
+	assert explicit_request_guidance in repository_skill
+	assert explicit_request_guidance in packaged_skill
+	assert as_browser_use_skill(packaged_skill).count(explicit_request_guidance) == 1
 
 
 def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
@@ -57,7 +73,10 @@ def test_docs_install_browser_use_skill_from_package_alias():
 
 
 def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
-	bin_dir = _fake_browser_harness_tools(tmp_path, '---\nname: browser-harness\n---\n\n# Browser Harness\n')
+	bin_dir = _fake_browser_harness_tools(
+		tmp_path,
+		'---\nname: browser-harness\n---\n\n# Browser Harness\n\n## When Not to Use\n\nUse curl for public pages.\n',
+	)
 
 	home = tmp_path / 'home'
 	for stale in (home / path for path in EXPECTED_SKILL_INSTALL_PATHS):
@@ -87,7 +106,11 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 		'name: browser-use\n'
 		'description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."\n'
 		'---\n\n'
-		'# Browser Use\n'
+		'# Browser Use\n\n'
+		'## When Not to Use\n\n'
+		'If the user explicitly asks you to use `browser-use` or a browser, use it; '
+		'this section only governs tool choice when the user did not specify one.\n\n'
+		'Use curl for public pages.\n'
 	)
 	for installed in (home / path for path in EXPECTED_SKILL_INSTALL_PATHS):
 		assert installed.read_text(encoding='utf-8') == expected
