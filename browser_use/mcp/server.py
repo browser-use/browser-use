@@ -284,6 +284,11 @@ class BrowserUseServer:
 								'type': 'boolean',
 								'description': 'Whether to include a screenshot of the current page',
 								'default': False,
+							},
+							'save_screenshot_to_file': {
+								'type': 'boolean',
+								'description': 'If include_screenshot is true, saves to a file instead of returning raw data (recommended to avoid context bloat)',
+								'default': False,
 							}
 						},
 					},
@@ -319,13 +324,18 @@ class BrowserUseServer:
 				),
 				types.Tool(
 					name='browser_screenshot',
-					description='Take a screenshot of the current page. Returns viewport metadata as text and the screenshot as an image.',
+					description='Take a screenshot of the current page. By default, saves to a file to prevent context bloat. Set return_image_data to true to get the actual image data.',
 					inputSchema={
 						'type': 'object',
 						'properties': {
 							'full_page': {
 								'type': 'boolean',
 								'description': 'Whether to capture the full scrollable page or just the visible viewport',
+								'default': False,
+							},
+							'return_image_data': {
+								'type': 'boolean',
+								'description': 'If true, returns the raw image data. If false (default), saves to a file and returns the path.',
 								'default': False,
 							},
 						},
@@ -529,8 +539,13 @@ class BrowserUseServer:
 				return await self._type_text(arguments['index'], arguments['text'])
 
 			elif tool_name == 'browser_get_state':
-				state_json, screenshot_b64 = await self._get_browser_state(arguments.get('include_screenshot', False))
+				state_json, screenshot_b64, filepath = await self._get_browser_state(
+					arguments.get('include_screenshot', False),
+					arguments.get('save_screenshot_to_file', False)
+				)
 				content: list[types.TextContent | types.ImageContent] = [types.TextContent(type='text', text=state_json)]
+				if filepath:
+					content.append(types.TextContent(type='text', text=f"Screenshot saved to: {filepath}"))
 				if screenshot_b64:
 					content.append(types.ImageContent(type='image', data=screenshot_b64, mimeType='image/png'))
 				return content
@@ -539,8 +554,13 @@ class BrowserUseServer:
 				return await self._get_html(arguments.get('selector'))
 
 			elif tool_name == 'browser_screenshot':
-				meta_json, screenshot_b64 = await self._screenshot(arguments.get('full_page', False))
+				meta_json, screenshot_b64, filepath = await self._screenshot(
+					arguments.get('full_page', False),
+					arguments.get('return_image_data', False)
+				)
 				content: list[types.TextContent | types.ImageContent] = [types.TextContent(type='text', text=meta_json)]
+				if filepath:
+					content.append(types.TextContent(type='text', text=f"Screenshot saved to: {filepath}"))
 				if screenshot_b64:
 					content.append(types.ImageContent(type='image', data=screenshot_b64, mimeType='image/png'))
 				return content
@@ -873,10 +893,10 @@ class BrowserUseServer:
 		else:
 			return f"Typed '{text}' into element {index}"
 
-	async def _get_browser_state(self, include_screenshot: bool = False) -> tuple[str, str | None]:
-		"""Get current browser state. Returns (state_json, screenshot_b64 | None)."""
+	async def _get_browser_state(self, include_screenshot: bool = False, save_screenshot_to_file: bool = False) -> tuple[str, str | None, str | None]:
+		"""Get current browser state. Returns (state_json, screenshot_b64 | None, filepath | None)."""
 		if not self.browser_session:
-			return 'Error: No browser session active', None
+			return 'Error: No browser session active', None, None
 
 		state = await self.browser_session.get_browser_state_summary()
 
@@ -918,8 +938,19 @@ class BrowserUseServer:
 
 		# Return screenshot separately as ImageContent instead of embedding base64 in JSON
 		screenshot_b64 = None
+		filepath = None
 		if include_screenshot and state.screenshot:
-			screenshot_b64 = state.screenshot
+			if save_screenshot_to_file:
+				import base64
+				import tempfile
+				import os
+				fd, path = tempfile.mkstemp(suffix='.png', prefix='browser_use_screenshot_')
+				with os.fdopen(fd, 'wb') as f:
+					f.write(base64.b64decode(state.screenshot))
+				filepath = path
+			else:
+				screenshot_b64 = state.screenshot
+				
 			# Include viewport dimensions in JSON so LLM can map pixels to coordinates
 			if state.page_info:
 				result['screenshot_dimensions'] = {
@@ -927,7 +958,7 @@ class BrowserUseServer:
 					'height': state.page_info.viewport_height,
 				}
 
-		return json.dumps(result, indent=2), screenshot_b64
+		return json.dumps(result, indent=2), screenshot_b64, filepath
 
 	async def _get_html(self, selector: str | None = None) -> str:
 		"""Get raw HTML of the page or a specific element."""
@@ -956,17 +987,28 @@ class BrowserUseServer:
 			return f'No element found for selector: {selector}' if selector else 'Error: Could not get page HTML'
 		return html
 
-	async def _screenshot(self, full_page: bool = False) -> tuple[str, str | None]:
-		"""Take a screenshot. Returns (metadata_json, screenshot_b64 | None)."""
+	async def _screenshot(self, full_page: bool = False, return_image_data: bool = False) -> tuple[str, str | None, str | None]:
+		"""Take a screenshot. Returns (metadata_json, screenshot_b64 | None, filepath | None)."""
 		if not self.browser_session:
-			return 'Error: No browser session active', None
+			return 'Error: No browser session active', None, None
 
 		import base64
+		import tempfile
+		import os
 
 		self._update_session_activity(self.browser_session.id)
-
-		data = await self.browser_session.take_screenshot(full_page=full_page)
-		b64 = base64.b64encode(data).decode()
+		
+		filepath = None
+		b64 = None
+		
+		if not return_image_data:
+			fd, path = tempfile.mkstemp(suffix='.png', prefix='browser_use_screenshot_')
+			os.close(fd)
+			filepath = path
+			data = await self.browser_session.take_screenshot(path=filepath, full_page=full_page)
+		else:
+			data = await self.browser_session.take_screenshot(full_page=full_page)
+			b64 = base64.b64encode(data).decode()
 
 		# Return screenshot separately as ImageContent instead of embedding base64 in JSON
 		state = await self.browser_session.get_browser_state_summary()
@@ -978,7 +1020,7 @@ class BrowserUseServer:
 				'width': state.page_info.viewport_width,
 				'height': state.page_info.viewport_height,
 			}
-		return json.dumps(result), b64
+		return json.dumps(result), b64, filepath
 
 	async def _extract_content(self, query: str, extract_links: bool = False) -> str:
 		"""Extract content from current page."""
