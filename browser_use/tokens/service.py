@@ -244,7 +244,7 @@ class TokenCost:
 			)
 
 		return TokenCostCalculated(
-			new_prompt_tokens=usage.prompt_tokens,
+			new_prompt_tokens=uncached_prompt_tokens,
 			new_prompt_cost=uncached_prompt_tokens * (data.input_cost_per_token or 0) * pricing_multiplier,
 			# Cached tokens
 			prompt_read_cached_tokens=usage.prompt_cached_tokens,
