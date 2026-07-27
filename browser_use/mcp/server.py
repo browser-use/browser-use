@@ -961,9 +961,9 @@ class BrowserUseServer:
 					'height': state.page_info.viewport_height,
 				}
 			if save_to_file:
-				# Decode the base64 blob and write to a temp file to avoid embedding large
-				# data directly in the MCP tool result, which causes API 400 errors on replay.
-				filepath = self._save_screenshot_to_temp(state.screenshot)
+				# state.screenshot is base64-encoded; decode to raw bytes before writing
+				# to disk to avoid embedding the blob in the MCP tool result (API 400).
+				filepath = self._save_screenshot_to_temp(base64.b64decode(state.screenshot))
 			else:
 				screenshot_b64 = state.screenshot
 
@@ -1024,7 +1024,8 @@ class BrowserUseServer:
 
 		raw_bytes: bytes = await self.browser_session.take_screenshot(full_page=full_page)
 		if save_to_file:
-			filepath = self._save_screenshot_to_temp(base64.b64encode(raw_bytes).decode())
+			# Pass raw bytes directly — no need to encode then immediately decode again.
+			filepath = self._save_screenshot_to_temp(raw_bytes)
 		else:
 			screenshot_b64 = base64.b64encode(raw_bytes).decode()
 
@@ -1039,25 +1040,29 @@ class BrowserUseServer:
 			}
 		return json.dumps(result), screenshot_b64, filepath
 
-	def _save_screenshot_to_temp(self, screenshot_b64: str) -> str:
-		"""Decode a base64 PNG string and write it to a temporary file.
+	def _save_screenshot_to_temp(self, png_bytes: bytes) -> str:
+		"""Write raw PNG bytes to a temporary file and return its path.
 
 		The caller owns the file and is responsible for deleting it when done.
 		The file is created with a descriptive prefix so it is easy to identify
 		in /tmp (or the OS temp dir) during debugging.
 
 		Args:
-			screenshot_b64: Base64-encoded PNG bytes.
+			png_bytes: Raw PNG image bytes to write.
 
 		Returns:
 			Absolute path to the written PNG file.
+
+		Raises:
+			OSError: If the file cannot be created or written. The incomplete
+				temp file is deleted before the exception propagates.
 		"""
 		fd, path = tempfile.mkstemp(suffix='.png', prefix='browser_use_screenshot_')
 		try:
 			with os.fdopen(fd, 'wb') as fh:
-				fh.write(base64.b64decode(screenshot_b64))
+				fh.write(png_bytes)
 		except Exception:
-			os.close(fd)
+			# fd is already consumed by os.fdopen; just remove the empty file.
 			os.unlink(path)
 			raise
 		return path
