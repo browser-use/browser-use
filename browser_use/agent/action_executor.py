@@ -200,25 +200,42 @@ class ActionExecutor:
 		return results
 
 	async def _log_action(self, action, action_name: str, action_num: int, total_actions: int) -> None:
-		"""Log an action with its parameters."""
+		"""Log the action before execution with colored formatting"""
+		# Color definitions
+		blue = '\033[34m'  # Action name
+		magenta = '\033[35m'  # Parameter names
+		reset = '\033[0m'
+
+		# Format action number and name
+		if total_actions > 1:
+			action_header = f'▶️  [{action_num}/{total_actions}] {blue}{action_name}{reset}:'
+			plain_header = f'▶️  [{action_num}/{total_actions}] {action_name}:'
+		else:
+			action_header = f'▶️   {blue}{action_name}{reset}:'
+			plain_header = f'▶️  {action_name}:'
+
+		# Get action parameters
 		action_data = action.model_dump(exclude_unset=True)
-		reset = '\x1b[0m'
-		cyan = '\x1b[36m'
-		magenta = '\x1b[35m'
-		action_header = f'Step {self._agent.state.n_steps} | Action {action_num}/{total_actions} | {action_name}'
+		params = action_data.get(action_name, {})
 
-		param_parts: list[str] = []
-		plain_param_parts: list[str] = []
-		for param_name, value in action_data.get(action_name, {}).items():
-			if isinstance(value, str) and len(value) > 150:
-				display_value = value[:150] + '...'
-			elif isinstance(value, list) and len(str(value)) > 200:
-				display_value = str(value)[:200] + '...'
-			else:
-				display_value = value
-			param_parts.append(f'{magenta}{param_name}{reset}: {display_value}')
-			plain_param_parts.append(f'{param_name}: {display_value}')
+		# Build parameter parts with colored formatting
+		param_parts = []
+		plain_param_parts = []
 
+		if params and isinstance(params, dict):
+			for param_name, value in params.items():
+				# Truncate long values for readability
+				if isinstance(value, str) and len(value) > 150:
+					display_value = value[:150] + '...'
+				elif isinstance(value, list) and len(str(value)) > 200:
+					display_value = str(value)[:200] + '...'
+				else:
+					display_value = value
+
+				param_parts.append(f'{magenta}{param_name}{reset}: {display_value}')
+				plain_param_parts.append(f'{param_name}: {display_value}')
+
+		# Join all parts
 		if param_parts:
 			params_string = ', '.join(param_parts)
 			self._agent.logger.info(f'  {action_header} {params_string}')
@@ -226,7 +243,6 @@ class ActionExecutor:
 			self._agent.logger.info(f'  {action_header}')
 
 		if self._agent._demo_mode_enabled:
-			plain_header = f'Step {self._agent.state.n_steps} | Action {action_num}/{total_actions} | {action_name}'
 			panel_message = plain_header
 			if plain_param_parts:
 				panel_message = f'{panel_message} {", ".join(plain_param_parts)}'
@@ -566,6 +582,15 @@ class ActionExecutor:
 			return action
 
 		selector_map = browser_state_summary.dom_state.selector_map
+		selector_items = list(selector_map.items())
+		if historical_element.frame_id:
+			same_frame_items = [
+				(index, element) for index, element in selector_items if element.frame_id == historical_element.frame_id
+			]
+			if same_frame_items:
+				selector_items = same_frame_items + [
+					(index, element) for index, element in selector_items if element.frame_id != historical_element.frame_id
+				]
 		highlight_index: int | None = None
 		match_level: MatchLevel | None = None
 
@@ -579,7 +604,7 @@ class ActionExecutor:
 			hist_name = historical_element.node_name.lower()
 			matching_nodes = [
 				(idx, elem.node_name, elem.attributes.get('name') if elem.attributes else None)
-				for idx, elem in selector_map.items()
+				for idx, elem in selector_items
 				if elem.node_name.lower() == hist_name
 			]
 			self._agent.logger.info(
@@ -588,7 +613,7 @@ class ActionExecutor:
 			)
 
 		# Level 1: EXACT hash match
-		for idx, elem in selector_map.items():
+		for idx, elem in selector_items:
 			if elem.element_hash == historical_element.element_hash:
 				highlight_index = idx
 				match_level = MatchLevel.EXACT
@@ -600,7 +625,7 @@ class ActionExecutor:
 		# Level 2: STABLE hash match (dynamic classes filtered)
 		# Use stored stable_hash (computed at save time from EnhancedDOMTreeNode - single source of truth)
 		if highlight_index is None and historical_element.stable_hash is not None:
-			for idx, elem in selector_map.items():
+			for idx, elem in selector_items:
 				if elem.compute_stable_hash() == historical_element.stable_hash:
 					highlight_index = idx
 					match_level = MatchLevel.STABLE
@@ -613,7 +638,7 @@ class ActionExecutor:
 
 		# Level 3: XPATH match
 		if highlight_index is None and historical_element.x_path:
-			for idx, elem in selector_map.items():
+			for idx, elem in selector_items:
 				if elem.xpath == historical_element.x_path:
 					highlight_index = idx
 					match_level = MatchLevel.XPATH
@@ -628,7 +653,7 @@ class ActionExecutor:
 		if highlight_index is None and historical_element.ax_name:
 			hist_name = historical_element.node_name.lower()
 			hist_ax_name = historical_element.ax_name
-			for idx, elem in selector_map.items():
+			for idx, elem in selector_items:
 				# Match by node type and accessible name
 				elem_ax_name = elem.ax_node.name if elem.ax_node else None
 				if elem.node_name.lower() == hist_name and elem_ax_name == hist_ax_name:
@@ -640,7 +665,7 @@ class ActionExecutor:
 				# Log available ax_names for debugging
 				same_type_ax_names = [
 					(idx, elem.ax_node.name if elem.ax_node else None)
-					for idx, elem in selector_map.items()
+					for idx, elem in selector_items
 					if elem.node_name.lower() == hist_name and elem.ax_node and elem.ax_node.name
 				]
 				self._agent.logger.debug(
@@ -657,7 +682,7 @@ class ActionExecutor:
 			# Try matching by unique identifiers: name, id, or aria-label
 			for attr_key in ['name', 'id', 'aria-label']:
 				if attr_key in hist_attrs and hist_attrs[attr_key]:
-					for idx, elem in selector_map.items():
+					for idx, elem in selector_items:
 						if (
 							elem.node_name.lower() == hist_name
 							and elem.attributes
@@ -675,7 +700,7 @@ class ActionExecutor:
 				# Log what was tried and what's available on the page for debugging
 				same_node_elements = [
 					(idx, elem.attributes.get('aria-label') or elem.attributes.get('id') or elem.attributes.get('name'))
-					for idx, elem in selector_map.items()
+					for idx, elem in selector_items
 					if elem.node_name.lower() == hist_name and elem.attributes
 				]
 				self._agent.logger.info(

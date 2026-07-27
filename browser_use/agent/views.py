@@ -514,38 +514,38 @@ class PlanState(BaseModel):
 		return False
 
 	def mark_current_failed(self) -> None:
-			"""Mark the current execution node as failed, handling retry and fallover."""
-			current = self.find_current_alternative()
-			if current:
-				# Step has alternatives → retry the alternative node
-				current.retry_count += 1
-				if current.retry_count >= current.max_retries:
-					current.status = PlanNodeStatus.FAILED
-					step = self.find_current_step()
-					if step and step.alternatives:
-						if not self.advance_alternative(step):
-							# all alternatives exhausted → mark step failed
-							step.status = PlanNodeStatus.FAILED
-			else:
-				# Leaf step (no alternatives) → retry the step itself
+		"""Mark the current execution node as failed, handling retry and fallover."""
+		current = self.find_current_alternative()
+		if current:
+			# Step has alternatives → retry the alternative node
+			current.retry_count += 1
+			if current.retry_count >= current.max_retries:
+				current.status = PlanNodeStatus.FAILED
 				step = self.find_current_step()
-				if step:
-					step.retry_count += 1
-					if step.retry_count >= step.max_retries:
+				if step and step.alternatives:
+					if not self.advance_alternative(step):
+						# all alternatives exhausted → mark step failed
 						step.status = PlanNodeStatus.FAILED
-
-	def mark_current_completed(self) -> None:
-			"""Mark the current execution node as completed successfully."""
-			current = self.find_current_alternative()
-			if current:
-				current.status = PlanNodeStatus.COMPLETED
+		else:
+			# Leaf step (no alternatives) → retry the step itself
 			step = self.find_current_step()
 			if step:
-				step.status = PlanNodeStatus.COMPLETED
-				# Auto-advance to the next step in the plan
-				self.advance_step()
-			self.consecutive_failures = 0  # progress made, reset
-			self.step_replan_count = 0
+				step.retry_count += 1
+				if step.retry_count >= step.max_retries:
+					step.status = PlanNodeStatus.FAILED
+
+	def mark_current_completed(self) -> None:
+		"""Mark the current execution node as completed successfully."""
+		current = self.find_current_alternative()
+		if current:
+			current.status = PlanNodeStatus.COMPLETED
+		step = self.find_current_step()
+		if step:
+			step.status = PlanNodeStatus.COMPLETED
+			# Auto-advance to the next step in the plan
+			self.advance_step()
+		self.consecutive_failures = 0  # progress made, reset
+		self.step_replan_count = 0
 
 	def all_steps_completed(self) -> bool:
 		return all(s.status == PlanNodeStatus.COMPLETED for s in self.steps)
@@ -575,7 +575,7 @@ class PlanState(BaseModel):
 			preserved = self.steps[:back_to]
 		else:
 			# Single step: preserve everything before current
-			preserved = self.steps[:self.current_step_index]
+			preserved = self.steps[: self.current_step_index]
 
 		self.step_replan_count += 1
 
@@ -639,14 +639,26 @@ class PlanState(BaseModel):
 		logger.info('━━━ Plan State ━━━')
 		for i, step in enumerate(self.steps):
 			arrow = '→' if i == self.current_step_index else ' '
-			status_icon = {PlanNodeStatus.PENDING: '○', PlanNodeStatus.CURRENT: '▸', PlanNodeStatus.COMPLETED: '✓', PlanNodeStatus.FAILED: '✗', PlanNodeStatus.SKIPPED: '–'}.get(step.status, '?')
+			status_icon = {
+				PlanNodeStatus.PENDING: '○',
+				PlanNodeStatus.CURRENT: '▸',
+				PlanNodeStatus.COMPLETED: '✓',
+				PlanNodeStatus.FAILED: '✗',
+				PlanNodeStatus.SKIPPED: '–',
+			}.get(step.status, '?')
 			line = f'  {arrow} Step {i}: {status_icon} {step.description}'
 			if step.retry_count > 0:
 				line += f' (retry {step.retry_count}/{step.max_retries})'
 			logger.info(line)
 			if step.alternatives:
 				for alt in step.alternatives:
-					alt_icon = {PlanNodeStatus.PENDING: '○', PlanNodeStatus.CURRENT: '▸', PlanNodeStatus.COMPLETED: '✓', PlanNodeStatus.FAILED: '✗', PlanNodeStatus.SKIPPED: '–'}.get(alt.status, '?')
+					alt_icon = {
+						PlanNodeStatus.PENDING: '○',
+						PlanNodeStatus.CURRENT: '▸',
+						PlanNodeStatus.COMPLETED: '✓',
+						PlanNodeStatus.FAILED: '✗',
+						PlanNodeStatus.SKIPPED: '–',
+					}.get(alt.status, '?')
 					alt_line = f'    {alt_icon} {alt.description}'
 					if alt.retry_count > 0:
 						alt_line += f' (retry {alt.retry_count}/{alt.max_retries})'

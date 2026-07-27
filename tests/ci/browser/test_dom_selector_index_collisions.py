@@ -131,7 +131,12 @@ async def test_history_remapping_prefers_the_original_frame():
 			self.index = index
 
 	logger = SimpleNamespace(info=lambda *_args: None, debug=lambda *_args: None)
-	agent = cast(Any, SimpleNamespace(logger=logger))
+	from browser_use.agent.action_executor import ActionExecutor
+
+	pipeline = cast(Any, SimpleNamespace(logger=logger))
+	logger_ns = SimpleNamespace(info=lambda *_args: None, debug=lambda *_args: None)
+	agent = cast(Any, SimpleNamespace(logger=logger_ns, _pipeline=pipeline))
+	pipeline.action_executor = ActionExecutor(agent, pipeline)
 	action = FakeAction()
 	state = BrowserStateSummary(dom_state=serialized_state, url='https://example.test', title='Test', tabs=[])
 
