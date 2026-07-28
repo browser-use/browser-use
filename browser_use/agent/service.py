@@ -373,6 +373,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.task = self._enhance_task_with_schema(task, output_model_schema)
 		self.llm = llm
 		self.judge_llm = judge_llm
+		self._additional_session_llms: dict[int, BaseChatModel] = {}
 
 		# Fallback LLM configuration
 		self._fallback_llm: BaseChatModel | None = fallback_llm
@@ -1164,6 +1165,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			llm=compaction_llm,
 			settings=settings,
 			step_info=step_info,
+			session_id=self.session_id,
 		)
 
 	@observe_debug(ignore_input=True, name='get_next_action')
@@ -1609,6 +1611,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.judge_llm.provider == 'browser-use':
 			kwargs['request_type'] = 'judge'
 			kwargs['session_id'] = self.session_id
+		elif getattr(self.judge_llm, 'transport', None) in {'responses', 'responses_websocket'}:
+			kwargs['session_id'] = self.session_id
+			kwargs['invocation_scope'] = 'judge'
 
 		try:
 			response = await self.judge_llm.ainvoke(input_messages, **kwargs)
@@ -1943,7 +1948,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Build kwargs for ainvoke
 		# Note: ChatBrowserUse will automatically generate action descriptions from output_format schema
-		kwargs: dict = {'output_format': self.AgentOutput, 'session_id': self.session_id}
+		kwargs: dict = {
+			'output_format': self.AgentOutput,
+			'session_id': self.session_id,
+			'invocation_scope': 'agent',
+		}
 
 		try:
 			response = await self.llm.ainvoke(input_messages, **kwargs)
@@ -2787,6 +2796,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					browser_session=self.browser_session,
 					file_system=self.file_system,
 					page_extraction_llm=self.settings.page_extraction_llm,
+					llm_session_id=self.session_id,
 					sensitive_data=self.sensitive_data,
 					available_file_paths=self.available_file_paths,
 					extraction_schema=self.extraction_schema,
@@ -2946,6 +2956,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.debug('Using agent LLM for rerun summary')
 			else:
 				self.logger.debug(f'Using provided LLM for rerun summary: {summary_llm.model}')
+			self._additional_session_llms[id(summary_llm)] = summary_llm
 
 			# Build message with prompt and optional screenshot
 			from browser_use.llm.messages import BaseMessage
@@ -2956,7 +2967,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Try calling with structured output first
 			self.logger.debug(f'Calling LLM for rerun summary with {len(messages)} message(s)')
 			try:
-				kwargs: dict = {'output_format': RerunSummaryAction}
+				kwargs: dict = {
+					'output_format': RerunSummaryAction,
+					'session_id': self.session_id,
+					'invocation_scope': 'rerun_summary',
+				}
 				response = await summary_llm.ainvoke(messages, **kwargs)
 				summary: RerunSummaryAction = response.completion  # type: ignore[assignment]
 				self.logger.debug(f'LLM response type: {type(summary)}')
@@ -2966,7 +2981,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# fall back to text response without parsing
 				self.logger.debug(f'Structured output failed: {structured_error}, falling back to text response')
 
-				response = await summary_llm.ainvoke(messages, None)
+				response = await summary_llm.ainvoke(
+					messages,
+					None,
+					session_id=self.session_id,
+					invocation_scope='rerun_summary',
+				)
 				response_text = response.completion
 				self.logger.debug(f'LLM text response: {response_text}')
 
@@ -3075,7 +3095,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			import asyncio
 
-			response = await asyncio.wait_for(llm.ainvoke([SystemMessage(content=system_prompt), user_message]), timeout=120.0)
+			self._additional_session_llms[id(llm)] = llm
+			response = await asyncio.wait_for(
+				llm.ainvoke(
+					[SystemMessage(content=system_prompt), user_message],
+					session_id=self.session_id,
+					invocation_scope='rerun_ai_step',
+				),
+				timeout=120.0,
+			)
 
 			current_url = await self.browser_session.get_current_page_url()
 			extracted_content = (
@@ -3978,9 +4006,36 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	def message_manager(self) -> MessageManager:
 		return self._message_manager
 
+	async def _close_llm_sessions(self) -> None:
+		"""Close this agent's persistent LLM sessions without closing shared model instances."""
+		seen_llms: set[int] = set()
+		for llm in (
+			getattr(self, 'llm', None),
+			getattr(self, 'judge_llm', None),
+			getattr(self.settings, 'page_extraction_llm', None),
+			(self.settings.message_compaction.compaction_llm if self.settings.message_compaction is not None else None),
+			getattr(self, '_original_llm', None),
+			getattr(self, '_fallback_llm', None),
+			*getattr(self, '_additional_session_llms', {}).values(),
+		):
+			if llm is None or id(llm) in seen_llms:
+				continue
+			seen_llms.add(id(llm))
+			close_session = getattr(llm, 'close_session', None)
+			if close_session is None:
+				continue
+			try:
+				close_result = close_session(self.session_id)
+				if inspect.isawaitable(close_result):
+					await close_result
+			except Exception as llm_close_error:
+				self.logger.warning(f'Failed to close LLM session: {llm_close_error}')
+
 	async def close(self):
 		"""Close all resources"""
 		try:
+			await self._close_llm_sessions()
+
 			# Only close browser if keep_alive is False (or not set)
 			if self.browser_session is not None:
 				if not self.browser_session.browser_profile.keep_alive:

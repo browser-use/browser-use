@@ -12,8 +12,7 @@ from pydantic import BaseModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.like import ChatOpenAILike
-from browser_use.llm.openai.responses_serializer import ResponsesAPIMessageSerializer
-from browser_use.llm.schema import SchemaOptimizer
+from browser_use.llm.openai.responses import build_responses_request, get_responses_usage, parse_responses_completion
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
@@ -131,22 +130,7 @@ class ChatAzureOpenAI(ChatOpenAILike):
 
 	def _get_usage_from_responses(self, response: Response) -> ChatInvokeUsage | None:
 		"""Extract usage information from a Responses API response."""
-		if response.usage is None:
-			return None
-
-		# Get cached tokens from input_tokens_details if available
-		cached_tokens = None
-		if response.usage.input_tokens_details is not None:
-			cached_tokens = getattr(response.usage.input_tokens_details, 'cached_tokens', None)
-
-		return ChatInvokeUsage(
-			prompt_tokens=response.usage.input_tokens,
-			prompt_cached_tokens=cached_tokens,
-			prompt_cache_creation_tokens=None,
-			prompt_image_tokens=None,
-			completion_tokens=response.usage.output_tokens,
-			total_tokens=response.usage.total_tokens,
-		)
+		return get_responses_usage(response)
 
 	async def _ainvoke_responses_api(
 		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
@@ -157,92 +141,32 @@ class ChatAzureOpenAI(ChatOpenAILike):
 		This is used for models that require the Responses API (e.g., gpt-5.1-codex-mini)
 		or when use_responses_api is explicitly set to True.
 		"""
-		# Serialize messages to Responses API input format
-		input_messages = ResponsesAPIMessageSerializer.serialize_messages(messages)
-
 		try:
-			model_params: dict[str, Any] = {
-				'model': self.model,
-				'input': input_messages,
-			}
+			model_params = build_responses_request(
+				model=str(self.model),
+				messages=messages,
+				output_format=output_format,
+				temperature=self.temperature,
+				max_output_tokens=self.max_completion_tokens,
+				top_p=self.top_p,
+				service_tier=self.service_tier,
+				reasoning_effort=self.reasoning_effort,
+				is_reasoning_model=self._is_reasoning_model(),
+				add_schema_to_system_prompt=self.add_schema_to_system_prompt,
+				dont_force_structured_output=self.dont_force_structured_output,
+				remove_min_items_from_schema=self.remove_min_items_from_schema,
+				remove_defaults_from_schema=self.remove_defaults_from_schema,
+			)
+			response = await self.get_client().responses.create(**model_params)
+			return parse_responses_completion(
+				response,
+				output_format,
+				model=self.name,
+				max_output_tokens=self.max_completion_tokens,
+			)
 
-			if self.temperature is not None:
-				model_params['temperature'] = self.temperature
-
-			if self.max_completion_tokens is not None:
-				model_params['max_output_tokens'] = self.max_completion_tokens
-
-			if self.top_p is not None:
-				model_params['top_p'] = self.top_p
-
-			if self.service_tier is not None:
-				model_params['service_tier'] = self.service_tier
-
-			# Handle reasoning models
-			if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
-				# For reasoning models, use reasoning parameter instead of reasoning_effort
-				model_params['reasoning'] = {'effort': self.reasoning_effort}
-				model_params.pop('temperature', None)
-
-			if output_format is None:
-				# Return string response
-				response = await self.get_client().responses.create(**model_params)
-
-				usage = self._get_usage_from_responses(response)
-				return ChatInvokeCompletion(
-					completion=response.output_text or '',
-					usage=usage,
-					stop_reason=response.status if response.status else None,
-				)
-
-			else:
-				# For structured output, use the text.format parameter
-				json_schema = SchemaOptimizer.create_optimized_json_schema(
-					output_format,
-					remove_min_items=self.remove_min_items_from_schema,
-					remove_defaults=self.remove_defaults_from_schema,
-				)
-
-				model_params['text'] = {
-					'format': {
-						'type': 'json_schema',
-						'name': 'agent_output',
-						'strict': True,
-						'schema': json_schema,
-					}
-				}
-
-				# Add JSON schema to system prompt if requested
-				if self.add_schema_to_system_prompt and input_messages and input_messages[0].get('role') == 'system':
-					schema_text = f'\n<json_schema>\n{json_schema}\n</json_schema>'
-					content = input_messages[0].get('content', '')
-					if isinstance(content, str):
-						input_messages[0]['content'] = content + schema_text
-					elif isinstance(content, list):
-						input_messages[0]['content'] = list(content) + [{'type': 'input_text', 'text': schema_text}]
-					model_params['input'] = input_messages
-
-				if self.dont_force_structured_output:
-					# Remove the text format parameter if not forcing structured output
-					model_params.pop('text', None)
-
-				response = await self.get_client().responses.create(**model_params)
-
-				if not response.output_text:
-					raise ModelProviderError(
-						message='Failed to parse structured output from model response',
-						status_code=500,
-						model=self.name,
-					)
-
-				usage = self._get_usage_from_responses(response)
-				parsed = output_format.model_validate_json(response.output_text)
-
-				return ChatInvokeCompletion(
-					completion=parsed,
-					usage=usage,
-					stop_reason=response.status if response.status else None,
-				)
+		except ModelProviderError:
+			raise
 
 		except RateLimitError as e:
 			raise ModelRateLimitError(message=e.message, model=self.name) from e

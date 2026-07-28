@@ -215,6 +215,7 @@ class MessageManager:
 		llm: BaseChatModel | None,
 		settings: MessageCompactionSettings | None,
 		step_info: AgentStepInfo | None = None,
+		session_id: str | None = None,
 	) -> bool:
 		"""Summarize older history into a compact memory block.
 
@@ -270,7 +271,7 @@ class MessageManager:
 
 		messages = [SystemMessage(content=system_prompt), UserMessage(content=compaction_input)]
 		try:
-			response = await llm.ainvoke(messages)
+			response = await llm.ainvoke(messages, session_id=session_id, invocation_scope='compaction')
 			summary = (response.completion or '').strip()
 		except Exception as e:
 			logger.warning(f'Failed to compact messages: {e}')

@@ -1062,6 +1062,7 @@ class Tools(Generic[Context]):
 			page_extraction_llm: BaseChatModel,
 			file_system: FileSystem,
 			extraction_schema: dict | None = None,
+			llm_session_id: str | None = None,
 		):
 			# Constants
 			MAX_CHAR_LIMIT = 100000
@@ -1185,6 +1186,8 @@ You will be given a query, a JSON Schema, and the markdown of a webpage that has
 						page_extraction_llm.ainvoke(
 							[SystemMessage(content=system_prompt), UserMessage(content=prompt)],
 							output_format=structured_model,
+							session_id=llm_session_id,
+							invocation_scope='page_extraction',
 						),
 						timeout=120.0,
 					)
@@ -1261,7 +1264,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 			try:
 				response = await asyncio.wait_for(
-					page_extraction_llm.ainvoke([SystemMessage(content=system_prompt), UserMessage(content=prompt)]),
+					page_extraction_llm.ainvoke(
+						[SystemMessage(content=system_prompt), UserMessage(content=prompt)],
+						session_id=llm_session_id,
+						invocation_scope='page_extraction',
+					),
 					timeout=120.0,
 				)
 
@@ -2166,6 +2173,7 @@ Validated Code (after quote fixing):
 		action: ActionModel,
 		browser_session: BrowserSession,
 		page_extraction_llm: BaseChatModel | None = None,
+		llm_session_id: str | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
 		file_system: FileSystem | None = None,
@@ -2209,6 +2217,7 @@ Validated Code (after quote fixing):
 								params=params,
 								browser_session=browser_session,
 								page_extraction_llm=page_extraction_llm,
+								llm_session_id=llm_session_id,
 								file_system=file_system,
 								sensitive_data=sensitive_data,
 								available_file_paths=available_file_paths,
@@ -2273,6 +2282,7 @@ Validated Code (after quote fixing):
 				special_param_names = {
 					'browser_session',
 					'page_extraction_llm',
+					'llm_session_id',
 					'file_system',
 					'available_file_paths',
 					'sensitive_data',
