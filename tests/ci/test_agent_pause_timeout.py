@@ -37,7 +37,7 @@ async def test_agent_pause_timeout(mock_llm):
 		max_actions_per_step=1,
 	)
 	# Override timeout setting
-	agent.settings.step_timeout = 2.0
+	agent.settings.step_timeout = 2
 
 	# Ensure it works without failing
 	start_time = time.time()
