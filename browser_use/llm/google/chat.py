@@ -270,8 +270,9 @@ class ChatGoogle(BaseChatModel):
 		# Apply model-specific configuration (these can override config)
 		if self.temperature is not None:
 			config['temperature'] = self.temperature
-		else:
-			config['temperature'] = 1.0 if 'gemini-3' in self.model else 0.5
+		elif 'gemini-3' not in self.model:
+			# Gemini 3 models may throw an error if temp is set
+			config['temperature'] = 0.5
 
 		# Add system instruction if present
 		if system_instruction:
