@@ -207,6 +207,7 @@ class BrowserUseServer:
 		self.active_sessions: dict[str, dict[str, Any]] = {}  # session_id -> session info
 		self.session_timeout_minutes = session_timeout_minutes
 		self._cleanup_task: Any = None
+		self._temp_files: set[str] = set()
 
 		# Setup handlers
 		self._setup_handlers()
@@ -1062,9 +1063,16 @@ class BrowserUseServer:
 			with os.fdopen(fd, 'wb') as fh:
 				fh.write(png_bytes)
 		except Exception:
-			# fd is already consumed by os.fdopen; just remove the empty file.
-			os.unlink(path)
+			try:
+				os.close(fd)
+			except OSError:
+				pass
+			try:
+				os.unlink(path)
+			except OSError:
+				pass
 			raise
+		self._temp_files.add(path)
 		return path
 
 	async def _extract_content(self, query: str, extract_links: bool = False) -> str:
@@ -1299,6 +1307,23 @@ class BrowserUseServer:
 				logger.info(f'Auto-closed expired session {session_id}')
 			except Exception as e:
 				logger.error(f'Error auto-closing session {session_id}: {e}')
+
+		# Also clean up expired temp files (screenshots)
+		expired_files = []
+		for path in self._temp_files:
+			try:
+				if current_time - os.path.getmtime(path) > timeout_seconds:
+					expired_files.append(path)
+			except OSError:
+				# File might already be deleted or inaccessible
+				expired_files.append(path)
+
+		for path in expired_files:
+			try:
+				os.unlink(path)
+			except OSError:
+				pass
+			self._temp_files.discard(path)
 
 	async def _start_cleanup_task(self) -> None:
 		"""Start the background cleanup task."""

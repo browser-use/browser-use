@@ -56,6 +56,7 @@ def _make_server():
 		server.tools = None
 		server.llm = None
 		server.file_system = None
+		server._temp_files = set()
 		return server
 
 
