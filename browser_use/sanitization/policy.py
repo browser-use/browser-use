@@ -31,7 +31,8 @@ def load_dlp_config_from_env() -> DLPSanitizerConfig:
       - BROWSER_USE_DLP_STRATEGIES: comma list (mask,hash,drop)
       - BROWSER_USE_DLP_DETECTORS: comma list of detector names
     """
-    enabled = os.getenv("BROWSER_USE_DLP_ENABLED", "false").lower()[:1] in "ty1"
+    enabled_token = os.getenv("BROWSER_USE_DLP_ENABLED", "false").strip().lower()
+    enabled = enabled_token in {"true", "1", "yes", "y", "on"}
     mode = os.getenv("BROWSER_USE_DLP_MODE", "audit").lower()
     strategies_env = os.getenv("BROWSER_USE_DLP_STRATEGIES", "mask")
     detectors_env = os.getenv("BROWSER_USE_DLP_DETECTORS", "")
