@@ -7,13 +7,13 @@
 		"source": "github"
 	},
 	"websiteUrl": "https://browser-use.com",
-	"version": "0.13.5",
+	"version": "0.13.7",
 	"packages": [
 		{
 			"registryType": "pypi",
 			"registryBaseUrl": "https://pypi.org",
 			"identifier": "browser-use",
-			"version": "0.13.5",
+			"version": "0.13.7",
 			"runtimeHint": "uvx",
 			"packageArguments": [
 				{
