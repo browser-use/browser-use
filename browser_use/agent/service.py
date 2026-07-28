@@ -2466,22 +2466,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			task = asyncio.create_task(self.step(step_info))
 			budget = float(self.settings.step_timeout)
-			while not task.done():
-				if self.state.paused:
-					await asyncio.wait([task], timeout=1.0)
-				else:
-					start_time = asyncio.get_event_loop().time()
-					await asyncio.wait([task], timeout=1.0)
-					if not self.state.paused:
-						budget -= (asyncio.get_event_loop().time() - start_time)
-					if not task.done() and budget <= 0:
-						task.cancel()
-						try:
-							await task
-						except asyncio.CancelledError:
-							pass
-						raise TimeoutError()
-			await task
+			try:
+				while not task.done():
+					if self.state.paused:
+						await asyncio.wait([task], timeout=0.1)
+					else:
+						start_time = asyncio.get_event_loop().time()
+						await asyncio.wait([task], timeout=0.1)
+						if not self.state.paused:
+							budget -= asyncio.get_event_loop().time() - start_time
+						if not task.done() and budget <= 0:
+							raise TimeoutError()
+				await task
+			finally:
+				if not task.done():
+					task.cancel()
+					try:
+						await task
+					except asyncio.CancelledError:
+						pass
 			self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
 		except TimeoutError:
 			# Handle step timeout gracefully
