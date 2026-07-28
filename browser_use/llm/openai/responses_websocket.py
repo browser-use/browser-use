@@ -222,7 +222,7 @@ class ResponsesWebSocketTransport:
 				if 400 <= exc.status < 500:
 					raise ModelProviderError(message=str(exc), status_code=exc.status, model=self.model) from exc
 				raise ConnectionError(str(exc)) from exc
-			except (aiohttp.ClientError, TimeoutError, ConnectionError, asyncio.TimeoutError) as exc:
+			except (aiohttp.ClientError, TimeoutError, ConnectionError) as exc:
 				await self._close_connection(session)
 				raise ConnectionError(str(exc)) from exc
 			except Exception:

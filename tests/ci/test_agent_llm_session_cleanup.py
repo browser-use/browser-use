@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import Any
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import RerunSummaryAction
@@ -32,7 +33,7 @@ async def test_agent_closes_only_its_session_on_each_distinct_model():
 	shared = _SessionModel()
 	compaction = _SessionModel()
 	ai_step = _SessionModel()
-	agent = object.__new__(Agent)
+	agent: Any = object.__new__(Agent)
 	agent.session_id = 'agent-one'
 	agent.llm = shared
 	agent.judge_llm = shared
@@ -53,7 +54,7 @@ async def test_agent_closes_only_its_session_on_each_distinct_model():
 
 async def test_rerun_summary_tracks_custom_llm_for_session_cleanup():
 	custom_summary_llm = _SessionModel()
-	agent = object.__new__(Agent)
+	agent: Any = object.__new__(Agent)
 	agent.session_id = 'agent-one'
 	agent.llm = _SessionModel()
 	agent.browser_session = _BrowserSession()

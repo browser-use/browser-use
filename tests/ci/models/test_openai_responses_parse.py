@@ -34,7 +34,10 @@ def _response(*, status: str = 'completed', text: str = '{"done":true}') -> Resp
 	if status == 'completed':
 		payload['output'] = [
 			{
-				'id': 'msg_test', 'type': 'message', 'status': 'completed', 'role': 'assistant',
+				'id': 'msg_test',
+				'type': 'message',
+				'status': 'completed',
+				'role': 'assistant',
 				'content': [{'type': 'output_text', 'text': text, 'annotations': [], 'logprobs': []}],
 			}
 		]
@@ -50,9 +53,7 @@ def test_parse_completed_structured_response_and_usage():
 
 def test_structured_response_rejects_trailing_junk():
 	with pytest.raises(ModelProviderError):
-		parse_responses_completion(
-			_response(text='{"done":true} trailing'), _TinyOutput, model='gpt-5.6', max_output_tokens=64
-		)
+		parse_responses_completion(_response(text='{"done":true} trailing'), _TinyOutput, model='gpt-5.6', max_output_tokens=64)
 
 
 def test_non_completed_status_is_rejected():

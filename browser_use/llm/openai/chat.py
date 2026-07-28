@@ -224,9 +224,7 @@ class ChatOpenAI(BaseChatModel):
 							if attempt == 1:
 								raise
 					if response is None:
-						raise ModelProviderError(
-							message='Responses WebSocket retry exhausted', status_code=502, model=self.name
-						)
+						raise ModelProviderError(message='Responses WebSocket retry exhausted', status_code=502, model=self.name)
 				finally:
 					if ephemeral:
 						await self.close_session(session_prefix)

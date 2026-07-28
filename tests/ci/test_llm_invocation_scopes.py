@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -77,7 +78,7 @@ async def test_rerun_ai_step_uses_agent_session_and_tracks_custom_llm(tmp_path, 
 	llm = AsyncMock()
 	llm.ainvoke.side_effect = invoke
 	llm.model = 'mock-model'
-	agent = object.__new__(Agent)
+	agent: Any = object.__new__(Agent)
 	agent.llm = llm
 	agent.session_id = 'agent-session'
 	agent.browser_session = _FakeBrowserSession()

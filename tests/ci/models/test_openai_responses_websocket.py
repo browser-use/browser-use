@@ -9,7 +9,7 @@ from openai.types.responses import Response
 from pydantic import BaseModel
 
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
-from browser_use.llm.messages import SystemMessage, UserMessage
+from browser_use.llm.messages import BaseMessage, SystemMessage, UserMessage
 from browser_use.llm.openai.chat import ChatOpenAI
 
 
@@ -197,8 +197,11 @@ async def test_reuses_connection_and_resends_full_context(responses_websocket_se
 async def test_store_false_reaches_websocket_request(responses_websocket_server):
 	state, websocket_base_url = responses_websocket_server
 	llm = ChatOpenAI(
-		model='gpt-5.6', transport='responses_websocket', websocket_base_url=websocket_base_url,
-		responses_store=False, default_headers={'Authorization': 'Bearer gateway-key'},
+		model='gpt-5.6',
+		transport='responses_websocket',
+		websocket_base_url=websocket_base_url,
+		responses_store=False,
+		default_headers={'Authorization': 'Bearer gateway-key'},
 	)
 	try:
 		await llm.ainvoke([UserMessage(content='hello')], session_id='agent-1')
@@ -210,9 +213,7 @@ async def test_store_false_reaches_websocket_request(responses_websocket_server)
 
 async def test_malformed_frame_closes_socket_before_next_request(responses_websocket_server):
 	state, websocket_base_url = responses_websocket_server
-	llm = ChatOpenAI(
-		model='gpt-5.6', api_key='test-key', transport='responses_websocket', websocket_base_url=websocket_base_url
-	)
+	llm = ChatOpenAI(model='gpt-5.6', api_key='test-key', transport='responses_websocket', websocket_base_url=websocket_base_url)
 	try:
 		state['malformed_once'] = True
 		with pytest.raises(ModelProviderError, match='Invalid JSON frame'):
@@ -228,8 +229,11 @@ async def test_timeout_reconnects_and_retries_full_context(responses_websocket_s
 	state, websocket_base_url = responses_websocket_server
 	state['hang_once'] = True
 	llm = ChatOpenAI(
-		model='gpt-5.6', api_key='test-key', transport='responses_websocket',
-		websocket_base_url=websocket_base_url, timeout=0.05,
+		model='gpt-5.6',
+		api_key='test-key',
+		transport='responses_websocket',
+		websocket_base_url=websocket_base_url,
+		timeout=0.05,
 	)
 	try:
 		result = await llm.ainvoke([UserMessage(content='full')], session_id='agent-1')
@@ -243,9 +247,7 @@ async def test_timeout_reconnects_and_retries_full_context(responses_websocket_s
 async def test_connection_lifetime_error_reconnects_and_retries(responses_websocket_server):
 	state, websocket_base_url = responses_websocket_server
 	state['connection_limit_once'] = True
-	llm = ChatOpenAI(
-		model='gpt-5.6', api_key='test-key', transport='responses_websocket', websocket_base_url=websocket_base_url
-	)
+	llm = ChatOpenAI(model='gpt-5.6', api_key='test-key', transport='responses_websocket', websocket_base_url=websocket_base_url)
 	try:
 		result = await llm.ainvoke([UserMessage(content='full')], session_id='agent-1')
 	finally:
@@ -259,9 +261,7 @@ async def test_connection_lifetime_error_reconnects_and_retries(responses_websoc
 async def test_handshake_rate_limit_preserves_rate_limit_error(responses_websocket_server):
 	state, websocket_base_url = responses_websocket_server
 	state['handshake_status_once'] = 429
-	llm = ChatOpenAI(
-		model='gpt-5.6', api_key='test-key', transport='responses_websocket', websocket_base_url=websocket_base_url
-	)
+	llm = ChatOpenAI(model='gpt-5.6', api_key='test-key', transport='responses_websocket', websocket_base_url=websocket_base_url)
 	try:
 		with pytest.raises(ModelRateLimitError):
 			await llm.ainvoke([UserMessage(content='full')], session_id='agent-1')
@@ -272,10 +272,8 @@ async def test_handshake_rate_limit_preserves_rate_limit_error(responses_websock
 
 async def test_sessions_and_invocation_scopes_are_isolated(responses_websocket_server):
 	state, websocket_base_url = responses_websocket_server
-	llm = ChatOpenAI(
-		model='gpt-5.6', api_key='test-key', transport='responses_websocket', websocket_base_url=websocket_base_url
-	)
-	messages = [UserMessage(content='hello')]
+	llm = ChatOpenAI(model='gpt-5.6', api_key='test-key', transport='responses_websocket', websocket_base_url=websocket_base_url)
+	messages: list[BaseMessage] = [UserMessage(content='hello')]
 	try:
 		await llm.ainvoke(messages, session_id='shared', invocation_scope='agent')
 		await llm.ainvoke(messages, session_id='shared', invocation_scope='judge')
@@ -289,9 +287,7 @@ async def test_sessions_and_invocation_scopes_are_isolated(responses_websocket_s
 
 async def test_error_and_terminal_failures_map_to_model_errors(responses_websocket_server):
 	state, websocket_base_url = responses_websocket_server
-	llm = ChatOpenAI(
-		model='gpt-5.6', api_key='test-key', transport='responses_websocket', websocket_base_url=websocket_base_url
-	)
+	llm = ChatOpenAI(model='gpt-5.6', api_key='test-key', transport='responses_websocket', websocket_base_url=websocket_base_url)
 	try:
 		state['rate_limit_once'] = True
 		with pytest.raises(ModelRateLimitError, match='slow down'):
@@ -316,13 +312,9 @@ class StructuredResult(BaseModel):
 async def test_structured_output_uses_responses_schema(responses_websocket_server):
 	state, websocket_base_url = responses_websocket_server
 	state['response_texts'] = ['{"answer":"ok"}']
-	llm = ChatOpenAI(
-		model='gpt-5.6', api_key='test-key', transport='responses_websocket', websocket_base_url=websocket_base_url
-	)
+	llm = ChatOpenAI(model='gpt-5.6', api_key='test-key', transport='responses_websocket', websocket_base_url=websocket_base_url)
 	try:
-		result = await llm.ainvoke(
-			[UserMessage(content='return json')], output_format=StructuredResult, session_id='agent-1'
-		)
+		result = await llm.ainvoke([UserMessage(content='return json')], output_format=StructuredResult, session_id='agent-1')
 	finally:
 		await llm.aclose()
 	assert result.completion == StructuredResult(answer='ok')
