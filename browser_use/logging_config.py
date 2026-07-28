@@ -8,6 +8,28 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from browser_use.config import CONFIG
+from browser_use.sanitization.policy import load_dlp_config_from_env
+from browser_use.sanitization.redactors import sanitize_text
+
+
+class DLPSanitizerFilter(logging.Filter):
+    """Logging filter that sanitizes log messages to avoid leaking secrets."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cfg = load_dlp_config_from_env()
+
+    def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+        try:
+            msg = record.getMessage()
+            new, _ = sanitize_text(msg, self._cfg)
+            # Update message safely
+            if new != msg:
+                record.msg = new
+                record.args = ()
+        except Exception:
+            pass
+        return True
 
 
 def addLoggingLevel(levelName, levelNum, methodName=None):
@@ -93,6 +115,8 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 			self.log_level = log_level
 
 		def format(self, record):
+			# Apply DLP sanitization first
+			DLPSanitizerFilter().filter(record)
 			# Only clean up names in INFO mode, keep everything in DEBUG mode
 			if self.log_level > logging.DEBUG and isinstance(record.name, str) and record.name.startswith('browser_use.'):
 				# Extract clean component names from logger names
@@ -156,10 +180,11 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 	effective_log_level = logging.DEBUG if debug_log_file else log_level
 	root.setLevel(effective_log_level)
 
-	# Configure browser_use logger
+	# Configure browser_use logger with DLP filter
 	browser_use_logger = logging.getLogger('browser_use')
 	browser_use_logger.propagate = False  # Don't propagate to root logger
 	browser_use_logger.addHandler(console)
+	browser_use_logger.addFilter(DLPSanitizerFilter())
 	for handler in file_handlers:
 		browser_use_logger.addHandler(handler)
 	browser_use_logger.setLevel(effective_log_level)
@@ -168,6 +193,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 	bubus_logger = logging.getLogger('bubus')
 	bubus_logger.propagate = False  # Don't propagate to root logger
 	bubus_logger.addHandler(console)
+	bubus_logger.addFilter(DLPSanitizerFilter())
 	for handler in file_handlers:
 		bubus_logger.addHandler(handler)
 	bubus_logger.setLevel(logging.INFO if log_type == 'result' else effective_log_level)
