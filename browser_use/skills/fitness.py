@@ -218,16 +218,18 @@ def _cli(argv: list[str] | None = None) -> int:
 
 	Pipe from any tool that emits skill-execution results — kafcade steps, CI runs,
 	agent traces. Load prior state with --state; persist accumulated state with --save.
+	Or run --serve <port> for an HTTP surface any webapp/dashboard can hit.
 
 	Examples:
 	    cat runs.jsonl | python -m browser_use.skills.fitness
 	    python -m browser_use.skills.fitness --mode plausibility --state prior.json --save next.json
+	    python -m browser_use.skills.fitness --serve 8765
 	"""
 	import argparse
 
 	parser = argparse.ArgumentParser(
 		prog='python -m browser_use.skills.fitness',
-		description='Accumulate Dempster-Shafer skill fitness from JSONL records on stdin.',
+		description='Accumulate Dempster-Shafer skill fitness from JSONL records on stdin, or serve over HTTP.',
 	)
 	parser.add_argument(
 		'--mode',
@@ -238,6 +240,14 @@ def _cli(argv: list[str] | None = None) -> int:
 	parser.add_argument('--state', type=str, default=None, help='Load prior tracker state from this JSON file.')
 	parser.add_argument('--save', type=str, default=None, help='Write updated tracker state to this JSON file.')
 	parser.add_argument('--top', type=int, default=0, help='Show only the top N skills (0 = all).')
+	parser.add_argument(
+		'--serve',
+		type=int,
+		default=None,
+		metavar='PORT',
+		help='Serve an HTTP surface on 127.0.0.1:PORT instead of reading stdin.',
+	)
+	parser.add_argument('--host', type=str, default='127.0.0.1', help='Bind host for --serve (default: 127.0.0.1).')
 	args = parser.parse_args(argv)
 
 	if args.state:
@@ -245,6 +255,9 @@ def _cli(argv: list[str] | None = None) -> int:
 			tracker = SkillFitnessTracker.from_dict(json.load(f))
 	else:
 		tracker = SkillFitnessTracker()
+
+	if args.serve is not None:
+		return _serve(tracker, host=args.host, port=args.serve, save_path=args.save)
 
 	for line_num, line in enumerate(sys.stdin, start=1):
 		line = line.strip()
@@ -276,6 +289,143 @@ def _cli(argv: list[str] | None = None) -> int:
 	if args.save:
 		with open(args.save, 'w', encoding='utf-8') as f:
 			json.dump(tracker.to_dict(), f, indent=2, sort_keys=True)
+	return 0
+
+
+def _serve(tracker: SkillFitnessTracker, host: str, port: int, save_path: str | None = None) -> int:
+	"""Serve the tracker over stdlib http.server. Local/internal use — wrap in ASGI for prod.
+
+	Routes:
+	    GET  /health            → {"status": "ok"}
+	    POST /record            → body = {skill_id, success, latency_ms?, error?}; returns updated MassFunction dict
+	    GET  /ranked?mode=..&top=..  → [[skill_id, score], ...] sorted best-first
+	    GET  /fitness/<skill_id>     → MassFunction dict or 404
+	    GET  /state             → full tracker snapshot (to_dict output)
+	    POST /state             → replace tracker state (body = from_dict input); auto-persists if --save was given
+	    POST /reset             → wipe all accumulated fitness; returns {"reset": true}
+
+	Every mutating request auto-persists to save_path when provided — durable across restarts.
+	Bind defaults to 127.0.0.1 so nothing is exposed off-box without an explicit --host.
+	"""
+	import threading
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+	from urllib.parse import parse_qs, urlparse
+
+	lock = threading.Lock()
+
+	def persist_locked() -> None:
+		if save_path is None:
+			return
+		with open(save_path, 'w', encoding='utf-8') as f:
+			json.dump(tracker.to_dict(), f, indent=2, sort_keys=True)
+
+	class Handler(BaseHTTPRequestHandler):
+		def _write_json(self, status: int, payload: Any) -> None:
+			body = json.dumps(payload).encode('utf-8')
+			self.send_response(status)
+			self.send_header('Content-Type', 'application/json')
+			self.send_header('Content-Length', str(len(body)))
+			self.end_headers()
+			self.wfile.write(body)
+
+		def _read_json(self) -> Any:
+			length = int(self.headers.get('Content-Length', '0') or 0)
+			if length <= 0:
+				return None
+			raw = self.rfile.read(length)
+			return json.loads(raw.decode('utf-8'))
+
+		def log_message(self, fmt: str, *log_args: Any) -> None:
+			# Silence default access logging to stderr — callers wire their own.
+			return
+
+		def do_GET(self) -> None:
+			parsed = urlparse(self.path)
+			path = parsed.path
+			query = parse_qs(parsed.query)
+			if path == '/health':
+				self._write_json(200, {'status': 'ok'})
+				return
+			if path == '/state':
+				with lock:
+					self._write_json(200, tracker.to_dict())
+				return
+			if path == '/ranked':
+				mode_raw = query.get('mode', ['belief'])[0]
+				if mode_raw not in {'belief', 'plausibility', 'expected'}:
+					self._write_json(400, {'error': f'unknown mode: {mode_raw}'})
+					return
+				mode: SelectionMode = mode_raw  # type: ignore[assignment]
+				try:
+					top = int(query.get('top', ['0'])[0])
+				except ValueError:
+					self._write_json(400, {'error': 'top must be an integer'})
+					return
+				with lock:
+					ranked = tracker.ranked(mode)
+				if top > 0:
+					ranked = ranked[:top]
+				self._write_json(200, [[skill_id, score] for skill_id, score in ranked])
+				return
+			if path.startswith('/fitness/'):
+				skill_id = path[len('/fitness/') :]
+				with lock:
+					mf = tracker.fitness(skill_id)
+				if mf is None:
+					self._write_json(404, {'error': f'unknown skill_id: {skill_id}'})
+					return
+				self._write_json(200, mf.to_dict())
+				return
+			self._write_json(404, {'error': f'unknown path: {path}'})
+
+		def do_POST(self) -> None:
+			path = urlparse(self.path).path
+			try:
+				payload = self._read_json()
+			except json.JSONDecodeError as e:
+				self._write_json(400, {'error': f'malformed JSON: {e}'})
+				return
+			if path == '/record':
+				if not isinstance(payload, dict) or not payload.get('skill_id'):
+					self._write_json(400, {'error': 'body must be a JSON object with skill_id'})
+					return
+				with lock:
+					mf = tracker.record(
+						skill_id=str(payload['skill_id']),
+						success=bool(payload.get('success', False)),
+						latency_ms=payload.get('latency_ms'),
+						error=payload.get('error'),
+					)
+					persist_locked()
+				self._write_json(200, mf.to_dict())
+				return
+			if path == '/state':
+				if not isinstance(payload, dict):
+					self._write_json(400, {'error': 'body must be a JSON object'})
+					return
+				restored = SkillFitnessTracker.from_dict(payload)
+				with lock:
+					tracker._fitness = dict(restored._fitness)
+					tracker._invocations = dict(restored._invocations)
+					persist_locked()
+				self._write_json(200, {'replaced': True})
+				return
+			if path == '/reset':
+				with lock:
+					tracker.reset()
+					persist_locked()
+				self._write_json(200, {'reset': True})
+				return
+			self._write_json(404, {'error': f'unknown path: {path}'})
+
+	server = ThreadingHTTPServer((host, port), Handler)
+	print(f'skill-fitness serving on http://{host}:{port} (persist={save_path or "off"})', file=sys.stderr)
+	try:
+		server.serve_forever()
+	except KeyboardInterrupt:
+		print('shutdown', file=sys.stderr)
+	finally:
+		server.server_close()
 	return 0
 
 

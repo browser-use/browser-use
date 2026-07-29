@@ -14,8 +14,13 @@ from __future__ import annotations
 
 import io
 import json
+import socket
 import subprocess
 import sys
+import threading
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -24,6 +29,7 @@ from browser_use.skills.fitness import (
 	MassFunction,
 	SkillFitnessTracker,
 	_cli,
+	_serve,
 	dempster_combine,
 	score_from_execution,
 )
@@ -288,6 +294,131 @@ def test_fitness_import_does_not_load_sdk() -> None:
 	)
 	assert proc.returncode == 0, proc.stderr
 	assert 'sdk_loaded=false' in proc.stdout, f'browser_use_sdk was loaded transitively: {proc.stdout}'
+
+
+def _find_free_port() -> int:
+	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+		sock.bind(('127.0.0.1', 0))
+		return sock.getsockname()[1]
+
+
+def _http_json(method: str, url: str, body: object | None = None) -> tuple[int, object]:
+	data = None if body is None else json.dumps(body).encode('utf-8')
+	req = urllib.request.Request(url, data=data, method=method)
+	if data is not None:
+		req.add_header('Content-Type', 'application/json')
+	try:
+		with urllib.request.urlopen(req, timeout=5) as resp:
+			return resp.status, json.loads(resp.read().decode('utf-8'))
+	except urllib.error.HTTPError as e:
+		return e.code, json.loads(e.read().decode('utf-8'))
+
+
+@pytest.fixture
+def fitness_server(tmp_path: Path):
+	"""Start _serve on a free port in a background thread; yield (base_url, tracker, save_path)."""
+	tracker = SkillFitnessTracker()
+	port = _find_free_port()
+	save_path = tmp_path / 'state.json'
+	thread = threading.Thread(
+		target=_serve,
+		args=(tracker,),
+		kwargs={'host': '127.0.0.1', 'port': port, 'save_path': str(save_path)},
+		daemon=True,
+	)
+	thread.start()
+	# Poll /health until the server is up (500ms cap).
+	base_url = f'http://127.0.0.1:{port}'
+	deadline = time.monotonic() + 0.5
+	while time.monotonic() < deadline:
+		try:
+			status, _ = _http_json('GET', f'{base_url}/health')
+			if status == 200:
+				break
+		except (urllib.error.URLError, ConnectionRefusedError):
+			time.sleep(0.02)
+	else:
+		pytest.fail('fitness server did not become ready within 500ms')
+	yield base_url, tracker, save_path
+	# Best-effort shutdown — the thread is a daemon so it dies with the test process anyway.
+
+
+def test_http_health(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	status, body = _http_json('GET', f'{base_url}/health')
+	assert status == 200
+	assert body == {'status': 'ok'}
+
+
+def test_http_record_then_ranked_and_persist(fitness_server) -> None:
+	base_url, tracker, save_path = fitness_server
+	# Record three fast successes for 'reliable' and one failure for 'flaky'.
+	for _ in range(3):
+		status, mf = _http_json('POST', f'{base_url}/record', {'skill_id': 'reliable', 'success': True, 'latency_ms': 100})
+		assert status == 200
+		assert isinstance(mf, dict)
+	status, _ = _http_json('POST', f'{base_url}/record', {'skill_id': 'flaky', 'success': False, 'error': 'boom'})
+	assert status == 200
+	# Ranked endpoint puts reliable first under belief mode.
+	status, ranked = _http_json('GET', f'{base_url}/ranked?mode=belief')
+	assert status == 200
+	assert isinstance(ranked, list)
+	assert ranked[0][0] == 'reliable'
+	# Auto-persistence: save_path was written on every mutation.
+	saved = json.loads(save_path.read_text())
+	restored = SkillFitnessTracker.from_dict(saved)
+	assert restored.invocations('reliable') == 3
+	assert restored.invocations('flaky') == 1
+
+
+def test_http_fitness_endpoint_and_404(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	_http_json('POST', f'{base_url}/record', {'skill_id': 'seen', 'success': True, 'latency_ms': 100})
+	status, mf = _http_json('GET', f'{base_url}/fitness/seen')
+	assert status == 200
+	assert isinstance(mf, dict)
+	status, body = _http_json('GET', f'{base_url}/fitness/never-seen')
+	assert status == 404
+	assert 'unknown skill_id' in body['error']  # type: ignore[index]
+
+
+def test_http_state_get_and_replace(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	_http_json('POST', f'{base_url}/record', {'skill_id': 'a', 'success': True, 'latency_ms': 100})
+	status, state = _http_json('GET', f'{base_url}/state')
+	assert status == 200
+	assert 'a' in state['invocations']  # type: ignore[index]
+	# Replace state with a fresh snapshot.
+	fresh = SkillFitnessTracker()
+	fresh.record('b', success=True, latency_ms=200)
+	status, body = _http_json('POST', f'{base_url}/state', fresh.to_dict())
+	assert status == 200 and body == {'replaced': True}
+	status, state_after = _http_json('GET', f'{base_url}/state')
+	assert 'a' not in state_after['invocations']  # type: ignore[index]
+	assert 'b' in state_after['invocations']  # type: ignore[index]
+
+
+def test_http_reset(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	_http_json('POST', f'{base_url}/record', {'skill_id': 'x', 'success': True, 'latency_ms': 100})
+	status, body = _http_json('POST', f'{base_url}/reset')
+	assert status == 200 and body == {'reset': True}
+	status, ranked = _http_json('GET', f'{base_url}/ranked')
+	assert status == 200 and ranked == []
+
+
+def test_http_bad_input_returns_400(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	# Missing skill_id.
+	status, body = _http_json('POST', f'{base_url}/record', {'success': True})
+	assert status == 400
+	assert 'skill_id' in body['error']  # type: ignore[index]
+	# Unknown mode.
+	status, body = _http_json('GET', f'{base_url}/ranked?mode=nonsense')
+	assert status == 400
+	# Unknown route.
+	status, _ = _http_json('GET', f'{base_url}/does-not-exist')
+	assert status == 404
 
 
 def test_service_exposes_fitness_and_ranking(monkeypatch: pytest.MonkeyPatch) -> None:
