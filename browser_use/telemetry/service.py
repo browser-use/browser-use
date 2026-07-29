@@ -62,56 +62,6 @@ def _machine_fingerprint() -> str | None:
 	return 'bu_' + hashlib.sha256(f'browser-use:{node}:{socket.gethostname()}'.encode()).hexdigest()[:32]
 
 
-_DETACHED_SENDER_SOURCE = """
-import json, sys, urllib.request
-try:
-	job = json.load(sys.stdin)
-	request = urllib.request.Request(
-		job['url'],
-		method='POST',
-		data=json.dumps(job['payload']).encode('utf-8'),
-		headers={'Content-Type': 'application/json'},
-	)
-	urllib.request.urlopen(request, timeout=job['timeout']).close()
-except Exception:
-	pass
-"""
-
-
-def capture_detached(event: BaseTelemetryEvent) -> None:
-	"""Send a single event to PostHog from a detached helper process."""
-	if not CONFIG.ANONYMIZED_TELEMETRY:
-		return
-	try:
-		import json
-		import subprocess
-		import sys
-
-		job = {
-			'url': f'{POSTHOG_HOST}/i/v0/e/',
-			'timeout': 5.0,
-			'payload': {
-				'api_key': POSTHOG_PROJECT_API_KEY,
-				'distinct_id': get_or_create_device_id(),
-				'event': event.name,
-				'properties': {**event.properties, **POSTHOG_EVENT_SETTINGS},
-			},
-		}
-
-		process = subprocess.Popen(
-			[sys.executable, '-c', _DETACHED_SENDER_SOURCE],
-			stdin=subprocess.PIPE,
-			stdout=subprocess.DEVNULL,
-			stderr=subprocess.DEVNULL,
-			start_new_session=True,
-		)
-		assert process.stdin is not None
-		process.stdin.write(json.dumps(job).encode('utf-8'))
-		process.stdin.close()
-	except Exception:
-		return
-
-
 @singleton
 class ProductTelemetry:
 	"""

@@ -69,10 +69,20 @@ class DOMTreeSerializer:
 		self._interactive_counter = 1
 		self._selector_map: DOMSelectorMap = {}
 		self._previous_cached_selector_map = previous_cached_state.selector_map if previous_cached_state else None
+		self._previous_node_ids = (
+			{
+				(str(previous_node.session_id), previous_node.backend_node_id)
+				for previous_node in self._previous_cached_selector_map.values()
+			}
+			if self._previous_cached_selector_map
+			else set()
+		)
 		# Add timing tracking
 		self.timing_info: dict[str, float] = {}
 		# Cache for clickable element detection to avoid redundant calls
-		self._clickable_cache: dict[int, bool] = {}
+		self._clickable_cache: dict[tuple[str | None, int], bool] = {}
+		self._reserved_backend_node_ids: set[int] = set()
+		self._next_synthetic_index = 1
 		# Bounding box filtering configuration
 		self.enable_bbox_filtering = enable_bbox_filtering
 		self.containment_threshold = containment_threshold or self.DEFAULT_CONTAINMENT_THRESHOLD
@@ -107,6 +117,8 @@ class DOMTreeSerializer:
 		self._selector_map = {}
 		self._semantic_groups = []
 		self._clickable_cache = {}  # Clear cache for new serialization
+		self._reserved_backend_node_ids = set()
+		self._next_synthetic_index = 1
 
 		# Step 1: Create simplified tree (includes clickable element detection)
 		start_step1 = time.time()
@@ -138,6 +150,7 @@ class DOMTreeSerializer:
 
 		# Step 4: Assign interactive indices to clickable elements
 		start_step4 = time.time()
+		self._reserve_backend_node_ids(filtered_tree)
 		self._assign_interactive_indices_and_mark_new_nodes(filtered_tree)
 		end_step4 = time.time()
 		self.timing_info['assign_interactive_indices'] = end_step4 - start_step4
@@ -417,7 +430,10 @@ class DOMTreeSerializer:
 	def _is_interactive_cached(self, node: EnhancedDOMTreeNode) -> bool:
 		"""Cached version of clickable element detection to avoid redundant calls."""
 
-		if node.node_id not in self._clickable_cache:
+		# CDP node IDs are scoped to a session and can be reused by unrelated
+		# elements in cross-origin iframe targets.
+		cache_key = (str(node.session_id) if node.session_id is not None else None, node.node_id)
+		if cache_key not in self._clickable_cache:
 			import time
 
 			start_time = time.time()
@@ -428,9 +444,9 @@ class DOMTreeSerializer:
 				self.timing_info['clickable_detection_time'] = 0
 			self.timing_info['clickable_detection_time'] += end_time - start_time
 
-			self._clickable_cache[node.node_id] = result
+			self._clickable_cache[cache_key] = result
 
-		return self._clickable_cache[node.node_id]
+		return self._clickable_cache[cache_key]
 
 	def _create_simplified_tree(self, node: EnhancedDOMTreeNode, depth: int = 0) -> SimplifiedNode | None:
 		"""Step 1: Create a simplified tree with enhanced element detection."""
@@ -614,6 +630,29 @@ class DOMTreeSerializer:
 			current = current.parent_node
 		return False
 
+	def _reserve_backend_node_ids(self, root: SimplifiedNode | None) -> None:
+		"""Reserve every CDP backend ID in one linear traversal."""
+		if root is None:
+			return
+
+		stack = [root]
+		while stack:
+			node = stack.pop()
+			self._reserved_backend_node_ids.add(node.original_node.backend_node_id)
+			stack.extend(node.children)
+		self._next_synthetic_index = max(self._reserved_backend_node_ids, default=0) + 1
+
+	def _allocate_selector_index(self, backend_node_id: int) -> int:
+		"""Preserve unique backend IDs and allocate a collision-free model index otherwise."""
+		if backend_node_id not in self._selector_map:
+			return backend_node_id
+
+		while self._next_synthetic_index in self._reserved_backend_node_ids:
+			self._next_synthetic_index += 1
+		selector_index = self._next_synthetic_index
+		self._next_synthetic_index += 1
+		return selector_index
+
 	def _assign_interactive_indices_and_mark_new_nodes(self, node: SimplifiedNode | None) -> None:
 		"""Assign interactive indices to clickable elements that are also visible."""
 		if not node:
@@ -709,17 +748,17 @@ class DOMTreeSerializer:
 			if should_make_interactive:
 				# Mark node as interactive
 				node.is_interactive = True
-				# Store backend_node_id in selector map (model outputs backend_node_id)
-				self._selector_map[node.original_node.backend_node_id] = node.original_node
+				node.selector_index = self._allocate_selector_index(node.original_node.backend_node_id)
+				self._selector_map[node.selector_index] = node.original_node
 				self._interactive_counter += 1
 
 				# Mark compound components as new for visibility
 				if node.is_compound_component:
 					node.is_new = True
-				elif self._previous_cached_selector_map:
+				elif self._previous_node_ids:
 					# Check if node is new for regular elements
-					previous_backend_node_ids = {node.backend_node_id for node in self._previous_cached_selector_map.values()}
-					if node.original_node.backend_node_id not in previous_backend_node_ids:
+					current_node_id = (str(node.original_node.session_id), node.original_node.backend_node_id)
+					if current_node_id not in self._previous_node_ids:
 						node.is_new = True
 
 		# Process children
@@ -922,8 +961,9 @@ class DOMTreeSerializer:
 				line = f'{depth_str}{shadow_prefix}'
 				# Add interactive marker if clickable
 				if node.is_interactive:
+					assert node.selector_index is not None
 					new_prefix = '*' if node.is_new else ''
-					line += f'{new_prefix}[{node.original_node.backend_node_id}]'
+					line += f'{new_prefix}[{node.selector_index}]'
 				line += '<svg'
 				attributes_html_str = DOMTreeSerializer._build_attributes_string(node.original_node, include_attributes, '')
 				if attributes_html_str:
@@ -1001,10 +1041,10 @@ class DOMTreeSerializer:
 					# Scrollable container but not clickable
 					line = f'{depth_str}{shadow_prefix}|scroll element|<{node.original_node.tag_name}'
 				elif node.is_interactive:
-					# Clickable (and possibly scrollable) - show backend_node_id
+					assert node.selector_index is not None
 					new_prefix = '*' if node.is_new else ''
 					scroll_prefix = '|scroll element[' if should_show_scroll else '['
-					line = f'{depth_str}{shadow_prefix}{new_prefix}{scroll_prefix}{node.original_node.backend_node_id}]<{node.original_node.tag_name}'
+					line = f'{depth_str}{shadow_prefix}{new_prefix}{scroll_prefix}{node.selector_index}]<{node.original_node.tag_name}'
 				elif node.original_node.tag_name.upper() == 'IFRAME':
 					# Iframe element (not interactive)
 					line = f'{depth_str}{shadow_prefix}|IFRAME|<{node.original_node.tag_name}'

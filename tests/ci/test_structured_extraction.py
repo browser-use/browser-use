@@ -6,7 +6,7 @@ import tempfile
 from unittest.mock import AsyncMock
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from pytest_httpserver import HTTPServer
 
 from browser_use.agent.views import ActionResult
@@ -629,3 +629,42 @@ class TestExtractionSchemaInjection:
 		assert isinstance(result, ActionResult)
 		assert result.extracted_content is not None
 		assert '<structured_result>' in result.extracted_content
+
+
+class TestOutputModelSchemaDoesNotAutoBridge:
+	"""output_model_schema must NOT auto-populate the per-page extraction_schema.
+
+	It describes the final task result (e.g. {summary, step_results}), which is the
+	wrong shape for a single-page extract and breaks extract on the browser-use
+	gateway. Per-page extract stays free-text unless extraction_schema is explicit.
+	"""
+
+	async def test_output_model_schema_does_not_set_extraction_schema(self, browser_session, mock_llm):
+		from browser_use import Agent
+
+		class FinalResult(BaseModel):
+			summary: str
+			items: list[str]
+
+		agent = Agent(
+			task='Test task',
+			llm=mock_llm,
+			browser_session=browser_session,
+			output_model_schema=FinalResult,
+		)
+		assert agent.extraction_schema is None
+
+	async def test_explicit_extraction_schema_still_honored(self, browser_session, mock_llm):
+		from browser_use import Agent
+
+		class FinalResult(BaseModel):
+			summary: str
+
+		agent = Agent(
+			task='Test task',
+			llm=mock_llm,
+			browser_session=browser_session,
+			output_model_schema=FinalResult,
+			extraction_schema=PRODUCT_SCHEMA,
+		)
+		assert agent.extraction_schema == PRODUCT_SCHEMA

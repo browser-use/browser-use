@@ -362,10 +362,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.output_model_schema is not None:
 			self.tools.use_structured_output_action(self.output_model_schema)
 
-		# Extraction schema: explicit param takes priority, otherwise auto-bridge from output_model_schema
+		# Per-page extract uses a schema only when the caller explicitly asks for one.
+		# It must NOT inherit output_model_schema: that describes the final task result
+		# (e.g. {summary, step_results}), which is the wrong shape for a single-page
+		# extraction and, on the browser-use gateway, routes extract into the agent
+		# action protocol and breaks it.
 		self.extraction_schema = extraction_schema
-		if self.extraction_schema is None and self.output_model_schema is not None:
-			self.extraction_schema = self.output_model_schema.model_json_schema()
 
 		# Core components - task enhancement now has access to output_model_schema from tools
 		self.task = self._enhance_task_with_schema(task, output_model_schema)
@@ -2288,7 +2290,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Look for common URL patterns
 		patterns = [
-			r'https?://[^\s<>"\']+',  # Full URLs with http/https
+			r'(?:https?|file)://[^\s<>"\']+',  # Full URLs
 			r'(?:www\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?',  # Domain names with subdomains and optional paths
 		]
 
@@ -2373,11 +2375,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		}
 
 		found_urls = []
+		matched_spans: list[tuple[int, int]] = []
 		for pattern in patterns:
 			matches = re.finditer(pattern, task_without_emails)
 			for match in matches:
 				url = match.group(0)
 				original_position = match.start()  # Store original position before URL modification
+
+				# Skip fragments of URLs already matched by earlier pattern
+				if any(match.start() < end and match.end() > start for start, end in matched_spans):
+					continue
+				matched_spans.append((match.start(), match.end()))
 
 				# Remove trailing punctuation that's not part of URLs
 				url = sanitize_url_candidate(url)
@@ -2386,13 +2394,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					self.logger.debug(f'Excluding placeholder URL from auto-navigation: {url}')
 					continue
 
-				# Check if URL ends with a file extension that should be excluded
 				url_lower = url.lower()
+				has_scheme = url_lower.startswith(('http://', 'https://', 'file://'))
+
+				# Check if URL ends with file extension
 				should_exclude = False
-				for ext in excluded_extensions:
-					if f'.{ext}' in url_lower:
+				if not url_lower.startswith('file://'):
+					for ext in excluded_extensions:
+						if f'.{ext}' in url_lower:
+							should_exclude = True
+							break
+					if not has_scheme and '.htm' in url_lower:
 						should_exclude = True
-						break
 
 				if should_exclude:
 					self.logger.debug(f'Excluding URL with file extension from auto-navigation: {url}')
@@ -2408,7 +2421,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					continue
 
 				# Add https:// if missing (after excluded words check to avoid position calculation issues)
-				if not url.startswith(('http://', 'https://')):
+				if not has_scheme:
 					url = 'https://' + url
 
 				found_urls.append(url)
@@ -3537,6 +3550,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return action
 
 		selector_map = browser_state_summary.dom_state.selector_map
+		selector_items = list(selector_map.items())
+		if historical_element.frame_id:
+			same_frame_items = [
+				(index, element) for index, element in selector_items if element.frame_id == historical_element.frame_id
+			]
+			if same_frame_items:
+				selector_items = same_frame_items + [
+					(index, element) for index, element in selector_items if element.frame_id != historical_element.frame_id
+				]
 		highlight_index: int | None = None
 		match_level: MatchLevel | None = None
 
@@ -3550,7 +3572,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			hist_name = historical_element.node_name.lower()
 			matching_nodes = [
 				(idx, elem.node_name, elem.attributes.get('name') if elem.attributes else None)
-				for idx, elem in selector_map.items()
+				for idx, elem in selector_items
 				if elem.node_name.lower() == hist_name
 			]
 			self.logger.info(
@@ -3559,7 +3581,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 
 		# Level 1: EXACT hash match
-		for idx, elem in selector_map.items():
+		for idx, elem in selector_items:
 			if elem.element_hash == historical_element.element_hash:
 				highlight_index = idx
 				match_level = MatchLevel.EXACT
@@ -3571,7 +3593,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Level 2: STABLE hash match (dynamic classes filtered)
 		# Use stored stable_hash (computed at save time from EnhancedDOMTreeNode - single source of truth)
 		if highlight_index is None and historical_element.stable_hash is not None:
-			for idx, elem in selector_map.items():
+			for idx, elem in selector_items:
 				if elem.compute_stable_hash() == historical_element.stable_hash:
 					highlight_index = idx
 					match_level = MatchLevel.STABLE
@@ -3584,7 +3606,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Level 3: XPATH match
 		if highlight_index is None and historical_element.x_path:
-			for idx, elem in selector_map.items():
+			for idx, elem in selector_items:
 				if elem.xpath == historical_element.x_path:
 					highlight_index = idx
 					match_level = MatchLevel.XPATH
@@ -3599,7 +3621,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if highlight_index is None and historical_element.ax_name:
 			hist_name = historical_element.node_name.lower()
 			hist_ax_name = historical_element.ax_name
-			for idx, elem in selector_map.items():
+			for idx, elem in selector_items:
 				# Match by node type and accessible name
 				elem_ax_name = elem.ax_node.name if elem.ax_node else None
 				if elem.node_name.lower() == hist_name and elem_ax_name == hist_ax_name:
@@ -3611,7 +3633,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Log available ax_names for debugging
 				same_type_ax_names = [
 					(idx, elem.ax_node.name if elem.ax_node else None)
-					for idx, elem in selector_map.items()
+					for idx, elem in selector_items
 					if elem.node_name.lower() == hist_name and elem.ax_node and elem.ax_node.name
 				]
 				self.logger.debug(
@@ -3628,7 +3650,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Try matching by unique identifiers: name, id, or aria-label
 			for attr_key in ['name', 'id', 'aria-label']:
 				if attr_key in hist_attrs and hist_attrs[attr_key]:
-					for idx, elem in selector_map.items():
+					for idx, elem in selector_items:
 						if (
 							elem.node_name.lower() == hist_name
 							and elem.attributes
@@ -3646,7 +3668,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Log what was tried and what's available on the page for debugging
 				same_node_elements = [
 					(idx, elem.attributes.get('aria-label') or elem.attributes.get('id') or elem.attributes.get('name'))
-					for idx, elem in selector_map.items()
+					for idx, elem in selector_items
 					if elem.node_name.lower() == hist_name and elem.attributes
 				]
 				self.logger.info(
