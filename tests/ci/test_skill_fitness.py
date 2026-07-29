@@ -12,11 +12,18 @@ Covers:
 
 from __future__ import annotations
 
+import io
+import json
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from browser_use.skills.fitness import (
 	MassFunction,
 	SkillFitnessTracker,
+	_cli,
 	dempster_combine,
 	score_from_execution,
 )
@@ -140,6 +147,147 @@ def test_tracker_reset_clears_state() -> None:
 	assert tracker.fitness('x') is None
 	assert tracker.invocations('x') == 0
 	assert tracker.ranked() == []
+
+
+def test_mass_function_json_roundtrip() -> None:
+	original = MassFunction.from_score(0.9, confidence=0.65)
+	serialized = original.to_dict()
+	# Wire format: sorted-comma-joined strings mapped to floats.
+	assert all(isinstance(k, str) and isinstance(v, float) for k, v in serialized.items())
+	# Full-frame key is sorted alphabetically.
+	assert 'HIGH,LOW,MID' in serialized
+	restored = MassFunction.from_dict(json.loads(json.dumps(serialized)))
+	assert restored.belief() == pytest.approx(original.belief())
+	assert restored.plausibility() == pytest.approx(original.plausibility())
+	assert restored.expected_value() == pytest.approx(original.expected_value())
+
+
+def test_tracker_json_roundtrip() -> None:
+	tracker = SkillFitnessTracker()
+	tracker.record('a', success=True, latency_ms=100)
+	tracker.record('a', success=True, latency_ms=200)
+	tracker.record('b', success=False, error='blocked')
+	blob = json.dumps(tracker.to_dict())
+	restored = SkillFitnessTracker.from_dict(json.loads(blob))
+	assert restored.invocations('a') == 2
+	assert restored.invocations('b') == 1
+	a_before = tracker.fitness('a')
+	a_after = restored.fitness('a')
+	assert a_before is not None and a_after is not None
+	assert a_after.belief() == pytest.approx(a_before.belief())
+
+
+def test_tracker_from_dict_ignores_unknown_keys() -> None:
+	restored = SkillFitnessTracker.from_dict({'fitness': {}, 'unrelated': 'ignored'})
+	assert restored.fitness('nope') is None
+
+
+def test_cli_reads_jsonl_and_ranks(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+	records = [
+		{'skill_id': 'reliable', 'success': True, 'latency_ms': 100},
+		{'skill_id': 'reliable', 'success': True, 'latency_ms': 100},
+		{'skill_id': 'flaky', 'success': False, 'error': 'oops'},
+		{'skill_id': 'flaky', 'success': True, 'latency_ms': 500},
+		'',  # Blank line — should be skipped without error.
+	]
+	stdin_text = '\n'.join(json.dumps(r) if r else '' for r in records)
+	# Feed stdin via monkeypatching. Also verify --save writes valid state.
+	save_path = tmp_path / 'state.json'
+	original_stdin = sys.stdin
+	sys.stdin = io.StringIO(stdin_text)
+	try:
+		exit_code = _cli(['--mode', 'belief', '--save', str(save_path)])
+	finally:
+		sys.stdin = original_stdin
+	assert exit_code == 0
+	captured = capsys.readouterr()
+	lines = [line for line in captured.out.splitlines() if line.strip()]
+	assert len(lines) == 2
+	first_skill = lines[0].split('\t')[-1]
+	assert first_skill == 'reliable'
+	# Saved state round-trips.
+	saved = json.loads(save_path.read_text())
+	restored = SkillFitnessTracker.from_dict(saved)
+	assert restored.invocations('reliable') == 2
+	assert restored.invocations('flaky') == 2
+
+
+def test_cli_top_limits_output(capsys: pytest.CaptureFixture[str]) -> None:
+	stdin_text = '\n'.join(json.dumps({'skill_id': f's{i}', 'success': True, 'latency_ms': 100 * i}) for i in range(1, 6))
+	original_stdin = sys.stdin
+	sys.stdin = io.StringIO(stdin_text)
+	try:
+		exit_code = _cli(['--top', '2'])
+	finally:
+		sys.stdin = original_stdin
+	assert exit_code == 0
+	captured = capsys.readouterr()
+	lines = [line for line in captured.out.splitlines() if line.strip()]
+	assert len(lines) == 2
+
+
+def test_cli_skips_malformed_lines(capsys: pytest.CaptureFixture[str]) -> None:
+	stdin_text = '\n'.join(
+		[
+			'{not valid json}',
+			json.dumps({'no_skill_id': True}),
+			json.dumps({'skill_id': 'ok', 'success': True, 'latency_ms': 100}),
+		]
+	)
+	original_stdin = sys.stdin
+	sys.stdin = io.StringIO(stdin_text)
+	try:
+		exit_code = _cli([])
+	finally:
+		sys.stdin = original_stdin
+	assert exit_code == 0
+	captured = capsys.readouterr()
+	# Warnings for malformed lines went to stderr.
+	assert 'malformed JSON' in captured.err
+	assert 'without skill_id' in captured.err
+	# The one valid record still ranked.
+	assert 'ok' in captured.out
+
+
+def test_cli_via_subprocess_end_to_end(tmp_path: Path) -> None:
+	"""Real subprocess invocation — confirms `python -m browser_use.skills.fitness` works."""
+	stdin_text = '\n'.join(json.dumps({'skill_id': sid, 'success': True, 'latency_ms': 100}) for sid in ('alpha', 'beta'))
+	proc = subprocess.run(
+		[sys.executable, '-m', 'browser_use.skills.fitness', '--mode', 'belief'],
+		input=stdin_text,
+		capture_output=True,
+		text=True,
+		timeout=30,
+	)
+	assert proc.returncode == 0, proc.stderr
+	lines = [line for line in proc.stdout.splitlines() if line.strip()]
+	assert len(lines) == 2
+	assert {line.split('\t')[-1] for line in lines} == {'alpha', 'beta'}
+
+
+def test_fitness_import_does_not_load_sdk() -> None:
+	"""Importing fitness alone must not drag the browser-use SDK / pydantic-heavy chain.
+
+	This is what makes standalone / cross-platform use viable. If someone adds an
+	eager import chain that pulls in browser_use_sdk from fitness.py, this fails.
+	"""
+	code = (
+		'import sys, importlib\n'
+		'for m in list(sys.modules):\n'
+		"    if m == 'browser_use' or m.startswith('browser_use.'):\n"
+		'        sys.modules.pop(m, None)\n'
+		'importlib.import_module("browser_use.skills.fitness")\n'
+		'sdk_loaded = any(m.startswith("browser_use_sdk") for m in sys.modules)\n'
+		"print('sdk_loaded=' + ('true' if sdk_loaded else 'false'))\n"
+	)
+	proc = subprocess.run(
+		[sys.executable, '-c', code],
+		capture_output=True,
+		text=True,
+		timeout=30,
+	)
+	assert proc.returncode == 0, proc.stderr
+	assert 'sdk_loaded=false' in proc.stdout, f'browser_use_sdk was loaded transitively: {proc.stdout}'
 
 
 def test_service_exposes_fitness_and_ranking(monkeypatch: pytest.MonkeyPatch) -> None:

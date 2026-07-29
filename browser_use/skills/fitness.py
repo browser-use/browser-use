@@ -15,8 +15,10 @@ No numpy dependency — this ships in the core install.
 
 from __future__ import annotations
 
+import json
+import sys
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 FrozenFrame = frozenset[str]
 
@@ -90,6 +92,21 @@ class MassFunction:
 		if mode == 'plausibility':
 			return self.plausibility()
 		return self.expected_value()
+
+	def to_dict(self) -> dict[str, float]:
+		"""JSON-safe wire format. Frozenset keys become sorted comma-joined strings."""
+		return {','.join(sorted(subset)): mass for subset, mass in self.masses.items()}
+
+	@classmethod
+	def from_dict(cls, data: dict[str, float]) -> MassFunction:
+		"""Inverse of to_dict — accepts the sorted-comma-joined key form."""
+		masses: dict[FrozenFrame, float] = {}
+		for key, mass in data.items():
+			subset = frozenset(part for part in key.split(',') if part)
+			if not subset:
+				continue
+			masses[subset] = float(mass)
+		return cls(masses)
 
 
 def dempster_combine(m1: MassFunction, m2: MassFunction) -> MassFunction:
@@ -178,3 +195,89 @@ class SkillFitnessTracker:
 		"""Drop all accumulated fitness. Useful for scoped experiments."""
 		self._fitness.clear()
 		self._invocations.clear()
+
+	def to_dict(self) -> dict[str, Any]:
+		"""JSON-safe snapshot of the full accumulator state. Round-trips via from_dict."""
+		return {
+			'fitness': {skill_id: mf.to_dict() for skill_id, mf in self._fitness.items()},
+			'invocations': dict(self._invocations),
+		}
+
+	@classmethod
+	def from_dict(cls, data: dict[str, Any]) -> SkillFitnessTracker:
+		"""Restore a tracker from to_dict output. Unknown keys are ignored."""
+		fitness_raw = data.get('fitness', {}) or {}
+		invocations_raw = data.get('invocations', {}) or {}
+		fitness = {skill_id: MassFunction.from_dict(mf) for skill_id, mf in fitness_raw.items()}
+		invocations = {skill_id: int(count) for skill_id, count in invocations_raw.items()}
+		return cls(_fitness=fitness, _invocations=invocations)
+
+
+def _cli(argv: list[str] | None = None) -> int:
+	"""Read (skill_id, success, latency_ms, error) records as JSONL from stdin, print rankings.
+
+	Pipe from any tool that emits skill-execution results — kafcade steps, CI runs,
+	agent traces. Load prior state with --state; persist accumulated state with --save.
+
+	Examples:
+	    cat runs.jsonl | python -m browser_use.skills.fitness
+	    python -m browser_use.skills.fitness --mode plausibility --state prior.json --save next.json
+	"""
+	import argparse
+
+	parser = argparse.ArgumentParser(
+		prog='python -m browser_use.skills.fitness',
+		description='Accumulate Dempster-Shafer skill fitness from JSONL records on stdin.',
+	)
+	parser.add_argument(
+		'--mode',
+		choices=('belief', 'plausibility', 'expected'),
+		default='belief',
+		help='Ranking mode (default: belief).',
+	)
+	parser.add_argument('--state', type=str, default=None, help='Load prior tracker state from this JSON file.')
+	parser.add_argument('--save', type=str, default=None, help='Write updated tracker state to this JSON file.')
+	parser.add_argument('--top', type=int, default=0, help='Show only the top N skills (0 = all).')
+	args = parser.parse_args(argv)
+
+	if args.state:
+		with open(args.state, encoding='utf-8') as f:
+			tracker = SkillFitnessTracker.from_dict(json.load(f))
+	else:
+		tracker = SkillFitnessTracker()
+
+	for line_num, line in enumerate(sys.stdin, start=1):
+		line = line.strip()
+		if not line:
+			continue
+		try:
+			record = json.loads(line)
+		except json.JSONDecodeError as e:
+			print(f'line {line_num}: skipping malformed JSON: {e}', file=sys.stderr)
+			continue
+		skill_id = record.get('skill_id')
+		if not skill_id:
+			print(f'line {line_num}: skipping record without skill_id', file=sys.stderr)
+			continue
+		tracker.record(
+			skill_id=str(skill_id),
+			success=bool(record.get('success', False)),
+			latency_ms=record.get('latency_ms'),
+			error=record.get('error'),
+		)
+
+	ranked = tracker.ranked(args.mode)
+	if args.top > 0:
+		ranked = ranked[: args.top]
+	for skill_id, score in ranked:
+		invocations = tracker.invocations(skill_id)
+		print(f'{score:.4f}\t{invocations}\t{skill_id}')
+
+	if args.save:
+		with open(args.save, 'w', encoding='utf-8') as f:
+			json.dump(tracker.to_dict(), f, indent=2, sort_keys=True)
+	return 0
+
+
+if __name__ == '__main__':
+	sys.exit(_cli())
