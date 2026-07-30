@@ -564,7 +564,7 @@ def test_load_from_enhanced_dom_tree_preserves_empty_ax_name() -> None:
 	Regression: an implicit truthiness check on ``ax_node.name`` converts ``""``
 	to ``None``, conflating "no attribute" with "attribute set to empty string".
 	"""
-	from browser_use.dom.views import EnhancedDOMTreeNode, EnhancedAXNode
+	from browser_use.dom.views import EnhancedAXNode, EnhancedDOMTreeNode
 
 	tree = EnhancedDOMTreeNode(
 		node_id=1,
@@ -584,7 +584,9 @@ def test_load_from_enhanced_dom_tree_preserves_empty_ax_name() -> None:
 		shadow_roots=None,
 		parent_node=None,
 		children_nodes=None,
-		ax_node=EnhancedAXNode(ax_node_id='', ignored=False, role=None, name='', description=None, properties=None, child_ids=None),
+		ax_node=EnhancedAXNode(
+			ax_node_id='', ignored=False, role=None, name='', description=None, properties=None, child_ids=None
+		),
 		snapshot_node=None,
 	)
 
