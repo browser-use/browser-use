@@ -69,6 +69,7 @@ core = [
 aws = ["boto3==1.42.37"]
 oci = ["oci==2.166.0"]
 video = ["imageio[ffmpeg]==2.37.2", "numpy==2.4.1"]
+mlflow = ["mlflow-tracing==3.14.0"]
 examples = [
     "agentmail==0.0.59",
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py

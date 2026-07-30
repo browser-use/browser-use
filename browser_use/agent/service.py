@@ -67,7 +67,7 @@ from browser_use.browser.views import BrowserStateSummary
 from browser_use.config import CONFIG
 from browser_use.dom.views import DOMInteractedElement, MatchLevel
 from browser_use.filesystem.file_system import FileSystem
-from browser_use.observability import observe, observe_debug
+from browser_use.observability import llm_span, observe, observe_debug, record_llm
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.tools.registry.views import ActionModel
@@ -1611,7 +1611,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			kwargs['session_id'] = self.session_id
 
 		try:
-			response = await self.judge_llm.ainvoke(input_messages, **kwargs)
+			_model = getattr(self.judge_llm, 'name', None) or getattr(self.judge_llm, 'model', None) or 'llm'
+			with llm_span(_model) as _llm_span:
+				response = await self.judge_llm.ainvoke(input_messages, **kwargs)
+				_cost = await self.token_cost_service.calculate_cost(_model, response.usage) if response.usage else None
+				record_llm(
+					_llm_span,
+					inputs=input_messages,
+					output=response.completion,
+					usage=response.usage,
+					model=_model,
+					cost=_cost,
+					provider=getattr(self.judge_llm, 'provider', None),
+				)
 			judgement: JudgementResult = response.completion  # type: ignore[assignment]
 			return judgement
 		except Exception as e:
@@ -1946,7 +1958,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		kwargs: dict = {'output_format': self.AgentOutput, 'session_id': self.session_id}
 
 		try:
-			response = await self.llm.ainvoke(input_messages, **kwargs)
+			_model = getattr(self.llm, 'name', None) or getattr(self.llm, 'model', None) or 'llm'
+			with llm_span(_model) as _llm_span:
+				response = await self.llm.ainvoke(input_messages, **kwargs)
+				_cost = await self.token_cost_service.calculate_cost(_model, response.usage) if response.usage else None
+				record_llm(
+					_llm_span,
+					inputs=input_messages,
+					output=response.completion,
+					usage=response.usage,
+					model=_model,
+					cost=_cost,
+					provider=getattr(self.llm, 'provider', None),
+				)
 			parsed: AgentOutput = response.completion  # type: ignore[assignment]
 
 			# Replace any shortened URLs in the LLM response back to original URLs
