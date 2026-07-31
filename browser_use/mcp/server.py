@@ -495,9 +495,7 @@ class BrowserUseServer:
 			on_list_prompts=handle_list_prompts,
 		)
 
-	async def _execute_tool(
-		self, tool_name: str, arguments: dict[str, Any]
-	) -> str | list[types.ContentBlock]:
+	async def _execute_tool(self, tool_name: str, arguments: dict[str, Any]) -> str | list[types.ContentBlock]:
 		"""Execute a browser-use tool. Returns str for most tools, or a content list for tools with image output."""
 
 		# Agent-based tools

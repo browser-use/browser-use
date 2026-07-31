@@ -96,7 +96,8 @@ class CLIMCPServer:
 				max_dim = arguments.get('max_dim')
 				if max_dim is not None and (isinstance(max_dim, bool) or not isinstance(max_dim, int) or max_dim < 1):
 					return types.CallToolResult(
-						content=[types.TextContent(type='text', text="Error: 'max_dim' must be a positive integer")], is_error=True
+						content=[types.TextContent(type='text', text="Error: 'max_dim' must be a positive integer")],
+						is_error=True,
 					)
 				async with self._exec_lock:
 					png = await asyncio.to_thread(self._screenshot, bool(arguments.get('full', False)), max_dim)
