@@ -22,6 +22,7 @@ dependencies = [
     "posthog==7.7.0",
     "psutil==7.2.2",
     "pydantic==2.12.5",
+    "pydantic-settings==2.12.0",
     "pyobjc==12.1; platform_system == 'darwin'",
     "python-dotenv==1.2.2",
     "requests==2.33.0",
