@@ -1,4 +1,6 @@
 import os
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import BaseModel
@@ -225,6 +227,35 @@ class TestChatModels:
 		assert isinstance(completion, CapitalResponse)
 		assert completion.country.lower() == self.EXPECTED_FRANCE_COUNTRY
 		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
+
+	@pytest.mark.asyncio
+	async def test_groq_ainvoke_structured_tool_calling_reads_arguments(self):
+		chat = ChatGroq(model='moonshotai/kimi-k2-instruct', temperature=0)
+		create = AsyncMock(
+			return_value=SimpleNamespace(
+				usage=None,
+				choices=[
+					SimpleNamespace(
+						message=SimpleNamespace(
+							content=None,
+							tool_calls=[
+								SimpleNamespace(function=SimpleNamespace(arguments='{"country": "france", "capital": "paris"}'))
+							],
+						)
+					)
+				],
+			)
+		)
+		client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+		chat.get_client = lambda: client
+
+		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
+
+		assert isinstance(response.completion, CapitalResponse)
+		assert response.completion.country == self.EXPECTED_FRANCE_COUNTRY
+		assert response.completion.capital == self.EXPECTED_FRANCE_CAPITAL
+		create.assert_awaited_once()
+		assert 'tools' in create.call_args.kwargs
 
 	# OpenRouter Tests
 	@pytest.mark.asyncio
