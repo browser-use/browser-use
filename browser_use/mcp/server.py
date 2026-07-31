@@ -134,6 +134,7 @@ try:
 	import mcp.server.stdio
 	import mcp.types as types
 	from mcp.server import NotificationOptions, Server
+	from mcp.server.lowlevel.server import ServerRequestContext
 	from mcp.server.models import InitializationOptions
 
 	MCP_AVAILABLE = True
@@ -191,7 +192,6 @@ class BrowserUseServer:
 		# Ensure all logging goes to stderr (in case new loggers were created)
 		_ensure_all_loggers_use_stderr()
 
-		self.server = Server('browser-use')
 		self.config = load_browser_use_config()
 		self.agent: Agent | None = None
 		self.browser_session: BrowserSession | None = None
@@ -206,22 +206,23 @@ class BrowserUseServer:
 		self.session_timeout_minutes = session_timeout_minutes
 		self._cleanup_task: Any = None
 
-		# Setup handlers
-		self._setup_handlers()
+		# Setup handlers and construct the MCP server (handlers are passed to the Server constructor in mcp 2.x)
+		self.server = self._build_server()
 
-	def _setup_handlers(self):
-		"""Setup MCP server handlers."""
+	def _build_server(self) -> Server:
+		"""Build the MCP server, registering request handlers via the Server constructor."""
 
-		@self.server.list_tools()
-		async def handle_list_tools() -> list[types.Tool]:
+		async def handle_list_tools(
+			ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+		) -> types.ListToolsResult:
 			"""List all available browser-use tools."""
-			return [
+			tools: list[types.Tool] = [
 				# Agent tools
 				# Direct browser control tools
 				types.Tool(
 					name='browser_navigate',
 					description='Navigate to a URL in the browser',
-					inputSchema={
+					input_schema={
 						'type': 'object',
 						'properties': {
 							'url': {'type': 'string', 'description': 'The URL to navigate to'},
@@ -233,7 +234,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_click',
 					description='Click an element by index or at specific viewport coordinates. Use index for elements from browser_get_state, or coordinate_x/coordinate_y for pixel-precise clicking.',
-					inputSchema={
+					input_schema={
 						'type': 'object',
 						'properties': {
 							'index': {
@@ -259,7 +260,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_type',
 					description='Type text into an input field. Clears existing text by default; pass text="" to clear only.',
-					inputSchema={
+					input_schema={
 						'type': 'object',
 						'properties': {
 							'index': {
@@ -277,7 +278,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_get_state',
 					description='Get the current state of the page including all interactive elements',
-					inputSchema={
+					input_schema={
 						'type': 'object',
 						'properties': {
 							'include_screenshot': {
@@ -291,7 +292,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_extract_content',
 					description='Extract structured content from the current page based on a query',
-					inputSchema={
+					input_schema={
 						'type': 'object',
 						'properties': {
 							'query': {'type': 'string', 'description': 'What information to extract from the page'},
@@ -307,7 +308,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_get_html',
 					description='Get the raw HTML of the current page or a specific element by CSS selector',
-					inputSchema={
+					input_schema={
 						'type': 'object',
 						'properties': {
 							'selector': {
@@ -320,7 +321,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_screenshot',
 					description='Take a screenshot of the current page. Returns viewport metadata as text and the screenshot as an image.',
-					inputSchema={
+					input_schema={
 						'type': 'object',
 						'properties': {
 							'full_page': {
@@ -334,7 +335,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_scroll',
 					description='Scroll the page',
-					inputSchema={
+					input_schema={
 						'type': 'object',
 						'properties': {
 							'direction': {
@@ -349,16 +350,16 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_go_back',
 					description='Go back to the previous page',
-					inputSchema={'type': 'object', 'properties': {}},
+					input_schema={'type': 'object', 'properties': {}},
 				),
 				# Tab management
 				types.Tool(
-					name='browser_list_tabs', description='List all open tabs', inputSchema={'type': 'object', 'properties': {}}
+					name='browser_list_tabs', description='List all open tabs', input_schema={'type': 'object', 'properties': {}}
 				),
 				types.Tool(
 					name='browser_switch_tab',
 					description='Switch to a different tab',
-					inputSchema={
+					input_schema={
 						'type': 'object',
 						'properties': {'tab_id': {'type': 'string', 'description': '4 Character Tab ID of the tab to switch to'}},
 						'required': ['tab_id'],
@@ -367,7 +368,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_close_tab',
 					description='Close a tab',
-					inputSchema={
+					input_schema={
 						'type': 'object',
 						'properties': {'tab_id': {'type': 'string', 'description': '4 Character Tab ID of the tab to close'}},
 						'required': ['tab_id'],
@@ -384,7 +385,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='retry_with_browser_use_agent',
 					description='Retry a task using the browser-use agent. Only use this as a last resort if you fail to interact with a page multiple times.',
-					inputSchema={
+					input_schema={
 						'type': 'object',
 						'properties': {
 							'task': {
@@ -423,12 +424,12 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_list_sessions',
 					description='List all active browser sessions with their details and last activity time',
-					inputSchema={'type': 'object', 'properties': {}},
+					input_schema={'type': 'object', 'properties': {}},
 				),
 				types.Tool(
 					name='browser_close_session',
 					description='Close a specific browser session by its ID',
-					inputSchema={
+					input_schema={
 						'type': 'object',
 						'properties': {
 							'session_id': {
@@ -442,34 +443,38 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_close_all',
 					description='Close all active browser sessions and clean up resources',
-					inputSchema={'type': 'object', 'properties': {}},
+					input_schema={'type': 'object', 'properties': {}},
 				),
 			]
+			return types.ListToolsResult(tools=tools)
 
-		@self.server.list_resources()
-		async def handle_list_resources() -> list[types.Resource]:
+		async def handle_list_resources(
+			ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+		) -> types.ListResourcesResult:
 			"""List available resources (none for browser-use)."""
-			return []
+			return types.ListResourcesResult(resources=[])
 
-		@self.server.list_prompts()
-		async def handle_list_prompts() -> list[types.Prompt]:
+		async def handle_list_prompts(
+			ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+		) -> types.ListPromptsResult:
 			"""List available prompts (none for browser-use)."""
-			return []
+			return types.ListPromptsResult(prompts=[])
 
-		@self.server.call_tool()
-		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent | types.ImageContent]:
+		async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
 			"""Handle tool execution."""
+			name = params.name
+			arguments = params.arguments
 			start_time = time.time()
 			error_msg = None
 			try:
 				result = await self._execute_tool(name, arguments or {})
 				if isinstance(result, list):
-					return result
-				return [types.TextContent(type='text', text=result)]
+					return types.CallToolResult(content=result)
+				return types.CallToolResult(content=[types.TextContent(type='text', text=result)])
 			except Exception as e:
 				error_msg = str(e)
 				logger.error(f'Tool execution failed: {e}', exc_info=True)
-				return [types.TextContent(type='text', text=f'Error: {str(e)}')]
+				return types.CallToolResult(content=[types.TextContent(type='text', text=f'Error: {str(e)}')], is_error=True)
 			finally:
 				# Capture telemetry for tool calls
 				duration = time.time() - start_time
@@ -482,6 +487,14 @@ class BrowserUseServer:
 						error_message=error_msg,
 					)
 				)
+
+		return Server(
+			'browser-use',
+			on_list_tools=handle_list_tools,
+			on_call_tool=handle_call_tool,
+			on_list_resources=handle_list_resources,
+			on_list_prompts=handle_list_prompts,
+		)
 
 	async def _execute_tool(
 		self, tool_name: str, arguments: dict[str, Any]
@@ -532,7 +545,7 @@ class BrowserUseServer:
 				state_json, screenshot_b64 = await self._get_browser_state(arguments.get('include_screenshot', False))
 				content: list[types.TextContent | types.ImageContent] = [types.TextContent(type='text', text=state_json)]
 				if screenshot_b64:
-					content.append(types.ImageContent(type='image', data=screenshot_b64, mimeType='image/png'))
+					content.append(types.ImageContent(type='image', data=screenshot_b64, mime_type='image/png'))
 				return content
 
 			elif tool_name == 'browser_get_html':
@@ -542,7 +555,7 @@ class BrowserUseServer:
 				meta_json, screenshot_b64 = await self._screenshot(arguments.get('full_page', False))
 				content: list[types.TextContent | types.ImageContent] = [types.TextContent(type='text', text=meta_json)]
 				if screenshot_b64:
-					content.append(types.ImageContent(type='image', data=screenshot_b64, mimeType='image/png'))
+					content.append(types.ImageContent(type='image', data=screenshot_b64, mime_type='image/png'))
 				return content
 
 			elif tool_name == 'browser_extract_content':

@@ -13,6 +13,7 @@ from typing import Any
 import mcp.server.stdio
 import mcp.types as types
 from mcp.server import NotificationOptions, Server
+from mcp.server.lowlevel.server import ServerRequestContext
 from mcp.server.models import InitializationOptions
 
 from browser_use.utils import get_browser_use_version
@@ -34,10 +35,9 @@ class CLIMCPServer:
 	"""Stateful stdio MCP server wrapping the browser-harness exec model."""
 
 	def __init__(self):
-		self.server: Server = Server('browser-use')
 		self._namespace: dict[str, Any] | None = None
 		self._exec_lock = asyncio.Lock()
-		self._register_handlers()
+		self.server: Server = self._build_server()
 
 	def _tool_definitions(self) -> list[types.Tool]:
 		return [
@@ -50,7 +50,7 @@ class CLIMCPServer:
 					'persists across calls. Returns whatever the code prints. First navigation '
 					'should be new_tab(url).'
 				),
-				inputSchema={
+				input_schema={
 					'type': 'object',
 					'properties': {
 						'code': {'type': 'string', 'description': 'Python code to execute'},
@@ -61,7 +61,7 @@ class CLIMCPServer:
 			types.Tool(
 				name='browser_screenshot',
 				description='Capture the current page and return it as an image. Prefer this over capture_screenshot() in browser_exec.',
-				inputSchema={
+				input_schema={
 					'type': 'object',
 					'properties': {
 						'full': {'type': 'boolean', 'description': 'Capture beyond the viewport (full page)', 'default': False},
@@ -75,29 +75,36 @@ class CLIMCPServer:
 			),
 		]
 
-	def _register_handlers(self):
-		@self.server.list_tools()
-		async def handle_list_tools() -> list[types.Tool]:
-			return self._tool_definitions()
+	def _build_server(self) -> Server:
+		async def handle_list_tools(
+			ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+		) -> types.ListToolsResult:
+			return types.ListToolsResult(tools=self._tool_definitions())
 
-		@self.server.call_tool()
-		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent | types.ImageContent]:
-			arguments = arguments or {}
+		async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+			name = params.name
+			arguments = params.arguments or {}
 			if name == 'browser_exec':
 				code = arguments.get('code')
 				if not isinstance(code, str) or not code.strip():
-					return [types.TextContent(type='text', text="Error: 'code' must be a non-empty string")]
+					return types.CallToolResult(
+						content=[types.TextContent(type='text', text="Error: 'code' must be a non-empty string")], is_error=True
+					)
 				async with self._exec_lock:
 					output = await asyncio.to_thread(self._execute, code)
-				return [types.TextContent(type='text', text=output or '(no output)')]
+				return types.CallToolResult(content=[types.TextContent(type='text', text=output or '(no output)')])
 			if name == 'browser_screenshot':
 				max_dim = arguments.get('max_dim')
 				if max_dim is not None and (isinstance(max_dim, bool) or not isinstance(max_dim, int) or max_dim < 1):
-					return [types.TextContent(type='text', text="Error: 'max_dim' must be a positive integer")]
+					return types.CallToolResult(
+						content=[types.TextContent(type='text', text="Error: 'max_dim' must be a positive integer")], is_error=True
+					)
 				async with self._exec_lock:
 					png = await asyncio.to_thread(self._screenshot, bool(arguments.get('full', False)), max_dim)
-				return [types.ImageContent(type='image', data=png, mimeType='image/png')]
-			return [types.TextContent(type='text', text=f'Unknown tool: {name}')]
+				return types.CallToolResult(content=[types.ImageContent(type='image', data=png, mime_type='image/png')])
+			return types.CallToolResult(content=[types.TextContent(type='text', text=f'Unknown tool: {name}')], is_error=True)
+
+		return Server('browser-use', on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
 	def _ensure_namespace(self) -> dict[str, Any]:
 		if self._namespace is None:
