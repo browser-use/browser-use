@@ -63,6 +63,8 @@ class Agent(Generic[AgentStructuredOutput]):
 		extend_system_message: str | None = None,
 		override_system_message: str | None = None,
 		save_screenshots: bool = True,
+		file_dir: str | Path | None = None,
+		screenshots_dir: str | Path | None = None,
 		**kwargs,
 	):
 		assert task and isinstance(task, str), 'task must be a non-empty string'
@@ -100,7 +102,13 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.history: AgentHistoryList[AgentStructuredOutput] = AgentHistoryList(history=[])
 		self._step_notes: list[str] = []
 		self._consecutive_failures = 0
-		self._screenshot_dir: Path | None = None
+		self._screenshot_dir: Path | None = Path(screenshots_dir) if screenshots_dir else None
+		# the agent's persistence channel (write_file/read_file) -- without it,
+		# extractions larger than the context window are unrecoverable
+		self.file_dir: Path = Path(file_dir) if file_dir else Path(tempfile.mkdtemp(prefix='harness_agent_files_'))
+		self._pending_results_text: str | None = None
+		self._last_action_key: str | None = None
+		self._repeat_count = 0
 
 	@property
 	def llm(self) -> BaseChatModel:
@@ -160,11 +168,34 @@ class Agent(Generic[AgentStructuredOutput]):
 		history_block: list[BaseMessage] = []
 		if notes:
 			history_block.append(UserMessage(content='Previous steps:\n' + '\n'.join(notes)))
+		if self._pending_results_text:
+			# last step's results IN FULL, once -- losing these forced agents to
+			# re-extract the same page dozens of times
+			history_block.append(UserMessage(content=f'Full result of your previous action(s):\n{self._pending_results_text}'))
+		extra = []
+		remaining = max_steps - step
+		if self._repeat_count >= 3:
+			extra.append(
+				f'WARNING: you have repeated the same action {self._repeat_count} times with the same outcome. '
+				'It will not work. Take a DIFFERENT approach.'
+			)
+		if remaining <= max(3, max_steps // 10):
+			extra.append(
+				f'URGENT: only {remaining} steps remain. Stop gathering. Read any workspace files you need and call '
+				'`done` NOW with the best answer you have — a partial answer scores, an empty one does not.'
+			)
+		state_message = self._state_message(state, step, max_steps)
+		if extra:
+			prefix = '\n'.join(extra) + '\n\n'
+			if isinstance(state_message.content, str):
+				state_message = UserMessage(content=prefix + state_message.content)
+			else:
+				state_message = UserMessage(content=[ContentPartTextParam(text=prefix), *state_message.content])
 		return [
 			self._system_prompt(),
 			UserMessage(content=f'Your task: {self.task}', cache=True),
 			*history_block,
-			self._state_message(state, step, max_steps),
+			state_message,
 		]
 
 	# --- execution ---
@@ -172,8 +203,9 @@ class Agent(Generic[AgentStructuredOutput]):
 	async def _multi_act(self, actions: list, state: HarnessState) -> list[ActionResult]:
 		results: list[ActionResult] = []
 		for i, action in enumerate(actions[: self.max_actions_per_step]):
-			result = await self.tools.act(action, browser=self.browser, state=state)
+			result = await self.tools.act(action, browser=self.browser, state=state, file_dir=self.file_dir)
 			results.append(result)
+			self._track_repeat(action)
 			if result.is_done or result.error is not None:
 				break
 			action_name = next(iter({k: v for k, v in action.model_dump(exclude_unset=True).items() if v is not None}), '')
@@ -222,12 +254,29 @@ class Agent(Generic[AgentStructuredOutput]):
 				name for a in output.action for name, v in a.model_dump(exclude_unset=True).items() if v is not None
 			)
 			outcome = '; '.join(filter(None, ((r.error and f'ERROR: {r.error}') or r.extracted_content for r in results)))
-			self._step_notes.append(f'Step {step}: goal={output.next_goal or "-"} | actions=[{acted}] | {outcome[:500]}')
+			self._step_notes.append(f'Step {step}: goal={output.next_goal or "-"} | actions=[{acted}] | {outcome[:1200]}')
+			# full results travel to the NEXT prompt exactly once; notes keep the compressed trail
+			full = '\n'.join(r.extracted_content for r in results if r.extracted_content)
+			self._pending_results_text = full[:60000] if full else None
+
+	def _track_repeat(self, action) -> None:
+		key = json.dumps(action.model_dump(exclude_unset=True), sort_keys=True, default=str)
+		if key == self._last_action_key:
+			self._repeat_count += 1
+		else:
+			self._last_action_key = key
+			self._repeat_count = 0
 
 	async def _step(self, step: int, max_steps: int) -> bool:
 		"""Run one step. Returns True when the task is done."""
 		started = time.time()
-		state = await self.dom_service.get_state(include_screenshot=self.use_vision)
+		try:
+			state = await self.dom_service.get_state(include_screenshot=self.use_vision)
+		except Exception:
+			# transient capture failures (mid-navigation, slow page) shouldn't
+			# burn a whole step -- retry once before giving up
+			await asyncio.sleep(1.5)
+			state = await self.dom_service.get_state(include_screenshot=self.use_vision)
 		response = await self.llm.ainvoke(self._messages(state, step, max_steps), output_format=self.AgentOutput)
 		output = response.completion
 		results = await self._multi_act(output.action, state)
@@ -256,10 +305,12 @@ class Agent(Generic[AgentStructuredOutput]):
 					self._consecutive_failures += 1
 					self._record_failure(f'Step {step} timed out after {self.step_timeout}s', step)
 					done = False
+					await asyncio.sleep(2.0)  # a dead transport must not burn 3 strikes in 1ms
 				except Exception as e:
 					self._consecutive_failures += 1
 					self._record_failure(f'Step {step} failed: {type(e).__name__}: {e}', step)
 					done = False
+					await asyncio.sleep(2.0)
 				if on_step_end is not None:
 					await on_step_end(self)
 				if done:
