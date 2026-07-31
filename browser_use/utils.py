@@ -4,6 +4,7 @@ import os
 import platform
 import re
 import signal
+import threading
 import time
 from collections.abc import Callable, Coroutine
 from fnmatch import fnmatch
@@ -46,7 +47,25 @@ def sanitize_url_candidate(url: str) -> str:
 	# "https://example.com/search.\\n2. Next step". Those are task text,
 	# not part of the URL.
 	candidate = re.split(r'\\[nrt]', candidate, maxsplit=1)[0]
-	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
+	# Strip trailing sentence punctuation. Closing parentheses/brackets are kept
+	# only when balanced with a matching opener (e.g. Wikipedia URLs ending in
+	# "..._(programming_language)"); unbalanced trailing closers, and any
+	# trailing openers, are stripped so prose punctuation does not bleed in.
+	while candidate:
+		last = candidate[-1]
+		if last in '.,;:!?':
+			candidate = candidate[:-1]
+		elif last in ')]':
+			open_char = '(' if last == ')' else '['
+			if candidate.count(open_char) < candidate.count(last):
+				candidate = candidate[:-1]
+			else:
+				break
+		elif last in '([':
+			candidate = candidate[:-1]
+		else:
+			break
+	return candidate
 
 
 # Lazy import for error types
@@ -471,10 +490,13 @@ def time_execution_async(
 
 def singleton(cls):
 	instance = [None]
+	lock = threading.Lock()
 
 	def wrapper(*args, **kwargs):
 		if instance[0] is None:
-			instance[0] = cls(*args, **kwargs)
+			with lock:
+				if instance[0] is None:
+					instance[0] = cls(*args, **kwargs)
 		return instance[0]
 
 	return wrapper
@@ -642,17 +664,18 @@ def get_browser_use_version() -> str:
 		package_root = Path(__file__).parent.parent
 		pyproject_path = package_root / 'pyproject.toml'
 
-		# Try to read version from pyproject.toml
+		# Try to read version from pyproject.toml via tomllib (parses the TOML
+		# structure so we resolve [project].version rather than the first
+		# ``version =`` line anywhere in the file).
 		if pyproject_path.exists():
-			import re
+			import tomllib
 
-			with open(pyproject_path, encoding='utf-8') as f:
-				content = f.read()
-				match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
-				if match:
-					version = f'{match.group(1)}'
-					os.environ['LIBRARY_VERSION'] = version  # used by bubus event_schema so all Event schemas include versioning
-					return version
+			with open(pyproject_path, 'rb') as f:
+				data = tomllib.load(f)
+			version = data['project']['version']
+			version = f'{version}'
+			os.environ['LIBRARY_VERSION'] = version  # used by bubus event_schema so all Event schemas include versioning
+			return version
 
 		# If pyproject.toml doesn't exist, try getting version from pip
 		from importlib.metadata import version as get_version
@@ -716,8 +739,8 @@ def _browser_use_version_key(version: str) -> tuple[tuple[int, ...], int, int, i
 
 
 @cache
-def get_git_info() -> dict[str, str] | None:
-	"""Get git information if installed from git repository"""
+def _get_git_info_cached() -> dict[str, str] | None:
+	"""Get git information if installed from git repository (cached, do not mutate)."""
 	try:
 		import subprocess
 
@@ -756,6 +779,12 @@ def get_git_info() -> dict[str, str] | None:
 	except Exception as e:
 		logger.debug(f'Error getting git info: {type(e).__name__}: {e}')
 		return None
+
+
+def get_git_info() -> dict[str, str] | None:
+	"""Return a copy of the cached git info so callers cannot mutate the cached dict."""
+	info = _get_git_info_cached()
+	return info.copy() if info else None
 
 
 def _log_pretty_path(path: str | Path | None) -> str:
