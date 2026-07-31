@@ -105,12 +105,37 @@ def _get_redact_pattern_and_mapping(
 	return pattern, replacement_mapping, plain_mapping
 
 
-def _split_secret_tags(value: str) -> list[str]:
+def _overlaps_raw_span(start: int, end: int, raw_spans: list[tuple[int, int]] | None) -> bool:
+	"""Return True when the tag span [start, end) is overlapped but not fully
+	contained by a raw secret occurrence.
+
+	Such a tag span is literal marker text inside a longer raw secret (e.g. the
+	secret ``x<secret>y</secret>z``) rather than a pre-existing placeholder, so
+	it must not be treated as a tag boundary. Occurrences fully contained in the
+	span (e.g. ``supersecret`` inside ``<secret>supersecret</secret>``) are
+	handled by inner-content redaction and do not mark the span fake.
+	"""
+	if not raw_spans:
+		return False
+	for a, b in raw_spans:
+		if a >= end:
+			break
+		if b > start and not (a >= start and b <= end):
+			return True
+	return False
+
+
+def _split_secret_tags(value: str, raw_spans: list[tuple[int, int]] | None = None) -> list[str]:
 	"""Split *value* around balanced ``<secret>...</secret>`` pairs.
 
 	Returns a list of alternating segments: plain text, tag inner content, plain
 	text, ... Unclosed or stray tags are left as plain text. Uses str.find (C
 	speed) rather than a per-character scan.
+
+	*raw_spans* optionally lists ranges of *value* that are literal occurrences
+	of configured secrets. A balanced tag pair overlapped (but not fully
+	contained) by one of those ranges is fake markup inside a raw secret, so it
+	is kept as plain text instead of being treated as a pre-existing tag.
 	"""
 	open_tag = '<secret>'
 	close_tag = '</secret>'
@@ -142,6 +167,11 @@ def _split_secret_tags(value: str) -> list[str]:
 				break
 		if depth:
 			break  # unclosed tag: everything from `last` stays plain text
+		if _overlaps_raw_span(start, j, raw_spans):
+			# Fake tag text that is part of a longer raw secret: keep it as
+			# plain text so the whole secret can still be matched.
+			i = start + open_len
+			continue
 		parts.append(value[last:start])
 		parts.append(value[start + open_len : j - close_len])
 		last = j
@@ -155,9 +185,11 @@ def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str
 	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks.
 
 	Raw secrets are matched in a single pass via a cached literal-only regex, and
-	pre-existing ``<secret>...</secret>`` tags are split out beforehand (with
-	balanced-pair parsing) so their inner contents are redacted separately
-	without re-scanning tag boundaries.
+	pre-existing ``<secret>...</secret>`` tags are split out (with balanced-pair
+	parsing) so their inner contents are redacted separately without re-scanning
+	tag boundaries. A configured secret that itself contains literal tag markers
+	(e.g. ``x<secret>y</secret>z``) is located before splitting so its full
+	occurrence is redacted instead of being shredded by tag parsing.
 	"""
 	if not isinstance(value, str) or not value or not sensitive_values:
 		return value
@@ -172,28 +204,38 @@ def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str
 	if '<secret>' not in value:
 		return pattern.sub(lambda m: mapping[m.group(0)], value)
 
+	# Raw secret occurrences may themselves contain literal <secret> markers or
+	# span a tag boundary. Splitting on balanced tags first would shred such
+	# occurrences into parts that can never match the full secret, so locate
+	# them up front and keep any tag text they overlap as plain text instead.
+	raw_spans = [m.span() for m in pattern.finditer(value)]
+
 	# Split on balanced existing tags: odd-indexed parts are tag contents, even
 	# parts are unredacted text.
-	parts = _split_secret_tags(value)
+	parts = _split_secret_tags(value, raw_spans)
 	key_list_strings = {keys_str for _, keys_str in plain_mapping}
+	secret_values = {secret for secret, _ in plain_mapping}
 	for i, part in enumerate(parts):
 		if i % 2 == 1:
 			# Existing tag: redact raw secrets inside it, longest-first.
-			if not part:
-				# Preserve empty markers as-is instead of deleting them.
-				parts[i] = '<secret></secret>'
-				continue
 			# A configured secret may itself look like a full balanced tag
-			# (e.g. "<secret>foo</secret>"). Redact it instead of mistaking it
-			# for a pre-existing placeholder, which would leak the raw value.
+			# (e.g. "<secret>foo</secret>" or the empty marker
+			# "<secret></secret>"). Redact it instead of mistaking it for a
+			# pre-existing placeholder, which would leak the raw value.
 			full_tag = f'<secret>{part}</secret>'
 			if full_tag in mapping:
 				parts[i] = mapping[full_tag]
 				continue
+			if not part:
+				# Preserve empty markers as-is instead of deleting them.
+				parts[i] = '<secret></secret>'
+				continue
 			# If the tag already contains exactly a generated key list, it is a
-			# placeholder from a previous redaction pass and should stay unchanged
-			# to keep redaction idempotent.
-			if part in key_list_strings:
+			# placeholder from a previous redaction pass and should stay
+			# unchanged to keep redaction idempotent - unless that text is
+			# itself a configured secret value, which must be redacted to its
+			# own keys even inside tag-like text.
+			if part in key_list_strings and part not in secret_values:
 				parts[i] = full_tag
 				continue
 			inner = part

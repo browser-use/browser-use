@@ -209,3 +209,87 @@ def test_redact_sensitive_string_unsorted_input():
 
 	actual = redact_sensitive_string(input_str, sensitive_values)
 	assert actual == expected
+
+
+def test_redact_sensitive_string_secret_spanning_balanced_tag():
+	"""
+	Verify that a configured secret whose value contains a balanced
+	<secret>...</secret> pair (e.g. "x<secret>y</secret>z") is fully redacted
+	when it appears in plain prose, instead of being shredded by tag splitting
+	and leaking unchanged.
+	"""
+	sensitive_values = {
+		'token': 'x<secret>y</secret>z',
+	}
+	input_str = 'value x<secret>y</secret>z here'
+	expected = 'value <secret>token</secret> here'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+	# The raw secret value must not survive unredacted in the output.
+	assert 'x<secret>y</secret>z' not in actual
+	# Idempotence: re-redacting the output must not change it.
+	assert redact_sensitive_string(actual, sensitive_values) == expected
+
+
+def test_redact_sensitive_string_secret_with_nested_balanced_tags():
+	"""
+	Verify that a configured secret containing nested balanced <secret> pairs
+	(e.g. "a<secret>b<secret>c</secret>d</secret>e") is fully redacted rather
+	than leaked via fake tag re-wrapping.
+	"""
+	sensitive_values = {
+		'token': 'a<secret>b<secret>c</secret>d</secret>e',
+	}
+	input_str = 'prefix a<secret>b<secret>c</secret>d</secret>e suffix'
+	expected = 'prefix <secret>token</secret> suffix'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+	assert 'a<secret>b<secret>c</secret>d</secret>e' not in actual
+	assert redact_sensitive_string(actual, sensitive_values) == expected
+
+
+def test_redact_sensitive_string_key_list_collision_with_secret():
+	"""
+	Verify that when a generated key-list string is itself another key's raw
+	secret value, the raw secret inside an existing tag is redacted to its own
+	keys instead of being preserved as a placeholder and leaking.
+	"""
+	sensitive_values = {
+		'k2': 'k1',
+		'k1': 'xyz',
+	}
+	input_str = '<secret>k1</secret> and xyz'
+	expected = '<secret>k2</secret> and <secret>k1</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+	# No raw secret value may survive in the output.
+	assert 'xyz' not in actual
+	# Redaction converges: after the placeholder texts themselves stabilize, a
+	# further pass must not change the output.
+	second = redact_sensitive_string(actual, sensitive_values)
+	third = redact_sensitive_string(second, sensitive_values)
+	assert second == third
+
+
+def test_redact_sensitive_string_secret_is_empty_marker():
+	"""
+	Verify that a configured secret whose value is the empty
+	<secret></secret> marker is redacted, while empty pre-existing markers
+	with no matching secret remain preserved.
+	"""
+	sensitive_values = {
+		'pwd': '<secret></secret>',
+	}
+	input_str = 'foo <secret></secret> bar'
+	expected = 'foo <secret>pwd</secret> bar'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+	assert '<secret></secret>' not in actual
+	assert redact_sensitive_string(actual, sensitive_values) == expected
+	# Unrelated empty markers must still be preserved.
+	unrelated = redact_sensitive_string('before <secret></secret> after', {'password': 'supersecret'})
+	assert unrelated == 'before <secret></secret> after'
