@@ -1,3 +1,4 @@
+import tomllib
 from pathlib import Path
 
 from browser_use.utils import _is_newer_browser_use_version, get_browser_use_version
@@ -19,6 +20,43 @@ def test_get_browser_use_version_reads_project_version_from_pyproject_toml(monke
 	assert version == expected
 	assert version != 'unknown'
 	assert os.environ.get('LIBRARY_VERSION') == expected
+
+
+def test_get_browser_use_version_handles_utf8_bom_in_pyproject_toml(monkeypatch):
+	"""A UTF-8 BOM (as Windows editors save) must not make version detection return 'unknown'."""
+
+	get_browser_use_version.cache_clear()
+	monkeypatch.delenv('LIBRARY_VERSION', raising=False)
+	pyproject = Path(__file__).parent.parent.parent.parent / 'pyproject.toml'
+	original = pyproject.read_bytes()
+	expected = tomllib.loads(original.decode('utf-8'))['project']['version']
+	try:
+		pyproject.write_bytes(b'\xef\xbb\xbf' + original)
+		version = get_browser_use_version()
+	finally:
+		pyproject.write_bytes(original)
+		get_browser_use_version.cache_clear()
+	assert version == expected
+	assert version != 'unknown'
+
+
+def test_get_browser_use_version_falls_back_when_pyproject_has_no_project_version(monkeypatch):
+	"""A parseable pyproject.toml without [project].version must fall back to installed metadata."""
+	from importlib.metadata import version as get_version
+
+	get_browser_use_version.cache_clear()
+	monkeypatch.delenv('LIBRARY_VERSION', raising=False)
+	pyproject = Path(__file__).parent.parent.parent.parent / 'pyproject.toml'
+	original = pyproject.read_bytes()
+	expected = get_version('browser-use')
+	try:
+		pyproject.write_bytes(b'[tool.ruff]\ntarget-version = "py311"\n')
+		version = get_browser_use_version()
+	finally:
+		pyproject.write_bytes(original)
+		get_browser_use_version.cache_clear()
+	assert version == expected
+	assert version != 'unknown'
 
 
 def test_prerelease_is_newer_than_previous_stable():

@@ -666,18 +666,25 @@ def get_browser_use_version() -> str:
 
 		# Try to read version from pyproject.toml via tomllib (parses the TOML
 		# structure so we resolve [project].version rather than the first
-		# ``version =`` line anywhere in the file).
+		# ``version =`` line anywhere in the file). Strip a UTF-8 BOM first:
+		# tomllib rejects it, but Windows editors commonly save with one.
 		if pyproject_path.exists():
 			import tomllib
 
 			with open(pyproject_path, 'rb') as f:
-				data = tomllib.load(f)
-			version = data['project']['version']
-			version = f'{version}'
-			os.environ['LIBRARY_VERSION'] = version  # used by bubus event_schema so all Event schemas include versioning
-			return version
+				content = f.read().lstrip(b'\xef\xbb\xbf')
+			data = tomllib.loads(content.decode('utf-8'))
+			version = data.get('project', {}).get('version')
+			if version is not None:
+				version = f'{version}'
+				os.environ['LIBRARY_VERSION'] = version  # used by bubus event_schema so all Event schemas include versioning
+				return version
 
-		# If pyproject.toml doesn't exist, try getting version from pip
+			# pyproject.toml parses but declares no [project].version (e.g. a
+			# uv.lock-only layout) - fall through to the installed package below.
+
+		# If pyproject.toml doesn't exist (or declares no version), try getting
+		# version from pip
 		from importlib.metadata import version as get_version
 
 		version = str(get_version('browser-use'))
