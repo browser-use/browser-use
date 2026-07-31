@@ -433,28 +433,7 @@ class DownloadsWatchdog(BaseWatchdog):
 												pass
 											break
 				else:
-					# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
-					info = self._cdp_downloads_info.get(guid, {})
-					try:
-						suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
-						downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
-						effective_path = file_path or str(Path(downloads_path) / suggested_filename)
-						file_name = Path(effective_path).name
-						file_ext = Path(file_name).suffix.lower().lstrip('.')
-						self.event_bus.dispatch(
-							FileDownloadedEvent(
-								guid=guid,
-								url=info.get('url', ''),
-								path=str(effective_path),
-								file_name=file_name,
-								file_size=0,
-								file_type=file_ext if file_ext else None,
-							)
-						)
-						self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
-					finally:
-						if guid in self._cdp_downloads_info:
-							del self._cdp_downloads_info[guid]
+					self._handle_remote_cdp_download_completed(guid=guid, file_path=file_path)
 
 		try:
 			downloads_path_raw = self.browser_session.browser_profile.downloads_path
@@ -864,6 +843,49 @@ class DownloadsWatchdog(BaseWatchdog):
 			self.logger.warning(f'[DownloadsWatchdog] Download failed: {type(e).__name__}: {e}')
 			return None
 
+	def _notify_download_complete_callbacks(self, complete_info: dict[str, Any]) -> None:
+		"""Notify direct completion callbacks used by click download detection."""
+		for callback in self._download_complete_callbacks:
+			try:
+				callback(complete_info)
+			except Exception as e:
+				self.logger.debug(f'[DownloadsWatchdog] Error in download complete callback: {e}')
+
+	def _handle_remote_cdp_download_completed(self, guid: str, file_path: str | None) -> None:
+		"""Handle a completed CDP download for remote browsers without touching the local filesystem."""
+		info = self._cdp_downloads_info.get(guid, {})
+		try:
+			suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
+			downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
+			effective_path = file_path or str(Path(downloads_path) / suggested_filename)
+			file_name = Path(effective_path).name
+			file_ext = Path(file_name).suffix.lower().lstrip('.')
+			complete_info = {
+				'guid': guid,
+				'url': info.get('url', ''),
+				'path': str(effective_path),
+				'file_name': file_name,
+				'file_size': 0,
+				'file_type': file_ext if file_ext else None,
+				'auto_download': False,
+			}
+
+			self._notify_download_complete_callbacks(complete_info)
+			self.event_bus.dispatch(
+				FileDownloadedEvent(
+					guid=guid,
+					url=complete_info['url'],
+					path=complete_info['path'],
+					file_name=complete_info['file_name'],
+					file_size=complete_info['file_size'],
+					file_type=complete_info['file_type'],
+				)
+			)
+			self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
+		finally:
+			if guid in self._cdp_downloads_info:
+				del self._cdp_downloads_info[guid]
+
 	def _track_download(self, file_path: str, guid: str | None = None) -> None:
 		"""Track a completed download and dispatch the appropriate event.
 
@@ -891,11 +913,7 @@ class DownloadsWatchdog(BaseWatchdog):
 					'file_type': file_ext if file_ext else None,
 					'auto_download': False,
 				}
-				for callback in self._download_complete_callbacks:
-					try:
-						callback(complete_info)
-					except Exception as e:
-						self.logger.debug(f'[DownloadsWatchdog] Error in download complete callback: {e}')
+				self._notify_download_complete_callbacks(complete_info)
 
 				# Dispatch download event
 				from browser_use.browser.events import FileDownloadedEvent
