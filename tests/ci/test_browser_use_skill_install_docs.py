@@ -42,6 +42,19 @@ def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
 		encoding='utf-8',
 	)
 	browser_harness.chmod(0o755)
+
+	if sys.platform == 'win32':
+		uv_bat = bin_dir / 'uv.bat'
+		uv_bat.write_text(
+			f'@echo off\n"{sys.executable}" "{uv}" %*\n',
+			encoding='utf-8',
+		)
+		harness_bat = bin_dir / 'browser-harness.bat'
+		harness_bat.write_text(
+			f'@echo off\n"{sys.executable}" "{browser_harness}" %*\n',
+			encoding='utf-8',
+		)
+
 	return bin_dir
 
 
@@ -67,6 +80,8 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 	uv_args = tmp_path / 'uv-args.txt'
 	env = os.environ.copy()
 	env['HOME'] = str(home)
+	if sys.platform == 'win32':
+		env['USERPROFILE'] = env['HOME']
 	env['PATH'] = os.pathsep.join(part for part in (str(bin_dir), env.get('PATH', '')) if part)
 	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
 	env['UV_TOOL_INSTALL_ARGS_FILE'] = str(uv_args)
@@ -101,6 +116,8 @@ def test_browser_use_cli_validates_destination_before_installing_harness(tmp_pat
 	uv_args = tmp_path / 'uv-args.txt'
 	env = os.environ.copy()
 	env['HOME'] = str(tmp_path / 'home')
+	if sys.platform == 'win32':
+		env['USERPROFILE'] = env['HOME']
 	env['PATH'] = os.pathsep.join(part for part in (str(bin_dir), env.get('PATH', '')) if part)
 	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
 	env['UV_TOOL_INSTALL_ARGS_FILE'] = str(uv_args)
