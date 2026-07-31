@@ -7,7 +7,7 @@ import signal
 import time
 from collections.abc import Callable, Coroutine
 from fnmatch import fnmatch
-from functools import cache, wraps
+from functools import cache, lru_cache, wraps
 from pathlib import Path
 from sys import stderr
 from typing import Any, ParamSpec, TypeVar
@@ -73,11 +73,139 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 	return sensitive_values
 
 
+@lru_cache(maxsize=128)
+def _get_redact_pattern_and_mapping(
+	sensitive_values_tuple: tuple[tuple[str, str], ...],
+) -> tuple[re.Pattern[str] | None, dict[str, str], list[tuple[str, str]]]:
+	"""Build and compile a literal-only regex pattern plus lookup maps.
+
+	The pattern matches raw secret values only (no ``<secret>`` tag handling),
+	which avoids cascade re-redaction of already-generated tags. Results are
+	cached so the same set of secrets is not recompiled across redaction calls.
+	"""
+	secret_to_keys: dict[str, list[str]] = {}
+	for key, secret in sensitive_values_tuple:
+		key_str = str(key)
+		secret_str = str(secret)
+		if not secret_str:
+			continue
+		secret_to_keys.setdefault(secret_str, []).append(key_str)
+
+	if not secret_to_keys:
+		return None, {}, []
+
+	sorted_secrets = sorted(secret_to_keys.keys(), key=len, reverse=True)
+	pattern = re.compile('|'.join(re.escape(s) for s in sorted_secrets))
+
+	replacement_mapping = {secret: f'<secret>{", ".join(sorted(keys))}</secret>' for secret, keys in secret_to_keys.items()}
+	# Pre-sorted by secret length descending so callers can iterate longest-first
+	# without re-sorting on every redaction call.
+	plain_mapping = [(secret, ', '.join(sorted(secret_to_keys[secret]))) for secret in sorted_secrets]
+
+	return pattern, replacement_mapping, plain_mapping
+
+
+def _split_secret_tags(value: str) -> list[str]:
+	"""Split *value* around balanced ``<secret>...</secret>`` pairs.
+
+	Returns a list of alternating segments: plain text, tag inner content, plain
+	text, ... Unclosed or stray tags are left as plain text. Uses str.find (C
+	speed) rather than a per-character scan.
+	"""
+	open_tag = '<secret>'
+	close_tag = '</secret>'
+	open_len = len(open_tag)
+	close_len = len(close_tag)
+
+	parts = []
+	last = 0
+	i = 0
+	n = len(value)
+
+	while i < n:
+		start = value.find(open_tag, i)
+		if start == -1:
+			break
+		# Find the close marker that balances this open, respecting nesting.
+		depth = 1
+		j = start + open_len
+		while depth:
+			next_close = value.find(close_tag, j)
+			next_open = value.find(open_tag, j)
+			if next_open != -1 and (next_close == -1 or next_open < next_close):
+				depth += 1
+				j = next_open + open_len
+			elif next_close != -1:
+				depth -= 1
+				j = next_close + close_len
+			else:
+				break
+		if depth:
+			break  # unclosed tag: everything from `last` stays plain text
+		parts.append(value[last:start])
+		parts.append(value[start + open_len : j - close_len])
+		last = j
+		i = j
+
+	parts.append(value[last:])
+	return parts
+
+
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
-	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
-	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
-	return value
+	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks.
+
+	Raw secrets are matched in a single pass via a cached literal-only regex, and
+	pre-existing ``<secret>...</secret>`` tags are split out beforehand (with
+	balanced-pair parsing) so their inner contents are redacted separately
+	without re-scanning tag boundaries.
+	"""
+	if not isinstance(value, str) or not value or not sensitive_values:
+		return value
+
+	sensitive_tuple = tuple(sorted((str(k), str(v)) for k, v in sensitive_values.items()))
+	pattern, mapping, plain_mapping = _get_redact_pattern_and_mapping(sensitive_tuple)
+
+	if not pattern:
+		return value
+
+	# Fast path: no existing <secret> tags means a single regex substitution.
+	if '<secret>' not in value:
+		return pattern.sub(lambda m: mapping[m.group(0)], value)
+
+	# Split on balanced existing tags: odd-indexed parts are tag contents, even
+	# parts are unredacted text.
+	parts = _split_secret_tags(value)
+	key_list_strings = {keys_str for _, keys_str in plain_mapping}
+	for i, part in enumerate(parts):
+		if i % 2 == 1:
+			# Existing tag: redact raw secrets inside it, longest-first.
+			if not part:
+				# Preserve empty markers as-is instead of deleting them.
+				parts[i] = '<secret></secret>'
+				continue
+			# A configured secret may itself look like a full balanced tag
+			# (e.g. "<secret>foo</secret>"). Redact it instead of mistaking it
+			# for a pre-existing placeholder, which would leak the raw value.
+			full_tag = f'<secret>{part}</secret>'
+			if full_tag in mapping:
+				parts[i] = mapping[full_tag]
+				continue
+			# If the tag already contains exactly a generated key list, it is a
+			# placeholder from a previous redaction pass and should stay unchanged
+			# to keep redaction idempotent.
+			if part in key_list_strings:
+				parts[i] = full_tag
+				continue
+			inner = part
+			for secret, keys_str in plain_mapping:
+				if secret in inner:
+					inner = inner.replace(secret, keys_str)
+			parts[i] = f'<secret>{inner}</secret>'
+		else:
+			# Unredacted text: replace raw secrets with placeholder tags.
+			parts[i] = pattern.sub(lambda m: mapping[m.group(0)], part)
+
+	return ''.join(parts)
 
 
 def _get_openai_bad_request_error() -> type | None:
