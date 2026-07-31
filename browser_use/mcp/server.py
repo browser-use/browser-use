@@ -133,8 +133,7 @@ _ensure_all_loggers_use_stderr()
 try:
 	import mcp.server.stdio
 	import mcp.types as types
-	from mcp.server import NotificationOptions, Server
-	from mcp.server.lowlevel.server import ServerRequestContext
+	from mcp.server import NotificationOptions, Server, ServerRequestContext
 	from mcp.server.models import InitializationOptions
 
 	MCP_AVAILABLE = True
@@ -498,7 +497,7 @@ class BrowserUseServer:
 
 	async def _execute_tool(
 		self, tool_name: str, arguments: dict[str, Any]
-	) -> str | list[types.TextContent | types.ImageContent]:
+	) -> str | list[types.ContentBlock]:
 		"""Execute a browser-use tool. Returns str for most tools, or a content list for tools with image output."""
 
 		# Agent-based tools
@@ -543,7 +542,7 @@ class BrowserUseServer:
 
 			elif tool_name == 'browser_get_state':
 				state_json, screenshot_b64 = await self._get_browser_state(arguments.get('include_screenshot', False))
-				content: list[types.TextContent | types.ImageContent] = [types.TextContent(type='text', text=state_json)]
+				content: list[types.ContentBlock] = [types.TextContent(type='text', text=state_json)]
 				if screenshot_b64:
 					content.append(types.ImageContent(type='image', data=screenshot_b64, mime_type='image/png'))
 				return content
@@ -553,7 +552,7 @@ class BrowserUseServer:
 
 			elif tool_name == 'browser_screenshot':
 				meta_json, screenshot_b64 = await self._screenshot(arguments.get('full_page', False))
-				content: list[types.TextContent | types.ImageContent] = [types.TextContent(type='text', text=meta_json)]
+				content: list[types.ContentBlock] = [types.TextContent(type='text', text=meta_json)]
 				if screenshot_b64:
 					content.append(types.ImageContent(type='image', data=screenshot_b64, mime_type='image/png'))
 				return content

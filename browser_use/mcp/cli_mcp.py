@@ -12,8 +12,7 @@ from typing import Any
 
 import mcp.server.stdio
 import mcp.types as types
-from mcp.server import NotificationOptions, Server
-from mcp.server.lowlevel.server import ServerRequestContext
+from mcp.server import NotificationOptions, Server, ServerRequestContext
 from mcp.server.models import InitializationOptions
 
 from browser_use.utils import get_browser_use_version
