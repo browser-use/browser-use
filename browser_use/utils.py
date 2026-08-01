@@ -657,6 +657,16 @@ def merge_dicts(a: dict, b: dict, path: tuple[str, ...] = ()):
 	return a
 
 
+def _strip_utf8_bom(raw: bytes) -> bytes:
+	"""Strip a single leading UTF-8 BOM (EF BB BF) from *raw* if present.
+
+	Unlike ``bytes.lstrip``, which removes any combination of the bytes EF/BB/BF,
+	this removes only the exact 3-byte prefix, so a lone 0xEF, 0xBB, or 0xBF (or
+	a partial BOM) is never stripped from the start of the file.
+	"""
+	return raw.removeprefix(b'\xef\xbb\xbf')
+
+
 @cache
 def get_browser_use_version() -> str:
 	"""Get the browser-use package version using the same logic as Agent._set_browser_use_version_and_source"""
@@ -672,7 +682,7 @@ def get_browser_use_version() -> str:
 			import tomllib
 
 			with open(pyproject_path, 'rb') as f:
-				content = f.read().lstrip(b'\xef\xbb\xbf')
+				content = _strip_utf8_bom(f.read())
 			data = tomllib.loads(content.decode('utf-8'))
 			version = data.get('project', {}).get('version')
 			if version is not None:
