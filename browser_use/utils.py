@@ -81,9 +81,9 @@ def _get_redact_pattern_and_mapping(
 	The pattern matches raw secret values only (no ``<secret>`` tag handling),
 	which avoids cascade re-redaction of already-generated tags. The compiled
 	pattern and the secret-bearing lookup maps are rebuilt on every call on
-	purpose, and CPython's process-global ``re._cache`` is purged right after
-	compiling, so raw secret material is never retained in a process-global
-	cache beyond the redaction request that produced it.
+	purpose, and only the helper's own secret-bearing entry is evicted from
+	CPython's process-global ``re._cache`` after compiling, so raw secret material
+	never survives the call and unrelated regexes in the process stay cached.
 	"""
 	secret_to_keys: dict[str, list[str]] = {}
 	for key, secret in sensitive_values_tuple:
@@ -97,11 +97,17 @@ def _get_redact_pattern_and_mapping(
 		return None, {}, []
 
 	sorted_secrets = sorted(secret_to_keys.keys(), key=len, reverse=True)
-	pattern = re.compile('|'.join(re.escape(s) for s in sorted_secrets))
-	# re.compile() stores the secret-bearing pattern string in CPython's
-	# process-global re._cache. Drop it immediately so raw secret material does
-	# not outlive this call; the held `pattern` object stays usable afterwards.
-	re.purge()
+	pattern_str = '|'.join(re.escape(s) for s in sorted_secrets)
+	pattern = re.compile(pattern_str)
+	# re.compile() stored the secret-bearing pattern string in CPython's
+	# process-global re._cache. Evict ONLY the entries keyed by that pattern
+	# string (across any flags) so the raw secret text does not outlive this
+	# call, while leaving every unrelated regex in the application cached. The
+	# held `pattern` object stays fully usable afterwards.
+	_re_cache = getattr(re, '_cache', None)
+	if isinstance(_re_cache, dict):
+		for key in [k for k in _re_cache if (len(k) >= 2 and k[-2] == pattern_str)]:
+			_re_cache.pop(key, None)
 
 	replacement_mapping = {secret: f'<secret>{", ".join(sorted(keys))}</secret>' for secret, keys in secret_to_keys.items()}
 	# Pre-sorted by secret length descending so callers can iterate longest-first

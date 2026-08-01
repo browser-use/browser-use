@@ -338,10 +338,15 @@ def test_redact_inside_existing_tag_uses_single_pass_no_cascade():
 
 def test_redact_does_not_retain_secrets_in_re_internal_cache():
 	"""re.compile() stores pattern strings in CPython's process-global re._cache.
-	A redaction call must purge that cache so the secret-bearing pattern does not
-	survive the call. Regression guard for the process-global re._cache leak.
+	A redaction call must evict only its own secret-bearing entry, leaving
+	unrelated cached regexes intact. Regression guard for the re._cache leak and
+	for the broad-purge regression where re.purge() evicted every regex in the
+	process.
 	"""
 	import re
+
+	# Warm the cache with an unrelated, non-secret-bearing pattern first.
+	re.compile(r'\d{4}-\d{2}-\d{2}')
 
 	secret = 'supersecret-value-xyz'
 	redact_sensitive_string(f'leak {secret}', {'password': secret})
@@ -350,7 +355,21 @@ def test_redact_does_not_retain_secrets_in_re_internal_cache():
 	cache = getattr(re, '_cache', None)
 	if cache is None:
 		return
+
+	def _pattern_str(key: object) -> str:
+		# Cache keys look like (type, pattern_str, flags) in 3.12; older/some
+		# impls use (pattern_str, flags). The pattern string is the first str
+		# element, or the second of a 2-tuple.
+		if isinstance(key, tuple):
+			for elem in key:
+				if isinstance(elem, str) and not isinstance(elem, type):
+					return elem
+		return str(key)
+
 	for key in cache:
-		# Cache keys are tuples whose first element is the pattern string.
-		pattern_str = key[0] if isinstance(key, tuple) else str(key)
-		assert secret not in pattern_str, f'raw secret survived in re._cache: {pattern_str!r}'
+		pstr = _pattern_str(key)
+		assert secret not in pstr, f'raw secret survived in re._cache: {pstr!r}'
+
+	# The unrelated pattern must still be cached (no broad re.purge() side effect).
+	patterns_in_cache = {_pattern_str(k) for k in cache}
+	assert r'\d{4}-\d{2}-\d{2}' in patterns_in_cache, 'unrelated re._cache entry was evicted (broad purge regression)'
