@@ -79,11 +79,7 @@ def _get_redact_pattern_and_mapping(
 	"""Build and compile a literal-only regex pattern plus lookup maps.
 
 	The pattern matches raw secret values only (no ``<secret>`` tag handling),
-	which avoids cascade re-redaction of already-generated tags. The compiled
-	pattern and the secret-bearing lookup maps are rebuilt on every call on
-	purpose, and only the helper's own secret-bearing entry is evicted from
-	CPython's process-global ``re._cache`` after compiling, so raw secret material
-	never survives the call and unrelated regexes in the process stay cached.
+	which avoids cascade re-redaction of already-generated tags.
 	"""
 	secret_to_keys: dict[str, list[str]] = {}
 	for key, secret in sensitive_values_tuple:
@@ -99,11 +95,8 @@ def _get_redact_pattern_and_mapping(
 	sorted_secrets = sorted(secret_to_keys.keys(), key=len, reverse=True)
 	pattern_str = '|'.join(re.escape(s) for s in sorted_secrets)
 	pattern = re.compile(pattern_str)
-	# re.compile() stored the secret-bearing pattern string in CPython's
-	# process-global re._cache. Evict ONLY the entries keyed by that pattern
-	# string (across any flags) so the raw secret text does not outlive this
-	# call, while leaving every unrelated regex in the application cached. The
-	# held `pattern` object stays fully usable afterwards.
+	# Drop the secret-bearing cache entry so raw secret text does not survive
+	# the call; unrelated regexes stay cached.
 	_re_cache = getattr(re, '_cache', None)
 	if isinstance(_re_cache, dict):
 		for key in [k for k in _re_cache if (len(k) >= 2 and k[-2] == pattern_str)]:
