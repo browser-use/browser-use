@@ -658,12 +658,7 @@ def merge_dicts(a: dict, b: dict, path: tuple[str, ...] = ()):
 
 
 def _strip_utf8_bom(raw: bytes) -> bytes:
-	"""Strip a single leading UTF-8 BOM (EF BB BF) from *raw* if present.
-
-	Unlike ``bytes.lstrip``, which removes any combination of the bytes EF/BB/BF,
-	this removes only the exact 3-byte prefix, so a lone 0xEF, 0xBB, or 0xBF (or
-	a partial BOM) is never stripped from the start of the file.
-	"""
+	"""Strip a single leading UTF-8 BOM (EF BB BF) if present, not lone bytes."""
 	return raw.removeprefix(b'\xef\xbb\xbf')
 
 

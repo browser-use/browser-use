@@ -72,27 +72,13 @@ def test_later_release_candidate_is_newer():
 
 
 def test_strip_utf8_bom_only_removes_a_full_bom_prefix():
-	"""A full UTF-8 BOM (EF BB BF) is stripped; partial or lone BOM bytes are not.
-
-	Regression guard: ``bytes.lstrip(b'\\xef\\xbb\\xbf')`` would strip any
-	combination of those bytes, silently corrupting files that start with a lone
-	0xEF, 0xBB, or 0xBF instead of the exact 3-byte BOM.
-	"""
-	# A full BOM prefix is removed so real content (e.g. a TOML header) survives.
+	"""A full UTF-8 BOM (EF BB BF) is stripped; partial or lone BOM bytes are not."""
 	assert _strip_utf8_bom(b'\xef\xbb\xbf[project]\nversion = "1.0"') == b'[project]\nversion = "1.0"'
-
-	# Partial BOMs are NOT a BOM and must be left intact.
 	assert _strip_utf8_bom(b'\xef\xbb[project]') == b'\xef\xbb[project]'
 	assert _strip_utf8_bom(b'\xbb\xbf[project]') == b'\xbb\xbf[project]'
-
-	# A lone 0xEF, 0xBB, or 0xBF byte must never be stripped.
 	assert _strip_utf8_bom(b'\xef[project]') == b'\xef[project]'
 	assert _strip_utf8_bom(b'\xbb[project]') == b'\xbb[project]'
 	assert _strip_utf8_bom(b'\xbf[project]') == b'\xbf[project]'
-
-	# Only a single prefix is stripped (removeprefix, not lstrip-style sweeping).
 	assert _strip_utf8_bom(b'\xef\xbb\xbf\xef\xbb\xbf') == b'\xef\xbb\xbf'
-
-	# No BOM present: bytes are unchanged; empty input stays empty.
 	assert _strip_utf8_bom(b'[project]\nversion = "1.0"') == b'[project]\nversion = "1.0"'
 	assert _strip_utf8_bom(b'') == b''
