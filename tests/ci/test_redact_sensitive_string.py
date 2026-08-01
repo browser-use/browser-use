@@ -334,3 +334,23 @@ def test_redact_inside_existing_tag_uses_single_pass_no_cascade():
 	# re-scanned, so the result stays 'k1', not a cascaded 'k2'.
 	result = redact_sensitive_string('<secret>say k1 now</secret>', {'k2': 'k1', 'k1': 'say k1 now'})
 	assert result == '<secret>k1</secret>'
+
+
+def test_redact_does_not_retain_secrets_in_re_internal_cache():
+	"""re.compile() stores pattern strings in CPython's process-global re._cache.
+	A redaction call must purge that cache so the secret-bearing pattern does not
+	survive the call. Regression guard for the process-global re._cache leak.
+	"""
+	import re
+
+	secret = 'supersecret-value-xyz'
+	redact_sensitive_string(f'leak {secret}', {'password': secret})
+
+	# CPython exposes the cache as re._cache (may be absent on other impls).
+	cache = getattr(re, '_cache', None)
+	if cache is None:
+		return
+	for key in cache:
+		# Cache keys are tuples whose first element is the pattern string.
+		pattern_str = key[0] if isinstance(key, tuple) else str(key)
+		assert secret not in pattern_str, f'raw secret survived in re._cache: {pattern_str!r}'

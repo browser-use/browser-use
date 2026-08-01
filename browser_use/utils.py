@@ -81,7 +81,8 @@ def _get_redact_pattern_and_mapping(
 	The pattern matches raw secret values only (no ``<secret>`` tag handling),
 	which avoids cascade re-redaction of already-generated tags. The compiled
 	pattern and the secret-bearing lookup maps are rebuilt on every call on
-	purpose, so raw secret material is never retained in a process-global
+	purpose, and CPython's process-global ``re._cache`` is purged right after
+	compiling, so raw secret material is never retained in a process-global
 	cache beyond the redaction request that produced it.
 	"""
 	secret_to_keys: dict[str, list[str]] = {}
@@ -97,6 +98,10 @@ def _get_redact_pattern_and_mapping(
 
 	sorted_secrets = sorted(secret_to_keys.keys(), key=len, reverse=True)
 	pattern = re.compile('|'.join(re.escape(s) for s in sorted_secrets))
+	# re.compile() stores the secret-bearing pattern string in CPython's
+	# process-global re._cache. Drop it immediately so raw secret material does
+	# not outlive this call; the held `pattern` object stays usable afterwards.
+	re.purge()
 
 	replacement_mapping = {secret: f'<secret>{", ".join(sorted(keys))}</secret>' for secret, keys in secret_to_keys.items()}
 	# Pre-sorted by secret length descending so callers can iterate longest-first
