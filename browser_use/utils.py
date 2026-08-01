@@ -98,11 +98,24 @@ def _get_redact_pattern_and_mapping(
 	# Evict the secret-bearing pattern from every CPython re cache (3.12 uses
 	# both _cache and _cache2) so the secret text does not survive the call;
 	# unrelated regexes stay cached.
+	_evicted = False
 	for _attr in ('_cache', '_cache2'):
 		_cache = getattr(re, _attr, None)
 		if isinstance(_cache, dict):
-			for key in [k for k in _cache if len(k) >= 2 and k[-2] == pattern_str]:
-				_cache.pop(key, None)
+			_evicted = True
+			# Snapshot keys (single GIL-held call) before mutating: a foreign
+			# re.compile on another thread can otherwise trigger "dictionary
+			# keys changed during iteration". pop(key, None) tolerates a key
+			# already evicted by another thread.
+			for key in list(_cache):
+				if len(key) >= 2 and key[-2] == pattern_str:
+					_cache.pop(key, None)
+	# Defensive fallback on runtimes whose re internals differ: a single atomic
+	# re.purge() is thread-safe and drops the secret-bearing pattern from any
+	# unspecified cache. Narrow race remains if a concurrent re.compile re-caches
+	# the pattern after we evicted, but each redaction call re-evicts.
+	if not _evicted:
+		re.purge()
 
 	replacement_mapping = {secret: f'<secret>{", ".join(sorted(keys))}</secret>' for secret, keys in secret_to_keys.items()}
 	# Pre-sorted by secret length descending so callers can iterate longest-first
@@ -191,12 +204,13 @@ def _split_secret_tags(value: str, raw_spans: list[tuple[int, int]] | None = Non
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
 	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks.
 
-	Raw secrets are matched in a single pass via a cached literal-only regex, and
-	pre-existing ``<secret>...</secret>`` tags are split out (with balanced-pair
-	parsing) so their inner contents are redacted separately without re-scanning
-	tag boundaries. A configured secret that itself contains literal tag markers
-	(e.g. ``x<secret>y</secret>z``) is located before splitting so its full
-	occurrence is redacted instead of being shredded by tag parsing.
+	Raw secrets are matched in a single pass via a literal-only regex that is
+	rebuilt per call (no caching), and pre-existing ``<secret>...</secret>`` tags
+	are split out (with balanced-pair parsing) so their inner contents are
+	redacted separately without re-scanning tag boundaries. A configured secret
+	that itself contains literal tag markers (e.g. ``x<secret>y</secret>z``) is
+	located before splitting so its full occurrence is redacted instead of being
+	shredded by tag parsing.
 	"""
 	if not isinstance(value, str) or not value or not sensitive_values:
 		return value
@@ -223,6 +237,33 @@ def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str
 	key_list_strings = {keys_str for _, keys_str in plain_mapping}
 	secret_values = {secret for secret, _ in plain_mapping}
 	plain_map = dict(plain_mapping)
+	# Cyclic-collision key lists: a generated key-list string that is itself a
+	# secret value AND whose substitute leads back to it (e.g. {'a':'b','b':'a'}
+	# -> 'a'<->'b'). Re-substituting such a placeholder flips it to the other
+	# key forever; freeze it once it is in tag form. A non-cyclic overlap
+	# (e.g. {'k2':'k1','k1':'xyz'} where 'k1' is both a key list and a secret
+	# value but its substitute 'k2' has no way back) is NOT frozen - the raw
+	# secret must still be redacted to its own keys.
+	cyclic_key_lists = set()
+	for _secret in secret_values:
+		keys_str = plain_map.get(_secret)
+		if keys_str in key_list_strings:
+			# Walk the substitute chain; bail at length cap to bound cost.
+			seen = {_secret}
+			cur = keys_str
+			cyclic = False
+			for _ in range(32):
+				if cur in secret_values and cur not in seen:
+					seen.add(cur)
+					nxt = plain_map.get(cur)
+					if nxt == _secret:
+						cyclic = True
+						break
+					cur = nxt
+					continue
+				break
+			if cyclic:
+				cyclic_key_lists.add(keys_str)
 	for i, part in enumerate(parts):
 		if i % 2 == 1:
 			# Existing tag: redact raw secrets inside it, longest-first.
@@ -240,10 +281,10 @@ def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str
 				continue
 			# If the tag already contains exactly a generated key list, it is a
 			# placeholder from a previous redaction pass and should stay
-			# unchanged to keep redaction idempotent - unless that text is
-			# itself a configured secret value, which must be redacted to its
-			# own keys even inside tag-like text.
-			if part in key_list_strings and part not in secret_values:
+			# unchanged to keep redaction idempotent. For a key list that is
+			# itself a configured secret value (cyclic collision), freezing is
+			# the only convergent choice — re-substitution would flip-flop.
+			if part in key_list_strings and (part in cyclic_key_lists or part not in secret_values):
 				parts[i] = full_tag
 				continue
 			inner = pattern.sub(lambda m: plain_map[m.group(0)], part)

@@ -1,3 +1,7 @@
+import platform
+import re
+import sys
+
 from browser_use.utils import _get_redact_pattern_and_mapping, redact_sensitive_string
 
 
@@ -368,3 +372,81 @@ def test_redact_does_not_retain_secrets_in_re_internal_cache():
 
 		patterns = {_pattern_str(k) for k in cache}
 		assert r'\d{4}-\d{2}-\d{2}' in patterns, f'unrelated regex evicted from re.{_attr}'
+
+
+def test_redact_cache_eviction_assumes_familiar_re_cache_shape_on_cpython():
+	"""On supported CPython the no-retention guarantee rests on re._cache or
+	re._cache2 being dict caches keyed by a tuple whose pattern position holds
+	the escaped secret. If a future CPython drops both, the guarantee silently
+	no-ops - fail loudly instead, then re-introduce a fallback.
+	"""
+	import re
+
+	if not platform.python_implementation() == 'CPython' or sys.version_info < (3, 10):
+		return  # guarantee is best-effort only on non-CPython / older versions
+
+	has_at_least_one = any(isinstance(getattr(re, a, None), dict) for a in ('_cache', '_cache2'))
+	assert has_at_least_one, 'neither re._cache nor re._cache2 is a dict; eviction silently no-ops'
+
+
+def test_redact_survives_concurrent_re_compile_churn():
+	"""Concurrent re.compile (which mutates re._cache/_cache2) must not crash
+	regression of the unsynchronized eviction loop ("dictionary keys changed
+	during iteration"). Runs 2 compile-churn threads + 1 redact loop.
+	"""
+	import threading
+
+	from browser_use.utils import redact_sensitive_string
+
+	stop = threading.Event()
+	errors: list[BaseException] = []
+
+	def churn_compile():
+		i = 0
+		while not stop.is_set():
+			re.compile(f'churn-pattern-{i % 600}')
+			i += 1
+
+	def churn_redact():
+		for i in range(2000):
+			try:
+				redact_sensitive_string(f'leak secret-value-{i}', {'password': f'secret-value-{i}'})
+			except BaseException as e:  # noqa: BLE001
+				errors.append(e)
+				stop.set()
+				return
+		stop.set()
+
+	# First pre-warm by compiling so the cache is non-empty, exercising eviction.
+	re.compile('warmup-pattern-0')
+
+	t1 = threading.Thread(target=churn_compile)
+	t2 = threading.Thread(target=churn_compile)
+	t3 = threading.Thread(target=churn_redact)
+	t1.start()
+	t2.start()
+	t3.start()
+	t3.join()
+	stop.set()
+	t1.join()
+	t2.join()
+
+	assert not errors, f'redactSensitiveString crashed under concurrent re.compile churn: {errors[0]!r}'
+
+
+def test_redact_cyclic_key_value_secrets_converge():
+	"""Cyclic key/value secrets (e.g. {'a':'b','b':'a'}) where one key's
+	generated placeholder text equals another's secret value must not flip-flop
+	after the first redaction pass.
+	"""
+	import re
+
+	secrets = {'a': 'b', 'b': 'a'}
+	first = redact_sensitive_string('<secret>a</secret>', secrets)
+	second = redact_sensitive_string(first, secrets)
+	third = redact_sensitive_string(second, secrets)
+	# Convergence: repeat redaction must not mutate the placeholder.
+	assert second == third, f'cyclic secrets flip-flop: {first!r} -> {second!r} -> {third!r}'
+	# Once in tag form, the placeholder must not reveal either raw secret.
+	stripped = re.sub(r'<secret>.*?</secret>', '', first)
+	assert 'a' not in stripped and 'b' not in stripped, f'raw secret leaked: {stripped!r}'
