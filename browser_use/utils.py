@@ -7,7 +7,7 @@ import signal
 import time
 from collections.abc import Callable, Coroutine
 from fnmatch import fnmatch
-from functools import cache, lru_cache, wraps
+from functools import cache, wraps
 from pathlib import Path
 from sys import stderr
 from typing import Any, ParamSpec, TypeVar
@@ -73,15 +73,16 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 	return sensitive_values
 
 
-@lru_cache(maxsize=128)
 def _get_redact_pattern_and_mapping(
 	sensitive_values_tuple: tuple[tuple[str, str], ...],
 ) -> tuple[re.Pattern[str] | None, dict[str, str], list[tuple[str, str]]]:
 	"""Build and compile a literal-only regex pattern plus lookup maps.
 
 	The pattern matches raw secret values only (no ``<secret>`` tag handling),
-	which avoids cascade re-redaction of already-generated tags. Results are
-	cached so the same set of secrets is not recompiled across redaction calls.
+	which avoids cascade re-redaction of already-generated tags. The compiled
+	pattern and the secret-bearing lookup maps are rebuilt on every call on
+	purpose, so raw secret material is never retained in a process-global
+	cache beyond the redaction request that produced it.
 	"""
 	secret_to_keys: dict[str, list[str]] = {}
 	for key, secret in sensitive_values_tuple:
@@ -215,6 +216,7 @@ def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str
 	parts = _split_secret_tags(value, raw_spans)
 	key_list_strings = {keys_str for _, keys_str in plain_mapping}
 	secret_values = {secret for secret, _ in plain_mapping}
+	plain_map = dict(plain_mapping)
 	for i, part in enumerate(parts):
 		if i % 2 == 1:
 			# Existing tag: redact raw secrets inside it, longest-first.
@@ -238,10 +240,7 @@ def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str
 			if part in key_list_strings and part not in secret_values:
 				parts[i] = full_tag
 				continue
-			inner = part
-			for secret, keys_str in plain_mapping:
-				if secret in inner:
-					inner = inner.replace(secret, keys_str)
+			inner = pattern.sub(lambda m: plain_map[m.group(0)], part)
 			parts[i] = f'<secret>{inner}</secret>'
 		else:
 			# Unredacted text: replace raw secrets with placeholder tags.

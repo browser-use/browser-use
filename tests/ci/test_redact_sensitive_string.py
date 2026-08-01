@@ -1,4 +1,4 @@
-from browser_use.utils import redact_sensitive_string
+from browser_use.utils import _get_redact_pattern_and_mapping, redact_sensitive_string
 
 
 def test_redact_sensitive_string_cascade():
@@ -293,3 +293,44 @@ def test_redact_sensitive_string_secret_is_empty_marker():
 	# Unrelated empty markers must still be preserved.
 	unrelated = redact_sensitive_string('before <secret></secret> after', {'password': 'supersecret'})
 	assert unrelated == 'before <secret></secret> after'
+
+
+def test_redact_pattern_helper_holds_no_process_global_secret_cache():
+	"""The pattern/mapping helper must not keep raw secret material in a
+	process-global @lru_cache, so secrets cannot outlive the redaction call.
+	"""
+	# No @lru_cache machinery may be attached to the helper.
+	assert not hasattr(_get_redact_pattern_and_mapping, 'cache_info')
+	assert not hasattr(_get_redact_pattern_and_mapping, 'cache_clear')
+
+	secrets_a = (('token', 'super-secret-value-a'),)
+	secrets_b = (('token', 'super-secret-value-b'),)
+
+	_pattern_a, mapping_a, plain_a = _get_redact_pattern_and_mapping(secrets_a)
+	_pattern_b, mapping_b, plain_b = _get_redact_pattern_and_mapping(secrets_b)
+
+	# Independent objects per call: no shared cached state to mutate or inspect
+	# across requests.
+	assert mapping_a is not mapping_b
+	assert plain_a is not plain_b
+	# A's compiled maps must not retain a different call's secret text.
+	assert 'super-secret-value-b' not in mapping_a
+	assert 'super-secret-value-a' not in mapping_b
+
+	# After redacting with secret A, a subsequent B lookup must still be clean
+	# of A's secret (no lingering global retention).
+	redact_sensitive_string('leak super-secret-value-a', {'token': 'super-secret-value-a'})
+	_, mapping_b2, _ = _get_redact_pattern_and_mapping(secrets_b)
+	assert 'super-secret-value-a' not in mapping_b2
+
+
+def test_redact_inside_existing_tag_uses_single_pass_no_cascade():
+	"""Inner tag content is redacted in a single pass: a secret whose generated
+	key-list text coincides with another secret's value must not be re-redacted
+	into the other key inside the existing tag (no cascade re-redaction).
+	"""
+	# 'say k1 now' (key=k1) sits inside an existing tag. Its placeholder is 'k1',
+	# which is also the secret value for key k2 — but placeholders are never
+	# re-scanned, so the result stays 'k1', not a cascaded 'k2'.
+	result = redact_sensitive_string('<secret>say k1 now</secret>', {'k2': 'k1', 'k1': 'say k1 now'})
+	assert result == '<secret>k1</secret>'
