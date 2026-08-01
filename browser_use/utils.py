@@ -95,12 +95,14 @@ def _get_redact_pattern_and_mapping(
 	sorted_secrets = sorted(secret_to_keys.keys(), key=len, reverse=True)
 	pattern_str = '|'.join(re.escape(s) for s in sorted_secrets)
 	pattern = re.compile(pattern_str)
-	# Drop the secret-bearing cache entry so raw secret text does not survive
-	# the call; unrelated regexes stay cached.
-	_re_cache = getattr(re, '_cache', None)
-	if isinstance(_re_cache, dict):
-		for key in [k for k in _re_cache if (len(k) >= 2 and k[-2] == pattern_str)]:
-			_re_cache.pop(key, None)
+	# Evict the secret-bearing pattern from every CPython re cache (3.12 uses
+	# both _cache and _cache2) so the secret text does not survive the call;
+	# unrelated regexes stay cached.
+	for _attr in ('_cache', '_cache2'):
+		_cache = getattr(re, _attr, None)
+		if isinstance(_cache, dict):
+			for key in [k for k in _cache if len(k) >= 2 and k[-2] == pattern_str]:
+				_cache.pop(key, None)
 
 	replacement_mapping = {secret: f'<secret>{", ".join(sorted(keys))}</secret>' for secret, keys in secret_to_keys.items()}
 	# Pre-sorted by secret length descending so callers can iterate longest-first

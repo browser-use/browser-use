@@ -337,8 +337,8 @@ def test_redact_inside_existing_tag_uses_single_pass_no_cascade():
 
 
 def test_redact_does_not_retain_secrets_in_re_internal_cache():
-	"""A redaction call must evict only its own secret-bearing re._cache entry,
-	leaving unrelated cached regexes intact.
+	"""A redaction call must evict its own secret-bearing pattern from every re
+	cache (3.12 keeps _cache and _cache2), leaving unrelated regexes intact.
 	"""
 	import re
 
@@ -347,9 +347,9 @@ def test_redact_does_not_retain_secrets_in_re_internal_cache():
 	secret = 'supersecret-value-xyz'
 	redact_sensitive_string(f'leak {secret}', {'password': secret})
 
-	cache = getattr(re, '_cache', None)
-	if cache is None:
-		return
+	# The escaped pattern string re.compile stored — checking the raw secret is
+	# vacuous since re.escape backslashes it (supersecret\-value\-xyz).
+	escaped_secret = re.escape(secret)
 
 	def _pattern_str(key: object) -> str:
 		if isinstance(key, tuple):
@@ -358,9 +358,13 @@ def test_redact_does_not_retain_secrets_in_re_internal_cache():
 					return elem
 		return str(key)
 
-	for key in cache:
-		pstr = _pattern_str(key)
-		assert secret not in pstr, f'raw secret survived in re._cache: {pstr!r}'
+	for _attr in ('_cache', '_cache2'):
+		cache = getattr(re, _attr, None)
+		if not isinstance(cache, dict):
+			continue
+		for key in cache:
+			pstr = _pattern_str(key)
+			assert escaped_secret not in pstr, f'secret-bearing pattern survived in re.{_attr}: {pstr!r}'
 
-	patterns_in_cache = {_pattern_str(k) for k in cache}
-	assert r'\d{4}-\d{2}-\d{2}' in patterns_in_cache, 'unrelated re._cache entry was evicted'
+		patterns = {_pattern_str(k) for k in cache}
+		assert r'\d{4}-\d{2}-\d{2}' in patterns, f'unrelated regex evicted from re.{_attr}'
