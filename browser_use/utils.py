@@ -782,7 +782,11 @@ def _log_pretty_path(path: str | Path | None) -> str:
 
 def _log_pretty_url(s: str, max_len: int | None = 22) -> str:
 	"""Truncate/pretty-print a URL with a maximum length, removing the protocol and www. prefix"""
-	s = s.replace('https://', '').replace('http://', '').replace('www.', '')
+	# Only strip a leading scheme and a single leading "www." so that URLs whose
+	# path/query legitimately contain "http(s)://" or "www." are not mangled.
+	s = re.sub(r'^https?://', '', s)
+	if s.startswith('www.'):
+		s = s[len('www.') :]
 	if max_len is not None and len(s) > max_len:
 		return s[:max_len] + '…'
 	return s
