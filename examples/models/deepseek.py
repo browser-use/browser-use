@@ -18,9 +18,12 @@ if deepseek_api_key is None:
 
 
 async def main():
+	# deepseek-chat / deepseek-reasoner are deprecated; they map to the non-thinking /
+	# thinking modes of deepseek-v4-flash. ChatDeepSeek defaults V4 to non-thinking so the
+	# Agent's forced tool_choice works. Pass thinking={'type': 'enabled'} to opt into reasoning.
 	llm = ChatDeepSeek(
 		base_url='https://api.deepseek.com/v1',
-		model='deepseek-chat',
+		model='deepseek-v4-flash',
 		api_key=deepseek_api_key,
 	)
 
