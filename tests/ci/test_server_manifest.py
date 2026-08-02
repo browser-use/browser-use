@@ -18,3 +18,4 @@ def test_server_manifest_matches_project_version():
 	]
 	assert len(pypi_packages) == 1
 	assert pypi_packages[0]['version'] == project_version
+	assert pypi_packages[0]['packageArguments'] == [{'type': 'positional', 'value': '--mcp'}]
