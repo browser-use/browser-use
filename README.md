@@ -116,6 +116,7 @@ async def main():
         # llm=ChatBrowserUse(model='bu-2-0'),  # Browser Use's optimized model
         # llm=ChatOpenAI(model='gpt-5.5'),
         # llm=ChatAnthropic(model='claude-opus-4-8'),  # Sonnet also works well
+        # llm=ChatAvian(model='deepseek/deepseek-v3.2'),
     )
     history = await agent.run()
 
@@ -235,7 +236,7 @@ agent = Agent(
 <details>
 <summary><b>Can I use this for free?</b></summary>
 
-Yes! Browser-Use is open source and free to use. You only need to choose an LLM provider (like OpenAI, Google, ChatBrowserUse, or run local models with Ollama).
+Yes! Browser-Use is open source and free to use. You only need to choose an LLM provider (like OpenAI, Google, Avian, ChatBrowserUse, or run local models with Ollama).
 </details>
 
 <details>
