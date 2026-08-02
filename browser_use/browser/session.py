@@ -591,6 +591,10 @@ class BrowserSession(BaseModel):
 	_reconnect_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 	_reconnect_task: asyncio.Task | None = PrivateAttr(default=None)
 	_intentional_stop: bool = PrivateAttr(default=False)
+	# True while connect() is initialising — prevents _auto_reconnect from racing
+	# with and tearing down the session manager mid-init if the WebSocket drops
+	# during the initial handshake sequence.
+	_connecting: bool = PrivateAttr(default=False)
 
 	_logger: Any = PrivateAttr(default=None)
 
@@ -1833,6 +1837,18 @@ class BrowserSession(BaseModel):
 
 		This MUST succeed or the browser is unusable. Fails hard on any error.
 		"""
+		# Signal that initialisation is in progress.  The WS-drop callback checks
+		# this flag and suppresses _auto_reconnect() while connect() is running,
+		# preventing a race where reconnect() tears down the session manager
+		# while connect() is still building it.
+		self._connecting = True
+		try:
+			return await self._connect_inner(cdp_url=cdp_url)
+		finally:
+			self._connecting = False
+
+	async def _connect_inner(self, cdp_url: str | None = None) -> Self:
+		"""Internal connect body — always called through connect()."""
 
 		self.browser_profile.cdp_url = cdp_url or self.cdp_url
 		if not self.cdp_url:
@@ -2304,8 +2320,10 @@ class BrowserSession(BaseModel):
 			return
 
 		def _on_message_handler_done(fut: asyncio.Future) -> None:
-			# Guard: skip if intentionally stopped, already reconnecting, or no cdp_url
-			if self._intentional_stop or self._reconnecting or not self.cdp_url:
+			# Guard: skip if intentionally stopped, already reconnecting, mid-init, or no cdp_url.
+			# _connecting is True while connect() is running — firing _auto_reconnect() at that
+			# moment races with connect()'s SessionManager setup and can tear it down mid-build.
+			if self._intentional_stop or self._reconnecting or self._connecting or not self.cdp_url:
 				return
 
 			# The message handler task exiting means the WS connection dropped
@@ -2315,7 +2333,7 @@ class BrowserSession(BaseModel):
 				f'{f": {type(exc).__name__}: {exc}" if exc else " (connection closed)"}'
 			)
 
-			# Fire auto-reconnect as an asyncio task
+			# Fire auto-reconnect as an asyncio task (only here, when the WS actually drops)
 			try:
 				loop = asyncio.get_running_loop()
 				self._reconnect_task = loop.create_task(self._auto_reconnect())
