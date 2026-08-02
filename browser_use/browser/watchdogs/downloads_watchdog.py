@@ -398,7 +398,7 @@ class DownloadsWatchdog(BaseWatchdog):
 				if self.browser_session.is_local:
 					if file_path:
 						self.logger.debug(f'[DownloadsWatchdog] Download completed: {file_path}')
-						# Track the download
+						# Track the download (also fires _download_complete_callbacks internally)
 						self._track_download(file_path, guid=guid)
 						# Mark as handled to prevent fallback duplicate dispatch
 						try:
@@ -433,7 +433,11 @@ class DownloadsWatchdog(BaseWatchdog):
 												pass
 											break
 				else:
-					# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
+					# Remote browser: do not touch local filesystem.
+					# Build completion metadata and fire _download_complete_callbacks so that
+					# any click action waiting on download_completed.set() is unblocked.
+					# Previously only FileDownloadedEvent was dispatched here, which caused
+					# click-action timeouts on remote browser sessions (issue #5132).
 					info = self._cdp_downloads_info.get(guid, {})
 					try:
 						suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
@@ -441,6 +445,25 @@ class DownloadsWatchdog(BaseWatchdog):
 						effective_path = file_path or str(Path(downloads_path) / suggested_filename)
 						file_name = Path(effective_path).name
 						file_ext = Path(file_name).suffix.lower().lstrip('.')
+
+						# Build the same complete_info dict that _track_download uses so
+						# registered callbacks (e.g. DefaultActionWatchdog click handler)
+						# receive a consistent payload regardless of is_local.
+						complete_info = {
+							'guid': guid,
+							'url': info.get('url', ''),
+							'path': str(effective_path),
+							'file_name': file_name,
+							'file_size': 0,  # size unknown for remote downloads at this point
+							'file_type': file_ext if file_ext else None,
+							'auto_download': False,
+						}
+						for callback in self._download_complete_callbacks:
+							try:
+								callback(complete_info)
+							except Exception as cb_err:
+								self.logger.debug(f'[DownloadsWatchdog] Error in download complete callback (remote): {cb_err}')
+
 						self.event_bus.dispatch(
 							FileDownloadedEvent(
 								guid=guid,
@@ -782,27 +805,27 @@ class DownloadsWatchdog(BaseWatchdog):
 				temp_session.cdp_client.send.Runtime.evaluate(
 					params={
 						'expression': f"""
-				(async () => {{
-					try {{
-						const response = await fetch({escaped_url}, {{
-							cache: 'force-cache'
-						}});
-						if (!response.ok) {{
-							throw new Error(`HTTP error! status: ${{response.status}}`);
-						}}
-						const blob = await response.blob();
-						const arrayBuffer = await blob.arrayBuffer();
-						const uint8Array = new Uint8Array(arrayBuffer);
-
-						return {{
-							data: Array.from(uint8Array),
-							responseSize: uint8Array.length
-						}};
-					}} catch (error) {{
-						throw new Error(`Fetch failed: ${{error.message}}`);
+			(async () => {{
+				try {{
+					const response = await fetch({escaped_url}, {{
+						cache: 'force-cache'
+					}});
+					if (!response.ok) {{
+						throw new Error(`HTTP error! status: ${{response.status}}`);
 					}}
-				}})()
-				""",
+					const blob = await response.blob();
+					const arrayBuffer = await blob.arrayBuffer();
+					const uint8Array = new Uint8Array(arrayBuffer);
+
+					return {{
+						data: Array.from(uint8Array),
+						responseSize: uint8Array.length
+					}};
+				}} catch (error) {{
+					throw new Error(`Fetch failed: ${{error.message}}`);
+				}}
+			}})()
+			""",
 						'awaitPromise': True,
 						'returnByValue': True,
 					},
@@ -1278,19 +1301,19 @@ class DownloadsWatchdog(BaseWatchdog):
 				temp_session.cdp_client.send.Runtime.evaluate(
 					params={
 						'expression': """
-				(() => {
-					// For Chrome's PDF viewer, the actual URL is in window.location.href
-					// The embed element's src is often "about:blank"
-					const embedElement = document.querySelector('embed[type="application/x-google-chrome-pdf"]') ||
-										document.querySelector('embed[type="application/pdf"]');
-					if (embedElement) {
-						// Chrome PDF viewer detected - use the page URL
-						return { url: window.location.href };
-					}
-					// Fallback to window.location.href anyway
+			(() => {
+				// For Chrome's PDF viewer, the actual URL is in window.location.href
+				// The embed element's src is often "about:blank"
+				const embedElement = document.querySelector('embed[type="application/x-google-chrome-pdf"]') ||
+								document.querySelector('embed[type="application/pdf"]');
+				if (embedElement) {
+					// Chrome PDF viewer detected - use the page URL
 					return { url: window.location.href };
-				})()
-				""",
+				}
+				// Fallback to window.location.href anyway
+				return { url: window.location.href };
+			})()
+			""",
 						'returnByValue': True,
 					},
 					session_id=temp_session.session_id,
@@ -1346,34 +1369,34 @@ class DownloadsWatchdog(BaseWatchdog):
 					temp_session.cdp_client.send.Runtime.evaluate(
 						params={
 							'expression': f"""
-					(async () => {{
-						try {{
-							// Use fetch with cache: 'force-cache' to prioritize cached version
-							const response = await fetch({escaped_pdf_url}, {{
-								cache: 'force-cache'
-							}});
-							if (!response.ok) {{
-								throw new Error(`HTTP error! status: ${{response.status}}`);
-							}}
-							const blob = await response.blob();
-							const arrayBuffer = await blob.arrayBuffer();
-							const uint8Array = new Uint8Array(arrayBuffer);
-							
-							// Check if served from cache
-							const fromCache = response.headers.has('age') || 
-											 !response.headers.has('date');
-											 
-							return {{ 
-								data: Array.from(uint8Array),
-								fromCache: fromCache,
-								responseSize: uint8Array.length,
-								transferSize: response.headers.get('content-length') || 'unknown'
-							}};
-						}} catch (error) {{
-							throw new Error(`Fetch failed: ${{error.message}}`);
+				(async () => {{
+					try {{
+						// Use fetch with cache: 'force-cache' to prioritize cached version
+						const response = await fetch({escaped_pdf_url}, {{
+							cache: 'force-cache'
+						}});
+						if (!response.ok) {{
+							throw new Error(`HTTP error! status: ${{response.status}}`);
 						}}
-					}})()
-					""",
+						const blob = await response.blob();
+						const arrayBuffer = await blob.arrayBuffer();
+						const uint8Array = new Uint8Array(arrayBuffer);
+						
+						// Check if served from cache
+						const fromCache = response.headers.has('age') || 
+								 !response.headers.has('date');
+								 
+						return {{ 
+							data: Array.from(uint8Array),
+							fromCache: fromCache,
+							responseSize: uint8Array.length,
+							transferSize: response.headers.get('content-length') || 'unknown'
+						}};
+					}} catch (error) {{
+						throw new Error(`Fetch failed: ${{error.message}}`);
+					}}
+				}})()
+				""",
 							'awaitPromise': True,
 							'returnByValue': True,
 						},
