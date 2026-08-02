@@ -63,6 +63,16 @@ def test_detect_email_from_pattern():
 	assert var_format == 'email'
 
 
+def test_detect_email_from_pattern_strips_surrounding_whitespace():
+	"""Test email detection via pattern matching ignores surrounding whitespace"""
+	result = _detect_from_value_pattern('  test@example.com  ')
+
+	assert result is not None
+	var_name, var_format = result
+	assert var_name == 'email'
+	assert var_format == 'email'
+
+
 def test_detect_phone_from_attributes():
 	"""Test phone detection via type='tel' attribute"""
 	attributes = {'type': 'tel', 'name': 'phone'}
@@ -384,6 +394,21 @@ def test_detect_variables_handles_missing_interacted_element():
 	# Should still detect via pattern matching
 	assert len(result) == 1
 	assert 'email' in result
+
+
+def test_detect_variables_strips_value_before_pattern_matching():
+	"""Test pattern matching still works when action values have surrounding whitespace"""
+	history = create_mock_history(
+		[
+			({'input': {'index': 1, 'text': '  test@example.com  '}}, None),
+		]
+	)
+
+	result = detect_variables_in_history(history)  # type: ignore[arg-type]
+
+	assert len(result) == 1
+	assert 'email' in result
+	assert result['email'].original_value == '  test@example.com  '
 
 
 def test_detect_variables_multiple_types():
