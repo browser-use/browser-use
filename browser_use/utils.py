@@ -57,7 +57,14 @@ _groq_bad_request_error: type | None = None
 
 
 def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]] | None) -> dict[str, str]:
-	"""Flatten legacy and domain-scoped sensitive data into placeholder -> value mappings."""
+	"""Flatten legacy and domain-scoped sensitive data into placeholder -> value mappings.
+
+	For domain-scoped entries (nested dicts), keys are namespaced as ``{domain}:{key}``
+	so that identically-named credentials from different domains (e.g. a ``password``
+	for ``site-a.com`` and a ``password`` for ``site-b.com``) are both retained and
+	redacted independently.  Without the namespace, whichever domain is iterated last
+	would silently overwrite the others, causing earlier secrets to leak into logs.
+	"""
 	if not sensitive_data:
 		return {}
 
@@ -66,7 +73,7 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 		if isinstance(content, dict):
 			for key, val in content.items():
 				if val:
-					sensitive_values[key] = val
+					sensitive_values[f'{key_or_domain}:{key}'] = val
 		elif content:
 			sensitive_values[key_or_domain] = content
 
