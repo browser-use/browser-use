@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 	from browser_use.agent.pipeline import StepPipeline
 	from browser_use.agent.service import Agent
 
+from browser_use.agent.recovery import RecoveryStage
 from browser_use.agent.views import (
 	ActionResult,
 	AgentHistory,
@@ -39,6 +40,8 @@ class ActionExecutor:
 	def __init__(self, agent: Agent, pipeline: StepPipeline) -> None:
 		self._agent = agent
 		self._pipeline = pipeline
+		# Deterministic failure repair before escalating to the LLM.
+		self._recovery = RecoveryStage(max_rounds=agent.settings.auto_recovery_max_attempts)
 
 	# ── Step execution ─────────────────────────────────────────────────
 	async def execute_step(
@@ -146,6 +149,33 @@ class ActionExecutor:
 					available_file_paths=self._agent.available_file_paths,
 					extraction_schema=self._agent.extraction_schema,
 				)
+
+				if result.error and self._agent.settings.auto_recovery:
+					attempt = await self._recovery.recover(
+						agent=self._agent,
+						action=action,
+						action_name=action_name,
+						failed_result=result,
+						browser_state=self._agent.browser_session._cached_browser_state_summary,
+					)
+					if attempt.recovered:
+						result = attempt.result
+						recovery_meta = {
+							'recovery': {
+								'chain': attempt.chain,
+								'strategy': attempt.strategy,
+								'attempts': attempt.attempts,
+								'reason': attempt.reason,
+							}
+						}
+						result.metadata = {**(result.metadata or {}), **recovery_meta}
+						self._agent.logger.info(
+							f'🔄 Auto-recovered ({"+".join(attempt.chain) or attempt.strategy}): {attempt.reason}'
+						)
+					else:
+						self._agent.logger.info(
+							f'🔄 Recovery gave up after {len(attempt.chain)} strategy step(s): {attempt.reason}'
+						)
 
 				if result.error:
 					await self._pipeline.demo_mode_log(

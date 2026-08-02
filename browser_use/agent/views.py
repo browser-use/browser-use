@@ -142,6 +142,11 @@ class AgentSettings(BaseModel):
 	loop_detection_enabled: bool = True
 	max_clickable_elements_length: int = 40000
 
+	# --- Auto recovery ---
+	auto_recovery: bool = False
+	auto_recovery_max_attempts: int = 3
+	auto_recovery_wait_seconds: float = 1.5
+
 	# --- Output ---
 	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
