@@ -13,7 +13,7 @@ from openai import (
 	AsyncOpenAI,
 	RateLimitError,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.deepseek.serializer import DeepSeekMessageSerializer
@@ -23,6 +23,37 @@ from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def _repair_json_control_chars(text: str) -> str:
+	"""Escape raw control characters inside JSON string literals.
+
+	DeepSeek v4 occasionally emits unescaped control characters (e.g. literal
+	newlines) inside JSON string values, which is invalid JSON.
+	"""
+	out: list[str] = []
+	in_string = False
+	escaped = False
+	for ch in text:
+		if in_string:
+			if escaped:
+				out.append(ch)
+				escaped = False
+			elif ch == '\\':
+				out.append(ch)
+				escaped = True
+			elif ch == '"':
+				out.append(ch)
+				in_string = False
+			elif ord(ch) < 0x20:
+				out.append(f'\\u{ord(ch):04x}')
+			else:
+				out.append(ch)
+		else:
+			out.append(ch)
+			if ch == '"':
+				in_string = True
+	return ''.join(out)
 
 
 @dataclass
@@ -42,6 +73,12 @@ class ChatDeepSeek(BaseChatModel):
 	base_url: str | httpx.URL | None = 'https://api.deepseek.com/v1'
 	timeout: float | httpx.Timeout | None = None
 	client_params: dict[str, Any] | None = None
+
+	@staticmethod
+	def _is_reasoning_model(model: str) -> bool:
+		"""Check if the model is a DeepSeek reasoning model that doesn't support tool_choice."""
+		model_lower = model.lower()
+		return any(kw in model_lower for kw in ['reasoner', '/thinking', '-r1', '-thinking', '-v4'])
 
 	@property
 	def provider(self) -> str:
@@ -107,6 +144,11 @@ class ChatDeepSeek(BaseChatModel):
 		if self.seed is not None:
 			common['seed'] = self.seed
 
+		# DeepSeek v4 models default to thinking mode, which breaks strict
+		# function-calling schema adherence; disable it for reasoning models.
+		if self._is_reasoning_model(self.model):
+			common['extra_body'] = {'thinking': {'type': 'disabled'}}
+
 		# Beta conversation prefix continuation (see official documentation)
 		if self.base_url and str(self.base_url).endswith('/beta'):
 			# The last assistant message must have prefix
@@ -125,6 +167,45 @@ class ChatDeepSeek(BaseChatModel):
 				)
 				return ChatInvokeCompletion(
 					completion=resp.choices[0].message.content or '',
+					usage=None,
+				)
+			except RateLimitError as e:
+				raise ModelRateLimitError(str(e), model=self.name) from e
+			except (APIError, APIConnectionError, APITimeoutError, APIStatusError) as e:
+				raise ModelProviderError(str(e), model=self.name) from e
+			except Exception as e:
+				raise ModelProviderError(str(e), model=self.name) from e
+
+		# ①b JSON Output path — DeepSeek reasoning models (v4 etc.) cannot
+		# reliably follow the function-calling schema (they emit flat tool args),
+		# so route them through strict JSON output mode instead.
+		if (
+			not tools
+			and output_format is not None
+			and hasattr(output_format, 'model_json_schema')
+			and self._is_reasoning_model(self.model)
+		):
+			try:
+				resp = await client.chat.completions.create(  # type: ignore
+					model=self.model,
+					messages=ds_messages,  # type: ignore
+					response_format={'type': 'json_object'},
+					**common,
+				)
+				content = resp.choices[0].message.content
+				if not content:
+					raise ModelProviderError('Empty JSON content in DeepSeek response', model=self.name)
+				try:
+					parsed = output_format.model_validate_json(content)
+				except ValidationError as e:
+					if 'json_invalid' not in str(e):
+						raise
+					repaired = _repair_json_control_chars(content)
+					if repaired == content:
+						raise
+					parsed = output_format.model_validate_json(repaired)
+				return ChatInvokeCompletion(
+					completion=parsed,
 					usage=None,
 				)
 			except RateLimitError as e:
@@ -154,6 +235,9 @@ class ChatDeepSeek(BaseChatModel):
 						}
 					]
 					tool_choice = {'type': 'function', 'function': {'name': tool_name}}
+					# Reasoning models (deepseek-v4-pro, deepseek-reasoner, etc.) reject tool_choice
+					if self._is_reasoning_model(self.model):
+						tool_choice = None
 				resp = await client.chat.completions.create(  # type: ignore
 					model=self.model,
 					messages=ds_messages,  # type: ignore

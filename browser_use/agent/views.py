@@ -6,6 +6,7 @@ import logging
 import re
 import traceback
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, Generic, Literal
 
@@ -56,40 +57,105 @@ class MessageCompactionSettings(BaseModel):
 		return self
 
 
-class AgentSettings(BaseModel):
-	"""Configuration options for the Agent"""
+class VisionSettings(BaseModel):
+	"""Vision & page extraction settings."""
 
+	model_config = ConfigDict(extra='forbid')
 	use_vision: bool | Literal['auto'] = True
 	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
-	save_conversation_path: str | Path | None = None
-	save_conversation_path_encoding: str | None = 'utf-8'
-	max_failures: int = 5
-	generate_gif: bool | str = False
-	override_system_message: str | None = None
-	extend_system_message: str | None = None
+	page_extraction_llm: BaseChatModel | None = None
+	llm_screenshot_size: tuple[int, int] | None = None
 	include_attributes: list[str] | None = DEFAULT_INCLUDE_ATTRIBUTES
+	include_tool_call_examples: bool = False
+
+
+class BehaviorSettings(BaseModel):
+	"""Action execution & step behavior settings."""
+
+	model_config = ConfigDict(extra='forbid')
 	max_actions_per_step: int = 5
+	max_failures: int = 5
+	final_response_after_failure: bool = True
 	use_thinking: bool = True
-	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
+	flash_mode: bool = False
 	use_judge: bool = True
-	ground_truth: str | None = None  # Ground truth answer or criteria for judge validation
+	ground_truth: str | None = None
 	max_history_items: int | None = None
 	message_compaction: MessageCompactionSettings | None = None
+
+
+class PlanningSettings(BaseModel):
+	"""Task planning & loop detection settings."""
+
+	model_config = ConfigDict(extra='forbid')
 	enable_planning: bool = True
-	planning_replan_on_stall: int = 3  # consecutive failures before replan nudge; 0 = disabled
-	planning_exploration_limit: int = 5  # steps without a plan before nudge; 0 = disabled
+	planning_replan_on_stall: int = 3
+	planning_exploration_limit: int = 5
+	loop_detection_window: int = 20
+	loop_detection_enabled: bool = True
+	max_clickable_elements_length: int = 40000
 
-	page_extraction_llm: BaseChatModel | None = None
+
+class OutputSettings(BaseModel):
+	"""Output, file, and conversation saving settings."""
+
+	model_config = ConfigDict(extra='forbid')
+	save_conversation_path: str | Path | None = None
+	save_conversation_path_encoding: str | None = 'utf-8'
+	generate_gif: bool | str = False
 	calculate_cost: bool = False
-	include_tool_call_examples: bool = False
-	llm_timeout: int = 60  # Timeout in seconds for LLM calls (auto-detected: 30s for gemini, 90s for o3, 60s default)
-	step_timeout: int = 180  # Timeout in seconds for each step
-	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
 
-	# Loop detection settings
-	loop_detection_window: int = 20  # Rolling window size for action similarity tracking
-	loop_detection_enabled: bool = True  # Whether to enable loop detection nudges
-	max_clickable_elements_length: int = 40000  # Max characters for clickable elements in prompt
+
+class AgentSettings(BaseModel):
+	"""Configuration options for the Agent
+
+	Settings are grouped into sub-categories for convenience.
+	Use the sub-setting classes (VisionSettings, BehaviorSettings, etc.)
+	or pass individual params directly to Agent.
+	"""
+
+	# --- Vision ---
+	use_vision: bool | Literal['auto'] = True
+	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
+	page_extraction_llm: BaseChatModel | None = None
+	include_attributes: list[str] | None = DEFAULT_INCLUDE_ATTRIBUTES
+	include_tool_call_examples: bool = False
+
+	# --- Behavior ---
+	max_actions_per_step: int = 5
+	max_failures: int = 5
+	final_response_after_failure: bool = True
+	use_thinking: bool = True
+	flash_mode: bool = False
+	use_judge: bool = True
+	ground_truth: str | None = None
+	max_history_items: int | None = None
+	message_compaction: MessageCompactionSettings | None = None
+	llm_timeout: int = 60
+	step_timeout: int = 180
+
+	# --- Planning & Loop detection ---
+	enable_planning: bool = True
+	planning_replan_on_stall: int = 3
+	planning_exploration_limit: int = 5
+	loop_detection_window: int = 20
+	loop_detection_enabled: bool = True
+	max_clickable_elements_length: int = 40000
+
+	# --- Auto recovery ---
+	auto_recovery: bool = False
+	auto_recovery_max_attempts: int = 3
+	auto_recovery_wait_seconds: float = 1.5
+
+	# --- Output ---
+	save_conversation_path: str | Path | None = None
+	save_conversation_path_encoding: str | None = 'utf-8'
+	generate_gif: bool | str = False
+	calculate_cost: bool = False
+
+	# --- System messages ---
+	override_system_message: str | None = None
+	extend_system_message: str | None = None
 
 
 class PageFingerprint(BaseModel):
@@ -257,9 +323,7 @@ class AgentState(BaseModel):
 	n_steps: int = 1
 	consecutive_failures: int = 0
 	last_result: list[ActionResult] | None = None
-	plan: list[PlanItem] | None = None
-	current_plan_item_index: int = 0
-	plan_generation_step: int | None = None
+	plan_state: PlanState | None = None
 	last_model_output: AgentOutput | None = None
 
 	# Pause/resume state (kept serialisable for checkpointing)
@@ -373,9 +437,239 @@ class StepMetadata(BaseModel):
 		return self.step_end_time - self.step_start_time
 
 
-class PlanItem(BaseModel):
-	text: str
-	status: Literal['pending', 'current', 'done', 'skipped'] = 'pending'
+class PlanNodeStatus(str, Enum):
+	"""Status of a plan node (step or alternative)."""
+
+	PENDING = 'pending'
+	CURRENT = 'current'
+	COMPLETED = 'completed'
+	FAILED = 'failed'
+	SKIPPED = 'skipped'
+
+
+class PlanNode(BaseModel):
+	"""A node in the plan tree. Can be a step or an alternative approach."""
+
+	description: str
+	status: PlanNodeStatus = PlanNodeStatus.PENDING
+	retry_count: int = 0
+	max_retries: int = 3
+	result: str | None = None
+
+
+class PlanStep(PlanNode):
+	"""A serial step in the plan. May contain alternative approaches."""
+
+	step_number: int
+	alternatives: list[PlanNode] | None = None
+
+
+class PlanState(BaseModel):
+	"""Complete plan state. Code manages the structure, LLM manages the content."""
+
+	steps: list[PlanStep]
+	current_step_index: int = 0
+	created_at_step: int
+	last_updated_at_step: int | None = None
+	consecutive_failures: int = 0
+	step_replan_count: int = 0
+	step_replan_threshold: int = 2
+
+	def find_current_step(self) -> PlanStep | None:
+		for s in self.steps:
+			if s.status == PlanNodeStatus.CURRENT:
+				return s
+		return None
+
+	def find_current_alternative(self) -> PlanNode | None:
+		step = self.find_current_step()
+		if not step or not step.alternatives:
+			return None
+		for a in step.alternatives:
+			if a.status == PlanNodeStatus.CURRENT:
+				return a
+		return None
+
+	def advance_alternative(self, current_step: PlanStep) -> bool:
+		"""After the current alternative fails, automatically advance to the next pending one.
+		Returns True if a next alternative was found, False if all alternatives are exhausted."""
+		if not current_step.alternatives:
+			return False
+		for a in current_step.alternatives:
+			if a.status == PlanNodeStatus.PENDING:
+				a.status = PlanNodeStatus.CURRENT
+				return True
+		return False
+
+	def advance_step(self) -> bool:
+		"""After the current step completes, advance to the next step. Returns True if there is a next step."""
+		next_idx = self.current_step_index + 1
+		if next_idx < len(self.steps):
+			if self.current_step_index < len(self.steps):
+				self.steps[self.current_step_index].status = PlanNodeStatus.COMPLETED
+			self.steps[next_idx].status = PlanNodeStatus.CURRENT
+			alts = self.steps[next_idx].alternatives
+			if alts:
+				alts[0].status = PlanNodeStatus.CURRENT
+			else:
+				# step without alternatives is leaf, no alternative to advance
+				pass
+			self.current_step_index = next_idx
+			return True
+		return False
+
+	def mark_current_failed(self) -> None:
+		"""Mark the current execution node as failed, handling retry and fallover."""
+		current = self.find_current_alternative()
+		if current:
+			# Step has alternatives → retry the alternative node
+			current.retry_count += 1
+			if current.retry_count >= current.max_retries:
+				current.status = PlanNodeStatus.FAILED
+				step = self.find_current_step()
+				if step and step.alternatives:
+					if not self.advance_alternative(step):
+						# all alternatives exhausted → mark step failed
+						step.status = PlanNodeStatus.FAILED
+		else:
+			# Leaf step (no alternatives) → retry the step itself
+			step = self.find_current_step()
+			if step:
+				step.retry_count += 1
+				if step.retry_count >= step.max_retries:
+					step.status = PlanNodeStatus.FAILED
+
+	def mark_current_completed(self) -> None:
+		"""Mark the current execution node as completed successfully."""
+		current = self.find_current_alternative()
+		if current:
+			current.status = PlanNodeStatus.COMPLETED
+		step = self.find_current_step()
+		if step:
+			step.status = PlanNodeStatus.COMPLETED
+			# Auto-advance to the next step in the plan
+			self.advance_step()
+		self.consecutive_failures = 0  # progress made, reset
+		self.step_replan_count = 0
+
+	def all_steps_completed(self) -> bool:
+		return all(s.status == PlanNodeStatus.COMPLETED for s in self.steps)
+
+	def current_step_all_alternatives_failed(self) -> bool:
+		step = self.find_current_step()
+		if not step or not step.alternatives:
+			return False
+		return all(a.status == PlanNodeStatus.FAILED for a in step.alternatives)
+
+	def apply_plan_update(self, new_steps_in: list[PlanUpdateStep], at_step: int) -> None:
+		"""Replace plan steps from the current position.
+
+		Escalation:
+		  1st replan → replace current step only
+		  2nd replan → backtrack to previous step
+		  3rd+ replan at first step → full plan replace
+		"""
+		# Determine escalation level
+		if self.current_step_index == 0 and self.step_replan_count >= self.step_replan_threshold:
+			# Already at first step, can't backtrack → full plan replace
+			preserved: list[PlanStep] = []
+			self.consecutive_failures += 1
+		elif self.step_replan_count >= self.step_replan_threshold:
+			# Backtrack to previous step
+			back_to = max(0, self.current_step_index - 1)
+			preserved = self.steps[:back_to]
+		else:
+			# Single step: preserve everything before current
+			preserved = self.steps[: self.current_step_index]
+
+		self.step_replan_count += 1
+
+		# Build new steps from LLM output
+		new_steps: list[PlanStep] = []
+		for i, update_step in enumerate(new_steps_in):
+			step_num = len(preserved) + i
+			alts = None
+			if update_step.alternatives:
+				alts = [
+					PlanNode(
+						description=alt_desc,
+						status=PlanNodeStatus.CURRENT if j == 0 else PlanNodeStatus.PENDING,
+					)
+					for j, alt_desc in enumerate(update_step.alternatives)
+				]
+			new_steps.append(
+				PlanStep(
+					description=update_step.description,
+					step_number=step_num,
+					status=PlanNodeStatus.CURRENT if i == 0 else PlanNodeStatus.PENDING,
+					alternatives=alts,
+				)
+			)
+		# mark first alternative of the first new step as current
+		if new_steps and new_steps[0].alternatives:
+			new_steps[0].alternatives[0].status = PlanNodeStatus.CURRENT
+
+		self.steps = preserved + new_steps
+		self.current_step_index = len(preserved)
+		self.last_updated_at_step = at_step
+
+	def render(self) -> str:
+		"""Render the plan tree as LLM-readable text."""
+		markers = {
+			PlanNodeStatus.PENDING: '[ ]',
+			PlanNodeStatus.CURRENT: '[→]',
+			PlanNodeStatus.COMPLETED: '[✓]',
+			PlanNodeStatus.FAILED: '[x]',
+			PlanNodeStatus.SKIPPED: '[-]',
+		}
+		lines: list[str] = []
+		for step in self.steps:
+			marker = markers.get(step.status, '[?]')
+			desc = step.description
+			lines.append(f'{marker} {desc}')
+			if step.alternatives:
+				for alt in step.alternatives:
+					alt_marker = markers.get(alt.status, '[?]')
+					alt_desc = alt.description
+					suffix = ''
+					if alt.status == PlanNodeStatus.FAILED and alt.result:
+						suffix = f' ({alt.result})'
+					elif alt.status == PlanNodeStatus.CURRENT and alt.retry_count > 0:
+						suffix = f' (retry {alt.retry_count}/{alt.max_retries})'
+					lines.append(f'  {alt_marker} {alt_desc}{suffix}')
+		return '\n'.join(lines)
+
+	def log_plan(self, logger: logging.Logger) -> None:
+		"""Log the current plan tree at INFO level."""
+		logger.info('━━━ Plan State ━━━')
+		for i, step in enumerate(self.steps):
+			arrow = '→' if i == self.current_step_index else ' '
+			status_icon = {
+				PlanNodeStatus.PENDING: '○',
+				PlanNodeStatus.CURRENT: '▸',
+				PlanNodeStatus.COMPLETED: '✓',
+				PlanNodeStatus.FAILED: '✗',
+				PlanNodeStatus.SKIPPED: '–',
+			}.get(step.status, '?')
+			line = f'  {arrow} Step {i}: {status_icon} {step.description}'
+			if step.retry_count > 0:
+				line += f' (retry {step.retry_count}/{step.max_retries})'
+			logger.info(line)
+			if step.alternatives:
+				for alt in step.alternatives:
+					alt_icon = {
+						PlanNodeStatus.PENDING: '○',
+						PlanNodeStatus.CURRENT: '▸',
+						PlanNodeStatus.COMPLETED: '✓',
+						PlanNodeStatus.FAILED: '✗',
+						PlanNodeStatus.SKIPPED: '–',
+					}.get(alt.status, '?')
+					alt_line = f'    {alt_icon} {alt.description}'
+					if alt.retry_count > 0:
+						alt_line += f' (retry {alt.retry_count}/{alt.max_retries})'
+					if alt.result:
+						alt_line += f' → {alt.result}'
+					logger.info(alt_line)
 
 
 class AgentBrain(BaseModel):
@@ -385,6 +679,13 @@ class AgentBrain(BaseModel):
 	next_goal: str
 
 
+class PlanUpdateStep(BaseModel):
+	"""A step in a plan_update from the LLM. Supports nested alternatives."""
+
+	description: str
+	alternatives: list[str] | None = None
+
+
 class AgentOutput(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True, extra='forbid')
 
@@ -392,8 +693,7 @@ class AgentOutput(BaseModel):
 	evaluation_previous_goal: str | None = None
 	memory: str | None = None
 	next_goal: str | None = None
-	current_plan_item: int | None = None
-	plan_update: list[str] | None = None
+	plan_update: list[PlanUpdateStep] | None = None
 	action: list[ActionModel] = Field(
 		...,
 		json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
@@ -466,7 +766,6 @@ class AgentOutput(BaseModel):
 				del schema['properties']['thinking']
 				del schema['properties']['evaluation_previous_goal']
 				del schema['properties']['next_goal']
-				schema['properties'].pop('current_plan_item', None)
 				schema['properties'].pop('plan_update', None)
 				# Update required fields to only include remaining properties
 				schema['required'] = ['memory', 'action']
@@ -571,8 +870,6 @@ class AgentHistory(BaseModel):
 			# Only include thinking if it's present
 			if self.model_output.thinking is not None:
 				model_output_dump['thinking'] = self.model_output.thinking
-			if self.model_output.current_plan_item is not None:
-				model_output_dump['current_plan_item'] = self.model_output.current_plan_item
 			if self.model_output.plan_update is not None:
 				model_output_dump['plan_update'] = self.model_output.plan_update
 
@@ -957,7 +1254,7 @@ class AgentError:
 	def format_error(error: Exception, include_trace: bool = False) -> str:
 		"""Format error message based on error type and optionally include trace"""
 		message = ''
-		if isinstance(error, ValidationError):
+		if isinstance(error, ValidationError):  # type: ignore[arg-type]
 			return f'{AgentError.VALIDATION_ERROR}\nDetails: {str(error)}'
 		# Lazy import to avoid loading openai SDK (~800ms) at module level
 		from openai import RateLimitError

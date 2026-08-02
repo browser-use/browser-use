@@ -17,7 +17,7 @@ class TestCoordinateClickingTools:
 		"""By default, coordinate clicking should be disabled."""
 		tools = Tools()
 
-		assert tools._coordinate_clicking_enabled is False
+		assert tools.browser._coordinate_clicking_enabled is False
 
 	def test_default_uses_index_only_action(self):
 		"""Default Tools should use ClickElementActionIndexOnly."""
@@ -42,9 +42,9 @@ class TestCoordinateClickingTools:
 	def test_enable_coordinate_clicking(self):
 		"""Enabling coordinate clicking should switch to ClickElementAction."""
 		tools = Tools()
-		tools.set_coordinate_clicking(True)
+		tools.browser.set_coordinate_clicking(True)
 
-		assert tools._coordinate_clicking_enabled is True
+		assert tools.browser._coordinate_clicking_enabled is True
 
 		click_action = tools.registry.registry.actions.get('click')
 		assert click_action is not None
@@ -53,7 +53,7 @@ class TestCoordinateClickingTools:
 	def test_enabled_click_schema_has_coordinates(self):
 		"""Enabled click action schema should have index and coordinate properties."""
 		tools = Tools()
-		tools.set_coordinate_clicking(True)
+		tools.browser.set_coordinate_clicking(True)
 
 		click_action = tools.registry.registry.actions.get('click')
 		assert click_action is not None
@@ -66,10 +66,10 @@ class TestCoordinateClickingTools:
 	def test_disable_coordinate_clicking(self):
 		"""Disabling coordinate clicking should switch back to index-only."""
 		tools = Tools()
-		tools.set_coordinate_clicking(True)
-		tools.set_coordinate_clicking(False)
+		tools.browser.set_coordinate_clicking(True)
+		tools.browser.set_coordinate_clicking(False)
 
-		assert tools._coordinate_clicking_enabled is False
+		assert tools.browser._coordinate_clicking_enabled is False
 
 		click_action = tools.registry.registry.actions.get('click')
 		assert click_action is not None
@@ -80,14 +80,14 @@ class TestCoordinateClickingTools:
 		tools = Tools()
 
 		# Enable twice
-		tools.set_coordinate_clicking(True)
-		tools.set_coordinate_clicking(True)
-		assert tools._coordinate_clicking_enabled is True
+		tools.browser.set_coordinate_clicking(True)
+		tools.browser.set_coordinate_clicking(True)
+		assert tools.browser._coordinate_clicking_enabled is True
 
 		# Disable twice
-		tools.set_coordinate_clicking(False)
-		tools.set_coordinate_clicking(False)
-		assert tools._coordinate_clicking_enabled is False
+		tools.browser.set_coordinate_clicking(False)
+		tools.browser.set_coordinate_clicking(False)
+		assert tools.browser._coordinate_clicking_enabled is False
 
 	def test_schema_title_consistent(self):
 		"""Schema title should be 'ClickElementAction' regardless of mode."""
@@ -100,7 +100,7 @@ class TestCoordinateClickingTools:
 		assert schema['title'] == 'ClickElementAction'
 
 		# Check enabled
-		tools.set_coordinate_clicking(True)
+		tools.browser.set_coordinate_clicking(True)
 		click_action = tools.registry.registry.actions.get('click')
 		assert click_action is not None
 		schema = click_action.param_model.model_json_schema()
@@ -155,10 +155,10 @@ class TestCoordinateClickingWithPassedTools:
 	def test_tools_can_be_modified_after_creation(self):
 		"""Tools created externally can have coordinate clicking enabled."""
 		tools = Tools()
-		assert tools._coordinate_clicking_enabled is False
+		assert tools.browser._coordinate_clicking_enabled is False
 
 		# Simulate what Agent does for coordinate-capable models
-		tools.set_coordinate_clicking(True)
+		tools.browser.set_coordinate_clicking(True)
 
 		click_action = tools.registry.registry.actions.get('click')
 		assert click_action is not None
@@ -172,7 +172,7 @@ class TestCoordinateClickingWithPassedTools:
 		assert 'search' not in tools.registry.registry.actions
 
 		# Enable coordinate clicking
-		tools.set_coordinate_clicking(True)
+		tools.browser.set_coordinate_clicking(True)
 
 		# Search should still be excluded
 		assert 'search' not in tools.registry.registry.actions

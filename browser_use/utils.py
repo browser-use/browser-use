@@ -428,7 +428,7 @@ def time_execution_sync(additional_text: str = '') -> Callable[[Callable[P, R]],
 					logger = getattr(args[0], 'logger')
 				elif 'agent' in kwargs:
 					logger = getattr(kwargs['agent'], 'logger')
-				elif 'browser_session' in kwargs:
+				elif 'browser_session' in kwargs and kwargs['browser_session'] is not None:
 					logger = getattr(kwargs['browser_session'], 'logger')
 				else:
 					logger = logging.getLogger(__name__)
@@ -457,7 +457,7 @@ def time_execution_async(
 					logger = getattr(args[0], 'logger')
 				elif 'agent' in kwargs:
 					logger = getattr(kwargs['agent'], 'logger')
-				elif 'browser_session' in kwargs:
+				elif 'browser_session' in kwargs and kwargs['browser_session'] is not None:
 					logger = getattr(kwargs['browser_session'], 'logger')
 				else:
 					logger = logging.getLogger(__name__)

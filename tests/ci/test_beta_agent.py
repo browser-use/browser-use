@@ -165,7 +165,7 @@ def test_beta_agent_runtime_signatures_match_browser_use_callable_surface():
 def test_beta_agent_constructor_type_hints_match_browser_use_core_params():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.beta import Agent as BetaAgent
-	from browser_use.tools.service import Tools
+	from browser_use.tools.base import BaseToolset
 
 	browser_use_hints = get_type_hints(BrowserUseAgent.__init__)
 	beta_hints = get_type_hints(BetaAgent.__init__)
@@ -183,7 +183,7 @@ def test_beta_agent_constructor_type_hints_match_browser_use_core_params():
 	def assert_tools_context_hint(annotation):
 		inner = [arg for arg in get_args(annotation) if arg is not type(None)]
 		assert len(inner) == 1
-		assert get_origin(inner[0]) is Tools
+		assert get_origin(inner[0]) is BaseToolset
 		type_args = get_args(inner[0])
 		assert len(type_args) == 1
 		assert type_args[0].__name__ == 'Context'
