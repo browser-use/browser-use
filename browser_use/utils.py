@@ -73,11 +73,227 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 	return sensitive_values
 
 
+def _get_redact_pattern_and_mapping(
+	sensitive_values_tuple: tuple[tuple[str, str], ...],
+) -> tuple[re.Pattern[str] | None, dict[str, str], list[tuple[str, str]]]:
+	"""Build and compile a literal-only regex pattern plus lookup maps.
+
+	The pattern matches raw secret values only (no ``<secret>`` tag handling),
+	which avoids cascade re-redaction of already-generated tags.
+	"""
+	secret_to_keys: dict[str, list[str]] = {}
+	for key, secret in sensitive_values_tuple:
+		key_str = str(key)
+		secret_str = str(secret)
+		if not secret_str:
+			continue
+		secret_to_keys.setdefault(secret_str, []).append(key_str)
+
+	if not secret_to_keys:
+		return None, {}, []
+
+	sorted_secrets = sorted(secret_to_keys.keys(), key=len, reverse=True)
+	pattern_str = '|'.join(re.escape(s) for s in sorted_secrets)
+	pattern = re.compile(pattern_str)
+	# Evict the secret-bearing pattern from every CPython re cache (3.12 uses
+	# both _cache and _cache2) so the secret text does not survive the call;
+	# unrelated regexes stay cached.
+	_evicted = False
+	for _attr in ('_cache', '_cache2'):
+		_cache = getattr(re, _attr, None)
+		if isinstance(_cache, dict):
+			_evicted = True
+			# Snapshot keys (single GIL-held call) before mutating: a foreign
+			# re.compile on another thread can otherwise trigger "dictionary
+			# keys changed during iteration". pop(key, None) tolerates a key
+			# already evicted by another thread.
+			for key in list(_cache):
+				if len(key) >= 2 and key[-2] == pattern_str:
+					_cache.pop(key, None)
+	# Defensive fallback on runtimes whose re internals differ: a single atomic
+	# re.purge() is thread-safe and drops the secret-bearing pattern from any
+	# unspecified cache. Narrow race remains if a concurrent re.compile re-caches
+	# the pattern after we evicted, but each redaction call re-evicts.
+	if not _evicted:
+		re.purge()
+
+	replacement_mapping = {secret: f'<secret>{", ".join(sorted(keys))}</secret>' for secret, keys in secret_to_keys.items()}
+	# Pre-sorted by secret length descending so callers can iterate longest-first
+	# without re-sorting on every redaction call.
+	plain_mapping = [(secret, ', '.join(sorted(secret_to_keys[secret]))) for secret in sorted_secrets]
+
+	return pattern, replacement_mapping, plain_mapping
+
+
+def _overlaps_raw_span(start: int, end: int, raw_spans: list[tuple[int, int]] | None) -> bool:
+	"""Return True when the tag span [start, end) is overlapped but not fully
+	contained by a raw secret occurrence.
+
+	Such a tag span is literal marker text inside a longer raw secret (e.g. the
+	secret ``x<secret>y</secret>z``) rather than a pre-existing placeholder, so
+	it must not be treated as a tag boundary. Occurrences fully contained in the
+	span (e.g. ``supersecret`` inside ``<secret>supersecret</secret>``) are
+	handled by inner-content redaction and do not mark the span fake.
+	"""
+	if not raw_spans:
+		return False
+	for a, b in raw_spans:
+		if a >= end:
+			break
+		if b > start and not (a >= start and b <= end):
+			return True
+	return False
+
+
+def _split_secret_tags(value: str, raw_spans: list[tuple[int, int]] | None = None) -> list[str]:
+	"""Split *value* around balanced ``<secret>...</secret>`` pairs.
+
+	Returns a list of alternating segments: plain text, tag inner content, plain
+	text, ... Unclosed or stray tags are left as plain text. Uses str.find (C
+	speed) rather than a per-character scan.
+
+	*raw_spans* optionally lists ranges of *value* that are literal occurrences
+	of configured secrets. A balanced tag pair overlapped (but not fully
+	contained) by one of those ranges is fake markup inside a raw secret, so it
+	is kept as plain text instead of being treated as a pre-existing tag.
+	"""
+	open_tag = '<secret>'
+	close_tag = '</secret>'
+	open_len = len(open_tag)
+	close_len = len(close_tag)
+
+	parts = []
+	last = 0
+	i = 0
+	n = len(value)
+
+	while i < n:
+		start = value.find(open_tag, i)
+		if start == -1:
+			break
+		# Find the close marker that balances this open, respecting nesting.
+		depth = 1
+		j = start + open_len
+		while depth:
+			next_close = value.find(close_tag, j)
+			next_open = value.find(open_tag, j)
+			if next_open != -1 and (next_close == -1 or next_open < next_close):
+				depth += 1
+				j = next_open + open_len
+			elif next_close != -1:
+				depth -= 1
+				j = next_close + close_len
+			else:
+				break
+		if depth:
+			break  # unclosed tag: everything from `last` stays plain text
+		if _overlaps_raw_span(start, j, raw_spans):
+			# Fake tag text that is part of a longer raw secret: keep it as
+			# plain text so the whole secret can still be matched.
+			i = start + open_len
+			continue
+		parts.append(value[last:start])
+		parts.append(value[start + open_len : j - close_len])
+		last = j
+		i = j
+
+	parts.append(value[last:])
+	return parts
+
+
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
-	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
-	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
-	return value
+	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks.
+
+	Raw secrets are matched in a single pass via a literal-only regex that is
+	rebuilt per call (no caching), and pre-existing ``<secret>...</secret>`` tags
+	are split out (with balanced-pair parsing) so their inner contents are
+	redacted separately without re-scanning tag boundaries. A configured secret
+	that itself contains literal tag markers (e.g. ``x<secret>y</secret>z``) is
+	located before splitting so its full occurrence is redacted instead of being
+	shredded by tag parsing.
+	"""
+	if not isinstance(value, str) or not value or not sensitive_values:
+		return value
+
+	sensitive_tuple = tuple(sorted((str(k), str(v)) for k, v in sensitive_values.items()))
+	pattern, mapping, plain_mapping = _get_redact_pattern_and_mapping(sensitive_tuple)
+
+	if not pattern:
+		return value
+
+	# Fast path: no existing <secret> tags means a single regex substitution.
+	if '<secret>' not in value:
+		return pattern.sub(lambda m: mapping[m.group(0)], value)
+
+	# Raw secret occurrences may themselves contain literal <secret> markers or
+	# span a tag boundary. Splitting on balanced tags first would shred such
+	# occurrences into parts that can never match the full secret, so locate
+	# them up front and keep any tag text they overlap as plain text instead.
+	raw_spans = [m.span() for m in pattern.finditer(value)]
+
+	# Split on balanced existing tags: odd-indexed parts are tag contents, even
+	# parts are unredacted text.
+	parts = _split_secret_tags(value, raw_spans)
+	key_list_strings = {keys_str for _, keys_str in plain_mapping}
+	secret_values = {secret for secret, _ in plain_mapping}
+	plain_map = dict(plain_mapping)
+	# Cyclic-collision key lists: a generated key-list string that is itself a
+	# secret value AND whose substitute leads back to it (e.g. {'a':'b','b':'a'}
+	# -> 'a'<->'b'). Re-substituting such a placeholder flips it to the other
+	# key forever; freeze it once it is in tag form. A non-cyclic overlap
+	# (e.g. {'k2':'k1','k1':'xyz'} where 'k1' is both a key list and a secret
+	# value but its substitute 'k2' has no way back) is NOT frozen - the raw
+	# secret must still be redacted to its own keys.
+	cyclic_key_lists = set()
+	for _secret in secret_values:
+		keys_str = plain_map.get(_secret)
+		if keys_str in key_list_strings:
+			# Walk the substitute chain; bail at length cap to bound cost.
+			seen = {_secret}
+			cur = keys_str
+			cyclic = False
+			for _ in range(32):
+				if cur in secret_values and cur not in seen:
+					seen.add(cur)
+					nxt = plain_map.get(cur)
+					if nxt == _secret:
+						cyclic = True
+						break
+					cur = nxt
+					continue
+				break
+			if cyclic:
+				cyclic_key_lists.add(keys_str)
+	for i, part in enumerate(parts):
+		if i % 2 == 1:
+			# Existing tag: redact raw secrets inside it, longest-first.
+			# A configured secret may itself look like a full balanced tag
+			# (e.g. "<secret>foo</secret>" or the empty marker
+			# "<secret></secret>"). Redact it instead of mistaking it for a
+			# pre-existing placeholder, which would leak the raw value.
+			full_tag = f'<secret>{part}</secret>'
+			if full_tag in mapping:
+				parts[i] = mapping[full_tag]
+				continue
+			if not part:
+				# Preserve empty markers as-is instead of deleting them.
+				parts[i] = '<secret></secret>'
+				continue
+			# If the tag already contains exactly a generated key list, it is a
+			# placeholder from a previous redaction pass and should stay
+			# unchanged to keep redaction idempotent. For a key list that is
+			# itself a configured secret value (cyclic collision), freezing is
+			# the only convergent choice — re-substitution would flip-flop.
+			if part in key_list_strings and (part in cyclic_key_lists or part not in secret_values):
+				parts[i] = full_tag
+				continue
+			inner = pattern.sub(lambda m: plain_map[m.group(0)], part)
+			parts[i] = f'<secret>{inner}</secret>'
+		else:
+			# Unredacted text: replace raw secrets with placeholder tags.
+			parts[i] = pattern.sub(lambda m: mapping[m.group(0)], part)
+
+	return ''.join(parts)
 
 
 def _get_openai_bad_request_error() -> type | None:

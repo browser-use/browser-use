@@ -1,0 +1,452 @@
+import platform
+import re
+import sys
+
+from browser_use.utils import _get_redact_pattern_and_mapping, redact_sensitive_string
+
+
+def test_redact_sensitive_string_cascade():
+	"""
+	Verify that sensitive values containing the word "secret" do not cause
+	cascade re-redaction of already generated <secret>...</secret> tags.
+	"""
+	sensitive_values = {
+		'password': 'supersecret',
+		'key': 'secret',
+	}
+	input_str = 'My password is supersecret'
+	expected_correct = 'My password is <secret>password</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected_correct
+
+
+def test_redact_sensitive_string_duplicate_keys():
+	"""
+	Verify that when multiple keys map to the same secret value, they are grouped
+	and sorted inside a single tag: <secret>key1, key2</secret>
+	"""
+	sensitive_values = {
+		'password': 'admin',
+		'api_key': 'admin',
+	}
+	input_str = 'Login with admin'
+	expected = 'Login with <secret>api_key, password</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
+def test_redact_sensitive_string_substrings():
+	"""
+	Verify that longer secrets are matched and redacted before shorter substrings,
+	avoiding partial leaks.
+	"""
+	sensitive_values = {
+		'short': 'abc',
+		'long': 'abcdef',
+	}
+	input_str = 'Match abcdef and abc'
+	expected = 'Match <secret>long</secret> and <secret>short</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
+def test_redact_sensitive_string_falsy_values():
+	"""
+	Verify that empty or falsy secrets are ignored and do not cause corrupt redactions.
+	"""
+	sensitive_values = {
+		'empty_pwd': '',
+		'valid_pwd': 'safe',
+	}
+	input_str = 'Input is safe'
+	expected = 'Input is <secret>valid_pwd</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
+def test_redact_sensitive_string_secret_inside_tag():
+	"""
+	Verify that if a raw secret is wrapped in a pre-existing <secret> tag,
+	the raw secret value inside the tag is correctly replaced with the placeholder.
+	"""
+	sensitive_values = {
+		'password': 'supersecret',
+	}
+	input_str = '<secret>supersecret</secret> and some raw supersecret'
+	expected = '<secret>password</secret> and some raw <secret>password</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
+def test_redact_sensitive_string_multiline_tag():
+	"""
+	Verify that pre-existing tags containing newlines are correctly matched
+	and skipped, rather than causing cascade re-redactions inside tag boundaries.
+	"""
+	sensitive_values = {
+		'password': 'supersecret',
+		'key': 'secret',
+	}
+	input_str = '<secret>first_line\nsecond_line</secret> and supersecret'
+	expected = '<secret>first_line\nsecond_line</secret> and <secret>password</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
+def test_redact_sensitive_string_secret_with_tag_chars():
+	"""
+	Verify that a secret value whose own text contains ``<secret>`` tag markers
+	is fully redacted when it appears as plaintext in unredacted prose, i.e. the
+	literal marker text is not mistaken for a tag boundary that should be skipped.
+	"""
+	sensitive_values = {
+		'api_key': '<secret>leak',
+	}
+	input_str = 'The api key is <secret>leak in plaintext'
+	expected = 'The api key is <secret>api_key</secret> in plaintext'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+	# The raw secret value (including the literal ``<secret>`` marker) must not
+	# survive unredacted in the output.
+	assert '<secret>leak' not in actual
+
+
+def test_redact_sensitive_string_secret_spanning_tags():
+	"""
+	Verify that a secret value containing a literal ``</secret>...<secret>``
+	sequence (i.e. text that looks like it spans a tag boundary) is fully
+	redacted when it occurs in unredacted prose, rather than being split or
+	skipped as if it were real tag markup.
+	"""
+	sensitive_values = {
+		'token': 'abc</secret>xyz<secret>def',
+	}
+	input_str = 'token abc</secret>xyz<secret>def here'
+	expected = 'token <secret>token</secret> here'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+	assert 'abc</secret>xyz<secret>def' not in actual
+
+
+def test_redact_sensitive_string_idempotent_when_secret_equals_key_list():
+	"""
+	Verify idempotence: if a secret value equals the key list text used inside a
+	generated placeholder tag, re-redacting the tag must not produce nested tags.
+	"""
+	sensitive_values = {
+		'password': 'password',
+	}
+	input_str = '<secret>password</secret> and password'
+	expected = '<secret>password</secret> and <secret>password</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
+def test_redact_sensitive_string_nested_pre_existing_tags():
+	"""
+	Verify that nested pre-existing <secret> tags are parsed using balanced
+	boundaries, not at the first closing tag. The outer tag's inner content
+	(including nested tags) should be redacted and re-wrapped correctly.
+	"""
+	sensitive_values = {
+		'password': 'supersecret',
+	}
+	input_str = '<secret>outer <secret>supersecret</secret> inner</secret>'
+	expected = '<secret>outer <secret>password</secret> inner</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
+def test_redact_sensitive_string_secret_is_full_tag():
+	"""
+	Verify that a configured secret that is itself a full balanced <secret> tag
+	(e.g. "<secret>foo</secret>") is redacted rather than mistaken for a
+	pre-existing placeholder and leaked unchanged.
+	"""
+	sensitive_values = {
+		'password': '<secret>foo</secret>',
+	}
+	# Appearing as raw plaintext.
+	input_str = 'leak: <secret>foo</secret>'
+	expected = 'leak: <secret>password</secret>'
+	assert redact_sensitive_string(input_str, sensitive_values) == expected
+	assert '<secret>foo</secret>' not in redact_sensitive_string(input_str, sensitive_values)
+
+
+def test_redact_sensitive_string_empty_tag_preserved():
+	"""
+	Verify that an empty pre-existing <secret></secret> marker is preserved
+	rather than silently removed from the message.
+	"""
+	sensitive_values = {
+		'password': 'supersecret',
+	}
+	input_str = 'before <secret></secret> after'
+	expected = 'before <secret></secret> after'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
+def test_redact_sensitive_string_unsorted_input():
+	"""
+	Verify that when keys are supplied in non-alphabetical order and share a
+	secret value, the generated placeholder lists the keys in deterministic
+	sorted order (alphabetical).
+	"""
+	sensitive_values = {
+		'zeta': 'shared',
+		'alpha': 'shared',
+	}
+	input_str = 'uses shared secret'
+	expected = 'uses <secret>alpha, zeta</secret> secret'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
+def test_redact_sensitive_string_secret_spanning_balanced_tag():
+	"""
+	Verify that a configured secret whose value contains a balanced
+	<secret>...</secret> pair (e.g. "x<secret>y</secret>z") is fully redacted
+	when it appears in plain prose, instead of being shredded by tag splitting
+	and leaking unchanged.
+	"""
+	sensitive_values = {
+		'token': 'x<secret>y</secret>z',
+	}
+	input_str = 'value x<secret>y</secret>z here'
+	expected = 'value <secret>token</secret> here'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+	# The raw secret value must not survive unredacted in the output.
+	assert 'x<secret>y</secret>z' not in actual
+	# Idempotence: re-redacting the output must not change it.
+	assert redact_sensitive_string(actual, sensitive_values) == expected
+
+
+def test_redact_sensitive_string_secret_with_nested_balanced_tags():
+	"""
+	Verify that a configured secret containing nested balanced <secret> pairs
+	(e.g. "a<secret>b<secret>c</secret>d</secret>e") is fully redacted rather
+	than leaked via fake tag re-wrapping.
+	"""
+	sensitive_values = {
+		'token': 'a<secret>b<secret>c</secret>d</secret>e',
+	}
+	input_str = 'prefix a<secret>b<secret>c</secret>d</secret>e suffix'
+	expected = 'prefix <secret>token</secret> suffix'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+	assert 'a<secret>b<secret>c</secret>d</secret>e' not in actual
+	assert redact_sensitive_string(actual, sensitive_values) == expected
+
+
+def test_redact_sensitive_string_key_list_collision_with_secret():
+	"""
+	Verify that when a generated key-list string is itself another key's raw
+	secret value, the raw secret inside an existing tag is redacted to its own
+	keys instead of being preserved as a placeholder and leaking.
+	"""
+	sensitive_values = {
+		'k2': 'k1',
+		'k1': 'xyz',
+	}
+	input_str = '<secret>k1</secret> and xyz'
+	expected = '<secret>k2</secret> and <secret>k1</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+	# No raw secret value may survive in the output.
+	assert 'xyz' not in actual
+	# Redaction converges: after the placeholder texts themselves stabilize, a
+	# further pass must not change the output.
+	second = redact_sensitive_string(actual, sensitive_values)
+	third = redact_sensitive_string(second, sensitive_values)
+	assert second == third
+
+
+def test_redact_sensitive_string_secret_is_empty_marker():
+	"""
+	Verify that a configured secret whose value is the empty
+	<secret></secret> marker is redacted, while empty pre-existing markers
+	with no matching secret remain preserved.
+	"""
+	sensitive_values = {
+		'pwd': '<secret></secret>',
+	}
+	input_str = 'foo <secret></secret> bar'
+	expected = 'foo <secret>pwd</secret> bar'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+	assert '<secret></secret>' not in actual
+	assert redact_sensitive_string(actual, sensitive_values) == expected
+	# Unrelated empty markers must still be preserved.
+	unrelated = redact_sensitive_string('before <secret></secret> after', {'password': 'supersecret'})
+	assert unrelated == 'before <secret></secret> after'
+
+
+def test_redact_pattern_helper_holds_no_process_global_secret_cache():
+	"""The pattern/mapping helper must not keep raw secret material in a
+	process-global @lru_cache, so secrets cannot outlive the redaction call.
+	"""
+	# No @lru_cache machinery may be attached to the helper.
+	assert not hasattr(_get_redact_pattern_and_mapping, 'cache_info')
+	assert not hasattr(_get_redact_pattern_and_mapping, 'cache_clear')
+
+	secrets_a = (('token', 'super-secret-value-a'),)
+	secrets_b = (('token', 'super-secret-value-b'),)
+
+	_pattern_a, mapping_a, plain_a = _get_redact_pattern_and_mapping(secrets_a)
+	_pattern_b, mapping_b, plain_b = _get_redact_pattern_and_mapping(secrets_b)
+
+	# Independent objects per call: no shared cached state to mutate or inspect
+	# across requests.
+	assert mapping_a is not mapping_b
+	assert plain_a is not plain_b
+	# A's compiled maps must not retain a different call's secret text.
+	assert 'super-secret-value-b' not in mapping_a
+	assert 'super-secret-value-a' not in mapping_b
+
+	# After redacting with secret A, a subsequent B lookup must still be clean
+	# of A's secret (no lingering global retention).
+	redact_sensitive_string('leak super-secret-value-a', {'token': 'super-secret-value-a'})
+	_, mapping_b2, _ = _get_redact_pattern_and_mapping(secrets_b)
+	assert 'super-secret-value-a' not in mapping_b2
+
+
+def test_redact_inside_existing_tag_uses_single_pass_no_cascade():
+	"""Inner tag content is redacted in a single pass: a secret whose generated
+	key-list text coincides with another secret's value must not be re-redacted
+	into the other key inside the existing tag (no cascade re-redaction).
+	"""
+	# 'say k1 now' (key=k1) sits inside an existing tag. Its placeholder is 'k1',
+	# which is also the secret value for key k2 — but placeholders are never
+	# re-scanned, so the result stays 'k1', not a cascaded 'k2'.
+	result = redact_sensitive_string('<secret>say k1 now</secret>', {'k2': 'k1', 'k1': 'say k1 now'})
+	assert result == '<secret>k1</secret>'
+
+
+def test_redact_does_not_retain_secrets_in_re_internal_cache():
+	"""A redaction call must evict its own secret-bearing pattern from every re
+	cache (3.12 keeps _cache and _cache2), leaving unrelated regexes intact.
+	"""
+	import re
+
+	re.compile(r'\d{4}-\d{2}-\d{2}')
+
+	secret = 'supersecret-value-xyz'
+	redact_sensitive_string(f'leak {secret}', {'password': secret})
+
+	# The escaped pattern string re.compile stored — checking the raw secret is
+	# vacuous since re.escape backslashes it (supersecret\-value\-xyz).
+	escaped_secret = re.escape(secret)
+
+	def _pattern_str(key: object) -> str:
+		if isinstance(key, tuple):
+			for elem in key:
+				if isinstance(elem, str) and not isinstance(elem, type):
+					return elem
+		return str(key)
+
+	for _attr in ('_cache', '_cache2'):
+		cache = getattr(re, _attr, None)
+		if not isinstance(cache, dict):
+			continue
+		for key in cache:
+			pstr = _pattern_str(key)
+			assert escaped_secret not in pstr, f'secret-bearing pattern survived in re.{_attr}: {pstr!r}'
+
+		patterns = {_pattern_str(k) for k in cache}
+		assert r'\d{4}-\d{2}-\d{2}' in patterns, f'unrelated regex evicted from re.{_attr}'
+
+
+def test_redact_cache_eviction_assumes_familiar_re_cache_shape_on_cpython():
+	"""On supported CPython the no-retention guarantee rests on re._cache or
+	re._cache2 being dict caches keyed by a tuple whose pattern position holds
+	the escaped secret. If a future CPython drops both, the guarantee silently
+	no-ops - fail loudly instead, then re-introduce a fallback.
+	"""
+	import re
+
+	if not platform.python_implementation() == 'CPython' or sys.version_info < (3, 10):
+		return  # guarantee is best-effort only on non-CPython / older versions
+
+	has_at_least_one = any(isinstance(getattr(re, a, None), dict) for a in ('_cache', '_cache2'))
+	assert has_at_least_one, 'neither re._cache nor re._cache2 is a dict; eviction silently no-ops'
+
+
+def test_redact_survives_concurrent_re_compile_churn():
+	"""Concurrent re.compile (which mutates re._cache/_cache2) must not crash
+	regression of the unsynchronized eviction loop ("dictionary keys changed
+	during iteration"). Runs 2 compile-churn threads + 1 redact loop.
+	"""
+	import threading
+
+	from browser_use.utils import redact_sensitive_string
+
+	stop = threading.Event()
+	errors: list[BaseException] = []
+
+	def churn_compile():
+		i = 0
+		while not stop.is_set():
+			re.compile(f'churn-pattern-{i % 600}')
+			i += 1
+
+	def churn_redact():
+		for i in range(2000):
+			try:
+				redact_sensitive_string(f'leak secret-value-{i}', {'password': f'secret-value-{i}'})
+			except BaseException as e:  # noqa: BLE001
+				errors.append(e)
+				stop.set()
+				return
+		stop.set()
+
+	# First pre-warm by compiling so the cache is non-empty, exercising eviction.
+	re.compile('warmup-pattern-0')
+
+	t1 = threading.Thread(target=churn_compile)
+	t2 = threading.Thread(target=churn_compile)
+	t3 = threading.Thread(target=churn_redact)
+	t1.start()
+	t2.start()
+	t3.start()
+	t3.join()
+	stop.set()
+	t1.join()
+	t2.join()
+
+	assert not errors, f'redactSensitiveString crashed under concurrent re.compile churn: {errors[0]!r}'
+
+
+def test_redact_cyclic_key_value_secrets_converge():
+	"""Cyclic key/value secrets (e.g. {'a':'b','b':'a'}) where one key's
+	generated placeholder text equals another's secret value must not flip-flop
+	after the first redaction pass.
+	"""
+	import re
+
+	secrets = {'a': 'b', 'b': 'a'}
+	first = redact_sensitive_string('<secret>a</secret>', secrets)
+	second = redact_sensitive_string(first, secrets)
+	third = redact_sensitive_string(second, secrets)
+	# Convergence: repeat redaction must not mutate the placeholder.
+	assert second == third, f'cyclic secrets flip-flop: {first!r} -> {second!r} -> {third!r}'
+	# Once in tag form, the placeholder must not reveal either raw secret.
+	stripped = re.sub(r'<secret>.*?</secret>', '', first)
+	assert 'a' not in stripped and 'b' not in stripped, f'raw secret leaked: {stripped!r}'
