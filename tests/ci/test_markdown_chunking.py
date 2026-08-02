@@ -43,6 +43,25 @@ class TestChunkMarkdownBasic:
 		# Last chunk ends at content length
 		assert chunks[-1].char_offset_end == len(content)
 
+	def test_offsets_dont_overshoot_with_trailing_newline(self):
+		"""char_offset_end must equal len(content) even when content ends with a newline.
+
+		A trailing newline makes ``content.split('\\n')`` yield a spurious empty final
+		element. The per-line ``+1`` newline accounting must not push the last offset
+		one character past the end of the content, otherwise ``char_offset_end`` can
+		exceed ``len(content)`` and ``start_from_char`` resume logic mis-fires.
+		"""
+		content = '# Header\n\nParagraph one.\n\nParagraph two.\n'
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=20)
+		# Last offset must not overshoot the real content length
+		assert chunks[-1].char_offset_end == len(content), (
+			f'Last offset {chunks[-1].char_offset_end} overshoots content length {len(content)}'
+		)
+		# Full forward coverage with no gaps
+		assert chunks[0].char_offset_start == 0
+		for i in range(1, len(chunks)):
+			assert chunks[i].char_offset_start == chunks[i - 1].char_offset_end
+
 
 class TestChunkMarkdownHeaders:
 	"""Header boundary splitting."""
