@@ -104,7 +104,7 @@ class CDPSession(BaseModel):
 
 
 class ResilientEventBus(EventBus):
-	"""EventBus whose step()/wait_until_idle() no-op on a torn-down bus instead of asserting.
+	"""EventBus whose shutdown paths tolerate torn-down or unresponsive buses.
 
 	Agent.close() stops a keep_alive session's bus and nulls its async primitives to release
 	the event loop. On warm-Lambda resume the worker can step() it before a dispatch() restarts
@@ -129,6 +129,44 @@ class ResilientEventBus(EventBus):
 		if self._on_idle is None or self.event_queue is None:
 			return None
 		return await super().wait_until_idle(timeout)
+
+	async def stop(self, timeout: float | None = None, clear: bool = False) -> None:
+		if timeout is None or timeout <= 0:
+			await super().stop(timeout=timeout, clear=clear)
+			return
+
+		try:
+			watchdog_timeout = timeout + min(1.0, max(0.1, timeout * 0.1))
+			await asyncio.wait_for(super().stop(timeout=timeout, clear=clear), timeout=watchdog_timeout)
+		except TimeoutError:
+			logging.getLogger(__name__).warning('Timed out stopping %s after %.2fs; forcing shutdown', self, timeout)
+			self._force_shutdown(clear=clear)
+
+	def _force_shutdown(self, clear: bool) -> None:
+		self._is_running = False
+
+		if self.event_queue:
+			self.event_queue.shutdown()
+
+		if self._runloop_task and not self._runloop_task.done():
+			self._runloop_task.cancel()
+		self._runloop_task = None
+
+		if self._on_idle:
+			self._on_idle.set()
+
+		if clear:
+			self.event_history.clear()
+			self.handlers.clear()
+			if self in EventBus.all_instances:
+				EventBus.all_instances.discard(self)
+			try:
+				loop = asyncio.get_running_loop()
+				eventbus_instances = getattr(loop, '_eventbus_instances', None)
+				if eventbus_instances is not None:
+					eventbus_instances.discard(self)
+			except RuntimeError:
+				pass
 
 
 class BrowserSession(BaseModel):
