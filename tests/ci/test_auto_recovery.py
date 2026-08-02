@@ -23,9 +23,9 @@ from browser_use.agent.recovery import (
 	RecoveryEngine,
 	RecoveryOutcome,
 	RecoveryResult,
-	RecoveryStrategy,
 	RecoveryStage,
 	RecoveryStats,
+	RecoveryStrategy,
 	RelocateRecovery,
 	RetryRecovery,
 	ScrollRecovery,
@@ -251,8 +251,14 @@ async def test_navigation_recovery_goes_back_on_404():
 	result = await strategy.recover(ctx)
 	assert result.outcome == RecoveryOutcome.RETRY
 	agent.tools.registry.execute_action.assert_awaited_once_with(
-		action_name='go_back', params={}, browser_session=None, page_extraction_llm=None,
-		file_system=None, sensitive_data=None, available_file_paths=None, extraction_schema=None,
+		action_name='go_back',
+		params={},
+		browser_session=None,
+		page_extraction_llm=None,
+		file_system=None,
+		sensitive_data=None,
+		available_file_paths=None,
+		extraction_schema=None,
 	)
 
 
@@ -369,6 +375,7 @@ async def test_stage_recovers_and_returns_successful_result():
 			ActionResult(extracted_content='clicked!'),
 		]
 	)
+
 	async def fake_recover(_ctx: RecoveryContext) -> Any:
 		return MagicMock(
 			outcome=RecoveryOutcome.RETRY,
@@ -390,6 +397,7 @@ async def test_stage_recovers_and_returns_successful_result():
 	assert attempt.recovered is True
 	assert attempt.result.extracted_content == 'clicked!'
 	assert agent.tools.act.await_count == 2
+
 
 @pytest.mark.asyncio
 async def test_stage_gives_up_and_preserves_original_error():
@@ -462,3 +470,66 @@ def test_default_strategies_registered_in_order():
 	# Environment-level repairs must come before element-level ones.
 	phases = [s.phase for s in default_strategies()]
 	assert phases == sorted(phases, key=lambda p: list(RecoveryPhase).index(p))
+
+
+# ── Default wiring regression ─────────────────────────────────────────────
+def test_engine_defaults_to_builtin_strategies():
+	"""A bare RecoveryEngine must load the built-in strategy registry."""
+	engine = RecoveryEngine()
+	assert len(engine.strategies) == 8
+	assert [s.name for s in engine.strategies] == [
+		'browser_crash',
+		'navigation',
+		'overlay',
+		'scroll',
+		'relocate',
+		'wait',
+		'timeout',
+		'retry',
+	]
+
+
+def test_engine_empty_list_disables_recovery():
+	"""Explicit empty list must mean 'no strategies' (opt out)."""
+	assert RecoveryEngine([]).strategies == []
+
+
+def test_stage_default_engine_has_builtin_strategies():
+	"""RecoveryStage() used by ActionExecutor must not be a no-op."""
+	stage = RecoveryStage()
+	assert len(stage.engine.strategies) == 8
+
+
+@pytest.mark.asyncio
+async def test_stage_recovers_navigation_failure_with_default_engine():
+	"""Regression: site-unavailable navigation errors must match NavigationRecovery."""
+	agent = _make_agent()
+	agent.tools.act = AsyncMock(
+		side_effect=[
+			ActionResult(error='Navigation failed - site unavailable: https://example-article-1.com'),
+			ActionResult(extracted_content='navigated'),
+		]
+	)
+	agent.tools.registry.execute_action = AsyncMock(return_value=ActionResult(extracted_content='back'))
+	stage = RecoveryStage()  # default engine with built-in strategies
+	attempt = await stage.recover(
+		agent=agent,
+		action=_StubAction(click={'index': 5}),
+		action_name='click',
+		failed_result=ActionResult(error='Navigation failed - site unavailable: https://example-article-1.com'),
+		browser_state=_make_state(),
+	)
+	assert attempt.recovered is True
+	assert attempt.result.extracted_content == 'navigated'
+	# NavigationRecovery ran first, then the action was re-executed.
+	agent.tools.registry.execute_action.assert_awaited_once_with(
+		action_name='go_back',
+		params={},
+		browser_session=None,
+		page_extraction_llm=None,
+		file_system=None,
+		sensitive_data=None,
+		available_file_paths=None,
+		extraction_schema=None,
+	)
+	assert agent.tools.act.await_count == 2

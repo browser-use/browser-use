@@ -84,10 +84,7 @@ class NavigationRecovery(RecoveryStrategy):
 	supports = {ActionKind.NAVIGATE, ActionKind.CLICK, ActionKind.TYPE}
 
 	def can_handle(self, ctx: RecoveryContext) -> bool:
-		return any(
-			token in ctx.error
-			for token in ('404', 'page not found', 'redirect', 'navigation failed', 'no page found')
-		)
+		return any(token in ctx.error for token in ('404', 'page not found', 'redirect', 'navigation failed', 'no page found'))
 
 	async def recover(self, ctx: RecoveryContext) -> RecoveryResult:
 		try:
@@ -169,9 +166,7 @@ class ScrollRecovery(RecoveryStrategy):
 			if state.pixels_above > 0 and state.pixels_below == 0:
 				scroll_down = False
 		try:
-			await self.run_registered_action(
-				ctx, 'scroll', {'down': scroll_down, 'pages': 1.0}
-			)
+			await self.run_registered_action(ctx, 'scroll', {'down': scroll_down, 'pages': 1.0})
 			return RecoveryResult(
 				outcome=RecoveryOutcome.RETRY,
 				strategy=self.name,

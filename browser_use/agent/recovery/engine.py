@@ -55,7 +55,13 @@ class RecoveryEngine:
 		stats: RecoveryStats | None = None,
 		max_attempts: int = 3,
 	) -> None:
-		self.strategies: list[RecoveryStrategy] = list(strategies or [])
+		# ``None`` loads the built-in strategy registry; pass an empty list
+		# to opt out of recovery entirely.
+		if strategies is None:
+			from browser_use.agent.recovery.strategies import default_strategies
+
+			strategies = default_strategies()
+		self.strategies: list[RecoveryStrategy] = list(strategies)
 		self.stats = stats or RecoveryStats()
 		self.max_attempts = max_attempts
 
@@ -74,9 +80,7 @@ class RecoveryEngine:
 			if ctx.attempts.get(strategy.name, 0) >= strategy.max_attempts:
 				continue
 			candidates.append(strategy)
-		candidates.sort(
-			key=lambda s: (_PHASE_ORDER[s.phase], _COST_ORDER[s.cost.value])
-		)
+		candidates.sort(key=lambda s: (_PHASE_ORDER[s.phase], _COST_ORDER[s.cost.value]))
 		return candidates
 
 	async def evaluate(self, ctx: RecoveryContext) -> RecoveryResult:
@@ -212,8 +216,7 @@ class RecoveryStage:
 			if not new_result.error:
 				self.engine.stats.record_success(decision.strategy, max(len(chain), 1))
 				logger.info(
-					f'✅ Recovery succeeded ({len(chain)} step(s)): '
-					f'{"+".join(chain) or decision.strategy}: {decision.reason}'
+					f'✅ Recovery succeeded ({len(chain)} step(s)): {"+".join(chain) or decision.strategy}: {decision.reason}'
 				)
 				return RecoveryAttempt(
 					result=new_result,
