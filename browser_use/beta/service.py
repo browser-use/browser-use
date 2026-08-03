@@ -4111,11 +4111,22 @@ def _resolve_tools(
 	output_model_schema: type[BaseModel] | None,
 	use_vision: bool | Literal['auto'],
 	display_files_in_done_text: bool,
+	context: Context | None = None,
 ) -> Any:
 	resolved_tools = tools if tools is not None else controller
 	if resolved_tools is None:
 		exclude_actions = ['screenshot'] if use_vision is False else []
-		resolved_tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
+		resolved_tools = Tools(
+			exclude_actions=exclude_actions,
+			display_files_in_done_text=display_files_in_done_text,
+			context=context,
+		)
+	elif context is not None:
+		# Forward the user-provided context even when a custom Tools/controller was supplied.
+		resolved_tools.context = context
+		registry = getattr(resolved_tools, 'registry', None)
+		if registry is not None:
+			registry.context = context
 	if output_model_schema is not None and hasattr(resolved_tools, 'use_structured_output_action'):
 		resolved_tools.use_structured_output_action(output_model_schema)
 	return resolved_tools
@@ -4299,6 +4310,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
+		context: Context | None = None,
 		**kwargs,
 	):
 		if llm_screenshot_size is not None:
@@ -4352,7 +4364,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			output_model_schema,
 			use_vision,
 			display_files_in_done_text,
+			context,
 		)
+		self.context = context
 		if skills and skill_ids:
 			raise ValueError('Cannot specify both "skills" and "skill_ids" parameters. Use "skills" for the cleaner API.')
 		skill_ids = skills or skill_ids

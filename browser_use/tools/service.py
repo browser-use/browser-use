@@ -444,8 +444,10 @@ class Tools(Generic[Context]):
 		exclude_actions: list[str] | None = None,
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
+		context: Context | None = None,
 	):
-		self.registry = Registry[Context](exclude_actions if exclude_actions is not None else [])
+		self.registry = Registry[Context](exclude_actions if exclude_actions is not None else [], context=context)
+		self.context = context
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
