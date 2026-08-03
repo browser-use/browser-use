@@ -69,7 +69,10 @@ def is_url_candidate_from_local_path(task: str, candidate_start: int) -> bool:
 		opener_index = prefix.rfind(opener)
 		if opener_index < 0 or task.find(closer, candidate_start) < 0:
 			continue
-		if opener != closer and opener_index < prefix.rfind(closer):
+		if opener == closer:
+			if prefix.count(opener) % 2 == 0:
+				continue
+		elif opener_index < prefix.rfind(closer):
 			continue
 		delimited_prefix = prefix[opener_index + 1 :]
 		if '/' in delimited_prefix or '\\' in delimited_prefix:
