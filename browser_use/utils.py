@@ -74,9 +74,16 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
-	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
+	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks.
+
+	Matching is case-insensitive: a secret stored as 'MyPass123' is also redacted
+	when it appears as 'MYPASS123' or 'mypass123'. This matters because web pages
+	frequently transform displayed text (CSS text-transform, confirmation dialogs,
+	form echoes), and a case-sensitive match would let the credential through to
+	the LLM unredacted in those cases.
+	"""
 	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
+		value = re.sub(re.escape(secret), f'<secret>{key}</secret>', value, flags=re.IGNORECASE)
 	return value
 
 

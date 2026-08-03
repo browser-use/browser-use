@@ -257,6 +257,68 @@ def test_filter_sensitive_data(message_manager):
 	assert '<secret>email</secret>' in result.content
 
 
+def test_redact_sensitive_string_case_insensitive():
+	"""Sensitive data redaction must be case-insensitive.
+
+	A web page displaying a secret in a different case (CSS text-transform:
+	uppercase, confirmation dialogs, form echoes) must not defeat the redaction.
+	Before this fix, redact_sensitive_string used str.replace (case-sensitive),
+	so 'MyPass123' in a page rendered as 'MYPASS123' leaked to the LLM.
+	"""
+	from browser_use.utils import redact_sensitive_string
+
+	sensitive_values = {'password': 'TestValueAlpha9'}
+
+	# Exact match (baseline)
+	assert redact_sensitive_string('TestValueAlpha9', sensitive_values) == '<secret>password</secret>'
+
+	# Case variations that a webpage could produce (CSS text-transform etc.)
+	assert redact_sensitive_string('testvaluealpha9', sensitive_values) == '<secret>password</secret>'
+	assert redact_sensitive_string('TESTVALUEALPHA9', sensitive_values) == '<secret>password</secret>'
+	assert redact_sensitive_string('TeStVaLuEaLpHa9', sensitive_values) == '<secret>password</secret>'
+
+	# Embedded in larger text (realistic DOM content)
+	result = redact_sensitive_string('Password TESTVALUEALPHA9 set successfully', sensitive_values)
+	assert '<secret>password</secret>' in result
+	assert 'TestValueAlpha9' not in result.lower()
+	assert 'testvaluealpha9' not in result.lower()
+
+	# No false positives on similar-but-different text
+	assert redact_sensitive_string('TestValueBeta', sensitive_values) == 'TestValueBeta'
+
+
+def test_redact_sensitive_string_preserves_existing_ordering_fix():
+	"""The longest-match-first ordering (from #4660) must still work with case-insensitive matching."""
+	from browser_use.utils import redact_sensitive_string
+
+	# Two secrets where one is a substring of the other
+	sensitive_values = {'short': 'pass', 'long': 'password'}
+
+	# The longer secret must be matched first to avoid partial redaction
+	result = redact_sensitive_string('enter password here', sensitive_values)
+	assert '<secret>long</secret>' in result
+	assert '<secret>short</secret>word' not in result  # No partial match
+
+	# Case-insensitive variant
+	result = redact_sensitive_string('enter PASSWORD here', sensitive_values)
+	assert '<secret>long</secret>' in result
+
+
+def test_filter_sensitive_data_case_insensitive(message_manager):
+	"""Full pipeline test: a message containing a case-varied secret must be redacted.
+
+	Simulates a webpage with CSS text-transform:uppercase echoing the agent's
+	entered password in caps. Before the fix, this leaked the real credential.
+	"""
+	message_manager.sensitive_data = {'password': 'TestValueGamma9'}
+	# The page rendered the password in uppercase (CSS text-transform)
+	message = UserMessage(content='Confirmation: Password TESTVALUEGAMMA9 accepted')
+	result = message_manager._filter_sensitive_data(message)
+	assert '<secret>password</secret>' in result.content
+	assert 'TESTVALUEGAMMA9' not in result.content
+	assert 'testvaluegamma9' not in result.content.lower()
+
+
 def test_is_new_tab_page():
 	"""Test is_new_tab_page function"""
 	# Test about:blank
