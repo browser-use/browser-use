@@ -52,7 +52,10 @@ def sanitize_url_candidate(url: str) -> str:
 def is_url_candidate_from_local_path(task: str, candidate_start: int) -> bool:
 	"""Return whether a bare-domain match is embedded in a local path token."""
 	prefix = task[:candidate_start]
-	path_prefix = (re.search(r'\S*$', prefix).group(0) if prefix else '').lstrip('`\'"(<[{')
+	token_start = len(prefix)
+	while token_start > 0 and not prefix[token_start - 1].isspace():
+		token_start -= 1
+	path_prefix = prefix[token_start:].lstrip('`\'"(<[{')
 	if '/' in path_prefix or '\\' in path_prefix:
 		return True
 	if re.fullmatch(r'[A-Za-z]:[^/\\]*', path_prefix):
