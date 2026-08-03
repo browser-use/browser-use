@@ -209,6 +209,7 @@ _LEGACY_HINTS: dict[str, str] = {
 	'screenshot': 'print(capture_screenshot())',
 	'eval': 'print(js("document.title"))',
 	'cookies': 'print(cdp("Network.getCookies"))',
+	'tab': '# list tabs with list_tabs(); switch with switch_tab(target); close with close_tab(target)',
 	'python': '# the CLI runs Python directly now — pipe it on stdin as shown below',
 	'run': '# write the steps as Python using the pre-imported helpers shown below',
 	'connect': '# connecting is automatic — the default flow attaches to your running Chrome',
