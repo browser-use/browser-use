@@ -54,7 +54,22 @@ def is_url_candidate_from_local_path(task: str, candidate_start: int) -> bool:
 	prefix = task[:candidate_start]
 	token_start = max(prefix.rfind(separator) for separator in (' ', '\t', '\r', '\n')) + 1
 	path_prefix = prefix[token_start:].lstrip('`\'"(<[{')
-	return '/' in path_prefix or '\\' in path_prefix
+	if '/' in path_prefix or '\\' in path_prefix:
+		return True
+
+	# Quoted or bracketed paths can contain whitespace, so the current token may
+	# only contain the filename suffix (for example, "/tmp/customer file.com").
+	for opener, closer in (('"', '"'), ("'", "'"), ('`', '`'), ('(', ')'), ('[', ']'), ('{', '}')):
+		opener_index = prefix.rfind(opener)
+		if opener_index < 0 or task.find(closer, candidate_start) < 0:
+			continue
+		if opener != closer and opener_index < prefix.rfind(closer):
+			continue
+		delimited_prefix = prefix[opener_index + 1 :]
+		if '/' in delimited_prefix or '\\' in delimited_prefix:
+			return True
+
+	return False
 
 
 # Lazy import for error types
