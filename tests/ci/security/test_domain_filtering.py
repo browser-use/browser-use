@@ -457,6 +457,7 @@ class TestUrlProhibitlistSecurity:
 		# blob: URLs are allowed only when their encoded origin passes the domain checks
 		assert watchdog._is_url_allowed('blob:https://example.com/uuid') is True
 		assert watchdog._is_url_allowed('blob:https://evil.com/uuid') is False
+		assert watchdog._is_url_allowed('blob:blob:https://example.com/uuid') is False
 
 	def test_data_and_blob_urls_allowed_without_restrictions(self):
 		"""data: and blob: URLs keep working when no domain restrictions are configured."""

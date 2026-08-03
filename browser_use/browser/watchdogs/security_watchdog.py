@@ -210,7 +210,11 @@ class SecurityWatchdog(BaseWatchdog):
 				return False
 			# blob: URLs encode their origin as blob:<origin>/<uuid> — only allow
 			# when the origin itself passes the domain checks.
-			return self._is_url_allowed(url[5:])
+			origin_url = url[5:]
+			origin = urlparse(origin_url)
+			if origin.scheme in ['data', 'blob']:
+				return False
+			return self._is_url_allowed(origin_url)
 
 		# Get the actual host (domain)
 		host = parsed.hostname
