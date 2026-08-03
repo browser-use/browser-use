@@ -111,6 +111,26 @@ async def test_browser_use_call_tool_success_is_not_error_and_preserves_text(bro
 	assert _text_of(result) == 'did: noop'
 
 
+async def test_browser_use_call_tool_content_list_preserves_text_and_image(browser_use_server: BrowserUseServer) -> None:
+	"""Tools returning a content list (e.g. browser_screenshot) keep text + image blocks."""
+
+	async def screenshot_stub(full_page: bool = False) -> tuple[str, str | None]:
+		return ('{"size_bytes": 5}', 'aGVsbG8=')
+
+	browser_use_server._screenshot = screenshot_stub  # type: ignore[method-assign]
+	# Avoid a real browser session init.
+	browser_use_server.browser_session = object()  # type: ignore[assignment]
+	handler = _call_tool_handler(browser_use_server)
+	params = types.CallToolRequestParams(name='browser_screenshot', arguments={})
+	result = await handler(None, params)
+	assert result.is_error is not True
+	texts = [b for b in result.content if isinstance(b, types.TextContent)]
+	images = [b for b in result.content if isinstance(b, types.ImageContent)]
+	assert texts and texts[0].text == '{"size_bytes": 5}'
+	assert images and images[0].data == 'aGVsbG8='
+	assert images[0].mime_type == 'image/png'
+
+
 # ---------------------------------------------------------------------------
 # CLIMCPServer
 # ---------------------------------------------------------------------------
@@ -152,8 +172,8 @@ async def test_cli_exec_empty_code_is_error(cli_server: CLIMCPServer) -> None:
 
 
 async def test_cli_exec_traceback_is_error(cli_server: CLIMCPServer) -> None:
-	def fake_execute(code: str, connect: bool = True) -> str:
-		return 'Traceback (most recent call last):\n  File "<stdin>", line 1\nZeroDivisionError: division by zero\n'
+	def fake_execute(code: str, connect: bool = True) -> tuple[str, bool]:
+		return ('Traceback (most recent call last):\n  File "<stdin>", line 1\nZeroDivisionError: division by zero\n', True)
 
 	cli_server._execute = fake_execute  # type: ignore[method-assign]
 	handler = _call_tool_handler(cli_server)
@@ -163,9 +183,43 @@ async def test_cli_exec_traceback_is_error(cli_server: CLIMCPServer) -> None:
 	assert 'ZeroDivisionError' in _text_of(result)
 
 
+async def test_cli_exec_traceback_like_output_is_not_error(cli_server: CLIMCPServer) -> None:
+	"""User code that merely *prints* a traceback-looking string is a success.
+
+	The error classification must come from _execute's structural flag, not from
+	scanning captured output for 'Traceback (most recent call last)'.
+	"""
+
+	def fake_execute(code: str, connect: bool = True) -> tuple[str, bool]:
+		# Successful execution whose stdout happens to contain the sentinel string.
+		return ('Traceback (most recent call last):', False)
+
+	cli_server._execute = fake_execute  # type: ignore[method-assign]
+	handler = _call_tool_handler(cli_server)
+	params = types.CallToolRequestParams(name='browser_exec', arguments={'code': 'print("Traceback (most recent call last):")'})
+	result = await handler(None, params)
+	assert result.is_error is not True
+	assert 'Traceback (most recent call last):' in _text_of(result)
+
+
+async def test_cli_exec_real_exception_is_error(cli_server: CLIMCPServer) -> None:
+	"""A real exception inside exec surfaces as an MCP error via the structural flag."""
+
+	def raising_execute(code: str, connect: bool = True) -> tuple[str, bool]:
+		# Mirror what the real _execute does on failure: traceback text + True.
+		return ('Traceback (most recent call last):\nValueError: boom\n', True)
+
+	cli_server._execute = raising_execute  # type: ignore[method-assign]
+	handler = _call_tool_handler(cli_server)
+	params = types.CallToolRequestParams(name='browser_exec', arguments={'code': 'raise ValueError("boom")'})
+	result = await handler(None, params)
+	assert result.is_error is True
+	assert 'ValueError' in _text_of(result)
+
+
 async def test_cli_exec_success_is_not_error(cli_server: CLIMCPServer) -> None:
-	def fake_execute(code: str, connect: bool = True) -> str:
-		return 'hello from the page'
+	def fake_execute(code: str, connect: bool = True) -> tuple[str, bool]:
+		return ('hello from the page', False)
 
 	cli_server._execute = fake_execute  # type: ignore[method-assign]
 	handler = _call_tool_handler(cli_server)
@@ -173,6 +227,31 @@ async def test_cli_exec_success_is_not_error(cli_server: CLIMCPServer) -> None:
 	result = await handler(None, params)
 	assert result.is_error is not True
 	assert _text_of(result) == 'hello from the page'
+
+
+async def test_cli_screenshot_success_preserves_image(cli_server: CLIMCPServer) -> None:
+	"""A successful browser_screenshot returns the base64 payload with image/png."""
+
+	def fake_screenshot(full: bool, max_dim: int | None) -> str:
+		return 'aGVsbG8='  # base64 for "hello"
+
+	cli_server._screenshot = fake_screenshot  # type: ignore[method-assign]
+	handler = _call_tool_handler(cli_server)
+	params = types.CallToolRequestParams(name='browser_screenshot', arguments={})
+	result = await handler(None, params)
+	assert result.is_error is not True
+	assert len(result.content) == 1
+	image = result.content[0]
+	assert isinstance(image, types.ImageContent)
+	assert image.data == 'aGVsbG8='
+	assert image.mime_type == 'image/png'
+
+
+async def test_cli_screenshot_invalid_max_dim_is_error(cli_server: CLIMCPServer) -> None:
+	handler = _call_tool_handler(cli_server)
+	params = types.CallToolRequestParams(name='browser_screenshot', arguments={'max_dim': 0})
+	result = await handler(None, params)
+	assert result.is_error is True
 
 
 async def test_cli_screenshot_that_raises_is_error_not_propagated(cli_server: CLIMCPServer) -> None:

@@ -92,10 +92,10 @@ class CLIMCPServer:
 							is_error=True,
 						)
 					async with self._exec_lock:
-						output = await asyncio.to_thread(self._execute, code)
-					# _execute swallows exceptions and returns the traceback as text; that is a
-					# failure, not a successful result, so flag it with is_error=True.
-					if 'Traceback (most recent call last)' in output:
+						output, is_error = await asyncio.to_thread(self._execute, code)
+					# _execute reports failure structurally (see its return), so user code that
+					# merely prints a traceback-like string is NOT misclassified as an error.
+					if is_error:
 						return types.CallToolResult(content=[types.TextContent(type='text', text=output)], is_error=True)
 					return types.CallToolResult(content=[types.TextContent(type='text', text=output or '(no output)')])
 				if name == 'browser_screenshot':
@@ -133,13 +133,18 @@ class CLIMCPServer:
 			return
 		ns['ensure_daemon']()
 
-	def _execute(self, code: str, connect: bool = True) -> str:
+	def _execute(self, code: str, connect: bool = True) -> tuple[str, bool]:
 		"""Run code in the persistent namespace, capturing stdout/stderr.
 
 		Runs in a worker thread: harness helpers are synchronous socket IPC. Output is
 		captured because stdout carries the MCP protocol.
+
+		Returns ``(output, is_error)``. Failure is reported structurally via the boolean
+		rather than by scanning the captured text, so user code that prints a
+		traceback-looking string is not mistaken for a real exception.
 		"""
 		buffer = StringIO()
+		is_error = False
 		with redirect_stdout(buffer), redirect_stderr(buffer):
 			try:
 				ns = self._ensure_namespace()
@@ -147,8 +152,9 @@ class CLIMCPServer:
 					self._ensure_daemon(code)
 				exec(code, ns)
 			except BaseException:
+				is_error = True
 				traceback.print_exc(file=buffer)
-		return buffer.getvalue()
+		return buffer.getvalue(), is_error
 
 	def _screenshot(self, full: bool, max_dim: int | None) -> str:
 		buffer = StringIO()
