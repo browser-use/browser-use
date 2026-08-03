@@ -13,7 +13,7 @@ except ImportError:
 	Laminar = None  # type: ignore
 from pydantic import BaseModel
 
-from browser_use.agent.views import ActionModel, ActionResult
+from browser_use.agent.views import ActionModel, ActionOutcome, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
 	ClickCoordinateEvent,
@@ -186,10 +186,13 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 	if e.long_term_memory is not None:
 		if e.short_term_memory is not None:
 			return ActionResult(
-				extracted_content=e.short_term_memory, error=e.long_term_memory, include_extracted_content_only_once=True
+				outcome=ActionOutcome.SYSTEM_ERROR,
+				extracted_content=e.short_term_memory,
+				error=e.long_term_memory,
+				include_extracted_content_only_once=True,
 			)
 		else:
-			return ActionResult(error=e.long_term_memory)
+			return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=e.long_term_memory)
 	# Fallback to original error handling if long_term_memory is None
 	logger.warning(
 		'⚠️ A BrowserError was raised without long_term_memory - always set long_term_memory when raising BrowserError to propagate right messages to LLM.'
@@ -474,7 +477,10 @@ class Tools(Generic[Context]):
 			}
 
 			if params.engine.lower() not in search_engines:
-				return ActionResult(error=f'Unsupported search engine: {params.engine}. Options: duckduckgo, google, bing')
+				return ActionResult(
+					outcome=ActionOutcome.INVALID_STATE,
+					error=f'Unsupported search engine: {params.engine}. Options: duckduckgo, google, bing',
+				)
 
 			search_url = search_engines[params.engine.lower()]
 
@@ -497,7 +503,9 @@ class Tools(Generic[Context]):
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 			except Exception as e:
 				logger.error(f'Failed to search {params.engine}: {e}')
-				return ActionResult(error=f'Failed to search {params.engine} for "{params.query}": {str(e)}')
+				return ActionResult(
+					outcome=ActionOutcome.SYSTEM_ERROR, error=f'Failed to search {params.engine} for "{params.query}": {str(e)}'
+				)
 
 		@self.registry.action(
 			'',
@@ -538,9 +546,10 @@ class Tools(Generic[Context]):
 							state = await browser_session.get_browser_state_summary(include_screenshot=False)
 							if state.url.lower().startswith(('http://', 'https://')) and state.dom_state._root is None:
 								return ActionResult(
+									outcome=ActionOutcome.SYSTEM_ERROR,
 									error=f'Page loaded but returned empty content for {params.url}. '
 									f'The page may require JavaScript that failed to render, use anti-bot measures, '
-									f'or have a connection issue (e.g. tunnel/proxy error). Try a different URL or approach.'
+									f'or have a connection issue (e.g. tunnel/proxy error). Try a different URL or approach.',
 								)
 
 				if params.new_tab:
@@ -560,7 +569,7 @@ class Tools(Generic[Context]):
 				# Check if it's specifically a RuntimeError about CDP client
 				if isinstance(e, RuntimeError) and 'CDP client not initialized' in error_msg:
 					browser_session.logger.error('❌ Browser connection failed - CDP client not properly initialized')
-					return ActionResult(error=f'Browser connection error: {error_msg}')
+					return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=f'Browser connection error: {error_msg}')
 				# Check for network-related errors
 				elif any(
 					err in error_msg
@@ -575,10 +584,10 @@ class Tools(Generic[Context]):
 				):
 					site_unavailable_msg = f'Navigation failed - site unavailable: {params.url}'
 					browser_session.logger.warning(f'⚠️ {site_unavailable_msg} - {error_msg}')
-					return ActionResult(error=site_unavailable_msg)
+					return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=site_unavailable_msg)
 				else:
 					# Return error in ActionResult instead of re-raising
-					return ActionResult(error=f'Navigation failed: {str(e)}')
+					return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=f'Navigation failed: {str(e)}')
 
 		@self.registry.action('Go back', param_model=NoParamsAction, terminates_sequence=True)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
@@ -592,7 +601,7 @@ class Tools(Generic[Context]):
 			except Exception as e:
 				logger.error(f'Failed to dispatch GoBackEvent: {type(e).__name__}: {e}')
 				error_msg = f'Failed to go back: {str(e)}'
-				return ActionResult(error=error_msg)
+				return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=error_msg)
 
 		@self.registry.action('Wait for x seconds.')
 		async def wait(seconds: int = 3):
@@ -656,7 +665,9 @@ class Tools(Generic[Context]):
 		async def _click_by_coordinate(params: ClickElementAction, browser_session: BrowserSession) -> ActionResult:
 			# Ensure coordinates are provided (type safety)
 			if params.coordinate_x is None or params.coordinate_y is None:
-				return ActionResult(error='Both coordinate_x and coordinate_y must be provided')
+				return ActionResult(
+					outcome=ActionOutcome.INVALID_STATE, error='Both coordinate_x and coordinate_y must be provided'
+				)
 
 			try:
 				# Convert coordinates from LLM size to original viewport size if resizing was used
@@ -681,7 +692,7 @@ class Tools(Generic[Context]):
 				# Check for validation errors (only happens when force=False)
 				if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
 					error_msg = click_metadata['validation_error']
-					return ActionResult(error=error_msg)
+					return ActionResult(outcome=ActionOutcome.INVALID_STATE, error=error_msg)
 
 				memory = f'Clicked on coordinate {params.coordinate_x}, {params.coordinate_y}'
 				memory += await _detect_new_tab_opened(browser_session, tabs_before)
@@ -695,7 +706,7 @@ class Tools(Generic[Context]):
 				return handle_browser_error(e)
 			except Exception as e:
 				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
-				return ActionResult(error=error_msg)
+				return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=error_msg)
 
 		async def _click_by_index(
 			params: ClickElementAction | ClickElementActionIndexOnly, browser_session: BrowserSession
@@ -711,7 +722,7 @@ class Tools(Generic[Context]):
 				if node is None:
 					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 					logger.warning(f'⚠️ {msg}')
-					return ActionResult(extracted_content=msg)
+					return ActionResult(outcome=ActionOutcome.NOT_FOUND, extracted_content=msg)
 
 				# Get description of clicked element
 				element_desc = get_click_description(node)
@@ -742,7 +753,7 @@ class Tools(Generic[Context]):
 							logger.debug(
 								f'Failed to get dropdown options as shortcut during click on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
 							)
-					return ActionResult(error=error_msg)
+					return ActionResult(outcome=ActionOutcome.INVALID_STATE, error=error_msg)
 
 				# Build memory with element info
 				memory = f'Clicked {element_desc}'
@@ -758,7 +769,7 @@ class Tools(Generic[Context]):
 				return handle_browser_error(e)
 			except Exception as e:
 				error_msg = f'Failed to click element {params.index}: {str(e)}'
-				return ActionResult(error=error_msg)
+				return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=error_msg)
 
 		# Store click handlers for re-registration
 		self._click_by_index = _click_by_index
@@ -782,7 +793,7 @@ class Tools(Generic[Context]):
 			if node is None:
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(outcome=ActionOutcome.NOT_FOUND, extracted_content=msg)
 
 			# Highlight the element being typed into (truly non-blocking)
 			create_task_with_error_handling(
@@ -851,7 +862,7 @@ class Tools(Generic[Context]):
 				# Log the full error for debugging
 				logger.error(f'Failed to dispatch TypeTextEvent: {type(e).__name__}: {e}')
 				error_msg = f'Failed to type text into element {params.index}: {e}'
-				return ActionResult(error=error_msg)
+				return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=error_msg)
 
 		@self.registry.action(
 			'',
@@ -891,12 +902,12 @@ class Tools(Generic[Context]):
 							if not (real_path == real_dir or real_path.startswith(real_dir + os.sep)):
 								msg = f'Upload of {params.path!r} escapes FileSystem directory; refusing.'
 								logger.error(f'❌ {msg}')
-								return ActionResult(error=msg)
+								return ActionResult(outcome=ActionOutcome.INVALID_STATE, error=msg)
 							params = UploadFileAction(index=params.index, path=file_system_path)
 						else:
 							msg = f'File path {params.path} is not available. To fix: The user must add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
 							logger.error(f'❌ {msg}')
-							return ActionResult(error=msg)
+							return ActionResult(outcome=ActionOutcome.INVALID_STATE, error=msg)
 					else:
 						# If browser is remote, allow passing a remote-accessible absolute path
 						if not browser_session.is_local:
@@ -909,17 +920,17 @@ class Tools(Generic[Context]):
 			if browser_session.is_local:
 				if not os.path.exists(params.path):
 					msg = f'File {params.path} does not exist'
-					return ActionResult(error=msg)
+					return ActionResult(outcome=ActionOutcome.INVALID_STATE, error=msg)
 				file_size = os.path.getsize(params.path)
 				if file_size == 0:
 					msg = f'File {params.path} is empty (0 bytes). The file may not have been saved correctly.'
-					return ActionResult(error=msg)
+					return ActionResult(outcome=ActionOutcome.INVALID_STATE, error=msg)
 
 			# Get the selector map to find the node
 			selector_map = await browser_session.get_selector_map()
 			if params.index not in selector_map:
 				msg = f'Element with index {params.index} does not exist.'
-				return ActionResult(error=msg)
+				return ActionResult(outcome=ActionOutcome.NOT_FOUND, error=msg)
 
 			node = selector_map[params.index]
 
@@ -1113,7 +1124,8 @@ class Tools(Generic[Context]):
 			chunks = chunk_markdown_by_structure(content, max_chunk_chars=MAX_CHAR_LIMIT, start_from_char=start_from_char)
 			if not chunks:
 				return ActionResult(
-					error=f'start_from_char ({start_from_char}) exceeds content length {final_filtered_length} characters.'
+					outcome=ActionOutcome.INVALID_STATE,
+					error=f'start_from_char ({start_from_char}) exceeds content length {final_filtered_length} characters.',
 				)
 			chunk = chunks[0]
 			content = chunk.content
@@ -1314,14 +1326,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 			if result.get('exceptionDetails'):
 				error_text = result['exceptionDetails'].get('text', 'Unknown JS error')
-				return ActionResult(error=f'search_page failed: {error_text}')
+				return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=f'search_page failed: {error_text}')
 
 			data = result.get('result', {}).get('value')
 			if data is None:
-				return ActionResult(error='search_page returned no result')
+				return ActionResult(outcome=ActionOutcome.NOT_FOUND, error='search_page returned no result')
 
 			if isinstance(data, dict) and data.get('error'):
-				return ActionResult(error=f'search_page: {data["error"]}')
+				return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=f'search_page: {data["error"]}')
 
 			formatted = _format_search_results(data, params.pattern)
 			total = data.get('total', 0)
@@ -1349,14 +1361,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 			if result.get('exceptionDetails'):
 				error_text = result['exceptionDetails'].get('text', 'Unknown JS error')
-				return ActionResult(error=f'find_elements failed: {error_text}')
+				return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=f'find_elements failed: {error_text}')
 
 			data = result.get('result', {}).get('value')
 			if data is None:
-				return ActionResult(error='find_elements returned no result')
+				return ActionResult(outcome=ActionOutcome.NOT_FOUND, error='find_elements returned no result')
 
 			if isinstance(data, dict) and data.get('error'):
-				return ActionResult(error=f'find_elements: {data["error"]}')
+				return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=f'find_elements: {data["error"]}')
 
 			formatted = _format_find_results(data, params.selector)
 			total = data.get('total', 0)
@@ -1378,7 +1390,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					if node is None:
 						# Element does not exist
 						msg = f'Element index {params.index} not found in browser state'
-						return ActionResult(error=msg)
+						return ActionResult(outcome=ActionOutcome.NOT_FOUND, error=msg)
 
 				direction = 'down' if params.down else 'up'
 				target = f'element {params.index}' if params.index is not None and params.index != 0 else ''
@@ -1467,7 +1479,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			except Exception as e:
 				logger.error(f'Failed to dispatch ScrollEvent: {type(e).__name__}: {e}')
 				error_msg = 'Failed to execute scroll action.'
-				return ActionResult(error=error_msg)
+				return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=error_msg)
 
 		@self.registry.action(
 			'',
@@ -1486,7 +1498,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			except Exception as e:
 				logger.error(f'Failed to dispatch SendKeysEvent: {type(e).__name__}: {e}')
 				error_msg = f'Failed to send keys: {str(e)}'
-				return ActionResult(error=error_msg)
+				return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=error_msg)
 
 		@self.registry.action('Scroll to text.')
 		async def find_text(text: str, browser_session: BrowserSession):  # type: ignore
@@ -1675,7 +1687,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			if node is None:
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(outcome=ActionOutcome.NOT_FOUND, extracted_content=msg)
 
 			# Dispatch GetDropdownOptionsEvent to the event handler
 
@@ -1703,7 +1715,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			if node is None:
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(outcome=ActionOutcome.NOT_FOUND, extracted_content=msg)
 
 			# Dispatch SelectDropdownOptionEvent to the event handler
 			from browser_use.browser.events import SelectDropdownOptionEvent
@@ -1735,7 +1747,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				else:
 					# Fallback to regular error
 					error_msg = selection_data.get('error', f'Failed to select option: {params.text}')
-					return ActionResult(error=error_msg)
+					return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=error_msg)
 
 		# File System Actions
 
@@ -1849,7 +1861,7 @@ Validated Code (after quote fixing):
 """
 
 					logger.debug(enhanced_msg)
-					return ActionResult(error=enhanced_msg)
+					return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=enhanced_msg)
 
 				# Get the result data
 				result_data = result.get('result', {})
@@ -1858,7 +1870,7 @@ Validated Code (after quote fixing):
 				if result_data.get('wasThrown'):
 					msg = f'JavaScript code: {code} execution failed (wasThrown=true)'
 					logger.debug(msg)
-					return ActionResult(error=msg)
+					return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=msg)
 
 				# Get the actual value
 				value = result_data.get('value')
@@ -1924,7 +1936,7 @@ Validated Code (after quote fixing):
 				# CDP communication or other system errors
 				error_msg = f'Failed to execute JavaScript: {type(e).__name__}: {e}'
 				logger.debug(f'JavaScript code that failed: {code[:200]}...')
-				return ActionResult(error=error_msg)
+				return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=error_msg)
 
 	def _validate_and_fix_javascript(self, code: str) -> str:
 		"""Validate and fix common JavaScript issues before execution"""
@@ -2118,7 +2130,10 @@ Validated Code (after quote fixing):
 			async def click(params: ClickElementAction, browser_session: BrowserSession):
 				# Validate that either index or coordinates are provided
 				if params.index is None and (params.coordinate_x is None or params.coordinate_y is None):
-					return ActionResult(error='Must provide either index or both coordinate_x and coordinate_y')
+					return ActionResult(
+						outcome=ActionOutcome.INVALID_STATE,
+						error='Must provide either index or both coordinate_x and coordinate_y',
+					)
 
 				# Try index-based clicking first if index is provided
 				if params.index is not None:
@@ -2227,16 +2242,17 @@ Validated Code (after quote fixing):
 							f'— likely an unresponsive CDP connection. Returning error so the agent can recover.'
 						)
 						result = ActionResult(
+							outcome=ActionOutcome.SYSTEM_ERROR,
 							error=(
 								f'Action {action_name} timed out after {timeout_s:.0f}s. '
 								f'The browser may be unresponsive (dead CDP WebSocket). '
 								f'Try again or a different approach.'
-							)
+							),
 						)
 					except Exception as e:
 						# Log the original exception with traceback for observability
 						logger.error(f"Action '{action_name}' failed with error: {str(e)}")
-						result = ActionResult(error=str(e))
+						result = ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=str(e))
 
 					if Laminar is not None:
 						Laminar.set_span_output(result)

@@ -153,6 +153,18 @@ If an interactive index inside your browser_state does not have text information
 Use screenshot if you are unsure or simply want more information about the current page state.
 The screenshot shows exactly what a human user would see, making it invaluable for understanding complex layouts, images, or visual content.
 </browser_vision_details>
+<action_outcomes>
+Actions return results with one of four outcome categories:
+- success: Action completed as expected
+- not_found: Target element or data does not exist on the page — try a different approach
+- invalid_state: Element exists but cannot be interacted with (disabled, wrong type) — adjust your strategy
+- system_error: Technical failure (CDP, timeout, network) — worth retrying
+
+NOT_FOUND and INVALID_STATE are NOT failures counted against you. 
+They mean you need to adapt your approach.
+Only SYSTEM_ERROR counts toward the failure limit.
+</action_outcomes>
+
 <output>You must call the AgentOutput tool with the following schema for the arguments:
 
 {{

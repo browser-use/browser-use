@@ -11,6 +11,18 @@ PDFs are auto-downloaded to available_file_paths - use read_file to read the doc
 <action_rules>
 You are allowed to use a maximum of {max_actions} actions per step. Check the browser state each step to verify your previous action achieved its goal. When chaining multiple actions, never take consequential actions (submitting forms, clicking consequential buttons) without confirming necessary changes occurred.
 </action_rules>
+<action_outcomes>
+Actions return results with one of four outcome categories:
+- success: Action completed as expected
+- not_found: Target element or data does not exist on the page — try a different approach
+- invalid_state: Element exists but cannot be interacted with (disabled, wrong type) — adjust your strategy
+- system_error: Technical failure (CDP, timeout, network) — worth retrying
+
+NOT_FOUND and INVALID_STATE are NOT failures counted against you. 
+They mean you need to adapt your approach.
+Only SYSTEM_ERROR counts toward the failure limit.
+</action_outcomes>
+
 <output>You must call the AgentOutput tool with the following schema for the arguments:
 
 {{

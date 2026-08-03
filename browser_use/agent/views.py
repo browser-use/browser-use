@@ -6,6 +6,7 @@ import logging
 import re
 import traceback
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, Generic, Literal
 
@@ -304,6 +305,22 @@ class JudgementResult(BaseModel):
 	)
 
 
+class ActionOutcome(str, Enum):
+	"""Typed outcome for action execution results.
+
+	Helps the agent distinguish between:
+	- SUCCESS: action completed as expected
+	- NOT_FOUND: element/data does not exist on the page
+	- INVALID_STATE: element exists but cannot be interacted with
+	- SYSTEM_ERROR: infrastructure failure (CDP, timeout, network)
+	"""
+
+	SUCCESS = 'success'
+	NOT_FOUND = 'not_found'
+	INVALID_STATE = 'invalid_state'
+	SYSTEM_ERROR = 'system_error'
+
+
 class ActionResult(BaseModel):
 	"""Result of executing an action"""
 
@@ -316,6 +333,9 @@ class ActionResult(BaseModel):
 
 	# Error handling - always include in long term memory
 	error: str | None = None
+
+	# Typed outcome - helps the agent distinguish failure categories
+	outcome: ActionOutcome = ActionOutcome.SUCCESS
 
 	# Files
 	attachments: list[str] | None = None  # Files to display in the done message
@@ -338,6 +358,17 @@ class ActionResult(BaseModel):
 	include_in_memory: bool = False  # whether to include in extracted_content inside long_term_memory
 
 	@model_validator(mode='after')
+	def infer_outcome_from_error(self):
+		"""Auto-set outcome to SYSTEM_ERROR when error is set but outcome is still default SUCCESS.
+
+		This ensures backward compatibility: old code that only sets error= gets the correct
+		failure treatment instead of being treated as a success.
+		"""
+		if self.error is not None and self.outcome == ActionOutcome.SUCCESS:
+			self.outcome = ActionOutcome.SYSTEM_ERROR
+		return self
+
+	@model_validator(mode='after')
 	def validate_success_requires_done(self):
 		"""Ensure success=True can only be set when is_done=True"""
 		if self.success is True and self.is_done is not True:
@@ -347,6 +378,18 @@ class ActionResult(BaseModel):
 				'Use success=False only for actions that fail.'
 			)
 		return self
+
+	@property
+	def is_not_found(self) -> bool:
+		return self.outcome == ActionOutcome.NOT_FOUND
+
+	@property
+	def is_system_error(self) -> bool:
+		return self.outcome == ActionOutcome.SYSTEM_ERROR
+
+	@property
+	def is_invalid_state(self) -> bool:
+		return self.outcome == ActionOutcome.INVALID_STATE
 
 
 class RerunSummaryAction(BaseModel):
