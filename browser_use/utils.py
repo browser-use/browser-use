@@ -52,9 +52,12 @@ def sanitize_url_candidate(url: str) -> str:
 def is_url_candidate_from_local_path(task: str, candidate_start: int) -> bool:
 	"""Return whether a bare-domain match is embedded in a local path token."""
 	prefix = task[:candidate_start]
-	token_start = max(prefix.rfind(separator) for separator in (' ', '\t', '\r', '\n')) + 1
-	path_prefix = prefix[token_start:].lstrip('`\'"(<[{')
+	path_prefix = (re.search(r'\S*$', prefix).group(0) if prefix else '').lstrip('`\'"(<[{')
 	if '/' in path_prefix or '\\' in path_prefix:
+		return True
+	if re.fullmatch(r'[A-Za-z]:[^/\\]*', path_prefix):
+		return True
+	if candidate_start > 0 and task[candidate_start - 1] == '_':
 		return True
 
 	# Quoted or bracketed paths can contain whitespace, so the current token may

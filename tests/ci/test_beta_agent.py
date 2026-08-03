@@ -4306,12 +4306,19 @@ def test_beta_agent_exposes_task_helper_methods():
 		'[/app/example.com]',
 		'`../uploads/example.ai`',
 		r'C:\uploads\example.org',
+		'customer_example.com',
+		r'C:customer_example.com',
 		'"/tmp/customer file.example.com"',
 		"'/tmp/customer/example file.com'",
 		r'"C:\Users\me\customer file.org"',
 	):
 		assert agent._extract_start_url(f'Upload {local_path}.') is None
 		assert browser_use_agent._extract_start_url(f'Upload {local_path}.') is None
+	for separator in ('\f', '\v', '\u2003'):
+		assert agent._extract_start_url(f'Inspect /tmp/a.com{separator}then open example.org.') == 'https://example.org'
+		assert (
+			browser_use_agent._extract_start_url(f'Inspect /tmp/a.com{separator}then open example.org.') == 'https://example.org'
+		)
 	numbered_task = '1. Navigate to https://elibrary.ferc.gov/eLibrary/search.\\n2. Ensure "General Search" is selected.'
 	assert agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
 	assert browser_use_agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
