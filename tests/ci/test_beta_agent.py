@@ -7905,3 +7905,45 @@ def test_rust_history_surfaces_terminal_session_interrupted_message():
 	assert history.is_done() is False
 	assert history.errors() == ['Rust terminal session was interrupted: interrupted by send_input']
 	assert history.action_results()[-1].error == 'Rust terminal session was interrupted: interrupted by send_input'
+
+
+def test_beta_agent_multi_act_routes_custom_action_with_context():
+	"""Custom Python actions must receive the agent's context object.
+
+	Regression for Cubic review on PR #5355: the beta Agent previously serialized
+	all non-`done` actions to a Rust instruction, so a registered Python action
+	declaring `context` could never receive the object provided to `Agent(context=...)`.
+	"""
+	from browser_use.agent.views import ActionResult
+	from browser_use.beta import Agent
+
+	class LLM:
+		model = 'gpt-test'
+
+	class MyContext:
+		value = 'injected'
+
+	received: dict[str, Any] = {}
+
+	agent = Agent(
+		task='use tools',
+		llm=LLM(),
+		context=MyContext(),
+	)
+
+	@agent.tools.registry.action('use context')
+	async def use_context(context: MyContext) -> ActionResult:
+		received['context'] = context
+		return ActionResult(extracted_content=f'got {context.value}')
+
+	# Rebuild the action model now that the custom action is registered.
+	agent.ActionModel = agent.tools.registry.create_action_model()
+
+	# Build a payload action the way the model output would.
+	action = agent.ActionModel(use_context={})
+
+	results = asyncio.get_event_loop().run_until_complete(agent.multi_act([action]))
+
+	assert len(results) == 1
+	assert results[0].extracted_content == 'got injected'
+	assert received['context'] is agent.context

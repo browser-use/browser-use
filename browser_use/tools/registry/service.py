@@ -402,7 +402,7 @@ class Registry(Generic[Context]):
 					special_context['page_url'] = None
 
 				# Add cdp_client
-				special_context['cdp_client'] = browser_session.cdp_client
+				special_context['cdp_client'] = browser_session.cdp_client if browser_session._cdp_client_root else None
 
 			# All functions are now normalized to accept kwargs only
 			# Call with params and unpacked special context
