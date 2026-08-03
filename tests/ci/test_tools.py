@@ -146,10 +146,39 @@ class TestToolsIntegration:
 			browser_session=browser_session,
 		)
 
-		images = (result.metadata or {}).get('images', [])
+		images = result.images or []
 		assert len(images) == 4
-		assert all(len(image) <= 256000 for image in images)
+		assert all(image['name'].startswith('evaluate_image_') for image in images)
+		assert all(len(image['data']) <= 256000 for image in images)
+		assert all(image['data'].startswith(('B',)) for image in images)
 		assert '[2 image(s) omitted' in result.extracted_content
+
+	async def test_evaluate_preserves_omission_report_at_result_limit(self, tools, browser_session, monkeypatch):
+		"""Test that image omission details survive result truncation."""
+		from browser_use.tools import service as tools_service
+
+		monkeypatch.setattr(tools_service, '_EVALUATE_MAX_RESULT_CHARS', 1000)
+		result = await tools.evaluate(
+			code="""(() => {
+				const largeImage = 'data:image/png;base64,' + 'A'.repeat(256001);
+				return 'x'.repeat(2000) + largeImage;
+			})()""",
+			browser_session=browser_session,
+		)
+
+		assert len(result.extracted_content) <= 1000
+		assert '[1 image(s) omitted' in result.extracted_content
+		assert '[Truncated after 1000 characters]' in result.extracted_content
+
+	async def test_evaluate_uses_configured_result_limit(self, tools, browser_session, monkeypatch):
+		"""Test that both truncation and its marker use the configured result limit."""
+		from browser_use.tools import service as tools_service
+
+		monkeypatch.setattr(tools_service, '_EVALUATE_MAX_RESULT_CHARS', 321)
+		result = await tools.evaluate(code="'x'.repeat(1000)", browser_session=browser_session)
+
+		assert len(result.extracted_content) <= 321
+		assert '[Truncated after 321 characters]' in result.extracted_content
 
 	async def test_wait_action(self, tools, browser_session):
 		"""Test that the wait action correctly waits for the specified duration."""

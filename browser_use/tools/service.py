@@ -1889,10 +1889,16 @@ Validated Code (after quote fixing):
 				kept_images = [image for image in found_images if len(image) <= _EVALUATE_MAX_IMAGE_CHARS][:_EVALUATE_MAX_IMAGES]
 				dropped_image_count = len(found_images) - len(kept_images)
 
-				metadata = None
+				images = None
 				if kept_images:
-					# Store images in metadata so they can be added as ContentPartImageParam
-					metadata = {'images': kept_images}
+					# Return images in the format consumed by the message manager.
+					images = [
+						{
+							'name': f'evaluate_image_{index}.{image.split("/", 1)[1].split(";", 1)[0]}',
+							'data': image.split(',', 1)[1],
+						}
+						for index, image in enumerate(kept_images, 1)
+					]
 
 				# Replace image data in result text with shorter placeholder
 				modified_text = result_text
@@ -1900,14 +1906,19 @@ Validated Code (after quote fixing):
 					modified_text = modified_text.replace(img_data, '[Image]')
 				result_text = modified_text
 
+				omission_report = ''
 				if dropped_image_count:
-					result_text += (
+					omission_report = (
 						f'\n... [{dropped_image_count} image(s) omitted: too large or over the limit of {_EVALUATE_MAX_IMAGES}]'
 					)
 
 				# Apply length limit with better truncation (after image extraction)
 				if len(result_text) > _EVALUATE_MAX_RESULT_CHARS:
-					result_text = result_text[:19950] + '\n... [Truncated after 20000 characters]'
+					truncation_marker = f'\n... [Truncated after {_EVALUATE_MAX_RESULT_CHARS} characters]'
+					suffix = omission_report + truncation_marker
+					result_text = result_text[: max(0, _EVALUATE_MAX_RESULT_CHARS - len(suffix))] + suffix
+				else:
+					result_text += omission_report
 
 				# Don't log the code - it's already visible in the user's cell
 				logger.debug(f'JavaScript executed successfully, result length: {len(result_text)}')
@@ -1927,7 +1938,7 @@ Validated Code (after quote fixing):
 					extracted_content=result_text,
 					long_term_memory=memory,
 					include_extracted_content_only_once=include_extracted_content_only_once,
-					metadata=metadata,
+					images=images,
 				)
 
 			except Exception as e:
