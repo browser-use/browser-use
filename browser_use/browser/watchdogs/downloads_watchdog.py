@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import logging
 import os
 import re
 import tempfile
@@ -443,25 +442,21 @@ class DownloadsWatchdog(BaseWatchdog):
 						self.logger.debug('[DownloadsWatchdog] No filePath in progress event; detecting via filesystem')
 						downloads_dir = self._resolved_downloads_dir
 						if downloads_dir is not None and downloads_dir.exists():
-								for f in downloads_dir.iterdir():
-									if (
-										f.is_file()
-										and not f.name.startswith('.')
-										and f.name not in self._initial_downloads_snapshot
-									):
-										# Check file has content before processing
-										if f.stat().st_size > 4:
-											# Found a new file! Add to snapshot immediately to prevent duplicate detection
-											self._initial_downloads_snapshot.add(f.name)
-											self.logger.debug(f'[DownloadsWatchdog] Detected new download: {f.name}')
-											self._track_download(str(f))
-											# Mark as handled
-											try:
-												if guid in self._cdp_downloads_info:
-													self._cdp_downloads_info[guid]['handled'] = True
-											except (KeyError, AttributeError):
-												pass
-											break
+							for f in downloads_dir.iterdir():
+								if f.is_file() and not f.name.startswith('.') and f.name not in self._initial_downloads_snapshot:
+									# Check file has content before processing
+									if f.stat().st_size > 4:
+										# Found a new file! Add to snapshot immediately to prevent duplicate detection
+										self._initial_downloads_snapshot.add(f.name)
+										self.logger.debug(f'[DownloadsWatchdog] Detected new download: {f.name}')
+										self._track_download(str(f))
+										# Mark as handled
+										try:
+											if guid in self._cdp_downloads_info:
+												self._cdp_downloads_info[guid]['handled'] = True
+										except (KeyError, AttributeError):
+											pass
+										break
 				else:
 					# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
 					info = self._cdp_downloads_info.get(guid, {})
