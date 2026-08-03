@@ -19,7 +19,7 @@ class _FakeBrowserSession:
 
 @pytest.fixture
 def session_manager():
-	sm = SessionManager(_FakeBrowserSession())
+	sm = SessionManager(_FakeBrowserSession())  # type: ignore[arg-type]
 	sm._targets = {
 		'page-a': Target(target_id='page-a', target_type='page', url='https://example.com/'),
 		'page-b': Target(target_id='page-b', target_type='tab', url='https://example.org/'),
