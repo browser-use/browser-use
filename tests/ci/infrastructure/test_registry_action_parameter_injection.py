@@ -392,3 +392,66 @@ class TestBrowserContext:
 		result = await registry.execute_action('special_params_only', {}, browser_session=browser_session)
 		assert 'Page URL:' in result.extracted_content
 		assert base_url in result.extracted_content
+
+
+class TestContextInjection:
+	"""Tests for the user-provided `context` special parameter.
+
+	SpecialActionParameters documents `context` as an optional user-provided object
+	passed down from Agent(context=...) to every action. These tests verify the
+	Registry actually injects it (see #5188).
+	"""
+
+	class FakeContext:
+		def __init__(self):
+			self.received: list[object] = []
+
+	class OtherContext:
+		pass
+
+	@pytest.mark.asyncio
+	async def test_context_injected_into_action(self):
+		from browser_use.agent.views import ActionResult
+		from browser_use.tools.registry.service import Registry
+
+		context = self.FakeContext()
+		registry = Registry(context=context)
+
+		@registry.action('Action that reads user-provided context')
+		async def read_context(context: TestContextInjection.FakeContext):
+			context.received.append('called')
+			return ActionResult(extracted_content='ok')
+
+		result = await registry.execute_action('read_context', {})
+		assert result.extracted_content == 'ok'
+		assert context.received == ['called'], 'action should receive the exact context object'
+
+	@pytest.mark.asyncio
+	async def test_context_not_injected_when_omitted(self):
+		from browser_use.agent.views import ActionResult
+		from browser_use.tools.registry.service import Registry
+
+		registry = Registry()
+
+		# Action that does not declare context must still work (extra kwarg filtered)
+		@registry.action('Action without context')
+		async def plain_action():
+			return ActionResult(extracted_content='no context')
+
+		# Action declaring optional context receives None when none was provided
+		@registry.action('Action with optional context')
+		async def optional_context_action(context: TestContextInjection.OtherContext | None = None):
+			assert context is None
+			return ActionResult(extracted_content='optional context ok')
+
+		assert (await registry.execute_action('plain_action', {})).extracted_content == 'no context'
+		assert (await registry.execute_action('optional_context_action', {})).extracted_content == 'optional context ok'
+
+	@pytest.mark.asyncio
+	async def test_tools_forwards_context_to_registry(self):
+		from browser_use.tools.service import Tools
+
+		context = self.FakeContext()
+		tools = Tools(context=context)
+		assert tools.context is context
+		assert tools.registry.context is context
