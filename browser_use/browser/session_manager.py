@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from cdp_use.cdp.target import AttachedToTargetEvent, DetachedFromTargetEvent, SessionID, TargetID
 
-from browser_use.utils import create_task_with_error_handling
+from browser_use.utils import create_task_with_error_handling, is_new_tab_page
 
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession, CDPSession, Target
@@ -188,8 +188,16 @@ class SessionManager:
 		"""
 		page_targets = []
 		for target in self._targets.values():
-			if target.target_type in ('page', 'tab'):
-				page_targets.append(target)
+			if target.target_type not in ('page', 'tab'):
+				continue
+
+			# Chrome can expose helper UI surfaces, such as chrome://omnibox-popup/,
+			# as page-like CDP targets. They are not agent-controllable browser tabs.
+			url = target.url or ''
+			if url.startswith('chrome://') and not is_new_tab_page(url):
+				continue
+
+			page_targets.append(target)
 		return page_targets
 
 	async def validate_session(self, target_id: TargetID) -> bool:
