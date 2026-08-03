@@ -1494,9 +1494,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action('Scroll to text.')
 		async def find_text(text: str, browser_session: BrowserSession):  # type: ignore
 			# Dispatch scroll to text event
-			event = browser_session.event_bus.dispatch(ScrollToTextEvent(text=text))
-
 			try:
+				event = browser_session.event_bus.dispatch(ScrollToTextEvent(text=text))
 				# The handler returns None on success or raises an exception if text not found
 				await event.event_result(raise_if_any=True, raise_if_none=False)
 				memory = f'Scrolled to text: {text}'

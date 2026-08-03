@@ -32,17 +32,20 @@ class _FailingEvent:
 
 
 class _FailingEventBus:
-	def __init__(self, error: Exception):
+	def __init__(self, error: Exception, dispatch_error: Exception | None = None):
 		self.error = error
+		self.dispatch_error = dispatch_error
 
 	def dispatch(self, event):
+		if self.dispatch_error is not None:
+			raise self.dispatch_error
 		return _FailingEvent(self.error)
 
 
 class _ActionTestSession:
-	def __init__(self, error: Exception):
+	def __init__(self, error: Exception, dispatch_error: Exception | None = None):
 		self.cdp_client = None
-		self.event_bus = _FailingEventBus(error)
+		self.event_bus = _FailingEventBus(error, dispatch_error)
 
 	async def get_element_by_index(self, index):
 		return None
@@ -166,6 +169,15 @@ class TestToolsIntegration:
 
 		assert result.error is not None
 		assert 'CDP unavailable' in result.error
+
+	async def test_scroll_to_text_reports_dispatch_errors(self, tools):
+		error = RuntimeError('event bus unavailable')
+		result = await tools.find_text(
+			text='target',
+			browser_session=_ActionTestSession(error, dispatch_error=error),
+		)
+
+		assert result.error == "Failed to scroll to text 'target': event bus unavailable"
 
 	async def test_custom_action_registration(self, tools, browser_session, base_url):
 		"""Test registering a custom action and executing it."""
