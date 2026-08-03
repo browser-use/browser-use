@@ -131,6 +131,14 @@ ensure_uv() {
 	fi
 }
 
+ensure_uv_tool_bin_on_path() {
+	local uv_tool_bin
+	uv_tool_bin=$(uv tool dir --bin 2>/dev/null || true)
+	if [ -n "$uv_tool_bin" ]; then
+		export PATH="$uv_tool_bin:$PATH"
+	fi
+}
+
 # =============================================================================
 # browser-use installation
 # =============================================================================
@@ -145,10 +153,12 @@ install_browser_use() {
 		uv tool install --upgrade "$PACKAGE"
 	fi
 
+	ensure_uv_tool_bin_on_path
+
 	if command -v browser-use >/dev/null 2>&1; then
 		log_success "browser-use installed ($(browser-use --version 2>/dev/null || echo 'version unknown'))"
 	else
-		log_warn "browser-use installed, but not on PATH. Add $UV_BIN_DIR to your PATH and re-open your shell."
+		log_warn "browser-use installed, but not on PATH. Add the uv tool bin directory to your PATH and re-open your shell."
 		export PATH="$UV_BIN_DIR:$PATH"
 	fi
 }
@@ -183,7 +193,7 @@ print_next_steps() {
 	echo "      print(page_info())"
 	echo "      PY"
 	echo ""
-	echo "  Recommended:    browser-use skill install"
+	echo "  Recommended:    browser-use skill install${BROWSER_USE_BRANCH:+ --no-install}"
 	echo "  Docs: https://github.com/browser-use/browser-use"
 	echo "  The 'browser-use' command may require a fresh terminal if your"
 	echo "  PATH was just updated."
