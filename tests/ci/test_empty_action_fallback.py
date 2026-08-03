@@ -12,14 +12,12 @@ flat all-optional model.
 """
 
 import tempfile
-from unittest.mock import AsyncMock
 
 from pydantic import BaseModel
 
 from browser_use import Agent
 from browser_use.filesystem.file_system import FileSystem
-from browser_use.llm import BaseChatModel
-from browser_use.llm.views import ChatInvokeCompletion
+from tests.ci.conftest import create_mock_llm
 
 EMPTY_ACTION_RESPONSE = """
 {
@@ -42,33 +40,9 @@ VALID_ACTION_RESPONSE = """
 """
 
 
-def create_mock_llm(responses: list[str]) -> BaseChatModel:
-	"""Create a mock LLM that returns `responses` in order, repeating the last one when exhausted."""
-	llm = AsyncMock(spec=BaseChatModel)
-	llm.model = 'mock-llm'
-	llm.provider = 'mock'
-	llm.name = 'mock-llm'
-	llm.model_name = 'mock-llm'
-	llm._verified_api_keys = True
-
-	call_index = 0
-
-	async def mock_ainvoke(*args, **kwargs):
-		nonlocal call_index
-		output_format = kwargs.get('output_format') or (args[1] if len(args) >= 2 else None)
-		assert output_format is not None, 'Agent should always request structured output'
-
-		payload = responses[min(call_index, len(responses) - 1)]
-		call_index += 1
-		return ChatInvokeCompletion(completion=output_format.model_validate_json(payload), usage=None)
-
-	llm.ainvoke = mock_ainvoke
-	return llm
-
-
 async def test_persistently_empty_actions_fall_back_to_done():
 	"""Two empty responses in a row should yield a done action, not raise."""
-	agent = Agent(task='test task', llm=create_mock_llm([EMPTY_ACTION_RESPONSE]))
+	agent = Agent(task='test task', llm=create_mock_llm([EMPTY_ACTION_RESPONSE, EMPTY_ACTION_RESPONSE]))
 
 	model_output = await agent._get_model_output_with_retry([])
 
@@ -93,7 +67,7 @@ async def test_persistently_empty_actions_do_not_raise_with_structured_output():
 
 	agent = Agent(
 		task='test task',
-		llm=create_mock_llm([EMPTY_ACTION_RESPONSE]),
+		llm=create_mock_llm([EMPTY_ACTION_RESPONSE, EMPTY_ACTION_RESPONSE]),
 		output_model_schema=Output,
 	)
 
@@ -111,7 +85,7 @@ async def test_fallback_done_action_is_executable():
 	`Tools.act` re-validates the action against its registered param model, so an action that
 	constructs but fails that validation would still break the run.
 	"""
-	agent = Agent(task='test task', llm=create_mock_llm([EMPTY_ACTION_RESPONSE]))
+	agent = Agent(task='test task', llm=create_mock_llm([EMPTY_ACTION_RESPONSE, EMPTY_ACTION_RESPONSE]))
 	model_output = await agent._get_model_output_with_retry([])
 
 	file_system = FileSystem(tempfile.mkdtemp())
