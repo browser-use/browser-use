@@ -1222,15 +1222,24 @@ async function initialize(checkInitialized, magic) {{
 				zip_data = f.read()
 
 			# Write ZIP data to temp file and extract
+			temp_zip_path = None
+			try:
+				with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
+					temp_zip.write(zip_data)
+					temp_zip.flush()
+					temp_zip_path = temp_zip.name
 
-			with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
-				temp_zip.write(zip_data)
-				temp_zip.flush()
-
-				with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
+				with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
 					zip_ref.extractall(extract_dir)
-
-				os.unlink(temp_zip.name)
+			finally:
+				# Close the temp file (with block exit) before unlinking so the
+				# unlink does not hit a still-open handle (PermissionError on
+				# Windows), and always clean up even when extraction fails.
+				if temp_zip_path is not None:
+					try:
+						os.unlink(temp_zip_path)
+					except FileNotFoundError:
+						pass
 
 	def detect_display_configuration(self) -> None:
 		"""
