@@ -2324,8 +2324,18 @@ class BrowserSession(BaseModel):
 			# Guard: skip if intentionally stopped or no cdp_url
 			if self._intentional_stop or not self.cdp_url:
 				return
+			# A reconnect is already in flight: this drop landed inside the
+			# reconnect window. The one-shot done callback is consumed right
+			# here, so record the drop for _auto_reconnect()'s finally to act
+			# on -- otherwise no future drop could ever be detected again
+			# (issue #5366).
 			if self._reconnecting:
 				self._reconnect_pending = True
+				exc = fut.exception() if not fut.cancelled() else None
+				self.logger.warning(
+					f'🔌 CDP WebSocket dropped again during reconnect'
+					f'{f": {type(exc).__name__}: {exc}" if exc else " (connection closed)"}'
+				)
 				return
 
 			# The message handler task exiting means the WS connection dropped
