@@ -263,6 +263,17 @@ class TestAnthropicCache:
 		for msg in cleaned_messages:
 			assert not msg.cache
 
+	def test_cache_control_ttl(self):
+		"""Test that _serialize_cache_control emits the requested TTL."""
+		# Default: no ttl field, so Anthropic applies the 5-minute TTL
+		assert AnthropicMessageSerializer._serialize_cache_control(True) == {'type': 'ephemeral'}
+		# Explicit 5-minute and 1-hour TTLs
+		assert AnthropicMessageSerializer._serialize_cache_control(True, ttl='5m') == {'type': 'ephemeral', 'ttl': '5m'}
+		assert AnthropicMessageSerializer._serialize_cache_control(True, ttl='1h') == {'type': 'ephemeral', 'ttl': '1h'}
+		# Caching disabled never emits cache_control
+		assert AnthropicMessageSerializer._serialize_cache_control(False) is None
+		assert AnthropicMessageSerializer._serialize_cache_control(False, ttl='1h') is None
+
 	def test_max_4_cache_blocks(self):
 		"""Test that the max number of cache blocks is 4."""
 		agent = Agent(task='Hello, world!', llm=ChatAnthropic(''))
