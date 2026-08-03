@@ -493,7 +493,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					try:
 						await asyncio.wait_for(self._click_element_node_impl(element_node), timeout=10.0)
 					except Exception as e:
-						self.logger.debug(f'Fallback click for page typing failed: {e}')
+						self.logger.debug(f'Failed to click element {index_for_logging} for fallback typing: {e}')
 					await self._type_to_page(event.text)
 					# Log with sensitive data protection
 					if event.is_sensitive:
