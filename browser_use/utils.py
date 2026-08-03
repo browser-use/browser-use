@@ -49,6 +49,14 @@ def sanitize_url_candidate(url: str) -> str:
 	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
 
 
+def is_url_candidate_from_local_path(task: str, candidate_start: int) -> bool:
+	"""Return whether a bare-domain match is embedded in a local path token."""
+	prefix = task[:candidate_start]
+	token_start = max(prefix.rfind(separator) for separator in (' ', '\t', '\r', '\n')) + 1
+	path_prefix = prefix[token_start:].lstrip('`\'"(<[{')
+	return '/' in path_prefix or '\\' in path_prefix
+
+
 # Lazy import for error types
 # Use sentinel to avoid retrying import when package is not installed
 _IMPORT_NOT_FOUND: type = type('_ImportNotFound', (), {})
