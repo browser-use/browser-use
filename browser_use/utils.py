@@ -5,6 +5,7 @@ import platform
 import re
 import signal
 import time
+import uuid
 from collections.abc import Callable, Coroutine
 from fnmatch import fnmatch
 from functools import cache, wraps
@@ -74,9 +75,28 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
-	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
-	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
+	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks.
+
+	Each secret is first replaced with a unique per-call sentinel and only restored to the
+	``<secret>{key}</secret>`` placeholder in a final pass. Because the sentinels are opaque
+	to every secret value, a secret that is a substring of the placeholder markup (e.g. a
+	value containing the word "secret") can never be re-matched inside an already-redacted
+	span, which previously produced corrupted, nested tags.
+	"""
+	if not sensitive_values:
+		return value
+
+	nonce = uuid.uuid4().hex
+	sentinels: dict[str, str] = {}
+	for i, (key, secret) in enumerate(sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True)):
+		if not secret:
+			continue
+		sentinel = f'\x00<redacted-{nonce}-{i}>{key}</redacted-{nonce}-{i}>\x00'
+		value = value.replace(secret, sentinel)
+		sentinels[sentinel] = f'<secret>{key}</secret>'
+
+	for sentinel, placeholder in sentinels.items():
+		value = value.replace(sentinel, placeholder)
 	return value
 
 

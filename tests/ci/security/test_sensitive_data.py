@@ -9,7 +9,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm import SystemMessage, UserMessage
 from browser_use.llm.messages import ContentPartTextParam
 from browser_use.tools.registry.service import Registry
-from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern
+from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern, redact_sensitive_string
 
 
 class SensitiveParams(BaseModel):
@@ -588,3 +588,79 @@ def test_password_field_without_type_attribute():
 	attrs_str = DOMTreeSerializer._build_attributes_string(node, list(DEFAULT_INCLUDE_ATTRIBUTES), '')
 
 	assert value in attrs_str, 'Input without type attribute should preserve its value'
+
+
+# ─── Tests for redact_sensitive_string placeholder cascade ───────────────────
+
+
+def _assert_well_formed_placeholders(text: str) -> None:
+	"""Assert every <secret> tag is a well-formed, non-nested pair."""
+	import re
+
+	opens = [m.start() for m in re.finditer(r'<secret>', text)]
+	closes = [m.start() for m in re.finditer(r'</secret>', text)]
+	assert len(opens) == len(closes), f'Unbalanced placeholder tags in: {text!r}'
+	for open_pos, close_pos in zip(opens, closes):
+		assert open_pos < close_pos, f'Placeholder close before open in: {text!r}'
+		assert not any(open_pos < o < close_pos for o in opens), f'Nested placeholder in: {text!r}'
+
+
+def test_redact_sensitive_string_basic():
+	"""Sanity: plain secrets are masked once with well-formed placeholders."""
+	result = redact_sensitive_string('user john pw supersecret', {'user': 'john', 'pw': 'supersecret'})
+	assert result == 'user <secret>user</secret> pw <secret>pw</secret>'
+	_assert_well_formed_placeholders(result)
+
+
+def test_redact_sensitive_string_no_secrets():
+	"""Empty mapping leaves the value untouched."""
+	value = 'nothing sensitive here'
+	assert redact_sensitive_string(value, {}) == value
+
+
+def test_redact_sensitive_string_multiple_occurrences():
+	"""Every occurrence of a secret is masked."""
+	result = redact_sensitive_string('a tok b tok', {'t': 'tok'})
+	assert result == 'a <secret>t</secret> b <secret>t</secret>'
+	_assert_well_formed_placeholders(result)
+
+
+def test_redact_sensitive_string_secret_value_contains_secret_word():
+	"""GH-5248: a secret whose value contains 'secret' must not corrupt earlier placeholders."""
+	sensitive = {'api_key': 'secret-token-abc', 'db_pass': 'secret'}
+	value = 'key=secret-token-abc pass=secret'
+	result = redact_sensitive_string(value, sensitive)
+	assert result == 'key=<secret>api_key</secret> pass=<secret>db_pass</secret>'
+	_assert_well_formed_placeholders(result)
+
+
+def test_redact_sensitive_string_secret_is_placeholder_substring():
+	"""GH-5135: a shorter secret that is a substring of the placeholder markup must not cascade."""
+	sensitive = {'password': 'supersecret', 'type': 'secret'}
+	value = 'leaked supersecret token'
+	result = redact_sensitive_string(value, sensitive)
+	assert result == 'leaked <secret>password</secret> token'
+	_assert_well_formed_placeholders(result)
+
+
+def test_redact_sensitive_string_substring_secrets_both_real():
+	"""When the shorter secret also appears standalone, it is masked without touching the longer one."""
+	sensitive = {'full': 'supersecret', 'part': 'secret'}
+	result = redact_sensitive_string('x supersecret y secret z', sensitive)
+	assert result == 'x <secret>full</secret> y <secret>part</secret> z'
+	_assert_well_formed_placeholders(result)
+
+
+def test_redact_sensitive_string_longest_first_still_holds():
+	"""Longest-match-first behavior is preserved: the shorter substring is not masked inside the longer secret."""
+	sensitive = {'full': 'supersecret', 'part': 'secret'}
+	result = redact_sensitive_string('token=supersecret', sensitive)
+	assert result == 'token=<secret>full</secret>'
+	_assert_well_formed_placeholders(result)
+
+
+def test_redact_sensitive_string_skips_empty_secrets():
+	"""Empty secret values are ignored instead of corrupting the string."""
+	result = redact_sensitive_string('keep me', {'a': '', 'b': 'me'})
+	assert result == 'keep <secret>b</secret>'
+	_assert_well_formed_placeholders(result)
