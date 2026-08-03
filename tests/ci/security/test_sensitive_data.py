@@ -9,7 +9,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm import SystemMessage, UserMessage
 from browser_use.llm.messages import ContentPartTextParam
 from browser_use.tools.registry.service import Registry
-from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern
+from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern, redact_sensitive_string
 
 
 class SensitiveParams(BaseModel):
@@ -213,6 +213,60 @@ def test_url_components():
 
 	# URLs with all components
 	assert match_url_with_domain_pattern('https://user:pass@example.com:8080/path?query=val#fragment', 'example.com') is True
+
+
+@pytest.mark.parametrize(
+	('value', 'sensitive_values', 'expected'),
+	[
+		(
+			'leaked supersecret token',
+			{'password': 'supersecret', 'type': 'secret'},
+			'leaked <secret>password</secret> token',
+		),
+		(
+			'supersecret secret',
+			{'password': 'supersecret', 'type': 'secret'},
+			'<secret>password</secret> <secret>type</secret>',
+		),
+		(
+			'abcde',
+			{'short': 'abc', 'long': 'bcde'},
+			'a<secret>long</secret>',
+		),
+		(
+			'token token',
+			{'first': 'token', 'second': 'token'},
+			'<secret>first</secret> <secret>first</secret>',
+		),
+		(
+			'abc',
+			{'empty': '', 'a': 'a'},
+			'<secret>a</secret>bc',
+		),
+		(
+			'literal a.b[c] value',
+			{'pattern': 'a.b[c]'},
+			'literal <secret>pattern</secret> value',
+		),
+		(
+			'<secret>password</secret> secret',
+			{'type': 'secret'},
+			'<secret>password</secret> <secret>type</secret>',
+		),
+	],
+)
+def test_redact_sensitive_string_uses_original_text_matches(value, sensitive_values, expected):
+	"""Sensitive redaction should not re-process placeholders while preserving match priority."""
+	assert redact_sensitive_string(value, sensitive_values) == expected
+
+
+def test_filter_sensitive_data_preserves_generated_placeholder_tags(message_manager):
+	"""The message filter should not let a later secret corrupt a generated placeholder tag."""
+	message_manager.sensitive_data = {'password': 'supersecret', 'type': 'secret'}
+
+	result = message_manager._filter_sensitive_data(UserMessage(content='leaked supersecret token'))
+
+	assert result.content == 'leaked <secret>password</secret> token'
 
 
 def test_filter_sensitive_data(message_manager):
