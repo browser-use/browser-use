@@ -27,6 +27,16 @@ def test_browser_use_doctor_help_prints_browser_use_usage():
 	assert result.stderr == ''
 
 
+def test_legacy_tab_command_prints_migration_hint():
+	result = _run_browser_use_cli('tab', 'list')
+
+	assert result.returncode == 2
+	assert "The browser-use CLI changed in 3.0, and 'tab' was removed." in result.stderr
+	assert 'list_tabs()' in result.stderr
+	assert 'switch_tab(target)' in result.stderr
+	assert 'close_tab(target)' in result.stderr
+
+
 def test_normalize_captured_cli_output_handles_string_system_exit(capsys):
 	from browser_use.cli import _normalize_captured_cli_output
 
