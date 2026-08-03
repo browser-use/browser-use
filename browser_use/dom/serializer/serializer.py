@@ -1087,10 +1087,12 @@ class DOMTreeSerializer:
 				formatted_text.append(f'{depth_str}Shadow End')
 
 		elif node.original_node.node_type == NodeType.TEXT_NODE:
-			# Include visible text
+			# Include visible text that isn't fully covered by another element
+			# painted on top of it (e.g. text underneath an open modal/dropdown).
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 			if (
 				is_visible
+				and not node.ignored_by_paint_order
 				and node.original_node.node_value
 				and node.original_node.node_value.strip()
 				and len(node.original_node.node_value.strip()) > 1
