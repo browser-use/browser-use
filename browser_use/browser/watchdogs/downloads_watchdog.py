@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import re
 import tempfile
@@ -154,6 +155,11 @@ class DownloadsWatchdog(BaseWatchdog):
 	_network_monitored_targets: set[str] = PrivateAttr(default_factory=set)  # Track targets with network monitoring enabled
 	_detected_downloads: set[str] = PrivateAttr(default_factory=set)  # Track detected download URLs to avoid duplicates
 	_network_callback_registered: bool = PrivateAttr(default=False)  # Track if global network callback is registered
+	# Resolved, writable downloads directory for this session, or None if it
+	# cannot be created (e.g. OneDrive-redirected virtualized folder on Windows).
+	# Set once in on_BrowserLaunchEvent; all download paths consult it so a
+	# directory that failed at launch is not re-attempted on every download.
+	_resolved_downloads_dir: Path | None = PrivateAttr(default=None)
 
 	# Direct callback support for download waiting (bypasses event bus for synchronization)
 	_download_start_callbacks: list[Any] = PrivateAttr(default_factory=list)  # Callbacks for download start
@@ -205,10 +211,15 @@ class DownloadsWatchdog(BaseWatchdog):
 		if downloads_path:
 			expanded_path = _ensure_downloads_directory(downloads_path)
 			if expanded_path is None:
+				# Directory cannot be created (virtualized/redirected on Windows).
+				# Cache None so every downstream download path degrades gracefully
+				# instead of re-attempting the same failing mkdir on each download.
+				self._resolved_downloads_dir = None
 				self.logger.warning(
-					f'[DownloadsWatchdog] Could not create downloads directory, skipping download tracking: {downloads_path}'
+					f'[DownloadsWatchdog] Could not create downloads directory, download tracking disabled: {downloads_path}'
 				)
 				return
+			self._resolved_downloads_dir = expanded_path
 			self.logger.debug(f'[DownloadsWatchdog] Ensured downloads directory exists: {expanded_path}')
 
 			# Capture initial files to detect new downloads reliably
@@ -430,10 +441,8 @@ class DownloadsWatchdog(BaseWatchdog):
 					else:
 						# No filePath provided - detect by comparing with initial snapshot
 						self.logger.debug('[DownloadsWatchdog] No filePath in progress event; detecting via filesystem')
-						downloads_path = self.browser_session.browser_profile.downloads_path
-						if downloads_path:
-							downloads_dir = Path(downloads_path).expanduser().resolve()
-							if downloads_dir.exists():
+						downloads_dir = self._resolved_downloads_dir
+						if downloads_dir is not None and downloads_dir.exists():
 								for f in downloads_dir.iterdir():
 									if (
 										f.is_file()
@@ -503,6 +512,12 @@ class DownloadsWatchdog(BaseWatchdog):
 				# logger.info(f'[DownloadsWatchdog] No downloads path configured, skipping target: {target_id}')
 				return  # No downloads path configured
 
+			# If the directory could not be created at launch, don't configure
+			# CDP download behavior with an unusable path.
+			if self._resolved_downloads_dir is None:
+				self.logger.debug('[DownloadsWatchdog] Downloads directory unavailable, skipping CDP download setup')
+				return
+
 			# Check if we already have a download listener on this session
 			# to prevent duplicate listeners from being added
 			# Note: Since download listeners are set up once per browser session, not per target,
@@ -519,12 +534,9 @@ class DownloadsWatchdog(BaseWatchdog):
 				cdp_client = self.browser_session.cdp_client
 
 				# Set download behavior to allow downloads and enable events
-				downloads_path = self.browser_session.browser_profile.downloads_path
-				if not downloads_path:
-					self.logger.warning('[DownloadsWatchdog] No downloads path configured, skipping CDP download setup')
-					return
-				# Ensure path is properly expanded (~ -> absolute path)
-				expanded_downloads_path = Path(downloads_path).expanduser().resolve()
+				# Use the session-resolved path so a virtualized/redirected
+				# directory that failed to materialize is never passed to CDP.
+				expanded_downloads_path = self._resolved_downloads_dir
 				await cdp_client.send.Browser.setDownloadBehavior(
 					params={
 						'behavior': 'allow',
@@ -799,8 +811,13 @@ class DownloadsWatchdog(BaseWatchdog):
 					else:
 						filename = 'download'
 
-			# Ensure downloads directory exists
-			downloads_dir = str(self.browser_session.browser_profile.downloads_path)
+			# Use the session-resolved downloads directory. If it could not be
+			# created (virtualized/redirected folder), skip the download rather
+			# than re-attempting mkdir on every request.
+			downloads_dir = str(self._resolved_downloads_dir) if self._resolved_downloads_dir else None
+			if not downloads_dir:
+				self.logger.warning('[DownloadsWatchdog] Downloads directory unavailable, skipping download')
+				return None
 			os.makedirs(downloads_dir, exist_ok=True)
 
 			# Generate unique filename if file exists
@@ -1363,7 +1380,10 @@ class DownloadsWatchdog(BaseWatchdog):
 				return existing_path
 
 			# Generate unique filename if file exists from previous run
-			downloads_dir = str(self.browser_session.browser_profile.downloads_path)
+			downloads_dir = str(self._resolved_downloads_dir) if self._resolved_downloads_dir else None
+			if not downloads_dir:
+				self.logger.warning('[DownloadsWatchdog] Downloads directory unavailable, cannot save PDF')
+				return None
 			os.makedirs(downloads_dir, exist_ok=True)
 			final_filename = pdf_filename
 			existing_files = os.listdir(downloads_dir)
@@ -1426,7 +1446,10 @@ class DownloadsWatchdog(BaseWatchdog):
 
 				if download_result and download_result.get('data') and len(download_result['data']) > 0:
 					# Ensure downloads directory exists
-					downloads_dir = str(self.browser_session.browser_profile.downloads_path)
+					downloads_dir = str(self._resolved_downloads_dir) if self._resolved_downloads_dir else None
+					if not downloads_dir:
+						self.logger.error('[DownloadsWatchdog] Downloads directory unavailable, cannot save PDF')
+						return None
 					os.makedirs(downloads_dir, exist_ok=True)
 					download_path = os.path.join(downloads_dir, final_filename)
 					if not self._is_path_contained(download_path, downloads_dir):
