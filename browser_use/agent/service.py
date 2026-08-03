@@ -210,6 +210,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
+		context: Context | None = None,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -317,7 +318,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			# Exclude screenshot tool when use_vision is not auto
 			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
-			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
+			self.tools = Tools(
+				exclude_actions=exclude_actions,
+				display_files_in_done_text=display_files_in_done_text,
+				context=context,
+			)
+
+		# Optional user-provided context object forwarded to actions that declare a
+		# `context` parameter (see SpecialActionParameters). Apply it even when the
+		# caller supplied their own Tools/controller instance.
+		self.context = context
+		if context is not None:
+			self.tools.context = context
+			registry = getattr(self.tools, 'registry', None)
+			if registry is not None:
+				registry.context = context
 
 		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
 		if use_vision != 'auto':
