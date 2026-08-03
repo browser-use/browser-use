@@ -75,7 +75,7 @@ class ChatLiteLLM(BaseChatModel):
 		if usage is None:
 			return None
 
-		prompt_tokens = getattr(usage, 'prompt_tokens', 0) or 0
+		raw_prompt_tokens = getattr(usage, 'prompt_tokens', 0) or 0
 		completion_tokens = getattr(usage, 'completion_tokens', 0) or 0
 
 		prompt_cached = getattr(usage, 'cache_read_input_tokens', None)
@@ -86,13 +86,24 @@ class ChatLiteLLM(BaseChatModel):
 			if details:
 				prompt_cached = getattr(details, 'cached_tokens', None)
 
+		prompt_cached_int = int(prompt_cached) if prompt_cached is not None else None
+		cache_creation_int = int(cache_creation) if cache_creation is not None else None
+
+		# Normalize to the same convention the Anthropic adapters use: prompt_tokens =
+		# real input + cache-read, with cache-creation tracked separately. LiteLLM's
+		# Anthropic usage rolls cache-creation *into* prompt_tokens, so strip it here;
+		# otherwise the cost basis (prompt_tokens - cache-read) still counts the
+		# cache-creation tokens as new. On other LiteLLM providers cache_creation is
+		# None, so this is a no-op.
+		prompt_tokens = max(0, raw_prompt_tokens - (cache_creation_int or 0))
+
 		return ChatInvokeUsage(
 			prompt_tokens=prompt_tokens,
-			prompt_cached_tokens=int(prompt_cached) if prompt_cached is not None else None,
-			prompt_cache_creation_tokens=int(cache_creation) if cache_creation is not None else None,
+			prompt_cached_tokens=prompt_cached_int,
+			prompt_cache_creation_tokens=cache_creation_int,
 			prompt_image_tokens=None,
 			completion_tokens=completion_tokens,
-			total_tokens=prompt_tokens + completion_tokens,
+			total_tokens=raw_prompt_tokens + completion_tokens,
 		)
 
 	@overload
@@ -119,7 +130,7 @@ class ChatLiteLLM(BaseChatModel):
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		from litellm import acompletion  # type: ignore[reportMissingImports]
 		from litellm.exceptions import APIConnectionError, APIError, RateLimitError, Timeout  # type: ignore[reportMissingImports]
-		from litellm.types.utils import ModelResponse  # type: ignore[reportMissingImports]
+		from litellm.types.utils import Choices, ModelResponse  # type: ignore[reportMissingImports]
 
 		litellm_messages = LiteLLMMessageSerializer.serialize(messages)
 
@@ -193,6 +204,9 @@ class ChatLiteLLM(BaseChatModel):
 				status_code=502,
 				model=self.name,
 			)
+		# A non-streaming completion always yields Choices (with .message), never
+		# StreamingChoices (with .delta); narrow it so attribute access is typed.
+		assert isinstance(choice, Choices)
 
 		content = choice.message.content or ''
 		usage = self._parse_usage(response)

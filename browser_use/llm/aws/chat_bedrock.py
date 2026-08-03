@@ -135,12 +135,18 @@ class ChatAWSBedrock(BaseChatModel):
 			return None
 
 		usage_data = response['usage']
+		input_tokens = usage_data.get('inputTokens', 0) or 0
+		# Bedrock Converse reports cache tokens separately from inputTokens when
+		# prompt caching is enabled; don't drop them. Mirror the Anthropic adapters'
+		# convention: fold cache-read into prompt_tokens, keep cache-creation apart.
+		cache_read = usage_data.get('cacheReadInputTokens')
+		cache_write = usage_data.get('cacheWriteInputTokens')
 		return ChatInvokeUsage(
-			prompt_tokens=usage_data.get('inputTokens', 0),
+			prompt_tokens=input_tokens + (int(cache_read) if cache_read is not None else 0),
 			completion_tokens=usage_data.get('outputTokens', 0),
 			total_tokens=usage_data.get('totalTokens', 0),
-			prompt_cached_tokens=None,  # Bedrock doesn't provide this
-			prompt_cache_creation_tokens=None,
+			prompt_cached_tokens=int(cache_read) if cache_read is not None else None,
+			prompt_cache_creation_tokens=int(cache_write) if cache_write is not None else None,
 			prompt_image_tokens=None,
 		)
 
