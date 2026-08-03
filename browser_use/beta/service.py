@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import ast
 import asyncio
@@ -1176,8 +1176,8 @@ def _warn_sensitive_data_domain_constraints(
 		return
 	if not allowed_domains:
 		logger.warning(
-			'âš ï¸ Agent(sensitive_data=â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢) was provided but Browser(allowed_domains=[...]) is not locked down! âš ï¸\n'
-			'          â˜ ï¸ If the agent visits a malicious website and encounters a prompt-injection attack, your sensitive_data may be exposed!\n\n'
+			'⚠️ Agent(sensitive_data=••••••••) was provided but Browser(allowed_domains=[...]) is not locked down! ⚠️\n'
+			'          ☠️ If the agent visits a malicious website and encounters a prompt-injection attack, your sensitive_data may be exposed!\n\n'
 			'   \n'
 		)
 		return
@@ -1186,7 +1186,7 @@ def _warn_sensitive_data_domain_constraints(
 			continue
 		if not any(_sensitive_domain_is_allowed(domain_pattern, allowed_domain) for allowed_domain in allowed_domains):
 			logger.warning(
-				f'âš ï¸ Domain pattern "{domain_pattern}" in sensitive_data is not covered by any pattern in allowed_domains={allowed_domains}\n'
+				f'⚠️ Domain pattern "{domain_pattern}" in sensitive_data is not covered by any pattern in allowed_domains={allowed_domains}\n'
 				f'   This may be a security risk as credentials could be used on unintended domains.'
 			)
 
@@ -4434,7 +4434,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
-			self.logger.info(f'ðŸ’¬ Saving conversation to {_log_pretty_path(self.settings.save_conversation_path)}')
+			self.logger.info(f'💬 Saving conversation to {_log_pretty_path(self.settings.save_conversation_path)}')
 		self._setup_action_models()
 		self._verify_and_setup_llm()
 		logger.debug(
@@ -4486,7 +4486,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.directly_open_url and not self.state.follow_up_task and not initial_actions:
 			self.initial_url = _extract_start_url(task)
 			if self.initial_url:
-				self.logger.info(f'ðŸ”— Found URL in task: {self.initial_url}, adding as initial action...')
+				self.logger.info(f'🔗 Found URL in task: {self.initial_url}, adding as initial action...')
 				initial_actions = [{'navigate': {'url': self.initial_url, 'new_tab': False}}]
 		self.initial_action_payloads = list(initial_actions or [])
 		self.initial_actions = (
@@ -4586,12 +4586,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _log_agent_run(self) -> None:
 		"""Log Browser Use run metadata for the Rust-backed wrapper."""
-		self.logger.info(f'\033[34mðŸŽ¯ Task: {self.task}\033[0m')
-		self.logger.debug(f'ðŸ¤– Browser-Use Library Version {self.version} ({self.source})')
+		self.logger.info(f'\033[34m🎯 Task: {self.task}\033[0m')
+		self.logger.debug(f'🤖 Browser-Use Library Version {self.version} ({self.source})')
 		latest_version = await check_latest_browser_use_version()
 		if latest_version and latest_version != self.version:
 			self.logger.info(
-				f'ðŸ“¦ Newer version available: {latest_version} (current: {self.version}). Upgrade with: uv add browser-use=={latest_version}'
+				f'📦 Newer version available: {latest_version} (current: {self.version}). Upgrade with: uv add browser-use=={latest_version}'
 			)
 
 	def _log_agent_setup(self) -> None:
@@ -4738,11 +4738,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		judge_log = '\n'
 		if self_reported_success is True and judgement.verdict is False:
-			judge_log += 'âš ï¸  \033[33mAgent reported success but judge thinks task failed\033[0m\n'
+			judge_log += '⚠️  \033[33mAgent reported success but judge thinks task failed\033[0m\n'
 
 		verdict_color = '\033[32m' if judgement.verdict else '\033[31m'
-		verdict_text = 'âœ… PASS' if judgement.verdict else 'âŒ FAIL'
-		judge_log += f'âš–ï¸  {verdict_color}Judge Verdict: {verdict_text}\033[0m\n'
+		verdict_text = '✅ PASS' if judgement.verdict else '❌ FAIL'
+		judge_log += f'⚖️  {verdict_color}Judge Verdict: {verdict_text}\033[0m\n'
 		if judgement.failure_reason:
 			judge_log += f'   Failure Reason: {judgement.failure_reason}\n'
 		if judgement.reached_captcha:
@@ -5435,7 +5435,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		focus_target_id = getattr(agent_focus, 'target_id', None)
 		if isinstance(focus_target_id, str) and focus_target_id:
 			target_id = focus_target_id[-2:]
-		return logging.getLogger(f'browser_use.AgentðŸ…° {self.task_id[-4:]} â‡¢ ðŸ…‘ {str(browser_session_id)[-4:]} ðŸ…£ {target_id}')
+		return logging.getLogger(f'browser_use.Agent🅰 {self.task_id[-4:]} ⇢ 🅑 {str(browser_session_id)[-4:]} 🅣 {target_id}')
 
 	@property
 	def browser_profile(self) -> Any:
@@ -5737,7 +5737,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Get model output, retrying once when the model returns no usable action."""
 		model_output = await self.get_model_output(input_messages)
 		action_count = len(model_output.action) if getattr(model_output, 'action', None) else 0
-		self.logger.debug(f'âœ… Step {self.state.n_steps}: Got LLM response with {action_count} actions')
+		self.logger.debug(f'✅ Step {self.state.n_steps}: Got LLM response with {action_count} actions')
 
 		def has_empty_actions(output: AgentOutput) -> bool:
 			actions = getattr(output, 'action', None)
@@ -5860,21 +5860,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._check_and_update_downloads('after executing actions')
 		if self.state.last_result and len(self.state.last_result) == 1 and self.state.last_result[-1].error:
 			self.state.consecutive_failures += 1
-			self.logger.debug(f'ðŸ”„ Step {self.state.n_steps}: Consecutive failures: {self.state.consecutive_failures}')
+			self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures: {self.state.consecutive_failures}')
 			return
 		if self.state.consecutive_failures > 0:
 			self.state.consecutive_failures = 0
-			self.logger.debug(f'ðŸ”„ Step {self.state.n_steps}: Consecutive failures reset to: {self.state.consecutive_failures}')
+			self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures reset to: {self.state.consecutive_failures}')
 		if self.state.last_result and self.state.last_result[-1].is_done:
 			success = self.state.last_result[-1].success
 			if success:
-				self.logger.info(f'\nðŸ“„ \033[32m Final Result:\033[0m \n{self.state.last_result[-1].extracted_content}\n\n')
+				self.logger.info(f'\n📄 \033[32m Final Result:\033[0m \n{self.state.last_result[-1].extracted_content}\n\n')
 			else:
-				self.logger.info(f'\nðŸ“„ \033[31m Final Result:\033[0m \n{self.state.last_result[-1].extracted_content}\n\n')
+				self.logger.info(f'\n📄 \033[31m Final Result:\033[0m \n{self.state.last_result[-1].extracted_content}\n\n')
 			if self.state.last_result[-1].attachments:
 				total_attachments = len(self.state.last_result[-1].attachments)
 				for index, file_path in enumerate(self.state.last_result[-1].attachments):
-					self.logger.info(f'ðŸ‘‰ Attachment {index + 1 if total_attachments > 1 else ""}: {file_path}')
+					self.logger.info(f'👉 Attachment {index + 1 if total_attachments > 1 else ""}: {file_path}')
 
 	async def _handle_step_error(self, error: Exception) -> None:
 		"""Convert a step exception into Browser Use-style state.last_result."""
@@ -5883,7 +5883,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return
 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
-		prefix = f'âŒ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures + int(self.settings.final_response_after_failure)} times:\n '
+		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures + int(self.settings.final_response_after_failure)} times:\n '
 		self.state.consecutive_failures += 1
 		if 'Could not parse response' in error_msg or 'tool_use_failed' in error_msg:
 			logger.error(f'Model: {getattr(self.llm, "model", None)} failed')
@@ -5985,9 +5985,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		Registered Python custom actions (e.g. ``@agent.tools.registry.action``)
 		cannot be executed by the Rust terminal, so they are dispatched locally
-		through ``Registry.execute_action`` â€” which injects the agent's ``context``
+		through ``Registry.execute_action`` — which injects the agent's ``context``
 		into any action that declares a ``context`` parameter. This makes the
-		beta agent honor the documented ``Agent(context=...)`` â†’ custom-action
+		beta agent honor the documented ``Agent(context=...)`` → custom-action
 		contract instead of silently dropping the context on custom actions.
 		"""
 		payloads: list[dict[str, Any]] = []
@@ -6075,7 +6075,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Execute configured Browser Use initial actions through the Rust-backed action path."""
 		if not self.initial_actions or self.state.follow_up_task or self._initial_actions_executed:
 			return
-		self.logger.debug(f'âš¡ Executing {len(self.initial_actions)} initial actions...')
+		self.logger.debug(f'⚡ Executing {len(self.initial_actions)} initial actions...')
 		result = await self._execute_direct_initial_navigation_actions()
 		if result is None:
 			if not allow_terminal_run:
@@ -6133,7 +6133,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				metadata=metadata,
 			)
 		)
-		self.logger.debug('ðŸ“ Saved initial actions to history as step 0')
+		self.logger.debug('📝 Saved initial actions to history as step 0')
 		self.logger.debug('Initial actions completed')
 
 	async def _execute_direct_initial_navigation_actions(self) -> list[ActionResult] | None:
@@ -6323,20 +6323,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	def pause(self) -> None:
 		"""Pause the Rust-backed agent before the next terminal run."""
-		print('\n\nâ¸ï¸ Paused the agent and left the browser open.\n\tPress [Enter] to resume or [Ctrl+C] again to quit.')
+		print('\n\n⏸️ Paused the agent and left the browser open.\n\tPress [Enter] to resume or [Ctrl+C] again to quit.')
 		self.state.paused = True
 		self._external_pause_event.clear()
 
 	def resume(self) -> None:
 		"""Resume a paused Rust-backed agent."""
 		print('----------------------------------------------------------------------')
-		print('â–¶ï¸  Resuming agent execution where it left off...\n')
+		print('▶️  Resuming agent execution where it left off...\n')
 		self.state.paused = False
 		self._external_pause_event.set()
 
 	def stop(self) -> None:
 		"""Stop the Rust-backed agent before the next terminal run."""
-		self.logger.info('â¹ï¸ Agent stopping')
+		self.logger.info('⏹️ Agent stopping')
 		self.state.stopped = True
 		self._external_pause_event.set()
 		if self._sdk_client is not None:
@@ -6406,7 +6406,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def log_completion(self) -> None:
 		"""Log Browser Use-style task completion."""
 		if self.history.is_successful():
-			self.logger.info('âœ… Task completed successfully')
+			self.logger.info('✅ Task completed successfully')
 
 	def run_sync(
 		self,
