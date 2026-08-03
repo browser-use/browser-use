@@ -35,6 +35,23 @@ if TYPE_CHECKING:
 	pass
 
 
+def _ensure_downloads_directory(downloads_path: str | Path) -> Path | None:
+	"""Ensure the downloads directory exists, or return None if it cannot be created.
+
+	On some platforms (e.g. Windows virtualized/redirected folders such as
+	OneDrive-backed Downloads), ``Path.mkdir(parents=True, exist_ok=True)``
+	raises ``OSError`` even though the parent reports as an existing directory.
+	Callers should treat a ``None`` result as a non-fatal condition and skip
+	download tracking instead of failing the browser launch.
+	"""
+	try:
+		expanded_path = Path(downloads_path).expanduser().resolve()
+		expanded_path.mkdir(parents=True, exist_ok=True)
+		return expanded_path
+	except OSError:
+		return None
+
+
 _NETWORK_DOWNLOAD_FILE_EXTENSIONS = {
 	'pdf',
 	'doc',
@@ -186,8 +203,12 @@ class DownloadsWatchdog(BaseWatchdog):
 		# Ensure downloads directory exists
 		downloads_path = self.browser_session.browser_profile.downloads_path
 		if downloads_path:
-			expanded_path = Path(downloads_path).expanduser().resolve()
-			expanded_path.mkdir(parents=True, exist_ok=True)
+			expanded_path = _ensure_downloads_directory(downloads_path)
+			if expanded_path is None:
+				self.logger.warning(
+					f'[DownloadsWatchdog] Could not create downloads directory, skipping download tracking: {downloads_path}'
+				)
+				return
 			self.logger.debug(f'[DownloadsWatchdog] Ensured downloads directory exists: {expanded_path}')
 
 			# Capture initial files to detect new downloads reliably
