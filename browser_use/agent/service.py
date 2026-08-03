@@ -2472,7 +2472,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						await asyncio.wait([task], timeout=0.1)
 					else:
 						start_time = asyncio.get_event_loop().time()
-						wait_timeout = min(0.1, budget) if budget > 0 else 0.1
+						wait_timeout = max(0.0, min(0.1, budget))
 						await asyncio.wait([task], timeout=wait_timeout)
 						if not self.state.paused:
 							budget -= asyncio.get_event_loop().time() - start_time
