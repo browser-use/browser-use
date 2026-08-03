@@ -5982,9 +5982,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		The Rust terminal owns browser actions, so non-`done` action batches are
 		serialized as a follow-up instruction for the active Rust session. A
 		standalone `done` action preserves Browser Use's local completion semantics.
+
+		Registered Python custom actions (e.g. ``@agent.tools.registry.action``)
+		cannot be executed by the Rust terminal, so they are dispatched locally
+		through ``Registry.execute_action`` — which injects the agent's ``context``
+		into any action that declares a ``context`` parameter. This makes the
+		beta agent honor the documented ``Agent(context=...)`` → custom-action
+		contract instead of silently dropping the context on custom actions.
 		"""
-		payloads = []
+		payloads: list[dict[str, Any]] = []
+		local_results: list[ActionResult] = []
 		total_actions = len(actions)
+		# Module that defines built-in browser actions; anything registered from
+		# elsewhere is a user-supplied custom action that Rust cannot run.
+		builtin_module = Tools.__module__
 		for index, action in enumerate(actions):
 			payload = _action_payload(action)
 			if index > 0 and payload.get('done') is not None:
@@ -5992,12 +6003,44 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					f'Done action is allowed only as a single action - stopped after action {index} / {total_actions}.'
 				)
 				break
+			# Route registered custom Python actions through the local registry so
+			# they receive the agent context. Built-in browser actions go to Rust.
+			action_name = next(iter(payload), None)
+			if action_name and action_name != 'done' and self._is_custom_action(action_name, builtin_module):
+				try:
+					# Only forward a session whose CDP client is actually connected;
+					# an unconnected session would crash custom actions that use it.
+					connected_session = getattr(self, 'browser_session', None)
+					if connected_session is not None and not getattr(connected_session, '_cdp_client_root', None):
+						connected_session = None
+					result = await self.tools.registry.execute_action(
+						action_name=action_name,
+						params=payload.get(action_name) or {},
+						browser_session=connected_session,
+						page_extraction_llm=getattr(self, 'page_extraction_llm', None),
+						file_system=getattr(self, 'file_system', None),
+						sensitive_data=self.sensitive_data,
+						available_file_paths=self.available_file_paths,
+						extraction_schema=self.extraction_schema,
+					)
+					if isinstance(result, ActionResult):
+						local_results.append(result)
+					else:
+						local_results.append(ActionResult(extracted_content=str(result)))
+				except Exception as e:  # noqa: BLE001
+					local_results.append(ActionResult(error=f'Custom action {action_name} failed: {e}'))
+				# Custom actions are executed locally; do not forward to Rust.
+				if payload.get('done') is not None:
+					break
+				continue
 			payloads.append(payload)
 			if payload.get('done') is not None:
 				break
+		if local_results and not payloads:
+			return local_results
 		if not payloads:
-			return []
-		if len(payloads) == 1:
+			return local_results
+		if len(payloads) == 1 and not local_results:
 			done_result = _done_action_result(payloads[0])
 			if done_result is not None:
 				return [done_result]
@@ -6005,14 +6048,28 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_steps = max(1, len(payloads))
 		if self.terminal_session_id:
 			history = await self.follow_up(instruction, max_steps=max_steps)
-			return history.action_results()
-		original_task = self.task
-		self.task = f'{self.task}\n\n{instruction}'
-		try:
-			history = await self.run(max_steps=max_steps)
-		finally:
-			self.task = original_task
-		return history.action_results()
+			rust_results = history.action_results()
+		else:
+			original_task = self.task
+			self.task = f'{self.task}\n\n{instruction}'
+			try:
+				history = await self.run(max_steps=max_steps)
+			finally:
+				self.task = original_task
+			rust_results = history.action_results()
+		return local_results + rust_results
+
+	def _is_custom_action(self, action_name: str, builtin_module: str | None) -> bool:
+		"""True if ``action_name`` is a registered Python action that is not a built-in browser action."""
+		action = self.tools.registry.registry.actions.get(action_name)
+		if action is None:
+			return False
+		if builtin_module is None:
+			return True
+		# Built-in browser actions are defined in the Tools module itself; MCP- and
+		# user-registered actions come from other modules.
+		func_module = getattr(action.function, '__module__', '')
+		return func_module != builtin_module
 
 	async def _execute_initial_actions(self, *, allow_terminal_run: bool = True) -> None:
 		"""Execute configured Browser Use initial actions through the Rust-backed action path."""

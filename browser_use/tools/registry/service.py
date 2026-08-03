@@ -401,8 +401,10 @@ class Registry(Generic[Context]):
 				except Exception:
 					special_context['page_url'] = None
 
-				# Add cdp_client
-				special_context['cdp_client'] = browser_session.cdp_client
+				# Add cdp_client, but only when the browser is actually connected:
+				# BrowserSession.cdp_client asserts, and test doubles may not define the attr.
+				cdp_root = getattr(browser_session, '_cdp_client_root', None)
+				special_context['cdp_client'] = browser_session.cdp_client if cdp_root else None
 
 			# All functions are now normalized to accept kwargs only
 			# Call with params and unpacked special context
