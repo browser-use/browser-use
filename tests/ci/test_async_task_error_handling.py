@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from browser_use.utils import create_task_with_error_handling
+from browser_use.utils import SignalHandler, create_task_with_error_handling
 
 
 class ExpectedTaskError(RuntimeError):
@@ -48,3 +48,29 @@ async def test_task_exception_is_not_reported_as_callback_failure(suppress_excep
 	else:
 		test_logger.warning.assert_called_once()
 		test_logger.error.assert_not_called()
+
+
+async def test_signal_handler_cancellation_is_not_reported_as_callback_failure() -> None:
+	loop = asyncio.get_running_loop()
+	previous_exception_handler = loop.get_exception_handler()
+	exception_contexts: list[dict] = []
+	signal_handler = SignalHandler(loop=loop, exit_on_second_int=False)
+
+	def capture_loop_exception(_loop: asyncio.AbstractEventLoop, context: dict) -> None:
+		exception_contexts.append(context)
+
+	task = asyncio.create_task(asyncio.sleep(60), name='agent-step')
+	await asyncio.sleep(0)
+	loop.set_exception_handler(capture_loop_exception)
+	try:
+		signal_handler.sigint_handler()
+		with pytest.raises(asyncio.CancelledError):
+			await task
+
+		# Let all callbacks queued by task cancellation run.
+		await asyncio.sleep(0)
+	finally:
+		signal_handler.reset()
+		loop.set_exception_handler(previous_exception_handler)
+
+	assert exception_contexts == []
