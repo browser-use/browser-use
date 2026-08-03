@@ -1898,20 +1898,42 @@ Validated Code (after quote fixing):
 				found_images = re.findall(image_pattern, result_text)
 
 				metadata = None
+				dropped_count = 0
 				if found_images:
-					# Store images in metadata so they can be added as ContentPartImageParam
-					metadata = {'images': found_images}
+					# Cap images sent to the model: house screenshot budget is 10 images,
+					# and each base64 image must fit comfortably in a single message.
+					MAX_IMAGES = 10
+					MAX_IMAGE_CHARS = 100000
 
-					# Replace image data in result text with shorter placeholder
+					# Cap by occurrence, not by unique value: 12 identical inline
+					# images still consume 12 slots of the 10-image budget.
+					size_ok = [img for img in found_images if len(img) <= MAX_IMAGE_CHARS]
+					kept_images = size_ok[:MAX_IMAGES]
+					dropped_count = len(found_images) - len(kept_images)
+
+					# Store kept images in metadata so they can be added as ContentPartImageParam
+					if kept_images:
+						metadata = {'images': kept_images}
+
+					# Replace every image in result text with a shorter placeholder;
+					# dropped images get an explicit marker so the model knows they were omitted.
+					# Dedupe only for replacement efficiency; counting stays occurrence-based.
 					modified_text = result_text
-					for i, img_data in enumerate(found_images, 1):
-						placeholder = '[Image]'
+					for img_data in dict.fromkeys(found_images):
+						placeholder = '[Image]' if img_data in kept_images else '[Image omitted]'
 						modified_text = modified_text.replace(img_data, placeholder)
 					result_text = modified_text
 
 				# Apply length limit with better truncation (after image extraction)
 				if len(result_text) > 20000:
 					result_text = result_text[:19950] + '\n... [Truncated after 20000 characters]'
+
+				# Tell the model about any omitted images; appended after truncation so it survives.
+				if dropped_count:
+					result_text += (
+						f'\n... [{dropped_count} image(s) omitted: '
+						f'over the cap of {MAX_IMAGES} images / {MAX_IMAGE_CHARS} chars each]'
+					)
 
 				# Don't log the code - it's already visible in the user's cell
 				logger.debug(f'JavaScript executed successfully, result length: {len(result_text)}')
