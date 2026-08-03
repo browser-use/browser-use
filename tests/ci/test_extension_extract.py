@@ -94,8 +94,7 @@ class TestExtractExtensionTempZipCleanup:
 			# Unlinking a still-open file raises PermissionError on Windows;
 			# assert the implementation never does that.
 			assert all(f.closed for f in opened), (
-				'os.unlink called while the temp zip handle is still open; '
-				'on Windows this raises PermissionError'
+				'os.unlink called while the temp zip handle is still open; on Windows this raises PermissionError'
 			)
 			return real_unlink(path)
 
