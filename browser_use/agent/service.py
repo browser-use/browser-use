@@ -8,7 +8,7 @@ import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generic, Literal, cast
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
@@ -124,13 +124,10 @@ def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 		logger.info(f'  \033[34m🎯 Next goal: {next_goal}\033[0m')
 
 
-Context = TypeVar('Context')
-
-
 AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 
 
-class Agent(Generic[Context, AgentStructuredOutput]):
+class Agent(Generic[AgentStructuredOutput]):
 	@time_execution_sync('--init')
 	def __init__(
 		self,
@@ -140,8 +137,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser_profile: BrowserProfile | None = None,
 		browser_session: BrowserSession | None = None,
 		browser: Browser | None = None,  # Alias for browser_session
-		tools: Tools[Context] | None = None,
-		controller: Tools[Context] | None = None,  # Alias for tools
+		tools: Tools | None = None,
+		controller: Tools | None = None,  # Alias for tools
 		# Skills integration
 		skill_ids: list[str | Literal['*']] | None = None,
 		skills: list[str | Literal['*']] | None = None,  # Alias for skill_ids
