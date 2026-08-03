@@ -4310,6 +4310,9 @@ def test_beta_agent_exposes_task_helper_methods():
 		'[/app/example.com]',
 		'`../uploads/example.ai`',
 		r'C:\uploads\example.org',
+		'"/tmp/customer file.example.com"',
+		"'/tmp/customer/example file.com'",
+		r'"C:\Users\me\customer file.org"',
 	):
 		assert agent._extract_start_url(f'Upload {local_path}.') is None
 		assert browser_use_agent._extract_start_url(f'Upload {local_path}.') is None
