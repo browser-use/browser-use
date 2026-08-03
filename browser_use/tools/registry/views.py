@@ -106,8 +106,16 @@ class ActionRegistry(BaseModel):
 			True if the URL's domain matches the pattern, False otherwise
 		"""
 
-		if domains is None or not url:
+		# Actions with no domain restriction are always available.
+		if domains is None:
 			return True
+
+		# A domain-restricted action must NOT be exposed when the URL is unknown/
+		# empty. Returning True here failed open: an empty page_url (e.g. a fresh
+		# about:blank target whose url is '') made every restricted action match,
+		# unlike the page_url is None path which correctly hides them.
+		if not url:
+			return False
 
 		# Use the centralized URL matching logic from utils
 		from browser_use.utils import match_url_with_domain_pattern

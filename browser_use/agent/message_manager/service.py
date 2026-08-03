@@ -109,7 +109,7 @@ class MessageManager:
 		task: str,
 		system_message: SystemMessage,
 		file_system: FileSystem,
-		state: MessageManagerState = MessageManagerState(),
+		state: MessageManagerState | None = None,
 		use_thinking: bool = True,
 		include_attributes: list[str] | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
@@ -122,7 +122,10 @@ class MessageManager:
 		max_clickable_elements_length: int = 40000,
 	):
 		self.task = task
-		self.state = state
+		# A fresh state per instance: a mutable default (MessageManagerState()) would be
+		# evaluated once at definition time and shared across every MessageManager created
+		# without an explicit state, cross-contaminating their history.
+		self.state = state if state is not None else MessageManagerState()
 		self.system_prompt = system_message
 		self.file_system = file_system
 		self.sensitive_data_description = ''
