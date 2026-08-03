@@ -31,7 +31,17 @@ RUNTIME_TAGS = (
 	'step_info',
 	'file_system',
 	'todo_contents',
+	# Conditional blocks nested inside <agent_state> / <browser_state>.
+	'plan',
+	'sensitive_data',
+	'available_file_paths',
+	'browser_state_error',
+	'page_info',
+	'page_stats',
 )
+
+# Deliberately not listed: <input>, <instructions> and <output>. Those name sections of a
+# prompt rather than wrapping a per-step payload, and the templates use them as headings.
 
 
 # The two large templates still document payload shapes under the runtime names. Narrowing
