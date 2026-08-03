@@ -26,6 +26,14 @@ def _list_tools_handler(server: Any) -> Any:
 	return server.server.get_request_handler('tools/list').handler
 
 
+def _list_resources_handler(server: Any) -> Any:
+	return server.server.get_request_handler('resources/list').handler
+
+
+def _list_prompts_handler(server: Any) -> Any:
+	return server.server.get_request_handler('prompts/list').handler
+
+
 def _text_of(result: types.CallToolResult) -> str:
 	return ''.join(getattr(block, 'text', '') for block in result.content)
 
@@ -57,14 +65,14 @@ async def test_browser_use_list_tools_returns_typed_tools_with_schemas(browser_u
 
 
 async def test_browser_use_list_resources_returns_typed_empty(browser_use_server: BrowserUseServer) -> None:
-	handler = browser_use_server.server.get_request_handler('resources/list').handler
+	handler = _list_resources_handler(browser_use_server)
 	result = await handler(None, None)
 	assert isinstance(result, types.ListResourcesResult)
 	assert result.resources == []
 
 
 async def test_browser_use_list_prompts_returns_typed_empty(browser_use_server: BrowserUseServer) -> None:
-	handler = browser_use_server.server.get_request_handler('prompts/list').handler
+	handler = _list_prompts_handler(browser_use_server)
 	result = await handler(None, None)
 	assert isinstance(result, types.ListPromptsResult)
 	assert result.prompts == []
