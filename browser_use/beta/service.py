@@ -78,6 +78,7 @@ from browser_use.utils import (
 	get_git_info,
 	has_url_negation,
 	is_placeholder_url,
+	is_url_candidate_from_local_path,
 	sanitize_url_candidate,
 )
 
@@ -1463,12 +1464,14 @@ def _extract_start_url(task: str) -> str | None:
 	}
 	found_urls = []
 	matched_spans: list[tuple[int, int]] = []
-	for pattern in patterns:
+	for pattern_index, pattern in enumerate(patterns):
 		for match in re.finditer(pattern, task_without_emails):
 			# Skip fragments of URLs already matched by an earlier pattern
 			if any(match.start() < end and match.end() > start for start, end in matched_spans):
 				continue
 			matched_spans.append((match.start(), match.end()))
+			if pattern_index == 1 and is_url_candidate_from_local_path(task_without_emails, match.start()):
+				continue
 			url = sanitize_url_candidate(match.group(0))
 			url_lower = url.lower()
 			has_scheme = url_lower.startswith(('http://', 'https://', 'file://'))

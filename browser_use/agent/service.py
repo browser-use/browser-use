@@ -79,6 +79,7 @@ from browser_use.utils import (
 	get_browser_use_version,
 	has_url_negation,
 	is_placeholder_url,
+	is_url_candidate_from_local_path,
 	sanitize_url_candidate,
 	time_execution_async,
 	time_execution_sync,
@@ -2375,7 +2376,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		found_urls = []
 		matched_spans: list[tuple[int, int]] = []
-		for pattern in patterns:
+		for pattern_index, pattern in enumerate(patterns):
 			matches = re.finditer(pattern, task_without_emails)
 			for match in matches:
 				url = match.group(0)
@@ -2385,6 +2386,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if any(match.start() < end and match.end() > start for start, end in matched_spans):
 					continue
 				matched_spans.append((match.start(), match.end()))
+				if pattern_index == 1 and is_url_candidate_from_local_path(task_without_emails, match.start()):
+					continue
 
 				# Remove trailing punctuation that's not part of URLs
 				url = sanitize_url_candidate(url)
