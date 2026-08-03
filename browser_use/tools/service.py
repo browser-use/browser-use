@@ -109,6 +109,10 @@ _DEFAULT_PDF_FOOTER_TEMPLATE = (
 # BROWSER_USE_ACTION_TIMEOUT_S env var or tools.act(action_timeout=...).
 _ACTION_TIMEOUT_FALLBACK_S = 180.0
 
+_EVALUATE_MAX_IMAGES = 4
+_EVALUATE_MAX_IMAGE_CHARS = 256_000
+_EVALUATE_MAX_RESULT_CHARS = 20_000
+
 
 def _parse_env_action_timeout(raw: str | None) -> float:
 	"""Parse BROWSER_USE_ACTION_TIMEOUT_S defensively.
@@ -1882,21 +1886,27 @@ Validated Code (after quote fixing):
 
 				image_pattern = r'(data:image/[^;]+;base64,[A-Za-z0-9+/=]+)'
 				found_images = re.findall(image_pattern, result_text)
+				kept_images = [image for image in found_images if len(image) <= _EVALUATE_MAX_IMAGE_CHARS][:_EVALUATE_MAX_IMAGES]
+				dropped_image_count = len(found_images) - len(kept_images)
 
 				metadata = None
-				if found_images:
+				if kept_images:
 					# Store images in metadata so they can be added as ContentPartImageParam
-					metadata = {'images': found_images}
+					metadata = {'images': kept_images}
 
-					# Replace image data in result text with shorter placeholder
-					modified_text = result_text
-					for i, img_data in enumerate(found_images, 1):
-						placeholder = '[Image]'
-						modified_text = modified_text.replace(img_data, placeholder)
-					result_text = modified_text
+				# Replace image data in result text with shorter placeholder
+				modified_text = result_text
+				for img_data in found_images:
+					modified_text = modified_text.replace(img_data, '[Image]')
+				result_text = modified_text
+
+				if dropped_image_count:
+					result_text += (
+						f'\n... [{dropped_image_count} image(s) omitted: too large or over the limit of {_EVALUATE_MAX_IMAGES}]'
+					)
 
 				# Apply length limit with better truncation (after image extraction)
-				if len(result_text) > 20000:
+				if len(result_text) > _EVALUATE_MAX_RESULT_CHARS:
 					result_text = result_text[:19950] + '\n... [Truncated after 20000 characters]'
 
 				# Don't log the code - it's already visible in the user's cell

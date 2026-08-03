@@ -133,6 +133,24 @@ class TestToolsIntegration:
 		assert 'Custom action executed with: test_value on' in result.extracted_content
 		assert f'{base_url}/page1' in result.extracted_content
 
+	async def test_evaluate_limits_inline_images(self, tools, browser_session):
+		"""Test that evaluate bounds inline image data returned by page JavaScript."""
+		result = await tools.evaluate(
+			code="""(() => {
+				const largeImage = 'data:image/png;base64,' + 'A'.repeat(256001);
+				const smallImage = 'data:image/png;base64,' + 'B'.repeat(10);
+				return '<img src="' + largeImage + '">' + Array.from(
+					{length: 5}, () => '<img src="' + smallImage + '">'
+				).join('');
+			})()""",
+			browser_session=browser_session,
+		)
+
+		images = (result.metadata or {}).get('images', [])
+		assert len(images) == 4
+		assert all(len(image) <= 256000 for image in images)
+		assert '[2 image(s) omitted' in result.extracted_content
+
 	async def test_wait_action(self, tools, browser_session):
 		"""Test that the wait action correctly waits for the specified duration."""
 
