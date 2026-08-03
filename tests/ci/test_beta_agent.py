@@ -4323,6 +4323,9 @@ def test_beta_agent_exposes_task_helper_methods():
 		assert (
 			browser_use_agent._extract_start_url(f'Inspect /tmp/a.com{separator}then open example.org.') == 'https://example.org'
 		)
+	quoted_then_url = 'Inspect "local/path" and compare A/B, then open example.com "in a new tab".'
+	assert agent._extract_start_url(quoted_then_url) == 'https://example.com'
+	assert browser_use_agent._extract_start_url(quoted_then_url) == 'https://example.com'
 	numbered_task = '1. Navigate to https://elibrary.ferc.gov/eLibrary/search.\\n2. Ensure "General Search" is selected.'
 	assert agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
 	assert browser_use_agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
