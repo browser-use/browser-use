@@ -52,6 +52,22 @@ LONGER_THINKING_NUDGE = (
 	'the schema, with no Markdown fences and no top-level array.'
 )
 
+# Fix for the two dominant NON-verification failure modes seen in the 30B top-k32 runs:
+#   done_misuse (26%): model calls done() early with text = a next-action ("enter Python in search bar")
+#   element_index (35%): model repeats the same click index and ignores "page may have changed" errors
+DONE_LOOP_NUDGE = (
+	'DONE ACTION: only call the `done` action when the WHOLE task is finished. Its `text` must be the '
+	'FINAL ANSWER — the actual facts/values the user asked for — NOT a description of a next action '
+	'(never "click X", "enter Y in the search bar", "scroll down"). Do not call done in the first few '
+	'steps or before you have actually obtained the answer.\n'
+	'ANTI-LOOP: the interactive element indices are re-numbered every step. If an action just failed '
+	'("Element index N not available - page may have changed") or the same action made no visible '
+	'progress, do NOT repeat it — re-read the CURRENT screenshot and element list and pick a DIFFERENT '
+	'element, or scroll, before acting again.'
+)
+# CAPTCHA_NUDGE + the done/anti-loop guidance, appended to every agent's system prompt.
+COMBINED_NUDGE = CAPTCHA_NUDGE + '\n\n' + DONE_LOOP_NUDGE
+
 
 @dataclass(slots=True)
 class RunConfig:

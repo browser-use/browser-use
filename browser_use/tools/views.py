@@ -79,7 +79,7 @@ class InputTextAction(BaseModel):
 
 
 class DoneAction(BaseModel):
-	text: str = Field(description='Final user message in the format the user requested')
+	text: str = Field(description='The FINAL ANSWER to the user task: the actual requested facts/values, in the format requested. Only set this once the task is genuinely complete. NEVER put an action description here (e.g. "click X", "enter Y in the search bar", "scroll down") — those are actions, not answers.')
 	success: bool = Field(default=True, description='True if user_request completed successfully')
 	files_to_display: list[str] | None = Field(default=[])
 

@@ -22,7 +22,7 @@ from typing import Any, TypeVar
 
 from browser_use import Agent, Browser, ChatDashScope
 from browser_use.llm.openai.chat import ChatOpenAI
-from simulator.config import CAPTCHA_NUDGE, RUNS_DIR, TSA_API_KEY, TSA_BASE_URL, TSA_MODEL, USE_TSA, RunConfig
+from simulator.config import COMBINED_NUDGE, RUNS_DIR, TSA_API_KEY, TSA_BASE_URL, TSA_MODEL, USE_TSA, RunConfig
 from simulator.core.batching import BatchCoordinator, BatchLLMProxy
 from simulator.core.recorder import RecordingProxy, TrajectoryRecorder
 from simulator.tasks import WebVoyagerTask, load_tasks
@@ -92,7 +92,7 @@ async def execute_task(
 		enable_planning=False,
 		llm_timeout=cfg.llm_timeout,
 		calculate_cost=False,
-		extend_system_message=CAPTCHA_NUDGE,  # thinking left at browser-use default (longer-thinking nudge reverted per request)
+		extend_system_message=COMBINED_NUDGE,  # CAPTCHA route-around + done-guard + anti-loop (30B fix experiment)
 		# generous per-step timeout for slow batched calls on the GB10 (override via SIM_STEP_TIMEOUT)
 		step_timeout=int(os.environ.get('SIM_STEP_TIMEOUT', '360')),
 	)
@@ -171,6 +171,7 @@ async def run_batch(cfg: RunConfig) -> list[TaskOutcome]:
 		return outcome
 
 	outcomes = await run_pool(tasks, cfg.batch_size, handler)
+	shutil.rmtree(profile_root, ignore_errors=True)  # remove the temp profile root (per-task slot dirs already cleaned)
 	print('\n' + '=' * 64)
 	print(f'Completed {len(outcomes)} tasks | LLM batches: {coord.batch_stats()}')
 	return outcomes
@@ -182,15 +183,21 @@ async def run_capture(cfg: RunConfig, out_dir: Path | None = None) -> Path:
 	out_dir.mkdir(parents=True, exist_ok=True)
 	tasks = load_tasks(cfg.task_num, cfg.shuffle, cfg.seed, cfg.source)
 
-	# Resume support: skip tasks already captured (meta.json has a final 'status').
+	# Resume support: skip tasks already captured. A folder counts as captured only if it has a
+	# final 'completed'/'timeout' status AND at least one step recorded a real model output — a
+	# 'completed' status alone can mask a degenerate run (e.g. the initial navigation timed out and
+	# every step no-op'd), which we must retry rather than silently accept. resume re-runs 'error'/missing.
 	def _already_captured(task: WebVoyagerTask) -> bool:
-		mp = out_dir / task.folder_name / 'meta.json'
+		folder = out_dir / task.folder_name
+		mp = folder / 'meta.json'
 		if not mp.exists():
 			return False
 		try:
-			return json.loads(mp.read_text()).get('status') in ('completed', 'timeout')  # resume re-runs 'error'/missing
+			if json.loads(mp.read_text()).get('status') not in ('completed', 'timeout'):
+				return False
 		except Exception:  # noqa: BLE001
 			return False
+		return any(folder.glob('step_*/output.json'))  # a real trajectory has >=1 recorded model output
 
 	todo = [t for t in tasks if not _already_captured(t)]
 	skipped = len(tasks) - len(todo)
@@ -220,6 +227,7 @@ async def run_capture(cfg: RunConfig, out_dir: Path | None = None) -> Path:
 		return outcome
 
 	outcomes = await run_pool(todo, cfg.batch_size, handler)
+	shutil.rmtree(profile_root, ignore_errors=True)  # remove the temp profile root (per-task slot dirs already cleaned)
 	summary = [
 		{
 			'id': o.task.id,

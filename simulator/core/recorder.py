@@ -43,22 +43,28 @@ class TrajectoryRecorder:
 		self.dir.mkdir(parents=True, exist_ok=True)
 		self.step = 0
 		self._schema_saved = False
-		(self.dir / 'meta.json').write_text(
-			json.dumps(
-				{
-					'id': task.id,
-					'site': task.site,
-					'source': task.source,
-					'question': task.question,
-					'start_url': task.start_url,
-					'reference_answer': task.reference_answer,
-					'reference_type': task.reference_type,
-					'reference_notice': task.reference_notice,
-				},
-				ensure_ascii=False,
-				indent=2,
-			)
-		)
+		# Keep meta in memory so finalize() can persist the final status without re-reading the
+		# file (a read failure there would leave the task statusless -> retried forever).
+		self._meta = {
+			'id': task.id,
+			'site': task.site,
+			'source': task.source,
+			'question': task.question,
+			'start_url': task.start_url,
+			'reference_answer': task.reference_answer,
+			'reference_type': task.reference_type,
+			'reference_notice': task.reference_notice,
+		}
+		self._write_meta()
+
+	def _write_meta(self) -> None:
+		"""Atomically write meta.json (tmp + rename) so a concurrent resume check never sees a partial file."""
+		try:
+			tmp = self.dir / 'meta.json.tmp'
+			tmp.write_text(json.dumps(self._meta, ensure_ascii=False, indent=2))
+			tmp.replace(self.dir / 'meta.json')
+		except Exception:  # noqa: BLE001
+			pass
 
 	def _stepdir(self) -> Path:
 		d = self.dir / f'step_{self.step:03d}'
@@ -115,9 +121,8 @@ class TrajectoryRecorder:
 			answer = agent.history.final_result()
 		except Exception:  # noqa: BLE001
 			pass
-		meta = json.loads((self.dir / 'meta.json').read_text())
-		meta.update({'status': status, 'agent_self_reported_success': success, 'num_steps': self.step, 'answer': answer})
-		(self.dir / 'meta.json').write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+		self._meta.update({'status': status, 'agent_self_reported_success': success, 'num_steps': self.step, 'answer': answer})
+		self._write_meta()
 
 
 class RecordingProxy(BatchLLMProxy):

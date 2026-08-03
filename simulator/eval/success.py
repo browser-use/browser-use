@@ -61,7 +61,7 @@ def _parse_verdict(text: str) -> bool | None:
 	return None
 
 
-async def judge_success(judge: AsyncOpenAI, model: str, task_dir: Path, k: int) -> dict:
+async def judge_success(judge: AsyncOpenAI, model: str, task_dir: Path, k: int, attempt: int = 1) -> dict:
 	meta = json.loads((task_dir / 'meta.json').read_text())
 	question = meta.get('question', '')
 	answer = meta.get('answer') or '(the agent did not return a final answer)'
@@ -130,6 +130,7 @@ async def judge_success(judge: AsyncOpenAI, model: str, task_dir: Path, k: int) 
 		'success': verdict,
 		'judge_reasoning': reason,
 		'error': err,
+		'attempt': attempt,
 	}
 	(task_dir / 'webvoyager_eval.json').write_text(json.dumps(out, ensure_ascii=False, indent=2))
 	mark = {True: 'SUCCESS', False: 'NOT SUCCESS', None: 'UNKNOWN'}[verdict]
@@ -145,17 +146,23 @@ async def evaluate_success(path: Path, model: str = DEFAULT_JUDGE_MODEL, k: int 
 	judge = client()
 	print(f'WebVoyager success-judging {len(task_dirs)} task(s) | judge={model} | last {k} screenshot(s) (no web)\n')
 	results = []
+	eval_cap = 5
 	for td in task_dirs:
 		ef = td / 'webvoyager_eval.json'
-		if ef.exists():  # resume: reuse a prior non-error verdict
+		attempt = 1
+		if ef.exists():  # resume: reuse a conclusive verdict, or give up after eval_cap failed attempts
 			try:
 				prev = json.loads(ef.read_text())
-				if prev.get('error') is None and prev.get('success') is not None:
+				if prev.get('success') is not None:  # already judged
+					results.append(prev)
+					continue
+				attempt = int(prev.get('attempt', 1)) + 1
+				if attempt > eval_cap:  # persistent judge failure -> stop retrying so the loop terminates
 					results.append(prev)
 					continue
 			except Exception:  # noqa: BLE001
 				pass
-		results.append(await judge_success(judge, model, td, k))
+		results.append(await judge_success(judge, model, td, k, attempt))
 	n_succ = sum(1 for r in results if r['success'] is True)
 	n_ref = sum(1 for r in results if r['used_reference'])
 	print('\n' + '=' * 64)
