@@ -188,7 +188,10 @@ class SessionManager:
 		"""
 		page_targets = []
 		for target in self._targets.values():
-			if target.target_type in ('page', 'tab'):
+			# chrome-extension:// targets are browser-internal UI (extensions, devtools
+			# panels) and must never be treated as agent-visible pages - otherwise agent
+			# focus can switch to a target the agent cannot meaningfully control.
+			if target.target_type in ('page', 'tab') and not target.url.startswith('chrome-extension://'):
 				page_targets.append(target)
 		return page_targets
 
