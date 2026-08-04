@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
@@ -5,7 +6,7 @@ from typing import Any, TypeVar, overload
 import httpx
 from ollama import AsyncClient as OllamaAsyncClient
 from ollama import Options
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
@@ -13,7 +14,13 @@ from browser_use.llm.messages import BaseMessage
 from browser_use.llm.ollama.serializer import OllamaMessageSerializer
 from browser_use.llm.views import ChatInvokeCompletion
 
+logger = logging.getLogger(__name__)
+
 T = TypeVar('T', bound=BaseModel)
+
+# Top-level Ollama API parameters that should not be passed as model options.
+# These are handled as separate top-level arguments to client.chat() instead.
+_OLLAMA_TOP_LEVEL_PARAMS = frozenset({'format', 'stream'})
 
 
 @dataclass
@@ -57,6 +64,33 @@ class ChatOllama(BaseChatModel):
 	def name(self) -> str:
 		return self.model
 
+	def _clean_options(self) -> dict[str, Any]:
+		"""
+		Filter out top-level API parameters from ollama_options.
+
+		Ollama accepts parameters like ``format`` and ``stream`` as top-level
+		arguments to ``client.chat()``, not as part of the ``options`` dict.
+		When users pass them inside ``ollama_options`` they are silently
+		ignored (or worse, cause unexpected behaviour with some Ollama
+		versions).  We strip them here and log a warning so users know to
+		pass them correctly.
+
+		Returns:
+			A cleaned dict with only valid model options.
+		"""
+		if not self.ollama_options:
+			return {}
+		cleaned = dict(self.ollama_options)
+		for key in _OLLAMA_TOP_LEVEL_PARAMS:
+			if key in cleaned:
+				logger.warning(
+					'ollama_options contains "%s", which is a top-level Ollama API parameter '
+					'and is ignored inside options. Pass it directly to ChatOllama instead.',
+					key,
+				)
+				del cleaned[key]
+		return cleaned
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
@@ -69,13 +103,14 @@ class ChatOllama(BaseChatModel):
 		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		ollama_messages = OllamaMessageSerializer.serialize_messages(messages)
+		options = self._clean_options()
 
 		try:
 			if output_format is None:
 				response = await self.get_client().chat(
 					model=self.model,
 					messages=ollama_messages,
-					options=self.ollama_options,
+					options=options,
 				)
 
 				return ChatInvokeCompletion(completion=response.message.content or '', usage=None)
@@ -86,14 +121,27 @@ class ChatOllama(BaseChatModel):
 					model=self.model,
 					messages=ollama_messages,
 					format=schema,
-					options=self.ollama_options,
+					options=options,
 				)
 
 				completion = response.message.content or ''
-				if output_format is not None:
-					completion = output_format.model_validate_json(completion)
+				completion = output_format.model_validate_json(completion)
 
 				return ChatInvokeCompletion(completion=completion, usage=None)
 
+		except ValidationError as e:
+			# Provide a clearer error when the model returns invalid/truncated JSON
+			truncated_hint = ''
+			if 'EOF' in str(e):
+				truncated_hint = (
+					' The model returned incomplete or truncated JSON. '
+					'This can happen with vision models when format=schema is too restrictive. '
+					'Try setting use_vision=False for Ollama vision models, or '
+					'removing "format" from ollama_options.'
+				)
+			raise ModelProviderError(
+				message=f'Invalid JSON in model response: {e}{truncated_hint}',
+				model=self.name,
+			) from e
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
