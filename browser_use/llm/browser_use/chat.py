@@ -60,6 +60,7 @@ class ChatBrowserUse(BaseChatModel):
 			model: Model name to use. Options:
 				- 'bu-2-0' or 'bu-latest': Default model (latest premium)
 				- 'bu-1-0': Previous generation model
+				- 'bu-qa-1': Website QA model (tests a site and scores functionality/aesthetics)
 				- 'browser-use/bu-30b-a3b-preview': Browser Use Open Source Model
 				- Provider-prefixed ids resolved by the gateway, e.g. 'anthropic/claude-sonnet-4-6',
 				  'openai/gpt-5.5', 'google/gemini-3-pro'.
@@ -72,7 +73,7 @@ class ChatBrowserUse(BaseChatModel):
 		"""
 		# Accept 'bu-*' aliases and any provider-prefixed id; the gateway resolves the
 		# latter (anthropic/*, openai/*, google/*, browser-use/*), so we don't enumerate them.
-		bu_aliases = ['bu-latest', 'bu-1-0', 'bu-2-0']
+		bu_aliases = ['bu-latest', 'bu-1-0', 'bu-2-0', 'bu-qa-1']
 		is_valid = model in bu_aliases or '/' in model
 		if not is_valid:
 			raise ValueError(

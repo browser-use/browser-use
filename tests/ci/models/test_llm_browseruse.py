@@ -31,7 +31,7 @@ def test_default_model_is_bu_2_0():
 	assert chat.provider == 'browser-use'
 
 
-@pytest.mark.parametrize('alias', ['bu-1-0', 'bu-2-0'])
+@pytest.mark.parametrize('alias', ['bu-1-0', 'bu-2-0', 'bu-qa-1'])
 def test_bu_aliases_are_accepted(alias):
 	chat = ChatBrowserUse(model=alias, api_key=TEST_API_KEY)
 	assert chat.model == alias
