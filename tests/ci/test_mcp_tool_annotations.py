@@ -10,6 +10,8 @@ the read-only set: it dispatches the `extract` action through `Tools.act()`
 with a FileSystem handle and can write extraction artifacts.
 """
 
+from typing import Any
+
 import mcp.types as types
 import pytest
 
@@ -38,10 +40,14 @@ def _is_read_only(tool: types.Tool) -> bool:
 	return tool.annotations is not None and tool.annotations.read_only_hint is True
 
 
+def _list_tools_handler(server: Any) -> Any:
+	return server.server.get_request_handler('tools/list').handler
+
+
 async def _list_tools(server: BrowserUseServer) -> list[types.Tool]:
 	# mcp 2.x registers handlers on the Server constructor; they are reachable by
 	# method name via get_request_handler and take (ctx, params).
-	handler = server.server.get_request_handler('tools/list').handler
+	handler = _list_tools_handler(server)
 	list_result = await handler(None, None)
 	assert isinstance(list_result, types.ListToolsResult), f'expected ListToolsResult, got {type(list_result).__name__}'
 	assert len(list_result.tools) > 0, 'tools/list returned an empty catalogue'
