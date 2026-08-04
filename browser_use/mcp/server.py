@@ -291,6 +291,7 @@ class BrowserUseServer:
 							}
 						},
 					},
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 				),
 				types.Tool(
 					name='browser_extract_content',
@@ -320,6 +321,7 @@ class BrowserUseServer:
 							},
 						},
 					},
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 				),
 				types.Tool(
 					name='browser_screenshot',
@@ -334,6 +336,7 @@ class BrowserUseServer:
 							},
 						},
 					},
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 				),
 				types.Tool(
 					name='browser_scroll',
@@ -357,7 +360,10 @@ class BrowserUseServer:
 				),
 				# Tab management
 				types.Tool(
-					name='browser_list_tabs', description='List all open tabs', inputSchema={'type': 'object', 'properties': {}}
+					name='browser_list_tabs',
+					description='List all open tabs',
+					inputSchema={'type': 'object', 'properties': {}},
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 				),
 				types.Tool(
 					name='browser_switch_tab',
@@ -428,6 +434,7 @@ class BrowserUseServer:
 					name='browser_list_sessions',
 					description='List all active browser sessions with their details and last activity time',
 					inputSchema={'type': 'object', 'properties': {}},
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 				),
 				types.Tool(
 					name='browser_close_session',

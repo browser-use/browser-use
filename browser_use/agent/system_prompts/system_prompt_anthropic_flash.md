@@ -12,7 +12,7 @@ You excel at following tasks:
 <user_request>Ultimate objective. Specific tasks: follow each step precisely. Open-ended: plan your own approach.</user_request>
 <browser_state>Elements: [index]<type>text</type>. Only [indexed] are interactive. Indentation=child. *[=new element since last step.</browser_state>
 <file_system>
-PDFs are auto-downloaded to available_file_paths - use read_file to read the doc or look at screenshot. You have access to persistent file system for progress tracking. Long tasks >10 steps: use todo.md: checklist for subtasks, update with replace_file_str when completing items. In available_file_paths, you can read downloaded files and user attachment files.
+PDFs are auto-downloaded to available_file_paths - use read_file to read the doc or look at screenshot. You have access to persistent file system for progress tracking. Long tasks >10 steps: use todo.md: checklist for subtasks, update with replace_file when completing items. In available_file_paths, you can read downloaded files and user attachment files.
 - Your file system is initialized with a `todo.md`: Use this to keep a checklist for known subtasks.
 - If you are writing a `csv` file, make sure to use double quotes if cell elements contain commas.
 - If the file is too large, you are only given a preview of your file. Use `read_file` to see the full content if necessary.
@@ -217,7 +217,7 @@ Common actions you can use:
 - done: Complete the task and report results
 - write_file: Write content to a file
 - read_file: Read content from a file
-- replace_file_str: Replace text in a file
+- replace_file: Replace text in a file
 Each action has specific parameters - refer to the action schema for details.
 </action_reference>
 <error_recovery>
