@@ -63,27 +63,18 @@ class StorageStateWatchdog(BaseWatchdog):
 
 	async def on_SaveStorageStateEvent(self, event: SaveStorageStateEvent) -> None:
 		"""Handle storage state save request."""
-		# Use provided path or fall back to profile default
-		path = event.path
-		if path is None:
-			# Use profile default path if available
-			if self.browser_session.browser_profile.storage_state:
-				path = str(self.browser_session.browser_profile.storage_state)
-			else:
-				path = None  # Skip saving if no path available
-		await self._save_storage_state(path)
+		await self._save_storage_state(event.path if event.path is not None else self._profile_storage_state())
 
 	async def on_LoadStorageStateEvent(self, event: LoadStorageStateEvent) -> None:
 		"""Handle storage state load request."""
-		# Use provided path or fall back to profile default
-		path = event.path
-		if path is None:
-			# Use profile default path if available
-			if self.browser_session.browser_profile.storage_state:
-				path = str(self.browser_session.browser_profile.storage_state)
-			else:
-				path = None  # Skip loading if no path available
-		await self._load_storage_state(path)
+		await self._load_storage_state(event.path if event.path is not None else self._profile_storage_state())
+
+	def _profile_storage_state(self) -> str | dict[str, Any] | None:
+		"""Profile default storage_state, preserving in-memory dicts instead of stringifying them."""
+		storage_state = self.browser_session.browser_profile.storage_state
+		if storage_state is None or isinstance(storage_state, dict):
+			return storage_state
+		return str(storage_state)
 
 	async def _start_monitoring(self) -> None:
 		"""Start the monitoring task."""
@@ -164,7 +155,7 @@ class StorageStateWatchdog(BaseWatchdog):
 			self.logger.debug(f'[StorageStateWatchdog] Error comparing cookies: {e}')
 			return False
 
-	async def _save_storage_state(self, path: str | None = None) -> None:
+	async def _save_storage_state(self, path: str | dict[str, Any] | None = None) -> None:
 		"""Save browser storage state to file."""
 		async with self._save_lock:
 			# Check if CDP client is available
@@ -230,22 +221,31 @@ class StorageStateWatchdog(BaseWatchdog):
 			except Exception as e:
 				self.logger.error(f'[StorageStateWatchdog] Failed to save storage state: {e}')
 
-	async def _load_storage_state(self, path: str | None = None) -> None:
-		"""Load browser storage state from file."""
+	async def _load_storage_state(self, path: str | dict[str, Any] | None = None) -> None:
+		"""Load browser storage state from a file path or an in-memory dict."""
 		if not self.browser_session.cdp_client:
 			self.logger.warning('[StorageStateWatchdog] No CDP client available for loading')
 			return
 
 		load_path = path or self.browser_session.browser_profile.storage_state
-		if not load_path or not os.path.exists(str(load_path)):
+		if isinstance(load_path, dict):
+			# storage_state was provided as an in-memory dict, apply it directly (never stringify it:
+			# dicts are not file paths, and repr would leak cookie values into logs/events)
+			load_source = '<in-memory storage_state dict>'
+		elif not load_path or not os.path.exists(str(load_path)):
 			return
+		else:
+			load_source = str(load_path)
 
 		try:
-			# Read the storage state file asynchronously
-			import anyio
+			if isinstance(load_path, dict):
+				storage = load_path
+			else:
+				# Read the storage state file asynchronously
+				import anyio
 
-			content = await anyio.Path(str(load_path)).read_text()
-			storage = json.loads(content)
+				content = await anyio.Path(load_source).read_text()
+				storage = json.loads(content)
 
 			# Apply cookies if present
 			if 'cookies' in storage and storage['cookies']:
@@ -309,13 +309,13 @@ class StorageStateWatchdog(BaseWatchdog):
 
 			self.event_bus.dispatch(
 				StorageStateLoadedEvent(
-					path=str(load_path),
+					path=load_source,
 					cookies_count=len(storage.get('cookies', [])),
 					origins_count=len(storage.get('origins', [])),
 				)
 			)
 
-			self.logger.debug(f'[StorageStateWatchdog] Loaded storage state from: {load_path}')
+			self.logger.debug(f'[StorageStateWatchdog] Loaded storage state from: {load_source}')
 
 		except Exception as e:
 			self.logger.error(f'[StorageStateWatchdog] Failed to load storage state: {e}')

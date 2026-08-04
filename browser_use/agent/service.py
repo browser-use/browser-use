@@ -1539,7 +1539,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		This gives the LLM advance notice to wrap up, save partial results, and call done
 		rather than exhausting all steps with nothing saved.
 		"""
-		if step_info is None:
+		if step_info is None or step_info.max_steps <= 0:
 			return
 
 		steps_used = step_info.step_number + 1  # Convert 0-indexed to 1-indexed
