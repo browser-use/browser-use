@@ -120,6 +120,28 @@ class ChatOpenAI(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
+	def _is_reasoning_model(self) -> bool:
+		"""Whether ``self.model`` should be treated as a reasoning model.
+
+		Reasoning models receive ``reasoning_effort`` and have ``temperature``
+		dropped. Matching is substring-based so Azure deployment names that embed
+		a model id (e.g. ``prod-gpt-5``) still classify. Some chat-tuned
+		snapshots share a prefix with a reasoning model id but are regular chat
+		models that support sampling params (notably the ``gpt-5-chat`` family vs.
+		the ``gpt-5`` reasoning model), so they are excluded explicitly. The
+		exclusion markers are contiguous, so a reasoning deployment whose name
+		merely contains the word ``chat`` elsewhere (e.g. ``prod-chat-gpt-5``) is
+		unaffected.
+		"""
+		if not self.reasoning_models:
+			return False
+		model_lower = str(self.model).lower()
+		# Chat-tuned variants that collide with a reasoning-model prefix.
+		non_reasoning_markers = ('gpt-5-chat',)
+		if any(marker in model_lower for marker in non_reasoning_markers):
+			return False
+		return any(str(m).lower() in model_lower for m in self.reasoning_models)
+
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
 		if response.usage is not None:
 			# Note: completion_tokens already includes reasoning_tokens per OpenAI API docs.
@@ -186,7 +208,7 @@ class ChatOpenAI(BaseChatModel):
 			if self.service_tier is not None:
 				model_params['service_tier'] = self.service_tier
 
-			if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
+			if self._is_reasoning_model():
 				model_params['reasoning_effort'] = self.reasoning_effort
 				model_params.pop('temperature', None)
 				model_params.pop('frequency_penalty', None)
