@@ -701,9 +701,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 	def last_action(self) -> None | dict:
 		"""Last action in history"""
 		if self.history and self.history[-1].model_output:
-			actions = self.history[-1].model_output.action
-			if actions:
-				return actions[-1].model_dump(exclude_none=True, mode='json')
+			return self.history[-1].model_output.action[-1].model_dump(exclude_none=True, mode='json')
 		return None
 
 	def errors(self) -> list[str | None]:

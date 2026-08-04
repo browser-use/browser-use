@@ -26,7 +26,6 @@ dist/
 *.pdf
 *.csv
 *.json
-!/server.json
 *.jsonl
 *.log
 *.bak

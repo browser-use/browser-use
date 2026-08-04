@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 	from browser_use.telemetry.service import ProductTelemetry
 	from browser_use.telemetry.views import (
 		BaseTelemetryEvent,
+		CLITelemetryEvent,
 		MCPClientTelemetryEvent,
 		MCPServerTelemetryEvent,
 	)
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
 _LAZY_IMPORTS = {
 	'ProductTelemetry': ('browser_use.telemetry.service', 'ProductTelemetry'),
 	'BaseTelemetryEvent': ('browser_use.telemetry.views', 'BaseTelemetryEvent'),
+	'CLITelemetryEvent': ('browser_use.telemetry.views', 'CLITelemetryEvent'),
 	'MCPClientTelemetryEvent': ('browser_use.telemetry.views', 'MCPClientTelemetryEvent'),
 	'MCPServerTelemetryEvent': ('browser_use.telemetry.views', 'MCPServerTelemetryEvent'),
 }
@@ -43,6 +45,7 @@ def __getattr__(name: str):
 __all__ = [
 	'BaseTelemetryEvent',
 	'ProductTelemetry',
+	'CLITelemetryEvent',
 	'MCPClientTelemetryEvent',
 	'MCPServerTelemetryEvent',
 ]

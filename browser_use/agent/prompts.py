@@ -228,18 +228,10 @@ class AgentMessagePrompt:
 		# Format statistics
 		stats_text = '<page_stats>'
 		if page_stats['total_elements'] < 10:
-			stats_text += 'Page appears empty - consider waiting - '
-		# Skeleton screen: low text density only means "loading" while requests are actually in flight
-		elif (
-			self.browser_state.pending_network_requests
-			and page_stats['total_elements'] > 20
-			and page_stats['text_chars'] < page_stats['total_elements'] * 5
-		):
-			pending_count = len(self.browser_state.pending_network_requests)
-			stats_text += (
-				f'{pending_count} network request(s) in flight and little text rendered - '
-				f'page may still be loading, consider waiting - '
-			)
+			stats_text += 'Page appears empty (SPA not loaded?) - '
+		# Skeleton screen: many elements but almost no text = loading placeholders
+		elif page_stats['total_elements'] > 20 and page_stats['text_chars'] < page_stats['total_elements'] * 5:
+			stats_text += 'Page appears to show skeleton/placeholder content (still loading?) - '
 		stats_text += f'{page_stats["links"]} links, {page_stats["interactive_elements"]} interactive, '
 		stats_text += f'{page_stats["iframes"]} iframes'
 		if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0:
@@ -298,10 +290,6 @@ class AgentMessagePrompt:
 
 		current_tab_text = f'Current tab: {current_target_id[-4:]}' if current_target_id is not None else ''
 
-		state_error_text = ''
-		if state_error := getattr(self.browser_state, 'state_error', None):
-			state_error_text = f'<browser_state_error>{state_error}</browser_state_error>\n'
-
 		# Check if current page is a PDF viewer and add appropriate message
 		pdf_message = ''
 		if self.browser_state.is_pdf_viewer:
@@ -329,7 +317,7 @@ class AgentMessagePrompt:
 Available tabs:
 {tabs_text}
 {page_info_text}
-{state_error_text}{recent_events_text}{closed_popups_text}{pdf_message}Interactive elements{truncated_text}:
+{recent_events_text}{closed_popups_text}{pdf_message}Interactive elements{truncated_text}:
 {elements_text}
 """
 		return browser_state

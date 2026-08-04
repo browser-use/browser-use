@@ -22,8 +22,6 @@ from browser_use.utils import create_task_with_error_handling, time_execution_as
 if TYPE_CHECKING:
 	from browser_use.browser.views import BrowserStateSummary, NetworkRequest, PageInfo, PaginationButton
 
-_BROWSER_STATE_PARALLEL_TASK_BUDGET_SECONDS = 20.0
-
 
 class DOMWatchdog(BaseWatchdog):
 	"""Handles DOM tree building, serialization, and element access via CDP.
@@ -358,7 +356,6 @@ class DOMWatchdog(BaseWatchdog):
 			# Execute DOM building and screenshot capture in parallel
 			dom_task = None
 			screenshot_task = None
-			parallel_tasks_started_at = time.monotonic()
 
 			# Start DOM building task if requested
 			if event.include_dom:
@@ -403,15 +400,7 @@ class DOMWatchdog(BaseWatchdog):
 
 			if screenshot_task:
 				try:
-					# BrowserStateRequestEvent has a 30-second budget. A nested
-					# ScreenshotEvent can otherwise consume nearly all of it,
-					# preventing this handler from returning the usable DOM-only
-					# state when screenshot capture stalls.
-					remaining_screenshot_budget = max(
-						0.001,
-						_BROWSER_STATE_PARALLEL_TASK_BUDGET_SECONDS - (time.monotonic() - parallel_tasks_started_at),
-					)
-					screenshot_b64 = await asyncio.wait_for(screenshot_task, timeout=remaining_screenshot_budget)
+					screenshot_b64 = await screenshot_task
 					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Clean screenshot captured')
 				except Exception as e:
 					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Clean screenshot failed: {e}')
@@ -741,7 +730,6 @@ class DOMWatchdog(BaseWatchdog):
 				PaginationButton(
 					button_type=btn['button_type'],  # type: ignore
 					backend_node_id=btn['backend_node_id'],  # type: ignore
-					selector_index=btn['selector_index'],  # type: ignore
 					text=btn['text'],  # type: ignore
 					selector=btn['selector'],  # type: ignore
 					is_disabled=btn['is_disabled'],  # type: ignore
