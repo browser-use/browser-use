@@ -22,6 +22,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -419,6 +420,83 @@ def test_http_bad_input_returns_400(fitness_server) -> None:
 	# Unknown route.
 	status, _ = _http_json('GET', f'{base_url}/does-not-exist')
 	assert status == 404
+
+
+def test_agent_record_action_fitness_success() -> None:
+	"""The Agent._record_action_fitness helper feeds the tracker on success."""
+	from browser_use.agent.service import Agent
+	from browser_use.agent.views import ActionResult
+
+	tracker = SkillFitnessTracker()
+
+	class _Shim:
+		action_fitness_tracker = tracker
+
+	# 250ms fake latency by lying about the start timestamp.
+	start_ns = time.perf_counter_ns() - 250 * 1_000_000
+	result = ActionResult(extracted_content='ok')
+	# Agent._record_action_fitness reads only self.action_fitness_tracker — safe to call unbound.
+	Agent._record_action_fitness(cast(Any, _Shim()), 'click_by_index', result, start_ns)
+
+	mf = tracker.fitness('click_by_index')
+	assert mf is not None
+	assert mf.belief() > 0.5
+	assert tracker.invocations('click_by_index') == 1
+
+
+def test_agent_record_action_fitness_soft_failure() -> None:
+	"""ActionResult.error set → tracker records a failure without an exception path."""
+	from browser_use.agent.service import Agent
+	from browser_use.agent.views import ActionResult
+
+	tracker = SkillFitnessTracker()
+
+	class _Shim:
+		action_fitness_tracker = tracker
+
+	Agent._record_action_fitness(
+		cast(Any, _Shim()),
+		'extract_content',
+		ActionResult(error='no matching element'),
+		time.perf_counter_ns(),
+	)
+	mf = tracker.fitness('extract_content')
+	assert mf is not None
+	# Failure → LOW singleton dominates → HIGH belief must be near zero.
+	assert mf.belief() < 0.1
+
+
+def test_agent_record_action_fitness_hard_exception() -> None:
+	"""The exception path records with the exception's type + message."""
+	from browser_use.agent.service import Agent
+
+	tracker = SkillFitnessTracker()
+
+	class _Shim:
+		action_fitness_tracker = tracker
+
+	Agent._record_action_fitness(
+		cast(Any, _Shim()),
+		'unstable_skill',
+		None,
+		time.perf_counter_ns(),
+		exc=RuntimeError('kaboom'),
+	)
+	mf = tracker.fitness('unstable_skill')
+	assert mf is not None
+	assert tracker.invocations('unstable_skill') == 1
+
+
+def test_agent_record_action_fitness_no_tracker_is_noop() -> None:
+	"""When action_fitness_tracker is None, the helper is a zero-cost no-op."""
+	from browser_use.agent.service import Agent
+	from browser_use.agent.views import ActionResult
+
+	class _Shim:
+		action_fitness_tracker = None
+
+	# Should not raise.
+	Agent._record_action_fitness(cast(Any, _Shim()), 'anything', ActionResult(), time.perf_counter_ns())
 
 
 def test_service_exposes_fitness_and_ranking(monkeypatch: pytest.MonkeyPatch) -> None:

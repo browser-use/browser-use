@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
+	from browser_use.skills.fitness import SkillFitnessTracker
 	from browser_use.skills.views import Skill
 
 from dotenv import load_dotenv
@@ -144,6 +145,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		skill_ids: list[str | Literal['*']] | None = None,
 		skills: list[str | Literal['*']] | None = None,  # Alias for skill_ids
 		skill_service: Any | None = None,
+		# Per-action fitness tracking (opt-in) — every action outcome folds into a
+		# Dempster-Shafer belief interval per action_name. Feeds EvoMetaClaw /
+		# EvoForge selection loops without touching the hot path when unset.
+		action_fitness_tracker: 'SkillFitnessTracker | None' = None,
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
@@ -341,6 +346,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			from browser_use.skills import SkillService
 
 			self.skill_service = SkillService(skill_ids=skill_ids)
+
+		# Optional per-action fitness tracker. None → zero cost, no recording.
+		self.action_fitness_tracker = action_fitness_tracker
 
 		# Structured output - use explicit param or detect from tools
 		tools_output_model = self.tools.get_output_model()
@@ -2696,6 +2704,23 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			await self.close()
 
+	def _record_action_fitness(
+		self, action_name: str, result: ActionResult | None, start_ns: int, exc: Exception | None = None
+	) -> None:
+		"""Fold one action outcome into the fitness tracker. No-op if not opted in."""
+		if self.action_fitness_tracker is None:
+			return
+		latency_ms = int((time.perf_counter_ns() - start_ns) / 1_000_000)
+		if exc is not None:
+			self.action_fitness_tracker.record(
+				skill_id=action_name, success=False, latency_ms=latency_ms, error=f'{type(exc).__name__}: {exc}'
+			)
+			return
+		if result is None:
+			return
+		success = result.error is None
+		self.action_fitness_tracker.record(skill_id=action_name, success=success, latency_ms=latency_ms, error=result.error)
+
 	@observe_debug(ignore_input=True, ignore_output=True)
 	@time_execution_async('--multi_act')
 	async def multi_act(self, actions: list[ActionModel]) -> list[ActionResult]:
@@ -2740,6 +2765,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.debug(f'Waiting {self.browser_profile.wait_between_actions} seconds between actions')
 				await asyncio.sleep(self.browser_profile.wait_between_actions)
 
+			# Start latency clock outside the try so the exception path can still record.
+			action_start_ns = time.perf_counter_ns()
 			try:
 				await self._check_stop_or_pause()
 
@@ -2759,6 +2786,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					available_file_paths=self.available_file_paths,
 					extraction_schema=self.extraction_schema,
 				)
+				self._record_action_fitness(action_name, result, action_start_ns)
 
 				if result.error:
 					await self._demo_mode_log(
@@ -2812,6 +2840,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					'error',
 					{'action': action_name, 'step': self.state.n_steps},
 				)
+				self._record_action_fitness(action_name, None, action_start_ns, exc=e)
 				# Preserve partial results so the agent knows which actions succeeded before the failure
 				results.append(ActionResult(error=f'{type(e).__name__}: {e}'))
 				return results
