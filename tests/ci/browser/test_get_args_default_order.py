@@ -16,11 +16,7 @@ def _default_args_in_order(args: list[str], ignore: list[str]) -> tuple[list[str
 	original token. We only track whole-token defaults that survive unchanged.
 	"""
 	ignored = set(ignore)
-	expected = [
-		arg
-		for arg in CHROME_DEFAULT_ARGS
-		if arg not in ignored and not arg.startswith('--disable-features=')
-	]
+	expected = [arg for arg in CHROME_DEFAULT_ARGS if arg not in ignored and not arg.startswith('--disable-features=')]
 	# Preserve first-seen order from the final args list, restricted to expected defaults.
 	seen: list[str] = []
 	expected_set = set(expected)
