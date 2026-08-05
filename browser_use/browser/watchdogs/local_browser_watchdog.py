@@ -409,9 +409,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		"""Wait for the browser to start and return the CDP URL."""
 		import aiohttp
 
-		start_time = asyncio.get_event_loop().time()
+		start_time = asyncio.get_running_loop().time()
 
-		while asyncio.get_event_loop().time() - start_time < timeout:
+		while asyncio.get_running_loop().time() - start_time < timeout:
 			try:
 				async with aiohttp.ClientSession() as session:
 					async with session.get(f'http://127.0.0.1:{port}/json/version') as resp:
