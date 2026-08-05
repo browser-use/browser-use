@@ -151,6 +151,13 @@ Browser Use is also **#1 on the [Odysseys leaderboard](https://odysseysbench.com
 - 1000+ integrations (Gmail, Slack, Notion, and more)
 - Persistent filesystem and memory
 
+```sh
+curl -X POST https://api.browser-use.com/api/v4/runs \
+  -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"task": "Your task"}'
+```
+
 <br/>
 
 ## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
