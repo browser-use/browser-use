@@ -2515,6 +2515,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		agent_run_error: str | None = None  # Initialize error tracking variable
 		self._force_exit_telemetry_logged = False  # ADDED: Flag for custom telemetry on force exit
 		should_delay_close = False
+		recorded_video_paths_start_index = len(self.browser_session.recorded_video_paths)
 
 		# Set up the  signal handler with callbacks specific to this agent
 		from browser_use.utils import SignalHandler
@@ -2727,6 +2728,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await self.eventbus.stop(clear=True, timeout=_get_timeout('TIMEOUT_AgentEventBusStop', 3.0))
 
 			await self.close()
+			self._sync_recorded_video_paths(recorded_video_paths_start_index)
 
 	@observe_debug(ignore_input=True, ignore_output=True)
 	@time_execution_async('--multi_act')
@@ -4071,6 +4073,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		import asyncio
 
 		return asyncio.run(self.run(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end))
+
+	def _sync_recorded_video_paths(self, start_index: int) -> None:
+		"""Append video recordings finalized during this run to the returned history."""
+		self.history.recordings.extend(self.browser_session.recorded_video_paths[start_index:])
 
 	def detect_variables(self) -> dict[str, DetectedVariable]:
 		"""Detect reusable variables in agent history"""

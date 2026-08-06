@@ -115,6 +115,10 @@ class RecordingWatchdog(BaseWatchdog):
 		output_path = recorder.output_path
 		loop = asyncio.get_event_loop()
 		await loop.run_in_executor(None, recorder.stop_and_save)
+		if output_path.exists() and output_path.stat().st_size > 0:
+			self.browser_session._track_recorded_video(output_path)
+		else:
+			self.logger.warning(f'Video recording was not saved, skipping path tracking: {output_path}')
 		return output_path
 
 	@property
