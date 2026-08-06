@@ -68,6 +68,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.openai.chat import ChatOpenAI
 	from browser_use.llm.openrouter.chat import ChatOpenRouter
 	from browser_use.llm.vercel.chat import ChatVercel
+	from browser_use.playwright_recorder import record_playwright_script
 	from browser_use.sandbox import sandbox
 	from browser_use.tools.service import Controller, Tools
 
@@ -110,6 +111,8 @@ _LAZY_IMPORTS = {
 	'models': ('browser_use.llm.models', None),
 	# Sandbox execution
 	'sandbox': ('browser_use.sandbox', 'sandbox'),
+	# Playwright recorder
+	'record_playwright_script': ('browser_use.playwright_recorder', 'record_playwright_script'),
 }
 
 
@@ -169,4 +172,6 @@ __all__ = [
 	'models',
 	# Sandbox execution
 	'sandbox',
+	# Playwright recorder
+	'record_playwright_script',
 ]
