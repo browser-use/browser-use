@@ -200,6 +200,12 @@ class SecurityWatchdog(BaseWatchdog):
 		if parsed.scheme in ['data', 'blob']:
 			return True
 
+		# Block javascript: URIs unconditionally
+		# javascript:alert(1) can execute arbitrary JS in page context
+		# without changing document.location, bypassing domain checks
+		if parsed.scheme == 'javascript':
+			return False
+
 		# Get the actual host (domain)
 		host = parsed.hostname
 		if not host:
@@ -235,6 +241,27 @@ class SecurityWatchdog(BaseWatchdog):
 		# Check prohibited domains (fast path for sets, slow path for lists with patterns)
 		if self.browser_session.browser_profile.prohibited_domains:
 			prohibited_domains = self.browser_session.browser_profile.prohibited_domains
+
+			# Block dangerous non-HTTP schemes by default in denylist mode.
+			# chrome://settings/passwords has hostname='settings', which won't
+			# match a typical denylist entry like 'evil.com'. An attacker can
+			# redirect the agent to privileged browser pages or local files.
+			INTERNAL_SCHEMES = ('chrome', 'chrome-extension', 'file', 'about', 'brave')
+			if parsed.scheme in INTERNAL_SCHEMES:
+				# Internal browser targets are always allowed
+				if url in ['about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/']:
+					return True
+				# Check if any prohibited pattern explicitly references this scheme
+				# (e.g. 'brave://*' means 'block all brave://'). If so, let it flow
+				# through to normal matching; otherwise block by default.
+				has_scheme_pattern = False
+				if not isinstance(prohibited_domains, set):
+					for pattern in prohibited_domains:
+						if '://' in pattern and parsed.scheme == pattern.split('://')[0]:
+							has_scheme_pattern = True
+							break
+				if not has_scheme_pattern:
+					return False
 
 			if isinstance(prohibited_domains, set):
 				# Fast path: O(1) exact hostname match - check both www and non-www variants
