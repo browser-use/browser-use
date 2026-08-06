@@ -2774,7 +2774,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Fallback: Try JavaScript search
 			js_result = await cdp_client.send.Runtime.evaluate(
 				params={
-					'expression': f'''
+					'expression': f"""
 							(() => {{
 								const walker = document.createTreeWalker(
 									document.body,
@@ -2784,14 +2784,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 								);
 								let node;
 								while (node = walker.nextNode()) {{
-									if (node.textContent.includes("{event.text}")) {{
+									if (node.textContent.includes({json.dumps(event.text)})) {{
 										node.parentElement.scrollIntoView({{behavior: 'smooth', block: 'center'}});
 										return true;
 									}}
 								}}
 								return false;
 							}})()
-						'''
+						"""
 				},
 				session_id=session_id,
 			)
