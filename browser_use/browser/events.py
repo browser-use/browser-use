@@ -138,6 +138,10 @@ class ClickCoordinateEvent(BaseEvent[dict]):
 
 	coordinate_x: int
 	coordinate_y: int
+	button: Literal['left', 'right', 'middle'] = 'left'
+	force: bool = False  # If True, skip safety checks (file input, print, select)
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_ClickCoordinateEvent', 15.0))  # seconds
 
 
 class HoverElementEvent(ElementSelectedEvent[dict[str, Any] | None]):
@@ -147,10 +151,6 @@ class HoverElementEvent(ElementSelectedEvent[dict[str, Any] | None]):
 	node: 'EnhancedDOMTreeNode'
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_HoverElementEvent', 15.0))  # seconds
-	button: Literal['left', 'right', 'middle'] = 'left'
-	force: bool = False  # If True, skip safety checks (file input, print, select)
-
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_ClickCoordinateEvent', 15.0))  # seconds
 
 
 class TypeTextEvent(ElementSelectedEvent[dict | None]):

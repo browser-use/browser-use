@@ -865,6 +865,7 @@ class Tools(Generic[Context]):
 			'menus, tooltips, or dropdowns that only appear on hover - then read the updated '
 			'browser state to interact with the revealed content.',
 			param_model=HoverElementAction,
+			terminates_sequence=True,
 		)
 		async def hover(params: HoverElementAction, browser_session: BrowserSession):
 			node = await browser_session.get_element_by_index(params.index)
