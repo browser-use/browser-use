@@ -28,3 +28,5 @@ Add entries in this format:
 ```markdown
 - [Project name](https://github.com/org/project) - One sentence about what it integrates with. Maintained by @github-handle.
 ```
+
+- [AgentCert Tripwire](https://github.com/Kakarottoooo/agentcert) - CI regression gate that runs a Browser Use agent under injected web faults (popups, button drift, decoy buttons, prompt-injection banners, slow network, HTTP failures) and grades runs deterministically with screenshots, traces, and JUnit output. Maintained by @Kakarottoooo.
