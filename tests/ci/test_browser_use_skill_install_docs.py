@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -16,22 +17,34 @@ EXPECTED_SKILL_INSTALL_PATHS = (
 )
 
 
+def _write_fake_command(bin_dir: Path, name: str, source: str) -> None:
+	if os.name == 'nt':
+		(bin_dir / f'{name}.py').write_text(source, encoding='utf-8')
+		(bin_dir / f'{name}.cmd').write_text(
+			f'@echo off\n"{sys.executable}" "%~dp0{name}.py" %*\n',
+			encoding='utf-8',
+		)
+		return
+
+	executable = bin_dir / name
+	executable.write_text(f'#!/usr/bin/env python3\n{source}', encoding='utf-8')
+	executable.chmod(0o755)
+
+
 def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
 	bin_dir = tmp_path / 'bin'
 	bin_dir.mkdir()
 
-	uv = bin_dir / 'uv'
-	uv.write_text(
-		'#!/usr/bin/env python3\n'
+	_write_fake_command(
+		bin_dir,
+		'uv',
 		'import os, pathlib, sys\n'
 		'pathlib.Path(os.environ["UV_TOOL_INSTALL_ARGS_FILE"]).write_text(" ".join(sys.argv[1:]), encoding="utf-8")\n',
-		encoding='utf-8',
 	)
-	uv.chmod(0o755)
 
-	browser_harness = bin_dir / 'browser-harness'
-	browser_harness.write_text(
-		'#!/usr/bin/env python3\n'
+	_write_fake_command(
+		bin_dir,
+		'browser-harness',
 		'import sys\n'
 		f'text = {skill_text!r}\n'
 		'if sys.argv[1:] == ["skill"]:\n'
@@ -39,10 +52,26 @@ def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
 		'else:\n'
 		'    print("usage: browser-harness skill", file=sys.stderr)\n'
 		'    sys.exit(2)\n',
-		encoding='utf-8',
 	)
-	browser_harness.chmod(0o755)
 	return bin_dir
+
+
+def _isolated_cli_env(tmp_path: Path, bin_dir: Path, uv_args: Path) -> dict[str, str]:
+	home = tmp_path / 'home'
+	env = os.environ.copy()
+	env['HOME'] = str(home)
+	env['USERPROFILE'] = str(home)
+	env['XDG_CONFIG_HOME'] = str(home / '.config')
+	env['PATH'] = os.pathsep.join(part for part in (str(bin_dir), env.get('PATH', '')) if part)
+	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
+	env['UV_TOOL_INSTALL_ARGS_FILE'] = str(uv_args)
+
+	for name in ('uv', 'browser-harness'):
+		executable = shutil.which(name, path=env['PATH'])
+		assert executable is not None
+		assert Path(executable).resolve().parent == bin_dir.resolve()
+
+	return env
 
 
 def test_docs_install_browser_use_skill_from_package_alias():
@@ -65,11 +94,7 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 		stale.write_text('stale browser-use skill', encoding='utf-8')
 
 	uv_args = tmp_path / 'uv-args.txt'
-	env = os.environ.copy()
-	env['HOME'] = str(home)
-	env['PATH'] = os.pathsep.join(part for part in (str(bin_dir), env.get('PATH', '')) if part)
-	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
-	env['UV_TOOL_INSTALL_ARGS_FILE'] = str(uv_args)
+	env = _isolated_cli_env(tmp_path, bin_dir, uv_args)
 
 	result = subprocess.run(
 		[sys.executable, '-m', 'browser_use.cli', 'skill', 'install'],
@@ -99,11 +124,7 @@ def test_browser_use_cli_validates_destination_before_installing_harness(tmp_pat
 	blocking_file.write_text('blocks skill directory creation', encoding='utf-8')
 
 	uv_args = tmp_path / 'uv-args.txt'
-	env = os.environ.copy()
-	env['HOME'] = str(tmp_path / 'home')
-	env['PATH'] = os.pathsep.join(part for part in (str(bin_dir), env.get('PATH', '')) if part)
-	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
-	env['UV_TOOL_INSTALL_ARGS_FILE'] = str(uv_args)
+	env = _isolated_cli_env(tmp_path, bin_dir, uv_args)
 
 	result = subprocess.run(
 		[sys.executable, '-m', 'browser_use.cli', 'skill', 'install', '--path', str(blocking_file / 'nested')],
