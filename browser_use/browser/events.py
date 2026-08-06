@@ -138,6 +138,15 @@ class ClickCoordinateEvent(BaseEvent[dict]):
 
 	coordinate_x: int
 	coordinate_y: int
+
+
+class HoverElementEvent(ElementSelectedEvent[dict[str, Any] | None]):
+	"""Move the mouse over an element without clicking, to trigger CSS :hover states and
+	JS mouseenter/mouseover listeners (dropdown menus, tooltips, hover-reveal UI)."""
+
+	node: 'EnhancedDOMTreeNode'
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_HoverElementEvent', 15.0))  # seconds
 	button: Literal['left', 'right', 'middle'] = 'left'
 	force: bool = False  # If True, skip safety checks (file input, print, select)
 
@@ -634,7 +643,7 @@ class CaptchaSolverFinishedEvent(BaseEvent):
 
 # Note: Model rebuilding for forward references is handled in the importing modules
 # Events with 'EnhancedDOMTreeNode' forward references (ClickElementEvent, TypeTextEvent,
-# ScrollEvent, UploadFileEvent) need model_rebuild() called after imports are complete
+# ScrollEvent, UploadFileEvent, HoverElementEvent) need model_rebuild() called after imports are complete
 
 
 def _check_event_names_dont_overlap():
