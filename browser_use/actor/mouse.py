@@ -58,7 +58,6 @@ class Mouse:
 			release_params,
 			session_id=self._session_id,
 		)
-		self._position = (x, y)
 
 	async def down(self, button: 'MouseButton' = 'left', click_count: int = 1) -> None:
 		"""Press mouse button down."""
