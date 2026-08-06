@@ -9,6 +9,8 @@ Direct browser control via CDP. For task-specific edits, use `agent-workspace/ag
 
 ## When Not to Use
 
+If the user explicitly asks you to use `browser-use` or a browser, use it; this section only governs tool choice when the user did not specify one.
+
 A basic fetch of public information needs no browser. If a plain HTTP request can read it — a public page, an API, docs — use `curl` or your fetch tool, and leave the browser alone. Use browser-use when the task needs interaction (click, type, navigate), the user's logged-in session, JS rendering, or a bot-protected page. If a direct fetch fails or returns a shell page, then escalate to the browser.
 
 Domain skills are off by default. Set `BH_DOMAIN_SKILLS=1` to enable them; see the bottom section.

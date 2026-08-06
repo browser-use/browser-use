@@ -6,6 +6,11 @@ import re
 from importlib import resources
 from pathlib import Path
 
+EXPLICIT_REQUEST_GUIDANCE = (
+	'If the user explicitly asks you to use `browser-use` or a browser, use it; '
+	'this section only governs tool choice when the user did not specify one.'
+)
+
 
 def as_browser_use_skill(text: str) -> str:
 	"""Expose the Browser Harness skill under the Browser Use skill identity."""
@@ -44,6 +49,13 @@ def as_browser_use_skill(text: str) -> str:
 	# Rebrand every mention except repo URLs (github.com/browser-use/browser-harness/...)
 	body = re.sub(r'(?<!/)browser-harness', 'browser-use', body)
 	body = body.replace('Browser Harness', 'Browser Use')
+	when_not_to_use_heading = '## When Not to Use\n'
+	if EXPLICIT_REQUEST_GUIDANCE not in body and when_not_to_use_heading in body:
+		body = body.replace(
+			when_not_to_use_heading,
+			f'{when_not_to_use_heading}\n{EXPLICIT_REQUEST_GUIDANCE}\n',
+			1,
+		)
 	frontmatter_text = '\n'.join(lines)
 	return f'---\n{frontmatter_text}\n---\n{body}'
 
