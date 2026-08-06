@@ -76,43 +76,46 @@ class GoogleMessageSerializer:
 			# Initialize message parts
 			message_parts: list[Part] = []
 
+			# Build the content parts (text + images) once so both branches keep them
+			content_parts: list[Part] = []
+			if isinstance(message.content, str):
+				content_parts.append(Part.from_text(text=message.content))
+			elif message.content is not None:
+				# Handle Iterable of content parts
+				for part in message.content:
+					if part.type == 'text':
+						content_parts.append(Part.from_text(text=part.text))
+					elif part.type == 'refusal':
+						content_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
+					elif part.type == 'image_url':
+						# Handle images
+						url = part.image_url.url
+
+						# Format: data:image/jpeg;base64,<data>
+						header, data = url.split(',', 1)
+						# Decode base64 to bytes
+						image_bytes = base64.b64decode(data)
+
+						# Use the media_type from ImageURL, which correctly identifies the image format
+						mime_type = part.image_url.media_type
+
+						# Add image part
+						content_parts.append(Part.from_bytes(data=image_bytes, mime_type=mime_type))
+
 			# If this is the first user message and we have system parts, prepend them
 			if include_system_in_user and system_parts and role == 'user' and not formatted_messages:
 				system_text = '\n\n'.join(system_parts)
+				system_parts = []  # Clear after using
 				if isinstance(message.content, str):
+					# Fold the system text into the single text part
 					message_parts.append(Part.from_text(text=f'{system_text}\n\n{message.content}'))
 				else:
-					# Add system text as the first part
+					# Prepend the system text, then keep the user's actual content (text + images)
 					message_parts.append(Part.from_text(text=system_text))
-				system_parts = []  # Clear after using
+					message_parts.extend(content_parts)
 			else:
-				# Extract content and create parts normally
-				if isinstance(message.content, str):
-					# Regular text content
-					message_parts = [Part.from_text(text=message.content)]
-				elif message.content is not None:
-					# Handle Iterable of content parts
-					for part in message.content:
-						if part.type == 'text':
-							message_parts.append(Part.from_text(text=part.text))
-						elif part.type == 'refusal':
-							message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
-						elif part.type == 'image_url':
-							# Handle images
-							url = part.image_url.url
-
-							# Format: data:image/jpeg;base64,<data>
-							header, data = url.split(',', 1)
-							# Decode base64 to bytes
-							image_bytes = base64.b64decode(data)
-
-							# Use the media_type from ImageURL, which correctly identifies the image format
-							mime_type = part.image_url.media_type
-
-							# Add image part
-							image_part = Part.from_bytes(data=image_bytes, mime_type=mime_type)
-
-							message_parts.append(image_part)
+				# Use the content parts as-is
+				message_parts = content_parts
 
 			# Create the Content object
 			if message_parts:

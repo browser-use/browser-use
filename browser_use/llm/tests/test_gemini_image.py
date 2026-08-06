@@ -2,8 +2,7 @@ import asyncio
 import base64
 import io
 import random
-
-from PIL import Image, ImageDraw, ImageFont
+from typing import cast
 
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.google.serializer import GoogleMessageSerializer
@@ -15,6 +14,8 @@ from browser_use.llm.messages import (
 	SystemMessage,
 	UserMessage,
 )
+from google.genai.types import Content
+from PIL import Image, ImageDraw, ImageFont
 
 
 def create_random_text_image(text: str = 'hello world', width: int = 4000, height: int = 4000) -> str:
@@ -85,6 +86,46 @@ async def test_gemini_image_vision():
 	except Exception as e:
 		print(f'Error calling Gemini: {e}')
 		print(f'Error type: {type(e)}')
+
+
+def test_include_system_in_user_preserves_first_user_message_content():
+	"""Regression: include_system_in_user=True with list content must keep the user's text + images.
+
+	When the system message is folded into the first user message and that message has list
+	content, the serializer previously emitted only the system text and silently dropped the
+	user's own text and image parts (e.g. the screenshot the model reasons over on turn 1).
+	"""
+	image_data_url = create_random_text_image('preserve me', width=64, height=64)
+	messages: list[BaseMessage] = [
+		SystemMessage(content='SYSTEM_INSTRUCTION_TEXT'),
+		UserMessage(
+			content=[
+				ContentPartTextParam(text='USER_FIRST_TURN_TEXT'),
+				ContentPartImageParam(image_url=ImageURL(url=image_data_url)),
+			]
+		),
+	]
+
+	formatted_messages, system_message = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+
+	# System folded into the first user message -> no separate system instruction returned
+	assert system_message is None
+	formatted_list = cast(list[Content], formatted_messages)
+	assert len(formatted_list) == 1
+
+	parts = formatted_list[0].parts or []
+	texts = [p.text for p in parts if p.text is not None]
+	# System text is prepended ...
+	assert any('SYSTEM_INSTRUCTION_TEXT' in t for t in texts)
+	# ... and the user's own text is preserved (regression: previously dropped) ...
+	assert any('USER_FIRST_TURN_TEXT' in t for t in texts)
+	# ... and the image is preserved (regression: previously dropped).
+	image_parts = [p for p in parts if p.inline_data is not None]
+	assert len(image_parts) == 1
+	blob = image_parts[0].inline_data
+	assert blob is not None
+	assert blob.mime_type == 'image/png'
+	assert blob.data
 
 
 if __name__ == '__main__':
