@@ -1180,6 +1180,7 @@ async function initialize(checkInitialized, magic) {{
 
 	def _extract_extension(self, crx_path: Path, extract_dir: Path) -> None:
 		"""Extract .crx file to directory."""
+		import contextlib
 		import os
 		import zipfile
 
@@ -1222,15 +1223,15 @@ async function initialize(checkInitialized, magic) {{
 				zip_data = f.read()
 
 			# Write ZIP data to temp file and extract
-
-			with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
+			temp_zip = tempfile.NamedTemporaryFile(suffix='.zip', delete=False)
+			try:
 				temp_zip.write(zip_data)
-				temp_zip.flush()
-
+				temp_zip.close()  # close before opening by name, required on Windows
 				with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
 					zip_ref.extractall(extract_dir)
-
-				os.unlink(temp_zip.name)
+			finally:
+				with contextlib.suppress(OSError):
+					os.unlink(temp_zip.name)
 
 	def detect_display_configuration(self) -> None:
 		"""
