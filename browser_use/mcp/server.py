@@ -590,7 +590,7 @@ class BrowserUseServer:
 
 		# Merge profile config with defaults and overrides
 		profile_data = {
-			'downloads_path': str(Path.home() / 'Downloads' / 'browser-use-mcp'),
+			'downloads_path': str(Path.home() / '.browser-use-mcp' / 'downloads'),
 			'wait_between_actions': 0.5,
 			'keep_alive': True,
 			'user_data_dir': '~/.config/browseruse/profiles/default',
