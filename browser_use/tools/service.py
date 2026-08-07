@@ -34,7 +34,7 @@ from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
-from browser_use.observability import observe_debug
+from browser_use.observability import action_span, observe_debug, set_action_output
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
@@ -2189,23 +2189,15 @@ Validated Code (after quote fixing):
 
 		for action_name, params in action.model_dump(exclude_unset=True).items():
 			if params is not None:
-				# Use Laminar span if available, otherwise use no-op context manager
-				if Laminar is not None:
-					span_context = Laminar.start_as_current_span(
-						name=action_name,
-						input={
-							'action': action_name,
-							'params': params,
-						},
-						span_type='TOOL',
-					)
-				else:
-					# No-op context manager when lmnr is not available
-					from contextlib import nullcontext
-
-					span_context = nullcontext()
-
-				with span_context:
+				# Backend-neutral action span (routes to lmnr, mlflow, or no-op) named after the action
+				with action_span(
+					name=action_name,
+					input={
+						'action': action_name,
+						'params': params,
+					},
+					span_type='TOOL',
+				) as _action_span:
 					try:
 						result = await asyncio.wait_for(
 							self.registry.execute_action(
@@ -2242,8 +2234,7 @@ Validated Code (after quote fixing):
 						logger.error(f"Action '{action_name}' failed with error: {str(e)}")
 						result = ActionResult(error=str(e))
 
-					if Laminar is not None:
-						Laminar.set_span_output(result)
+					set_action_output(_action_span, result)
 
 				if isinstance(result, str):
 					return ActionResult(extracted_content=result)
