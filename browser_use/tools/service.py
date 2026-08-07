@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import os
+from collections.abc import Callable
 from typing import Generic, TypeVar
 
 import anyio
@@ -94,6 +95,46 @@ _DEFAULT_PDF_FOOTER_TEMPLATE = (
 	'<span class="url" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>'
 	'<span style="flex-shrink:0; padding-left:8px;"><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>'
 )
+
+
+def _find_fallback_file_input_for_upload(
+	selector_map: dict[int, EnhancedDOMTreeNode],
+	current_scroll_y: float,
+	is_file_input: Callable[[EnhancedDOMTreeNode], bool],
+) -> tuple[EnhancedDOMTreeNode | None, float | None, bool]:
+	"""Pick a fallback file input for upload_file.
+
+	Prefer the file input closest to the current scroll position when DOM
+	coordinates are available. If the serializer omitted coordinates for every
+	file input, still return the first file input so upload_file can use the
+	backend node id instead of failing with "No file upload element found".
+	"""
+	closest_file_input = None
+	first_file_input = None
+	min_distance = float('inf')
+
+	for element in selector_map.values():
+		if not is_file_input(element):
+			continue
+
+		if first_file_input is None:
+			first_file_input = element
+
+		absolute_position = getattr(element, 'absolute_position', None)
+		if absolute_position:
+			element_y = absolute_position.y
+			distance = abs(element_y - current_scroll_y)
+			if distance < min_distance:
+				min_distance = distance
+				closest_file_input = element
+
+	if closest_file_input is not None:
+		return closest_file_input, min_distance, False
+
+	if first_file_input is not None:
+		return first_file_input, None, True
+
+	return None, None, False
 
 
 # Global per-action timeout: last-resort guard against hung event handlers.
@@ -950,23 +991,19 @@ class Tools(Generic[Context]):
 				except Exception:
 					current_scroll_y = 0
 
-				# Find all file inputs in the selector map and pick the closest one to scroll position
-				closest_file_input = None
-				min_distance = float('inf')
+				# Find file inputs in the selector map. Prefer the one closest to the current scroll
+				# position, but still use the first file input if coordinates are missing from the
+				# serialized DOM node; UploadFileEvent only needs the backend node id.
+				fallback_file_input, min_distance, used_coordinate_less_fallback = _find_fallback_file_input_for_upload(
+					selector_map, current_scroll_y, browser_session.is_file_input
+				)
 
-				for idx, element in selector_map.items():
-					if browser_session.is_file_input(element):
-						# Get element's Y position
-						if element.absolute_position:
-							element_y = element.absolute_position.y
-							distance = abs(element_y - current_scroll_y)
-							if distance < min_distance:
-								min_distance = distance
-								closest_file_input = element
-
-				if closest_file_input:
-					file_input_node = closest_file_input
-					logger.info(f'Found file input closest to scroll position (distance: {min_distance}px)')
+				if fallback_file_input:
+					file_input_node = fallback_file_input
+					if used_coordinate_less_fallback:
+						logger.info('Found file input without coordinates as final upload fallback')
+					else:
+						logger.info(f'Found file input closest to scroll position (distance: {min_distance}px)')
 
 					# Highlight the fallback file input element (truly non-blocking)
 					create_task_with_error_handling(
@@ -978,7 +1015,6 @@ class Tools(Generic[Context]):
 					msg = 'No file upload element found on the page'
 					logger.error(msg)
 					raise BrowserError(msg)
-					# TODO: figure out why this fails sometimes + add fallback hail mary, just look for any file input on page
 
 			# Dispatch upload file event with the file input node
 			try:
