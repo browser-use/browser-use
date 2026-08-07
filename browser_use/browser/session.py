@@ -587,6 +587,7 @@ class BrowserSession(BaseModel):
 	# Default: 3 * 15s + (1+2+4)s + 2s = 54s
 	RECONNECT_WAIT_TIMEOUT: float = 54.0
 	_reconnecting: bool = PrivateAttr(default=False)
+	_drop_while_reconnecting: bool = PrivateAttr(default=False)
 	_reconnect_event: asyncio.Event = PrivateAttr(default_factory=asyncio.Event)
 	_reconnect_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 	_reconnect_task: asyncio.Task | None = PrivateAttr(default=None)
@@ -2294,6 +2295,15 @@ class BrowserSession(BaseModel):
 			self._reconnecting = False
 			self._reconnect_event.set()  # wake up all waiters regardless of outcome
 
+			# A drop landed inside the reconnect window: the one-shot drop
+			# callback was consumed while _reconnecting was still True, so this
+			# new socket can never be drop-detected again. Re-run the reconnect
+			# loop to close the gap (issue #5366).
+			if self._drop_while_reconnecting and not self._intentional_stop and self.cdp_url:
+				self._drop_while_reconnecting = False
+				self.logger.warning('🔌 CDP WebSocket dropped during reconnect window — retrying')
+				self._reconnect_task = asyncio.get_running_loop().create_task(self._auto_reconnect())
+
 	def _attach_ws_drop_callback(self) -> None:
 		"""Attach a done callback to the CDPClient's message handler task to detect WS drops."""
 		if not self._cdp_client_root or not hasattr(self._cdp_client_root, '_message_handler_task'):
@@ -2304,11 +2314,24 @@ class BrowserSession(BaseModel):
 			return
 
 		def _on_message_handler_done(fut: asyncio.Future) -> None:
-			# Guard: skip if intentionally stopped, already reconnecting, or no cdp_url
-			if self._intentional_stop or self._reconnecting or not self.cdp_url:
+			# Guard: skip if intentionally stopped or no cdp_url
+			if self._intentional_stop or not self.cdp_url:
 				return
 
-			# The message handler task exiting means the WS connection dropped
+			# The message handler task exiting means the WS connection dropped.
+			# If a reconnect is already in flight, this drop landed inside the
+			# reconnect window: the one-shot callback is consumed right here, so
+			# record it for _auto_reconnect()'s finally to act on — otherwise no
+			# future drop could ever be detected again (issue #5366).
+			if self._reconnecting:
+				self._drop_while_reconnecting = True
+				exc = fut.exception() if not fut.cancelled() else None
+				self.logger.warning(
+					f'🔌 CDP WebSocket dropped again during reconnect'
+					f'{f": {type(exc).__name__}: {exc}" if exc else " (connection closed)"}'
+				)
+				return
+
 			exc = fut.exception() if not fut.cancelled() else None
 			self.logger.warning(
 				f'🔌 CDP WebSocket message handler exited unexpectedly'
