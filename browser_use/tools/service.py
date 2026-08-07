@@ -786,7 +786,7 @@ class Tools(Generic[Context]):
 			if node is None:
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(error=msg)
 
 			# Highlight the element being typed into (truly non-blocking)
 			create_task_with_error_handling(
@@ -1455,6 +1455,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 						long_term_memory = f'Scrolled {direction} {target} {viewport_height}px'.replace('  ', ' ')
 					else:
 						long_term_memory = f'Scrolled {direction} {target} {completed_scrolls:.1f} pages'.replace('  ', ' ')
+
+					if completed_scrolls <= 0:
+						# Every scroll attempt failed; report an error so multi_act aborts and
+						# consecutive_failures increments instead of silently claiming success.
+						return ActionResult(error='Failed to execute scroll action.')
 				else:
 					# For fractional pages <1.0, do single scroll
 					pixels = int(params.pages * viewport_height)
@@ -1504,14 +1509,19 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				msg = f'🔍  {memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
-			except Exception as e:
-				# Text not found
+			except BrowserError:
+				# Text genuinely not found - a legitimate negative result, not an error.
 				msg = f"Text '{text}' not found or not visible on page"
 				logger.info(msg)
 				return ActionResult(
 					extracted_content=msg,
 					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
 				)
+			except Exception as e:
+				# Real CDP/transport failure - report an error so multi_act aborts and
+				# consecutive_failures increments instead of masquerading as "not found".
+				logger.error(f'Failed to dispatch ScrollToTextEvent: {type(e).__name__}: {e}')
+				return ActionResult(error=f'Failed to scroll to text: {e}')
 
 		@self.registry.action(
 			'Take a screenshot of the current viewport. If file_name is provided, saves to that file and returns the path. '
