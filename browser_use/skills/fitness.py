@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
@@ -330,23 +331,141 @@ def _cli(argv: list[str] | None = None) -> int:
 	return 0
 
 
+_OPENAPI_SCHEMA: dict[str, Any] = {
+	'openapi': '3.1.0',
+	'info': {
+		'title': 'skill-fitness',
+		'version': '1',
+		'description': 'Dempster-Shafer per-skill fitness accumulator over HTTP.',
+	},
+	'paths': {
+		'/health': {
+			'get': {
+				'summary': 'Liveness probe.',
+				'responses': {'200': {'description': 'Process is up.'}},
+			}
+		},
+		'/ready': {
+			'get': {
+				'summary': 'Readiness probe.',
+				'responses': {'200': {'description': 'Service is accepting traffic.'}},
+			}
+		},
+		'/metrics': {
+			'get': {
+				'summary': 'Prometheus text-format metrics.',
+				'responses': {'200': {'description': 'text/plain; version=0.0.4'}},
+			}
+		},
+		'/record': {
+			'post': {
+				'summary': 'Record one skill invocation outcome.',
+				'requestBody': {
+					'content': {
+						'application/json': {
+							'schema': {
+								'type': 'object',
+								'required': ['skill_id'],
+								'properties': {
+									'skill_id': {'type': 'string'},
+									'success': {'type': 'boolean'},
+									'latency_ms': {'type': ['integer', 'null']},
+									'error': {'type': ['string', 'null']},
+								},
+							}
+						}
+					}
+				},
+				'responses': {'200': {'description': 'Updated MassFunction dict.'}},
+			}
+		},
+		'/ranked': {
+			'get': {
+				'summary': 'Skills sorted best-first under the chosen mode.',
+				'parameters': [
+					{'name': 'mode', 'in': 'query', 'schema': {'enum': ['belief', 'plausibility', 'expected']}},
+					{'name': 'top', 'in': 'query', 'schema': {'type': 'integer'}},
+				],
+				'responses': {'200': {'description': '[[skill_id, score], ...]'}},
+			}
+		},
+		'/top_k': {
+			'get': {
+				'summary': 'Top-k skill IDs under the chosen mode.',
+				'parameters': [
+					{'name': 'mode', 'in': 'query', 'schema': {'enum': ['belief', 'plausibility', 'expected']}},
+					{'name': 'k', 'in': 'query', 'schema': {'type': 'integer'}},
+				],
+				'responses': {'200': {'description': '[skill_id, ...]'}},
+			}
+		},
+		'/fitness/{skill_id}': {
+			'get': {
+				'summary': 'MassFunction for one skill.',
+				'parameters': [{'name': 'skill_id', 'in': 'path', 'required': True, 'schema': {'type': 'string'}}],
+				'responses': {'200': {'description': 'MassFunction dict.'}, '404': {'description': 'Unknown skill_id.'}},
+			}
+		},
+		'/state': {
+			'get': {'summary': 'Full tracker snapshot.', 'responses': {'200': {'description': 'to_dict output.'}}},
+			'post': {'summary': 'Replace tracker snapshot.', 'responses': {'200': {'description': '{"replaced": true}'}}},
+		},
+		'/reset': {'post': {'summary': 'Wipe tracker.', 'responses': {'200': {'description': '{"reset": true}'}}}},
+		'/recommend': {
+			'post': {
+				'summary': 'Filter candidates by score threshold under the chosen mode.',
+				'requestBody': {
+					'content': {
+						'application/json': {
+							'schema': {
+								'type': 'object',
+								'required': ['candidates'],
+								'properties': {
+									'candidates': {'type': 'array', 'items': {'type': 'string'}},
+									'mode': {'enum': ['belief', 'plausibility', 'expected']},
+									'min_score': {'type': 'number'},
+									'include_unseen': {'type': 'boolean'},
+								},
+							}
+						}
+					}
+				},
+				'responses': {'200': {'description': 'Filtered [skill_id, ...]'}},
+			}
+		},
+	},
+}
+
+
 def _serve(tracker: SkillFitnessTracker, host: str, port: int, save_path: str | None = None) -> int:
 	"""Serve the tracker over stdlib http.server. Local/internal use — wrap in ASGI for prod.
 
-	Routes:
-	    GET  /health                        → {"status": "ok"}
-	    POST /record                        → body = {skill_id, success, latency_ms?, error?}; returns MassFunction dict
-	    GET  /ranked?mode=..&top=..         → [[skill_id, score], ...] sorted best-first
-	    GET  /top_k?mode=..&k=..            → [skill_id, ...] best-first, capped at k
-	    GET  /fitness/<skill_id>            → MassFunction dict or 404
-	    GET  /state                         → full tracker snapshot (to_dict output)
-	    POST /state                         → replace tracker state (body = from_dict input); auto-persists if --save was given
-	    POST /reset                         → wipe all accumulated fitness; returns {"reset": true}
-	    POST /recommend                     → body = {candidates: [str], mode?, min_score?, include_unseen?}; returns filtered [str]
+	Routes (all also aliased under /v1/... for stable API versioning):
 
-	Every mutating request auto-persists to save_path when provided — durable across restarts.
-	Bind defaults to 127.0.0.1 so nothing is exposed off-box without an explicit --host.
+	  Health/observability:
+	    GET  /health         → {"status": "ok"}       — liveness probe
+	    GET  /ready          → {"status": "ready"}    — readiness probe
+	    GET  /metrics        → Prometheus text/plain — total records, per-skill invocations, tracker size
+	    GET  /openapi.json   → OpenAPI 3.1 schema of this surface
+
+	  Data:
+	    POST /record         → body = {skill_id, success, latency_ms?, error?}; returns updated MassFunction
+	    GET  /ranked?mode=..&top=..   → [[skill_id, score], ...] best-first
+	    GET  /top_k?mode=..&k=..      → [skill_id, ...] best-first, capped at k
+	    GET  /fitness/<skill_id>      → MassFunction dict or 404
+	    GET  /state          → full tracker snapshot (to_dict output)
+	    POST /state          → replace tracker snapshot (from_dict input)
+	    POST /reset          → wipe all accumulated fitness
+	    POST /recommend      → body = {candidates: [str], mode?, min_score?, include_unseen?}; returns filtered [str]
+
+	Modern-service defaults:
+	  - Every mutating request auto-persists to save_path when provided.
+	  - CORS: read-only endpoints send Access-Control-Allow-Origin: * for browser dashboards.
+	  - Structured access log on mutating requests: one JSON line per POST to stderr.
+	  - Graceful shutdown on SIGTERM as well as SIGINT.
+	  - Binds 127.0.0.1 by default. Set --host explicitly to expose off-box.
 	"""
+	import signal
 	import threading
 	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 	from urllib.parse import parse_qs, urlparse
@@ -359,12 +478,53 @@ def _serve(tracker: SkillFitnessTracker, host: str, port: int, save_path: str | 
 		with open(save_path, 'w', encoding='utf-8') as f:
 			json.dump(tracker.to_dict(), f, indent=2, sort_keys=True)
 
+	def render_metrics_locked() -> bytes:
+		total_records = sum(tracker._invocations.values())
+		lines = [
+			'# HELP skill_fitness_records_total Total number of recorded skill invocations.',
+			'# TYPE skill_fitness_records_total counter',
+			f'skill_fitness_records_total {total_records}',
+			'# HELP skill_fitness_tracked_skills Number of distinct skills with at least one recorded outcome.',
+			'# TYPE skill_fitness_tracked_skills gauge',
+			f'skill_fitness_tracked_skills {len(tracker._fitness)}',
+			'# HELP skill_fitness_invocations Per-skill invocation counter.',
+			'# TYPE skill_fitness_invocations counter',
+		]
+		for skill_id, count in tracker._invocations.items():
+			# Prometheus label escaping: backslash, quote, newline.
+			escaped = skill_id.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+			lines.append(f'skill_fitness_invocations{{skill="{escaped}"}} {count}')
+		lines.append('# HELP skill_fitness_belief_high Belief that a skill is HIGH-fitness (Dempster-Shafer lower bound).')
+		lines.append('# TYPE skill_fitness_belief_high gauge')
+		for skill_id, mf in tracker._fitness.items():
+			escaped = skill_id.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+			lines.append(f'skill_fitness_belief_high{{skill="{escaped}"}} {mf.belief():.6f}')
+		return ('\n'.join(lines) + '\n').encode('utf-8')
+
+	def _strip_v1(path: str) -> str:
+		return path[len('/v1') :] if path.startswith('/v1/') else path
+
 	class Handler(BaseHTTPRequestHandler):
-		def _write_json(self, status: int, payload: Any) -> None:
+		def _cors_headers_get(self) -> None:
+			self.send_header('Access-Control-Allow-Origin', '*')
+			self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+
+		def _write_json(self, status: int, payload: Any, cors_get: bool = False) -> None:
 			body = json.dumps(payload).encode('utf-8')
 			self.send_response(status)
 			self.send_header('Content-Type', 'application/json')
 			self.send_header('Content-Length', str(len(body)))
+			if cors_get:
+				self._cors_headers_get()
+			self.end_headers()
+			self.wfile.write(body)
+
+		def _write_text(self, status: int, body: bytes, content_type: str, cors_get: bool = False) -> None:
+			self.send_response(status)
+			self.send_header('Content-Type', content_type)
+			self.send_header('Content-Length', str(len(body)))
+			if cors_get:
+				self._cors_headers_get()
 			self.end_headers()
 			self.wfile.write(body)
 
@@ -376,71 +536,102 @@ def _serve(tracker: SkillFitnessTracker, host: str, port: int, save_path: str | 
 			return json.loads(raw.decode('utf-8'))
 
 		def log_message(self, fmt: str, *log_args: Any) -> None:
-			# Silence default access logging to stderr — callers wire their own.
+			# Default access log is silenced — mutating requests emit their own structured JSON line.
 			return
+
+		def _log_mutation(self, method: str, path: str, status: int) -> None:
+			entry = {
+				'ts_ns': time.time_ns(),
+				'method': method,
+				'path': path,
+				'status': status,
+				'remote': self.client_address[0] if self.client_address else None,
+			}
+			print(json.dumps(entry), file=sys.stderr)
+
+		def do_OPTIONS(self) -> None:
+			# Basic CORS preflight support for browser-side dashboards hitting GET endpoints.
+			self.send_response(204)
+			self.send_header('Access-Control-Allow-Origin', '*')
+			self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+			self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+			self.send_header('Access-Control-Max-Age', '600')
+			self.end_headers()
 
 		def do_GET(self) -> None:
 			parsed = urlparse(self.path)
-			path = parsed.path
+			path = _strip_v1(parsed.path)
 			query = parse_qs(parsed.query)
 			if path == '/health':
-				self._write_json(200, {'status': 'ok'})
+				self._write_json(200, {'status': 'ok'}, cors_get=True)
+				return
+			if path == '/ready':
+				self._write_json(200, {'status': 'ready'}, cors_get=True)
+				return
+			if path == '/metrics':
+				with lock:
+					body = render_metrics_locked()
+				self._write_text(200, body, 'text/plain; version=0.0.4; charset=utf-8', cors_get=True)
+				return
+			if path == '/openapi.json':
+				self._write_json(200, _OPENAPI_SCHEMA, cors_get=True)
 				return
 			if path == '/state':
 				with lock:
-					self._write_json(200, tracker.to_dict())
+					self._write_json(200, tracker.to_dict(), cors_get=True)
 				return
 			if path == '/ranked':
 				mode_raw = query.get('mode', ['belief'])[0]
 				if mode_raw not in {'belief', 'plausibility', 'expected'}:
-					self._write_json(400, {'error': f'unknown mode: {mode_raw}'})
+					self._write_json(400, {'error': f'unknown mode: {mode_raw}'}, cors_get=True)
 					return
-				mode: SelectionMode = mode_raw  # type: ignore[assignment]
 				try:
 					top = int(query.get('top', ['0'])[0])
 				except ValueError:
-					self._write_json(400, {'error': 'top must be an integer'})
+					self._write_json(400, {'error': 'top must be an integer'}, cors_get=True)
 					return
 				with lock:
-					ranked = tracker.ranked(mode)
+					ranked = tracker.ranked(cast(SelectionMode, mode_raw))
 				if top > 0:
 					ranked = ranked[:top]
-				self._write_json(200, [[skill_id, score] for skill_id, score in ranked])
+				self._write_json(200, [[skill_id, score] for skill_id, score in ranked], cors_get=True)
 				return
 			if path.startswith('/fitness/'):
 				skill_id = path[len('/fitness/') :]
 				with lock:
 					mf = tracker.fitness(skill_id)
 				if mf is None:
-					self._write_json(404, {'error': f'unknown skill_id: {skill_id}'})
+					self._write_json(404, {'error': f'unknown skill_id: {skill_id}'}, cors_get=True)
 					return
-				self._write_json(200, mf.to_dict())
+				self._write_json(200, mf.to_dict(), cors_get=True)
 				return
 			if path == '/top_k':
 				mode_raw = query.get('mode', ['belief'])[0]
 				if mode_raw not in {'belief', 'plausibility', 'expected'}:
-					self._write_json(400, {'error': f'unknown mode: {mode_raw}'})
+					self._write_json(400, {'error': f'unknown mode: {mode_raw}'}, cors_get=True)
 					return
 				try:
 					k = int(query.get('k', ['10'])[0])
 				except ValueError:
-					self._write_json(400, {'error': 'k must be an integer'})
+					self._write_json(400, {'error': 'k must be an integer'}, cors_get=True)
 					return
 				with lock:
-					self._write_json(200, tracker.top_k(k, cast(SelectionMode, mode_raw)))
+					self._write_json(200, tracker.top_k(k, cast(SelectionMode, mode_raw)), cors_get=True)
 				return
-			self._write_json(404, {'error': f'unknown path: {path}'})
+			self._write_json(404, {'error': f'unknown path: {parsed.path}'}, cors_get=True)
 
 		def do_POST(self) -> None:
-			path = urlparse(self.path).path
+			path = _strip_v1(urlparse(self.path).path)
 			try:
 				payload = self._read_json()
 			except json.JSONDecodeError as e:
 				self._write_json(400, {'error': f'malformed JSON: {e}'})
+				self._log_mutation('POST', path, 400)
 				return
 			if path == '/record':
 				if not isinstance(payload, dict) or not payload.get('skill_id'):
 					self._write_json(400, {'error': 'body must be a JSON object with skill_id'})
+					self._log_mutation('POST', path, 400)
 					return
 				with lock:
 					mf = tracker.record(
@@ -451,10 +642,12 @@ def _serve(tracker: SkillFitnessTracker, host: str, port: int, save_path: str | 
 					)
 					persist_locked()
 				self._write_json(200, mf.to_dict())
+				self._log_mutation('POST', path, 200)
 				return
 			if path == '/state':
 				if not isinstance(payload, dict):
 					self._write_json(400, {'error': 'body must be a JSON object'})
+					self._log_mutation('POST', path, 400)
 					return
 				restored = SkillFitnessTracker.from_dict(payload)
 				with lock:
@@ -462,29 +655,35 @@ def _serve(tracker: SkillFitnessTracker, host: str, port: int, save_path: str | 
 					tracker._invocations = dict(restored._invocations)
 					persist_locked()
 				self._write_json(200, {'replaced': True})
+				self._log_mutation('POST', path, 200)
 				return
 			if path == '/reset':
 				with lock:
 					tracker.reset()
 					persist_locked()
 				self._write_json(200, {'reset': True})
+				self._log_mutation('POST', path, 200)
 				return
 			if path == '/recommend':
 				if not isinstance(payload, dict):
 					self._write_json(400, {'error': 'body must be a JSON object'})
+					self._log_mutation('POST', path, 400)
 					return
 				candidates = payload.get('candidates')
 				if not isinstance(candidates, list) or not all(isinstance(c, str) for c in candidates):
 					self._write_json(400, {'error': 'candidates must be a list of strings'})
+					self._log_mutation('POST', path, 400)
 					return
 				mode_raw = str(payload.get('mode', 'belief'))
 				if mode_raw not in {'belief', 'plausibility', 'expected'}:
 					self._write_json(400, {'error': f'unknown mode: {mode_raw}'})
+					self._log_mutation('POST', path, 400)
 					return
 				try:
 					min_score = float(payload.get('min_score', 0.5))
 				except (TypeError, ValueError):
 					self._write_json(400, {'error': 'min_score must be a number'})
+					self._log_mutation('POST', path, 400)
 					return
 				include_unseen = bool(payload.get('include_unseen', True))
 				with lock:
@@ -495,17 +694,32 @@ def _serve(tracker: SkillFitnessTracker, host: str, port: int, save_path: str | 
 						include_unseen=include_unseen,
 					)
 				self._write_json(200, out)
+				self._log_mutation('POST', path, 200)
 				return
 			self._write_json(404, {'error': f'unknown path: {path}'})
+			self._log_mutation('POST', path, 404)
 
 	server = ThreadingHTTPServer((host, port), Handler)
+
+	def _sigterm(_signum: int, _frame: Any) -> None:
+		# ThreadingHTTPServer.shutdown() must be called from a different thread than serve_forever().
+		threading.Thread(target=server.shutdown, daemon=True).start()
+
+	# SIGTERM support for supervisor-managed deploys (systemd, kubelet, docker stop).
+	try:
+		signal.signal(signal.SIGTERM, _sigterm)
+	except (ValueError, OSError):
+		# signal.signal only works in the main thread; skip when embedded (e.g. tests).
+		pass
+
 	print(f'skill-fitness serving on http://{host}:{port} (persist={save_path or "off"})', file=sys.stderr)
 	try:
 		server.serve_forever()
 	except KeyboardInterrupt:
-		print('shutdown', file=sys.stderr)
+		pass
 	finally:
 		server.server_close()
+		print('shutdown', file=sys.stderr)
 	return 0
 
 

@@ -294,6 +294,28 @@ def test_cli_skips_malformed_lines(capsys: pytest.CaptureFixture[str]) -> None:
 	assert 'ok' in captured.out
 
 
+def test_standalone_entry_point_available() -> None:
+	"""Verify the `skill-fitness` console script is registered and dispatches to _cli.
+
+	Adds the value of this being installable via pipx/uvx as a standalone tool —
+	if this test fails, someone removed the entry point from pyproject.toml.
+	"""
+	import shutil
+
+	entry_path = shutil.which('skill-fitness')
+	if entry_path is None:
+		pytest.skip('skill-fitness entry point not on PATH (package not installed with -e)')
+	proc = subprocess.run(
+		[entry_path, '--help'],
+		capture_output=True,
+		text=True,
+		timeout=15,
+	)
+	assert proc.returncode == 0, proc.stderr
+	assert '--serve' in proc.stdout
+	assert '--mode' in proc.stdout
+
+
 def test_cli_via_subprocess_end_to_end(tmp_path: Path) -> None:
 	"""Real subprocess invocation — confirms `python -m browser_use.skills.fitness` works."""
 	stdin_text = '\n'.join(json.dumps({'skill_id': sid, 'success': True, 'latency_ms': 100}) for sid in ('alpha', 'beta'))
@@ -479,6 +501,100 @@ def test_http_recommend(fitness_server) -> None:
 	# Bad body → 400.
 	status, _ = _http_json('POST', f'{base_url}/recommend', {'candidates': 'not-a-list'})
 	assert status == 400
+
+
+def _http_raw(method: str, url: str, body: object | None = None) -> tuple[int, dict[str, str], bytes]:
+	data = None if body is None else json.dumps(body).encode('utf-8')
+	req = urllib.request.Request(url, data=data, method=method)
+	if data is not None:
+		req.add_header('Content-Type', 'application/json')
+	try:
+		with urllib.request.urlopen(req, timeout=5) as resp:
+			return resp.status, dict(resp.headers), resp.read()
+	except urllib.error.HTTPError as e:
+		return e.code, dict(e.headers), e.read()
+
+
+def test_http_ready_endpoint(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	status, body = _http_json('GET', f'{base_url}/ready')
+	assert status == 200
+	assert body == {'status': 'ready'}
+
+
+def test_http_metrics_prometheus_format(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	_http_json('POST', f'{base_url}/record', {'skill_id': 'a', 'success': True, 'latency_ms': 100})
+	_http_json('POST', f'{base_url}/record', {'skill_id': 'a', 'success': True, 'latency_ms': 100})
+	_http_json('POST', f'{base_url}/record', {'skill_id': 'b', 'success': False, 'error': 'boom'})
+	status, headers, body = _http_raw('GET', f'{base_url}/metrics')
+	assert status == 200
+	assert 'text/plain' in headers.get('Content-Type', '')
+	text = body.decode('utf-8')
+	# HELP + TYPE lines present per convention.
+	assert '# HELP skill_fitness_records_total' in text
+	assert '# TYPE skill_fitness_records_total counter' in text
+	assert 'skill_fitness_records_total 3' in text
+	assert 'skill_fitness_tracked_skills 2' in text
+	assert 'skill_fitness_invocations{skill="a"} 2' in text
+	assert 'skill_fitness_belief_high{skill="a"}' in text
+
+
+def test_http_metrics_escapes_label_values(fitness_server) -> None:
+	"""Prometheus label values need backslash/quote/newline escaping. Verify no injection."""
+	base_url, _, _ = fitness_server
+	tricky = 'name"with\\special\nchars'
+	_http_json('POST', f'{base_url}/record', {'skill_id': tricky, 'success': True, 'latency_ms': 100})
+	status, _, body = _http_raw('GET', f'{base_url}/metrics')
+	assert status == 200
+	text = body.decode('utf-8')
+	# Quote is escaped; newline is \n; backslash is \\.
+	assert 'skill_fitness_invocations{skill="name\\"with\\\\special\\nchars"}' in text
+
+
+def test_http_openapi_schema(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	status, spec = _http_json('GET', f'{base_url}/openapi.json')
+	assert status == 200
+	assert isinstance(spec, dict)
+	assert spec['openapi'].startswith('3.')  # type: ignore[index]
+	assert '/record' in spec['paths']  # type: ignore[index]
+	assert '/metrics' in spec['paths']  # type: ignore[index]
+	assert '/recommend' in spec['paths']  # type: ignore[index]
+
+
+def test_http_v1_alias_routes_to_same_handler(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	# /v1/health should behave identically to /health.
+	status, body = _http_json('GET', f'{base_url}/v1/health')
+	assert status == 200 and body == {'status': 'ok'}
+	# Also for a POST route.
+	status, _ = _http_json('POST', f'{base_url}/v1/record', {'skill_id': 'v1test', 'success': True, 'latency_ms': 50})
+	assert status == 200
+	# /v1/ranked returns the same shape.
+	status, ranked_v1 = _http_json('GET', f'{base_url}/v1/ranked?mode=belief')
+	assert status == 200 and isinstance(ranked_v1, list)
+	# 404 preserves original path with the /v1 prefix.
+	status, body = _http_json('GET', f'{base_url}/v1/does-not-exist')
+	assert status == 404
+
+
+def test_http_cors_on_get_endpoints(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	status, headers, _ = _http_raw('GET', f'{base_url}/health')
+	assert status == 200
+	assert headers.get('Access-Control-Allow-Origin') == '*'
+	assert 'GET' in headers.get('Access-Control-Allow-Methods', '')
+
+
+def test_http_options_preflight(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	status, headers, _ = _http_raw('OPTIONS', f'{base_url}/record')
+	assert status == 204
+	allow_methods = headers.get('Access-Control-Allow-Methods', '')
+	assert 'POST' in allow_methods
+	assert 'GET' in allow_methods
+	assert headers.get('Access-Control-Allow-Origin') == '*'
 
 
 def test_http_bad_input_returns_400(fitness_server) -> None:

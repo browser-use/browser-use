@@ -99,6 +99,7 @@ browseruse = "browser_use.skill_cli.main:main"  # Alias for browser-use
 bu = "browser_use.skill_cli.main:main"  # Alias for browser-use
 browser = "browser_use.skill_cli.main:main"  # Alias for browser-use
 browser-use-tui = "browser_use.cli:main"  # Legacy TUI interface
+skill-fitness = "browser_use.skills.fitness:_cli"  # Standalone Dempster-Shafer fitness tracker
 
 [build-system]
 requires = ["hatchling"]
