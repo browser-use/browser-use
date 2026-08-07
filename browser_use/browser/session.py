@@ -694,7 +694,10 @@ class BrowserSession(BaseModel):
 		self._reconnect_event = asyncio.Event()
 		self._reconnect_event.set()
 
-		# Check if handlers are already registered to prevent duplicates
+		self._register_event_handlers()
+
+	def _register_event_handlers(self) -> None:
+		"""Register session handlers on the current event bus."""
 		from browser_use.browser.watchdog_base import BaseWatchdog
 
 		start_handlers = self.event_bus.handlers.get('BrowserStartEvent', [])
@@ -744,6 +747,7 @@ class BrowserSession(BaseModel):
 		await self.reset()
 		# Create fresh event bus
 		self.event_bus = ResilientEventBus()
+		self._register_event_handlers()
 
 	async def stop(self) -> None:
 		"""Stop the browser session without killing the browser process.
@@ -769,6 +773,7 @@ class BrowserSession(BaseModel):
 		await self.reset()
 		# Create fresh event bus
 		self.event_bus = ResilientEventBus()
+		self._register_event_handlers()
 
 	async def close(self) -> None:
 		"""Alias for stop()."""

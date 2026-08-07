@@ -82,6 +82,10 @@ class TestBrowserSessionStart:
 		assert browser_session._cdp_client_root is None
 		assert browser_session.event_bus is not None
 		assert browser_session.event_bus is not event_bus_after_start
+
+		# The replacement event bus must retain the handlers needed to start again.
+		await browser_session.start()
+		assert browser_session._cdp_client_root is not None
 		# Subsequent cleanup (e.g. fixture teardown's kill()) must remain idempotent
 		await browser_session.close()
 
