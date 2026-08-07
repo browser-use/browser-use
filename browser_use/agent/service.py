@@ -146,8 +146,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		skills: list[str | Literal['*']] | None = None,  # Alias for skill_ids
 		skill_service: Any | None = None,
 		# Per-action fitness tracking (opt-in) — every action outcome folds into a
-		# Dempster-Shafer belief interval per action_name. Feeds EvoMetaClaw /
-		# EvoForge selection loops without touching the hot path when unset.
+		# Dempster-Shafer belief interval per action_name. Zero cost on the hot
+		# path when unset. Pair with SkillFitnessTracker.recommend/top_k to drive
+		# selection from the accumulated belief.
 		action_fitness_tracker: 'SkillFitnessTracker | None' = None,
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,

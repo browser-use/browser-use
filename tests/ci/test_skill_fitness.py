@@ -146,6 +146,44 @@ def test_tracker_ranks_by_selection_mode() -> None:
 	assert {name for name, _ in belief_ranked} == {'reliable', 'noisy', 'cold'}
 
 
+def test_tracker_top_k_returns_best_first() -> None:
+	tracker = SkillFitnessTracker()
+	tracker.record('slow', success=True, latency_ms=5_000)
+	for _ in range(3):
+		tracker.record('fast', success=True, latency_ms=100)
+	tracker.record('flaky', success=False, error='oops')
+	top2 = tracker.top_k(2, mode='belief')
+	assert top2[0] == 'fast'
+	# When k exceeds population, returns what exists.
+	assert set(tracker.top_k(10)) == {'fast', 'slow', 'flaky'}
+	# k=0 returns empty; negative also returns empty.
+	assert tracker.top_k(0) == []
+	assert tracker.top_k(-1) == []
+
+
+def test_tracker_recommend_filters_by_threshold() -> None:
+	tracker = SkillFitnessTracker()
+	for _ in range(3):
+		tracker.record('reliable', success=True, latency_ms=100)
+	tracker.record('broken', success=False, error='500')
+	tracker.record('broken', success=False, error='500')
+	# reliable > 0.5 belief, broken far below.
+	survivors = tracker.recommend(['reliable', 'broken'], min_score=0.5)
+	assert survivors == ['reliable']
+	# Input order preserved among survivors.
+	survivors = tracker.recommend(['broken', 'reliable'], min_score=0.5)
+	assert survivors == ['reliable']
+
+
+def test_tracker_recommend_include_unseen_default_true() -> None:
+	tracker = SkillFitnessTracker()
+	tracker.record('known', success=True, latency_ms=100)
+	# 'unseen' has never been recorded — default keeps it (no evidence != bad evidence).
+	assert tracker.recommend(['known', 'unseen'], min_score=0.5) == ['known', 'unseen']
+	# Explicit False filters unseen skills out.
+	assert tracker.recommend(['known', 'unseen'], min_score=0.5, include_unseen=False) == ['known']
+
+
 def test_tracker_reset_clears_state() -> None:
 	tracker = SkillFitnessTracker()
 	tracker.record('x', success=True, latency_ms=100)
@@ -406,6 +444,41 @@ def test_http_reset(fitness_server) -> None:
 	assert status == 200 and body == {'reset': True}
 	status, ranked = _http_json('GET', f'{base_url}/ranked')
 	assert status == 200 and ranked == []
+
+
+def test_http_top_k(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	for sid in ('a', 'b', 'c', 'd'):
+		_http_json('POST', f'{base_url}/record', {'skill_id': sid, 'success': True, 'latency_ms': 100})
+	status, top = _http_json('GET', f'{base_url}/top_k?mode=belief&k=2')
+	assert status == 200
+	assert isinstance(top, list) and len(top) == 2
+
+
+def test_http_recommend(fitness_server) -> None:
+	base_url, _, _ = fitness_server
+	for _ in range(3):
+		_http_json('POST', f'{base_url}/record', {'skill_id': 'good', 'success': True, 'latency_ms': 100})
+	_http_json('POST', f'{base_url}/record', {'skill_id': 'bad', 'success': False, 'error': 'e'})
+	# Default include_unseen=True keeps 'unseen' in the output.
+	status, out = _http_json(
+		'POST',
+		f'{base_url}/recommend',
+		{'candidates': ['good', 'bad', 'unseen'], 'min_score': 0.5},
+	)
+	assert status == 200
+	assert out == ['good', 'unseen']
+	# include_unseen=False drops it.
+	status, out = _http_json(
+		'POST',
+		f'{base_url}/recommend',
+		{'candidates': ['good', 'bad', 'unseen'], 'min_score': 0.5, 'include_unseen': False},
+	)
+	assert status == 200
+	assert out == ['good']
+	# Bad body → 400.
+	status, _ = _http_json('POST', f'{base_url}/recommend', {'candidates': 'not-a-list'})
+	assert status == 400
 
 
 def test_http_bad_input_returns_400(fitness_server) -> None:

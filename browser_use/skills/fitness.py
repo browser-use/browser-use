@@ -1,16 +1,16 @@
 """Dempster-Shafer skill-fitness accumulator.
 
-Ports the numpy-free subset of evoforge/bio_evolution.py's uncertainty layer:
-each skill invocation (success + latency + error) becomes a MassFunction over
-{LOW, MID, HIGH}; repeated invocations combine via Dempster's rule, giving a
-belief/plausibility interval per skill rather than a point estimate.
+Each skill invocation (success + latency + error) becomes a MassFunction over
+{LOW, MID, HIGH}; repeated invocations combine via Dempster's rule of
+combination (Dempster 1967, Shafer 1976), giving a belief/plausibility
+interval per skill rather than a point estimate.
 
 Downstream selectors can pick by:
   belief       — conservative (max lower bound; avoid unproven skills)
   plausibility — exploratory (max upper bound; try promising-but-noisy skills)
   expected     — pignistic Bayesian collapse (spread ignorance uniformly)
 
-No numpy dependency — this ships in the core install.
+Zero third-party dependencies — pure Python, ships in the core install.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import sys
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 FrozenFrame = frozenset[str]
 
@@ -191,6 +191,44 @@ class SkillFitnessTracker:
 			reverse=True,
 		)
 
+	def top_k(self, k: int, mode: SelectionMode = 'belief') -> list[str]:
+		"""Top-k skill IDs under the chosen mode. Returns fewer if fewer are known.
+
+		Zero-cost primitive for "give me the k safest actions to expose to the LLM".
+		"""
+		if k <= 0:
+			return []
+		return [skill_id for skill_id, _ in self.ranked(mode)[:k]]
+
+	def recommend(
+		self,
+		candidates: list[str],
+		mode: SelectionMode = 'belief',
+		min_score: float = 0.5,
+		include_unseen: bool = True,
+	) -> list[str]:
+		"""Filter candidates to those meeting the score threshold under the chosen mode.
+
+		candidates: pool to pick from — preserves input order among survivors.
+		min_score: threshold on the mode's scalar; a skill must score >= this to survive.
+		include_unseen: when True (default), skills never recorded are kept — they haven't
+			accumulated evidence yet and shouldn't be filtered out on that basis alone.
+			Set False to require prior evidence before recommending.
+
+		Use this to gate an action registry before showing it to the LLM:
+			allowed = tracker.recommend(list(registry.keys()), min_score=0.4)
+		"""
+		out: list[str] = []
+		for skill_id in candidates:
+			mf = self._fitness.get(skill_id)
+			if mf is None:
+				if include_unseen:
+					out.append(skill_id)
+				continue
+			if mf.score(mode) >= min_score:
+				out.append(skill_id)
+		return out
+
 	def reset(self) -> None:
 		"""Drop all accumulated fitness. Useful for scoped experiments."""
 		self._fitness.clear()
@@ -216,8 +254,8 @@ class SkillFitnessTracker:
 def _cli(argv: list[str] | None = None) -> int:
 	"""Read (skill_id, success, latency_ms, error) records as JSONL from stdin, print rankings.
 
-	Pipe from any tool that emits skill-execution results — kafcade steps, CI runs,
-	agent traces. Load prior state with --state; persist accumulated state with --save.
+	Pipe from any tool that emits skill-execution results — CI runs, agent traces,
+	audit scripts. Load prior state with --state; persist accumulated state with --save.
 	Or run --serve <port> for an HTTP surface any webapp/dashboard can hit.
 
 	Examples:
@@ -296,13 +334,15 @@ def _serve(tracker: SkillFitnessTracker, host: str, port: int, save_path: str | 
 	"""Serve the tracker over stdlib http.server. Local/internal use — wrap in ASGI for prod.
 
 	Routes:
-	    GET  /health            → {"status": "ok"}
-	    POST /record            → body = {skill_id, success, latency_ms?, error?}; returns updated MassFunction dict
-	    GET  /ranked?mode=..&top=..  → [[skill_id, score], ...] sorted best-first
-	    GET  /fitness/<skill_id>     → MassFunction dict or 404
-	    GET  /state             → full tracker snapshot (to_dict output)
-	    POST /state             → replace tracker state (body = from_dict input); auto-persists if --save was given
-	    POST /reset             → wipe all accumulated fitness; returns {"reset": true}
+	    GET  /health                        → {"status": "ok"}
+	    POST /record                        → body = {skill_id, success, latency_ms?, error?}; returns MassFunction dict
+	    GET  /ranked?mode=..&top=..         → [[skill_id, score], ...] sorted best-first
+	    GET  /top_k?mode=..&k=..            → [skill_id, ...] best-first, capped at k
+	    GET  /fitness/<skill_id>            → MassFunction dict or 404
+	    GET  /state                         → full tracker snapshot (to_dict output)
+	    POST /state                         → replace tracker state (body = from_dict input); auto-persists if --save was given
+	    POST /reset                         → wipe all accumulated fitness; returns {"reset": true}
+	    POST /recommend                     → body = {candidates: [str], mode?, min_score?, include_unseen?}; returns filtered [str]
 
 	Every mutating request auto-persists to save_path when provided — durable across restarts.
 	Bind defaults to 127.0.0.1 so nothing is exposed off-box without an explicit --host.
@@ -376,6 +416,19 @@ def _serve(tracker: SkillFitnessTracker, host: str, port: int, save_path: str | 
 					return
 				self._write_json(200, mf.to_dict())
 				return
+			if path == '/top_k':
+				mode_raw = query.get('mode', ['belief'])[0]
+				if mode_raw not in {'belief', 'plausibility', 'expected'}:
+					self._write_json(400, {'error': f'unknown mode: {mode_raw}'})
+					return
+				try:
+					k = int(query.get('k', ['10'])[0])
+				except ValueError:
+					self._write_json(400, {'error': 'k must be an integer'})
+					return
+				with lock:
+					self._write_json(200, tracker.top_k(k, cast(SelectionMode, mode_raw)))
+				return
 			self._write_json(404, {'error': f'unknown path: {path}'})
 
 		def do_POST(self) -> None:
@@ -415,6 +468,33 @@ def _serve(tracker: SkillFitnessTracker, host: str, port: int, save_path: str | 
 					tracker.reset()
 					persist_locked()
 				self._write_json(200, {'reset': True})
+				return
+			if path == '/recommend':
+				if not isinstance(payload, dict):
+					self._write_json(400, {'error': 'body must be a JSON object'})
+					return
+				candidates = payload.get('candidates')
+				if not isinstance(candidates, list) or not all(isinstance(c, str) for c in candidates):
+					self._write_json(400, {'error': 'candidates must be a list of strings'})
+					return
+				mode_raw = str(payload.get('mode', 'belief'))
+				if mode_raw not in {'belief', 'plausibility', 'expected'}:
+					self._write_json(400, {'error': f'unknown mode: {mode_raw}'})
+					return
+				try:
+					min_score = float(payload.get('min_score', 0.5))
+				except (TypeError, ValueError):
+					self._write_json(400, {'error': 'min_score must be a number'})
+					return
+				include_unseen = bool(payload.get('include_unseen', True))
+				with lock:
+					out = tracker.recommend(
+						candidates,
+						mode=cast(SelectionMode, mode_raw),
+						min_score=min_score,
+						include_unseen=include_unseen,
+					)
+				self._write_json(200, out)
 				return
 			self._write_json(404, {'error': f'unknown path: {path}'})
 
