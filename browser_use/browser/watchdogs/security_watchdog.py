@@ -282,8 +282,19 @@ class SecurityWatchdog(BaseWatchdog):
 		else:
 			# Exact match
 			if '://' in pattern:
-				# Full URL pattern
-				if url.startswith(pattern):
+				# Full URL pattern (e.g. "https://example.com"). A bare url.startswith()
+				# lets prefix-collision and userinfo hosts bypass the domain-containment
+				# guarantee — e.g. "https://example.com" would wrongly match
+				# https://example.com.evil.com/, https://example.com@evil.com/ (real host
+				# evil.com), and https://example.computer.com/. Require the URL's real host
+				# to equal the pattern's host before honoring the prefix match.
+				from urllib.parse import urlparse
+
+				try:
+					pattern_host = urlparse(pattern).hostname
+				except ValueError:
+					return False
+				if host and pattern_host and host.lower() == pattern_host.lower() and url.startswith(pattern):
 					return True
 			else:
 				# Domain-only pattern (case-insensitive comparison)
