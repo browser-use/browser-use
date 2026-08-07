@@ -17,6 +17,25 @@ Use `ChatMistral` with `MISTRAL_API_KEY` (and optional `MISTRAL_BASE_URL`). Stru
 
 - Cerebras
 
+## OpenAI-compatible providers
+
+For providers that expose the OpenAI Chat Completions API, use `ChatOpenAILike` and pass the provider's `/v1` base URL.
+For example, TokenLab can be configured without a dedicated provider class:
+
+```python
+import os
+
+from browser_use import Agent
+from browser_use.llm.openai.like import ChatOpenAILike
+
+llm = ChatOpenAILike(
+	model="claude-sonnet-5",
+	api_key=os.environ["TOKENLAB_API_KEY"],
+	base_url="https://api.tokenlab.sh/v1",
+)
+
+agent = Agent(task="Compare the top search results for Browser Use", llm=llm)
+```
 
 ## Migrating from LangChain
 
