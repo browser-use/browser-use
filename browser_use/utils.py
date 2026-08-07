@@ -534,7 +534,7 @@ def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: b
 
 	Supports optional glob patterns and schemes:
 	- *.example.com will match sub.example.com and example.com
-	- *google.com will match google.com, agoogle.com, and www.google.com
+	- Only a leading "*." subdomain wildcard is supported; other placements (e.g. *google.com, www*.com) are rejected as unsafe and never match
 	- http*://example.com will match http://example.com, https://example.com
 	- chrome-extension://* will match chrome-extension://aaaaaaaaaaaa and chrome-extension://bbbbbbbbbbbbb
 
@@ -605,8 +605,11 @@ def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: b
 					logger.error(f'⛔️ Wildcard TLDs like in pattern=[{domain_pattern}] are not supported for security')
 				return False  # Don't match unsafe patterns
 
-			# Then check for embedded wildcards
-			bare_domain = pattern_domain.replace('*.', '')
+			# Then check for embedded wildcards. Only a *leading* "*." is the sanctioned
+			# subdomain wildcard, so strip just that one before checking. Using replace()
+			# stripped every "*." occurrence, so a pattern like "www*.com" slipped through
+			# this guard and then fnmatch matched it against e.g. "www.attacker.com".
+			bare_domain = pattern_domain[2:] if pattern_domain.startswith('*.') else pattern_domain
 			if '*' in bare_domain:
 				if log_warnings:
 					logger = logging.getLogger(__name__)
