@@ -46,6 +46,12 @@ class SessionManager:
 		# Reverse mapping: session -> target it belongs to
 		self._session_to_target: dict[SessionID, TargetID] = {}
 
+		# Event callbacks schedule attach/detach work as separate tasks. Track only
+		# in-flight attaches so a detach received before its attach task runs can
+		# cancel registration without retaining arbitrary unknown session IDs.
+		self._pending_attach_session_ids: set[SessionID] = set()
+		self._detached_pending_attach_session_ids: set[SessionID] = set()
+
 		# Page lifecycle events per target, fed by ONE global Page.lifecycleEvent handler
 		# registered in start_monitoring(). cdp-use's event registry is single-slot per
 		# CDP method, so per-session handler registrations would replace each other and
@@ -80,6 +86,8 @@ class SessionManager:
 
 		# Register synchronous event handlers (CDP requirement)
 		def on_attached(event: AttachedToTargetEvent, session_id: SessionID | None = None):
+			attached_session_id = event['sessionId']
+			self._pending_attach_session_ids.add(attached_session_id)
 			# _handle_target_attached() handles:
 			# - setAutoAttach for children
 			# - Create CDPSession
@@ -93,8 +101,12 @@ class SessionManager:
 			)
 
 		def on_detached(event: DetachedFromTargetEvent, session_id: SessionID | None = None):
+			detached_session_id = event['sessionId']
+			attach_was_pending = detached_session_id in self._pending_attach_session_ids
+			if attach_was_pending:
+				self._detached_pending_attach_session_ids.add(detached_session_id)
 			create_task_with_error_handling(
-				self._handle_target_detached(event),
+				self._handle_target_detached(event, attach_was_pending=attach_was_pending),
 				name='handle_target_detached',
 				logger_instance=self.logger,
 				suppress_exceptions=True,
@@ -213,6 +225,8 @@ class SessionManager:
 			self._sessions.clear()
 			self._target_sessions.clear()
 			self._session_to_target.clear()
+			self._pending_attach_session_ids.clear()
+			self._detached_pending_attach_session_ids.clear()
 
 		self.logger.info('[SessionManager] Cleared all owned data (targets, sessions, mappings)')
 
@@ -410,6 +424,7 @@ class SessionManager:
 		target_type = event['targetInfo']['type']
 		target_info = event['targetInfo']
 		waiting_for_debugger = event.get('waitingForDebugger', False)
+		self._pending_attach_session_ids.add(session_id)
 
 		self.logger.debug(
 			f'[SessionManager] Target attached: {target_id[:8]}... (session={session_id[:8]}..., '
@@ -418,25 +433,33 @@ class SessionManager:
 
 		# Defensive check: browser may be shutting down and _cdp_client_root could be None
 		if self.browser_session._cdp_client_root is None:
+			self._pending_attach_session_ids.discard(session_id)
+			self._detached_pending_attach_session_ids.discard(session_id)
 			self.logger.debug(
 				f'[SessionManager] Skipping target attach for {target_id[:8]}... - browser shutting down (no CDP client)'
 			)
 			return
 
-		# Enable auto-attach for this session's children (do this FIRST, outside lock)
-		try:
-			await self.browser_session._cdp_client_root.send.Target.setAutoAttach(
-				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}, session_id=session_id
-			)
-		except Exception as e:
-			error_str = str(e)
-			# Expected for short-lived targets (workers, temp iframes) that detach before this executes
-			if '-32001' not in error_str and 'Session with given id not found' not in error_str:
-				self.logger.debug(f'[SessionManager] Auto-attach failed for {target_type}: {e}')
+		from browser_use.browser.session import CDPSession, Target
 
-		from browser_use.browser.session import Target
+		assert self.browser_session._cdp_client_root is not None, 'Root CDP client required'
+		cdp_session = CDPSession(
+			cdp_client=self.browser_session._cdp_client_root,
+			target_id=target_id,
+			session_id=session_id,
+		)
 
 		async with self._lock:
+			self._pending_attach_session_ids.discard(session_id)
+			if session_id in self._detached_pending_attach_session_ids:
+				self._detached_pending_attach_session_ids.discard(session_id)
+				self.logger.debug(f'[SessionManager] Ignoring late attach for detached session {session_id[:8]}...')
+				return
+
+			if session_id in self._sessions:
+				self.logger.debug(f'[SessionManager] Ignoring duplicate attach for session {session_id[:8]}...')
+				return
+
 			# Track this session for the target
 			if target_id not in self._target_sessions:
 				self._target_sessions[target_id] = set()
@@ -461,19 +484,25 @@ class SessionManager:
 				existing_target.url = target_info.get('url', existing_target.url)
 				existing_target.title = target_info.get('title', existing_target.title)
 
-		# Create CDPSession (communication channel)
-		from browser_use.browser.session import CDPSession
+			# Publish the session and every mapping atomically before the first CDP
+			# await, so a concurrent detach can remove a complete state entry.
+			self._sessions[session_id] = cdp_session
 
-		assert self.browser_session._cdp_client_root is not None, 'Root CDP client required'
+		# Enable auto-attach for this session's children after registration.
+		try:
+			await self.browser_session._cdp_client_root.send.Target.setAutoAttach(
+				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}, session_id=session_id
+			)
+		except Exception as e:
+			error_str = str(e)
+			# Expected for short-lived targets (workers, temp iframes) that detach before this executes
+			if '-32001' not in error_str and 'Session with given id not found' not in error_str:
+				self.logger.debug(f'[SessionManager] Auto-attach failed for {target_type}: {e}')
 
-		cdp_session = CDPSession(
-			cdp_client=self.browser_session._cdp_client_root,
-			target_id=target_id,
-			session_id=session_id,
-		)
-
-		# Add to sessions dict
-		self._sessions[session_id] = cdp_session
+		# The target may detach while setAutoAttach is in flight.
+		if self._sessions.get(session_id) is not cdp_session:
+			self.logger.debug(f'[SessionManager] Session {session_id[:8]}... detached during initialization')
+			return
 
 		# If proxy auth is configured, enable Fetch auth handling on this session
 		# Avoids overwriting Target.attachedToTarget handlers elsewhere
@@ -527,7 +556,7 @@ class SessionManager:
 				target.title = target_info.get('title', target.title)
 				target.url = target_info.get('url', target.url)
 
-	async def _handle_target_detached(self, event: DetachedFromTargetEvent) -> None:
+	async def _handle_target_detached(self, event: DetachedFromTargetEvent, *, attach_was_pending: bool = False) -> None:
 		"""Handle Target.detachedFromTarget event.
 
 		Called automatically by Chrome when a target/session is destroyed.
@@ -536,20 +565,27 @@ class SessionManager:
 		session_id = event['sessionId']
 		target_id = event.get('targetId')  # May be empty
 
-		# If targetId not in event, look it up via session mapping
-		if not target_id:
-			async with self._lock:
-				target_id = self._session_to_target.get(session_id)
-
-		if not target_id:
-			self.logger.warning(f'[SessionManager] Session detached but target unknown (session={session_id[:8]}...)')
-			return
-
 		agent_focus_lost = False
 		target_fully_removed = False
 		target_type = None
 
 		async with self._lock:
+			mapped_target_id = self._session_to_target.get(session_id)
+			if mapped_target_id is None and session_id not in self._sessions:
+				is_attach_pending = session_id in self._pending_attach_session_ids
+				if is_attach_pending:
+					self._detached_pending_attach_session_ids.add(session_id)
+				if attach_was_pending or is_attach_pending:
+					self.logger.debug(f'[SessionManager] Detach arrived before attach registration (session={session_id[:8]}...)')
+				else:
+					self.logger.warning(f'[SessionManager] Session detached but target unknown (session={session_id[:8]}...)')
+				return
+
+			target_id = target_id or mapped_target_id
+			if not target_id:
+				self.logger.warning(f'[SessionManager] Session detached but target unknown (session={session_id[:8]}...)')
+				return
+
 			# Remove this session from target's session set
 			if target_id in self._target_sessions:
 				self._target_sessions[target_id].discard(session_id)
