@@ -58,6 +58,37 @@ class TestBrowserSessionStart:
 		await browser_session.start()
 		assert browser_session._cdp_client_root is not None
 
+	async def test_close_before_start_is_safe(self, browser_session):
+		"""Calling .close() on a session that hasn't been started yet must be a safe no-op."""
+		original_event_bus = browser_session.event_bus
+
+		await browser_session.close()
+
+		# close() before start() must not bootstrap a CDP client
+		assert browser_session._cdp_client_root is None
+		# close() must still rebuild the event bus so the session remains usable
+		assert browser_session.event_bus is not None
+		assert browser_session.event_bus is not original_event_bus
+
+	async def test_close_after_start_clears_state_and_is_recappable(self, browser_session):
+		"""Calling .close() after start() must clear CDP state and allow repeated cleanup."""
+		await browser_session.start()
+		assert browser_session._cdp_client_root is not None
+		event_bus_after_start = browser_session.event_bus
+
+		await browser_session.close()
+
+		# close() must clear the key session state documented in stop()/reset()
+		assert browser_session._cdp_client_root is None
+		assert browser_session.event_bus is not None
+		assert browser_session.event_bus is not event_bus_after_start
+
+		# The replacement event bus must retain the handlers needed to start again.
+		await browser_session.start()
+		assert browser_session._cdp_client_root is not None
+		# Subsequent cleanup (e.g. fixture teardown's kill()) must remain idempotent
+		await browser_session.close()
+
 	# @pytest.mark.skip(reason="Race condition - DOMWatchdog tries to inject scripts into tab that's being closed")
 	# async def test_page_lifecycle_management(self, browser_session: BrowserSession):
 	# 	"""Test session handles page lifecycle correctly."""
