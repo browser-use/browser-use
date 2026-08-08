@@ -171,6 +171,13 @@ def _thought_response(final_text):
 	)
 
 
+def test_chat_google_constructor_positional_order_preserved():
+	"""include_thoughts must not shift the positional constructor contract."""
+	chat = ChatGoogle('gemini-2.5-flash', 0.5, None, None, -1, None, 4096)
+	assert chat.max_output_tokens == 4096
+	assert chat.include_thoughts is True
+
+
 async def test_thinking_config_requests_thought_summaries():
 	"""All thinking-enabled model branches must request thought summaries via include_thoughts (issue #5128)."""
 	from unittest.mock import patch

@@ -95,7 +95,9 @@ class ChatGoogle(BaseChatModel):
 	thinking_level: Literal['minimal', 'low', 'medium', 'high'] | None = (
 		None  # for Gemini 3: Pro supports low/high, Flash supports all levels
 	)
-	include_thoughts: bool = True  # return thought summaries when thinking is enabled (thought tokens are billed regardless)
+	include_thoughts: bool = field(
+		default=True, kw_only=True
+	)  # return thought summaries when thinking is enabled (thought tokens are billed regardless)
 	max_output_tokens: int | None = 8096
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
