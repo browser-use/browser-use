@@ -72,7 +72,7 @@ https://github.com/user-attachments/assets/93714c75-98f4-4cfc-add1-69c38b5138b5
 
 # Quickstart
 
-If you want to use Browser Use in your agent (Claude Code, Codex, Cursor, Hermes, OpenClaw, etc.), paste this prompt, and it sets everything up itself:
+If you want to use Browser Use in your agent (Claude Code, Codex, AdaL, Cursor, Hermes, OpenClaw, etc.), paste this prompt, and it sets everything up itself:
 
 ```text
 Install or upgrade browser-use to the latest stable version with uv using Python 3.12, run `browser-use skill install` to register the skill, and connect it to my browser. If setup or connection fails, follow https://github.com/browser-use/browser-harness/blob/main/install.md.
@@ -169,7 +169,7 @@ curl -X POST https://api.browser-use.com/api/v4/runs \
 <details>
 <summary><b>Should I use the CLI vs. the Python library?</b></summary>
 
-**Use the CLI** if you already have an agent (Claude Code, Codex, Cursor, Hermes, OpenClaw, etc.) that you want to complete browser tasks for you. The agent installs the skill once (see [Quickstart](#quickstart)) and can then control the browser. Examples:
+**Use the CLI** if you already have an agent (Claude Code, Codex, AdaL, Cursor, Hermes, OpenClaw, etc.) that you want to complete browser tasks for you. The agent installs the skill once (see [Quickstart](#quickstart)) and can then control the browser. Examples:
 - "Upload this video to YouTube"
 - "Compare these three laptops and give me a table with prices"
 - "Fill in this job application with my resume"
