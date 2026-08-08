@@ -3,8 +3,11 @@
 import os
 
 import pytest
+from openai.types.responses import Response
+from pydantic import BaseModel
 
 from browser_use.llm.azure.chat import RESPONSES_API_ONLY_MODELS, ChatAzureOpenAI
+from browser_use.llm.exceptions import ModelOutputTruncatedError
 from browser_use.llm.messages import (
 	AssistantMessage,
 	ContentPartImageParam,
@@ -16,6 +19,44 @@ from browser_use.llm.messages import (
 	UserMessage,
 )
 from browser_use.llm.openai.responses_serializer import ResponsesAPIMessageSerializer
+
+
+class _AzureStructuredOutput(BaseModel):
+	answer: str
+
+
+def _azure_response(text: str, *, status: str = 'completed') -> Response:
+	payload = {
+		'id': 'resp_azure',
+		'created_at': 1.0,
+		'model': 'gpt-5',
+		'object': 'response',
+		'parallel_tool_calls': True,
+		'tool_choice': 'auto',
+		'tools': [],
+		'status': status,
+		'output': [],
+		'usage': {
+			'input_tokens': 4,
+			'input_tokens_details': {'cached_tokens': 1},
+			'output_tokens': 2,
+			'output_tokens_details': {'reasoning_tokens': 0},
+			'total_tokens': 6,
+		},
+	}
+	if status == 'completed':
+		payload['output'] = [
+			{
+				'id': 'msg_azure',
+				'type': 'message',
+				'status': 'completed',
+				'role': 'assistant',
+				'content': [{'type': 'output_text', 'text': text, 'annotations': [], 'logprobs': []}],
+			}
+		]
+	elif status == 'incomplete':
+		payload['incomplete_details'] = {'reason': 'max_output_tokens'}
+	return Response.model_validate(payload)
 
 
 class TestResponsesAPIMessageSerializer:
@@ -201,6 +242,53 @@ class TestChatAzureOpenAIShouldUseResponsesAPI:
 		]
 		for model in expected_models:
 			assert model in RESPONSES_API_ONLY_MODELS, f'{model} should be in RESPONSES_API_ONLY_MODELS'
+
+
+class TestChatAzureOpenAIResponsesParsing:
+	async def test_completed_structured_response_uses_shared_request_and_parser(self, monkeypatch):
+		captured_request = {}
+
+		class FakeResponses:
+			async def create(self, **kwargs):
+				captured_request.update(kwargs)
+				return _azure_response('{"answer":"ok"}')
+
+		class FakeClient:
+			responses = FakeResponses()
+
+		llm = ChatAzureOpenAI(
+			model='gpt-5',
+			api_key='test',
+			azure_endpoint='https://test.openai.azure.com',
+			use_responses_api=True,
+		)
+		monkeypatch.setattr(llm, 'get_client', lambda: FakeClient())
+
+		result = await llm.ainvoke([UserMessage(content='hello')], output_format=_AzureStructuredOutput)
+
+		assert result.completion == _AzureStructuredOutput(answer='ok')
+		assert result.usage is not None and result.usage.prompt_cached_tokens == 1
+		assert captured_request['text']['format']['type'] == 'json_schema'
+		assert captured_request['reasoning'] == {'effort': 'low'}
+
+	async def test_incomplete_response_raises_truncation_error(self, monkeypatch):
+		class FakeResponses:
+			async def create(self, **kwargs):
+				return _azure_response('', status='incomplete')
+
+		class FakeClient:
+			responses = FakeResponses()
+
+		llm = ChatAzureOpenAI(
+			model='gpt-5',
+			api_key='test',
+			azure_endpoint='https://test.openai.azure.com',
+			use_responses_api=True,
+		)
+		monkeypatch.setattr(llm, 'get_client', lambda: FakeClient())
+
+		with pytest.raises(ModelOutputTruncatedError):
+			await llm.ainvoke([UserMessage(content='hello')])
 
 
 class TestChatAzureOpenAIIntegration:
