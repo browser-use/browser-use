@@ -1951,10 +1951,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Providers like Gemini return reasoning on the completion envelope; surface it so
 			# history.model_thoughts() has data when the model omitted the structured thinking field.
+			# Skipped in no-thinking/flash modes so those settings stay effective, and read with
 			# getattr because duck-typed ainvoke results may only carry `completion` and `usage`.
-			provider_thinking = getattr(response, 'thinking', None)
-			if provider_thinking and not parsed.thinking:
-				parsed.thinking = provider_thinking
+			if self.settings.use_thinking and not self.settings.flash_mode:
+				provider_thinking = getattr(response, 'thinking', None)
+				if provider_thinking and not parsed.thinking:
+					parsed.thinking = provider_thinking
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:

@@ -312,3 +312,30 @@ async def test_get_model_output_keeps_model_authored_thinking():
 	output = await agent.get_model_output([UserMessage(content='x')])
 
 	assert output.thinking == 'model wrote this'
+
+
+async def test_get_model_output_no_thinking_mode_skips_bridge():
+	"""Provider thinking must not be injected when the agent runs with use_thinking=False."""
+	from browser_use import Agent
+	from browser_use.llm.messages import UserMessage
+
+	output_json = (
+		'{"evaluation_previous_goal": "e", "memory": "m", "next_goal": "n",'
+		' "action": [{"done": {"text": "ok", "success": true}}]}'
+	)
+	agent = Agent(task='Test task', llm=_agent_mock_llm(output_json, provider_thinking='provider thought'), use_thinking=False)
+	output = await agent.get_model_output([UserMessage(content='x')])
+
+	assert not output.thinking
+
+
+async def test_get_model_output_flash_mode_skips_bridge():
+	"""Provider thinking must not be injected when the agent runs in flash_mode."""
+	from browser_use import Agent
+	from browser_use.llm.messages import UserMessage
+
+	output_json = '{"memory": "m", "action": [{"done": {"text": "ok", "success": true}}]}'
+	agent = Agent(task='Test task', llm=_agent_mock_llm(output_json, provider_thinking='provider thought'), flash_mode=True)
+	output = await agent.get_model_output([UserMessage(content='x')])
+
+	assert not output.thinking
