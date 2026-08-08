@@ -304,6 +304,7 @@ class BrowserUseServer:
 						},
 						'required': ['query'],
 					},
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 				),
 				types.Tool(
 					name='browser_get_html',
