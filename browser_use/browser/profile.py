@@ -540,10 +540,7 @@ class BrowserLaunchPersistentContextArgs(BrowserLaunchArgs, BrowserContextArgs):
 	https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context
 	"""
 
-	# validate_default=True: user_data_dir's field_validator must also run when the field is left at its
-	# default (omitted entirely), not just when explicitly passed as None — otherwise BrowserProfile(...)
-	# without user_data_dir= leaves self.user_data_dir as raw None instead of the resolved temp path.
-	model_config = ConfigDict(extra='ignore', validate_assignment=False, revalidate_instances='always', validate_default=True)
+	model_config = ConfigDict(extra='ignore', validate_assignment=False, revalidate_instances='always')
 
 	# Required parameter specific to launch_persistent_context, but can be None to use incognito temp dir
 	user_data_dir: str | Path | None = None
@@ -905,7 +902,11 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		elif not self.ignore_default_args:
 			default_args = CHROME_DEFAULT_ARGS
 
-		assert self.user_data_dir is not None, 'user_data_dir must be set to a non-default path'
+		if self.user_data_dir is None:
+			# Resolved lazily here (not via a field_validator/validate_default on construction) so that
+			# constructing a BrowserProfile — including the module-level DEFAULT_BROWSER_PROFILE singleton
+			# in browser_use/browser/session.py — never has the filesystem side effect of tempfile.mkdtemp().
+			self.user_data_dir = Path(tempfile.mkdtemp(prefix='browser-use-user-data-dir-'))
 
 		# Capture args before conversion for logging
 		pre_conversion_args = [
