@@ -1949,6 +1949,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			response = await self.llm.ainvoke(input_messages, **kwargs)
 			parsed: AgentOutput = response.completion  # type: ignore[assignment]
 
+			# Providers like Gemini return reasoning on the completion envelope; surface it so
+			# history.model_thoughts() has data when the model omitted the structured thinking field.
+			# getattr because duck-typed ainvoke results may only carry `completion` and `usage`.
+			provider_thinking = getattr(response, 'thinking', None)
+			if provider_thinking and not parsed.thinking:
+				parsed.thinking = provider_thinking
+
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
 				self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)

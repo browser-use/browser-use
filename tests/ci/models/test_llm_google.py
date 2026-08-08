@@ -253,3 +253,62 @@ async def test_ainvoke_structured_output_surfaces_thinking():
 
 	assert result.completion.answer == '42'
 	assert result.thinking == 'I should click the button.'
+
+
+def _agent_mock_llm(agent_output_json, provider_thinking):
+	"""Mock agent-level LLM returning the given AgentOutput JSON with provider thinking on the envelope."""
+	from unittest.mock import AsyncMock
+
+	from browser_use.llm import BaseChatModel
+	from browser_use.llm.views import ChatInvokeCompletion
+
+	llm = AsyncMock(spec=BaseChatModel)
+	llm.model = 'mock-llm'
+	llm._verified_api_keys = True
+	llm.provider = 'mock'
+	llm.name = 'mock-llm'
+	llm.model_name = 'mock-llm'
+
+	async def mock_ainvoke(*args, **kwargs):
+		output_format = args[1] if len(args) >= 2 else kwargs.get('output_format')
+		assert output_format is not None
+		return ChatInvokeCompletion(
+			completion=output_format.model_validate_json(agent_output_json),
+			thinking=provider_thinking,
+			usage=None,
+		)
+
+	llm.ainvoke.side_effect = mock_ainvoke
+	return llm
+
+
+async def test_get_model_output_bridges_provider_thinking():
+	"""Provider-envelope thinking (e.g. Gemini thought summaries) must surface on AgentOutput when the model omitted the structured field."""
+	from browser_use import Agent
+	from browser_use.llm.messages import UserMessage
+
+	output_json = (
+		'{"thinking": null, "evaluation_previous_goal": "e", "memory": "m", "next_goal": "n",'
+		' "action": [{"done": {"text": "ok", "success": true}}]}'
+	)
+	agent = Agent(task='Test task', llm=_agent_mock_llm(output_json, provider_thinking='provider thought'))
+	output = await agent.get_model_output([UserMessage(content='x')])
+
+	assert output.thinking == 'provider thought'
+	# current_state is what AgentHistoryList.model_thoughts() reads
+	assert output.current_state.thinking == 'provider thought'
+
+
+async def test_get_model_output_keeps_model_authored_thinking():
+	"""The model's structured thinking field wins over the provider envelope."""
+	from browser_use import Agent
+	from browser_use.llm.messages import UserMessage
+
+	output_json = (
+		'{"thinking": "model wrote this", "evaluation_previous_goal": "e", "memory": "m", "next_goal": "n",'
+		' "action": [{"done": {"text": "ok", "success": true}}]}'
+	)
+	agent = Agent(task='Test task', llm=_agent_mock_llm(output_json, provider_thinking='provider thought'))
+	output = await agent.get_model_output([UserMessage(content='x')])
+
+	assert output.thinking == 'model wrote this'
