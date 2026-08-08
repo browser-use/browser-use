@@ -702,6 +702,17 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	profile_directory: str = 'Default'  # e.g. 'Profile 1', 'Profile 2', 'Custom Profile', etc.
 
+	use_system_keychain: bool | None = Field(
+		default=None,
+		description=(
+			'Whether Chromium may use the OS credential store (macOS Keychain / Linux libsecret) to decrypt '
+			'saved passwords/cookies. None (default) = auto: resolved in model_post_init before the profile is '
+			'possibly copied to a temp dir. Disabled for profiles fully managed by browser-use (temp dirs and the '
+			'default browser-use profile) so automation never triggers an OS credential prompt; enabled for a '
+			'real, user-supplied user_data_dir (e.g. an existing Chrome profile) so its saved logins stay readable.'
+		),
+	)
+
 	# these can be found in BrowserLaunchArgs, BrowserLaunchPersistentContextArgs, BrowserNewContextArgs, BrowserConnectArgs:
 	# save_recording_path: alias of record_video_dir
 	# save_har_path: alias of record_har_path
@@ -832,6 +843,14 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def model_post_init(self, __context: Any) -> None:
 		"""Called after model initialization to set up display configuration."""
+		if self.use_system_keychain is None:
+			# resolve auto mode before user_data_dir's field_validator (only guaranteed to have run when
+			# the field was explicitly passed — see #5414) and _copy_profile() may rewrite it to a temp copy
+			is_browser_use_managed_profile = self.user_data_dir is None or (
+				'browser-use-user-data-dir-' in str(self.user_data_dir).lower()
+				or Path(self.user_data_dir).expanduser().resolve() == CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR.resolve()
+			)
+			self.use_system_keychain = not is_browser_use_managed_profile
 		self.detect_display_configuration()
 		self._copy_profile()
 
@@ -912,6 +931,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			f'--profile-directory={self.profile_directory}',
 			*(CHROME_DOCKER_ARGS if (CONFIG.IN_DOCKER or not self.chromium_sandbox) else []),
 			*(CHROME_HEADLESS_ARGS if self.headless else []),
+			*([] if self.use_system_keychain else ['--use-mock-keychain', '--password-store=basic']),
 			*(CHROME_DISABLE_SECURITY_ARGS if self.disable_security else []),
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
 			*(
