@@ -127,3 +127,222 @@ async def test_chat_google_temperature_fallback():
 		mock_models.generate_content.assert_called_once()
 		args, kwargs = mock_models.generate_content.call_args
 		assert kwargs['config']['temperature'] == 1.0
+
+
+def _mock_genai_client(response):
+	"""Mock genai client whose aio.models.generate_content returns the given response."""
+	from unittest.mock import AsyncMock, MagicMock
+
+	mock_client = MagicMock()
+	mock_client.aio = MagicMock()
+	mock_client.aio.models = AsyncMock()
+	mock_client.aio.models.generate_content.return_value = response
+	return mock_client, mock_client.aio.models
+
+
+def _text_only_response():
+	"""Minimal mock response for tests that only inspect the request config."""
+	from unittest.mock import MagicMock
+
+	response = MagicMock()
+	response.text = 'Mocked Response'
+	response.usage = None
+	response.candidates = []
+	return response
+
+
+def _thought_response(final_text):
+	"""Real genai response with a thought-summary part followed by the final text part."""
+	from google.genai import types
+
+	return types.GenerateContentResponse(
+		candidates=[
+			types.Candidate(
+				content=types.Content(
+					role='model',
+					parts=[
+						types.Part(text='I should click the button.', thought=True),
+						types.Part(text=final_text),
+					],
+				),
+				finish_reason=types.FinishReason.STOP,
+			)
+		]
+	)
+
+
+def test_chat_google_constructor_positional_order_preserved():
+	"""include_thoughts must not shift the positional constructor contract."""
+	chat = ChatGoogle('gemini-2.5-flash', 0.5, None, None, -1, None, 4096)
+	assert chat.max_output_tokens == 4096
+	assert chat.include_thoughts is True
+
+
+async def test_thinking_config_requests_thought_summaries():
+	"""All thinking-enabled model branches must request thought summaries via include_thoughts (issue #5128)."""
+	from unittest.mock import patch
+
+	from browser_use.llm.messages import UserMessage
+
+	for model in ('gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-flash'):
+		mock_client, mock_models = _mock_genai_client(_text_only_response())
+		with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+			chat = ChatGoogle(model=model, api_key='fake')
+			await chat.ainvoke([UserMessage(content='Hello')])
+
+			mock_models.generate_content.assert_called_once()
+			thinking_config = mock_models.generate_content.call_args.kwargs['config']['thinking_config']
+			assert thinking_config.get('include_thoughts') is True, f'include_thoughts not requested for {model}'
+
+
+async def test_include_thoughts_opt_out_and_disabled_thinking():
+	"""include_thoughts=False and thinking_budget=0 must not request thought summaries; non-thinking models stay config-free."""
+	from unittest.mock import patch
+
+	from browser_use.llm.messages import UserMessage
+
+	# Explicit opt-out keeps thinking enabled but does not request summaries
+	mock_client, mock_models = _mock_genai_client(_text_only_response())
+	with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+		chat = ChatGoogle(model='gemini-2.5-flash', api_key='fake', include_thoughts=False)
+		await chat.ainvoke([UserMessage(content='Hello')])
+		thinking_config = mock_models.generate_content.call_args.kwargs['config']['thinking_config']
+		assert not thinking_config.get('include_thoughts')
+		assert thinking_config.get('thinking_budget') == -1
+
+	# thinking_budget=0 disables thinking entirely, so no summaries can be requested
+	mock_client, mock_models = _mock_genai_client(_text_only_response())
+	with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+		chat = ChatGoogle(model='gemini-2.5-flash', api_key='fake', thinking_budget=0)
+		await chat.ainvoke([UserMessage(content='Hello')])
+		thinking_config = mock_models.generate_content.call_args.kwargs['config']['thinking_config']
+		assert not thinking_config.get('include_thoughts')
+		assert thinking_config.get('thinking_budget') == 0
+
+	# Models without thinking support still get no thinking_config at all
+	mock_client, mock_models = _mock_genai_client(_text_only_response())
+	with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+		chat = ChatGoogle(model='gemini-2.0-flash', api_key='fake')
+		await chat.ainvoke([UserMessage(content='Hello')])
+		assert 'thinking_config' not in mock_models.generate_content.call_args.kwargs['config']
+
+
+async def test_ainvoke_surfaces_thought_parts_in_thinking():
+	"""Thought-summary parts must land on ChatInvokeCompletion.thinking, not in the completion text."""
+	from unittest.mock import patch
+
+	from browser_use.llm.messages import UserMessage
+
+	mock_client, _ = _mock_genai_client(_thought_response('Hello'))
+	with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+		chat = ChatGoogle(model='gemini-2.5-flash', api_key='fake')
+		result = await chat.ainvoke([UserMessage(content='Hello')])
+
+	assert result.thinking == 'I should click the button.'
+	assert result.completion == 'Hello'
+
+
+async def test_ainvoke_structured_output_surfaces_thinking():
+	"""Structured output must parse the JSON text part and still surface the thought summary."""
+	from unittest.mock import patch
+
+	from pydantic import BaseModel
+
+	from browser_use.llm.messages import UserMessage
+
+	class _Answer(BaseModel):
+		answer: str
+
+	mock_client, _ = _mock_genai_client(_thought_response('{"answer": "42"}'))
+	with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+		chat = ChatGoogle(model='gemini-2.5-flash', api_key='fake')
+		result = await chat.ainvoke([UserMessage(content='Answer briefly')], output_format=_Answer)
+
+	assert result.completion.answer == '42'
+	assert result.thinking == 'I should click the button.'
+
+
+def _agent_mock_llm(agent_output_json, provider_thinking):
+	"""Mock agent-level LLM returning the given AgentOutput JSON with provider thinking on the envelope."""
+	from unittest.mock import AsyncMock
+
+	from browser_use.llm import BaseChatModel
+	from browser_use.llm.views import ChatInvokeCompletion
+
+	llm = AsyncMock(spec=BaseChatModel)
+	llm.model = 'mock-llm'
+	llm._verified_api_keys = True
+	llm.provider = 'mock'
+	llm.name = 'mock-llm'
+	llm.model_name = 'mock-llm'
+
+	async def mock_ainvoke(*args, **kwargs):
+		output_format = args[1] if len(args) >= 2 else kwargs.get('output_format')
+		assert output_format is not None
+		return ChatInvokeCompletion(
+			completion=output_format.model_validate_json(agent_output_json),
+			thinking=provider_thinking,
+			usage=None,
+		)
+
+	llm.ainvoke.side_effect = mock_ainvoke
+	return llm
+
+
+async def test_get_model_output_bridges_provider_thinking():
+	"""Provider-envelope thinking (e.g. Gemini thought summaries) must surface on AgentOutput when the model omitted the structured field."""
+	from browser_use import Agent
+	from browser_use.llm.messages import UserMessage
+
+	output_json = (
+		'{"thinking": null, "evaluation_previous_goal": "e", "memory": "m", "next_goal": "n",'
+		' "action": [{"done": {"text": "ok", "success": true}}]}'
+	)
+	agent = Agent(task='Test task', llm=_agent_mock_llm(output_json, provider_thinking='provider thought'))
+	output = await agent.get_model_output([UserMessage(content='x')])
+
+	assert output.thinking == 'provider thought'
+	# current_state is what AgentHistoryList.model_thoughts() reads
+	assert output.current_state.thinking == 'provider thought'
+
+
+async def test_get_model_output_keeps_model_authored_thinking():
+	"""The model's structured thinking field wins over the provider envelope."""
+	from browser_use import Agent
+	from browser_use.llm.messages import UserMessage
+
+	output_json = (
+		'{"thinking": "model wrote this", "evaluation_previous_goal": "e", "memory": "m", "next_goal": "n",'
+		' "action": [{"done": {"text": "ok", "success": true}}]}'
+	)
+	agent = Agent(task='Test task', llm=_agent_mock_llm(output_json, provider_thinking='provider thought'))
+	output = await agent.get_model_output([UserMessage(content='x')])
+
+	assert output.thinking == 'model wrote this'
+
+
+async def test_get_model_output_no_thinking_mode_skips_bridge():
+	"""Provider thinking must not be injected when the agent runs with use_thinking=False."""
+	from browser_use import Agent
+	from browser_use.llm.messages import UserMessage
+
+	output_json = (
+		'{"evaluation_previous_goal": "e", "memory": "m", "next_goal": "n",'
+		' "action": [{"done": {"text": "ok", "success": true}}]}'
+	)
+	agent = Agent(task='Test task', llm=_agent_mock_llm(output_json, provider_thinking='provider thought'), use_thinking=False)
+	output = await agent.get_model_output([UserMessage(content='x')])
+
+	assert not output.thinking
+
+
+async def test_get_model_output_flash_mode_skips_bridge():
+	"""Provider thinking must not be injected when the agent runs in flash_mode."""
+	from browser_use import Agent
+	from browser_use.llm.messages import UserMessage
+
+	output_json = '{"memory": "m", "action": [{"done": {"text": "ok", "success": true}}]}'
+	agent = Agent(task='Test task', llm=_agent_mock_llm(output_json, provider_thinking='provider thought'), flash_mode=True)
+	output = await agent.get_model_output([UserMessage(content='x')])
+
+	assert not output.thinking
