@@ -616,11 +616,11 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	deterministic_rendering: bool = Field(default=False, description='Enable deterministic rendering flags.')
 	allowed_domains: list[str] | set[str] | None = Field(
 		default=None,
-		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Lists with 100+ items are auto-optimized to sets (no pattern matching).',
+		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Lists with 100+ items are auto-optimized to sets while preserving matching semantics.',
 	)
 	prohibited_domains: list[str] | set[str] | None = Field(
 		default=None,
-		description='List of prohibited domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Allowed domains take precedence over prohibited domains. Lists with 100+ items are auto-optimized to sets (no pattern matching).',
+		description='List of prohibited domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Allowed domains take precedence over prohibited domains. Lists with 100+ items are auto-optimized to sets while preserving matching semantics.',
 	)
 	block_ip_addresses: bool = Field(
 		default=False,
@@ -745,8 +745,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		if len(v) >= DOMAIN_OPTIMIZATION_THRESHOLD:
 			logger.warning(
 				f'🔧 Optimizing domain list with {len(v)} items to set for O(1) lookup. '
-				f'Note: Pattern matching (*.domain.com, etc.) is not supported for lists >= {DOMAIN_OPTIMIZATION_THRESHOLD} items. '
-				f'Use exact domains only or keep list size < {DOMAIN_OPTIMIZATION_THRESHOLD} for pattern support.'
+				f'Pattern matching remains supported for optimized domain sets.'
 			)
 			return set(v)
 
