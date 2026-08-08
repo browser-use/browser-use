@@ -135,10 +135,16 @@ class TestSkeletonScreenDetection:
 		await _navigate(tools, browser_session, f'{base_url}/skeleton')
 
 		state = await browser_session.get_browser_state_summary(include_screenshot=False)
+		# The hint is gated on in-flight requests; the static fixture has none, so simulate one
+		from browser_use.browser.views import NetworkRequest
+
+		state.pending_network_requests = [
+			NetworkRequest(url=f'{base_url}/api/data', method='GET', loading_duration_ms=120.0, resource_type='fetch')
+		]
 		prompt = _make_prompt(state)
 		description = prompt._get_browser_state_description()
 
-		assert 'skeleton' in description.lower() or 'placeholder' in description.lower(), (
+		assert 'still be loading' in description.lower(), (
 			f'Expected skeleton/placeholder warning in description, got:\n{description[:500]}'
 		)
 
@@ -157,9 +163,7 @@ class TestSkeletonScreenDetection:
 			f'({page_stats["total_elements"] * 5})'
 		)
 		# No skeleton warning in description
-		assert 'skeleton' not in description.lower() and 'placeholder' not in description.lower(), (
-			'Rich page should NOT produce a skeleton warning'
-		)
+		assert 'still be loading' not in description.lower(), 'Rich page should NOT produce a skeleton warning'
 
 
 # ---------------------------------------------------------------------------

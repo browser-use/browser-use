@@ -511,6 +511,13 @@ class TestExistingToolsActions:
 		assert result3.extracted_content is not None
 		assert 'Input text: test input at index: 5' in result3.extracted_content
 
+	async def test_renamed_action_models_keep_old_names_importable(self):
+		"""Renamed action params models must stay importable under their pre-rename names."""
+		from browser_use.tools.views import GoToUrlAction, NavigateAction, SearchAction, SearchGoogleAction
+
+		assert SearchGoogleAction is SearchAction
+		assert GoToUrlAction is NavigateAction
+
 	async def test_pydantic_vs_individual_params_consistency(self, registry, browser_session):
 		"""Test that pydantic and individual parameter patterns produce consistent results"""
 

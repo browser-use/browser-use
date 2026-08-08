@@ -328,6 +328,10 @@ class MCPClient:
 					# Convert MCP result to ActionResult
 					extracted_content = self._format_mcp_result(result)
 
+					if getattr(result, 'isError', False):
+						error_msg = f"MCP tool '{tool.name}' reported an error: {extracted_content}"
+						return ActionResult(error=error_msg, success=False)
+
 					return ActionResult(
 						extracted_content=extracted_content,
 						long_term_memory=f"Used MCP tool '{tool.name}' from {self.server_name}",
@@ -371,6 +375,10 @@ class MCPClient:
 
 					# Convert MCP result to ActionResult
 					extracted_content = self._format_mcp_result(result)
+
+					if getattr(result, 'isError', False):
+						error_msg = f"MCP tool '{tool.name}' reported an error: {extracted_content}"
+						return ActionResult(error=error_msg, success=False)
 
 					return ActionResult(
 						extracted_content=extracted_content,

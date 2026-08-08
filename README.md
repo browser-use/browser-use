@@ -1,3 +1,4 @@
+<!-- mcp-name: com.browser-use/browser-use -->
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24">
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358">
@@ -150,6 +151,13 @@ Browser Use is also **#1 on the [Odysseys leaderboard](https://odysseysbench.com
 - 1000+ integrations (Gmail, Slack, Notion, and more)
 - Persistent filesystem and memory
 
+```sh
+curl -X POST https://api.browser-use.com/api/v4/runs \
+  -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"task": "Your task"}'
+```
+
 <br/>
 
 ## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
@@ -249,7 +257,7 @@ This open-source library is licensed under the MIT License. For Browser Use serv
 Check out our authentication examples:
 - [Using real browser profiles](https://github.com/browser-use/browser-use/blob/main/examples/browser/real_browser.py) - Reuse your existing Chrome profile with saved logins
 - If you want to use temporary accounts with inbox, choose AgentMail
-- To sync your auth profile with the remote browser, run `curl -fsSL https://browser-use.com/profile.sh | BROWSER_USE_API_KEY=XXXX sh` (replace XXXX with your API key)
+- To sync your auth profile with a remote browser, install `profile-use` for your platform from the [official releases](https://github.com/browser-use/profile-use-releases/releases/latest), then follow the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md).
 
 These examples show how to maintain sessions and handle authentication seamlessly.
 </details>
