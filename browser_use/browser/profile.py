@@ -1,4 +1,6 @@
+import atexit
 import os
+import shutil
 import sys
 import tempfile
 from collections.abc import Iterable
@@ -23,6 +25,51 @@ def _get_enable_default_extensions_default() -> bool:
 		# If DISABLE_EXTENSIONS is truthy, return False (extensions disabled)
 		return env_val.lower() in ('0', 'false', 'no', 'off', '')
 	return True
+
+
+# Safety net for orphaned temp dirs on abnormal exit (Ctrl-C, a crashing test, pytest --timeout killing a
+# hung test). The normal cleanup path is LocalBrowserWatchdog/DownloadsWatchdog on BrowserKillEvent /
+# BrowserStoppedEvent - this registry only catches what never reaches that path. A module-level set + a
+# single atexit hook (not __del__ per-instance, since object finalization order at interpreter exit isn't
+# guaranteed) so we sweep everything we ever created, once, right before the process exits. Doesn't cover
+# SIGKILL/segfault - not worth chasing since those are rare relative to the interrupted-run case.
+#
+# user_data_dir/profile-copy temp dirs are always fully ours (internal browser state) and get removed
+# outright. downloads dirs may contain files the user actually wanted, so those are only ever removed if
+# still empty - tracked in a separate registry so the sweep can apply that distinction.
+_owned_temp_dirs_registry: set[str] = set()
+_owned_downloads_dirs_registry: set[str] = set()
+
+
+def _register_owned_temp_dir(path: str | Path) -> None:
+	"""Track a temp dir we created ourselves (mkdtemp), so it gets swept on abnormal interpreter exit."""
+	_owned_temp_dirs_registry.add(str(path))
+
+
+def _register_owned_downloads_dir(path: str | Path) -> None:
+	"""Track an auto-generated downloads dir we created, swept on exit only if it's still empty."""
+	_owned_downloads_dirs_registry.add(str(path))
+
+
+def _unregister_owned_temp_dir(path: str | Path) -> None:
+	"""Stop tracking a temp dir - call after the normal (non-atexit) cleanup path already removed it."""
+	_owned_temp_dirs_registry.discard(str(path))
+	_owned_downloads_dirs_registry.discard(str(path))
+
+
+def _cleanup_owned_temp_dirs_at_exit() -> None:
+	for path in list(_owned_temp_dirs_registry):
+		shutil.rmtree(path, ignore_errors=True)
+	for path in list(_owned_downloads_dirs_registry):
+		try:
+			path_obj = Path(path)
+			if path_obj.is_dir() and not any(path_obj.iterdir()):
+				path_obj.rmdir()
+		except OSError:
+			pass
+
+
+atexit.register(_cleanup_owned_temp_dirs_at_exit)
 
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
@@ -462,7 +509,15 @@ class BrowserLaunchArgs(BaseModel):
 
 	@model_validator(mode='after')
 	def set_default_downloads_path(self) -> Self:
-		"""Set a unique default downloads path if none is provided."""
+		"""Set a unique default downloads path if none is provided.
+
+		Only *assigns* the path here, does not create it on disk - constructing a BrowserProfile (including
+		module-level singletons like DEFAULT_BROWSER_PROFILE, or any profile whose browser never ends up
+		starting, e.g. in unit tests) must not have the filesystem side effect of creating a directory that
+		then never gets cleaned up. DownloadsWatchdog.on_BrowserLaunchEvent() creates the directory for real,
+		only once a browser actually launches. `downloads_path is not None` still holds immediately, which is
+		what Agent/beta service rely on to decide whether download tracking is enabled.
+		"""
 		if self.downloads_path is None:
 			import uuid
 
@@ -476,7 +531,6 @@ class BrowserLaunchArgs(BaseModel):
 				downloads_path = Path(tempfile.gettempdir()) / f'browser-use-downloads-{unique_id}'
 
 			self.downloads_path = downloads_path
-			self.downloads_path.mkdir(parents=True, exist_ok=True)
 		return self
 
 	@staticmethod
@@ -875,13 +929,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			return
 
 		temp_dir = tempfile.mkdtemp(prefix='browser-use-user-data-dir-')
+		_register_owned_temp_dir(temp_dir)
 		path_original_user_data = Path(self.user_data_dir)
 		path_original_profile = path_original_user_data / self.profile_directory
 		path_temp_profile = Path(temp_dir) / self.profile_directory
 
 		if path_original_profile.exists():
-			import shutil
-
 			try:
 				shutil.copytree(
 					path_original_profile,
@@ -925,7 +978,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			# Resolved lazily here (not via a field_validator/validate_default on construction) so that
 			# constructing a BrowserProfile — including the module-level DEFAULT_BROWSER_PROFILE singleton
 			# in browser_use/browser/session.py — never has the filesystem side effect of tempfile.mkdtemp().
-			self.user_data_dir = Path(tempfile.mkdtemp(prefix='browser-use-user-data-dir-'))
+			temp_user_data_dir = tempfile.mkdtemp(prefix='browser-use-user-data-dir-')
+			_register_owned_temp_dir(temp_user_data_dir)
+			self.user_data_dir = Path(temp_user_data_dir)
 
 		# Capture args before conversion for logging
 		pre_conversion_args = [

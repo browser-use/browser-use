@@ -190,6 +190,14 @@ class DownloadsWatchdog(BaseWatchdog):
 			expanded_path.mkdir(parents=True, exist_ok=True)
 			self.logger.debug(f'[DownloadsWatchdog] Ensured downloads directory exists: {expanded_path}')
 
+			if 'browser-use-downloads-' in expanded_path.name:
+				# Auto-generated dir we own (not a user-supplied downloads_path) - register as a safety net
+				# for abnormal exit (Ctrl-C, a hung test getting killed by pytest --timeout). Normal cleanup
+				# is _cleanup_empty_downloads_dir() on BrowserStoppedEvent. Only removed if still empty.
+				from browser_use.browser.profile import _register_owned_downloads_dir
+
+				_register_owned_downloads_dir(expanded_path)
+
 			# Capture initial files to detect new downloads reliably
 			if expanded_path.exists():
 				for f in expanded_path.iterdir():
@@ -273,6 +281,30 @@ class DownloadsWatchdog(BaseWatchdog):
 		self._detected_downloads.clear()
 		self._initial_downloads_snapshot.clear()
 		self._network_callback_registered = False
+
+		self._cleanup_empty_downloads_dir()
+
+	def _cleanup_empty_downloads_dir(self) -> None:
+		"""Remove the auto-generated downloads dir we created, but only if it's still empty.
+
+		Only ever touches a directory we created ourselves (the 'browser-use-downloads-' prefix from
+		BrowserProfile.set_default_downloads_path) - a user-supplied downloads_path is never deleted, and
+		neither is one that has any downloaded files in it.
+		"""
+		downloads_path = self.browser_session.browser_profile.downloads_path
+		if not downloads_path:
+			return
+		try:
+			expanded_path = Path(downloads_path).expanduser().resolve()
+			if 'browser-use-downloads-' not in expanded_path.name:
+				return
+			if not expanded_path.is_dir():
+				return
+			if any(expanded_path.iterdir()):
+				return
+			expanded_path.rmdir()
+		except OSError as e:
+			self.logger.debug(f'[DownloadsWatchdog] Failed to clean up empty downloads dir {downloads_path}: {e}')
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
 		"""Check for PDFs after navigation completes."""
