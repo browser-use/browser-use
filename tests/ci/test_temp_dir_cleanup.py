@@ -15,18 +15,22 @@ recognizes 'browser-use-user-data-dir-' as its own; DownloadsWatchdog removes it
 on BrowserStoppedEvent if left empty; and an atexit safety net sweeps anything that never made
 it through the normal cleanup path (Ctrl-C, a test killed by pytest --timeout).
 
-Known residual leak, NOT fixed here (pre-existing on main, unrelated to this file's fix):
-BrowserSession(browser_profile=some_profile) - or any BrowserSession(...) construction, since it
-always builds a BrowserProfile internally - triggers pydantic to revalidate the profile as part of
-assigning it to BrowserSession.browser_profile. That revalidation re-runs
-BrowserLaunchPersistentContextArgs.validate_user_data_dir (a field_validator, mode='after'), which
-DOES create a temp user_data_dir on disk immediately - unlike the lazy get_args() path this file
-otherwise fixes. If the session's kill()/start() lifecycle ever runs, LocalBrowserWatchdog's
-cleanup (fixed here) still removes it; the residual case is only a BrowserSession constructed and
-then discarded without ever starting/killing it (e.g. a unit test that only checks
-`session.browser_profile.some_field`). Root cause is BrowserProfile's own
-`revalidate_instances='always'` config interacting with field_validator semantics on
-already-set-vs-omitted fields; out of scope for this fix.
+Also covered: BrowserSession(...) construction (any form, since it always builds a BrowserProfile
+internally) triggers pydantic to revalidate the profile as part of assigning it to
+BrowserSession.browser_profile. That revalidation re-runs
+BrowserLaunchPersistentContextArgs.validate_user_data_dir (a field_validator, mode='after') even
+though the field was never explicitly passed - pydantic only skips field_validator for a field left
+at its default on *first* construction, not on revalidation of an existing instance (verified with
+an isolated pydantic model). So this DOES create a temp user_data_dir on disk immediately - earlier
+than the otherwise-lazy get_args() path. If the session's start()/kill() lifecycle runs,
+LocalBrowserWatchdog's cleanup (fixed above) removes it as usual; for the case where a session is
+constructed and discarded without ever starting/killing it (e.g. a unit test that only inspects
+`session.browser_profile.some_field`), the dir is registered with the same atexit safety net so it
+still doesn't survive process exit permanently. Deliberately not touching validate_user_data_dir's
+semantics itself (e.g. leaving user_data_dir as None) - browser_use/browser/session.py's
+StorageStateWatchdog auto-enable logic reads `browser_profile.user_data_dir is not None` before
+get_args() ever runs, so changing what that field observes at revalidation time would be a
+behavior change beyond this leak fix.
 """
 
 import glob
@@ -164,6 +168,24 @@ def test_owned_temp_dir_prefixes_are_deleted():
 		owned_dir = tempfile.mkdtemp(prefix=prefix)
 		watchdog._cleanup_temp_dir(owned_dir)
 		assert not Path(owned_dir).exists(), f'{prefix} dir should have been cleaned up'
+
+
+def test_revalidated_profile_user_data_dir_is_registered_for_atexit_cleanup():
+	"""Regression: BrowserSession(...) construction revalidates the profile it builds internally
+	(BrowserProfile has revalidate_instances='always'), which re-runs validate_user_data_dir and
+	creates a user_data_dir immediately - earlier than the lazy get_args() path. This dir must at
+	least be tracked by the atexit safety net, even though it isn't synchronously cleaned up here
+	(no start()/kill() was called - see the module docstring for why we don't change
+	validate_user_data_dir's observable None-vs-resolved semantics to avoid this eager creation)."""
+	from browser_use.browser import BrowserSession
+	from browser_use.browser.profile import _owned_temp_dirs_registry
+
+	session = BrowserSession(headless=True)
+	user_data_dir = str(session.browser_profile.user_data_dir)
+
+	assert user_data_dir in _owned_temp_dirs_registry, (
+		'the eagerly-created user_data_dir from profile revalidation must be tracked for atexit cleanup'
+	)
 
 
 @pytest.mark.parametrize('leaked_run_index', range(3))

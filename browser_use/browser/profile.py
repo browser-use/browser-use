@@ -602,9 +602,21 @@ class BrowserLaunchPersistentContextArgs(BrowserLaunchArgs, BrowserContextArgs):
 	@field_validator('user_data_dir', mode='after')
 	@classmethod
 	def validate_user_data_dir(cls, v: str | Path | None) -> str | Path:
-		"""Validate user data dir is set to a non-default path."""
+		"""Validate user data dir is set to a non-default path.
+
+		Only ever runs for an *explicitly-set* field (pydantic skips field_validator for an
+		omitted field left at its default) - but BrowserProfile's own `revalidate_instances='always'`
+		means any revalidation of an existing profile (e.g. BrowserSession(...) internally
+		constructing/reassigning a BrowserProfile) counts as "explicitly set" even when the original
+		value was None, so this DOES run and create a dir earlier than get_args()'s otherwise-lazy
+		resolution. Registered with the atexit safety net (see _register_owned_temp_dir) so a
+		profile/session that's discarded without ever reaching LocalBrowserWatchdog's normal
+		cleanup (i.e. never started/killed) still doesn't leak the dir permanently.
+		"""
 		if v is None:
-			return Path(tempfile.mkdtemp(prefix='browser-use-user-data-dir-'))
+			temp_dir = tempfile.mkdtemp(prefix='browser-use-user-data-dir-')
+			_register_owned_temp_dir(temp_dir)
+			return Path(temp_dir)
 		return Path(v).expanduser().resolve()
 
 
