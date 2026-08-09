@@ -54,7 +54,7 @@ async def test_generate_image_bytes_uses_official_request_shape() -> None:
 		return httpx.Response(
 			200,
 			json={
-				'data': {'image_base64': [base64.b64encode(image).decode()]},
+				'data': {'image_urls': [base64.b64encode(image).decode()]},
 				'base_resp': {'status_code': 0, 'status_msg': 'success'},
 			},
 		)

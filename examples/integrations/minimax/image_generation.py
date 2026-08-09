@@ -49,7 +49,7 @@ def parse_image_response(payload: object) -> bytes:
 			raise MiniMaxImageGenerationError(f'Image generation failed ({status_code}): {status_msg}')
 
 	data = payload.get('data')
-	images = data.get('image_base64') if isinstance(data, dict) else None
+	images = data.get('image_urls') if isinstance(data, dict) else None
 	if not isinstance(images, list) or not images or not isinstance(images[0], str):
 		raise MiniMaxImageGenerationError('Image generation response did not contain image data')
 
