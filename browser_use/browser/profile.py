@@ -902,7 +902,11 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		elif not self.ignore_default_args:
 			default_args = CHROME_DEFAULT_ARGS
 
-		assert self.user_data_dir is not None, 'user_data_dir must be set to a non-default path'
+		if self.user_data_dir is None:
+			# Resolved lazily here (not via a field_validator/validate_default on construction) so that
+			# constructing a BrowserProfile — including the module-level DEFAULT_BROWSER_PROFILE singleton
+			# in browser_use/browser/session.py — never has the filesystem side effect of tempfile.mkdtemp().
+			self.user_data_dir = Path(tempfile.mkdtemp(prefix='browser-use-user-data-dir-'))
 
 		# Capture args before conversion for logging
 		pre_conversion_args = [
