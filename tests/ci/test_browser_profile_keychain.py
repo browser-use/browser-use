@@ -48,6 +48,24 @@ def test_real_chrome_profile_keeps_system_keychain_after_copy_profile_rewrites_u
 	assert '--password-store=basic' not in args
 
 
+def test_default_browser_use_profile_avoids_system_keychain_with_non_default_channel():
+	"""Pins an ordering dependency: model_post_init resolves use_system_keychain BEFORE the
+	model_validator(mode='after') warn_user_data_dir_non_default_version rewrites a user_data_dir
+	equal to CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR to a sibling '.../default-{channel}' dir (only
+	triggered by a non-default channel — test_default_browser_use_profile_avoids_system_keychain_by_default
+	uses the default channel, so that rewrite validator never fires there and this ordering goes
+	unexercised). If model_post_init ever ran after that rewrite, the sibling path would match neither
+	the None check, the temp-dir substring, nor an exact equal to BROWSER_USE_DEFAULT_USER_DATA_DIR, so
+	use_system_keychain would flip to True — silently reintroducing OS keychain prompts for a
+	browser-use-managed profile."""
+	profile = BrowserProfile(user_data_dir=CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR, channel=BrowserChannel.CHROME)
+	args = profile.get_args()
+
+	assert profile.use_system_keychain is False
+	assert '--use-mock-keychain' in args
+	assert '--password-store=basic' in args
+
+
 def test_explicit_use_system_keychain_true_overrides_temporary_profile_default():
 	profile = BrowserProfile(user_data_dir=None, use_system_keychain=True)
 	args = profile.get_args()
