@@ -91,6 +91,27 @@ def _ignore_chrome_profile_transient_files(_src: str, names: list[str]) -> set[s
 	return {name for name in names if any(fnmatch(name, pattern) for pattern in CHROME_PROFILE_TRANSIENT_FILE_PATTERNS)}
 
 
+def _is_empty_dir_under_system_temp(path: str | Path) -> bool:
+	"""Whether path is inside the OS temp dir AND doesn't exist yet or has no Chrome profile files in
+	it. Used to auto-detect a caller-supplied tempfile.mkdtemp() user_data_dir (not just
+	BrowserProfile's own 'browser-use-user-data-dir-*' prefix) as browser-use-managed for the
+	use_system_keychain heuristic. Requiring both conditions (not just emptiness) keeps a real user
+	profile that happens to not be initialized yet - but lives at a real, non-temp path - correctly
+	classified as a real profile."""
+	try:
+		resolved = Path(path).expanduser().resolve()
+		temp_root = Path(tempfile.gettempdir()).resolve()
+	except OSError:
+		return False
+	if resolved != temp_root and temp_root not in resolved.parents:
+		return False
+	if not resolved.exists():
+		return True
+	if not resolved.is_dir():
+		return False
+	return not any(resolved.iterdir())
+
+
 def _is_chrome_profile_lock_error(error: BaseException) -> bool:
 	"""Detect Windows sharing violations or permission errors raised while copying a Chrome profile."""
 	if isinstance(error, PermissionError):
@@ -849,6 +870,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			is_browser_use_managed_profile = self.user_data_dir is None or (
 				'browser-use-user-data-dir-' in str(self.user_data_dir).lower()
 				or Path(self.user_data_dir).expanduser().resolve() == CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR.resolve()
+				or _is_empty_dir_under_system_temp(self.user_data_dir)
 			)
 			self.use_system_keychain = not is_browser_use_managed_profile
 		self.detect_display_configuration()
