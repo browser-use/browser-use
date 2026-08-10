@@ -1230,6 +1230,7 @@ async function initialize(checkInitialized, magic) {{
 				with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
 					zip_ref.extractall(extract_dir)
 			finally:
+				temp_zip.close()  # idempotent; ensures handle is released on write errors
 				with contextlib.suppress(OSError):
 					os.unlink(temp_zip.name)
 
