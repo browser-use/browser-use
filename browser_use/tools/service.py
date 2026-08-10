@@ -594,7 +594,9 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to go back: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('Wait for x seconds. Maximum wait is 30 seconds; longer requests are capped and the response reports the actual wait.')
+		@self.registry.action(
+			'Wait for x seconds. Maximum wait is 30 seconds; longer requests are capped and the response reports the actual wait.'
+		)
 		async def wait(seconds: int = 3):
 			# Cap at 30s and report *what we actually slept*, not the requested value.
 			# Do not subtract a guessed LLM latency — wait can be mid-multi_act and the
