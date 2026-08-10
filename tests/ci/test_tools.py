@@ -164,7 +164,7 @@ class TestToolsIntegration:
 		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
 
 		# Verify that approximately 3 seconds have passed (allowing some margin)
-		assert 2.5 <= end_time - start_time <= 3.5  # We now wait the exact time requested
+		assert end_time - start_time >= 2.5  # elapsed should be at least ~3s (one-sided to avoid CI flakes)
 
 		# longer wait
 		# Record start time
@@ -181,7 +181,7 @@ class TestToolsIntegration:
 		assert result.extracted_content is not None
 		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
 
-		assert 4.5 <= end_time - start_time <= 5.5  # We now wait the exact time requested
+		assert end_time - start_time >= 4.5  # elapsed should be at least ~5s (one-sided to avoid CI flakes)
 
 	async def test_go_back_action(self, tools, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""

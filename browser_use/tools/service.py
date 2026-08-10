@@ -596,16 +596,22 @@ class Tools(Generic[Context]):
 
 		@self.registry.action('Wait for x seconds.')
 		async def wait(seconds: int = 3):
+			import time
+
 			# Cap wait time at maximum 30 seconds
 			actual_seconds = min(max(seconds, 0), 30)
+			capped = seconds > 30
 
-			if seconds > 30:
-				memory = f'Waited for {actual_seconds} seconds (capped from the requested {seconds})'
+			t0 = time.monotonic()
+			await asyncio.sleep(actual_seconds)
+			elapsed = round(time.monotonic() - t0, 2)
+
+			if capped:
+				memory = f'Waited for {elapsed} seconds (capped from the requested {seconds})'
 			else:
-				memory = f'Waited for {actual_seconds} seconds'
+				memory = f'Waited for {elapsed} seconds'
 
 			logger.info(f'🕒 {memory}')
-			await asyncio.sleep(actual_seconds)
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
 		# Helper function for coordinate conversion
