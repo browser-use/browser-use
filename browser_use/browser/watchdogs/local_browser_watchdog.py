@@ -170,10 +170,21 @@ class LocalBrowserWatchdog(BaseWatchdog):
 						pass
 
 				# Keep only the in-use directory for cleanup during browser kill
-				if currently_used_dir and 'browseruse-tmp-' in currently_used_dir:
+				if currently_used_dir and any(
+					prefix in currently_used_dir
+					for prefix in self._TEMP_DIR_PREFIXES
+				):
 					self._temp_dirs_to_cleanup = [Path(currently_used_dir)]
 				else:
 					self._temp_dirs_to_cleanup = []
+
+				# Also track the downloads temp dir for cleanup
+				downloads_dir = str(profile.downloads_path) if profile.downloads_path else None
+				if downloads_dir and any(
+					prefix in downloads_dir
+					for prefix in self._TEMP_DIR_PREFIXES
+				):
+					self._temp_dirs_to_cleanup.append(Path(downloads_dir))
 
 				return process, cdp_url
 
@@ -460,6 +471,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			# Ignore any other errors during cleanup
 			pass
 
+	# Prefixes used by browser-use when creating temporary directories
+	_TEMP_DIR_PREFIXES = ('browseruse-tmp-', 'browser-use-user-data-dir-', 'browser-use-downloads-')
+
 	def _cleanup_temp_dir(self, temp_dir: Path | str) -> None:
 		"""Clean up temporary directory.
 
@@ -472,7 +486,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		try:
 			temp_path = Path(temp_dir)
 			# Only remove if it's actually a temp directory we created
-			if 'browseruse-tmp-' in str(temp_path):
+			if any(prefix in temp_path.name for prefix in self._TEMP_DIR_PREFIXES):
 				shutil.rmtree(temp_path, ignore_errors=True)
 		except Exception as e:
 			self.logger.debug(f'Failed to cleanup temp dir {temp_dir}: {e}')
