@@ -1504,7 +1504,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				logger.info(msg)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 			except BrowserError as e:
-				if 'Text not found' in str(e):
+				if e.details and 'text' in e.details:
 					msg = f"Text '{text}' not found or not visible on page"
 					logger.info(msg)
 					return ActionResult(
