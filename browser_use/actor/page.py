@@ -475,7 +475,8 @@ Before you return the element index, reason about the state and elements for a s
 
 		from .element import Element as Element_
 
-		return Element_(self._browser_session, element.backend_node_id, self._session_id)
+		element_session = await self._browser_session.cdp_client_for_node(element)
+		return Element_(self._browser_session, element.backend_node_id, element_session.session_id)
 
 	async def must_get_element_by_prompt(self, prompt: str, llm: 'BaseChatModel | None' = None) -> 'Element':
 		"""Get an element by a prompt.

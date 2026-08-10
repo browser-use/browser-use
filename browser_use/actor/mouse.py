@@ -9,6 +9,17 @@ if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
 
 
+def _resolve_scroll_anchor(x: int | None, y: int | None, viewport_width: float, viewport_height: float) -> tuple[float, float]:
+	"""Resolve the (x, y) point a scroll event should be dispatched at.
+
+	An explicit 0 must be honored as "left/top edge", not treated as "unset".
+	Only a genuinely missing (None) coordinate falls back to the viewport center.
+	"""
+	scroll_x = x if x is not None else viewport_width / 2
+	scroll_y = y if y is not None else viewport_height / 2
+	return scroll_x, scroll_y
+
+
 class Mouse:
 	"""Mouse operations for a target."""
 
@@ -82,27 +93,29 @@ class Mouse:
 		params: 'DispatchMouseEventParameters' = {'type': 'mouseMoved', 'x': x, 'y': y}
 		await self._client.send.Input.dispatchMouseEvent(params, session_id=self._session_id)
 
-	async def scroll(self, x: int = 0, y: int = 0, delta_x: int | None = None, delta_y: int | None = None) -> None:
+	async def scroll(
+		self, x: int | None = None, y: int | None = None, delta_x: int | None = None, delta_y: int | None = None
+	) -> None:
 		"""Scroll the page using robust CDP methods."""
 		if not self._session_id:
 			raise RuntimeError('Session ID is required for scroll operations')
 
-		# Method 1: Try mouse wheel event (most reliable)
+		# Get viewport dimensions (used to resolve x/y when the caller doesn't specify a coordinate)
 		try:
-			# Get viewport dimensions
 			layout_metrics = await self._client.send.Page.getLayoutMetrics(session_id=self._session_id)
 			viewport_width = layout_metrics['layoutViewport']['clientWidth']
 			viewport_height = layout_metrics['layoutViewport']['clientHeight']
+		except Exception:
+			viewport_width = viewport_height = 0
 
-			# Use provided coordinates or center of viewport
-			scroll_x = x if x > 0 else viewport_width / 2
-			scroll_y = y if y > 0 else viewport_height / 2
+		scroll_x, scroll_y = _resolve_scroll_anchor(x, y, viewport_width, viewport_height)
 
-			# Calculate scroll deltas (positive = down/right)
-			scroll_delta_x = delta_x or 0
-			scroll_delta_y = delta_y or 0
+		# Calculate scroll deltas (positive = down/right)
+		scroll_delta_x = delta_x or 0
+		scroll_delta_y = delta_y or 0
 
-			# Dispatch mouse wheel event
+		# Method 1: Try mouse wheel event (most reliable)
+		try:
 			await self._client.send.Input.dispatchMouseEvent(
 				params={
 					'type': 'mouseWheel',
@@ -120,7 +133,12 @@ class Mouse:
 
 		# Method 2: Fallback to synthesizeScrollGesture
 		try:
-			params: 'SynthesizeScrollGestureParameters' = {'x': x, 'y': y, 'xDistance': delta_x or 0, 'yDistance': delta_y or 0}
+			params: 'SynthesizeScrollGestureParameters' = {
+				'x': scroll_x,
+				'y': scroll_y,
+				'xDistance': delta_x or 0,
+				'yDistance': delta_y or 0,
+			}
 			await self._client.send.Input.synthesizeScrollGesture(
 				params,
 				session_id=self._session_id,

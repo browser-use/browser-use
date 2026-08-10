@@ -31,6 +31,16 @@ if TYPE_CHECKING:
 
 # Note: iframe limits are now configurable via BrowserProfile.max_iframes and BrowserProfile.max_iframe_depth
 
+_MAX_JS_CLICK_LISTENER_ELEMENTS = 100
+_DESCRIBE_NODE_BATCH_SIZE = 20
+_JS_CLICK_LISTENER_OVERFLOW = '__browser_use_too_many_click_listeners__'
+_MIN_CROSS_ORIGIN_IFRAME_EDGE = 10
+
+
+def _is_cross_origin_iframe_size_eligible(width: float, height: float) -> bool:
+	"""Include cross-origin frames that are at least 10px in each dimension."""
+	return width >= _MIN_CROSS_ORIGIN_IFRAME_EDGE and height >= _MIN_CROSS_ORIGIN_IFRAME_EDGE
+
 
 class DomService:
 	"""
@@ -443,10 +453,10 @@ class DomService:
 			self.logger.debug(f'Failed to get iframe scroll positions: {e}')
 		iframe_scroll_ms = (time.time() - start_iframe_scroll) * 1000
 
-		# Detect elements with JavaScript click event listeners (without mutating DOM)
-		# On heavy pages (>10k elements) the querySelectorAll('*') + getEventListeners()
-		# loop plus per-element DOM.describeNode CDP calls can take 10s+.
-		# The JS expression below bails out early if the page is too heavy.
+		# Detect elements with JavaScript click event listeners (without mutating DOM).
+		# Bounding only the total DOM size is insufficient: framework-heavy pages can attach
+		# hundreds of listeners to fewer than 10k elements. Resolving every listener with an
+		# unbounded gather floods remote CDP connections and can make the whole session appear stale.
 		# Elements are still detected via the accessibility tree and ClickableElementDetector.
 		start_js_listener_detection = time.time()
 		js_click_listener_backend_ids: set[int] = set()
@@ -476,6 +486,9 @@ class DomService:
 								// Check for click-related event listeners
 								if (listeners.click || listeners.mousedown || listeners.mouseup || listeners.pointerdown || listeners.pointerup) {
 									elementsWithListeners.push(el);
+									if (elementsWithListeners.length > %d) {
+										return %r;
+									}
 								}
 							} catch (e) {
 								// Ignore errors for individual elements (e.g., cross-origin)
@@ -484,12 +497,18 @@ class DomService:
 
 						return elementsWithListeners;
 					})()
-					""",
+					"""
+					% (_MAX_JS_CLICK_LISTENER_ELEMENTS, _JS_CLICK_LISTENER_OVERFLOW),
 					'includeCommandLineAPI': True,  # enables getEventListeners()
 					'returnByValue': False,  # Return object references, not values
 				},
 				session_id=cdp_session.session_id,
 			)
+
+			if js_listener_result.get('result', {}).get('value') == _JS_CLICK_LISTENER_OVERFLOW:
+				self.logger.debug(
+					f'Skipping JS listener resolution: more than {_MAX_JS_CLICK_LISTENER_ELEMENTS} elements have click listeners'
+				)
 
 			result_object_id = js_listener_result.get('result', {}).get('objectId')
 			if result_object_id:
@@ -514,7 +533,6 @@ class DomService:
 							if object_id and isinstance(object_id, str):
 								element_object_ids.append(object_id)
 
-				# Batch resolve backend node IDs (run in parallel)
 				async def get_backend_node_id(object_id: str) -> int | None:
 					try:
 						node_info = await cdp_session.cdp_client.send.DOM.describeNode(
@@ -525,8 +543,13 @@ class DomService:
 					except Exception:
 						return None
 
-				# Resolve all element object IDs to backend node IDs in parallel
-				backend_ids = await asyncio.gather(*[get_backend_node_id(oid) for oid in element_object_ids])
+				# Keep concurrency bounded. Each describeNode call can trigger target/session
+				# bookkeeping, so even a few dozen simultaneous calls can starve screenshots
+				# and the other CDP requests needed to build browser state.
+				backend_ids: list[int | None] = []
+				for batch_start in range(0, len(element_object_ids), _DESCRIBE_NODE_BATCH_SIZE):
+					batch = element_object_ids[batch_start : batch_start + _DESCRIBE_NODE_BATCH_SIZE]
+					backend_ids.extend(await asyncio.gather(*[get_backend_node_id(object_id) for object_id in batch]))
 				js_click_listener_backend_ids = {bid for bid in backend_ids if bid is not None}
 
 				# Release the array object to avoid memory leaks
@@ -603,7 +626,10 @@ class DomService:
 				for task in pending2:
 					task.cancel()
 
-		# Extract results, tracking which ones failed
+		# Extract results, tracking which required requests failed. The AX tree
+		# enriches DOM nodes with accessibility names and roles, but the snapshot
+		# and DOM tree still contain a usable page structure without it. Do not
+		# discard that structure when accessibility collection stalls or fails.
 		results = {}
 		failed = []
 		for key, task in tasks.items():
@@ -612,10 +638,16 @@ class DomService:
 					results[key] = task.result()
 				except Exception as e:
 					self.logger.warning(f'CDP request {key} failed with exception: {e}')
-					failed.append(key)
+					if key == 'ax_tree':
+						results[key] = {'nodes': []}
+					else:
+						failed.append(key)
 			else:
 				self.logger.warning(f'CDP request {key} timed out')
-				failed.append(key)
+				if key == 'ax_tree':
+					results[key] = {'nodes': []}
+				else:
+					failed.append(key)
 
 		# If any required tasks failed, raise an exception
 		if failed:
@@ -675,6 +707,7 @@ class DomService:
 		initial_html_frames: list[EnhancedDOMTreeNode] | None = None,
 		initial_total_frame_offset: DOMRect | None = None,
 		iframe_depth: int = 0,
+		visited_cross_origin_targets: set[TargetID] | None = None,
 	) -> tuple[EnhancedDOMTreeNode, dict[str, float]]:
 		"""Get the DOM tree for a specific target.
 
@@ -684,10 +717,14 @@ class DomService:
 			initial_html_frames: List of HTML frame nodes encountered so far
 			initial_total_frame_offset: Accumulated coordinate offset
 			iframe_depth: Current depth of iframe nesting to prevent infinite recursion
+			visited_cross_origin_targets: Target IDs already included in this DOM capture
 
 		Returns:
 			Tuple of (enhanced_dom_tree_node, timing_info)
 		"""
+		if visited_cross_origin_targets is None:
+			visited_cross_origin_targets = {target_id}
+
 		timing_info: dict[str, float] = {}
 		timing_start_total = time.time()
 
@@ -932,7 +969,7 @@ class DomService:
 						f'Skipping iframe at depth {iframe_depth} to prevent infinite recursion (max depth: {self.max_iframe_depth})'
 					)
 				else:
-					# Check if iframe is visible and large enough (>= 50px in both dimensions)
+					# Ignore only frames smaller than 10px in either dimension.
 					should_process_iframe = False
 
 					# First check if the iframe element itself is visible
@@ -943,13 +980,13 @@ class DomService:
 							width = bounds.width
 							height = bounds.height
 
-							# Only process if iframe is at least 50px in both dimensions
-							if width >= 50 and height >= 50:
+							if _is_cross_origin_iframe_size_eligible(width, height):
 								should_process_iframe = True
 								self.logger.debug(f'Processing cross-origin iframe: visible=True, width={width}, height={height}')
 							else:
 								self.logger.debug(
-									f'Skipping small cross-origin iframe: width={width}, height={height} (needs >= 50px)'
+									f'Skipping small cross-origin iframe: width={width}, height={height} '
+									f'(needs >= {_MIN_CROSS_ORIGIN_IFRAME_EDGE}px per edge)'
 								)
 						else:
 							self.logger.debug('Skipping cross-origin iframe: no bounds available')
@@ -999,16 +1036,26 @@ class DomService:
 
 						# if target actually exists in one of the frames, just recursively build the dom tree for it
 						if iframe_document_target:
+							child_target_id = iframe_document_target['targetId']
+							traversed_child_count = len(visited_cross_origin_targets) - 1
+							if child_target_id in visited_cross_origin_targets or traversed_child_count >= self.max_iframes:
+								self.logger.debug(
+									f'Skipping duplicate or over-limit cross-origin iframe target {child_target_id}'
+								)
+								return dom_tree_node
+
+							visited_cross_origin_targets.add(child_target_id)
 							self.logger.debug(
 								f'Getting content document for iframe {node.get("frameId", None)} at depth {iframe_depth + 1}'
 							)
 							try:
 								content_document, _ = await self.get_dom_tree(
-									target_id=iframe_document_target['targetId'],
+									target_id=child_target_id,
 									all_frames=all_frames,
 									# Current config: if the cross origin iframe is AT ALL visible, include everything inside it
 									initial_total_frame_offset=total_frame_offset,
 									iframe_depth=iframe_depth + 1,
+									visited_cross_origin_targets=visited_cross_origin_targets,
 								)
 								dom_tree_node.content_document = content_document
 								dom_tree_node.content_document.parent_node = dom_tree_node
@@ -1114,6 +1161,7 @@ class DomService:
 			List of pagination button information dicts with:
 			- button_type: 'next', 'prev', 'first', 'last', 'page_number'
 			- backend_node_id: Backend node ID for clicking
+			- selector_index: Model-visible selector index
 			- text: Button text/label
 			- selector: XPath selector
 			- is_disabled: Whether the button appears disabled
@@ -1172,7 +1220,8 @@ class DomService:
 				pagination_buttons.append(
 					{
 						'button_type': button_type,
-						'backend_node_id': index,
+						'backend_node_id': node.backend_node_id,
+						'selector_index': index,
 						'text': node.get_all_children_text().strip() or aria_label or title,
 						'selector': node.xpath,
 						'is_disabled': is_disabled,

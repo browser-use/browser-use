@@ -151,6 +151,17 @@ class PaintOrderRemover:
 	def __init__(self, root: SimplifiedNode):
 		self.root = root
 
+	@staticmethod
+	def _document_context(node: SimplifiedNode) -> tuple[str | None, str | None]:
+		"""Identify the CDP session and iframe document owning a node's snapshot."""
+		original_node = node.original_node
+		parent = original_node.parent_node
+		while parent is not None:
+			if parent.tag_name in {'iframe', 'frame'}:
+				return str(original_node.session_id), parent.frame_id
+			parent = parent.parent_node
+		return str(original_node.session_id), None
+
 	def calculate_paint_order(self) -> None:
 		all_simplified_nodes_with_paint_order: list[SimplifiedNode] = []
 
@@ -173,10 +184,10 @@ class PaintOrderRemover:
 			if node.original_node.snapshot_node and node.original_node.snapshot_node.paint_order is not None:
 				grouped_by_paint_order[node.original_node.snapshot_node.paint_order].append(node)
 
-		rect_union = RectUnionPure()
+		rect_unions: defaultdict[tuple[str | None, str | None], RectUnionPure] = defaultdict(RectUnionPure)
 
 		for paint_order, nodes in sorted(grouped_by_paint_order.items(), key=lambda x: -x[0]):
-			rects_to_add = []
+			rects_to_add: defaultdict[tuple[str | None, str | None], list[Rect]] = defaultdict(list)
 
 			for node in nodes:
 				if not node.original_node.snapshot_node or not node.original_node.snapshot_node.bounds:
@@ -188,8 +199,9 @@ class PaintOrderRemover:
 					x2=node.original_node.snapshot_node.bounds.x + node.original_node.snapshot_node.bounds.width,
 					y2=node.original_node.snapshot_node.bounds.y + node.original_node.snapshot_node.bounds.height,
 				)
+				context = self._document_context(node)
 
-				if rect_union.contains(rect):
+				if rect_unions[context].contains(rect):
 					node.ignored_by_paint_order = True
 
 				# don't add to the nodes if opacity is less then 0.95 or background-color is transparent
@@ -204,9 +216,10 @@ class PaintOrderRemover:
 				):
 					continue
 
-				rects_to_add.append(rect)
+				rects_to_add[context].append(rect)
 
-			for rect in rects_to_add:
-				rect_union.add(rect)
+			for context, rects in rects_to_add.items():
+				for rect in rects:
+					rect_unions[context].add(rect)
 
 		return None

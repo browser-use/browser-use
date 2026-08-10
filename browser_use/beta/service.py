@@ -1397,7 +1397,7 @@ def _task_with_sensitive_data_context(task: str, sensitive_context: dict[str, An
 def _extract_start_url(task: str) -> str | None:
 	task_without_emails = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '', task)
 	patterns = [
-		r'https?://[^\s<>"\']+',
+		r'(?:https?|file)://[^\s<>"\']+',
 		r'(?:www\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?',
 	]
 	excluded_extensions = {
@@ -1463,19 +1463,29 @@ def _extract_start_url(task: str) -> str | None:
 	excluded_words = {'never', 'dont', 'not', "don't"}
 
 	found_urls = []
+	matched_spans: list[tuple[int, int]] = []
 	for pattern in patterns:
 		for match in re.finditer(pattern, task_without_emails):
+			# Skip fragments of URLs already matched by an earlier pattern
+			if any(match.start() < end and match.end() > start for start, end in matched_spans):
+				continue
+			matched_spans.append((match.start(), match.end()))
 			url = sanitize_url_candidate(match.group(0))
 			url_lower = url.lower()
+			has_scheme = url_lower.startswith(('http://', 'https://', 'file://'))
 			if is_placeholder_url(url):
 				continue
-			if any(f'.{ext}' in url_lower for ext in excluded_extensions):
-				continue
+			# file:// URLs are explicit navigation targets, keep them as-is
+			if not url_lower.startswith('file://'):
+				if any(f'.{ext}' in url_lower for ext in excluded_extensions):
+					continue
+				if not has_scheme and '.htm' in url_lower:
+					continue
 			context_start = max(0, match.start() - 20)
 			context_text = task_without_emails[context_start : match.start()]
 			if any(word in context_text.lower() for word in excluded_words):
 				continue
-			if not url.startswith(('http://', 'https://')):
+			if not has_scheme:
 				url = 'https://' + url
 			found_urls.append(url)
 
@@ -4355,9 +4365,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			from browser_use.skills import SkillService
 
 			self.skill_service = SkillService(skill_ids=skill_ids)
+		# Per-page extract uses a schema only when explicitly requested; it must not
+		# inherit output_model_schema (the final-result shape), which is wrong for a
+		# single-page extraction and breaks extract on the browser-use gateway.
 		self.extraction_schema = extraction_schema
-		if self.extraction_schema is None and output_model_schema is not None:
-			self.extraction_schema = output_model_schema.model_json_schema()
 		self._fallback_llm = fallback_llm
 		self._using_fallback_llm = False
 		self._original_llm = llm
