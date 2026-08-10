@@ -15,6 +15,23 @@ from browser_use.utils import create_task_with_error_handling
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession, CDPSession, Target
 
+# Chromium bug https://issues.chromium.org/issues/40280325: Input.dispatchMouseEvent
+# (what every CDP-driven click uses) constructs MouseEvent/PointerEvent objects whose
+# .screenX/.screenY are silently set equal to .clientX/.clientY. Real pointer hardware
+# essentially never produces that equality (screen coords include the OS window's
+# position, viewport coords don't), so Cloudflare Turnstile's interactive checkbox
+# checks for it and flags the click as non-human. Patching the prototype getters closes
+# the leak; values are randomized once per document so repeated clicks stay self-consistent.
+_SCREEN_XY_PATCH_SCRIPT = """(function(){
+	function r(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+	var screenX = r(800, 1200);
+	var screenY = r(400, 600);
+	try {
+		Object.defineProperty(MouseEvent.prototype, 'screenX', {get: function(){ return screenX; }, configurable: true});
+		Object.defineProperty(MouseEvent.prototype, 'screenY', {get: function(){ return screenY; }, configurable: true});
+	} catch (e) {}
+})();"""
+
 
 class SessionManager:
 	"""Event-driven CDP session manager.
@@ -489,6 +506,16 @@ class SessionManager:
 				self.logger.debug(f'[SessionManager] Fetch.enable(handleAuthRequests=True) on session {session_id[:8]}...')
 		except Exception as e:
 			self.logger.debug(f'[SessionManager] Fetch.enable on attached session failed: {type(e).__name__}: {e}')
+
+		# Applied to every target (main frame + OOPIFs) since Turnstile's checkbox
+		# renders in its own cross-origin iframe target with an independent session.
+		try:
+			await cdp_session.cdp_client.send.Page.addScriptToEvaluateOnNewDocument(
+				params={'source': _SCREEN_XY_PATCH_SCRIPT, 'runImmediately': True},
+				session_id=cdp_session.session_id,
+			)
+		except Exception as e:
+			self.logger.debug(f'[SessionManager] screenX/screenY patch injection failed for {target_id[:8]}...: {e}')
 
 		self.logger.debug(
 			f'[SessionManager] Created session {session_id[:8]}... for target {target_id[:8]}... '
