@@ -524,6 +524,17 @@ class BrowserSession(BaseModel):
 			return await self._captcha_watchdog.wait_if_captcha_solving(timeout=timeout)
 		return None
 
+	async def solve_captcha_on_current_page_if_brightdata(self) -> None:
+		"""Actively trigger Bright Data's CDP CAPTCHA solver on whatever page currently has focus.
+
+		Covers navigations that happen via an in-page click (e.g. selecting a showtime
+		link) rather than an explicit agent navigate action, which `_solve_captcha_if_brightdata`
+		alone would miss since it only fires from `on_NavigateToUrlEvent`.
+		"""
+		if not self.agent_focus_target_id:
+			return
+		await self._solve_captcha_if_brightdata(self.agent_focus_target_id)
+
 	@property
 	def is_reconnecting(self) -> bool:
 		"""Whether a WebSocket reconnection attempt is currently in progress."""
@@ -972,6 +983,9 @@ class BrowserSession(BaseModel):
 			# Close any extension options pages that might have opened
 			await self._close_extension_options_pages()
 
+			# Actively trigger Bright Data's CAPTCHA solver (no-op on other proxies/local Chrome)
+			await self._solve_captcha_if_brightdata(target_id)
+
 			# Dispatch navigation complete
 			self.logger.debug(f'Dispatching NavigationCompleteEvent for {event.url} (tab #{target_id[-4:]})')
 			await self.event_bus.dispatch(
@@ -1275,6 +1289,45 @@ class BrowserSession(BaseModel):
 		host = urlparse(self.cdp_url).hostname or ''
 		match = re.match(r'^([0-9a-fA-F-]{36})\.cdp\d+\.browser-use\.com$', host)
 		return match.group(1) if match else None
+
+	def _is_brightdata_cdp_url(self) -> bool:
+		"""Whether the current connection is Bright Data's Browser API (superproxy.io)."""
+		if not self.cdp_url:
+			return False
+		return (urlparse(self.cdp_url).hostname or '').endswith('superproxy.io')
+
+	async def _solve_captcha_if_brightdata(self, target_id: str) -> None:
+		"""Actively trigger Bright Data's CDP CAPTCHA solver after navigation.
+
+		Bright Data's proxy-level auto-solver doesn't reliably clear interactive
+		challenges (e.g. Cloudflare Turnstile) on its own — passive waiting after
+		navigation often just times out. Bright Data exposes an explicit
+		``Captcha.solve`` CDP command that actively detects and solves a challenge
+		on the current page, returning a real status (`solve_finished`,
+		`solve_failed`, `not_detected`) instead of leaving the caller to guess.
+		No-op for any connection that isn't Bright Data's Browser API.
+		"""
+		if not self._is_brightdata_cdp_url():
+			return
+		try:
+			cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+			# detectTimeout only bounds how long Bright Data looks for a challenge before
+			# giving up (returns 'not_detected') - it does NOT cap the solve itself once one
+			# is found, so a short value keeps the common no-challenge case cheap (~1-2s)
+			# without limiting how long an actual solve is allowed to take.
+			result = await cdp_session.cdp_client.send_raw(
+				'Captcha.solve', {'detectTimeout': 3_000}, session_id=cdp_session.session_id
+			)
+			status = result.get('status') if isinstance(result, dict) else None
+			if status == 'solve_finished':
+				self.logger.info('🔓 Bright Data solved a CAPTCHA/challenge on this page')
+			elif status == 'solve_failed':
+				self.logger.warning('🔒 Bright Data detected a CAPTCHA/challenge but failed to solve it')
+			# 'not_detected' is the common case (no challenge present) - nothing to log
+		except Exception as e:
+			# Non-Bright Data proxies, or older zones without this CDP domain, will
+			# raise "method not found" here - this must never block navigation.
+			self.logger.debug(f'Bright Data Captcha.solve check failed (non-fatal): {type(e).__name__}: {e}')
 
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		"""Handle browser stop request."""
