@@ -1,3 +1,5 @@
+[![MCP Toplist](https://mcptoplist.com/badge/pulsemcp%2Fbrowser-use.svg)](https://mcptoplist.com/server/pulsemcp%2Fbrowser-use)
+
 <!-- mcp-name: com.browser-use/browser-use -->
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24">
