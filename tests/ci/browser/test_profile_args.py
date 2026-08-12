@@ -15,4 +15,5 @@ def test_ignore_default_args_preserves_default_order(tmp_path):
 	actual_args = profile.get_args()
 	actual_default_args = [arg for arg in actual_args if arg in expected_default_args]
 
+	assert ignored_arg not in actual_args
 	assert actual_default_args == expected_default_args
