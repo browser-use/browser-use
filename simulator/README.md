@@ -141,6 +141,90 @@ python -m simulator.scripts.merge_runs simulator/runs/<run> simulator/runs/<othe
 python -m simulator.scripts.analysis structure | measure | compare
 ```
 
+## Controlled experiments — `SIM_TASK_IDS` and `SIM_NO_VISION`
+
+Two env vars exist so several server configurations can be compared on **exactly** the same work.
+
+| Env var | Effect |
+|---|---|
+| `SIM_TASK_IDS=<file.json>` | Restrict the run to a fixed task subset. The file is a JSON list of `folder_name` strings (`"webvoyager__Allrecipes--3"`) or `{"source":…, "id":…}` objects. |
+| `SIM_NO_VISION=1` | Run the agent **text-only** — no screenshot is sent to the LLM. Needed when comparing sparse-attention settings, where image KV would otherwise dominate the context and confound the comparison. |
+
+**`--task-num` truncates *before* `SIM_TASK_IDS` filters.** `load_tasks()` returns `tasks[:task_num]`,
+and the subset filter is applied to what survives — so `--task-num 50` with a 50-id file yields the
+*intersection* of "first 50 alphabetically" and your subset, which is usually a handful. Pass a
+`--task-num` larger than the corpus (e.g. `100000`) and let the id file do the selecting. Always
+check the line it prints:
+
+```
+SIM_TASK_IDS: restricted to 50 tasks from .../half1_folder_names.json
+```
+
+If that number is not what you expect, the run is measuring something else. Nothing errors.
+
+### Offline replay: comparing attention configurations on identical steps
+
+The offline protocol replays each recorded step's **exact context** against a differently-configured
+server and compares the action it produces to the reference trajectory. Because the context is
+replayed rather than re-derived, errors do not compound — it isolates "given this exact page, does
+the model still pick the right element" from "can the agent recover from its own earlier mistakes".
+
+1. **Pick the task set.** Sample complete trajectories (every step of every task) that a reference
+   model completed successfully. Partial trajectories cannot be evaluated end-to-end. Write the
+   `folder_name`s to a JSON file for `SIM_TASK_IDS`.
+
+2. **Export the contexts once.** Each record holds the replayed messages plus the reference action,
+   so every configuration afterwards sees byte-identical input.
+
+3. **For each configuration:** restart the server with those flags, wait until it answers, then
+   replay. Only the server flags change between runs — same data, same client, same judge.
+
+```bash
+# per configuration: restart the server, then replay the same recorded steps
+python3 serve.py --model-path /models/Qwen3-VL-30B-A3B-Instruct --port 10000 \
+    --page-size 64 --top-k 64 --tree-parse-mode webarena --scoring-method envelope \
+    --disable-cuda-graph &
+
+python -m simulator eval simulator/runs/<run> --mode replay
+```
+
+**Match the budget, not `top_k`.** The number of KV tokens actually attended per decode step is
+`page_size × top_k`, and page sizes differ across methods — so `--page-size 64 --top-k 64` and
+`--page-size 16 --top-k 256` are the comparable pair (both 4096), not two runs sharing a `top_k`.
+
+**Cluster your statistics by task.** Steps are nested within tasks and are not independent; treating
+each step as an independent sample overstates significance. Use the task as the unit (sign test over per-task
+counts, or a bootstrap that resamples tasks).
+
+Two properties of the metrics worth knowing before reading any result:
+
+- `agree` (chose the same element as the reference) has a ceiling well below 100% — many tasks admit
+  several correct paths, so a valid-but-different click counts as disagreement. Run a full-attention
+  configuration as the yardstick; comparing against 100% is meaningless.
+- "emitted no element index at all" occurs at a similar rate for every configuration including
+  dense, so it is not attributable to whatever is being tested.
+
+### Online end-to-end on the same subset
+
+The online counterpart runs the real agent loop — the agent's own actions drive the browser from the
+task's start URL, with no recorded trajectory involved:
+
+```bash
+USE_TSA=1 TSA_BASE_URL=http://localhost:10000/v1 \
+SIM_HEADLESS=0 SIM_NO_VISION=1 SIM_TASK_IDS=<subset.json> \
+python -m simulator capture --task-num 100000 --batch-size 6 --source both \
+    --max-steps 20 --task-timeout 5640 --llm-timeout 900 \
+    --out-dir simulator/runs/online-<config>
+```
+
+Set `--task-timeout` from the **measured** per-step latency, not from a guess: at ~29k-token
+contexts and batch 6 a step takes minutes, not seconds, and a timeout that admits fewer steps than
+`--max-steps` silently makes the step cap dead letter and turns most tasks into timeouts. Measure one
+configuration first, then size the budget as `max_steps × observed_step_time`.
+
+Use headed (`SIM_HEADLESS=0`) for real sites — headless triggers bot-blocking, and blocked pages come
+back with a handful of elements, which looks like a model failure rather than a fetch failure.
+
 The `success` judge sees the task + the agent's answer + the **reference answer**
 (ground truth) + the last `k` screenshots and returns SUCCESS / NOT SUCCESS
 (temperature 0, grammar-constrained verdict). Both eval modes read only captured files;

@@ -86,7 +86,9 @@ async def execute_task(
 		llm=llm,
 		browser=browser,
 		initial_actions=[{'navigate': {'url': task.start_url, 'new_tab': False}}],
-		use_vision=cfg.use_vision,  # serve.py feeds image_url->pixel_values to Qwen3-VL at prefill (vision verified)
+		# SIM_NO_VISION=1 runs the agent TEXT-ONLY (no screenshots to the LLM) — used for
+		# sparse-attention experiments where the vision KV would confound the comparison.
+		use_vision=cfg.use_vision and os.environ.get('SIM_NO_VISION', '0').lower() not in ('1', 'true'),
 		llm_screenshot_size=(1280, 720),  # downscale the per-step vision image (full-HD PNGs are ~3MB each)
 		use_judge=False,
 		enable_planning=False,
@@ -198,6 +200,15 @@ async def run_capture(cfg: RunConfig, out_dir: Path | None = None) -> Path:
 		except Exception:  # noqa: BLE001
 			return False
 		return any(folder.glob('step_*/output.json'))  # a real trajectory has >=1 recorded model output
+
+	# SIM_TASK_IDS=<json file>: restrict the run to an explicit task subset (list of
+	# {"id":..., "source":...} or folder-name strings). Used for controlled experiments.
+	ids_file = os.environ.get('SIM_TASK_IDS')
+	if ids_file:
+		raw = json.loads(Path(ids_file).read_text())
+		want = {r if isinstance(r, str) else f'{r["source"]}__{r["id"]}' for r in raw}
+		tasks = [t for t in tasks if t.folder_name in want]
+		print(f'SIM_TASK_IDS: restricted to {len(tasks)} tasks from {ids_file}')
 
 	todo = [t for t in tasks if not _already_captured(t)]
 	skipped = len(tasks) - len(todo)
