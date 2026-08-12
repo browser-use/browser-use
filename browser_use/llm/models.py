@@ -18,6 +18,7 @@ from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.minimax.chat import ChatMiniMax
 from browser_use.llm.mistral.chat import ChatMistral
 from browser_use.llm.openai.chat import ChatOpenAI
 
@@ -79,6 +80,9 @@ anthropic_claude_3_5_haiku_latest: 'BaseChatModel'
 cerebras_gpt_oss_120b: 'BaseChatModel'
 cerebras_zai_glm_4_7: 'BaseChatModel'
 cerebras_gemma_4_31b: 'BaseChatModel'
+
+minimax_m3: 'BaseChatModel'
+minimax_m2_7: 'BaseChatModel'
 
 bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
@@ -211,6 +215,13 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('CEREBRAS_API_KEY')
 		return ChatCerebras(model=model, api_key=api_key)
 
+	# MiniMax Models
+	elif provider == 'minimax':
+		api_key = os.getenv('MINIMAX_API_KEY')
+		region = os.getenv('MINIMAX_REGION', 'global').lower()
+		minimax_map = {'m3': 'MiniMax-M3', 'm2-7': 'MiniMax-M2.7'}
+		return ChatMiniMax(model=minimax_map.get(model, model), api_key=api_key, region=region)  # type: ignore[arg-type]
+
 	# Browser Use Models
 	elif provider == 'bu':
 		# Handle bu_latest -> bu-latest conversion (need to prepend 'bu-' back)
@@ -219,7 +230,7 @@ def get_llm_by_name(model_name: str):
 		return ChatBrowserUse(model=model, api_key=api_key)
 
 	else:
-		available_providers = ['openai', 'azure', 'google', 'anthropic', 'mistral', 'oci', 'cerebras', 'bu']
+		available_providers = ['openai', 'azure', 'google', 'anthropic', 'mistral', 'oci', 'cerebras', 'minimax', 'bu']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -243,6 +254,8 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatOCIRaw  # type: ignore
 	elif name == 'ChatCerebras':
 		return ChatCerebras  # type: ignore
+	elif name == 'ChatMiniMax':
+		return ChatMiniMax  # type: ignore
 	elif name == 'ChatBrowserUse':
 		return ChatBrowserUse  # type: ignore
 
@@ -260,6 +273,7 @@ __all__ = [
 	'ChatGoogle',
 	'ChatMistral',
 	'ChatCerebras',
+	'ChatMiniMax',
 	'ChatBrowserUse',
 ]
 
@@ -315,6 +329,9 @@ __all__ += [
 	'cerebras_gpt_oss_120b',
 	'cerebras_zai_glm_4_7',
 	'cerebras_gemma_4_31b',
+	# MiniMax instances - created on demand
+	'minimax_m3',
+	'minimax_m2_7',
 	# Browser Use instances - created on demand
 	'bu_latest',
 	'bu_1_0',

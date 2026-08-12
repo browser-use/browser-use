@@ -9,6 +9,24 @@ from typing import Any
 # Custom model pricing data
 # Format matches LiteLLM's model_prices_and_context_window.json structure
 CUSTOM_MODEL_PRICING: dict[str, dict[str, Any]] = {
+	'MiniMax-M3': {
+		'input_cost_per_token': 0.6 / 1_000_000,
+		'output_cost_per_token': 2.4 / 1_000_000,
+		'cache_read_input_token_cost': 0.12 / 1_000_000,
+		'cache_creation_input_token_cost': None,
+		'max_tokens': 1_000_000,
+		'max_input_tokens': 1_000_000,
+		'max_output_tokens': None,
+	},
+	'MiniMax-M2.7': {
+		'input_cost_per_token': 0.3 / 1_000_000,
+		'output_cost_per_token': 1.2 / 1_000_000,
+		'cache_read_input_token_cost': 0.06 / 1_000_000,
+		'cache_creation_input_token_cost': 0.375 / 1_000_000,
+		'max_tokens': 204_800,
+		'max_input_tokens': 204_800,
+		'max_output_tokens': None,
+	},
 	'bu-1-0': {
 		'input_cost_per_token': 0.2 / 1_000_000,  # $0.20 per 1M tokens
 		'output_cost_per_token': 2.00 / 1_000_000,  # $2.00 per 1M tokens
