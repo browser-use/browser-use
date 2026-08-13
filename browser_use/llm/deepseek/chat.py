@@ -20,6 +20,7 @@ from browser_use.llm.deepseek.serializer import DeepSeekMessageSerializer
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
+from browser_use.llm.utils import clean_and_extract_json
 from browser_use.llm.views import ChatInvokeCompletion
 
 T = TypeVar('T', bound=BaseModel)
@@ -123,8 +124,10 @@ class ChatDeepSeek(BaseChatModel):
 					messages=ds_messages,  # type: ignore
 					**common,
 				)
+				content, thinking = clean_and_extract_json(resp.choices[0].message.content or '')
 				return ChatInvokeCompletion(
-					completion=resp.choices[0].message.content or '',
+					completion=content,
+					thinking=thinking,
 					usage=None,
 				)
 			except RateLimitError as e:
@@ -165,20 +168,24 @@ class ChatDeepSeek(BaseChatModel):
 				if not msg.tool_calls:
 					raise ValueError('Expected tool_calls in response but got none')
 				raw_args = msg.tool_calls[0].function.arguments
+				thinking = None
 				if isinstance(raw_args, str):
-					parsed = json.loads(raw_args)
+					cleaned_args, thinking = clean_and_extract_json(raw_args)
+					parsed = json.loads(cleaned_args)
 				else:
 					parsed = raw_args
 				# --------- Fix: only use model_validate when output_format is not None ----------
 				if output_format is not None:
 					return ChatInvokeCompletion(
 						completion=output_format.model_validate(parsed),
+						thinking=thinking,
 						usage=None,
 					)
 				else:
 					# If no output_format, return dict directly
 					return ChatInvokeCompletion(
 						completion=parsed,
+						thinking=thinking,
 						usage=None,
 					)
 			except RateLimitError as e:
@@ -197,12 +204,14 @@ class ChatDeepSeek(BaseChatModel):
 					response_format={'type': 'json_object'},
 					**common,
 				)
-				content = resp.choices[0].message.content
-				if not content:
+				raw_content = resp.choices[0].message.content
+				if not raw_content:
 					raise ModelProviderError('Empty JSON content in DeepSeek response', model=self.name)
-				parsed = output_format.model_validate_json(content)
+				content, thinking = clean_and_extract_json(raw_content)
+				parsed = output_format.model_validate_json(content)  # type: ignore[attr-defined]
 				return ChatInvokeCompletion(
 					completion=parsed,
+					thinking=thinking,
 					usage=None,
 				)
 			except RateLimitError as e:
