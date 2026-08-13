@@ -49,7 +49,9 @@ def test_total_agrees_with_its_parts_on_a_cached_call():
 def test_bedrock_total_agrees_with_its_parts_on_a_cached_call():
 	"""The Bedrock client serves the same models and carries the same defect."""
 	chat = ChatAnthropicBedrock(model='anthropic.claude-sonnet-4-6-v1:0')
-	usage = chat._get_usage(_response(input_tokens=10, output_tokens=5, cache_read=1000))
+	# This overload annotates `response` as `Message` rather than `Any`, and the stand-in
+	# carries only the `usage` attribute the method actually reads.
+	usage = chat._get_usage(_response(input_tokens=10, output_tokens=5, cache_read=1000))  # type: ignore[arg-type]
 
 	assert usage is not None
 	assert usage.total_tokens == usage.prompt_tokens + usage.completion_tokens
