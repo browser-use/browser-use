@@ -47,7 +47,7 @@ def test_clean_and_extract_json_multiple_and_unclosed_think():
 	raw = '<think>First thought</think>Mid prose<think>Second truncated thought'
 	content, thinking = clean_and_extract_json(raw)
 	assert content == 'Mid prose'
-	assert thinking is not None
+	assert isinstance(thinking, str)
 	assert 'First thought' in thinking
 	assert 'Second truncated thought' in thinking
 
