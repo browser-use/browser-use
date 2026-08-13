@@ -21,9 +21,46 @@ from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.utils import clean_and_extract_json
-from browser_use.llm.views import ChatInvokeCompletion
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def _extract_deepseek_usage(resp: Any) -> ChatInvokeUsage | None:
+	if not resp:
+		return None
+	if isinstance(resp, dict):
+		usage = resp.get('usage')
+	else:
+		usage = getattr(resp, 'usage', None)
+	if not usage:
+		return None
+
+	if isinstance(usage, dict):
+		prompt_tokens = usage.get('prompt_tokens', 0) or 0
+		completion_tokens = usage.get('completion_tokens', 0) or 0
+		total_tokens = usage.get('total_tokens', 0) or (prompt_tokens + completion_tokens)
+		cached_tokens = usage.get('prompt_cache_hit_tokens')
+	else:
+		prompt_tokens = getattr(usage, 'prompt_tokens', 0) or 0
+		completion_tokens = getattr(usage, 'completion_tokens', 0) or 0
+		total_tokens = getattr(usage, 'total_tokens', 0) or (prompt_tokens + completion_tokens)
+		cached_tokens = getattr(usage, 'prompt_cache_hit_tokens', None)
+		if cached_tokens is None and hasattr(usage, 'prompt_tokens_details'):
+			details = getattr(usage, 'prompt_tokens_details', None)
+			if details:
+				cached_tokens = (
+					details.get('cached_tokens') if isinstance(details, dict) else getattr(details, 'cached_tokens', None)
+				)
+
+	return ChatInvokeUsage(
+		prompt_tokens=prompt_tokens,
+		prompt_cached_tokens=cached_tokens,
+		prompt_cache_creation_tokens=None,
+		prompt_image_tokens=None,
+		completion_tokens=completion_tokens,
+		total_tokens=total_tokens,
+	)
 
 
 @dataclass
@@ -128,7 +165,7 @@ class ChatDeepSeek(BaseChatModel):
 				return ChatInvokeCompletion(
 					completion=content,
 					thinking=thinking,
-					usage=None,
+					usage=_extract_deepseek_usage(resp),
 				)
 			except RateLimitError as e:
 				raise ModelRateLimitError(str(e), model=self.name) from e
@@ -179,14 +216,14 @@ class ChatDeepSeek(BaseChatModel):
 					return ChatInvokeCompletion(
 						completion=output_format.model_validate(parsed),
 						thinking=thinking,
-						usage=None,
+						usage=_extract_deepseek_usage(resp),
 					)
 				else:
 					# If no output_format, return dict directly
 					return ChatInvokeCompletion(
 						completion=parsed,
 						thinking=thinking,
-						usage=None,
+						usage=_extract_deepseek_usage(resp),
 					)
 			except RateLimitError as e:
 				raise ModelRateLimitError(str(e), model=self.name) from e
@@ -212,7 +249,7 @@ class ChatDeepSeek(BaseChatModel):
 				return ChatInvokeCompletion(
 					completion=parsed,
 					thinking=thinking,
-					usage=None,
+					usage=_extract_deepseek_usage(resp),
 				)
 			except RateLimitError as e:
 				raise ModelRateLimitError(str(e), model=self.name) from e
