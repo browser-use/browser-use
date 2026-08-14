@@ -1,0 +1,24 @@
+javascript/test/cdp.test.mjs
+  s_8deac30db84b56::t_cf8d82e7976299 50,52-53
+  s_8deac30db84b56::t_9b49e3b40ecec8 14-17,51,54
+javascript/src/browser-execute.ts
+  s_8deac30db84b56::t_cf8d82e7976299 104,107-118
+javascript/src/cdp.ts
+  s_8deac30db84b56::t_cf8d82e7976299 105-106,118,211-213,215,241,250-252
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dfdae2be1b34ac0b03fa9cb074930019728c5d62",
+  "prompts": {},
+  "sessions": {
+    "s_8deac30db84b56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a001cf-c7c1-7023-aa89-b84143152188",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
