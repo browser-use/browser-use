@@ -1,0 +1,21 @@
+javascript/test/output.test.mjs
+  s_8deac30db84b56::t_a488bbe3ea0aac 1-12
+javascript/src/agent.ts
+  s_8deac30db84b56::t_a488bbe3ea0aac 128,135-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "eed0faba8d98b8be9d374e4b5bb6ef5d6a6aa7f1",
+  "prompts": {},
+  "sessions": {
+    "s_8deac30db84b56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a001cf-c7c1-7023-aa89-b84143152188",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
