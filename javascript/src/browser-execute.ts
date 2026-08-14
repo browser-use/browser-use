@@ -101,11 +101,21 @@ async function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number, signal
   return await new Promise<T>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error(`browser_execute timed out after ${timeoutMs}ms`)), timeoutMs);
     const abort = () => reject(new Error("browser_execute cancelled"));
-    signal?.addEventListener("abort", abort, { once: true });
-    promise.then(resolve, reject).finally(() => {
+    const cleanup = () => {
       clearTimeout(timeout);
       signal?.removeEventListener("abort", abort);
-    });
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    promise.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
   });
 }
 

@@ -11,6 +11,10 @@ test("CDP session attaches once and routes page calls through the active session
     socket.on("message", (raw) => {
       const request = JSON.parse(raw.toString());
       requests.push(request);
+      if (request.method === "Runtime.throwForTest") {
+        socket.send(JSON.stringify({ id: request.id, error: { message: "test CDP error" } }));
+        return;
+      }
       const result = request.method === "Target.getTargets"
         ? { targetInfos: [{ type: "page", targetId: "page-1", url: "about:blank" }] }
         : request.method === "Target.attachToTarget"
@@ -43,6 +47,11 @@ test("CDP session attaches once and routes page calls through the active session
   assert.equal(typeof unsubscribe, "function");
   unsubscribe();
   assert.equal(requests.some((request) => request.method === "Network.requestWillBeSent"), false);
+  const abandonedWait = session.waitFor("Page.eventThatNeverArrives", 5);
+  const abandonedCommand = session.Runtime.throwForTest({});
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await assert.rejects(abandonedWait, /Timed out waiting/);
+  await assert.rejects(abandonedCommand, /test CDP error/);
   const evaluation = requests.find((request) => request.method === "Runtime.evaluate");
   assert.equal(evaluation.sessionId, "session-1");
   assert.equal(requests.find((request) => request.method === "Target.getTargets").sessionId, undefined);

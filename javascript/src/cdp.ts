@@ -102,8 +102,8 @@ export class CdpSession {
     return sessionId;
   }
 
-  async waitFor(method: string, timeoutMs = 30_000, sessionId = this.activeSessionId): Promise<JsonObject> {
-    return await new Promise<JsonObject>((resolve, reject) => {
+  waitFor(method: string, timeoutMs = 30_000, sessionId = this.activeSessionId): Promise<JsonObject> {
+    return handled(new Promise<JsonObject>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.eventListeners.delete(listener);
         reject(new Error(`Timed out waiting for ${method}`));
@@ -115,7 +115,7 @@ export class CdpSession {
         resolve(event.params);
       };
       this.eventListeners.add(listener);
-    });
+    }));
   }
 
   onCallResult(listener: CallListener): () => void {
@@ -208,11 +208,11 @@ export type BrowserSession = {
 export function createBrowserSession(client: CdpSession): BrowserSession {
   const domainCache = new Map<string, object>();
   const fixed: Record<string, unknown> = {
-    connect: () => client.connect(),
-    close: () => client.close(),
-    use: (targetId: string) => client.use(targetId),
+    connect: () => handled(client.connect()),
+    close: () => handled(client.close()),
+    use: (targetId: string) => handled(client.use(targetId)),
     waitFor: (method: string, timeoutMs?: number, sessionId?: string) => client.waitFor(method, timeoutMs, sessionId),
-    cdp: (method: string, params: JsonObject = {}, session?: string | null) => client.call(method, params, session),
+    cdp: (method: string, params: JsonObject = {}, session?: string | null) => handled(client.call(method, params, session)),
   };
   return new Proxy(fixed, {
     get(target, property, receiver) {
@@ -238,13 +238,18 @@ export function createBrowserSession(client: CdpSession): BrowserSession {
           if (typeof paramsOrListener === "function") {
             return client.onEvent(`${domain}.${method}`, paramsOrListener);
           }
-          return client.call(`${domain}.${method}`, paramsOrListener);
+          return handled(client.call(`${domain}.${method}`, paramsOrListener));
         };
       },
     });
     domainCache.set(domain, proxy);
     return proxy;
   }
+}
+
+function handled<T>(promise: Promise<T>): Promise<T> {
+  void promise.catch(() => {});
+  return promise;
 }
 
 async function resolveWebSocketUrl(endpoint: string, headers: Record<string, string>): Promise<string> {
