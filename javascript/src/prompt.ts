@@ -5,9 +5,10 @@ real page. Prefer short deterministic JavaScript snippets and direct page DOM in
 coordinate guessing. Standard globals, session, and console are available; local snippet variables do not persist.
 
 CDP domains are exposed as session.Domain.method(params). Useful operations:
-- await session.Page.navigate({url}); await session.waitFor("Page.loadEventFired")
+- const loaded = session.waitFor("Page.loadEventFired"); await session.Page.navigate({url}); await loaded
 - await session.Runtime.evaluate({expression, returnByValue: true, awaitPromise: true})
 - (await session.Target.getTargets({})).targetInfos; await session.use(targetId)
+- session.Network.requestWillBeSent(params => console.log(params.request.url)) for events
 - await session.Input.insertText({text}) and Input.dispatchMouseEvent(...) for trusted interaction
 - await session.Page.captureScreenshot({format: "png"}) to receive an inline image
 - await session.cdp("Domain.method", params, optionalSessionId) as the raw escape hatch

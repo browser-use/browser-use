@@ -55,6 +55,7 @@ export class CdpSession {
   async close(): Promise<void> {
     const socket = this.socket;
     this.socket = undefined;
+    this.eventListeners.clear();
     if (!socket || socket.readyState === WebSocket.CLOSED) return;
     await new Promise<void>((resolve) => {
       socket.once("close", () => resolve());
@@ -120,6 +121,19 @@ export class CdpSession {
   onCallResult(listener: CallListener): () => void {
     this.callListeners.add(listener);
     return () => this.callListeners.delete(listener);
+  }
+
+  onEvent(method: string, listener: (params: JsonObject) => void, sessionId = this.activeSessionId): () => void {
+    const wrapped = (event: CdpEvent) => {
+      if (event.method !== method || (sessionId && event.sessionId !== sessionId)) return;
+      try {
+        listener(event.params);
+      } catch {
+        // CDP events arrive outside the snippet promise; a listener must not crash the agent process.
+      }
+    };
+    this.eventListeners.add(wrapped);
+    return () => this.eventListeners.delete(wrapped);
   }
 
   private async ensurePage(): Promise<void> {
@@ -217,7 +231,15 @@ export function createBrowserSession(client: CdpSession): BrowserSession {
     const proxy = new Proxy({}, {
       get: (_target, method) => {
         if (typeof method !== "string") return undefined;
-        return (params: JsonObject = {}) => client.call(`${domain}.${method}`, params);
+        if (method === "on") {
+          return (event: string, listener: (params: JsonObject) => void) => client.onEvent(`${domain}.${event}`, listener);
+        }
+        return (paramsOrListener: JsonObject | ((params: JsonObject) => void) = {}) => {
+          if (typeof paramsOrListener === "function") {
+            return client.onEvent(`${domain}.${method}`, paramsOrListener);
+          }
+          return client.call(`${domain}.${method}`, paramsOrListener);
+        };
       },
     });
     domainCache.set(domain, proxy);

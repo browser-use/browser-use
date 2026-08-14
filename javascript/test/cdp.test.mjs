@@ -28,6 +28,21 @@ test("CDP session attaches once and routes page calls through the active session
   const session = createBrowserSession(client);
   const result = await session.Runtime.evaluate({ expression: "document.title", returnByValue: true });
   assert.equal(result.result.value, "Example");
+  let observedUrl = "";
+  const unsubscribe = session.Network.requestWillBeSent((event) => {
+    observedUrl = event.request.url;
+  });
+  const socket = [...server.clients][0];
+  socket.send(JSON.stringify({
+    method: "Network.requestWillBeSent",
+    sessionId: "session-1",
+    params: { request: { url: "https://example.com/product" } },
+  }));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(observedUrl, "https://example.com/product");
+  assert.equal(typeof unsubscribe, "function");
+  unsubscribe();
+  assert.equal(requests.some((request) => request.method === "Network.requestWillBeSent"), false);
   const evaluation = requests.find((request) => request.method === "Runtime.evaluate");
   assert.equal(evaluation.sessionId, "session-1");
   assert.equal(requests.find((request) => request.method === "Target.getTargets").sessionId, undefined);
