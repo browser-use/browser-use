@@ -125,13 +125,19 @@ function parseModel(explicitProvider?: string, value = "gpt-5.5"): { provider: s
 function messageText(message: { content?: unknown }): string {
   if (typeof message.content === "string") return message.content;
   if (!Array.isArray(message.content)) return "";
-  return message.content
+  const text = message.content
     .filter((part): part is { type: string; text: string } => Boolean(
       part && typeof part === "object" && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string",
     ))
     .map((part) => part.text)
     .join("\n")
     .trim();
+  return normalizeFinalOutput(text);
+}
+
+export function normalizeFinalOutput(text: string): string {
+  const marker = text.lastIndexOf("FINAL ANSWER:");
+  return (marker >= 0 ? text.slice(marker) : text).trim();
 }
 
 function emptyUsage(): AgentUsage {
