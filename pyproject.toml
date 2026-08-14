@@ -41,7 +41,7 @@ dependencies = [
     "reportlab==4.4.9",
     "cdp-use==1.4.5",
     "pyotp==2.9.0",
-    "pillow==12.2.0",
+    "pillow>=12.2,<13",
     "cloudpickle==3.1.2",
     "markdownify==1.2.2",
     "python-docx==1.2.0",
