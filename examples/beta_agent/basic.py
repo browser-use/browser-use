@@ -23,7 +23,7 @@ async def main() -> None:
 	agent = Agent(
 		task=task,
 		llm=ChatBrowserUse(model='openai/gpt-5.5'),
-		# llm=ChatBrowserUse(),  # Browser Use's own optimized model (bu-2-0)
+		# llm=ChatBrowserUse(),  # Browser Use's own optimized model (bu-2-0-mini-preview)
 		# llm=ChatOpenAI(model='gpt-5.5'),
 		# llm=ChatGoogle(model='gemini-3.1-pro-preview'),
 		# llm=ChatAnthropic(model='claude-opus-4-8'),  # Sonnet also works well.
