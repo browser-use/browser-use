@@ -2,6 +2,7 @@
 
 import { readFile } from "node:fs/promises";
 import { Agent } from "./agent.js";
+import { eventJsonLine, resultJsonLine } from "./event-json.js";
 
 const args = process.argv.slice(2);
 const taskFileIndex = args.indexOf("--task-file");
@@ -23,32 +24,16 @@ try {
     reasoningEffort: reasoningEffort(process.env.BROWSER_USE_JS_REASONING_EFFORT),
     maxSteps: integer(process.env.BROWSER_USE_JS_MAX_STEPS, 100),
     onEvent: (event) => {
-      process.stdout.write(`${JSON.stringify(sanitize(event))}\n`);
+      process.stdout.write(eventJsonLine(event));
     },
   }).run();
   const { messages: _messages, ...summary } = result;
-  process.stdout.write(`${JSON.stringify({ type: "browser_use_js_result", result: sanitize(summary) })}\n`);
+  process.stdout.write(resultJsonLine(summary));
 } catch (error) {
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
   process.stdout.write(`${JSON.stringify({ type: "browser_use_js_error", error: message })}\n`);
   console.error(error);
   process.exitCode = 1;
-}
-
-function sanitize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sanitize);
-  if (!value || typeof value !== "object") {
-    return typeof value === "string" && value.length > 30_000
-      ? `${value.slice(0, 30_000)}... <${value.length - 30_000} chars omitted>`
-      : value;
-  }
-  const result: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-    result[key] = key === "data" && typeof item === "string" && item.length > 10_000
-      ? `<image:${item.length} chars>`
-      : sanitize(item);
-  }
-  return result;
 }
 
 function integer(value: string | undefined, fallback: number): number {

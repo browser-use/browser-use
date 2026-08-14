@@ -2,6 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { WebSocketServer } from "ws";
 import { CdpSession, createBrowserSession } from "../dist/cdp.js";
+import { eventJsonLine, resultJsonLine } from "../dist/event-json.js";
+
+test("CLI clips trace events without clipping the final deliverable", () => {
+  const output = "x".repeat(40_000);
+  const event = JSON.parse(eventJsonLine({ output }));
+  const result = JSON.parse(resultJsonLine({ output }));
+  assert.match(event.output, /chars omitted/);
+  assert.equal(result.result.output, output);
+});
 
 test("CDP session attaches once and routes page calls through the active session", async () => {
   const requests = [];
