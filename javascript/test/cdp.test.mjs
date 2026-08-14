@@ -5,9 +5,11 @@ import { CdpSession, createBrowserSession } from "../dist/cdp.js";
 
 test("CDP session attaches once and routes page calls through the active session", async () => {
   const requests = [];
+  let websocketExtensions = "not-connected";
   const server = new WebSocketServer({ port: 0 });
   await new Promise((resolve) => server.once("listening", resolve));
-  server.on("connection", (socket) => {
+  server.on("connection", (socket, request) => {
+    websocketExtensions = request.headers["sec-websocket-extensions"] ?? "";
     socket.on("message", (raw) => {
       const request = JSON.parse(raw.toString());
       requests.push(request);
@@ -30,6 +32,7 @@ test("CDP session attaches once and routes page calls through the active session
   const client = new CdpSession({ cdpUrl: `ws://127.0.0.1:${address.port}` });
   await client.connect();
   const session = createBrowserSession(client);
+  assert.equal(websocketExtensions, "");
   const result = await session.Runtime.evaluate({ expression: "document.title", returnByValue: true });
   assert.equal(result.result.value, "Example");
   let observedUrl = "";

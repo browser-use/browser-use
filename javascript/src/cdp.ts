@@ -38,7 +38,13 @@ export class CdpSession {
     if (this.socket?.readyState === WebSocket.OPEN) return;
     const wsUrl = await resolveWebSocketUrl(this.cdpUrl, this.headers);
     this.socket = await new Promise<WebSocket>((resolve, reject) => {
-      const socket = new WebSocket(wsUrl, { headers: this.headers });
+      // CDP traffic can include very large PDF/network payloads. Avoid the
+      // permessage-deflate stream here: one truncated compressed frame can
+      // otherwise surface as an uncaught Node webstreams Z_BUF_ERROR.
+      const socket = new WebSocket(wsUrl, {
+        headers: this.headers,
+        perMessageDeflate: false,
+      });
       const onError = (error: Error) => reject(error);
       socket.once("error", onError);
       socket.once("open", () => {
