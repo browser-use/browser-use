@@ -1,0 +1,21 @@
+javascript/src/cdp.ts
+  s_8deac30db84b56::t_fb229ea9182081 41-47
+javascript/test/cdp.test.mjs
+  s_8deac30db84b56::t_fb229ea9182081 8,11-12,35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0a61fe1b2cc8fd5c034b987a8f8d6250389ba03b",
+  "prompts": {},
+  "sessions": {
+    "s_8deac30db84b56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a001cf-c7c1-7023-aa89-b84143152188",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
