@@ -161,7 +161,7 @@ class ChatDeepSeek(BaseChatModel):
 					messages=ds_messages,  # type: ignore
 					**common,
 				)
-				content, thinking = clean_and_extract_json(resp.choices[0].message.content or '')
+				content, thinking = clean_and_extract_json(resp.choices[0].message.content or '', strip_fences=False)
 				return ChatInvokeCompletion(
 					completion=content,
 					thinking=thinking,
