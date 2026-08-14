@@ -1,0 +1,6 @@
+dist/
+node_modules/
+*.tgz
+!package.json
+!package-lock.json
+!tsconfig.json
