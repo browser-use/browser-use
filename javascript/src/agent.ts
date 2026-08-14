@@ -72,7 +72,18 @@ export class Agent {
       streamFn: models.streamSimple.bind(models),
       ...(this.options.apiKey ? { getApiKey: () => this.options.apiKey } : {}),
       toolExecution: "sequential",
-      shouldStopAfterTurn: () => turns >= maxSteps,
+      // A hard stop immediately after the final tool result leaves no assistant
+      // answer. Remove tools instead so Pi performs one bounded synthesis turn.
+      prepareNextTurnWithContext: ({ context, toolResults }) => {
+        if (steps < maxSteps || toolResults.length === 0) return undefined;
+        return {
+          context: {
+            ...context,
+            systemPrompt: `${context.systemPrompt}\n\nThe browser-call budget is exhausted. Do not call tools. Return the best complete FINAL ANSWER now from the evidence already collected.`,
+            tools: [],
+          },
+        };
+      },
     });
     pi.subscribe(async (event) => {
       if (event.type === "turn_start") turns += 1;
