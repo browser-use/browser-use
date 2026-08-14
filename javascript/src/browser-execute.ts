@@ -5,7 +5,7 @@ import { Type } from "typebox";
 import type { Browser } from "./browser.js";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
-const MAX_TIMEOUT_MS = 10 * 60_000;
+const MAX_TIMEOUT_MS = 2 * 60_000;
 const MAX_TEXT_CHARS = 30_000;
 const AsyncFunction = (async () => {}).constructor as new (
   ...args: string[]
