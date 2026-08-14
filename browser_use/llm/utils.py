@@ -5,7 +5,7 @@ import re
 
 THINK_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
 OPEN_THINK_PATTERN = re.compile(r'<think>(.*)', re.DOTALL)
-JSON_FENCE_PATTERN = re.compile(r'^\s*```(?:json)?\s*(.*?)\s*```\s*$', re.DOTALL)
+JSON_FENCE_PATTERN = re.compile(r'^\s*```[ \t]*(?:json)?[ \t]*(.*?)\s*```\s*$', re.DOTALL | re.IGNORECASE)
 
 
 def clean_and_extract_json(content: str, strip_fences: bool = True) -> tuple[str, str | None]:
