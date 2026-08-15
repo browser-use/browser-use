@@ -280,6 +280,10 @@ class TaskMarketService:
 		)
 		try:
 			stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self.command_timeout_seconds)
+		except asyncio.CancelledError:
+			process.kill()
+			await process.communicate()
+			raise
 		except TimeoutError as exc:
 			process.kill()
 			stdout, stderr = await process.communicate()
