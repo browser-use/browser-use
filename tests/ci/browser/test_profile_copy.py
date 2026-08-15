@@ -69,16 +69,15 @@ def test_user_data_dir_default_validation_when_omitted() -> None:
 	profile_omitted = BrowserProfile(headless=True)
 	profile_empty = BrowserProfile()
 
-	assert profile_explicit_none.user_data_dir is not None
-	assert profile_omitted.user_data_dir is not None
-	assert profile_empty.user_data_dir is not None
+	try:
+		assert profile_explicit_none.user_data_dir is not None
+		assert profile_omitted.user_data_dir is not None
+		assert profile_empty.user_data_dir is not None
 
-	assert 'browser-use-user-data-dir-' in str(profile_explicit_none.user_data_dir)
-	assert 'browser-use-user-data-dir-' in str(profile_omitted.user_data_dir)
-	assert 'browser-use-user-data-dir-' in str(profile_empty.user_data_dir)
-
-	# Clean up temp dirs
-	shutil.rmtree(profile_explicit_none.user_data_dir, ignore_errors=True)
-	shutil.rmtree(profile_omitted.user_data_dir, ignore_errors=True)
-	shutil.rmtree(profile_empty.user_data_dir, ignore_errors=True)
-
+		assert 'browser-use-user-data-dir-' in str(profile_explicit_none.user_data_dir)
+		assert 'browser-use-user-data-dir-' in str(profile_omitted.user_data_dir)
+		assert 'browser-use-user-data-dir-' in str(profile_empty.user_data_dir)
+	finally:
+		shutil.rmtree(profile_explicit_none.user_data_dir, ignore_errors=True)
+		shutil.rmtree(profile_omitted.user_data_dir, ignore_errors=True)
+		shutil.rmtree(profile_empty.user_data_dir, ignore_errors=True)
