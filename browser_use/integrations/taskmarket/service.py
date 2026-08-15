@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import asyncio
+import inspect
 import json
 import math
 import os
@@ -42,6 +45,13 @@ class TaskMarketTaskDraft(BaseModel):
 	submission_visibility: Literal['public', 'reveal_all', 'winner_only', 'never'] = Field(default='public')
 	tags: list[str] = Field(default_factory=list, max_length=8)
 
+	@field_validator('description', 'deliverables', mode='before')
+	@classmethod
+	def _strip_text(cls, value: Any) -> str:
+		if not isinstance(value, str):
+			raise ValueError('Must be a string')
+		return value.strip()
+
 	@field_validator('reward_usdc', 'max_spend_usdc', mode='before')
 	@classmethod
 	def _parse_decimal(cls, value: Any) -> Decimal:
@@ -81,14 +91,13 @@ class TaskMarketTaskDraft(BaseModel):
 		return max(1, math.ceil((deadline - now).total_seconds() / 3600))
 
 	def task_description(self) -> str:
-		return f'{self.description.strip()}\n\nDeliverables:\n{self.deliverables.strip()}'
+		return f'{self.description}\n\nDeliverables:\n{self.deliverables}'
 
 
 class TaskMarketPreview(BaseModel):
 	"""Stored preview that must be confirmed before creating a task."""
 
 	preview_id: str
-	confirmation_token: str
 	network: Literal['base']
 	chain_id: int
 	description: str
@@ -103,6 +112,9 @@ class TaskMarketPreview(BaseModel):
 	tags: list[str]
 	command_preview: list[str]
 	approval_instruction: str
+
+
+AuthorizationCallback = Callable[[TaskMarketPreview, Decimal | None], Awaitable[bool] | bool]
 
 
 class TaskMarketCreatedTask(BaseModel):
@@ -122,25 +134,28 @@ class TaskMarketService:
 		cli_path: str = 'taskmarket',
 		command_runner: CommandRunner | None = None,
 		http_client: httpx.AsyncClient | None = None,
+		authorization_callback: AuthorizationCallback | None = None,
+		command_timeout_seconds: float = 120,
 	):
 		self.api_url = (api_url or os.environ.get('TASKMARKET_API_URL') or DEFAULT_TASKMARKET_API_URL).rstrip('/')
 		self.cli_path = cli_path
 		self._command_runner = command_runner or self._run_command
 		self._http_client = http_client
+		self._authorization_callback = authorization_callback
+		self.command_timeout_seconds = command_timeout_seconds
 		self._previews: dict[str, tuple[TaskMarketTaskDraft, TaskMarketPreview]] = {}
+		self._authorized_previews: set[str] = set()
 
 	async def prepare_task(self, draft: TaskMarketTaskDraft) -> TaskMarketPreview:
 		duration_hours = draft.duration_hours()
 		preview_id = secrets.token_urlsafe(8)
-		confirmation_token = secrets.token_urlsafe(10)
 		command_preview = self._build_create_command(draft, duration_hours)
 		preview = TaskMarketPreview(
 			preview_id=preview_id,
-			confirmation_token=confirmation_token,
 			network=draft.network,
 			chain_id=BASE_CHAIN_ID,
-			description=draft.description.strip(),
-			deliverables=draft.deliverables.strip(),
+			description=draft.description,
+			deliverables=draft.deliverables,
 			reward_usdc=self._format_decimal(draft.reward_usdc),
 			max_spend_usdc=self._format_decimal(draft.max_spend_usdc),
 			deadline_iso=draft.deadline().isoformat(),
@@ -151,31 +166,34 @@ class TaskMarketService:
 			tags=draft.tags,
 			command_preview=command_preview,
 			approval_instruction=(
-				'Show this exact preview to the user. Create the task only after the user explicitly authorizes '
-				f'Base spend up to {self._format_decimal(draft.max_spend_usdc)} USDC and provides the confirmation token.'
+				'Show this exact preview to the user. The host application must authorize this preview out of band before '
+				f'task creation can spend up to {self._format_decimal(draft.max_spend_usdc)} USDC on Base.'
 			),
 		)
 		self._previews[preview_id] = (draft, preview)
 		return preview
 
+	def authorize_preview(self, preview_id: str, max_spend_usdc: Decimal | str | None = None) -> TaskMarketPreview:
+		if preview_id not in self._previews:
+			raise ValueError('Unknown, expired, or already used Taskmarket preview_id')
+		draft, preview = self._previews[preview_id]
+		self._validate_authorized_spend(draft, max_spend_usdc)
+		self._authorized_previews.add(preview_id)
+		return preview
+
 	async def create_task(
 		self,
 		preview_id: str,
-		confirmation_token: str,
-		confirm_authorized: bool,
 		max_spend_usdc: Decimal | str | None = None,
 	) -> TaskMarketCreatedTask:
-		if not confirm_authorized:
-			raise ValueError('Fresh user authorization is required before creating or funding a Taskmarket task')
 		if preview_id not in self._previews:
-			raise ValueError('Unknown or expired Taskmarket preview_id')
+			raise ValueError('Unknown, expired, or already used Taskmarket preview_id')
 
 		draft, preview = self._previews[preview_id]
-		if not secrets.compare_digest(confirmation_token, preview.confirmation_token):
-			raise ValueError('Taskmarket confirmation token does not match the preview')
-
-		if max_spend_usdc is not None and Decimal(str(max_spend_usdc)) < draft.reward_usdc:
-			raise ValueError('Authorized max_spend_usdc is lower than the task reward')
+		self._validate_authorized_spend(draft, max_spend_usdc)
+		await self._ensure_host_authorized(preview, max_spend_usdc)
+		self._previews.pop(preview_id)
+		self._authorized_previews.discard(preview_id)
 
 		duration_hours = draft.duration_hours()
 		command = self._build_create_command(draft, duration_hours)
@@ -195,6 +213,29 @@ class TaskMarketService:
 		if not task_id:
 			raise RuntimeError('Taskmarket CLI succeeded but did not return a task id')
 		return TaskMarketCreatedTask(task_id=task_id, task_url=TASKMARKET_TASK_URL.format(task_id=task_id), raw=data)
+
+	async def _ensure_host_authorized(self, preview: TaskMarketPreview, max_spend_usdc: Decimal | str | None) -> None:
+		if preview.preview_id in self._authorized_previews:
+			return
+		if self._authorization_callback is None:
+			raise ValueError('Taskmarket preview must be authorized by the host application before task creation')
+		result = self._authorization_callback(preview, Decimal(str(max_spend_usdc)) if max_spend_usdc is not None else None)
+		if inspect.isawaitable(result):
+			result = await result
+		if result is not True:
+			raise ValueError('Taskmarket preview was not authorized by the host application')
+
+	def _validate_authorized_spend(self, draft: TaskMarketTaskDraft, max_spend_usdc: Decimal | str | None) -> None:
+		if max_spend_usdc is None:
+			return
+		try:
+			authorized = Decimal(str(max_spend_usdc))
+		except (InvalidOperation, ValueError) as exc:
+			raise ValueError('max_spend_usdc must be a decimal USDC amount') from exc
+		if authorized < draft.reward_usdc:
+			raise ValueError('Authorized max_spend_usdc is lower than the task reward')
+		if authorized > draft.max_spend_usdc:
+			raise ValueError('Authorized max_spend_usdc is higher than the prepared spend cap')
 
 	async def get_task_status(self, task_id: str) -> dict[str, Any]:
 		self._validate_task_id(task_id)
@@ -237,7 +278,15 @@ class TaskMarketService:
 			stdout=asyncio.subprocess.PIPE,
 			stderr=asyncio.subprocess.PIPE,
 		)
-		stdout, stderr = await process.communicate()
+		try:
+			stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self.command_timeout_seconds)
+		except TimeoutError as exc:
+			process.kill()
+			stdout, stderr = await process.communicate()
+			message = stderr.decode().strip()
+			if message:
+				message = f': {message}'
+			raise TimeoutError(f'Taskmarket CLI timed out after {self.command_timeout_seconds} seconds{message}') from exc
 		return process.returncode or 1, stdout.decode(), stderr.decode()
 
 	async def _get_json(self, path: str) -> dict[str, Any]:

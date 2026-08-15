@@ -9,11 +9,12 @@ Usage:
     register_taskmarket_actions(tools)
 
 The create action uses the first-party ``taskmarket`` CLI and requires a previously
-prepared preview plus fresh user authorization. Status and submission actions are
-read-only and no accept/reject/payment review actions are registered.
+prepared preview plus host-side user authorization via ``TaskMarketService.authorize_preview``
+or an authorization callback. Status and submission actions are read-only and no
+accept/reject/payment review actions are registered.
 """
 
 from .actions import register_taskmarket_actions
-from .service import TaskMarketService, TaskMarketTaskDraft
+from .service import TaskMarketPreview, TaskMarketService, TaskMarketTaskDraft
 
-__all__ = ['TaskMarketService', 'TaskMarketTaskDraft', 'register_taskmarket_actions']
+__all__ = ['TaskMarketPreview', 'TaskMarketService', 'TaskMarketTaskDraft', 'register_taskmarket_actions']

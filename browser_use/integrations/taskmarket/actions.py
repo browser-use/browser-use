@@ -20,14 +20,9 @@ class CreateTaskMarketTaskParams(BaseModel):
 	"""Parameters for creating a previously previewed Taskmarket task."""
 
 	preview_id: str = Field(description='Preview id returned by taskmarket_prepare_task.')
-	confirmation_token: str = Field(description='Confirmation token returned in the preview after the user authorizes it.')
-	confirm_authorized: bool = Field(
-		default=False,
-		description='Set true only after the user explicitly authorizes creating and funding this exact Taskmarket task.',
-	)
 	max_spend_usdc: Decimal | None = Field(
 		default=None,
-		description='Optional fresh user-authorized spend cap. Must be at least the previewed reward.',
+		description='Optional host-authorized spend cap. Must be between the previewed reward and prepared max spend.',
 	)
 
 	@field_validator('max_spend_usdc', mode='before')
@@ -60,7 +55,7 @@ def register_taskmarket_actions(
 	@tools.registry.action(
 		description=(
 			'Prepare a Taskmarket requester task preview. This does not create or fund anything. '
-			'Show the exact description, deliverables, reward, deadline, Base network, maximum spend, and confirmation token to the user.'
+			'Show the exact description, deliverables, reward, deadline, Base network, and maximum spend to the user.'
 		),
 		param_model=PrepareTaskMarketTaskParams,
 	)
@@ -80,7 +75,7 @@ def register_taskmarket_actions(
 	@tools.registry.action(
 		description=(
 			'Create and fund a previously previewed Taskmarket task using the first-party taskmarket CLI. '
-			'Only call after fresh explicit user authorization for this exact preview; never retry automatically after failure.'
+			'This succeeds only after the host application has authorized the preview out of band; never retry automatically after failure.'
 		),
 		param_model=CreateTaskMarketTaskParams,
 	)
@@ -90,8 +85,6 @@ def register_taskmarket_actions(
 		try:
 			created = await service.create_task(
 				preview_id=params.preview_id,
-				confirmation_token=params.confirmation_token,
-				confirm_authorized=params.confirm_authorized,
 				max_spend_usdc=params.max_spend_usdc,
 			)
 			content = json.dumps(created.model_dump(), indent=2)
