@@ -25,13 +25,13 @@ async def test_browseruse_bu_latest(httpserver):
 # --- Model validation -------------------------------------------------------
 
 
-def test_default_model_is_bu_2_0():
+def test_default_model_is_bu_2_0_mini_preview():
 	chat = ChatBrowserUse(api_key=TEST_API_KEY)
-	assert chat.model == 'bu-2-0'
+	assert chat.model == 'bu-2-0-mini-preview'
 	assert chat.provider == 'browser-use'
 
 
-@pytest.mark.parametrize('alias', ['bu-1-0', 'bu-2-0'])
+@pytest.mark.parametrize('alias', ['bu-1-0', 'bu-2-0', 'bu-2-0-mini-preview', 'bu-qa-1'])
 def test_bu_aliases_are_accepted(alias):
 	chat = ChatBrowserUse(model=alias, api_key=TEST_API_KEY)
 	assert chat.model == alias
@@ -39,10 +39,39 @@ def test_bu_aliases_are_accepted(alias):
 	assert chat.provider == 'browser-use'
 
 
-def test_bu_latest_normalizes_to_bu_2_0():
+def test_bu_latest_still_normalizes_to_bu_2_0():
+	"""'latest' tracks the stable premium line, so it does NOT follow the preview default."""
 	chat = ChatBrowserUse(model='bu-latest', api_key=TEST_API_KEY)
 	assert chat.model == 'bu-2-0'
 	assert chat.name == 'bu-2-0'
+	assert ChatBrowserUse(api_key=TEST_API_KEY).model != chat.model
+
+
+def test_bu_2_0_mini_preview_is_priced():
+	"""The default model must have a pricing entry, or cost tracking silently reports $0."""
+	from browser_use.tokens.custom_pricing import CUSTOM_MODEL_PRICING
+
+	pricing = CUSTOM_MODEL_PRICING['bu-2-0-mini-preview']
+	assert pricing['input_cost_per_token'] > 0
+	assert pricing['output_cost_per_token'] > 0
+	# bu-latest resolves to bu-2-0, not to the preview, so it keeps the premium pricing.
+	assert CUSTOM_MODEL_PRICING['bu-latest'] == CUSTOM_MODEL_PRICING['bu-2-0']
+	# bu-1-0 is redirected to bu-2-0 at the gateway, so it must be billed at bu-2-0 rates
+	# rather than the retired bu-1-0 rates.
+	assert CUSTOM_MODEL_PRICING['bu-1-0'] == CUSTOM_MODEL_PRICING['bu-2-0']
+
+
+def test_llm_models_shortcut_resolves_mini_preview(monkeypatch):
+	"""`llm.bu_2_0_mini_preview` must map the underscored name back to the dashed model id."""
+	monkeypatch.setenv('BROWSER_USE_API_KEY', TEST_API_KEY)
+	from browser_use import llm
+	from browser_use.llm import models
+
+	# Go through the advertised attribute rather than the factory beneath it, so dropping the
+	# name from __all__ or breaking module __getattr__ fails here instead of passing silently.
+	assert llm.bu_2_0_mini_preview.name == 'bu-2-0-mini-preview'
+	assert models.bu_2_0_mini_preview.name == 'bu-2-0-mini-preview'
+	assert 'bu_2_0_mini_preview' in models.__all__
 
 
 @pytest.mark.parametrize(
