@@ -66,6 +66,7 @@ core = [
     "browser-use-core==0.13.2; sys_platform == 'linux' and platform_machine == 'aarch64'",
     "browser-use-core==0.13.2; sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'x86_64')",
 ]
+a3m = ["a3m-router>=2.2.2"]
 aws = ["boto3==1.42.37"]
 oci = ["oci==2.166.0"]
 video = ["imageio[ffmpeg]==2.37.2", "numpy==2.4.1"]
