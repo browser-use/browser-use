@@ -66,7 +66,7 @@ class TaskMarketTaskDraft(BaseModel):
 		return [tag.strip() for tag in value if tag.strip()]
 
 	@model_validator(mode='after')
-	def _validate_spend_cap(self) -> 'TaskMarketTaskDraft':
+	def _validate_spend_cap(self) -> TaskMarketTaskDraft:
 		if self.max_spend_usdc < self.reward_usdc:
 			raise ValueError('max_spend_usdc must be greater than or equal to reward_usdc')
 		return self
