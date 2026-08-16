@@ -1,6 +1,24 @@
 ---
 name: browser-use
 description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."
+homepage: https://browser-use.com
+metadata:
+  {
+    "openclaw":
+      {
+        "requires": { "bins": ["browser-use"] },
+        "install":
+          [
+            {
+              "id": "uv",
+              "kind": "uv",
+              "package": "browser-use",
+              "bins": ["browser-use"],
+              "label": "Install Browser Use CLI (uv)",
+            },
+          ],
+      },
+  }
 ---
 
 # Browser Use
@@ -36,7 +54,7 @@ If the daemon cannot connect, run diagnostics:
 browser-use --doctor
 ```
 
-If Chrome is not running at all, the harness launches it automatically and retries — no user action needed beyond clicking Allow if a permission popup appears.
+If Chrome is not running at all, the harness launches it automatically and retries.
 
 If Chrome is running but remote debugging is not enabled, the harness opens:
 
@@ -44,7 +62,14 @@ If Chrome is running but remote debugging is not enabled, the harness opens:
 chrome://inspect/#remote-debugging
 ```
 
-Ask the user to tick "Allow remote debugging for this browser instance" and click Allow if Chrome shows a permission popup. Then retry the same `browser-use` command.
+On macOS, when Chrome asks for remote-debugging permission, run:
+
+```text
+browser-use mac-approve
+```
+
+Continue browser work when it returns `ready`; otherwise follow its printed
+instruction.
 
 ## Remote Browsers
 
@@ -160,7 +185,7 @@ If you get stuck on a browser mechanic, check https://github.com/browser-use/bro
 ## Gotchas
 
 - `chrome://inspect/#remote-debugging` must be enabled for local Chrome control.
-- Chrome may show an "Allow remote debugging?" popup; wait for the user to click Allow. Do not retry in a loop — Chrome pops a fresh dialog for every new connection, and the daemon's single held connection is what makes this a one-time click.
+- On macOS, if Chrome shows an "Allow remote debugging?" popup, run `browser-use mac-approve`. Do not poll in a loop — the daemon holds one connection.
 - Omnibox popups are not real work tabs.
 - CDP target order is not Chrome's visible tab-strip order.
 - `BU_CDP_URL` is an HTTP DevTools endpoint; the daemon resolves it to WebSocket.

@@ -16,7 +16,7 @@ dependencies = [
     "bubus==1.5.6",
     "click==8.3.1",
     "InquirerPy==0.3.4",
-    "rich==14.3.1",
+    "rich==14.3.3",
     "google-api-core==2.29.0",
     "httpx==0.28.1",
     "posthog==7.7.0",
