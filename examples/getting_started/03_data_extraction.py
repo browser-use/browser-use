@@ -30,7 +30,7 @@ from browser_use import Agent, ChatBrowserUse
 
 async def main():
 	# Initialize the model
-	llm = ChatBrowserUse(model='bu-2-0-mini-preview')
+	llm = ChatBrowserUse(model='bu-2-0')
 
 	# Define a data extraction task
 	task = """

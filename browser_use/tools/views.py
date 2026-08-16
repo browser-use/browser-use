@@ -54,7 +54,7 @@ class SearchAction(BaseModel):
 
 
 # Backward compatibility alias
-SearchGoogleAction = SearchAction
+SearchAction = SearchAction
 
 
 class NavigateAction(BaseModel):

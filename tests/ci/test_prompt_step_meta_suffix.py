@@ -104,16 +104,3 @@ def test_agent_state_block_unaffected_by_step_change(tmp_path):
 		return s[s.index('<agent_state>') : s.index('</agent_state>')]
 
 	assert agent_state_block(a) == agent_state_block(b)
-
-
-def test_browser_state_error_is_visible_to_model(tmp_path):
-	prompt = _make_prompt(tmp_path)
-	prompt.browser_state.state_error = (
-		'Browser state capture timed out. The current DOM and screenshot are unavailable, so no element indices are safe to use.'
-	)
-
-	content = prompt.get_user_message(use_vision=False).content
-
-	assert isinstance(content, str)
-	assert '<browser_state_error>' in content
-	assert 'no element indices are safe to use' in content

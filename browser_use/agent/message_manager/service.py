@@ -109,7 +109,7 @@ class MessageManager:
 		task: str,
 		system_message: SystemMessage,
 		file_system: FileSystem,
-		state: MessageManagerState | None = None,
+		state: MessageManagerState = MessageManagerState(),
 		use_thinking: bool = True,
 		include_attributes: list[str] | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
@@ -122,10 +122,7 @@ class MessageManager:
 		max_clickable_elements_length: int = 40000,
 	):
 		self.task = task
-		# A fresh state per instance: a mutable default (MessageManagerState()) would be
-		# evaluated once at definition time and shared across every MessageManager created
-		# without an explicit state, cross-contaminating their history.
-		self.state = state if state is not None else MessageManagerState()
+		self.state = state
 		self.system_prompt = system_message
 		self.file_system = file_system
 		self.sensitive_data_description = ''
@@ -238,7 +235,7 @@ class MessageManager:
 		# Char floor gate
 		history_items = self.state.agent_history_items
 		full_history_text = '\n'.join(item.to_string() for item in history_items).strip()
-		trigger_char_count = settings.trigger_char_count if settings.trigger_char_count is not None else 40000
+		trigger_char_count = settings.trigger_char_count or 40000
 		if len(full_history_text) < trigger_char_count:
 			return False
 

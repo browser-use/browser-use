@@ -33,7 +33,7 @@ async def main():
 			'Create a CSV file called "top_cities.csv" with columns: rank, city name, country, population. '
 			'Make sure to include all cities even if some data is missing — leave those cells empty.'
 		),
-		llm=ChatBrowserUse(model='bu-2-0-mini-preview'),
+		llm=ChatBrowserUse(model='bu-2-0'),
 	)
 
 	history = await agent.run()

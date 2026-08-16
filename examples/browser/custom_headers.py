@@ -90,7 +90,7 @@ async def main():
 			'Open https://httpbin.org/headers in two different tabs and extract the full JSON response. '
 			'Look for the custom headers X-Custom-Auth, X-Request-Source, and X-Trace-Id in the output and compare the results.'
 		),
-		llm=ChatBrowserUse(model='bu-2-0-mini-preview'),
+		llm=ChatBrowserUse(model='bu-2-0'),
 		browser=browser,
 	)
 

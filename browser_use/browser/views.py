@@ -83,7 +83,6 @@ class PaginationButton:
 	backend_node_id: int  # Backend node ID for clicking
 	text: str  # Button text/label
 	selector: str  # XPath or other selector to locate the element
-	selector_index: int | None = None  # Model-visible selector index
 	is_disabled: bool = False  # Whether the button appears disabled
 
 
@@ -109,7 +108,6 @@ class BrowserStateSummary:
 	pending_network_requests: list[NetworkRequest] = field(default_factory=list)  # Currently loading network requests
 	pagination_buttons: list[PaginationButton] = field(default_factory=list)  # Detected pagination buttons
 	closed_popup_messages: list[str] = field(default_factory=list)  # Messages from auto-closed JavaScript dialogs
-	state_error: str | None = None  # Safe, model-visible explanation when the current state could not be captured
 
 
 @dataclass

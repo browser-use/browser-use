@@ -75,18 +75,9 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
 	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
-	if not sensitive_values:
-		return value
-
-	# Build a lookup from secret text → key name, longest secrets first so
-	# the regex alternation prefers the longest match.
-	sorted_items = sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True)
-	secret_to_key = {secret: key for key, secret in sorted_items}
-
-	# Single-pass replacement: each position in the string is consumed at
-	# most once, so earlier replacements cannot be corrupted by later ones.
-	pattern = re.compile('|'.join(re.escape(secret) for secret in secret_to_key))
-	return pattern.sub(lambda m: f'<secret>{secret_to_key[m.group(0)]}</secret>', value)
+	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
+		value = value.replace(secret, f'<secret>{key}</secret>')
+	return value
 
 
 def _get_openai_bad_request_error() -> type | None:
@@ -811,8 +802,9 @@ def create_task_with_error_handling(
 		coro: The coroutine to wrap in a task
 		name: Optional name for the task (useful for debugging)
 		logger_instance: Optional logger instance to use. If None, uses module logger.
-		suppress_exceptions: If True, logs exceptions at ERROR level. If False, logs at WARNING level.
-			Awaiting the task raises the original exception in both modes. Default False.
+		suppress_exceptions: If True, logs exceptions at ERROR level. If False, logs at WARNING level
+			and exceptions remain retrievable via task.exception() if the caller awaits the task.
+			Default False.
 
 	Returns:
 		asyncio.Task: The created task with exception handling callback
@@ -830,19 +822,21 @@ def create_task_with_error_handling(
 
 	def _handle_task_exception(t: asyncio.Task[T]) -> None:
 		"""Callback to handle task exceptions"""
+		exc_to_raise = None
 		try:
-			# Retrieve the exception so fire-and-forget tasks do not emit
-			# "Task exception was never retrieved" warnings.
+			# This will raise if the task had an exception
 			exc = t.exception()
 			if exc is not None:
 				task_name = t.get_name() if hasattr(t, 'get_name') else 'unnamed'
 				if suppress_exceptions:
 					log.error(f'Exception in background task [{task_name}]: {type(exc).__name__}: {exc}', exc_info=exc)
 				else:
+					# Log at warning level then mark for re-raising
 					log.warning(
 						f'Exception in background task [{task_name}]: {type(exc).__name__}: {exc}',
 						exc_info=exc,
 					)
+					exc_to_raise = exc
 		except asyncio.CancelledError:
 			# Task was cancelled, this is normal behavior
 			pass
@@ -850,6 +844,10 @@ def create_task_with_error_handling(
 			# Catch any other exception during exception handling (e.g., t.exception() itself failing)
 			task_name = t.get_name() if hasattr(t, 'get_name') else 'unnamed'
 			log.error(f'Error handling exception in task [{task_name}]: {type(e).__name__}: {e}')
+
+		# Re-raise outside the try-except block so it propagates to the event loop
+		if exc_to_raise is not None:
+			raise exc_to_raise
 
 	task.add_done_callback(_handle_task_exception)
 	return task

@@ -345,7 +345,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Use the provided node
 			element_node = event.node
-			index_for_logging = self.browser_session.get_selector_index(element_node)
+			index_for_logging = element_node.backend_node_id or 'unknown'
 
 			# Check if element is a file input (should not be clicked)
 			if self.browser_session.is_file_input(element_node):
@@ -453,7 +453,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Use the provided node
 			element_node = event.node
-			index_for_logging = self.browser_session.get_selector_index(element_node)
+			index_for_logging = element_node.backend_node_id or 'unknown'
 
 			# Check if this is index 0 or a falsy index - type to the page (whatever has focus)
 			if not element_node.backend_node_id or element_node.backend_node_id == 0:
@@ -493,7 +493,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					try:
 						await asyncio.wait_for(self._click_element_node_impl(element_node), timeout=10.0)
 					except Exception as e:
-						self.logger.debug(f'Fallback click for page typing failed: {e}')
+						pass
 					await self._type_to_page(event.text)
 					# Log with sensitive data protection
 					if event.is_sensitive:
@@ -530,7 +530,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Element-specific scrolling if node is provided
 			if event.node is not None:
 				element_node = event.node
-				index_for_logging = self.browser_session.get_selector_index(element_node)
+				index_for_logging = element_node.backend_node_id or 'unknown'
 
 				# Check if the element is an iframe
 				is_iframe = element_node.tag_name and element_node.tag_name.upper() == 'IFRAME'
@@ -711,15 +711,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Check if element is a file input or select dropdown - these should not be clicked
 			tag_name = element_node.tag_name.lower() if element_node.tag_name else ''
 			element_type = element_node.attributes.get('type', '').lower() if element_node.attributes else ''
-			selector_index = self.browser_session.get_selector_index(element_node)
 
 			if tag_name == 'select':
-				msg = f'Cannot click on <select> elements. Use dropdown_options(index={selector_index}) action instead.'
+				msg = f'Cannot click on <select> elements. Use dropdown_options(index={element_node.backend_node_id}) action instead.'
 				# Return error dict instead of raising to avoid ERROR logs
 				return {'validation_error': msg}
 
 			if tag_name == 'input' and element_type == 'file':
-				msg = f'Cannot click on file input element (index={selector_index}). File uploads must be handled using upload_file_to_element action.'
+				msg = f'Cannot click on file input element (index={element_node.backend_node_id}). File uploads must be handled using upload_file_to_element action.'
 				# Return error dict instead of raising to avoid ERROR logs
 				return {'validation_error': msg}
 
@@ -1043,18 +1042,17 @@ class DefaultActionWatchdog(BaseWatchdog):
 			raise e
 		except Exception as e:
 			# Extract key element info for error message
-			selector_index = self.browser_session.get_selector_index(element_node)
 			element_info = f'<{element_node.tag_name or "unknown"}'
-			if selector_index:
-				element_info += f' index={selector_index}'
+			if element_node.backend_node_id:
+				element_info += f' index={element_node.backend_node_id}'
 			element_info += '>'
 
 			# Create helpful error message based on context
 			error_detail = f'Failed to click element {element_info}. The element may not be interactable or visible.'
 
 			# Add hint if element has index (common in code-use mode)
-			if selector_index:
-				error_detail += f' If the page changed after navigation/interaction, the index [{selector_index}] may be stale. Get fresh browser state before retrying.'
+			if element_node.backend_node_id:
+				error_detail += f' If the page changed after navigation/interaction, the index [{element_node.backend_node_id}] may be stale. Get fresh browser state before retrying.'
 
 			raise BrowserError(
 				message=f'Failed to click element: {str(e)}',
@@ -1385,26 +1383,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 								} catch (e) {
 									// ignore
 								}
-								// For real <input>/<textarea>, use the prototype's native value setter:
-								// React patches the instance setter to track values, so a direct
-								// `this.value = ""` makes React's tracker think nothing changed and the
-								// input event gets ignored, leaving controlled components with the old
-								// value. For anything else with a .value accessor (web components,
-								// selects), the prototype setter throws Illegal invocation - keep using
-								// the element's own setter there.
-								if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {
-									const proto = this instanceof HTMLTextAreaElement
-										? window.HTMLTextAreaElement.prototype
-										: window.HTMLInputElement.prototype;
-									const desc = Object.getOwnPropertyDescriptor(proto, 'value');
-									try {
-										desc.set.call(this, "");
-									} catch (e) {
-										this.value = "";
-									}
-								} else {
-									this.value = "";
-								}
+								this.value = "";
 								this.dispatchEvent(new Event("input", { bubbles: true }));
 								this.dispatchEvent(new Event("change", { bubbles: true }));
 								return {cleared: true, method: 'value', finalText: this.value};
@@ -2039,21 +2018,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 								'functionDeclaration': """
 									function(newValue) {
 										if (this.value !== undefined) {
-											// Pick the descriptor for THIS element type; calling the
-											// HTMLInputElement setter on a textarea or web component
-											// throws Illegal invocation.
-											var desc = null;
-											if (this instanceof HTMLInputElement) {
-												desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-											} else if (this instanceof HTMLTextAreaElement) {
-												desc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
-											}
+											var desc = Object.getOwnPropertyDescriptor(
+												HTMLInputElement.prototype, 'value'
+											) || Object.getOwnPropertyDescriptor(
+												HTMLTextAreaElement.prototype, 'value'
+											);
 											if (desc && desc.set) {
-												try {
-													desc.set.call(this, newValue);
-												} catch (e) {
-													this.value = newValue;
-												}
+												desc.set.call(this, newValue);
 											} else {
 												this.value = newValue;
 											}
@@ -2682,7 +2653,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Use the provided node
 			element_node = event.node
-			index_for_logging = self.browser_session.get_selector_index(element_node)
+			index_for_logging = element_node.backend_node_id or 'unknown'
 
 			# Check if it's a file input
 			if not self.browser_session.is_file_input(element_node):
@@ -2814,7 +2785,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Use the provided node
 			element_node = event.node
-			index_for_logging = self.browser_session.get_selector_index(element_node)
+			index_for_logging = element_node.backend_node_id or 'unknown'
 
 			# Get CDP session for this node
 			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
@@ -2864,13 +2835,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# If it's an ARIA combobox with aria-controls, handle it specially
 			if combobox_info.get('isCombobox'):
-				return await self._handle_aria_combobox_options(
-					cdp_session,
-					object_id,
-					combobox_info,
-					index_for_logging,
-					element_node.backend_node_id,
-				)
+				return await self._handle_aria_combobox_options(cdp_session, object_id, combobox_info, index_for_logging)
 
 			# Use JavaScript to extract dropdown options (existing logic for non-combobox elements)
 			options_script = """
@@ -3015,8 +2980,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					'error': msg,
 					'short_term_memory': msg,
 					'long_term_memory': msg,
-					'backend_node_id': str(element_node.backend_node_id),
-					'selector_index': str(index_for_logging),
+					'backend_node_id': str(index_for_logging),
 				}
 
 			# Format options for display
@@ -3060,8 +3024,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				'message': msg,
 				'short_term_memory': short_term_memory,
 				'long_term_memory': long_term_memory,
-				'backend_node_id': str(element_node.backend_node_id),
-				'selector_index': str(index_for_logging),
+				'backend_node_id': str(index_for_logging),
 			}
 
 		except BrowserError:
@@ -3085,7 +3048,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 		object_id: str,
 		combobox_info: dict,
 		index_for_logging: int | str,
-		backend_node_id: int,
 	) -> dict[str, str]:
 		"""Handle ARIA combobox elements with options in a separate listbox element.
 
@@ -3252,8 +3214,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				'error': msg,
 				'short_term_memory': msg,
 				'long_term_memory': msg,
-				'backend_node_id': str(backend_node_id),
-				'selector_index': str(index_for_logging),
+				'backend_node_id': str(index_for_logging),
 			}
 
 		# Format options for display
@@ -3281,8 +3242,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			'message': msg,
 			'short_term_memory': msg,
 			'long_term_memory': f'Got dropdown options for ARIA combobox at index {index_for_logging}',
-			'backend_node_id': str(backend_node_id),
-			'selector_index': str(index_for_logging),
+			'backend_node_id': str(index_for_logging),
 		}
 
 	async def on_SelectDropdownOptionEvent(self, event: SelectDropdownOptionEvent) -> dict[str, str]:
@@ -3290,7 +3250,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Use the provided node
 			element_node = event.node
-			index_for_logging = self.browser_session.get_selector_index(element_node)
+			index_for_logging = element_node.backend_node_id or 'unknown'
 			target_text = event.text
 
 			# Get CDP session for this node
@@ -3671,8 +3631,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							'success': 'true',
 							'message': msg,
 							'value': fallback_data.get('value', target_text),
-							'backend_node_id': str(element_node.backend_node_id),
-							'selector_index': str(index_for_logging),
+							'backend_node_id': str(index_for_logging),
 						}
 					else:
 						self.logger.warning(f'⚠️ Click fallback also failed: {fallback_data.get("error", "unknown")}')
@@ -3687,8 +3646,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 						'success': 'true',
 						'message': msg,
 						'value': selection_result.get('value', target_text),
-						'backend_node_id': str(element_node.backend_node_id),
-						'selector_index': str(index_for_logging),
+						'backend_node_id': str(index_for_logging),
 					}
 				else:
 					error_msg = selection_result.get('error', f'Failed to select option: {target_text}')
@@ -3723,16 +3681,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 								'error': error_msg,
 								'short_term_memory': short_term_memory,
 								'long_term_memory': long_term_memory,
-								'backend_node_id': str(element_node.backend_node_id),
-								'selector_index': str(index_for_logging),
+								'backend_node_id': str(index_for_logging),
 							}
 
 					# Fallback to regular error result if no available options
 					return {
 						'success': 'false',
 						'error': error_msg,
-						'backend_node_id': str(element_node.backend_node_id),
-						'selector_index': str(index_for_logging),
+						'backend_node_id': str(index_for_logging),
 					}
 
 			except Exception as e:

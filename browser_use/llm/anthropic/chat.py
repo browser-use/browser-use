@@ -1,5 +1,4 @@
 import json
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
@@ -28,10 +27,6 @@ from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
-
-# `<parameter name="x">value</parameter>`, tolerating the mismatched `</x>` closing tag the
-# model sometimes emits instead of `</parameter>`.
-_TEXT_TOOL_CALL_PARAMETER = re.compile(r'<parameter name="([^"]+)">(.*?)(?:</parameter>|</\1>)', re.DOTALL)
 
 
 @dataclass
@@ -284,71 +279,6 @@ class ChatAnthropic(BaseChatModel):
 
 		return list(dict.fromkeys(candidate for candidate in candidates if candidate))
 
-	def _repair_serialized_fields(self, values: dict[str, Any]) -> dict[str, Any]:
-		"""Decode fields the model double-serialized as JSON strings."""
-		for key, value in values.items():
-			if isinstance(value, str) and value.startswith(('[', '{')):
-				try:
-					values[key] = json.loads(value)
-				except json.JSONDecodeError:
-					cleaned = value.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
-					try:
-						values[key] = json.loads(cleaned)
-					except json.JSONDecodeError:
-						pass
-		return values
-
-	def _tool_call_from_text(self, text: str) -> dict[str, Any] | None:
-		"""Parse arguments out of a tool call the model rendered as text."""
-		values = {name: value.strip() for name, value in _TEXT_TOOL_CALL_PARAMETER.findall(text)}
-		return self._repair_serialized_fields(values) if values else None
-
-	def _completion_from_serialized_tool_input(
-		self, tool_input: Any, output_format: type[T], usage: ChatInvokeUsage | None, response: Any
-	) -> ChatInvokeCompletion[T] | None:
-		"""Recover the output when the model rendered its whole tool call into a string field.
-
-		Claude sometimes calls the tool but fills only the first string property of the schema,
-		with the entire call written out as text (`<parameter name=...>` markup or a JSON object)
-		instead of populating the arguments. That text still carries every field, so parse it out
-		rather than discarding the step.
-		"""
-		if not isinstance(tool_input, dict):
-			return None
-
-		# The malformed Anthropic response puts the complete call in the schema's
-		# `thinking` argument. Do not promote serialized data from arbitrary fields.
-		thinking = tool_input.get('thinking')
-		if not isinstance(thinking, str):
-			return None
-
-		candidates: list[Any] = []
-		tool_call = self._tool_call_from_text(thinking)
-		if tool_call is not None:
-			candidates.append(tool_call)
-		for text_candidate in self._json_candidates_from_text(thinking):
-			try:
-				candidate = json.loads(text_candidate)
-				if isinstance(candidate, dict):
-					candidate = self._repair_serialized_fields(candidate)
-				candidates.append(candidate)
-			except (json.JSONDecodeError, TypeError):
-				continue
-
-		for candidate in candidates:
-			try:
-				completion = output_format.model_validate(candidate)
-			except Exception:
-				continue
-			return ChatInvokeCompletion(
-				completion=completion,
-				usage=usage,
-				stop_reason=response.stop_reason,
-				stop_details=self._get_stop_details(response),
-			)
-
-		return None
-
 	def _completion_from_text_response(
 		self, response: Any, output_format: type[T], usage: ChatInvokeUsage | None
 	) -> ChatInvokeCompletion[T] | None:
@@ -484,21 +414,24 @@ class ChatAnthropic(BaseChatModel):
 								_input = json.loads(_input)
 							elif isinstance(_input, dict):
 								# Model sometimes double-serializes fields
-								_input = self._repair_serialized_fields(_input)
+								for key, value in _input.items():
+									if isinstance(value, str) and value.startswith(('[', '{')):
+										try:
+											_input[key] = json.loads(value)
+										except json.JSONDecodeError:
+											cleaned = value.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+											try:
+												_input[key] = json.loads(cleaned)
+											except json.JSONDecodeError:
+												pass
 							else:
 								raise
-							try:
-								return ChatInvokeCompletion(
-									completion=output_format.model_validate(_input),
-									usage=usage,
-									stop_reason=response.stop_reason,
-									stop_details=self._get_stop_details(response),
-								)
-							except Exception:
-								recovered = self._completion_from_serialized_tool_input(_input, output_format, usage, response)
-								if recovered is None:
-									raise
-								return recovered
+							return ChatInvokeCompletion(
+								completion=output_format.model_validate(_input),
+								usage=usage,
+								stop_reason=response.stop_reason,
+								stop_details=self._get_stop_details(response),
+							)
 
 				if self._requires_auto_tool_choice():
 					text_completion = self._completion_from_text_response(response, output_format, usage)

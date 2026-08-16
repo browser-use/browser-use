@@ -44,7 +44,7 @@ class ChatBrowserUse(BaseChatModel):
 
 	def __init__(
 		self,
-		model: str = 'bu-2-0-mini-preview',
+		model: str = 'bu-2-0',
 		api_key: str | None = None,
 		base_url: str | None = None,
 		timeout: float = 120.0,
@@ -58,9 +58,8 @@ class ChatBrowserUse(BaseChatModel):
 
 		Args:
 			model: Model name to use. Options:
-				- 'bu-2-0-mini-preview': Default model (fast + cheap, preview)
-				- 'bu-2-0' or 'bu-latest': Premium model
-				- 'bu-1-0': Previous generation model, redirected to bu-2-0 at the gateway
+				- 'bu-2-0' or 'bu-latest': Default model (latest premium)
+				- 'bu-1-0': Previous generation model
 				- 'bu-qa-1': Website QA model (tests a site and scores functionality/aesthetics)
 				- 'browser-use/bu-30b-a3b-preview': Browser Use Open Source Model
 				- Provider-prefixed ids resolved by the gateway, e.g. 'anthropic/claude-sonnet-4-6',
@@ -74,7 +73,7 @@ class ChatBrowserUse(BaseChatModel):
 		"""
 		# Accept 'bu-*' aliases and any provider-prefixed id; the gateway resolves the
 		# latter (anthropic/*, openai/*, google/*, browser-use/*), so we don't enumerate them.
-		bu_aliases = ['bu-latest', 'bu-1-0', 'bu-2-0', 'bu-2-0-mini-preview', 'bu-qa-1']
+		bu_aliases = ['bu-latest', 'bu-1-0', 'bu-2-0', 'bu-qa-1']
 		is_valid = model in bu_aliases or '/' in model
 		if not is_valid:
 			raise ValueError(
@@ -83,8 +82,7 @@ class ChatBrowserUse(BaseChatModel):
 				"'openai/gpt-5.5', or 'google/gemini-3-pro'."
 			)
 
-		# Normalize bu-latest to the current latest model. Deliberately not the constructor
-		# default: 'latest' tracks the stable premium line, not the preview.
+		# Normalize bu-latest to the current latest model
 		if model == 'bu-latest':
 			self.model = 'bu-2-0'
 		else:

@@ -29,7 +29,6 @@ TARGET_DIR_BUILDERS = {
 	'copilot': lambda: _home_skill_dir('copilot'),
 	'cursor': lambda: _home_skill_dir('cursor'),
 	'gemini': lambda: _home_skill_dir('gemini'),
-	'openclaw': lambda: _home_skill_dir('openclaw'),
 	'opencode': lambda: _xdg_config_home() / 'opencode' / 'skills' / SKILL_NAME,
 }
 

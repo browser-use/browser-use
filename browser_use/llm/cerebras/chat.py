@@ -28,7 +28,7 @@ T = TypeVar('T', bound=BaseModel)
 class ChatCerebras(BaseChatModel):
 	"""Cerebras inference wrapper (OpenAI-compatible)."""
 
-	model: str = 'gpt-oss-120b'
+	model: str = 'llama3.1-8b'
 
 	# Generation parameters
 	max_tokens: int | None = 4096

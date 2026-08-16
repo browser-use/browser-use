@@ -24,7 +24,7 @@ async def example_anthropic_bedrock():
 
 	# Initialize with Anthropic Claude via AWS Bedrock
 	llm = ChatAnthropicBedrock(
-		model='us.anthropic.claude-sonnet-4-6',
+		model='us.anthropic.claude-sonnet-4-20250514-v1:0',
 		aws_region='us-east-1',
 		temperature=0.7,
 	)
