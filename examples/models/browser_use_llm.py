@@ -20,12 +20,14 @@ if not os.getenv('BROWSER_USE_API_KEY'):
 
 
 async def main():
-	# `bu-2-0` is the optimized default. ChatBrowserUse can also route to
-	# provider-prefixed models (e.g. 'anthropic/claude-sonnet-4-6', 'openai/gpt-5.5',
-	# 'google/gemini-3-pro') through the same gateway - see browser_use_provider_models.py.
+	# `bu-2-0-mini-preview` is the optimized default - what a bare `ChatBrowserUse()` gives you.
+	# For the larger premium model pass `model='bu-2-0'` (or 'bu-latest', which tracks it).
+	# ChatBrowserUse can also route to provider-prefixed models (e.g. 'anthropic/claude-sonnet-4-6',
+	# 'openai/gpt-5.5', 'google/gemini-3-pro') through the same gateway - see
+	# browser_use_provider_models.py.
 	agent = Agent(
 		task='Find the number of stars of the browser-use repo',
-		llm=ChatBrowserUse(model='bu-2-0'),
+		llm=ChatBrowserUse(model='bu-2-0-mini-preview'),
 	)
 
 	# Run the agent
