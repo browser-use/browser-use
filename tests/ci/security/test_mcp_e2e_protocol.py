@@ -264,3 +264,69 @@ async def test_browser_use_unknown_tool_is_error_over_wire(browser_use_running: 
 		assert 'Unknown tool' in text
 
 	await browser_use_running.run_session(drive)
+
+
+# ---------------------------------------------------------------------------
+# Execution-exception is_error over the wire
+#
+# The tests above only exercise *validation* errors (blank input, unknown tool),
+# which the handlers return explicitly. The blocking mcp 2.x correctness fix to
+# CLIMCPServer._execute was about a different path: a tool that *raises* during
+# execution (daemon down, exec failure, screenshot error) must still arrive at the
+# client as CallToolResult(is_error=True), not escape the handler or read as success.
+# These cases drive that raised-execution path across the real transport.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def cli_daemon_down() -> _RunningServer:
+	"""CLIMCPServer whose daemon cannot start, exercising _execute's structural error.
+
+	The namespace import runs for real; only the daemon entry point (``ensure_daemon``)
+	is replaced with one that raises, so the failure travels through _execute's real
+	``except BaseException`` → structural ``(traceback, True)`` → handler ``is_error``
+	path rather than a stubbed-out _execute.
+	"""
+	srv = CLIMCPServer()
+	ns = srv._ensure_namespace()
+
+	def _failing_ensure_daemon():
+		raise RuntimeError('daemon is down')
+
+	ns['ensure_daemon'] = _failing_ensure_daemon
+	return _RunningServer(srv.server, server_name='browser-use', server_version='0.0.0-test')
+
+
+async def test_cli_exec_raised_exception_is_error_over_wire(cli_daemon_down: _RunningServer) -> None:
+	"""A daemon-down exec failure surfaces as is_error=True across the real transport."""
+
+	async def drive(session: ClientSession, ev: RoundTripEvidence) -> None:
+		result = await session.call_tool('browser_exec', {'code': 'new_tab("http://example.test")'})
+		assert isinstance(result, types.CallToolResult)
+		assert result.is_error is True
+		text = ''.join(getattr(b, 'text', '') for b in result.content)
+		# The real traceback from _execute's except path reached the client.
+		assert 'daemon is down' in text
+
+	await cli_daemon_down.run_session(drive)
+
+
+async def test_browser_use_screenshot_raised_exception_is_error_over_wire() -> None:
+	"""A _screenshot exception is wrapped by the handler's except and returned as is_error."""
+	srv = BrowserUseServer()
+
+	async def _raising_screenshot(full_page: bool = False) -> tuple[str, str | None]:
+		raise RuntimeError('capture failed: no frame')
+
+	srv._screenshot = _raising_screenshot  # type: ignore[method-assign]
+	srv.browser_session = object()  # type: ignore[assignment]  # avoid real browser init
+	running = _RunningServer(srv.server, server_name='browser-use', server_version='0.0.0-test')
+
+	async def drive(session: ClientSession, ev: RoundTripEvidence) -> None:
+		result = await session.call_tool('browser_screenshot', {})
+		assert isinstance(result, types.CallToolResult)
+		assert result.is_error is True
+		text = ''.join(getattr(b, 'text', '') for b in result.content)
+		assert 'capture failed' in text
+
+	await running.run_session(drive)
