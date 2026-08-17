@@ -196,9 +196,16 @@ class SecurityWatchdog(BaseWatchdog):
 			# Invalid URL
 			return False
 
-		# Allow data: and blob: URLs (they don't have hostnames)
+		# Allow data: and blob: URLs only while no domain policy is configured.
+		# They carry no hostname, so once allowed_domains/prohibited_domains are set they would
+		# otherwise sail past every domain check below and become an allowlist bypass (#4763).
+		# With a policy active they fall through to the `not host` check and are blocked.
 		if parsed.scheme in ['data', 'blob']:
-			return True
+			if (
+				not self.browser_session.browser_profile.allowed_domains
+				and not self.browser_session.browser_profile.prohibited_domains
+			):
+				return True
 
 		# Get the actual host (domain)
 		host = parsed.hostname

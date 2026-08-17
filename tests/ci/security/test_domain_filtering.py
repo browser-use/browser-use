@@ -567,3 +567,73 @@ class TestDomainListOptimization:
 		# Should work correctly
 		assert watchdog._is_url_allowed('https://blocked0.com') is False
 		assert watchdog._is_url_allowed('https://example.com') is True
+
+
+class TestHostlessSchemeBypass:
+	"""Regression tests for #4763: hostname-less schemes must not bypass domain policy."""
+
+	@staticmethod
+	def _watchdog(**profile_kwargs):
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(headless=True, user_data_dir=None, **profile_kwargs)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		return SecurityWatchdog(browser_session=browser_session, event_bus=EventBus())
+
+	def test_data_and_blob_blocked_under_allowlist(self):
+		"""data:/blob: carry no hostname, so an allowlist must not let them through."""
+		watchdog = self._watchdog(allowed_domains=['example.com'])
+
+		assert watchdog._is_url_allowed('data:text/html,<script>alert(1)</script>') is False
+		assert watchdog._is_url_allowed('data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==') is False
+		assert watchdog._is_url_allowed('blob:https://malicious.com/550e8400-e29b-41d4-a716-446655440000') is False
+
+		# A blob URL naming an allowed origin is still blocked: the origin lives in the path,
+		# not the host, so there is nothing the domain policy can validate against.
+		assert watchdog._is_url_allowed('blob:https://example.com/550e8400-e29b-41d4-a716-446655440000') is False
+
+		# The allowlist itself still works.
+		assert watchdog._is_url_allowed('https://example.com') is True
+
+	def test_data_and_blob_blocked_under_prohibited_list(self):
+		"""A prohibited list is also an active policy, so the same gate applies."""
+		watchdog = self._watchdog(prohibited_domains=['malicious.com'])
+
+		assert watchdog._is_url_allowed('data:text/html,<h1>hi</h1>') is False
+		assert watchdog._is_url_allowed('blob:https://malicious.com/abc') is False
+
+		# Unrelated domains are unaffected by the change.
+		assert watchdog._is_url_allowed('https://example.com') is True
+		assert watchdog._is_url_allowed('https://malicious.com') is False
+
+	def test_data_and_blob_allowed_when_no_policy_configured(self):
+		"""Default, policy-free sessions keep the previous permissive behaviour."""
+		watchdog = self._watchdog()
+
+		assert watchdog._is_url_allowed('data:text/html,<h1>hi</h1>') is True
+		assert watchdog._is_url_allowed('blob:https://example.com/abc') is True
+
+	def test_other_hostless_schemes_stay_blocked_under_policy(self):
+		"""javascript:/file:/about: were already blocked by the host check - keep it that way."""
+		watchdog = self._watchdog(allowed_domains=['example.com'])
+
+		assert watchdog._is_url_allowed('javascript:alert(1)') is False
+		assert watchdog._is_url_allowed('file:///etc/passwd') is False
+		assert watchdog._is_url_allowed('about:srcdoc') is False
+
+	def test_internal_targets_still_exempt(self):
+		"""The internal new-tab/blank allowance is checked before scheme handling."""
+		watchdog = self._watchdog(allowed_domains=['example.com'])
+
+		assert watchdog._is_url_allowed('about:blank') is True
+		assert watchdog._is_url_allowed('chrome://new-tab-page/') is True
+
+	def test_explicitly_allowlisted_scheme_with_host_still_works(self):
+		"""Non-HTTP URLs that do have a host are unaffected and still match patterns."""
+		watchdog = self._watchdog(allowed_domains=['chrome://version', 'brave://*'])
+
+		assert watchdog._is_url_allowed('chrome://version') is True
+		assert watchdog._is_url_allowed('brave://settings') is True
+		assert watchdog._is_url_allowed('chrome://settings') is False
