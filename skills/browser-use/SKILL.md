@@ -1,6 +1,6 @@
 ---
 name: browser-use
-description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."
+description: "Direct browser control over CDP. Use when the user wants a website automated, a page scraped, a web app tested, or screenshots captured from a live site."
 homepage: https://browser-use.com
 metadata:
   {
