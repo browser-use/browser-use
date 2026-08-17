@@ -1209,6 +1209,30 @@ class BrowserSession(BaseModel):
 			except Exception as e:
 				self.logger.warning(f'Failed to set viewport for new tab {event.target_id[-8:]}: {e}')
 
+		self._enforce_max_tabs()
+
+	def _enforce_max_tabs(self) -> None:
+		"""Close the oldest non-focused tabs while the session is over browser_profile.max_tabs."""
+		max_tabs = self.browser_profile.max_tabs
+		if not max_tabs:
+			return
+
+		# session_manager._targets is insertion-ordered, so the oldest tabs come first.
+		page_targets = self.session_manager.get_all_page_targets()
+		evict_count = len(page_targets) - max_tabs
+		if evict_count < 1:
+			return
+
+		# Never evict the tab the agent is looking at, so at least one tab always survives.
+		evictable = [target for target in page_targets if target.target_id != self.agent_focus_target_id]
+		for target in evictable[:evict_count]:
+			self.logger.info(
+				f'📑 Closing oldest tab {target.target_id[-8:]} to stay within max_tabs={max_tabs} '
+				f'({len(page_targets)} open): {target.url}'
+			)
+			# Don't await, CloseTabEvent fans out to TabClosedEvent handlers and could deadlock inside this handler
+			self.event_bus.dispatch(CloseTabEvent(target_id=target.target_id))
+
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
 		if not self.agent_focus_target_id:
