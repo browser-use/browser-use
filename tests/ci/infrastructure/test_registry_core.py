@@ -36,12 +36,6 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
-class TestContext:
-	"""Simple context for testing"""
-
-	pass
-
-
 # Test parameter models
 class SimpleParams(BaseActionModel):
 	"""Simple parameter model"""
@@ -90,7 +84,7 @@ def mock_llm():
 @pytest.fixture(scope='function')
 def registry():
 	"""Create a fresh registry for each test"""
-	return Registry[TestContext]()
+	return Registry()
 
 
 @pytest.fixture(scope='function')
@@ -128,6 +122,20 @@ class TestActionRegistryParameterPatterns:
 		assert isinstance(result, ActionResult)
 		assert result.extracted_content is not None
 		assert 'Text: hello, Number: 42' in result.extracted_content
+
+	async def test_context_is_a_regular_action_parameter(self, registry):
+		"""The removed Agent context injection no longer reserves the context parameter name."""
+
+		@registry.action('Echo context')
+		async def echo_context(context: str):
+			return ActionResult(extracted_content=context)
+
+		action = registry.registry.actions['echo_context']
+		assert 'context' in action.param_model.model_fields
+
+		result = await registry.execute_action('echo_context', {'context': 'supplied by the action'})
+
+		assert result.extracted_content == 'supplied by the action'
 
 	async def test_individual_parameters_with_browser(self, registry, browser_session, base_url):
 		"""Test action with individual parameters plus browser_session injection"""
@@ -454,7 +462,7 @@ class TestRegistryEdgeCases:
 	async def test_excluded_actions(self, browser_session):
 		"""Test that excluded actions are not registered"""
 
-		registry_with_exclusions = Registry[TestContext](exclude_actions=['excluded_action'])
+		registry_with_exclusions = Registry(exclude_actions=['excluded_action'])
 
 		@registry_with_exclusions.action('Excluded action')
 		async def excluded_action(text: str):
