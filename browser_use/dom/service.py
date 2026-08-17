@@ -476,12 +476,31 @@ class DomService:
 						// the per-target OOPIF traversal in get_dom_tree(); accessing
 						// their contentDocument here throws and is silently skipped, so
 						// this recursion is safe.
+						//
+						// Cost bound is applied PER DOCUMENT and BEFORE descending: a
+						// single oversized document is skipped in place (and its
+						// iframes are not traversed) instead of aborting the whole
+						// listener detection. The original "skip everything when the
+						// top document is too heavy" behavior is preserved via the
+						// _topDocOversized flag below, so overall behavior on plain
+						// pages is unchanged and pages with many same-origin frames
+						// no longer silently drop listener detection.
+						const _PER_DOC_ELEMENT_CAP = 10000;
 						const allElements = [];
-						(function collect(doc) {
+						let _topDocOversized = false;
+						(function collect(doc, isTop) {
 							let els;
 							try {
 								els = doc.querySelectorAll('*');
 							} catch (e) {
+								return;
+							}
+							if (els.length > _PER_DOC_ELEMENT_CAP) {
+								if (isTop) {
+									_topDocOversized = true;
+								}
+								// Skip this document (and do not descend into its
+								// iframes) — too expensive to scan.
 								return;
 							}
 							for (const el of els) {
@@ -489,17 +508,19 @@ class DomService:
 								if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') {
 									try {
 										if (el.contentDocument) {
-											collect(el.contentDocument);
+											collect(el.contentDocument, false);
 										}
 									} catch (e) {
 										// Cross-origin iframe, inaccessible from this context
 									}
 								}
 							}
-						})(document);
+						})(document, true);
 
-						// Skip on heavy pages — listener detection is too expensive
-						if (allElements.length > 10000) {
+						// Preserve original short-circuit when the top document itself
+						// is too heavy — same behavior as before the same-origin
+						// iframe recursion was added.
+						if (_topDocOversized) {
 							return null;
 						}
 
