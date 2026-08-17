@@ -1451,6 +1451,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 						except Exception as e:
 							logger.warning(f'Fractional scroll failed: {e}')
 
+					if completed_scrolls == 0:
+						target_suffix = f' {target}' if target else ''
+						error_msg = f'Failed to scroll {direction}{target_suffix}: all scroll attempts failed'
+						return ActionResult(error=error_msg)
+
 					if params.pages == 1.0:
 						long_term_memory = f'Scrolled {direction} {target} {viewport_height}px'.replace('  ', ' ')
 					else:
