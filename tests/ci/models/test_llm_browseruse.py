@@ -108,7 +108,7 @@ async def test_provider_prefixed_model_forwarded_in_payload(httpserver):
 	chat = ChatBrowserUse(
 		model='anthropic/claude-sonnet-4-6',
 		api_key=TEST_API_KEY,
-		base_url=httpserver.url_for('/').rstrip('/'),
+		base_url=httpserver.url_for('/').rstrip('/').replace('localhost', '127.0.0.1'),
 	)
 	result = await chat.ainvoke([UserMessage(content='hi')])
 

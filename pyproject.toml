@@ -213,17 +213,8 @@ log_level = "DEBUG"
 [tool.hatch.metadata]
 allow-direct-references = true
 
-[tool.uv]
-# required-environments = [
-#     "sys_platform == 'darwin' and platform_machine == 'arm64'",
-#     "sys_platform == 'darwin' and platform_machine == 'x86_64'",
-#     "sys_platform == 'linux' and platform_machine == 'x86_64'",
-#     "sys_platform == 'linux' and platform_machine == 'aarch64'",
-#     # "sys_platform == 'linux' and platform_machine == 'arm64'",  # no pytorch wheels available yet
-#     "sys_platform == 'win32' and platform_machine == 'x86_64'",
-#     # "sys_platform == 'win32' and platform_machine == 'arm64'",  # no pytorch wheels available yet
-# ]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "ruff==0.14.14",
     "tokencost==0.1.26",
     "build==1.4.0",
