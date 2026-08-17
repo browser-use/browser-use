@@ -222,10 +222,23 @@ class MCPClient:
 			tool_filter: Optional list of tool names to register (None = all tools)
 			prefix: Optional prefix to add to action names (e.g., "playwright_")
 		"""
+		await self.register_to_registry(tools.registry, tool_filter=tool_filter, prefix=prefix)
+
+	async def register_to_registry(
+		self,
+		registry: Registry,
+		tool_filter: list[str] | None = None,
+		prefix: str | None = None,
+	) -> None:
+		"""Register MCP tools directly with an action registry.
+
+		Args:
+			registry: Browser-use action registry
+			tool_filter: Optional list of tool names to register (None = all tools)
+			prefix: Optional prefix to add to action names (e.g., "playwright_")
+		"""
 		if not self._connected:
 			await self.connect()
-
-		registry = tools.registry
 
 		for tool_name, tool in self._tools.items():
 			# Skip if not in filter
