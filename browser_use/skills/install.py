@@ -23,6 +23,7 @@ def _home_skill_dir(assistant: str) -> Path:
 
 
 TARGET_DIR_BUILDERS = {
+	'adal': lambda: _home_skill_dir('adal'),
 	'agents': lambda: _home_skill_dir('agents'),
 	'claude': lambda: _home_skill_dir('claude'),
 	'codex': lambda: _home_skill_dir('codex'),
