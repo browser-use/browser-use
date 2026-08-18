@@ -701,6 +701,15 @@ def _llm_timeout_for_model(llm: Any | None) -> int:
 	return 75
 
 
+def _supports_coordinate_clicking(llm: Any | None) -> bool:
+	"""Whether the model supports coordinate-based clicking (parity with the stable Agent)."""
+	model_name = str(getattr(llm, 'model', '') or '').lower()
+	return any(
+		pattern in model_name
+		for pattern in ('claude-sonnet-4', 'claude-opus-4', 'claude-fable-5', 'gemini-3-pro', 'browser-use/')
+	)
+
+
 def _resolve_default_llm(llm: BaseChatModel | None) -> BaseChatModel:
 	if llm is not None:
 		return llm
@@ -4354,6 +4363,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			use_vision,
 			display_files_in_done_text,
 		)
+		# Enable coordinate clicking for models that support it (parity with the stable Agent)
+		if _supports_coordinate_clicking(llm):
+			self.tools.set_coordinate_clicking(True)
 		if skills and skill_ids:
 			raise ValueError('Cannot specify both "skills" and "skill_ids" parameters. Use "skills" for the cleaner API.')
 		skill_ids = skills or skill_ids
