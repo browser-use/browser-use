@@ -1,7 +1,9 @@
 """Tests for lazy loading configuration system."""
 
 import os
+from pathlib import Path
 
+from browser_use import config
 from browser_use.config import CONFIG
 
 
@@ -118,3 +120,26 @@ class TestLazyConfig:
 				os.environ['BROWSER_USE_CLOUD_SYNC'] = sync_original
 			else:
 				os.environ.pop('BROWSER_USE_CLOUD_SYNC', None)
+
+	def test_docker_detection_ignores_pid1_command_substrings(self, monkeypatch):
+		"""PID 1 commands like python/app are common on VMs and should not imply Docker."""
+		config.is_running_in_docker.cache_clear()
+		monkeypatch.setattr(Path, 'exists', lambda _self: False)
+		monkeypatch.setattr(Path, 'read_text', lambda _self: '')
+		monkeypatch.setattr(config.psutil, 'pids', lambda: list(range(20)))
+		monkeypatch.delenv('container', raising=False)
+		monkeypatch.delenv('DOCKER_CONTAINER', raising=False)
+
+		assert config.is_running_in_docker() is False
+		config.is_running_in_docker.cache_clear()
+
+	def test_docker_detection_accepts_container_runtime_hints(self, monkeypatch):
+		config.is_running_in_docker.cache_clear()
+		monkeypatch.setattr(Path, 'exists', lambda _self: False)
+		monkeypatch.setattr(Path, 'read_text', lambda _self: '0::/system.slice/containerd.service')
+		monkeypatch.setattr(config.psutil, 'pids', lambda: list(range(20)))
+		monkeypatch.delenv('container', raising=False)
+		monkeypatch.delenv('DOCKER_CONTAINER', raising=False)
+
+		assert config.is_running_in_docker() is True
+		config.is_running_in_docker.cache_clear()
