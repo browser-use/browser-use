@@ -11,10 +11,13 @@ Covers:
 4. The tab that was just opened is never evicted out from under its own navigation.
 5. A tab that becomes focused after eviction was scheduled for it is spared, and the cap
    still ends up enforced against a different tab instead.
-6. The field rejects a cap below 1 (which could otherwise close every tab).
+6. A scheduled eviction that never completes (dropped CloseTabEvent) is aged out instead
+   of leaving its target permanently unevictable.
+7. The field rejects a cap below 1 (which could otherwise close every tab).
 """
 
 import asyncio
+import time
 
 import pytest
 from pydantic import ValidationError
@@ -203,7 +206,7 @@ async def test_max_tabs_spares_a_tab_focused_after_eviction_was_scheduled(tools,
 
 		# Simulate _enforce_max_tabs having just selected target_id for eviction, then focus
 		# moving onto it before the queued close executes.
-		session._pending_tab_evictions.add(target_id)
+		session._pending_tab_evictions[target_id] = time.monotonic()
 		session.agent_focus_target_id = target_id
 
 		await session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
@@ -217,6 +220,36 @@ async def test_max_tabs_spares_a_tab_focused_after_eviction_was_scheduled(tools,
 		assert len(surviving) == 2
 		assert target_id in surviving
 		assert next_oldest_id not in surviving
+	finally:
+		await session.kill()
+
+
+async def test_max_tabs_recovers_a_pending_eviction_that_never_completed(tools, base_url):
+	"""A target stuck in `_pending_tab_evictions` must not stay unevictable forever.
+
+	If a scheduled close's `CloseTabEvent` is ever silently dropped (a CDP disconnect, the
+	event bus torn down mid-flight), the target would otherwise be permanently excluded from
+	`live` in `_enforce_max_tabs`, loosening the cap by one for the rest of the session. A
+	stale (past `_MAX_TABS_EVICTION_STALE_AFTER`) pending entry must be dropped and the tab
+	treated as evictable again on the next enforcement pass.
+	"""
+	from browser_use.browser.session import _MAX_TABS_EVICTION_STALE_AFTER
+
+	session = await _make_session(max_tabs=None)
+	try:
+		opened = await _open_tabs(tools, session, base_url, 3)
+		stuck_target_id = opened[0]
+
+		# Simulate a scheduled eviction whose CloseTabEvent never actually ran.
+		session._pending_tab_evictions[stuck_target_id] = time.monotonic() - _MAX_TABS_EVICTION_STALE_AFTER - 1
+		session.browser_profile.max_tabs = 2
+
+		session._enforce_max_tabs()
+		surviving = await _settle(session)
+
+		assert len(surviving) == 2
+		assert stuck_target_id not in surviving
+		assert stuck_target_id not in session._pending_tab_evictions
 	finally:
 		await session.kill()
 
