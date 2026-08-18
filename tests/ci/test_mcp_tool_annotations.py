@@ -73,3 +73,15 @@ async def test_mutating_tools_never_advertise_read_only_hint(server: BrowserUseS
 
 	mislabeled = sorted(tool.name for tool in tools if tool.name not in EXPECTED_READ_ONLY_TOOLS and _is_read_only(tool))
 	assert not mislabeled, f'state-changing tools wrongly advertise readOnlyHint=True: {mislabeled}'
+
+
+async def test_x402_gated_tools_advertise_payment_argument(server: BrowserUseServer) -> None:
+	"""Gated tools must expose the stdio payment argument to MCP clients."""
+	tools = await _list_tools(server)
+	by_name = {tool.name: tool for tool in tools}
+
+	for tool_name in ('browser_extract_content', 'retry_with_browser_use_agent'):
+		properties = by_name[tool_name].inputSchema.get('properties', {})
+		assert properties.get('x_payment', {}).get('type') == 'string', (
+			f'{tool_name} must advertise x_payment so schema-driven clients can supply it'
+		)

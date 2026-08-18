@@ -95,6 +95,14 @@ from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.config import get_default_llm, get_default_profile, load_browser_use_config
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.mcp.payment import (
+	close_payment_client,
+	get_x402_response,
+	is_tool_gated,
+	release_x402_payment,
+	settle_x402_payment,
+	validate_x402_payment,
+)
 from browser_use.tools.service import Tools
 
 logger = logging.getLogger(__name__)
@@ -301,6 +309,13 @@ class BrowserUseServer:
 								'description': 'Whether to include links in the extraction',
 								'default': False,
 							},
+							'x_payment': {
+								'type': 'string',
+								'description': (
+									'x402 payment payload (JSON or base64-encoded JSON) for CDP facilitator '
+									'settlement of this gated tool call'
+								),
+							},
 						},
 						'required': ['query'],
 					},
@@ -421,6 +436,13 @@ class BrowserUseServer:
 								'description': 'Whether to use vision capabilities (screenshots) for the agent',
 								'default': True,
 							},
+							'x_payment': {
+								'type': 'string',
+								'description': (
+									'x402 payment payload (JSON or base64-encoded JSON) for CDP facilitator '
+									'settlement of this gated tool call'
+								),
+							},
 						},
 						'required': ['task'],
 					},
@@ -465,15 +487,54 @@ class BrowserUseServer:
 
 		@self.server.call_tool()
 		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent | types.ImageContent]:
-			"""Handle tool execution."""
+			"""Handle tool execution with x402 payment gating (verify → execute → settle)."""
 			start_time = time.time()
 			error_msg = None
+			pending_payment: dict[str, Any] | None = None
 			try:
-				result = await self._execute_tool(name, arguments or {})
+				# Extract X-PAYMENT header from arguments (for testing/demo)
+				# In production HTTP wrapper, this would come from actual HTTP headers
+				args = arguments or {}
+				x_payment = args.pop('X-PAYMENT', None) or args.pop('x_payment', None)
+
+				# Admission: verify only (no on-chain transfer yet). Settle after success
+				# so a failed agent/extract run does not charge the payer.
+				if is_tool_gated(name):
+					is_valid, validation_error, pending_payment = await validate_x402_payment(name, x_payment)
+					if not is_valid:
+						# Return 402 Payment Required with x402 response format
+						x402_response = get_x402_response(name, validation_error or 'X-PAYMENT header required')
+						# Return JSON string that represents 402 status with x402 body
+						error_msg = 'x402_payment_required'
+						return [types.TextContent(type='text', text=json.dumps({'status': 402, **x402_response}))]
+
+				result = await self._execute_tool(name, args)
+
+				# Pay-on-success: string-contract failures (Error: / Agent task failed: /
+				# unsuccessful agent) must not settle.
+				if pending_payment is not None:
+					if not self._gated_tool_result_succeeded(name, result):
+						await release_x402_payment(pending_payment)
+						pending_payment = None
+						error_msg = result if isinstance(result, str) else 'Tool failed'
+						if isinstance(result, list):
+							return result
+						return [types.TextContent(type='text', text=result)]
+
+					settled, settle_error = await settle_x402_payment(name, pending_payment)
+					pending_payment = None  # success → replay cache; definite fail → release; ambiguous → keep reserved
+					if not settled:
+						error_msg = settle_error or 'Payment settlement failed'
+						logger.error(f'Tool {name} succeeded but x402 settle failed: {error_msg}')
+						return [types.TextContent(type='text', text=f'Error: {error_msg}')]
+
 				if isinstance(result, list):
 					return result
 				return [types.TextContent(type='text', text=result)]
 			except Exception as e:
+				if pending_payment is not None:
+					await release_x402_payment(pending_payment)
+					pending_payment = None
 				error_msg = str(e)
 				logger.error(f'Tool execution failed: {e}', exc_info=True)
 				return [types.TextContent(type='text', text=f'Error: {str(e)}')]
@@ -489,6 +550,26 @@ class BrowserUseServer:
 						error_message=error_msg,
 					)
 				)
+
+	@staticmethod
+	def _gated_tool_result_succeeded(tool_name: str, result: str | list[types.TextContent | types.ImageContent]) -> bool:
+		"""Return True only when a gated tool's string-result contract indicates success.
+
+		Gated helpers often return 'Error: …' / 'Agent task failed: …' instead of raising,
+		and agent runs embed 'Success: False'. Those must not trigger /settle.
+		"""
+		if not isinstance(result, str):
+			# Gated tools today return plain strings; treat unexpected list content as success.
+			return True
+		if result.startswith('Error:') or result.startswith('Agent task failed:'):
+			return False
+		if result == 'No content extracted':
+			return False
+		if tool_name == 'retry_with_browser_use_agent':
+			for line in result.splitlines():
+				if line.startswith('Success:'):
+					return line.removeprefix('Success:').strip() == 'True'
+		return True
 
 	async def _execute_tool(
 		self, tool_name: str, arguments: dict[str, Any]
@@ -1027,7 +1108,12 @@ class BrowserUseServer:
 			file_system=self.file_system,
 		)
 
-		return action_result.extracted_content or 'No content extracted'
+		# Preserve ActionResult.error so pay-on-success does not settle a failed extraction.
+		if action_result.error:
+			return f'Error: {action_result.error}'
+		if not action_result.extracted_content:
+			return 'Error: No content extracted'
+		return action_result.extracted_content
 
 	async def _scroll(self, direction: str = 'down') -> str:
 		"""Scroll the page."""
@@ -1278,6 +1364,7 @@ async def main(session_timeout_minutes: int = 10):
 	try:
 		await server.run()
 	finally:
+		await close_payment_client()
 		duration = time.time() - server._start_time
 		server._telemetry.capture(
 			MCPServerTelemetryEvent(
