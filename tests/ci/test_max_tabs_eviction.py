@@ -1,14 +1,15 @@
 """Tests for BrowserProfile.max_tabs (#5484).
 
 Long-running sessions accumulate tabs because nothing ever closes them. `max_tabs`
-caps the open tab count by evicting the oldest non-focused tab whenever a new tab
+caps the open tab count by evicting the oldest evictable tab whenever a new tab
 pushes the session over the limit.
 
 Covers:
 1. Default (None) keeps the previous unbounded behaviour.
-2. A configured cap converges to that many tabs no matter how many are opened.
+2. A configured cap converges to that many tabs, keeping the *newest* ones.
 3. The tab the agent is focused on is never the one evicted.
-4. The field rejects a cap below 1 (which could otherwise close every tab).
+4. The tab that was just opened is never evicted out from under its own navigation.
+5. The field rejects a cap below 1 (which could otherwise close every tab).
 """
 
 import asyncio
@@ -64,19 +65,40 @@ async def _make_session(max_tabs: int | None) -> BrowserSession:
 	return session
 
 
-def _tab_count(session: BrowserSession) -> int:
-	return len(session.session_manager.get_all_page_targets())
+def _open_tab_ids(session: BrowserSession) -> list[str]:
+	return [target.target_id for target in session.session_manager.get_all_page_targets()]
 
 
-async def _settle(session: BrowserSession, timeout: float = 5.0) -> int:
-	"""Wait for eviction (dispatched, not awaited) to drain, then report the tab count."""
-	deadline = asyncio.get_event_loop().time() + timeout
-	max_tabs = session.browser_profile.max_tabs
-	while asyncio.get_event_loop().time() < deadline:
+async def _open_tabs(tools, session: BrowserSession, base_url: str, count: int) -> list[str]:
+	"""Open `count` tabs and return their target ids in the order they were opened."""
+	opened = []
+	for i in range(count):
+		await tools.navigate(url=f'{base_url}/page{i}', new_tab=True, browser_session=session)
+		opened.append(session.agent_focus_target_id)
+	return opened
+
+
+async def _settle(session: BrowserSession, timeout: float = 20.0) -> list[str]:
+	"""Wait until the tab set stops changing.
+
+	Eviction is dispatched rather than awaited, so the session manager only reflects a
+	closed tab once CDP detaches it. Waiting for quiescence (instead of a fixed sleep or
+	a first-match-wins poll) keeps this stable on slow CI.
+	"""
+	loop = asyncio.get_event_loop()
+	deadline = loop.time() + timeout
+	previous: list[str] | None = None
+	unchanged = 0
+
+	while loop.time() < deadline:
 		await asyncio.sleep(0.25)
-		if max_tabs is None or _tab_count(session) <= max_tabs:
+		current = _open_tab_ids(session)
+		unchanged = unchanged + 1 if current == previous else 0
+		previous = current
+		if unchanged >= 3:  # ~0.75s with no change
 			break
-	return _tab_count(session)
+
+	return _open_tab_ids(session)
 
 
 # ---------------------------------------------------------------------------
@@ -90,24 +112,28 @@ async def test_max_tabs_none_leaves_tabs_unbounded(tools, base_url):
 	try:
 		assert session.browser_profile.max_tabs is None
 
-		for i in range(4):
-			await tools.navigate(url=f'{base_url}/page{i}', new_tab=True, browser_session=session)
-		await asyncio.sleep(1.0)
+		opened = await _open_tabs(tools, session, base_url, 4)
+		surviving = await _settle(session)
 
-		# 4 opened tabs all survive (plus whatever blank tab the session started with).
-		assert _tab_count(session) >= 4
+		# Every tab opened survives (plus whatever blank tab the session started with).
+		assert set(opened).issubset(set(surviving))
+		assert len(surviving) >= 4
 	finally:
 		await session.kill()
 
 
-async def test_max_tabs_evicts_down_to_the_cap(tools, base_url):
-	"""Opening more tabs than the cap converges to exactly max_tabs."""
+async def test_max_tabs_evicts_the_oldest_tabs_first(tools, base_url):
+	"""Opening more tabs than the cap converges to exactly max_tabs, keeping the newest."""
 	session = await _make_session(max_tabs=3)
 	try:
-		for i in range(6):
-			await tools.navigate(url=f'{base_url}/page{i}', new_tab=True, browser_session=session)
+		opened = await _open_tabs(tools, session, base_url, 6)
+		surviving = await _settle(session)
 
-		assert await _settle(session) == 3
+		assert len(surviving) == 3
+		# The three most recently opened tabs are the survivors — a regression that evicted
+		# newest-first would keep the same count but fail here.
+		assert set(surviving) == set(opened[-3:])
+		assert not set(opened[:-3]) & set(surviving)
 	finally:
 		await session.kill()
 
@@ -116,15 +142,34 @@ async def test_max_tabs_never_evicts_the_focused_tab(tools, base_url):
 	"""The agent's own tab must survive eviction, so it is never left without a page."""
 	session = await _make_session(max_tabs=2)
 	try:
-		for i in range(5):
-			await tools.navigate(url=f'{base_url}/page{i}', new_tab=True, browser_session=session)
+		await _open_tabs(tools, session, base_url, 5)
+		surviving = await _settle(session)
 
-		assert await _settle(session) == 2
-
+		assert len(surviving) == 2
 		focus = session.agent_focus_target_id
 		assert focus is not None
-		surviving = {target.target_id for target in session.session_manager.get_all_page_targets()}
 		assert focus in surviving
+	finally:
+		await session.kill()
+
+
+async def test_max_tabs_one_keeps_the_tab_being_navigated_into(tools, base_url):
+	"""A cap of 1 must not close the freshly created tab before its navigation lands.
+
+	on_TabCreatedEvent runs before focus switches to the new tab, so without protecting
+	the just-created target the cap would evict the very tab the agent just opened.
+	"""
+	session = await _make_session(max_tabs=1)
+	try:
+		opened = await _open_tabs(tools, session, base_url, 3)
+		surviving = await _settle(session)
+
+		assert surviving == [opened[-1]]
+		assert session.agent_focus_target_id == opened[-1]
+
+		# The surviving tab is still usable — it was navigated, not closed mid-flight.
+		state = await session.get_browser_state_summary()
+		assert state.url.endswith('/page2')
 	finally:
 		await session.kill()
 

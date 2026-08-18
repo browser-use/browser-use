@@ -561,6 +561,7 @@ class BrowserSession(BaseModel):
 	_cached_browser_state_summary: Any = PrivateAttr(default=None)
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_cached_selector_indices: dict[tuple[str, int], int] = PrivateAttr(default_factory=dict)
+	_pending_tab_evictions: set[TargetID] = PrivateAttr(default_factory=set)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
 	_closed_popup_messages: list[str] = PrivateAttr(default_factory=list)  # Store messages from auto-closed JavaScript dialogs
 
@@ -1209,32 +1210,47 @@ class BrowserSession(BaseModel):
 			except Exception as e:
 				self.logger.warning(f'Failed to set viewport for new tab {event.target_id[-8:]}: {e}')
 
-		self._enforce_max_tabs()
+		self._enforce_max_tabs(just_created_target_id=event.target_id)
 
-	def _enforce_max_tabs(self) -> None:
-		"""Close the oldest non-focused tabs while the session is over browser_profile.max_tabs."""
+	def _enforce_max_tabs(self, just_created_target_id: TargetID | None = None) -> None:
+		"""Close the oldest evictable tabs while the session is over browser_profile.max_tabs.
+
+		Called on tab creation and again once agent focus settles, since a tab that is
+		protected during creation may become evictable immediately afterwards.
+		"""
 		max_tabs = self.browser_profile.max_tabs
 		if not max_tabs:
 			return
 
 		# session_manager._targets is insertion-ordered, so the oldest tabs come first.
 		page_targets = self.session_manager.get_all_page_targets()
-		evict_count = len(page_targets) - max_tabs
+
+		# Already-scheduled targets linger here until CDP detaches them, so ignore them or a
+		# burst of tab creations would re-select the same targets and over-evict.
+		live = [target for target in page_targets if target.target_id not in self._pending_tab_evictions]
+		evict_count = len(live) - max_tabs
 		if evict_count < 1:
 			return
 
-		# Never evict the tab the agent is looking at, so at least one tab always survives.
-		evictable = [target for target in page_targets if target.target_id != self.agent_focus_target_id]
+		# Never evict the agent's tab, so at least one tab always survives. Also spare the tab
+		# that was just created: on_TabCreatedEvent runs before on_NavigateToUrlEvent switches
+		# focus to it, so it is not focused yet and would otherwise be closed out from under
+		# the navigation that created it.
+		protected = {self.agent_focus_target_id, just_created_target_id}
+		evictable = [target for target in live if target.target_id not in protected]
 		for target in evictable[:evict_count]:
 			self.logger.info(
 				f'📑 Closing oldest tab {target.target_id[-8:]} to stay within max_tabs={max_tabs} '
-				f'({len(page_targets)} open): {target.url}'
+				f'({len(live)} open): {target.url}'
 			)
+			self._pending_tab_evictions.add(target.target_id)
 			# Don't await, CloseTabEvent fans out to TabClosedEvent handlers and could deadlock inside this handler
 			self.event_bus.dispatch(CloseTabEvent(target_id=target.target_id))
 
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
+		self._pending_tab_evictions.discard(event.target_id)
+
 		if not self.agent_focus_target_id:
 			return
 
@@ -1279,6 +1295,10 @@ class BrowserSession(BaseModel):
 					self.logger.warning(f'Failed to set viewport for tab {event.target_id[-8:]}: {e}')
 		else:
 			raise RuntimeError('AgentFocusChangedEvent received with no target_id for newly focused tab')
+
+		# Focus has settled, so the tab spared during creation is now evictable (or is itself
+		# the focused tab). Re-check here so the cap is exact rather than one tab high.
+		self._enforce_max_tabs()
 
 	async def on_FileDownloadedEvent(self, event: FileDownloadedEvent) -> None:
 		"""Track downloaded files during this session."""
