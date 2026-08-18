@@ -7,6 +7,7 @@ and `record_har_mode` (full/minimal).
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -151,6 +152,7 @@ class HarRecordingWatchdog(BaseWatchdog):
 		super().__init__(*args, **kwargs)
 		self._enabled: bool = False
 		self._entries: dict[str, _HarEntryBuilder] = {}
+		self._pending_body_fetches: set[asyncio.Task[None]] = set()  # in-flight response body fetches
 		self._top_level_pages: dict[
 			str, dict
 		] = {}  # frameId -> {url, title, startedDateTime, monotonic_start, onContentLoad, onLoad}
@@ -201,10 +203,28 @@ class HarRecordingWatchdog(BaseWatchdog):
 		if not self._enabled:
 			return
 		try:
+			await self._drain_body_fetches()
 			await self._write_har()
 			self.logger.info(f'📊 HAR file saved: {self._har_path}')
 		except Exception as e:
 			self.logger.warning(f'Failed to write HAR: {e}')
+
+	async def _drain_body_fetches(self, timeout_s: float = 5.0) -> None:
+		"""Wait briefly for in-flight response body fetches so their content lands in the HAR.
+
+		Body fetches are fire-and-forget during recording; on stop, pending ones get a
+		bounded window to complete, otherwise their entries fall back to the (possibly
+		incomplete) dataReceived buffer.
+		"""
+		pending = [task for task in self._pending_body_fetches if not task.done()]
+		if not pending:
+			return
+		try:
+			await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=timeout_s)
+		except TimeoutError:
+			self.logger.debug(
+				f'[HarRecordingWatchdog] {len(pending)} response body fetch(es) did not finish within {timeout_s}s; writing HAR without them'
+			)
 
 	# =============== CDP Event Handlers (sync) ==================
 	def _on_request_will_be_sent(self, params: RequestWillBeSentEvent, session_id: str | None) -> None:
@@ -385,9 +405,8 @@ class HarRecordingWatchdog(BaseWatchdog):
 				return
 			entry = self._entries[request_id]
 			entry.ts_finished = params.get('timestamp')
-			# Fetch response body via CDP as dataReceived may be incomplete
-			import asyncio as _asyncio
 
+			# Fetch response body via CDP as dataReceived may be incomplete
 			async def _fetch_body(self_ref, req_id, sess_id):
 				try:
 					resp = await self_ref.browser_session.cdp_client.send.Network.getResponseBody(
@@ -407,10 +426,16 @@ class HarRecordingWatchdog(BaseWatchdog):
 						data = bytes(data) if data else b''
 					entry.response_body = data
 				except Exception:
-					pass
+					self_ref.logger.debug(
+						f'[HarRecordingWatchdog] Failed to fetch response body for request {req_id}', exc_info=True
+					)
 
-			# Always schedule the response body fetch task
-			_asyncio.create_task(_fetch_body(self, request_id, session_id))
+			# Always schedule the response body fetch task. Keep a strong reference so the
+			# task cannot be garbage-collected mid-flight, and so pending fetches can be
+			# drained before the HAR is written on stop.
+			task = asyncio.create_task(_fetch_body(self, request_id, session_id))
+			self._pending_body_fetches.add(task)
+			task.add_done_callback(self._pending_body_fetches.discard)
 
 			encoded_length = (
 				params.get('encodedDataLength') if hasattr(params, 'get') else getattr(params, 'encodedDataLength', None)
