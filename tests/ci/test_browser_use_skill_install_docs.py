@@ -23,20 +23,20 @@ def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
 
 	uv_script = bin_dir / 'fake_uv.py'
 	uv_script.write_text(
-		'import os, pathlib, sys\\n'
-		'pathlib.Path(os.environ["UV_TOOL_INSTALL_ARGS_FILE"]).write_text(" ".join(sys.argv[1:]), encoding="utf-8")\\n',
+		'import os, pathlib, sys\n'
+		'pathlib.Path(os.environ["UV_TOOL_INSTALL_ARGS_FILE"]).write_text(" ".join(sys.argv[1:]), encoding="utf-8")\n',
 		encoding='utf-8',
 	)
 
 	browser_harness_script = bin_dir / 'fake_browser_harness.py'
 	browser_harness_script.write_text(
-		'import sys\\n'
-		f'text = {skill_text!r}\\n'
-		'if sys.argv[1:] == ["skill"]:\\n'
-		'    print(text, end="")\\n'
-		'else:\\n'
-		'    print("usage: browser-harness skill", file=sys.stderr)\\n'
-		'    sys.exit(2)\\n',
+		'import sys\n'
+		f'text = {skill_text!r}\n'
+		'if sys.argv[1:] == ["skill"]:\n'
+		'    print(text, end="")\n'
+		'else:\n'
+		'    print("usage: browser-harness skill", file=sys.stderr)\n'
+		'    sys.exit(2)\n',
 		encoding='utf-8',
 	)
 
@@ -44,13 +44,13 @@ def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
 		# Windows does not resolve extensionless files through shutil.which().
 		for name, script in (('uv', uv_script), ('browser-harness', browser_harness_script)):
 			(bin_dir / f'{name}.cmd').write_text(
-				f'@echo off\\n"{sys.executable}" "{script}" %*\\n',
+				f'@echo off\n"{sys.executable}" "{script}" %*\n',
 				encoding='utf-8',
 			)
 	else:
 		for name, script in (('uv', uv_script), ('browser-harness', browser_harness_script)):
 			tool = bin_dir / name
-			tool.write_text(f'#!/bin/sh\\nexec "{sys.executable}" "{script}" "$@"\\n', encoding='utf-8')
+			tool.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding='utf-8')
 			tool.chmod(0o755)
 
 	return bin_dir
