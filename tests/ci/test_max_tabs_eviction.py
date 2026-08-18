@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from pytest_httpserver import HTTPServer
 
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser.events import SwitchTabEvent
 from browser_use.tools.service import Tools
 
 # ---------------------------------------------------------------------------
@@ -170,6 +171,36 @@ async def test_max_tabs_one_keeps_the_tab_being_navigated_into(tools, base_url):
 		# The surviving tab is still usable — it was navigated, not closed mid-flight.
 		state = await session.get_browser_state_summary()
 		assert state.url.endswith('/page2')
+	finally:
+		await session.kill()
+
+
+async def test_max_tabs_spares_a_tab_focused_after_eviction_was_scheduled(tools, base_url):
+	"""A tab already queued for eviction must not be closed if focus lands on it first.
+
+	`CloseTabEvent` for an evicted tab is dispatched as a background task rather than
+	awaited inline, so several event-loop turns can pass before it actually runs. If the
+	agent switches onto that exact tab in the meantime, closing it anyway would violate
+	the "never evict the focused tab" guarantee. `_evict_tab` re-checks focus immediately
+	before closing to close that window — exercised directly here since winning the real
+	race deterministically isn't possible from a test.
+	"""
+	session = await _make_session(max_tabs=2)
+	try:
+		opened = await _open_tabs(tools, session, base_url, 2)
+		target_id = opened[0]
+		assert target_id in _open_tab_ids(session)
+
+		# Simulate _enforce_max_tabs having just selected target_id for eviction, then focus
+		# moving onto it before the queued close executes.
+		session._pending_tab_evictions.add(target_id)
+		await session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
+		assert session.agent_focus_target_id == target_id
+
+		await session._evict_tab(target_id)
+
+		assert target_id in _open_tab_ids(session)
+		assert target_id not in session._pending_tab_evictions
 	finally:
 		await session.kill()
 
