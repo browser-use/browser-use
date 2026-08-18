@@ -10,9 +10,11 @@ the read-only set: it dispatches the `extract` action through `Tools.act()`
 with a FileSystem handle and can write extraction artifacts.
 """
 
+import mcp.shared.memory
 import mcp.types as types
 import pytest
 
+from browser_use.mcp._compat import MCP_SDK_V2
 from browser_use.mcp.server import BrowserUseServer
 
 # Tools whose handlers only read state (see BrowserUseServer._get_browser_state,
@@ -35,17 +37,64 @@ def server() -> BrowserUseServer:
 
 
 def _is_read_only(tool: types.Tool) -> bool:
-	return tool.annotations is not None and tool.annotations.readOnlyHint is True
+	if tool.annotations is None:
+		return False
+	# readOnlyHint (mcp 1.x attribute) was renamed to read_only_hint in mcp 2.x
+	read_only = getattr(tool.annotations, 'read_only_hint', None)
+	if read_only is None:
+		read_only = getattr(tool.annotations, 'readOnlyHint', False)
+	return read_only is True
 
 
 async def _list_tools(server: BrowserUseServer) -> list[types.Tool]:
-	handler = server.server.request_handlers[types.ListToolsRequest]
-	result = await handler(types.ListToolsRequest(method='tools/list'))
-	assert isinstance(result, types.ServerResult), f'expected ServerResult, got {type(result).__name__}'
-	list_result = result.root
-	assert isinstance(list_result, types.ListToolsResult), f'expected ListToolsResult, got {type(list_result).__name__}'
-	assert len(list_result.tools) > 0, 'tools/list returned an empty catalogue'
-	return list_result.tools
+	"""Fetch the tools/list catalogue through a real client session (mcp 1.x and 2.x)."""
+	from contextlib import asynccontextmanager
+
+	from mcp import ClientSession
+
+	@asynccontextmanager
+	async def connected_session():
+		if MCP_SDK_V2:
+			# mcp 2.x: pair in-memory streams, run the server on a task, talk to it with a ClientSession
+			import anyio
+			from mcp.server import NotificationOptions
+			from mcp.server.models import InitializationOptions
+
+			create_streams = getattr(mcp.shared.memory, 'create_client_server_memory_streams')
+
+			async with create_streams() as (client_streams, server_streams):
+				client_read, client_write = client_streams
+				server_read, server_write = server_streams
+				async with anyio.create_task_group() as tg:
+					tg.start_soon(
+						server.server.run,
+						server_read,
+						server_write,
+						InitializationOptions(
+							server_name='browser-use',
+							server_version='0.0.0-test',
+							capabilities=server.server.get_capabilities(
+								notification_options=NotificationOptions(),
+								experimental_capabilities={},
+							),
+						),
+					)
+					try:
+						async with ClientSession(client_read, client_write) as session:
+							await session.initialize()
+							yield session
+					finally:
+						tg.cancel_scope.cancel()
+		else:
+			create_connected = getattr(mcp.shared.memory, 'create_connected_server_and_client_session')
+
+			async with create_connected(server.server) as session:
+				yield session
+
+	async with connected_session() as session:
+		result = await session.list_tools()
+		assert len(result.tools) > 0, 'tools/list returned an empty catalogue'
+		return result.tools
 
 
 async def test_read_only_tools_advertise_read_only_hint(server: BrowserUseServer) -> None:

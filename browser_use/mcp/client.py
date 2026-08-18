@@ -41,6 +41,8 @@ logger = logging.getLogger(__name__)
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 
+from browser_use.mcp._compat import get_input_schema, is_error_result
+
 MCP_AVAILABLE = True
 
 
@@ -256,10 +258,10 @@ class MCPClient:
 		# Parse tool parameters to create Pydantic model
 		param_fields = {}
 
-		if tool.inputSchema:
+		if input_schema := get_input_schema(tool):
 			# MCP tools use JSON Schema for parameters
-			properties = tool.inputSchema.get('properties', {})
-			required = set(tool.inputSchema.get('required', []))
+			properties = input_schema.get('properties', {})
+			required = set(input_schema.get('required', []))
 
 			for param_name, param_schema in properties.items():
 				# Convert JSON Schema type to Python type
@@ -326,7 +328,7 @@ class MCPClient:
 					# Convert MCP result to ActionResult
 					extracted_content = self._format_mcp_result(result)
 
-					if getattr(result, 'isError', False):
+					if is_error_result(result):
 						error_msg = f"MCP tool '{tool.name}' reported an error: {extracted_content}"
 						return ActionResult(error=error_msg, success=False)
 
@@ -374,7 +376,7 @@ class MCPClient:
 					# Convert MCP result to ActionResult
 					extracted_content = self._format_mcp_result(result)
 
-					if getattr(result, 'isError', False):
+					if is_error_result(result):
 						error_msg = f"MCP tool '{tool.name}' reported an error: {extracted_content}"
 						return ActionResult(error=error_msg, success=False)
 

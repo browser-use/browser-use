@@ -20,6 +20,8 @@ try:
 	from mcp.client.stdio import stdio_client
 	from mcp.types import TextContent, Tool
 
+	from browser_use.mcp._compat import get_input_schema
+
 	MCP_AVAILABLE = True
 except ImportError:
 	MCP_AVAILABLE = False
@@ -101,10 +103,10 @@ class MCPToolWrapper:
 		# Parse tool parameters to create Pydantic model
 		param_fields = {}
 
-		if tool.inputSchema:
+		if input_schema := get_input_schema(tool):
 			# MCP tools use JSON Schema for parameters
-			properties = tool.inputSchema.get('properties', {})
-			required = set(tool.inputSchema.get('required', []))
+			properties = input_schema.get('properties', {})
+			required = set(input_schema.get('required', []))
 
 			for param_name, param_schema in properties.items():
 				# Convert JSON Schema type to Python type

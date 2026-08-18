@@ -15,6 +15,7 @@ import mcp.types as types
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
+from browser_use.mcp._compat import create_server, make_image_content, make_tool
 from browser_use.utils import get_browser_use_version
 
 _NAMESPACE_IMPORTS = (
@@ -34,14 +35,13 @@ class CLIMCPServer:
 	"""Stateful stdio MCP server wrapping the browser-harness exec model."""
 
 	def __init__(self):
-		self.server: Server = Server('browser-use')
+		self.server: Server = self._create_server()
 		self._namespace: dict[str, Any] | None = None
 		self._exec_lock = asyncio.Lock()
-		self._register_handlers()
 
 	def _tool_definitions(self) -> list[types.Tool]:
 		return [
-			types.Tool(
+			make_tool(
 				name='browser_exec',
 				description=(
 					'Execute Python in the browser-harness session. Helpers like new_tab(url), '
@@ -50,7 +50,7 @@ class CLIMCPServer:
 					'persists across calls. Returns whatever the code prints. First navigation '
 					'should be new_tab(url).'
 				),
-				inputSchema={
+				input_schema={
 					'type': 'object',
 					'properties': {
 						'code': {'type': 'string', 'description': 'Python code to execute'},
@@ -58,10 +58,10 @@ class CLIMCPServer:
 					'required': ['code'],
 				},
 			),
-			types.Tool(
+			make_tool(
 				name='browser_screenshot',
 				description='Capture the current page and return it as an image. Prefer this over capture_screenshot() in browser_exec.',
-				inputSchema={
+				input_schema={
 					'type': 'object',
 					'properties': {
 						'full': {'type': 'boolean', 'description': 'Capture beyond the viewport (full page)', 'default': False},
@@ -75,12 +75,10 @@ class CLIMCPServer:
 			),
 		]
 
-	def _register_handlers(self):
-		@self.server.list_tools()
+	def _create_server(self) -> Server:
 		async def handle_list_tools() -> list[types.Tool]:
 			return self._tool_definitions()
 
-		@self.server.call_tool()
 		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent | types.ImageContent]:
 			arguments = arguments or {}
 			if name == 'browser_exec':
@@ -96,8 +94,10 @@ class CLIMCPServer:
 					return [types.TextContent(type='text', text="Error: 'max_dim' must be a positive integer")]
 				async with self._exec_lock:
 					png = await asyncio.to_thread(self._screenshot, bool(arguments.get('full', False)), max_dim)
-				return [types.ImageContent(type='image', data=png, mimeType='image/png')]
+				return [make_image_content(png)]
 			return [types.TextContent(type='text', text=f'Unknown tool: {name}')]
+
+		return create_server('browser-use', list_tools=handle_list_tools, call_tool=handle_call_tool)
 
 	def _ensure_namespace(self) -> dict[str, Any]:
 		if self._namespace is None:
