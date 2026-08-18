@@ -214,17 +214,19 @@ class HarRecordingWatchdog(BaseWatchdog):
 
 		Body fetches are fire-and-forget during recording; on stop, pending ones get a
 		bounded window to complete, otherwise their entries fall back to the (possibly
-		incomplete) dataReceived buffer.
+		incomplete) dataReceived buffer. Uses asyncio.wait rather than wait_for so a
+		fetch that ignores cancellation cannot delay the HAR write past the timeout.
 		"""
 		pending = [task for task in self._pending_body_fetches if not task.done()]
 		if not pending:
 			return
-		try:
-			await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=timeout_s)
-		except TimeoutError:
+		_done, stuck = await asyncio.wait(pending, timeout=timeout_s)
+		if stuck:
 			self.logger.debug(
-				f'[HarRecordingWatchdog] {len(pending)} response body fetch(es) did not finish within {timeout_s}s; writing HAR without them'
+				f'[HarRecordingWatchdog] {len(stuck)} response body fetch(es) did not finish within {timeout_s}s; writing HAR without them'
 			)
+			for task in stuck:
+				task.cancel()  # best effort; intentionally not awaited
 
 	# =============== CDP Event Handlers (sync) ==================
 	def _on_request_will_be_sent(self, params: RequestWillBeSentEvent, session_id: str | None) -> None:

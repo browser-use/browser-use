@@ -107,5 +107,7 @@ async def test_stop_writes_har_when_body_fetch_is_stuck(tmp_path):
 	_finish_loading(watchdog, stuck_get_body)
 
 	await asyncio.wait_for(watchdog._drain_body_fetches(timeout_s=0.05), timeout=2)
+	await asyncio.sleep(0.05)
 	for task in watchdog._pending_body_fetches:
+		assert task.cancelled() or task.done(), 'stuck fetch was not cancelled after the drain window'
 		task.cancel()
