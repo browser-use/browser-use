@@ -9,7 +9,9 @@ Covers:
 2. A configured cap converges to that many tabs, keeping the *newest* ones.
 3. The tab the agent is focused on is never the one evicted.
 4. The tab that was just opened is never evicted out from under its own navigation.
-5. The field rejects a cap below 1 (which could otherwise close every tab).
+5. A tab that becomes focused after eviction was scheduled for it is spared, and the cap
+   still ends up enforced against a different tab instead.
+6. The field rejects a cap below 1 (which could otherwise close every tab).
 """
 
 import asyncio
@@ -19,7 +21,7 @@ from pydantic import ValidationError
 from pytest_httpserver import HTTPServer
 
 from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.browser.events import SwitchTabEvent
+from browser_use.browser.events import CloseTabEvent
 from browser_use.tools.service import Tools
 
 # ---------------------------------------------------------------------------
@@ -176,31 +178,45 @@ async def test_max_tabs_one_keeps_the_tab_being_navigated_into(tools, base_url):
 
 
 async def test_max_tabs_spares_a_tab_focused_after_eviction_was_scheduled(tools, base_url):
-	"""A tab already queued for eviction must not be closed if focus lands on it first.
+	"""A tab already queued for eviction must not be closed if focus lands on it first,
+	and the cap must still end up enforced against a different tab instead.
 
-	`CloseTabEvent` for an evicted tab is dispatched as a background task rather than
-	awaited inline, so several event-loop turns can pass before it actually runs. If the
-	agent switches onto that exact tab in the meantime, closing it anyway would violate
-	the "never evict the focused tab" guarantee. `_evict_tab` re-checks focus immediately
-	before closing to close that window — exercised directly here since winning the real
-	race deterministically isn't possible from a test.
+	`_enforce_max_tabs` dispatches `CloseTabEvent` without awaiting, so several event-loop
+	turns can pass before `on_CloseTabEvent` actually runs it. If the agent switches onto
+	that exact tab in the meantime, closing it anyway would violate the "never evict the
+	focused tab" guarantee - and leaving the session over max_tabs would be its own bug.
+	`on_CloseTabEvent` re-checks focus for pending-eviction targets immediately before doing
+	the real close and re-runs enforcement if it skips one.
+
+	Winning the real scheduling race deterministically isn't possible from a test, so this
+	drives the exact same production entry point _enforce_max_tabs uses - dispatching
+	`CloseTabEvent`, handled by the shared `on_CloseTabEvent` - with the race already having
+	landed against us (target focused, eviction already marked pending).
 	"""
-	session = await _make_session(max_tabs=2)
+	# max_tabs=None while opening tabs so real auto-eviction doesn't run concurrently and
+	# make the outcome depend on unrelated timing; the cap below is applied by hand instead.
+	session = await _make_session(max_tabs=None)
 	try:
-		opened = await _open_tabs(tools, session, base_url, 2)
-		target_id = opened[0]
-		assert target_id in _open_tab_ids(session)
+		opened = await _open_tabs(tools, session, base_url, 3)
+		target_id, next_oldest_id = opened[0], opened[1]
+		session.browser_profile.max_tabs = 2
 
 		# Simulate _enforce_max_tabs having just selected target_id for eviction, then focus
 		# moving onto it before the queued close executes.
 		session._pending_tab_evictions.add(target_id)
-		await session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
-		assert session.agent_focus_target_id == target_id
+		session.agent_focus_target_id = target_id
 
-		await session._evict_tab(target_id)
+		await session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
 
 		assert target_id in _open_tab_ids(session)
 		assert target_id not in session._pending_tab_evictions
+
+		# The spared tab pushed the session back over the cap, so the skip path's re-run of
+		# _enforce_max_tabs should have picked the next-oldest evictable tab instead.
+		surviving = await _settle(session)
+		assert len(surviving) == 2
+		assert target_id in surviving
+		assert next_oldest_id not in surviving
 	finally:
 		await session.kill()
 

@@ -1175,6 +1175,20 @@ class BrowserSession(BaseModel):
 
 	async def on_CloseTabEvent(self, event: CloseTabEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
+		# An eviction-originated close can be superseded if focus moved onto this exact tab
+		# between _enforce_max_tabs selecting it and this handler actually running (CloseTabEvent
+		# is dispatched fire-and-forget, so a queued SwitchTabEvent can land first). Checking here,
+		# at the start of the handler that performs the real close, is as close to the actual CDP
+		# call as the shared close path allows without special-casing eviction inside it further.
+		if event.target_id in self._pending_tab_evictions:
+			self._pending_tab_evictions.discard(event.target_id)
+			if event.target_id == self.agent_focus_target_id:
+				self.logger.debug(f'[max_tabs] Skipping eviction of {event.target_id[-8:]}, it became the focused tab')
+				# The tab this eviction was meant to remove is staying, so the session may still
+				# be over max_tabs - re-run enforcement to pick another candidate if one exists.
+				self._enforce_max_tabs()
+				return
+
 		try:
 			# Dispatch tab closed event
 			await self.event_bus.dispatch(TabClosedEvent(target_id=event.target_id))
@@ -1244,26 +1258,10 @@ class BrowserSession(BaseModel):
 				f'({len(live)} open): {target.url}'
 			)
 			self._pending_tab_evictions.add(target.target_id)
-			# Run as a background task rather than a synchronous dispatch: closing a tab may take
-			# several event-loop turns to actually execute, and focus can move onto this exact
-			# target in the meantime (e.g. an explicit SwitchTabEvent). Re-checking focus right
-			# before closing - instead of only at selection time above - closes that window.
-			create_task_with_error_handling(
-				self._evict_tab(target.target_id),
-				name=f'evict_tab_{target.target_id[-8:]}',
-				logger_instance=self.logger,
-				suppress_exceptions=True,
-			)
-
-	async def _evict_tab(self, target_id: TargetID) -> None:
-		"""Close target_id for max_tabs eviction, unless it became the focused tab in the meantime."""
-		try:
-			if target_id == self.agent_focus_target_id:
-				self.logger.debug(f'[max_tabs] Skipping eviction of {target_id[-8:]}, it became the focused tab')
-				return
-			await self.event_bus.dispatch(CloseTabEvent(target_id=target_id))
-		finally:
-			self._pending_tab_evictions.discard(target_id)
+			# Don't await, CloseTabEvent fans out to TabClosedEvent handlers and could deadlock
+			# inside this handler. on_CloseTabEvent re-checks focus for _pending_tab_evictions
+			# targets before actually closing, since focus can move on before this is processed.
+			self.event_bus.dispatch(CloseTabEvent(target_id=target.target_id))
 
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
