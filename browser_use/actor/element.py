@@ -344,7 +344,7 @@ class Element:
 					await asyncio.sleep(0.1)
 					return
 				except Exception as js_e:
-					raise Exception(f'Failed to click element: {e}')
+					raise Exception(f'Failed to click element: {js_e}')
 
 		except Exception as e:
 			# Extract key element info for error message

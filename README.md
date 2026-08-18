@@ -1,3 +1,4 @@
+<!-- mcp-name: com.browser-use/browser-use -->
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24">
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358">
@@ -40,29 +41,23 @@
 
 # What can Browser Use do?
 
-Browser Use lets an AI agent use a web browser the same way you do — it opens pages, clicks buttons, types, and fills in forms. You describe the task, and it completes it. For example, you can have it:
+Browser Use lets an AI agent use a web browser the same way humans do — it opens pages, clicks buttons, types, and fills in forms. You describe the task, and it completes it. For example, you can have it:
 
 
 ### 📋 Fill Forms
 #### Task: "Fill in this job application with my resume and information."
-![Job Application Demo](https://github.com/user-attachments/assets/57865ee6-6004-49d5-b2c2-6dff39ec2ba9)
+
+![Job Application Demo](https://github.com/user-attachments/assets/57611d8e-0474-4de6-84b7-37a0c0cd27e7)
+
 [Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/apply_to_job.py)
 
 
-### 🍎 Shop for Groceries
-#### Task: "Put this list of items into my instacart."
+### 🍎 Extract data
+#### Task: "Extract structured data about my followers and export it as a CSV."
 
-https://github.com/user-attachments/assets/a6813fa7-4a7c-40a6-b4aa-382bf88b1850
+https://github.com/user-attachments/assets/485fd3ec-61b9-4afc-9e86-ee9b85acb592
 
-[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/buy_groceries.py)
-
-
-### 💻 Be Your Personal Assistant
-#### Task: "Help me find parts for a custom PC."
-
-https://github.com/user-attachments/assets/ac34f75c-057a-43ef-ad06-5b2c9d42bf06
-
-[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/pcpartpicker.py)
+[Browser Use Cloud Docs ↗](https://docs.browser-use.com/cloud/quickstart)
 
 
 <br/>
@@ -110,7 +105,7 @@ async def main():
     agent = Agent(
         task="Find the number of stars of the browser-use repo",
         llm=ChatBrowserUse(model='openai/gpt-5.5'),
-        # llm=ChatBrowserUse(model='bu-2-0'),  # Browser Use's optimized model
+        # llm=ChatBrowserUse(model='bu-2-0-mini-preview'),  # Browser Use's optimized model
         # llm=ChatOpenAI(model='gpt-5.5'),
         # llm=ChatAnthropic(model='claude-opus-4-8'),  # Sonnet also works well
     )
@@ -147,6 +142,13 @@ Browser Use is also **#1 on the [Odysseys leaderboard](https://odysseysbench.com
 - Best stealth with proxy rotation and captcha solving
 - 1000+ integrations (Gmail, Slack, Notion, and more)
 - Persistent filesystem and memory
+
+```sh
+curl -X POST https://api.browser-use.com/api/v4/runs \
+  -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"task": "Your task"}'
+```
 
 <br/>
 
@@ -247,7 +249,7 @@ This open-source library is licensed under the MIT License. For Browser Use serv
 Check out our authentication examples:
 - [Using real browser profiles](https://github.com/browser-use/browser-use/blob/main/examples/browser/real_browser.py) - Reuse your existing Chrome profile with saved logins
 - If you want to use temporary accounts with inbox, choose AgentMail
-- To sync your auth profile with the remote browser, run `curl -fsSL https://browser-use.com/profile.sh | BROWSER_USE_API_KEY=XXXX sh` (replace XXXX with your API key)
+- To sync your auth profile with a remote browser, install `profile-use` for your platform from the [official releases](https://github.com/browser-use/profile-use-releases/releases/latest), then follow the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md).
 
 These examples show how to maintain sessions and handle authentication seamlessly.
 </details>
