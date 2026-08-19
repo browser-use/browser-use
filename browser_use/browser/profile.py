@@ -896,7 +896,8 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""Get the list of all Chrome CLI launch args for this profile (compiled from defaults, user-provided, and system-specific)."""
 
 		if isinstance(self.ignore_default_args, list):
-			default_args = set(CHROME_DEFAULT_ARGS) - set(self.ignore_default_args)
+			ignored_args = set(self.ignore_default_args)
+			default_args = [arg for arg in CHROME_DEFAULT_ARGS if arg not in ignored_args]
 		elif self.ignore_default_args is True:
 			default_args = []
 		elif not self.ignore_default_args:
