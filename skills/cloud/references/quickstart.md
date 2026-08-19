@@ -153,7 +153,7 @@ Typical task: 10 steps = ~$0.03 (with Browser Use LLM)
 - Set `start_url`
 
 **Login issues?**
-- Profile sync (easiest): `curl -fsSL https://browser-use.com/profile.sh | sh`
+- Profile sync (easiest): [Install profile-use](https://github.com/browser-use/profile-use-releases/releases/latest) for your platform, then follow the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md)
 - Secrets (per-domain credentials)
 - 1Password (most secure, auto 2FA)
 
