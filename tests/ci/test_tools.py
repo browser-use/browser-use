@@ -161,10 +161,11 @@ class TestToolsIntegration:
 		# Verify the result
 		assert isinstance(result, ActionResult)
 		assert result.extracted_content is not None
-		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
+		assert 'Waited for 3 seconds' in result.extracted_content
+		assert result.long_term_memory == 'Waited for 3 seconds'
 
-		# Verify that approximately 1 second has passed (allowing some margin)
-		assert end_time - start_time <= 2.5  # We wait 3-1 seconds for LLM call
+		# Wait the full requested duration (no silent -1 LLM adjustment — see #5362)
+		assert 2.5 <= end_time - start_time <= 3.5
 
 		# longer wait
 		# Record start time
@@ -179,9 +180,10 @@ class TestToolsIntegration:
 		# Verify the result
 		assert isinstance(result, ActionResult)
 		assert result.extracted_content is not None
-		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
+		assert 'Waited for 5 seconds' in result.extracted_content
+		assert result.long_term_memory == 'Waited for 5 seconds'
 
-		assert 3.5 <= end_time - start_time <= 4.5  # We wait 5-1 seconds for LLM call
+		assert 4.5 <= end_time - start_time <= 5.5
 
 	async def test_go_back_action(self, tools, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""
