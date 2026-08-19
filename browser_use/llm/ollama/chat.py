@@ -11,9 +11,34 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.ollama.serializer import OllamaMessageSerializer
-from browser_use.llm.views import ChatInvokeCompletion
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def _extract_ollama_usage(response: Any) -> ChatInvokeUsage | None:
+	if not response:
+		return None
+	if isinstance(response, dict):
+		prompt_tokens = response.get('prompt_eval_count')
+		completion_tokens = response.get('eval_count')
+	else:
+		prompt_tokens = getattr(response, 'prompt_eval_count', None)
+		completion_tokens = getattr(response, 'eval_count', None)
+
+	if prompt_tokens is None and completion_tokens is None:
+		return None
+
+	p_tokens = prompt_tokens or 0
+	c_tokens = completion_tokens or 0
+	return ChatInvokeUsage(
+		prompt_tokens=p_tokens,
+		prompt_cached_tokens=None,
+		prompt_cache_creation_tokens=None,
+		prompt_image_tokens=None,
+		completion_tokens=c_tokens,
+		total_tokens=p_tokens + c_tokens,
+	)
 
 
 @dataclass
@@ -78,7 +103,7 @@ class ChatOllama(BaseChatModel):
 					options=self.ollama_options,
 				)
 
-				return ChatInvokeCompletion(completion=response.message.content or '', usage=None)
+				return ChatInvokeCompletion(completion=response.message.content or '', usage=_extract_ollama_usage(response))
 			else:
 				schema = output_format.model_json_schema()
 
@@ -91,9 +116,9 @@ class ChatOllama(BaseChatModel):
 
 				completion = response.message.content or ''
 				if output_format is not None:
-					completion = output_format.model_validate_json(completion)
+					completion = output_format.model_validate_json(completion)  # type: ignore[attr-defined]
 
-				return ChatInvokeCompletion(completion=completion, usage=None)
+				return ChatInvokeCompletion(completion=completion, usage=_extract_ollama_usage(response))
 
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
