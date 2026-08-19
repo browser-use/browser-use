@@ -792,6 +792,8 @@ class FileSystem:
 
 		try:
 			content = file_obj.read()
+			if old_str not in content:
+				return f'Error: Could not find the specified text in file {full_filename}.'
 			content = content.replace(old_str, new_str)
 			await file_obj.write(content, self.data_dir)
 			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
