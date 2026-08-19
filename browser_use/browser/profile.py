@@ -25,6 +25,14 @@ def _get_enable_default_extensions_default() -> bool:
 	return True
 
 
+def _get_headless_default() -> bool | None:
+	"""Get the default value for headless from the BROWSER_USE_HEADLESS env var, or None to fall back to display detection."""
+	env_val = os.getenv('BROWSER_USE_HEADLESS')
+	if env_val is not None:
+		return env_val.lower() not in ('0', 'false', 'no', 'off', '')
+	return None
+
+
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
 DOMAIN_OPTIMIZATION_THRESHOLD = 100  # Convert domain lists to sets for O(1) lookup when >= this size
 CHROME_PROFILE_TRANSIENT_FILE_PATTERNS = (
@@ -419,7 +427,10 @@ class BrowserLaunchArgs(BaseModel):
 		validation_alias=AliasChoices('browser_binary_path', 'chrome_binary_path'),
 		description='Path to the chromium-based browser executable to use.',
 	)
-	headless: bool | None = Field(default=None, description='Whether to run the browser in headless or windowed mode.')
+	headless: bool | None = Field(
+		default_factory=_get_headless_default,
+		description='Whether to run the browser in headless or windowed mode. Defaults to BROWSER_USE_HEADLESS env var if set, otherwise auto-detected from display availability.',
+	)
 	args: list[CliArgStr] = Field(
 		default_factory=list, description='List of *extra* CLI args to pass to the browser when launching.'
 	)
@@ -456,8 +467,21 @@ class BrowserLaunchArgs(BaseModel):
 
 	@model_validator(mode='after')
 	def validate_devtools_headless(self) -> Self:
-		"""Cannot open devtools when headless is True"""
-		assert not (self.headless and self.devtools), 'headless=True and devtools=True cannot both be set at the same time'
+		"""Cannot open devtools when headless is True.
+
+		An explicit headless=True still conflicts with devtools=True and raises. A headless value that
+		only came from the BROWSER_USE_HEADLESS env var (not passed explicitly) yields to an explicit
+		devtools=True instead of raising, since the user never wrote headless=True themselves.
+		"""
+		if self.headless and self.devtools:
+			if 'headless' not in self.model_fields_set:
+				logger.warning(
+					'⚠️ BROWSER_USE_HEADLESS is set but devtools=True was passed explicitly. '
+					'devtools takes priority. Setting headless=False.'
+				)
+				self.headless = False
+			else:
+				assert False, 'headless=True and devtools=True cannot both be set at the same time'
 		return self
 
 	@model_validator(mode='after')
