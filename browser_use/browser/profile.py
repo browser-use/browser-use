@@ -540,7 +540,7 @@ class BrowserLaunchPersistentContextArgs(BrowserLaunchArgs, BrowserContextArgs):
 	https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context
 	"""
 
-	model_config = ConfigDict(extra='ignore', validate_assignment=False, revalidate_instances='always')
+	model_config = ConfigDict(extra='ignore', validate_assignment=False, revalidate_instances='always', validate_default=True)
 
 	# Required parameter specific to launch_persistent_context, but can be None to use incognito temp dir
 	user_data_dir: str | Path | None = None
