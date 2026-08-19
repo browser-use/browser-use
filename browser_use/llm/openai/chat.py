@@ -12,7 +12,7 @@ from openai.types.shared_params.response_format_json_schema import JSONSchema, R
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
+from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
@@ -269,6 +269,23 @@ class ChatOpenAI(BaseChatModel):
 							f'{hint}'
 						),
 						status_code=502,
+						model=self.name,
+					)
+
+				# before the content-None guard: reasoning models can burn the whole budget
+				# on hidden reasoning, leaving finish_reason='length' with content=None
+				if choice.finish_reason == 'length':
+					cap = (
+						f'max_completion_tokens={self.max_completion_tokens}'
+						if self.max_completion_tokens is not None
+						else "the model's output token limit"
+					)
+					raise ModelOutputTruncatedError(
+						message=(
+							f'Model output was truncated at {cap};'
+							' the structured output is incomplete. Increase max_completion_tokens or request'
+							' shorter output.'
+						),
 						model=self.name,
 					)
 

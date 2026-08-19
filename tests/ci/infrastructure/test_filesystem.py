@@ -106,7 +106,7 @@ class TestBaseFile:
 		"""Test file sync to disk operations."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
 			tmp_path = Path(tmp_dir)
-			file_obj = MarkdownFile(name='test', content='# Test Content')
+			file_obj = MarkdownFile(name='test', content='# Test Content\nJosé')
 
 			# Test sync to disk
 			await file_obj.sync_to_disk(tmp_path)
@@ -114,7 +114,8 @@ class TestBaseFile:
 			# Verify file was created on disk
 			file_path = tmp_path / 'test.md'
 			assert file_path.exists()
-			assert file_path.read_text() == '# Test Content'
+			assert file_path.read_text(encoding='utf-8') == '# Test Content\nJosé'
+			assert file_path.read_bytes().endswith('José'.encode())
 
 			# Test write operation
 			await file_obj.write('# New Content', tmp_path)

@@ -2,8 +2,31 @@
 
 from __future__ import annotations
 
+import re
 from importlib import resources
 from pathlib import Path
+
+# Browser Use-only frontmatter added while generating both checked-in SKILL.md copies.
+# Keep this as the source of truth; scripts/sync_browser_harness_skill.py verifies the outputs.
+OPENCLAW_METADATA_LINES = (
+	'metadata:',
+	'  {',
+	'    "openclaw":',
+	'      {',
+	'        "requires": { "bins": ["browser-use"] },',
+	'        "install":',
+	'          [',
+	'            {',
+	'              "id": "uv",',
+	'              "kind": "uv",',
+	'              "package": "browser-use",',
+	'              "bins": ["browser-use"],',
+	'              "label": "Install Browser Use CLI (uv)",',
+	'            },',
+	'          ],',
+	'      },',
+	'  }',
+)
 
 
 def as_browser_use_skill(text: str) -> str:
@@ -38,13 +61,14 @@ def as_browser_use_skill(text: str) -> str:
 			1,
 			'description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."',
 		)
+	if not any(line.startswith('homepage:') for line in lines):
+		lines.append('homepage: https://browser-use.com')
+	if not any(line.startswith('metadata:') for line in lines):
+		lines.extend(OPENCLAW_METADATA_LINES)
 
 	body = body.replace('# browser-harness', '# Browser Use', 1).replace('# Browser Harness', '# Browser Use', 1)
-	body = body.replace('`browser-harness`', '`browser-use`')
-	body = body.replace('browser-harness <<', 'browser-use <<')
-	body = body.replace('browser-harness --', 'browser-use --')
-	body = body.replace('browser-harness auth', 'browser-use auth')
-	body = body.replace('browser-harness doctor', 'browser-use doctor')
+	# Rebrand every mention except repo URLs (github.com/browser-use/browser-harness/...)
+	body = re.sub(r'(?<!/)browser-harness', 'browser-use', body)
 	body = body.replace('Browser Harness', 'Browser Use')
 	frontmatter_text = '\n'.join(lines)
 	return f'---\n{frontmatter_text}\n---\n{body}'

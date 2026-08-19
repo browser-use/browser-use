@@ -12,6 +12,7 @@ EXPECTED_SKILL_INSTALL_PATHS = (
 	Path('.copilot') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.cursor') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.gemini') / 'skills' / 'browser-use' / 'SKILL.md',
+	Path('.openclaw') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.config') / 'opencode' / 'skills' / 'browser-use' / 'SKILL.md',
 )
 
@@ -48,7 +49,7 @@ def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
 def test_docs_install_browser_use_skill_from_package_alias():
 	readme = (ROOT / 'README.md').read_text(encoding='utf-8')
 
-	assert 'register the skill from `browser-use skill`' in readme
+	assert 'run `browser-use skill install` to register the skill' in readme
 	assert 'mkdir -p ~/.claude/skills/browser-use' not in readme
 	assert 'uv run --with "browser-use[browser-harness]" python -c' not in readme
 	assert 'from browser_use.skills import browser_use_skill_text' not in readme
@@ -86,6 +87,24 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 		'---\n'
 		'name: browser-use\n'
 		'description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."\n'
+		'homepage: https://browser-use.com\n'
+		'metadata:\n'
+		'  {\n'
+		'    "openclaw":\n'
+		'      {\n'
+		'        "requires": { "bins": ["browser-use"] },\n'
+		'        "install":\n'
+		'          [\n'
+		'            {\n'
+		'              "id": "uv",\n'
+		'              "kind": "uv",\n'
+		'              "package": "browser-use",\n'
+		'              "bins": ["browser-use"],\n'
+		'              "label": "Install Browser Use CLI (uv)",\n'
+		'            },\n'
+		'          ],\n'
+		'      },\n'
+		'  }\n'
 		'---\n\n'
 		'# Browser Use\n'
 	)
