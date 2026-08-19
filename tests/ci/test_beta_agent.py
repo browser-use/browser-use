@@ -785,6 +785,68 @@ def test_rust_history_reconstructs_terminal_response_input_item_tool_results():
 	assert history.final_result() == 'Example Domain'
 
 
+def test_rust_history_reconstructs_curl_google_search_as_search_action():
+	from browser_use.beta.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-search',
+					'arguments': {'cmd': 'curl -sS "https://www.google.com/search?q=browser+use+pricing&udm=14"'},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-search',
+					'text': 'Browser Use pricing result',
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	first_action = history.model_actions()[0]
+	first_history_action = history.action_history()[0][0]
+
+	assert history.action_names() == ['search', 'done']
+	assert first_action['search'] == {'query': 'browser use pricing', 'engine': 'google'}
+	assert first_history_action['search'] == {'query': 'browser use pricing', 'engine': 'google'}
+	assert 'curl' not in json.dumps(first_history_action, sort_keys=True)
+	assert history.final_result() == 'final answer'
+
+
+def test_sdk_notification_summary_prettifies_curl_duckduckgo_search():
+	from browser_use.beta.service import _sdk_notification_summary
+
+	summary = _sdk_notification_summary(
+		{
+			'method': 'agent.event',
+			'params': {
+				'event': {
+					'type': 'tool.started',
+					'payload': {
+						'name': 'exec_command',
+						'tool_call_id': 'call-search',
+						'arguments': {'cmd': "curl -G -s 'https://duckduckgo.com/' --data-urlencode 'q=best browser automation'"},
+					},
+				}
+			},
+		}
+	)
+
+	assert summary == 'tool.started web_search engine=duckduckgo query="best browser automation"'
+
+
 def test_rust_history_reconstructs_terminal_tool_finished_results():
 	from browser_use.beta.service import _history_from_events
 
