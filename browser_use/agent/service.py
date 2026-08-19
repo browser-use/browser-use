@@ -1684,15 +1684,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
 				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
-				action_instance = self.ActionModel()
-				setattr(
-					action_instance,
-					'done',
-					{
-						'success': False,
-						'text': 'No next action returned by LLM!',
-					},
-				)
+				# Build a done action compatible with both DoneAction (text) and
+				# StructuredOutputAction (data) so the fallback works regardless
+				# of whether output_model_schema is configured.
+				done_params: dict = {'success': False}
+				if self.output_model_schema is not None:
+					done_params['data'] = self.output_model_schema.model_construct()
+				else:
+					done_params['text'] = 'No next action returned by LLM!'
+				action_instance = self.DoneActionModel.model_validate({'done': done_params})
 				model_output.action = [action_instance]
 
 		return model_output
