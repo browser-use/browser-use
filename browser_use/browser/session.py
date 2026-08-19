@@ -66,6 +66,7 @@ if TYPE_CHECKING:
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
 
 _LOGGED_UNIQUE_SESSION_IDS = set()  # track unique session IDs that have been logged to make sure we always assign a unique enough id to new sessions and avoid ambiguity in logs
+_MAX_TABS_EVICTION_STALE_AFTER = 15.0  # seconds; longer than CloseTabEvent's own 10s event_timeout
 red = '\033[91m'
 reset = '\033[0m'
 
@@ -561,6 +562,10 @@ class BrowserSession(BaseModel):
 	_cached_browser_state_summary: Any = PrivateAttr(default=None)
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_cached_selector_indices: dict[tuple[str, int], int] = PrivateAttr(default_factory=dict)
+	# target_id -> time.monotonic() when eviction was scheduled. A timestamp (rather than a
+	# bare set) lets max_tabs self-heal if a scheduled close's CloseTabEvent is ever silently
+	# dropped (e.g. a CDP disconnect) instead of leaking the target as permanently unevictable.
+	_pending_tab_evictions: dict[TargetID, float] = PrivateAttr(default_factory=dict)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
 	_closed_popup_messages: list[str] = PrivateAttr(default_factory=list)  # Store messages from auto-closed JavaScript dialogs
 
@@ -1174,6 +1179,20 @@ class BrowserSession(BaseModel):
 
 	async def on_CloseTabEvent(self, event: CloseTabEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
+		# An eviction-originated close can be superseded if focus moved onto this exact tab
+		# between _enforce_max_tabs selecting it and this handler actually running (CloseTabEvent
+		# is dispatched fire-and-forget, so a queued SwitchTabEvent can land first). Checking here,
+		# at the start of the handler that performs the real close, is as close to the actual CDP
+		# call as the shared close path allows without special-casing eviction inside it further.
+		if event.target_id in self._pending_tab_evictions:
+			self._pending_tab_evictions.pop(event.target_id, None)
+			if event.target_id == self.agent_focus_target_id:
+				self.logger.debug(f'[max_tabs] Skipping eviction of {event.target_id[-8:]}, it became the focused tab')
+				# The tab this eviction was meant to remove is staying, so the session may still
+				# be over max_tabs - re-run enforcement to pick another candidate if one exists.
+				self._enforce_max_tabs()
+				return
+
 		try:
 			# Dispatch tab closed event
 			await self.event_bus.dispatch(TabClosedEvent(target_id=event.target_id))
@@ -1209,8 +1228,60 @@ class BrowserSession(BaseModel):
 			except Exception as e:
 				self.logger.warning(f'Failed to set viewport for new tab {event.target_id[-8:]}: {e}')
 
+		self._enforce_max_tabs(just_created_target_id=event.target_id)
+
+	def _enforce_max_tabs(self, just_created_target_id: TargetID | None = None) -> None:
+		"""Close the oldest evictable tabs while the session is over browser_profile.max_tabs.
+
+		Called on tab creation and again once agent focus settles, since a tab that is
+		protected during creation may become evictable immediately afterwards.
+		"""
+		max_tabs = self.browser_profile.max_tabs
+		if not max_tabs:
+			return
+
+		# A scheduled close whose CloseTabEvent never actually ran (dropped during a CDP
+		# disconnect, event bus torn down mid-flight, etc.) would otherwise leak its target as
+		# permanently unevictable, silently loosening the cap by one forever. Age it out instead.
+		stale_cutoff = time.monotonic() - _MAX_TABS_EVICTION_STALE_AFTER
+		for stale_target_id in [tid for tid, ts in self._pending_tab_evictions.items() if ts < stale_cutoff]:
+			self.logger.warning(
+				f'[max_tabs] Eviction of {stale_target_id[-8:]} never completed within '
+				f'{_MAX_TABS_EVICTION_STALE_AFTER:.0f}s, treating it as evictable again'
+			)
+			del self._pending_tab_evictions[stale_target_id]
+
+		# session_manager._targets is insertion-ordered, so the oldest tabs come first.
+		page_targets = self.session_manager.get_all_page_targets()
+
+		# Already-scheduled (and still-fresh) targets linger here until CDP detaches them, so
+		# ignore them or a burst of tab creations would re-select the same targets and over-evict.
+		live = [target for target in page_targets if target.target_id not in self._pending_tab_evictions]
+		evict_count = len(live) - max_tabs
+		if evict_count < 1:
+			return
+
+		# Never evict the agent's tab, so at least one tab always survives. Also spare the tab
+		# that was just created: on_TabCreatedEvent runs before on_NavigateToUrlEvent switches
+		# focus to it, so it is not focused yet and would otherwise be closed out from under
+		# the navigation that created it.
+		protected = {self.agent_focus_target_id, just_created_target_id}
+		evictable = [target for target in live if target.target_id not in protected]
+		for target in evictable[:evict_count]:
+			self.logger.info(
+				f'📑 Closing oldest tab {target.target_id[-8:]} to stay within max_tabs={max_tabs} '
+				f'({len(live)} open): {target.url}'
+			)
+			self._pending_tab_evictions[target.target_id] = time.monotonic()
+			# Don't await, CloseTabEvent fans out to TabClosedEvent handlers and could deadlock
+			# inside this handler. on_CloseTabEvent re-checks focus for _pending_tab_evictions
+			# targets before actually closing, since focus can move on before this is processed.
+			self.event_bus.dispatch(CloseTabEvent(target_id=target.target_id))
+
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
+		self._pending_tab_evictions.pop(event.target_id, None)
+
 		if not self.agent_focus_target_id:
 			return
 
@@ -1255,6 +1326,10 @@ class BrowserSession(BaseModel):
 					self.logger.warning(f'Failed to set viewport for tab {event.target_id[-8:]}: {e}')
 		else:
 			raise RuntimeError('AgentFocusChangedEvent received with no target_id for newly focused tab')
+
+		# Focus has settled, so the tab spared during creation is now evictable (or is itself
+		# the focused tab). Re-check here so the cap is exact rather than one tab high.
+		self._enforce_max_tabs()
 
 	async def on_FileDownloadedEvent(self, event: FileDownloadedEvent) -> None:
 		"""Track downloaded files during this session."""
