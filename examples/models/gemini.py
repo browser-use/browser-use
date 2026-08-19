@@ -16,7 +16,7 @@ if not api_key:
 
 
 async def run_search():
-	llm = ChatGoogle(model='gemini-flash-latest', api_key=api_key)
+	llm = ChatGoogle(model='gemini-3-flash-preview', api_key=api_key)
 	agent = Agent(
 		llm=llm,
 		task='How many stars does the browser-use repo have?',

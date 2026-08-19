@@ -61,6 +61,7 @@ ChatVercelModel: TypeAlias = Literal[
 	'anthropic/claude-3.5-sonnet',
 	'anthropic/claude-3.5-sonnet-20240620',
 	'anthropic/claude-3.7-sonnet',
+	'anthropic/claude-fable-5',
 	'anthropic/claude-haiku-4.5',
 	'anthropic/claude-opus-4',
 	'anthropic/claude-opus-4.1',

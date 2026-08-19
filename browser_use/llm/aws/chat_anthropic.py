@@ -131,8 +131,18 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 	def name(self) -> str:
 		return str(self.model)
 
+	def _get_cache_creation_tokens(self, response: Message) -> tuple[int | None, int | None]:
+		cache_creation = getattr(response.usage, 'cache_creation', None)
+		if cache_creation is None:
+			return None, None
+		return (
+			getattr(cache_creation, 'ephemeral_5m_input_tokens', None),
+			getattr(cache_creation, 'ephemeral_1h_input_tokens', None),
+		)
+
 	def _get_usage(self, response: Message) -> ChatInvokeUsage | None:
 		"""Extract usage information from the response."""
+		cache_creation_5m_tokens, cache_creation_1h_tokens = self._get_cache_creation_tokens(response)
 		usage = ChatInvokeUsage(
 			prompt_tokens=response.usage.input_tokens
 			+ (
@@ -142,6 +152,8 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 			total_tokens=response.usage.input_tokens + response.usage.output_tokens,
 			prompt_cached_tokens=response.usage.cache_read_input_tokens,
 			prompt_cache_creation_tokens=response.usage.cache_creation_input_tokens,
+			prompt_cache_creation_5m_tokens=cache_creation_5m_tokens,
+			prompt_cache_creation_1h_tokens=cache_creation_1h_tokens,
 			prompt_image_tokens=None,
 		)
 		return usage
@@ -171,13 +183,17 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 
 				usage = self._get_usage(response)
 
-				# Extract text from the first content block
-				first_content = response.content[0]
-				if isinstance(first_content, TextBlock):
-					response_text = first_content.text
+				# Extract text from the first content block. Bedrock can return an
+				# empty content list for certain stop-reason edge cases.
+				if response.content:
+					first_content = response.content[0]
+					if isinstance(first_content, TextBlock):
+						response_text = first_content.text
+					else:
+						# If it's not a text block, convert to string
+						response_text = str(first_content)
 				else:
-					# If it's not a text block, convert to string
-					response_text = str(first_content)
+					response_text = ''
 
 				return ChatInvokeCompletion(
 					completion=response_text,

@@ -23,7 +23,7 @@ class HistoryItem(BaseModel):
 	error: str | None = None
 	system_message: str | None = None
 
-	model_config = ConfigDict(arbitrary_types_allowed=True)
+	model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
 
 	def model_post_init(self, __context) -> None:
 		"""Validate that error and system_message are not both provided"""

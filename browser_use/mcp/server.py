@@ -287,6 +287,7 @@ class BrowserUseServer:
 							}
 						},
 					},
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 				),
 				types.Tool(
 					name='browser_extract_content',
@@ -316,6 +317,7 @@ class BrowserUseServer:
 							},
 						},
 					},
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 				),
 				types.Tool(
 					name='browser_screenshot',
@@ -330,6 +332,7 @@ class BrowserUseServer:
 							},
 						},
 					},
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 				),
 				types.Tool(
 					name='browser_scroll',
@@ -353,7 +356,10 @@ class BrowserUseServer:
 				),
 				# Tab management
 				types.Tool(
-					name='browser_list_tabs', description='List all open tabs', inputSchema={'type': 'object', 'properties': {}}
+					name='browser_list_tabs',
+					description='List all open tabs',
+					inputSchema={'type': 'object', 'properties': {}},
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 				),
 				types.Tool(
 					name='browser_switch_tab',
@@ -403,8 +409,12 @@ class BrowserUseServer:
 							'allowed_domains': {
 								'type': 'array',
 								'items': {'type': 'string'},
-								'description': 'List of domains the agent is allowed to visit (security feature)',
-								'default': [],
+								'description': (
+									'List of domains the agent is allowed to visit (security feature). '
+									'Omit to use the server-configured profile defaults. '
+									'An empty list is treated the same as omitting the argument and '
+									'will NOT disable server-configured restrictions.'
+								),
 							},
 							'use_vision': {
 								'type': 'boolean',
@@ -420,6 +430,7 @@ class BrowserUseServer:
 					name='browser_list_sessions',
 					description='List all active browser sessions with their details and last activity time',
 					inputSchema={'type': 'object', 'properties': {}},
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 				),
 				types.Tool(
 					name='browser_close_session',
@@ -490,7 +501,7 @@ class BrowserUseServer:
 				task=arguments['task'],
 				max_steps=arguments.get('max_steps', 100),
 				model=arguments.get('model'),
-				allowed_domains=arguments.get('allowed_domains', []),
+				allowed_domains=arguments.get('allowed_domains'),
 				use_vision=arguments.get('use_vision', True),
 			)
 
@@ -649,7 +660,7 @@ class BrowserUseServer:
 
 		# Get Bedrock-specific config
 		if model_provider and model_provider.lower() == 'bedrock':
-			llm_model = llm_config.get('model') or os.getenv('MODEL') or 'us.anthropic.claude-sonnet-4-20250514-v1:0'
+			llm_model = llm_config.get('model') or os.getenv('MODEL') or 'us.anthropic.claude-sonnet-4-6'
 			aws_region = llm_config.get('region') or os.getenv('REGION')
 			if not aws_region:
 				aws_region = 'us-east-1'
@@ -681,8 +692,11 @@ class BrowserUseServer:
 		# Get profile config and merge with tool parameters
 		profile_config = get_default_profile(self.config)
 
-		# Override allowed_domains if provided in tool call
-		if allowed_domains is not None:
+		# Override allowed_domains only when the client supplied a non-empty list.
+		# Treating an empty list as an override would silently disable any
+		# admin-configured allowlist on the default profile, since
+		# SecurityWatchdog interprets allowed_domains=[] as "no restrictions".
+		if allowed_domains:
 			profile_config['allowed_domains'] = allowed_domains
 
 		# Create browser profile using config

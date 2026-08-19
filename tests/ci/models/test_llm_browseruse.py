@@ -1,7 +1,14 @@
-"""Test Browser Use model button click."""
+"""Tests for the ChatBrowserUse cloud client."""
+
+import pytest
 
 from browser_use.llm.browser_use.chat import ChatBrowserUse
+from browser_use.llm.messages import UserMessage
 from tests.ci.models.model_test_helper import run_model_button_click_test
+
+# A syntactically-valid key so the constructor doesn't bail before we reach the
+# code under test. These unit tests never hit the network.
+TEST_API_KEY = 'test-key-not-real'
 
 
 async def test_browseruse_bu_latest(httpserver):
@@ -13,3 +20,130 @@ async def test_browseruse_bu_latest(httpserver):
 		extra_kwargs={},
 		httpserver=httpserver,
 	)
+
+
+# --- Model validation -------------------------------------------------------
+
+
+def test_default_model_is_bu_2_0():
+	"""The default must be a stable model - a preview is opt-in, never reached by omission."""
+	chat = ChatBrowserUse(api_key=TEST_API_KEY)
+	assert chat.model == 'bu-2-0'
+	assert chat.provider == 'browser-use'
+	assert 'preview' not in chat.model
+
+
+@pytest.mark.parametrize('alias', ['bu-1-0', 'bu-2-0', 'bu-2-0-mini-preview', 'bu-qa-1'])
+def test_bu_aliases_are_accepted(alias):
+	chat = ChatBrowserUse(model=alias, api_key=TEST_API_KEY)
+	assert chat.model == alias
+	assert chat.name == alias
+	assert chat.provider == 'browser-use'
+
+
+def test_bu_latest_normalizes_to_bu_2_0():
+	"""'latest' tracks the stable premium line, which is also what omitting the model gives."""
+	chat = ChatBrowserUse(model='bu-latest', api_key=TEST_API_KEY)
+	assert chat.model == 'bu-2-0'
+	assert chat.name == 'bu-2-0'
+	assert ChatBrowserUse(api_key=TEST_API_KEY).model == chat.model
+
+
+def test_bu_2_0_mini_preview_is_priced():
+	"""The default model must have a pricing entry, or cost tracking silently reports $0."""
+	from browser_use.tokens.custom_pricing import CUSTOM_MODEL_PRICING
+
+	pricing = CUSTOM_MODEL_PRICING['bu-2-0-mini-preview']
+	assert pricing['input_cost_per_token'] > 0
+	assert pricing['output_cost_per_token'] > 0
+	# bu-latest resolves to bu-2-0, not to the preview, so it keeps the premium pricing.
+	assert CUSTOM_MODEL_PRICING['bu-latest'] == CUSTOM_MODEL_PRICING['bu-2-0']
+	# bu-1-0 is redirected to bu-2-0 at the gateway, so it must be billed at bu-2-0 rates
+	# rather than the retired bu-1-0 rates.
+	assert CUSTOM_MODEL_PRICING['bu-1-0'] == CUSTOM_MODEL_PRICING['bu-2-0']
+
+
+def test_llm_models_shortcut_resolves_mini_preview(monkeypatch):
+	"""`llm.bu_2_0_mini_preview` must map the underscored name back to the dashed model id."""
+	monkeypatch.setenv('BROWSER_USE_API_KEY', TEST_API_KEY)
+	from browser_use import llm
+	from browser_use.llm import models
+
+	# Go through the advertised attribute rather than the factory beneath it, so dropping the
+	# name from __all__ or breaking module __getattr__ fails here instead of passing silently.
+	assert llm.bu_2_0_mini_preview.name == 'bu-2-0-mini-preview'
+	assert models.bu_2_0_mini_preview.name == 'bu-2-0-mini-preview'
+	assert 'bu_2_0_mini_preview' in models.__all__
+
+
+@pytest.mark.parametrize(
+	'model',
+	[
+		'anthropic/claude-sonnet-4-6',
+		'openai/gpt-5.5',
+		'google/gemini-3-pro',
+		'browser-use/bu-30b-a3b-preview',
+	],
+)
+def test_provider_prefixed_models_are_accepted(model):
+	"""Provider-prefixed ids are accepted and forwarded verbatim (the gateway resolves them)."""
+	chat = ChatBrowserUse(model=model, api_key=TEST_API_KEY)
+	assert chat.model == model
+	assert chat.name == model
+	# Always routes through the browser-use gateway, whatever the target model.
+	assert chat.provider == 'browser-use'
+
+
+@pytest.mark.parametrize('model', ['gpt-5', 'claude-sonnet-4-6', 'bu-9-9', 'random-model'])
+def test_bare_model_ids_are_rejected(model):
+	"""Bare ids (no bu-* alias, no provider/ prefix) are rejected."""
+	with pytest.raises(ValueError, match='Invalid model'):
+		ChatBrowserUse(model=model, api_key=TEST_API_KEY)
+
+
+async def test_provider_prefixed_model_forwarded_in_payload(httpserver):
+	"""The provider-prefixed id must be sent verbatim in the request body."""
+	httpserver.expect_request('/v1/chat/completions', method='POST').respond_with_json({'completion': 'hello from gateway'})
+
+	chat = ChatBrowserUse(
+		model='anthropic/claude-sonnet-4-6',
+		api_key=TEST_API_KEY,
+		base_url=httpserver.url_for('/').rstrip('/'),
+	)
+	result = await chat.ainvoke([UserMessage(content='hi')])
+
+	assert result.completion == 'hello from gateway'
+
+	# Check the posted body.
+	request, _ = httpserver.log[-1]
+	body = request.get_json()
+	assert body['model'] == 'anthropic/claude-sonnet-4-6'
+	assert body['request_type'] == 'browser_agent'
+
+
+# --- Agent screenshot auto-config -------------------------------------------
+
+
+# Both the classic and beta agents auto-config the Claude screenshot size, so both
+# must strip the provider prefix for gateway ids.
+@pytest.mark.parametrize('agent_path', ['classic', 'beta'])
+@pytest.mark.parametrize(
+	'model,expected_size',
+	[
+		# Claude Sonnet via the gateway keeps the auto-config; the prefix must not break detection.
+		('anthropic/claude-sonnet-4-6', (1400, 850)),
+		# Non-Claude models keep the default.
+		('bu-2-0', None),
+		('openai/gpt-5.5', None),
+	],
+)
+def test_claude_sonnet_screenshot_autoconfig_through_gateway(agent_path, model, expected_size):
+	if agent_path == 'classic':
+		from browser_use.agent.service import Agent
+	else:
+		from browser_use.beta import Agent
+
+	llm = ChatBrowserUse(model=model, api_key=TEST_API_KEY)
+	agent = Agent(task='test', llm=llm)
+	assert agent.browser_session is not None
+	assert agent.browser_session.llm_screenshot_size == expected_size

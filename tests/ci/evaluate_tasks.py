@@ -79,7 +79,7 @@ async def run_single_task(task_file):
 				'explanation': 'Skipped - Google API key not available (fork PR or missing secret)',
 			}
 
-		judge_llm = ChatGoogle(model='gemini-flash-lite-latest')
+		judge_llm = ChatGoogle(model='gemini-3.1-flash-lite')
 		print('[DEBUG] LLMs initialized', file=sys.stderr)
 
 		# Each subprocess gets its own profile and session

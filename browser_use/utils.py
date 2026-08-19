@@ -24,6 +24,31 @@ URL_PATTERN = re.compile(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a
 
 logger = logging.getLogger(__name__)
 
+
+def is_placeholder_url(url: str) -> bool:
+	"""Return True for mock placeholder hostnames like https://XXX.XX."""
+	parsed_url = urlparse(url if '://' in url else f'https://{url}')
+	hostname = (parsed_url.hostname or '').strip('.').lower()
+	if not hostname:
+		return False
+
+	labels = [label for label in hostname.split('.') if label]
+	if labels and labels[0] == 'www':
+		labels = labels[1:]
+
+	return len(labels) >= 2 and all(re.fullmatch(r'x+', label) for label in labels)
+
+
+def sanitize_url_candidate(url: str) -> str:
+	"""Normalize a URL candidate captured from prose before auto-navigation."""
+	candidate = url.strip()
+	# Some benchmark tasks arrive with escaped newlines in prose, e.g.
+	# "https://example.com/search.\\n2. Next step". Those are task text,
+	# not part of the URL.
+	candidate = re.split(r'\\[nrt]', candidate, maxsplit=1)[0]
+	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
+
+
 # Lazy import for error types
 # Use sentinel to avoid retrying import when package is not installed
 _IMPORT_NOT_FOUND: type = type('_ImportNotFound', (), {})
@@ -50,9 +75,18 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
 	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
-	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
-	return value
+	if not sensitive_values:
+		return value
+
+	# Build a lookup from secret text → key name, longest secrets first so
+	# the regex alternation prefers the longest match.
+	sorted_items = sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True)
+	secret_to_key = {secret: key for key, secret in sorted_items}
+
+	# Single-pass replacement: each position in the string is consumed at
+	# most once, so earlier replacements cannot be corrupted by later ones.
+	pattern = re.compile('|'.join(re.escape(secret) for secret in secret_to_key))
+	return pattern.sub(lambda m: f'<secret>{secret_to_key[m.group(0)]}</secret>', value)
 
 
 def _get_openai_bad_request_error() -> type | None:
@@ -645,18 +679,49 @@ async def check_latest_browser_use_version() -> str | None:
 	"""Check the latest version of browser-use from PyPI asynchronously.
 
 	Returns:
-		The latest version string if successful, None if failed
+		The latest version string if PyPI has a newer version, None otherwise.
 	"""
 	try:
 		async with httpx.AsyncClient(timeout=3.0) as client:
 			response = await client.get('https://pypi.org/pypi/browser-use/json')
 			if response.status_code == 200:
 				data = response.json()
-				return data['info']['version']
+				latest_version = data['info']['version']
+				if _is_newer_browser_use_version(latest_version, get_browser_use_version()):
+					return latest_version
 	except Exception:
 		# Silently fail - we don't want to break agent startup due to network issues
 		pass
 	return None
+
+
+def _is_newer_browser_use_version(latest_version: str, current_version: str) -> bool:
+	"""Return True when latest_version should be considered an upgrade for current_version."""
+	try:
+		from packaging.version import Version
+
+		return Version(latest_version) > Version(current_version)
+	except Exception:
+		latest_key = _browser_use_version_key(latest_version)
+		current_key = _browser_use_version_key(current_version)
+		if latest_key is None or current_key is None:
+			return latest_version != current_version
+		return latest_key > current_key
+
+
+def _browser_use_version_key(version: str) -> tuple[tuple[int, ...], int, int, int] | None:
+	"""Small PEP 440-ish fallback for browser-use versions when packaging is unavailable."""
+	match = re.match(r'^v?(\d+(?:\.\d+)*)(?:(a|b|rc)(\d+))?(?:\.post(\d+))?', version.strip().lower())
+	if not match:
+		return None
+
+	release = tuple(int(part) for part in match.group(1).split('.'))
+	phase = match.group(2)
+	phase_number = int(match.group(3) or 0)
+	post_number = int(match.group(4) or 0)
+	phase_rank = {'a': 0, 'b': 1, 'rc': 2}.get(phase, 3)
+
+	return release, phase_rank, phase_number, post_number
 
 
 @cache
@@ -746,9 +811,8 @@ def create_task_with_error_handling(
 		coro: The coroutine to wrap in a task
 		name: Optional name for the task (useful for debugging)
 		logger_instance: Optional logger instance to use. If None, uses module logger.
-		suppress_exceptions: If True, logs exceptions at ERROR level. If False, logs at WARNING level
-			and exceptions remain retrievable via task.exception() if the caller awaits the task.
-			Default False.
+		suppress_exceptions: If True, logs exceptions at ERROR level. If False, logs at WARNING level.
+			Awaiting the task raises the original exception in both modes. Default False.
 
 	Returns:
 		asyncio.Task: The created task with exception handling callback
@@ -766,21 +830,19 @@ def create_task_with_error_handling(
 
 	def _handle_task_exception(t: asyncio.Task[T]) -> None:
 		"""Callback to handle task exceptions"""
-		exc_to_raise = None
 		try:
-			# This will raise if the task had an exception
+			# Retrieve the exception so fire-and-forget tasks do not emit
+			# "Task exception was never retrieved" warnings.
 			exc = t.exception()
 			if exc is not None:
 				task_name = t.get_name() if hasattr(t, 'get_name') else 'unnamed'
 				if suppress_exceptions:
 					log.error(f'Exception in background task [{task_name}]: {type(exc).__name__}: {exc}', exc_info=exc)
 				else:
-					# Log at warning level then mark for re-raising
 					log.warning(
 						f'Exception in background task [{task_name}]: {type(exc).__name__}: {exc}',
 						exc_info=exc,
 					)
-					exc_to_raise = exc
 		except asyncio.CancelledError:
 			# Task was cancelled, this is normal behavior
 			pass
@@ -788,10 +850,6 @@ def create_task_with_error_handling(
 			# Catch any other exception during exception handling (e.g., t.exception() itself failing)
 			task_name = t.get_name() if hasattr(t, 'get_name') else 'unnamed'
 			log.error(f'Error handling exception in task [{task_name}]: {type(e).__name__}: {e}')
-
-		# Re-raise outside the try-except block so it propagates to the event loop
-		if exc_to_raise is not None:
-			raise exc_to_raise
 
 	task.add_done_callback(_handle_task_exception)
 	return task

@@ -75,6 +75,27 @@ Context = TypeVar('Context')
 T = TypeVar('T', bound=BaseModel)
 
 
+# Default header/footer templates for save_as_pdf, mirroring the metadata that
+# Chrome's own Print dialog renders by default: the date in the header and the
+# page URL + page numbers in the footer. Chrome injects values into elements
+# bearing the magic classes `date`, `title`, `url`, `pageNumber` and `totalPages`.
+# A font-size MUST be set explicitly — Chrome defaults header/footer text to 0px,
+# so omitting it renders an invisible (blank) header/footer.
+_DEFAULT_PDF_HEADER_TEMPLATE = (
+	'<div style="font-size:9px; color:#666; width:100%; padding:0 0.4in; '
+	'box-sizing:border-box; text-align:right;"><span class="date"></span></div>'
+)
+_DEFAULT_PDF_FOOTER_TEMPLATE = (
+	'<div style="font-size:9px; color:#666; width:100%; padding:0 0.4in; '
+	'box-sizing:border-box; display:flex; justify-content:space-between;">'
+	# A flex item defaults to min-width:auto and won't shrink below its content,
+	# so a long/unbroken URL would overflow and push the page count off-page.
+	# min-width:0 + ellipsis lets the URL truncate while page numbers stay put.
+	'<span class="url" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>'
+	'<span style="flex-shrink:0; padding-left:8px;"><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>'
+)
+
+
 # Global per-action timeout: last-resort guard against hung event handlers.
 # Individual CDP calls (Page.navigate etc.) have their own shorter timeouts,
 # but event-bus `await event` and `event_result()` calls have none — if a
@@ -647,7 +668,11 @@ class Tools(Generic[Context]):
 				tabs_before = {t.target_id for t in await browser_session.get_tabs()}
 
 				# Highlight the coordinate being clicked (truly non-blocking)
-				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
+				create_task_with_error_handling(
+					browser_session.highlight_coordinate_click(actual_x, actual_y),
+					name='highlight_coordinate_click',
+					suppress_exceptions=True,
+				)
 
 				# Dispatch ClickCoordinateEvent - handler will check for safety and click
 				event = browser_session.event_bus.dispatch(
@@ -673,7 +698,7 @@ class Tools(Generic[Context]):
 			except BrowserError as e:
 				return handle_browser_error(e)
 			except Exception as e:
-				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
+				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}): {e}'
 				return ActionResult(error=error_msg)
 
 		async def _click_by_index(
@@ -845,23 +870,37 @@ class Tools(Generic[Context]):
 				# Also check if it's a recently downloaded file that might not be in available_file_paths yet
 				downloaded_files = browser_session.downloaded_files
 				if params.path not in downloaded_files:
-					# Finally, check if it's a file in the FileSystem service
-					if file_system and file_system.get_dir():
+					# Finally, check if it's a file in the FileSystem service.
+					# Only rewrite to the local FileSystem path on local sessions —
+					# on remote sessions, params.path is meant to address a file on
+					# the remote machine, and a coincidental basename collision with
+					# a local managed file (e.g. `/tmp/note.md` colliding with a
+					# local `note.md`) must not silently upload the local file.
+					if browser_session.is_local and file_system and file_system.get_dir():
 						# Check if the file is actually managed by the FileSystem service
 						# The path should be just the filename for FileSystem files
 						file_obj = file_system.get_file(params.path)
 						if file_obj:
-							# File is managed by FileSystem, construct the full path
-							file_system_path = str(file_system.get_dir() / params.path)
-							params = UploadFileAction(index=params.index, path=file_system_path)
-						else:
-							# If browser is remote, allow passing a remote-accessible absolute path
-							if not browser_session.is_local:
-								pass
-							else:
-								msg = f'File path {params.path} is not available. To fix: The user must add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
+							# Construct the upload path from the FileSystem-owned basename
+							# (file_obj.full_name), NOT from params.path. The agent-controlled
+							# params.path may contain '..' traversal sequences that escape
+							# data_dir when naively joined — get_file() matches by basename
+							# so a path like '../../../note.md' would otherwise resolve to a
+							# sibling file outside the FileSystem directory.
+							# GHSA-j9hj-92j8-jv9h.
+							file_system_path = str(file_system.get_dir() / file_obj.full_name)
+							# Defense in depth: refuse any path that resolves outside data_dir.
+							real_path = os.path.realpath(file_system_path)
+							real_dir = os.path.realpath(str(file_system.get_dir()))
+							if not (real_path == real_dir or real_path.startswith(real_dir + os.sep)):
+								msg = f'Upload of {params.path!r} escapes FileSystem directory; refusing.'
 								logger.error(f'❌ {msg}')
 								return ActionResult(error=msg)
+							params = UploadFileAction(index=params.index, path=file_system_path)
+						else:
+							msg = f'File path {params.path} is not available. To fix: The user must add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
+							logger.error(f'❌ {msg}')
+							return ActionResult(error=msg)
 					else:
 						# If browser is remote, allow passing a remote-accessible absolute path
 						if not browser_session.is_local:
@@ -1544,16 +1583,41 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 			cdp_session = await browser_session.get_or_create_cdp_session(focus=True)
 
+			from cdp_use.cdp.page import PrintToPDFParameters
+
+			pdf_params: PrintToPDFParameters = {
+				'printBackground': params.print_background,
+				'landscape': params.landscape,
+				'scale': params.scale,
+				'paperWidth': paper_width,
+				'paperHeight': paper_height,
+				'preferCSSPageSize': True,
+			}
+
+			if params.display_header_footer:
+				# Chrome clips the header/footer unless the page leaves vertical room for
+				# them, so set explicit margins. preferCSSPageSize only governs page size,
+				# not margins, so these still apply. The horizontal margins keep the body
+				# aligned with the header/footer content (which is padded to match).
+				pdf_params.update(
+					{
+						'displayHeaderFooter': True,
+						'headerTemplate': params.header_template
+						if params.header_template is not None
+						else _DEFAULT_PDF_HEADER_TEMPLATE,
+						'footerTemplate': params.footer_template
+						if params.footer_template is not None
+						else _DEFAULT_PDF_FOOTER_TEMPLATE,
+						'marginTop': 0.5,
+						'marginBottom': 0.5,
+						'marginLeft': 0.4,
+						'marginRight': 0.4,
+					}
+				)
+
 			result = await asyncio.wait_for(
 				cdp_session.cdp_client.send.Page.printToPDF(
-					params={
-						'printBackground': params.print_background,
-						'landscape': params.landscape,
-						'scale': params.scale,
-						'paperWidth': paper_width,
-						'paperHeight': paper_height,
-						'preferCSSPageSize': True,
-					},
+					params=pdf_params,
 					session_id=cdp_session.session_id,
 				),
 				timeout=30.0,
@@ -2084,6 +2148,7 @@ Validated Code (after quote fixing):
 		This is automatically enabled for models that support coordinate clicking:
 		- claude-sonnet-4-5
 		- claude-opus-4-5
+		- claude-fable-5
 		- gemini-3-pro
 		- browser-use/* models
 

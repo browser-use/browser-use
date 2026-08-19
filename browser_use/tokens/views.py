@@ -55,6 +55,7 @@ class ModelPricing(BaseModel):
 
 	cache_read_input_token_cost: float | None
 	cache_creation_input_token_cost: float | None
+	cache_creation_1h_input_token_cost: float | None = None
 
 	max_tokens: int | None
 	max_input_tokens: int | None
@@ -99,6 +100,8 @@ class UsageSummary(BaseModel):
 
 	total_prompt_cached_tokens: int
 	total_prompt_cached_cost: float
+	total_prompt_cache_creation_tokens: int = 0
+	total_prompt_cache_creation_cost: float = 0.0
 
 	total_completion_tokens: int
 	total_completion_cost: float

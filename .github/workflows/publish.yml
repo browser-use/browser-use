@@ -19,6 +19,12 @@ on:
   # schedule:
   #   - cron: "0 17 * * FRI" # tag a pre-release on Github every Friday at 5 PM UTC
   workflow_dispatch:
+    inputs:
+      create_tag:
+        description: "Create the next pre-release tag before publishing"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -26,7 +32,7 @@ permissions:
 
 jobs:
   tag_pre_release:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.create_tag
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,10 +76,37 @@ jobs:
   publish_to_pypi:
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write    # for the stable-branch push at the end
+      id-token: write    # for PyPI trusted-publishing OIDC
+      actions: read      # for the env protection verification step
     env:
       IN_DOCKER: 'True'
       ANONYMIZED_TELEMETRY: 'false'
     steps:
+      - name: Verify release environment is protected (fail-closed)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ENV_NAME="release"
+          if ! RESP="$(gh api -H 'Accept: application/vnd.github+json' \
+              "/repos/${GITHUB_REPOSITORY}/environments/${ENV_NAME}" 2>/dev/null)"; then
+            echo "::error::Environment '${ENV_NAME}' does not exist (or is inaccessible). Create it at https://github.com/${GITHUB_REPOSITORY}/settings/environments/new with required reviewers and prevent_self_review enabled, then re-run."
+            exit 1
+          fi
+          HAS_REVIEWERS="$(echo "$RESP" | jq -r '[.protection_rules[]? | select(.type == "required_reviewers")] | length')"
+          if [ "${HAS_REVIEWERS:-0}" -lt 1 ]; then
+            echo "::error::Environment '${ENV_NAME}' exists but has no required-reviewers protection rule."
+            exit 1
+          fi
+          SELF_REVIEW_BLOCKED="$(echo "$RESP" | jq -r '[.protection_rules[]? | select(.type=="required_reviewers") | .prevent_self_review] | any')"
+          if [ "$SELF_REVIEW_BLOCKED" != "true" ]; then
+            echo "::error::Environment '${ENV_NAME}' must have prevent_self_review enabled. Without it, the gate collapses to one identity when the dispatcher is also a reviewer."
+            exit 1
+          fi
+          echo "::notice::Environment '${ENV_NAME}' is protected with prevent_self_review. OK."
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:

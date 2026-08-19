@@ -126,7 +126,7 @@ See [Supported Models](https://docs.browser-use.com/supported-models#supported-m
   load_dotenv()
 
   async def main():
-      llm = ChatGoogle(model="gemini-flash-latest")
+      llm = ChatGoogle(model="gemini-3-flash-preview")
       task = "Find the number 1 post on Show HN"
       agent = Agent(task=task, llm=llm)
       await agent.run()
@@ -235,11 +235,7 @@ To use your local authentication in production:
 
 **First**, create an API key at [cloud.browser-use.com/new-api-key](https://cloud.browser-use.com/new-api-key) or follow the instruction on [Cloud - Profiles](https://cloud.browser-use.com/dashboard/settings?tab=profiles)
 
-**Then**, sync your local cookies:
-
-```bash  theme={null}
-export BROWSER_USE_API_KEY=your_key && curl -fsSL https://browser-use.com/profile.sh | sh
-```
+**Then**, install `profile-use` for your platform from the [official releases](https://github.com/browser-use/profile-use-releases/releases/latest) and follow the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md) to sync your local cookies.
 
 This opens a browser where you log into your accounts. You'll get a `profile_id`.
 

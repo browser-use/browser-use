@@ -37,7 +37,7 @@ async def main():
 	browser = Browser.from_system_chrome(profile_directory=profile)
 
 	agent = Agent(
-		llm=ChatGoogle(model='gemini-flash-latest'),
+		llm=ChatGoogle(model='gemini-3-flash-preview'),
 		task='go to amazon.com and search for pens to draw on whiteboards',
 		browser=browser,
 	)
