@@ -4150,8 +4150,8 @@ def _eventbus_name(agent_id: str, prefix: str = 'Agent') -> str:
 
 
 class _CloudEventLLMProxy:
-	def __init__(self, model_name: str):
-		self.model_name = model_name
+	def __init__(self, model: str):
+		self.model = model
 
 
 class _CloudEventAgentProxy:
