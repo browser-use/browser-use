@@ -1010,7 +1010,10 @@ class DOMTreeSerializer:
 						if 'options_count' in child_info and child_info['options_count'] is not None:
 							parts.append(f'count={child_info["options_count"]}')
 						if 'first_options' in child_info and child_info['first_options']:
-							options_str = '|'.join(child_info['first_options'][:4])  # Limit to 4 options
+							# Already capped by _extract_select_options: up to 4 labels plus a
+							# trailing "... N more options..." indicator. Re-slicing here would
+							# drop exactly that indicator.
+							options_str = '|'.join(child_info['first_options'])
 							parts.append(f'options={options_str}')
 						if 'format_hint' in child_info and child_info['format_hint']:
 							parts.append(f'format={child_info["format_hint"]}')
