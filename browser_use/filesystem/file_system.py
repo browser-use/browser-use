@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import csv
+import html
 import io
 import os
 import re
@@ -264,15 +265,16 @@ class PdfFile(BaseFile):
 
 			for line in content_lines:
 				if line.strip():
+					escaped_line = html.escape(line)
 					# Handle basic markdown headers
 					if line.startswith('# '):
-						para = Paragraph(line[2:], styles['Title'])
+						para = Paragraph(escaped_line[2:], styles['Title'])
 					elif line.startswith('## '):
-						para = Paragraph(line[3:], styles['Heading1'])
+						para = Paragraph(escaped_line[3:], styles['Heading1'])
 					elif line.startswith('### '):
-						para = Paragraph(line[4:], styles['Heading2'])
+						para = Paragraph(escaped_line[4:], styles['Heading2'])
 					else:
-						para = Paragraph(line, styles['Normal'])
+						para = Paragraph(escaped_line, styles['Normal'])
 					story.append(para)
 				else:
 					story.append(Spacer(1, 6))
