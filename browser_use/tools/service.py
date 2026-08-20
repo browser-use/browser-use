@@ -715,7 +715,7 @@ class Tools(Generic[Context]):
 				if node is None:
 					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 					logger.warning(f'⚠️ {msg}')
-					return ActionResult(extracted_content=msg)
+					return ActionResult(error=msg)
 
 				# Get description of clicked element
 				element_desc = get_click_description(node)
@@ -1679,7 +1679,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			if node is None:
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(error=msg)
 
 			# Dispatch GetDropdownOptionsEvent to the event handler
 
@@ -1707,7 +1707,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			if node is None:
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(error=msg)
 
 			# Dispatch SelectDropdownOptionEvent to the event handler
 			from browser_use.browser.events import SelectDropdownOptionEvent
@@ -1733,7 +1733,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				if 'short_term_memory' in selection_data and 'long_term_memory' in selection_data:
 					return ActionResult(
 						extracted_content=selection_data['short_term_memory'],
-						long_term_memory=selection_data['long_term_memory'],
+						error=selection_data['long_term_memory'],
 						include_extracted_content_only_once=True,
 					)
 				else:
