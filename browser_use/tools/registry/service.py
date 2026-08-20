@@ -66,6 +66,7 @@ class Registry(Generic[Context]):
 			'page_url': str,
 			'cdp_client': None,  # CDPClient type from cdp_use, but we don't import it here
 			'page_extraction_llm': BaseChatModel,
+			'llm_session_id': str,
 			'available_file_paths': list,
 			'has_sensitive_data': bool,
 			'file_system': FileSystem,
@@ -117,7 +118,7 @@ class Registry(Generic[Context]):
 					# Handle Optional types - normalize both sides
 					param_type = param.annotation
 					origin = get_origin(param_type)
-					if origin is Union:
+					if origin in (Union, UnionType):
 						args = get_args(param_type)
 						# Find non-None type
 						param_type = next((arg for arg in args if arg is not type(None)), param_type)
@@ -334,6 +335,7 @@ class Registry(Generic[Context]):
 		params: dict,
 		browser_session: BrowserSession | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
+		llm_session_id: str | None = None,
 		file_system: FileSystem | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
@@ -368,6 +370,7 @@ class Registry(Generic[Context]):
 			special_context = {
 				'browser_session': browser_session,
 				'page_extraction_llm': page_extraction_llm,
+				'llm_session_id': llm_session_id,
 				'available_file_paths': available_file_paths,
 				'has_sensitive_data': action_name == 'input' and bool(sensitive_data),
 				'file_system': file_system,

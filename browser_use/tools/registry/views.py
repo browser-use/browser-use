@@ -176,6 +176,7 @@ class SpecialActionParameters(BaseModel):
 
 	# extra injected config if the action asks for these arg names
 	page_extraction_llm: BaseChatModel | None = None
+	llm_session_id: str | None = None
 	file_system: FileSystem | None = None
 	available_file_paths: list[str] | None = None
 	has_sensitive_data: bool = False
