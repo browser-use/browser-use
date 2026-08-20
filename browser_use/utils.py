@@ -20,6 +20,7 @@ load_dotenv()
 
 # Pre-compiled regex for URL detection - used in URL shortening
 URL_PATTERN = re.compile(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a-z]{2,}(?:/[^\s<>"\']*)?', re.IGNORECASE)
+URL_NEGATION_PATTERN = re.compile(r"\b(?:never|not|don['\u2019]?t)\b", re.IGNORECASE)
 
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,11 @@ def sanitize_url_candidate(url: str) -> str:
 	# not part of the URL.
 	candidate = re.split(r'\\[nrt]', candidate, maxsplit=1)[0]
 	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
+
+
+def has_url_negation(context: str) -> bool:
+	"""Return whether nearby prose explicitly negates navigation to a URL."""
+	return URL_NEGATION_PATTERN.search(context) is not None
 
 
 # Lazy import for error types
