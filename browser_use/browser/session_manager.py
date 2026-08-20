@@ -180,15 +180,26 @@ class SessionManager:
 			return None
 		return self._sessions.get(next(iter(session_ids)))
 
-	def get_all_page_targets(self) -> list:
+	def get_all_page_targets(self, include_chrome_extensions: bool = False) -> list:
 		"""Get all page/tab targets using owned data.
+
+		Args:
+			include_chrome_extensions: If True, also return chrome-extension:// page
+				targets. Off by default so they are never treated as steerable pages
+				(mirrors BrowserSession._is_valid_target(include_chrome_extensions=False)).
+				Only extension-cleanup code that explicitly needs to close extension
+				options/onboarding pages should opt in.
 
 		Returns:
 			List of Target objects for all page/tab targets
 		"""
 		page_targets = []
 		for target in self._targets.values():
-			if target.target_type in ('page', 'tab'):
+			# Exclude chrome-extension:// targets (e.g. extension side panels expose
+			# a type='page' target). They must never be treated as steerable pages.
+			if target.target_type in ('page', 'tab') and (
+				include_chrome_extensions or not target.url.startswith('chrome-extension://')
+			):
 				page_targets.append(target)
 		return page_targets
 
