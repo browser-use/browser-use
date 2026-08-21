@@ -664,7 +664,7 @@ class BrowserUseServer:
 
 		# Get Bedrock-specific config
 		if model_provider and model_provider.lower() == 'bedrock':
-			llm_model = llm_config.get('model') or os.getenv('MODEL') or 'us.anthropic.claude-sonnet-4-20250514-v1:0'
+			llm_model = llm_config.get('model') or os.getenv('MODEL') or 'us.anthropic.claude-sonnet-4-6'
 			aws_region = llm_config.get('region') or os.getenv('REGION')
 			if not aws_region:
 				aws_region = 'us-east-1'
