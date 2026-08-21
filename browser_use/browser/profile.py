@@ -1200,7 +1200,7 @@ async function initialize(checkInitialized, magic) {{
 			if not (extract_dir / 'manifest.json').exists():
 				raise Exception('No manifest.json found in extension')
 
-		except zipfile.BadZipFile:
+		except (zipfile.BadZipFile, OSError, ValueError):
 			# CRX files have a header before the ZIP data
 			# Skip the CRX header and extract the ZIP part
 			with open(crx_path, 'rb') as f:
@@ -1217,20 +1217,30 @@ async function initialize(checkInitialized, magic) {{
 				elif version == 3:
 					header_len = int.from_bytes(f.read(4), 'little')
 					f.seek(12 + header_len)  # Skip to ZIP data
+				else:
+					raise Exception('Invalid CRX file format')
 
 				# Extract ZIP data
 				zip_data = f.read()
 
 			# Write ZIP data to temp file and extract
+			temp_zip_path = None
+			try:
+				with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
+					temp_zip_path = temp_zip.name
+					temp_zip.write(zip_data)
+					temp_zip.flush()
 
-			with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
-				temp_zip.write(zip_data)
-				temp_zip.flush()
-
-				with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
+				with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
 					zip_ref.extractall(extract_dir)
+			except (zipfile.BadZipFile, OSError, ValueError) as e:
+				raise Exception(f'Invalid CRX file format: {e}') from e
+			finally:
+				if temp_zip_path and os.path.exists(temp_zip_path):
+					os.unlink(temp_zip_path)
 
-				os.unlink(temp_zip.name)
+			if not (extract_dir / 'manifest.json').exists():
+				raise Exception('No manifest.json found in extension')
 
 	def detect_display_configuration(self) -> None:
 		"""
