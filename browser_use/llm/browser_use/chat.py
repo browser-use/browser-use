@@ -44,7 +44,7 @@ class ChatBrowserUse(BaseChatModel):
 
 	def __init__(
 		self,
-		model: str = 'bu-2-0-mini-preview',
+		model: str = 'bu-2-0',
 		api_key: str | None = None,
 		base_url: str | None = None,
 		timeout: float = 120.0,
@@ -58,8 +58,8 @@ class ChatBrowserUse(BaseChatModel):
 
 		Args:
 			model: Model name to use. Options:
-				- 'bu-2-0-mini-preview': Default model (fast + cheap, preview)
-				- 'bu-2-0' or 'bu-latest': Premium model
+				- 'bu-2-0' or 'bu-latest': Default model (premium)
+				- 'bu-2-0-mini-preview': Cheaper and faster per token, opt-in while in preview
 				- 'bu-1-0': Previous generation model, redirected to bu-2-0 at the gateway
 				- 'bu-qa-1': Website QA model (tests a site and scores functionality/aesthetics)
 				- 'browser-use/bu-30b-a3b-preview': Browser Use Open Source Model
@@ -83,8 +83,8 @@ class ChatBrowserUse(BaseChatModel):
 				"'openai/gpt-5.5', or 'google/gemini-3-pro'."
 			)
 
-		# Normalize bu-latest to the current latest model. Deliberately not the constructor
-		# default: 'latest' tracks the stable premium line, not the preview.
+		# Normalize bu-latest to the current latest model, which is also the default: a
+		# preview model is opt-in, never something a caller lands on by omission.
 		if model == 'bu-latest':
 			self.model = 'bu-2-0'
 		else:
