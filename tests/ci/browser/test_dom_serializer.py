@@ -17,6 +17,8 @@ from pytest_httpserver import HTTPServer
 from browser_use.agent.service import Agent
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile, ViewportSize
+from browser_use.dom.serializer.serializer import DOMTreeSerializer
+from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES, EnhancedAXNode, EnhancedDOMTreeNode, NodeType, SimplifiedNode
 from tests.ci.conftest import create_mock_llm
 
 
@@ -523,6 +525,103 @@ class TestDOMSerializer:
 		print('   ✓ Same-origin iframe clicks work (can access elements inside)')
 		print('   ✓ Cross-origin iframe extraction works (CDP target switching enabled)')
 		print('   ✓ Truly nested structure works: Open Shadow → Closed Shadow → Iframe')
+
+
+def _make_element_node(
+	*,
+	node_id: int,
+	backend_node_id: int,
+	tag_name: str,
+	attributes: dict[str, str] | None = None,
+	children: list[EnhancedDOMTreeNode] | None = None,
+) -> EnhancedDOMTreeNode:
+	"""Create a minimal DOM element node for serializer unit tests."""
+	return EnhancedDOMTreeNode(
+		node_id=node_id,
+		backend_node_id=backend_node_id,
+		node_type=NodeType.ELEMENT_NODE,
+		node_name=tag_name.upper(),
+		node_value='',
+		attributes=attributes or {},
+		is_scrollable=False,
+		is_visible=True,
+		absolute_position=None,
+		target_id='target-1',
+		frame_id=None,
+		session_id=None,
+		content_document=None,
+		shadow_root_type=None,
+		shadow_roots=None,
+		parent_node=None,
+		children_nodes=children or [],
+		ax_node=None,
+		snapshot_node=None,
+	)
+
+
+def _make_text_node(*, node_id: int, text: str) -> EnhancedDOMTreeNode:
+	"""Create a minimal DOM text node for serializer unit tests."""
+	return EnhancedDOMTreeNode(
+		node_id=node_id,
+		backend_node_id=node_id,
+		node_type=NodeType.TEXT_NODE,
+		node_name='#text',
+		node_value=text,
+		attributes={},
+		is_scrollable=False,
+		is_visible=True,
+		absolute_position=None,
+		target_id='target-1',
+		frame_id=None,
+		session_id=None,
+		content_document=None,
+		shadow_root_type=None,
+		shadow_roots=None,
+		parent_node=None,
+		children_nodes=[],
+		ax_node=None,
+		snapshot_node=None,
+	)
+
+
+def test_select_serializer_keeps_more_options_indicator():
+	"""Regression test for #5195: keep the overflow indicator for long <select> option lists."""
+	option_texts = ['Please select', 'First Option', 'Second Option', 'Third Option', 'Fourth Option']
+	select_node = _make_element_node(node_id=1, backend_node_id=101, tag_name='select')
+	select_node.ax_node = EnhancedAXNode(
+		ax_node_id='ax-select-1',
+		ignored=False,
+		role='combobox',
+		name='Test Dropdown',
+		description=None,
+		properties=None,
+		child_ids=['ax-option-1'],
+	)
+
+	option_nodes: list[EnhancedDOMTreeNode] = []
+	for i, option_text in enumerate(option_texts, start=2):
+		text_node = _make_text_node(node_id=100 + i, text=option_text)
+		option_node = _make_element_node(
+			node_id=i,
+			backend_node_id=100 + i,
+			tag_name='option',
+			attributes={'value': option_text.lower().replace(' ', '-')},
+			children=[text_node],
+		)
+		text_node.parent_node = option_node
+		option_node.parent_node = select_node
+		option_nodes.append(option_node)
+
+	select_node.children_nodes = option_nodes
+
+	serializer = DOMTreeSerializer(select_node)
+	simplified = SimplifiedNode(original_node=select_node, children=[], is_interactive=True)
+	serializer._add_compound_components(simplified, select_node)
+
+	output = DOMTreeSerializer.serialize_tree(simplified, list(DEFAULT_INCLUDE_ATTRIBUTES))
+
+	assert 'count=5' in output
+	assert 'options=Please select|First Option|Second Option|Third Option|... 1 more options...' in output
 
 
 if __name__ == '__main__':
