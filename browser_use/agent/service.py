@@ -676,11 +676,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if not self.has_downloads_path:
 			return
 
-		current_files = set(self.available_file_paths or [])
-		new_files = set(downloads) - current_files
+		available_files = self.available_file_paths or []
+		seen_files = set(available_files)
+		new_files = []
+		for download in downloads:
+			if download not in seen_files:
+				seen_files.add(download)
+				new_files.append(download)
 
 		if new_files:
-			self.available_file_paths = list(current_files | new_files)
+			self.available_file_paths = [*available_files, *new_files]
 
 			self.logger.info(
 				f'📁 Added {len(new_files)} downloaded files to available_file_paths (total: {len(self.available_file_paths)} files)'
@@ -688,7 +693,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			for file_path in new_files:
 				self.logger.info(f'📄 New file available: {file_path}')
 		else:
-			self.logger.debug(f'📁 No new downloads detected (tracking {len(current_files)} files)')
+			self.logger.debug(f'📁 No new downloads detected (tracking {len(available_files)} files)')
 
 	def _set_file_system(self, file_system_path: str | None = None) -> None:
 		# Check for conflicting parameters
