@@ -464,7 +464,9 @@ class BrowserUseServer:
 			return []
 
 		@self.server.call_tool()
-		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent | types.ImageContent]:
+		async def handle_call_tool(
+			name: str, arguments: dict[str, Any] | None
+		) -> list[types.TextContent | types.ImageContent] | types.CallToolResult:
 			"""Handle tool execution."""
 			start_time = time.time()
 			error_msg = None
@@ -476,7 +478,12 @@ class BrowserUseServer:
 			except Exception as e:
 				error_msg = str(e)
 				logger.error(f'Tool execution failed: {e}', exc_info=True)
-				return [types.TextContent(type='text', text=f'Error: {str(e)}')]
+				# Return isError=True so MCP hosts can distinguish a failed tool execution
+				# from a successful one that merely returned text describing an error.
+				return types.CallToolResult(
+					content=[types.TextContent(type='text', text=f'Error: {str(e)}')],
+					isError=True,
+				)
 			finally:
 				# Capture telemetry for tool calls
 				duration = time.time() - start_time
