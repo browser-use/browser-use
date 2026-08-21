@@ -259,6 +259,7 @@ async def openai_cua_fallback(params: OpenAICUAAction, browser_session: BrowserS
 		computer_call = computer_calls[0] if computer_calls else None
 		if not computer_call:
 			raise Exception('No computer calls found in CUA response')
+		assert computer_call is not None  # type narrowing for pyright
 
 		action = computer_call.action
 		print(f'🎬 Executing CUA action: {action.type} - {action}')
