@@ -4,7 +4,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
-import httpx
+# Imported eagerly because httpx2 defers it to the first client construction, which performs
+# blocking I/O when that construction happens inside the event loop.
+import httpcore2  # noqa: F401
+import httpx2
 from anthropic import (
 	APIConnectionError,
 	APIStatusError,
@@ -34,6 +37,17 @@ T = TypeVar('T', bound=BaseModel)
 _TEXT_TOOL_CALL_PARAMETER = re.compile(r'<parameter name="([^"]+)">(.*?)(?:</parameter>|</\1>)', re.DOTALL)
 
 
+def _to_httpx2_timeout(timeout: float | Timeout | httpx2.Timeout | None | NotGiven) -> float | httpx2.Timeout | None | NotGiven:
+	"""Rebuild a legacy `httpx.Timeout` as the `httpx2.Timeout` the Anthropic SDK now takes.
+
+	`AsyncAnthropic` accepts a legacy `httpx.Timeout` at construction and then fails at request time,
+	surfacing as an `APIConnectionError`. Everything else passes through unchanged.
+	"""
+	if isinstance(timeout, Timeout):
+		return httpx2.Timeout(connect=timeout.connect, read=timeout.read, write=timeout.write, pool=timeout.pool)
+	return timeout
+
+
 @dataclass
 class ChatAnthropic(BaseChatModel):
 	"""
@@ -45,7 +59,7 @@ class ChatAnthropic(BaseChatModel):
 	max_tokens: int = 8192
 	temperature: float | None = None
 	top_p: float | None = None
-	seed: int | None = None
+	seed: int | None = None  # not sent: the Anthropic Messages API has no seed parameter
 	output_config: dict[str, Any] | None = None
 	thinking: dict[str, Any] | None = None
 	betas: list[str] | None = None
@@ -55,12 +69,12 @@ class ChatAnthropic(BaseChatModel):
 	# Client initialization parameters
 	api_key: str | None = None
 	auth_token: str | None = None
-	base_url: str | httpx.URL | None = None
-	timeout: float | Timeout | None | NotGiven = NotGiven()
+	base_url: str | httpx2.URL | None = None
+	timeout: float | Timeout | httpx2.Timeout | None | NotGiven = NotGiven()
 	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
-	http_client: httpx.AsyncClient | None = None
+	http_client: httpx2.AsyncClient | None = None
 
 	# Static
 	@property
@@ -74,7 +88,7 @@ class ChatAnthropic(BaseChatModel):
 			'api_key': self.api_key,
 			'auth_token': self.auth_token,
 			'base_url': self.base_url,
-			'timeout': self.timeout,
+			'timeout': _to_httpx2_timeout(self.timeout),
 			'max_retries': self.max_retries,
 			'default_headers': self.default_headers,
 			'default_query': self.default_query,
@@ -124,6 +138,21 @@ class ChatAnthropic(BaseChatModel):
 		return betas
 
 	def _get_extra_body_for_invoke(self) -> dict[str, Any] | None:
+		"""Build the `extra_body` the SDK merges into the top-level request JSON.
+
+		`anthropic>=1` dropped `temperature` and `top_p` from `messages.create()`, where passing either
+		is now a `TypeError`. The API still accepts them, so they travel through `extra_body` -- the
+		route the SDK migration guide names -- instead of being dropped. Entries set explicitly on this
+		model win over the sampling values on a name collision.
+		"""
+		sampling: dict[str, Any] = {}
+
+		if self.temperature is not None:
+			sampling['temperature'] = self.temperature
+
+		if self.top_p is not None:
+			sampling['top_p'] = self.top_p
+
 		extra_body: dict[str, Any] = {}
 
 		if self.output_config is not None:
@@ -135,7 +164,7 @@ class ChatAnthropic(BaseChatModel):
 		if self.inference_geo is not None:
 			extra_body['inference_geo'] = self.inference_geo
 
-		return extra_body or None
+		return {**sampling, **extra_body} or None
 
 	def _get_client_params_for_invoke(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary for invoke."""
@@ -143,17 +172,8 @@ class ChatAnthropic(BaseChatModel):
 
 		client_params = {}
 
-		if self.temperature is not None:
-			client_params['temperature'] = self.temperature
-
 		if self.max_tokens is not None:
 			client_params['max_tokens'] = self.max_tokens
-
-		if self.top_p is not None:
-			client_params['top_p'] = self.top_p
-
-		if self.seed is not None:
-			client_params['seed'] = self.seed
 
 		if self.thinking is not None:
 			client_params['thinking'] = self.thinking
