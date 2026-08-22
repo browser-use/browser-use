@@ -3,7 +3,7 @@
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -248,7 +248,7 @@ class DBStyleEntry(BaseModel):
 
 	id: str = Field(default_factory=lambda: str(uuid4()))
 	default: bool = Field(default=False)
-	created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+	created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class BrowserProfileEntry(DBStyleEntry):
