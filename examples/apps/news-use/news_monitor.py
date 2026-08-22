@@ -8,10 +8,11 @@ import argparse
 import asyncio
 import hashlib
 import json
+import locale
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from dateutil import parser as dtparser
@@ -173,16 +174,30 @@ async def extract_latest_article(site_url: str, debug: bool = False) -> dict:
 # ---------------------------------------------------------
 
 
+def _load_articles(file_path: str) -> list | None:
+	"""Load saved articles, including files written with the system locale."""
+	encodings = ['utf-8-sig', 'utf-8', locale.getencoding(), 'cp1252']
+	for encoding in dict.fromkeys(encodings):
+		try:
+			with open(file_path, encoding=encoding) as f:
+				return json.load(f)
+		except UnicodeDecodeError:
+			continue
+		except Exception:
+			return []
+
+	logging.warning('Could not decode %s as UTF-8 or the system locale; keeping existing data untouched', file_path)
+	return None
+
+
 def load_seen_hashes(file_path: str = 'news_data.json') -> set:
 	"""Load already-saved article URL hashes from disk for dedup across restarts."""
 	if not os.path.exists(file_path):
 		return set()
-	try:
-		with open(file_path) as f:
-			items = json.load(f)
-		return {entry['hash'] for entry in items if 'hash' in entry}
-	except Exception:
+	items = _load_articles(file_path)
+	if items is None:
 		return set()
+	return {entry['hash'] for entry in items if 'hash' in entry}
 
 
 def save_article(article: dict, file_path: str = 'news_data.json'):
@@ -195,17 +210,15 @@ def save_article(article: dict, file_path: str = 'news_data.json'):
 
 	existing = []
 	if os.path.exists(file_path):
-		try:
-			with open(file_path) as f:
-				existing = json.load(f)
-		except Exception:
-			existing = []
+		existing = _load_articles(file_path)
+		if existing is None:
+			return
 
 	existing.append(payload)
 	# Keep last 100
 	existing = existing[-100:]
 
-	with open(file_path, 'w') as f:
+	with open(file_path, 'w', encoding='utf-8') as f:
 		json.dump(existing, f, ensure_ascii=False, indent=2)
 
 
@@ -219,7 +232,7 @@ def _fmt(ts_raw: str) -> str:
 	try:
 		return dtparser.parse(ts_raw).strftime('%Y-%m-%d %H:%M:%S')
 	except Exception:
-		return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+		return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
 
 async def run_once(url: str, output_path: str, debug: bool):
