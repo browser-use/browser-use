@@ -206,6 +206,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		planning_exploration_limit: int = 5,
 		loop_detection_window: int = 20,
 		loop_detection_enabled: bool = True,
+		loop_block_threshold: int = 0,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		message_compaction: MessageCompactionSettings | bool | None = True,
 		max_clickable_elements_length: int = 40000,
@@ -420,6 +421,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			planning_exploration_limit=planning_exploration_limit,
 			loop_detection_window=loop_detection_window,
 			loop_detection_enabled=loop_detection_enabled,
+			loop_block_threshold=loop_block_threshold,
 			message_compaction=message_compaction,
 			max_clickable_elements_length=max_clickable_elements_length,
 		)
@@ -1512,6 +1514,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				f'stagnation={self.state.loop_detector.consecutive_stagnant_pages})'
 			)
 			self._message_manager._add_context_message(UserMessage(content=nudge))
+
+	def _loop_block_reason(self, action_name: str, params: dict[str, Any]) -> str | None:
+		"""Reason to refuse this action as a proven-inert repeat, or None to allow it."""
+		if not self.settings.loop_detection_enabled or self.settings.loop_block_threshold <= 0:
+			return None
+		if not isinstance(params, dict):
+			return None
+		return self.state.loop_detector.should_block(action_name, params, self.settings.loop_block_threshold)
 
 	def _update_loop_detector_actions(self) -> None:
 		"""Record the actions from the latest step into the loop detector."""
@@ -2780,6 +2790,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					msg = f'Done action is allowed only as a single action - stopped after action {i} / {total_actions}.'
 					self.logger.debug(msg)
 					break
+
+			# Refuse an action already proven inert on this page, for models that ignore the nudge.
+			block_reason = self._loop_block_reason(action_name, action_data.get(action_name) or {})
+			if block_reason is not None:
+				self.logger.warning(f'🚫 {block_reason}')
+				results.append(ActionResult(error=block_reason))
+				break
 
 			# wait between actions (only after first action)
 			if i > 0:

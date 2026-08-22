@@ -67,6 +67,17 @@ PROFILES: dict[str, dict[str, Any]] = {
 		'max_history_items': 6,  # message manager asserts > 5
 		'exclude_actions': ['wait'],
 	},
+	# Hard-blocks an identical action repeated on an unchanged page. Small models loop on
+	# clicks the soft nudge does not stop - qwen3.5-9b traces show up to 38 in a row.
+	'noloop': {
+		'use_vision': False,
+		'use_thinking': False,
+		'flash_mode': True,
+		'max_actions_per_step': 10,
+		'max_history_items': 6,
+		'loop_block_threshold': 3,
+		'exclude_actions': ['wait'],
+	},
 }
 
 

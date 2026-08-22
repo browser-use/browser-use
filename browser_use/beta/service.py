@@ -4297,6 +4297,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		planning_exploration_limit: int = 5,
 		loop_detection_window: int = 20,
 		loop_detection_enabled: bool = True,
+		loop_block_threshold: int = 0,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		message_compaction: MessageCompactionSettings | bool | None = True,
 		max_clickable_elements_length: int = 40000,
@@ -4420,6 +4421,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			planning_exploration_limit=planning_exploration_limit,
 			loop_detection_window=loop_detection_window,
 			loop_detection_enabled=loop_detection_enabled,
+			loop_block_threshold=loop_block_threshold,
 			message_compaction=message_compaction,
 			max_clickable_elements_length=max_clickable_elements_length,
 		)

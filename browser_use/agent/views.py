@@ -91,6 +91,7 @@ class AgentSettings(BaseModel):
 	# Loop detection settings
 	loop_detection_window: int = 20  # Rolling window size for action similarity tracking
 	loop_detection_enabled: bool = True  # Whether to enable loop detection nudges
+	loop_block_threshold: int = 0  # >0 hard-blocks an identical action repeated this often on an unchanged page
 	max_clickable_elements_length: int = 40000  # Max characters for clickable elements in prompt
 
 
@@ -156,11 +157,16 @@ def compute_action_hash(action_name: str, params: dict[str, Any]) -> str:
 	return hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:12]
 
 
+# done must stay reachable or a blocked agent has no way to terminate.
+NON_BLOCKABLE_ACTIONS = frozenset({'done'})
+
+
 class ActionLoopDetector(BaseModel):
 	"""Tracks action repetition and page stagnation to detect behavioral loops.
 
-	This is a soft detection system — it generates context messages for the LLM
-	but never blocks actions. The agent can still repeat if it wants to.
+	Nudging is the default: it generates context messages for the LLM but never blocks,
+	so a model that self-corrects keeps full freedom. should_block() additionally offers
+	hard refusal for models that do not self-correct, opt-in via loop_block_threshold.
 	"""
 
 	model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -209,6 +215,29 @@ class ActionLoopDetector(BaseModel):
 			counts[h] = counts.get(h, 0) + 1
 		self.most_repeated_hash = max(counts, key=lambda k: counts[k])
 		self.max_repetition_count = counts[self.most_repeated_hash]
+
+	def should_block(self, action_name: str, params: dict[str, Any], threshold: int) -> str | None:
+		"""Reason to refuse this action, or None to allow it.
+
+		Blocks only when the identical action has already repeated `threshold` times in the
+		window *and* the page has not changed since. Both conditions matter: repetition on a
+		changing page is progress, and a stagnant page alone may just mean the agent is
+		reading. Disabled unless threshold > 0.
+		"""
+		if threshold <= 0 or action_name in NON_BLOCKABLE_ACTIONS:
+			return None
+
+		action_hash = compute_action_hash(action_name, params)
+		repeats = self.recent_action_hashes.count(action_hash)
+		if repeats < threshold or self.consecutive_stagnant_pages < threshold - 1:
+			return None
+
+		return (
+			f'Blocked: `{action_name}` with these parameters has already been tried {repeats} times '
+			f'and the page has not changed. Repeating it will not work. Choose a different action - '
+			f'navigate directly to a URL, interact with a different element, or call done() and report '
+			f'what you found.'
+		)
 
 	def get_nudge_message(self) -> str | None:
 		"""Return an escalating awareness nudge based on repetition severity, or None if no loop detected."""
