@@ -2,7 +2,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
 
-import httpx
+import httpx2
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
 from openai.types.chat import ChatCompletionContentPartTextParam
 from openai.types.chat.chat_completion import ChatCompletion
@@ -53,13 +53,13 @@ class ChatOpenAI(BaseChatModel):
 	api_key: str | None = None
 	organization: str | None = None
 	project: str | None = None
-	base_url: str | httpx.URL | None = None
-	websocket_base_url: str | httpx.URL | None = None
-	timeout: float | httpx.Timeout | None = None
+	base_url: str | httpx2.URL | None = None
+	websocket_base_url: str | httpx2.URL | None = None
+	timeout: float | httpx2.Timeout | None = None
 	max_retries: int = 5  # Increase default retries for automation reliability
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
-	http_client: httpx.AsyncClient | None = None
+	http_client: httpx2.AsyncClient | None = None
 	_strict_response_validation: bool = False
 	max_completion_tokens: int | None = 4096
 	reasoning_models: list[ChatModel | str] | None = field(

@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeAlias, TypeVar, overload
 
-import httpx
+import httpx2
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared_params.response_format_json_schema import (
@@ -328,12 +328,12 @@ class ChatVercel(BaseChatModel):
 
 	# Client initialization parameters
 	api_key: str | None = None
-	base_url: str | httpx.URL = 'https://ai-gateway.vercel.sh/v1'
-	timeout: float | httpx.Timeout | None = None
+	base_url: str | httpx2.URL = 'https://ai-gateway.vercel.sh/v1'
+	timeout: float | httpx2.Timeout | None = None
 	max_retries: int = 5
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
-	http_client: httpx.AsyncClient | None = None
+	http_client: httpx2.AsyncClient | None = None
 	_strict_response_validation: bool = False
 	provider_options: dict[str, Any] | None = None
 	reasoning: dict[str, dict[str, Any]] | None = None

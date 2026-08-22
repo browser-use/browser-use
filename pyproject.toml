@@ -29,7 +29,7 @@ dependencies = [
     "typing-extensions==4.15.0",
     "uuid7==0.1.0",
     "google-genai==1.65.0",
-    "openai==2.16.0",
+    "openai==3.3.1",
     "anthropic==0.76.0",
     "groq==1.0.0",
     "ollama==0.6.1",
@@ -76,7 +76,7 @@ examples = [
     "imgcat==0.6.0",
     # "stagehand-py>=0.3.6",
     # "browserbase>=0.4.0",
-    "langchain-openai==1.1.7",
+    "langchain-openai==1.6.0",
 ]
 eval = [
     "lmnr[all]==0.7.42",

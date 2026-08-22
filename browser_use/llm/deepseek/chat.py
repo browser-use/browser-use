@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
-import httpx
+import httpx2
 from openai import (
 	APIConnectionError,
 	APIError,
@@ -39,8 +39,8 @@ class ChatDeepSeek(BaseChatModel):
 
 	# Connection parameters
 	api_key: str | None = None
-	base_url: str | httpx.URL | None = 'https://api.deepseek.com/v1'
-	timeout: float | httpx.Timeout | None = None
+	base_url: str | httpx2.URL | None = 'https://api.deepseek.com/v1'
+	timeout: float | httpx2.Timeout | None = None
 	client_params: dict[str, Any] | None = None
 
 	@property

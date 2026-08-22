@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
-import httpx
+import httpx2
 from openai import (
 	APIConnectionError,
 	APIError,
@@ -38,8 +38,8 @@ class ChatCerebras(BaseChatModel):
 
 	# Connection parameters
 	api_key: str | None = None
-	base_url: str | httpx.URL | None = 'https://api.cerebras.ai/v1'
-	timeout: float | httpx.Timeout | None = None
+	base_url: str | httpx2.URL | None = 'https://api.cerebras.ai/v1'
+	timeout: float | httpx2.Timeout | None = None
 	client_params: dict[str, Any] | None = None
 
 	@property
