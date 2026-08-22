@@ -33,6 +33,7 @@ class SystemPrompt:
 		extend_system_message: str | None = None,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
+		flash_thinking: bool = False,
 		is_anthropic: bool = False,
 		is_browser_use_model: bool = False,
 		model_name: str | None = None,
@@ -40,6 +41,7 @@ class SystemPrompt:
 		self.max_actions_per_step = max_actions_per_step
 		self.use_thinking = use_thinking
 		self.flash_mode = flash_mode
+		self.flash_thinking = flash_thinking
 		self.is_anthropic = is_anthropic
 		self.is_browser_use_model = is_browser_use_model
 		self.model_name = model_name
@@ -74,6 +76,8 @@ class SystemPrompt:
 				template_filename = 'system_prompt_anthropic_flash.md'
 			elif self.flash_mode and self.is_anthropic:
 				template_filename = 'system_prompt_flash_anthropic.md'
+			elif self.flash_mode and self.flash_thinking:
+				template_filename = 'system_prompt_flash_thinking.md'
 			elif self.flash_mode:
 				template_filename = 'system_prompt_flash.md'
 			elif self.use_thinking:

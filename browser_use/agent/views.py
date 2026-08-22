@@ -71,6 +71,8 @@ class AgentSettings(BaseModel):
 	max_actions_per_step: int = 5
 	use_thinking: bool = True
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
+	flash_thinking: bool = False  # Flash mode only: add a length-capped thinking field to the structured output
+	flash_memory: bool = True  # Flash mode only: keep the memory field
 	use_judge: bool = True
 	ground_truth: str | None = None  # Ground truth answer or criteria for judge validation
 	max_history_items: int | None = None
@@ -385,6 +387,15 @@ class AgentBrain(BaseModel):
 	next_goal: str
 
 
+# Flash mode reasons inside the structured output rather than in native reasoning tokens, so
+# the cap here is the only thing bounding how long a chatty model spends thinking per step.
+FLASH_THINKING_DESCRIPTION = (
+	'Concise reasoning for this step: whether the previous action succeeded, what must be carried '
+	'forward from the current page, and why the chosen action follows. Note failed approaches and '
+	'unresolved uncertainty so they are not retried. Be decisive and terse - never exceed 120 words.'
+)
+
+
 class AgentOutput(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True, extra='forbid')
 
@@ -455,21 +466,42 @@ class AgentOutput(BaseModel):
 		return model
 
 	@staticmethod
-	def type_with_custom_actions_flash_mode(custom_actions: type[ActionModel]) -> type[AgentOutput]:
-		"""Extend actions with custom actions for flash mode - memory and action fields only"""
+	def type_with_custom_actions_flash_mode(
+		custom_actions: type[ActionModel],
+		include_thinking: bool = False,
+		include_memory: bool = True,
+	) -> type[AgentOutput]:
+		"""Extend actions with custom actions for flash mode - memory and action by default.
+
+		include_thinking adds a length-capped reasoning field to the structured output, for
+		models that reason better in JSON than through native reasoning tokens. Setting
+		include_memory False then leaves thinking as the only free-text field.
+		"""
 
 		class AgentOutputFlashMode(AgentOutput):
 			@classmethod
 			def model_json_schema(cls, **kwargs):
 				schema = super().model_json_schema(**kwargs)
-				# Remove thinking, evaluation_previous_goal, next_goal, and plan fields
-				del schema['properties']['thinking']
-				del schema['properties']['evaluation_previous_goal']
-				del schema['properties']['next_goal']
-				schema['properties'].pop('current_plan_item', None)
-				schema['properties'].pop('plan_update', None)
-				# Update required fields to only include remaining properties
-				schema['required'] = ['memory', 'action']
+				# Rebuild properties from scratch: field order in the schema is the order the
+				# model emits them, and reasoning is only useful before the action it justifies.
+				properties: dict[str, Any] = {}
+				required: list[str] = []
+
+				if include_thinking:
+					thinking = schema['properties']['thinking']
+					thinking['description'] = FLASH_THINKING_DESCRIPTION
+					properties['thinking'] = thinking
+					required.append('thinking')
+
+				if include_memory:
+					properties['memory'] = schema['properties']['memory']
+					required.append('memory')
+
+				properties['action'] = schema['properties']['action']
+				required.append('action')
+
+				schema['properties'] = properties
+				schema['required'] = required
 				return schema
 
 		model = create_model(

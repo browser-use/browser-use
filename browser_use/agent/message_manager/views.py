@@ -16,6 +16,7 @@ class HistoryItem(BaseModel):
 	"""Represents a single agent history item with its data and string representation"""
 
 	step_number: int | None = None
+	thinking: str | None = None
 	evaluation_previous_goal: str | None = None
 	memory: str | None = None
 	next_goal: str | None = None
@@ -41,6 +42,10 @@ class HistoryItem(BaseModel):
 			return self.system_message
 		else:
 			content_parts = []
+
+			# Reasoning first: it explains the fields that follow it.
+			if self.thinking:
+				content_parts.append(f'{self.thinking}')
 
 			# Only include evaluation_previous_goal if it's not None/empty
 			if self.evaluation_previous_goal:

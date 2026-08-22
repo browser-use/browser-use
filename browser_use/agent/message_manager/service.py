@@ -120,6 +120,7 @@ class MessageManager:
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		max_clickable_elements_length: int = 40000,
+		include_thinking_in_history: bool = False,
 	):
 		self.task = task
 		# A fresh state per instance: a mutable default (MessageManagerState()) would be
@@ -130,6 +131,8 @@ class MessageManager:
 		self.file_system = file_system
 		self.sensitive_data_description = ''
 		self.use_thinking = use_thinking
+		# Off by default: outside flash mode `thinking` is unbounded and would balloon the prompt.
+		self.include_thinking_in_history = include_thinking_in_history
 		self.max_history_items = max_history_items
 		self.vision_detail_level = vision_detail_level
 		self.include_tool_call_examples = include_tool_call_examples
@@ -381,6 +384,7 @@ class MessageManager:
 		else:
 			history_item = HistoryItem(
 				step_number=step_number,
+				thinking=model_output.current_state.thinking if self.include_thinking_in_history else None,
 				evaluation_previous_goal=model_output.current_state.evaluation_previous_goal,
 				memory=model_output.current_state.memory,
 				next_goal=model_output.current_state.next_goal,

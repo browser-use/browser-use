@@ -4268,6 +4268,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_actions_per_step: int = 5,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
+		flash_thinking: bool = False,
+		flash_memory: bool = True,
 		demo_mode: bool | None = None,
 		max_history_items: int | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
@@ -4402,6 +4404,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			max_actions_per_step=max_actions_per_step,
 			use_thinking=use_thinking,
 			flash_mode=flash_mode,
+			flash_thinking=flash_thinking,
+			flash_memory=flash_memory,
 			max_history_items=max_history_items,
 			page_extraction_llm=page_extraction_llm,
 			calculate_cost=calculate_cost,
@@ -4505,6 +4509,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				extend_system_message=self.settings.extend_system_message,
 				use_thinking=self.settings.use_thinking,
 				flash_mode=self.settings.flash_mode,
+				flash_thinking=self.settings.flash_thinking,
 				is_anthropic=str(getattr(self.llm, 'provider', '')).lower() == 'anthropic',
 				is_browser_use_model=str(getattr(self.llm, 'provider', '')).lower() == 'browser-use',
 				model_name=getattr(self.llm, 'model', self.model),
@@ -4521,6 +4526,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			sample_images=self.sample_images,
 			llm_screenshot_size=llm_screenshot_size,
 			max_clickable_elements_length=self.settings.max_clickable_elements_length,
+			include_thinking_in_history=self.settings.flash_mode and self.settings.flash_thinking,
 		)
 		if self.browser_session is not None:
 			self.browser_session.llm_screenshot_size = llm_screenshot_size
@@ -5580,14 +5586,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return
 		self.ActionModel = create_action_model(page_url=page_url)
 		if self.settings.flash_mode:
-			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
+			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(
+				self.ActionModel,
+				include_thinking=self.settings.flash_thinking,
+				include_memory=self.settings.flash_memory,
+			)
 		elif self.settings.use_thinking:
 			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
 		else:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 		self.DoneActionModel = create_action_model(include_actions=['done'], page_url=page_url)
 		if self.settings.flash_mode:
-			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(
+				self.DoneActionModel,
+				include_thinking=self.settings.flash_thinking,
+				include_memory=self.settings.flash_memory,
+			)
 		elif self.settings.use_thinking:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 		else:

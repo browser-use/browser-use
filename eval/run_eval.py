@@ -52,7 +52,20 @@ PROFILES: dict[str, dict[str, Any]] = {
 		'use_thinking': False,
 		'flash_mode': True,
 		'max_actions_per_step': 10,
-		'max_history_items': 5,
+		'max_history_items': 6,  # message manager asserts > 5
+	},
+	# Gregor's config for small local models: reason in a capped JSON field instead of
+	# native reasoning tokens, drop the conflated memory field, and remove the wait action
+	# so the model cannot spend ~2s of wall clock choosing to do nothing.
+	'gregor': {
+		'use_vision': False,
+		'use_thinking': False,
+		'flash_mode': True,
+		'flash_thinking': True,
+		'flash_memory': False,
+		'max_actions_per_step': 10,
+		'max_history_items': 6,  # message manager asserts > 5
+		'exclude_actions': ['wait'],
 	},
 }
 
@@ -338,14 +351,16 @@ async def run_single_task(task_file: Path, profile_name: str) -> dict[str, Any]:
 		record['name'] = task_data.get('name', task_file.stem)
 		max_steps = task_data.get('max_steps', 15)
 
-		from browser_use import Agent
+		from browser_use import Agent, Tools
 
 		llm = build_llm()
 		session, owns_browser = build_browser()
 		observation.install()
 
 		settings = dict(PROFILES[profile_name])
-		agent = Agent(task=task_data['task'], llm=llm, browser_session=session, **settings)
+		exclude_actions = settings.pop('exclude_actions', [])
+		tools = Tools(exclude_actions=list(exclude_actions)) if exclude_actions else None
+		agent = Agent(task=task_data['task'], llm=llm, browser_session=session, tools=tools, **settings)
 
 		agent_started = time.perf_counter()
 		history = await agent.run(max_steps=max_steps)
@@ -379,6 +394,7 @@ async def run_single_task(task_file: Path, profile_name: str) -> dict[str, Any]:
 				'other_seconds': round(agent_seconds - getattr(llm, 'llm_seconds', 0.0) - observation.seconds, 3),
 				'mean_step_seconds': round(statistics.mean(step_durations), 3) if step_durations else None,
 				'prompt_tokens': getattr(llm, 'prompt_tokens', 0),
+				'excluded_actions': list(exclude_actions),
 				'completion_tokens': getattr(llm, 'completion_tokens', 0),
 			}
 		)
