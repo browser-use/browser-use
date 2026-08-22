@@ -1684,18 +1684,39 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
 				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
-				action_instance = self.ActionModel()
-				setattr(
-					action_instance,
-					'done',
-					{
-						'success': False,
-						'text': 'No next action returned by LLM!',
-					},
-				)
-				model_output.action = [action_instance]
+				model_output.action = [self._build_fallback_done_action()]
 
 		return model_output
+
+	def _build_fallback_done_action(self) -> ActionModel:
+		"""Build the `done` action used to terminate when the LLM returns no actions.
+
+		`self.ActionModel` is a union of single-action models (see `Registry.create_action_model`),
+		so it must be constructed with its payload — instantiating it empty and assigning the
+		payload afterwards raises a ValidationError.
+
+		The `done` param model varies with configuration: `DoneAction` (which has `text`) normally,
+		or `StructuredOutputAction` (which has `data` and no `text`) when an output schema is set,
+		so the payload is derived from the registered param model instead of being hardcoded.
+		"""
+		params: dict[str, Any] = {'success': False}
+
+		done_action = self.tools.registry.registry.actions.get('done')
+		fields = done_action.param_model.model_fields if done_action else {}
+
+		if 'text' in fields:
+			params['text'] = 'No next action returned by LLM!'
+
+		if 'data' in fields:
+			# Structured output: `data` is typed to the caller's schema, which cannot be
+			# synthesised here without inventing values the agent never observed. Emit an empty
+			# shell so the fallback still builds — executing it surfaces a normal ActionResult
+			# error rather than an uncaught exception out of the recovery path.
+			annotation = fields['data'].annotation
+			if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+				params['data'] = annotation.model_construct()
+
+		return self.ActionModel(**{'done': params})
 
 	async def _handle_post_llm_processing(
 		self,
