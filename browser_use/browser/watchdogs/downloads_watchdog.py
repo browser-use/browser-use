@@ -59,6 +59,7 @@ _NETWORK_DOWNLOAD_FILE_EXTENSIONS = {
 }
 
 _GENERIC_TEXT_ATTACHMENT_NAMES = {'f', 'download', 'response', 'data', 'callback'}
+_PARTIAL_DOWNLOAD_SUFFIXES = {'.crdownload', '.part', '.tmp'}
 
 
 def _filename_from_content_disposition(content_disposition: str) -> str | None:
@@ -397,6 +398,11 @@ class DownloadsWatchdog(BaseWatchdog):
 				file_path = event.get('filePath')
 				if self.browser_session.is_local:
 					if file_path:
+						info = self._cdp_downloads_info.get(guid, {})
+						if info.get('handled'):
+							return
+						if guid in self._cdp_downloads_info:
+							self._cdp_downloads_info[guid]['handled'] = True
 						self.logger.debug(f'[DownloadsWatchdog] Download completed: {file_path}')
 						# Track the download
 						self._track_download(file_path, guid=guid)
@@ -417,14 +423,20 @@ class DownloadsWatchdog(BaseWatchdog):
 									if (
 										f.is_file()
 										and not f.name.startswith('.')
+										and f.suffix.lower() not in _PARTIAL_DOWNLOAD_SUFFIXES
 										and f.name not in self._initial_downloads_snapshot
 									):
 										# Check file has content before processing
 										if f.stat().st_size > 4:
+											info = self._cdp_downloads_info.get(guid, {})
+											if info.get('handled'):
+												return
+											if guid in self._cdp_downloads_info:
+												self._cdp_downloads_info[guid]['handled'] = True
 											# Found a new file! Add to snapshot immediately to prevent duplicate detection
 											self._initial_downloads_snapshot.add(f.name)
 											self.logger.debug(f'[DownloadsWatchdog] Detected new download: {f.name}')
-											self._track_download(str(f))
+											self._track_download(str(f), guid=guid)
 											# Mark as handled
 											try:
 												if guid in self._cdp_downloads_info:
@@ -987,6 +999,7 @@ class DownloadsWatchdog(BaseWatchdog):
 					if (
 						file_path.is_file()
 						and not file_path.name.startswith('.')
+						and file_path.suffix.lower() not in _PARTIAL_DOWNLOAD_SUFFIXES
 						and file_path.name not in self._initial_downloads_snapshot
 					):
 						# Add to snapshot immediately to prevent duplicate detection
@@ -1009,6 +1022,8 @@ class DownloadsWatchdog(BaseWatchdog):
 								info = self._cdp_downloads_info.get(guid, {})
 								if info.get('handled'):
 									return
+								if guid in self._cdp_downloads_info:
+									self._cdp_downloads_info[guid]['handled'] = True
 								self.event_bus.dispatch(
 									FileDownloadedEvent(
 										guid=guid,
