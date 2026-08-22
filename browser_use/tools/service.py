@@ -1008,24 +1008,32 @@ class Tools(Generic[Context]):
 		)
 		async def switch(params: SwitchTabAction, browser_session: BrowserSession):
 			# Simple switch tab logic
+			failure_memory = (
+				f'Failed to switch to tab #{params.tab_id} - the tab may have been closed. '
+				f'Check the tabs list in browser state for currently open tab_ids.'
+			)
 			try:
 				target_id = await browser_session.get_target_id_from_tab_id(params.tab_id)
 
 				event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
 				await event
 				new_target_id = await event.event_result(raise_if_any=False, raise_if_none=False)  # Don't raise on errors
-
-				if new_target_id:
-					memory = f'Switched to tab #{new_target_id[-4:]}'
-				else:
-					memory = f'Switched to tab #{params.tab_id}'
-
-				logger.info(f'🔄  {memory}')
-				return ActionResult(extracted_content=memory, long_term_memory=memory)
 			except Exception as e:
-				logger.warning(f'Tab switch may have failed: {e}')
-				memory = f'Attempted to switch to tab #{params.tab_id}'
-				return ActionResult(extracted_content=memory, long_term_memory=memory)
+				logger.warning(f'Tab switch failed: {e}')
+				raise BrowserError(f'Failed to switch to tab #{params.tab_id}: {e}', long_term_memory=failure_memory)
+
+			# on_SwitchTabEvent returns the newly focused TargetID on every success path, so a
+			# missing result means the handler failed - raise_if_any=False above swallowed the
+			# exception rather than the switch having quietly succeeded.
+			if not new_target_id:
+				raise BrowserError(
+					f'Failed to switch to tab #{params.tab_id}: tab switch produced no result',
+					long_term_memory=failure_memory,
+				)
+
+			memory = f'Switched to tab #{new_target_id[-4:]}'
+			logger.info(f'🔄  {memory}')
+			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
 		@self.registry.action(
 			'Close a tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use to clean up tabs you no longer need.',
