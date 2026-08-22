@@ -1192,8 +1192,12 @@ class DomService:
 			all_text = f'{text} {aria_label} {title} {class_name}'.strip()
 
 			# Check if it's disabled
+			# NOTE: CDP's DOM.getDocument parses HTML boolean attributes (e.g. <button disabled>)
+			# as EMPTY STRINGS, not 'true'. So the presence of the attribute means disabled,
+			# regardless of value. aria-disabled="" is ambiguous per the ARIA spec, so only
+			# an explicit 'true' counts there.
 			is_disabled = (
-				node.attributes.get('disabled') == 'true'
+				node.attributes.get('disabled') is not None
 				or node.attributes.get('aria-disabled') == 'true'
 				or 'disabled' in class_name
 			)
