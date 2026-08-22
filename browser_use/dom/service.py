@@ -1191,6 +1191,7 @@ class DomService:
 
 			# Match user-facing labels, not arbitrary substrings or CSS classes.
 			pattern_text = (text, aria_label, title)
+
 			def matches_pattern(patterns: list[str]) -> bool:
 				return any(
 					value == pattern or re.search(rf'(?<!\w){re.escape(pattern)}(?!\w)', value)
