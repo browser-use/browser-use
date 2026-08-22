@@ -194,6 +194,13 @@ def build_llm(timing: bool = True) -> Any:
 		base_url = os.getenv('BU_EVAL_LLM_BASE_URL') or os.getenv('OPENAI_BASE_URL')
 		if base_url:
 			kwargs['base_url'] = base_url
+		# An explicit key, so pointing at OpenRouter or Modal does not require overloading
+		# OPENAI_API_KEY with a credential that is not an OpenAI one.
+		api_key = os.getenv('BU_EVAL_LLM_API_KEY') or os.getenv('OPENAI_API_KEY')
+		if api_key:
+			kwargs['api_key'] = api_key
+		elif base_url:
+			raise RuntimeError('BU_EVAL_LLM_API_KEY (or OPENAI_API_KEY) is required when BU_EVAL_LLM_BASE_URL is set')
 		llm = ChatOpenAI(**kwargs)
 
 	elif backend == 'google':

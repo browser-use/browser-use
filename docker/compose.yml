@@ -64,14 +64,18 @@ services:
 
   eval-sidecar:
     <<: *eval-base
+    # Shares the chromium container's network namespace. Chrome binds DevTools to
+    # 127.0.0.1 only - --remote-debugging-address=0.0.0.0 is ignored - and reports
+    # ws://127.0.0.1:9222 as its websocket URL, which browser-use uses verbatim. A
+    # forwarder cannot fix that; sharing the namespace makes both loopbacks the same one.
+    network_mode: "service:chromium"
     depends_on:
       chromium:
         condition: service_healthy
     environment:
       BU_EVAL_BROWSER: cdp
-      BU_CDP_URL: http://chromium:9222
+      BU_CDP_URL: http://127.0.0.1:9222
       BU_EVAL_LLM: "${BU_EVAL_LLM:-browser-use}"
       BU_EVAL_MODEL: "${BU_EVAL_MODEL:-bu-2-0-mini-preview}"
-      # The site is served inside the agent container; the sidecar browser reaches it by
-      # service name, not localhost.
-      EVAL_SITE_URL: http://eval-sidecar:8000
+      # Same namespace, so the site server this container starts is on the shared loopback.
+      EVAL_SITE_URL: http://127.0.0.1:8000
