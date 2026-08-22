@@ -40,6 +40,10 @@ class ChatOpenAI(BaseChatModel):
 	seed: int | None = None
 	service_tier: Literal['auto', 'default', 'flex', 'priority', 'scale'] | None = None
 	top_p: float | None = None
+	presence_penalty: float | None = None
+	# Passed through verbatim as OpenAI `extra_body`, for sampler knobs that are not part of
+	# the OpenAI schema but are accepted by vLLM/SGLang (e.g. top_k, min_p).
+	extra_body: dict[str, Any] | None = None
 	add_schema_to_system_prompt: bool = False  # Add JSON schema to system prompt instead of using response_format
 	dont_force_structured_output: bool = False  # If True, the model will not be forced to output a structured output
 	remove_min_items_from_schema: bool = (
@@ -179,6 +183,12 @@ class ChatOpenAI(BaseChatModel):
 
 			if self.top_p is not None:
 				model_params['top_p'] = self.top_p
+
+			if self.presence_penalty is not None:
+				model_params['presence_penalty'] = self.presence_penalty
+
+			if self.extra_body is not None:
+				model_params['extra_body'] = self.extra_body
 
 			if self.seed is not None:
 				model_params['seed'] = self.seed
