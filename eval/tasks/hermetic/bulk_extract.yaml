@@ -1,0 +1,12 @@
+name: Bulk inventory extraction
+task: |
+  Go to {BASE_URL}/bulk.html. This page lists 400 items in a table.
+  Find the row for "Item 137" and report its SKU and price, then find the row for
+  "Item 288" and report its SKU and price.
+expected_substrings:
+  - 'SKU-1137'
+  - 'SKU-1288'
+judge_context:
+  - The agent must report SKU-1137 for Item 137
+  - The agent must report SKU-1288 for Item 288
+max_steps: 12
