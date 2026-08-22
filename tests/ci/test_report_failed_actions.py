@@ -128,4 +128,5 @@ class TestScrollToTextReportsFailure:
 		result: ActionResult = _run('find_text', text='needle', browser_session=session)
 
 		assert result.error is None
+		assert result.extracted_content is not None
 		assert 'not found' in result.extracted_content
