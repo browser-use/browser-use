@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
-import httpx
+import httpx2
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared_params.response_format_json_schema import (
@@ -41,12 +41,12 @@ class ChatOpenRouter(BaseChatModel):
 	# Client initialization parameters
 	api_key: str | None = None
 	http_referer: str | None = None  # OpenRouter specific parameter for tracking
-	base_url: str | httpx.URL = 'https://openrouter.ai/api/v1'
-	timeout: float | httpx.Timeout | None = None
+	base_url: str | httpx2.URL = 'https://openrouter.ai/api/v1'
+	timeout: float | httpx2.Timeout | None = None
 	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
-	http_client: httpx.AsyncClient | None = None
+	http_client: httpx2.AsyncClient | None = None
 	_strict_response_validation: bool = False
 	extra_body: dict[str, Any] | None = None
 
