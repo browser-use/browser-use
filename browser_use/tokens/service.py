@@ -168,6 +168,10 @@ class TokenCost:
 			cache_file = self._cache_dir / f'pricing_{timestamp_str}.json'
 
 			await anyio.Path(cache_file).write_text(cached.model_dump_json(indent=2))
+
+			# Prune superseded cache files so the directory doesn't grow unboundedly
+			# across long-running sessions (one new timestamped file per refresh).
+			await self.clean_old_caches()
 		except Exception as e:
 			logger.debug(f'Error fetching pricing data: {e}')
 			# Fall back to empty pricing data
