@@ -478,6 +478,18 @@ class TestFileSystem:
 		assert 'not found' in result
 		assert 'auto-corrected' in result
 
+	async def test_replace_file_reports_missing_text(self, temp_filesystem):
+		"""Test that replacing absent text reports an error without changing the file."""
+		fs = temp_filesystem
+		original_content = '- [ ] First task\n- [ ] Second task'
+		await fs.write_file('todo.md', original_content)
+
+		result = await fs.replace_file_str('todo.md', '- [ ] Missing task', '- [x] Missing task')
+
+		assert result == 'Error: Could not find the specified text in file todo.md.'
+		assert fs.get_file('todo.md').content == original_content
+		assert (fs.data_dir / 'todo.md').read_text(encoding='utf-8') == original_content
+
 	async def test_append_json_file(self, temp_filesystem):
 		"""Test appending content to JSON files."""
 		fs = temp_filesystem
