@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -1188,8 +1189,15 @@ class DomService:
 			class_name = node.attributes.get('class', '').lower()
 			role = node.attributes.get('role', '').lower()
 
-			# Combine all text sources for pattern matching
-			all_text = f'{text} {aria_label} {title} {class_name}'.strip()
+			# Match user-facing labels, not arbitrary substrings or CSS classes.
+			pattern_text = (text, aria_label, title)
+
+			def matches_pattern(patterns: list[str]) -> bool:
+				return any(
+					value == pattern or re.search(rf'(?<!\w){re.escape(pattern)}(?!\w)', value)
+					for pattern in patterns
+					for value in pattern_text
+				)
 
 			# Check if it's disabled
 			is_disabled = (
@@ -1201,19 +1209,19 @@ class DomService:
 			button_type: str | None = None
 
 			# Match specific first/last semantics before generic prev/next fallbacks.
-			if any(pattern in all_text for pattern in first_patterns):
+			if matches_pattern(first_patterns):
 				button_type = 'first'
 			# Check for last button
-			elif any(pattern in all_text for pattern in last_patterns):
+			elif matches_pattern(last_patterns):
 				button_type = 'last'
 			# Check for next button
-			elif any(pattern in all_text for pattern in next_patterns):
+			elif matches_pattern(next_patterns):
 				button_type = 'next'
 			# Check for previous button
-			elif any(pattern in all_text for pattern in prev_patterns):
+			elif matches_pattern(prev_patterns):
 				button_type = 'prev'
 			# Check for numeric page buttons (single or double digit)
-			elif text.isdigit() and len(text) <= 2 and role in ['button', 'link', '']:
+			elif text.isdigit() and len(text) <= 2 and role in ['button', 'link']:
 				button_type = 'page_number'
 
 			if button_type:
