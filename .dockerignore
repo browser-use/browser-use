@@ -44,3 +44,9 @@ AgentHistory.json
 AgentHistoryList.json
 private_example.py
 private_example
+
+# Re-include files the broad data-file globs above would otherwise drop.
+# browser_use/mcp/manifest.json is package data and must ship in the image.
+!browser_use/**/*.json
+!eval/**/*.html
+!eval/**/*.yaml

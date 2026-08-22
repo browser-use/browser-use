@@ -1,0 +1,103 @@
+# syntax=docker/dockerfile:1
+#
+# Browser-Use evaluation image.
+#
+# Bundles python + chromium + browser-use + the eval harness. Supports three browser
+# backends at runtime (local prewarmed chromium, Browser Use cloud, arbitrary CDP) and
+# three LLM backends (Browser Use gateway, OpenAI-compatible e.g. Modal, Google).
+#
+#   docker build -f docker/Dockerfile.eval -t browseruse-eval .
+#   docker run --rm --shm-size=2g --env-file .env browseruse-eval --suite hermetic
+#
+# Layers are ordered so a source-only change rebuilds just the final two.
+
+FROM python:3.12-slim AS base
+
+ENV TZ=UTC \
+	LANG=C.UTF-8 \
+	LC_ALL=C.UTF-8 \
+	DEBIAN_FRONTEND=noninteractive \
+	PYTHONUNBUFFERED=1 \
+	PYTHONDONTWRITEBYTECODE=0 \
+	PIP_DISABLE_PIP_VERSION_CHECK=1 \
+	UV_CACHE_DIR=/root/.cache/uv \
+	UV_LINK_MODE=copy \
+	UV_COMPILE_BYTECODE=1 \
+	UV_PYTHON_PREFERENCE=only-system \
+	IN_DOCKER=True \
+	ANONYMIZED_TELEMETRY=false \
+	BROWSER_USE_CLOUD_SYNC=false \
+	CHROME_BIN=/usr/bin/chromium \
+	BROWSER_USE_EXECUTABLE_PATH=/usr/bin/chromium
+
+# System + chromium. Debian's chromium avoids a playwright browser download entirely and
+# is the single largest layer, so it sits below anything that changes often.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+	--mount=type=cache,target=/var/lib/apt,sharing=locked \
+	rm -f /etc/apt/apt.conf.d/docker-clean \
+	&& echo 'Binary::apt::APT::Keep-Downloaded-Packages "1";' > /etc/apt/apt.conf.d/99keep-cache \
+	&& apt-get update -qq \
+	&& apt-get install -y -qq --no-install-recommends \
+		ca-certificates curl procps tini \
+		chromium \
+		fonts-liberation fonts-dejavu-core fonts-noto-core fonts-freefont-ttf \
+	&& ln -sf /usr/bin/chromium /usr/bin/chromium-browser
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# ---------------------------------------------------------------------------------------
+FROM base AS deps
+
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+
+# No --all-extras: examples/aws/oci pull langchain, agentmail, boto3 and the OCI SDK, none
+# of which the agent or the harness touch.
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+	uv venv \
+	&& uv sync --no-dev --no-install-project --compile-bytecode
+
+ENV PATH="/app/.venv/bin:$PATH" \
+	VIRTUAL_ENV=/app/.venv
+
+# ---------------------------------------------------------------------------------------
+FROM deps AS runtime
+
+# Non-root user; chromium runs with --no-sandbox in-container (CHROME_DOCKER_ARGS).
+ARG PUID=911
+ARG PGID=911
+RUN groupadd --system --gid ${PGID} browseruse \
+	&& useradd --system --create-home --uid ${PUID} --gid ${PGID} browseruse \
+	&& mkdir -p /data /home/browseruse/.config/chromium \
+	&& chown -R browseruse:browseruse /data /home/browseruse
+
+COPY --chown=browseruse:browseruse . /app
+
+# pyyaml is only a transitive dep of the examples/eval extras, which this image omits, so
+# the harness needs it installed explicitly - and after uv sync, which prunes anything the
+# lockfile does not list.
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+	uv sync --no-dev --locked --compile-bytecode \
+	&& uv pip install pyyaml \
+	&& python -c "import browser_use, yaml; print('browser-use import OK')" \
+	&& chown -R browseruse:browseruse /app/.venv
+
+COPY --chown=browseruse:browseruse docker/eval-entrypoint.sh /usr/local/bin/eval-entrypoint.sh
+RUN chmod +x /usr/local/bin/eval-entrypoint.sh
+
+ENV BU_EVAL_BROWSER=local \
+	BU_EVAL_LLM=browser-use \
+	BU_EVAL_HEADLESS=true \
+	BU_PREWARM_BROWSER=1 \
+	BU_CHROME_DEBUG_PORT=9222 \
+	EVAL_SITE_URL=http://127.0.0.1:8000 \
+	DATA_DIR=/data
+
+USER browseruse
+WORKDIR /app
+VOLUME /data
+EXPOSE 8000 9222
+
+# tini reaps the chromium the entrypoint prewarms.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/eval-entrypoint.sh"]
+CMD ["--suite", "hermetic", "--profile", "default"]

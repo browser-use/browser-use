@@ -1,0 +1,11 @@
+name: Quote form submission
+task: |
+  Go to {BASE_URL}/form.html. Fill in the full name "Ada Lovelace", the email
+  "ada@example.com", choose the "Enterprise" plan, tick the newsletter checkbox,
+  then submit the request. Report the confirmation code shown on the page.
+expected_substrings:
+  - 'ACME-ENT-Y-7731'
+judge_context:
+  - The agent must submit the form with all four fields set correctly
+  - The agent must report the confirmation code ACME-ENT-Y-7731
+max_steps: 12

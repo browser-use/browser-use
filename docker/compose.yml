@@ -1,0 +1,77 @@
+# Browser-Use eval stack.
+#
+#   docker compose -f docker/compose.yml run --rm eval-local   --suite hermetic --profile fast
+#   docker compose -f docker/compose.yml run --rm eval-cloud   --suite web --profile fast
+#   docker compose -f docker/compose.yml run --rm eval-sidecar --suite hermetic
+#
+# Secrets come from a .env at the repo root (BROWSER_USE_API_KEY, GOOGLE_API_KEY, ...).
+
+x-eval-base: &eval-base
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.eval
+  image: browseruse-eval:latest
+  env_file:
+    - path: ../.env
+      required: false
+  # Chromium maps shared memory here; the default 64MB makes renderers crash on heavy pages.
+  shm_size: 2gb
+  volumes:
+    - ../eval/reports:/app/eval/reports
+  working_dir: /app
+
+services:
+  # Chromium in-container, prewarmed at boot so browser startup is off the per-task path.
+  eval-local:
+    <<: *eval-base
+    environment:
+      BU_EVAL_BROWSER: local
+      BU_PREWARM_BROWSER: "1"
+      BU_EVAL_LLM: "${BU_EVAL_LLM:-browser-use}"
+      BU_EVAL_MODEL: "${BU_EVAL_MODEL:-bu-2-0-mini-preview}"
+
+  # Browser Use cloud browser. The hermetic suite is unavailable here - a cloud browser
+  # cannot reach a site served on this container's localhost.
+  eval-cloud:
+    <<: *eval-base
+    environment:
+      BU_EVAL_BROWSER: cloud
+      BU_PREWARM_BROWSER: "0"
+      BU_EVAL_LLM: "${BU_EVAL_LLM:-browser-use}"
+      BU_EVAL_MODEL: "${BU_EVAL_MODEL:-bu-2-0-mini-preview}"
+      BU_EVAL_CLOUD_PROXY: "${BU_EVAL_CLOUD_PROXY:-}"
+
+  # Chromium as its own container. Isolates browser CPU/memory from the agent process and
+  # is the shape that scales horizontally (one browser container per agent worker).
+  chromium:
+    image: browseruse-eval:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.eval
+    shm_size: 2gb
+    environment:
+      BU_EVAL_BROWSER: local
+      BU_PREWARM_BROWSER: "1"
+      # Hold the container open; the prewarmed chromium is the service.
+      BU_EVAL_CMD: "sleep infinity"
+    expose:
+      - "9222"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9222/json/version"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  eval-sidecar:
+    <<: *eval-base
+    depends_on:
+      chromium:
+        condition: service_healthy
+    environment:
+      BU_EVAL_BROWSER: cdp
+      BU_CDP_URL: http://chromium:9222
+      BU_EVAL_LLM: "${BU_EVAL_LLM:-browser-use}"
+      BU_EVAL_MODEL: "${BU_EVAL_MODEL:-bu-2-0-mini-preview}"
+      # The site is served inside the agent container; the sidecar browser reaches it by
+      # service name, not localhost.
+      EVAL_SITE_URL: http://eval-sidecar:8000

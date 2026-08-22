@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Request a quote - Acme</title>
+<style>
+ body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;line-height:1.6}
+ label{display:block;margin:12px 0 4px;font-weight:600}
+ input,select{padding:6px;width:100%;max-width:320px}
+ button{margin-top:16px;padding:8px 20px;font-size:16px}
+ #confirm{margin-top:24px;padding:16px;border:2px solid #2a7;display:none}
+</style>
+<h1>Request a quote</h1>
+<p><a href="/">Back to home</a></p>
+<form id="quote">
+  <label for="name">Full name</label><input id="name" name="name" required>
+  <label for="email">Email</label><input id="email" name="email" type="email" required>
+  <label for="plan">Plan</label>
+  <select id="plan" name="plan">
+    <option value="">Choose a plan</option>
+    <option value="starter">Starter</option>
+    <option value="growth">Growth</option>
+    <option value="enterprise">Enterprise</option>
+  </select>
+  <label><input type="checkbox" id="newsletter" style="width:auto"> Subscribe to the newsletter</label>
+  <button type="submit" id="submit">Submit request</button>
+</form>
+<div id="confirm"></div>
+<script>
+ document.getElementById('quote').addEventListener('submit', e => {
+   e.preventDefault();
+   const plan = document.getElementById('plan').value || 'none';
+   const news = document.getElementById('newsletter').checked ? 'Y' : 'N';
+   const code = 'ACME-' + plan.slice(0,3).toUpperCase() + '-' + news + '-7731';
+   const box = document.getElementById('confirm');
+   box.style.display = 'block';
+   box.textContent = 'Request received. Your confirmation code is ' + code;
+ });
+</script>

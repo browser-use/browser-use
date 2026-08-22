@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Search inventory - Acme</title>
+<style>
+ body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;line-height:1.6}
+ input{padding:6px;width:280px}button{padding:6px 16px}
+ li{margin:6px 0}
+</style>
+<h1>Search inventory</h1>
+<p><a href="/">Back to home</a></p>
+<input id="q" placeholder="Search products" autocomplete="off">
+<button id="go">Search</button>
+<p id="summary"></p>
+<ul id="results"></ul>
+<script>
+ const ITEMS = [
+   {n:'Flux Capacitor', s:'ACM-1001'}, {n:'Quantum Widget', s:'ACM-1002'},
+   {n:'Tachyon Sprocket', s:'ACM-1003'}, {n:'Gamma Bearing', s:'ACM-1004'},
+   {n:'Neutrino Filter', s:'ACM-1005'}, {n:'Gamma Coil', s:'ACM-1006'},
+   {n:'Gamma Shunt', s:'ACM-1007'}
+ ];
+ function run(){
+   const q = document.getElementById('q').value.trim().toLowerCase();
+   const hits = q ? ITEMS.filter(i => i.n.toLowerCase().includes(q)) : [];
+   document.getElementById('summary').textContent = q ? ('Found ' + hits.length + ' results for "' + q + '"') : '';
+   document.getElementById('results').innerHTML = hits.map(i => '<li>' + i.n + ' (' + i.s + ')</li>').join('');
+ }
+ document.getElementById('go').onclick = run;
+ document.getElementById('q').addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+</script>

@@ -1,0 +1,11 @@
+name: Catalog price lookup
+task: |
+  Go to {BASE_URL}/ and open the "Product catalog" page.
+  Report the price and SKU of the product named "Quantum Widget".
+expected_substrings:
+  - '347.50'
+  - 'ACM-1002'
+judge_context:
+  - The agent must report the price $347.50 for Quantum Widget
+  - The agent must report the SKU ACM-1002
+max_steps: 6

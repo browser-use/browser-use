@@ -1,0 +1,10 @@
+name: Search result count
+task: |
+  Go to {BASE_URL}/search.html, search for "gamma", and report exactly how many
+  results were found and the names of those products.
+expected_substrings:
+  - '3'
+judge_context:
+  - The agent must report that 3 results were found
+  - The agent should name Gamma Bearing, Gamma Coil and Gamma Shunt
+max_steps: 8
