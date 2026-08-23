@@ -16,12 +16,13 @@ def _pagination_node(
 	backend_node_id: int,
 	text: str = 'Next',
 	attributes: dict[str, str] | None = None,
+	tag: str = 'BUTTON',
 ) -> EnhancedDOMTreeNode:
 	return EnhancedDOMTreeNode(
 		node_id=backend_node_id,
 		backend_node_id=backend_node_id,
 		node_type=NodeType.ELEMENT_NODE,
-		node_name='BUTTON',
+		node_name=tag,
 		node_value='',
 		attributes=attributes or {},
 		is_scrollable=False,
@@ -138,3 +139,45 @@ def test_enabled_button_is_not_disabled():
 	node = _with_text(_pagination_node(backend_node_id=1), 'Next')
 	buttons = _detect([node])
 	assert buttons[0]['is_disabled'] is False
+
+
+def test_disabled_attribute_on_anchor_is_inert():
+	"""The native `disabled` attribute is inert on non-form elements per HTML:
+	<a disabled> still navigates, so it must NOT be reported as disabled."""
+	node = _with_text(
+		_pagination_node(backend_node_id=1, attributes={'disabled': ''}, tag='A'),
+		'Next',
+	)
+	buttons = _detect([node])
+	assert buttons[0]['is_disabled'] is False
+
+
+def test_disabled_attribute_on_div_is_inert():
+	"""<div disabled> is a common (invalid) authoring pattern; the attribute has
+	no HTML semantics there, so only aria-disabled / class-based signals count."""
+	node = _with_text(
+		_pagination_node(backend_node_id=1, attributes={'disabled': ''}, tag='DIV'),
+		'Next',
+	)
+	buttons = _detect([node])
+	assert buttons[0]['is_disabled'] is False
+
+
+def test_aria_disabled_on_anchor_still_counts():
+	"""aria-disabled is element-agnostic — it applies to links too."""
+	node = _with_text(
+		_pagination_node(backend_node_id=1, attributes={'aria-disabled': 'true'}, tag='A'),
+		'Next',
+	)
+	buttons = _detect([node])
+	assert buttons[0]['is_disabled'] is True
+
+
+def test_disabled_attribute_on_input_is_disabled():
+	"""<input disabled> is a form control — presence still means disabled."""
+	node = _with_text(
+		_pagination_node(backend_node_id=1, attributes={'disabled': ''}, tag='INPUT'),
+		'Next',
+	)
+	buttons = _detect([node])
+	assert buttons[0]['is_disabled'] is True
