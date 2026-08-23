@@ -177,9 +177,9 @@ class BaseFile(BaseModel, ABC):
 
 				staged_file = staging_path / self.full_name
 				destination = path / self.full_name
-				if destination.exists():
-					shutil.copy2(destination, staged_file)
 				await candidate.sync_to_disk(staging_path)
+				if destination.exists():
+					shutil.copystat(destination, staged_file)
 				os.replace(staged_file, destination)
 			finally:
 				shutil.rmtree(staging_path, ignore_errors=True)

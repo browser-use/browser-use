@@ -1199,12 +1199,14 @@ class TestFileSystemEdgeCases:
 			await fs.write_file('existing.txt', 'persisted')
 
 			destination = fs.data_dir / 'existing.txt'
-			destination.chmod(0o600)
+			destination.chmod(0o200)
 			expected_mode = stat.S_IMODE(destination.stat().st_mode)
 
-			await fs.write_file('existing.txt', 'replacement')
+			result = await fs.write_file('existing.txt', 'replacement')
 
+			assert result == 'Data written to file existing.txt successfully.'
 			assert stat.S_IMODE(destination.stat().st_mode) == expected_mode
+			destination.chmod(0o600)
 			assert destination.read_text(encoding='utf-8') == 'replacement'
 
 			fs.nuke()
