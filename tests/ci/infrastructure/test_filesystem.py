@@ -1,6 +1,7 @@
 """Tests for the FileSystem class and related file operations."""
 
 import asyncio
+import stat
 import tempfile
 from pathlib import Path
 
@@ -1108,6 +1109,7 @@ class TestFileSystemEdgeCases:
 			await fs.write_file('existing.txt', 'persisted')
 
 			async def fail_sync(_file, _path):
+				(_path / _file.full_name).write_text('partial', encoding='utf-8')
 				raise OSError('disk unavailable')
 
 			monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
@@ -1126,6 +1128,139 @@ class TestFileSystemEdgeCases:
 			assert fs.get_file('ghost.txt') is None
 			assert not (fs.data_dir / 'ghost.txt').exists()
 			assert list(fs.get_state().files) == ['existing.txt']
+
+			fs.nuke()
+
+	async def test_concurrent_appends_preserve_both_updates(self, monkeypatch):
+		"""Concurrent appends must serialize before deriving their new content."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+			await fs.write_file('existing.txt', 'base')
+
+			original_sync = TxtFile.sync_to_disk
+			first_started = asyncio.Event()
+			release_first = asyncio.Event()
+
+			async def controlled_sync(file, path):
+				if file.content.endswith('A'):
+					first_started.set()
+					await release_first.wait()
+				await original_sync(file, path)
+
+			monkeypatch.setattr(TxtFile, 'sync_to_disk', controlled_sync)
+
+			first = asyncio.create_task(fs.append_file('existing.txt', 'A'))
+			await first_started.wait()
+			second = asyncio.create_task(fs.append_file('existing.txt', 'B'))
+			await asyncio.sleep(0)
+			release_first.set()
+			await asyncio.gather(first, second)
+
+			existing_file = fs.get_file('existing.txt')
+			assert existing_file is not None
+			assert existing_file.content == 'baseAB'
+			assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'baseAB'
+
+			fs.nuke()
+
+	async def test_cancelled_write_preserves_persisted_state(self, monkeypatch):
+		"""Cancellation during persistence must not commit only one side of the state."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+			await fs.write_file('existing.txt', 'persisted')
+
+			staged = asyncio.Event()
+			blocker = asyncio.Event()
+
+			async def stage_then_wait(file, path):
+				(path / file.full_name).write_text(file.content, encoding='utf-8')
+				staged.set()
+				await blocker.wait()
+
+			monkeypatch.setattr(TxtFile, 'sync_to_disk', stage_then_wait)
+
+			write_task = asyncio.create_task(fs.write_file('existing.txt', 'replacement'))
+			await staged.wait()
+			write_task.cancel()
+			with pytest.raises(asyncio.CancelledError):
+				await write_task
+
+			existing_file = fs.get_file('existing.txt')
+			assert existing_file is not None
+			assert existing_file.content == 'persisted'
+			assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted'
+
+			fs.nuke()
+
+	async def test_write_preserves_existing_file_permissions(self):
+		"""Replacing an existing file must retain its restrictive mode."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+			await fs.write_file('existing.txt', 'persisted')
+
+			destination = fs.data_dir / 'existing.txt'
+			destination.chmod(0o600)
+			expected_mode = stat.S_IMODE(destination.stat().st_mode)
+
+			await fs.write_file('existing.txt', 'replacement')
+
+			assert stat.S_IMODE(destination.stat().st_mode) == expected_mode
+			assert destination.read_text(encoding='utf-8') == 'replacement'
+
+			fs.nuke()
+
+	async def test_staging_directory_failure_preserves_state(self, monkeypatch):
+		"""Failure before staging starts must leave memory and disk untouched."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+			await fs.write_file('existing.txt', 'persisted')
+
+			def fail_staging(*_args, **_kwargs):
+				raise OSError('no space for staging')
+
+			monkeypatch.setattr(tempfile, 'mkdtemp', fail_staging)
+
+			result = await fs.write_file('existing.txt', 'replacement')
+
+			existing_file = fs.get_file('existing.txt')
+			assert 'no space for staging' in result
+			assert existing_file is not None
+			assert existing_file.content == 'persisted'
+			assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted'
+
+			fs.nuke()
+
+	async def test_pending_write_is_not_visible_to_readers(self, monkeypatch):
+		"""Reads and serialized state must expose only committed content."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+			await fs.write_file('existing.txt', 'persisted')
+
+			staged = asyncio.Event()
+			release = asyncio.Event()
+			original_sync = TxtFile.sync_to_disk
+
+			async def controlled_sync(file, path):
+				await original_sync(file, path)
+				staged.set()
+				await release.wait()
+
+			monkeypatch.setattr(TxtFile, 'sync_to_disk', controlled_sync)
+
+			write_task = asyncio.create_task(fs.write_file('existing.txt', 'replacement'))
+			await staged.wait()
+
+			existing_file = fs.get_file('existing.txt')
+			assert existing_file is not None
+			assert existing_file.content == 'persisted'
+			assert fs.get_state().files['existing.txt']['data']['content'] == 'persisted'
+			assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted'
+
+			release.set()
+			await write_task
+
+			assert existing_file.content == 'replacement'
+			assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'replacement'
 
 			fs.nuke()
 

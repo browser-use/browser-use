@@ -6,12 +6,13 @@ import io
 import os
 import re
 import shutil
+import tempfile
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 UNSUPPORTED_BINARY_EXTENSIONS = {
 	'png',
@@ -133,6 +134,7 @@ class BaseFile(BaseModel, ABC):
 
 	name: str
 	content: str = ''
+	_write_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 
 	# --- Subclass must define this ---
 	@property
@@ -163,17 +165,31 @@ class BaseFile(BaseModel, ABC):
 		with ThreadPoolExecutor() as executor:
 			await asyncio.get_event_loop().run_in_executor(executor, lambda: file_path.write_text(self.content, encoding='utf-8'))
 
+	async def _update_and_sync(self, content: str, path: Path, *, append: bool) -> None:
+		async with self._write_lock:
+			staging_path = Path(tempfile.mkdtemp(dir=path))
+			candidate = self.model_copy()
+			try:
+				if append:
+					candidate.append_file_content(content)
+				else:
+					candidate.write_file_content(content)
+
+				staged_file = staging_path / self.full_name
+				destination = path / self.full_name
+				if destination.exists():
+					shutil.copy2(destination, staged_file)
+				await candidate.sync_to_disk(staging_path)
+				os.replace(staged_file, destination)
+			finally:
+				shutil.rmtree(staging_path, ignore_errors=True)
+			self.content = candidate.content
+
 	async def write(self, content: str, path: Path) -> None:
-		candidate = self.model_copy()
-		candidate.write_file_content(content)
-		await candidate.sync_to_disk(path)
-		self.content = candidate.content
+		await self._update_and_sync(content, path, append=False)
 
 	async def append(self, content: str, path: Path) -> None:
-		candidate = self.model_copy()
-		candidate.append_file_content(content)
-		await candidate.sync_to_disk(path)
-		self.content = candidate.content
+		await self._update_and_sync(content, path, append=True)
 
 	def read(self) -> str:
 		return self.content
