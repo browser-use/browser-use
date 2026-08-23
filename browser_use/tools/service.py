@@ -82,6 +82,16 @@ def _format_new_tab_message(new_tab_id: str, switched_target_id: str | None) -> 
 	return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
 
 
+async def _new_tab_switch_message(new_tab_id: str, switch_event: SwitchTabEvent) -> str:
+	"""Report an automatic switch only after the event returns its target ID."""
+	try:
+		await switch_event
+		switched_target_id = await switch_event.event_result(raise_if_any=True, raise_if_none=False)
+	except Exception:
+		switched_target_id = None
+	return _format_new_tab_message(new_tab_id, switched_target_id)
+
+
 # Default header/footer templates for save_as_pdf, mirroring the metadata that
 # Chrome's own Print dialog renders by default: the date in the header and the
 # page URL + page numbers in the footer. Chrome injects values into elements
@@ -651,9 +661,7 @@ class Tools(Generic[Context]):
 					# Auto-switch to the new tab so the agent can immediately interact with it
 					try:
 						switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=new_tab.target_id))
-						await switch_event
-						new_target_id = await switch_event.event_result(raise_if_any=True, raise_if_none=False)
-						return _format_new_tab_message(new_tab_id, new_target_id)
+						return await _new_tab_switch_message(new_tab_id, switch_event)
 					except Exception:
 						return _format_new_tab_message(new_tab_id, None)
 			except Exception:
