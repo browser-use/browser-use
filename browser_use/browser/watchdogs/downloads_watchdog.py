@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import urlparse
@@ -61,6 +62,7 @@ _NETWORK_DOWNLOAD_FILE_EXTENSIONS = {
 _GENERIC_TEXT_ATTACHMENT_NAMES = {'f', 'download', 'response', 'data', 'callback'}
 _PARTIAL_DOWNLOAD_SUFFIXES = {'.crdownload', '.part', '.tmp'}
 _MAX_CDP_DOWNLOAD_INFO_ENTRIES = 1000
+_CDP_DOWNLOAD_INFO_TTL_SECONDS = 60 * 60
 
 
 def _filename_from_content_disposition(content_disposition: str) -> str | None:
@@ -339,11 +341,24 @@ class DownloadsWatchdog(BaseWatchdog):
 			)
 		)
 
+		now = time.monotonic()
+		info = self._cdp_downloads_info.setdefault(guid, {})
+		info['last_seen_at'] = now
+		if state == 'canceled':
+			# A canceled download is terminal too. Retain a short-lived tombstone so a
+			# stray later completion cannot dispatch, while making the entry prunable.
+			info['handled'] = True
+			info['terminal_at'] = now
+			self._prune_cdp_downloads_info(preserve_guid=guid)
+			return
 		if state != 'completed':
+			self._prune_cdp_downloads_info(preserve_guid=guid)
 			return
 
-		info = self._cdp_downloads_info.get(guid, {})
 		if info.get('handled'):
+			# Refresh a tombstone that just suppressed a duplicate terminal event.
+			info['terminal_at'] = now
+			self._prune_cdp_downloads_info(preserve_guid=guid)
 			return
 		download_url = info.get('url', '')
 
@@ -382,7 +397,8 @@ class DownloadsWatchdog(BaseWatchdog):
 		# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
 		# Claim before callbacks and retain recent handled entries long enough
 		# for duplicate terminal CDP events to become no-ops.
-		self._cdp_downloads_info.setdefault(guid, {})['handled'] = True
+		info['handled'] = True
+		info['terminal_at'] = now
 		try:
 			suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
 			downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
@@ -436,11 +452,14 @@ class DownloadsWatchdog(BaseWatchdog):
 			# Sanitize at the ingress so every downstream consumer sees a safe basename.
 			suggested_filename = self._sanitize_download_filename(event.get('suggestedFilename', 'download'))
 			try:
+				now = time.monotonic()
 				assert suggested_filename, 'CDP DownloadWillBegin missing suggestedFilename'
 				self._cdp_downloads_info[guid] = {
 					'url': url,
 					'suggested_filename': suggested_filename,
 					'handled': False,
+					'started_at': now,
+					'last_seen_at': now,
 				}
 				self._prune_cdp_downloads_info(preserve_guid=guid)
 			except (AssertionError, KeyError):
@@ -891,16 +910,41 @@ class DownloadsWatchdog(BaseWatchdog):
 			return None
 
 	def _prune_cdp_downloads_info(self, preserve_guid: str | None = None) -> None:
-		"""Bound retained deduplication state without removing active or current downloads."""
+		"""Retain recent terminal tombstones while enforcing a hard cache bound."""
+		now = time.monotonic()
+		stale_before = now - _CDP_DOWNLOAD_INFO_TTL_SECONDS
+		cached_entries = list(self._cdp_downloads_info.items())
+
+		# Drop inactive downloads that stopped producing progress. Entries created
+		# before timestamps were added are treated as recent for compatibility.
+		for cached_guid, cached_info in cached_entries:
+			if cached_guid == preserve_guid or cached_info.get('handled'):
+				continue
+			last_seen_at = cached_info.get('last_seen_at', cached_info.get('started_at', now))
+			if last_seen_at < stale_before:
+				del self._cdp_downloads_info[cached_guid]
+
 		excess = len(self._cdp_downloads_info) - _MAX_CDP_DOWNLOAD_INFO_ENTRIES
 		if excess <= 0:
 			return
 
-		for cached_guid, cached_info in list(self._cdp_downloads_info.items()):
-			if excess <= 0:
-				return
-			if cached_guid == preserve_guid or not cached_info.get('handled'):
+		# Prefer evicting the oldest terminal tombstones, preserving entries that
+		# recently suppressed duplicates. Only evict active downloads if they alone
+		# exceed the hard bound; the currently processed GUID is always protected.
+		eviction_candidates: list[tuple[int, float, int, str]] = []
+		for insertion_order, (cached_guid, cached_info) in enumerate(self._cdp_downloads_info.items()):
+			if cached_guid == preserve_guid:
 				continue
+			last_seen_at = float(cached_info.get('last_seen_at', cached_info.get('started_at', now)))
+			if cached_info.get('handled'):
+				terminal_at = float(cached_info.get('terminal_at', last_seen_at))
+				eviction_candidates.append((0, terminal_at, insertion_order, cached_guid))
+			else:
+				eviction_candidates.append((1, last_seen_at, insertion_order, cached_guid))
+
+		for _, _, _, cached_guid in sorted(eviction_candidates):
+			if excess <= 0:
+				break
 			del self._cdp_downloads_info[cached_guid]
 			excess -= 1
 
@@ -927,7 +971,11 @@ class DownloadsWatchdog(BaseWatchdog):
 			# Claim the GUID before callbacks/event dispatch so a competing completion path
 			# observes it as handled and cannot notify the same download again.
 			if guid is not None:
-				self._cdp_downloads_info.setdefault(guid, {})['handled'] = True
+				now = time.monotonic()
+				download_info = self._cdp_downloads_info.setdefault(guid, {})
+				download_info['handled'] = True
+				download_info['terminal_at'] = now
+				download_info['last_seen_at'] = now
 
 			file_ext = path.suffix.lower().lstrip('.')
 			effective_url = url or str(path)

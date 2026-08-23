@@ -114,19 +114,25 @@ async def test_remote_download_complete_invokes_registered_callback(tmp_path) ->
 
 
 @pytest.mark.asyncio
-async def test_remote_download_complete_retains_current_guid_and_prunes_old_handled(
+async def test_remote_download_complete_retains_recent_tombstones_and_current_guid(
 	tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 	wd, progress_capture, _ = _make_watchdog(tmp_path)
 	await wd.attach_to_target('FAKE_TARGET_2')
 
 	monkeypatch.setattr(downloads_watchdog_module, '_MAX_CDP_DOWNLOAD_INFO_ENTRIES', 3)
+	monkeypatch.setattr(downloads_watchdog_module.time, 'monotonic', lambda: 100.0)
 	wd._cdp_downloads_info.update(
 		{
-			'old-handled-1': {'handled': True},
-			'old-handled-2': {'handled': True},
-			'active-guid': {'handled': False},
-			'guid-456': {'url': 'https://example.com/data.csv', 'suggested_filename': 'data.csv', 'handled': False},
+			'newer-handled': {'handled': True, 'terminal_at': 80.0},
+			'older-handled': {'handled': True, 'terminal_at': 70.0},
+			'active-guid': {'handled': False, 'last_seen_at': 90.0},
+			'guid-456': {
+				'url': 'https://example.com/data.csv',
+				'suggested_filename': 'data.csv',
+				'handled': False,
+				'last_seen_at': 95.0,
+			},
 		}
 	)
 	wd.register_download_callbacks(on_complete=lambda info: None)
@@ -139,6 +145,52 @@ async def test_remote_download_complete_retains_current_guid_and_prunes_old_hand
 	assert 'guid-456' in wd._cdp_downloads_info
 	assert wd._cdp_downloads_info['guid-456']['handled'] is True
 	assert len(wd._cdp_downloads_info) == 3
-	assert 'old-handled-1' not in wd._cdp_downloads_info
-	assert 'old-handled-2' in wd._cdp_downloads_info
+	assert 'older-handled' not in wd._cdp_downloads_info
+	assert 'newer-handled' in wd._cdp_downloads_info
 	assert 'active-guid' in wd._cdp_downloads_info
+
+
+@pytest.mark.asyncio
+async def test_canceled_downloads_become_prunable_tombstones(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+	wd, progress_capture, dispatched = _make_watchdog(tmp_path)
+	await wd.attach_to_target('FAKE_TARGET_3')
+
+	monkeypatch.setattr(downloads_watchdog_module, '_MAX_CDP_DOWNLOAD_INFO_ENTRIES', 2)
+	monkeypatch.setattr(downloads_watchdog_module.time, 'monotonic', lambda: 100.0)
+
+	for guid in ('canceled-1', 'canceled-2', 'canceled-3'):
+		progress_capture.handler(
+			{'guid': guid, 'state': 'canceled', 'receivedBytes': 1, 'totalBytes': 2},
+			session_id=None,
+		)
+
+	assert len(wd._cdp_downloads_info) == 2
+	assert 'canceled-1' not in wd._cdp_downloads_info
+	assert wd._cdp_downloads_info['canceled-2']['handled'] is True
+	assert wd._cdp_downloads_info['canceled-3']['handled'] is True
+	assert not any(isinstance(event, FileDownloadedEvent) for event in dispatched)
+
+
+def test_cache_pruning_expires_stale_unhandled_and_enforces_hard_bound(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+	wd, _, _ = _make_watchdog(tmp_path)
+	monkeypatch.setattr(downloads_watchdog_module, '_MAX_CDP_DOWNLOAD_INFO_ENTRIES', 3)
+	monkeypatch.setattr(downloads_watchdog_module, '_CDP_DOWNLOAD_INFO_TTL_SECONDS', 10)
+	monkeypatch.setattr(downloads_watchdog_module.time, 'monotonic', lambda: 100.0)
+	wd._cdp_downloads_info.update(
+		{
+			'stale-unhandled': {'handled': False, 'last_seen_at': 0.0},
+			'active-newest': {'handled': False, 'last_seen_at': 99.0},
+			'active-middle': {'handled': False, 'last_seen_at': 98.0},
+			'active-oldest': {'handled': False, 'last_seen_at': 97.0},
+			'current-guid': {'handled': False, 'last_seen_at': 100.0},
+		}
+	)
+
+	wd._prune_cdp_downloads_info(preserve_guid='current-guid')
+
+	assert len(wd._cdp_downloads_info) == 3
+	assert 'stale-unhandled' not in wd._cdp_downloads_info
+	assert 'active-oldest' not in wd._cdp_downloads_info
+	assert 'active-newest' in wd._cdp_downloads_info
+	assert 'active-middle' in wd._cdp_downloads_info
+	assert 'current-guid' in wd._cdp_downloads_info
