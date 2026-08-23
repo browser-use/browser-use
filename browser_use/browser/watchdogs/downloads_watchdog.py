@@ -273,6 +273,7 @@ class DownloadsWatchdog(BaseWatchdog):
 		self._network_monitored_targets.clear()
 		self._detected_downloads.clear()
 		self._initial_downloads_snapshot.clear()
+		self._cdp_downloads_info.clear()
 		self._network_callback_registered = False
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
@@ -340,11 +341,16 @@ class DownloadsWatchdog(BaseWatchdog):
 		if state != 'completed':
 			return
 
+		info = self._cdp_downloads_info.get(guid, {})
+		if info.get('handled'):
+			return
+		download_url = info.get('url', '')
+
 		file_path = event.get('filePath')
 		if self.browser_session.is_local:
 			if file_path:
 				self.logger.debug(f'[DownloadsWatchdog] Download completed: {file_path}')
-				self._track_download(file_path, guid=guid)
+				self._track_download(file_path, guid=guid, url=download_url)
 				return
 
 			# No filePath provided - detect by comparing with initial snapshot
@@ -368,12 +374,14 @@ class DownloadsWatchdog(BaseWatchdog):
 					# Add to snapshot before dispatch so the filesystem poller cannot select it again.
 					self._initial_downloads_snapshot.add(candidate.name)
 					self.logger.debug(f'[DownloadsWatchdog] Detected new download: {candidate.name}')
-					self._track_download(str(candidate), guid=guid)
+					self._track_download(str(candidate), guid=guid, url=download_url)
 					break
 			return
 
 		# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
-		info = self._cdp_downloads_info.get(guid, {})
+		# Claim before callbacks and retain the entry until browser shutdown so
+		# duplicate terminal CDP events cannot emit completion twice.
+		self._cdp_downloads_info.setdefault(guid, {})['handled'] = True
 		try:
 			suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
 			downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
@@ -388,7 +396,7 @@ class DownloadsWatchdog(BaseWatchdog):
 			# download had finished (see issue #5132).
 			complete_info = {
 				'guid': guid,
-				'url': info.get('url', ''),
+				'url': download_url,
 				'path': str(effective_path),
 				'file_name': file_name,
 				'file_size': 0,
@@ -403,7 +411,7 @@ class DownloadsWatchdog(BaseWatchdog):
 			self.event_bus.dispatch(
 				FileDownloadedEvent(
 					guid=guid,
-					url=info.get('url', ''),
+					url=download_url,
 					path=str(effective_path),
 					file_name=file_name,
 					file_size=0,
@@ -412,8 +420,8 @@ class DownloadsWatchdog(BaseWatchdog):
 			)
 			self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
 		finally:
-			if guid in self._cdp_downloads_info:
-				del self._cdp_downloads_info[guid]
+			# Keep the completed GUID until BrowserStoppedEvent clears the cache.
+			self._cdp_downloads_info.setdefault(guid, {})['handled'] = True
 
 	async def attach_to_target(self, target_id: TargetID) -> None:
 		"""Set up download monitoring for a specific target."""

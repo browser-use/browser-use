@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cdp_use.cdp.browser import DownloadProgressEvent as CDPDownloadProgressEvent
 
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.events import FileDownloadedEvent
@@ -108,6 +109,82 @@ async def test_poller_completion_notifies_once_when_progress_arrives_later(
 	assert len(downloaded_events) == 1
 	assert downloaded_events[0].guid == 'guid-123'
 	assert downloaded_events[0].url == 'https://example.com/report.pdf'
+
+
+@pytest.mark.asyncio
+async def test_progress_file_path_preserves_source_url_and_notifies_once(
+	download_watchdog: tuple[DownloadsWatchdog, BrowserSession, list[FileDownloadedEvent]],
+	tmp_path: Path,
+) -> None:
+	watchdog, browser_session, downloaded_events = download_watchdog
+	downloaded_file = tmp_path / 'progress-first.pdf'
+	downloaded_file.write_bytes(b'complete download')
+	source_url = 'https://example.com/progress-first.pdf'
+	watchdog._cdp_downloads_info['guid-file-path'] = {
+		'url': source_url,
+		'suggested_filename': downloaded_file.name,
+		'handled': False,
+	}
+	completed: list[dict[str, Any]] = []
+	watchdog.register_download_callbacks(on_complete=lambda info: completed.append(info))
+	completed_event: CDPDownloadProgressEvent = {
+		'guid': 'guid-file-path',
+		'state': 'completed',
+		'filePath': str(downloaded_file),
+		'receivedBytes': downloaded_file.stat().st_size,
+		'totalBytes': downloaded_file.stat().st_size,
+	}
+
+	watchdog._on_cdp_download_progress(completed_event, None)
+	watchdog._on_cdp_download_progress(completed_event, None)
+	await browser_session.event_bus.wait_until_idle(timeout=1)
+
+	assert watchdog._cdp_downloads_info['guid-file-path']['handled'] is True
+	assert len(completed) == 1
+	assert completed[0]['url'] == source_url
+	assert len(downloaded_events) == 1
+	assert downloaded_events[0].url == source_url
+
+
+@pytest.mark.asyncio
+async def test_progress_filesystem_fallback_preserves_url_without_claiming_another_file(
+	download_watchdog: tuple[DownloadsWatchdog, BrowserSession, list[FileDownloadedEvent]],
+	tmp_path: Path,
+) -> None:
+	watchdog, browser_session, downloaded_events = download_watchdog
+	downloaded_file = tmp_path / 'fallback-first.csv'
+	downloaded_file.write_bytes(b'complete download')
+	source_url = 'https://example.com/fallback-first.csv'
+	watchdog._cdp_downloads_info['guid-no-file-path'] = {
+		'url': source_url,
+		'suggested_filename': downloaded_file.name,
+		'handled': False,
+	}
+	completed: list[dict[str, Any]] = []
+	watchdog.register_download_callbacks(on_complete=lambda info: completed.append(info))
+	completed_event: CDPDownloadProgressEvent = {
+		'guid': 'guid-no-file-path',
+		'state': 'completed',
+		'receivedBytes': downloaded_file.stat().st_size,
+		'totalBytes': downloaded_file.stat().st_size,
+	}
+
+	watchdog._on_cdp_download_progress(completed_event, None)
+	await browser_session.event_bus.wait_until_idle(timeout=1)
+
+	# A later duplicate must return before scanning and claiming an unrelated file.
+	unrelated_file = tmp_path / 'other-download.txt'
+	unrelated_file.write_bytes(b'another complete download')
+	watchdog._on_cdp_download_progress(completed_event, None)
+	await browser_session.event_bus.wait_until_idle(timeout=1)
+
+	assert watchdog._cdp_downloads_info['guid-no-file-path']['handled'] is True
+	assert downloaded_file.name in watchdog._initial_downloads_snapshot
+	assert unrelated_file.name not in watchdog._initial_downloads_snapshot
+	assert len(completed) == 1
+	assert completed[0]['url'] == source_url
+	assert len(downloaded_events) == 1
+	assert downloaded_events[0].url == source_url
 
 
 @pytest.mark.asyncio

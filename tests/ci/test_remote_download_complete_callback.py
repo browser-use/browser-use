@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from browser_use.browser.events import FileDownloadedEvent
 from browser_use.browser.watchdogs.downloads_watchdog import DownloadsWatchdog
 
 
@@ -37,7 +38,7 @@ class _ProgressCapture:
 		self.handler = handler
 
 
-def _make_watchdog(tmp_path) -> tuple[DownloadsWatchdog, _ProgressCapture]:
+def _make_watchdog(tmp_path) -> tuple[DownloadsWatchdog, _ProgressCapture, list[Any]]:
 	"""Build a DownloadsWatchdog bound to a lightweight fake *remote* session.
 
 	Uses ``model_construct`` to bypass pydantic validation (which requires a real
@@ -64,18 +65,16 @@ def _make_watchdog(tmp_path) -> tuple[DownloadsWatchdog, _ProgressCapture]:
 		id='test-session-0001',
 	)
 
-	# A real EventBus.dispatch() schedules async handler tasks that can interact
-	# with pytest's session-scoped loop; we only care about the direct callback
-	# mechanism here, so stub dispatch() to a no-op.
-	event_bus = SimpleNamespace(dispatch=lambda *a, **k: None)
+	dispatched: list[Any] = []
+	event_bus = SimpleNamespace(dispatch=lambda event: dispatched.append(event))
 
 	wd = DownloadsWatchdog.model_construct(browser_session=browser_session, event_bus=event_bus)
-	return wd, progress_capture
+	return wd, progress_capture, dispatched
 
 
 @pytest.mark.asyncio
 async def test_remote_download_complete_invokes_registered_callback(tmp_path) -> None:
-	wd, progress_capture = _make_watchdog(tmp_path)
+	wd, progress_capture, dispatched = _make_watchdog(tmp_path)
 
 	# Drive attach_to_target so the downloadProgress handler is registered.
 	await wd.attach_to_target('FAKE_TARGET_1')
@@ -100,6 +99,7 @@ async def test_remote_download_complete_invokes_registered_callback(tmp_path) ->
 		'totalBytes': 1024,
 	}
 	progress_capture.handler(completed_event, session_id=None)
+	progress_capture.handler(completed_event, session_id=None)
 
 	assert len(received) == 1, f'expected the complete callback to fire once, got {received}'
 	info = received[0]
@@ -107,11 +107,14 @@ async def test_remote_download_complete_invokes_registered_callback(tmp_path) ->
 	assert info['guid'] == 'guid-123'
 	assert info['auto_download'] is False
 	assert info['path'].endswith('report.pdf')
+	assert info['url'] == 'https://example.com/report.pdf'
+	download_events = [event for event in dispatched if isinstance(event, FileDownloadedEvent)]
+	assert len(download_events) == 1
 
 
 @pytest.mark.asyncio
-async def test_remote_download_complete_clears_cdp_cache(tmp_path) -> None:
-	wd, progress_capture = _make_watchdog(tmp_path)
+async def test_remote_download_complete_retains_handled_guid(tmp_path) -> None:
+	wd, progress_capture, _ = _make_watchdog(tmp_path)
 	await wd.attach_to_target('FAKE_TARGET_2')
 
 	wd._cdp_downloads_info['guid-456'] = {
@@ -126,4 +129,5 @@ async def test_remote_download_complete_clears_cdp_cache(tmp_path) -> None:
 		session_id=None,
 	)
 
-	assert 'guid-456' not in wd._cdp_downloads_info
+	assert 'guid-456' in wd._cdp_downloads_info
+	assert wd._cdp_downloads_info['guid-456']['handled'] is True
