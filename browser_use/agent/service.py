@@ -2463,6 +2463,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.logger.debug(f'🚶 Starting step {step + 1}/{max_steps}...')
 
+		n_steps_before = self.state.n_steps
 		try:
 			await asyncio.wait_for(
 				self.step(step_info),
@@ -2476,9 +2477,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await self._demo_mode_log(error_msg, 'error', {'step': step + 1})
 			self.state.consecutive_failures += 1
 			self.state.last_result = [ActionResult(error=error_msg)]
-			# Ensure step counter advances on timeout — _finalize() may have
-			# been skipped or returned early due to the cancellation.
-			if self.state.n_steps == step + 1:
+			# Ensure step counter advances on timeout — cancellation can skip
+			# _finalize()'s increment. Compare against the pre-step baseline:
+			# a cancelled step() still runs its finally/_finalize path, which
+			# already incremented, so an unconditional bump would count the
+			# same step twice.
+			if self.state.n_steps == n_steps_before:
 				self.state.n_steps += 1
 
 		if on_step_end is not None:
