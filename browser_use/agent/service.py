@@ -2462,6 +2462,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		self.logger.debug(f'🚶 Starting step {step + 1}/{max_steps}...')
+		starting_n_steps = self.state.n_steps
 
 		try:
 			await asyncio.wait_for(
@@ -2478,7 +2479,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.state.last_result = [ActionResult(error=error_msg)]
 			# Ensure step counter advances on timeout — _finalize() may have
 			# been skipped or returned early due to the cancellation.
-			if self.state.n_steps == step + 1:
+			if self.state.n_steps == starting_n_steps:
 				self.state.n_steps += 1
 
 		if on_step_end is not None:
