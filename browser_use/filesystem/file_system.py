@@ -164,12 +164,16 @@ class BaseFile(BaseModel, ABC):
 			await asyncio.get_event_loop().run_in_executor(executor, lambda: file_path.write_text(self.content, encoding='utf-8'))
 
 	async def write(self, content: str, path: Path) -> None:
-		self.write_file_content(content)
-		await self.sync_to_disk(path)
+		candidate = self.model_copy()
+		candidate.write_file_content(content)
+		await candidate.sync_to_disk(path)
+		self.content = candidate.content
 
 	async def append(self, content: str, path: Path) -> None:
-		self.append_file_content(content)
-		await self.sync_to_disk(path)
+		candidate = self.model_copy()
+		candidate.append_file_content(content)
+		await candidate.sync_to_disk(path)
+		self.content = candidate.content
 
 	def read(self) -> str:
 		return self.content
@@ -791,10 +795,10 @@ class FileSystem:
 				file_obj = self.files[full_filename]
 			else:
 				file_obj = file_class(name=name_without_ext)
-				self.files[full_filename] = file_obj  # Use full filename as key
 
 			# Use file-specific write method
 			await file_obj.write(content, self.data_dir)
+			self.files[full_filename] = file_obj  # Use full filename as key
 			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
 			return f'Data written to file {full_filename} successfully.{sanitize_note}'
 		except FileSystemError as e:

@@ -1101,6 +1101,33 @@ class TestFileSystemEdgeCases:
 
 			fs.nuke()
 
+
+	async def test_disk_write_failure_preserves_persisted_state(self, monkeypatch):
+		"""Failed writes must not leak unpersisted content into the file registry."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+			await fs.write_file('existing.txt', 'persisted')
+
+			async def fail_sync(_file, _path):
+				raise OSError('disk unavailable')
+
+			monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
+
+			write_result = await fs.write_file('existing.txt', 'phantom update')
+			append_result = await fs.append_file('existing.txt', ' phantom append')
+			new_file_result = await fs.write_file('ghost.txt', 'phantom file')
+
+			assert 'disk unavailable' in write_result
+			assert 'disk unavailable' in append_result
+			assert 'disk unavailable' in new_file_result
+			assert fs.get_file('existing.txt').content == 'persisted'
+			assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted'
+			assert fs.get_file('ghost.txt') is None
+			assert not (fs.data_dir / 'ghost.txt').exists()
+			assert list(fs.get_state().files) == ['existing.txt']
+
+			fs.nuke()
+
 	def test_from_state_with_unknown_file_type(self):
 		"""Test restoring state with unknown file types (should skip them)."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
