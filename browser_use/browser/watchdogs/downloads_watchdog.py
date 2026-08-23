@@ -60,6 +60,7 @@ _NETWORK_DOWNLOAD_FILE_EXTENSIONS = {
 
 _GENERIC_TEXT_ATTACHMENT_NAMES = {'f', 'download', 'response', 'data', 'callback'}
 _PARTIAL_DOWNLOAD_SUFFIXES = {'.crdownload', '.part', '.tmp'}
+_MAX_CDP_DOWNLOAD_INFO_ENTRIES = 1000
 
 
 def _filename_from_content_disposition(content_disposition: str) -> str | None:
@@ -379,8 +380,8 @@ class DownloadsWatchdog(BaseWatchdog):
 			return
 
 		# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
-		# Claim before callbacks and retain the entry until browser shutdown so
-		# duplicate terminal CDP events cannot emit completion twice.
+		# Claim before callbacks and retain recent handled entries long enough
+		# for duplicate terminal CDP events to become no-ops.
 		self._cdp_downloads_info.setdefault(guid, {})['handled'] = True
 		try:
 			suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
@@ -420,8 +421,8 @@ class DownloadsWatchdog(BaseWatchdog):
 			)
 			self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
 		finally:
-			# Keep the completed GUID until BrowserStoppedEvent clears the cache.
-			self._cdp_downloads_info.setdefault(guid, {})['handled'] = True
+			# Keep the current GUID while bounding older handled entries.
+			self._prune_cdp_downloads_info(preserve_guid=guid)
 
 	async def attach_to_target(self, target_id: TargetID) -> None:
 		"""Set up download monitoring for a specific target."""
@@ -441,6 +442,7 @@ class DownloadsWatchdog(BaseWatchdog):
 					'suggested_filename': suggested_filename,
 					'handled': False,
 				}
+				self._prune_cdp_downloads_info(preserve_guid=guid)
 			except (AssertionError, KeyError):
 				pass
 
@@ -888,6 +890,20 @@ class DownloadsWatchdog(BaseWatchdog):
 			self.logger.warning(f'[DownloadsWatchdog] Download failed: {type(e).__name__}: {e}')
 			return None
 
+	def _prune_cdp_downloads_info(self, preserve_guid: str | None = None) -> None:
+		"""Bound retained deduplication state without removing active or current downloads."""
+		excess = len(self._cdp_downloads_info) - _MAX_CDP_DOWNLOAD_INFO_ENTRIES
+		if excess <= 0:
+			return
+
+		for cached_guid, cached_info in list(self._cdp_downloads_info.items()):
+			if excess <= 0:
+				return
+			if cached_guid == preserve_guid or not cached_info.get('handled'):
+				continue
+			del self._cdp_downloads_info[cached_guid]
+			excess -= 1
+
 	def _track_download(
 		self,
 		file_path: str,
@@ -940,6 +956,7 @@ class DownloadsWatchdog(BaseWatchdog):
 					file_type=file_ext if file_ext else None,
 				)
 			)
+			self._prune_cdp_downloads_info(preserve_guid=guid)
 			return True
 		except Exception as e:
 			self.logger.error(f'[DownloadsWatchdog] Error tracking download: {e}')

@@ -25,6 +25,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from browser_use.browser.events import FileDownloadedEvent
+from browser_use.browser.watchdogs import downloads_watchdog as downloads_watchdog_module
 from browser_use.browser.watchdogs.downloads_watchdog import DownloadsWatchdog
 
 
@@ -113,15 +114,21 @@ async def test_remote_download_complete_invokes_registered_callback(tmp_path) ->
 
 
 @pytest.mark.asyncio
-async def test_remote_download_complete_retains_handled_guid(tmp_path) -> None:
+async def test_remote_download_complete_retains_current_guid_and_prunes_old_handled(
+	tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
 	wd, progress_capture, _ = _make_watchdog(tmp_path)
 	await wd.attach_to_target('FAKE_TARGET_2')
 
-	wd._cdp_downloads_info['guid-456'] = {
-		'url': 'https://example.com/data.csv',
-		'suggested_filename': 'data.csv',
-		'handled': False,
-	}
+	monkeypatch.setattr(downloads_watchdog_module, '_MAX_CDP_DOWNLOAD_INFO_ENTRIES', 3)
+	wd._cdp_downloads_info.update(
+		{
+			'old-handled-1': {'handled': True},
+			'old-handled-2': {'handled': True},
+			'active-guid': {'handled': False},
+			'guid-456': {'url': 'https://example.com/data.csv', 'suggested_filename': 'data.csv', 'handled': False},
+		}
+	)
 	wd.register_download_callbacks(on_complete=lambda info: None)
 
 	progress_capture.handler(
@@ -131,3 +138,7 @@ async def test_remote_download_complete_retains_handled_guid(tmp_path) -> None:
 
 	assert 'guid-456' in wd._cdp_downloads_info
 	assert wd._cdp_downloads_info['guid-456']['handled'] is True
+	assert len(wd._cdp_downloads_info) == 3
+	assert 'old-handled-1' not in wd._cdp_downloads_info
+	assert 'old-handled-2' in wd._cdp_downloads_info
+	assert 'active-guid' in wd._cdp_downloads_info
