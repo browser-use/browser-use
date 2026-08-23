@@ -915,13 +915,14 @@ class DownloadsWatchdog(BaseWatchdog):
 		stale_before = now - _CDP_DOWNLOAD_INFO_TTL_SECONDS
 		cached_entries = list(self._cdp_downloads_info.items())
 
-		# Drop inactive downloads that stopped producing progress. Entries created
+		# Drop stale terminal tombstones and inactive downloads. Entries created
 		# before timestamps were added are treated as recent for compatibility.
 		for cached_guid, cached_info in cached_entries:
-			if cached_guid == preserve_guid or cached_info.get('handled'):
+			if cached_guid == preserve_guid:
 				continue
 			last_seen_at = cached_info.get('last_seen_at', cached_info.get('started_at', now))
-			if last_seen_at < stale_before:
+			retention_at = cached_info.get('terminal_at', last_seen_at) if cached_info.get('handled') else last_seen_at
+			if retention_at < stale_before:
 				del self._cdp_downloads_info[cached_guid]
 
 		excess = len(self._cdp_downloads_info) - _MAX_CDP_DOWNLOAD_INFO_ENTRIES

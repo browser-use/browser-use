@@ -194,3 +194,25 @@ def test_cache_pruning_expires_stale_unhandled_and_enforces_hard_bound(tmp_path,
 	assert 'active-newest' in wd._cdp_downloads_info
 	assert 'active-middle' in wd._cdp_downloads_info
 	assert 'current-guid' in wd._cdp_downloads_info
+
+
+def test_cache_pruning_expires_stale_terminal_tombstones(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+	wd, _, _ = _make_watchdog(tmp_path)
+	monkeypatch.setattr(downloads_watchdog_module, '_MAX_CDP_DOWNLOAD_INFO_ENTRIES', 10)
+	monkeypatch.setattr(downloads_watchdog_module, '_CDP_DOWNLOAD_INFO_TTL_SECONDS', 10)
+	monkeypatch.setattr(downloads_watchdog_module.time, 'monotonic', lambda: 100.0)
+	wd._cdp_downloads_info.update(
+		{
+			'stale-completed': {'handled': True, 'terminal_at': 80.0},
+			'stale-canceled': {'handled': True, 'terminal_at': 89.0},
+			'recent-completed': {'handled': True, 'terminal_at': 95.0},
+			'current-guid': {'handled': True, 'terminal_at': 0.0},
+		}
+	)
+
+	wd._prune_cdp_downloads_info(preserve_guid='current-guid')
+
+	assert 'stale-completed' not in wd._cdp_downloads_info
+	assert 'stale-canceled' not in wd._cdp_downloads_info
+	assert 'recent-completed' in wd._cdp_downloads_info
+	assert 'current-guid' in wd._cdp_downloads_info
