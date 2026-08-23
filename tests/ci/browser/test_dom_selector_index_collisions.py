@@ -171,9 +171,10 @@ def test_pagination_detection_avoids_substrings_css_classes_and_implicit_roles()
 	buttons = DomService.detect_pagination_buttons(
 		{
 			1: button('Preview', class_name='preview-link'),
-			2: button('15'),
-			3: button('15', role='button'),
-			4: button('Next', role='button'),
+			2: button('Continue', class_name='pagination-next'),
+			3: button('15'),
+			4: button('15', role='button'),
+			5: button('Next', role='button'),
 		}
 	)
 
