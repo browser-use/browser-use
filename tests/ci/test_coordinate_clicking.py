@@ -4,8 +4,12 @@ This feature allows certain models (Claude Sonnet 4, Claude Opus 4, Gemini 3 Pro
 to use coordinate-based clicking, while other models only get index-based clicking.
 """
 
+from types import SimpleNamespace
+from typing import Any, cast
+
 import pytest
 
+from browser_use.browser import BrowserSession
 from browser_use.tools.service import Tools
 from browser_use.tools.views import ClickElementAction, ClickElementActionIndexOnly
 
@@ -105,6 +109,66 @@ class TestCoordinateClickingTools:
 		assert click_action is not None
 		schema = click_action.param_model.model_json_schema()
 		assert schema['title'] == 'ClickElementAction'
+
+	async def test_new_tab_switch_without_result_is_not_reported_as_success(self):
+		"""A successful click must not claim a failed automatic tab switch succeeded."""
+
+		class CompletedEvent:
+			def __init__(self, result: Any):
+				self.result = result
+
+			def __await__(self):
+				async def wait():
+					return self
+
+				return wait().__await__()
+
+			async def event_result(self, **_kwargs: Any):
+				return self.result
+
+		class EventBus:
+			def dispatch(self, event: Any):
+				if type(event).__name__ == 'ClickCoordinateEvent':
+					return CompletedEvent({})
+				if type(event).__name__ == 'SwitchTabEvent':
+					# on_SwitchTabEvent returns a TargetID on every successful path.
+					# None therefore represents a swallowed handler failure.
+					return CompletedEvent(None)
+				raise AssertionError(f'Unexpected event: {type(event).__name__}')
+
+		class BrowserSessionStub:
+			llm_screenshot_size = None
+			_original_viewport_size = None
+			event_bus = EventBus()
+
+			def __init__(self):
+				self.tab_snapshots = iter(
+					[
+						[SimpleNamespace(target_id='existing-target')],
+						[
+							SimpleNamespace(target_id='existing-target'),
+							SimpleNamespace(target_id='new-target-1234'),
+						],
+					]
+				)
+
+			async def get_tabs(self):
+				return next(self.tab_snapshots)
+
+			async def highlight_coordinate_click(self, _x: int, _y: int):
+				return None
+
+		tools = Tools()
+		result = await tools._click_by_coordinate(
+			ClickElementAction(coordinate_x=10, coordinate_y=20),
+			cast(BrowserSession, BrowserSessionStub()),
+		)
+
+		assert result.error is None, 'the click itself succeeded'
+		assert result.extracted_content is not None
+		assert 'Automatically switched to new tab' not in result.extracted_content
+		assert 'opened a new tab (tab_id: 1234)' in result.extracted_content
+		assert 'switch to it' in result.extracted_content
 
 
 class TestCoordinateClickingModelDetection:

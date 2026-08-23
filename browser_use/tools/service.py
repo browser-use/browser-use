@@ -645,10 +645,12 @@ class Tools(Generic[Context]):
 					try:
 						switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=new_tab.target_id))
 						await switch_event
-						await switch_event.event_result(raise_if_any=False, raise_if_none=False)
-						return f'. Automatically switched to new tab (tab_id: {new_tab_id}).'
+						new_target_id = await switch_event.event_result(raise_if_any=True, raise_if_none=False)
+						if new_target_id:
+							return f'. Automatically switched to new tab (tab_id: {new_tab_id}).'
 					except Exception:
-						return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
+						pass
+					return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
 			except Exception:
 				pass
 			return ''
