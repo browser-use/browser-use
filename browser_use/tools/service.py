@@ -75,6 +75,13 @@ Context = TypeVar('Context')
 T = TypeVar('T', bound=BaseModel)
 
 
+def _format_new_tab_message(new_tab_id: str, switched_target_id: str | None) -> str:
+	"""Describe a newly opened tab without claiming an unconfirmed automatic switch."""
+	if switched_target_id:
+		return f'. Automatically switched to new tab (tab_id: {new_tab_id}).'
+	return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
+
+
 # Default header/footer templates for save_as_pdf, mirroring the metadata that
 # Chrome's own Print dialog renders by default: the date in the header and the
 # page URL + page numbers in the footer. Chrome injects values into elements
@@ -646,11 +653,9 @@ class Tools(Generic[Context]):
 						switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=new_tab.target_id))
 						await switch_event
 						new_target_id = await switch_event.event_result(raise_if_any=True, raise_if_none=False)
-						if new_target_id:
-							return f'. Automatically switched to new tab (tab_id: {new_tab_id}).'
+						return _format_new_tab_message(new_tab_id, new_target_id)
 					except Exception:
-						pass
-					return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
+						return _format_new_tab_message(new_tab_id, None)
 			except Exception:
 				pass
 			return ''
