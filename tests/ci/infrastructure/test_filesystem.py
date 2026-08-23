@@ -1101,7 +1101,6 @@ class TestFileSystemEdgeCases:
 
 			fs.nuke()
 
-
 	async def test_disk_write_failure_preserves_persisted_state(self, monkeypatch):
 		"""Failed writes must not leak unpersisted content into the file registry."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1120,7 +1119,9 @@ class TestFileSystemEdgeCases:
 			assert 'disk unavailable' in write_result
 			assert 'disk unavailable' in append_result
 			assert 'disk unavailable' in new_file_result
-			assert fs.get_file('existing.txt').content == 'persisted'
+			existing_file = fs.get_file('existing.txt')
+			assert existing_file is not None
+			assert existing_file.content == 'persisted'
 			assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted'
 			assert fs.get_file('ghost.txt') is None
 			assert not (fs.data_dir / 'ghost.txt').exists()
