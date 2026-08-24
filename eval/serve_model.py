@@ -83,20 +83,41 @@ def ensure_llama_server() -> Path:
 	return binary
 
 
-def mlx_command(model: str, host: str, port: int, max_tokens: int, no_thinking: bool) -> list[str]:
-	cmd = [
-		sys.executable.replace('python', 'mlx_lm.server')
-		if Path(sys.executable.replace('python', 'mlx_lm.server')).exists()
-		else 'mlx_lm.server',
-		'--model',
-		model,
-		'--host',
-		host,
-		'--port',
-		str(port),
-		'--max-tokens',
-		str(max_tokens),
-	]
+def resolve_mlx_python() -> str | None:
+	"""Interpreter that can run mlx_lm, or None.
+
+	Checked in order: explicit --python, BU_EVAL_MLX_PYTHON, the interpreter running this
+	script, then any sibling venv. Guessing a path from sys.executable is not viable -
+	string-substituting into it produces nonsense like /opt/homebrew/opt/mlx_lm.server@3.14.
+	"""
+	candidates = [os.getenv('BU_EVAL_MLX_PYTHON'), sys.executable]
+	for venv in ('.venv-mlx', 'mlxenv', '.venv'):
+		candidates.append(str(Path.cwd() / venv / 'bin' / 'python'))
+	for cand in candidates:
+		if not cand or not Path(cand).exists():
+			continue
+		probe = subprocess.run([cand, '-c', 'import mlx_lm'], capture_output=True)
+		if probe.returncode == 0:
+			return cand
+	return None
+
+
+def mlx_command(model: str, host: str, port: int, max_tokens: int, no_thinking: bool, python: str | None) -> list[str]:
+	python = python or resolve_mlx_python()
+	if python is not None:
+		# `python -m mlx_lm server` is the supported form; `-m mlx_lm.server` is deprecated.
+		cmd = [python, '-m', 'mlx_lm', 'server']
+	elif (on_path := shutil.which('mlx_lm.server')) is not None:
+		cmd = [on_path]
+	else:
+		raise RuntimeError(
+			'mlx_lm is not installed for any interpreter I can find.\n'
+			'  Install it in its own venv (it pulls a full transformers stack):\n'
+			'    uv venv .venv-mlx --python 3.12 && uv pip install --python .venv-mlx/bin/python mlx-lm\n'
+			'  Then re-run, or point at it explicitly:\n'
+			'    python eval/serve_model.py --engine mlx --python .venv-mlx/bin/python --model ...'
+		)
+	cmd += ['--model', model, '--host', host, '--port', str(port), '--max-tokens', str(max_tokens)]
 	if no_thinking:
 		# Qwen3/3.5 emit chain-of-thought into a separate `reasoning` field by default and
 		# can spend the whole token budget there, returning content=None.
@@ -126,6 +147,7 @@ def main() -> int:
 	parser.add_argument('--max-tokens', type=int, default=2048)
 	parser.add_argument('--ctx', type=int, default=32768, help='llama.cpp context window; browser-use prompts run 10-30k')
 	parser.add_argument('--thinking', action='store_true', help='Leave built-in reasoning on (off by default)')
+	parser.add_argument('--python', default=None, help='Interpreter that has mlx_lm (mlx engine only)')
 	parser.add_argument('--print-env', action='store_true', help='Print the container env wiring and exit')
 	args = parser.parse_args()
 
@@ -137,12 +159,17 @@ def main() -> int:
 		return 0
 
 	no_thinking = not args.thinking
-	if args.engine == 'mlx':
-		if platform.system() != 'Darwin':
-			print('[serve] WARNING: MLX has no Metal outside macOS; on Linux its GPU backend is CUDA.', file=sys.stderr)
-		cmd = mlx_command(args.model, args.host, args.port, args.max_tokens, no_thinking)
-	else:
-		cmd = llamacpp_command(args.model, args.host, args.port, args.max_tokens, args.ctx, no_thinking)
+	try:
+		if args.engine == 'mlx':
+			if platform.system() != 'Darwin':
+				print('[serve] WARNING: MLX has no Metal outside macOS; on Linux its GPU backend is CUDA.', file=sys.stderr)
+			cmd = mlx_command(args.model, args.host, args.port, args.max_tokens, no_thinking, args.python)
+		else:
+			cmd = llamacpp_command(args.model, args.host, args.port, args.max_tokens, args.ctx, no_thinking)
+	except RuntimeError as e:
+		# Setup problems are the common case here; a traceback buries the fix.
+		print(f'[serve] {e}', file=sys.stderr)
+		return 2
 
 	print(f'[serve] engine={args.engine} model={args.model}', flush=True)
 	print(f'[serve] {" ".join(cmd)}', flush=True)
