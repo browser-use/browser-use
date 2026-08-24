@@ -128,8 +128,11 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.dom_service = HarnessDomService(self.browser)
 		self.ActionModel = self.tools.create_action_model()
 		if self.flash_mode:
+			# browser_use's flash mode is a distinct schema (memory + action only),
+			# not merely thinking disabled
 			self.use_thinking = False
-		if self.use_thinking:
+			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
+		elif self.use_thinking:
 			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
 		else:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
@@ -175,6 +178,8 @@ class Agent(Generic[AgentStructuredOutput]):
 		return SystemMessage(content=text, cache=True)
 
 	def _state_message(self, state: HarnessState, step: int, max_steps: int) -> UserMessage:
+		if state.state_error:
+			return UserMessage(content=f'Step {step}/{max_steps}\nCurrent URL: {state.url}\n\n{state.state_error}')
 		if state.dialog is not None:
 			text = (
 				f'Step {step}/{max_steps}\n'
@@ -336,6 +341,66 @@ class Agent(Generic[AgentStructuredOutput]):
 		self._repeat_count = self._recent_actions.count(key) - 1
 		self._last_action_key = key
 
+	async def _capture_state(self) -> HarnessState:
+		"""Observe the page, escalating through recovery when it is wedged.
+
+		A blocked JS thread makes every Runtime.evaluate hang, so a plain retry
+		hangs too -- one traced run died at step 5 re-issuing the same call.
+		If nothing works, hand the agent a state carrying the error instead of
+		killing the step, as browser_use does with state_error.
+		"""
+		last: Exception | None = None
+		for recover in (None, self._recover_dialog, self._recover_reattach, self._recover_other_tab):
+			if recover is not None:
+				try:
+					await recover()
+				except Exception:
+					continue
+			try:
+				return await self.dom_service.get_state(include_screenshot=self.use_vision)
+			except Exception as e:
+				last = e
+				await asyncio.sleep(0.5)
+		url = ''
+		try:
+			url = (await self.browser.current_tab()).url
+		except Exception:
+			pass
+		return HarnessState(
+			url=url,
+			state_error=(
+				f'The page could not be observed ({type(last).__name__}: {str(last)[:200]}). '
+				'Its JavaScript thread is likely blocked. Navigate somewhere else, open a new tab, or wait'
+			),
+		)
+
+	async def _recover_dialog(self) -> None:
+		"""A native dialog freezes the JS thread until it is handled."""
+		dialog = (await self.browser.meta('pending_dialog')).get('dialog')
+		if dialog:
+			await self.browser.cdp('Page.handleJavaScriptDialog', accept=True)
+			self._step_notes.append(f'Auto-dismissed a blocking dialog: {dialog}')
+
+	async def _recover_reattach(self) -> None:
+		"""Re-attach to the current target for a fresh CDP session."""
+		await self.browser.switch_tab(await self.browser.current_tab())
+
+	async def _recover_other_tab(self) -> None:
+		"""Give up on the wedged tab and move to a live one."""
+		tabs = [t for t in await self.browser.list_tabs(include_chrome=False)]
+		current = None
+		try:
+			current = (await self.browser.current_tab()).target_id
+		except Exception:
+			pass
+		for tab in tabs:
+			if tab.target_id != current:
+				await self.browser.switch_tab(tab)
+				self._step_notes.append(f'Switched away from an unresponsive tab to {tab.url}')
+				return
+		await self.browser.new_tab('about:blank')
+		self._step_notes.append('Opened a fresh tab after the previous one stopped responding')
+
 	async def _invoke_llm(self, state: HarnessState, step: int, max_steps: int) -> AgentOutput:
 		"""Generation gets its own budget inside the step's, and one shorter retry.
 
@@ -363,13 +428,7 @@ class Agent(Generic[AgentStructuredOutput]):
 	async def _step(self, step: int, max_steps: int) -> bool:
 		"""Run one step. Returns True when the task is done."""
 		started = time.time()
-		try:
-			state = await self.dom_service.get_state(include_screenshot=self.use_vision)
-		except Exception:
-			# transient capture failures (mid-navigation, slow page) shouldn't
-			# burn a whole step -- retry once before giving up
-			await asyncio.sleep(1.5)
-			state = await self.dom_service.get_state(include_screenshot=self.use_vision)
+		state = await self._capture_state()
 		output = await self._invoke_llm(state, step, max_steps)
 		results = await self._multi_act(output.action, state)
 		self._record_step(state, output, results, step, started)

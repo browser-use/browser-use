@@ -68,7 +68,7 @@ class HarnessDomService:
 		)
 
 	async def _get_elements(self) -> list[HarnessElement]:
-		nodes = (await self.browser.cdp('Accessibility.getFullAXTree')).get('nodes', [])
+		nodes = (await self.browser.cdp('Accessibility.getFullAXTree', request_timeout=30.0)).get('nodes', [])
 		elements: list[HarnessElement] = []
 		for node in nodes:
 			if node.get('ignored'):

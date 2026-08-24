@@ -79,6 +79,11 @@ class FakeBrowserBackend:
 			return {
 				'result': {'targetInfos': [{'type': 'page', 'targetId': 'TARGET-AAAA', 'title': self.title, 'url': self.url}]}
 			}
+		if method == 'Target.createTarget':
+			self.url = params.get('url', 'about:blank')
+			return {'result': {'targetId': 'TARGET-NEW1'}}
+		if method == 'Target.attachToTarget':
+			return {'result': {'sessionId': 'S-NEW'}}
 		if method == 'DOM.getBoxModel':
 			return {'result': {'model': {'content': [0, 0, 100, 0, 100, 40, 0, 40]}}}
 		if method == 'Input.dispatchMouseEvent':
@@ -569,3 +574,62 @@ def test_action_vocabulary_matches_browser_use():
 	missing = bu - h
 	assert missing <= {'save_as_pdf'}, f'harness is missing browser_use actions: {sorted(missing)}'
 	assert h - bu <= {'handle_dialog'}, f'harness has unexpected extra actions: {sorted(h - bu)}'
+
+
+async def test_capture_recovers_from_a_wedged_page():
+	"""A blocked JS thread makes every Runtime.evaluate hang, so a plain retry
+	hangs too -- one traced run died at step 5 re-issuing the same call. The
+	agent must escalate to another tab rather than retry into the wedge."""
+	agent, backend, _ = make_agent([])
+	backend.url = 'https://shop.test/'
+	backend.recovered = False
+	original = backend.send
+
+	async def send(req, request_timeout=None):
+		if req.get('method') == 'Target.createTarget':
+			backend.recovered = True  # escaped to a fresh tab
+		if req.get('method') == 'Runtime.evaluate' and not backend.recovered:
+			raise TimeoutError('Runtime.evaluate timed out')
+		return await original(req, request_timeout)
+
+	agent.browser.client.send = send
+	state = await agent._capture_state()
+	assert backend.recovered, 'a wedged tab must be escaped, not retried into'
+	assert state.state_error is None, 'recovery should have produced a real observation'
+
+
+async def test_unrecoverable_page_yields_state_error_not_a_dead_step():
+	"""If nothing works the agent still gets a turn, as browser_use does with
+	state_error -- a lost step teaches the model nothing."""
+	agent, backend, _ = make_agent([])
+
+	async def send(req, request_timeout=None):
+		if req.get('method') == 'Runtime.evaluate':
+			raise TimeoutError('Runtime.evaluate timed out')
+		return await backend.send(req, request_timeout)
+
+	agent.browser.client.send = send
+	state = await agent._capture_state()
+	assert state.state_error and 'blocked' in state.state_error
+	message = agent._state_message(state, 3, 35)
+	assert 'blocked' in message.text  # and it reaches the model
+
+
+def test_flash_mode_uses_browser_use_flash_schema():
+	from browser_use.agent.views import AgentOutput
+
+	agent, _, _ = make_agent([], flash_mode=True)
+	schema = agent.AgentOutput.model_json_schema()
+	assert set(schema['required']) == {'memory', 'action'}, schema['required']
+	assert 'thinking' not in schema['properties']
+	# and it is genuinely browser_use's flash schema, not just thinking disabled
+	expected = AgentOutput.type_with_custom_actions_flash_mode(agent.ActionModel).model_json_schema()
+	assert schema['required'] == expected['required']
+
+
+def test_default_request_timeout_matches_the_cli():
+	"""The CLI's socket timeout is 5s; a longer SDK default turns a wedged page
+	into a 30s stall per call."""
+	from browser_harness.sdk import Browser as HB
+
+	assert HB().client.request_timeout == 5.0

@@ -31,6 +31,9 @@ class HarnessState(BaseModel):
 	text_excerpt: str = ''
 	screenshot_b64: str | None = None
 	dialog: dict | None = None
+	# mirrors browser_use's BrowserStateSummary.state_error: a model-visible
+	# explanation when the page could not be observed
+	state_error: str | None = None
 
 	@property
 	def selector_map(self) -> dict[int, HarnessElement]:
