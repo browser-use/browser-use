@@ -10,9 +10,11 @@ channel, without which bulk extractions can't survive the context window).
 import asyncio
 import inspect
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import quote_plus
 
 from browser_harness.sdk import Browser, Element, HarnessError
 from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -28,7 +30,7 @@ _MODIFIERS = {'alt': 1, 'control': 2, 'ctrl': 2, 'meta': 4, 'cmd': 4, 'command':
 
 # js evaluations may legitimately run long (in-page fetch loops); the step
 # budget, not the IPC default, should bound them
-JS_TIMEOUT_S = 150.0
+JS_TIMEOUT_S = 90.0  # must stay well under the agent's step timeout or one eval eats the step
 EVALUATE_DISPLAY_CAP = 15000
 EXTRACT_DISPLAY_CAP = 30000
 
@@ -72,6 +74,8 @@ class Tools:
 		self.registry: dict[str, RegisteredHarnessAction] = {}
 		self._exclude_actions = set(exclude_actions or [])
 		self._output_model: type[BaseModel] | None = None
+		self._read_files: set[str] = set()
+		self._done_refused = False
 		self._register_builtins()
 		if output_model is not None:
 			self.use_structured_output_action(output_model)
@@ -131,6 +135,29 @@ class Tools:
 	def get_output_model(self) -> type[BaseModel] | None:
 		return self._output_model
 
+	def _unread_evidence_refusal(self, validated: BaseModel, file_dir: Path | None) -> ActionResult | None:
+		"""Refuse a `done` that declares data unavailable while unread files may hold it.
+
+		Traced failures shipped "not available" for fields sitting in the agent's
+		own saved files. One-shot: a second consecutive done goes through.
+		"""
+		if self._done_refused:
+			return None
+		text = json.dumps(validated.model_dump(), default=str).lower()
+		if not any(marker in text for marker in _UNAVAILABLE_MARKERS):
+			return None
+		unread = _unread_evidence(self._read_files, file_dir)
+		if not unread:
+			return None
+		self._done_refused = True
+		return ActionResult(
+			error=(
+				f'You marked fields unavailable but have not read these workspace files: {unread}. '
+				'They may contain exactly those values — read_file them, then call done with the complete answer. '
+				'(Call done again next step if they genuinely do not help.)'
+			)
+		)
+
 	# --- LLM plumbing ---
 
 	def create_action_model(self) -> type[ActionModel]:
@@ -154,8 +181,32 @@ class Tools:
 		file_dir: Path | None = None,
 	) -> ActionResult:
 		data = {k: v for k, v in action.model_dump(exclude_unset=True).items() if v is not None}
-		assert len(data) == 1, f'action must set exactly one field, got {sorted(data)}'
+		if not data:
+			return ActionResult(error='Action set no fields')
+		if len(data) > 1:
+			# models like to pack "do X and save it" into one action; run them in
+			# order rather than voiding the step (an assert here cost a step in
+			# 3 of 5 traced runs)
+			results = [await self._act_one(name, params, browser, state, file_dir) for name, params in data.items()]
+			merged = '; '.join(r.extracted_content for r in results if r.extracted_content)
+			errors = '; '.join(r.error for r in results if r.error)
+			return ActionResult(
+				extracted_content=merged or None,
+				error=errors or None,
+				is_done=any(r.is_done for r in results),
+				success=next((r.success for r in results if r.is_done), None),
+			)
 		(name, params) = next(iter(data.items()))
+		return await self._act_one(name, params, browser, state, file_dir)
+
+	async def _act_one(
+		self,
+		name: str,
+		params: dict,
+		browser: Browser,
+		state: HarnessState | None,
+		file_dir: Path | None,
+	) -> ActionResult:
 		registered = self.registry.get(name)
 		if registered is None:
 			return ActionResult(error=f'Unknown action: {name}')
@@ -175,6 +226,10 @@ class Tools:
 			kwargs['params'] = validated
 		else:
 			kwargs.update({k: getattr(validated, k) for k in type(validated).model_fields})
+		if name == 'done':
+			refusal = self._unread_evidence_refusal(validated, file_dir)
+			if refusal is not None:
+				return refusal
 		try:
 			result = await registered.function(**kwargs)
 		except HarnessError as e:
@@ -203,8 +258,19 @@ class Tools:
 			await browser.wait_for_load(timeout=10.0)
 			return f'Navigated to {url}' + (' in new tab' if new_tab else '')
 
+		@self.action('Search the web with a query', terminates_sequence=True)
+		async def search(query: str, engine: str = 'google', browser: Browser = None) -> str:  # type: ignore[assignment]
+			urls = {
+				'google': 'https://www.google.com/search?q=',
+				'bing': 'https://www.bing.com/search?q=',
+				'duckduckgo': 'https://duckduckgo.com/?q=',
+			}
+			await browser.goto_url(urls.get(engine.lower(), urls['google']) + quote_plus(query))
+			await browser.wait_for_load(timeout=10.0)
+			return f'Searched {engine} for {query!r}'
+
 		@self.action('Go back to the previous page', terminates_sequence=True)
-		async def go_back(browser: Browser = None) -> str:  # type: ignore[assignment]
+		async def go_back(description: str = '', browser: Browser = None) -> str:  # type: ignore[assignment]
 			await browser.js('history.back()')
 			await browser.wait_for_load(timeout=10.0)
 			return 'Went back'
@@ -213,8 +279,34 @@ class Tools:
 		async def click(index: int, browser: Browser = None, state: HarnessState = None) -> ActionResult:  # type: ignore[assignment]
 			element = _resolve(state, index)
 			if element is None:
-				return ActionResult(error=f'Element index {index} not found in current state')
-			await Element(browser, backend_node_id=element.backend_node_id, role=element.role, name=element.name).click()
+				return ActionResult(error=_index_error(index, state))
+			handle = Element(browser, backend_node_id=element.backend_node_id, role=element.role, name=element.name)
+			before = await _click_fingerprint(browser, handle)
+			try:
+				await handle.click()
+			except HarnessError as e:
+				if 'box model' not in str(e):
+					raise
+				# an <option> in a closed <select> has no box; guidance alone didn't
+				# stop models retrying, so do the select for them
+				outcome = await handle._call_on_node(_SELECT_BY_SELF_JS)
+				if isinstance(outcome, str) and outcome.startswith('selected '):
+					return ActionResult(extracted_content=f'{outcome} (via select_dropdown — the element had no clickable box)')
+				raise
+			await asyncio.sleep(0.25)
+			after = await _click_fingerprint(browser, handle)
+			if after and before and after.get('url') != before.get('url'):
+				await browser.wait_for_load(timeout=10.0)
+				return ActionResult(extracted_content=f'Clicked {element.prompt_line()} — navigated to {after["url"]}')
+			if before and after and after == before:
+				# unconditional "Clicked ..." success let one run click the same
+				# dead radio 18 times; report the no-op instead
+				blocker = after.get('hit')
+				return ActionResult(
+					extracted_content=f'Clicked {element.prompt_line()} — NO OBSERVABLE EFFECT: url, element state and page text '
+					f'are unchanged.{f" The click landed on {blocker!r}." if blocker else ""} The control is probably covered or '
+					'JS-driven: click its <label>, dismiss any overlay, or set the state via evaluate and dispatch input+change'
+				)
 			return ActionResult(extracted_content=f'Clicked {element.prompt_line()}')
 
 		@self.action('Type text into an input element by its index (clears existing text unless clear=false)')
@@ -227,31 +319,43 @@ class Tools:
 		) -> ActionResult:
 			element = _resolve(state, index)
 			if element is None:
-				return ActionResult(error=f'Element index {index} not found in current state')
+				return ActionResult(error=_index_error(index, state))
 			handle = Element(browser, backend_node_id=element.backend_node_id, role=element.role, name=element.name)
 			await handle.fill(text, clear_first=clear)
 			# verify -- autocomplete widgets silently append or rewrite; a false
 			# "Typed ..." success once burned 30 steps on one field
-			actual = await handle._call_on_node("function(){return 'value' in this ? this.value : null;}")
-			if actual is not None and clear and actual != text:
+			actual = await handle._call_on_node(
+				"function(){if('value' in this && typeof this.value === 'string') return this.value;"
+				'if(this.isContentEditable) return this.innerText;'
+				'return null;}'
+			)
+			if actual is None:
+				# unreadable field (rich-text editors like Trix): say so rather than
+				# claiming success -- a silent no-op once cost 16 steps
+				return ActionResult(
+					extracted_content=f'Typed {text!r} into {element.prompt_line()} but COULD NOT VERIFY it took '
+					'(the field exposes no readable value). Confirm on the page before relying on it'
+				)
+			if clear and actual != text:
 				return ActionResult(
 					error=f'input verification failed: field now contains {str(actual)[:200]!r}, expected {text!r}. '
 					'The field is likely a controlled autocomplete — click its suggestion element, or set the value via evaluate'
 				)
 			return ActionResult(extracted_content=f'Typed {text!r} into {element.prompt_line()}')
 
-		@self.action('Select an option of a <select> dropdown by its element index and visible text or value')
-		async def select_option(
+		@self.action('Set the option of a <select> element by its visible text or value')
+		async def select_dropdown(
 			index: int,
-			value: str,
+			text: str,
 			browser: Browser = None,  # type: ignore[assignment]
 			state: HarnessState = None,  # type: ignore[assignment]
 		) -> ActionResult:
 			element = _resolve(state, index)
 			if element is None:
-				return ActionResult(error=f'Element index {index} not found in current state')
+				return ActionResult(error=_index_error(index, state))
 			handle = Element(browser, backend_node_id=element.backend_node_id, role=element.role, name=element.name)
 			# works whether index points at the <select> or an <option> inside it
+			value = text
 			outcome = await handle._call_on_node(
 				'function(want){'
 				"let s = this.tagName === 'SELECT' ? this : (this.tagName === 'OPTION' ? this.closest('select') : this.querySelector('select'));"
@@ -268,10 +372,11 @@ class Tools:
 				return ActionResult(error=outcome)
 			return ActionResult(extracted_content=str(outcome))
 
-		@self.action('Scroll the page by a number of viewport heights (negative = up)')
-		async def scroll(pages: float = 1.0, browser: Browser = None) -> str:  # type: ignore[assignment]
-			await browser.js(f'window.scrollBy(0, Math.round(innerHeight * {pages}))')
-			return f'Scrolled {pages} pages'
+		@self.action('Scroll by pages. down=True scrolls down, False scrolls up; pages defaults to one viewport')
+		async def scroll(down: bool = True, pages: float = 1.0, browser: Browser = None) -> str:  # type: ignore[assignment]
+			delta = pages if down else -pages
+			await browser.js(f'window.scrollBy(0, Math.round(innerHeight * {delta}))')
+			return f'Scrolled {"down" if down else "up"} {pages} pages'
 
 		@self.action('Press a key or shortcut, e.g. "Enter", "Escape", "Control+a", "Meta+Enter"')
 		async def send_keys(keys: str, browser: Browser = None) -> str:  # type: ignore[assignment]
@@ -285,16 +390,22 @@ class Tools:
 			await browser.press_key(key.strip(), modifiers=modifiers)
 			return f'Sent keys {keys}'
 
-		@self.action('Switch to another tab by its 4-character id', terminates_sequence=True)
-		async def switch_tab(tab_id: str, browser: Browser = None) -> ActionResult:  # type: ignore[assignment]
+		@self.action(
+			'Switch to another open tab by tab_id. Tab IDs are shown in the browser state tabs list (last 4 chars of target_id)',
+			terminates_sequence=True,
+		)
+		async def switch(tab_id: str, browser: Browser = None) -> ActionResult:  # type: ignore[assignment]
 			tab = await _tab_by_id(browser, tab_id)
 			if tab is None:
 				return ActionResult(error=f'No tab with id {tab_id}')
 			await browser.switch_tab(tab)
 			return ActionResult(extracted_content=f'Switched to tab {tab_id} ({tab.url})')
 
-		@self.action('Close a tab by its 4-character id', terminates_sequence=True)
-		async def close_tab(tab_id: str, browser: Browser = None) -> ActionResult:  # type: ignore[assignment]
+		@self.action(
+			'Close a tab by tab_id. Use to clean up tabs you no longer need',
+			terminates_sequence=True,
+		)
+		async def close(tab_id: str, browser: Browser = None) -> ActionResult:  # type: ignore[assignment]
 			tab = await _tab_by_id(browser, tab_id)
 			if tab is None:
 				return ActionResult(error=f'No tab with id {tab_id}')
@@ -305,12 +416,26 @@ class Tools:
 		@self.action(
 			'Read the full visible text of the current page. Set save_as to also write the untruncated text to a workspace file'
 		)
-		async def extract_text(
+		async def extract(
 			save_as: str = '',
 			browser: Browser = None,  # type: ignore[assignment]
 			file_dir: Path = None,  # type: ignore[assignment]
 		) -> ActionResult:
 			text = str((await browser.js('document.body ? document.body.innerText.slice(0, 200000) : ""')) or '')
+			if not text.strip():
+				# chrome's PDF viewer has no readable body -- reporting "0 chars saved"
+				# as success made agents re-try the same dead path for 20 steps
+				url = str((await browser.js('location.href')) or '')
+				if url.lower().endswith('.pdf') or await browser.js(
+					'!!document.querySelector(\'embed[type="application/pdf"]\')'
+				):
+					return ActionResult(
+						error='This is a PDF in the browser viewer — its text is not readable from the DOM. '
+						'Fetch and parse it instead, e.g. evaluate a fetch of the PDF URL, or find an HTML version of the document'
+					)
+				return ActionResult(
+					error='Page has no readable text yet (empty body). Wait for it to render, or the content may be in an iframe/canvas'
+				)
 			return _deliver(text, save_as, file_dir, EXTRACT_DISPLAY_CAP)
 
 		@self.action(
@@ -318,12 +443,12 @@ class Tools:
 			'May run up to 150s. Set save_as to write the FULL result to a workspace file (shown output is capped)'
 		)
 		async def evaluate(
-			expression: str,
+			code: str,
 			save_as: str = '',
 			browser: Browser = None,  # type: ignore[assignment]
 			file_dir: Path = None,  # type: ignore[assignment]
 		) -> ActionResult:
-			value = await browser.js(expression, timeout=JS_TIMEOUT_S)
+			value = await browser.js(code, timeout=JS_TIMEOUT_S)
 			rendered = value if isinstance(value, str) else json.dumps(value, default=str)
 			return _deliver(rendered, save_as, file_dir, EVALUATE_DISPLAY_CAP)
 
@@ -359,6 +484,7 @@ class Tools:
 			if not path.exists():
 				existing = sorted(p.name for p in file_dir.iterdir()) if file_dir and file_dir.exists() else []
 				return ActionResult(error=f'No file {path.name!r}. Workspace files: {existing}')
+			self._read_files.add(path.name)
 			content = path.read_text(encoding='utf-8', errors='replace')
 			chunk = content[offset : offset + limit]
 			suffix = (
@@ -387,6 +513,118 @@ class Tools:
 				await browser.cdp('Page.handleJavaScriptDialog', accept=accept)
 			return f'Dialog {"accepted" if accept else "dismissed"}'
 
+		@self.action('Upload a file to a file input by its element index')
+		async def upload_file(
+			index: int,
+			path: str,
+			browser: Browser = None,  # type: ignore[assignment]
+			state: HarnessState = None,  # type: ignore[assignment]
+		) -> ActionResult:
+			element = _resolve(state, index)
+			if element is None:
+				return ActionResult(error=_index_error(index, state))
+			await browser.cdp('DOM.setFileInputFiles', files=[path], backendNodeId=element.backend_node_id)
+			return ActionResult(extracted_content=f'Uploaded {path} to {element.prompt_line()}')
+
+		@self.action('Take a screenshot of the current viewport; with file_name, save it and return the path')
+		async def screenshot(
+			file_name: str = '',
+			browser: Browser = None,  # type: ignore[assignment]
+			file_dir: Path = None,  # type: ignore[assignment]
+		) -> ActionResult:
+			if file_name:
+				path = await browser.capture_screenshot(_safe_file(file_dir, file_name))
+				return ActionResult(
+					extracted_content=f'Screenshot saved to {path.name}', long_term_memory=f'screenshot: {path.name}'
+				)
+			data = await browser.screenshot_b64(max_dim=1600)
+			return ActionResult(
+				extracted_content='Screenshot captured',
+				images=[{'name': 'screenshot', 'data': data}],
+			)
+
+		@self.action('List the options of a <select> element by its index')
+		async def dropdown_options(
+			index: int,
+			browser: Browser = None,  # type: ignore[assignment]
+			state: HarnessState = None,  # type: ignore[assignment]
+		) -> ActionResult:
+			element = _resolve(state, index)
+			if element is None:
+				return ActionResult(error=_index_error(index, state))
+			handle = Element(browser, backend_node_id=element.backend_node_id, role=element.role, name=element.name)
+			options = await handle._call_on_node(
+				'function(){'
+				"const s = this.tagName === 'SELECT' ? this : (this.tagName === 'OPTION' ? this.closest('select') : this.querySelector('select'));"
+				"if (!s) return JSON.stringify({error: 'no <select> found for this element'});"
+				'return JSON.stringify([...s.options].map(o => ({text: o.text.trim(), value: o.value})));}'
+			)
+			return ActionResult(extracted_content=str(options))
+
+		@self.action('Replace specific text within a workspace file — targeted edits without rewriting the file')
+		async def replace_file(
+			file_name: str,
+			old_str: str,
+			new_str: str,
+			file_dir: Path = None,  # type: ignore[assignment]
+		) -> ActionResult:
+			path = _safe_file(file_dir, file_name)
+			if not path.exists():
+				return ActionResult(error=f'No file {path.name!r}')
+			content = path.read_text(encoding='utf-8', errors='replace')
+			if old_str not in content:
+				return ActionResult(error=f'{old_str[:80]!r} not found in {path.name}')
+			path.write_text(content.replace(old_str, new_str), encoding='utf-8')
+			return ActionResult(extracted_content=f'Replaced {content.count(old_str)} occurrence(s) in {path.name}')
+
+		@self.action('Scroll to the first occurrence of text on the page')
+		async def find_text(text: str, browser: Browser = None) -> ActionResult:  # type: ignore[assignment]
+			found = await browser.js(
+				'(()=>{const want=' + json.dumps(text) + ';'
+				'const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);'
+				'while(w.nextNode()){if(w.currentNode.textContent.includes(want)){'
+				'w.currentNode.parentElement.scrollIntoView({block:"center"});return true;}}return false;})()'
+			)
+			if not found:
+				return ActionResult(error=f'Text {text!r} not found on the page')
+			return ActionResult(extracted_content=f'Scrolled to {text!r}')
+
+		@self.action('Search page text for a pattern like grep — zero LLM cost, returns matches with context')
+		async def search_page(
+			pattern: str,
+			regex: bool = False,
+			case_sensitive: bool = False,
+			context_chars: int = 120,
+			max_results: int = 20,
+			browser: Browser = None,  # type: ignore[assignment]
+		) -> ActionResult:
+			text = str((await browser.js('document.body ? document.body.innerText : ""')) or '')
+			flags = 0 if case_sensitive else re.IGNORECASE
+			needle = pattern if regex else re.escape(pattern)
+			try:
+				matches = list(re.finditer(needle, text, flags))[:max_results]
+			except re.error as e:
+				return ActionResult(error=f'Invalid regex {pattern!r}: {e}')
+			if not matches:
+				return ActionResult(extracted_content=f'No matches for {pattern!r}')
+			out = [f'…{text[max(0, m.start() - context_chars) : m.end() + context_chars].strip()}…' for m in matches]
+			return ActionResult(extracted_content=f'{len(matches)} match(es) for {pattern!r}:\n' + '\n---\n'.join(out))
+
+		@self.action('Query DOM elements by CSS selector — zero LLM cost, returns tag, text and attributes')
+		async def find_elements(
+			selector: str,
+			max_results: int = 20,
+			include_text: bool = True,
+			browser: Browser = None,  # type: ignore[assignment]
+		) -> ActionResult:
+			result = await browser.js(
+				'(()=>{const els=[...document.querySelectorAll(' + json.dumps(selector) + ')].slice(0,' + str(max_results) + ');'
+				'return JSON.stringify(els.map(e=>({tag:e.tagName.toLowerCase(),'
+				+ ('text:(e.innerText||"").trim().slice(0,200),' if include_text else '')
+				+ 'attrs:Object.fromEntries([...e.attributes].map(a=>[a.name,a.value.slice(0,200)]))})));})()'
+			)
+			return ActionResult(extracted_content=str(result))
+
 		@self.action(
 			'Complete the task — call when done or when the task is impossible. `text` is the COMPLETE final answer '
 			'with all requested data (read your workspace files first if the data lives there). '
@@ -399,17 +637,77 @@ class Tools:
 def _deliver(rendered: str, save_as: str, file_dir: Path | None, cap: int) -> ActionResult:
 	"""Show up to `cap` chars; with save_as, persist the full text to the workspace."""
 	saved = ''
+	memory = None
 	if save_as:
 		path = _safe_file(file_dir, save_as)
 		path.write_text(rendered, encoding='utf-8')
 		saved = f' [full {len(rendered)} chars saved to {path.name}]'
+		# the surviving note must say the rest is recoverable, or the model
+		# answers from the truncated head and calls everything else unavailable
+		memory = (
+			f'{path.name}: {len(rendered)} chars — TRUNCATED in context, full content only via read_file("{path.name}")'
+			if len(rendered) > cap
+			else f'{path.name}: {len(rendered)} chars'
+		)
 	shown = (
 		rendered
 		if len(rendered) <= cap
 		else rendered[:cap]
-		+ f'…(truncated, {len(rendered)} chars total{" — re-run with save_as to keep it all" if not save_as else ""})'
+		+ f'…(TRUNCATED at {cap} of {len(rendered)} chars. '
+		+ (f'read_file("{save_as}", offset={cap}) for the rest)' if save_as else 're-run with save_as=<file> to keep it all)')
 	)
-	return ActionResult(extracted_content=shown + saved, include_extracted_content_only_once=True)
+	return ActionResult(extracted_content=shown + saved, long_term_memory=memory, include_extracted_content_only_once=True)
+
+
+_FINGERPRINT_JS = (
+	'function(){'
+	'const r = this.getBoundingClientRect();'
+	'const el = document.elementFromPoint(r.left + r.width/2, r.top + r.height/2);'
+	'return JSON.stringify({'
+	'url: location.href,'
+	'checked: this.checked ?? null,'
+	'value: ("value" in this ? String(this.value).slice(0,120) : null),'
+	'expanded: this.getAttribute("aria-expanded"),'
+	'selected: this.getAttribute("aria-selected") ?? this.getAttribute("aria-checked"),'
+	'len: document.body ? document.body.innerText.length : 0,'
+	'hit: (el && el !== this && !this.contains(el)) ? (el.tagName + (el.className ? "." + String(el.className).split(" ")[0] : "")) : null'
+	'});}'
+)
+
+
+async def _click_fingerprint(browser: Browser, handle: Element) -> dict | None:
+	"""Cheap before/after evidence that a click actually did something."""
+	try:
+		raw = await handle._call_on_node(_FINGERPRINT_JS)
+		return json.loads(raw) if isinstance(raw, str) else None
+	except (HarnessError, ValueError):
+		return None
+
+
+# select the option this node IS (used when clicking it is impossible)
+_SELECT_BY_SELF_JS = (
+	'function(){'
+	"if (this.tagName !== 'OPTION') return 'not an option';"
+	"const s = this.closest('select');"
+	"if (!s) return 'no parent select';"
+	'this.selected = true;'
+	's.value = this.value;'
+	"s.dispatchEvent(new Event('input', {bubbles: true}));"
+	"s.dispatchEvent(new Event('change', {bubbles: true}));"
+	"return 'selected ' + this.text.trim();}"
+)
+
+_UNAVAILABLE_MARKERS = ('not available', 'not shown', 'not captured', 'unavailable', 'could not extract')
+
+
+def _unread_evidence(read_files: set[str], file_dir: Path | None) -> list[str]:
+	if file_dir is None or not file_dir.exists():
+		return []
+	return sorted(
+		p.name
+		for p in file_dir.iterdir()
+		if p.is_file() and p.name not in read_files and p.suffix.lower() not in ('.png', '.jpg', '.jpeg')
+	)
 
 
 def _actionable_error(error: str) -> str:
@@ -417,11 +715,22 @@ def _actionable_error(error: str) -> str:
 	if 'Could not compute box model' in error:
 		return (
 			'Element has no rendered box — it is likely an <option> inside a closed <select> '
-			'or an offscreen/hidden node. For dropdowns use select_option; otherwise scroll or pick a different element'
+			'or an offscreen/hidden node. For dropdowns use select_dropdown; otherwise scroll or pick a different element'
 		)
 	if 'No node found for given backend id' in error:
 		return 'Element reference is stale — the page changed since the last observation. Act on the CURRENT element list'
 	return error
+
+
+def _index_error(index: int, state: HarnessState | None) -> str:
+	"""Out-of-range indices are usually the right index with digits appended
+	(139 -> 1396582), so name the valid range and the likely intent."""
+	if state is None or not state.elements:
+		return f'Element index {index} not found — no interactive elements in the current state'
+	valid = state.selector_map
+	candidates = [i for i in valid if str(index).startswith(str(i)) and i != index]
+	hint = f' Did you mean [{max(candidates)}]{valid[max(candidates)].prompt_line()}?' if candidates else ''
+	return f'Element index {index} not found — valid indices are 1..{len(state.elements)}.{hint}'
 
 
 def _resolve(state: HarnessState | None, index: int):

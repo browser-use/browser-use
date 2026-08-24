@@ -30,6 +30,9 @@ class FakeBrowserBackend:
 		self.calls = []
 		self.clicks = []
 		self.field_value = None  # what input verification reads back; None = skip verification
+		self.fingerprint = None  # click before/after fingerprint; same object twice = no-op click
+		self.fingerprint_after = None
+		self._fp_calls = 0
 
 	async def send(self, req, request_timeout=None):
 		self.calls.append(req)
@@ -87,6 +90,14 @@ class FakeBrowserBackend:
 			fn = params.get('functionDeclaration', '')
 			if "'value' in this" in fn:  # input verification readback
 				return {'result': {'result': {'value': self.field_value}}}
+			if 'elementFromPoint' in fn:  # click fingerprint
+				import json as _json
+
+				if self.fingerprint is None:
+					return {'result': {'result': {'value': None}}}
+				self._fp_calls += 1
+				fp = self.fingerprint if (self._fp_calls % 2 == 1 or not self.fingerprint_after) else self.fingerprint_after
+				return {'result': {'result': {'value': _json.dumps(fp)}}}
 			if 'closest' in fn and 'options' in fn:  # select_option
 				return {'result': {'result': {'value': 'selected ' + (params.get('arguments') or [{}])[0].get('value', '')}}}
 			return {'result': {'result': {'value': True}}}
@@ -225,10 +236,11 @@ async def test_evaluate_save_as_persists_untruncated_result(tmp_path):
 		return await backend_send(req, request_timeout)
 
 	browser.client.send = send
-	action = tools.create_action_model().model_validate({'evaluate': {'expression': 'grab()', 'save_as': 'dump.txt'}})
+	action = tools.create_action_model().model_validate({'evaluate': {'code': 'grab()', 'save_as': 'dump.txt'}})
 	result = await tools.act(action, browser=browser, state=make_state(), file_dir=tmp_path)
 	assert (tmp_path / 'dump.txt').read_text() == big  # full, no truncation
-	assert 'truncated' in result.extracted_content and 'dump.txt' in result.extracted_content
+	assert 'TRUNCATED' in result.extracted_content and 'dump.txt' in result.extracted_content
+	assert 'read_file' in result.long_term_memory  # the surviving note must point back at the file
 
 
 async def test_input_verification_flags_controlled_widgets():
@@ -245,11 +257,68 @@ async def test_input_verification_flags_controlled_widgets():
 	assert result.error is None
 
 
-async def test_select_option_dispatches_change():
+async def test_click_reports_no_observable_effect():
+	"""A click that changes nothing must say so -- silent success let one run click
+	the same dead radio 18 times while the model kept noting it wasn't working."""
+	tools = Tools()
+	browser, backend = make_fake_browser()
+	backend.fingerprint = {'url': 'https://shop.test/', 'checked': False, 'len': 100, 'hit': 'DIV.overlay'}
+	element = HarnessElement(index=1, role='radio', name='Off', backend_node_id=11)
+	action = tools.create_action_model().model_validate({'click': {'index': 1}})
+	result = await tools.act(action, browser=browser, state=make_state([element]))
+	assert result.error is None
+	assert 'NO OBSERVABLE EFFECT' in result.extracted_content
+	assert 'DIV.overlay' in result.extracted_content  # names what actually got the click
+
+	backend.fingerprint_after = {'url': 'https://shop.test/', 'checked': True, 'len': 100, 'hit': None}
+	result = await tools.act(action, browser=browser, state=make_state([element]))
+	assert 'NO OBSERVABLE EFFECT' not in result.extracted_content
+
+
+async def test_index_error_suggests_the_prefix_match():
+	"""Bad indices are the right index with digits appended (139 -> 1396582)."""
+	tools = Tools()
+	browser, _ = make_fake_browser()
+	state = make_state([HarnessElement(index=139, role='link', name='Volume 17', backend_node_id=11)])
+	action = tools.create_action_model().model_validate({'click': {'index': 1396582}})
+	result = await tools.act(action, browser=browser, state=state)
+	assert result.error is not None
+	assert 'valid indices are 1..' in result.error and '139' in result.error
+
+
+async def test_done_refused_once_when_unread_files_may_hold_the_answer(tmp_path):
+	tools = Tools()
+	browser, _ = make_fake_browser()
+	(tmp_path / 'prices.json').write_text('{"price": "$1029.99"}')
+	model = tools.create_action_model()
+	done = model.model_validate({'done': {'text': 'Price: not available in extracted evidence', 'success': True}})
+
+	first = await tools.act(done, browser=browser, state=make_state(), file_dir=tmp_path)
+	assert first.error is not None and 'prices.json' in first.error
+	assert not first.is_done
+
+	second = await tools.act(done, browser=browser, state=make_state(), file_dir=tmp_path)
+	assert second.is_done  # one-shot: never blocks the agent from ever finishing
+
+
+async def test_multi_field_action_runs_both_instead_of_killing_the_step(tmp_path):
+	"""'do X and save it' packed into one action used to raise and void the step."""
+	tools = Tools()
+	browser, _ = make_fake_browser()
+	action = tools.create_action_model().model_validate(
+		{'scroll': {'pages': 1.0}, 'write_file': {'file_name': 'notes.txt', 'content': 'kept'}}
+	)
+	result = await tools.act(action, browser=browser, state=make_state(), file_dir=tmp_path)
+	assert result.error is None
+	assert (tmp_path / 'notes.txt').read_text() == 'kept'
+	assert 'Scrolled' in result.extracted_content
+
+
+async def test_select_dropdown_dispatches_change():
 	tools = Tools()
 	browser, _ = make_fake_browser()
 	element = HarnessElement(index=5, role='combobox', name='State', backend_node_id=11)
-	action = tools.create_action_model().model_validate({'select_option': {'index': 5, 'value': 'OHIO'}})
+	action = tools.create_action_model().model_validate({'select_dropdown': {'index': 5, 'text': 'OHIO'}})
 	result = await tools.act(action, browser=browser, state=make_state([element]))
 	assert result.error is None and result.extracted_content == 'selected OHIO'
 
@@ -269,7 +338,7 @@ async def test_box_model_error_becomes_actionable_guidance():
 	element = HarnessElement(index=1, role='option', name='OHIO', backend_node_id=11)
 	action = tools.create_action_model().model_validate({'click': {'index': 1}})
 	result = await tools.act(action, browser=browser, state=make_state([element]))
-	assert result.error is not None and 'select_option' in result.error
+	assert result.error is not None and 'select_dropdown' in result.error
 
 
 # --- Agent loop ---
@@ -335,7 +404,7 @@ async def test_full_results_reach_the_next_prompt_then_compress():
 				'evaluation_previous_goal': 'start',
 				'memory': '',
 				'next_goal': 'extract',
-				'action': [{'evaluate': {'expression': 'grab()'}}],
+				'action': [{'evaluate': {'code': 'grab()'}}],
 			},
 			{'evaluation_previous_goal': 'got it', 'memory': '', 'next_goal': 'again', 'action': [{'wait': {'seconds': 0.01}}]},
 			{
