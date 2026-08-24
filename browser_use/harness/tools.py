@@ -242,6 +242,22 @@ class Tools:
 			return ActionResult()
 		raise ValueError(f'action {name} returned invalid type {type(result)}')
 
+	def __getattr__(self, name: str):
+		"""Call any registered action directly, as browser_use.Tools does:
+
+		    await tools.navigate(url="https://example.com", browser=browser)
+
+		Deterministic scripting with no LLM in the loop.
+		"""
+		if name.startswith('_') or name not in self.registry:
+			raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')
+
+		async def call(browser: Browser, state: HarnessState | None = None, file_dir: Path | None = None, **params):
+			return await self._act_one(name, params, browser, state, file_dir)
+
+		call.__name__ = name
+		return call
+
 	def is_terminating(self, action_name: str) -> bool:
 		registered = self.registry.get(action_name)
 		return bool(registered and registered.terminates_sequence)

@@ -506,3 +506,66 @@ async def test_agent_max_steps_records_failure_item():
 
 	assert history.is_done() is False
 	assert any('maximum steps' in (e or '') for e in history.errors())
+
+
+# --- browser_use API compatibility ---
+
+
+def test_browser_use_import_line_works():
+	"""`from browser_use.harness import Agent, Browser, Tools, ChatOpenAI` — the
+	same one-liner browser_use users write."""
+	from browser_use.harness import Agent, Browser, ChatBrowserUse, ChatOpenAI, Controller, SyncBrowser, Tools
+
+	assert Controller is Tools
+	assert all(x is not None for x in (Agent, Browser, SyncBrowser, ChatOpenAI, ChatBrowserUse))
+
+
+def test_browser_session_aliases_exist_on_harness_browser():
+	"""browser_use.BrowserSession code should run unchanged against the harness."""
+	from browser_harness.sdk import Browser as HB
+
+	for name in (
+		'navigate_to',
+		'get_tabs',
+		'get_current_page_url',
+		'get_current_page_title',
+		'take_screenshot',
+		'close',
+		'kill',
+		'cookies',
+		'from_system_chrome',
+	):
+		assert callable(getattr(HB, name)), f'missing BrowserSession alias: {name}'
+
+
+async def test_direct_tool_calls_without_an_llm():
+	"""browser_use.Tools lets you call actions directly; so does this."""
+	tools = Tools()
+	browser, backend = make_fake_browser()
+	result = await tools.navigate(url='https://shop.test/', browser=browser)
+	assert result.error is None
+	assert backend.url == 'https://shop.test/'
+
+
+def test_defaults_match_browser_use_agent():
+	import inspect
+
+	from browser_use import Agent as BUAgent
+
+	bu = inspect.signature(BUAgent.__init__).parameters
+	h = inspect.signature(Agent.__init__).parameters
+	for name in ('max_actions_per_step', 'max_failures', 'step_timeout'):
+		assert bu[name].default == h[name].default, f'{name} default differs'
+	assert inspect.signature(BUAgent.run).parameters['max_steps'].default == (
+		inspect.signature(Agent.run).parameters['max_steps'].default
+	)
+
+
+def test_action_vocabulary_matches_browser_use():
+	from browser_use import Tools as BUTools
+
+	bu = set(BUTools().registry.registry.actions)
+	h = set(Tools().registry)
+	missing = bu - h
+	assert missing <= {'save_as_pdf'}, f'harness is missing browser_use actions: {sorted(missing)}'
+	assert h - bu <= {'handle_dialog'}, f'harness has unexpected extra actions: {sorted(h - bu)}'

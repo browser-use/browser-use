@@ -21,6 +21,11 @@ _LAZY_IMPORTS = {
 	'Element': ('browser_harness.sdk', 'Element'),
 	'HarnessError': ('browser_harness.sdk', 'HarnessError'),
 	'ActionResult': ('browser_use.agent.views', 'ActionResult'),
+	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
+	'ChatAnthropic': ('browser_use.llm.anthropic.chat', 'ChatAnthropic'),
+	'ChatGoogle': ('browser_use.llm.google.chat', 'ChatGoogle'),
+	'ChatBrowserUse': ('browser_use.llm.browser_use.chat', 'ChatBrowserUse'),
+	'SyncBrowser': ('browser_harness.sdk', 'SyncBrowser'),
 	'AgentHistoryList': ('browser_use.agent.views', 'AgentHistoryList'),
 }
 
@@ -54,6 +59,11 @@ def __getattr__(name: str):
 __all__ = [
 	'ActionResult',
 	'Agent',
+	'ChatAnthropic',
+	'ChatBrowserUse',
+	'ChatGoogle',
+	'ChatOpenAI',
+	'SyncBrowser',
 	'AgentHistoryList',
 	'Browser',
 	'Controller',
