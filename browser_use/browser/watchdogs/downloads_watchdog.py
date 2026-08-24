@@ -432,13 +432,13 @@ class DownloadsWatchdog(BaseWatchdog):
 										info = self._cdp_downloads_info.get(guid, {})
 										if info.get('handled'):
 											break
-									if guid in self._cdp_downloads_info:
-										self._cdp_downloads_info[guid]['handled'] = True
-									# Found a new file! Add to snapshot immediately to prevent duplicate detection
-									self._initial_downloads_snapshot.add(f.name)
-									self.logger.debug(f'[DownloadsWatchdog] Detected new download: {f.name}')
-									self._track_download(str(f))
-									break
+										if guid in self._cdp_downloads_info:
+											self._cdp_downloads_info[guid]['handled'] = True
+										# Found a new file! Add to snapshot immediately to prevent duplicate detection
+										self._initial_downloads_snapshot.add(f.name)
+										self.logger.debug(f'[DownloadsWatchdog] Detected new download: {f.name}')
+										self._track_download(str(f))
+										break
 				else:
 					# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
 					info = self._cdp_downloads_info.get(guid, {})

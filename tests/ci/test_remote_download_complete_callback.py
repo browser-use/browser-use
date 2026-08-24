@@ -37,8 +37,8 @@ class _ProgressCapture:
 		self.handler = handler
 
 
-def _make_watchdog(tmp_path) -> tuple[DownloadsWatchdog, _ProgressCapture]:
-	"""Build a DownloadsWatchdog bound to a lightweight fake *remote* session.
+def _make_watchdog(tmp_path, *, is_local: bool = False) -> tuple[DownloadsWatchdog, _ProgressCapture]:
+	"""Build a DownloadsWatchdog bound to a lightweight fake browser session.
 
 	Uses ``model_construct`` to bypass pydantic validation (which requires a real
 	BrowserSession / EventBus wiring that would start background tasks). We only
@@ -58,7 +58,7 @@ def _make_watchdog(tmp_path) -> tuple[DownloadsWatchdog, _ProgressCapture]:
 
 	browser_session = SimpleNamespace(
 		logger=logging.getLogger('test.downloads_watchdog'),
-		is_local=False,  # remote browser -> exercises the fixed branch
+		is_local=is_local,
 		cdp_client=cdp_client,
 		browser_profile=SimpleNamespace(downloads_path=str(tmp_path), auto_download_pdfs=False),
 		id='test-session-0001',
@@ -127,3 +127,27 @@ async def test_remote_download_complete_clears_cdp_cache(tmp_path) -> None:
 	)
 
 	assert 'guid-456' not in wd._cdp_downloads_info
+
+
+@pytest.mark.asyncio
+async def test_local_download_complete_ignores_partial_file_without_file_path(tmp_path) -> None:
+	wd, progress_capture = _make_watchdog(tmp_path, is_local=True)
+	await wd.attach_to_target('FAKE_TARGET_3')
+
+	(tmp_path / 'report.pdf.crdownload').write_bytes(b'partial')
+	wd._cdp_downloads_info['guid-789'] = {
+		'url': 'https://example.com/report.pdf',
+		'suggested_filename': 'report.pdf',
+		'handled': False,
+	}
+	received: list[dict] = []
+	wd.register_download_callbacks(on_complete=lambda info: received.append(info))
+
+	progress_capture.handler(
+		{'guid': 'guid-789', 'state': 'completed', 'receivedBytes': 7, 'totalBytes': 7},
+		session_id=None,
+	)
+
+	assert received == []
+	assert wd._cdp_downloads_info['guid-789']['handled'] is False
+	assert 'report.pdf.crdownload' not in wd._initial_downloads_snapshot
