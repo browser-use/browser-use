@@ -1,4 +1,16 @@
-from browser_use.browser.watchdogs.downloads_watchdog import _should_auto_download_network_response
+from pathlib import Path
+
+from browser_use.browser.watchdogs.downloads_watchdog import _is_partial_download, _should_auto_download_network_response
+
+
+def test_downloads_watchdog_identifies_browser_partial_downloads():
+	assert _is_partial_download(Path('report.pdf.crdownload'))
+	assert _is_partial_download(Path('report.part'))
+	assert _is_partial_download(Path('report.tmp'))
+
+
+def test_downloads_watchdog_keeps_completed_downloads_out_of_partial_filter():
+	assert not _is_partial_download(Path('report.pdf'))
 
 
 def test_downloads_watchdog_skips_generic_text_attachment_without_file_url():

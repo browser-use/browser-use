@@ -35,6 +35,14 @@ if TYPE_CHECKING:
 	pass
 
 
+_PARTIAL_DOWNLOAD_SUFFIXES = {'.crdownload', '.part', '.tmp'}
+
+
+def _is_partial_download(path: Path) -> bool:
+	"""Return whether a path is a browser's in-progress download artifact."""
+	return path.suffix.lower() in _PARTIAL_DOWNLOAD_SUFFIXES
+
+
 _NETWORK_DOWNLOAD_FILE_EXTENSIONS = {
 	'pdf',
 	'doc',
@@ -397,15 +405,14 @@ class DownloadsWatchdog(BaseWatchdog):
 				file_path = event.get('filePath')
 				if self.browser_session.is_local:
 					if file_path:
+						info = self._cdp_downloads_info.get(guid, {})
+						if info.get('handled'):
+							return
+						if guid in self._cdp_downloads_info:
+							self._cdp_downloads_info[guid]['handled'] = True
 						self.logger.debug(f'[DownloadsWatchdog] Download completed: {file_path}')
 						# Track the download
 						self._track_download(file_path, guid=guid)
-						# Mark as handled to prevent fallback duplicate dispatch
-						try:
-							if guid in self._cdp_downloads_info:
-								self._cdp_downloads_info[guid]['handled'] = True
-						except (KeyError, AttributeError):
-							pass
 					else:
 						# No filePath provided - detect by comparing with initial snapshot
 						self.logger.debug('[DownloadsWatchdog] No filePath in progress event; detecting via filesystem')
@@ -418,20 +425,20 @@ class DownloadsWatchdog(BaseWatchdog):
 										f.is_file()
 										and not f.name.startswith('.')
 										and f.name not in self._initial_downloads_snapshot
+										and f.stat().st_size > 4
 									):
-										# Check file has content before processing
-										if f.stat().st_size > 4:
-											# Found a new file! Add to snapshot immediately to prevent duplicate detection
-											self._initial_downloads_snapshot.add(f.name)
-											self.logger.debug(f'[DownloadsWatchdog] Detected new download: {f.name}')
-											self._track_download(str(f))
-											# Mark as handled
-											try:
-												if guid in self._cdp_downloads_info:
-													self._cdp_downloads_info[guid]['handled'] = True
-											except (KeyError, AttributeError):
-												pass
+										if _is_partial_download(f):
+											continue
+										info = self._cdp_downloads_info.get(guid, {})
+										if info.get('handled'):
 											break
+									if guid in self._cdp_downloads_info:
+										self._cdp_downloads_info[guid]['handled'] = True
+									# Found a new file! Add to snapshot immediately to prevent duplicate detection
+									self._initial_downloads_snapshot.add(f.name)
+									self.logger.debug(f'[DownloadsWatchdog] Detected new download: {f.name}')
+									self._track_download(str(f))
+									break
 				else:
 					# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
 					info = self._cdp_downloads_info.get(guid, {})
@@ -987,6 +994,7 @@ class DownloadsWatchdog(BaseWatchdog):
 					if (
 						file_path.is_file()
 						and not file_path.name.startswith('.')
+						and not _is_partial_download(file_path)
 						and file_path.name not in self._initial_downloads_snapshot
 					):
 						# Add to snapshot immediately to prevent duplicate detection
@@ -1009,6 +1017,8 @@ class DownloadsWatchdog(BaseWatchdog):
 								info = self._cdp_downloads_info.get(guid, {})
 								if info.get('handled'):
 									return
+								if guid in self._cdp_downloads_info:
+									self._cdp_downloads_info[guid]['handled'] = True
 								self.event_bus.dispatch(
 									FileDownloadedEvent(
 										guid=guid,
@@ -1019,12 +1029,6 @@ class DownloadsWatchdog(BaseWatchdog):
 										file_type=file_type,
 									)
 								)
-							# Mark as handled after dispatch
-							try:
-								if guid in self._cdp_downloads_info:
-									self._cdp_downloads_info[guid]['handled'] = True
-							except (KeyError, AttributeError):
-								pass
 							return
 						except Exception as e:
 							self.logger.debug(f'[DownloadsWatchdog] Error checking file {file_path}: {e}')
