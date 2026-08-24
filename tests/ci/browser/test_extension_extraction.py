@@ -75,3 +75,12 @@ def test_extract_missing_manifest_raises_error(tmp_path: Path) -> None:
 
 	with pytest.raises(Exception, match='No manifest.json found in extension'):
 		BrowserProfile()._extract_extension(crx_path, extract_dir)
+
+
+def test_extract_nonexistent_file_raises_filenotfound(tmp_path: Path) -> None:
+	crx_path = tmp_path / 'nonexistent.crx'
+	extract_dir = tmp_path / 'extracted'
+
+	with pytest.raises(FileNotFoundError):
+		BrowserProfile()._extract_extension(crx_path, extract_dir)
+

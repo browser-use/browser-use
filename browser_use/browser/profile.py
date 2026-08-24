@@ -1200,7 +1200,11 @@ async function initialize(checkInitialized, magic) {{
 			if not (extract_dir / 'manifest.json').exists():
 				raise Exception('No manifest.json found in extension')
 
-		except (zipfile.BadZipFile, OSError, ValueError):
+		except (zipfile.BadZipFile, OSError, ValueError) as zip_err:
+			# Do not mask genuine filesystem errors (e.g. missing files or permission errors)
+			if isinstance(zip_err, (FileNotFoundError, PermissionError)):
+				raise
+
 			# CRX files have a header before the ZIP data
 			# Skip the CRX header and extract the ZIP part
 			with open(crx_path, 'rb') as f:
@@ -1234,6 +1238,8 @@ async function initialize(checkInitialized, magic) {{
 				with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
 					zip_ref.extractall(extract_dir)
 			except (zipfile.BadZipFile, OSError, ValueError) as e:
+				if isinstance(e, (FileNotFoundError, PermissionError)):
+					raise
 				raise Exception(f'Invalid CRX file format: {e}') from e
 			finally:
 				if temp_zip_path and os.path.exists(temp_zip_path):
