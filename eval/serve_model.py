@@ -83,6 +83,34 @@ def ensure_llama_server() -> Path:
 	return binary
 
 
+def port_holder(host: str, port: int) -> str | None:
+	"""Describe whatever already listens on this port, or None if it is free.
+
+	Worth checking before launching: both engines bind late and load the model lazily, so
+	a taken port surfaces as a bind traceback tangled with a half-finished model download.
+	"""
+	import socket
+
+	probe_host = '127.0.0.1' if host in ('0.0.0.0', '::') else host
+	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+		sock.settimeout(0.4)
+		if sock.connect_ex((probe_host, port)) != 0:
+			return None
+
+	try:
+		out = (
+			subprocess.run(['lsof', '-nP', f'-iTCP:{port}', '-sTCP:LISTEN'], capture_output=True, text=True, timeout=5)
+			.stdout.strip()
+			.splitlines()
+		)
+		if len(out) > 1:
+			cols = out[1].split()
+			return f'{cols[0]} (pid {cols[1]})'
+	except Exception:
+		pass
+	return 'an unknown process'
+
+
 def resolve_mlx_python() -> str | None:
 	"""Interpreter that can run mlx_lm, or None.
 
@@ -157,6 +185,15 @@ def main() -> int:
 		print(f'-e BU_EVAL_LLM_BASE_URL={base_url} \\')
 		print('-e BU_EVAL_LLM_API_KEY=not-needed -e BU_EVAL_SCHEMA_IN_PROMPT=1')
 		return 0
+
+	holder = port_holder(args.host, args.port)
+	if holder is not None:
+		print(
+			f'[serve] port {args.port} is already in use by {holder}.\n'
+			f'  Stop it, or pick another port with --port <n> (and update BU_EVAL_LLM_BASE_URL to match).',
+			file=sys.stderr,
+		)
+		return 2
 
 	no_thinking = not args.thinking
 	try:
