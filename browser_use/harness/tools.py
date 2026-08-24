@@ -180,23 +180,13 @@ class Tools:
 		state: HarnessState | None = None,
 		file_dir: Path | None = None,
 	) -> ActionResult:
+		# browser_use semantics: execute the FIRST field that is set and ignore the
+		# rest. Gemini fills every optional field of the action schema, so running
+		# them all executed ~20 garbage actions per step and destroyed a whole eval.
 		data = {k: v for k, v in action.model_dump(exclude_unset=True).items() if v is not None}
 		if not data:
 			return ActionResult(error='Action set no fields')
-		if len(data) > 1:
-			# models like to pack "do X and save it" into one action; run them in
-			# order rather than voiding the step (an assert here cost a step in
-			# 3 of 5 traced runs)
-			results = [await self._act_one(name, params, browser, state, file_dir) for name, params in data.items()]
-			merged = '; '.join(r.extracted_content for r in results if r.extracted_content)
-			errors = '; '.join(r.error for r in results if r.error)
-			return ActionResult(
-				extracted_content=merged or None,
-				error=errors or None,
-				is_done=any(r.is_done for r in results),
-				success=next((r.success for r in results if r.is_done), None),
-			)
-		(name, params) = next(iter(data.items()))
+		name, params = next(iter(data.items()))
 		return await self._act_one(name, params, browser, state, file_dir)
 
 	async def _act_one(

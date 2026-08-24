@@ -306,17 +306,28 @@ async def test_done_refused_once_when_unread_files_may_hold_the_answer(tmp_path)
 	assert second.is_done  # one-shot: never blocks the agent from ever finishing
 
 
-async def test_multi_field_action_runs_both_instead_of_killing_the_step(tmp_path):
-	"""'do X and save it' packed into one action used to raise and void the step."""
+async def test_gemini_style_action_flood_runs_only_the_first_field(tmp_path):
+	"""Gemini fills EVERY optional field of the action schema. browser_use runs
+	the first set field and ignores the rest; running them all executed ~20
+	garbage actions per step and produced final answers like
+	"Searched null for 'null'; Went back; Scrolled up 0.0 pages"."""
 	tools = Tools()
-	browser, _ = make_fake_browser()
-	action = tools.create_action_model().model_validate(
-		{'scroll': {'pages': 1.0}, 'write_file': {'file_name': 'notes.txt', 'content': 'kept'}}
+	browser, backend = make_fake_browser()
+	flood = tools.create_action_model().model_validate(
+		{
+			'navigate': {'url': 'https://shop.test/', 'new_tab': False},
+			'search': {'query': 'null', 'engine': 'null'},
+			'go_back': {'description': 'null'},
+			'scroll': {'down': False, 'pages': 0.0},
+			'write_file': {'file_name': 'junk.txt', 'content': 'junk'},
+		}
 	)
-	result = await tools.act(action, browser=browser, state=make_state(), file_dir=tmp_path)
+	result = await tools.act(flood, browser=browser, state=make_state(), file_dir=tmp_path)
+
 	assert result.error is None
-	assert (tmp_path / 'notes.txt').read_text() == 'kept'
-	assert 'Scrolled' in result.extracted_content
+	assert result.extracted_content == 'Navigated to https://shop.test/'
+	assert 'null' not in (result.extracted_content or ''), 'trailing fields must be ignored'
+	assert not (tmp_path / 'junk.txt').exists(), 'only the first field may execute'
 
 
 async def test_select_dropdown_dispatches_change():
