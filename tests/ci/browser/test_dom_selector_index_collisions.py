@@ -157,7 +157,6 @@ def test_pagination_metadata_separates_selector_and_backend_ids():
 def test_pagination_detection_avoids_substrings_css_classes_and_implicit_roles():
 	"""Only explicit pagination labels and roles should produce pagination metadata."""
 
-
 	def button(text: str, *, role: str = '', class_name: str = '') -> EnhancedDOMTreeNode:
 		node = _node('button', node_id=len(text) + len(role), backend_node_id=len(text) + len(role), session_id=text + role)
 		assert node.snapshot_node is not None
