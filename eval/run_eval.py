@@ -210,6 +210,10 @@ def build_llm(timing: bool = True) -> Any:
 		api_key = os.getenv('BU_EVAL_LLM_API_KEY') or os.getenv('OPENAI_API_KEY')
 		if api_key:
 			kwargs['api_key'] = api_key
+		# Local servers (mlx_lm.server, some vLLM builds) accept response_format but do no
+		# constrained decoding, so the schema has to travel in the system prompt instead.
+		if os.getenv('BU_EVAL_SCHEMA_IN_PROMPT', '').lower() in ('1', 'true', 'yes'):
+			kwargs['add_schema_to_system_prompt'] = True
 		elif base_url:
 			raise RuntimeError('BU_EVAL_LLM_API_KEY (or OPENAI_API_KEY) is required when BU_EVAL_LLM_BASE_URL is set')
 		llm = ChatOpenAI(**kwargs)
