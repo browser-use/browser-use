@@ -557,7 +557,7 @@ class ChatVercel(BaseChatModel):
 				is_google_model = self.model.startswith('google/')
 				is_anthropic_model = self.model.startswith('anthropic/')
 				is_reasoning_model = self.reasoning_models and any(
-					str(pattern).lower() in str(self.model).lower() for pattern in self.reasoning_models
+					pattern and pattern.lower() in str(self.model).lower() for pattern in self.reasoning_models
 				)
 
 				if is_google_model or is_anthropic_model or is_reasoning_model:
