@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from pypdf import PdfReader
 
 from browser_use.filesystem.file_system import (
 	DEFAULT_FILE_SYSTEM_PATH,
@@ -17,6 +18,15 @@ from browser_use.filesystem.file_system import (
 	MarkdownFile,
 	TxtFile,
 )
+
+
+def _extract_pdf_text(path: Path) -> tuple[str, list[str]]:
+	"""Extract a PDF as (whitespace-collapsed blob, non-empty stripped lines).
+
+	The blob tolerates line wrapping; the lines are what header markers would survive on.
+	"""
+	text = '\n'.join(page.extract_text() or '' for page in PdfReader(path).pages)
+	return ' '.join(text.split()), [line.strip() for line in text.splitlines() if line.strip()]
 
 
 class TestBaseFile:
@@ -221,6 +231,39 @@ class TestFileSystem:
 				fs.nuke()
 			except Exception:
 				pass
+
+	async def test_write_pdf_renders_content_as_plain_text(self, empty_filesystem):
+		"""PDF content should be rendered as plain text, not ReportLab markup."""
+		# (markdown source, text expected in the PDF)
+		headers = [
+			('# Q&A: <b y vs 5', 'Q&A: <b y vs 5'),
+			('## Section 2 & 3', 'Section 2 & 3'),
+			('### Notes <i> #1', 'Notes <i> #1'),
+		]
+		body = ['Comparison: 2 <b y & 5 > 4', '#hashtag is not a header', 'O\'Brien said "hi" & left']
+
+		result = await empty_filesystem.write_file('comparison.pdf', '\n\n'.join([source for source, _ in headers] + body))
+
+		assert result == 'Data written to file comparison.pdf successfully.'
+		blob, lines = _extract_pdf_text(empty_filesystem.data_dir / 'comparison.pdf')
+		for _, rendered in headers:
+			assert rendered in blob
+		for line in body:
+			assert line in blob
+		# Content checks alone pass with a leftover marker, e.g. '# Notes <i> #1' contains 'Notes <i> #1'
+		assert [line for line in lines if line.startswith(('# ', '## ', '### '))] == []
+
+	async def test_append_pdf_escapes_both_halves(self, empty_filesystem):
+		"""Appending re-renders the whole PDF, so old and new content must both stay plain text."""
+		# The markup that breaks ReportLab goes in the appended half, so this fails on the append path alone
+		await empty_filesystem.write_file('report.pdf', 'First & half')
+
+		result = await empty_filesystem.append_file('report.pdf', '\nSecond <b half > 2')
+
+		assert result == 'Data appended to file report.pdf successfully.'
+		blob, _ = _extract_pdf_text(empty_filesystem.data_dir / 'report.pdf')
+		assert 'First & half' in blob
+		assert 'Second <b half > 2' in blob
 
 	def test_filesystem_initialization(self, temp_filesystem):
 		"""Test FileSystem initialization with default files."""
