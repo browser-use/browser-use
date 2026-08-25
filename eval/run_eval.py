@@ -24,7 +24,27 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-from browser_use.agent.service import ULTRAFAST_AGENT_SETTINGS
+from browser_use.agent.service import (
+	ULTRAFAST_AGENT_SETTINGS,
+	ULTRAFAST_BROWSER_SETTINGS,
+	ULTRAFAST_EXCLUDED_ACTIONS,
+)
+
+
+def ultrafast_with(**overrides: Any) -> dict[str, Any]:
+	"""The full preset with one knob changed.
+
+	Ablations cannot pass ultrafast=True, which would overwrite the knob under test, so they
+	rebuild the preset from its parts. All three parts matter: dropping the browser settings or
+	the excluded actions would vary more than the one thing being measured.
+	"""
+	return {
+		**ULTRAFAST_AGENT_SETTINGS,
+		'exclude_actions': list(ULTRAFAST_EXCLUDED_ACTIONS),
+		'browser_settings': dict(ULTRAFAST_BROWSER_SETTINGS),
+		**overrides,
+	}
+
 
 load_dotenv()
 
@@ -83,11 +103,11 @@ PROFILES: dict[str, dict[str, Any]] = {
 	'ultrafast': {'ultrafast': True},
 	# Ablations spread the preset and override one key. They must NOT pass ultrafast=True, which
 	# overwrites the very setting the ablation is trying to vary.
-	'ultrafast_vision': {**ULTRAFAST_AGENT_SETTINGS, 'use_vision': True, 'capture_screenshots': True},
-	'ultrafast_no_thinking': {**ULTRAFAST_AGENT_SETTINGS, 'flash_thinking': False},
-	'ultrafast_memory': {**ULTRAFAST_AGENT_SETTINGS, 'flash_memory': True},
-	'ultrafast_noloop': {**ULTRAFAST_AGENT_SETTINGS, 'loop_block_threshold': 3},
-	'ultrafast_hist20': {**ULTRAFAST_AGENT_SETTINGS, 'max_history_items': 20},
+	'ultrafast_vision': ultrafast_with(use_vision=True, capture_screenshots=True),
+	'ultrafast_no_thinking': ultrafast_with(flash_thinking=False),
+	'ultrafast_memory': ultrafast_with(flash_memory=True),
+	'ultrafast_noloop': ultrafast_with(loop_block_threshold=3),
+	'ultrafast_hist20': ultrafast_with(max_history_items=20),
 	'ultrafast_no_highlight': {'ultrafast': True, 'browser_settings': {'highlight_elements': False}},
 	'ultrafast_no_dom': {
 		'ultrafast': True,
