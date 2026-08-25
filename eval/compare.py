@@ -16,9 +16,12 @@ from typing import Any
 
 METRICS = (
 	('agent_seconds', 'wall'),
+	('mean_step_seconds', 'step'),
 	('llm_seconds', 'llm'),
-	('observation_seconds', 'dom'),
-	('other_seconds', 'other'),
+	('browser_state_seconds', 'browser'),
+	('prompt_seconds', 'prompt'),
+	('actions_seconds', 'actions'),
+	('overhead_seconds', 'overhead'),
 	('steps', 'steps'),
 	('prompt_tokens', 'prompt_tok'),
 	('completion_tokens', 'compl_tok'),

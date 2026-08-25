@@ -94,6 +94,12 @@ class AgentSettings(BaseModel):
 	loop_block_threshold: int = 0  # >0 hard-blocks an identical action repeated this often on an unchanged page
 	max_clickable_elements_length: int = 40000  # Max characters for clickable elements in prompt
 
+	# Capture a screenshot on every step, even when use_vision=False, because cloud sync and GIF
+	# generation want them. Set False to capture only when the screenshot tool asks for one.
+	# Requires use_vision to be False or 'auto', because use_vision=True needs an image every step.
+	capture_screenshots: bool = True
+	log_step_timings: bool = False  # Log the per-phase latency breakdown of every step at INFO
+
 
 class PageFingerprint(BaseModel):
 	"""Lightweight fingerprint of the browser page state."""
@@ -398,10 +404,26 @@ class StepMetadata(BaseModel):
 	step_number: int
 	step_interval: float | None = None
 
+	# Wall time per phase of the step, in seconds. These are what you tune for latency:
+	# browser_state is DOM + screenshot, prompt is message assembly, llm is the model call,
+	# actions is tool execution. Whatever is left over from duration_seconds is agent overhead.
+	browser_state_seconds: float | None = None
+	prompt_seconds: float | None = None
+	llm_seconds: float | None = None
+	actions_seconds: float | None = None
+
 	@property
 	def duration_seconds(self) -> float:
 		"""Calculate step duration in seconds"""
 		return self.step_end_time - self.step_start_time
+
+	@property
+	def overhead_seconds(self) -> float:
+		"""Step time not attributed to any measured phase."""
+		measured = sum(
+			s or 0.0 for s in (self.browser_state_seconds, self.prompt_seconds, self.llm_seconds, self.actions_seconds)
+		)
+		return max(0.0, self.duration_seconds - measured)
 
 
 class PlanItem(BaseModel):

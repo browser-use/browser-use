@@ -13,7 +13,6 @@ Usage:
 
 import argparse
 import asyncio
-import functools
 import json
 import os
 import statistics
@@ -78,6 +77,18 @@ PROFILES: dict[str, dict[str, Any]] = {
 		'loop_block_threshold': 3,
 		'exclude_actions': ['wait'],
 	},
+	# The shipped preset. Everything above exists to justify what goes in here.
+	'ultrafast': {'ultrafast': True},
+	# Ablations against 'ultrafast', one knob at a time.
+	'ultrafast_vision': {'ultrafast': True, 'use_vision': True, 'capture_screenshots': True},
+	'ultrafast_no_thinking': {'ultrafast': True, 'flash_thinking': False},
+	'ultrafast_no_highlight': {'ultrafast': True, 'browser_settings': {'highlight_elements': False}},
+	'ultrafast_hist20': {'ultrafast': True, 'max_history_items': 20},
+	'ultrafast_hist_all': {'ultrafast': True, 'max_history_items': None},
+	'ultrafast_no_dom': {
+		'ultrafast': True,
+		'browser_settings': {'paint_order_filtering': False, 'highlight_elements': False, 'cross_origin_iframes': False},
+	},
 }
 
 
@@ -132,42 +143,21 @@ class TimingLLM:
 		return result
 
 
-class ObservationTimer:
-	"""Accumulates wall time spent building browser state summaries (DOM + screenshot).
-
-	Patches the bound method on the session class for this subprocess only.
-	"""
-
-	def __init__(self):
-		self.seconds = 0.0
-		self.calls = 0
-		self._original = None
-
-	def install(self) -> None:
-		from browser_use.browser.session import BrowserSession
-
-		if self._original is not None:
-			return
-		self._original = BrowserSession.get_browser_state_summary
-
-		@functools.wraps(self._original)
-		async def timed(session_self, *args, **kwargs):
-			started = time.perf_counter()
-			try:
-				return await self._original(session_self, *args, **kwargs)  # type: ignore[misc]
-			finally:
-				self.seconds += time.perf_counter() - started
-				self.calls += 1
-
-		BrowserSession.get_browser_state_summary = timed  # type: ignore[assignment]
-
-	def uninstall(self) -> None:
-		if self._original is None:
-			return
-		from browser_use.browser.session import BrowserSession
-
-		BrowserSession.get_browser_state_summary = self._original  # type: ignore[assignment]
-		self._original = None
+def phase_breakdown(history: Any) -> dict[str, Any]:
+	"""Sum the per-phase timings the agent records on every step's StepMetadata."""
+	metas = [h.metadata for h in history.history if h.metadata]
+	if not metas:
+		return {}
+	total = lambda attr: round(sum(getattr(m, attr) or 0.0 for m in metas), 3)  # noqa: E731
+	return {
+		'browser_state_seconds': total('browser_state_seconds'),
+		'prompt_seconds': total('prompt_seconds'),
+		'step_llm_seconds': total('llm_seconds'),
+		'actions_seconds': total('actions_seconds'),
+		'overhead_seconds': total('overhead_seconds'),
+		'mean_step_seconds': round(statistics.mean(m.duration_seconds for m in metas), 3),
+		'p90_step_seconds': round(sorted(m.duration_seconds for m in metas)[int(0.9 * (len(metas) - 1))], 3),
+	}
 
 
 # --------------------------------------------------------------------------------------
@@ -205,6 +195,16 @@ def build_llm(timing: bool = True) -> Any:
 		base_url = os.getenv('BU_EVAL_LLM_BASE_URL') or os.getenv('OPENAI_BASE_URL')
 		if base_url:
 			kwargs['base_url'] = base_url
+			# Self-hosted vLLM. Qwen's recommended non-thinking sampler, plus the chat template
+			# switch that stops the model emitting a <think> block we would pay for and discard.
+			# frequency_penalty is an OpenAI-specific workaround that hurts JSON here.
+			kwargs |= {
+				'temperature': 0.7,
+				'top_p': 0.8,
+				'frequency_penalty': None,
+				'max_completion_tokens': int(os.getenv('BU_EVAL_MAX_TOKENS', '1024')),
+				'extra_body': {'top_k': 20, 'chat_template_kwargs': {'enable_thinking': False}},
+			}
 		# An explicit key, so pointing at OpenRouter or Modal does not require overloading
 		# OPENAI_API_KEY with a credential that is not an OpenAI one.
 		api_key = os.getenv('BU_EVAL_LLM_API_KEY') or os.getenv('OPENAI_API_KEY')
@@ -365,7 +365,6 @@ async def run_single_task(task_file: Path, profile_name: str) -> dict[str, Any]:
 	}
 	session = None
 	owns_browser = True
-	observation = ObservationTimer()
 	process_started = time.perf_counter()
 
 	try:
@@ -377,12 +376,15 @@ async def run_single_task(task_file: Path, profile_name: str) -> dict[str, Any]:
 
 		llm = build_llm()
 		session, owns_browser = build_browser()
-		observation.install()
 
 		settings = dict(PROFILES[profile_name])
 		exclude_actions = settings.pop('exclude_actions', [])
+		browser_settings = settings.pop('browser_settings', {})
 		tools = Tools(exclude_actions=list(exclude_actions)) if exclude_actions else None
 		agent = Agent(task=task_data['task'], llm=llm, browser_session=session, tools=tools, **settings)
+		# After construction: Agent(ultrafast=True) rewrites the profile of the session it is given.
+		if browser_settings:
+			session.browser_profile = session.browser_profile.model_copy(update=browser_settings)
 
 		agent_started = time.perf_counter()
 		history = await agent.run(max_steps=max_steps)
@@ -399,8 +401,6 @@ async def run_single_task(task_file: Path, profile_name: str) -> dict[str, Any]:
 				build_judge(), task_data['task'], output, task_data.get('judge_context', ['The agent must solve the task'])
 			)
 
-		step_durations = [h.metadata.duration_seconds for h in history.history if h.metadata]
-
 		record.update(
 			{
 				'success': success,
@@ -411,13 +411,13 @@ async def run_single_task(task_file: Path, profile_name: str) -> dict[str, Any]:
 				'process_seconds': round(time.perf_counter() - process_started, 3),
 				'llm_seconds': round(getattr(llm, 'llm_seconds', 0.0), 3),
 				'llm_calls': getattr(llm, 'llm_calls', 0),
-				'observation_seconds': round(observation.seconds, 3),
-				'observation_calls': observation.calls,
-				'other_seconds': round(agent_seconds - getattr(llm, 'llm_seconds', 0.0) - observation.seconds, 3),
-				'mean_step_seconds': round(statistics.mean(step_durations), 3) if step_durations else None,
 				'prompt_tokens': getattr(llm, 'prompt_tokens', 0),
-				'excluded_actions': list(exclude_actions),
 				'completion_tokens': getattr(llm, 'completion_tokens', 0),
+				'excluded_actions': list(exclude_actions),
+				# A dead LLM endpoint otherwise shows up as a quality regression: the agent swallows
+				# the error, takes empty steps and produces no output, which the judge scores as a fail.
+				'step_errors': sum(1 for e in history.errors() if e),
+				**phase_breakdown(history),
 			}
 		)
 
@@ -426,7 +426,6 @@ async def run_single_task(task_file: Path, profile_name: str) -> dict[str, Any]:
 		record['process_seconds'] = round(time.perf_counter() - process_started, 3)
 
 	finally:
-		observation.uninstall()
 		if session is not None:
 			try:
 				# Only tear down the browser process if this run started it.
@@ -539,9 +538,13 @@ def summarise(results: list[dict[str, Any]]) -> dict[str, Any]:
 		'process_seconds': agg('process_seconds'),
 		'agent_seconds': agg('agent_seconds'),
 		'llm_seconds': agg('llm_seconds'),
-		'observation_seconds': agg('observation_seconds'),
-		'other_seconds': agg('other_seconds'),
+		'browser_state_seconds': agg('browser_state_seconds'),
+		'prompt_seconds': agg('prompt_seconds'),
+		'actions_seconds': agg('actions_seconds'),
+		'overhead_seconds': agg('overhead_seconds'),
+		'mean_step_seconds': agg('mean_step_seconds'),
 		'steps': agg('steps'),
+		'step_errors': sum(r.get('step_errors', 0) for r in results),
 		'prompt_tokens': agg('prompt_tokens'),
 		'completion_tokens': agg('completion_tokens'),
 	}
@@ -552,7 +555,8 @@ def print_report(results: list[dict[str, Any]], summary: dict[str, Any], meta: d
 	print(f'RESULTS  suite={meta["suite"]}  profile={meta["profile"]}  browser={meta["browser"]}  llm={meta["llm"]}')
 	print('=' * 100)
 
-	headers = ['Task', 'OK', 'Steps', 'Wall', 'LLM', 'Obs', 'Other', 'Reason']
+	headers = ['Task', 'OK', 'Steps', 'Wall', 'LLM', 'Browser', 'Prompt', 'Actions', 'Over', 'Reason']
+	cells = ('agent_seconds', 'llm_seconds', 'browser_state_seconds', 'prompt_seconds', 'actions_seconds', 'overhead_seconds')
 	rows = []
 	for r in results:
 		rows.append(
@@ -560,10 +564,7 @@ def print_report(results: list[dict[str, Any]], summary: dict[str, Any], meta: d
 				f'{r["file"]}#{r.get("run_index", 0) + 1}',
 				'✅' if r.get('success') else '❌',
 				str(r.get('steps', '-')),
-				f'{r.get("agent_seconds", 0):.1f}s' if r.get('agent_seconds') else '-',
-				f'{r.get("llm_seconds", 0):.1f}s' if r.get('llm_seconds') else '-',
-				f'{r.get("observation_seconds", 0):.1f}s' if r.get('observation_seconds') else '-',
-				f'{r.get("other_seconds", 0):.1f}s' if r.get('other_seconds') else '-',
+				*(f'{r.get(k, 0):.1f}s' if r.get(k) else '-' for k in cells),
 				str(r.get('explanation', ''))[:60],
 			]
 		)
@@ -575,8 +576,19 @@ def print_report(results: list[dict[str, Any]], summary: dict[str, Any], meta: d
 		print(' | '.join(str(row[i]).ljust(widths[i]) for i in range(len(headers))))
 
 	print('\n' + '-' * 100)
-	print(f'PASS RATE: {summary["passed"]}/{summary["total"]} ({summary["pass_rate"] * 100:.0f}%)')
-	for key in ('agent_seconds', 'llm_seconds', 'observation_seconds', 'other_seconds', 'steps'):
+	print(
+		f'PASS RATE: {summary["passed"]}/{summary["total"]} ({summary["pass_rate"] * 100:.0f}%)  step_errors={summary["step_errors"]}'
+	)
+	for key in (
+		'agent_seconds',
+		'mean_step_seconds',
+		'llm_seconds',
+		'browser_state_seconds',
+		'prompt_seconds',
+		'actions_seconds',
+		'overhead_seconds',
+		'steps',
+	):
 		stats = summary.get(key)
 		if stats:
 			print(f'{key:22} median={stats["median"]:>7}  mean={stats["mean"]:>7}  p90={stats["p90"]:>7}  max={stats["max"]:>7}')

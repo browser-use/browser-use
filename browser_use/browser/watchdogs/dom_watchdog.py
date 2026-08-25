@@ -1,6 +1,7 @@
 """DOM watchdog for browser DOM tree management using CDP."""
 
 import asyncio
+import os  # PERF-TEMP
 import time
 from typing import TYPE_CHECKING
 
@@ -23,6 +24,11 @@ if TYPE_CHECKING:
 	from browser_use.browser.views import BrowserStateSummary, NetworkRequest, PageInfo, PaginationButton
 
 _BROWSER_STATE_PARALLEL_TASK_BUDGET_SECONDS = 20.0
+
+# PERF-TEMP: set BROWSER_USE_PERF_LOG=1 to log the browser-state sub-phase breakdown at INFO.
+# This watchdog cannot see the agent's log_step_timings setting, hence the env var.
+# Strip every PERF-TEMP block before merge.
+_PERF_LOG = os.environ.get('BROWSER_USE_PERF_LOG', '') not in ('', '0', 'false', 'False')
 
 
 class DOMWatchdog(BaseWatchdog):
@@ -391,6 +397,11 @@ class DOMWatchdog(BaseWatchdog):
 			content = None
 			screenshot_b64 = None
 
+			# PERF-TEMP: sub-phase breakdown of browser state. DOM and screenshot run in parallel, so
+			# the phase cost is max(dom, screenshot) plus the serial tail below. Strip before merge.
+			_perf: dict[str, float] = {}
+			_t0 = time.perf_counter()
+
 			if dom_task:
 				try:
 					content = await dom_task
@@ -400,6 +411,9 @@ class DOMWatchdog(BaseWatchdog):
 					content = SerializedDOMState(_root=None, selector_map={})
 			else:
 				content = SerializedDOMState(_root=None, selector_map={})
+
+			_perf['dom'] = time.perf_counter() - _t0  # PERF-TEMP
+			_t0 = time.perf_counter()  # PERF-TEMP
 
 			if screenshot_task:
 				try:
@@ -416,6 +430,9 @@ class DOMWatchdog(BaseWatchdog):
 				except Exception as e:
 					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Clean screenshot failed: {e}')
 					screenshot_b64 = None
+
+			_perf['screenshot'] = time.perf_counter() - _t0  # PERF-TEMP
+			_t0 = time.perf_counter()  # PERF-TEMP
 
 			# Add browser-side highlights for user visibility
 			if content and content.selector_map and self.browser_session.browser_profile.dom_highlight_elements:
@@ -483,6 +500,15 @@ class DOMWatchdog(BaseWatchdog):
 			else:
 				self.logger.debug(
 					'🔍 DOMWatchdog.on_BrowserStateRequestEvent: 📸 Creating BrowserStateSummary WITHOUT screenshot'
+				)
+
+			# PERF-TEMP: the serial tail is title + page info + pagination detection, each of which
+			# is a CDP round trip or a full walk of the selector map.
+			_perf['tail'] = time.perf_counter() - _t0
+			if _PERF_LOG:
+				self.logger.info(
+					f'⏱️      browser_state: dom {_perf["dom"]:.3f}s | screenshot {_perf["screenshot"]:.3f}s | '
+					f'tail {_perf["tail"]:.3f}s (title+page_info+pagination) | elements {len(content.selector_map)}'
 				)
 
 			browser_state = BrowserStateSummary(

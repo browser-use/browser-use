@@ -7,6 +7,7 @@ import re
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
 from urllib.parse import urlparse
@@ -130,6 +131,26 @@ Context = TypeVar('Context')
 AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 
 
+# Browser profile settings applied by Agent(ultrafast=True). The agent-side half of the preset
+# lives inline in __init__ because it overwrites constructor arguments.
+#
+# Deliberately short. Browser state is only ~0.11s of a ~2.3s step, and disabling
+# paint_order_filtering, highlight_elements and cross_origin_iframes measured no faster than
+# leaving them on, while giving up occlusion filtering and iframe support. Latency here is not
+# worth accuracy. Re-check with the `ultrafast_no_dom` profile in eval/run_eval.py.
+ULTRAFAST_BROWSER_SETTINGS: dict[str, Any] = {
+	'wait_between_actions': 0.0,
+	# Two extra CDP round trips per interaction to draw an overlay that only a human watching the
+	# browser can use. Worth ~0.034s per step, or ~12% of the action phase. The effect is small and
+	# not cleanly separated from noise, but the feature has no functional value in a speed preset.
+	'highlight_elements': False,
+}
+
+# Actions removed by Agent(ultrafast=True): the model must not be able to spend a whole step
+# deciding to do nothing.
+ULTRAFAST_EXCLUDED_ACTIONS: list[str] = ['wait']
+
+
 class Agent(Generic[Context, AgentStructuredOutput]):
 	@time_execution_sync('--init')
 	def __init__(
@@ -210,6 +231,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		llm_screenshot_size: tuple[int, int] | None = None,
 		message_compaction: MessageCompactionSettings | bool | None = True,
 		max_clickable_elements_length: int = 40000,
+		capture_screenshots: bool = True,
+		log_step_timings: bool = False,
+		ultrafast: bool = False,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
 		**kwargs,
@@ -235,6 +259,36 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				from browser_use import ChatBrowserUse
 
 				llm = ChatBrowserUse()
+
+		# Ultrafast overwrites the settings it covers rather than merging with them: it is a single
+		# opinionated preset for minimum per-step latency, tuned for small self-hosted models where
+		# the step budget is dominated by prompt size and by work the model never sees.
+		if ultrafast:
+			# Reason inside a length-capped JSON field rather than in an unbounded memory field or
+			# in native reasoning tokens: small models need scratch space but must not ramble.
+			# Costs ~11% wall clock against no reasoning field at all (`ultrafast_no_thinking`),
+			# which buys headroom on tasks harder than anything currently in eval/tasks.
+			flash_mode = True
+			flash_thinking = True
+			flash_memory = False
+			use_thinking = False
+			# Text by default, images on request. An image on every step costs far more than its
+			# prefill: a small VL model given one took 5.5 steps instead of 3.0, and ran 50% slower
+			# end to end (`ultrafast_vision`). 'auto' keeps the screenshot tool, so the agent can
+			# still ask for an image when the text state is not enough, and pays only then.
+			use_vision = 'auto'
+			capture_screenshots = False
+			max_actions_per_step = 10
+			# History is NOT trimmed. A history item costs 44-105 tokens, and capping the list at 6
+			# measured identical per-step time (1.65s at 6, 20 and unlimited) while raising the step
+			# count: median 4.5 steps against 3.5, worst case 12 against 6. Context that prevents one
+			# wasted step pays for itself many times over. See `ultrafast_hist*` in eval/run_eval.py.
+			max_history_items = None
+			# Both of these are extra LLM round trips.
+			message_compaction = False
+			use_judge = False
+			include_tool_call_examples = False
+			calculate_cost = False
 
 		# set flashmode = True if llm is ChatBrowserUse
 		if llm.provider == 'browser-use':
@@ -287,6 +341,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			base_profile = base_profile.model_copy()
 		if demo_mode is not None and base_profile.demo_mode != demo_mode:
 			base_profile = base_profile.model_copy(update={'demo_mode': demo_mode})
+		if ultrafast:
+			base_profile = base_profile.model_copy(update=ULTRAFAST_BROWSER_SETTINGS)
 		browser_profile = base_profile
 
 		# Handle browser vs browser_session parameter (browser takes precedence)
@@ -296,6 +352,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		if browser_session is not None and demo_mode is not None and browser_session.browser_profile.demo_mode != demo_mode:
 			browser_session.browser_profile = browser_session.browser_profile.model_copy(update={'demo_mode': demo_mode})
+
+		if browser_session is not None and ultrafast:
+			browser_session.browser_profile = browser_session.browser_profile.model_copy(update=ULTRAFAST_BROWSER_SETTINGS)
 
 		self.browser_session = browser_session or BrowserSession(
 			browser_profile=browser_profile,
@@ -324,6 +383,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
 		if use_vision != 'auto':
 			self.tools.exclude_action('screenshot')
+
+		if ultrafast:
+			for action in ULTRAFAST_EXCLUDED_ACTIONS:
+				self.tools.exclude_action(action)
 
 		# Enable coordinate clicking for models that support it
 		model_name = getattr(llm, 'model', '').lower()
@@ -392,6 +455,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if isinstance(message_compaction, bool):
 			message_compaction = MessageCompactionSettings(enabled=message_compaction)
 
+		if not capture_screenshots and use_vision is True:
+			raise ValueError(
+				"capture_screenshots=False needs use_vision=False or use_vision='auto'. "
+				'use_vision=True sends an image every step, so every step must capture one.'
+			)
+
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			vision_detail_level=vision_detail_level,
@@ -424,6 +493,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			loop_block_threshold=loop_block_threshold,
 			message_compaction=message_compaction,
 			max_clickable_elements_length=max_clickable_elements_length,
+			capture_screenshots=capture_screenshots,
+			log_step_timings=log_step_timings,
 		)
 
 		# Token cost service
@@ -436,6 +507,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Store signal handler setting (not part of AgentSettings as it's runtime behavior)
 		self.enable_signal_handler = enable_signal_handler
+
+		# Per-phase wall time for the step currently in flight, keyed by phase name.
+		self._step_timings: dict[str, float] = {}
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -1040,6 +1114,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.state.paused:
 			raise InterruptedError
 
+	@contextmanager
+	def _phase(self, name: str):
+		"""Accumulate wall time for one phase of the current step."""
+		started = time.perf_counter()
+		try:
+			yield
+		finally:
+			self._step_timings[name] = self._step_timings.get(name, 0.0) + time.perf_counter() - started
+
 	@observe(name='agent.step', ignore_output=True, ignore_input=True)
 	@time_execution_async('--step')
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
@@ -1047,6 +1130,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Initialize timing first, before any exceptions can occur
 
 		self.step_start_time = time.time()
+		self._step_timings = {}
 
 		browser_state_summary = None
 
@@ -1071,7 +1155,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					self.logger.warning(f'Phase 0 captcha wait failed (non-fatal): {e}')
 
 			# Phase 1: Prepare context and timing
-			browser_state_summary = await self._prepare_context(step_info)
+			with self._phase('context'):
+				browser_state_summary = await self._prepare_context(step_info)
 
 			# Clear previous step state after context preparation (which needs
 			# them for the "previous action result" prompt) but before the LLM
@@ -1081,8 +1166,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.state.last_result = None
 
 			# Phase 2: Get model output and execute actions
-			await self._get_next_action(browser_state_summary)
-			await self._execute_actions()
+			with self._phase('llm'):
+				await self._get_next_action(browser_state_summary)
+			with self._phase('actions'):
+				await self._execute_actions()
 
 			# Phase 3: Post-processing
 			await self._post_process()
@@ -1094,6 +1181,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		finally:
 			await self._finalize(browser_state_summary)
 
+	def _screenshot_was_requested(self) -> bool:
+		"""True when the previous step ran the screenshot tool, which asks for the next observation.
+
+		The message manager applies the same test to decide whether to attach the image, so the two
+		must agree: if it attaches an image the capture did not take, the agent goes blind silently.
+		"""
+		return any(r.metadata and r.metadata.get('include_screenshot') for r in self.state.last_result or [])
+
 	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
 		"""Prepare the context for the step: browser state, action models, page actions"""
 		# step_start_time is now set in step() method
@@ -1101,12 +1196,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
 		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
-		# Always take screenshots for all steps
-		self.logger.debug('📸 Requesting browser state with include_screenshot=True')
-		browser_state_summary = await self.browser_session.get_browser_state_summary(
-			include_screenshot=True,  # always capture even if use_vision=False so that cloud sync is useful (it's fast now anyway)
-			include_recent_events=self.include_recent_events,
-		)
+		# Screenshots are captured even when use_vision=False so that cloud sync stays useful.
+		# When capture_screenshots is off, capture only on the step after the screenshot tool ran,
+		# which is the step whose state message will carry the image.
+		include_screenshot = self.settings.capture_screenshots or self._screenshot_was_requested()
+		with self._phase('browser_state'):
+			browser_state_summary = await self.browser_session.get_browser_state_summary(
+				include_screenshot=include_screenshot,
+				include_recent_events=self.include_recent_events,
+			)
 		if browser_state_summary.screenshot:
 			self.logger.debug(f'📸 Got browser state WITH screenshot, length: {len(browser_state_summary.screenshot)}')
 		else:
@@ -1378,12 +1476,27 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					previous_end_time = last_history_item.metadata.step_end_time
 					previous_start_time = last_history_item.metadata.step_start_time
 					step_interval = max(0, previous_end_time - previous_start_time)
+			browser_state_seconds = self._step_timings.get('browser_state', 0.0)
 			metadata = StepMetadata(
 				step_number=self.state.n_steps,
 				step_start_time=self.step_start_time,
 				step_end_time=step_end_time,
 				step_interval=step_interval,
+				browser_state_seconds=browser_state_seconds,
+				prompt_seconds=max(0.0, self._step_timings.get('context', 0.0) - browser_state_seconds),
+				llm_seconds=self._step_timings.get('llm', 0.0),
+				actions_seconds=self._step_timings.get('actions', 0.0),
 			)
+
+			# PERF-TEMP: speed-investigation logging. Strip every PERF-TEMP block before merge.
+			if self.settings.log_step_timings:
+				t = self._step_timings
+				self.logger.info(
+					f'⏱️  Step {metadata.step_number} {metadata.duration_seconds:.2f}s = '
+					f'browser {browser_state_seconds:.2f} | prompt {t.get("context", 0.0) - browser_state_seconds:.2f} | '
+					f'llm {t.get("llm", 0.0):.2f} | actions {t.get("actions", 0.0):.2f} | '
+					f'overhead {metadata.overhead_seconds:.2f}'
+				)
 
 			# Use _make_history_item like main branch
 			await self._make_history_item(
@@ -2809,10 +2922,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Log action before execution
 				await self._log_action(action, action_name, i + 1, total_actions)
 
+				# PERF-TEMP: per-action breakdown. The pre/post URL and focus probes are two extra CDP
+				# round trips per action; time them separately from the action itself so the guard
+				# cost is visible. Strip every PERF-TEMP block before merge.
+				_t0 = time.perf_counter()
 				# Capture pre-action state for runtime page-change detection
 				pre_action_url = await self.browser_session.get_current_page_url()
 				pre_action_focus = self.browser_session.agent_focus_target_id
+				_t_probe = time.perf_counter() - _t0
 
+				_t0 = time.perf_counter()
 				result = await self.tools.act(
 					action=action,
 					browser_session=self.browser_session,
@@ -2822,6 +2941,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					available_file_paths=self.available_file_paths,
 					extraction_schema=self.extraction_schema,
 				)
+				# PERF-TEMP
+				if self.settings.log_step_timings:
+					self.logger.info(
+						f'⏱️    action {i + 1}/{total_actions} {action_name}: '
+						f'{time.perf_counter() - _t0:.3f}s (+{_t_probe:.3f}s page-change probe)'
+					)
 
 				if result.error:
 					await self._demo_mode_log(
