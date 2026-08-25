@@ -2,7 +2,12 @@ import importlib.resources
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Optional
 
-from browser_use.browser.views import PLACEHOLDER_4PX_SCREENSHOT
+from browser_use.browser.views import (
+	SCREENSHOT_FORMAT,
+	SCREENSHOT_MEDIA_TYPE,
+	SCREENSHOT_QUALITY,
+	is_placeholder_screenshot,
+)
 from browser_use.dom.views import NodeType, SimplifiedNode
 from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
 from browser_use.observability import observe_debug
@@ -398,7 +403,8 @@ Available tabs:
 
 			img_resized = img.resize(self.llm_screenshot_size, Image.Resampling.LANCZOS)
 			buffer = BytesIO()
-			img_resized.save(buffer, format='PNG')
+			# Must match SCREENSHOT_MEDIA_TYPE, which is what we label the data URL with.
+			img_resized.save(buffer, format=SCREENSHOT_FORMAT.upper(), quality=SCREENSHOT_QUALITY)
 			return base64.b64encode(buffer.getvalue()).decode('utf-8')
 		except Exception as e:
 			logging.getLogger(__name__).warning(f'Failed to resize screenshot: {e}, using original')
@@ -443,7 +449,7 @@ Available tabs:
 
 		# Check if we have images to include (from read_file action)
 		has_images = bool(self.read_state_images)
-		screenshots = [screenshot for screenshot in self.screenshots if screenshot != PLACEHOLDER_4PX_SCREENSHOT]
+		screenshots = [screenshot for screenshot in self.screenshots if not is_placeholder_screenshot(screenshot)]
 
 		if (use_vision is True and screenshots) or has_images:
 			# Start with text description
@@ -470,8 +476,8 @@ Available tabs:
 				content_parts.append(
 					ContentPartImageParam(
 						image_url=ImageURL(
-							url=f'data:image/png;base64,{processed_screenshot}',
-							media_type='image/png',
+							url=f'data:{SCREENSHOT_MEDIA_TYPE};base64,{processed_screenshot}',
+							media_type=SCREENSHOT_MEDIA_TYPE,
 							detail=self.vision_detail_level,
 						),
 					)
@@ -548,7 +554,7 @@ def get_rerun_summary_message(prompt: str, screenshot_b64: str | None = None) ->
 			ContentPartTextParam(type='text', text=prompt),
 			ContentPartImageParam(
 				type='image_url',
-				image_url=ImageURL(url=f'data:image/png;base64,{screenshot_b64}'),
+				image_url=ImageURL(url=f'data:{SCREENSHOT_MEDIA_TYPE};base64,{screenshot_b64}'),
 			),
 		]
 		return UserMessage(content=content_parts)

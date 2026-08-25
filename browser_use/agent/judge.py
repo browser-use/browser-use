@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+from browser_use.browser.views import SCREENSHOT_MEDIA_TYPE
 from browser_use.llm.messages import (
 	BaseMessage,
 	ContentPartImageParam,
@@ -82,8 +83,8 @@ def construct_judge_messages(
 				encoded_images.append(
 					ContentPartImageParam(
 						image_url=ImageURL(
-							url=f'data:image/png;base64,{encoded}',
-							media_type='image/png',
+							url=f'data:{SCREENSHOT_MEDIA_TYPE};base64,{encoded}',
+							media_type=SCREENSHOT_MEDIA_TYPE,
 						)
 					)
 				)

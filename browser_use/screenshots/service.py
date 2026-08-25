@@ -7,6 +7,7 @@ from pathlib import Path
 
 import anyio
 
+from browser_use.browser.views import SCREENSHOT_FORMAT
 from browser_use.observability import observe_debug
 
 
@@ -24,7 +25,7 @@ class ScreenshotService:
 	@observe_debug(ignore_input=True, ignore_output=True, name='store_screenshot')
 	async def store_screenshot(self, screenshot_b64: str, step_number: int) -> str:
 		"""Store screenshot to disk and return the full path as string"""
-		screenshot_filename = f'step_{step_number}.png'
+		screenshot_filename = f'step_{step_number}.{SCREENSHOT_FORMAT}'
 		screenshot_path = self.screenshots_dir / screenshot_filename
 
 		# Decode base64 and save to disk

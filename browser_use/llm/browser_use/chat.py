@@ -97,6 +97,8 @@ class ChatBrowserUse(BaseChatModel):
 		self.max_retries = max_retries
 		self.retry_base_delay = retry_base_delay
 		self.retry_max_delay = retry_max_delay
+		self._client: httpx.AsyncClient | None = None
+		self._client_loop: asyncio.AbstractEventLoop | None = None
 
 		if not self.api_key:
 			raise ValueError(
@@ -259,19 +261,43 @@ class ChatBrowserUse(BaseChatModel):
 			usage=usage,
 		)
 
-	async def _make_request(self, payload: dict) -> dict:
-		"""Make a single API request."""
-		async with httpx.AsyncClient(timeout=self.timeout) as client:
-			response = await client.post(
-				f'{self.base_url}/v1/chat/completions',
-				json=payload,
+	def _get_client(self) -> httpx.AsyncClient:
+		"""Return the shared client, creating it on first use.
+
+		One connection pool is reused across steps. Opening a fresh connection per
+		request costs a TCP round trip plus a TLS handshake (~280ms measured against
+		a US endpoint), paid on every single agent step. keepalive_expiry is well
+		above the gap between steps so the connection survives between LLM calls.
+
+		The pool is rebuilt if the running event loop changed. A pool holds connections
+		bound to the loop that opened them, and `Agent.run_sync` calls `asyncio.run`, which
+		closes its loop on return -- so reusing one instance across two `run_sync` calls
+		would otherwise hand back sockets attached to a dead loop.
+		"""
+		loop = asyncio.get_running_loop()
+		if self._client is None or self._client.is_closed or self._client_loop is not loop:
+			self._client_loop = loop
+			self._client = httpx.AsyncClient(
+				timeout=self.timeout,
+				limits=httpx.Limits(max_keepalive_connections=4, keepalive_expiry=300.0),
 				headers={
 					'Authorization': f'Bearer {self.api_key}',
 					'Content-Type': 'application/json',
 				},
 			)
-			response.raise_for_status()
-			return response.json()
+		return self._client
+
+	async def _make_request(self, payload: dict) -> dict:
+		"""Make a single API request."""
+		response = await self._get_client().post(f'{self.base_url}/v1/chat/completions', json=payload)
+		response.raise_for_status()
+		return response.json()
+
+	async def aclose(self) -> None:
+		"""Close the shared connection pool."""
+		if self._client is not None and not self._client.is_closed:
+			await self._client.aclose()
+		self._client = None
 
 	def _raise_http_error(self, e: httpx.HTTPStatusError) -> None:
 		"""Raise appropriate ModelProviderError for HTTP errors."""

@@ -8,7 +8,7 @@ import platform
 from typing import TYPE_CHECKING
 
 from browser_use.agent.views import AgentHistoryList
-from browser_use.browser.views import PLACEHOLDER_4PX_SCREENSHOT
+from browser_use.browser.views import is_placeholder_screenshot
 from browser_use.config import CONFIG
 
 if TYPE_CHECKING:
@@ -70,11 +70,11 @@ def create_history_gif(
 
 	# Find the first non-placeholder screenshot
 	# A screenshot is considered a placeholder if:
-	# 1. It's the exact 4px placeholder for about:blank pages, OR
+	# 1. It is the blank 4px placeholder for about:blank pages, OR
 	# 2. It comes from a new tab page (chrome://newtab/, about:blank, etc.)
 	first_real_screenshot = None
 	for screenshot in screenshots:
-		if screenshot and screenshot != PLACEHOLDER_4PX_SCREENSHOT:
+		if not is_placeholder_screenshot(screenshot):
 			first_real_screenshot = screenshot
 			break
 
@@ -139,7 +139,7 @@ def create_history_gif(
 		first_real_screenshot = None
 		for item in history.history:
 			screenshot_b64 = item.state.get_screenshot()
-			if screenshot_b64 and screenshot_b64 != PLACEHOLDER_4PX_SCREENSHOT:
+			if not is_placeholder_screenshot(screenshot_b64):
 				first_real_screenshot = screenshot_b64
 				break
 
@@ -163,7 +163,7 @@ def create_history_gif(
 
 		# Skip placeholder screenshots from about:blank pages
 		# These are 4x4 white PNGs encoded as a specific base64 string
-		if screenshot == PLACEHOLDER_4PX_SCREENSHOT:
+		if is_placeholder_screenshot(screenshot):
 			logger.debug(f'Skipping placeholder screenshot from about:blank page at step {i}')
 			continue
 

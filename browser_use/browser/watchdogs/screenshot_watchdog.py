@@ -6,7 +6,7 @@ from bubus import BaseEvent
 from cdp_use.cdp.page import CaptureScreenshotParameters
 
 from browser_use.browser.events import ScreenshotEvent
-from browser_use.browser.views import BrowserError
+from browser_use.browser.views import SCREENSHOT_FORMAT, SCREENSHOT_QUALITY, BrowserError
 from browser_use.browser.watchdog_base import BaseWatchdog
 from browser_use.observability import observe_debug
 
@@ -62,7 +62,11 @@ class ScreenshotWatchdog(BaseWatchdog):
 				pass
 
 			# Prepare screenshot parameters
-			params_dict: dict[str, Any] = {'format': 'png', 'captureBeyondViewport': event.full_page}
+			params_dict: dict[str, Any] = {
+				'format': SCREENSHOT_FORMAT,
+				'quality': SCREENSHOT_QUALITY,
+				'captureBeyondViewport': event.full_page,
+			}
 			if event.clip:
 				params_dict['clip'] = {
 					'x': event.clip['x'],

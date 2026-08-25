@@ -5628,11 +5628,11 @@ async def test_beta_agent_initializes_screenshot_service(tmp_path):
 	assert agent.screenshot_service.screenshots_dir == agent.agent_directory / 'screenshots'
 	assert agent.screenshot_service.screenshots_dir.exists()
 
-	screenshot_b64 = base64.b64encode(b'png-bytes').decode('utf-8')
+	screenshot_b64 = base64.b64encode(b'webp-bytes').decode('utf-8')
 	screenshot_path = await agent.screenshot_service.store_screenshot(screenshot_b64, step_number=3)
 
-	assert Path(screenshot_path).name == 'step_3.png'
-	assert Path(screenshot_path).read_bytes() == b'png-bytes'
+	assert Path(screenshot_path).name == 'step_3.webp'
+	assert Path(screenshot_path).read_bytes() == b'webp-bytes'
 	assert await agent.screenshot_service.get_screenshot(screenshot_path) == screenshot_b64
 
 

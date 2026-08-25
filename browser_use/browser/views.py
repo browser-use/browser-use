@@ -7,10 +7,30 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_serialize
 
 from browser_use.dom.views import DOMInteractedElement, SerializedDOMState
 
-# Known placeholder image data for about:blank pages - a 4x4 white PNG
-PLACEHOLDER_4PX_SCREENSHOT = (
-	'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAFElEQVR4nGP8//8/AwwwMSAB3BwAlm4DBfIlvvkAAAAASUVORK5CYII='
-)
+# about:blank pages yield a 4x4 blank image carrying no information, so it is filtered out of
+# prompts and GIFs. Size is the test rather than an exact byte match: the encoding is whatever
+# SCREENSHOT_FORMAT is, and the bytes also vary with the Chrome build. A 4x4 image is a few
+# hundred bytes in any codec while a real viewport capture is tens of kilobytes, so the
+# threshold sits two orders of magnitude clear of both.
+PLACEHOLDER_SCREENSHOT_MAX_BYTES = 1024
+
+
+def is_placeholder_screenshot(screenshot_b64: str | None) -> bool:
+	"""True if a base64 screenshot is the blank placeholder rather than a real capture."""
+	if not screenshot_b64:
+		return True
+	# base64 encodes 3 bytes per 4 chars; compare on the encoded length to avoid decoding.
+	return len(screenshot_b64) * 3 // 4 <= PLACEHOLDER_SCREENSHOT_MAX_BYTES
+
+
+# Screenshots go to the model as WebP, not PNG. At identical dimensions WebP is ~60%
+# smaller on average and ~5x smaller at the tail (p99 957KB -> 176KB on real agent
+# traces), which cuts upload time on the client -> gateway hop. Chrome encodes WebP
+# natively via CDP, so this is cheaper than capturing PNG and re-encoding.
+# Resolution is unchanged - only the encoding differs.
+SCREENSHOT_FORMAT = 'webp'
+SCREENSHOT_QUALITY = 90
+SCREENSHOT_MEDIA_TYPE = 'image/webp'
 
 
 # Pydantic

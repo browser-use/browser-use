@@ -8,6 +8,8 @@ from bubus import BaseEvent
 from pydantic import Field, field_validator
 from uuid_extensions import uuid7str
 
+from browser_use.browser.views import SCREENSHOT_MEDIA_TYPE
+
 MAX_STRING_LENGTH = 500000  # 100K chars ~ 25k tokens should be enough
 MAX_URL_LENGTH = 100000
 MAX_TASK_LENGTH = 100000
@@ -157,7 +159,7 @@ class CreateAgentStepEvent(BaseEvent):
 		# Capture screenshot as base64 data URL if available
 		screenshot_url = None
 		if browser_state_summary.screenshot:
-			screenshot_url = f'data:image/png;base64,{browser_state_summary.screenshot}'
+			screenshot_url = f'data:{SCREENSHOT_MEDIA_TYPE};base64,{browser_state_summary.screenshot}'
 			import logging
 
 			logger = logging.getLogger(__name__)
