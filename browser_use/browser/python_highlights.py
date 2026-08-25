@@ -380,20 +380,18 @@ def process_element_highlight(
 
 		color = get_element_color(tag_name, element_type)
 
-		# Get element index for overlay and apply filtering
-		backend_node_id = getattr(element, 'backend_node_id', None)
+		# Use the selector-map key because that is the index shown to the model.
 		index_text = None
 
-		if backend_node_id is not None:
-			if filter_highlight_ids:
-				# Use the meaningful text that matches what the LLM sees
-				meaningful_text = element.get_meaningful_text_for_llm()
-				# Show ID only if meaningful text is less than 5 characters
-				if len(meaningful_text) < 3:
-					index_text = str(backend_node_id)
-			else:
-				# Always show ID when filter is disabled
-				index_text = str(backend_node_id)
+		if filter_highlight_ids:
+			# Use the meaningful text that matches what the LLM sees
+			meaningful_text = element.get_meaningful_text_for_llm()
+			# Show ID only if meaningful text is less than 5 characters
+			if len(meaningful_text) < 3:
+				index_text = str(element_id)
+		else:
+			# Always show ID when filter is disabled
+			index_text = str(element_id)
 
 		# Draw enhanced bounding box with bigger index
 		draw_enhanced_bounding_box_with_text(
