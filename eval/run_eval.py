@@ -24,6 +24,8 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
+from browser_use.agent.service import ULTRAFAST_AGENT_SETTINGS
+
 load_dotenv()
 
 EVAL_DIR = Path(__file__).resolve().parent
@@ -79,12 +81,14 @@ PROFILES: dict[str, dict[str, Any]] = {
 	},
 	# The shipped preset. Everything above exists to justify what goes in here.
 	'ultrafast': {'ultrafast': True},
-	# Ablations against 'ultrafast', one knob at a time.
-	'ultrafast_vision': {'ultrafast': True, 'use_vision': True, 'capture_screenshots': True},
-	'ultrafast_no_thinking': {'ultrafast': True, 'flash_thinking': False},
+	# Ablations spread the preset and override one key. They must NOT pass ultrafast=True, which
+	# overwrites the very setting the ablation is trying to vary.
+	'ultrafast_vision': {**ULTRAFAST_AGENT_SETTINGS, 'use_vision': True, 'capture_screenshots': True},
+	'ultrafast_no_thinking': {**ULTRAFAST_AGENT_SETTINGS, 'flash_thinking': False},
+	'ultrafast_memory': {**ULTRAFAST_AGENT_SETTINGS, 'flash_memory': True},
+	'ultrafast_noloop': {**ULTRAFAST_AGENT_SETTINGS, 'loop_block_threshold': 3},
+	'ultrafast_hist20': {**ULTRAFAST_AGENT_SETTINGS, 'max_history_items': 20},
 	'ultrafast_no_highlight': {'ultrafast': True, 'browser_settings': {'highlight_elements': False}},
-	'ultrafast_hist20': {'ultrafast': True, 'max_history_items': 20},
-	'ultrafast_hist_all': {'ultrafast': True, 'max_history_items': None},
 	'ultrafast_no_dom': {
 		'ultrafast': True,
 		'browser_settings': {'paint_order_filtering': False, 'highlight_elements': False, 'cross_origin_iframes': False},

@@ -91,3 +91,29 @@ def test_skipping_capture_is_incompatible_with_always_on_vision():
 	"""use_vision=True wants an image every step, so every step must capture one."""
 	with pytest.raises(ValueError, match='capture_screenshots=False'):
 		_agent(capture_screenshots=False, use_vision=True)
+
+
+def test_preset_is_data_and_matches_the_flag():
+	"""Agent(ultrafast=True) must apply exactly ULTRAFAST_AGENT_SETTINGS, so an ablation that
+	spreads the dict is varying one knob off the real preset and not off a stale copy."""
+	from browser_use.agent.service import ULTRAFAST_AGENT_SETTINGS
+
+	flagged = _agent(ultrafast=True).settings
+	spread = _agent(**ULTRAFAST_AGENT_SETTINGS).settings
+
+	for key in ULTRAFAST_AGENT_SETTINGS:
+		assert getattr(flagged, key) == getattr(spread, key), key
+
+
+def test_spreading_the_preset_lets_one_knob_be_overridden():
+	"""The regression this guards: ultrafast=True overwrites the settings it covers, so
+	Agent(ultrafast=True, use_vision=True) silently ran WITHOUT vision and every ablation
+	built that way was a no-op copy of the preset."""
+	from browser_use.agent.service import ULTRAFAST_AGENT_SETTINGS
+
+	assert _agent(ultrafast=True, use_vision=True).settings.use_vision == 'auto'
+
+	overridden = _agent(**{**ULTRAFAST_AGENT_SETTINGS, 'use_vision': True, 'capture_screenshots': True}).settings
+	assert overridden.use_vision is True
+	assert overridden.capture_screenshots is True
+	assert overridden.flash_thinking is True  # the rest of the preset survives

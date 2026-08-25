@@ -135,6 +135,30 @@ AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 # lives inline in __init__ because it overwrites constructor arguments.
 #
 # Deliberately short. Browser state is only ~0.11s of a ~2.3s step, and disabling
+# The speed preset, as data rather than as a branch, so that an ablation can spread it and
+# override one key. Agent(ultrafast=True) applies exactly this.
+ULTRAFAST_AGENT_SETTINGS: dict[str, Any] = {
+	# Reason inside a JSON field rather than in an unbounded memory field or in native reasoning
+	# tokens: small models need scratch space but must not ramble.
+	'flash_mode': True,
+	'flash_thinking': True,
+	'flash_memory': False,
+	'use_thinking': False,
+	# Text by default, images on request. 'auto' keeps the screenshot tool available, so the agent
+	# can ask for an image when the text state is not enough and pays for it only then.
+	'use_vision': 'auto',
+	'capture_screenshots': False,
+	'max_actions_per_step': 10,
+	# History is NOT trimmed: an item costs 44-105 tokens, and context that prevents one wasted
+	# step pays for itself many times over.
+	'max_history_items': None,
+	# Both of these are extra LLM round trips.
+	'message_compaction': False,
+	'use_judge': False,
+	'include_tool_call_examples': False,
+	'calculate_cost': False,
+}
+
 # paint_order_filtering, highlight_elements and cross_origin_iframes measured no faster than
 # leaving them on, while giving up occlusion filtering and iframe support. Latency here is not
 # worth accuracy. Re-check with the `ultrafast_no_dom` profile in eval/run_eval.py.
@@ -260,35 +284,23 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				llm = ChatBrowserUse()
 
-		# Ultrafast overwrites the settings it covers rather than merging with them: it is a single
-		# opinionated preset for minimum per-step latency, tuned for small self-hosted models where
-		# the step budget is dominated by prompt size and by work the model never sees.
+		# Ultrafast overwrites the settings it covers rather than merging with them, so
+		# `Agent(ultrafast=True, use_vision=True)` silently ignores the second argument. To vary one
+		# knob off the preset, spread ULTRAFAST_AGENT_SETTINGS and override the key instead:
+		#     Agent(**{**ULTRAFAST_AGENT_SETTINGS, 'use_vision': True, 'capture_screenshots': True})
 		if ultrafast:
-			# Reason inside a length-capped JSON field rather than in an unbounded memory field or
-			# in native reasoning tokens: small models need scratch space but must not ramble.
-			# Costs ~11% wall clock against no reasoning field at all (`ultrafast_no_thinking`),
-			# which buys headroom on tasks harder than anything currently in eval/tasks.
-			flash_mode = True
-			flash_thinking = True
-			flash_memory = False
-			use_thinking = False
-			# Text by default, images on request. An image on every step costs far more than its
-			# prefill: a small VL model given one took 5.5 steps instead of 3.0, and ran 50% slower
-			# end to end (`ultrafast_vision`). 'auto' keeps the screenshot tool, so the agent can
-			# still ask for an image when the text state is not enough, and pays only then.
-			use_vision = 'auto'
-			capture_screenshots = False
-			max_actions_per_step = 10
-			# History is NOT trimmed. A history item costs 44-105 tokens, and capping the list at 6
-			# measured identical per-step time (1.65s at 6, 20 and unlimited) while raising the step
-			# count: median 4.5 steps against 3.5, worst case 12 against 6. Context that prevents one
-			# wasted step pays for itself many times over. See `ultrafast_hist*` in eval/run_eval.py.
-			max_history_items = None
-			# Both of these are extra LLM round trips.
-			message_compaction = False
-			use_judge = False
-			include_tool_call_examples = False
-			calculate_cost = False
+			flash_mode = ULTRAFAST_AGENT_SETTINGS['flash_mode']
+			flash_thinking = ULTRAFAST_AGENT_SETTINGS['flash_thinking']
+			flash_memory = ULTRAFAST_AGENT_SETTINGS['flash_memory']
+			use_thinking = ULTRAFAST_AGENT_SETTINGS['use_thinking']
+			use_vision = ULTRAFAST_AGENT_SETTINGS['use_vision']
+			capture_screenshots = ULTRAFAST_AGENT_SETTINGS['capture_screenshots']
+			max_actions_per_step = ULTRAFAST_AGENT_SETTINGS['max_actions_per_step']
+			max_history_items = ULTRAFAST_AGENT_SETTINGS['max_history_items']
+			message_compaction = ULTRAFAST_AGENT_SETTINGS['message_compaction']
+			use_judge = ULTRAFAST_AGENT_SETTINGS['use_judge']
+			include_tool_call_examples = ULTRAFAST_AGENT_SETTINGS['include_tool_call_examples']
+			calculate_cost = ULTRAFAST_AGENT_SETTINGS['calculate_cost']
 
 		# set flashmode = True if llm is ChatBrowserUse
 		if llm.provider == 'browser-use':
