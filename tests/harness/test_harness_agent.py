@@ -729,3 +729,43 @@ async def test_extract_uses_the_llm_when_given_a_query():
 	result = await tools.act(raw, browser=browser, state=make_state(), page_extraction_llm=llm)
 	assert len(llm.prompts) == 1
 	assert 'Welcome to the shop' in result.extracted_content
+
+
+async def test_done_gate_never_fires_near_the_budget_end(tmp_path):
+	"""One traced task lost its entire answer to the completeness gate: refused at
+	step 30, spent the rest collecting, ended empty. A partial answer scores."""
+	tools = Tools()
+	tools.set_task('Find at least 6 jobs and list them')
+	browser, _ = make_fake_browser()
+	thin = tools.create_action_model().model_validate({'done': {'text': '[{"job": "a"}, {"job": "b"}]', 'success': True}})
+
+	tools.set_budget(2)  # nearly out of steps
+	result = await tools.act(thin, browser=browser, state=make_state(), file_dir=tmp_path)
+	assert result.is_done, 'must not block done when there is no room to act on it'
+
+	tools.set_budget(20)  # plenty of room
+	assert (await tools.act(thin, browser=browser, state=make_state(), file_dir=tmp_path)).error is not None
+
+
+async def test_done_gate_ignores_prose_answers(tmp_path):
+	"""It read a prose answer listing three findings as 'about 1' and refused."""
+	tools = Tools()
+	tools.set_task('Find the top 3 answers about pronunciation')
+	tools.set_budget(20)
+	browser, _ = make_fake_browser()
+	prose = tools.create_action_model().model_validate(
+		{
+			'done': {
+				'text': 'Based on the HiNative thread, speakers explain the French origin, the silent z, and the stress pattern.',
+				'success': True,
+			}
+		}
+	)
+	assert (await tools.act(prose, browser=browser, state=make_state(), file_dir=tmp_path)).is_done
+
+
+def test_prompt_steers_to_extract_with_a_query():
+	agent, _, _ = make_agent([])
+	prompt = agent._system_prompt().text
+	assert 'extract(query=' in prompt
+	assert 'extract_text' not in prompt, 'stale action name from before the rename'

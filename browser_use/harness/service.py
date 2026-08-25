@@ -436,6 +436,7 @@ class Agent(Generic[AgentStructuredOutput]):
 	async def _step(self, step: int, max_steps: int) -> bool:
 		"""Run one step. Returns True when the task is done."""
 		started = time.time()
+		self.tools.set_budget(max_steps - step)
 		state = await self._capture_state()
 		output = await self._invoke_llm(state, step, max_steps)
 		results = await self._multi_act(output.action, state)

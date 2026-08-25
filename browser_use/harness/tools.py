@@ -80,6 +80,7 @@ class Tools:
 		self._done_refused = False
 		self._completeness_refused = False
 		self._task = ''
+		self._steps_remaining: int | None = None
 		self._register_builtins()
 		if output_model is not None:
 			self.use_structured_output_action(output_model)
@@ -139,6 +140,10 @@ class Tools:
 	def get_output_model(self) -> type[BaseModel] | None:
 		return self._output_model
 
+	def set_budget(self, steps_remaining: int) -> None:
+		"""Let `done` checks know how much room is left to act on a refusal."""
+		self._steps_remaining = steps_remaining
+
 	def set_task(self, task: str) -> None:
 		"""Give the registry the task text so `done` can check it for completeness."""
 		self._task = task
@@ -152,11 +157,17 @@ class Tools:
 		"""
 		if self._completeness_refused or not getattr(self, '_task', ''):
 			return None
+		# never refuse near the budget end: a partial answer scores, an empty one
+		# does not, and one traced task lost its whole answer to this gate
+		if self._steps_remaining is not None and self._steps_remaining < 6:
+			return None
 		wanted = _required_counts(self._task)
 		if not wanted:
 			return None
 		text = json.dumps(validated.model_dump(), default=str)
 		delivered = _count_items(text)
+		if delivered is None:  # unstructured prose -- counting it is guesswork
+			return None
 		target = max(wanted)
 		if delivered >= target:
 			return None
@@ -176,6 +187,8 @@ class Tools:
 		own saved files. One-shot: a second consecutive done goes through.
 		"""
 		if self._done_refused:
+			return None
+		if self._steps_remaining is not None and self._steps_remaining < 6:
 			return None
 		text = json.dumps(validated.model_dump(), default=str).lower()
 		if not any(marker in text for marker in _UNAVAILABLE_MARKERS):
@@ -467,8 +480,9 @@ class Tools:
 			return ActionResult(extracted_content=f'Closed tab {tab_id}')
 
 		@self.action(
-			'Extract structured data from the current page. Give `query` to have the page distilled to what you asked for '
-			'(strongly preferred); leave it empty for the raw visible text. save_as writes the full result to a file'
+			'PREFERRED way to gather data. Give `query` and the whole page is distilled to exactly what you asked for in '
+			'one step, e.g. query="every listing title, price and rating". Leave query empty only for raw visible text. '
+			'save_as writes the full result to a workspace file at the same time'
 		)
 		async def extract(
 			query: str = '',
@@ -801,14 +815,18 @@ def _required_counts(task: str) -> list[int]:
 	return [n for n in counts if 2 <= n <= 200]
 
 
-def _count_items(rendered: str) -> int:
-	"""Rough item count of a final answer: JSON objects, or list/table rows."""
+def _count_items(rendered: str) -> int | None:
+	"""Item count of a final answer, or None when it is prose we cannot count.
+
+	Returning None matters: guessing "about 1" for a prose answer that listed
+	three findings produced a false refusal.
+	"""
 	objects = rendered.count('},{') + rendered.count('}, {')
 	if objects:
 		return objects + 1
-	lines = [ln for ln in rendered.splitlines() if ln.strip()]
-	numbered = sum(1 for ln in lines if re.match(r'\s*(?:[-*\u2022]|\d{1,3}[.)|])\s', ln))
-	return max(numbered, 1)
+	lines = [ln.strip() for ln in rendered.replace('\\n', '\n').splitlines() if ln.strip()]
+	markers = sum(1 for ln in lines if re.match(r'^(?:[-*\u2022|]|\d{1,3}[.)])\s', ln))
+	return markers if markers >= 2 else None
 
 
 _UNAVAILABLE_MARKERS = ('not available', 'not shown', 'not captured', 'unavailable', 'could not extract')

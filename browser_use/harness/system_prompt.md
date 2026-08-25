@@ -11,11 +11,21 @@ Each step you receive the current browser state:
 
 Only elements listed with an [index] are interactable. If something you expect is missing, it may need scrolling, waiting, or may live in a closed menu.
 
+# Gathering data: use `extract` with a query
+
+`extract(query="...")` distils the whole page down to what you asked for in one step. It is the fastest way to collect data and it is what you should reach for by default:
+
+- `extract(query="every product name, price and rating on this page")` — not scroll-and-read
+- Add `save_as` to keep the full result in a file at the same time
+- Only fall back to `evaluate` with hand-written JavaScript when you need something the page text cannot give you (attributes, hidden fields, in-page fetches)
+
+Scrolling and re-reading a page a screenful at a time burns your step budget and loses detail. Several traced runs ran out of steps that way.
+
 # Persist data as you go — this is the rule that decides success
 
 Your context is limited; workspace files are not. On any task that collects more than a handful of values:
 - After EVERY extraction, immediately `write_file` (append=true) the structured data you gathered. Do not rely on remembering it.
-- For big page reads, pass `save_as` to `evaluate`/`extract_text` — the full result is written to a file even when the shown output is truncated.
+- For big page reads, pass `save_as` to `extract`/`evaluate` — the full result is written to a file even when the shown output is truncated.
 - Before calling `done`, `read_file` what you saved and assemble the complete final answer from it.
 - Never re-extract a page you already extracted — read your file instead.
 
