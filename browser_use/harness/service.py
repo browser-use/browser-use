@@ -71,6 +71,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		max_actions_per_step: int = 5,
 		max_failures: int = 5,
 		step_timeout: int = 180,
+		browser_request_timeout: float = 30.0,
 		max_history_items: int = 16,
 		extend_system_message: str | None = None,
 		override_system_message: str | None = None,
@@ -108,6 +109,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.extend_system_message = extend_system_message
 		self.override_system_message = override_system_message
 		self.save_screenshots = save_screenshots
+		self.browser_request_timeout = browser_request_timeout
 		self.initial_actions = initial_actions
 		self.sensitive_data = sensitive_data
 		self.available_file_paths = available_file_paths
@@ -121,10 +123,14 @@ class Agent(Generic[AgentStructuredOutput]):
 		self._resumed.set()
 		self._stopped = False
 
+		self.tools.set_task(task)
 		if output_model_schema is not None and self.tools.get_output_model() is not output_model_schema:
 			self.tools.use_structured_output_action(output_model_schema)
 			self.task = self._enhance_task_with_schema(self.task, output_model_schema)
 
+		# only override the CLI-parity default; respect an explicit choice
+		if self.browser.client.request_timeout == 5.0:
+			self.browser.client.request_timeout = browser_request_timeout
 		self.dom_service = HarnessDomService(self.browser)
 		self.ActionModel = self.tools.create_action_model()
 		if self.flash_mode:
@@ -259,7 +265,9 @@ class Agent(Generic[AgentStructuredOutput]):
 	async def _multi_act(self, actions: list, state: HarnessState) -> list[ActionResult]:
 		results: list[ActionResult] = []
 		for i, action in enumerate(actions[: self.max_actions_per_step]):
-			result = await self.tools.act(action, browser=self.browser, state=state, file_dir=self.file_dir)
+			result = await self.tools.act(
+				action, browser=self.browser, state=state, file_dir=self.file_dir, page_extraction_llm=self.llm
+			)
 			results.append(result)
 			self._track_repeat(action)
 			fields = {k: v for k, v in action.model_dump(exclude_unset=True).items() if v is not None}

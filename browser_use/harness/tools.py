@@ -8,6 +8,7 @@ channel, without which bulk extractions can't survive the context window).
 """
 
 import asyncio
+import difflib
 import inspect
 import json
 import re
@@ -24,7 +25,7 @@ from browser_use.harness.views import HarnessState
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.views import StructuredOutputAction
 
-SPECIAL_PARAMS = ('browser', 'state', 'file_dir')
+SPECIAL_PARAMS = ('browser', 'state', 'file_dir', 'page_extraction_llm')
 
 _MODIFIERS = {'alt': 1, 'control': 2, 'ctrl': 2, 'meta': 4, 'cmd': 4, 'command': 4, 'shift': 8}
 
@@ -75,7 +76,10 @@ class Tools:
 		self._exclude_actions = set(exclude_actions or [])
 		self._output_model: type[BaseModel] | None = None
 		self._read_files: set[str] = set()
+		self._written_files: set[str] = set()
 		self._done_refused = False
+		self._completeness_refused = False
+		self._task = ''
 		self._register_builtins()
 		if output_model is not None:
 			self.use_structured_output_action(output_model)
@@ -135,6 +139,36 @@ class Tools:
 	def get_output_model(self) -> type[BaseModel] | None:
 		return self._output_model
 
+	def set_task(self, task: str) -> None:
+		"""Give the registry the task text so `done` can check it for completeness."""
+		self._task = task
+
+	def _completeness_refusal(self, validated: BaseModel) -> ActionResult | None:
+		"""Refuse a `done` that delivers fewer items than the task demanded.
+
+		Traced losses: "required exactly 6 jobs with 3 LinkedIn and 3 Glassdoor"
+		answered with 2; "Simyo only has 40GB and 30GB while other tiers were not
+		completed". One-shot, like the unread-evidence check.
+		"""
+		if self._completeness_refused or not getattr(self, '_task', ''):
+			return None
+		wanted = _required_counts(self._task)
+		if not wanted:
+			return None
+		text = json.dumps(validated.model_dump(), default=str)
+		delivered = _count_items(text)
+		target = max(wanted)
+		if delivered >= target:
+			return None
+		self._completeness_refused = True
+		return ActionResult(
+			error=(
+				f'The task asks for {target} items but your answer appears to contain about {delivered}. '
+				'Collect the rest (read your workspace files if the data is there), then call done. '
+				'If the source genuinely has no more, say so explicitly and call done again.'
+			)
+		)
+
 	def _unread_evidence_refusal(self, validated: BaseModel, file_dir: Path | None) -> ActionResult | None:
 		"""Refuse a `done` that declares data unavailable while unread files may hold it.
 
@@ -179,6 +213,7 @@ class Tools:
 		browser: Browser,
 		state: HarnessState | None = None,
 		file_dir: Path | None = None,
+		page_extraction_llm: Any = None,
 	) -> ActionResult:
 		# browser_use semantics: execute the FIRST field that is set and ignore the
 		# rest. Gemini fills every optional field of the action schema, so running
@@ -187,7 +222,7 @@ class Tools:
 		if not data:
 			return ActionResult(error='Action set no fields')
 		name, params = next(iter(data.items()))
-		return await self._act_one(name, params, browser, state, file_dir)
+		return await self._act_one(name, params, browser, state, file_dir, page_extraction_llm)
 
 	async def _act_one(
 		self,
@@ -196,6 +231,7 @@ class Tools:
 		browser: Browser,
 		state: HarnessState | None,
 		file_dir: Path | None,
+		page_extraction_llm: Any = None,
 	) -> ActionResult:
 		registered = self.registry.get(name)
 		if registered is None:
@@ -212,14 +248,19 @@ class Tools:
 			kwargs['state'] = state
 		if 'file_dir' in signature_params:
 			kwargs['file_dir'] = file_dir
+		if 'page_extraction_llm' in signature_params:
+			kwargs['page_extraction_llm'] = page_extraction_llm
 		if 'params' in signature_params:
 			kwargs['params'] = validated
 		else:
 			kwargs.update({k: getattr(validated, k) for k in type(validated).model_fields})
 		if name == 'done':
-			refusal = self._unread_evidence_refusal(validated, file_dir)
-			if refusal is not None:
-				return refusal
+			for check in (
+				self._completeness_refusal(validated),
+				self._unread_evidence_refusal(validated, file_dir),
+			):
+				if check is not None:
+					return check
 		try:
 			result = await registered.function(**kwargs)
 		except HarnessError as e:
@@ -242,8 +283,14 @@ class Tools:
 		if name.startswith('_') or name not in self.registry:
 			raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')
 
-		async def call(browser: Browser, state: HarnessState | None = None, file_dir: Path | None = None, **params):
-			return await self._act_one(name, params, browser, state, file_dir)
+		async def call(
+			browser: Browser,
+			state: HarnessState | None = None,
+			file_dir: Path | None = None,
+			page_extraction_llm: Any = None,
+			**params,
+		):
+			return await self._act_one(name, params, browser, state, file_dir, page_extraction_llm)
 
 		call.__name__ = name
 		return call
@@ -420,12 +467,15 @@ class Tools:
 			return ActionResult(extracted_content=f'Closed tab {tab_id}')
 
 		@self.action(
-			'Read the full visible text of the current page. Set save_as to also write the untruncated text to a workspace file'
+			'Extract structured data from the current page. Give `query` to have the page distilled to what you asked for '
+			'(strongly preferred); leave it empty for the raw visible text. save_as writes the full result to a file'
 		)
 		async def extract(
+			query: str = '',
 			save_as: str = '',
 			browser: Browser = None,  # type: ignore[assignment]
 			file_dir: Path = None,  # type: ignore[assignment]
+			page_extraction_llm: Any = None,
 		) -> ActionResult:
 			text = str((await browser.js('document.body ? document.body.innerText.slice(0, 200000) : ""')) or '')
 			if not text.strip():
@@ -442,6 +492,10 @@ class Tools:
 				return ActionResult(
 					error='Page has no readable text yet (empty body). Wait for it to render, or the content may be in an iframe/canvas'
 				)
+			if query and page_extraction_llm is not None:
+				extracted = await _extract_with_llm(page_extraction_llm, query, text)
+				if extracted is not None:
+					return _deliver(extracted, save_as, file_dir, EXTRACT_DISPLAY_CAP)
 			return _deliver(text, save_as, file_dir, EXTRACT_DISPLAY_CAP)
 
 		@self.action(
@@ -468,12 +522,18 @@ class Tools:
 			append: bool = False,
 			file_dir: Path = None,  # type: ignore[assignment]
 		) -> ActionResult:
+			if not content.strip() or content.strip() in ('[]', '{}', 'null'):
+				return ActionResult(
+					error=f'Refusing to save empty content to {file_name}. Extract the data first, then write it — '
+					'an empty artifact reads as a completed step but proves nothing'
+				)
 			path = _safe_file(file_dir, file_name)
 			if append and path.exists():
 				with path.open('a', encoding='utf-8') as f:
 					f.write(content)
 			else:
 				path.write_text(content, encoding='utf-8')
+			self._written_files.add(path.name)
 			return ActionResult(
 				extracted_content=f'{"Appended" if append else "Wrote"} {len(content)} chars to {path.name} (now {path.stat().st_size} bytes)',
 				long_term_memory=f'{path.name}: {path.stat().st_size} bytes',
@@ -489,7 +549,13 @@ class Tools:
 			path = _safe_file(file_dir, file_name)
 			if not path.exists():
 				existing = sorted(p.name for p in file_dir.iterdir()) if file_dir and file_dir.exists() else []
-				return ActionResult(error=f'No file {path.name!r}. Workspace files: {existing}')
+				close = difflib.get_close_matches(path.name, existing, n=1)
+				hint = (
+					f' Did you mean {close[0]!r}?'
+					if close
+					else ' You have not written any data yet — extract and write_file first.'
+				)
+				return ActionResult(error=f'No file {path.name!r}. Workspace files: {existing}.{hint}')
 			self._read_files.add(path.name)
 			content = path.read_text(encoding='utf-8', errors='replace')
 			chunk = content[offset : offset + limit]
@@ -702,6 +768,48 @@ _SELECT_BY_SELF_JS = (
 	"s.dispatchEvent(new Event('change', {bubbles: true}));"
 	"return 'selected ' + this.text.trim();}"
 )
+
+
+async def _extract_with_llm(llm: Any, query: str, text: str) -> str | None:
+	"""Distil page text to what the query asks for, as browser_use's extract does.
+	Returns None on any failure so the caller falls back to the raw text."""
+	from browser_use.llm.messages import UserMessage
+
+	try:
+		response = await llm.ainvoke(
+			[
+				UserMessage(
+					content=(
+						f'Extract exactly what this query asks for from the page content below. '
+						f'Return the data itself (JSON or markdown table), no commentary. '
+						f'If something asked for is absent, say so for that field rather than inventing it.\n\n'
+						f'QUERY: {query}\n\nPAGE CONTENT:\n{text[:120000]}'
+					)
+				)
+			]
+		)
+		return str(response.completion).strip() or None
+	except Exception:
+		return None
+
+
+def _required_counts(task: str) -> list[int]:
+	"""Numbers the task attaches to a quantity of results, e.g. "at least 40
+	leads", "first 3 pages", "exactly 6 jobs", "top 10"."""
+	pattern = r'\b(?:at least|atleast|minimum of|exactly|first|top|list|find|collect|extract)\s+(\d{1,3})\b'
+	counts = [int(n) for n in re.findall(pattern, task, re.IGNORECASE)]
+	return [n for n in counts if 2 <= n <= 200]
+
+
+def _count_items(rendered: str) -> int:
+	"""Rough item count of a final answer: JSON objects, or list/table rows."""
+	objects = rendered.count('},{') + rendered.count('}, {')
+	if objects:
+		return objects + 1
+	lines = [ln for ln in rendered.splitlines() if ln.strip()]
+	numbered = sum(1 for ln in lines if re.match(r'\s*(?:[-*\u2022]|\d{1,3}[.)|])\s', ln))
+	return max(numbered, 1)
+
 
 _UNAVAILABLE_MARKERS = ('not available', 'not shown', 'not captured', 'unavailable', 'could not extract')
 

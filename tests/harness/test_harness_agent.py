@@ -644,3 +644,88 @@ def test_default_request_timeout_matches_the_cli():
 	from browser_harness.sdk import Browser as HB
 
 	assert HB().client.request_timeout == 5.0
+
+
+# --- fixes for the four causes of the 10.4% vs 27.4% gap ---
+
+
+def test_agent_gives_the_browser_a_longer_budget_than_the_cli_default():
+	"""115 of 236 errors were timeouts: the SDK's 5s CLI-parity default is right
+	for a coding agent that reads an error and adapts, wrong for a loop that
+	loses the step."""
+	agent, _, _ = make_agent([])
+	assert agent.browser.client.request_timeout == 30.0
+
+	from browser_harness.sdk import Browser as HB
+
+	explicit = HB(auto_start=False, request_timeout=7.0)
+	explicit._started = True
+	kept = Agent(task='x', llm=ScriptedLLM([]), browser=explicit)
+	assert kept.browser.client.request_timeout == 7.0, 'an explicit choice must be respected'
+
+
+async def test_write_file_refuses_empty_artifacts(tmp_path):
+	"""Agents saved empty arrays and reported success; the judge then found
+	'saved extraction files are empty'."""
+	tools = Tools()
+	browser, _ = make_fake_browser()
+	model = tools.create_action_model()
+
+	for junk in ('', '   ', '[]', '{}'):
+		action = model.model_validate({'write_file': {'file_name': 'out.json', 'content': junk}})
+		result = await tools.act(action, browser=browser, state=make_state(), file_dir=tmp_path)
+		assert result.error and 'empty' in result.error.lower()
+	assert not (tmp_path / 'out.json').exists()
+
+	good = model.model_validate({'write_file': {'file_name': 'out.json', 'content': '[{"a": 1}]'}})
+	assert (await tools.act(good, browser=browser, state=make_state(), file_dir=tmp_path)).error is None
+
+
+async def test_read_file_suggests_the_near_miss(tmp_path):
+	tools = Tools()
+	browser, _ = make_fake_browser()
+	(tmp_path / 'listings.json').write_text('[{"a": 1}]')
+	action = tools.create_action_model().model_validate({'read_file': {'file_name': 'listing.json'}})
+	result = await tools.act(action, browser=browser, state=make_state(), file_dir=tmp_path)
+	assert result.error and "Did you mean 'listings.json'" in result.error
+
+
+async def test_done_is_refused_once_when_it_undercounts_the_task(tmp_path):
+	"""'required exactly 6 jobs ... contains only 2' was a real judged loss."""
+	tools = Tools()
+	tools.set_task('Find at least 6 jobs and list them')
+	browser, _ = make_fake_browser()
+	thin = tools.create_action_model().model_validate({'done': {'text': '[{"job": "a"}, {"job": "b"}]', 'success': True}})
+	first = await tools.act(thin, browser=browser, state=make_state(), file_dir=tmp_path)
+	assert first.error and '6 items' in first.error
+	assert not first.is_done
+
+	second = await tools.act(thin, browser=browser, state=make_state(), file_dir=tmp_path)
+	assert second.is_done, 'one-shot: it must never block finishing forever'
+
+
+async def test_extract_uses_the_llm_when_given_a_query():
+	"""browser_use's extract is an LLM extraction over page markdown; a raw text
+	dump produced thin, unsupported answers."""
+	tools = Tools()
+	browser, _ = make_fake_browser()
+
+	class FakeLLM:
+		def __init__(self):
+			self.prompts = []
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			self.prompts.append(messages[0].text)
+			return ChatInvokeCompletion(completion='| price |\n| $9.99 |', usage=None)
+
+	llm = FakeLLM()
+	action = tools.create_action_model().model_validate({'extract': {'query': 'the price'}})
+	result = await tools.act(action, browser=browser, state=make_state(), page_extraction_llm=llm)
+	assert '$9.99' in result.extracted_content
+	assert 'the price' in llm.prompts[0]
+
+	# no query -> raw text, no LLM call
+	raw = tools.create_action_model().model_validate({'extract': {}})
+	result = await tools.act(raw, browser=browser, state=make_state(), page_extraction_llm=llm)
+	assert len(llm.prompts) == 1
+	assert 'Welcome to the shop' in result.extracted_content
