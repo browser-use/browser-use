@@ -36,11 +36,19 @@ def get_or_create_device_id() -> str:
 	# Create new device ID
 	device_id = uuid7str()
 
-	# Ensure config directory exists
-	CONFIG.BROWSER_USE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+	# Ensure config directory exists with restricted permissions (0o700)
+	try:
+		CONFIG.BROWSER_USE_CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+	except Exception:
+		CONFIG.BROWSER_USE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
-	# Write device ID to file
-	device_id_path.write_text(device_id)
+	# Write device ID to file atomically with 0o600 permissions
+	try:
+		fd = os.open(device_id_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+		with os.fdopen(fd, 'w', encoding='utf-8') as f:
+			f.write(device_id)
+	except Exception:
+		device_id_path.write_text(device_id)
 
 	return device_id
 
@@ -68,20 +76,26 @@ class CloudAuthConfig(BaseModel):
 		return cls()
 
 	def save_to_file(self) -> None:
-		"""Save auth config to local file"""
-
-		CONFIG.BROWSER_USE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+		"""Save auth config to local file with restrictive permissions (0o600) atomically."""
+		try:
+			CONFIG.BROWSER_USE_CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+		except Exception:
+			CONFIG.BROWSER_USE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 		config_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'cloud_auth.json'
-		with open(config_path, 'w') as f:
-			json.dump(self.model_dump(mode='json'), f, indent=2, default=str)
-
-		# Set restrictive permissions (owner read/write only) for security
 		try:
-			os.chmod(config_path, 0o600)
+			# Create file with 0o600 permissions atomically to avoid world/group-readable race windows
+			fd = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+			with os.fdopen(fd, 'w', encoding='utf-8') as f:
+				json.dump(self.model_dump(mode='json'), f, indent=2, default=str)
 		except Exception:
-			# Some systems may not support chmod, continue anyway
-			pass
+			# Fallback for platforms without os.open permission flag support
+			with open(config_path, 'w', encoding='utf-8') as f:
+				json.dump(self.model_dump(mode='json'), f, indent=2, default=str)
+			try:
+				os.chmod(config_path, 0o600)
+			except Exception:
+				pass
 
 
 class DeviceAuthClient:
