@@ -447,6 +447,38 @@ class TestFileSystem:
 		result = await fs.write_file('test.doc', 'content')
 		assert 'Unsupported file extension' in result
 
+	async def test_failed_write_preserves_existing_file(self, empty_filesystem, monkeypatch):
+		"""A failed disk sync must not expose content that was never persisted."""
+		fs = empty_filesystem
+		await fs.write_file('existing.txt', 'persisted')
+
+		async def fail_sync(_file: TxtFile, _path: Path) -> None:
+			raise OSError('disk unavailable')
+
+		monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
+
+		result = await fs.write_file('existing.txt', 'phantom update')
+
+		assert result == "Error: Could not write to file 'existing.txt'. disk unavailable"
+		assert fs.get_file('existing.txt').content == 'persisted'
+		assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted'
+
+	async def test_failed_write_does_not_register_new_file(self, empty_filesystem, monkeypatch):
+		"""A new file belongs to the registry only after its disk write succeeds."""
+		fs = empty_filesystem
+
+		async def fail_sync(_file: TxtFile, _path: Path) -> None:
+			raise OSError('disk unavailable')
+
+		monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
+
+		result = await fs.write_file('ghost.txt', 'phantom file')
+
+		assert result == "Error: Could not write to file 'ghost.txt'. disk unavailable"
+		assert 'ghost.txt' not in fs.files
+		assert 'ghost.txt' not in fs.get_state().files
+		assert not (fs.data_dir / 'ghost.txt').exists()
+
 	async def test_write_json_file(self, temp_filesystem):
 		"""Test writing JSON files."""
 		fs = temp_filesystem
@@ -520,6 +552,22 @@ class TestFileSystem:
 		result = await fs.append_file('invalid@name.md', 'content')
 		assert 'not found' in result
 		assert 'auto-corrected' in result
+
+	async def test_failed_append_preserves_existing_file(self, empty_filesystem, monkeypatch):
+		"""A failed append must leave the in-memory and persisted content aligned."""
+		fs = empty_filesystem
+		await fs.write_file('existing.txt', 'persisted')
+
+		async def fail_sync(_file: TxtFile, _path: Path) -> None:
+			raise OSError('disk unavailable')
+
+		monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
+
+		result = await fs.append_file('existing.txt', ' phantom append')
+
+		assert result == "Error: Could not append to file 'existing.txt'. disk unavailable"
+		assert fs.get_file('existing.txt').content == 'persisted'
+		assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted'
 
 	async def test_replace_file_reports_missing_text(self, temp_filesystem):
 		"""Test that replacing absent text reports an error without changing the file."""
