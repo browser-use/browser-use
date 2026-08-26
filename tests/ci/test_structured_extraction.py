@@ -3,6 +3,7 @@
 import asyncio
 import json
 import tempfile
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -404,6 +405,7 @@ class TestExtractStructured:
 				browser_session=browser_session,
 				page_extraction_llm=extraction_llm,
 				file_system=fs,
+				llm_session_id='agent-test',
 			)
 
 		assert isinstance(result, ActionResult)
@@ -423,6 +425,10 @@ class TestExtractStructured:
 		meta = result.metadata['extraction_result']
 		assert meta['data'] == mock_data
 		assert meta['schema_used'] == output_schema
+		mock_ainvoke = cast(AsyncMock, extraction_llm.ainvoke)
+		assert mock_ainvoke.await_args is not None
+		assert mock_ainvoke.await_args.kwargs['session_id'] == 'agent-test'
+		assert mock_ainvoke.await_args.kwargs['invocation_scope'] == 'page_extraction'
 
 	async def test_freetext_extraction_unchanged(self, browser_session, base_url):
 		"""When output_schema is None, extract returns free-text in <result> tags (backward compat)."""
@@ -439,6 +445,7 @@ class TestExtractStructured:
 				browser_session=browser_session,
 				page_extraction_llm=extraction_llm,
 				file_system=fs,
+				llm_session_id='agent-test',
 			)
 
 		assert isinstance(result, ActionResult)
@@ -447,6 +454,10 @@ class TestExtractStructured:
 		assert '</result>' in result.extracted_content
 		assert '<structured_result>' not in result.extracted_content
 		assert result.metadata is None
+		mock_ainvoke = cast(AsyncMock, extraction_llm.ainvoke)
+		assert mock_ainvoke.await_args is not None
+		assert mock_ainvoke.await_args.kwargs['session_id'] == 'agent-test'
+		assert mock_ainvoke.await_args.kwargs['invocation_scope'] == 'page_extraction'
 
 	async def test_invalid_schema_falls_back_to_freetext(self, browser_session, base_url):
 		"""When output_schema contains unsupported keywords, fall back to free-text gracefully."""

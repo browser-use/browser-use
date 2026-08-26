@@ -79,11 +79,20 @@ llm = ChatBrowserUse(model='bu-2-0-mini-preview')   # Cheaper per token, opt-in 
 from browser_use import Agent, ChatOpenAI
 
 llm = ChatOpenAI(model="gpt-5")
+
+# Responses API (HTTP or persistent WebSocket)
+llm = ChatOpenAI(model='gpt-5', transport='responses')
+llm = ChatOpenAI(model='gpt-5', transport='responses_websocket')
 ```
 
 **Env:** `OPENAI_API_KEY` | [Available models](https://platform.openai.com/docs/models)
 
-Supports custom `base_url` for OpenAI-compatible APIs.
+- `transport` (default: `'chat_completions'`): `'chat_completions'` | `'responses'` | `'responses_websocket'`
+- `responses_store` (default: `True`): Responses API `store` field
+- `websocket_base_url`: WebSocket root or full `/responses` URL (derived from `base_url` when omitted)
+- `base_url`: OpenAI-compatible HTTP endpoint
+- WebSocket reuses one socket per agent session + invocation scope; closed on `Agent.close()`. Calls without a session use an ephemeral socket.
+- Also reads `OPENAI_BASE_URL`, `OPENAI_ORG_ID`, `OPENAI_PROJECT_ID` when constructor args are omitted
 
 ## Anthropic
 
@@ -212,7 +221,9 @@ llm = ChatOpenRouter(model="anthropic/claude-sonnet-4-6")
 Proxy to multiple providers with automatic fallback:
 
 ```python
-from browser_use import Agent, ChatVercel
+import os
+
+from browser_use import Agent, ChatOpenAI, ChatVercel
 
 llm = ChatVercel(
     model='anthropic/claude-sonnet-4-6',
@@ -222,9 +233,20 @@ llm = ChatVercel(
         }
     },
 )
+
+# Responses WebSocket via ChatOpenAI
+llm = ChatOpenAI(
+    model='openai/gpt-5.2',
+    transport='responses_websocket',
+    api_key=os.environ['AI_GATEWAY_API_KEY'],
+    base_url='https://ai-gateway.vercel.sh/v1',
+    websocket_base_url='wss://ai-gateway.vercel.sh/v1/responses',
+)
 ```
 
 **Env:** `AI_GATEWAY_API_KEY` (or `VERCEL_OIDC_TOKEN` on Vercel) | [Available models](https://vercel.com/ai-gateway/models)
+
+Use `ChatVercel` for the general gateway. Use `ChatOpenAI(transport='responses_websocket')` for the [Responses WebSocket](https://vercel.com/docs/ai-gateway/sdks-and-apis/responses/websockets) endpoint (same pattern works for other bearer-auth OpenAI-compatible gateways).
 
 ## OCI (Oracle)
 

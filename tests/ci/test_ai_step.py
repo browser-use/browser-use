@@ -9,9 +9,11 @@ from tests.ci.conftest import create_mock_llm
 
 async def test_execute_ai_step_basic():
 	"""Test that _execute_ai_step extracts content with AI"""
+	invocation_kwargs = {}
 
 	# Create mock LLM that returns text response
 	async def custom_ainvoke(*args, **kwargs):
+		invocation_kwargs.update(kwargs)
 		from browser_use.llm.views import ChatInvokeCompletion
 
 		return ChatInvokeCompletion(completion='Extracted: Test content from page', usage=None)
@@ -38,6 +40,8 @@ async def test_execute_ai_step_basic():
 		assert result.extracted_content is not None
 		assert 'Extracted: Test content from page' in result.extracted_content
 		assert result.long_term_memory is not None
+		assert invocation_kwargs['session_id'] == agent.session_id
+		assert invocation_kwargs['invocation_scope'] == 'rerun_ai_step'
 
 	finally:
 		await agent.close()
