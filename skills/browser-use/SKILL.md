@@ -1,11 +1,33 @@
 ---
 name: browser-use
 description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."
+homepage: https://browser-use.com
+metadata:
+  {
+    "openclaw":
+      {
+        "requires": { "bins": ["browser-use"] },
+        "install":
+          [
+            {
+              "id": "uv",
+              "kind": "uv",
+              "package": "browser-use",
+              "bins": ["browser-use"],
+              "label": "Install Browser Use CLI (uv)",
+            },
+          ],
+      },
+  }
 ---
 
 # Browser Use
 
 Direct browser control via CDP. For task-specific edits, use `agent-workspace/agent_helpers.py`. For setup, install, or connection problems, read https://github.com/browser-use/browser-harness/blob/main/install.md.
+
+## When Not to Use
+
+A basic fetch of public information needs no browser. If a plain HTTP request can read it — a public page, an API, docs — use `curl` or your fetch tool, and leave the browser alone. Use browser-use when the task needs interaction (click, type, navigate), the user's logged-in session, JS rendering, or a bot-protected page. If a direct fetch fails or returns a shell page, then escalate to the browser.
 
 Domain skills are off by default. Set `BH_DOMAIN_SKILLS=1` to enable them; see the bottom section.
 
@@ -22,6 +44,10 @@ PY
 - Invoke as `browser-use`. Use heredocs for multi-line commands.
 - Helpers are pre-imported. `run.py` calls `ensure_daemon()` before `exec`.
 - First navigation is `new_tab(url)`, not `goto_url(url)`.
+- `new_tab()` and `switch_tab()` attach and move the horse marker without
+  changing Chrome's visible tab. Screenshots and normal CDP input work in the
+  background; call `activate_tab(target)` only when the user explicitly asks
+  or a page demonstrably pauses rendering while hidden.
 - The normal local flow attaches to the running Chrome/Chromium CDP endpoint. No browser ids or local profile selection.
 
 ## Local Chrome
@@ -32,13 +58,22 @@ If the daemon cannot connect, run diagnostics:
 browser-use --doctor
 ```
 
-If Chrome remote debugging is not enabled, the harness opens:
+If Chrome is not running at all, the harness launches it automatically and retries.
+
+If Chrome is running but remote debugging is not enabled, the harness opens:
 
 ```text
 chrome://inspect/#remote-debugging
 ```
 
-Ask the user to tick "Allow remote debugging for this browser instance" and click Allow if Chrome shows a permission popup. Then retry the same `browser-use` command.
+On macOS, when Chrome asks for remote-debugging permission, run:
+
+```text
+browser-use mac-approve
+```
+
+Continue browser work when it returns `ready`; otherwise follow its printed
+instruction.
 
 ## Remote Browsers
 
@@ -154,7 +189,7 @@ If you get stuck on a browser mechanic, check https://github.com/browser-use/bro
 ## Gotchas
 
 - `chrome://inspect/#remote-debugging` must be enabled for local Chrome control.
-- Chrome may show an "Allow remote debugging?" popup; wait for the user to click Allow.
+- On macOS, if Chrome shows an "Allow remote debugging?" popup, run `browser-use mac-approve`. Do not poll in a loop — the daemon holds one connection.
 - Omnibox popups are not real work tabs.
 - CDP target order is not Chrome's visible tab-strip order.
 - `BU_CDP_URL` is an HTTP DevTools endpoint; the daemon resolves it to WebSocket.

@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import csv
+import html
 import io
 import os
 import re
@@ -110,12 +111,12 @@ class BaseFile(BaseModel, ABC):
 
 	def sync_to_disk_sync(self, path: Path) -> None:
 		file_path = path / self.full_name
-		file_path.write_text(self.content)
+		file_path.write_text(self.content, encoding='utf-8')
 
 	async def sync_to_disk(self, path: Path) -> None:
 		file_path = path / self.full_name
 		with ThreadPoolExecutor() as executor:
-			await asyncio.get_event_loop().run_in_executor(executor, lambda: file_path.write_text(self.content))
+			await asyncio.get_event_loop().run_in_executor(executor, lambda: file_path.write_text(self.content, encoding='utf-8'))
 
 	async def write(self, content: str, path: Path) -> None:
 		self.write_file_content(content)
@@ -257,23 +258,22 @@ class PdfFile(BaseFile):
 			styles = getSampleStyleSheet()
 			story = []
 
-			# Convert markdown content to simple text and add to PDF
-			# For basic implementation, we'll treat content as plain text
-			# This avoids the AGPL license issue while maintaining functionality
+			# Plain text plus markdown headers only, to avoid an AGPL markdown-to-PDF dependency
 			content_lines = self.content.split('\n')
 
 			for line in content_lines:
 				if line.strip():
 					# Handle basic markdown headers
 					if line.startswith('# '):
-						para = Paragraph(line[2:], styles['Title'])
+						text, style = line[2:], styles['Title']
 					elif line.startswith('## '):
-						para = Paragraph(line[3:], styles['Heading1'])
+						text, style = line[3:], styles['Heading1']
 					elif line.startswith('### '):
-						para = Paragraph(line[4:], styles['Heading2'])
+						text, style = line[4:], styles['Heading2']
 					else:
-						para = Paragraph(line, styles['Normal'])
-					story.append(para)
+						text, style = line, styles['Normal']
+					# Paragraph parses its input as ReportLab markup, but our content is plain text
+					story.append(Paragraph(html.escape(text), style))
 				else:
 					story.append(Spacer(1, 6))
 
@@ -792,6 +792,8 @@ class FileSystem:
 
 		try:
 			content = file_obj.read()
+			if old_str not in content:
+				return f'Error: Could not find the specified text in file {full_filename}.'
 			content = content.replace(old_str, new_str)
 			await file_obj.write(content, self.data_dir)
 			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''

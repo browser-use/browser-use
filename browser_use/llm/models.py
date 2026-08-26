@@ -8,7 +8,7 @@ Usage:
     model = llm.azure_gpt_4_1_mini
     model = llm.openai_gpt_4o
     model = llm.google_gemini_2_5_pro
-    model = llm.bu_latest  # or bu_1_0, bu_2_0
+    model = llm.bu_latest  # or bu_2_0_mini_preview, bu_2_0, bu_1_0
 """
 
 import os
@@ -76,19 +76,14 @@ anthropic_claude_fable_5: 'BaseChatModel'
 anthropic_claude_3_5_sonnet_latest: 'BaseChatModel'
 anthropic_claude_3_5_haiku_latest: 'BaseChatModel'
 
-cerebras_llama3_1_8b: 'BaseChatModel'
-cerebras_llama3_3_70b: 'BaseChatModel'
 cerebras_gpt_oss_120b: 'BaseChatModel'
-cerebras_llama_4_scout_17b_16e_instruct: 'BaseChatModel'
-cerebras_llama_4_maverick_17b_128e_instruct: 'BaseChatModel'
-cerebras_qwen_3_32b: 'BaseChatModel'
-cerebras_qwen_3_235b_a22b_instruct_2507: 'BaseChatModel'
-cerebras_qwen_3_235b_a22b_thinking_2507: 'BaseChatModel'
-cerebras_qwen_3_coder_480b: 'BaseChatModel'
+cerebras_zai_glm_4_7: 'BaseChatModel'
+cerebras_gemma_4_31b: 'BaseChatModel'
 
 bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
 bu_2_0: 'BaseChatModel'
+bu_2_0_mini_preview: 'BaseChatModel'
 
 
 def get_llm_by_name(model_name: str):
@@ -149,6 +144,8 @@ def get_llm_by_name(model_name: str):
 		model = model_part.replace('llama_4_maverick', 'llama-4-maverick').replace('_', '-')
 	elif 'gpt_oss_120b' in model_part:
 		model = model_part.replace('gpt_oss_120b', 'gpt-oss-120b')
+	elif 'zai_glm_4_7' in model_part:
+		model = model_part.replace('zai_glm_4_7', 'zai-glm-4.7')
 	elif 'qwen_3_32b' in model_part:
 		model = model_part.replace('qwen_3_32b', 'qwen-3-32b')
 	elif 'qwen_3_235b_a22b_instruct' in model_part:
@@ -316,19 +313,14 @@ __all__ += [
 	'codestral',
 	'pixtral_large',
 	# Cerebras instances - created on demand
-	'cerebras_llama3_1_8b',
-	'cerebras_llama3_3_70b',
 	'cerebras_gpt_oss_120b',
-	'cerebras_llama_4_scout_17b_16e_instruct',
-	'cerebras_llama_4_maverick_17b_128e_instruct',
-	'cerebras_qwen_3_32b',
-	'cerebras_qwen_3_235b_a22b_instruct_2507',
-	'cerebras_qwen_3_235b_a22b_thinking_2507',
-	'cerebras_qwen_3_coder_480b',
+	'cerebras_zai_glm_4_7',
+	'cerebras_gemma_4_31b',
 	# Browser Use instances - created on demand
 	'bu_latest',
 	'bu_1_0',
 	'bu_2_0',
+	'bu_2_0_mini_preview',
 ]
 
 # NOTE: OCI backend is optional. The try/except ImportError and conditional __all__ are required
