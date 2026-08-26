@@ -479,6 +479,19 @@ class TestFileSystem:
 		assert 'ghost.txt' not in fs.get_state().files
 		assert not (fs.data_dir / 'ghost.txt').exists()
 
+	async def test_failed_write_releases_file_lock(self, empty_filesystem, monkeypatch):
+		"""A failed write must not retain an idle per-file lock."""
+		fs = empty_filesystem
+
+		async def fail_sync(_file: TxtFile, _path: Path) -> None:
+			raise OSError('disk unavailable')
+
+		monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
+
+		await fs.write_file('ghost.txt', 'phantom file')
+
+		assert 'ghost.txt' not in fs._file_write_locks
+
 	async def test_write_json_file(self, temp_filesystem):
 		"""Test writing JSON files."""
 		fs = temp_filesystem
@@ -720,6 +733,66 @@ class TestFileSystem:
 		content2 = fs.get_file('extracted_content_1.md').content
 		assert content1 == 'First extracted content'
 		assert content2 == 'Second extracted content'
+
+	async def test_save_extracted_content_serializes_with_write_file(self, empty_filesystem, monkeypatch):
+		"""An extracted-content write must serialize with a manual write to the same name."""
+		fs = empty_filesystem
+		extraction_sync_started = asyncio.Event()
+		release_extraction = asyncio.Event()
+		manual_sync_started = asyncio.Event()
+
+		async def controlled_sync(staged_file: MarkdownFile, path: Path) -> None:
+			if staged_file.content == 'extracted':
+				extraction_sync_started.set()
+				await release_extraction.wait()
+			else:
+				manual_sync_started.set()
+			(path / staged_file.full_name).write_text(staged_file.content, encoding='utf-8')
+
+		monkeypatch.setattr(MarkdownFile, 'sync_to_disk', controlled_sync)
+
+		extraction_task = asyncio.create_task(fs.save_extracted_content('extracted'))
+		await extraction_sync_started.wait()
+		manual_task = asyncio.create_task(fs.write_file('extracted_content_0.md', 'manual'))
+		await asyncio.sleep(0)
+		manual_write_was_serialized = not manual_sync_started.is_set()
+		release_extraction.set()
+
+		extracted_filename, manual_result = await asyncio.gather(extraction_task, manual_task)
+
+		assert manual_write_was_serialized
+		assert extracted_filename == 'extracted_content_0.md'
+		assert manual_result == 'Data written to file extracted_content_0.md successfully.'
+		assert fs.get_file('extracted_content_0.md').content == 'manual'
+		assert (fs.data_dir / 'extracted_content_0.md').read_text(encoding='utf-8') == 'manual'
+
+	async def test_concurrent_extracted_content_uses_unique_filenames(self, empty_filesystem, monkeypatch):
+		"""Concurrent extracted-content saves must reserve distinct numbered filenames."""
+		fs = empty_filesystem
+		first_sync_started = asyncio.Event()
+		second_sync_started = asyncio.Event()
+
+		async def controlled_sync(staged_file: MarkdownFile, path: Path) -> None:
+			if staged_file.content == 'first':
+				first_sync_started.set()
+				await second_sync_started.wait()
+			else:
+				second_sync_started.set()
+			(path / staged_file.full_name).write_text(staged_file.content, encoding='utf-8')
+
+		monkeypatch.setattr(MarkdownFile, 'sync_to_disk', controlled_sync)
+
+		first_task = asyncio.create_task(fs.save_extracted_content('first'))
+		await first_sync_started.wait()
+		second_task = asyncio.create_task(fs.save_extracted_content('second'))
+		first_filename, second_filename = await asyncio.gather(first_task, second_task)
+
+		assert first_filename == 'extracted_content_0.md'
+		assert second_filename == 'extracted_content_1.md'
+		assert fs.get_file(first_filename).content == 'first'
+		assert fs.get_file(second_filename).content == 'second'
+		assert (fs.data_dir / first_filename).read_text(encoding='utf-8') == 'first'
+		assert (fs.data_dir / second_filename).read_text(encoding='utf-8') == 'second'
 
 	async def test_describe_with_content(self, temp_filesystem):
 		"""Test describing filesystem with files containing content."""

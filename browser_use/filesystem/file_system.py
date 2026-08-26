@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+from weakref import WeakValueDictionary
 
 from pydantic import BaseModel, Field
 
@@ -382,7 +383,8 @@ class FileSystem:
 		}
 
 		self.files = {}
-		self._file_write_locks: dict[str, asyncio.Lock] = {}
+		self._file_write_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
+		self._extracted_content_lock = asyncio.Lock()
 		if create_default_files:
 			self.default_files = ['todo.md']
 			self._create_default_files()
@@ -823,13 +825,16 @@ class FileSystem:
 
 	async def save_extracted_content(self, content: str) -> str:
 		"""Save extracted content to a numbered file"""
-		initial_filename = f'extracted_content_{self.extracted_content_count}'
-		extracted_filename = f'{initial_filename}.md'
-		file_obj = MarkdownFile(name=initial_filename)
-		await file_obj.write(content, self.data_dir)
-		self.files[extracted_filename] = file_obj
-		self.extracted_content_count += 1
-		return extracted_filename
+		async with self._extracted_content_lock:
+			initial_filename = f'extracted_content_{self.extracted_content_count}'
+			extracted_filename = f'{initial_filename}.md'
+			self.extracted_content_count += 1
+
+		async with self._get_file_write_lock(extracted_filename):
+			file_obj = MarkdownFile(name=initial_filename)
+			await file_obj.write(content, self.data_dir)
+			self.files[extracted_filename] = file_obj
+			return extracted_filename
 
 	def describe(self) -> str:
 		"""List all files with their content information using file-specific display methods"""
