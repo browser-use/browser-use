@@ -209,6 +209,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 	third_party_loggers = [
 		'WDM',
 		'httpx',
+		'httpx2',
 		'selenium',
 		'playwright',
 		'urllib3',
@@ -217,6 +218,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 		'langsmith.client',
 		'openai',
 		'httpcore',
+		'httpcore2',
 		'charset_normalizer',
 		'anthropic._base_client',
 		'PIL.PngImagePlugin',

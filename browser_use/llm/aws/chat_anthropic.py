@@ -45,7 +45,7 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 	top_p: float | None = None
 	top_k: int | None = None
 	stop_sequences: list[str] | None = None
-	seed: int | None = None
+	seed: int | None = None  # not sent: the Anthropic Messages API has no seed parameter
 
 	# AWS credentials and configuration
 	aws_access_key: str | None = None
@@ -99,21 +99,29 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 		return client_params
 
 	def _get_client_params_for_invoke(self) -> dict[str, Any]:
-		"""Prepare client parameters dictionary for invoke."""
-		client_params = {}
+		"""Prepare client parameters dictionary for invoke.
 
-		if self.temperature is not None:
-			client_params['temperature'] = self.temperature
+		`anthropic>=1` dropped `temperature`/`top_p`/`top_k` from `messages.create()`, where passing
+		one is now a `TypeError`. Bedrock still accepts them in the request body, so they travel
+		through `extra_body` -- the route the SDK migration guide names -- which merges them into the
+		top-level request JSON.
+		"""
+		client_params: dict[str, Any] = {}
+
 		if self.max_tokens is not None:
 			client_params['max_tokens'] = self.max_tokens
-		if self.top_p is not None:
-			client_params['top_p'] = self.top_p
-		if self.top_k is not None:
-			client_params['top_k'] = self.top_k
-		if self.seed is not None:
-			client_params['seed'] = self.seed
 		if self.stop_sequences is not None:
 			client_params['stop_sequences'] = self.stop_sequences
+
+		extra_body: dict[str, Any] = {}
+		if self.temperature is not None:
+			extra_body['temperature'] = self.temperature
+		if self.top_p is not None:
+			extra_body['top_p'] = self.top_p
+		if self.top_k is not None:
+			extra_body['top_k'] = self.top_k
+		if extra_body:
+			client_params['extra_body'] = extra_body
 
 		return client_params
 
