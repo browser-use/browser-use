@@ -569,6 +569,36 @@ class TestFileSystem:
 		assert fs.get_file('existing.txt').content == 'persisted'
 		assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted'
 
+	async def test_concurrent_appends_preserve_both_updates(self, empty_filesystem, monkeypatch):
+		"""Concurrent appends to one file must serialize without losing either update."""
+		fs = empty_filesystem
+		await fs.write_file('existing.txt', 'persisted')
+		first_sync_started = asyncio.Event()
+		second_append_started = asyncio.Event()
+
+		async def controlled_sync(staged_file: TxtFile, path: Path) -> None:
+			if staged_file.content == 'persisted first':
+				first_sync_started.set()
+				await second_append_started.wait()
+			(path / staged_file.full_name).write_text(staged_file.content, encoding='utf-8')
+
+		monkeypatch.setattr(TxtFile, 'sync_to_disk', controlled_sync)
+
+		first_append = asyncio.create_task(fs.append_file('existing.txt', ' first'))
+		await first_sync_started.wait()
+
+		async def append_second() -> str:
+			second_append_started.set()
+			return await fs.append_file('existing.txt', ' second')
+
+		second_append = asyncio.create_task(append_second())
+		first_result, second_result = await asyncio.gather(first_append, second_append)
+
+		assert first_result == 'Data appended to file existing.txt successfully.'
+		assert second_result == 'Data appended to file existing.txt successfully.'
+		assert fs.get_file('existing.txt').content == 'persisted first second'
+		assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted first second'
+
 	async def test_replace_file_reports_missing_text(self, temp_filesystem):
 		"""Test that replacing absent text reports an error without changing the file."""
 		fs = temp_filesystem

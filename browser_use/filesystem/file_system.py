@@ -382,6 +382,7 @@ class FileSystem:
 		}
 
 		self.files = {}
+		self._file_write_locks: dict[str, asyncio.Lock] = {}
 		if create_default_files:
 			self.default_files = ['todo.md']
 			self._create_default_files()
@@ -391,6 +392,14 @@ class FileSystem:
 	def get_allowed_extensions(self) -> list[str]:
 		"""Get allowed extensions"""
 		return list(self._file_types.keys())
+
+	def _get_file_write_lock(self, full_filename: str) -> asyncio.Lock:
+		"""Return the lock that serializes mutations for one normalized filename."""
+		lock = self._file_write_locks.get(full_filename)
+		if lock is None:
+			lock = asyncio.Lock()
+			self._file_write_locks[full_filename] = lock
+		return lock
 
 	def _get_file_type_class(self, extension: str) -> type[BaseFile] | None:
 		"""Get the appropriate file class for an extension."""
@@ -732,29 +741,30 @@ class FileSystem:
 			return _build_filename_error_message(full_filename, self.get_allowed_extensions())
 		full_filename = resolved
 
-		try:
-			name_without_ext, extension = self._parse_filename(full_filename)
-			file_class = self._get_file_type_class(extension)
-			if not file_class:
-				raise ValueError(f"Error: Invalid file extension '{extension}' for file '{full_filename}'.")
+		async with self._get_file_write_lock(full_filename):
+			try:
+				name_without_ext, extension = self._parse_filename(full_filename)
+				file_class = self._get_file_type_class(extension)
+				if not file_class:
+					raise ValueError(f"Error: Invalid file extension '{extension}' for file '{full_filename}'.")
 
-			# Create or get existing file using full filename as key
-			is_new_file = full_filename not in self.files
-			if not is_new_file:
-				file_obj = self.files[full_filename]
-			else:
-				file_obj = file_class(name=name_without_ext)
+				# Create or get existing file using full filename as key
+				is_new_file = full_filename not in self.files
+				if not is_new_file:
+					file_obj = self.files[full_filename]
+				else:
+					file_obj = file_class(name=name_without_ext)
 
-			# Use file-specific write method
-			await file_obj.write(content, self.data_dir)
-			if is_new_file:
-				self.files[full_filename] = file_obj
-			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
-			return f'Data written to file {full_filename} successfully.{sanitize_note}'
-		except FileSystemError as e:
-			return str(e)
-		except Exception as e:
-			return f"Error: Could not write to file '{full_filename}'. {str(e)}"
+				# Use file-specific write method
+				await file_obj.write(content, self.data_dir)
+				if is_new_file:
+					self.files[full_filename] = file_obj
+				sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
+				return f'Data written to file {full_filename} successfully.{sanitize_note}'
+			except FileSystemError as e:
+				return str(e)
+			except Exception as e:
+				return f"Error: Could not write to file '{full_filename}'. {str(e)}"
 
 	async def append_file(self, full_filename: str, content: str) -> str:
 		"""Append content to file using file-specific append method"""
@@ -764,20 +774,21 @@ class FileSystem:
 			return _build_filename_error_message(full_filename, self.get_allowed_extensions())
 		full_filename = resolved
 
-		file_obj = self.files.get(full_filename)
-		if not file_obj:
-			if was_sanitized:
-				return f"File '{full_filename}' not found. (Filename was auto-corrected from '{original_filename}')"
-			return f"File '{full_filename}' not found."
+		async with self._get_file_write_lock(full_filename):
+			file_obj = self.files.get(full_filename)
+			if not file_obj:
+				if was_sanitized:
+					return f"File '{full_filename}' not found. (Filename was auto-corrected from '{original_filename}')"
+				return f"File '{full_filename}' not found."
 
-		try:
-			await file_obj.append(content, self.data_dir)
-			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
-			return f'Data appended to file {full_filename} successfully.{sanitize_note}'
-		except FileSystemError as e:
-			return str(e)
-		except Exception as e:
-			return f"Error: Could not append to file '{full_filename}'. {str(e)}"
+			try:
+				await file_obj.append(content, self.data_dir)
+				sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
+				return f'Data appended to file {full_filename} successfully.{sanitize_note}'
+			except FileSystemError as e:
+				return str(e)
+			except Exception as e:
+				return f"Error: Could not append to file '{full_filename}'. {str(e)}"
 
 	async def replace_file_str(self, full_filename: str, old_str: str, new_str: str) -> str:
 		"""Replace old_str with new_str in file_name"""
@@ -790,24 +801,25 @@ class FileSystem:
 		if not old_str:
 			return 'Error: Cannot replace empty string. Please provide a non-empty string to replace.'
 
-		file_obj = self.files.get(full_filename)
-		if not file_obj:
-			if was_sanitized:
-				return f"File '{full_filename}' not found. (Filename was auto-corrected from '{original_filename}')"
-			return f"File '{full_filename}' not found."
+		async with self._get_file_write_lock(full_filename):
+			file_obj = self.files.get(full_filename)
+			if not file_obj:
+				if was_sanitized:
+					return f"File '{full_filename}' not found. (Filename was auto-corrected from '{original_filename}')"
+				return f"File '{full_filename}' not found."
 
-		try:
-			content = file_obj.read()
-			if old_str not in content:
-				return f'Error: Could not find the specified text in file {full_filename}.'
-			content = content.replace(old_str, new_str)
-			await file_obj.write(content, self.data_dir)
-			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
-			return f'Successfully replaced all occurrences of "{old_str}" with "{new_str}" in file {full_filename}{sanitize_note}'
-		except FileSystemError as e:
-			return str(e)
-		except Exception as e:
-			return f"Error: Could not replace string in file '{full_filename}'. {str(e)}"
+			try:
+				content = file_obj.read()
+				if old_str not in content:
+					return f'Error: Could not find the specified text in file {full_filename}.'
+				content = content.replace(old_str, new_str)
+				await file_obj.write(content, self.data_dir)
+				sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
+				return f'Successfully replaced all occurrences of "{old_str}" with "{new_str}" in file {full_filename}{sanitize_note}'
+			except FileSystemError as e:
+				return str(e)
+			except Exception as e:
+				return f"Error: Could not replace string in file '{full_filename}'. {str(e)}"
 
 	async def save_extracted_content(self, content: str) -> str:
 		"""Save extracted content to a numbered file"""
