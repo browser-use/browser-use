@@ -384,7 +384,7 @@ class FileSystem:
 
 		self.files = {}
 		self._file_write_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
-		self._extracted_content_lock = asyncio.Lock()
+		self._reserved_extracted_content_indices: set[int] = set()
 		if create_default_files:
 			self.default_files = ['todo.md']
 			self._create_default_files()
@@ -825,16 +825,25 @@ class FileSystem:
 
 	async def save_extracted_content(self, content: str) -> str:
 		"""Save extracted content to a numbered file"""
-		async with self._extracted_content_lock:
-			initial_filename = f'extracted_content_{self.extracted_content_count}'
-			extracted_filename = f'{initial_filename}.md'
-			self.extracted_content_count += 1
+		extracted_content_index = 0
+		while (
+			extracted_content_index in self._reserved_extracted_content_indices
+			or f'extracted_content_{extracted_content_index}.md' in self.files
+		):
+			extracted_content_index += 1
+		self._reserved_extracted_content_indices.add(extracted_content_index)
 
-		async with self._get_file_write_lock(extracted_filename):
-			file_obj = MarkdownFile(name=initial_filename)
-			await file_obj.write(content, self.data_dir)
-			self.files[extracted_filename] = file_obj
-			return extracted_filename
+		initial_filename = f'extracted_content_{extracted_content_index}'
+		extracted_filename = f'{initial_filename}.md'
+		try:
+			async with self._get_file_write_lock(extracted_filename):
+				file_obj = MarkdownFile(name=initial_filename)
+				await file_obj.write(content, self.data_dir)
+				self.files[extracted_filename] = file_obj
+				self.extracted_content_count += 1
+				return extracted_filename
+		finally:
+			self._reserved_extracted_content_indices.discard(extracted_content_index)
 
 	def describe(self) -> str:
 		"""List all files with their content information using file-specific display methods"""

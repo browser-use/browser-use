@@ -1,6 +1,7 @@
 """Tests for the FileSystem class and related file operations."""
 
 import asyncio
+import gc
 import tempfile
 from pathlib import Path
 
@@ -489,6 +490,7 @@ class TestFileSystem:
 		monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
 
 		await fs.write_file('ghost.txt', 'phantom file')
+		gc.collect()
 
 		assert 'ghost.txt' not in fs._file_write_locks
 
@@ -733,6 +735,33 @@ class TestFileSystem:
 		content2 = fs.get_file('extracted_content_1.md').content
 		assert content1 == 'First extracted content'
 		assert content2 == 'Second extracted content'
+
+	async def test_failed_extracted_content_reuses_reserved_filename(self, empty_filesystem, monkeypatch):
+		"""A failed extracted-content write must not advance serialized numbering."""
+		fs = empty_filesystem
+		write_attempts = 0
+
+		async def fail_once(staged_file: MarkdownFile, path: Path) -> None:
+			nonlocal write_attempts
+			write_attempts += 1
+			if write_attempts == 1:
+				raise OSError('disk unavailable')
+			(path / staged_file.full_name).write_text(staged_file.content, encoding='utf-8')
+
+		monkeypatch.setattr(MarkdownFile, 'sync_to_disk', fail_once)
+
+		with pytest.raises(OSError, match='disk unavailable'):
+			await fs.save_extracted_content('failed')
+
+		assert fs.extracted_content_count == 0
+		assert not fs.files
+
+		extracted_filename = await fs.save_extracted_content('persisted')
+
+		assert extracted_filename == 'extracted_content_0.md'
+		assert fs.extracted_content_count == 1
+		assert fs.get_file(extracted_filename).content == 'persisted'
+		assert (fs.data_dir / extracted_filename).read_text(encoding='utf-8') == 'persisted'
 
 	async def test_save_extracted_content_serializes_with_write_file(self, empty_filesystem, monkeypatch):
 		"""An extracted-content write must serialize with a manual write to the same name."""
