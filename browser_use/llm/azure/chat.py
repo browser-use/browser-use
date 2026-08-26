@@ -2,7 +2,10 @@ import os
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
-import httpx
+# Imported eagerly because httpx2 defers it to the first client construction, which performs
+# blocking I/O when that construction happens inside the event loop.
+import httpcore2  # noqa: F401
+import httpx2
 from openai import APIConnectionError, APIStatusError, RateLimitError
 from openai import AsyncAzureOpenAI as AsyncAzureOpenAIClient
 from openai.types.responses import Response
@@ -109,8 +112,8 @@ class ChatAzureOpenAI(ChatOpenAILike):
 			_client_params['http_client'] = self.http_client
 		else:
 			# Create a new async HTTP client with custom limits
-			_client_params['http_client'] = httpx.AsyncClient(
-				limits=httpx.Limits(max_connections=20, max_keepalive_connections=6)
+			_client_params['http_client'] = httpx2.AsyncClient(
+				limits=httpx2.Limits(max_connections=20, max_keepalive_connections=6)
 			)
 
 		self.client = AsyncAzureOpenAIClient(**_client_params)
