@@ -1,0 +1,21 @@
+tests/ci/test_new_tab_switch_feedback.py
+  s_86d24eaeebcb12::t_ef76d338b39bd7 1-58
+browser_use/tools/service.py
+  s_86d24eaeebcb12::t_ef76d338b39bd7 648-650,652-653
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "164271b94445bf8864204868dabd08f6495d7844",
+  "prompts": {},
+  "sessions": {
+    "s_86d24eaeebcb12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a005bc-1d17-73c3-b1f5-38259988bc61",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "MagMueller <mamagnus00@gmail.com>"
+    }
+  }
+}
