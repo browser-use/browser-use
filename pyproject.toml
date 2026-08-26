@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.13.7"
+version = "0.13.8"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -16,7 +16,7 @@ dependencies = [
     "bubus==1.5.6",
     "click==8.3.1",
     "InquirerPy==0.3.4",
-    "rich==14.3.1",
+    "rich==14.3.3",
     "google-api-core==2.29.0",
     "httpx==0.28.1",
     "posthog==7.7.0",
@@ -41,12 +41,12 @@ dependencies = [
     "reportlab==4.4.9",
     "cdp-use==1.4.5",
     "pyotp==2.9.0",
-    "pillow==12.2.0",
+    "pillow==12.3.0",
     "cloudpickle==3.1.2",
     "markdownify==1.2.2",
     "python-docx==1.2.0",
     "browser-use-sdk==3.4.2",
-    "browser-harness==0.1.8",
+    "browser-harness==0.1.9",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -60,11 +60,11 @@ dependencies = [
 [project.optional-dependencies]
 cli = []
 core = [
-    "browser-use-core==0.13.2; sys_platform == 'darwin' and platform_machine == 'arm64'",
-    "browser-use-core==0.13.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-    "browser-use-core==0.13.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "browser-use-core==0.13.2; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "browser-use-core==0.13.2; sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'x86_64')",
+    "browser-use-core==0.13.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "browser-use-core==0.13.3; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "browser-use-core==0.13.3; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "browser-use-core==0.13.3; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "browser-use-core==0.13.3; sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'x86_64')",
 ]
 aws = ["boto3==1.42.37"]
 oci = ["oci==2.166.0"]
