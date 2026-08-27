@@ -74,7 +74,9 @@ class ChatGroq(BaseChatModel):
 	max_retries: int = 10  # Increase default retries for automation reliability
 
 	def get_client(self) -> AsyncGroq:
-		return AsyncGroq(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout, max_retries=self.max_retries)
+		if not hasattr(self, '_client'):
+			self._client = AsyncGroq(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout, max_retries=self.max_retries)
+		return self._client
 
 	@property
 	def provider(self) -> str:
