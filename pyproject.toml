@@ -14,7 +14,7 @@ dependencies = [
     "aiohttp==3.14.3",
     "anyio==4.12.1",
     "bubus==1.5.6",
-    "click==8.3.1",
+    "click==8.3.3",
     "InquirerPy==0.3.4",
     "rich==14.3.3",
     "google-api-core==2.29.0",
@@ -37,7 +37,7 @@ dependencies = [
     "google-auth==2.48.0",
     "google-auth-oauthlib==1.2.4",
     "mcp==1.28.1",
-    "pypdf==6.14.2",
+    "pypdf==6.15.0",
     "reportlab==4.4.9",
     "cdp-use==1.4.5",
     "pyotp==2.9.0",
@@ -242,5 +242,5 @@ dev-dependencies = [
     "lmnr[all]==0.7.42",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
     "pytest-timeout==2.4.0",
-    "pydantic_settings==2.12.0",
+    "pydantic_settings==2.14.2",
 ]
