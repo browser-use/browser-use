@@ -29,7 +29,7 @@ T = TypeVar('T', bound=BaseModel)
 class ChatDeepSeek(BaseChatModel):
 	"""DeepSeek /chat/completions wrapper (OpenAI-compatible)."""
 
-	model: str = 'deepseek-chat'
+	model: str = 'deepseek-v4-flash'
 
 	# Generation parameters
 	max_tokens: int | None = None
@@ -42,6 +42,8 @@ class ChatDeepSeek(BaseChatModel):
 	base_url: str | httpx.URL | None = 'https://api.deepseek.com/v1'
 	timeout: float | httpx.Timeout | None = None
 	client_params: dict[str, Any] | None = None
+
+	thinking: bool = False
 
 	@property
 	def provider(self) -> str:
@@ -58,6 +60,27 @@ class ChatDeepSeek(BaseChatModel):
 	@property
 	def name(self) -> str:
 		return self.model
+
+	def _supports_thinking(self) -> bool:
+		return 'deepseek-v4' in self.model.lower()
+
+	def _request_kwargs(self) -> dict[str, Any]:
+		common: dict[str, Any] = {}
+
+		if self.temperature is not None:
+			common['temperature'] = self.temperature
+		if self.max_tokens is not None:
+			common['max_tokens'] = self.max_tokens
+		if self.top_p is not None:
+			common['top_p'] = self.top_p
+		if self.seed is not None:
+			common['seed'] = self.seed
+
+		if self._supports_thinking():
+			common['extra_body'] = {
+				'thinking': {'type': 'enabled' if self.thinking else 'disabled'},
+			}
+		return common
 
 	@overload
 	async def ainvoke(
@@ -96,16 +119,7 @@ class ChatDeepSeek(BaseChatModel):
 		"""
 		client = self._client()
 		ds_messages = DeepSeekMessageSerializer.serialize_messages(messages)
-		common: dict[str, Any] = {}
-
-		if self.temperature is not None:
-			common['temperature'] = self.temperature
-		if self.max_tokens is not None:
-			common['max_tokens'] = self.max_tokens
-		if self.top_p is not None:
-			common['top_p'] = self.top_p
-		if self.seed is not None:
-			common['seed'] = self.seed
+		common = self._request_kwargs()
 
 		# Beta conversation prefix continuation (see official documentation)
 		if self.base_url and str(self.base_url).endswith('/beta'):
