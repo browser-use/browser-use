@@ -167,6 +167,7 @@ class BaseFile(BaseModel, ABC):
 
 	async def _update_and_sync(self, content: str, path: Path, *, append: bool) -> None:
 		async with self._write_lock:
+			path.mkdir(parents=True, exist_ok=True)
 			staging_path = Path(tempfile.mkdtemp(dir=path))
 			candidate = self.model_copy()
 			try:

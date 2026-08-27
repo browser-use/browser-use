@@ -184,6 +184,17 @@ class TestBaseFile:
 			assert file_path.read_text() == expected_content
 			assert file_obj.content == expected_content
 
+	async def test_write_creates_missing_directory(self):
+		"""Atomic writes retain BaseFile's existing parent-directory behavior."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			path = Path(tmp_dir) / 'new' / 'nested'
+			file_obj = TxtFile(name='notes')
+
+			await file_obj.write('hello', path)
+
+			assert (path / 'notes.txt').read_text(encoding='utf-8') == 'hello'
+			assert file_obj.content == 'hello'
+
 	async def test_json_file_disk_operations(self):
 		"""Test JSON file sync to disk operations."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
