@@ -123,9 +123,9 @@ class BaseFile(BaseModel, ABC):
 		self.write_file_content(content)
 		try:
 			await self.sync_to_disk(path)
-		except Exception:
-			# A failed persist must not leave the in-memory content pointing at
-			# data that was never written to disk.
+		except (Exception, asyncio.CancelledError):
+			# Persistence cancellation is a BaseException on supported Python
+			# versions, so handle it explicitly before propagating the cancellation.
 			self.content = previous_content
 			raise
 
@@ -134,9 +134,9 @@ class BaseFile(BaseModel, ABC):
 		self.append_file_content(content)
 		try:
 			await self.sync_to_disk(path)
-		except Exception:
-			# A failed persist must not leave the in-memory content pointing at
-			# data that was never written to disk.
+		except (Exception, asyncio.CancelledError):
+			# Persistence cancellation is a BaseException on supported Python
+			# versions, so handle it explicitly before propagating the cancellation.
 			self.content = previous_content
 			raise
 

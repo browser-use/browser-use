@@ -156,6 +156,22 @@ class TestBaseFile:
 				await file_obj.append(' phantom append', Path(tmp_dir))
 			assert file_obj.content == 'persisted'
 
+	@pytest.mark.parametrize(('operation', 'content'), [('write', 'phantom update'), ('append', ' phantom append')])
+	async def test_mutation_rolls_back_when_sync_is_cancelled(self, monkeypatch, operation, content):
+		"""A cancelled persist must restore content and still propagate cancellation."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			file_obj = TxtFile(name='notes', content='persisted')
+
+			async def cancel_sync(self, path):
+				# Simulate task cancellation while the disk write is still pending.
+				raise asyncio.CancelledError
+
+			monkeypatch.setattr(TxtFile, 'sync_to_disk', cancel_sync)
+
+			with pytest.raises(asyncio.CancelledError):
+				await getattr(file_obj, operation)(content, Path(tmp_dir))
+			assert file_obj.content == 'persisted'
+
 	async def test_json_file_disk_operations(self):
 		"""Test JSON file sync to disk operations."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
