@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable, Coroutine
 from fnmatch import fnmatch
 from functools import cache, wraps
+from ipaddress import IPv6Address
 from pathlib import Path
 from sys import stderr
 from typing import Any, ParamSpec, TypeVar
@@ -576,8 +577,31 @@ def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: b
 			pattern_domain = domain_pattern
 
 		# Handle port in pattern (we strip ports from patterns since we already
-		# extracted only the hostname from the URL)
-		if ':' in pattern_domain and not pattern_domain.startswith(':'):
+		# extracted only the hostname from the URL). IPv6 hosts use colons in the
+		# address itself, so only strip the suffix after a closing bracket or the
+		# single colon used by a regular hostname and port.
+		if pattern_domain.startswith('['):
+			closing_bracket = pattern_domain.find(']')
+			if closing_bracket == -1:
+				return False
+
+			ipv6_host = pattern_domain[1:closing_bracket]
+			try:
+				IPv6Address(ipv6_host)
+			except ValueError:
+				return False
+
+			port_suffix = pattern_domain[closing_bracket + 1 :]
+			if port_suffix and (not port_suffix.startswith(':') or not port_suffix[1:].isdigit()):
+				return False
+
+			pattern_domain = ipv6_host
+		elif pattern_domain.count(':') > 1:
+			try:
+				IPv6Address(pattern_domain)
+			except ValueError:
+				return False
+		elif pattern_domain.count(':') == 1 and not pattern_domain.startswith(':'):
 			pattern_domain = pattern_domain.split(':', 1)[0]
 
 		# If scheme doesn't match, return False
