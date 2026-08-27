@@ -543,7 +543,7 @@ class BrowserLaunchPersistentContextArgs(BrowserLaunchArgs, BrowserContextArgs):
 	model_config = ConfigDict(extra='ignore', validate_assignment=False, revalidate_instances='always')
 
 	# Required parameter specific to launch_persistent_context, but can be None to use incognito temp dir
-	user_data_dir: str | Path | None = None
+	user_data_dir: str | Path | None = Field(default=None, validate_default=True)
 
 	@field_validator('user_data_dir', mode='after')
 	@classmethod
@@ -589,7 +589,6 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		from_attributes=True,
 		validate_by_name=True,
 		validate_by_alias=True,
-		validate_default=True,
 	)
 
 	# ... extends options defined in:

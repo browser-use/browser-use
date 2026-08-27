@@ -67,12 +67,18 @@ def test_user_data_dir_validator_runs_when_omitted() -> None:
 	"""When user_data_dir is omitted, the field_validator should still convert None to a temp directory path."""
 	# Omitted user_data_dir (common call pattern: BrowserProfile(headless=True))
 	p = BrowserProfile(headless=True)
-	assert p.user_data_dir is not None
-	assert isinstance(p.user_data_dir, Path)
-	assert 'browser-use-user-data-dir-' in str(p.user_data_dir)
+	try:
+		assert p.user_data_dir is not None
+		assert isinstance(p.user_data_dir, Path)
+		assert 'browser-use-user-data-dir-' in str(p.user_data_dir)
+	finally:
+		shutil.rmtree(p.user_data_dir, ignore_errors=True)
 
 	# Explicit None should also resolve to a temp path
 	p2 = BrowserProfile(user_data_dir=None)
-	assert p2.user_data_dir is not None
-	assert isinstance(p2.user_data_dir, Path)
-	assert 'browser-use-user-data-dir-' in str(p2.user_data_dir)
+	try:
+		assert p2.user_data_dir is not None
+		assert isinstance(p2.user_data_dir, Path)
+		assert 'browser-use-user-data-dir-' in str(p2.user_data_dir)
+	finally:
+		shutil.rmtree(p2.user_data_dir, ignore_errors=True)
