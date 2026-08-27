@@ -61,3 +61,18 @@ def test_chrome_profile_copy_lock_error_is_actionable(tmp_path: Path, monkeypatc
 		)
 
 	assert not temp_user_data_dir.exists()
+
+
+def test_user_data_dir_validator_runs_when_omitted() -> None:
+	"""When user_data_dir is omitted, the field_validator should still convert None to a temp directory path."""
+	# Omitted user_data_dir (common call pattern: BrowserProfile(headless=True))
+	p = BrowserProfile(headless=True)
+	assert p.user_data_dir is not None
+	assert isinstance(p.user_data_dir, Path)
+	assert 'browser-use-user-data-dir-' in str(p.user_data_dir)
+
+	# Explicit None should also resolve to a temp path
+	p2 = BrowserProfile(user_data_dir=None)
+	assert p2.user_data_dir is not None
+	assert isinstance(p2.user_data_dir, Path)
+	assert 'browser-use-user-data-dir-' in str(p2.user_data_dir)
