@@ -64,9 +64,14 @@ class ChatVolcengine(BaseChatModel):
 
 	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
-		# Resolve the key explicitly: without this, AsyncOpenAI would fall back to
-		# OPENAI_API_KEY and send an unrelated credential to Ark.
+		# Resolve the key explicitly and require it: AsyncOpenAI would otherwise fall
+		# back to OPENAI_API_KEY and send an unrelated credential to Ark's endpoint.
 		api_key = self.api_key or os.getenv('ARK_API_KEY')
+		if not api_key:
+			raise ModelProviderError(
+				message='No Ark API key. Pass api_key= or set ARK_API_KEY.',
+				model=self.name,
+			)
 
 		base_params = {
 			'api_key': api_key,
@@ -221,6 +226,11 @@ class ChatVolcengine(BaseChatModel):
 
 		except APIStatusError as e:
 			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
+
+		except ModelProviderError:
+			# Raised above (missing key, unparseable structured output). Re-raise so the
+			# generic handler below doesn't overwrite its status code with the default.
+			raise
 
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e

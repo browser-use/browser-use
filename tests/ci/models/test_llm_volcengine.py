@@ -2,11 +2,13 @@
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from openai.types.chat import ChatCompletion, ChatCompletionMessage
 from openai.types.chat.chat_completion import Choice
 from openai.types.completion_usage import CompletionUsage, PromptTokensDetails
 from pydantic import BaseModel
 
+from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.messages import UserMessage
 from browser_use.llm.volcengine.chat import ChatVolcengine
 
@@ -19,7 +21,7 @@ class Answer(BaseModel):
 	answer: str
 
 
-def _completion(*, content: str, cached_tokens: int | None = None) -> ChatCompletion:
+def _completion(*, content: str | None, cached_tokens: int | None = None) -> ChatCompletion:
 	"""Build an Ark-shaped ChatCompletion. Ark reports prompt_tokens_details.cached_tokens."""
 	prompt_details = PromptTokensDetails(cached_tokens=cached_tokens) if cached_tokens is not None else None
 	return ChatCompletion(
@@ -110,3 +112,28 @@ async def test_api_key_falls_back_to_ark_env_var(monkeypatch):
 	llm = ChatVolcengine()
 
 	assert llm.get_client().api_key == 'ark-from-env'
+
+
+async def test_missing_ark_key_never_falls_back_to_openai_key(monkeypatch):
+	"""A present OPENAI_API_KEY must not be sent to Ark when ARK_API_KEY is unset."""
+	monkeypatch.delenv('ARK_API_KEY', raising=False)
+	monkeypatch.setenv('OPENAI_API_KEY', 'openai-should-not-leak')
+
+	llm = ChatVolcengine()
+
+	with pytest.raises(ModelProviderError, match='ARK_API_KEY'):
+		llm.get_client()
+
+
+async def test_own_error_keeps_its_status_code():
+	"""The generic handler must not re-wrap our ModelProviderError and reset its status."""
+	llm = ChatVolcengine(api_key=TEST_API_KEY)
+	# content=None makes ainvoke raise its own ModelProviderError(status_code=500)
+	empty = _completion(content=None)
+
+	create = AsyncMock(return_value=empty)
+	with patch.object(type(llm.get_client().chat.completions), 'create', create):
+		with pytest.raises(ModelProviderError) as excinfo:
+			await llm.ainvoke([UserMessage(content='question')], Answer)
+
+	assert excinfo.value.status_code == 500

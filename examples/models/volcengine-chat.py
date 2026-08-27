@@ -11,7 +11,7 @@ api_key = os.getenv('ARK_API_KEY')
 if api_key is None:
 	print('Make sure you have ARK_API_KEY:')
 	print('export ARK_API_KEY=your_key')
-	exit(0)
+	exit(1)
 
 
 async def main():
