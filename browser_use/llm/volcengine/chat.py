@@ -228,7 +228,7 @@ class ChatVolcengine(BaseChatModel):
 			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
 
 		except ModelProviderError:
-			# Raised above (missing key, unparseable structured output). Re-raise so the
+			# Raised above (missing key, unparsable structured output). Re-raise so the
 			# generic handler below doesn't overwrite its status code with the default.
 			raise
 
