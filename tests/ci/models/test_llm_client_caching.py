@@ -1,7 +1,6 @@
-import pytest
-from browser_use.llm.openai.chat import ChatOpenAI
 from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.groq.chat import ChatGroq
+from browser_use.llm.openai.chat import ChatOpenAI
 
 
 def test_openai_get_client_caching_and_invalidation():
