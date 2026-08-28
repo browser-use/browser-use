@@ -1,3 +1,4 @@
+# pyright: reportInvalidTypeForm=false
 """
 ChatA3M - A3M Router chat model wrapper for browser-use.
 
@@ -5,7 +6,6 @@ Provides intelligent LLM routing for browser automation with:
 - Automatic routing to cheapest capable model
 - Stealth mode for anti-detection
 - Parallel ensemble for reliability
-- Parallel ensemble for reliable extraction
 
 Requires the `a3m-router` package:
     pip install a3m-router
@@ -22,25 +22,18 @@ Usage:
 
 import logging
 from dataclasses import dataclass
-from typing import Any, overload
+from typing import Any, TypeVar, overload
 
-from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from pydantic import BaseModel
 
-from browser_use.llm.a3m.serializer import A3MMessageSerializer
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.views import ChatInvokeCompletion
 
 logger = logging.getLogger(__name__)
 
-
-class A3MRouterConfig(BaseModel):
-	"""Configuration for A3M Router."""
-
-	model: str = 'auto'
-	stealth: bool = False
-	parallel_ensemble: bool = False
+T = TypeVar('T', bound=BaseModel)
 
 
 @dataclass
@@ -52,7 +45,6 @@ class ChatA3M(BaseChatModel):
 	- 80+ supported providers
 	- EXP3 game theory-based exploration/exploitation
 	- MVT rate-limit rotation
-	- ODT verification for adversarial patterns
 
 	Args:
 	    model: Model name or "auto" for automatic routing
@@ -70,7 +62,7 @@ class ChatA3M(BaseChatModel):
 	def __post_init__(self) -> None:
 		"""Initialize A3M router."""
 		try:
-			import a3m
+			import a3m  # type: ignore[attr-defined]
 
 			self._a3m_router = a3m.A3MRouter(  # type: ignore[attr-defined]
 				model=self.model,
@@ -86,9 +78,10 @@ class ChatA3M(BaseChatModel):
 		"""Return provider name."""
 		return 'a3m-router'
 
-	def messages_to_dict(self, messages: list[BaseMessage]) -> list[ChatCompletionMessageParam]:
-		"""Convert browser-use messages to A3M Router format."""
-		return A3MMessageSerializer.serialize(messages)
+	@property
+	def name(self) -> str:
+		"""Return model name."""
+		return self.model
 
 	@overload
 	def generate(self, messages: list[BaseMessage]) -> str: ...
@@ -99,12 +92,12 @@ class ChatA3M(BaseChatModel):
 	def generate(self, messages: list[BaseMessage], stream: bool = False) -> Any:
 		"""Generate response from A3M Router."""
 		try:
-			import a3m
+			import a3m  # type: ignore[attr-defined]
 
-			# Convert messages to A3M format
-			a3m_messages = self.messages_to_dict(messages)
+			from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 
-			# Use sync client for non-streaming
+			a3m_messages = OpenAIMessageSerializer.serialize_messages(messages)
+
 			router_sync = a3m.A3MRouterSync(  # type: ignore[attr-defined]
 				client=self._a3m_router.client
 			)
@@ -112,6 +105,7 @@ class ChatA3M(BaseChatModel):
 				messages=a3m_messages,
 				model=self.model,
 				max_tokens=self.max_output_tokens,
+				stream=stream,
 			)
 
 			if stream:
@@ -128,22 +122,45 @@ class ChatA3M(BaseChatModel):
 			if chunk.choices[0].delta.content:
 				yield chunk.choices[0].delta.content
 
-	async def generate_async(self, messages: list[BaseMessage]) -> str:
-		"""Async generate response from A3M Router."""
+	@overload
+	async def ainvoke(  # type: ignore[override]
+		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
+	) -> ChatInvokeCompletion[str]: ...
+
+	@overload
+	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T], **kwargs: Any) -> ChatInvokeCompletion[T]: ...  # type: ignore[reportInvalidTypeForm]
+
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
+	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:  # type: ignore[reportInvalidTypeForm]
+		"""Async invoke the A3M Router."""
 		import asyncio
 
 		try:
-			a3m_messages = self.messages_to_dict(messages)
+			from browser_use.llm.openai.serializer import OpenAIMessageSerializer
+
+			a3m_messages = OpenAIMessageSerializer.serialize_messages(messages)
 			response = await asyncio.wait_for(
-				self._a3m_router.chat(messages=a3m_messages, model=self.model),
+				self._a3m_router.chat(
+					messages=a3m_messages,
+					model=self.model,
+					max_tokens=self.max_output_tokens,
+				),
 				timeout=120,
 			)
-			return response.choices[0].message.content
+			content = response.choices[0].message.content
+
+			if output_format is not None:
+				completion = output_format.model_validate_json(content)  # type: ignore[arg-type]
+				return ChatInvokeCompletion(completion=completion, usage=None)  # type: ignore[arg-type]
+
+			return ChatInvokeCompletion(completion=content, usage=None)
+
 		except TimeoutError as e:
 			raise ModelRateLimitError(f'A3M Router timeout after 120s: {e}') from e
 		except Exception as e:
-			logger.error(f'A3M Router async error: {e}')
-			raise ModelProviderError(f'A3M Router async generation failed: {e}') from e
+			logger.error(f'A3M Router ainvoke error: {e}')
+			raise ModelProviderError(f'A3M Router ainvoke failed: {e}') from e
 
 	def get_cost(self) -> float | None:
 		"""Get cost of last response if available."""
