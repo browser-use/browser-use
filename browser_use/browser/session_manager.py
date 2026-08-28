@@ -423,16 +423,21 @@ class SessionManager:
 			)
 			return
 
-		# Enable auto-attach for this session's children (do this FIRST, outside lock)
-		try:
-			await self.browser_session._cdp_client_root.send.Target.setAutoAttach(
-				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}, session_id=session_id
-			)
-		except Exception as e:
-			error_str = str(e)
-			# Expected for short-lived targets (workers, temp iframes) that detach before this executes
-			if '-32001' not in error_str and 'Session with given id not found' not in error_str:
-				self.logger.debug(f'[SessionManager] Auto-attach failed for {target_type}: {e}')
+		# Enable auto-attach for this session's children (do this FIRST, outside lock).
+		# Skip non-page targets: calling setAutoAttach on browser_ui, service_worker, or
+		# worker sessions causes Chrome to close the root browser-level WebSocket with
+		# CLOSE 1000, triggering an unnecessary reconnect loop.
+		# Only page/tab targets have attachable child targets (iframes, workers).
+		if target_type in ('page', 'tab'):
+			try:
+				await self.browser_session._cdp_client_root.send.Target.setAutoAttach(
+					params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}, session_id=session_id
+				)
+			except Exception as e:
+				error_str = str(e)
+				# Expected for short-lived targets (workers, temp iframes) that detach before this executes
+				if '-32001' not in error_str and 'Session with given id not found' not in error_str:
+					self.logger.debug(f'[SessionManager] Auto-attach failed for {target_type}: {e}')
 
 		from browser_use.browser.session import Target
 
@@ -807,11 +812,32 @@ class SessionManager:
 		for target in existing_targets:
 			target_id = target['targetId']
 			target_type = target.get('type', 'unknown')
+			target_url = target.get('url', '')[:80]
+
+			# Skip non-attachable Chrome-internal target types.
+			# Attempting Target.attachToTarget on browser_ui / browser targets raises
+			# an error or hangs, and there is nothing useful the agent can do with them.
+			if target_type in ('browser_ui', 'browser', 'other'):
+				self.logger.debug(
+					f'[SessionManager] Skipping non-attachable target {target_id[:8]}... (type={target_type})'
+				)
+				continue
 
 			try:
-				# Just attach - event handler does everything
-				await cdp_client.send.Target.attachToTarget(params={'targetId': target_id, 'flatten': True})
+				# Per-target timeout guards against cross-origin iframes (e.g. reCAPTCHA
+				# Enterprise from google.com embedded inside reddit.com).  Chrome never
+				# fires the attachedToTarget event for cross-origin frames in flattened
+				# CDP mode, so without this timeout the entire session init deadlocks.
+				await asyncio.wait_for(
+					cdp_client.send.Target.attachToTarget(params={'targetId': target_id, 'flatten': True}),
+					timeout=5.0,
+				)
 				target_ids_to_wait_for.append(target_id)
+			except asyncio.TimeoutError:
+				self.logger.debug(
+					f'[SessionManager] attachToTarget timed out for {target_id[:8]}... '
+					f'(type={target_type} url={target_url}) — likely a cross-origin iframe, skipping'
+				)
 			except Exception as e:
 				self.logger.debug(
 					f'[SessionManager] Failed to attach to existing target {target_id[:8]}... (type={target_type}): {e}'
