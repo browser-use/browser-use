@@ -2,6 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -9,7 +10,7 @@ from browser_use.browser.events import SendKeysEvent
 from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionWatchdog
 
 
-def _make_watchdog():
+def _make_watchdog() -> DefaultActionWatchdog:
 	class Input:
 		async def dispatchKeyEvent(self, params=None, session_id=None):
 			return None
@@ -20,19 +21,29 @@ def _make_watchdog():
 	)
 
 	class BrowserSession:
+		logger = SimpleNamespace(info=lambda *args, **kwargs: None)
+
 		async def get_or_create_cdp_session(self, focus=False):
 			return cdp_session
 
-	async def dispatch_key_event(_session, event_type, key, modifiers=0):
+	watchdog = DefaultActionWatchdog.model_construct(
+		event_bus=cast(Any, SimpleNamespace()),
+		browser_session=cast(Any, BrowserSession()),
+	)
+
+	async def _dispatch_key_event(_session, event_type, key, modifiers=0):
 		return None
 
-	return SimpleNamespace(
-		browser_session=BrowserSession(),
-		logger=SimpleNamespace(info=lambda *args, **kwargs: None),
-		_dispatch_key_event=dispatch_key_event,
-		_get_char_modifiers_and_vk=lambda char: (0, 0, char),
-		_get_key_code_for_char=lambda key: f'Key{key.upper()}',
-	)
+	def _get_char_modifiers_and_vk(char):
+		return (0, 0, char)
+
+	def _get_key_code_for_char(key):
+		return f'Key{key.upper()}'
+
+	watchdog._dispatch_key_event = _dispatch_key_event  # type: ignore[method-assign]
+	watchdog._get_char_modifiers_and_vk = _get_char_modifiers_and_vk  # type: ignore[method-assign]
+	watchdog._get_key_code_for_char = _get_key_code_for_char  # type: ignore[method-assign]
+	return watchdog
 
 
 @pytest.mark.parametrize(
@@ -57,7 +68,7 @@ def test_send_keys_enter_delay_only_for_real_enter(keys, expect_enter_delay, mon
 	monkeypatch.setattr(asyncio, 'sleep', sleep)
 
 	watchdog = _make_watchdog()
-	asyncio.run(DefaultActionWatchdog.on_SendKeysEvent(watchdog, SendKeysEvent(keys=keys)))
+	asyncio.run(watchdog.on_SendKeysEvent(SendKeysEvent(keys=keys)))
 
 	enter_delays = [delay for delay in delays if delay == 0.1]
 	if expect_enter_delay:
