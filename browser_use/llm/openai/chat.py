@@ -113,8 +113,9 @@ class ChatOpenAI(BaseChatModel):
 		Returns:
 			AsyncOpenAI: An instance of the AsyncOpenAI client.
 		"""
-		if not hasattr(self, '_client'):
-			client_params = self._get_client_params()
+		client_params = self._get_client_params()
+		if not hasattr(self, '_client') or getattr(self, '_cached_client_params', None) != client_params:
+			self._cached_client_params = dict(client_params)
 			self._client = AsyncOpenAI(**client_params)
 		return self._client
 
