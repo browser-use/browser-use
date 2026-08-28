@@ -39,8 +39,25 @@ def message_manager():
 	)
 
 
+def test_replace_sensitive_data_inside_tuple(registry):
+	"""Test that _replace_sensitive_data handles tuple-valued fields (#5568)"""
+
+	class TupleSensitiveParams(BaseModel):
+		items: tuple[str, ...]
+
+	params = TupleSensitiveParams(
+		items=('<secret>KEY</secret>', 'normal_text'),
+	)
+
+	result = registry._replace_sensitive_data(
+		params,
+		{'KEY': 'REPLACED'},
+	)
+
+	assert result.items == ('REPLACED', 'normal_text')
+
+
 def test_replace_sensitive_data_with_missing_keys(registry, caplog):
-	"""Test that _replace_sensitive_data handles missing keys gracefully"""
 	# Create a simple Pydantic model with sensitive data placeholders
 	params = SensitiveParams(text='Please enter <secret>username</secret> and <secret>password</secret>')
 

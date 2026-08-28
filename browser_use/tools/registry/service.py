@@ -464,7 +464,7 @@ class Registry(Generic[Context]):
 		# Filter out empty values
 		applicable_secrets = {k: v for k, v in applicable_secrets.items() if v}
 
-		def recursively_replace_secrets(value: str | dict | list) -> str | dict | list:
+		def recursively_replace_secrets(value: Any) -> Any:
 			if isinstance(value, str):
 				# 1. Handle tagged secrets: <secret>label</secret>
 				matches = secret_pattern.findall(value)
@@ -499,6 +499,8 @@ class Registry(Generic[Context]):
 				return {k: recursively_replace_secrets(v) for k, v in value.items()}
 			elif isinstance(value, list):
 				return [recursively_replace_secrets(v) for v in value]
+			elif isinstance(value, tuple):
+				return tuple(recursively_replace_secrets(v) for v in value)
 			return value
 
 		params_dump = params.model_dump()
