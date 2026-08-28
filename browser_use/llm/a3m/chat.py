@@ -1,4 +1,3 @@
-# pyright: reportInvalidTypeForm=false
 """
 ChatA3M - A3M Router chat model wrapper for browser-use.
 
@@ -19,6 +18,8 @@ Usage:
         llm=ChatA3M(model="auto", stealth=True),
     )
 """
+
+# pyright: reportInvalidTypeForm=false
 
 import logging
 from dataclasses import dataclass
@@ -123,16 +124,16 @@ class ChatA3M(BaseChatModel):
 				yield chunk.choices[0].delta.content
 
 	@overload
-	async def ainvoke(  # type: ignore[override]
+	async def ainvoke(  # type: ignore[reportInvalidTypeForm]
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
 	) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T], **kwargs: Any) -> ChatInvokeCompletion[T]: ...  # type: ignore[reportInvalidTypeForm]
+	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T], **kwargs: Any) -> ChatInvokeCompletion[T]: ...
 
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
-	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:  # type: ignore[reportInvalidTypeForm]
+	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""Async invoke the A3M Router."""
 		import asyncio
 
@@ -140,6 +141,23 @@ class ChatA3M(BaseChatModel):
 			from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 
 			a3m_messages = OpenAIMessageSerializer.serialize_messages(messages)
+
+			# When output_format is provided, inject schema as a system message
+			# since A3M Router uses OpenAI-compatible API
+			if output_format is not None:
+				schema_json = output_format.model_json_schema()
+				schema_instruction = (
+					f'\n\nIMPORTANT: Your response MUST be valid JSON matching this schema:\n'
+					f'{schema_json}\n\nRespond ONLY with the JSON object, no additional text.'
+				)
+				# Prepend schema instruction to last user message
+				for msg in reversed(a3m_messages):
+					if msg.get('role') == 'user':
+						msg_content = msg.get('content', '')
+						if isinstance(msg_content, str):
+							msg['content'] = msg_content + schema_instruction
+						break
+
 			response = await asyncio.wait_for(
 				self._a3m_router.chat(
 					messages=a3m_messages,
@@ -148,16 +166,25 @@ class ChatA3M(BaseChatModel):
 				),
 				timeout=120,
 			)
-			content = response.choices[0].message.content
+
+			content = response.choices[0].message.content or ''
 
 			if output_format is not None:
-				completion = output_format.model_validate_json(content)  # type: ignore[arg-type]
-				return ChatInvokeCompletion(completion=completion, usage=None)  # type: ignore[arg-type]
+				try:
+					completion = output_format.model_validate_json(content)
+					return ChatInvokeCompletion(completion=completion, usage=None)
+				except Exception as e:
+					raise ModelProviderError(
+						message=f'A3M Router returned invalid JSON for structured output: {e}',
+						model=self.name,
+					) from e
 
 			return ChatInvokeCompletion(completion=content, usage=None)
 
 		except TimeoutError as e:
 			raise ModelRateLimitError(f'A3M Router timeout after 120s: {e}') from e
+		except ModelProviderError:
+			raise
 		except Exception as e:
 			logger.error(f'A3M Router ainvoke error: {e}')
 			raise ModelProviderError(f'A3M Router ainvoke failed: {e}') from e
