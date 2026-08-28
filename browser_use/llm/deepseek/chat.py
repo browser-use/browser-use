@@ -148,8 +148,8 @@ class ChatDeepSeek(BaseChatModel):
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
-		# ② Function Calling path (with tools or output_format)
-		if tools or (output_format is not None and hasattr(output_format, 'model_json_schema')):
+		# ② Explicit Tools Function Calling path
+		if tools:
 			try:
 				call_tools = tools
 				tool_choice = None
@@ -158,6 +158,7 @@ class ChatDeepSeek(BaseChatModel):
 					schema = SchemaOptimizer.create_optimized_json_schema(output_format)
 					schema.pop('title', None)
 					call_tools = [
+						*tools,
 						{
 							'type': 'function',
 							'function': {
@@ -165,7 +166,7 @@ class ChatDeepSeek(BaseChatModel):
 								'description': f'Return a JSON object of type {tool_name}',
 								'parameters': schema,
 							},
-						}
+						},
 					]
 					tool_choice = {'type': 'function', 'function': {'name': tool_name}}
 				resp = await client.chat.completions.create(  # type: ignore
@@ -183,14 +184,12 @@ class ChatDeepSeek(BaseChatModel):
 					parsed = json.loads(raw_args)
 				else:
 					parsed = raw_args
-				# --------- Fix: only use model_validate when output_format is not None ----------
 				if output_format is not None:
 					return ChatInvokeCompletion(
 						completion=output_format.model_validate(parsed),
 						usage=None,
 					)
 				else:
-					# If no output_format, return dict directly
 					return ChatInvokeCompletion(
 						completion=parsed,
 						usage=None,
@@ -202,12 +201,20 @@ class ChatDeepSeek(BaseChatModel):
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
-		# ③ JSON Output path (official response_format)
+		# ③ JSON Output path (official response_format for structured output)
 		if output_format is not None and hasattr(output_format, 'model_json_schema'):
 			try:
+				schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+				augmented_messages = [
+					*ds_messages,
+					{
+						'role': 'user',
+						'content': f'Respond with a single JSON object matching this schema exactly:\n{json.dumps(schema)}',
+					},
+				]
 				resp = await client.chat.completions.create(  # type: ignore
 					model=self.model,
-					messages=ds_messages,  # type: ignore
+					messages=augmented_messages,  # type: ignore
 					response_format={'type': 'json_object'},
 					**common,
 				)

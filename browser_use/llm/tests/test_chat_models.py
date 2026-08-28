@@ -3,7 +3,7 @@ import os
 import pytest
 from pydantic import BaseModel
 
-from browser_use.llm import ChatAnthropic, ChatGoogle, ChatGroq, ChatOpenAI, ChatOpenRouter
+from browser_use.llm import ChatAnthropic, ChatDeepSeek, ChatGoogle, ChatGroq, ChatOpenAI, ChatOpenRouter
 from browser_use.llm.messages import ContentPartTextParam
 
 # Optional OCI import
@@ -297,3 +297,32 @@ class TestChatModels:
 		assert isinstance(completion, CapitalResponse)
 		assert completion.country.lower() == self.EXPECTED_FRANCE_COUNTRY
 		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
+
+	# DeepSeek Tests
+	@pytest.mark.asyncio
+	async def test_deepseek_ainvoke_normal(self):
+		"""Test normal text response from DeepSeek"""
+		if not os.getenv('DEEPSEEK_API_KEY'):
+			pytest.skip('DEEPSEEK_API_KEY not set')
+
+		chat = ChatDeepSeek(model='deepseek-chat', temperature=0)
+		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
+		completion = response.completion
+
+		assert isinstance(completion, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in completion.lower()
+
+	@pytest.mark.asyncio
+	async def test_deepseek_ainvoke_structured(self):
+		"""Test structured output from DeepSeek"""
+		if not os.getenv('DEEPSEEK_API_KEY'):
+			pytest.skip('DEEPSEEK_API_KEY not set')
+
+		chat = ChatDeepSeek(model='deepseek-chat', temperature=0)
+		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
+		completion = response.completion
+
+		assert isinstance(completion, CapitalResponse)
+		assert completion.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
+
