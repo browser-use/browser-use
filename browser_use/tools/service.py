@@ -668,7 +668,11 @@ class Tools(Generic[Context]):
 				tabs_before = {t.target_id for t in await browser_session.get_tabs()}
 
 				# Highlight the coordinate being clicked (truly non-blocking)
-				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
+				create_task_with_error_handling(
+					browser_session.highlight_coordinate_click(actual_x, actual_y),
+					name='highlight_coordinate_click',
+					suppress_exceptions=True,
+				)
 
 				# Dispatch ClickCoordinateEvent - handler will check for safety and click
 				event = browser_session.event_bus.dispatch(
@@ -694,7 +698,7 @@ class Tools(Generic[Context]):
 			except BrowserError as e:
 				return handle_browser_error(e)
 			except Exception as e:
-				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
+				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}): {e}'
 				return ActionResult(error=error_msg)
 
 		async def _click_by_index(

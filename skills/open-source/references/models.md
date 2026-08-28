@@ -59,8 +59,8 @@ Optimized for browser automation — highest accuracy, fastest speed, lowest tok
 ```python
 from browser_use import Agent, ChatBrowserUse
 
-llm = ChatBrowserUse()                    # bu-latest (default)
-llm = ChatBrowserUse(model='bu-2-0')      # Premium model
+llm = ChatBrowserUse()                              # bu-2-0 (default, 'bu-latest' tracks it)
+llm = ChatBrowserUse(model='bu-2-0-mini-preview')   # Cheaper per token, opt-in while in preview
 ```
 
 **Env:** `BROWSER_USE_API_KEY` — get at https://cloud.browser-use.com/new-api-key
@@ -68,8 +68,9 @@ llm = ChatBrowserUse(model='bu-2-0')      # Premium model
 **Models & Pricing (per 1M tokens):**
 | Model | Input | Cached | Output |
 |-------|-------|--------|--------|
-| bu-1-0 / bu-latest (default) | $0.20 | $0.02 | $2.00 |
-| bu-2-0 (premium) | $0.60 | $0.06 | $3.50 |
+| bu-2-0 (default, premium) | $0.60 | $0.06 | $3.50 |
+| bu-2-0-mini-preview (opt-in) | $0.15 | $0.15 | $1.50 |
+| bu-1-0 (redirects to bu-2-0) | $0.60 | $0.06 | $3.50 |
 | browser-use/bu-30b-a3b-preview (OSS) | — | — | — |
 
 ## OpenAI
@@ -149,7 +150,7 @@ Supports profiles, IAM roles, SSO via standard AWS credential chain. Install wit
 ```python
 from browser_use import Agent, ChatDeepSeek
 
-llm = ChatDeepSeek(model="deepseek-chat")
+llm = ChatDeepSeek(model="deepseek-v4-flash")
 ```
 
 **Env:** `DEEPSEEK_API_KEY` | [Available models](https://api-docs.deepseek.com/quick_start/pricing)

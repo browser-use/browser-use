@@ -12,6 +12,7 @@ EXPECTED_SKILL_INSTALL_PATHS = (
 	Path('.copilot') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.cursor') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.gemini') / 'skills' / 'browser-use' / 'SKILL.md',
+	Path('.openclaw') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.config') / 'opencode' / 'skills' / 'browser-use' / 'SKILL.md',
 )
 
@@ -86,6 +87,24 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 		'---\n'
 		'name: browser-use\n'
 		'description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."\n'
+		'homepage: https://browser-use.com\n'
+		'metadata:\n'
+		'  {\n'
+		'    "openclaw":\n'
+		'      {\n'
+		'        "requires": { "bins": ["browser-use"] },\n'
+		'        "install":\n'
+		'          [\n'
+		'            {\n'
+		'              "id": "uv",\n'
+		'              "kind": "uv",\n'
+		'              "package": "browser-use",\n'
+		'              "bins": ["browser-use"],\n'
+		'              "label": "Install Browser Use CLI (uv)",\n'
+		'            },\n'
+		'          ],\n'
+		'      },\n'
+		'  }\n'
 		'---\n\n'
 		'# Browser Use\n'
 	)

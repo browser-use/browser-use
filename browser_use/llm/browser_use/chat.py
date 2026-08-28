@@ -58,8 +58,9 @@ class ChatBrowserUse(BaseChatModel):
 
 		Args:
 			model: Model name to use. Options:
-				- 'bu-2-0' or 'bu-latest': Default model (latest premium)
-				- 'bu-1-0': Previous generation model
+				- 'bu-2-0' or 'bu-latest': Default model (premium)
+				- 'bu-2-0-mini-preview': Cheaper and faster per token, opt-in while in preview
+				- 'bu-1-0': Previous generation model, redirected to bu-2-0 at the gateway
 				- 'bu-qa-1': Website QA model (tests a site and scores functionality/aesthetics)
 				- 'browser-use/bu-30b-a3b-preview': Browser Use Open Source Model
 				- Provider-prefixed ids resolved by the gateway, e.g. 'anthropic/claude-sonnet-4-6',
@@ -73,7 +74,7 @@ class ChatBrowserUse(BaseChatModel):
 		"""
 		# Accept 'bu-*' aliases and any provider-prefixed id; the gateway resolves the
 		# latter (anthropic/*, openai/*, google/*, browser-use/*), so we don't enumerate them.
-		bu_aliases = ['bu-latest', 'bu-1-0', 'bu-2-0', 'bu-qa-1']
+		bu_aliases = ['bu-latest', 'bu-1-0', 'bu-2-0', 'bu-2-0-mini-preview', 'bu-qa-1']
 		is_valid = model in bu_aliases or '/' in model
 		if not is_valid:
 			raise ValueError(
@@ -82,7 +83,8 @@ class ChatBrowserUse(BaseChatModel):
 				"'openai/gpt-5.5', or 'google/gemini-3-pro'."
 			)
 
-		# Normalize bu-latest to the current latest model
+		# Normalize bu-latest to the current latest model, which is also the default: a
+		# preview model is opt-in, never something a caller lands on by omission.
 		if model == 'bu-latest':
 			self.model = 'bu-2-0'
 		else:
