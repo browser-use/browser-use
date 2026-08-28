@@ -13,4 +13,4 @@ Usage:
 
 from browser_use.llm.a3m.chat import ChatA3M
 
-__all__ = ["ChatA3M"]
+__all__ = ['ChatA3M']
