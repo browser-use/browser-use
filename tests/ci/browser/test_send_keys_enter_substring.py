@@ -53,6 +53,8 @@ def _make_watchdog() -> DefaultActionWatchdog:
 		('Return', True),
 		('ENTER', True),
 		('Control+Enter', True),
+		('line1\nline2', True),
+		('hello\r', True),
 		('center', False),
 		('returning', False),
 		('hello', False),
