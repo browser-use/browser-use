@@ -1,0 +1,21 @@
+browser_use/llm/ollama/chat.py
+  s_86d24eaeebcb12::t_beaa31cbb45764 99,114,120,131
+tests/ci/models/test_llm_ollama.py
+  s_86d24eaeebcb12::t_beaa31cbb45764 23-24,28-36,44-48,50,53-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ed5f467957893427a5aa6944bd77e336146bf452",
+  "prompts": {},
+  "sessions": {
+    "s_86d24eaeebcb12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a005bc-1d17-73c3-b1f5-38259988bc61",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "MagMueller <mamagnus00@gmail.com>"
+    }
+  }
+}
