@@ -46,7 +46,29 @@ def sanitize_url_candidate(url: str) -> str:
 	# "https://example.com/search.\\n2. Next step". Those are task text,
 	# not part of the URL.
 	candidate = re.split(r'\\[nrt]', candidate, maxsplit=1)[0]
-	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
+
+	# Strip trailing punctuation, handling balanced parentheses/brackets
+	while candidate:
+		# If trailing char is simple punctuation
+		if candidate[-1] in '.,;:!?':
+			candidate = candidate[:-1]
+		# If trailing char is closing paren, only strip if unmatched
+		elif candidate[-1] == ')':
+			if candidate.count('(') < candidate.count(')'):
+				candidate = candidate[:-1]
+			else:
+				break
+		# If trailing char is closing bracket, only strip if unmatched
+		elif candidate[-1] == ']':
+			if candidate.count('[') < candidate.count(']'):
+				candidate = candidate[:-1]
+			else:
+				break
+		elif candidate[-1] in '([{':
+			candidate = candidate[:-1]
+		else:
+			break
+	return candidate
 
 
 # Lazy import for error types
