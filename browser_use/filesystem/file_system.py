@@ -164,12 +164,22 @@ class BaseFile(BaseModel, ABC):
 			await asyncio.get_event_loop().run_in_executor(executor, lambda: file_path.write_text(self.content, encoding='utf-8'))
 
 	async def write(self, content: str, path: Path) -> None:
+		prev_content = self.content
 		self.write_file_content(content)
-		await self.sync_to_disk(path)
+		try:
+			await self.sync_to_disk(path)
+		except Exception:
+			self.content = prev_content
+			raise
 
 	async def append(self, content: str, path: Path) -> None:
+		prev_content = self.content
 		self.append_file_content(content)
-		await self.sync_to_disk(path)
+		try:
+			await self.sync_to_disk(path)
+		except Exception:
+			self.content = prev_content
+			raise
 
 	def read(self) -> str:
 		return self.content
@@ -780,6 +790,7 @@ class FileSystem:
 			return _build_filename_error_message(full_filename, self.get_allowed_extensions())
 		full_filename = resolved
 
+		is_new_file = full_filename not in self.files
 		try:
 			name_without_ext, extension = self._parse_filename(full_filename)
 			file_class = self._get_file_type_class(extension)
@@ -787,7 +798,7 @@ class FileSystem:
 				raise ValueError(f"Error: Invalid file extension '{extension}' for file '{full_filename}'.")
 
 			# Create or get existing file using full filename as key
-			if full_filename in self.files:
+			if not is_new_file:
 				file_obj = self.files[full_filename]
 			else:
 				file_obj = file_class(name=name_without_ext)
@@ -798,8 +809,12 @@ class FileSystem:
 			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
 			return f'Data written to file {full_filename} successfully.{sanitize_note}'
 		except FileSystemError as e:
+			if is_new_file:
+				self.files.pop(full_filename, None)
 			return str(e)
 		except Exception as e:
+			if is_new_file:
+				self.files.pop(full_filename, None)
 			return f"Error: Could not write to file '{full_filename}'. {str(e)}"
 
 	async def append_file(self, full_filename: str, content: str) -> str:

@@ -1604,3 +1604,64 @@ class TestCsvNormalization:
 		csv_file = CsvFile(name='test')
 		csv_file.write_file_content(' name , age \nAlice, 30 ')
 		assert csv_file.content == ' name , age \nAlice, 30 '
+
+
+class TestFileSystemTransactionRollback:
+	"""Tests ensuring file write/append failures do not leave dirty in-memory state (#5527)."""
+
+	@pytest.mark.asyncio
+	async def test_failed_write_new_file_does_not_register_in_filesystem(self):
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(tmp_dir, create_default_files=False)
+
+			async def fail_sync(self, path):
+				raise OSError('disk write failed')
+
+			original_sync = TxtFile.sync_to_disk
+			try:
+				TxtFile.sync_to_disk = fail_sync
+				res = await fs.write_file('ghost.txt', 'phantom content')
+				assert 'Could not write to file' in res
+				assert 'ghost.txt' not in fs.files
+				assert 'ghost.txt' not in fs.get_state().files
+				assert fs.get_file('ghost.txt') is None
+			finally:
+				TxtFile.sync_to_disk = original_sync
+
+	@pytest.mark.asyncio
+	async def test_failed_write_existing_file_restores_previous_content(self):
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(tmp_dir, create_default_files=False)
+			await fs.write_file('existing.txt', 'persisted content')
+			assert fs.get_file('existing.txt').content == 'persisted content'
+
+			async def fail_sync(self, path):
+				raise OSError('disk write failed')
+
+			original_sync = TxtFile.sync_to_disk
+			try:
+				TxtFile.sync_to_disk = fail_sync
+				res = await fs.write_file('existing.txt', 'phantom update')
+				assert 'Could not write to file' in res
+				assert fs.get_file('existing.txt').content == 'persisted content'
+				assert fs.get_state().files['existing.txt']['data']['content'] == 'persisted content'
+			finally:
+				TxtFile.sync_to_disk = original_sync
+
+	@pytest.mark.asyncio
+	async def test_failed_append_existing_file_restores_previous_content(self):
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(tmp_dir, create_default_files=False)
+			await fs.write_file('existing.txt', 'persisted content')
+
+			async def fail_sync(self, path):
+				raise OSError('disk write failed')
+
+			original_sync = TxtFile.sync_to_disk
+			try:
+				TxtFile.sync_to_disk = fail_sync
+				res = await fs.append_file('existing.txt', ' appended')
+				assert 'Could not append to file' in res
+				assert fs.get_file('existing.txt').content == 'persisted content'
+			finally:
+				TxtFile.sync_to_disk = original_sync
