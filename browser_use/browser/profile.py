@@ -1,4 +1,6 @@
+import atexit
 import os
+import shutil
 import sys
 import tempfile
 from collections.abc import Iterable
@@ -23,6 +25,59 @@ def _get_enable_default_extensions_default() -> bool:
 		# If DISABLE_EXTENSIONS is truthy, return False (extensions disabled)
 		return env_val.lower() in ('0', 'false', 'no', 'off', '')
 	return True
+
+
+def _get_headless_default() -> bool | None:
+	"""Get the default value for headless from the BROWSER_USE_HEADLESS env var, or None to fall back to display detection."""
+	env_val = os.getenv('BROWSER_USE_HEADLESS')
+	if env_val is not None:
+		return env_val.lower() not in ('0', 'false', 'no', 'off', '')
+	return None
+
+
+# Safety net for orphaned temp dirs on abnormal exit (Ctrl-C, a crashing test, pytest --timeout killing a
+# hung test). The normal cleanup path is LocalBrowserWatchdog/DownloadsWatchdog on BrowserKillEvent /
+# BrowserStoppedEvent - this registry only catches what never reaches that path. A module-level set + a
+# single atexit hook (not __del__ per-instance, since object finalization order at interpreter exit isn't
+# guaranteed) so we sweep everything we ever created, once, right before the process exits. Doesn't cover
+# SIGKILL/segfault - not worth chasing since those are rare relative to the interrupted-run case.
+#
+# user_data_dir/profile-copy temp dirs are always fully ours (internal browser state) and get removed
+# outright. downloads dirs may contain files the user actually wanted, so those are only ever removed if
+# still empty - tracked in a separate registry so the sweep can apply that distinction.
+_owned_temp_dirs_registry: set[str] = set()
+_owned_downloads_dirs_registry: set[str] = set()
+
+
+def _register_owned_temp_dir(path: str | Path) -> None:
+	"""Track a temp dir we created ourselves (mkdtemp), so it gets swept on abnormal interpreter exit."""
+	_owned_temp_dirs_registry.add(str(path))
+
+
+def _register_owned_downloads_dir(path: str | Path) -> None:
+	"""Track an auto-generated downloads dir we created, swept on exit only if it's still empty."""
+	_owned_downloads_dirs_registry.add(str(path))
+
+
+def _unregister_owned_temp_dir(path: str | Path) -> None:
+	"""Stop tracking a temp dir - call after the normal (non-atexit) cleanup path already removed it."""
+	_owned_temp_dirs_registry.discard(str(path))
+	_owned_downloads_dirs_registry.discard(str(path))
+
+
+def _cleanup_owned_temp_dirs_at_exit() -> None:
+	for path in list(_owned_temp_dirs_registry):
+		shutil.rmtree(path, ignore_errors=True)
+	for path in list(_owned_downloads_dirs_registry):
+		try:
+			path_obj = Path(path)
+			if path_obj.is_dir() and not any(path_obj.iterdir()):
+				path_obj.rmdir()
+		except OSError:
+			pass
+
+
+atexit.register(_cleanup_owned_temp_dirs_at_exit)
 
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
@@ -89,6 +144,27 @@ CHROME_DISABLED_COMPONENTS = [
 def _ignore_chrome_profile_transient_files(_src: str, names: list[str]) -> set[str]:
 	"""Skip Chrome lock/journal files that should not be copied into a temp profile."""
 	return {name for name in names if any(fnmatch(name, pattern) for pattern in CHROME_PROFILE_TRANSIENT_FILE_PATTERNS)}
+
+
+def _is_empty_dir_under_system_temp(path: str | Path) -> bool:
+	"""Whether path is inside the OS temp dir AND doesn't exist yet or has no Chrome profile files in
+	it. Used to auto-detect a caller-supplied tempfile.mkdtemp() user_data_dir (not just
+	BrowserProfile's own 'browser-use-user-data-dir-*' prefix) as browser-use-managed for the
+	use_system_keychain heuristic. Requiring both conditions (not just emptiness) keeps a real user
+	profile that happens to not be initialized yet - but lives at a real, non-temp path - correctly
+	classified as a real profile."""
+	try:
+		resolved = Path(path).expanduser().resolve()
+		temp_root = Path(tempfile.gettempdir()).resolve()
+	except OSError:
+		return False
+	if resolved != temp_root and temp_root not in resolved.parents:
+		return False
+	if not resolved.exists():
+		return True
+	if not resolved.is_dir():
+		return False
+	return not any(resolved.iterdir())
 
 
 def _is_chrome_profile_lock_error(error: BaseException) -> bool:
@@ -419,7 +495,10 @@ class BrowserLaunchArgs(BaseModel):
 		validation_alias=AliasChoices('browser_binary_path', 'chrome_binary_path'),
 		description='Path to the chromium-based browser executable to use.',
 	)
-	headless: bool | None = Field(default=None, description='Whether to run the browser in headless or windowed mode.')
+	headless: bool | None = Field(
+		default_factory=_get_headless_default,
+		description='Whether to run the browser in headless or windowed mode. Defaults to BROWSER_USE_HEADLESS env var if set, otherwise auto-detected from display availability.',
+	)
 	args: list[CliArgStr] = Field(
 		default_factory=list, description='List of *extra* CLI args to pass to the browser when launching.'
 	)
@@ -456,13 +535,34 @@ class BrowserLaunchArgs(BaseModel):
 
 	@model_validator(mode='after')
 	def validate_devtools_headless(self) -> Self:
-		"""Cannot open devtools when headless is True"""
-		assert not (self.headless and self.devtools), 'headless=True and devtools=True cannot both be set at the same time'
+		"""Cannot open devtools when headless is True.
+
+		An explicit headless=True still conflicts with devtools=True and raises. A headless value that
+		only came from the BROWSER_USE_HEADLESS env var (not passed explicitly) yields to an explicit
+		devtools=True instead of raising, since the user never wrote headless=True themselves.
+		"""
+		if self.headless and self.devtools:
+			if 'headless' not in self.model_fields_set:
+				logger.warning(
+					'⚠️ BROWSER_USE_HEADLESS is set but devtools=True was passed explicitly. '
+					'devtools takes priority. Setting headless=False.'
+				)
+				self.headless = False
+			else:
+				assert False, 'headless=True and devtools=True cannot both be set at the same time'
 		return self
 
 	@model_validator(mode='after')
 	def set_default_downloads_path(self) -> Self:
-		"""Set a unique default downloads path if none is provided."""
+		"""Set a unique default downloads path if none is provided.
+
+		Only *assigns* the path here, does not create it on disk - constructing a BrowserProfile (including
+		module-level singletons like DEFAULT_BROWSER_PROFILE, or any profile whose browser never ends up
+		starting, e.g. in unit tests) must not have the filesystem side effect of creating a directory that
+		then never gets cleaned up. DownloadsWatchdog.on_BrowserLaunchEvent() creates the directory for real,
+		only once a browser actually launches. `downloads_path is not None` still holds immediately, which is
+		what Agent/beta service rely on to decide whether download tracking is enabled.
+		"""
 		if self.downloads_path is None:
 			import uuid
 
@@ -476,7 +576,6 @@ class BrowserLaunchArgs(BaseModel):
 				downloads_path = Path(tempfile.gettempdir()) / f'browser-use-downloads-{unique_id}'
 
 			self.downloads_path = downloads_path
-			self.downloads_path.mkdir(parents=True, exist_ok=True)
 		return self
 
 	@staticmethod
@@ -548,9 +647,21 @@ class BrowserLaunchPersistentContextArgs(BrowserLaunchArgs, BrowserContextArgs):
 	@field_validator('user_data_dir', mode='after')
 	@classmethod
 	def validate_user_data_dir(cls, v: str | Path | None) -> str | Path:
-		"""Validate user data dir is set to a non-default path."""
+		"""Validate user data dir is set to a non-default path.
+
+		Only ever runs for an *explicitly-set* field (pydantic skips field_validator for an
+		omitted field left at its default) - but BrowserProfile's own `revalidate_instances='always'`
+		means any revalidation of an existing profile (e.g. BrowserSession(...) internally
+		constructing/reassigning a BrowserProfile) counts as "explicitly set" even when the original
+		value was None, so this DOES run and create a dir earlier than get_args()'s otherwise-lazy
+		resolution. Registered with the atexit safety net (see _register_owned_temp_dir) so a
+		profile/session that's discarded without ever reaching LocalBrowserWatchdog's normal
+		cleanup (i.e. never started/killed) still doesn't leak the dir permanently.
+		"""
 		if v is None:
-			return Path(tempfile.mkdtemp(prefix='browser-use-user-data-dir-'))
+			temp_dir = tempfile.mkdtemp(prefix='browser-use-user-data-dir-')
+			_register_owned_temp_dir(temp_dir)
+			return Path(temp_dir)
 		return Path(v).expanduser().resolve()
 
 
@@ -702,6 +813,17 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	profile_directory: str = 'Default'  # e.g. 'Profile 1', 'Profile 2', 'Custom Profile', etc.
 
+	use_system_keychain: bool | None = Field(
+		default=None,
+		description=(
+			'Whether Chromium may use the OS credential store (macOS Keychain / Linux libsecret) to decrypt '
+			'saved passwords/cookies. None (default) = auto: resolved in model_post_init before the profile is '
+			'possibly copied to a temp dir. Disabled for profiles fully managed by browser-use (temp dirs and the '
+			'default browser-use profile) so automation never triggers an OS credential prompt; enabled for a '
+			'real, user-supplied user_data_dir (e.g. an existing Chrome profile) so its saved logins stay readable.'
+		),
+	)
+
 	# these can be found in BrowserLaunchArgs, BrowserLaunchPersistentContextArgs, BrowserNewContextArgs, BrowserConnectArgs:
 	# save_recording_path: alias of record_video_dir
 	# save_har_path: alias of record_har_path
@@ -832,6 +954,15 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def model_post_init(self, __context: Any) -> None:
 		"""Called after model initialization to set up display configuration."""
+		if self.use_system_keychain is None:
+			# resolve auto mode before user_data_dir's field_validator (only guaranteed to have run when
+			# the field was explicitly passed — see #5414) and _copy_profile() may rewrite it to a temp copy
+			is_browser_use_managed_profile = self.user_data_dir is None or (
+				'browser-use-user-data-dir-' in str(self.user_data_dir).lower()
+				or Path(self.user_data_dir).expanduser().resolve() == CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR.resolve()
+				or _is_empty_dir_under_system_temp(self.user_data_dir)
+			)
+			self.use_system_keychain = not is_browser_use_managed_profile
 		self.detect_display_configuration()
 		self._copy_profile()
 
@@ -856,13 +987,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			return
 
 		temp_dir = tempfile.mkdtemp(prefix='browser-use-user-data-dir-')
+		_register_owned_temp_dir(temp_dir)
 		path_original_user_data = Path(self.user_data_dir)
 		path_original_profile = path_original_user_data / self.profile_directory
 		path_temp_profile = Path(temp_dir) / self.profile_directory
 
 		if path_original_profile.exists():
-			import shutil
-
 			try:
 				shutil.copytree(
 					path_original_profile,
@@ -902,7 +1032,13 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		elif not self.ignore_default_args:
 			default_args = CHROME_DEFAULT_ARGS
 
-		assert self.user_data_dir is not None, 'user_data_dir must be set to a non-default path'
+		if self.user_data_dir is None:
+			# Resolved lazily here (not via a field_validator/validate_default on construction) so that
+			# constructing a BrowserProfile — including the module-level DEFAULT_BROWSER_PROFILE singleton
+			# in browser_use/browser/session.py — never has the filesystem side effect of tempfile.mkdtemp().
+			temp_user_data_dir = tempfile.mkdtemp(prefix='browser-use-user-data-dir-')
+			_register_owned_temp_dir(temp_user_data_dir)
+			self.user_data_dir = Path(temp_user_data_dir)
 
 		# Capture args before conversion for logging
 		pre_conversion_args = [
@@ -912,6 +1048,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			f'--profile-directory={self.profile_directory}',
 			*(CHROME_DOCKER_ARGS if (CONFIG.IN_DOCKER or not self.chromium_sandbox) else []),
 			*(CHROME_HEADLESS_ARGS if self.headless else []),
+			*([] if self.use_system_keychain else ['--use-mock-keychain', '--password-store=basic']),
 			*(CHROME_DISABLE_SECURITY_ARGS if self.disable_security else []),
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
 			*(
