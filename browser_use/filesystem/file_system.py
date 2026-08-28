@@ -166,19 +166,23 @@ class BaseFile(BaseModel, ABC):
 	async def write(self, content: str, path: Path) -> None:
 		prev_content = self.content
 		self.write_file_content(content)
+		target_content = self.content
 		try:
 			await self.sync_to_disk(path)
 		except Exception:
-			self.content = prev_content
+			if self.content == target_content:
+				self.content = prev_content
 			raise
 
 	async def append(self, content: str, path: Path) -> None:
 		prev_content = self.content
 		self.append_file_content(content)
+		target_content = self.content
 		try:
 			await self.sync_to_disk(path)
 		except Exception:
-			self.content = prev_content
+			if self.content == target_content:
+				self.content = prev_content
 			raise
 
 	def read(self) -> str:
@@ -809,11 +813,11 @@ class FileSystem:
 			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
 			return f'Data written to file {full_filename} successfully.{sanitize_note}'
 		except FileSystemError as e:
-			if is_new_file:
+			if is_new_file and self.files.get(full_filename) is file_obj:
 				self.files.pop(full_filename, None)
 			return str(e)
 		except Exception as e:
-			if is_new_file:
+			if is_new_file and self.files.get(full_filename) is file_obj:
 				self.files.pop(full_filename, None)
 			return f"Error: Could not write to file '{full_filename}'. {str(e)}"
 
