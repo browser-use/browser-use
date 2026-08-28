@@ -13,7 +13,7 @@ from openai.types.shared_params.response_format_json_schema import (
 )
 from pydantic import BaseModel
 
-from browser_use.llm.base import BaseChatModel
+from browser_use.llm.base import BaseChatModel, is_reasoning_model
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage, ContentPartTextParam, SystemMessage
 from browser_use.llm.schema import SchemaOptimizer
@@ -556,11 +556,9 @@ class ChatVercel(BaseChatModel):
 			else:
 				is_google_model = self.model.startswith('google/')
 				is_anthropic_model = self.model.startswith('anthropic/')
-				is_reasoning_model = self.reasoning_models and any(
-					str(pattern).lower() in str(self.model).lower() for pattern in self.reasoning_models
-				)
+				is_reasoning = is_reasoning_model(self.model, self.reasoning_models)
 
-				if is_google_model or is_anthropic_model or is_reasoning_model:
+				if is_google_model or is_anthropic_model or is_reasoning:
 					modified_messages = [m.model_copy(deep=True) for m in messages]
 
 					schema = SchemaOptimizer.create_gemini_optimized_schema(output_format)
