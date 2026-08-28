@@ -145,10 +145,12 @@ class ChatA3M(BaseChatModel):
 			# When output_format is provided, inject schema as a system message
 			# since A3M Router uses OpenAI-compatible API
 			if output_format is not None:
+				import json
+
 				schema_json = output_format.model_json_schema()
 				schema_instruction = (
 					f'\n\nIMPORTANT: Your response MUST be valid JSON matching this schema:\n'
-					f'{schema_json}\n\nRespond ONLY with the JSON object, no additional text.'
+					f'{json.dumps(schema_json, indent=2)}\n\nRespond ONLY with the JSON object, no additional text.'
 				)
 				# Prepend schema instruction to last user message
 				for msg in reversed(a3m_messages):
@@ -156,6 +158,9 @@ class ChatA3M(BaseChatModel):
 						msg_content = msg.get('content', '')
 						if isinstance(msg_content, str):
 							msg['content'] = msg_content + schema_instruction
+						elif isinstance(msg_content, list) and msg_content:
+							# Multimodal content - append schema instruction as text part
+							msg_content.append({'type': 'text', 'text': schema_instruction})
 						break
 
 			response = await asyncio.wait_for(
