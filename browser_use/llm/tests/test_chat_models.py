@@ -325,4 +325,3 @@ class TestChatModels:
 		assert isinstance(completion, CapitalResponse)
 		assert completion.country.lower() == self.EXPECTED_FRANCE_COUNTRY
 		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
-
