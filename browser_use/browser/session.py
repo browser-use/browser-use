@@ -590,6 +590,7 @@ class BrowserSession(BaseModel):
 	_reconnect_event: asyncio.Event = PrivateAttr(default_factory=asyncio.Event)
 	_reconnect_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 	_reconnect_task: asyncio.Task | None = PrivateAttr(default=None)
+	_reconnect_pending: bool = PrivateAttr(default=False)
 	_intentional_stop: bool = PrivateAttr(default=False)
 
 	_logger: Any = PrivateAttr(default=None)
@@ -634,6 +635,7 @@ class BrowserSession(BaseModel):
 		if self._reconnect_task and not self._reconnect_task.done():
 			self._reconnect_task.cancel()
 			self._reconnect_task = None
+		self._reconnect_pending = False
 		self._reconnecting = False
 		self._reconnect_event.set()  # unblock any waiters
 
@@ -2291,8 +2293,17 @@ class BrowserSession(BaseModel):
 				)
 			)
 		finally:
+			reconnect_pending = self._reconnect_pending
+			self._reconnect_pending = False
 			self._reconnecting = False
 			self._reconnect_event.set()  # wake up all waiters regardless of outcome
+
+			if reconnect_pending and not self._intentional_stop and self.cdp_url:
+				try:
+					loop = asyncio.get_running_loop()
+					self._reconnect_task = loop.create_task(self._auto_reconnect())
+				except RuntimeError:
+					self.logger.error('🔌 No event loop available for pending auto-reconnect')
 
 	def _attach_ws_drop_callback(self) -> None:
 		"""Attach a done callback to the CDPClient's message handler task to detect WS drops."""
@@ -2304,8 +2315,11 @@ class BrowserSession(BaseModel):
 			return
 
 		def _on_message_handler_done(fut: asyncio.Future) -> None:
-			# Guard: skip if intentionally stopped, already reconnecting, or no cdp_url
-			if self._intentional_stop or self._reconnecting or not self.cdp_url:
+			# Guard: skip if intentionally stopped or no cdp_url
+			if self._intentional_stop or not self.cdp_url:
+				return
+			if self._reconnecting:
+				self._reconnect_pending = True
 				return
 
 			# The message handler task exiting means the WS connection dropped

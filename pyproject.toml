@@ -46,7 +46,7 @@ dependencies = [
     "markdownify==1.2.2",
     "python-docx==1.2.0",
     "browser-use-sdk==3.4.2",
-    "browser-harness==0.1.9",
+    "browser-harness==0.1.10",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -82,7 +82,7 @@ eval = [
     "lmnr[all]==0.7.42",
     "anyio==4.12.1",
     "psutil==7.2.2",
-    "datamodel-code-generator==0.53.0",
+    "datamodel-code-generator==0.75.1",
 ]
 cli-oci = ["browser-use[cli,oci]"]
 all = ["browser-use[cli,examples,aws,oci]"]
