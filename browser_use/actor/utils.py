@@ -27,6 +27,7 @@ class Utils:
 			'Escape': ('Escape', 27),
 			'Space': ('Space', 32),
 			' ': ('Space', 32),
+			'+': ('Equal', 187),
 			'PageUp': ('PageUp', 33),
 			'PageDown': ('PageDown', 34),
 			'End': ('End', 35),

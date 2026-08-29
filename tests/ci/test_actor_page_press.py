@@ -37,4 +37,4 @@ async def test_press_literal_plus_dispatches_plus_key() -> None:
 	events = input_client.events
 	assert [event['type'] for event in events] == ['keyDown', 'keyUp']
 	assert [event['key'] for event in events] == ['+', '+']
-	assert [event['code'] for event in events] == ['+', '+']
+	assert [event['code'] for event in events] == ['Equal', 'Equal']
