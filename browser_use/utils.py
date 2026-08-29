@@ -39,6 +39,10 @@ def is_placeholder_url(url: str) -> bool:
 	return len(labels) >= 2 and all(re.fullmatch(r'x+', label) for label in labels)
 
 
+_TRAILING_PROSE_PUNCTUATION = frozenset('.,;:!?([')
+_CLOSING_TO_OPENING_BRACKET = {')': '(', ']': '['}
+
+
 def sanitize_url_candidate(url: str) -> str:
 	"""Normalize a URL candidate captured from prose before auto-navigation."""
 	candidate = url.strip()
@@ -46,7 +50,29 @@ def sanitize_url_candidate(url: str) -> str:
 	# "https://example.com/search.\\n2. Next step". Those are task text,
 	# not part of the URL.
 	candidate = re.split(r'\\[nrt]', candidate, maxsplit=1)[0]
-	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
+
+	# Strip trailing prose punctuation, but keep a closing bracket the URL opened
+	# itself, e.g. /wiki/Python_(programming_language). A closing bracket is only
+	# prose when it has no opener inside the candidate, as in "(see https://x.com/a)".
+	# Bracket totals are counted once and decremented as characters are trimmed, so
+	# a candidate ending in many brackets stays linear.
+	bracket_counts = {bracket: candidate.count(bracket) for bracket in '()[]'}
+	end = len(candidate)
+	while end:
+		last_char = candidate[end - 1]
+		if last_char in _TRAILING_PROSE_PUNCTUATION:
+			if last_char in bracket_counts:
+				bracket_counts[last_char] -= 1
+			end -= 1
+			continue
+		opening_bracket = _CLOSING_TO_OPENING_BRACKET.get(last_char)
+		if opening_bracket is not None and bracket_counts[last_char] > bracket_counts[opening_bracket]:
+			bracket_counts[last_char] -= 1
+			end -= 1
+			continue
+		break
+
+	return candidate[:end]
 
 
 # Lazy import for error types
