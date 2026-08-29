@@ -4305,6 +4305,15 @@ def test_beta_agent_exposes_task_helper_methods():
 	assert agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
 	assert browser_use_agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
 
+	# A closing bracket the URL opened itself is part of the path, not prose.
+	wikipedia_task = 'Summarize https://en.wikipedia.org/wiki/Python_(programming_language)'
+	assert agent._extract_start_url(wikipedia_task) == 'https://en.wikipedia.org/wiki/Python_(programming_language)'
+	assert browser_use_agent._extract_start_url(wikipedia_task) == 'https://en.wikipedia.org/wiki/Python_(programming_language)'
+	assert agent._extract_start_url('Check https://example.com/a[1] please') == 'https://example.com/a[1]'
+	# ...but one the prose opened is still dropped, however many there are.
+	assert agent._extract_start_url('See the docs (https://example.com/guide) for details.') == 'https://example.com/guide'
+	assert agent._extract_start_url('Read ((see https://example.com/a)) now') == 'https://example.com/a'
+
 
 def test_beta_agent_exposes_url_text_helper_methods():
 	from browser_use.beta import Agent
