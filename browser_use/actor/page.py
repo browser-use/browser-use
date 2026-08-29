@@ -215,7 +215,7 @@ class Page:
 		session_id = await self._ensure_session()
 
 		# Handle key combinations like "Control+A"
-		if '+' in key:
+		if '+' in key and key != '+':
 			parts = key.split('+')
 			modifiers = parts[:-1]
 			main_key = parts[-1]
