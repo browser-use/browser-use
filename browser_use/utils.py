@@ -5,7 +5,7 @@ import platform
 import re
 import signal
 import time
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from fnmatch import fnmatch
 from functools import cache, wraps
 from pathlib import Path
@@ -82,36 +82,62 @@ _openai_bad_request_error: type | None = None
 _groq_bad_request_error: type | None = None
 
 
-def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]] | None) -> dict[str, str]:
-	"""Flatten legacy and domain-scoped sensitive data into placeholder -> value mappings."""
+def collect_sensitive_data_values(sensitive_data: Mapping[str, str | Mapping[str, str]] | None) -> dict[str, str | list[str]]:
+	"""Flatten legacy and domain-scoped sensitive data into placeholder -> value mappings.
+
+	The same placeholder name can be scoped to several domains (e.g. two sites
+	that both use a ``password`` key). All distinct values are kept — colliding
+	ones are collected into a list — so redaction can mask every value. The
+	placeholder name itself stays unchanged, so domain-aware replacement still
+	resolves it against the current URL.
+	"""
 	if not sensitive_data:
 		return {}
 
-	sensitive_values: dict[str, str] = {}
+	def _add_value(values: dict[str, str | list[str]], key: str, value: str) -> None:
+		if not value:
+			return
+		existing = values.get(key)
+		if existing is None:
+			values[key] = value
+		elif isinstance(existing, list):
+			if value not in existing:
+				existing.append(value)
+		elif existing != value:
+			values[key] = [existing, value]
+
+	sensitive_values: dict[str, str | list[str]] = {}
 	for key_or_domain, content in sensitive_data.items():
-		if isinstance(content, dict):
+		if isinstance(content, Mapping):
 			for key, val in content.items():
-				if val:
-					sensitive_values[key] = val
-		elif content:
-			sensitive_values[key_or_domain] = content
+				_add_value(sensitive_values, key, val)
+		else:
+			_add_value(sensitive_values, key_or_domain, content)
 
 	return sensitive_values
 
 
-def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
+def redact_sensitive_string(value: str, sensitive_values: Mapping[str, str | list[str]]) -> str:
 	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
 	if not sensitive_values:
 		return value
 
-	# Build a lookup from secret text → key name, longest secrets first so
-	# the regex alternation prefers the longest match.
-	sorted_items = sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True)
-	secret_to_key = {secret: key for key, secret in sorted_items}
+	# Build a lookup from secret text → key name. A key may carry several
+	# secrets when the same placeholder name is scoped to multiple domains;
+	# flatten those into one entry per distinct secret. Empty secrets are
+	# skipped so they cannot become empty regex alternatives.
+	secret_to_key: dict[str, str] = {}
+	for key, secrets in sensitive_values.items():
+		for secret in [secrets] if isinstance(secrets, str) else secrets:
+			if secret:
+				secret_to_key[secret] = key
+	if not secret_to_key:
+		return value
 
+	# Longest secrets first so the regex alternation prefers the longest match.
 	# Single-pass replacement: each position in the string is consumed at
 	# most once, so earlier replacements cannot be corrupted by later ones.
-	pattern = re.compile('|'.join(re.escape(secret) for secret in secret_to_key))
+	pattern = re.compile('|'.join(re.escape(secret) for secret in sorted(secret_to_key, key=len, reverse=True)))
 	return pattern.sub(lambda m: f'<secret>{secret_to_key[m.group(0)]}</secret>', value)
 
 
