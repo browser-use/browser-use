@@ -45,6 +45,7 @@ Based on our [benchmark of real-world browser tasks](https://browser-use.com/pos
 - [Cerebras](#cerebras)
 - [Ollama (Local)](#ollama-local)
 - [OpenRouter](#openrouter)
+- [TrustedRouter](#trustedrouter)
 - [Vercel AI Gateway](#vercel-ai-gateway)
 - [OCI (Oracle)](#oci-oracle)
 - [LiteLLM (100+ Providers)](#litellm-100-providers)
@@ -206,6 +207,18 @@ llm = ChatOpenRouter(model="anthropic/claude-sonnet-4-6")
 ```
 
 **Env:** `OPENROUTER_API_KEY` | [Available models](https://openrouter.ai/models)
+
+## TrustedRouter
+
+Attested OpenAI-compatible router with automatic model selection, zero-data-retention routes, and end-to-end encrypted routes.
+
+```python
+from browser_use import Agent, ChatTrustedRouter
+
+llm = ChatTrustedRouter(model="trustedrouter/auto")  # or trustedrouter/zdr, trustedrouter/e2e
+```
+
+**Env:** `TRUSTEDROUTER_API_KEY` | [API keys](https://trustedrouter.com/console/api-keys)
 
 ## Vercel AI Gateway
 
