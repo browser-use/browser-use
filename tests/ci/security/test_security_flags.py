@@ -81,3 +81,27 @@ class TestBrowserProfileDisableSecurity:
 		# Should have all test features without duplicates
 		expected_test_features = {'TestFeature1', 'TestFeature2', 'TestFeature3'}
 		assert expected_test_features.issubset(features), f'Missing test features: {expected_test_features - features}'
+
+	def test_ignore_default_args_list_preserves_order(self):
+		"""get_args() must keep CHROME_DEFAULT_ARGS' relative order when ignore_default_args is a list.
+
+		A prior implementation computed the surviving default args via a set
+		difference, which discards list order and made the launch args
+		non-deterministic across process/hash-seed variation.
+		"""
+		from browser_use.browser.profile import CHROME_DEFAULT_ARGS
+
+		ignored = {CHROME_DEFAULT_ARGS[2], CHROME_DEFAULT_ARGS[5]}
+		profile = BrowserProfile(
+			ignore_default_args=list(ignored),
+			user_data_dir=tempfile.mkdtemp(prefix='test-arg-order-'),
+		)
+		profile.detect_display_configuration()
+		args = profile.get_args()
+
+		expected_order = [arg for arg in CHROME_DEFAULT_ARGS if arg not in ignored]
+		surviving_default_args = [arg for arg in args if arg in expected_order]
+
+		assert surviving_default_args == expected_order, (
+			f'Default args out of order: got {surviving_default_args}, expected {expected_order}'
+		)
