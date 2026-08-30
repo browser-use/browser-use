@@ -1,6 +1,15 @@
 """Tests for doctor command."""
 
 from browser_use.skill_cli.commands import doctor
+from browser_use.skill_cli.main import build_parser
+
+
+def test_doctor_accepts_json_after_subcommand_without_breaking_global_flag():
+	"""Test both supported positions for the doctor JSON output flag."""
+	parser = build_parser()
+
+	assert parser.parse_args(['doctor', '--json']).json is True
+	assert parser.parse_args(['--json', 'doctor']).json is True
 
 
 async def test_doctor_handle_returns_valid_structure():

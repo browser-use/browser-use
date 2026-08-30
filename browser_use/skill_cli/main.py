@@ -679,7 +679,8 @@ Setup:
 	p.add_argument('--yes', '-y', action='store_true', help='Skip interactive prompts')
 
 	# doctor
-	subparsers.add_parser('doctor', help='Check browser-use installation and dependencies')
+	p = subparsers.add_parser('doctor', help='Check browser-use installation and dependencies')
+	p.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help='Output as JSON')
 
 	# connect (to local Chrome)
 	subparsers.add_parser('connect', help='Connect to running Chrome via CDP')
