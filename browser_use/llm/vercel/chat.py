@@ -435,13 +435,15 @@ class ChatVercel(BaseChatModel):
 			schema = resolve_refs(schema)
 
 		# Remove unsupported properties
-		def clean_schema(obj: Any) -> Any:
+		def clean_schema(obj: Any, parent_key: str | None = None) -> Any:
 			if isinstance(obj, dict):
 				# Remove unsupported properties
 				cleaned = {}
 				for key, value in obj.items():
-					if key not in ['additionalProperties', 'title', 'default']:
-						cleaned_value = clean_schema(value)
+					# Keep a real field named "title" inside a JSON Schema properties map.
+					is_metadata_title = key == 'title' and parent_key != 'properties'
+					if key not in ['additionalProperties', 'default'] and not is_metadata_title:
+						cleaned_value = clean_schema(value, parent_key=key)
 						# Handle empty object properties - Gemini doesn't allow empty OBJECT types
 						if (
 							key == 'properties'
@@ -465,13 +467,9 @@ class ChatVercel(BaseChatModel):
 				):
 					cleaned['properties'] = {'_placeholder': {'type': 'string'}}
 
-				# Also remove 'title' from the required list if it exists
-				if 'required' in cleaned and isinstance(cleaned.get('required'), list):
-					cleaned['required'] = [p for p in cleaned['required'] if p != 'title']
-
 				return cleaned
 			elif isinstance(obj, list):
-				return [clean_schema(item) for item in obj]
+				return [clean_schema(item, parent_key=parent_key) for item in obj]
 			return obj
 
 		return clean_schema(schema)

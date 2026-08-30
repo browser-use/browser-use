@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from browser_use.agent.views import AgentOutput
 from browser_use.llm.schema import SchemaOptimizer
+from browser_use.llm.vercel import ChatVercel
 from browser_use.tools.service import Tools
 
 
@@ -74,3 +75,23 @@ def test_gemini_schema_retains_required_fields():
 
 	required_fields = set(schema['required'])
 	assert {'price', 'title'}.issubset(required_fields), 'Mandatory fields must stay required for Gemini.'
+
+
+def test_vercel_gemini_schema_preserves_title_property():
+	"""Vercel Gemini cleanup must preserve a user field named ``title``."""
+	chat = ChatVercel(model='openai/gpt-4o', api_key='test')
+	schema = {
+		'type': 'object',
+		'title': 'ProductInfo',
+		'properties': {
+			'title': {'type': 'string', 'title': 'Title'},
+			'price': {'type': 'number', 'title': 'Price'},
+		},
+		'required': ['title', 'price'],
+	}
+
+	cleaned = chat._fix_gemini_schema(schema)
+
+	assert set(cleaned['properties']) == {'title', 'price'}
+	assert 'title' not in cleaned['properties']['title']
+	assert cleaned['required'] == ['title', 'price']
