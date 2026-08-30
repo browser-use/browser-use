@@ -45,6 +45,14 @@ class SchemaOptimizer:
 				skip_fields = ['additionalProperties', '$defs']
 
 				for key, value in obj.items():
+					# Inside a `properties` map every key is a user-defined field name, not a JSON
+					# Schema keyword, so it must not be run through the keyword handling below.
+					# Otherwise a field called e.g. `description` is copied through verbatim and its
+					# `$ref` never gets flattened, leaving a dangling pointer once `$defs` is dropped.
+					if in_properties:
+						optimized[key] = optimize_schema(value, defs_lookup) if isinstance(value, (dict, list)) else value
+						continue
+
 					if key in skip_fields:
 						continue
 

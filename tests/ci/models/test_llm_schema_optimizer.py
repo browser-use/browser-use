@@ -3,6 +3,8 @@ Tests for the SchemaOptimizer to ensure it correctly processes and
 optimizes the schemas for agent actions without losing information.
 """
 
+import json
+
 from pydantic import BaseModel
 
 from browser_use.agent.views import AgentOutput
@@ -74,3 +76,77 @@ def test_gemini_schema_retains_required_fields():
 
 	required_fields = set(schema['required'])
 	assert {'price', 'title'}.issubset(required_fields), 'Mandatory fields must stay required for Gemini.'
+
+
+class Details(BaseModel):
+	"""Nested model used behind a field whose name collides with a JSON Schema keyword."""
+
+	summary: str
+	bullets: list[str]
+
+
+class Article(BaseModel):
+	"""Structured output model with a field named after a JSON Schema keyword."""
+
+	headline: str
+	description: Details
+
+
+def _find_refs(obj, path='') -> list[str]:
+	"""Collect the location of every $ref left in a schema."""
+	refs = []
+	if isinstance(obj, dict):
+		for key, value in obj.items():
+			if key == '$ref':
+				refs.append(f'{path}/$ref -> {value}')
+			refs.extend(_find_refs(value, f'{path}/{key}'))
+	elif isinstance(obj, list):
+		for index, value in enumerate(obj):
+			refs.extend(_find_refs(value, f'{path}[{index}]'))
+	return refs
+
+
+def test_optimizer_flattens_ref_behind_field_named_description():
+	"""A model field named `description` must still get its $ref inlined.
+
+	`$defs` is stripped from the optimized schema, so any $ref left behind points at
+	nothing and the provider rejects the whole request.
+	"""
+	schema = SchemaOptimizer.create_optimized_json_schema(Article)
+
+	assert _find_refs(schema) == [], f'Unresolved $ref left in schema: {_find_refs(schema)}'
+	assert '$defs' not in json.dumps(schema)
+
+	description_schema = schema['properties']['description']
+	assert set(description_schema['properties']) == {'summary', 'bullets'}
+	assert description_schema['additionalProperties'] is False
+
+
+def test_structured_done_action_has_no_dangling_ref():
+	"""Same bug through the public path: Agent(output_model_schema=...) -> done action."""
+	tools = Tools(output_model=Article)
+	ActionModel = tools.registry.create_action_model()
+	agent_output_model = AgentOutput.type_with_custom_actions(ActionModel)
+
+	optimized_schema = SchemaOptimizer.create_optimized_json_schema(agent_output_model)
+
+	assert _find_refs(optimized_schema) == [], f'Unresolved $ref left in schema: {_find_refs(optimized_schema)}'
+
+
+def test_optimizer_keeps_fields_named_after_schema_keywords():
+	"""Field names that collide with JSON Schema keywords must survive optimization."""
+
+	class KeywordFields(BaseModel):
+		title: str
+		description: str
+		type: str
+		properties: str
+		items: str
+		required: str
+
+	schema = SchemaOptimizer.create_optimized_json_schema(KeywordFields)
+
+	assert set(schema['properties']) == set(KeywordFields.model_fields)
+	# metadata titles are still dropped from the property schemas themselves
+	assert schema['properties']['description'] == {'type': 'string'}
+	assert schema['properties']['properties'] == {'type': 'string'}
