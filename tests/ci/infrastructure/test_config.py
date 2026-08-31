@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 from browser_use import config
 from browser_use.config import CONFIG
@@ -127,16 +128,36 @@ class TestLazyConfig:
 		monkeypatch.setattr(Path, 'exists', lambda _self: False)
 		monkeypatch.setattr(Path, 'read_text', lambda _self: '')
 		monkeypatch.setattr(config.psutil, 'pids', lambda: list(range(20)))
+		monkeypatch.setattr(
+			config.psutil,
+			'Process',
+			lambda pid: SimpleNamespace(cmdline=lambda: ['python', 'app.py']) if pid == 1 else None,
+		)
 		monkeypatch.delenv('container', raising=False)
 		monkeypatch.delenv('DOCKER_CONTAINER', raising=False)
 
 		assert config.is_running_in_docker() is False
 		config.is_running_in_docker.cache_clear()
 
-	def test_docker_detection_accepts_container_runtime_hints(self, monkeypatch):
+	def test_docker_detection_ignores_containerd_host_service(self, monkeypatch):
 		config.is_running_in_docker.cache_clear()
 		monkeypatch.setattr(Path, 'exists', lambda _self: False)
 		monkeypatch.setattr(Path, 'read_text', lambda _self: '0::/system.slice/containerd.service')
+		monkeypatch.setattr(config.psutil, 'pids', lambda: list(range(20)))
+		monkeypatch.delenv('container', raising=False)
+		monkeypatch.delenv('DOCKER_CONTAINER', raising=False)
+
+		assert config.is_running_in_docker() is False
+		config.is_running_in_docker.cache_clear()
+
+	def test_docker_detection_accepts_container_cgroup_path(self, monkeypatch):
+		config.is_running_in_docker.cache_clear()
+		monkeypatch.setattr(Path, 'exists', lambda _self: False)
+		monkeypatch.setattr(
+			Path,
+			'read_text',
+			lambda _self: '0::/kubepods.slice/kubepods-burstable.slice/cri-containerd-abc.scope',
+		)
 		monkeypatch.setattr(config.psutil, 'pids', lambda: list(range(20)))
 		monkeypatch.delenv('container', raising=False)
 		monkeypatch.delenv('DOCKER_CONTAINER', raising=False)
