@@ -24,7 +24,7 @@ def is_running_in_docker() -> bool:
 			return True
 
 		cgroup = Path('/proc/1/cgroup').read_text().lower()
-		container_cgroup_markers = ('/docker/', 'docker-', '/kubepods', 'cri-containerd-')
+		container_cgroup_markers = ('/docker/', 'docker-', '/kubepods', 'cri-containerd-', ':cri-containerd:')
 		if any(marker in cgroup for marker in container_cgroup_markers):
 			return True
 	except Exception:

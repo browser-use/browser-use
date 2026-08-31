@@ -164,3 +164,14 @@ class TestLazyConfig:
 
 		assert config.is_running_in_docker() is True
 		config.is_running_in_docker.cache_clear()
+
+	def test_docker_detection_accepts_colon_delimited_containerd_cgroup(self, monkeypatch):
+		config.is_running_in_docker.cache_clear()
+		monkeypatch.setattr(Path, 'exists', lambda _self: False)
+		monkeypatch.setattr(Path, 'read_text', lambda _self: '11:devices:/a.slice/b.slice:cri-containerd:abc')
+		monkeypatch.setattr(config.psutil, 'pids', lambda: list(range(20)))
+		monkeypatch.delenv('container', raising=False)
+		monkeypatch.delenv('DOCKER_CONTAINER', raising=False)
+
+		assert config.is_running_in_docker() is True
+		config.is_running_in_docker.cache_clear()
