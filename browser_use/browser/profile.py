@@ -25,6 +25,14 @@ def _get_enable_default_extensions_default() -> bool:
 	return True
 
 
+def _get_headless_default() -> bool | None:
+	"""Get the default value for headless from BROWSER_USE_HEADLESS env var, or None to fall back to display detection."""
+	env_val = os.getenv('BROWSER_USE_HEADLESS')
+	if env_val is not None:
+		return env_val.lower() not in ('0', 'false', 'no', 'off', '')
+	return None
+
+
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
 DOMAIN_OPTIMIZATION_THRESHOLD = 100  # Convert domain lists to sets for O(1) lookup when >= this size
 CHROME_PROFILE_TRANSIENT_FILE_PATTERNS = (
@@ -419,7 +427,10 @@ class BrowserLaunchArgs(BaseModel):
 		validation_alias=AliasChoices('browser_binary_path', 'chrome_binary_path'),
 		description='Path to the chromium-based browser executable to use.',
 	)
-	headless: bool | None = Field(default=None, description='Whether to run the browser in headless or windowed mode.')
+	headless: bool | None = Field(
+		default_factory=_get_headless_default,
+		description='Whether to run the browser in headless or windowed mode. Can be set via BROWSER_USE_HEADLESS environment variable.',
+	)
 	args: list[CliArgStr] = Field(
 		default_factory=list, description='List of *extra* CLI args to pass to the browser when launching.'
 	)
