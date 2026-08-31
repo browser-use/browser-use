@@ -43,11 +43,22 @@ PY
 
 - Invoke as `browser-use`. Use heredocs for multi-line commands.
 - Helpers are pre-imported. `run.py` calls `ensure_daemon()` before `exec`.
-- First navigation is `new_tab(url)`, not `goto_url(url)`.
+- First navigation for a task is `new_tab(url)`, not `goto_url(url)`. The daemon
+  preserves the attached tab across separate CLI invocations, so do not call
+  `new_tab()` again in every script.
+- Keep one working tab per task/site. Before opening another, inspect
+  `current_tab()` and `list_tabs()` and use `switch_tab()` to reuse a matching
+  tab. Do not leave duplicate tabs on the same URL or close tabs you did not
+  create.
 - `new_tab()` and `switch_tab()` attach and move the horse marker without
   changing Chrome's visible tab. Screenshots and normal CDP input work in the
   background; call `activate_tab(target)` only when the user explicitly asks
   or a page demonstrably pauses rendering while hidden.
+- A timed-out `scroll(...)` on an attached background tab is evidence that the
+  page needs to be visible. Call `activate_tab(current_tab())`, retry the same
+  scroll once, then re-read the scroll position. This visibly switches tabs,
+  so do not use it when the user has forbidden foreground changes. Do not
+  invent a `Runtime.evaluate` scroll replacement or a cross-frame JS walker.
 - The normal local flow attaches to the running Chrome/Chromium CDP endpoint. No browser ids or local profile selection.
 
 ## Local Chrome
