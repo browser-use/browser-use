@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +13,7 @@ EXPECTED_SKILL_INSTALL_PATHS = (
 	Path('.copilot') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.cursor') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.gemini') / 'skills' / 'browser-use' / 'SKILL.md',
+	Path('.openclaw') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.config') / 'opencode' / 'skills' / 'browser-use' / 'SKILL.md',
 )
 
@@ -56,6 +58,50 @@ def test_docs_install_browser_use_skill_from_package_alias():
 	assert 'raw.githubusercontent.com/browser-use/browser-harness/main/SKILL.md' not in readme
 
 
+def test_cloud_v4_reference_scopes_workspace_file_listing():
+	api_v4 = (ROOT / 'skills' / 'cloud' / 'references' / 'api-v4.md').read_text(encoding='utf-8')
+
+	assert 'client.workspaces.files(workspace.id)' in api_v4
+	assert 'client.workspaces.files()' not in api_v4
+	python_examples = re.findall(r'```python\n(.*?)```', api_v4, flags=re.DOTALL)
+	assert python_examples
+	assert all('BrowserUse' in example for example in python_examples if 'client.' in example)
+
+
+def test_remote_browser_skill_uses_current_cli():
+	remote_skill = (ROOT / 'skills' / 'remote-browser' / 'SKILL.md').read_text(encoding='utf-8')
+
+	for removed_command in (
+		'browser-use open',
+		'browser-use state',
+		'browser-use click',
+		'browser-use input',
+		'browser-use tab',
+		'browser-use screenshot',
+		'browser-use eval',
+		'browser-use cookies',
+		'browser-use close',
+		'browser-use sessions',
+		'browser-use tunnel',
+		'browser-use wait',
+		'browser-use register',
+		'browser-use cloud connect',
+		'browser-use --connect',
+		'browser_use/skill_cli/README.md',
+	):
+		assert removed_command not in remote_skill
+
+	for current_command in (
+		"browser-use <<'PY'",
+		'start_remote_daemon("r7k2")',
+		'BU_NAME=r7k2 browser-use',
+		'new_tab("https://example.com")',
+		'print(page_info())',
+		'stop_remote_daemon("r7k2")',
+	):
+		assert current_command in remote_skill
+
+
 def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 	bin_dir = _fake_browser_harness_tools(tmp_path, '---\nname: browser-harness\n---\n\n# Browser Harness\n')
 
@@ -86,6 +132,24 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 		'---\n'
 		'name: browser-use\n'
 		'description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."\n'
+		'homepage: https://browser-use.com\n'
+		'metadata:\n'
+		'  {\n'
+		'    "openclaw":\n'
+		'      {\n'
+		'        "requires": { "bins": ["browser-use"] },\n'
+		'        "install":\n'
+		'          [\n'
+		'            {\n'
+		'              "id": "uv",\n'
+		'              "kind": "uv",\n'
+		'              "package": "browser-use",\n'
+		'              "bins": ["browser-use"],\n'
+		'              "label": "Install Browser Use CLI (uv)",\n'
+		'            },\n'
+		'          ],\n'
+		'      },\n'
+		'  }\n'
 		'---\n\n'
 		'# Browser Use\n'
 	)

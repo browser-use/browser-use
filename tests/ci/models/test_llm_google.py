@@ -127,3 +127,119 @@ async def test_chat_google_temperature_fallback():
 		mock_models.generate_content.assert_called_once()
 		args, kwargs = mock_models.generate_content.call_args
 		assert kwargs['config']['temperature'] == 1.0
+
+
+# A 1x1 PNG, small enough to inline and still be a real decodable image.
+_PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+
+
+def _flatten(contents) -> list:
+	"""Flatten serialized Google contents into a single list of parts."""
+	return [part for content in contents for part in (content.parts or [])]
+
+
+def _describe(contents) -> tuple[str, int]:
+	"""Summarise serialized Google contents as (all text, number of inline images)."""
+	parts = _flatten(contents)
+	return ''.join(part.text or '' for part in parts), sum(1 for part in parts if part.inline_data is not None)
+
+
+def test_include_system_in_user_keeps_list_content_parts():
+	"""include_system_in_user must prepend the system text, not replace the user content.
+
+	With vision on, the agent's user message is a list of parts, and every part of it was
+	being dropped from the first user message.
+	"""
+	from browser_use.llm.google.serializer import GoogleMessageSerializer
+	from browser_use.llm.messages import (
+		ContentPartImageParam,
+		ContentPartTextParam,
+		ImageURL,
+		SystemMessage,
+		UserMessage,
+	)
+
+	messages = [
+		SystemMessage(content='You are a browser agent.'),
+		UserMessage(
+			content=[
+				ContentPartTextParam(text='<browser_state>the page and the task live here</browser_state>'),
+				ContentPartImageParam(image_url=ImageURL(url=f'data:image/png;base64,{_PNG_1PX}', media_type='image/png')),
+			]
+		),
+	]
+
+	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+
+	assert system_instruction is None, 'system message should have moved into the user turn'
+	text, images = _describe(contents)
+	assert 'You are a browser agent.' in text
+	assert '<browser_state>the page and the task live here</browser_state>' in text, 'user text was dropped'
+	assert images == 1, 'screenshot was dropped'
+
+
+def test_include_system_in_user_string_content_is_merged_into_one_part():
+	"""String content keeps the existing behaviour: system text and user text in a single part."""
+	from browser_use.llm.google.serializer import GoogleMessageSerializer
+	from browser_use.llm.messages import SystemMessage, UserMessage
+
+	messages = [
+		SystemMessage(content='You are a browser agent.'),
+		UserMessage(content='Buy a red stapler'),
+	]
+
+	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+
+	assert system_instruction is None
+	parts = _flatten(contents)
+	assert len(parts) == 1
+	assert parts[0].text == 'You are a browser agent.\n\nBuy a red stapler'
+
+
+def test_include_system_in_user_keeps_the_agent_state_message(tmp_path):
+	"""End-to-end shape: what the agent actually builds with vision on must survive serialization."""
+	from browser_use.agent.prompts import AgentMessagePrompt, SystemPrompt
+	from browser_use.agent.views import AgentStepInfo
+	from browser_use.browser.views import BrowserStateSummary, PageInfo, TabInfo
+	from browser_use.dom.views import SerializedDOMState
+	from browser_use.filesystem.file_system import FileSystem
+	from browser_use.llm.google.serializer import GoogleMessageSerializer
+
+	browser_state = BrowserStateSummary(
+		url='https://example.test/foo',
+		title='Test',
+		tabs=[TabInfo(target_id='abcd1234', url='https://example.test/foo', title='Test')],
+		page_info=PageInfo(
+			viewport_width=1280,
+			viewport_height=720,
+			page_width=1280,
+			page_height=1440,
+			scroll_x=0,
+			scroll_y=0,
+			pixels_above=0,
+			pixels_below=720,
+			pixels_left=0,
+			pixels_right=0,
+		),
+		dom_state=SerializedDOMState(_root=None, selector_map={}),
+		is_pdf_viewer=False,
+		recent_events=None,
+		closed_popup_messages=[],
+		screenshot=_PNG_1PX,
+	)
+	user_message = AgentMessagePrompt(
+		browser_state_summary=browser_state,
+		file_system=FileSystem(base_dir=str(tmp_path), create_default_files=False),
+		agent_history_description='<step>existing history</step>',
+		task='Buy a red stapler',
+		step_info=AgentStepInfo(step_number=1, max_steps=50),
+		screenshots=[_PNG_1PX],
+	).get_user_message(use_vision=True)
+	assert isinstance(user_message.content, list), 'vision messages are lists of parts'
+
+	messages = [SystemPrompt(max_actions_per_step=5).get_system_message(), user_message]
+	contents, _ = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+
+	text, images = _describe(contents)
+	assert 'Buy a red stapler' in text, 'the task never reached the model'
+	assert images == 1, 'the screenshot never reached the model'

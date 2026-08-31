@@ -18,6 +18,18 @@ class SensitiveParams(BaseModel):
 	text: str = Field(description='Text with sensitive data placeholders')
 
 
+class TupleSensitiveParams(BaseModel):
+	"""Test parameter model for tuple-based sensitive data placeholders."""
+
+	items: tuple[str, ...] = Field(description='Tuple with sensitive data placeholders')
+
+
+class NestedTupleSensitiveParams(BaseModel):
+	"""Test parameter model for nested tuple-based sensitive data placeholders."""
+
+	payload: tuple[dict[str, tuple[str, list[str]]], ...] = Field(description='Nested tuple with sensitive data placeholders')
+
+
 @pytest.fixture
 def registry():
 	return Registry()
@@ -70,6 +82,29 @@ def test_replace_sensitive_data_with_missing_keys(registry, caplog):
 	assert result.text == 'Please enter user123 and <secret>password</secret>'
 	assert 'user123' in result.text
 	assert '<secret>password</secret>' in result.text  # Empty value's tag remains
+
+
+def test_replace_sensitive_data_inside_tuple(registry):
+	"""Test that _replace_sensitive_data replaces placeholders inside tuple fields."""
+	params = TupleSensitiveParams(items=('<secret>api_key</secret>', 'username', 'unchanged'))
+	sensitive_data = {'api_key': 'sk-replaced', 'username': 'admin_user'}
+
+	result = registry._replace_sensitive_data(params, sensitive_data)
+
+	assert result.items == ('sk-replaced', 'admin_user', 'unchanged')
+	assert isinstance(result.items, tuple)
+
+
+def test_replace_sensitive_data_inside_nested_tuple(registry):
+	"""Test that _replace_sensitive_data replaces placeholders inside nested tuples."""
+	params = NestedTupleSensitiveParams(payload=({'credentials': ('<secret>token</secret>', ['<secret>username</secret>'])},))
+	sensitive_data = {'token': 'token-replaced', 'username': 'admin_user'}
+
+	result = registry._replace_sensitive_data(params, sensitive_data)
+
+	assert result.payload == ({'credentials': ('token-replaced', ['admin_user'])},)
+	assert isinstance(result.payload, tuple)
+	assert isinstance(result.payload[0]['credentials'], tuple)
 
 
 def test_simple_domain_specific_sensitive_data(registry, caplog):
