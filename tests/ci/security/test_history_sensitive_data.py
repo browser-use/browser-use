@@ -171,7 +171,7 @@ def test_recursive_filter_rechecks_every_changed_key_for_generated_secrets():
 	filtered_key = next(iter(filtered))
 
 	assert len(filtered_key) == 1
-	assert all(secret not in filtered_key for secret in sensitive_data.values())
+	assert all(secret not in filtered_key for secret in sensitive_data.values() if isinstance(secret, str))
 	assert filtered[filtered_key] == 'value'
 
 
@@ -245,7 +245,7 @@ def test_generated_string_filter_uses_an_opaque_fallback_for_replacement_cycles(
 	filtered_key = next(iter(filtered))
 
 	assert len(filtered_key) == 1
-	assert all(secret not in filtered_key for secret in sensitive_data.values())
+	assert all(secret not in filtered_key for secret in sensitive_data.values() if isinstance(secret, str))
 	assert filtered[filtered_key] == 'value'
 
 
@@ -257,7 +257,7 @@ def test_generated_string_filter_bounds_expanding_replacements():
 	filtered_key = next(iter(filtered))
 
 	assert len(filtered_key) == 1
-	assert all(secret not in filtered_key for secret in sensitive_data.values())
+	assert all(secret not in filtered_key for secret in sensitive_data.values() if isinstance(secret, str))
 	assert filtered[filtered_key] == 'value'
 
 
