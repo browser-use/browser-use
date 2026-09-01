@@ -78,7 +78,7 @@ class HTMLSerializer:
 					return ''
 				# Also check for bpr-guid IDs (LinkedIn's JSON data pattern)
 				element_id = node.attributes.get('id', '')
-				if 'bpr-guid' in element_id or 'data' in element_id or 'state' in element_id:
+				if 'bpr-guid' in element_id:
 					return ''
 
 			# Skip base64 inline images - these are usually placeholders or tracking pixels
