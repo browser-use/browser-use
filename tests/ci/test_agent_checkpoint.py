@@ -9,12 +9,15 @@ checkpoint because it cannot be safely round-tripped through JSON.
 import json
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import cast
 
 from browser_use import Agent
 from browser_use.agent.message_manager.views import HistoryItem
-from browser_use.agent.views import AgentOutput, PlanItem
-from browser_use.filesystem.file_system import FileSystemState
+from browser_use.agent.views import AgentHistory, AgentOutput, PlanItem
+from browser_use.browser.views import BrowserStateHistory
+from browser_use.tokens.views import UsageSummary
 from tests.ci.conftest import create_mock_llm
 
 
@@ -106,12 +109,14 @@ def test_checkpoint_excludes_transient_step_state():
 def test_checkpoint_persists_file_system_state():
 	"""file_system_state should round-trip through the checkpoint."""
 	agent = _make_agent()
-	# Populate file system state directly (avoids async file I/O in a sync test).
-	agent.state.file_system_state = FileSystemState(
-		files={'notes.md': {'content': '# hello\n'}},
-		base_dir='/tmp/fs_test',
-		extracted_content_count=1,
-	)
+	# Populate a valid serializable file system state directly (avoids async file I/O).
+	file_system_state = agent.file_system.get_state()
+	file_system_state.files['notes.md'] = {
+		'type': 'MarkdownFile',
+		'data': {'name': 'notes', 'content': '# hello\n'},
+	}
+	file_system_state.extracted_content_count = 1
+	agent.state.file_system_state = file_system_state
 
 	with tempfile.TemporaryDirectory() as tmpdir:
 		path = Path(tmpdir) / 'checkpoint.json'
@@ -180,7 +185,7 @@ def test_checkpoint_round_trips_message_manager_state():
 
 		assert restored_agent.state.message_manager_state.tool_id == 7
 		assert restored_agent.state.message_manager_state.read_state_description == 'page loaded'
-		assert len(restored_agent.state.message_manager_state.agent_history_items) >= 2
+		assert restored_agent.state.message_manager_state.agent_history_items[-1].system_message == 'follow up on this'
 		# The follow-up task marker should survive.
 		assert restored_agent.state.follow_up_task is True
 
@@ -200,3 +205,55 @@ def test_checkpoint_survives_json_round_trip():
 		assert data['state']['n_steps'] == 10
 		assert data['state']['plan'][0]['text'] == 'step 1'
 		assert data['state']['plan'][0]['status'] == 'current'
+
+
+def test_checkpoint_preserves_usage_and_redacts_sensitive_data():
+	"""Checkpoint history keeps usage totals without writing credential values."""
+	agent = _make_agent()
+	agent.sensitive_data = cast(dict[str, str | dict[str, str]], {'password': {'value': 'super-secret'}})
+	agent.history.usage = UsageSummary(
+		total_prompt_tokens=1,
+		total_prompt_cost=0.1,
+		total_prompt_cached_tokens=2,
+		total_prompt_cached_cost=0.2,
+		total_completion_tokens=3,
+		total_completion_cost=0.3,
+		total_tokens=6,
+		total_cost=0.6,
+		entry_count=1,
+		by_model={},
+	)
+	input_action = agent.ActionModel.model_validate({'input': {'index': 0, 'text': 'super-secret'}})
+	output = AgentOutput.model_construct(
+		evaluation_previous_goal='prev',
+		memory='mem',
+		next_goal='next',
+		action=[input_action],
+	)
+	agent.history.history.append(
+		AgentHistory.model_construct(
+			model_output=output, result=[], state=BrowserStateHistory(url='', title='', tabs=[], interacted_element=[])
+		)
+	)
+
+	with tempfile.TemporaryDirectory() as tmpdir:
+		path = Path(tmpdir) / 'checkpoint.json'
+		agent.save_checkpoint(path)
+		serialized = path.read_text(encoding='utf-8')
+		assert 'super-secret' not in serialized
+
+		restored_agent = _make_agent()
+		restored_agent.load_checkpoint(path)
+		assert restored_agent.history.usage is not None
+		assert restored_agent.history.usage.total_cost == 0.6
+
+
+def test_checkpoint_saves_to_same_path_concurrently():
+	"""Concurrent writers use independent temporary files and do not collide."""
+	agent = _make_agent()
+
+	with tempfile.TemporaryDirectory() as tmpdir:
+		path = Path(tmpdir) / 'checkpoint.json'
+		with ThreadPoolExecutor(max_workers=2) as executor:
+			list(executor.map(agent.save_checkpoint, [path, path]))
+		assert json.loads(path.read_text(encoding='utf-8'))['state']['agent_id'] == agent.state.agent_id
