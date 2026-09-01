@@ -632,7 +632,7 @@ class AgentHistory(BaseModel):
 						while generated_key in reserved_keys:
 							suffix += 1
 							generated_key = f'{filtered_key}#{suffix}'
-						unique_key = filter_generated_string(generated_key, reserved_keys)
+						unique_key = filter_generated_string(generated_key, reserved_keys | reserved_value_fallbacks)
 						reserved_keys.add(unique_key)
 					children.append((item, unique_key))
 				stack.append(('exit', (container_id, False), parent, key))
