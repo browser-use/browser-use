@@ -3937,19 +3937,43 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		checkpoint_state.last_model_output = None
 		checkpoint_state.last_result = None
 
+		history_data = self.history.model_dump(sensitive_data=self.sensitive_data)
+		if self.history.usage is not None:
+			history_data['usage'] = self.history.usage.model_dump(mode='json')
+
 		checkpoint = {
 			'state': checkpoint_state.model_dump(mode='json'),
-			'history': self.history.model_dump(),
+			'history': history_data,
 		}
 
-		# Atomic write: write to a temp file in the same directory, then rename.
+		# Atomic write: write to a unique temp file in the same directory, then rename.
 		# This prevents a partially-written checkpoint from being read after a crash.
-		tmp_path = path.with_name(path.name + '.tmp')
-		with open(tmp_path, 'w', encoding='utf-8') as f:
-			json.dump(checkpoint, f, indent=2, ensure_ascii=False)
-			f.flush()
-			os.fsync(f.fileno())
-		tmp_path.replace(path)
+		tmp_path = None
+		try:
+			with tempfile.NamedTemporaryFile(
+				mode='w',
+				encoding='utf-8',
+				dir=path.parent,
+				prefix=f'.{path.name}.',
+				suffix='.tmp',
+				delete=False,
+			) as f:
+				tmp_path = Path(f.name)
+				json.dump(checkpoint, f, indent=2, ensure_ascii=False)
+				f.flush()
+				os.fsync(f.fileno())
+			for attempt in range(5):
+				try:
+					tmp_path.replace(path)
+					break
+				except PermissionError:
+					if attempt == 4:
+						raise
+					time.sleep(0.01)
+		except Exception:
+			if tmp_path is not None:
+				tmp_path.unlink(missing_ok=True)
+			raise
 
 		self.logger.info(f'💾 Checkpoint saved to {_log_pretty_path(path)}')
 		return path
@@ -3972,6 +3996,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.state = state
 		self.history = history
+		if self.state.file_system_state is not None:
+			self.file_system = FileSystem.from_state(self.state.file_system_state)
+			self.file_system_path = str(self.file_system.base_dir)
+		self._message_manager.state = self.state.message_manager_state
+		self._message_manager.file_system = self.file_system
 
 		self.logger.info(f'💾 Checkpoint loaded from {_log_pretty_path(path)}')
 		return state, history
