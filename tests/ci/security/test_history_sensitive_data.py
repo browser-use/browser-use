@@ -136,7 +136,7 @@ def test_recursive_filter_redacts_chained_secrets_in_the_circular_marker():
 	history = _history('unused').history[0]
 	circular: list[object] = []
 	circular.append(circular)
-	sensitive_data = {
+	sensitive_data: dict[str, str | dict[str, str]] = {
 		'marker': '<circular container reference>',
 		'generated': '<secret>marker</secret>',
 	}
@@ -165,7 +165,7 @@ def test_recursive_filter_redacts_generated_collision_keys():
 
 def test_recursive_filter_rechecks_every_changed_key_for_generated_secrets():
 	history = _history('unused').history[0]
-	sensitive_data = {'label': 'A', 'other': 'label'}
+	sensitive_data: dict[str, str | dict[str, str]] = {'label': 'A', 'other': 'label'}
 
 	filtered = history._filter_sensitive_data_from_dict({'A': 'value'}, sensitive_data)
 	filtered_key = next(iter(filtered))
@@ -236,7 +236,7 @@ def test_recursive_filter_does_not_reuse_an_unchanged_user_value_for_a_circular_
 
 def test_generated_string_filter_uses_an_opaque_fallback_for_replacement_cycles():
 	history = _history('unused').history[0]
-	sensitive_data = {
+	sensitive_data: dict[str, str | dict[str, str]] = {
 		'a': '<secret>b</secret>',
 		'b': '<secret>a</secret>',
 	}
@@ -251,7 +251,7 @@ def test_generated_string_filter_uses_an_opaque_fallback_for_replacement_cycles(
 
 def test_generated_string_filter_bounds_expanding_replacements():
 	history = _history('unused').history[0]
-	sensitive_data = {'expands': 'x', 'unrelated': 'safe'}
+	sensitive_data: dict[str, str | dict[str, str]] = {'expands': 'x', 'unrelated': 'safe'}
 
 	filtered = history._filter_sensitive_data_from_dict({'x': 'value'}, sensitive_data)
 	filtered_key = next(iter(filtered))
@@ -263,7 +263,9 @@ def test_generated_string_filter_bounds_expanding_replacements():
 
 def test_generated_string_filter_skips_singleton_secrets_across_the_bmp_private_use_range():
 	history = _history('unused').history[0]
-	sensitive_data = {f'pua_{codepoint:x}': chr(codepoint) for codepoint in range(0xE000, 0xF900)}
+	sensitive_data: dict[str, str | dict[str, str]] = {
+		f'pua_{codepoint:x}': chr(codepoint) for codepoint in range(0xE000, 0xF900)
+	}
 	sensitive_data['generated'] = '<secret>pua_e000</secret>'
 
 	filtered = history._filter_sensitive_data_from_dict({chr(0xE000): 'value'}, sensitive_data)
