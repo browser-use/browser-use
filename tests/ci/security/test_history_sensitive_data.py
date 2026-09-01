@@ -266,12 +266,19 @@ def test_generated_string_filter_uses_an_opaque_fallback_for_replacement_cycles(
 		'b': '<secret>a</secret>',
 	}
 
-	filtered = history._filter_sensitive_data_from_dict({'<secret>a</secret>': 'value'}, sensitive_data)
+	filtered = history._filter_sensitive_data_from_dict({'<secret>a</secret>': '<secret>b</secret>'}, sensitive_data)
 	filtered_key = next(iter(filtered))
+	filtered_value = filtered[filtered_key]
 
 	assert len(filtered_key) == 1
-	assert all(secret not in filtered_key for secret in sensitive_data.values() if isinstance(secret, str))
-	assert filtered[filtered_key] == 'value'
+	assert len(filtered_value) == 1
+	assert filtered_key != filtered_value
+	assert all(
+		secret not in output
+		for output in (filtered_key, filtered_value)
+		for secret in sensitive_data.values()
+		if isinstance(secret, str)
+	)
 
 
 def test_generated_string_filter_bounds_expanding_replacements():
