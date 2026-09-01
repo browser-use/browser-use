@@ -69,7 +69,9 @@ class GoogleMessageSerializer:
 			# Initialize message parts
 			message_parts: list[Part] = []
 
-			# If this is the first user message and we have system parts, prepend them
+			# Prepend pending system parts to the first user message, even if a
+			# model turn was already serialized. Clearing system_parts prevents
+			# later user messages from receiving the same prefix.
 			system_text = None
 			# Merge into the *first* user message. An earlier assistant turn must not disqualify it,
 			# but a user message that has already been serialized must: the merge target is gone, so

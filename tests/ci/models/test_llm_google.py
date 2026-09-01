@@ -243,3 +243,142 @@ def test_include_system_in_user_keeps_the_agent_state_message(tmp_path):
 	text, images = _describe(contents)
 	assert 'Buy a red stapler' in text, 'the task never reached the model'
 	assert images == 1, 'the screenshot never reached the model'
+
+
+def test_include_system_in_user_prepends_after_an_assistant_turn():
+	"""System text must still reach the first user message after a prior model turn.
+
+	include_system_in_user is documented as prepending to the first user message, not
+	the first formatted message. If an assistant turn is serialized first, the system
+	text must not be dropped.
+	"""
+	from browser_use.llm.google.serializer import GoogleMessageSerializer
+	from browser_use.llm.messages import AssistantMessage, SystemMessage, UserMessage
+
+	messages = [
+		SystemMessage(content='Follow the system rule.'),
+		AssistantMessage(content='Earlier assistant turn.'),
+		UserMessage(content='Continue the task.'),
+	]
+
+	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+
+	assert system_instruction is None
+	assert len(contents) == 2
+	assert contents[0].role == 'model'
+	assert contents[1].role == 'user'
+	assert contents[1].parts is not None
+	assert contents[1].parts[0].text == 'Follow the system rule.\n\nContinue the task.'
+
+
+def test_include_system_in_user_prepends_after_multiple_assistant_turns():
+	"""Two model turns before the first user message must not drop the system text."""
+	from browser_use.llm.google.serializer import GoogleMessageSerializer
+	from browser_use.llm.messages import AssistantMessage, SystemMessage, UserMessage
+
+	messages = [
+		SystemMessage(content='Follow the system rule.'),
+		AssistantMessage(content='First assistant turn.'),
+		AssistantMessage(content='Second assistant turn.'),
+		UserMessage(content='Continue the task.'),
+	]
+
+	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+
+	assert system_instruction is None
+	assert [content.role for content in contents] == ['model', 'model', 'user']
+	assert contents[-1].parts is not None
+	assert contents[-1].parts[0].text == 'Follow the system rule.\n\nContinue the task.'
+
+
+def test_include_system_in_user_prepends_only_to_the_first_user_message():
+	"""Later user messages must not receive a second copy of the system text."""
+	from browser_use.llm.google.serializer import GoogleMessageSerializer
+	from browser_use.llm.messages import AssistantMessage, SystemMessage, UserMessage
+
+	messages = [
+		SystemMessage(content='Follow the system rule.'),
+		AssistantMessage(content='Earlier assistant turn.'),
+		UserMessage(content='First user turn.'),
+		UserMessage(content='Second user turn.'),
+	]
+
+	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+
+	assert system_instruction is None
+	assert [content.role for content in contents] == ['model', 'user', 'user']
+	assert contents[1].parts is not None
+	assert contents[1].parts[0].text == 'Follow the system rule.\n\nFirst user turn.'
+	assert contents[2].parts is not None
+	assert contents[2].parts[0].text == 'Second user turn.'
+
+
+def test_include_system_in_user_keeps_list_content_after_an_assistant_turn():
+	"""List user content after a model turn must keep system text, user text, and images."""
+	from browser_use.llm.google.serializer import GoogleMessageSerializer
+	from browser_use.llm.messages import (
+		AssistantMessage,
+		ContentPartImageParam,
+		ContentPartTextParam,
+		ImageURL,
+		SystemMessage,
+		UserMessage,
+	)
+
+	messages = [
+		SystemMessage(content='You are a browser agent.'),
+		AssistantMessage(content='Earlier assistant turn.'),
+		UserMessage(
+			content=[
+				ContentPartTextParam(text='<browser_state>the page and the task live here</browser_state>'),
+				ContentPartImageParam(image_url=ImageURL(url=f'data:image/png;base64,{_PNG_1PX}', media_type='image/png')),
+			]
+		),
+	]
+
+	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+
+	assert system_instruction is None
+	assert contents[0].role == 'model'
+	assert contents[1].role == 'user'
+	text, images = _describe(contents)
+	assert 'You are a browser agent.' in text
+	assert '<browser_state>the page and the task live here</browser_state>' in text
+	assert images == 1
+
+
+def test_include_system_in_user_false_returns_system_instruction():
+	"""Default path still extracts system text separately and leaves user content alone."""
+	from browser_use.llm.google.serializer import GoogleMessageSerializer
+	from browser_use.llm.messages import AssistantMessage, SystemMessage, UserMessage
+
+	messages = [
+		SystemMessage(content='Follow the system rule.'),
+		AssistantMessage(content='Earlier assistant turn.'),
+		UserMessage(content='Continue the task.'),
+	]
+
+	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=False)
+
+	assert system_instruction == 'Follow the system rule.'
+	assert [content.role for content in contents] == ['model', 'user']
+	assert contents[1].parts is not None
+	assert contents[1].parts[0].text == 'Continue the task.'
+
+
+def test_include_system_in_user_with_no_system_message():
+	"""A conversation without a system message is serialized unchanged."""
+	from browser_use.llm.google.serializer import GoogleMessageSerializer
+	from browser_use.llm.messages import AssistantMessage, UserMessage
+
+	messages = [
+		AssistantMessage(content='Earlier assistant turn.'),
+		UserMessage(content='Continue the task.'),
+	]
+
+	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+
+	assert system_instruction is None
+	assert [content.role for content in contents] == ['model', 'user']
+	assert contents[1].parts is not None
+	assert contents[1].parts[0].text == 'Continue the task.'
