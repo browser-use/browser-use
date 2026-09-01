@@ -1,3 +1,5 @@
+import json
+
 from pydantic import BaseModel
 
 from browser_use.agent.views import AgentHistory, AgentHistoryList, AgentOutput
@@ -16,7 +18,7 @@ class HistorySensitiveAction(ActionModel):
 	input: HistorySensitiveParams
 
 
-def _history(secret: str) -> AgentHistoryList:
+def _history(secret: str, lookup: dict[str, str] | None = None) -> AgentHistoryList:
 	custom_output = AgentOutput.type_with_custom_actions(HistorySensitiveAction)
 	return AgentHistoryList(
 		history=[
@@ -30,7 +32,9 @@ def _history(secret: str) -> AgentHistoryList:
 							input=HistorySensitiveParams(
 								rows=[[secret]],
 								payload=({'credentials': (secret, ['safe', secret])},),
-								lookup={secret: 'secret-key', '<secret>api_key</secret>': 'literal-key'},
+								lookup=lookup
+								if lookup is not None
+								else {secret: 'secret-key', '<secret>api_key</secret>': 'literal-key'},
 								unchanged='safe',
 							)
 						)
@@ -216,6 +220,27 @@ def test_recursive_filter_does_not_reuse_an_unchanged_user_value_as_a_fallback()
 	assert filtered_unchanged == unchanged
 	assert filtered_secret != filtered_unchanged
 	assert secret not in filtered_secret
+
+
+def test_save_to_file_does_not_reuse_an_unchanged_user_value_as_a_generated_key(tmp_path):
+	secret = 'token-123'
+	unchanged = '<secret>api_key</secret>'
+	output_path = tmp_path / 'history.json'
+
+	_history(secret, lookup={secret: unchanged, 'literal-key': 'kept'}).save_to_file(
+		output_path, sensitive_data={'api_key': secret}
+	)
+	saved = json.loads(output_path.read_text(encoding='utf-8'))
+	lookup = saved['history'][0]['model_output']['action'][0]['input']['lookup']
+	generated_keys = set(lookup) - {'literal-key'}
+	filtered_key = next(iter(generated_keys))
+
+	assert len(lookup) == 2
+	assert len(generated_keys) == 1
+	assert lookup['literal-key'] == 'kept'
+	assert lookup[filtered_key] == unchanged
+	assert filtered_key != unchanged
+	assert secret not in output_path.read_text(encoding='utf-8')
 
 
 def test_recursive_filter_does_not_reuse_an_unchanged_user_value_for_a_circular_marker():
