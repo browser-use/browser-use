@@ -527,9 +527,60 @@ class AgentHistory(BaseModel):
 		sensitive_data: dict[str, str | dict[str, str]] | None,
 	) -> Any:
 		"""Filter nested sensitive data without relying on the Python recursion stack."""
+		sensitive_values = collect_sensitive_data_values(sensitive_data)
+		if not sensitive_values:
+			return value
+		sorted_sensitive_items = sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True)
+		secret_to_key = {secret: key for key, secret in sorted_sensitive_items}
+		redaction_pattern = re.compile('|'.join(re.escape(secret) for secret in secret_to_key))
+		single_character_secrets = {secret for secret in sensitive_values.values() if len(secret) == 1}
+
+		def filter_string(unfiltered: str) -> str:
+			return redaction_pattern.sub(lambda match: f'<secret>{secret_to_key[match.group(0)]}</secret>', unfiltered)
+
+		def fallback_candidates():
+			for start, end in ((0xE000, 0xF900), (0xF0000, 0xFFFFE), (0x100000, 0x10FFFE)):
+				for codepoint in range(start, end):
+					yield chr(codepoint)
+			for codepoint in range(1, 0x110000):
+				if 0xD800 <= codepoint <= 0xDFFF:
+					continue
+				yield chr(codepoint)
+			yield ''
+
+		fallback_values = fallback_candidates()
+		reserved_value_fallbacks: set[str] = set()
+		reservation_stack = [value]
+		reservation_seen: set[int] = set()
+		while reservation_stack:
+			reservation_value = reservation_stack.pop()
+			if isinstance(reservation_value, str):
+				filtered_reservation = filter_string(reservation_value)
+				if redaction_pattern.search(filtered_reservation) is None:
+					reserved_value_fallbacks.add(filtered_reservation)
+				continue
+			if not isinstance(reservation_value, (dict, list, tuple)):
+				continue
+			reservation_id = id(reservation_value)
+			if reservation_id in reservation_seen:
+				continue
+			reservation_seen.add(reservation_id)
+			reservation_stack.extend(reservation_value.values() if isinstance(reservation_value, dict) else reservation_value)
+
+		def filter_generated_string(generated: str, reserved_values: set[str] | None = None) -> str:
+			reserved_values = reserved_values or set()
+			if generated not in reserved_values and redaction_pattern.search(generated) is None:
+				return generated
+			for fallback in fallback_values:
+				if fallback not in reserved_values and fallback not in single_character_secrets:
+					return fallback
+			raise ValueError('Unable to preserve a unique sensitive-data-safe mapping key')
+
 		root: list[Any] = [None]
 		active_containers: set[int] = set()
 		stack: list[tuple[str, Any, Any, Any]] = [('visit', value, root, 0)]
+		circular_fallback: str | None = None
+		unsafe_value_fallbacks: dict[str, str] = {}
 
 		while stack:
 			operation, current, parent, key = stack.pop()
@@ -541,7 +592,15 @@ class AgentHistory(BaseModel):
 				continue
 
 			if isinstance(current, str):
-				parent[key] = self._filter_sensitive_data_from_string(current, sensitive_data)
+				filtered_string = filter_string(current)
+				if redaction_pattern.search(filtered_string) is not None:
+					safe_fallback = unsafe_value_fallbacks.get(filtered_string)
+					if safe_fallback is None:
+						safe_fallback = filter_generated_string(filtered_string, reserved_value_fallbacks)
+						unsafe_value_fallbacks[filtered_string] = safe_fallback
+						reserved_value_fallbacks.add(safe_fallback)
+					filtered_string = safe_fallback
+				parent[key] = filtered_string
 				continue
 			if not isinstance(current, (dict, list, tuple)):
 				parent[key] = current
@@ -549,7 +608,10 @@ class AgentHistory(BaseModel):
 
 			container_id = id(current)
 			if container_id in active_containers:
-				parent[key] = '<circular container reference>'
+				if circular_fallback is None:
+					circular_fallback = filter_generated_string('<circular container reference>', reserved_value_fallbacks)
+					reserved_value_fallbacks.add(circular_fallback)
+				parent[key] = circular_fallback
 				continue
 			active_containers.add(container_id)
 
@@ -558,18 +620,19 @@ class AgentHistory(BaseModel):
 				parent[key] = filtered_dict
 				children: list[tuple[Any, str]] = []
 				filtered_keys = [
-					(original_key, self._filter_sensitive_data_from_string(original_key, sensitive_data), item)
+					(original_key, filter_string(original_key), redaction_pattern.search(original_key) is not None, item)
 					for original_key, item in current.items()
 				]
-				reserved_keys = {original_key for original_key, filtered_key, _ in filtered_keys if original_key == filtered_key}
-				for original_key, filtered_key, item in filtered_keys:
+				reserved_keys = {original_key for original_key, _, is_sensitive, _ in filtered_keys if not is_sensitive}
+				for original_key, filtered_key, is_sensitive, item in filtered_keys:
 					unique_key = original_key
-					if filtered_key != original_key:
-						unique_key = filtered_key
-						suffix = 2
-						while unique_key in reserved_keys:
-							unique_key = f'{filtered_key}#{suffix}'
+					if is_sensitive:
+						generated_key = filtered_key
+						suffix = 1
+						while generated_key in reserved_keys:
 							suffix += 1
+							generated_key = f'{filtered_key}#{suffix}'
+						unique_key = filter_generated_string(generated_key, reserved_keys)
 						reserved_keys.add(unique_key)
 					children.append((item, unique_key))
 				stack.append(('exit', (container_id, False), parent, key))
