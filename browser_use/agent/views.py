@@ -521,31 +521,77 @@ class AgentHistory(BaseModel):
 
 		return redact_sensitive_string(value, sensitive_values)
 
+	def _filter_sensitive_data_from_value(
+		self,
+		value: Any,
+		sensitive_data: dict[str, str | dict[str, str]] | None,
+	) -> Any:
+		"""Filter nested sensitive data without relying on the Python recursion stack."""
+		root: list[Any] = [None]
+		active_containers: set[int] = set()
+		stack: list[tuple[str, Any, list[Any] | dict[str, Any], int | str]] = [('visit', value, root, 0)]
+
+		while stack:
+			operation, current, parent, key = stack.pop()
+			if operation == 'exit':
+				container_id, is_tuple = current
+				if is_tuple:
+					parent[key] = tuple(parent[key])
+				active_containers.remove(container_id)
+				continue
+
+			if isinstance(current, str):
+				parent[key] = self._filter_sensitive_data_from_string(current, sensitive_data)
+				continue
+			if not isinstance(current, (dict, list, tuple)):
+				parent[key] = current
+				continue
+
+			container_id = id(current)
+			if container_id in active_containers:
+				parent[key] = '<circular container reference>'
+				continue
+			active_containers.add(container_id)
+
+			if isinstance(current, dict):
+				filtered_dict: dict[str, Any] = {}
+				parent[key] = filtered_dict
+				children: list[tuple[Any, str]] = []
+				filtered_keys = [
+					(original_key, self._filter_sensitive_data_from_string(original_key, sensitive_data), item)
+					for original_key, item in current.items()
+				]
+				reserved_keys = {original_key for original_key, filtered_key, _ in filtered_keys if original_key == filtered_key}
+				for original_key, filtered_key, item in filtered_keys:
+					unique_key = original_key
+					if filtered_key != original_key:
+						unique_key = filtered_key
+						suffix = 2
+						while unique_key in reserved_keys:
+							unique_key = f'{filtered_key}#{suffix}'
+							suffix += 1
+						reserved_keys.add(unique_key)
+					children.append((item, unique_key))
+				stack.append(('exit', (container_id, False), parent, key))
+				stack.extend(('visit', item, filtered_dict, child_key) for item, child_key in reversed(children))
+			else:
+				filtered_list: list[Any] = [None] * len(current)
+				parent[key] = filtered_list
+				stack.append(('exit', (container_id, isinstance(current, tuple)), parent, key))
+				stack.extend(('visit', item, filtered_list, index) for index, item in reversed(list(enumerate(current))))
+
+		return root[0]
+
 	def _filter_sensitive_data_from_dict(
-		self, data: dict[str, Any], sensitive_data: dict[str, str | dict[str, str]] | None
+		self,
+		data: dict[str, Any],
+		sensitive_data: dict[str, str | dict[str, str]] | None,
 	) -> dict[str, Any]:
 		"""Recursively filter sensitive data from a dictionary"""
 		if not sensitive_data:
 			return data
 
-		filtered_data = {}
-		for key, value in data.items():
-			if isinstance(value, str):
-				filtered_data[key] = self._filter_sensitive_data_from_string(value, sensitive_data)
-			elif isinstance(value, dict):
-				filtered_data[key] = self._filter_sensitive_data_from_dict(value, sensitive_data)
-			elif isinstance(value, list):
-				filtered_data[key] = [
-					self._filter_sensitive_data_from_string(item, sensitive_data)
-					if isinstance(item, str)
-					else self._filter_sensitive_data_from_dict(item, sensitive_data)
-					if isinstance(item, dict)
-					else item
-					for item in value
-				]
-			else:
-				filtered_data[key] = value
-		return filtered_data
+		return self._filter_sensitive_data_from_value(data, sensitive_data)
 
 	def model_dump(self, sensitive_data: dict[str, str | dict[str, str]] | None = None, **kwargs) -> dict[str, Any]:
 		"""Custom serialization handling circular references and filtering sensitive data"""
