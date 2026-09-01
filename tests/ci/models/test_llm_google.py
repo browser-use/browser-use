@@ -209,9 +209,7 @@ def test_multiple_system_messages_are_preserved_when_extracted():
 
 	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages)
 
-	assert system_instruction == (
-		'Follow the base system rule.\n\nAlso follow the additional system rule.'
-	)
+	assert system_instruction == ('Follow the base system rule.\n\nAlso follow the additional system rule.')
 	text, images = _describe(contents)
 	assert text == 'Continue the task.'
 	assert images == 0
