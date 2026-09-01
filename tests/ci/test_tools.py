@@ -3,6 +3,8 @@ import json
 import os
 import tempfile
 import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import anyio
 import pytest
@@ -14,6 +16,24 @@ from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.tools.service import Tools
+
+
+class SwitchEvent:
+	"""Awaitable event stub for tab-switch failure tests."""
+
+	def __init__(self, result: str | None):
+		self.result = result
+		self.result_kwargs: dict[str, object] | None = None
+
+	def __await__(self):
+		return self._wait().__await__()
+
+	async def _wait(self):
+		return self
+
+	async def event_result(self, **_kwargs):
+		self.result_kwargs = _kwargs
+		return self.result
 
 
 @pytest.fixture(scope='session')
@@ -84,6 +104,37 @@ async def browser_session():
 def tools():
 	"""Create and provide a Tools instance."""
 	return Tools()
+
+
+class TestSwitchActionFailures:
+	"""Verify failed tab switches are visible to the agent loop."""
+
+	async def test_switch_returns_error_for_unknown_tab(self, tools):
+		browser_session = SimpleNamespace(
+			get_target_id_from_tab_id=AsyncMock(side_effect=ValueError('No TargetID found ending in tab_id=...gone')),
+			get_current_page_url=AsyncMock(return_value='about:blank'),
+			cdp_client=None,
+		)
+
+		result = await tools.switch(tab_id='gone', browser_session=browser_session)
+
+		assert result.error == 'Failed to switch to tab #gone: No TargetID found ending in tab_id=...gone'
+		assert result.long_term_memory is None
+
+	async def test_switch_returns_error_when_event_has_no_result(self, tools):
+		event = SwitchEvent(result=None)
+		browser_session = SimpleNamespace(
+			get_target_id_from_tab_id=AsyncMock(return_value='target-id'),
+			get_current_page_url=AsyncMock(return_value='about:blank'),
+			cdp_client=None,
+			event_bus=SimpleNamespace(dispatch=MagicMock(return_value=event)),
+		)
+
+		result = await tools.switch(tab_id='gone', browser_session=browser_session)
+
+		assert result.error == 'Failed to switch to tab #gone: no target was returned'
+		assert result.long_term_memory is None
+		assert event.result_kwargs == {'raise_if_any': True, 'raise_if_none': False}
 
 
 class TestToolsIntegration:

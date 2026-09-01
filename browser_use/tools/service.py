@@ -1007,25 +1007,23 @@ class Tools(Generic[Context]):
 			terminates_sequence=True,
 		)
 		async def switch(params: SwitchTabAction, browser_session: BrowserSession):
-			# Simple switch tab logic
 			try:
 				target_id = await browser_session.get_target_id_from_tab_id(params.tab_id)
 
 				event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
 				await event
-				new_target_id = await event.event_result(raise_if_any=False, raise_if_none=False)  # Don't raise on errors
+				new_target_id = await event.event_result(raise_if_any=True, raise_if_none=False)
 
-				if new_target_id:
-					memory = f'Switched to tab #{new_target_id[-4:]}'
-				else:
-					memory = f'Switched to tab #{params.tab_id}'
+				if not new_target_id:
+					return ActionResult(error=f'Failed to switch to tab #{params.tab_id}: no target was returned')
 
+				memory = f'Switched to tab #{new_target_id[-4:]}'
 				logger.info(f'🔄  {memory}')
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 			except Exception as e:
-				logger.warning(f'Tab switch may have failed: {e}')
-				memory = f'Attempted to switch to tab #{params.tab_id}'
-				return ActionResult(extracted_content=memory, long_term_memory=memory)
+				error = f'Failed to switch to tab #{params.tab_id}: {e}'
+				logger.warning(error)
+				return ActionResult(error=error)
 
 		@self.registry.action(
 			'Close a tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use to clean up tabs you no longer need.',
