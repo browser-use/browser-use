@@ -138,6 +138,11 @@ def _flatten(contents) -> list:
 	return [part for content in contents for part in (content.parts or [])]
 
 
+def _turns(contents) -> list:
+	"""Materialise ContentListUnion as a list so tests can index roles and parts."""
+	return list(contents)
+
+
 def _describe(contents) -> tuple[str, int]:
 	"""Summarise serialized Google contents as (all text, number of inline images)."""
 	parts = _flatten(contents)
@@ -262,13 +267,14 @@ def test_include_system_in_user_prepends_after_an_assistant_turn():
 	]
 
 	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+	turns = _turns(contents)
 
 	assert system_instruction is None
-	assert len(contents) == 2
-	assert contents[0].role == 'model'
-	assert contents[1].role == 'user'
-	assert contents[1].parts is not None
-	assert contents[1].parts[0].text == 'Follow the system rule.\n\nContinue the task.'
+	assert len(turns) == 2
+	assert turns[0].role == 'model'
+	assert turns[1].role == 'user'
+	assert turns[1].parts is not None
+	assert turns[1].parts[0].text == 'Follow the system rule.\n\nContinue the task.'
 
 
 def test_include_system_in_user_prepends_after_multiple_assistant_turns():
@@ -284,11 +290,12 @@ def test_include_system_in_user_prepends_after_multiple_assistant_turns():
 	]
 
 	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+	turns = _turns(contents)
 
 	assert system_instruction is None
-	assert [content.role for content in contents] == ['model', 'model', 'user']
-	assert contents[-1].parts is not None
-	assert contents[-1].parts[0].text == 'Follow the system rule.\n\nContinue the task.'
+	assert [turn.role for turn in turns] == ['model', 'model', 'user']
+	assert turns[-1].parts is not None
+	assert turns[-1].parts[0].text == 'Follow the system rule.\n\nContinue the task.'
 
 
 def test_include_system_in_user_prepends_only_to_the_first_user_message():
@@ -304,13 +311,14 @@ def test_include_system_in_user_prepends_only_to_the_first_user_message():
 	]
 
 	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+	turns = _turns(contents)
 
 	assert system_instruction is None
-	assert [content.role for content in contents] == ['model', 'user', 'user']
-	assert contents[1].parts is not None
-	assert contents[1].parts[0].text == 'Follow the system rule.\n\nFirst user turn.'
-	assert contents[2].parts is not None
-	assert contents[2].parts[0].text == 'Second user turn.'
+	assert [turn.role for turn in turns] == ['model', 'user', 'user']
+	assert turns[1].parts is not None
+	assert turns[1].parts[0].text == 'Follow the system rule.\n\nFirst user turn.'
+	assert turns[2].parts is not None
+	assert turns[2].parts[0].text == 'Second user turn.'
 
 
 def test_include_system_in_user_keeps_list_content_after_an_assistant_turn():
@@ -337,10 +345,11 @@ def test_include_system_in_user_keeps_list_content_after_an_assistant_turn():
 	]
 
 	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+	turns = _turns(contents)
 
 	assert system_instruction is None
-	assert contents[0].role == 'model'
-	assert contents[1].role == 'user'
+	assert turns[0].role == 'model'
+	assert turns[1].role == 'user'
 	text, images = _describe(contents)
 	assert 'You are a browser agent.' in text
 	assert '<browser_state>the page and the task live here</browser_state>' in text
@@ -359,11 +368,12 @@ def test_include_system_in_user_false_returns_system_instruction():
 	]
 
 	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=False)
+	turns = _turns(contents)
 
 	assert system_instruction == 'Follow the system rule.'
-	assert [content.role for content in contents] == ['model', 'user']
-	assert contents[1].parts is not None
-	assert contents[1].parts[0].text == 'Continue the task.'
+	assert [turn.role for turn in turns] == ['model', 'user']
+	assert turns[1].parts is not None
+	assert turns[1].parts[0].text == 'Continue the task.'
 
 
 def test_include_system_in_user_with_no_system_message():
@@ -377,8 +387,9 @@ def test_include_system_in_user_with_no_system_message():
 	]
 
 	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages, include_system_in_user=True)
+	turns = _turns(contents)
 
 	assert system_instruction is None
-	assert [content.role for content in contents] == ['model', 'user']
-	assert contents[1].parts is not None
-	assert contents[1].parts[0].text == 'Continue the task.'
+	assert [turn.role for turn in turns] == ['model', 'user']
+	assert turns[1].parts is not None
+	assert turns[1].parts[0].text == 'Continue the task.'
