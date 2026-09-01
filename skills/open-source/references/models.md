@@ -277,10 +277,12 @@ llm = ChatOpenAI(model="deepseek/deepseek-r1", base_url="https://api.novita.ai/v
 
 ### PZERO
 ```python
+import os
+
 llm = ChatOpenAI(
     model="deepseek-v4-flash",
     base_url="https://api.pzero.studio/v1",
-    api_key="pzero_YOUR_KEY",
+    api_key=os.environ["PZERO_API_KEY"],
 )
 ```
 **Env:** `PZERO_API_KEY` — get a key at https://pzero.studio/agents
