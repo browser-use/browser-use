@@ -529,7 +529,7 @@ class AgentHistory(BaseModel):
 		"""Filter nested sensitive data without relying on the Python recursion stack."""
 		root: list[Any] = [None]
 		active_containers: set[int] = set()
-		stack: list[tuple[str, Any, list[Any] | dict[str, Any], int | str]] = [('visit', value, root, 0)]
+		stack: list[tuple[str, Any, Any, Any]] = [('visit', value, root, 0)]
 
 		while stack:
 			operation, current, parent, key = stack.pop()
