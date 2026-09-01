@@ -3,6 +3,7 @@ import gc
 import inspect
 import json
 import logging
+import os
 import re
 import tempfile
 import time
@@ -3913,6 +3914,67 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if not file_path:
 			file_path = 'AgentHistory.json'
 		self.history.save_to_file(file_path, sensitive_data=self.sensitive_data)
+
+	def save_checkpoint(self, path: str | Path | None = None) -> Path:
+		"""Save the agent's full state (AgentState + history) to a JSON checkpoint file atomically.
+
+		Persists a serializable boundary of the agent's state so it can be restored
+		after a crash via load_checkpoint(). Transient per-step state (last_model_output,
+		last_result) is omitted from the serialized copy: it is recreated every step,
+		is already captured in AgentHistory, and holds dynamically-created ActionModel
+		subclasses that cannot be safely round-tripped through JSON.
+		"""
+		if path is None:
+			path = f'agent_checkpoint_{self.id}.json'
+		path = Path(path)
+		path.parent.mkdir(parents=True, exist_ok=True)
+
+		# Clear transient per-step state on a copy before serializing. These fields
+		# are recreated each step and are already captured in AgentHistory; they
+		# hold dynamically-created ActionModel subclasses that cannot be safely
+		# deserialized. Do not mutate the live state while taking a checkpoint.
+		checkpoint_state = self.state.model_copy(deep=True)
+		checkpoint_state.last_model_output = None
+		checkpoint_state.last_result = None
+
+		checkpoint = {
+			'state': checkpoint_state.model_dump(mode='json'),
+			'history': self.history.model_dump(),
+		}
+
+		# Atomic write: write to a temp file in the same directory, then rename.
+		# This prevents a partially-written checkpoint from being read after a crash.
+		tmp_path = path.with_name(path.name + '.tmp')
+		with open(tmp_path, 'w', encoding='utf-8') as f:
+			json.dump(checkpoint, f, indent=2, ensure_ascii=False)
+			f.flush()
+			os.fsync(f.fileno())
+		tmp_path.replace(path)
+
+		self.logger.info(f'💾 Checkpoint saved to {_log_pretty_path(path)}')
+		return path
+
+	def load_checkpoint(self, path: str | Path) -> tuple[AgentState, AgentHistoryList]:
+		"""Load a checkpoint file and restore the agent's state and history.
+
+		Args:
+			path: Path to the checkpoint file created by save_checkpoint().
+
+		Returns:
+			The restored (AgentState, AgentHistoryList).
+		"""
+		path = Path(path)
+		with open(path, encoding='utf-8') as f:
+			data = json.load(f)
+
+		state = AgentState.model_validate(data['state'])
+		history = AgentHistoryList.load_from_dict(data['history'], self.AgentOutput)
+
+		self.state = state
+		self.history = history
+
+		self.logger.info(f'💾 Checkpoint loaded from {_log_pretty_path(path)}')
+		return state, history
 
 	def pause(self) -> None:
 		"""Pause the agent before the next step"""
