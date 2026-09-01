@@ -173,6 +173,10 @@ def _detect_from_attributes(attributes: dict[str, str]) -> tuple[str, str | None
 	if any(keyword in combined_text for keyword in ['phone', 'tel', 'mobile', 'cell']):
 		return ('phone', 'phone')
 
+	# Company detection (check before generic name, so company_name / organization_name map to company)
+	if 'company' in combined_text or 'organization' in combined_text:
+		return ('company', None)
+
 	# Name detection (order matters - check specific before general)
 	if 'first' in combined_text and 'name' in combined_text:
 		return ('first_name', None)
@@ -202,10 +206,6 @@ def _detect_from_attributes(attributes: dict[str, str]) -> tuple[str, str | None
 	# Zip code detection
 	if any(keyword in combined_text for keyword in ['zip', 'postal', 'postcode']):
 		return ('zip_code', 'postal_code')
-
-	# Company detection
-	if 'company' in combined_text or 'organization' in combined_text:
-		return ('company', None)
 
 	return None
 
