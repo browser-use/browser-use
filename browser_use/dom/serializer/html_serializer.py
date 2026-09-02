@@ -74,7 +74,7 @@ class HTMLSerializer:
 			if tag_name == 'code' and node.attributes:
 				style = node.attributes.get('style', '')
 				# Check if element is hidden (display:none) - likely JSON data
-				if 'display:none' in style.replace(' ', '') or 'display: none' in style:
+				if 'display:none' in ''.join(style.lower().split()):
 					return ''
 				# Also check for bpr-guid IDs (LinkedIn's JSON data pattern)
 				element_id = node.attributes.get('id', '')
