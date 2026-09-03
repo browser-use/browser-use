@@ -43,6 +43,30 @@ def _parse_computed_styles(strings: list[str], style_indices: list[int]) -> dict
 	return styles
 
 
+# Live values of these fields never leave the snapshot: they would otherwise be
+# serialized by EnhancedDOMTreeNode.__json__ and could reach logs or the LLM.
+_SENSITIVE_INPUT_TYPES = frozenset({'password', 'file', 'hidden'})
+_SENSITIVE_AUTOCOMPLETE_PREFIXES = ('cc-', 'one-time-code')
+
+
+def _is_sensitive_input(strings: list[str], nodes: NodeTreeSnapshot, snapshot_index: int) -> bool:
+	"""True for password/file/hidden inputs and payment or one-time-code autocomplete fields."""
+	attribute_lists = nodes.get('attributes')
+	if not attribute_lists or snapshot_index >= len(attribute_lists):
+		return False
+	indices = attribute_lists[snapshot_index]
+	for name_index, value_index in zip(indices[0::2], indices[1::2]):
+		if not (0 <= name_index < len(strings) and 0 <= value_index < len(strings)):
+			continue
+		name = strings[name_index].lower()
+		value = strings[value_index].lower()
+		if name == 'type' and value in _SENSITIVE_INPUT_TYPES:
+			return True
+		if name == 'autocomplete' and value.startswith(_SENSITIVE_AUTOCOMPLETE_PREFIXES):
+			return True
+	return False
+
+
 def build_snapshot_lookup(
 	snapshot: CaptureSnapshotReturns,
 	device_pixel_ratio: float = 1.0,
@@ -90,6 +114,18 @@ def build_snapshot_lookup(
 		# At 20k elements: 5,925ms (list) → 2ms (set) = 3,000x speedup.
 		has_clickable_data = 'isClickable' in nodes
 		is_clickable_set: set[int] = set(nodes['isClickable']['index']) if has_clickable_data else set()
+
+		# Live form values live in the snapshot, not in the DOM attributes. Map
+		# snapshot index -> string once so each node lookup stays O(1).
+		input_value_by_index: dict[int, str] = {}
+		for key in ('inputValue', 'textValue'):
+			rare = nodes.get(key)
+			if rare:
+				for idx, string_index in zip(rare.get('index', []), rare.get('value', [])):
+					if 0 <= string_index < len(strings) and not _is_sensitive_input(strings, nodes, idx):
+						input_value_by_index[idx] = strings[string_index]
+		input_checked_set: set[int] = set(nodes['inputChecked']['index']) if 'inputChecked' in nodes else set()
+		has_checked_data = 'inputChecked' in nodes
 
 		# Build snapshot lookup for each backend node id
 		for backend_node_id, snapshot_index in backend_node_to_snapshot_index.items():
@@ -173,6 +209,8 @@ def build_snapshot_lookup(
 				computed_styles=computed_styles if computed_styles else None,
 				paint_order=paint_order,
 				stacking_contexts=stacking_contexts,
+				input_value=input_value_by_index.get(snapshot_index),
+				input_checked=(snapshot_index in input_checked_set) if has_checked_data else None,
 			)
 
 	# Count how many have bounds (are actually visible/laid out)
