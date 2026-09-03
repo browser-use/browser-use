@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Optional
 from unittest.mock import AsyncMock, MagicMock
 
 import anyio
@@ -58,10 +59,10 @@ async def test_load_storage_state_reads_utf8(tmp_path: Path, monkeypatch: pytest
 		encoding='utf-8',
 	)
 
-	encodings: list[str | None] = []
+	encodings: list[Optional[str]] = []
 	original_read_text = anyio.Path.read_text
 
-	async def track_encoding(path: anyio.Path, encoding: str | None = None, errors: str | None = None) -> str:
+	async def track_encoding(path: anyio.Path, encoding: Optional[str] = None, errors: Optional[str] = None) -> str:
 		encodings.append(encoding)
 		return await original_read_text(path, encoding=encoding, errors=errors)
 
@@ -96,10 +97,10 @@ async def test_save_storage_state_reads_existing_file_as_utf8(tmp_path: Path, mo
 		encoding='utf-8',
 	)
 
-	encodings: list[str | None] = []
+	encodings: list[Optional[str]] = []
 	original_read_text = Path.read_text
 
-	def track_encoding(path: Path, encoding: str | None = None, errors: str | None = None) -> str:
+	def track_encoding(path: Path, encoding: Optional[str] = None, errors: Optional[str] = None) -> str:
 		if path == storage_path.resolve():
 			encodings.append(encoding)
 		return original_read_text(path, encoding=encoding, errors=errors)
