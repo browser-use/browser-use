@@ -42,5 +42,5 @@ def test_cache_control_is_kept_per_system_message():
 	)
 
 	assert isinstance(system, list)
-	assert system[0]['cache_control'] == {'type': 'ephemeral'}
-	assert system[1]['cache_control'] is None
+	assert system[0].get('cache_control') == {'type': 'ephemeral'}
+	assert system[1].get('cache_control') is None
