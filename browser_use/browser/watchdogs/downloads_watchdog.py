@@ -438,7 +438,9 @@ class DownloadsWatchdog(BaseWatchdog):
 												break
 				else:
 					# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
-					info = self._cdp_downloads_info.get(guid, {})
+					info = self._cdp_downloads_info.get(guid)
+					if not info:
+						return
 					try:
 						suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
 						downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
@@ -908,10 +910,13 @@ class DownloadsWatchdog(BaseWatchdog):
 				# Get file extension for file_type
 				file_ext = path.suffix.lower().lstrip('.')
 
+				info = self._cdp_downloads_info.get(guid, {}) if guid else {}
+				download_url = info.get('url') or str(path)
+
 				# Call direct callbacks first (for click handlers waiting for downloads)
 				complete_info = {
 					'guid': guid,
-					'url': str(path),
+					'url': download_url,
 					'path': str(path),
 					'file_name': path.name,
 					'file_size': file_size,
@@ -930,7 +935,7 @@ class DownloadsWatchdog(BaseWatchdog):
 				self.event_bus.dispatch(
 					FileDownloadedEvent(
 						guid=guid,
-						url=str(path),  # Use the file path as URL for local files
+						url=download_url,
 						path=str(path),
 						file_name=path.name,
 						file_size=file_size,
