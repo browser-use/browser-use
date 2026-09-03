@@ -1604,3 +1604,63 @@ class TestCsvNormalization:
 		csv_file = CsvFile(name='test')
 		csv_file.write_file_content(' name , age \nAlice, 30 ')
 		assert csv_file.content == ' name , age \nAlice, 30 '
+
+
+class TestFileSystemWriteFailureRollback:
+	@pytest.mark.asyncio
+	async def test_failed_new_file_not_registered_in_filesystem(self):
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(tmp_dir, create_default_files=False)
+
+			async def fail_sync(self, path):
+				raise OSError('disk full')
+
+			orig_sync = TxtFile.sync_to_disk
+			TxtFile.sync_to_disk = fail_sync
+			try:
+				result = await fs.write_file('ghost.txt', 'phantom')
+				assert 'Error: Could not write to file' in result
+				assert 'ghost.txt' not in fs.files
+				assert fs.get_file('ghost.txt') is None
+				assert 'ghost.txt' not in fs.get_state().files
+			finally:
+				TxtFile.sync_to_disk = orig_sync
+
+	@pytest.mark.asyncio
+	async def test_failed_write_rolls_back_existing_file_content(self):
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(tmp_dir, create_default_files=False)
+			await fs.write_file('existing.txt', 'persisted')
+			assert fs.get_file('existing.txt').content == 'persisted'
+
+			async def fail_sync(self, path):
+				raise OSError('disk write error')
+
+			orig_sync = TxtFile.sync_to_disk
+			TxtFile.sync_to_disk = fail_sync
+			try:
+				result = await fs.write_file('existing.txt', 'unpersisted new content')
+				assert 'Error: Could not write to file' in result
+				assert fs.get_file('existing.txt').content == 'persisted'
+			finally:
+				TxtFile.sync_to_disk = orig_sync
+
+	@pytest.mark.asyncio
+	async def test_failed_append_rolls_back_existing_file_content(self):
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(tmp_dir, create_default_files=False)
+			await fs.write_file('notes.txt', 'line 1\n')
+			assert fs.get_file('notes.txt').content == 'line 1\n'
+
+			async def fail_sync(self, path):
+				raise OSError('disk append error')
+
+			orig_sync = TxtFile.sync_to_disk
+			TxtFile.sync_to_disk = fail_sync
+			try:
+				result = await fs.append_file('notes.txt', 'line 2\n')
+				assert 'Error: Could not write to file' in result or 'disk append error' in result
+				assert fs.get_file('notes.txt').content == 'line 1\n'
+			finally:
+				TxtFile.sync_to_disk = orig_sync
+
