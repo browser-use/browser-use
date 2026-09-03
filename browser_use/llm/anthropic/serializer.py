@@ -1,5 +1,5 @@
 import json
-from typing import overload
+from typing import TypeVar, overload
 
 from anthropic.types import (
 	Base64ImageSourceParam,
@@ -22,6 +22,8 @@ from browser_use.llm.messages import (
 )
 
 NonSystemMessage = UserMessage | AssistantMessage
+
+CacheableMessage = TypeVar('CacheableMessage', bound=BaseMessage)
 
 
 class AnthropicMessageSerializer:
@@ -256,11 +258,13 @@ class AnthropicMessageSerializer:
 			raise ValueError(f'Unknown message type: {type(message)}')
 
 	@staticmethod
-	def _clean_cache_messages(messages: list[NonSystemMessage]) -> list[NonSystemMessage]:
+	def _clean_cache_messages(messages: list[CacheableMessage]) -> list[CacheableMessage]:
 		"""Clean cache settings so only the last cache=True message remains cached.
 
-		Because of how Claude caching works, only the last cache message matters.
+		Because of how Claude caching works, only the last cache message matters: a breakpoint
+		caches everything before it, and Anthropic accepts at most four of them per request.
 		This method automatically removes cache=True from all messages except the last one.
+		It applies to system messages as well as to the conversation messages.
 
 		Args:
 			messages: List of non-system messages to clean
@@ -310,8 +314,10 @@ class AnthropicMessageSerializer:
 			else:
 				normal_messages.append(message)
 
-		# Clean cache messages so only the last cache=True message remains cached
+		# Clean cache messages so only the last cache=True message remains cached. System messages
+		# are normalized separately so the two groups contribute one breakpoint each at most.
 		normal_messages = AnthropicMessageSerializer._clean_cache_messages(normal_messages)
+		system_messages = AnthropicMessageSerializer._clean_cache_messages(system_messages)
 
 		# Serialize normal messages
 		serialized_messages: list[MessageParam] = []
