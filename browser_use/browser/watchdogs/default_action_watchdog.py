@@ -2506,25 +2506,51 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Parse and normalize the key string
 			keys = event.keys
-			if '+' in keys:
-				# Handle key combinations like "ctrl+a"
-				parts = keys.split('+')
-				normalized_parts = []
-				for part in parts:
-					part_lower = part.strip().lower()
-					normalized = key_aliases.get(part_lower, part)
-					normalized_parts.append(normalized)
-				normalized_keys = '+'.join(normalized_parts)
+			modifier_aliases = {'ctrl', 'control', 'alt', 'option', 'meta', 'cmd', 'command', 'shift'}
+
+			# Check if this is a genuine key combination (e.g. "Control+A", "Control++")
+			# A combination has at least one modifier prefix before '+'
+			is_combo = False
+			if '+' in keys and keys != '+':
+				candidate_parts = keys.split('+')
+				# If all parts except the last one are known modifiers and last part is non-empty (or empty because keys ended with '+' like Ctrl++)
+				if len(candidate_parts) >= 2:
+					if keys.endswith('++'):
+						# e.g. "Control++"
+						mods = [p.strip().lower() for p in candidate_parts[:-2]]
+						if mods and all(m in modifier_aliases for m in mods):
+							is_combo = True
+					else:
+						mods = [p.strip().lower() for p in candidate_parts[:-1]]
+						if mods and all(m in modifier_aliases for m in mods):
+							is_combo = True
+
+			if is_combo:
+				# Handle key combinations like "ctrl+a" or "Control++"
+				if keys.endswith('++'):
+					raw_modifiers = keys[:-2].split('+')
+					main_key = '+'
+				else:
+					raw_parts = keys.split('+')
+					raw_modifiers = raw_parts[:-1]
+					main_key = raw_parts[-1]
+
+				normalized_modifiers = [key_aliases.get(m.strip().lower(), m) for m in raw_modifiers]
+				normalized_main_key = key_aliases.get(main_key.strip().lower(), main_key)
+				normalized_keys = '+'.join(normalized_modifiers + [normalized_main_key])
 			else:
-				# Single key
+				# Single key or plain text string
 				keys_lower = keys.strip().lower()
 				normalized_keys = key_aliases.get(keys_lower, keys)
 
+			is_enter_action = False
 			# Handle key combinations like "Control+A"
-			if '+' in normalized_keys:
+			if is_combo and '+' in normalized_keys:
 				parts = normalized_keys.split('+')
 				modifiers = parts[:-1]
 				main_key = parts[-1]
+				if main_key == 'Enter':
+					is_enter_action = True
 
 				# Calculate modifier bitmask
 				modifier_value = 0
@@ -2580,6 +2606,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 				# If it's a special key, use original logic
 				if normalized_keys in special_keys:
+					if normalized_keys == 'Enter':
+						is_enter_action = True
 					await self._dispatch_key_event(cdp_session, 'keyDown', normalized_keys)
 					# For Enter key, also dispatch a char event to trigger keypress listeners
 					if normalized_keys == 'Enter':
@@ -2598,6 +2626,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					for char in normalized_keys:
 						# Special-case newline characters to dispatch as Enter
 						if char in ('\n', '\r'):
+							is_enter_action = True
 							await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
 								params={
 									'type': 'rawKeyDown',
@@ -2672,7 +2701,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Note: We don't clear cached state on Enter; multi_act will detect DOM changes
 			# and rebuild explicitly. We still wait briefly for potential navigation.
-			if 'enter' in event.keys.lower() or 'return' in event.keys.lower():
+			if is_enter_action:
 				await asyncio.sleep(0.1)
 		except Exception as e:
 			raise
