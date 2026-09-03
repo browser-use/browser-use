@@ -302,11 +302,11 @@ class AnthropicMessageSerializer:
 
 		# Separate system messages from normal messages
 		normal_messages: list[NonSystemMessage] = []
-		system_message: SystemMessage | None = None
+		system_messages: list[SystemMessage] = []
 
 		for message in messages:
 			if isinstance(message, SystemMessage):
-				system_message = message
+				system_messages.append(message)
 			else:
 				normal_messages.append(message)
 
@@ -318,11 +318,23 @@ class AnthropicMessageSerializer:
 		for message in normal_messages:
 			serialized_messages.append(AnthropicMessageSerializer.serialize(message))
 
-		# Serialize system message
+		# Serialize system messages, keeping every one of them in the order they were given
 		serialized_system_message: list[TextBlockParam] | str | None = None
-		if system_message:
+		if len(system_messages) == 1:
 			serialized_system_message = AnthropicMessageSerializer._serialize_content_to_str(
-				system_message.content, use_cache=system_message.cache
+				system_messages[0].content, use_cache=system_messages[0].cache
 			)
+		elif system_messages:
+			# Multiple system messages become separate text blocks so each keeps its own cache control
+			system_blocks: list[TextBlockParam] = []
+			for system_message in system_messages:
+				serialized = AnthropicMessageSerializer._serialize_content_to_str(
+					system_message.content, use_cache=system_message.cache
+				)
+				if isinstance(serialized, str):
+					system_blocks.append(TextBlockParam(text=serialized, type='text', cache_control=None))
+				else:
+					system_blocks.extend(serialized)
+			serialized_system_message = system_blocks
 
 		return serialized_messages, serialized_system_message
