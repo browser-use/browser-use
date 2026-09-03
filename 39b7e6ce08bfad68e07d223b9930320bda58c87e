@@ -1,0 +1,24 @@
+skills/cloud/references/api-v4.md
+  s_86d24eaeebcb12::t_ff2276e426c7fb 108
+  s_86d24eaeebcb12::t_26fd94f799c5ff 1-107,109-127
+skills/cloud/SKILL.md
+  s_86d24eaeebcb12::t_26fd94f799c5ff 6,28-29,32,48-49,56,59-60
+skills/cloud/references/quickstart.md
+  s_86d24eaeebcb12::t_26fd94f799c5ff 3-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "39b7e6ce08bfad68e07d223b9930320bda58c87e",
+  "prompts": {},
+  "sessions": {
+    "s_86d24eaeebcb12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a005bc-1d17-73c3-b1f5-38259988bc61",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

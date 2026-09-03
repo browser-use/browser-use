@@ -1,0 +1,19 @@
+tests/ci/infrastructure/test_filesystem.py
+  s_86d24eaeebcb12::t_3c1ebf5843a9d8 55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "25b88477a7c748293f5641453bc2bf23827fd562",
+  "prompts": {},
+  "sessions": {
+    "s_86d24eaeebcb12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a005bc-1d17-73c3-b1f5-38259988bc61",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
