@@ -521,6 +521,20 @@ class AgentHistory(BaseModel):
 
 		return redact_sensitive_string(value, sensitive_values)
 
+	def _filter_sensitive_data_from_value(
+		self, value: Any, sensitive_data: dict[str, str | dict[str, str]] | None
+	) -> Any:
+		"""Recursively filter sensitive data from any value (string, dict, list, or tuple)."""
+		if isinstance(value, str):
+			return self._filter_sensitive_data_from_string(value, sensitive_data)
+		elif isinstance(value, dict):
+			return self._filter_sensitive_data_from_dict(value, sensitive_data)
+		elif isinstance(value, list):
+			return [self._filter_sensitive_data_from_value(item, sensitive_data) for item in value]
+		elif isinstance(value, tuple):
+			return tuple(self._filter_sensitive_data_from_value(item, sensitive_data) for item in value)
+		return value
+
 	def _filter_sensitive_data_from_dict(
 		self, data: dict[str, Any], sensitive_data: dict[str, str | dict[str, str]] | None
 	) -> dict[str, Any]:
@@ -530,21 +544,7 @@ class AgentHistory(BaseModel):
 
 		filtered_data = {}
 		for key, value in data.items():
-			if isinstance(value, str):
-				filtered_data[key] = self._filter_sensitive_data_from_string(value, sensitive_data)
-			elif isinstance(value, dict):
-				filtered_data[key] = self._filter_sensitive_data_from_dict(value, sensitive_data)
-			elif isinstance(value, list):
-				filtered_data[key] = [
-					self._filter_sensitive_data_from_string(item, sensitive_data)
-					if isinstance(item, str)
-					else self._filter_sensitive_data_from_dict(item, sensitive_data)
-					if isinstance(item, dict)
-					else item
-					for item in value
-				]
-			else:
-				filtered_data[key] = value
+			filtered_data[key] = self._filter_sensitive_data_from_value(value, sensitive_data)
 		return filtered_data
 
 	def model_dump(self, sensitive_data: dict[str, str | dict[str, str]] | None = None, **kwargs) -> dict[str, Any]:
