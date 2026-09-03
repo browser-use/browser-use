@@ -1,0 +1,125 @@
+name: Test Browser Use CLI Install
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'browser_use/cli.py'
+      - 'browser_use/skills/**'
+      - 'skills/browser-use/SKILL.md'
+      - 'browser_use/skills/browser-use/SKILL.md'
+      - 'scripts/sync_browser_harness_skill.py'
+      - 'pyproject.toml'
+      - '.github/workflows/install-script.yml'
+  pull_request:
+    paths:
+      - 'browser_use/cli.py'
+      - 'browser_use/skills/**'
+      - 'skills/browser-use/SKILL.md'
+      - 'browser_use/skills/browser-use/SKILL.md'
+      - 'scripts/sync_browser_harness_skill.py'
+      - 'pyproject.toml'
+      - '.github/workflows/install-script.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-browser-use-skill:
+    name: browser-use skill sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check generated Browser Use skill
+        run: python3 scripts/sync_browser_harness_skill.py --check
+
+  test-pip-install:
+    name: uv pip install (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Add uv to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Create venv and install browser-use
+        run: |
+          uv venv .venv --python 3.11
+          uv pip install --python .venv .
+
+      - name: Add venv to PATH
+        run: |
+          echo "$PWD/.venv/bin" >> $GITHUB_PATH
+          echo "$PWD/.venv/Scripts" >> $GITHUB_PATH
+
+      - name: Verify Browser Use CLI
+        run: |
+          browser-use --help
+          browser-use auth --help
+          browser-use skill show
+
+      - name: Verify aliases
+        run: |
+          browseruse --help
+          bu --help
+          browser --help
+
+  test-uvx-local-wheel:
+    name: uvx browser-use from local wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Add uv to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Build wheel from current branch
+        run: |
+          uv venv .venv --python 3.11
+          source .venv/bin/activate
+          uv pip install build
+          python -m build --wheel
+
+      - name: Verify uvx Browser Use CLI
+        run: |
+          WHEEL=$(ls dist/*.whl)
+          uvx --from "$WHEEL" browser-use --help
+          uvx --from "$WHEEL" browser-use auth --help
+          uvx --from "$WHEEL" browser-use skill show
+
+  test-uvx-pypi:
+    name: uvx browser-use[cli] from PyPI
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Add uv to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Verify uvx Browser Use CLI
+        run: |
+          uvx "browser-use[cli]" --help
+          uvx "browser-use[cli]" auth --help
+          uvx "browser-use[cli]" skill show

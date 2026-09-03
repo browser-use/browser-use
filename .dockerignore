@@ -1,0 +1,46 @@
+docs/
+static/
+.claude/
+.github/
+
+# Cache files
+.DS_Store
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.ipynb_checkpoints
+
+# Virtual Environments
+.venv
+venv/
+
+# Editor cruft
+.vscode/
+.idea/
+
+# Build Files
+dist/
+
+# Data files
+*.gif
+*.txt
+*.pdf
+*.csv
+*.json
+*.jsonl
+*.bak
+
+# Secrets and sensitive files
+secrets.env
+.env
+browser_cookies.json
+cookies.json
+gcp-login.json
+saved_trajectories/
+AgentHistory.json
+AgentHistoryList.json
+private_example.py
+private_example
