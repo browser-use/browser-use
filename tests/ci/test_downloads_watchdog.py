@@ -111,18 +111,31 @@ def _make_local_watchdog(tmp_path: Path):
 	return wd, will_begin_capture, progress_capture, dispatched_events
 
 
-@pytest.mark.asyncio
-async def test_downloads_watchdog_ignores_partial_crdownload(tmp_path: Path, monkeypatch) -> None:
-	"""Verify partial .crdownload files are ignored and not reported as completed (Issue #5515 Bug A)."""
-	wd, will_begin_capture, _, dispatched_events = _make_local_watchdog(tmp_path)
+@pytest.fixture
+async def local_watchdog(tmp_path: Path):
+	wd, will_begin_capture, progress_capture, dispatched_events = _make_local_watchdog(tmp_path)
 	await wd.attach_to_target('FAKE_TARGET')
+	yield wd, will_begin_capture, progress_capture, dispatched_events
+	# Teardown: clean up any background tasks spawned during the test
+	for task in list(wd._cdp_event_tasks):
+		if not task.done():
+			task.cancel()
+	if wd._cdp_event_tasks:
+		await asyncio.gather(*wd._cdp_event_tasks, return_exceptions=True)
+	wd._cdp_event_tasks.clear()
+
+
+@pytest.mark.asyncio
+async def test_downloads_watchdog_ignores_partial_crdownload(local_watchdog, tmp_path: Path, monkeypatch) -> None:
+	"""Verify partial .crdownload files are ignored and not reported as completed (Issue #5515 Bug A)."""
+	wd, will_begin_capture, _, dispatched_events = local_watchdog
 
 	callbacks_fired: list[dict] = []
 	wd.register_download_callbacks(on_complete=lambda info: callbacks_fired.append(info))
 
 	guid = 'guid-partial-001'
 	will_begin_capture.handler(
-		{'guid': guid, 'url': 'https://example.com/big.pdf', 'suggestedFilename': 'big.pdf'},
+		cast(Any, {'guid': guid, 'url': 'https://example.com/big.pdf', 'suggestedFilename': 'big.pdf'}),
 		session_id=None,
 	)
 
@@ -159,17 +172,18 @@ async def test_downloads_watchdog_ignores_partial_crdownload(tmp_path: Path, mon
 
 
 @pytest.mark.asyncio
-async def test_poller_completion_followed_by_cdp_results_in_single_completion(tmp_path: Path, monkeypatch) -> None:
+async def test_poller_completion_followed_by_cdp_results_in_single_completion(
+	local_watchdog, tmp_path: Path, monkeypatch
+) -> None:
 	"""Verify poller completion followed by CDP completed event dispatches only once (Issue #5515 Bug B)."""
-	wd, will_begin_capture, progress_capture, dispatched_events = _make_local_watchdog(tmp_path)
-	await wd.attach_to_target('FAKE_TARGET')
+	wd, will_begin_capture, progress_capture, dispatched_events = local_watchdog
 
 	callbacks_fired: list[dict] = []
 	wd.register_download_callbacks(on_complete=lambda info: callbacks_fired.append(info))
 
 	guid = 'guid-race-002'
 	will_begin_capture.handler(
-		{'guid': guid, 'url': 'https://example.com/doc.pdf', 'suggestedFilename': 'doc.pdf'},
+		cast(Any, {'guid': guid, 'url': 'https://example.com/doc.pdf', 'suggestedFilename': 'doc.pdf'}),
 		session_id=None,
 	)
 
@@ -189,6 +203,7 @@ async def test_poller_completion_followed_by_cdp_results_in_single_completion(tm
 	file_events = [e for e in dispatched_events if isinstance(e, FileDownloadedEvent)]
 	assert len(file_events) == 1
 	assert file_events[0].file_name == 'doc.pdf'
+	assert file_events[0].url == 'https://example.com/doc.pdf'
 
 	# Now simulate CDP downloadProgress(completed) arriving afterwards
 	progress_capture.handler(
@@ -203,17 +218,18 @@ async def test_poller_completion_followed_by_cdp_results_in_single_completion(tm
 
 
 @pytest.mark.asyncio
-async def test_cdp_completion_followed_by_poller_results_in_single_completion(tmp_path: Path, monkeypatch) -> None:
+async def test_cdp_completion_followed_by_poller_results_in_single_completion(
+	local_watchdog, tmp_path: Path, monkeypatch
+) -> None:
 	"""Verify CDP completed event followed by poller execution dispatches only once."""
-	wd, will_begin_capture, progress_capture, dispatched_events = _make_local_watchdog(tmp_path)
-	await wd.attach_to_target('FAKE_TARGET')
+	wd, will_begin_capture, progress_capture, dispatched_events = local_watchdog
 
 	callbacks_fired: list[dict] = []
 	wd.register_download_callbacks(on_complete=lambda info: callbacks_fired.append(info))
 
 	guid = 'guid-cdp-first-003'
 	will_begin_capture.handler(
-		{'guid': guid, 'url': 'https://example.com/sheet.xlsx', 'suggestedFilename': 'sheet.xlsx'},
+		cast(Any, {'guid': guid, 'url': 'https://example.com/sheet.xlsx', 'suggestedFilename': 'sheet.xlsx'}),
 		session_id=None,
 	)
 
@@ -230,6 +246,7 @@ async def test_cdp_completion_followed_by_poller_results_in_single_completion(tm
 	assert len(callbacks_fired) == 1
 	file_events = [e for e in dispatched_events if isinstance(e, FileDownloadedEvent)]
 	assert len(file_events) == 1
+	assert file_events[0].url == 'https://example.com/sheet.xlsx'
 
 	# Now poller runs
 	monkeypatch.setattr(asyncio, 'sleep', AsyncMock())
@@ -246,17 +263,16 @@ async def test_cdp_completion_followed_by_poller_results_in_single_completion(tm
 
 
 @pytest.mark.asyncio
-async def test_normal_download_local_with_filepath(tmp_path: Path) -> None:
+async def test_normal_download_local_with_filepath(local_watchdog, tmp_path: Path) -> None:
 	"""Verify normal local download flow with filePath dispatches exactly once."""
-	wd, will_begin_capture, progress_capture, dispatched_events = _make_local_watchdog(tmp_path)
-	await wd.attach_to_target('FAKE_TARGET')
+	wd, will_begin_capture, progress_capture, dispatched_events = local_watchdog
 
 	callbacks_fired: list[dict] = []
 	wd.register_download_callbacks(on_complete=lambda info: callbacks_fired.append(info))
 
 	guid = 'guid-normal-004'
 	will_begin_capture.handler(
-		{'guid': guid, 'url': 'https://example.com/readme.txt', 'suggestedFilename': 'readme.txt'},
+		cast(Any, {'guid': guid, 'url': 'https://example.com/readme.txt', 'suggestedFilename': 'readme.txt'}),
 		session_id=None,
 	)
 
@@ -275,17 +291,17 @@ async def test_normal_download_local_with_filepath(tmp_path: Path) -> None:
 	file_events = [e for e in dispatched_events if isinstance(e, FileDownloadedEvent)]
 	assert len(file_events) == 1
 	assert file_events[0].file_name == 'readme.txt'
+	assert file_events[0].url == 'https://example.com/readme.txt'
 
 
 @pytest.mark.asyncio
-async def test_failed_track_download_does_not_suppress_subsequent_completion(tmp_path: Path) -> None:
+async def test_failed_track_download_does_not_suppress_subsequent_completion(local_watchdog, tmp_path: Path) -> None:
 	"""Verify a non-existent path in _track_download returns False and does not mark handled."""
-	wd, will_begin_capture, _, dispatched_events = _make_local_watchdog(tmp_path)
-	await wd.attach_to_target('FAKE_TARGET')
+	wd, will_begin_capture, _, dispatched_events = local_watchdog
 
 	guid = 'guid-retry-005'
 	will_begin_capture.handler(
-		{'guid': guid, 'url': 'https://example.com/retry.zip', 'suggestedFilename': 'retry.zip'},
+		cast(Any, {'guid': guid, 'url': 'https://example.com/retry.zip', 'suggestedFilename': 'retry.zip'}),
 		session_id=None,
 	)
 
@@ -305,20 +321,20 @@ async def test_failed_track_download_does_not_suppress_subsequent_completion(tmp
 	file_events = [e for e in dispatched_events if isinstance(e, FileDownloadedEvent)]
 	assert len(file_events) == 1
 	assert file_events[0].file_name == 'retry.zip'
+	assert file_events[0].url == 'https://example.com/retry.zip'
 
 
 @pytest.mark.asyncio
-async def test_downloads_watchdog_fallback_ignores_partial_crdownload(tmp_path: Path) -> None:
+async def test_downloads_watchdog_fallback_ignores_partial_crdownload(local_watchdog, tmp_path: Path) -> None:
 	"""Verify CDP completed fallback (filePath=None) ignores in-progress .crdownload files."""
-	wd, will_begin_capture, progress_capture, dispatched_events = _make_local_watchdog(tmp_path)
-	await wd.attach_to_target('FAKE_TARGET')
+	wd, will_begin_capture, progress_capture, dispatched_events = local_watchdog
 
 	callbacks_fired: list[dict] = []
 	wd.register_download_callbacks(on_complete=lambda info: callbacks_fired.append(info))
 
 	guid = 'guid-fallback-crdownload-006'
 	will_begin_capture.handler(
-		{'guid': guid, 'url': 'https://example.com/stream.mp4', 'suggestedFilename': 'stream.mp4'},
+		cast(Any, {'guid': guid, 'url': 'https://example.com/stream.mp4', 'suggestedFilename': 'stream.mp4'}),
 		session_id=None,
 	)
 
@@ -336,3 +352,81 @@ async def test_downloads_watchdog_fallback_ignores_partial_crdownload(tmp_path: 
 	assert len(file_events) == 0, f'Expected no FileDownloadedEvent for .crdownload in fallback, got {file_events}'
 	assert len(callbacks_fired) == 0
 	assert wd._cdp_downloads_info[guid]['handled'] is False
+
+
+@pytest.mark.asyncio
+async def test_remote_download_duplicate_completed_is_ignored() -> None:
+	"""Verify duplicate CDP completed event on remote browser is ignored after metadata cleanup."""
+	progress_capture = _ProgressCapture()
+	will_begin_capture = _DownloadWillBeginCapture()
+
+	cdp_register = SimpleNamespace(
+		Browser=SimpleNamespace(
+			downloadProgress=progress_capture,
+			downloadWillBegin=will_begin_capture,
+		)
+	)
+	cdp_client = SimpleNamespace(
+		register=cdp_register,
+		send=AsyncMock(),
+	)
+
+	dispatched_events: list[Any] = []
+	event_bus = SimpleNamespace(dispatch=lambda event: dispatched_events.append(event))
+
+	browser_session = SimpleNamespace(
+		logger=logging.getLogger('test.downloads_watchdog'),
+		is_local=False,
+		cdp_client=cdp_client,
+		browser_profile=SimpleNamespace(downloads_path='/remote/dl', auto_download_pdfs=False),
+		id='test-remote-downloads',
+	)
+
+	wd = DownloadsWatchdog.model_construct(browser_session=browser_session, event_bus=event_bus)
+	await wd.attach_to_target('FAKE_TARGET')
+
+	callbacks_fired: list[dict] = []
+	wd.register_download_callbacks(on_complete=lambda info: callbacks_fired.append(info))
+
+	guid = 'guid-remote-dup-007'
+	will_begin_capture.handler(
+		cast(Any, {'guid': guid, 'url': 'https://example.com/remote.pdf', 'suggestedFilename': 'remote.pdf'}),
+		session_id=None,
+	)
+
+	assert guid in wd._cdp_downloads_info
+
+	# 1. First remote completion dispatches exactly once
+	progress_capture.handler(
+		{'guid': guid, 'state': 'completed', 'receivedBytes': 100, 'totalBytes': 100},
+		session_id=None,
+	)
+
+	file_events = [e for e in dispatched_events if isinstance(e, FileDownloadedEvent)]
+	assert len(file_events) == 1
+	assert file_events[0].file_name == 'remote.pdf'
+	assert file_events[0].url == 'https://example.com/remote.pdf'
+	assert len(callbacks_fired) == 1
+
+	# 2. Metadata is cleaned up
+	assert guid not in wd._cdp_downloads_info
+
+	# 3. Second identical completed event dispatches nothing
+	progress_capture.handler(
+		{'guid': guid, 'state': 'completed', 'receivedBytes': 100, 'totalBytes': 100},
+		session_id=None,
+	)
+
+	file_events_after = [e for e in dispatched_events if isinstance(e, FileDownloadedEvent)]
+	assert len(file_events_after) == 1
+
+	# 4. Callbacks remain exactly once
+	assert len(callbacks_fired) == 1
+
+	# Clean up any tasks
+	for task in list(wd._cdp_event_tasks):
+		if not task.done():
+			task.cancel()
+	if wd._cdp_event_tasks:
+		await asyncio.gather(*wd._cdp_event_tasks, return_exceptions=True)
+	wd._cdp_event_tasks.clear()
