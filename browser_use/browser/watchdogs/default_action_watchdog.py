@@ -2506,29 +2506,38 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Parse and normalize the key string
 			keys = event.keys
-			if '+' in keys:
-				# Handle key combinations like "ctrl+a"
-				parts = keys.split('+')
-				normalized_parts = []
-				for part in parts:
-					part_lower = part.strip().lower()
-					normalized = key_aliases.get(part_lower, part)
-					normalized_parts.append(normalized)
-				normalized_keys = '+'.join(normalized_parts)
-			else:
-				# Single key
-				keys_lower = keys.strip().lower()
-				normalized_keys = key_aliases.get(keys_lower, keys)
+			modifier_map = {'Alt': 1, 'Control': 2, 'Meta': 4, 'Shift': 8}
+			is_combination = False
+			modifiers = []
+			main_key = None
+
+			# Check if this is a combination like "ctrl+a" vs a literal "+" or "Control++"
+			if '+' in keys and keys != '+':
+				if keys.endswith('++'):
+					# Case like "Control++" -> modifiers are "Control", main_key is "+"
+					prefix = keys[:-2]
+					raw_modifiers = prefix.split('+')
+					norm_mods = [key_aliases.get(m.strip().lower(), m) for m in raw_modifiers if m.strip()]
+					if all(m in modifier_map for m in norm_mods) and norm_mods:
+						is_combination = True
+						modifiers = norm_mods
+						main_key = '+'
+				else:
+					parts = keys.rsplit('+', 1)
+					prefix = parts[0]
+					suffix = parts[1]
+					raw_modifiers = prefix.split('+')
+					norm_mods = [key_aliases.get(m.strip().lower(), m) for m in raw_modifiers if m.strip()]
+					if all(m in modifier_map for m in norm_mods) and norm_mods and suffix:
+						is_combination = True
+						modifiers = norm_mods
+						suffix_lower = suffix.strip().lower()
+						main_key = key_aliases.get(suffix_lower, suffix)
 
 			# Handle key combinations like "Control+A"
-			if '+' in normalized_keys:
-				parts = normalized_keys.split('+')
-				modifiers = parts[:-1]
-				main_key = parts[-1]
-
+			if is_combination and main_key is not None:
 				# Calculate modifier bitmask
 				modifier_value = 0
-				modifier_map = {'Alt': 1, 'Control': 2, 'Meta': 4, 'Shift': 8}
 				for mod in modifiers:
 					modifier_value |= modifier_map.get(mod, 0)
 
@@ -2545,6 +2554,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 				for mod in reversed(modifiers):
 					await self._dispatch_key_event(cdp_session, 'keyUp', mod)
 			else:
+				# Single key or text
+				keys_lower = keys.strip().lower()
+				normalized_keys = key_aliases.get(keys_lower, keys)
+
 				# Check if this is a text string or special key
 				special_keys = {
 					'Enter',
