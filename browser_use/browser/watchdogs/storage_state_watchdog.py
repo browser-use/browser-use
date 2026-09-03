@@ -186,7 +186,7 @@ class StorageStateWatchdog(BaseWatchdog):
 				merged_state = storage_state
 				if json_path.exists():
 					try:
-						existing_state = json.loads(json_path.read_text())
+						existing_state = json.loads(json_path.read_text(encoding='utf-8'))
 						merged_state = self._merge_storage_states(existing_state, dict(storage_state))
 					except Exception as e:
 						self.logger.error(f'[StorageStateWatchdog] Failed to merge with existing state: {e}')
@@ -244,7 +244,7 @@ class StorageStateWatchdog(BaseWatchdog):
 				# Read the storage state file asynchronously
 				import anyio
 
-				content = await anyio.Path(load_source).read_text()
+				content = await anyio.Path(load_source).read_text(encoding='utf-8')
 				storage = json.loads(content)
 
 			# Apply cookies if present

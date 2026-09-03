@@ -77,20 +77,21 @@ class GoogleMessageSerializer:
 			message_parts: list[Part] = []
 
 			# If this is the first user message and we have system parts, prepend them
+			system_text = None
 			if include_system_in_user and system_parts and role == 'user' and not formatted_messages:
 				system_text = '\n\n'.join(system_parts)
-				if isinstance(message.content, str):
-					message_parts.append(Part.from_text(text=f'{system_text}\n\n{message.content}'))
-				else:
-					# Add system text as the first part
-					message_parts.append(Part.from_text(text=system_text))
 				system_parts = []  # Clear after using
+
+			# Extract content and create parts
+			if isinstance(message.content, str):
+				# Regular text content
+				text = f'{system_text}\n\n{message.content}' if system_text is not None else message.content
+				message_parts.append(Part.from_text(text=text))
 			else:
-				# Extract content and create parts normally
-				if isinstance(message.content, str):
-					# Regular text content
-					message_parts = [Part.from_text(text=message.content)]
-				elif message.content is not None:
+				if system_text is not None:
+					# Add system text as the first part, the message's own parts still follow
+					message_parts.append(Part.from_text(text=system_text))
+				if message.content is not None:
 					# Handle Iterable of content parts
 					for part in message.content:
 						if part.type == 'text':
