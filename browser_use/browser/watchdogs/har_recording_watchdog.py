@@ -7,6 +7,7 @@ and `record_har_mode` (full/minimal).
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -152,6 +153,7 @@ class HarRecordingWatchdog(BaseWatchdog):
 		super().__init__(*args, **kwargs)
 		self._enabled: bool = False
 		self._entries: dict[str, _HarEntryBuilder] = {}
+		self._fetch_tasks: set[asyncio.Task] = set()
 		self._top_level_pages: dict[
 			str, dict
 		] = {}  # frameId -> {url, title, startedDateTime, monotonic_start, onContentLoad, onLoad}
@@ -410,10 +412,12 @@ class HarRecordingWatchdog(BaseWatchdog):
 					pass
 
 			# Always schedule the response body fetch task
-			create_task_with_error_handling(
+			task = create_task_with_error_handling(
 				_fetch_body(self, request_id, session_id),
 				name=f'har-fetch-{request_id}',
 			)
+			self._fetch_tasks.add(task)
+			task.add_done_callback(self._fetch_tasks.discard)
 
 			encoded_length = (
 				params.get('encodedDataLength') if hasattr(params, 'get') else getattr(params, 'encodedDataLength', None)
