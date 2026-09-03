@@ -180,8 +180,6 @@ def _detect_from_attributes(attributes: dict[str, str]) -> tuple[str, str | None
 		return ('last_name', None)
 	elif 'full' in combined_text and 'name' in combined_text:
 		return ('full_name', None)
-	elif 'name' in combined_text:
-		return ('name', None)
 
 	# Date detection
 	if any(keyword in combined_text for keyword in ['date', 'dob', 'birth']):
@@ -203,9 +201,13 @@ def _detect_from_attributes(attributes: dict[str, str]) -> tuple[str, str | None
 	if any(keyword in combined_text for keyword in ['zip', 'postal', 'postcode']):
 		return ('zip_code', 'postal_code')
 
-	# Company detection
+	# Company detection (before generic 'name' to catch company_name/organization_name)
 	if 'company' in combined_text or 'organization' in combined_text:
 		return ('company', None)
+
+	# Generic name detection (must be after more specific semantic matches)
+	if 'name' in combined_text:
+		return ('name', None)
 
 	return None
 

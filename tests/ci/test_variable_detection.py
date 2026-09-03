@@ -224,6 +224,45 @@ def test_detect_company_from_attributes():
 	assert var_format is None
 
 
+def test_detect_company_name_as_company():
+	"""Test that company_name is detected as company, not generic name"""
+	result = _detect_from_attributes({'name': 'company_name', 'placeholder': 'Company or organization'})
+	assert result == ('company', None)
+
+
+def test_detect_organization_name_as_company():
+	"""Test that organization_name is detected as company, not generic name"""
+	result = _detect_from_attributes({'name': 'organization_name', 'placeholder': 'Organization name'})
+	assert result == ('company', None)
+
+
+def test_detect_organization_as_company():
+	"""Test that organization is detected as company"""
+	result = _detect_from_attributes({'name': 'organization'})
+	assert result == ('company', None)
+
+
+def test_personal_name_fields_not_overridden_by_company():
+	"""Test that more specific personal name fields are preserved"""
+	assert _detect_from_attributes({'name': 'first_name'}) == ('first_name', None)
+	assert _detect_from_attributes({'name': 'last_name'}) == ('last_name', None)
+	assert _detect_from_attributes({'name': 'full_name'}) == ('full_name', None)
+
+
+def test_generic_name_still_detected():
+	"""Test that generic name (without company/organization) is still detected"""
+	result = _detect_from_attributes({'name': 'user_name', 'placeholder': 'Your name'})
+	assert result == ('name', None)
+
+
+def test_company_with_more_specific_fields():
+	"""Test that company does not override more specific field types"""
+	assert _detect_from_attributes({'name': 'company_city'}) == ('city', None)
+	assert _detect_from_attributes({'name': 'company_state'}) == ('state', None)
+	assert _detect_from_attributes({'name': 'company_country'}) == ('country', None)
+	assert _detect_from_attributes({'name': 'organization_zip'}) == ('zip_code', 'postal_code')
+
+
 def test_detect_number_from_pattern():
 	"""Test number detection from pattern (pure digits)"""
 	result = _detect_from_value_pattern('12345')
