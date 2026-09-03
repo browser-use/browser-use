@@ -645,11 +645,14 @@ def test_history_filters_sensitive_data_inside_nested_lists(tmp_path):
 	InputActionModel = create_model('InputActionModel', __base__=ActionModel, input=(NestedInputAction | None, None))
 	OutputModel = AgentOutput.type_with_custom_actions(InputActionModel)
 
-	action = InputActionModel(
-		input=NestedInputAction(
-			rows=[['token-123']],
-			lookup={'headers': [{'authorization': 'token-123'}]},
-		)
+	# built via model_validate because create_model's field is invisible to static analysis
+	action = InputActionModel.model_validate(
+		{
+			'input': {
+				'rows': [['token-123']],
+				'lookup': {'headers': [{'authorization': 'token-123'}]},
+			}
+		}
 	)
 	history = AgentHistoryList[Any](
 		history=[
