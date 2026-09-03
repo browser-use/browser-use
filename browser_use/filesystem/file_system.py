@@ -74,6 +74,51 @@ def _build_filename_error_message(file_name: str, supported_extensions: list[str
 	)
 
 
+def _split_heading(line: str) -> tuple[str, int | None]:
+	"""Split a markdown ATX heading into (text, level).
+
+	Only ``# `` / ``## `` / ``### `` (note the required space) are headings.
+	Anything else, including ``#hashtag``, is returned unchanged with level None.
+	"""
+	if line.startswith('### '):
+		return line[4:], 3
+	if line.startswith('## '):
+		return line[3:], 2
+	if line.startswith('# '):
+		return line[2:], 1
+	return line, None
+
+
+_BULLET_RE = re.compile(r'^(\s*)[-*]\s+(.*)$')
+
+
+def _markdown_inline_to_rml(text: str) -> str:
+	"""Escape plain text, then convert a markdown subset to ReportLab markup.
+
+	Order matters: after html.escape there are no user-supplied ``<`` left, so
+	injected ``<b>`` / ``<i>`` / ``<font>`` tags are unambiguous.
+
+	Underscore emphasis is intentionally unsupported so ``snake_case`` identifiers
+	survive unchanged. Inline code is stashed before emphasis so markers inside
+	backticks stay Courier-only. Bold content cannot start with ``/``, so globs
+	like ``**/foo/**`` stay literal.
+	"""
+	text = html.escape(text)
+	rendered: list[str] = []
+	for part in re.split(r'(`[^`]+`)', text):
+		if part.startswith('`') and part.endswith('`'):
+			rendered.append(f'<font face="Courier">{part[1:-1]}</font>')
+			continue
+		# Bold before italic so ``**`` is not treated as two italic markers.
+		# Content cannot contain ``*`` — otherwise globs like ``*.txt and **/*.py`` pair across tokens.
+		# Content cannot start with ``/`` — otherwise ``**/foo/**`` is treated as bold.
+		part = re.sub(r'\*\*([^\s*/](?:[^*]*[^\s*])?)\*\*', r'<b>\1</b>', part)
+		# Non-space boundaries keep ``2 * 3 * 4`` literal; leading ``* `` is a bullet, not italic
+		part = re.sub(r'(?<!\*)\*([^\s*](?:[^*]*[^\s*])?)\*(?!\*)', r'<i>\1</i>', part)
+		rendered.append(part)
+	return ''.join(rendered)
+
+
 DEFAULT_FILE_SYSTEM_PATH = 'browseruse_agent_data'
 
 
@@ -271,25 +316,36 @@ class PdfFile(BaseFile):
 			doc = SimpleDocTemplate(str(file_path), pagesize=letter)
 			styles = getSampleStyleSheet()
 			story = []
+			heading_styles = {1: styles['Title'], 2: styles['Heading1'], 3: styles['Heading2']}
 
-			# Plain text plus markdown headers only, to avoid an AGPL markdown-to-PDF dependency
-			content_lines = self.content.split('\n')
+			# Escape first, then markdown → RML. Avoids an AGPL markdown-to-PDF dependency.
+			in_fence = False
+			for line in self.content.split('\n'):
+				stripped = line.strip()
+				if stripped.startswith('```'):
+					in_fence = not in_fence
+					continue
 
-			for line in content_lines:
-				if line.strip():
-					# Handle basic markdown headers
-					if line.startswith('# '):
-						text, style = line[2:], styles['Title']
-					elif line.startswith('## '):
-						text, style = line[3:], styles['Heading1']
-					elif line.startswith('### '):
-						text, style = line[4:], styles['Heading2']
-					else:
-						text, style = line, styles['Normal']
-					# Paragraph parses its input as ReportLab markup, but our content is plain text
-					story.append(Paragraph(html.escape(text), style))
-				else:
+				if not stripped:
 					story.append(Spacer(1, 6))
+					continue
+
+				if in_fence:
+					# Fenced blocks are literal: no emphasis / inline-code conversion
+					story.append(Paragraph(html.escape(line), styles['Code']))
+					continue
+
+				text, heading_level = _split_heading(line)
+				if heading_level is not None:
+					story.append(Paragraph(_markdown_inline_to_rml(text), heading_styles[heading_level]))
+					continue
+
+				bullet = _BULLET_RE.match(line)
+				if bullet:
+					story.append(Paragraph(f'&bull; {_markdown_inline_to_rml(bullet.group(2))}', styles['Normal']))
+					continue
+
+				story.append(Paragraph(_markdown_inline_to_rml(line), styles['Normal']))
 
 			doc.build(story)
 		except Exception as e:
@@ -319,13 +375,9 @@ class DocxFile(BaseFile):
 
 			for line in content_lines:
 				if line.strip():
-					# Handle basic markdown headers
-					if line.startswith('# '):
-						doc.add_heading(line[2:], level=1)
-					elif line.startswith('## '):
-						doc.add_heading(line[3:], level=2)
-					elif line.startswith('### '):
-						doc.add_heading(line[4:], level=3)
+					text, heading_level = _split_heading(line)
+					if heading_level is not None:
+						doc.add_heading(text, level=heading_level)
 					else:
 						doc.add_paragraph(line)
 				else:
