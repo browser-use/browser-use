@@ -27,6 +27,7 @@ from cdp_use.cdp.page.events import FrameNavigatedEvent, LifecycleEventEvent
 
 from browser_use.browser.events import BrowserConnectedEvent, BrowserStopEvent
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.utils import create_task_with_error_handling
 
 
 @dataclass
@@ -386,7 +387,6 @@ class HarRecordingWatchdog(BaseWatchdog):
 			entry = self._entries[request_id]
 			entry.ts_finished = params.get('timestamp')
 			# Fetch response body via CDP as dataReceived may be incomplete
-			import asyncio as _asyncio
 
 			async def _fetch_body(self_ref, req_id, sess_id):
 				try:
@@ -410,7 +410,10 @@ class HarRecordingWatchdog(BaseWatchdog):
 					pass
 
 			# Always schedule the response body fetch task
-			_asyncio.create_task(_fetch_body(self, request_id, session_id))
+			create_task_with_error_handling(
+				_fetch_body(self, request_id, session_id),
+				name=f'har-fetch-{request_id}',
+			)
 
 			encoded_length = (
 				params.get('encodedDataLength') if hasattr(params, 'get') else getattr(params, 'encodedDataLength', None)
