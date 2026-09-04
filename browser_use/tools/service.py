@@ -786,7 +786,7 @@ class Tools(Generic[Context]):
 			if node is None:
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(error=msg)
 
 			# Highlight the element being typed into (truly non-blocking)
 			create_task_with_error_handling(
@@ -1459,6 +1459,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 						except Exception as e:
 							logger.warning(f'Fractional scroll failed: {e}')
 
+					if completed_scrolls == 0:
+						return ActionResult(error=f'Failed to scroll {direction} {target}: all scroll attempts failed.')
+
 					if params.pages == 1.0:
 						long_term_memory = f'Scrolled {direction} {target} {viewport_height}px'.replace('  ', ' ')
 					else:
@@ -1503,23 +1506,26 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action('Scroll to text.')
 		async def find_text(text: str, browser_session: BrowserSession):  # type: ignore
 			# Dispatch scroll to text event
-			event = browser_session.event_bus.dispatch(ScrollToTextEvent(text=text))
-
 			try:
+				event = browser_session.event_bus.dispatch(ScrollToTextEvent(text=text))
 				# The handler returns None on success or raises an exception if text not found
 				await event.event_result(raise_if_any=True, raise_if_none=False)
 				memory = f'Scrolled to text: {text}'
 				msg = f'🔍  {memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
-			except Exception as e:
-				# Text not found
+			except BrowserError as e:
+				if not e.message.startswith('Text not found:'):
+					return ActionResult(error=f"Failed to scroll to text '{text}': {e.message}")
+
 				msg = f"Text '{text}' not found or not visible on page"
 				logger.info(msg)
 				return ActionResult(
 					extracted_content=msg,
 					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
 				)
+			except Exception as e:
+				return ActionResult(error=f"Failed to scroll to text '{text}': {e}")
 
 		@self.registry.action(
 			'Take a screenshot of the current viewport. If file_name is provided, saves to that file and returns the path. '
