@@ -129,7 +129,7 @@ Check out the [library docs](https://docs.browser-use.com/open-source/introducti
 
 We benchmark Browser Use across 100 real-world browser tasks. Full benchmark is open source: **[browser-use/benchmark](https://github.com/browser-use/benchmark)**.
 
-Browser Use is also **#1 on the [Odysseys leaderboard](https://odysseysbench.com/leaderboard)** with an 87.4% average, ahead of computer-use agents from OpenAI, Anthropic, Google, and Microsoft. Odysseys measures the agent's performance on 200 long-horizon web tasks.
+Browser Use is also **#2 on the [Odysseys leaderboard](https://odysseysbench.com/leaderboard)** with an 87.4% rubric average, ahead of computer-use agents from OpenAI, Anthropic, Google, and Microsoft. Odysseys measures the agent's performance on 200 long-horizon web tasks.
 
 **Use the Open-Source Agent**
 - Free, and runs on your own machine
