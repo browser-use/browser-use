@@ -256,6 +256,44 @@ class AnthropicMessageSerializer:
 			raise ValueError(f'Unknown message type: {type(message)}')
 
 	@staticmethod
+	def _serialize_system_messages(messages: list[SystemMessage]) -> list[TextBlockParam] | str:
+		"""Serialize one or more system messages into a single Anthropic system instruction.
+
+		Multiple system messages are merged in their original order so none is dropped.
+		To preserve the serializer's existing cache behavior, cache_control is applied
+		only when the final system message is marked for caching.
+
+		Args:
+		    messages: The system messages to serialize, in original order.
+
+		Returns:
+		    A single TextBlockParam list (multiple messages, or a cached message) or a
+		    plain string (a single uncached string message), matching the existing
+		    return contract.
+		"""
+		if len(messages) == 1:
+			# Preserve the existing single-message behaviour exactly.
+			return AnthropicMessageSerializer._serialize_content_to_str(messages[0].content, use_cache=messages[0].cache)
+
+		combined_blocks: list[TextBlockParam] = []
+		for i, message in enumerate(messages):
+			is_last = i == len(messages) - 1
+			serialized = AnthropicMessageSerializer._serialize_content_to_str(
+				message.content, use_cache=message.cache and is_last
+			)
+			if isinstance(serialized, str):
+				combined_blocks.append(
+					TextBlockParam(
+						text=serialized,
+						type='text',
+						cache_control=AnthropicMessageSerializer._serialize_cache_control(message.cache and is_last),
+					)
+				)
+			else:
+				combined_blocks.extend(serialized)
+		return combined_blocks
+
+	@staticmethod
 	def _clean_cache_messages(messages: list[NonSystemMessage]) -> list[NonSystemMessage]:
 		"""Clean cache settings so only the last cache=True message remains cached.
 
@@ -300,13 +338,14 @@ class AnthropicMessageSerializer:
 		"""
 		messages = [m.model_copy(deep=True) for m in messages]
 
-		# Separate system messages from normal messages
+		# Separate system messages from normal messages. All system messages are kept
+		# (previously only the last one survived), preserving their original order.
 		normal_messages: list[NonSystemMessage] = []
-		system_message: SystemMessage | None = None
+		system_messages: list[SystemMessage] = []
 
 		for message in messages:
 			if isinstance(message, SystemMessage):
-				system_message = message
+				system_messages.append(message)
 			else:
 				normal_messages.append(message)
 
@@ -318,11 +357,10 @@ class AnthropicMessageSerializer:
 		for message in normal_messages:
 			serialized_messages.append(AnthropicMessageSerializer.serialize(message))
 
-		# Serialize system message
+		# Serialize system messages, merging multiple system messages in order into a
+		# single system instruction so none is dropped.
 		serialized_system_message: list[TextBlockParam] | str | None = None
-		if system_message:
-			serialized_system_message = AnthropicMessageSerializer._serialize_content_to_str(
-				system_message.content, use_cache=system_message.cache
-			)
+		if system_messages:
+			serialized_system_message = AnthropicMessageSerializer._serialize_system_messages(system_messages)
 
 		return serialized_messages, serialized_system_message
