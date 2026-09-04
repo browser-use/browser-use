@@ -320,6 +320,24 @@ class TestAnthropicCache:
 		assert content_blocks[0].get('cache_control') is None  # type: ignore[attr-defined]
 		assert content_blocks[1].get('cache_control') is None  # type: ignore[attr-defined]
 
+	def test_multiple_system_messages_are_preserved(self):
+		"""Test that multiple SystemMessages are serialized in order."""
+		messages: list[BaseMessage] = [
+			SystemMessage(content='First system instruction'),
+			UserMessage(content='User message'),
+			SystemMessage(content='Second system instruction'),
+		]
+
+		serialized_messages, system_message = AnthropicMessageSerializer.serialize_messages(messages)
+
+		assert len(serialized_messages) == 1
+		assert isinstance(system_message, list)
+		assert [block['text'] for block in system_message] == [
+			'First system instruction',
+			'\n\n',
+			'Second system instruction',
+		]
+
 	def test_cache_assistant_with_content_and_tools(self):
 		"""Test AssistantMessage with both content and tool calls - only last tool gets cache."""
 		tool_call = ToolCall(id='test_id', function=Function(name='test_function', arguments='{"arg": "value"}'))
