@@ -196,26 +196,37 @@ class SecurityWatchdog(BaseWatchdog):
 			# Invalid URL
 			return False
 
-		# Allow data: and blob: URLs (they don't have hostnames)
-		if parsed.scheme in ['data', 'blob']:
-			return True
+		# Check if domain restrictions are active
+		has_domain_restrictions = bool(
+			self.browser_session.browser_profile.allowed_domains or self.browser_session.browser_profile.prohibited_domains
+		)
+
+		# When domain restrictions are active, only allow http and https schemes
+		# This prevents bypasses via javascript:, file://, chrome://, data:, blob:, etc.
+		if has_domain_restrictions and parsed.scheme not in ['http', 'https']:
+			return False
 
 		# Get the actual host (domain)
 		host = parsed.hostname
-		if not host:
+
+		# Reject URLs with no hostname (invalid URLs like 'not-a-url', or
+		# schemeless garbage).  data: and blob: legitimately have no host
+		# but are already handled by the scheme check above when domain
+		# restrictions are active, and should pass through when they are not.
+		if not host and parsed.scheme not in ('data', 'blob', 'file'):
 			return False
 
 		# Check if IP addresses should be blocked (before domain checks)
-		if self.browser_session.browser_profile.block_ip_addresses:
+		if host and self.browser_session.browser_profile.block_ip_addresses:
 			if self._is_ip_address(host):
 				return False
 
-		# If no allowed_domains specified, allow all URLs
-		if (
-			not self.browser_session.browser_profile.allowed_domains
-			and not self.browser_session.browser_profile.prohibited_domains
-		):
+		# If no domain restrictions specified, allow all URLs
+		if not has_domain_restrictions:
 			return True
+
+		if not host:
+			return False
 
 		# Check allowed domains (fast path for sets, slow path for lists with patterns)
 		if self.browser_session.browser_profile.allowed_domains:
