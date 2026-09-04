@@ -128,6 +128,12 @@ class FileSystemError(Exception):
 	pass
 
 
+class _DiskSyncCompletedDuringCancellation(asyncio.CancelledError):
+	"""Raised when disk sync succeeds after the caller has cancelled the operation."""
+
+	pass
+
+
 class BaseFile(BaseModel, ABC):
 	"""Base class for all file types"""
 
@@ -163,13 +169,40 @@ class BaseFile(BaseModel, ABC):
 		with ThreadPoolExecutor() as executor:
 			await asyncio.get_event_loop().run_in_executor(executor, lambda: file_path.write_text(self.content, encoding='utf-8'))
 
+	async def _sync_to_disk_after_mutation(self, path: Path, previous_content: str) -> None:
+		sync_task = asyncio.create_task(self.sync_to_disk(path))
+		try:
+			await asyncio.shield(sync_task)
+		except asyncio.CancelledError as exc:
+			while not sync_task.done():
+				try:
+					await asyncio.shield(sync_task)
+				except asyncio.CancelledError:
+					continue
+				except Exception:
+					break
+
+			try:
+				sync_task.result()
+			except (Exception, asyncio.CancelledError) as sync_error:
+				self.content = previous_content
+				if sync_error is exc:
+					raise
+				raise exc from sync_error
+			raise _DiskSyncCompletedDuringCancellation from exc
+		except Exception:
+			self.content = previous_content
+			raise
+
 	async def write(self, content: str, path: Path) -> None:
+		previous_content = self.content
 		self.write_file_content(content)
-		await self.sync_to_disk(path)
+		await self._sync_to_disk_after_mutation(path, previous_content)
 
 	async def append(self, content: str, path: Path) -> None:
+		previous_content = self.content
 		self.append_file_content(content)
-		await self.sync_to_disk(path)
+		await self._sync_to_disk_after_mutation(path, previous_content)
 
 	def read(self) -> str:
 		return self.content
@@ -787,14 +820,17 @@ class FileSystem:
 				raise ValueError(f"Error: Invalid file extension '{extension}' for file '{full_filename}'.")
 
 			# Create or get existing file using full filename as key
-			if full_filename in self.files:
-				file_obj = self.files[full_filename]
-			else:
+			file_obj = self.files.get(full_filename)
+			if file_obj is None:
 				file_obj = file_class(name=name_without_ext)
-				self.files[full_filename] = file_obj  # Use full filename as key
 
 			# Use file-specific write method
-			await file_obj.write(content, self.data_dir)
+			try:
+				await file_obj.write(content, self.data_dir)
+			except _DiskSyncCompletedDuringCancellation:
+				self.files[full_filename] = file_obj  # Use full filename as key
+				raise
+			self.files[full_filename] = file_obj  # Use full filename as key
 			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
 			return f'Data written to file {full_filename} successfully.{sanitize_note}'
 		except FileSystemError as e:
@@ -860,7 +896,12 @@ class FileSystem:
 		initial_filename = f'extracted_content_{self.extracted_content_count}'
 		extracted_filename = f'{initial_filename}.md'
 		file_obj = MarkdownFile(name=initial_filename)
-		await file_obj.write(content, self.data_dir)
+		try:
+			await file_obj.write(content, self.data_dir)
+		except _DiskSyncCompletedDuringCancellation:
+			self.files[extracted_filename] = file_obj
+			self.extracted_content_count += 1
+			raise
 		self.files[extracted_filename] = file_obj
 		self.extracted_content_count += 1
 		return extracted_filename

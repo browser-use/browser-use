@@ -183,6 +183,94 @@ class TestBaseFile:
 			assert file_path.read_text() == expected_content
 			assert file_obj.content == expected_content
 
+	async def test_write_and_append_roll_back_content_on_sync_failure(self, monkeypatch):
+		"""Failed disk sync must not leave changed content in memory."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			file_obj = TxtFile(name='notes', content='persisted')
+
+			async def fail_sync(_self, _path):
+				raise OSError('disk unavailable')
+
+			monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
+
+			with pytest.raises(OSError, match='disk unavailable'):
+				await file_obj.write('phantom update', Path(tmp_dir))
+			assert file_obj.content == 'persisted'
+
+			with pytest.raises(OSError, match='disk unavailable'):
+				await file_obj.append(' phantom append', Path(tmp_dir))
+			assert file_obj.content == 'persisted'
+
+	async def test_write_and_append_roll_back_content_on_sync_cancellation(self, monkeypatch):
+		"""Cancelled disk sync must restore content before propagating."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			file_obj = TxtFile(name='notes', content='persisted')
+
+			async def cancel_sync(_self, _path):
+				raise asyncio.CancelledError
+
+			monkeypatch.setattr(TxtFile, 'sync_to_disk', cancel_sync)
+
+			with pytest.raises(asyncio.CancelledError):
+				await file_obj.write('phantom update', Path(tmp_dir))
+			assert file_obj.content == 'persisted'
+
+			with pytest.raises(asyncio.CancelledError):
+				await file_obj.append(' phantom append', Path(tmp_dir))
+			assert file_obj.content == 'persisted'
+
+	async def test_write_and_append_wait_for_sync_on_outer_cancellation(self, monkeypatch):
+		"""Caller cancellation must not roll back a disk write that completes successfully."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			tmp_path = Path(tmp_dir)
+			file_obj = TxtFile(name='notes', content='persisted')
+			file_path = tmp_path / 'notes.txt'
+
+			async def run_cancelled_operation(operation, expected_content):
+				started = asyncio.Event()
+				release = asyncio.Event()
+
+				async def slow_sync(self, path):
+					started.set()
+					await release.wait()
+					self.sync_to_disk_sync(path)
+
+				monkeypatch.setattr(TxtFile, 'sync_to_disk', slow_sync)
+				task = asyncio.create_task(operation())
+				await started.wait()
+				task.cancel()
+				release.set()
+
+				with pytest.raises(asyncio.CancelledError):
+					await task
+				assert file_obj.content == expected_content
+				assert file_path.read_text(encoding='utf-8') == expected_content
+
+			await run_cancelled_operation(lambda: file_obj.write('committed', tmp_path), 'committed')
+			await run_cancelled_operation(lambda: file_obj.append(' append', tmp_path), 'committed append')
+
+	async def test_write_rolls_back_if_sync_fails_after_outer_cancellation(self, monkeypatch):
+		"""Caller cancellation should still roll back if the disk sync eventually fails."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			file_obj = TxtFile(name='notes', content='persisted')
+			started = asyncio.Event()
+			release = asyncio.Event()
+
+			async def fail_after_cancel(_self, _path):
+				started.set()
+				await release.wait()
+				raise OSError('disk unavailable')
+
+			monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_after_cancel)
+			task = asyncio.create_task(file_obj.write('phantom update', Path(tmp_dir)))
+			await started.wait()
+			task.cancel()
+			release.set()
+
+			with pytest.raises(asyncio.CancelledError):
+				await task
+			assert file_obj.content == 'persisted'
+
 	async def test_json_file_disk_operations(self):
 		"""Test JSON file sync to disk operations."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
@@ -574,6 +662,88 @@ class TestFileSystem:
 		# Write with unsupported extension - gives specific error
 		result = await fs.write_file('test.doc', 'content')
 		assert 'Unsupported file extension' in result
+
+	async def test_write_and_append_file_preserve_state_on_failed_persist(self, empty_filesystem, monkeypatch):
+		"""Failed writes must not create phantom files or corrupt existing ones."""
+		fs = empty_filesystem
+		await fs.write_file('existing.txt', 'persisted')
+
+		async def fail_sync(_self, _path):
+			raise OSError('disk unavailable')
+
+		monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
+
+		result = await fs.write_file('ghost.txt', 'phantom file')
+		assert 'disk unavailable' in result
+		assert 'ghost.txt' not in fs.files
+
+		result = await fs.write_file('existing.txt', 'phantom update')
+		assert 'disk unavailable' in result
+		assert fs.get_file('existing.txt').content == 'persisted'
+		assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted'
+
+		result = await fs.append_file('existing.txt', ' phantom append')
+		assert 'disk unavailable' in result
+		assert fs.get_file('existing.txt').content == 'persisted'
+		assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted'
+
+	async def test_write_file_does_not_register_when_sync_is_cancelled(self, empty_filesystem, monkeypatch):
+		"""A cancelled disk sync must not leave a phantom file in the registry."""
+		fs = empty_filesystem
+
+		async def cancel_sync(_self, _path):
+			raise asyncio.CancelledError
+
+		monkeypatch.setattr(TxtFile, 'sync_to_disk', cancel_sync)
+
+		with pytest.raises(asyncio.CancelledError):
+			await fs.write_file('ghost.txt', 'phantom file')
+		assert 'ghost.txt' not in fs.files
+
+	async def test_write_file_registers_after_successful_sync_despite_outer_cancellation(self, empty_filesystem, monkeypatch):
+		"""If disk sync completes after caller cancellation, memory must match disk."""
+		fs = empty_filesystem
+		started = asyncio.Event()
+		release = asyncio.Event()
+
+		async def slow_sync(self, path):
+			started.set()
+			await release.wait()
+			self.sync_to_disk_sync(path)
+
+		monkeypatch.setattr(TxtFile, 'sync_to_disk', slow_sync)
+		task = asyncio.create_task(fs.write_file('committed.txt', 'committed'))
+		await started.wait()
+		task.cancel()
+		release.set()
+
+		with pytest.raises(asyncio.CancelledError):
+			await task
+		file_obj = fs.get_file('committed.txt')
+		assert file_obj is not None
+		assert file_obj.content == 'committed'
+		assert (fs.data_dir / 'committed.txt').read_text(encoding='utf-8') == 'committed'
+
+	async def test_write_file_does_not_register_when_sync_fails_after_outer_cancellation(self, empty_filesystem, monkeypatch):
+		"""A delayed sync failure after caller cancellation must not register a new file."""
+		fs = empty_filesystem
+		started = asyncio.Event()
+		release = asyncio.Event()
+
+		async def fail_after_cancel(_self, _path):
+			started.set()
+			await release.wait()
+			raise OSError('disk unavailable')
+
+		monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_after_cancel)
+		task = asyncio.create_task(fs.write_file('ghost.txt', 'phantom file'))
+		await started.wait()
+		task.cancel()
+		release.set()
+
+		with pytest.raises(asyncio.CancelledError):
+			await task
+		assert 'ghost.txt' not in fs.files
 
 	async def test_write_json_file(self, temp_filesystem):
 		"""Test writing JSON files."""
