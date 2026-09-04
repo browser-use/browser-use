@@ -46,7 +46,8 @@ def _parse_computed_styles(strings: list[str], style_indices: list[int]) -> dict
 # Live values of these fields never leave the snapshot: they would otherwise be
 # serialized by EnhancedDOMTreeNode.__json__ and could reach logs or the LLM.
 _SENSITIVE_INPUT_TYPES = frozenset({'password', 'file', 'hidden'})
-_SENSITIVE_AUTOCOMPLETE_PREFIXES = ('cc-', 'one-time-code')
+_SENSITIVE_AUTOCOMPLETE_TOKEN = 'one-time-code'
+_SENSITIVE_AUTOCOMPLETE_PREFIX = 'cc-'
 
 
 def _is_sensitive_input(strings: list[str], nodes: NodeTreeSnapshot, snapshot_index: int) -> bool:
@@ -62,7 +63,10 @@ def _is_sensitive_input(strings: list[str], nodes: NodeTreeSnapshot, snapshot_in
 		value = strings[value_index].lower()
 		if name == 'type' and value in _SENSITIVE_INPUT_TYPES:
 			return True
-		if name == 'autocomplete' and value.startswith(_SENSITIVE_AUTOCOMPLETE_PREFIXES):
+		if name == 'autocomplete' and any(
+			token == _SENSITIVE_AUTOCOMPLETE_TOKEN or token.startswith(_SENSITIVE_AUTOCOMPLETE_PREFIX)
+			for token in value.split()
+		):
 			return True
 	return False
 
