@@ -252,7 +252,7 @@ def test_personal_name_fields_not_overridden_by_company():
 def test_generic_name_still_detected():
 	"""Test that generic name (without company/organization) is still detected"""
 	result = _detect_from_attributes({'name': 'user_name', 'placeholder': 'Your name'})
-    assert result == ('name', None)
+	assert result == ('name', None)
 
 
 def test_generic_name_precedes_unrelated_keyword_matches():
