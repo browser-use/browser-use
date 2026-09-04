@@ -64,8 +64,7 @@ def _is_sensitive_input(strings: list[str], nodes: NodeTreeSnapshot, snapshot_in
 		if name == 'type' and value in _SENSITIVE_INPUT_TYPES:
 			return True
 		if name == 'autocomplete' and any(
-			token == _SENSITIVE_AUTOCOMPLETE_TOKEN or token.startswith(_SENSITIVE_AUTOCOMPLETE_PREFIX)
-			for token in value.split()
+			token == _SENSITIVE_AUTOCOMPLETE_TOKEN or token.startswith(_SENSITIVE_AUTOCOMPLETE_PREFIX) for token in value.split()
 		):
 			return True
 	return False
