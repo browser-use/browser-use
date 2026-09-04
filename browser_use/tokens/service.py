@@ -168,6 +168,13 @@ class TokenCost:
 			cache_file = self._cache_dir / f'pricing_{timestamp_str}.json'
 
 			await anyio.Path(cache_file).write_text(cached.model_dump_json(indent=2))
+
+			# Prune superseded cache files so the directory doesn't grow unboundedly
+			# across long-running sessions (one new timestamped file per refresh).
+			# The cleanup reads and parses every cached JSON file, so run it in a
+			# worker thread to keep the event loop responsive when the cache
+			# directory has a large backlog.
+			await anyio.to_thread.run_sync(self._clean_old_caches_sync)
 		except Exception as e:
 			logger.debug(f'Error fetching pricing data: {e}')
 			# Fall back to empty pricing data
@@ -611,6 +618,11 @@ class TokenCost:
 
 	async def clean_old_caches(self, keep_count: int = 3) -> None:
 		"""Clean up old cache files, keeping only the most recent ones from this source URL"""
+		await anyio.to_thread.run_sync(lambda: self._clean_old_caches_sync(keep_count))
+
+	def _clean_old_caches_sync(self, keep_count: int = 3) -> None:
+		"""Synchronous cache pruning; runs on a worker thread so reading and
+		parsing every cached JSON file never blocks the event loop."""
 		try:
 			# List all JSON files in the cache directory
 			cache_files = list(self._cache_dir.glob('*.json'))
