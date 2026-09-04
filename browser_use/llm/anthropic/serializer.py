@@ -1,5 +1,5 @@
 import json
-from typing import overload
+from typing import TypeVar, overload
 
 from anthropic.types import (
 	Base64ImageSourceParam,
@@ -22,6 +22,8 @@ from browser_use.llm.messages import (
 )
 
 NonSystemMessage = UserMessage | AssistantMessage
+
+CacheableMessage = TypeVar('CacheableMessage', bound=BaseMessage)
 
 
 class AnthropicMessageSerializer:
@@ -256,11 +258,13 @@ class AnthropicMessageSerializer:
 			raise ValueError(f'Unknown message type: {type(message)}')
 
 	@staticmethod
-	def _clean_cache_messages(messages: list[NonSystemMessage]) -> list[NonSystemMessage]:
+	def _clean_cache_messages(messages: list[CacheableMessage]) -> list[CacheableMessage]:
 		"""Clean cache settings so only the last cache=True message remains cached.
 
-		Because of how Claude caching works, only the last cache message matters.
+		Because of how Claude caching works, only the last cache message matters: a breakpoint
+		caches everything before it, and Anthropic accepts at most four of them per request.
 		This method automatically removes cache=True from all messages except the last one.
+		It applies to system messages as well as to the conversation messages.
 
 		Args:
 			messages: List of non-system messages to clean
@@ -302,27 +306,41 @@ class AnthropicMessageSerializer:
 
 		# Separate system messages from normal messages
 		normal_messages: list[NonSystemMessage] = []
-		system_message: SystemMessage | None = None
+		system_messages: list[SystemMessage] = []
 
 		for message in messages:
 			if isinstance(message, SystemMessage):
-				system_message = message
+				system_messages.append(message)
 			else:
 				normal_messages.append(message)
 
-		# Clean cache messages so only the last cache=True message remains cached
+		# Clean cache messages so only the last cache=True message remains cached. System messages
+		# are normalized separately so the two groups contribute one breakpoint each at most.
 		normal_messages = AnthropicMessageSerializer._clean_cache_messages(normal_messages)
+		system_messages = AnthropicMessageSerializer._clean_cache_messages(system_messages)
 
 		# Serialize normal messages
 		serialized_messages: list[MessageParam] = []
 		for message in normal_messages:
 			serialized_messages.append(AnthropicMessageSerializer.serialize(message))
 
-		# Serialize system message
+		# Serialize system messages, keeping every one of them in the order they were given
 		serialized_system_message: list[TextBlockParam] | str | None = None
-		if system_message:
+		if len(system_messages) == 1:
 			serialized_system_message = AnthropicMessageSerializer._serialize_content_to_str(
-				system_message.content, use_cache=system_message.cache
+				system_messages[0].content, use_cache=system_messages[0].cache
 			)
+		elif system_messages:
+			# Multiple system messages become separate text blocks so each keeps its own cache control
+			system_blocks: list[TextBlockParam] = []
+			for system_message in system_messages:
+				serialized = AnthropicMessageSerializer._serialize_content_to_str(
+					system_message.content, use_cache=system_message.cache
+				)
+				if isinstance(serialized, str):
+					system_blocks.append(TextBlockParam(text=serialized, type='text', cache_control=None))
+				else:
+					system_blocks.extend(serialized)
+			serialized_system_message = system_blocks
 
 		return serialized_messages, serialized_system_message
