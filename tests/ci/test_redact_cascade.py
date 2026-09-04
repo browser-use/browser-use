@@ -1,6 +1,6 @@
 """Tests for redact_sensitive_string to ensure no cascading/corruption."""
 
-from browser_use.utils import redact_sensitive_string
+from browser_use.utils import collect_sensitive_data_values, redact_sensitive_string
 
 
 def test_normal_redaction():
@@ -46,3 +46,45 @@ def test_multiple_occurrences():
 	sensitive = {'tok': 'xyz'}
 	result = redact_sensitive_string('xyz-xyz-xyz', sensitive)
 	assert result == '<secret>tok</secret>-<secret>tok</secret>-<secret>tok</secret>'
+
+
+def test_cross_domain_same_key_collision():
+	"""Every value of a placeholder scoped to multiple domains gets redacted.
+
+	Regression test for issue #5592: collect_sensitive_data_values used to keep
+	only the last domain's value when several domains shared a placeholder
+	name, so the dropped values leaked verbatim into LLM-visible history.
+	"""
+	sensitive = {
+		'github.com': {'password': 'gh-login-aaa'},
+		'gitlab.com': {'password': 'gl-login-bbb'},
+	}
+	values = collect_sensitive_data_values(sensitive)
+	result = redact_sensitive_string('sign in with gh-login-aaa and gl-login-bbb', values)
+	assert result == 'sign in with <secret>password</secret> and <secret>password</secret>'
+
+
+def test_collect_same_key_same_value_deduplicated():
+	"""Identical values under a colliding key collapse to a single entry."""
+	sensitive = {
+		'a.com': {'token': 'shared-token'},
+		'b.com': {'token': 'shared-token'},
+	}
+	assert collect_sensitive_data_values(sensitive) == {'token': 'shared-token'}
+
+
+def test_legacy_and_domain_key_collision():
+	"""A legacy global value and a domain-scoped value sharing a key are both redacted."""
+	sensitive = {'password': 'first-login', 'example.com': {'password': 'second-login'}}
+	values = collect_sensitive_data_values(sensitive)
+	result = redact_sensitive_string('first-login second-login', values)
+	assert result == '<secret>password</secret> <secret>password</secret>'
+
+
+def test_empty_secret_value_is_ignored():
+	"""An empty secret value must not create an empty regex alternative.
+
+	An empty alternative in the alternation matches at every position and
+	corrupts the whole output with placeholder tags.
+	"""
+	assert redact_sensitive_string('abc', {'k': ''}) == 'abc'
