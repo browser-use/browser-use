@@ -5,9 +5,10 @@ import json
 import logging
 import re
 import traceback
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Generic, Literal, Mapping, cast
+from typing import Any, Generic, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
 from typing_extensions import TypeVar
@@ -508,14 +509,12 @@ class AgentHistory(BaseModel):
 				elements.append(None)
 		return elements
 
-	def _filter_sensitive_data_from_string(
-		self, value: str, sensitive_data: Mapping[str, str | Mapping[str, str]] | None
-	) -> str:
+	def _filter_sensitive_data_from_string(self, value: str, sensitive_data: Mapping[str, str | Mapping[str, str]] | None) -> str:
 		"""Filter out sensitive data from a string value"""
 		if not sensitive_data:
 			return value
 
-		sensitive_values = collect_sensitive_data_values(cast(dict[str, str | dict[str, str]] | None, sensitive_data))
+		sensitive_values = collect_sensitive_data_values(sensitive_data)
 
 		# If there are no valid sensitive data entries, just return the original value
 		if not sensitive_values:
@@ -523,9 +522,7 @@ class AgentHistory(BaseModel):
 
 		return redact_sensitive_string(value, sensitive_values)
 
-	def _filter_sensitive_data_from_value(
-		self, value: Any, sensitive_data: Mapping[str, str | Mapping[str, str]] | None
-	) -> Any:
+	def _filter_sensitive_data_from_value(self, value: Any, sensitive_data: Mapping[str, str | Mapping[str, str]] | None) -> Any:
 		"""Recursively filter sensitive data from any value (string, dict, list, or tuple)."""
 		if isinstance(value, str):
 			return self._filter_sensitive_data_from_string(value, sensitive_data)

@@ -2,7 +2,15 @@ import pytest
 from pydantic import BaseModel, Field
 
 from browser_use.agent.message_manager.service import MessageManager
-from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, AgentOutput, AgentStepInfo, BrowserStateHistory, MessageManagerState
+from browser_use.agent.views import (
+	ActionResult,
+	AgentHistory,
+	AgentHistoryList,
+	AgentOutput,
+	AgentStepInfo,
+	BrowserStateHistory,
+	MessageManagerState,
+)
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.dom.views import SerializedDOMState
 from browser_use.filesystem.file_system import FileSystem
@@ -630,7 +638,6 @@ def test_password_field_without_type_attribute():
 
 def test_filter_nested_list_redacts_secrets():
 	"""Test that secrets inside nested lists are redacted (issue #5623)."""
-	from browser_use.agent.views import AgentHistory, AgentHistoryList
 
 	history = AgentHistoryList(
 		history=[
@@ -664,7 +671,6 @@ def test_filter_nested_list_redacts_secrets():
 
 def test_filter_nested_dict_and_list_combinations():
 	"""Test redaction works across mixed nested dict/list structures."""
-	from browser_use.agent.views import AgentHistory, AgentHistoryList
 
 	history = AgentHistoryList(
 		history=[
@@ -692,7 +698,6 @@ def test_filter_nested_dict_and_list_combinations():
 
 def test_filter_tuple_redacts_secrets():
 	"""Test that sensitive data inside tuples is redacted."""
-	from browser_use.agent.views import AgentHistory, AgentHistoryList
 
 	history = AgentHistoryList(
 		history=[
@@ -721,7 +726,6 @@ def test_filter_tuple_redacts_secrets():
 
 def test_filter_nested_tuple_redacts_secrets():
 	"""Test that sensitive data inside nested tuples is redacted."""
-	from browser_use.agent.views import AgentHistory, AgentHistoryList
 
 	history = AgentHistoryList(
 		history=[
@@ -742,7 +746,7 @@ def test_filter_nested_tuple_redacts_secrets():
 	sensitive_data = {'token': secret}
 
 	# Tuple containing list containing tuple
-	data = ({'tokens': (['hidden-token'],)})
+	data = {'tokens': (['hidden-token'],)}
 	result = history.history[0]._filter_sensitive_data_from_value(data, sensitive_data)
 	assert 'hidden-token' not in str(result)
 	assert '<secret>token</secret>' in str(result)
@@ -752,7 +756,7 @@ def test_save_to_file_redacts_nested_list_secrets(tmp_path):
 	"""Test that save_to_file properly redacts secrets in nested lists (issue #5623)."""
 	from pydantic import BaseModel
 
-	from browser_use.agent.views import AgentHistory, AgentHistoryList, AgentOutput
+	from browser_use.agent.views import AgentOutput
 	from browser_use.tools.registry.views import ActionModel
 
 	class InputParams(BaseModel):
@@ -768,11 +772,7 @@ def test_save_to_file_redacts_nested_list_secrets(tmp_path):
 					evaluation_previous_goal='ok',
 					memory='ok',
 					next_goal='done',
-					action=[
-						InputAction(
-							input=InputParams(rows=[['token-123']])
-						)
-					],
+					action=[InputAction(input=InputParams(rows=[['token-123']]))],
 				),
 				result=[],
 				state=BrowserStateHistory(
@@ -796,7 +796,6 @@ def test_save_to_file_redacts_nested_list_secrets(tmp_path):
 
 def test_non_sensitive_values_preserved_in_nested_structures():
 	"""Test that non-sensitive values are not modified in nested structures."""
-	from browser_use.agent.views import AgentHistory, AgentHistoryList
 
 	history = AgentHistoryList(
 		history=[
@@ -818,4 +817,3 @@ def test_non_sensitive_values_preserved_in_nested_structures():
 	data = {'rows': [['normal-value', 'secret-value'], ['another-normal']]}
 	result = history.history[0]._filter_sensitive_data_from_value(data, sensitive_data)
 	assert result == {'rows': [['normal-value', '<secret>api_key</secret>'], ['another-normal']]}
-
