@@ -142,13 +142,15 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 	def _get_usage(self, response: Message) -> ChatInvokeUsage | None:
 		"""Extract usage information from the response."""
 		cache_creation_5m_tokens, cache_creation_1h_tokens = self._get_cache_creation_tokens(response)
+		# Total tokens in Anthropic are a bit fucked, you have to add cached tokens to the prompt tokens
+		prompt_tokens = response.usage.input_tokens + (response.usage.cache_read_input_tokens or 0)
+		completion_tokens = response.usage.output_tokens
 		usage = ChatInvokeUsage(
-			prompt_tokens=response.usage.input_tokens
-			+ (
-				response.usage.cache_read_input_tokens or 0
-			),  # Total tokens in Anthropic are a bit fucked, you have to add cached tokens to the prompt tokens
-			completion_tokens=response.usage.output_tokens,
-			total_tokens=response.usage.input_tokens + response.usage.output_tokens,
+			prompt_tokens=prompt_tokens,
+			completion_tokens=completion_tokens,
+			# Derived from the two above rather than recomputed, so the total cannot drift
+			# out of agreement with its own parts the way it previously did.
+			total_tokens=prompt_tokens + completion_tokens,
 			prompt_cached_tokens=response.usage.cache_read_input_tokens,
 			prompt_cache_creation_tokens=response.usage.cache_creation_input_tokens,
 			prompt_cache_creation_5m_tokens=cache_creation_5m_tokens,
