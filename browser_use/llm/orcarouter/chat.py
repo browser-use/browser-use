@@ -5,7 +5,7 @@ from typing import Any, TypeVar, overload
 
 import httpx
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
-from openai.types.chat.chat_completion import ChatCompletion, Choice
+from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared_params.response_format_json_schema import (
 	JSONSchema,
 	ResponseFormatJSONSchema,
@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
-from browser_use.llm.openrouter.serializer import OpenRouterMessageSerializer
+from browser_use.llm.orcarouter.serializer import OrcaRouterMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
@@ -23,12 +23,12 @@ T = TypeVar('T', bound=BaseModel)
 
 
 @dataclass
-class ChatOpenRouter(BaseChatModel):
+class ChatOrcaRouter(BaseChatModel):
 	"""
-	A wrapper around OpenRouter's chat API, which provides access to various LLM models
-	through a unified OpenAI-compatible interface.
+	A wrapper around OrcaRouter's OpenAI-compatible chat API, which routes to 190+ LLM models
+	through a single unified gateway.
 
-	This class implements the BaseChatModel protocol for OpenRouter's API.
+	This class implements the BaseChatModel protocol for OrcaRouter's API.
 	"""
 
 	# Model configuration
@@ -41,8 +41,7 @@ class ChatOpenRouter(BaseChatModel):
 
 	# Client initialization parameters
 	api_key: str | None = None
-	http_referer: str | None = None  # OpenRouter specific parameter for tracking
-	base_url: str | httpx.URL = 'https://openrouter.ai/api/v1'
+	base_url: str | httpx.URL = 'https://api.orcarouter.ai/v1'
 	timeout: float | httpx.Timeout | None = None
 	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
@@ -54,21 +53,21 @@ class ChatOpenRouter(BaseChatModel):
 	# Static
 	@property
 	def provider(self) -> str:
-		return 'openrouter'
+		return 'orcarouter'
+
+	def _get_api_key(self) -> str:
+		# AsyncOpenAI falls back to OPENAI_API_KEY when api_key is unset, which would send an
+		# unrelated provider's key to the OrcaRouter endpoint.
+		key = self.api_key or os.getenv('ORCAROUTER_API_KEY')
+		if not key:
+			raise ModelProviderError('Missing OrcaRouter API key', status_code=401, model=self.name)
+		return key
 
 	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
-		api_key = self.api_key or os.getenv('OPENROUTER_API_KEY')
-		if not api_key:
-			raise ModelProviderError(
-				message='Missing OpenRouter API key. Set OPENROUTER_API_KEY or pass api_key.',
-				status_code=401,
-				model=self.name,
-			)
-
 		# Define base client params
 		base_params = {
-			'api_key': api_key,
+			'api_key': self._get_api_key(),
 			'base_url': self.base_url,
 			'timeout': self.timeout,
 			'max_retries': self.max_retries,
@@ -88,31 +87,22 @@ class ChatOpenRouter(BaseChatModel):
 
 	def get_client(self) -> AsyncOpenAI:
 		"""
-		Returns an AsyncOpenAI client configured for OpenRouter.
+		Returns an AsyncOpenAI client configured for OrcaRouter.
 
 		Returns:
-		    AsyncOpenAI: An instance of the AsyncOpenAI client with OpenRouter base URL.
+		    AsyncOpenAI: An instance of the AsyncOpenAI client with OrcaRouter base URL.
 		"""
 		if not hasattr(self, '_client'):
 			client_params = self._get_client_params()
 			self._client = AsyncOpenAI(**client_params)
 		return self._client
 
-	def _get_first_choice(self, response: ChatCompletion) -> Choice:
-		if response.choices:
-			return response.choices[0]
-		raise ModelProviderError(
-			message='Invalid OpenRouter response: missing or empty `choices`.',
-			status_code=502,
-			model=self.name,
-		)
-
 	@property
 	def name(self) -> str:
 		return str(self.model)
 
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
-		"""Extract usage information from the OpenRouter response."""
+		"""Extract usage information from the OrcaRouter response."""
 		if response.usage is None:
 			return None
 
@@ -141,7 +131,7 @@ class ChatOpenRouter(BaseChatModel):
 		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""
-		Invoke the model with the given messages through OpenRouter.
+		Invoke the model with the given messages through OrcaRouter.
 
 		Args:
 		    messages: List of chat messages
@@ -150,27 +140,35 @@ class ChatOpenRouter(BaseChatModel):
 		Returns:
 		    Either a string response or an instance of output_format
 		"""
-		openrouter_messages = OpenRouterMessageSerializer.serialize_messages(messages)
-
-		# Set up extra headers for OpenRouter
-		extra_headers = {}
-		if self.http_referer:
-			extra_headers['HTTP-Referer'] = self.http_referer
+		orcarouter_messages = OrcaRouterMessageSerializer.serialize_messages(messages)
 
 		try:
 			if output_format is None:
 				# Return string response
 				response = await self.get_client().chat.completions.create(
 					model=self.model,
-					messages=openrouter_messages,
+					messages=orcarouter_messages,
 					temperature=self.temperature,
 					top_p=self.top_p,
 					seed=self.seed,
-					extra_headers=extra_headers,
 					**(self.extra_body or {}),
 				)
 
-				choice = self._get_first_choice(response)
+				choice = response.choices[0] if response.choices else None
+				if choice is None:
+					base_url = str(self.base_url) if self.base_url is not None else None
+					hint = f' (base_url={base_url})' if base_url is not None else ''
+					raise ModelProviderError(
+						message=(
+							'Invalid OrcaRouter chat completion response: missing or empty `choices`.'
+							' If you are using a proxy via `base_url`, ensure it implements the OpenAI'
+							' `/v1/chat/completions` schema and returns `choices` as a non-empty list.'
+							f'{hint}'
+						),
+						status_code=502,
+						model=self.name,
+					)
+
 				usage = self._get_usage(response)
 				return ChatInvokeCompletion(
 					completion=choice.message.content or '',
@@ -190,7 +188,7 @@ class ChatOpenRouter(BaseChatModel):
 				# Return structured response
 				response = await self.get_client().chat.completions.create(
 					model=self.model,
-					messages=openrouter_messages,
+					messages=orcarouter_messages,
 					temperature=self.temperature,
 					top_p=self.top_p,
 					seed=self.seed,
@@ -198,11 +196,24 @@ class ChatOpenRouter(BaseChatModel):
 						json_schema=response_format_schema,
 						type='json_schema',
 					),
-					extra_headers=extra_headers,
 					**(self.extra_body or {}),
 				)
 
-				choice = self._get_first_choice(response)
+				choice = response.choices[0] if response.choices else None
+				if choice is None:
+					base_url = str(self.base_url) if self.base_url is not None else None
+					hint = f' (base_url={base_url})' if base_url is not None else ''
+					raise ModelProviderError(
+						message=(
+							'Invalid OrcaRouter chat completion response: missing or empty `choices`.'
+							' If you are using a proxy via `base_url`, ensure it implements the OpenAI'
+							' `/v1/chat/completions` schema and returns `choices` as a non-empty list.'
+							f'{hint}'
+						),
+						status_code=502,
+						model=self.name,
+					)
+
 				if choice.message.content is None:
 					raise ModelProviderError(
 						message='Failed to parse structured output from model response',
@@ -219,6 +230,7 @@ class ChatOpenRouter(BaseChatModel):
 				)
 
 		except ModelProviderError:
+			# Preserve status_code and message from validation errors
 			raise
 
 		except RateLimitError as e:

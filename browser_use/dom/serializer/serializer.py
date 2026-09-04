@@ -16,6 +16,7 @@ from browser_use.dom.views import (
 )
 
 DISABLED_ELEMENTS = {'style', 'script', 'head', 'meta', 'link', 'title'}
+URL_C0_CONTROL_OR_SPACE = ''.join(chr(codepoint) for codepoint in range(0x21))
 
 # SVG child elements to skip (decorative only, no interaction value)
 SVG_ELEMENTS = {
@@ -57,6 +58,7 @@ class DOMTreeSerializer:
 	DEFAULT_CONTAINMENT_THRESHOLD = 0.99  # 99% containment by default
 	MAX_CHILD_IMAGE_CONTEXTS = 3
 	MAX_CHILD_IMAGE_DESCENDANTS = 100
+	MAX_IMAGE_CONTEXT_ATTRIBUTE_LENGTH = 4096
 
 	def __init__(
 		self,
@@ -922,16 +924,46 @@ class DOMTreeSerializer:
 
 	@staticmethod
 	def _get_child_image_context(node: SimplifiedNode) -> str:
-		"""Extract compact context from image descendants of an interactive element."""
+		"""Extract compact context from an interactive image and its descendants."""
 
 		image_context: list[str] = []
 
 		def normalize_src(src: str) -> str:
-			clean_src = src.strip()
+			if len(src) > DOMTreeSerializer.MAX_IMAGE_CONTEXT_ATTRIBUTE_LENGTH:
+				return ''
+			clean_src = src.strip(URL_C0_CONTROL_OR_SPACE).replace('\t', '').replace('\n', '').replace('\r', '')
 			if clean_src.lower().startswith('data:'):
 				return ''
 			path_without_query = clean_src.split('?', 1)[0].split('#', 1)[0].rstrip('/')
 			return path_without_query.rsplit('/', 1)[-1]
+
+		def add_image_context(original_node: EnhancedDOMTreeNode) -> None:
+			if original_node.node_type != NodeType.ELEMENT_NODE or original_node.tag_name != 'img':
+				return
+
+			attributes = original_node.attributes or {}
+			parts = []
+
+			for attr_name, output_name in (
+				('alt', 'image_alt'),
+				('title', 'image_title'),
+				('aria-label', 'image_label'),
+			):
+				raw_attr_value = str(attributes.get(attr_name) or '')
+				if len(raw_attr_value) > DOMTreeSerializer.MAX_IMAGE_CONTEXT_ATTRIBUTE_LENGTH:
+					continue
+				attr_value = raw_attr_value.strip()
+				if attr_value:
+					parts.append(f'{output_name}={cap_text_length(attr_value, 100)}')
+
+			src = normalize_src(str(attributes.get('src') or ''))
+			if src:
+				parts.append(f'image_src={cap_text_length(src, 100)}')
+
+			if parts:
+				image_context.append(' '.join(parts))
+
+		add_image_context(node.original_node)
 
 		child_iterators = [iter(node.children)]
 		visited_descendants = 0
@@ -946,26 +978,7 @@ class DOMTreeSerializer:
 				child_iterators.pop()
 				continue
 			visited_descendants += 1
-			original_node = current.original_node
-			if original_node.node_type == NodeType.ELEMENT_NODE and original_node.tag_name == 'img':
-				attributes = original_node.attributes or {}
-				parts = []
-
-				for attr_name, output_name in (
-					('alt', 'image_alt'),
-					('title', 'image_title'),
-					('aria-label', 'image_label'),
-				):
-					attr_value = str(attributes.get(attr_name) or '').strip()
-					if attr_value:
-						parts.append(f'{output_name}={cap_text_length(attr_value, 100)}')
-
-				src = normalize_src(str(attributes.get('src') or ''))
-				if src:
-					parts.append(f'image_src={cap_text_length(src, 100)}')
-
-				if parts:
-					image_context.append(' '.join(parts))
+			add_image_context(current.original_node)
 
 			if current.children:
 				child_iterators.append(iter(current.children))
