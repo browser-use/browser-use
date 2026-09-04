@@ -1,7 +1,10 @@
 """Tests for lazy loading configuration system."""
 
 import os
+from pathlib import Path
+from types import SimpleNamespace
 
+from browser_use import config
 from browser_use.config import CONFIG
 
 
@@ -118,3 +121,57 @@ class TestLazyConfig:
 				os.environ['BROWSER_USE_CLOUD_SYNC'] = sync_original
 			else:
 				os.environ.pop('BROWSER_USE_CLOUD_SYNC', None)
+
+	def test_docker_detection_ignores_pid1_command_substrings(self, monkeypatch):
+		"""PID 1 commands like python/app are common on VMs and should not imply Docker."""
+		config.is_running_in_docker.cache_clear()
+		monkeypatch.setattr(Path, 'exists', lambda _self: False)
+		monkeypatch.setattr(Path, 'read_text', lambda _self: '')
+		monkeypatch.setattr(config.psutil, 'pids', lambda: list(range(20)))
+		monkeypatch.setattr(
+			config.psutil,
+			'Process',
+			lambda pid: SimpleNamespace(cmdline=lambda: ['python', 'app.py']) if pid == 1 else None,
+		)
+		monkeypatch.delenv('container', raising=False)
+		monkeypatch.delenv('DOCKER_CONTAINER', raising=False)
+
+		assert config.is_running_in_docker() is False
+		config.is_running_in_docker.cache_clear()
+
+	def test_docker_detection_ignores_containerd_host_service(self, monkeypatch):
+		config.is_running_in_docker.cache_clear()
+		monkeypatch.setattr(Path, 'exists', lambda _self: False)
+		monkeypatch.setattr(Path, 'read_text', lambda _self: '0::/system.slice/containerd.service')
+		monkeypatch.setattr(config.psutil, 'pids', lambda: list(range(20)))
+		monkeypatch.delenv('container', raising=False)
+		monkeypatch.delenv('DOCKER_CONTAINER', raising=False)
+
+		assert config.is_running_in_docker() is False
+		config.is_running_in_docker.cache_clear()
+
+	def test_docker_detection_accepts_container_cgroup_path(self, monkeypatch):
+		config.is_running_in_docker.cache_clear()
+		monkeypatch.setattr(Path, 'exists', lambda _self: False)
+		monkeypatch.setattr(
+			Path,
+			'read_text',
+			lambda _self: '0::/kubepods.slice/kubepods-burstable.slice/cri-containerd-abc.scope',
+		)
+		monkeypatch.setattr(config.psutil, 'pids', lambda: list(range(20)))
+		monkeypatch.delenv('container', raising=False)
+		monkeypatch.delenv('DOCKER_CONTAINER', raising=False)
+
+		assert config.is_running_in_docker() is True
+		config.is_running_in_docker.cache_clear()
+
+	def test_docker_detection_accepts_colon_delimited_containerd_cgroup(self, monkeypatch):
+		config.is_running_in_docker.cache_clear()
+		monkeypatch.setattr(Path, 'exists', lambda _self: False)
+		monkeypatch.setattr(Path, 'read_text', lambda _self: '11:devices:/a.slice/b.slice:cri-containerd:abc')
+		monkeypatch.setattr(config.psutil, 'pids', lambda: list(range(20)))
+		monkeypatch.delenv('container', raising=False)
+		monkeypatch.delenv('DOCKER_CONTAINER', raising=False)
+
+		assert config.is_running_in_docker() is True
+		config.is_running_in_docker.cache_clear()
