@@ -98,11 +98,16 @@ def is_url_candidate_from_local_path(task: str, candidate_start: int) -> bool:
 	# Quoted or bracketed paths can contain whitespace, so the current token may
 	# only contain the filename suffix (for example, "/tmp/customer file.com").
 	for opener, closer in (('"', '"'), ("'", "'"), ('`', '`'), ('(', ')'), ('[', ']'), ('{', '}')):
-		opener_index = prefix.rfind(opener)
+		opener_indices = [index for index, char in enumerate(prefix) if char == opener]
+		if opener == closer:
+			opener_indices = [
+				index for index in opener_indices if (len(prefix[:index]) - len(prefix[:index].rstrip('\\'))) % 2 == 0
+			]
+		opener_index = opener_indices[-1] if opener_indices else -1
 		if opener_index < 0 or task.find(closer, candidate_start) < 0:
 			continue
 		if opener == closer:
-			if prefix.count(opener) % 2 == 0:
+			if len(opener_indices) % 2 == 0:
 				continue
 		elif opener_index < prefix.rfind(closer):
 			continue

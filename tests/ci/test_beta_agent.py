@@ -4313,6 +4313,8 @@ def test_beta_agent_exposes_task_helper_methods():
 		'customer_example.com',
 		r'C:customer_example.com',
 		'"/tmp/customer file.example.com"',
+		'"/tmp/customer \\"quoted file.example.com"',
+		'"/tmp/customer \\\\\\"quoted file.example.com"',
 		"'/tmp/customer/example file.com'",
 		r'"C:\Users\me\customer file.org"',
 	):
@@ -4326,6 +4328,9 @@ def test_beta_agent_exposes_task_helper_methods():
 	quoted_then_url = 'Inspect "local/path" and compare A/B, then open example.com "in a new tab".'
 	assert agent._extract_start_url(quoted_then_url) == 'https://example.com'
 	assert browser_use_agent._extract_start_url(quoted_then_url) == 'https://example.com'
+	even_backslashes_close_quote = 'Inspect "/tmp/customer \\\\" then open example.com.'
+	assert agent._extract_start_url(even_backslashes_close_quote) == 'https://example.com'
+	assert browser_use_agent._extract_start_url(even_backslashes_close_quote) == 'https://example.com'
 	numbered_task = '1. Navigate to https://elibrary.ferc.gov/eLibrary/search.\\n2. Ensure "General Search" is selected.'
 	assert agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
 	assert browser_use_agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
