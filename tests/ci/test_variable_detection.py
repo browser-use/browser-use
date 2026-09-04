@@ -252,7 +252,13 @@ def test_personal_name_fields_not_overridden_by_company():
 def test_generic_name_still_detected():
 	"""Test that generic name (without company/organization) is still detected"""
 	result = _detect_from_attributes({'name': 'user_name', 'placeholder': 'Your name'})
-	assert result == ('name', None)
+    assert result == ('name', None)
+
+
+def test_generic_name_precedes_unrelated_keyword_matches():
+	"""A generic name field must not be classified by incidental keywords."""
+	assert _detect_from_attributes({'placeholder': 'State your name'}) == ('name', None)
+	assert _detect_from_attributes({'name': 'name_date'}) == ('name', None)
 
 
 def test_company_with_more_specific_fields():
