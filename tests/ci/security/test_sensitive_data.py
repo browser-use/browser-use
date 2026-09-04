@@ -623,3 +623,30 @@ def test_password_field_without_type_attribute():
 	attrs_str = DOMTreeSerializer._build_attributes_string(node, list(DEFAULT_INCLUDE_ATTRIBUTES), '')
 
 	assert value in attrs_str, 'Input without type attribute should preserve its value'
+
+
+def test_replace_sensitive_data_inside_tuple():
+	"""Test that sensitive placeholders inside tuple fields are properly replaced and preserve tuple type."""
+	from pydantic import BaseModel
+	from browser_use.tools.registry.service import Registry
+
+	class TupleSensitiveParams(BaseModel):
+		items: tuple[str, ...]
+		nested: dict[str, tuple[str, ...]]
+
+	registry = Registry()
+	params = TupleSensitiveParams(
+		items=('<secret>KEY1</secret>', 'normal_text', '<secret>KEY2</secret>'),
+		nested={'inner': ('<secret>KEY1</secret>',)},
+	)
+
+	result = registry._replace_sensitive_data(
+		params,
+		{'KEY1': 'REPLACED1', 'KEY2': 'REPLACED2'},
+	)
+
+	assert isinstance(result.items, tuple)
+	assert result.items == ('REPLACED1', 'normal_text', 'REPLACED2')
+	assert isinstance(result.nested['inner'], tuple)
+	assert result.nested['inner'] == ('REPLACED1',)
+
