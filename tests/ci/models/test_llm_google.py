@@ -196,6 +196,25 @@ def test_include_system_in_user_string_content_is_merged_into_one_part():
 	assert parts[0].text == 'You are a browser agent.\n\nBuy a red stapler'
 
 
+def test_multiple_system_messages_are_preserved_when_extracted():
+	"""Extracted system instructions retain every message in their original order."""
+	from browser_use.llm.google.serializer import GoogleMessageSerializer
+	from browser_use.llm.messages import SystemMessage, UserMessage
+
+	messages = [
+		SystemMessage(content='Follow the base system rule.'),
+		SystemMessage(content='Also follow the additional system rule.'),
+		UserMessage(content='Continue the task.'),
+	]
+
+	contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages)
+
+	assert system_instruction == ('Follow the base system rule.\n\nAlso follow the additional system rule.')
+	text, images = _describe(contents)
+	assert text == 'Continue the task.'
+	assert images == 0
+
+
 def test_include_system_in_user_keeps_the_agent_state_message(tmp_path):
 	"""End-to-end shape: what the agent actually builds with vision on must survive serialization."""
 	from browser_use.agent.prompts import AgentMessagePrompt, SystemPrompt

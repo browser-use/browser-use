@@ -47,10 +47,7 @@ class GoogleMessageSerializer:
 			if isinstance(message, SystemMessage) or role in ['system', 'developer']:
 				# Extract system message content as string
 				if isinstance(message.content, str):
-					if include_system_in_user:
-						system_parts.append(message.content)
-					else:
-						system_message = message.content
+					system_parts.append(message.content)
 				elif message.content is not None:
 					# Handle Iterable of content parts
 					parts = []
@@ -58,10 +55,7 @@ class GoogleMessageSerializer:
 						if part.type == 'text':
 							parts.append(part.text)
 					combined_text = '\n'.join(parts)
-					if include_system_in_user:
-						system_parts.append(combined_text)
-					else:
-						system_message = combined_text
+					system_parts.append(combined_text)
 				continue
 
 			# Determine the role for non-system messages
@@ -120,5 +114,8 @@ class GoogleMessageSerializer:
 				final_message = Content(role=role, parts=message_parts)
 				# for some reason, the type checker is not able to infer the type of formatted_messages
 				formatted_messages.append(final_message)  # type: ignore
+
+		if not include_system_in_user and system_parts:
+			system_message = '\n\n'.join(system_parts)
 
 		return formatted_messages, system_message
