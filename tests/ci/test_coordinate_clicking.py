@@ -5,8 +5,10 @@ to use coordinate-based clicking, while other models only get index-based clicki
 """
 
 import pytest
+from bubus import EventBus
 
-from browser_use.tools.service import Tools
+from browser_use.browser.events import SwitchTabEvent
+from browser_use.tools.service import Tools, _new_tab_switch_message
 from browser_use.tools.views import ClickElementAction, ClickElementActionIndexOnly
 
 
@@ -105,6 +107,41 @@ class TestCoordinateClickingTools:
 		assert click_action is not None
 		schema = click_action.param_model.model_json_schema()
 		assert schema['title'] == 'ClickElementAction'
+
+	async def test_new_tab_switch_result_is_reported_as_success(self):
+		"""A completed switch event reports the automatically selected tab."""
+		event_bus = EventBus(name='NewTabSwitchSuccess')
+
+		async def switch_tab(event: SwitchTabEvent) -> str:
+			assert event.target_id is not None
+			return event.target_id
+
+		event_bus.on('SwitchTabEvent', switch_tab)
+		try:
+			switch_event = event_bus.dispatch(SwitchTabEvent(target_id='target-1234'))
+			message = await _new_tab_switch_message('1234', switch_event)
+		finally:
+			await event_bus.stop(timeout=0.5)
+
+		assert 'Automatically switched to new tab (tab_id: 1234)' in message
+
+	async def test_new_tab_switch_failure_is_not_reported_as_success(self):
+		"""A failed switch event must not be presented as a successful automatic switch."""
+		event_bus = EventBus(name='NewTabSwitchFailure')
+
+		async def switch_tab(_: SwitchTabEvent) -> str:
+			raise RuntimeError('switch failed')
+
+		event_bus.on('SwitchTabEvent', switch_tab)
+		try:
+			switch_event = event_bus.dispatch(SwitchTabEvent(target_id='target-1234'))
+			message = await _new_tab_switch_message('1234', switch_event)
+		finally:
+			await event_bus.stop(timeout=0.5)
+
+		assert 'Automatically switched to new tab' not in message
+		assert 'opened a new tab (tab_id: 1234)' in message
+		assert 'switch to it' in message
 
 
 class TestCoordinateClickingModelDetection:
