@@ -237,11 +237,16 @@ class CsvFile(BaseFile):
 			return raw
 
 		# Detect double-escaped LLM tool call output: if the content has no real
-		# newlines but contains literal \n sequences, the entire string is likely
-		# double-escaped JSON. Unescape \" → " first, then \n → newline.
+		# newlines but contains literal \n sequences, the string *may* be
+		# double-escaped JSON. Only accept the un-escape if it actually yields a
+		# consistent multi-column table; otherwise the backslash-n was literal
+		# field data (e.g. a Windows path like C:\new or a regex) and unescaping
+		# it would corrupt the field by splitting it across rows.
 		if '\n' not in stripped and '\\n' in stripped:
-			stripped = stripped.replace('\\"', '"')
-			stripped = stripped.replace('\\n', '\n')
+			candidate = stripped.replace('\\"', '"').replace('\\n', '\n')
+			candidate_rows = [row for row in csv.reader(io.StringIO(candidate)) if row]
+			if len(candidate_rows) > 1 and len({len(row) for row in candidate_rows}) == 1 and len(candidate_rows[0]) > 1:
+				stripped = candidate
 
 		reader = csv.reader(io.StringIO(stripped))
 		rows: list[list[str]] = []
@@ -582,7 +587,7 @@ class FileSystem:
 				if extension in text_extensions:
 					import anyio
 
-					async with await anyio.open_file(full_filename, 'r') as f:
+					async with await anyio.open_file(full_filename, 'r', encoding='utf-8') as f:
 						content = await f.read()
 						result['message'] = f'Read from file {full_filename}.\n<content>\n{content}\n</content>'
 						return result
