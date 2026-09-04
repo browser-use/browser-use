@@ -156,6 +156,21 @@ def test_match_url_with_domain_pattern():
 	assert match_url_with_domain_pattern('http://example.com', 'http://example.com') is True
 	assert match_url_with_domain_pattern('https://example.com', 'http://example.com') is False
 
+	# Test IPv6 domain matches
+	assert match_url_with_domain_pattern('https://[2001:db8::1]', '[2001:db8::1]') is True
+	assert match_url_with_domain_pattern('https://[2001:db8::1]', 'https://[2001:db8::1]') is True
+	assert match_url_with_domain_pattern('https://[2001:db8::1]:8443', '[2001:db8::1]:8443') is True
+	assert match_url_with_domain_pattern('https://[2001:db8::1]', '2001:db8::1') is True
+	assert match_url_with_domain_pattern('https://[2001:db8::2]', '[2001:db8::1]') is False
+	assert match_url_with_domain_pattern('http://[2001:db8::1]', '[2001:db8::1]') is False
+	assert match_url_with_domain_pattern('https://[2001:db8::1]', '[2001:db8::1]invalid') is False
+	assert match_url_with_domain_pattern('https://[2001:db8::1]', '[2001:db8::1') is False
+	assert match_url_with_domain_pattern('https://[2001:db8::1]', '[2001:db8::1]:invalid') is False
+	assert match_url_with_domain_pattern('https://[2001:db8::1]', '[2001:db8::1]:8443/path') is False
+	assert match_url_with_domain_pattern('https://evil.com', '[*]') is False
+	assert match_url_with_domain_pattern('https://sub.example.com', '[*.example.com]') is False
+	assert match_url_with_domain_pattern('https://example.com', '[example.com]') is False
+
 	# Test Chrome extension pattern
 	assert match_url_with_domain_pattern('chrome-extension://abcdefghijkl', 'chrome-extension://*') is True
 	assert match_url_with_domain_pattern('chrome-extension://mnopqrstuvwx', 'chrome-extension://abcdefghijkl') is False
