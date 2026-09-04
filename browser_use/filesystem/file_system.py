@@ -159,12 +159,22 @@ class BaseFile(BaseModel, ABC):
 			await asyncio.get_event_loop().run_in_executor(executor, lambda: file_path.write_text(self.content, encoding='utf-8'))
 
 	async def write(self, content: str, path: Path) -> None:
+		previous_content = self.content
 		self.write_file_content(content)
-		await self.sync_to_disk(path)
+		try:
+			await self.sync_to_disk(path)
+		except (Exception, asyncio.CancelledError):
+			self.content = previous_content
+			raise
 
 	async def append(self, content: str, path: Path) -> None:
+		previous_content = self.content
 		self.append_file_content(content)
-		await self.sync_to_disk(path)
+		try:
+			await self.sync_to_disk(path)
+		except (Exception, asyncio.CancelledError):
+			self.content = previous_content
+			raise
 
 	def read(self) -> str:
 		return self.content
