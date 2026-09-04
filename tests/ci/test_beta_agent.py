@@ -7920,7 +7920,7 @@ def test_rust_history_surfaces_terminal_session_interrupted_message():
 	assert history.action_results()[-1].error == 'Rust terminal session was interrupted: interrupted by send_input'
 
 
-def test_beta_agent_multi_act_routes_custom_action_with_context():
+async def test_beta_agent_multi_act_routes_custom_action_with_context():
 	"""Custom Python actions must receive the agent's context object.
 
 	Regression for Cubic review on PR #5355: the beta Agent previously serialized
@@ -7955,7 +7955,7 @@ def test_beta_agent_multi_act_routes_custom_action_with_context():
 	# Build a payload action the way the model output would.
 	action = agent.ActionModel(use_context={})
 
-	results = asyncio.get_event_loop().run_until_complete(agent.multi_act([action]))
+	results = await agent.multi_act([action])
 
 	assert len(results) == 1
 	assert results[0].extracted_content == 'got injected'
