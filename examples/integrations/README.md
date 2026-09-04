@@ -28,3 +28,5 @@ Add entries in this format:
 ```markdown
 - [Project name](https://github.com/org/project) - One sentence about what it integrates with. Maintained by @github-handle.
 ```
+
+- [browser-use-proxyhat](https://github.com/ProxyHatCom/browser-use-proxyhat) - Routes browser-use agents through ProxyHat residential proxies via the `proxy=` BrowserSession option, with sticky per-session IPs and geo-targeting. Maintained by @ProxyHatCom.
