@@ -363,9 +363,10 @@ class DOMTreeSerializer:
 				# Extract option text and value
 				option_text = ''
 				option_value = ''
+				has_value_attribute = node.attributes is not None and 'value' in node.attributes
 
 				# Get value attribute if present
-				if node.attributes and 'value' in node.attributes:
+				if has_value_attribute:
 					option_value = str(node.attributes['value']).strip()
 
 				# Get text content from direct child text nodes only to avoid duplication
@@ -378,8 +379,8 @@ class DOMTreeSerializer:
 
 				option_text = get_direct_text_content(node)
 
-				# Use text as value if no explicit value
-				if not option_value and option_text:
+				# Use text as value only when the value attribute is absent
+				if not has_value_attribute and option_text:
 					option_value = option_text
 
 				if option_text or option_value:
@@ -418,15 +419,16 @@ class DOMTreeSerializer:
 
 		# Try to infer format hint from option values
 		format_hint = None
-		if len(option_values) >= 2:
+		non_empty_option_values = [value for value in option_values[:5] if value]
+		if len(option_values) >= 2 and non_empty_option_values:
 			# Check for common patterns
-			if all(val.isdigit() for val in option_values[:5] if val):
+			if all(value.isdigit() for value in non_empty_option_values):
 				format_hint = 'numeric'
-			elif all(len(val) == 2 and val.isupper() for val in option_values[:5] if val):
+			elif all(len(value) == 2 and value.isupper() for value in non_empty_option_values):
 				format_hint = 'country/state codes'
-			elif all('/' in val or '-' in val for val in option_values[:5] if val):
+			elif all('/' in value or '-' in value for value in non_empty_option_values):
 				format_hint = 'date/path format'
-			elif any('@' in val for val in option_values[:5] if val):
+			elif any('@' in value for value in non_empty_option_values):
 				format_hint = 'email addresses'
 
 		return {'count': len(options), 'first_options': first_options, 'format_hint': format_hint}
