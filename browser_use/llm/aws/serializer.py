@@ -2,6 +2,7 @@ import base64
 import json
 import re
 from typing import Any, overload
+from urllib.parse import urlparse
 
 from browser_use.llm.messages import (
 	AssistantMessage,
@@ -26,9 +27,14 @@ class AWSBedrockMessageSerializer:
 	@staticmethod
 	def _is_url_image(url: str) -> bool:
 		"""Check if the URL is a regular HTTP/HTTPS image URL."""
-		return url.startswith(('http://', 'https://')) and any(
-			url.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
-		)
+		try:
+			parsed = urlparse(url)
+			if parsed.scheme.lower() not in {'http', 'https'}:
+				return False
+			path = parsed.path.lower()
+			return any(path.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'])
+		except Exception:
+			return False
 
 	@staticmethod
 	def _parse_base64_url(url: str) -> tuple[str, bytes]:
