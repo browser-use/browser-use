@@ -210,6 +210,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
+		context: Context | None = None,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -308,6 +309,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Initialize available file paths as direct attribute
 		self.available_file_paths = available_file_paths
+		self.context = context
 
 		# Set up tools first (needed to detect output_model_schema)
 		if tools is not None:
@@ -317,7 +319,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			# Exclude screenshot tool when use_vision is not auto
 			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
-			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
+			self.tools = Tools(
+				exclude_actions=exclude_actions,
+				display_files_in_done_text=display_files_in_done_text,
+				context=context,
+			)
+
+		if context is not None:
+			self.tools.context = context
+			self.tools.registry.context = context
 
 		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
 		if use_vision != 'auto':
@@ -2787,6 +2797,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					sensitive_data=self.sensitive_data,
 					available_file_paths=self.available_file_paths,
 					extraction_schema=self.extraction_schema,
+					context=self.context,
 				)
 
 				if result.error:
