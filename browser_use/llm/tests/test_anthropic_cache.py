@@ -338,6 +338,30 @@ class TestAnthropicCache:
 			'Second system instruction',
 		]
 
+	def test_multiple_cached_system_messages_only_cache_last(self):
+		"""Test that multiple cached SystemMessages preserve text but only cache the last one."""
+		messages: list[BaseMessage] = [
+			SystemMessage(content='First cached system instruction', cache=True),
+			SystemMessage(content='Second cached system instruction', cache=True),
+			SystemMessage(content='Third uncached system instruction', cache=False),
+			SystemMessage(content='Fourth cached system instruction', cache=True),
+		]
+
+		_, system_message = AnthropicMessageSerializer.serialize_messages(messages)
+
+		assert isinstance(system_message, list)
+		assert [block['text'] for block in system_message] == [
+			'First cached system instruction',
+			'\n\n',
+			'Second cached system instruction',
+			'\n\n',
+			'Third uncached system instruction',
+			'\n\n',
+			'Fourth cached system instruction',
+		]
+		assert sum(1 for block in system_message if block.get('cache_control') is not None) == 1
+		assert system_message[-1].get('cache_control') is not None
+
 	def test_cache_assistant_with_content_and_tools(self):
 		"""Test AssistantMessage with both content and tool calls - only last tool gets cache."""
 		tool_call = ToolCall(id='test_id', function=Function(name='test_function', arguments='{"arg": "value"}'))
@@ -383,5 +407,7 @@ if __name__ == '__main__':
 	test_instance.test_max_4_cache_blocks()
 	test_instance.test_cache_only_last_block_in_message()
 	test_instance.test_cache_only_last_tool_call()
+	test_instance.test_multiple_system_messages_are_preserved()
+	test_instance.test_multiple_cached_system_messages_only_cache_last()
 	test_instance.test_cache_assistant_with_content_and_tools()
 	print('All cache tests passed!')

@@ -291,10 +291,33 @@ class AnthropicMessageSerializer:
 		return cleaned_messages
 
 	@staticmethod
+	def _clean_cache_system_messages(messages: list[SystemMessage]) -> list[SystemMessage]:
+		"""Clean system cache settings so only the last cache=True system message remains cached."""
+		if not messages:
+			return messages
+
+		cleaned_messages = [msg.model_copy(deep=True) for msg in messages]
+
+		last_cache_index = -1
+		for i in range(len(cleaned_messages) - 1, -1, -1):
+			if cleaned_messages[i].cache:
+				last_cache_index = i
+				break
+
+		if last_cache_index != -1:
+			for i, msg in enumerate(cleaned_messages):
+				if i != last_cache_index and msg.cache:
+					msg.cache = False
+
+		return cleaned_messages
+
+	@staticmethod
 	def _serialize_system_messages(messages: list[SystemMessage]) -> list[TextBlockParam] | str | None:
 		"""Serialize all system messages without dropping earlier prompts."""
 		if not messages:
 			return None
+
+		messages = AnthropicMessageSerializer._clean_cache_system_messages(messages)
 
 		if len(messages) == 1:
 			message = messages[0]
