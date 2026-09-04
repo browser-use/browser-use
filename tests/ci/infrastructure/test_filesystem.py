@@ -183,6 +183,40 @@ class TestBaseFile:
 			assert file_path.read_text() == expected_content
 			assert file_obj.content == expected_content
 
+	async def test_write_rolls_back_on_sync_failure(self, monkeypatch):
+		"""A failed persist must not leave mutated in-memory content."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			file_obj = TxtFile(name='notes', content='persisted')
+
+			async def fail_sync(self, path):
+				raise OSError('disk unavailable')
+
+			monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
+
+			with pytest.raises(OSError, match='disk unavailable'):
+				await file_obj.write('phantom update', Path(tmp_dir))
+			assert file_obj.content == 'persisted'
+
+			with pytest.raises(OSError, match='disk unavailable'):
+				await file_obj.append(' phantom append', Path(tmp_dir))
+			assert file_obj.content == 'persisted'
+
+	@pytest.mark.parametrize(('operation', 'content'), [('write', 'phantom update'), ('append', ' phantom append')])
+	async def test_mutation_rolls_back_when_sync_is_cancelled(self, monkeypatch, operation, content):
+		"""A cancelled persist must restore content and still propagate cancellation."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			file_obj = TxtFile(name='notes', content='persisted')
+
+			async def cancel_sync(self, path):
+				# Simulate task cancellation while the disk write is still pending.
+				raise asyncio.CancelledError
+
+			monkeypatch.setattr(TxtFile, 'sync_to_disk', cancel_sync)
+
+			with pytest.raises(asyncio.CancelledError):
+				await getattr(file_obj, operation)(content, Path(tmp_dir))
+			assert file_obj.content == 'persisted'
+
 	async def test_json_file_disk_operations(self):
 		"""Test JSON file sync to disk operations."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
@@ -546,6 +580,26 @@ class TestFileSystem:
 		assert 'not found' in result
 		assert 'invalidname.md' in result
 		assert 'auto-corrected' in result
+
+	async def test_write_file_does_not_register_on_failed_persist(self, empty_filesystem, monkeypatch):
+		"""A failed persist must not leave a phantom entry in the registry."""
+		fs = empty_filesystem
+		await fs.write_file('existing.txt', 'persisted')
+
+		async def fail_sync(self, path):
+			raise OSError('disk unavailable')
+
+		monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
+
+		# A brand-new file must not be registered when its write fails.
+		result = await fs.write_file('ghost.txt', 'phantom file')
+		assert 'disk unavailable' in result
+		assert 'ghost.txt' not in fs.files
+
+		# An existing file must keep its last persisted content on failure.
+		result = await fs.write_file('existing.txt', 'phantom update')
+		assert 'disk unavailable' in result
+		assert fs.get_file('existing.txt').content == 'persisted'
 
 	async def test_write_file(self, temp_filesystem):
 		"""Test writing content to files."""
