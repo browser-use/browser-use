@@ -74,9 +74,9 @@ Then tell your agent what you want done.
 
 <br/>
 
-# Python library: the easiest way to automate the web
+# Python library: automate the web from your own code
 
-Want to automate the web at scale, from your own code, and with any LLM? Use the Python library:
+Want to automate the web at scale with your preferred supported LLM? Use the Python library:
 
 **1. Install Browser Use (Python >= 3.11):**
 
@@ -115,11 +115,11 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Check out the [library docs](https://docs.browser-use.com/open-source/introduction) and the [cloud docs](https://docs.cloud.browser-use.com?utm_source=github&utm_medium=readme-cloud-docs) for more!
+Check out the [library docs](https://docs.browser-use.com/open-source/introduction) and the [cloud docs](https://docs.browser-use.com/cloud/quickstart?utm_source=github&utm_medium=readme-cloud-docs) for more!
 
 <br/>
 
-# Open Source vs Cloud
+# Open source and Browser Use Cloud
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="static/accuracy_by_model_light.png">
@@ -129,20 +129,19 @@ Check out the [library docs](https://docs.browser-use.com/open-source/introducti
 
 We benchmark Browser Use across 100 real-world browser tasks. Full benchmark is open source: **[browser-use/benchmark](https://github.com/browser-use/benchmark)**.
 
-Browser Use is also **#1 on the [Odysseys leaderboard](https://odysseysbench.com/leaderboard)** with an 87.4% average, ahead of computer-use agents from OpenAI, Anthropic, Google, and Microsoft. Odysseys measures the agent's performance on 200 long-horizon web tasks.
+See the [Browser Use benchmark index](https://browser-use.com/benchmarks) for dated agent and browser results, task counts, comparisons, sources, and methodology.
 
-**Use the Open-Source Agent**
+**Use the open-source agent**
 - Free, and runs on your own machine
 - Deep code-level integration and control: pick your LLM, customize the agent's behavior
-- We recommend pairing it with our [cloud browsers](https://docs.browser-use.com/open-source/customize/browser/remote) for leading stealth, proxy rotation, and scaling
+- Pair it with a local browser, your own remote browser, or [Browser Infrastructure](https://browser-use.com/stealth-browsers?utm_source=github&utm_medium=readme-oss-browser-infrastructure) for managed cloud browsers, proxies, and browser profiles ([setup guide](https://docs.browser-use.com/open-source/customize/browser/remote))
 
-**Use the [Fully-Hosted Cloud Agent](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-hosted-agent) (recommended)**
-- Much more powerful agent for complex tasks (see plot above)
-- Easiest way to start and scale
-- Best stealth with proxy rotation and captcha solving
-- 1000+ integrations (Gmail, Slack, Notion, and more)
-- Persistent filesystem and memory
-- Rerunnable scripts fetch live data, even when sites change ([guide](https://docs.browser-use.com/cloud/agent/scripts))
+**Use Browser Use Cloud** when you want managed execution or hosted browser infrastructure:
+
+- **[Browser Use Agents](https://browser-use.com/web-agents?utm_source=github&utm_medium=readme-hosted-agent&utm_campaign=agents)** — give a task to a fully hosted agent. Browser Use manages the agent, browser, execution, and results.
+- **[Browser Infrastructure](https://browser-use.com/stealth-browsers?utm_source=github&utm_medium=readme-cloud-infrastructure&utm_campaign=browser-infrastructure)** — provision hosted cloud browsers for AI agents and control them with the [Cloud SDK](https://github.com/browser-use/sdk), REST API, CDP, or the open-source `browser-use` package.
+
+Browser Use Agents support managed integrations, persistent files and memory, and rerunnable scripts ([guide](https://docs.browser-use.com/cloud/agent/scripts)):
 
 ```sh
 curl -X POST https://api.browser-use.com/api/v4/runs \
@@ -150,6 +149,8 @@ curl -X POST https://api.browser-use.com/api/v4/runs \
   -H "Content-Type: application/json" \
   -d '{"task": "Your task"}'
 ```
+
+Get a key in the [Cloud dashboard](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-cloud-api-key), then follow the [Agents quickstart](https://docs.browser-use.com/cloud/agent/quickstart) to monitor the run and retrieve its result.
 
 <br/>
 
@@ -178,9 +179,9 @@ Rule of thumb: one-off tasks through an agent → CLI. Repeatable automation in 
 <details>
 <summary><b>What's the best model to use?</b></summary>
 
-We optimized **ChatBrowserUse()** specifically for browser automation tasks. On avg it completes tasks 3-5x faster than other models with SOTA accuracy.
+We optimized **ChatBrowserUse()** specifically for browser automation tasks and recommend it as the default Browser Use model.
 
-For pricing and other LLM providers, see our [supported models documentation](https://docs.browser-use.com/supported-models).
+For pricing and other LLM providers, see our [supported models documentation](https://docs.browser-use.com/open-source/supported-models).
 </details>
 
 <details>
@@ -195,7 +196,7 @@ llm = ChatBrowserUse(model='anthropic/claude-sonnet-4-6')  # or 'openai/gpt-5.5'
 agent = Agent(task='...', llm=llm)
 ```
 
-For the best speed and cost we still recommend the default `bu-*` models.
+For our recommended default, use the `bu-*` models.
 </details>
 
 <details>
@@ -205,7 +206,7 @@ Yes. If you use `ChatBrowserUse(model='browser-use/bu-30b-a3b-preview')` with a 
 
 You do **not** need to add a separate custom "Browser Use system message" just because you switched to the open-source preview model. Only use `extend_system_message` or `override_system_message` when you intentionally want to customize the default behavior for your task.
 
-If you want the best default speed/accuracy, we still recommend the newer hosted `bu-*` models. If you want the open-source preview model, the setup stays the same apart from the `model=` value.
+For the recommended default, use the hosted `bu-*` models. If you want the open-source preview model, the setup stays the same apart from the `model=` value.
 </details>
 
 <details>
@@ -258,7 +259,7 @@ These examples show how to maintain sessions and handle authentication seamlessl
 <details>
 <summary><b>How do I solve CAPTCHAs?</b></summary>
 
-For CAPTCHA handling, you need better browser fingerprinting and proxies. Use [Browser Use Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-faq-captcha) which provides stealth browsers designed to avoid detection and CAPTCHA challenges.
+For sites with bot detection, [Browser Infrastructure](https://browser-use.com/stealth-browsers?utm_source=github&utm_medium=readme-faq-captcha) provides managed browser fingerprints and proxies. No browser service can guarantee access to every site or CAPTCHA flow.
 </details>
 
 <details>
@@ -266,12 +267,10 @@ For CAPTCHA handling, you need better browser fingerprinting and proxies. Use [B
 
 Chrome can consume a lot of memory, and running many agents in parallel can be tricky to manage.
 
-For production use cases, use our [Browser Use Cloud API](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-faq-production) which handles:
-- Scalable browser infrastructure
-- Memory management
-- Proxy rotation
-- Stealth browser fingerprinting
-- High-performance parallel execution
+For production use cases, choose:
+
+- [Browser Use Agents](https://browser-use.com/web-agents?utm_source=github&utm_medium=readme-faq-production&utm_campaign=agents) for hosted agent execution, persistent files and memory, and managed task results
+- [Browser Infrastructure](https://browser-use.com/stealth-browsers?utm_source=github&utm_medium=readme-faq-production&utm_campaign=browser-infrastructure) when your code needs managed browser sessions, proxies, browser fingerprints, and parallel browser execution
 </details>
 
 <br/>
