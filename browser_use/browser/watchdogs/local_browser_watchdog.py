@@ -19,6 +19,7 @@ from browser_use.browser.events import (
 	BrowserLaunchResult,
 	BrowserStopEvent,
 )
+from browser_use.browser.views import BrowserError
 from browser_use.browser.watchdog_base import BaseWatchdog
 from browser_use.observability import observe_debug
 
@@ -143,11 +144,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				self.logger.debug(
 					f'[LocalBrowserWatchdog] 📂 user_data_dir={profile.user_data_dir}, profile_directory={profile.profile_directory}'
 				)
-				subprocess = await asyncio.create_subprocess_exec(
+				subprocess = await self._create_subprocess_exec(
 					browser_path,
 					*launch_args,
-					stdout=asyncio.subprocess.PIPE,
-					stderr=asyncio.subprocess.PIPE,
 				)
 				self.logger.debug(
 					f'[LocalBrowserWatchdog] 🎭 Browser running with browser_pid= {subprocess.pid} 🔗 listening on CDP port :{debug_port}'
@@ -367,10 +366,8 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			cmd.append('--with-deps')
 
 		# Run in subprocess with timeout
-		process = await asyncio.create_subprocess_exec(
+		process = await self._create_subprocess_exec(
 			*cmd,
-			stdout=asyncio.subprocess.PIPE,
-			stderr=asyncio.subprocess.PIPE,
 		)
 
 		try:
@@ -392,6 +389,22 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				process.kill()
 				await process.wait()
 			raise RuntimeError(f'Error getting browser path: {e}')
+
+	@staticmethod
+	async def _create_subprocess_exec(*cmd: str | os.PathLike[str]) -> asyncio.subprocess.Process:
+		try:
+			return await asyncio.create_subprocess_exec(
+				*cmd,
+				stdout=asyncio.subprocess.PIPE,
+				stderr=asyncio.subprocess.PIPE,
+			)
+		except NotImplementedError as e:
+			raise BrowserError(
+				'The current asyncio event loop does not support subprocesses, so browser-use cannot launch a local browser. '
+				'On Windows this usually means a SelectorEventLoop is active, which can happen in Uvicorn/FastAPI apps. '
+				'Use asyncio.WindowsProactorEventLoopPolicy before starting the app, or run browser-use from a process that '
+				'supports asyncio subprocess transports.'
+			) from e
 
 	@staticmethod
 	def _find_free_port() -> int:
