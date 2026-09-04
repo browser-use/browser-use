@@ -21,6 +21,7 @@ from browser_use.browser.events import (
 	CloseTabEvent,
 	GetDropdownOptionsEvent,
 	GoBackEvent,
+	HoverElementEvent,
 	NavigateToUrlEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
@@ -45,6 +46,7 @@ from browser_use.tools.views import (
 	ExtractAction,
 	FindElementsAction,
 	GetDropdownOptionsAction,
+	HoverElementAction,
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
@@ -68,6 +70,7 @@ logger = logging.getLogger(__name__)
 ClickElementEvent.model_rebuild()
 TypeTextEvent.model_rebuild()
 ScrollEvent.model_rebuild()
+HoverElementEvent.model_rebuild()
 UploadFileEvent.model_rebuild()
 
 Context = TypeVar('Context')
@@ -855,6 +858,46 @@ class Tools(Generic[Context]):
 				# Log the full error for debugging
 				logger.error(f'Failed to dispatch TypeTextEvent: {type(e).__name__}: {e}')
 				error_msg = f'Failed to type text into element {params.index}: {e}'
+				return ActionResult(error=error_msg)
+
+		@self.registry.action(
+			'Move the mouse over an element by index without clicking. Use to reveal CSS :hover '
+			'menus, tooltips, or dropdowns that only appear on hover - then read the updated '
+			'browser state to interact with the revealed content.',
+			param_model=HoverElementAction,
+			terminates_sequence=True,
+		)
+		async def hover(params: HoverElementAction, browser_session: BrowserSession):
+			node = await browser_session.get_element_by_index(params.index)
+			if node is None:
+				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				logger.warning(f'⚠️ {msg}')
+				return ActionResult(extracted_content=msg)
+
+			# Highlight the element being hovered (truly non-blocking)
+			create_task_with_error_handling(
+				browser_session.highlight_interaction_element(node), name='highlight_hover_element', suppress_exceptions=True
+			)
+
+			try:
+				event = browser_session.event_bus.dispatch(HoverElementEvent(node=node))
+				await event
+				hover_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+
+				if isinstance(hover_metadata, dict) and 'validation_error' in hover_metadata:
+					return ActionResult(error=hover_metadata['validation_error'])
+
+				msg = f'Hovered element {get_click_description(node)}'
+				logger.debug(f'🖱️ {msg}')
+				return ActionResult(
+					extracted_content=msg,
+					long_term_memory=msg,
+					metadata=hover_metadata if isinstance(hover_metadata, dict) else None,
+				)
+			except BrowserError as e:
+				return handle_browser_error(e)
+			except Exception as e:
+				error_msg = f'Failed to hover element {params.index}: {str(e)}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
