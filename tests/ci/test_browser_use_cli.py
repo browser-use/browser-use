@@ -46,3 +46,30 @@ def test_browser_use_tui_is_deprecated_alias(monkeypatch, capsys):
 
 	assert browser_use_cli.browser_use_tui_main() == 0
 	assert capsys.readouterr().err == 'browser-use-tui is deprecated; use browser-use instead.\n'
+
+
+def test_init_core_templates_use_builtins_when_library_unavailable(monkeypatch, tmp_path):
+	"""The core templates remain available when GitHub cannot be reached."""
+	from urllib.error import URLError
+
+	from click.testing import CliRunner
+
+	from browser_use import init_cmd
+
+	monkeypatch.chdir(tmp_path)
+
+	def raise_url_error(*args, **kwargs):
+		raise URLError('template library unavailable')
+
+	monkeypatch.setattr(init_cmd.request, 'urlopen', raise_url_error)
+
+	for template in ('default', 'advanced', 'tools'):
+		result = CliRunner().invoke(
+			init_cmd.main,
+			['--template', template, '--output', 'main.py', '--force'],
+		)
+
+		assert result.exit_code == 0, result.output
+		output = tmp_path / template / 'main.py'
+		assert output.is_file()
+		assert 'ChatBrowserUse' in output.read_text()
