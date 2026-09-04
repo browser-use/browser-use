@@ -1,5 +1,5 @@
 import json
-from typing import overload
+from typing import TypeVar, overload
 
 from anthropic.types import (
 	Base64ImageSourceParam,
@@ -22,6 +22,7 @@ from browser_use.llm.messages import (
 )
 
 NonSystemMessage = UserMessage | AssistantMessage
+CacheableMessage = TypeVar('CacheableMessage', bound=BaseMessage)
 
 
 class AnthropicMessageSerializer:
@@ -256,14 +257,14 @@ class AnthropicMessageSerializer:
 			raise ValueError(f'Unknown message type: {type(message)}')
 
 	@staticmethod
-	def _clean_cache_messages(messages: list[NonSystemMessage]) -> list[NonSystemMessage]:
+	def _clean_cache_messages_by_last_cache(messages: list[CacheableMessage]) -> list[CacheableMessage]:
 		"""Clean cache settings so only the last cache=True message remains cached.
 
 		Because of how Claude caching works, only the last cache message matters.
 		This method automatically removes cache=True from all messages except the last one.
 
 		Args:
-			messages: List of non-system messages to clean
+			messages: List of messages to clean
 
 		Returns:
 			List of messages with cleaned cache settings
@@ -291,25 +292,14 @@ class AnthropicMessageSerializer:
 		return cleaned_messages
 
 	@staticmethod
+	def _clean_cache_messages(messages: list[NonSystemMessage]) -> list[NonSystemMessage]:
+		"""Clean non-system cache settings so only the last cache=True message remains cached."""
+		return AnthropicMessageSerializer._clean_cache_messages_by_last_cache(messages)
+
+	@staticmethod
 	def _clean_cache_system_messages(messages: list[SystemMessage]) -> list[SystemMessage]:
 		"""Clean system cache settings so only the last cache=True system message remains cached."""
-		if not messages:
-			return messages
-
-		cleaned_messages = [msg.model_copy(deep=True) for msg in messages]
-
-		last_cache_index = -1
-		for i in range(len(cleaned_messages) - 1, -1, -1):
-			if cleaned_messages[i].cache:
-				last_cache_index = i
-				break
-
-		if last_cache_index != -1:
-			for i, msg in enumerate(cleaned_messages):
-				if i != last_cache_index and msg.cache:
-					msg.cache = False
-
-		return cleaned_messages
+		return AnthropicMessageSerializer._clean_cache_messages_by_last_cache(messages)
 
 	@staticmethod
 	def _serialize_system_messages(messages: list[SystemMessage]) -> list[TextBlockParam] | str | None:
