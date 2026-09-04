@@ -2678,7 +2678,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Note: We don't clear cached state on Enter; multi_act will detect DOM changes
 			# and rebuild explicitly. We still wait briefly for potential navigation.
-			if 'enter' in event.keys.lower() or 'return' in event.keys.lower():
+			is_enter = (main_key == 'Enter') if is_combination else (normalized_keys == 'Enter')
+			if is_enter:
 				await asyncio.sleep(0.1)
 		except Exception as e:
 			raise
