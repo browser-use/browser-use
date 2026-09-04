@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.openrouter.chat import ChatOpenRouter
 	from browser_use.llm.orcarouter.chat import ChatOrcaRouter
 	from browser_use.llm.vercel.chat import ChatVercel
+	from browser_use.llm.volcengine.chat import ChatVolcengine
 
 	# Type stubs for model instances - enables IDE autocomplete
 	openai_gpt_4o: ChatOpenAI
@@ -96,6 +97,7 @@ _LAZY_IMPORTS = {
 	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
 	'ChatOrcaRouter': ('browser_use.llm.orcarouter.chat', 'ChatOrcaRouter'),
 	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
+	'ChatVolcengine': ('browser_use.llm.volcengine.chat', 'ChatVolcengine'),
 }
 
 # Cache for model instances - only created when accessed
@@ -160,5 +162,6 @@ __all__ = [
 	'ChatOpenRouter',
 	'ChatOrcaRouter',
 	'ChatVercel',
+	'ChatVolcengine',
 	'ChatCerebras',
 ]
