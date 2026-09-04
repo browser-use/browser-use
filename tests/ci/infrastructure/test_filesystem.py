@@ -183,6 +183,42 @@ class TestBaseFile:
 			assert file_path.read_text() == expected_content
 			assert file_obj.content == expected_content
 
+	async def test_write_and_append_roll_back_content_on_sync_failure(self, monkeypatch):
+		"""Failed disk sync must not leave changed content in memory."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			file_obj = TxtFile(name='notes', content='persisted')
+
+			async def fail_sync(_self, _path):
+				raise OSError('disk unavailable')
+
+			monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
+
+			with pytest.raises(OSError, match='disk unavailable'):
+				await file_obj.write('phantom update', Path(tmp_dir))
+			assert file_obj.content == 'persisted'
+
+			with pytest.raises(OSError, match='disk unavailable'):
+				await file_obj.append(' phantom append', Path(tmp_dir))
+			assert file_obj.content == 'persisted'
+
+	async def test_write_and_append_roll_back_content_on_sync_cancellation(self, monkeypatch):
+		"""Cancelled disk sync must restore content before propagating."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			file_obj = TxtFile(name='notes', content='persisted')
+
+			async def cancel_sync(_self, _path):
+				raise asyncio.CancelledError
+
+			monkeypatch.setattr(TxtFile, 'sync_to_disk', cancel_sync)
+
+			with pytest.raises(asyncio.CancelledError):
+				await file_obj.write('phantom update', Path(tmp_dir))
+			assert file_obj.content == 'persisted'
+
+			with pytest.raises(asyncio.CancelledError):
+				await file_obj.append(' phantom append', Path(tmp_dir))
+			assert file_obj.content == 'persisted'
+
 	async def test_json_file_disk_operations(self):
 		"""Test JSON file sync to disk operations."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
@@ -574,6 +610,30 @@ class TestFileSystem:
 		# Write with unsupported extension - gives specific error
 		result = await fs.write_file('test.doc', 'content')
 		assert 'Unsupported file extension' in result
+
+	async def test_write_and_append_file_preserve_state_on_failed_persist(self, empty_filesystem, monkeypatch):
+		"""Failed writes must not create phantom files or corrupt existing ones."""
+		fs = empty_filesystem
+		await fs.write_file('existing.txt', 'persisted')
+
+		async def fail_sync(_self, _path):
+			raise OSError('disk unavailable')
+
+		monkeypatch.setattr(TxtFile, 'sync_to_disk', fail_sync)
+
+		result = await fs.write_file('ghost.txt', 'phantom file')
+		assert 'disk unavailable' in result
+		assert 'ghost.txt' not in fs.files
+
+		result = await fs.write_file('existing.txt', 'phantom update')
+		assert 'disk unavailable' in result
+		assert fs.get_file('existing.txt').content == 'persisted'
+		assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted'
+
+		result = await fs.append_file('existing.txt', ' phantom append')
+		assert 'disk unavailable' in result
+		assert fs.get_file('existing.txt').content == 'persisted'
+		assert (fs.data_dir / 'existing.txt').read_text(encoding='utf-8') == 'persisted'
 
 	async def test_write_json_file(self, temp_filesystem):
 		"""Test writing JSON files."""
