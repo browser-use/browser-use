@@ -110,6 +110,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
+          version: "0.12.9"
           enable-cache: true
           activate-environment: true
       - run: uv sync

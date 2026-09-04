@@ -35,14 +35,13 @@ def server() -> BrowserUseServer:
 
 
 def _is_read_only(tool: types.Tool) -> bool:
-	return tool.annotations is not None and tool.annotations.readOnlyHint is True
+	return tool.annotations is not None and tool.annotations.read_only_hint is True
 
 
 async def _list_tools(server: BrowserUseServer) -> list[types.Tool]:
-	handler = server.server.request_handlers[types.ListToolsRequest]
-	result = await handler(types.ListToolsRequest(method='tools/list'))
-	assert isinstance(result, types.ServerResult), f'expected ServerResult, got {type(result).__name__}'
-	list_result = result.root
+	handler = server.server.get_request_handler('tools/list')
+	assert handler is not None, 'tools/list handler is not registered'
+	list_result = await handler.handler(None, types.PaginatedRequestParams())  # type: ignore[arg-type]
 	assert isinstance(list_result, types.ListToolsResult), f'expected ListToolsResult, got {type(list_result).__name__}'
 	assert len(list_result.tools) > 0, 'tools/list returned an empty catalogue'
 	return list_result.tools

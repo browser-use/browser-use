@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.13.9"
+version = "0.13.10"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -21,7 +21,7 @@ dependencies = [
     "httpx==0.28.1",
     "posthog==7.7.0",
     "psutil==7.2.2",
-    "pydantic>=2.12.5,<2.14",
+    "pydantic==2.13.5",
     "pyobjc==12.1; platform_system == 'darwin'",
     "python-dotenv==1.2.2",
     "requests==2.33.0",
@@ -36,8 +36,8 @@ dependencies = [
     "google-api-python-client==2.188.0",
     "google-auth==2.48.0",
     "google-auth-oauthlib==1.2.4",
-    "mcp==1.28.1",
-    "pypdf==6.15.0",
+    "mcp==2.1.1",
+    "pypdf==6.16.2",
     "reportlab==4.4.9",
     "cdp-use==1.4.5",
     "pyotp==2.9.0",
@@ -46,7 +46,7 @@ dependencies = [
     "markdownify==1.2.2",
     "python-docx==1.2.0",
     "browser-use-sdk==3.4.2",
-    "browser-harness==0.1.12",
+    "browser-harness==0.1.13",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -108,7 +108,7 @@ browser = "browser_use.cli:main"  # Alias for browser-use
 browser-use-tui = "browser_use.cli:browser_use_tui_main"  # Deprecated alias for browser-use
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 
