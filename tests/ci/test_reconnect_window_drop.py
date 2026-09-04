@@ -49,7 +49,7 @@ async def test_drop_during_reconnect_window_records_flag():
 	loop = asyncio.get_running_loop()
 	fut = loop.create_future()
 	task = asyncio.ensure_future(fut)
-	s._cdp_client_root = FakeClient(task)
+	s._cdp_client_root = FakeClient(task)  # type: ignore[assignment]
 	s._attach_ws_drop_callback()
 
 	# The brand-new WebSocket drops inside the window.
@@ -70,7 +70,7 @@ async def test_auto_reconnect_loops_after_drop_in_window(monkeypatch):
 		loop = asyncio.get_running_loop()
 		fut = loop.create_future()
 		task = asyncio.ensure_future(fut)
-		self._cdp_client_root = FakeClient(task)
+		self._cdp_client_root = FakeClient(task)  # type: ignore[assignment]
 		if call_count == 1:
 			# First pass: the new socket dies inside the reconnect window.
 			self._attach_ws_drop_callback()
