@@ -7,6 +7,7 @@ import time
 from contextlib import redirect_stderr, redirect_stdout
 from importlib.metadata import PackageNotFoundError, version
 from io import StringIO
+from typing import Any
 
 
 def _browser_use_version() -> str:
@@ -131,6 +132,68 @@ def _as_browser_use_cli_text(text: str) -> str:
 	return text.replace('Browser Harness', 'Browser Use').replace('browser-harness', 'browser-use')
 
 
+def _infer_current_tab(page_info: dict[str, Any], tabs: list[dict[str, Any]]) -> dict[str, Any] | None:
+	url = page_info.get('url')
+	title = page_info.get('title')
+	if not url and not title:
+		return None
+
+	for tab in tabs:
+		if tab.get('url') == url and tab.get('title') == title:
+			return tab
+	for tab in tabs:
+		if tab.get('url') == url:
+			return tab
+	return None
+
+
+def _page_info_with_tab_context(
+	page_info: Any,
+	*,
+	tabs: list[dict[str, Any]] | None,
+	current_tab: dict[str, Any] | None,
+) -> Any:
+	if not isinstance(page_info, dict):
+		return page_info
+
+	enriched = dict(page_info)
+	if tabs is not None:
+		enriched.setdefault('tabs', tabs)
+		enriched.setdefault('tab_count', len(tabs))
+		if current_tab is None:
+			current_tab = _infer_current_tab(enriched, tabs)
+	if current_tab is not None:
+		enriched.setdefault('current_tab', current_tab)
+	return enriched
+
+
+def _patch_browser_harness_page_info(run_module: Any) -> None:
+	from functools import wraps
+
+	if getattr(run_module, '_browser_use_page_info_patched', False):
+		return
+
+	original_page_info = run_module.page_info
+
+	@wraps(original_page_info)
+	def page_info(*args: Any, **kwargs: Any) -> Any:
+		info = original_page_info(*args, **kwargs)
+		tabs = None
+		current_tab = None
+		try:
+			tabs = run_module.list_tabs()
+		except Exception:
+			pass
+		try:
+			current_tab = run_module.current_tab()
+		except Exception:
+			pass
+		return _page_info_with_tab_context(info, tabs=tabs, current_tab=current_tab)
+
+	run_module.page_info = page_info
+	run_module._browser_use_page_info_patched = True
+
+
 def _normalize_captured_cli_output(func, argv: list[str]) -> int:
 	stdout = StringIO()
 	stderr = StringIO()
@@ -161,6 +224,7 @@ def _patch_browser_harness_cli_text() -> None:
 
 	run.HELP = _as_browser_use_cli_text(run.HELP)
 	run.USAGE = _as_browser_use_cli_text(run.USAGE)
+	_patch_browser_harness_page_info(run)
 
 	original_auth_cli = auth.run_auth_cli
 	original_telemetry_cli = telemetry.run_telemetry_cli
