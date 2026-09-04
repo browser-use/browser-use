@@ -154,6 +154,36 @@ def test_pagination_metadata_separates_selector_and_backend_ids():
 	assert buttons[0]['selector_index'] == 101
 
 
+def test_pagination_detection_avoids_substrings_css_classes_and_implicit_roles():
+	"""Only explicit pagination labels and roles should produce pagination metadata."""
+
+	def button(text: str, *, role: str = '', class_name: str = '') -> EnhancedDOMTreeNode:
+		node = _node('button', node_id=len(text) + len(role), backend_node_id=len(text) + len(role), session_id=text + role)
+		assert node.snapshot_node is not None
+		node.snapshot_node.is_clickable = True
+		node.attributes.update({'role': role, 'class': class_name})
+		text_node = _node('#text', node_id=99, backend_node_id=99, session_id=text + role)
+		text_node.node_type = NodeType.TEXT_NODE
+		text_node.node_value = text
+		node.children_nodes = [text_node]
+		return node
+
+	buttons = DomService.detect_pagination_buttons(
+		{
+			1: button('Preview', class_name='preview-link'),
+			2: button('Continue', class_name='pagination-next'),
+			3: button('15'),
+			4: button('15', role='button'),
+			5: button('Next', role='button'),
+		}
+	)
+
+	assert [(button['text'], button['button_type']) for button in buttons] == [
+		('15', 'page_number'),
+		('Next', 'next'),
+	]
+
+
 def test_screenshot_overlay_uses_selector_index(monkeypatch):
 	"""Visual labels match the collision-free index shown in the DOM text."""
 	iframe_input = _node('input', node_id=2, backend_node_id=5, session_id='iframe')
