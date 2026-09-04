@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BROWSER_USE_REPO_SKILL_URL = 'https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md'
 EXPECTED_SKILL_INSTALL_PATHS = (
+	Path('.adal') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.agents') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.claude') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.codex') / 'skills' / 'browser-use' / 'SKILL.md',
