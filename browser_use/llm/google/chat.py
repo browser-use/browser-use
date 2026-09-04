@@ -571,6 +571,18 @@ class ChatGoogle(BaseChatModel):
 				):
 					status_code = 503
 
+				# SDK errors (google.genai ClientError/ServerError) also land here: give them
+				# the same backoff as the ModelProviderError branch above
+				if status_code is not None and status_code in self.retryable_status_codes and attempt < self.max_retries - 1:
+					delay = min(self.retry_base_delay * (2**attempt), self.retry_max_delay)
+					jitter = random.uniform(0, delay * 0.1)  # 10% jitter
+					total_delay = delay + jitter
+					self.logger.warning(
+						f'⚠️ Got {status_code} error, retrying in {total_delay:.1f}s... (attempt {attempt + 1}/{self.max_retries})'
+					)
+					await asyncio.sleep(total_delay)
+					continue
+
 				raise ModelProviderError(
 					message=error_message,
 					status_code=status_code or 502,
