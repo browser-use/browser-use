@@ -179,6 +179,12 @@ def test_unsafe_domain_patterns():
 	assert match_url_with_domain_pattern('https://google.com', 'g*e.com') is False
 	assert match_url_with_domain_pattern('https://google.com', '*com*') is False
 
+	# A "*" that happens to be followed by "." must not slip past the embedded-wildcard
+	# guard: "www*.com" previously matched arbitrary hosts like "www.attacker.com".
+	assert match_url_with_domain_pattern('https://www.attacker.com', 'www*.com') is False
+	assert match_url_with_domain_pattern('https://sub.attacker.example.com', 'sub*.example.com') is False
+	assert match_url_with_domain_pattern('https://a.example.com', 'a*.example.com') is False
+
 	# Test with patterns that have multiple asterisks in different positions
 	assert match_url_with_domain_pattern('https://subdomain.example.com', '*domain*example*') is False
 	assert match_url_with_domain_pattern('https://sub.domain.example.com', '*.*.example.com') is False
