@@ -29,8 +29,13 @@ class LocalMCPServer:
 	request_started: threading.Event = field(default_factory=threading.Event)
 
 
-@pytest.fixture(params=[True, False], ids=['json', 'sse'])
-async def local_mcp_server(request: pytest.FixtureRequest) -> AsyncIterator[LocalMCPServer]:
+@pytest.fixture
+def mcp_json_response() -> bool:
+	return True
+
+
+@pytest.fixture
+async def local_mcp_server(mcp_json_response: bool) -> AsyncIterator[LocalMCPServer]:
 	mcp = MCPServer('local-http')
 	state = LocalMCPServer(url='')
 	state.allow_requests.set()
@@ -41,7 +46,7 @@ async def local_mcp_server(request: pytest.FixtureRequest) -> AsyncIterator[Loca
 		state.calls.append(value)
 		return value * 2
 
-	app = mcp.streamable_http_app(json_response=request.param)
+	app = mcp.streamable_http_app(json_response=mcp_json_response)
 
 	async def authenticated_app(scope: Scope, receive: Receive, send: Send) -> None:
 		if scope['type'] == 'http':
@@ -83,6 +88,7 @@ async def local_mcp_server(request: pytest.FixtureRequest) -> AsyncIterator[Loca
 					os.environ['NO_PROXY'] = original_no_proxy
 
 
+@pytest.mark.parametrize('mcp_json_response', [True, False], ids=['json', 'sse'])
 async def test_http_tools_register_call_and_disconnect(
 	local_mcp_server: LocalMCPServer, caplog: pytest.LogCaptureFixture
 ) -> None:
