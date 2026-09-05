@@ -81,7 +81,7 @@ class HTMLSerializer:
 				element_id = node.attributes.get('id', '')
 				element_id_lower = element_id.lower()
 				if 'bpr-guid' in element_id or (
-					not node.is_visible and ('data' in element_id_lower or 'state' in element_id_lower)
+					node.is_visible is False and ('data' in element_id_lower or 'state' in element_id_lower)
 				):
 					return ''
 

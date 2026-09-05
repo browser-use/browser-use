@@ -14,7 +14,7 @@ def _make_node(
 	node_value: str = '',
 	attributes: dict[str, str] | None = None,
 	children: list[EnhancedDOMTreeNode] | None = None,
-	is_visible: bool = True,
+	is_visible: bool | None = True,
 ) -> EnhancedDOMTreeNode:
 	node = EnhancedDOMTreeNode(
 		node_id=1,
@@ -44,7 +44,7 @@ def _make_node(
 	return node
 
 
-def _serialize_code(element_id: str, *, style: str = 'display: inline', is_visible: bool = True) -> tuple[str, str]:
+def _serialize_code(element_id: str, *, style: str = 'display: inline', is_visible: bool | None = True) -> tuple[str, str]:
 	text = _make_node(NodeType.TEXT_NODE, '#text', node_value='visible code content')
 	code = _make_node(
 		NodeType.ELEMENT_NODE,
@@ -60,9 +60,10 @@ def _serialize_code(element_id: str, *, style: str = 'display: inline', is_visib
 	return html, markdown
 
 
-@pytest.mark.parametrize('element_id', ['user-data', 'workflow-state', 'snippet-1'])
-def test_visible_code_with_ordinary_id_is_preserved(element_id: str):
-	html, markdown = _serialize_code(element_id)
+@pytest.mark.parametrize('element_id', ['user-data', 'workflow-state', 'snippet-1', 'metadata', 'database', 'estate'])
+@pytest.mark.parametrize('is_visible', [True, None])
+def test_visible_or_unknown_code_with_ordinary_id_is_preserved(element_id: str, is_visible: bool | None):
+	html, markdown = _serialize_code(element_id, is_visible=is_visible)
 
 	assert 'visible code content' in html
 	assert 'visible code content' in markdown
@@ -75,8 +76,9 @@ def test_code_with_display_none_is_filtered():
 	assert markdown == ''
 
 
-def test_hidden_data_or_state_code_remains_filtered():
-	html, markdown = _serialize_code('workflow-state', style='', is_visible=False)
+@pytest.mark.parametrize('element_id', ['workflow-state', 'metadata', 'database', 'estate'])
+def test_hidden_data_or_state_code_remains_filtered(element_id: str):
+	html, markdown = _serialize_code(element_id, style='', is_visible=False)
 
 	assert html == ''
 	assert markdown == ''
