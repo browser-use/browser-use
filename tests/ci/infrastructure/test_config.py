@@ -2,7 +2,15 @@
 
 import os
 
-from browser_use.config import CONFIG
+from browser_use.config import CONFIG, create_default_config
+
+
+def test_new_config_uses_current_low_cost_openai_model():
+	config = create_default_config()
+	assert len(config.llm) == 1
+	llm = next(iter(config.llm.values()))
+	assert llm.default is True
+	assert llm.model == 'gpt-5.6-luna'
 
 
 class TestLazyConfig:

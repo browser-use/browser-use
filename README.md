@@ -90,6 +90,7 @@ uv add browser-use
 ```bash
 # .env
 BROWSER_USE_API_KEY=your-key
+# OPENAI_API_KEY=your-key
 # GOOGLE_API_KEY=your-key
 # ANTHROPIC_API_KEY=your-key
 ```
@@ -99,15 +100,16 @@ BROWSER_USE_API_KEY=your-key
 ```python
 import asyncio
 
-from browser_use import Agent, ChatBrowserUse
+from browser_use import Agent, ChatAnthropic, ChatBrowserUse, ChatOpenAI
 
 async def main():
     agent = Agent(
         task="Find the number of stars of the browser-use repo",
         llm=ChatBrowserUse(model='openai/gpt-5.5'),
         # llm=ChatBrowserUse(model='bu-2-0-mini-preview'),  # Browser Use's optimized model
-        # llm=ChatOpenAI(model='gpt-5.5'),
-        # llm=ChatAnthropic(model='claude-opus-4-8'),  # Sonnet also works well
+        # llm=ChatOpenAI(model='gpt-5.6-luna'),  # Lower-cost OpenAI option
+        # llm=ChatOpenAI(model='gpt-6-astra'),  # Higher-capability OpenAI option
+        # llm=ChatAnthropic(model='claude-opus-5'),
     )
     history = await agent.run()
 

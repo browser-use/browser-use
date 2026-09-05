@@ -73,6 +73,7 @@ class ChatOpenAI(BaseChatModel):
 			'gpt-5',
 			'gpt-5-mini',
 			'gpt-5-nano',
+			'gpt-6-astra',
 		]
 	)
 
@@ -190,6 +191,8 @@ class ChatOpenAI(BaseChatModel):
 				model_params['reasoning_effort'] = self.reasoning_effort
 				model_params.pop('temperature', None)
 				model_params.pop('frequency_penalty', None)
+				if 'gpt-6-astra' in str(self.model).lower():
+					model_params.pop('top_p', None)
 
 			if output_format is None:
 				# Return string response
