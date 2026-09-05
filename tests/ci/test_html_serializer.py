@@ -14,6 +14,7 @@ def _make_node(
 	node_value: str = '',
 	attributes: dict[str, str] | None = None,
 	children: list[EnhancedDOMTreeNode] | None = None,
+	is_visible: bool = True,
 ) -> EnhancedDOMTreeNode:
 	node = EnhancedDOMTreeNode(
 		node_id=1,
@@ -23,7 +24,7 @@ def _make_node(
 		node_value=node_value,
 		attributes=attributes or {},
 		is_scrollable=None,
-		is_visible=True,
+		is_visible=is_visible,
 		absolute_position=None,
 		target_id='target-1',
 		frame_id=None,
@@ -43,13 +44,14 @@ def _make_node(
 	return node
 
 
-def _serialize_code(element_id: str, *, style: str = 'display: inline') -> tuple[str, str]:
+def _serialize_code(element_id: str, *, style: str = 'display: inline', is_visible: bool = True) -> tuple[str, str]:
 	text = _make_node(NodeType.TEXT_NODE, '#text', node_value='visible code content')
 	code = _make_node(
 		NodeType.ELEMENT_NODE,
 		'CODE',
 		attributes={'id': element_id, 'style': style},
 		children=[text],
+		is_visible=is_visible,
 	)
 	document = _make_node(NodeType.DOCUMENT_NODE, '#document', children=[code])
 
@@ -68,6 +70,13 @@ def test_visible_code_with_ordinary_id_is_preserved(element_id: str):
 
 def test_code_with_display_none_is_filtered():
 	html, markdown = _serialize_code('user-data', style='display: none')
+
+	assert html == ''
+	assert markdown == ''
+
+
+def test_hidden_data_or_state_code_remains_filtered():
+	html, markdown = _serialize_code('workflow-state', style='', is_visible=False)
 
 	assert html == ''
 	assert markdown == ''
