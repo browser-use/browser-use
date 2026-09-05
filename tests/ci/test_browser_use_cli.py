@@ -6,11 +6,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _run_browser_use_cli(*args: str) -> subprocess.CompletedProcess[str]:
+def _run_browser_use_cli(*args: str, module: str = 'browser_use.cli') -> subprocess.CompletedProcess[str]:
 	env = os.environ.copy()
 	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
 	return subprocess.run(
-		[sys.executable, '-m', 'browser_use.cli', *args],
+		[sys.executable, '-m', module, *args],
 		cwd=ROOT,
 		env=env,
 		capture_output=True,
@@ -25,6 +25,15 @@ def test_browser_use_doctor_help_prints_browser_use_usage():
 	assert result.returncode == 0
 	assert result.stdout == 'usage: browser-use doctor [--fix-snap]\n'
 	assert result.stderr == ''
+
+
+def test_browser_use_module_entrypoint_matches_cli_entrypoint():
+	cli_result = _run_browser_use_cli('doctor', '--help')
+	module_result = _run_browser_use_cli('doctor', '--help', module='browser_use')
+
+	assert module_result.returncode == cli_result.returncode == 0
+	assert module_result.stdout == cli_result.stdout
+	assert module_result.stderr == cli_result.stderr == ''
 
 
 def test_normalize_captured_cli_output_handles_string_system_exit(capsys):
