@@ -37,6 +37,7 @@ export default defineConfig({
           { text: 'Design decisions', link: '/architecture' },
           { text: 'Migration & scope', link: '/migration' },
           { text: 'Verification', link: '/verification' },
+          { text: 'Hard benchmark', link: '/benchmark' },
           { text: 'API reference', link: '/api' },
         ],
       },
@@ -44,7 +45,7 @@ export default defineConfig({
     search: { provider: 'local' },
     outline: { level: [2, 3] },
     footer: {
-      message: 'Local prototype · v0.1.0 · Not published to npm',
+      message: 'Prototype · v0.1.0 · Not published to npm',
       copyright: 'Built on Pi and raw CDP. MIT licensed.',
     },
   },

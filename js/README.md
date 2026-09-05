@@ -4,7 +4,7 @@
 
 A standalone TypeScript SDK built on Pi, a persistent V8 REPL, and raw CDP. Give it a task, get a validated result. Use the same browser directly whenever deterministic code is clearer.
 
-**Local prototype · v0.1.0 · Node.js 22.19+ · MIT · Not published to npm**
+**Prototype · v0.1.0 · Node.js 22.19+ · MIT · Not published to npm**
 
 ```ts
 import { BrowserUse, Type } from '@browser-use/next';
@@ -28,9 +28,11 @@ try {
 
 ## Try it
 
-From this directory:
+Clone the source branch and run the local demo:
 
 ```sh
+git clone --branch codex/raw-cdp-k7m2 https://github.com/browser-use/bu-pi.git
+cd bu-pi
 npm ci
 # Install Google Chrome, or attach an existing CDP endpoint.
 npm run demo
@@ -65,7 +67,7 @@ Your application → BrowserUse → Pi → model provider
 
 [Design decisions](docs/architecture.md) · [API reference](docs/api.md) · [Migration scope](docs/migration.md) · [Verification](docs/verification.md)
 
-The historical Pi + Playwright benchmark motivated this design; its 88/106 score is **not a score for this implementation**. Current verification uses deterministic model responses and real browser fixtures. No autonomous performance claim is made.
+**Internal Bench Hard: 79/106 passed (74.5%) with GPT-5.5.** All 106 tasks were judged; agent inference cost was an estimated **$111.01**. The historical Python + Browser Harness run scored **89/106**. This is a historical comparison, not a controlled A/B. [Results, failure analysis, and exact configuration](docs/benchmark.md).
 
 ## Documentation
 

@@ -19,7 +19,9 @@
     "LICENSE",
     "examples",
     "docs/*.md",
-    "DESIGN-REVIEW.md"
+    "DESIGN-REVIEW.md",
+    "evidence/verification.json",
+    "evidence/benchmark.json"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

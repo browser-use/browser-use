@@ -24,7 +24,7 @@
     "mobileWidth": 390,
     "horizontalOverflow": false,
     "content": "raw CDP copy checked; desktop/mobile screenshots captured",
-    "scope": "existing interactive behavior retained; this turn checked updated content/layout"
+    "scope": "Homepage and benchmark documentation checked using raw CDP at desktop and mobile sizes. Exact hashes are collapsible; tables fit the mobile page."
   },
   "demo": {
     "modelResponses": "scripted",
@@ -37,8 +37,19 @@
     "nativeCrash": "Node 22 inspector/GC fatal crash reproduced in worker-thread version; child-process implementation passes both versions and explicit process-kill recovery test"
   },
   "remoteEval": {
-    "status": "authorized; preparing immutable commits",
-    "plan": "eval-plan.json"
+    "status": "completed",
+    "evaluationId": "0ee87e4e-cffb-487b-b160-51ffb5709de4",
+    "githubRunId": "33989195407",
+    "evaluatedCommit": "7ad464c9db872e3d0618662e6f08d40772b91b13",
+    "passed": 79,
+    "failed": 27,
+    "judged": 106,
+    "report": "benchmark.json",
+    "smoke": {
+      "original": "0/2 at 35 turns and 240000 text chars",
+      "expanded": "2/2 at 1000 turns and 800000 text chars",
+      "substitutedIntoFullRun": false
+    }
   },
   "platform": {
     "pythonTests": 74,
@@ -47,9 +58,11 @@
     "ruff": "2 pre-existing violations in harnesses/browser-use-harness-sdk/run.py"
   },
   "release": {
-    "committed": false,
-    "pushed": false,
-    "published": false,
-    "note": "Previous tarball verification predates repository relocation; see package-install.txt."
+    "committed": true,
+    "pushed": true,
+    "branch": "codex/raw-cdp-k7m2",
+    "evaluatedCommit": "7ad464c9db872e3d0618662e6f08d40772b91b13",
+    "publishedToNpm": false,
+    "productionQualified": false
   }
 }

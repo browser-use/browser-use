@@ -46,4 +46,4 @@ New interface; no existing customer UI was replaced.
 
 Existing Python imports, eval commands, customer sessions, persisted files, and production APIs are unchanged. Try the tarball in a separate application first. Route only new test workloads to it. Rollback is switching new work to the old implementation; never translate an in-flight session between runtimes.
 
-The worker is not a sandbox. Untrusted tasks require an OS isolation boundary and restricted browser accounts. Custom tools and callbacks must cooperate with cancellation. The cost threshold is checked between turns and can overshoot by one response. No hosted benchmark or production qualification has been completed.
+The worker is not a sandbox. Untrusted tasks require an OS isolation boundary and restricted browser accounts. Custom tools and callbacks must cooperate with cancellation. The cost threshold is checked between turns and can overshoot by one response. Hosted benchmark results and their limits are recorded in `docs/benchmark.md`. No production qualification has been completed.

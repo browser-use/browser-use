@@ -2,13 +2,15 @@
 
 One session, one model, one task. The browser and JavaScript variables stay alive until you close the session.
 
-::: info Local preview
-`@browser-use/next` is a working prototype, not a published npm release. Start from this package directory. Node.js **22.19 or newer** is required.
+::: info Source preview
+`@browser-use/next` is a working prototype, not a published npm release. Clone the source branch below. Node.js **22.19 or newer** is required.
 :::
 
 ## Install and verify locally
 
 ```sh
+git clone --branch codex/raw-cdp-k7m2 https://github.com/browser-use/bu-pi.git
+cd bu-pi
 npm ci
 # Install Google Chrome, or attach an existing CDP endpoint.
 npm run demo

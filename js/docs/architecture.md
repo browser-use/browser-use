@@ -49,6 +49,8 @@ Schema validity is not factual correctness. Research results still need sources 
 
 Custom tools and streamed events use Pi's types. Models use Pi's provider collections. Browser code uses explicit page helpers and raw CDP. The application learns one small lifecycle API, not three new frameworks.
 
+The [hard benchmark](/benchmark) documents observed failures and comparison limits. Raw CDP removes an automation dependency; it does not by itself guarantee better task completion.
+
 ## What this changes for existing users
 
 Nothing in the existing Python library or eval platform is replaced. This is an independently installable package with a new import path. No persisted customer sessions or settings are migrated. Adoption should begin in an isolated workload; rollback is selecting the old implementation for new runs. Never translate an active session halfway through a task.

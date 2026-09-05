@@ -1,0 +1,100 @@
+{
+  "evaluation_id": "0ee87e4e-cffb-487b-b160-51ffb5709de4",
+  "registered": 106,
+  "judgments": {
+    "pass": 79,
+    "fail": 27
+  },
+  "agent_cost": 111.01092699999998,
+  "trace_cost": 166.02469199999996,
+  "stops": {
+    "completed": 90,
+    "incomplete": 16
+  },
+  "agent_statuses": {
+    "completed": 106
+  },
+  "steps": {
+    "n": 106,
+    "min": 6,
+    "median": 31.5,
+    "p90_nearest_rank": 61,
+    "max": 101,
+    "total": 3618
+  },
+  "duration_seconds": {
+    "n": 106,
+    "min": 20.253,
+    "median": 212.376,
+    "p90_nearest_rank": 770.024,
+    "max": 1524.313,
+    "total": 35433.201
+  },
+  "node_versions": {
+    "v22.23.2": 106
+  },
+  "dependency_locks": {
+    "c6694c15c7ab43eba1ae55da26553f3a00c13156896269e63aa631363e41d007": 106
+  },
+  "stop_judge_matrix": [
+    {
+      "stop": "completed",
+      "judgment": "pass",
+      "count": 71
+    },
+    {
+      "stop": "completed",
+      "judgment": "fail",
+      "count": 19
+    },
+    {
+      "stop": "incomplete",
+      "judgment": "pass",
+      "count": 8
+    },
+    {
+      "stop": "incomplete",
+      "judgment": "fail",
+      "count": 8
+    }
+  ],
+  "saved_screenshots": 3098,
+  "evaluated_commit": "7ad464c9db872e3d0618662e6f08d40772b91b13",
+  "platform_commit": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+  "dataset_sha256": "62ca711571e3337234efb54e7708d5768dec8c849bb8a2a54e010c4e31e988c4",
+  "configuration_hash": "d2111da8975d653216a15d1f07c1896d111e3ba6de0d7e5f8672557aa788a441",
+  "judgment_labels": {
+    "missing-required-fields": 2,
+    "wrong-record": 1,
+    "site-blocked": 8,
+    "empty-result": 7,
+    "result-final-mismatch": 4,
+    "source-scope-drift": 1,
+    "source-limited": 1,
+    "runner-no-result": 1,
+    "synthetic-or-unsupported": 2
+  },
+  "cleanup_errors_reported": 1,
+  "tasks_with_screenshot_errors": 40,
+  "screenshot_errors": 417,
+  "tasks_with_screenshots": 105,
+  "empty_final_answers": 6,
+  "publication_recovery": {
+    "tasks": 1,
+    "method": "Unchanged original artifacts republished to same datapoint and trace via eval.py",
+    "agent_reruns": 0,
+    "judge_reruns": 0,
+    "github_workflow": "failure retained; original datapoint publication failed"
+  },
+  "historical": {
+    "evaluation_id": "96a1ab87-f2ae-4e80-a361-2d6d2035a585",
+    "passed": 89,
+    "total": 106,
+    "agent_cost": 136.81249000000003,
+    "trace_cost": 190.65395100000003,
+    "new_passes": 8,
+    "regressions": 18,
+    "comparison": "historical; not a controlled contemporaneous A/B"
+  },
+  "accounting": "Model cost estimates; excludes browser and runner charges and separate smokes."
+}

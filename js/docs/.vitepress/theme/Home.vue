@@ -67,8 +67,8 @@ async function copy() {
           <code>npm ci &amp;&amp; npm run demo</code><span>FROM THE PACKAGE DIRECTORY</span>
         </div>
         <p class="prototype-note">
-          A working local prototype. The demo uses scripted model responses and a real browser. No
-          API key required.
+          A working prototype. The demo uses scripted model responses and a real browser. No API key
+          required.
         </p>
       </div>
       <div class="code-panel">

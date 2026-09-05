@@ -54,3 +54,21 @@ Only `completed` has an `output` property in the TypeScript union. Other statuse
 The browser tool has `artifact(name, data)`. Large tool outputs are captured into files automatically and returned as bounded text plus the file path. Local downloads use `Browser.setDownloadBehavior`; remote files require the browser provider’s download API or a fetch of an observed URL.
 
 Use a schema containing artifact paths when the deliverable is a file. The helper refuses overwriting an existing filename. Artifacts remain after `close()`; your application owns retention and deletion.
+
+## Deliver large tables without regenerating them
+
+Save the extracted JavaScript value directly, then return its path. Asking the model to rewrite hundreds of records into `finish` introduces another opportunity to omit or invent a row. In the hard benchmark, one task extracted 125 jobs, then delivered 126 after regenerating the JSON.
+
+```ts
+const result = await agent.run(
+  'Extract the listings into a JavaScript array. Save that exact array with artifact() as JSON. Return the artifact path and record count; do not rewrite the rows in your answer.',
+  {
+    schema: Type.Object({
+      path: Type.String(),
+      count: Type.Integer({ minimum: 0 }),
+    }),
+  },
+);
+```
+
+The browser tool can write `await artifact('listings.json', JSON.stringify(rows, null, 2))`. Your application should read the file from its trusted workspace, validate each record, and compare the count against the source. This preserves the extracted bytes; it does not independently prove that extraction covered every listing. This recipe has not been evaluated as a separate benchmark arm.
