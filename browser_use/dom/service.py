@@ -1210,9 +1210,12 @@ class DomService:
 					return True
 		return False
 
+	# Single-item wrappers around page links (li/td/th) are not pager peers themselves.
+	_PAGINATION_PEER_WRAPPER_TAGS = frozenset({'li', 'td', 'th'})
+
 	@staticmethod
 	def _pagination_peer_key(node: EnhancedDOMTreeNode) -> object:
-		"""Group numbered controls that share a pager container or the same parent."""
+		"""Group numbered controls that share a pager container or list/table row."""
 		current = node.parent_node
 		while current is not None:
 			attributes = current.attributes or {}
@@ -1222,7 +1225,13 @@ class DomService:
 			if current.tag_name == 'nav' or role == 'navigation' or 'paginat' in class_name or 'paginat' in element_id:
 				return current
 			current = current.parent_node
-		return node.parent_node if node.parent_node is not None else node
+
+		# Plain <ul><li><a>1</a></li><li><a>2</a></li></ul> has no nav marker; peer by
+		# the shared list/table ancestor instead of each lone wrapper element.
+		fallback = node.parent_node
+		while fallback is not None and fallback.tag_name in DomService._PAGINATION_PEER_WRAPPER_TAGS:
+			fallback = fallback.parent_node
+		return fallback if fallback is not None else node
 
 	@staticmethod
 	def detect_pagination_buttons(selector_map: dict[int, EnhancedDOMTreeNode]) -> list[dict[str, str | int | bool]]:

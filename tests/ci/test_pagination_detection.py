@@ -157,3 +157,18 @@ def test_pagination_rejects_unrelated_numeric_controls():
 	buttons = DomService.detect_pagination_buttons({1: rating, 2: quantity})
 
 	assert buttons == []
+
+
+def test_pagination_keeps_page_numbers_in_plain_list_items():
+	page_one = _clickable('a', '1', node_id=1)
+	page_two = _clickable('a', '2', node_id=2)
+	list_container = _clickable('ul', '', node_id=90)
+	item_one = _clickable('li', '', node_id=91)
+	item_two = _clickable('li', '', node_id=92)
+	_attach(item_one, page_one)
+	_attach(item_two, page_two)
+	_attach(list_container, item_one, item_two)
+
+	buttons = DomService.detect_pagination_buttons({1: page_one, 2: page_two})
+
+	assert _types(buttons) == [('1', 'page_number'), ('2', 'page_number')]
