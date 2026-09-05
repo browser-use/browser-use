@@ -37,6 +37,7 @@ def test_total_tokens_counts_cache_reads_like_prompt_tokens_does():
 
 	usage = model._get_usage(_response(input_tokens=1000, output_tokens=200, cache_read=5000))
 
+	assert usage is not None
 	assert usage.prompt_tokens == 6000
 	assert usage.completion_tokens == 200
 	assert usage.total_tokens == 6200
@@ -52,4 +53,5 @@ def test_total_tokens_always_equals_prompt_plus_completion(input_tokens, output_
 
 	usage = model._get_usage(_response(input_tokens, output_tokens, cache_read))
 
+	assert usage is not None
 	assert usage.total_tokens == usage.prompt_tokens + usage.completion_tokens
