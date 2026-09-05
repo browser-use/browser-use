@@ -83,11 +83,10 @@ async def run_model_button_click_test(
 			task=f'{test_url} - Click the button',
 			llm=llm,
 			browser_session=browser,
-			max_steps=2,  # Max 2 steps as per requirements
 		)
 
 		# Run the agent
-		result = await agent.run()
+		result = await agent.run(max_steps=2)
 
 		# Verify task completed
 		assert result is not None

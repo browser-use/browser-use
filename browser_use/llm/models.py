@@ -47,6 +47,8 @@ openai_o4_mini: 'BaseChatModel'
 openai_gpt_5: 'BaseChatModel'
 openai_gpt_5_mini: 'BaseChatModel'
 openai_gpt_5_nano: 'BaseChatModel'
+openai_gpt_6_astra: 'BaseChatModel'
+openai_gpt_5_6_luna: 'BaseChatModel'
 
 azure_gpt_4o: 'BaseChatModel'
 azure_gpt_4o_mini: 'BaseChatModel'
@@ -73,6 +75,7 @@ pixtral_large: 'BaseChatModel'
 
 anthropic_claude_sonnet_4_0: 'BaseChatModel'
 anthropic_claude_fable_5: 'BaseChatModel'
+anthropic_claude_opus_5: 'BaseChatModel'
 anthropic_claude_3_5_sonnet_latest: 'BaseChatModel'
 anthropic_claude_3_5_haiku_latest: 'BaseChatModel'
 
@@ -125,7 +128,9 @@ def get_llm_by_name(model_name: str):
 	model_part = parts[1]
 
 	# Convert underscores back to dots/dashes for actual model names
-	if 'gpt_4_1_mini' in model_part:
+	if provider == 'openai' and model_part == 'gpt_5_6_luna':
+		model = 'gpt-5.6-luna'
+	elif 'gpt_4_1_mini' in model_part:
 		model = model_part.replace('gpt_4_1_mini', 'gpt-4.1-mini')
 	elif 'gpt_4o_mini' in model_part:
 		model = model_part.replace('gpt_4o_mini', 'gpt-4o-mini')
@@ -284,6 +289,8 @@ __all__ += [
 	'openai_gpt_5',
 	'openai_gpt_5_mini',
 	'openai_gpt_5_nano',
+	'openai_gpt_6_astra',
+	'openai_gpt_5_6_luna',
 	# Azure instances - created on demand
 	'azure_gpt_4o',
 	'azure_gpt_4o_mini',
@@ -305,6 +312,7 @@ __all__ += [
 	# Anthropic instances - created on demand
 	'anthropic_claude_sonnet_4_0',
 	'anthropic_claude_fable_5',
+	'anthropic_claude_opus_5',
 	'anthropic_claude_3_5_sonnet_latest',
 	'anthropic_claude_3_5_haiku_latest',
 	# Mistral instances - created on demand
