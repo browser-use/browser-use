@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -1164,6 +1165,33 @@ class DomService:
 
 		return serialized_dom_state, enhanced_dom_tree, timing_info
 
+	# Decorative glyphs often wrap pagination labels ("Next >", "‹ Previous").
+	_PAGINATION_DECORATION_RE = re.compile(r'^[\s<>«»←→⇤⇥›‹.]+|[\s<>«»←→⇤⇥›‹.]+$')
+
+	@staticmethod
+	def _normalized_pagination_label(value: str) -> str:
+		return DomService._PAGINATION_DECORATION_RE.sub('', value).strip()
+
+	@staticmethod
+	def _matches_pagination_pattern(sources: tuple[str, ...], patterns: list[str]) -> bool:
+		"""Match user-facing labels, not CSS class substrings or incidental words.
+
+		Alphabetic patterns must be the whole label (optionally plus "page"), after
+		stripping decorative arrows. Symbol patterns must be the entire label.
+		"""
+		for raw in sources:
+			value = raw.strip()
+			if not value:
+				continue
+			normalized = DomService._normalized_pagination_label(value)
+			for pattern in patterns:
+				if any(ch.isalpha() for ch in pattern):
+					if normalized == pattern or normalized == f'{pattern} page':
+						return True
+				elif value == pattern or normalized == pattern:
+					return True
+		return False
+
 	@staticmethod
 	def detect_pagination_buttons(selector_map: dict[int, EnhancedDOMTreeNode]) -> list[dict[str, str | int | bool]]:
 		"""Detect pagination buttons from the selector map.
@@ -1201,9 +1229,7 @@ class DomService:
 			title = node.attributes.get('title', '').lower()
 			class_name = node.attributes.get('class', '').lower()
 			role = node.attributes.get('role', '').lower()
-
-			# Combine all text sources for pattern matching
-			all_text = f'{text} {aria_label} {title} {class_name}'.strip()
+			label_sources = (text, aria_label, title)
 
 			# Check if it's disabled
 			is_disabled = (
@@ -1215,19 +1241,17 @@ class DomService:
 			button_type: str | None = None
 
 			# Match specific first/last semantics before generic prev/next fallbacks.
-			if any(pattern in all_text for pattern in first_patterns):
+			if DomService._matches_pagination_pattern(label_sources, first_patterns):
 				button_type = 'first'
-			# Check for last button
-			elif any(pattern in all_text for pattern in last_patterns):
+			elif DomService._matches_pagination_pattern(label_sources, last_patterns):
 				button_type = 'last'
-			# Check for next button
-			elif any(pattern in all_text for pattern in next_patterns):
+			elif DomService._matches_pagination_pattern(label_sources, next_patterns):
 				button_type = 'next'
-			# Check for previous button
-			elif any(pattern in all_text for pattern in prev_patterns):
+			elif DomService._matches_pagination_pattern(label_sources, prev_patterns):
 				button_type = 'prev'
-			# Check for numeric page buttons (single or double digit)
-			elif text.isdigit() and len(text) <= 2 and role in ['button', 'link', '']:
+			elif text.isdigit() and len(text) <= 2 and (role in {'button', 'link'} or node.tag_name in {'a', 'button'}):
+				# Lone numeric widgets (ratings, qty steppers) are not pagination.
+				# A real pager almost always exposes 2+ numbered controls together.
 				button_type = 'page_number'
 
 			if button_type:
@@ -1241,5 +1265,9 @@ class DomService:
 						'is_disabled': is_disabled,
 					}
 				)
+
+		page_numbers = [button for button in pagination_buttons if button['button_type'] == 'page_number']
+		if len(page_numbers) < 2:
+			pagination_buttons = [button for button in pagination_buttons if button['button_type'] != 'page_number']
 
 		return pagination_buttons
