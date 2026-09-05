@@ -22,9 +22,15 @@ export class Page {
       flatten: true,
     });
     const page = new Page(connection, targetId, sessionId);
-    await page.cdp('Page.enable');
-    await page.cdp('Runtime.enable');
-    return page;
+    try {
+      await page.cdp('Page.enable');
+      await page.cdp('Runtime.enable');
+      return page;
+    } catch (error) {
+      // The caller never receives this page, so it cannot release the failed attachment.
+      await connection.send('Target.detachFromTarget', { sessionId }).catch(() => {});
+      throw error;
+    }
   }
   cdp<
     M extends keyof import('devtools-protocol/types/protocol-mapping.js').ProtocolMapping.Commands,

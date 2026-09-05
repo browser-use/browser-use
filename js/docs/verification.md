@@ -1,6 +1,6 @@
 # Verification
 
-**42 tests pass on Node 22.19.0 and Node 24.5.0.** The suite uses the package’s explicit raw-CDP transport. Evidence is recorded in `evidence/verification.json`. Tests use real local Chromium browsers and synthetic data.
+**43 tests pass on Node 22.19.0 and Node 24.5.0.** The suite uses the package’s explicit raw-CDP transport. Evidence is recorded in `evidence/verification.json`. Tests use real local Chromium browsers and synthetic data.
 
 ## What green proves
 
@@ -21,6 +21,8 @@
 The deterministic integration demo completed three model turns: read a catalog, save a selection once and capture artifacts, then deliver typed output. The model responses in this demo are scripted. The browser operations and result checks are real.
 
 Direct-delivery regressions check all 455 records survive a 100-character observation limit; invalid JSON/schema values stay repairable; completion blocks a later action in the same batch. Missing-finish tests cover a single repair turn, retained data, original step/cost/context/deadline/cancellation budgets, and preservation of partial text.
+
+Page-attachment failure tests inject failures in both domain-initialization commands, observe a real Chrome detach event, and verify the caller's existing session remains usable. The recorder contract captures screenshots through a direct CDP session and accounts for capture time and detach failures.
 
 ## Hosted-model evaluation
 

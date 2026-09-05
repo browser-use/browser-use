@@ -128,7 +128,7 @@ export async function main() {
       throw new Error('Model, browser, and Laminar credentials are required');
     const task = JSON.parse(await readFile(env.EVAL_TASK_PATH, 'utf8'));
     const sdk = resolve(env.EVAL_TARGET_DIR);
-    const { BrowserUse, CDP, Page } = await import(pathToFileURL(join(sdk, 'dist/index.js')).href);
+    const { BrowserUse, CDP } = await import(pathToFileURL(join(sdk, 'dist/index.js')).href);
     const require = createRequire(join(sdk, 'package.json'));
     const telemetry = require('@lmnr-ai/lmnr');
     Laminar = telemetry.Laminar;
@@ -171,6 +171,8 @@ export async function main() {
     });
     let screenshotIndex = 0;
     let screenshotErrors = 0;
+    let screenshotTimeMs = 0;
+    let screenshotDetachErrors = 0;
     const screenshotErrorDetails = [];
     const clean = (value) =>
       JSON.parse(
@@ -252,20 +254,28 @@ export async function main() {
                   `${event.toolName}${event.isError ? ' ERROR' : ''}\n${JSON.stringify(clean(event.result))}\n`,
                 );
                 if (event.toolName === 'javascript') {
-                  let session;
+                  let sessionId;
+                  const captureStarted = Date.now();
                   try {
-                    const targets = (await observer.send('Target.getTargets')).targetInfos;
-                    const target = targets.find(
-                      (t) => t.type === 'page' && t.targetId === event.result.details?.targetId,
+                    const targetId = event.result.details?.targetId;
+                    if (!targetId) throw new Error('Active page target unavailable after cell.');
+                    // Screenshot capture needs a target session, not Page/Runtime event subscriptions.
+                    ({ sessionId } = await observer.send('Target.attachToTarget', {
+                      targetId,
+                      flatten: true,
+                    }));
+                    const { data } = await observer.send(
+                      'Page.captureScreenshot',
+                      {
+                        format: 'jpeg',
+                        quality: 70,
+                      },
+                      sessionId,
                     );
-                    if (!target) throw new Error('Active page target unavailable after cell.');
-                    if (target) {
-                      session = await Page.attach(observer, target.targetId);
-                      await writeFile(
-                        join(screenshots, `${String(++screenshotIndex).padStart(3, '0')}.jpg`),
-                        await session.screenshot(),
-                      );
-                    }
+                    await writeFile(
+                      join(screenshots, `${String(++screenshotIndex).padStart(3, '0')}.jpg`),
+                      Buffer.from(data, 'base64'),
+                    );
                   } catch (error) {
                     screenshotErrors++;
                     if (screenshotErrorDetails.length < 20)
@@ -274,12 +284,15 @@ export async function main() {
                         message: String(error.message).slice(0, 500),
                       });
                   } finally {
-                    if (session)
+                    if (sessionId)
                       await observer
                         .send('Target.detachFromTarget', {
-                          sessionId: session.sessionId,
+                          sessionId,
                         })
-                        .catch(() => {});
+                        .catch(() => {
+                          screenshotDetachErrors++;
+                        });
+                    screenshotTimeMs += Date.now() - captureStarted;
                   }
                 }
               }
@@ -303,6 +316,8 @@ export async function main() {
           await readFile(join(workspace, 'dependencies.sha256'), 'utf8')
         ).trim(),
         screenshot_errors: screenshotErrors,
+        screenshot_time_ms: screenshotTimeMs,
+        screenshot_detach_errors: screenshotDetachErrors,
         screenshot_error_details: screenshotErrorDetails,
         retries: 0,
       },

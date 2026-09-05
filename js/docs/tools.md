@@ -33,7 +33,7 @@ const agent = await BrowserUse.create({
 });
 ```
 
-Custom tools execute in your application's process. They must honor their `AbortSignal`; the SDK cannot terminate arbitrary application callbacks. The names `javascript` and `finish` are reserved. Duplicate tool names fail before browser launch.
+Custom tools execute in your application's process. They must honor their `AbortSignal`; the SDK cannot terminate arbitrary application callbacks. The names `javascript`, `finish`, and `finish_from_js` are reserved. Duplicate tool names fail before browser launch.
 
 ## Stream progress
 
@@ -66,4 +66,8 @@ const agent = await BrowserUse.create({
 });
 ```
 
-This hook can reject any tool call before it executes. It is not a semantic security filter for arbitrary JavaScript: code can perform many actions inside one call. Put consequential operations behind explicit application tools and enforce access at the network/account boundary.
+This hook can reject any tool call before it executes. Both `javascript` and `finish_from_js` execute generated code; a policy that restricts code execution must handle both names. The latter receives an `expression`, not a literal result. It is not a semantic security filter for arbitrary JavaScript: code can perform many actions inside one call. Put consequential operations behind explicit application tools and enforce access at the network/account boundary.
+
+## Loop endings and delivery repair
+
+`onEvent` receives native Pi events. A run that needs the single missing-finish repair emits `agent_end` for the initial loop and again for the repair loop. Await `agent.run()` for the SDK's terminal result; do not treat the first `agent_end` as a delivered answer. `result.finishRepairs` records whether the extra turn was used, and its usage is included in the run totals.

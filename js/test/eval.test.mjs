@@ -174,6 +174,8 @@ test('adapter uses real CDP with stubbed cloud/model/telemetry and cleans up', a
     assert.equal(result.metadata.stop_reason, 'completed');
     assert.equal(result.metrics.steps, 2);
     assert.equal(result.metadata.screenshot_errors, 0);
+    assert.equal(result.metadata.screenshot_detach_errors, 0);
+    assert.ok(result.metadata.screenshot_time_ms > 0);
     assert.ok(result.artifacts.some((path) => path.endsWith('.jpg')));
     assert.equal(await readFile(join(dir, 'agent_outputs/proof.txt'), 'utf8'), 'Saved 1 time(s)');
     assert.equal(stops, 1);

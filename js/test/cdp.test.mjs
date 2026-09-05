@@ -1,4 +1,4 @@
-import { test, before, after } from 'node:test';
+import { test, before, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { CDP, Page } from '../dist/index.js';
 import { openBrowser } from '../dist/browser.js';
@@ -62,6 +62,31 @@ test('strict matching, overlay guards, stale ids, unicode and replacement input'
     page.waitFor(() => false, undefined, { timeoutMs: 30 }),
     /exceeded 30 ms/,
   );
+});
+test('failed page initialization detaches only its new session and preserves the original error', async () => {
+  for (const failingMethod of ['Page.enable', 'Runtime.enable']) {
+    const failure = new Error(`Injected ${failingMethod} timeout`);
+    const send = cdp.send.bind(cdp);
+    let attached;
+    const detached = cdp.waitFor('Target.detachedFromTarget', {
+      predicate: (event) => event.sessionId === attached,
+    });
+    const patch = mock.method(cdp, 'send', async (method, params, sessionId) => {
+      if (method === failingMethod && sessionId === attached) throw failure;
+      const result = await send(method, params, sessionId);
+      if (method === 'Target.attachToTarget') attached = result.sessionId;
+      return result;
+    });
+    try {
+      await assert.rejects(Page.attach(cdp, page.targetId), (error) => error === failure);
+      assert.equal((await detached).sessionId, attached);
+      assert.notEqual(attached, page.sessionId);
+      // The caller's existing session and browser remain usable.
+      assert.equal((await page.info()).url, 'data:text/html,new document');
+    } finally {
+      patch.mock.restore();
+    }
+  }
 });
 test('command deadline rejects; closing rejects pending commands without crashing host', async () => {
   const short = await CDP.connect(chrome.endpoint, 100);

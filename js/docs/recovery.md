@@ -43,6 +43,8 @@ The SDK does not replay browser actions. A JavaScript delivery expression remain
 | Chrome exits                | Cannot preserve browser state        | Lost                                         | Reconnect fails explicitly |
 | `close()`                   | Discarded                            | Owned browser closes; external browser stays | Artifacts retained         |
 
+If page attachment fails after Chrome creates a protocol session, the SDK attempts to detach that session before returning the original error. It does not close the tab or caller-owned connection.
+
 A new worker reconnects to the primary tab by Chrome target ID. It never automatically replays the failed cell. The agent is instructed to inspect the current page before retrying a mutation. If the tab no longer exists, a fresh tab is created; do not assume the previous page survived.
 
 ## Cancel a task
