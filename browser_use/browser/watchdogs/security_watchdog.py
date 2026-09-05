@@ -196,9 +196,21 @@ class SecurityWatchdog(BaseWatchdog):
 			# Invalid URL
 			return False
 
-		# Allow data: and blob: URLs (they don't have hostnames)
+		# data: and blob: URLs carry no hostname, so they bypass domain checks by
+		# construction. Allow them only when no domain restrictions are configured:
+		# with a restriction in place, a data: URL can embed script that redirects
+		# or exfiltrates past the allowlist.
 		if parsed.scheme in ['data', 'blob']:
-			return True
+			if (
+				not self.browser_session.browser_profile.allowed_domains
+				and not self.browser_session.browser_profile.prohibited_domains
+			):
+				return True
+			if parsed.scheme == 'data':
+				return False
+			# blob: URLs encode their origin as blob:<origin>/<uuid> — only allow
+			# when the origin itself passes the domain checks.
+			return self._is_url_allowed(url[5:])
 
 		# Get the actual host (domain)
 		host = parsed.hostname
