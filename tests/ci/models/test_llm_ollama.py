@@ -16,9 +16,18 @@ class Answer(BaseModel):
 	answer: str
 
 
-def _client_returning(content: str) -> MagicMock:
+def _client_returning(content: str, **counts) -> MagicMock:
+	# A real ChatResponse, not a bare MagicMock: a Mock exposes truthy attributes
+	# for prompt_eval_count and eval_count, which pydantic then coerces to 1 and
+	# the fixture silently reports usage the server never sent.
+	response = ChatResponse(
+		model='test-model',
+		done=True,
+		message=Message(role='assistant', content=content),
+		**counts,
+	)
 	client = MagicMock()
-	client.chat = AsyncMock(return_value=MagicMock(message=MagicMock(content=content)))
+	client.chat = AsyncMock(return_value=response)
 	return client
 
 
@@ -114,3 +123,12 @@ def test_a_fully_cached_prompt_still_reports_its_completion():
 	assert usage.prompt_tokens == 0
 	assert usage.completion_tokens == 120
 	assert usage.total_tokens == 120
+
+
+def test_usage_is_none_when_only_one_count_is_present():
+	"""A missing count must not be reported as zero; zero is a real value here."""
+	model = ChatOllama(model='qwen3')
+	base = dict(model='qwen3', done=True, message=Message(role='assistant', content='hi'))
+
+	assert model._get_usage(ChatResponse(**base, prompt_eval_count=350)) is None
+	assert model._get_usage(ChatResponse(**base, eval_count=120)) is None

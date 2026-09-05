@@ -107,10 +107,11 @@ class ChatOllama(BaseChatModel):
 		"""
 		prompt_tokens = response.prompt_eval_count
 		completion_tokens = response.eval_count
-		if prompt_tokens is None and completion_tokens is None:
+		# Only report when both are real values. Coercing a missing count to 0 would
+		# be indistinguishable from a genuine 0, which is what a fully cached prompt
+		# reports, and would understate usage rather than omit it.
+		if prompt_tokens is None or completion_tokens is None:
 			return None
-		prompt_tokens = prompt_tokens or 0
-		completion_tokens = completion_tokens or 0
 		return ChatInvokeUsage(
 			prompt_tokens=prompt_tokens,
 			completion_tokens=completion_tokens,
