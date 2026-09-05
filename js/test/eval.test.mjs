@@ -4,8 +4,12 @@ import { parseOptions, resultEnvelope } from '../eval/run.mjs';
 
 test('eval options reject unknown settings, invalid budgets and browser expiry', () => {
   assert.equal(parseOptions({}).reasoning_effort, 'medium');
+  assert.equal(parseOptions({}).max_context_chars, 800000);
   for (const options of [
     { typo: true },
+    { max_context_chars: NaN },
+    { max_context_chars: 0 },
+    { max_context_chars: 3000001 },
     { task_timeout_seconds: NaN },
     { browser_timeout_minutes: 1 },
     { reasoning_effort: 'wat' },

@@ -59,3 +59,9 @@ This is a functional smoke, not a benchmark. Broader accuracy claims require a f
 The docs were inspected at desktop and 390 px mobile widths. Model selection updates the copyable example. The mobile layout has no horizontal overflow. Source formatting, strict TypeScript checks, the docs production build, and the package dependency audit are part of the verification commands above.
 
 The surrounding eval platform's 74 Python tests and 31 UI tests pass. Its UI typecheck/build pass. Two existing Ruff violations in `harnesses/browser-use-harness-sdk/run.py` remain outside this package's scope.
+
+## Hosted smoke findings
+
+The first two-task Internal Bench Hard smoke ran against commit `789c3f3` on September 5, 2026. The FAA task reached the SDK's default 240,000-character guard after 24 model turns, before producing its CSV. The eval adapter now exposes `max_context_chars`, set to 800,000 for GPT-5.5. This changes the evaluation configuration; it does not retroactively change that failed outcome. The SDK's general-purpose default remains 240,000.
+
+The historical Python/Pi run did not enforce the platform's advertised 35-step limit: 43 of 106 tasks used more than 35 model turns, with a maximum of 89. The full candidate uses a 1,000-turn safety ceiling and a 1,700-second agent deadline within a 30-minute platform budget. The old agent had a 1,770-second deadline. The dataset hash, model, reasoning, judge, and browser proxy settings match; runtime versions, context behavior, runner provider, and execution date differ. This is a historical benchmark comparison, not a controlled contemporaneous A/B test.
