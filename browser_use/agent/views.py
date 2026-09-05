@@ -107,6 +107,181 @@ class PageFingerprint(BaseModel):
 		return PageFingerprint(url=url, element_count=element_count, text_hash=text_hash)
 
 
+ActionEvidenceOutcome = Literal['changed', 'no_change', 'navigation', 'failed', 'attention', 'unknown']
+ACTION_EVIDENCE_METADATA_KEY = 'action_evidence'
+NO_CHANGE_RECOVERY_HINT = (
+	'The action was dispatched and settled, but the page fingerprint did not change. '
+	'Consider re-observing the page, trying keyboard navigation, checking for overlays, '
+	'or choosing another element.'
+)
+
+
+class PageFingerprintDelta(BaseModel):
+	"""Fingerprint-level delta between two page observations."""
+
+	model_config = ConfigDict(frozen=True)
+
+	before: PageFingerprint | None = None
+	after: PageFingerprint | None = None
+	url_changed: bool = False
+	text_changed: bool = False
+	element_count_delta: int | None = None
+	observed_delta: list[str] = Field(default_factory=list)
+	missing_fingerprints: list[str] = Field(default_factory=list)
+
+	@classmethod
+	def between(
+		cls,
+		before: PageFingerprint | None,
+		after: PageFingerprint | None,
+	) -> PageFingerprintDelta:
+		"""Compare two page fingerprints and describe the bounded observable delta."""
+		missing_fingerprints: list[str] = []
+		if before is None:
+			missing_fingerprints.append('missing_before_fingerprint')
+		if after is None:
+			missing_fingerprints.append('missing_after_fingerprint')
+
+		if missing_fingerprints:
+			return cls(before=before, after=after, missing_fingerprints=missing_fingerprints)
+
+		assert before is not None
+		assert after is not None
+		url_changed = before.url != after.url
+		text_changed = before.text_hash != after.text_hash
+		element_count_delta = after.element_count - before.element_count
+
+		observed_delta: list[str] = []
+		if url_changed:
+			observed_delta.append('url_changed')
+		if text_changed:
+			observed_delta.append('text_changed')
+		if element_count_delta != 0:
+			observed_delta.append(f'element_count_delta:{element_count_delta:+d}')
+
+		return cls(
+			before=before,
+			after=after,
+			url_changed=url_changed,
+			text_changed=text_changed,
+			element_count_delta=element_count_delta,
+			observed_delta=observed_delta,
+		)
+
+	@property
+	def is_complete(self) -> bool:
+		"""Whether both before and after fingerprints were available."""
+		return not self.missing_fingerprints
+
+	@property
+	def has_changes(self) -> bool:
+		"""Whether the fingerprint delta contains any observable page change."""
+		return bool(self.url_changed or self.text_changed or self.element_count_delta not in (None, 0))
+
+
+def _default_recovery_hint(outcome: ActionEvidenceOutcome) -> str | None:
+	"""Return a bounded recovery hint for outcomes that need agent attention."""
+	if outcome == 'no_change':
+		return NO_CHANGE_RECOVERY_HINT
+	if outcome == 'failed':
+		return 'The action was not dispatched successfully. Inspect the error and retry only if the target is still valid.'
+	if outcome == 'attention':
+		return 'The action was dispatched, but settlement evidence is incomplete. Re-observe the page before repeating it.'
+	if outcome == 'unknown':
+		return 'The action evidence is incomplete. Re-observe the page before deciding whether to repeat the action.'
+	return None
+
+
+class ActionEvidence(BaseModel):
+	"""Structured receipt describing what a browser action appeared to do."""
+
+	action_id: str = Field(default_factory=uuid7str, min_length=1)
+	action_name: str = Field(min_length=1)
+	target_summary: str | None = None
+	dispatched: bool
+	settled: bool | None = None
+	outcome: ActionEvidenceOutcome = 'unknown'
+	before_fingerprint: PageFingerprint | None = None
+	after_fingerprint: PageFingerprint | None = None
+	observed_delta: list[str] = Field(default_factory=list)
+	blocking_signals: list[str] = Field(default_factory=list)
+	recovery_hint: str | None = None
+
+	@classmethod
+	def from_page_delta(
+		cls,
+		action_name: str,
+		before_fingerprint: PageFingerprint | None,
+		after_fingerprint: PageFingerprint | None,
+		*,
+		action_id: str | None = None,
+		target_summary: str | None = None,
+		dispatched: bool = True,
+		settled: bool | None = True,
+		outcome: ActionEvidenceOutcome | None = None,
+		blocking_signals: list[str] | None = None,
+		recovery_hint: str | None = None,
+	) -> ActionEvidence:
+		"""Build action evidence from before/after page fingerprints."""
+		delta = PageFingerprintDelta.between(before_fingerprint, after_fingerprint)
+		signals = list(blocking_signals or [])
+		signals.extend(delta.missing_fingerprints)
+
+		if settled is False and 'not_settled' not in signals:
+			signals.append('not_settled')
+
+		resolved_outcome = outcome or _infer_action_evidence_outcome(
+			dispatched=dispatched,
+			settled=settled,
+			delta=delta,
+		)
+		resolved_recovery_hint = recovery_hint if recovery_hint is not None else _default_recovery_hint(resolved_outcome)
+
+		model_kwargs: dict[str, Any] = {
+			'action_name': action_name,
+			'target_summary': target_summary,
+			'dispatched': dispatched,
+			'settled': settled,
+			'outcome': resolved_outcome,
+			'before_fingerprint': before_fingerprint,
+			'after_fingerprint': after_fingerprint,
+			'observed_delta': delta.observed_delta,
+			'blocking_signals': signals,
+			'recovery_hint': resolved_recovery_hint,
+		}
+		if action_id is not None:
+			model_kwargs['action_id'] = action_id
+
+		return cls(**model_kwargs)
+
+
+def _infer_action_evidence_outcome(
+	*,
+	dispatched: bool,
+	settled: bool | None,
+	delta: PageFingerprintDelta,
+) -> ActionEvidenceOutcome:
+	"""Infer an action outcome from dispatch, settlement, and fingerprint delta."""
+	if not dispatched:
+		return 'failed'
+	if settled is False:
+		return 'attention'
+	if not delta.is_complete:
+		return 'unknown'
+	if delta.url_changed:
+		return 'navigation'
+	if delta.has_changes:
+		return 'changed'
+	return 'no_change'
+
+
+def with_action_evidence_metadata(metadata: dict[str, Any] | None, evidence: ActionEvidence) -> dict[str, Any]:
+	"""Return metadata with serialized action evidence under the standard key."""
+	merged_metadata = dict(metadata or {})
+	merged_metadata[ACTION_EVIDENCE_METADATA_KEY] = evidence.model_dump(mode='json')
+	return merged_metadata
+
+
 def _normalize_action_for_hash(action_name: str, params: dict[str, Any]) -> str:
 	"""Normalize action parameters for similarity hashing.
 
