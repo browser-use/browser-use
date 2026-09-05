@@ -180,7 +180,9 @@ def _preprocess_markdown_content(content: str, max_newlines: int = 3) -> tuple[s
 				try:
 					json.loads(stripped)
 					continue
-				except ValueError:
+				except (ValueError, RecursionError):
+					# RecursionError: nesting past json.loads' limit means it is not a
+					# blob we can parse, so keep the line rather than aborting extraction.
 					pass
 			filtered_lines.append(line)
 
