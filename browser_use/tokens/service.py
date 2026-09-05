@@ -227,7 +227,10 @@ class TokenCost:
 		if data is None:
 			return None
 
-		uncached_prompt_tokens = usage.prompt_tokens - (usage.prompt_cached_tokens or 0)
+		# Genuinely-new (uncached) input tokens = prompt_tokens minus the cache-read
+		# tokens they include. Clamped at 0 so malformed usage where cached_tokens
+		# exceeds prompt_tokens can't produce a negative count or cost.
+		uncached_prompt_tokens = max(0, usage.prompt_tokens - (usage.prompt_cached_tokens or 0))
 		pricing_multiplier = usage.pricing_multiplier or 1.0
 
 		cache_creation_5m_tokens = usage.prompt_cache_creation_5m_tokens
@@ -244,7 +247,7 @@ class TokenCost:
 			)
 
 		return TokenCostCalculated(
-			new_prompt_tokens=usage.prompt_tokens,
+			new_prompt_tokens=uncached_prompt_tokens,
 			new_prompt_cost=uncached_prompt_tokens * (data.input_cost_per_token or 0) * pricing_multiplier,
 			# Cached tokens
 			prompt_read_cached_tokens=usage.prompt_cached_tokens,
