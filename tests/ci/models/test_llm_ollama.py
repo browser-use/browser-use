@@ -128,7 +128,10 @@ def test_a_fully_cached_prompt_still_reports_its_completion():
 def test_usage_is_none_when_only_one_count_is_present():
 	"""A missing count must not be reported as zero; zero is a real value here."""
 	model = ChatOllama(model='qwen3')
-	base = dict(model='qwen3', done=True, message=Message(role='assistant', content='hi'))
+	message = Message(role='assistant', content='hi')
 
-	assert model._get_usage(ChatResponse(**base, prompt_eval_count=350)) is None
-	assert model._get_usage(ChatResponse(**base, eval_count=120)) is None
+	prompt_only = ChatResponse(model='qwen3', done=True, message=message, prompt_eval_count=350)
+	completion_only = ChatResponse(model='qwen3', done=True, message=message, eval_count=120)
+
+	assert model._get_usage(prompt_only) is None
+	assert model._get_usage(completion_only) is None
