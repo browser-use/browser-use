@@ -47,11 +47,15 @@ async def test_prose_from_a_custom_endpoint_names_the_endpoint():
 
 @pytest.mark.parametrize(
 	'content',
-	['{"headline": "Cats are', '{"title": "Cats"}', '[]'],
-	ids=['truncated', 'wrong-shape', 'wrong-type'],
+	['{"headline": "Cats are', '{"title": "Cats"}', '[]', '123', '"not an object"', 'true', 'null'],
+	ids=['truncated', 'wrong-shape', 'wrong-type', 'int', 'string', 'bool', 'null'],
 )
 async def test_broken_json_keeps_the_original_error(content):
-	"""The model tried to produce JSON and failed, which is the model's problem."""
+	"""The endpoint produced JSON that does not match the schema.
+
+	Includes bare scalars, which are valid JSON and so are the model's problem
+	rather than evidence that the endpoint dropped the schema.
+	"""
 	with pytest.raises(ModelProviderError) as exc:
 		await _invoke(content, base_url='http://localhost:9/v1')
 

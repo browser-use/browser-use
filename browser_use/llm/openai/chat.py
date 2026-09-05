@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -22,8 +23,23 @@ T = TypeVar('T', bound=BaseModel)
 
 
 def _looks_like_json(text: str) -> bool:
-	"""Did the endpoint attempt JSON at all, or is this prose?"""
-	return (text or '').strip().startswith(('{', '['))
+	"""Did the endpoint attempt JSON at all, or is this prose?
+
+	Two ways to count as an attempt: it opens an object or array, so the model was
+	producing JSON even if the reply is truncated, or it parses as a bare scalar
+	such as `123` or `"text"`, which is valid JSON in the wrong shape. Both are the
+	model's problem rather than the endpoint's, and must keep the original error.
+	"""
+	stripped = (text or '').strip()
+	if not stripped:
+		return False
+	if stripped.startswith(('{', '[')):
+		return True  # an attempt, even if truncated or malformed
+	try:
+		json.loads(stripped)
+	except ValueError:
+		return False
+	return True  # a bare scalar is valid JSON, just the wrong shape
 
 
 @dataclass
@@ -316,7 +332,8 @@ class ChatOpenAI(BaseChatModel):
 								f'endpoint at {self.base_url} may not support '
 								'response_format=json_schema; many OpenAI-compatible servers accept '
 								'the field and ignore it. Try '
-								'ChatOpenAI(..., add_schema_to_system_prompt=True). '
+								'ChatOpenAI(..., add_schema_to_system_prompt=True), or '
+								'dont_force_structured_output=True to parse the reply yourself. '
 								f'Response began: {choice.message.content.strip()[:120]!r}'
 							),
 							model=self.name,
