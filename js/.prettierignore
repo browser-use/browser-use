@@ -1,0 +1,7 @@
+node_modules
+artifacts
+dist
+docs/.vitepress/cache
+docs/.vitepress/dist
+package-lock.json
+evidence

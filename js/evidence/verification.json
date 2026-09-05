@@ -1,0 +1,55 @@
+{
+  "package": "@browser-use/next@0.1.0",
+  "browser_transport": "raw CDP over Node WebSocket; no Playwright dependency",
+  "repl_boundary": "child process with empty environment and explicit heap-limit argument",
+  "sdkTests": {
+    "passed": 35,
+    "failed": 0,
+    "nodeVersions": [
+      "22.19.0",
+      "24.5.0"
+    ],
+    "inference": "scripted; loopback provider transport; real local Chrome"
+  },
+  "checks": {
+    "strictTypes": "passed",
+    "format": "passed",
+    "docsBuild": "passed",
+    "npmAuditAdvisories": 0,
+    "separateApplicationInstall": "passed",
+    "externalTypeScriptConsumer": "passed"
+  },
+  "docsQA": {
+    "desktopWidth": 1440,
+    "mobileWidth": 390,
+    "horizontalOverflow": false,
+    "content": "raw CDP copy checked; desktop/mobile screenshots captured",
+    "scope": "existing interactive behavior retained; this turn checked updated content/layout"
+  },
+  "demo": {
+    "modelResponses": "scripted",
+    "status": "completed",
+    "modelTurns": 3,
+    "verifiedSaveCount": 1
+  },
+  "regressions": {
+    "crossOriginFrames": "Out-of-process targets enumerated and real iframe input checked",
+    "nativeCrash": "Node 22 inspector/GC fatal crash reproduced in worker-thread version; child-process implementation passes both versions and explicit process-kill recovery test"
+  },
+  "remoteEval": {
+    "status": "authorized; preparing immutable commits",
+    "plan": "eval-plan.json"
+  },
+  "platform": {
+    "pythonTests": 74,
+    "uiTests": 31,
+    "uiTypesAndBuild": "passed",
+    "ruff": "2 pre-existing violations in harnesses/browser-use-harness-sdk/run.py"
+  },
+  "release": {
+    "committed": false,
+    "pushed": false,
+    "published": false,
+    "note": "Previous tarball verification predates repository relocation; see package-install.txt."
+  }
+}

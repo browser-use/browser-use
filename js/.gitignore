@@ -1,0 +1,13 @@
+node_modules/
+dist/
+artifacts/
+.env
+*.tgz
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
+# Local run evidence stays on the evaluating machine.
+evidence/*.log
+evidence/eval-plan.json
+evidence/local-inference-blocker.json
+evidence/package-install.txt

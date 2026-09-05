@@ -1,0 +1,56 @@
+{
+  "name": "@browser-use/next",
+  "version": "0.1.0",
+  "description": "A small, programmable web agent. Pi models, persistent JavaScript, real browsers.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "examples",
+    "docs/*.md",
+    "DESIGN-REVIEW.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "test": "npm run build && node --test --test-concurrency=1 test/*.test.mjs",
+    "demo": "npm run build && node examples/local-demo.mjs",
+    "docs:dev": "vitepress dev docs --host 127.0.0.1",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs --host 127.0.0.1",
+    "prepack": "npm run build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
+    "devtools-protocol": "0.0.1692173",
+    "typebox": "1.3.7"
+  },
+  "devDependencies": {
+    "@lmnr-ai/lmnr": "0.8.45",
+    "@types/node": "^22.19.0",
+    "prettier": "3.9.6",
+    "typescript": "^5.9.3",
+    "vitepress": "^1.6.4"
+  },
+  "overrides": {
+    "vite": "6.4.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/browser-use/bu-pi.git"
+  }
+}
