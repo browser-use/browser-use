@@ -146,6 +146,19 @@ def test_system_messages_do_not_reach_the_conversation() -> None:
 	assert [message['role'] for message in bedrock_messages] == ['user']
 
 
+def test_empty_system_message_is_not_confused_with_no_system_message() -> None:
+	"""A system message whose content serializes to no blocks still counts as one.
+
+	Returning None for it would report the same thing as a conversation that carried no
+	system message at all, so the two cases stay distinguishable.
+	"""
+	messages: list[BaseMessage] = [SystemMessage(content=[]), UserMessage(content='Go.')]
+
+	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system == []
+
+
 def test_conversation_without_system_messages_has_no_system_field() -> None:
 	"""Without any system message the serializer returns None so the request omits `system`."""
 	messages: list[BaseMessage] = [UserMessage(content='Go.')]
