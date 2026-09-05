@@ -6,14 +6,14 @@ from typing import Any, TypeVar, overload
 
 import httpx
 from ollama import AsyncClient as OllamaAsyncClient
-from ollama import Options
+from ollama import ChatResponse, Options
 from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.ollama.serializer import OllamaMessageSerializer
-from browser_use.llm.views import ChatInvokeCompletion
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
 logger = logging.getLogger(__name__)
@@ -97,6 +97,29 @@ class ChatOllama(BaseChatModel):
 		model_options = {key: value for key, value in options.items() if key not in extracted}
 		return model_options, top_level
 
+	@staticmethod
+	def _get_usage(response: ChatResponse) -> ChatInvokeUsage | None:
+		"""Ollama reports token counts as prompt_eval_count and eval_count.
+
+		Both are optional: streaming chunks carry them only on the last chunk. This
+		client always requests a non-streaming response, but a reply without them is
+		still possible, and reporting nothing is better than reporting zero.
+		"""
+		prompt_tokens = response.prompt_eval_count
+		completion_tokens = response.eval_count
+		if prompt_tokens is None and completion_tokens is None:
+			return None
+		prompt_tokens = prompt_tokens or 0
+		completion_tokens = completion_tokens or 0
+		return ChatInvokeUsage(
+			prompt_tokens=prompt_tokens,
+			completion_tokens=completion_tokens,
+			total_tokens=prompt_tokens + completion_tokens,
+			prompt_cached_tokens=None,
+			prompt_cache_creation_tokens=None,
+			prompt_image_tokens=None,
+		)
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
@@ -120,7 +143,7 @@ class ChatOllama(BaseChatModel):
 					**top_level,
 				)
 
-				return ChatInvokeCompletion(completion=response.message.content or '', usage=None)
+				return ChatInvokeCompletion(completion=response.message.content or '', usage=self._get_usage(response))
 
 			schema = output_format.model_json_schema()
 			response = await self.get_client().chat(
@@ -140,7 +163,7 @@ class ChatOllama(BaseChatModel):
 					model=self.name,
 				) from e
 
-			return ChatInvokeCompletion(completion=parsed, usage=None)
+			return ChatInvokeCompletion(completion=parsed, usage=self._get_usage(response))
 
 		except ModelProviderError:
 			raise

@@ -3,6 +3,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from ollama import ChatResponse
+from ollama._types import Message
 from pydantic import BaseModel
 
 from browser_use.llm.exceptions import ModelProviderError
@@ -69,3 +71,46 @@ async def test_truncated_json_raises_model_provider_error():
 		await llm.ainvoke([UserMessage(content='hi')], output_format=Answer)
 
 	assert 'Invalid JSON' in exc_info.value.message or 'invalid JSON' in exc_info.value.message.lower()
+
+
+def test_usage_is_reported_from_eval_counts():
+	"""Ollama returns the counts as prompt_eval_count / eval_count."""
+	response = ChatResponse(
+		model='qwen3',
+		done=True,
+		message=Message(role='assistant', content='hi'),
+		prompt_eval_count=350,
+		eval_count=120,
+	)
+
+	usage = ChatOllama(model='qwen3')._get_usage(response)
+
+	assert usage is not None
+	assert usage.prompt_tokens == 350
+	assert usage.completion_tokens == 120
+	assert usage.total_tokens == 470
+
+
+def test_usage_is_none_when_the_response_carries_no_counts():
+	"""Both fields are Optional; reporting nothing beats reporting zero."""
+	response = ChatResponse(model='qwen3', done=True, message=Message(role='assistant', content='hi'))
+
+	assert ChatOllama(model='qwen3')._get_usage(response) is None
+
+
+def test_a_fully_cached_prompt_still_reports_its_completion():
+	"""prompt_eval_count is 0 when the whole prompt was already in cache."""
+	response = ChatResponse(
+		model='qwen3',
+		done=True,
+		message=Message(role='assistant', content='hi'),
+		prompt_eval_count=0,
+		eval_count=120,
+	)
+
+	usage = ChatOllama(model='qwen3')._get_usage(response)
+
+	assert usage is not None
+	assert usage.prompt_tokens == 0
+	assert usage.completion_tokens == 120
+	assert usage.total_tokens == 120
