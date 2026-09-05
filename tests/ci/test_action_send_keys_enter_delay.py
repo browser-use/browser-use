@@ -82,10 +82,10 @@ class TestSendKeysEnterDelay:
 		await tools.send_keys(keys='center', browser_session=browser_session)
 		elapsed = time.monotonic() - start
 
-		# 6 chars * 10ms each = 60ms base, plus overhead. Without the bug fix
-		# this would add an extra 100ms from the false Enter detection.
-		# Allow generous margin for CI but catch the 100ms penalty.
-		assert elapsed < 0.5, f'send_keys("center") took {elapsed:.3f}s, suspected false Enter delay'
+		# Fixed case: ~60ms (6 chars * 10ms) + CDP overhead.
+		# Buggy case: ~160ms (adds 100ms false Enter penalty).
+		# Threshold sits between the two so the test catches the regression.
+		assert elapsed < 0.15, f'send_keys("center") took {elapsed:.3f}s, suspected false Enter delay'
 
 	async def test_actual_enter_key_still_waits(self, tools: Tools, browser_session: BrowserSession, base_url: str):
 		"""Sending 'Enter' must still trigger the post-Enter delay."""
