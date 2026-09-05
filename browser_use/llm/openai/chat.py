@@ -332,8 +332,7 @@ class ChatOpenAI(BaseChatModel):
 								f'endpoint at {self.base_url} may not support '
 								'response_format=json_schema; many OpenAI-compatible servers accept '
 								'the field and ignore it. Try '
-								'ChatOpenAI(..., add_schema_to_system_prompt=True), or '
-								'dont_force_structured_output=True to parse the reply yourself. '
+								'ChatOpenAI(..., add_schema_to_system_prompt=True). '
 								f'Response began: {choice.message.content.strip()[:120]!r}'
 							),
 							model=self.name,
