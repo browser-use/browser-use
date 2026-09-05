@@ -32,7 +32,7 @@ Your system has an orchestrator — some agent, pipeline, or workflow engine tha
 | Your agent type | Best approach |
 |----------------|---------------|
 | CLI coding agent in sandbox (Claude Code, Codex, OpenCode, Cline, Windsurf, Cursor bg, Hermes, OpenClaw) | [CLI cloud passthrough](#shell-command-agents-cli) |
-| Python framework (LangChain, CrewAI, AutoGen, PydanticAI, custom) | [Python Agent wrapper](#python-framework-agents) |
+| Python framework (LangChain, CrewAI, AutoGen, PydanticAI, custom) | [Python Agent wrapper](#python-agents-cloud-sdk) |
 | TypeScript/JS (Vercel AI SDK, LangChain.js, custom) | [Cloud SDK](#typescriptjs-agents) |
 | MCP client (Claude Desktop, Cursor with MCP) | [MCP browser_task tool](#mcp-native-agents) |
 | Workflow engine (n8n, Make, Zapier, Temporal) or any HTTP client | [Cloud REST API](#http--workflow-engines) |
