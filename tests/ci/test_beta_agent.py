@@ -2385,6 +2385,26 @@ def test_rust_history_extracts_fenced_structured_output():
 	assert history.structured_output.answer == 'ok'
 
 
+def test_rust_history_rejects_invalid_structured_output_done():
+	from browser_use.beta.service import _history_from_events
+
+	class Answer(BaseModel):
+		answer: str
+
+	history = _history_from_events(
+		[{'event_type': 'session.done', 'payload': {'result': 'Result files:\n- final_answer.json'}}],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=Answer,
+		process_error=None,
+	)
+
+	assert history.final_result() is None
+	assert history.is_done() is False
+	assert history.errors() == ['Rust terminal final result did not match output schema Answer.']
+
+
 def test_rust_history_reconstructs_terminal_agent_completed_result():
 	from browser_use.beta.service import _history_from_events
 
