@@ -26,7 +26,7 @@ Page-attachment failure tests inject failures in both domain-initialization comm
 
 ## Hosted-model evaluation
 
-The SDK has run real GPT-5.5 inference on Internal Bench Hard, with raw-CDP cloud browsers, recorded Pi model/tool spans, artifact evidence, and the independent Laith outcome judge. The updated two-task smoke passed **2/2**. See [the benchmark report](/benchmark) for the full run, exact commits, costs, failure analysis, and comparison limits.
+The SDK has run real GPT-5.5 inference on Internal Bench Hard, with raw-CDP cloud browsers, recorded Pi model/tool spans, artifact evidence, and the independent Laith outcome judge. The delivery candidate passed **91/106** versus **76/106** for the fresh frozen SDK baseline. The later attachment/recorder change passed a separate **2/2** smoke; its runtime has not received a full 106-task run. See [the benchmark report](/benchmark) for exact commits, costs, failure analysis, and comparison limits.
 
 Local tests prove specific browser and lifecycle contracts. They do not prove broad web accuracy, factual correctness, complete replay coverage, or production reliability. No production qualification has been performed. The earlier 89/106 Browser Harness and 88/106 Playwright scores belong to different implementations.
 
@@ -63,3 +63,5 @@ This is a functional smoke, not a benchmark. Broader accuracy claims require a f
 The docs were inspected at desktop and 390 px mobile widths. Model selection updates the copyable example. The mobile layout has no horizontal overflow. Source formatting, strict TypeScript checks, the docs production build, and the package dependency audit are part of the verification commands above.
 
 The surrounding eval platform's 74 Python tests and 31 UI tests pass. Its UI typecheck/build pass. Two existing Ruff violations in `harnesses/browser-use-harness-sdk/run.py` remain outside this package's scope.
+
+The final runtime tarball was installed into a fresh application and checked with an actual ESM import plus a strict TypeScript consumer on Node 22.19.0. Package contents were checked to exclude private eval artifacts, environment files, dependencies, and eval-runner source.

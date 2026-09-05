@@ -29,6 +29,19 @@ The package is independent of the eval platform. It adds no platform orchestrati
 | Node minimum assumed from the SDK stack                               | Minimum set to Pi's actual 22.19 requirement and tested                 |
 | Stable docs dependency pulled a vulnerable Vite version               | Vite pinned to patched 6.4.3; package audit reports zero advisories     |
 
+## Delivery and lifecycle follow-up
+
+| Observed failure                                                             | Change                                                                                         | Remaining limit                                                                               |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Large extracted values were rewritten or truncated during final generation   | `finish_from_js` transports an existing JSON value through IPC and the shared schema validator | 16 MB ceiling; schema validation cannot prove coverage or truth                               |
+| Normal provider stops sometimes ended without a finish                       | One delivery-only repair turn under the original budgets                                       | No repair after errors, cancellation, or exhausted limits; native `agent_end` can occur twice |
+| Failed page initialization leaked an attached CDP session                    | Detach on either initialization failure while preserving the original exception                | Remote detach can itself fail; caller-owned sessions must survive                             |
+| Eval recorder enumerated targets and initialized a Page for every screenshot | Attach directly to the reported active target; record capture time and detach errors           | Screenshot timeouts still occur on cloud pages; telemetry is not free                         |
+
+Existing `finish` calls remain supported. `finish_from_js` evaluates model-generated Node code, so application authorization hooks must apply the same policy as for `javascript`. It is not a read-only lookup. Callers should await `run()` for the terminal SDK result rather than treating the first Pi `agent_end` event as final. No persisted state or public result-status migration is required.
+
+The full matched evaluation measures `58ed778`. The later attachment/recorder change at `a5f2157` has local regression coverage and a separate two-task hosted smoke; its effect on all 106 tasks has not been measured. See the benchmark report for exact outcomes.
+
 ## Documentation interface
 
 New interface; no existing customer UI was replaced.

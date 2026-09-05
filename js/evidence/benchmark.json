@@ -1,100 +1,430 @@
 {
-  "evaluation_id": "0ee87e4e-cffb-487b-b160-51ffb5709de4",
-  "registered": 106,
-  "judgments": {
-    "pass": 79,
-    "fail": 27
+  "comparison": "one contemporaneous matched pair; recorded end-to-end outcomes; not a SOTA ranking",
+  "audited_zero_score_error": {
+    "task_id": "v18kgy",
+    "reason": "Judge completed and found invalid generated script; adapter maps runtime-failure to error. Raw status and zero score retained."
   },
-  "agent_cost": 111.01092699999998,
-  "trace_cost": 166.02469199999996,
-  "stops": {
-    "completed": 90,
-    "incomplete": 16
+  "evaluations": {
+    "candidate": "5ab99c00-c360-4ab9-b0f8-ca58bf80e5e0",
+    "baseline": "d11df546-072c-40e1-b90d-a9c2cd39354a"
   },
-  "agent_statuses": {
-    "completed": 106
+  "denominator": 106,
+  "pairs": {
+    "fail->pass": [
+      "04k43s",
+      "5bwiko",
+      "5jtb9x",
+      "6dpbhs",
+      "7bo119",
+      "84xyjo",
+      "aoim45",
+      "f8cgvy",
+      "h42m44",
+      "hukwqv",
+      "ibljh7",
+      "nngh8r",
+      "ozctwj",
+      "p6vz41",
+      "r1dwwo",
+      "rlexdw",
+      "tteavt",
+      "y49e7e",
+      "y72ivg"
+    ],
+    "fail->fail": [
+      "0kqsos",
+      "0x65mu",
+      "55j2o7",
+      "afeyuh",
+      "az39pe",
+      "c856wp",
+      "jgzlma",
+      "l3gywi",
+      "mly4ly",
+      "q85jsg",
+      "v18kgy"
+    ],
+    "pass->pass": [
+      "0oxfq8",
+      "0qtl3q",
+      "0vgnxb",
+      "1b0z3n",
+      "2vxyzx",
+      "36zx1t",
+      "39e3nw",
+      "3d5iqv",
+      "3dd03u",
+      "3pt5r5",
+      "3qsqcq",
+      "3rzsj4",
+      "3w5uzb",
+      "4n89qk",
+      "4t60pl",
+      "6gvwrd",
+      "74rs7g",
+      "7ln23y",
+      "82kkzm",
+      "8hyexf",
+      "95g3v2",
+      "983ep9",
+      "9itn7s",
+      "ahxthv",
+      "asnwyw",
+      "axeqbn",
+      "cfzw0l",
+      "cj4t0s",
+      "dtjvzh",
+      "e7flqh",
+      "ekgysp",
+      "gatj9t",
+      "ggsnpu",
+      "gh3015",
+      "gymdm0",
+      "he7ur2",
+      "ijc1yd",
+      "iogxpb",
+      "j755nf",
+      "j9a3y3",
+      "k30lvy",
+      "m5zja8",
+      "mb5m9j",
+      "mbr5xq",
+      "mlgses",
+      "mvxpj4",
+      "n1u349",
+      "pvs7hz",
+      "q46nou",
+      "qewaou",
+      "qtxhi1",
+      "r2dhyl",
+      "r5l8a7",
+      "s3kkv9",
+      "snbti2",
+      "swebnv",
+      "t4p501",
+      "t9moge",
+      "taxp0w",
+      "togn1w",
+      "trp0j4",
+      "u0env5",
+      "ul1rsr",
+      "up8ijl",
+      "vgww4f",
+      "xsfh4g",
+      "y0bvr6",
+      "yjb1qx",
+      "yv37di",
+      "zcotoh",
+      "ze5r5u",
+      "zocfi4"
+    ],
+    "pass->fail": [
+      "eo2t8f",
+      "o74v1q",
+      "objlzy",
+      "sw2292"
+    ]
   },
-  "steps": {
-    "n": 106,
-    "min": 6,
-    "median": 31.5,
-    "p90_nearest_rank": 61,
-    "max": 101,
-    "total": 3618
-  },
-  "duration_seconds": {
-    "n": 106,
-    "min": 20.253,
-    "median": 212.376,
-    "p90_nearest_rank": 770.024,
-    "max": 1524.313,
-    "total": 35433.201
-  },
-  "node_versions": {
-    "v22.23.2": 106
-  },
-  "dependency_locks": {
-    "c6694c15c7ab43eba1ae55da26553f3a00c13156896269e63aa631363e41d007": 106
-  },
-  "stop_judge_matrix": [
-    {
-      "stop": "completed",
-      "judgment": "pass",
-      "count": 71
-    },
-    {
-      "stop": "completed",
-      "judgment": "fail",
-      "count": 19
-    },
-    {
-      "stop": "incomplete",
-      "judgment": "pass",
-      "count": 8
-    },
-    {
-      "stop": "incomplete",
-      "judgment": "fail",
-      "count": 8
-    }
+  "net_tasks": 15,
+  "delta_percentage_points": 14.150943396226415,
+  "paired_task_bootstrap_95_percentile_pp": [
+    5.660377358490566,
+    22.641509433962263
   ],
-  "saved_screenshots": 3098,
-  "evaluated_commit": "7ad464c9db872e3d0618662e6f08d40772b91b13",
+  "bootstrap_replicates": 20000,
+  "bootstrap_seed": 20260905,
+  "exact_mcnemar_two_sided_p": 0.002599477767944336,
+  "manifest_differences": {
+    "config_hash": {
+      "candidate": "de94f9b98c54cc03c68a740353098df760a6951ec062856ae187f98476dcd821",
+      "baseline": "d2111da8975d653216a15d1f07c1896d111e3ba6de0d7e5f8672557aa788a441"
+    },
+    "evaluation_id": {
+      "candidate": "5ab99c00-c360-4ab9-b0f8-ca58bf80e5e0",
+      "baseline": "d11df546-072c-40e1-b90d-a9c2cd39354a"
+    },
+    "github_run_id": {
+      "candidate": "33995420997",
+      "baseline": "33995448219"
+    },
+    "github_url": {
+      "candidate": "https://github.com/browser-use/new-eval-platform/actions/runs/33995420997",
+      "baseline": "https://github.com/browser-use/new-eval-platform/actions/runs/33995448219"
+    },
+    "target_sha": {
+      "candidate": "58ed778b575f8a1c13479a0552ddadc38eea03bc",
+      "baseline": "7ad464c9db872e3d0618662e6f08d40772b91b13"
+    }
+  },
+  "arms": {
+    "candidate": {
+      "judgments": {
+        "pass": 91,
+        "fail": 14,
+        "error": 1
+      },
+      "agent_cost": 123.630085,
+      "trace_cost": 182.65670900000003,
+      "stops": {
+        "completed": 106
+      },
+      "node_versions": {
+        "v22.23.2": 106
+      },
+      "lock_hashes": {
+        "c6694c15c7ab43eba1ae55da26553f3a00c13156896269e63aa631363e41d007": 106
+      },
+      "screenshot_errors": 601,
+      "execution_errors": {},
+      "empty_answers": 0,
+      "repair_tasks": 19,
+      "cleanup_error_tasks": 2,
+      "sdk_metrics_n": 106,
+      "median_steps": 30.5,
+      "median_duration_seconds": 222.131,
+      "saved_screenshots": 3181,
+      "tasks_with_screenshots": 106,
+      "failures": {
+        "wrong-record": 1,
+        "source-scope-drift": 1,
+        "site-blocked": 8,
+        "source-limited": 3,
+        "runtime-failure": 1,
+        "empty-result": 1
+      }
+    },
+    "baseline": {
+      "judgments": {
+        "fail": 30,
+        "pass": 76
+      },
+      "agent_cost": 114.95283099999996,
+      "trace_cost": 169.12814699999996,
+      "stops": {
+        "timeout": 2,
+        "completed": 91,
+        "incomplete": 12,
+        "unknown": 1
+      },
+      "node_versions": {
+        "v22.23.2": 105,
+        "null": 1
+      },
+      "lock_hashes": {
+        "c6694c15c7ab43eba1ae55da26553f3a00c13156896269e63aa631363e41d007": 105,
+        "null": 1
+      },
+      "screenshot_errors": 457,
+      "execution_errors": {
+        "ozctwj": "CDP discovery failed (503)."
+      },
+      "empty_answers": 5,
+      "repair_tasks": 0,
+      "cleanup_error_tasks": 1,
+      "sdk_metrics_n": 105,
+      "median_steps": 31,
+      "median_duration_seconds": 230.586,
+      "saved_screenshots": 2993,
+      "tasks_with_screenshots": 105,
+      "failures": {
+        "runner-no-result": 3,
+        "source-limited": 6,
+        "site-blocked": 9,
+        "output-format-violation": 1,
+        "source-scope-drift": 2,
+        "missing-required-fields": 2,
+        "listing-vs-detail": 1,
+        "result-final-mismatch": 2,
+        "synthetic-or-unsupported": 1,
+        "empty-result": 3
+      },
+      "empty_answers_after_inference": 4,
+      "empty_answers_before_inference": 1
+    }
+  },
+  "evaluated_commit": "58ed778b575f8a1c13479a0552ddadc38eea03bc",
+  "final_runtime_commit": "a5f2157e49476ffcde6520723d9524e7980ecca7",
   "platform_commit": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
   "dataset_sha256": "62ca711571e3337234efb54e7708d5768dec8c849bb8a2a54e010c4e31e988c4",
-  "configuration_hash": "d2111da8975d653216a15d1f07c1896d111e3ba6de0d7e5f8672557aa788a441",
-  "judgment_labels": {
-    "missing-required-fields": 2,
-    "wrong-record": 1,
-    "site-blocked": 8,
-    "empty-result": 7,
-    "result-final-mismatch": 4,
-    "source-scope-drift": 1,
-    "source-limited": 1,
-    "runner-no-result": 1,
-    "synthetic-or-unsupported": 2
+  "infrastructure_sensitivity": {
+    "excluded_union": [
+      "ozctwj"
+    ],
+    "denominator": 105,
+    "baseline_passes": 76,
+    "candidate_passes": 90,
+    "delta_pp": 13.333333333333334,
+    "reason": "Baseline CDP discovery HTTP 503 before inference; not an agent-reasoning failure."
   },
-  "cleanup_errors_reported": 1,
-  "tasks_with_screenshot_errors": 40,
-  "screenshot_errors": 417,
-  "tasks_with_screenshots": 105,
-  "empty_final_answers": 6,
-  "publication_recovery": {
-    "tasks": 1,
-    "method": "Unchanged original artifacts republished to same datapoint and trace via eval.py",
-    "agent_reruns": 0,
-    "judge_reruns": 0,
-    "github_workflow": "failure retained; original datapoint publication failed"
+  "interpretation_limits": [
+    "One paired run, not repeated-run uncertainty",
+    "One access-blocked task flipped judge interpretation",
+    "Live browser access varied",
+    "Dataset informed development; no held-out evaluation",
+    "Candidate raw error is an audited zero-score delivered-script syntax failure, retained unchanged"
+  ],
+  "cost_accounting": "Pinned Pi model catalog estimates. Agent cost excludes judge, browser, runner and separate smokes. Trace cost includes judge model spans.",
+  "original_baseline": {
+    "evaluation_id": "0ee87e4e-cffb-487b-b160-51ffb5709de4",
+    "registered": 106,
+    "judgments": {
+      "pass": 79,
+      "fail": 27
+    },
+    "agent_cost": 111.01092699999998,
+    "trace_cost": 166.02469199999996,
+    "stops": {
+      "completed": 90,
+      "incomplete": 16
+    },
+    "agent_statuses": {
+      "completed": 106
+    },
+    "steps": {
+      "n": 106,
+      "min": 6,
+      "median": 31.5,
+      "p90_nearest_rank": 61,
+      "max": 101,
+      "total": 3618
+    },
+    "duration_seconds": {
+      "n": 106,
+      "min": 20.253,
+      "median": 212.376,
+      "p90_nearest_rank": 770.024,
+      "max": 1524.313,
+      "total": 35433.201
+    },
+    "node_versions": {
+      "v22.23.2": 106
+    },
+    "dependency_locks": {
+      "c6694c15c7ab43eba1ae55da26553f3a00c13156896269e63aa631363e41d007": 106
+    },
+    "stop_judge_matrix": [
+      {
+        "stop": "completed",
+        "judgment": "pass",
+        "count": 71
+      },
+      {
+        "stop": "completed",
+        "judgment": "fail",
+        "count": 19
+      },
+      {
+        "stop": "incomplete",
+        "judgment": "pass",
+        "count": 8
+      },
+      {
+        "stop": "incomplete",
+        "judgment": "fail",
+        "count": 8
+      }
+    ],
+    "saved_screenshots": 3098,
+    "evaluated_commit": "7ad464c9db872e3d0618662e6f08d40772b91b13",
+    "platform_commit": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "dataset_sha256": "62ca711571e3337234efb54e7708d5768dec8c849bb8a2a54e010c4e31e988c4",
+    "configuration_hash": "d2111da8975d653216a15d1f07c1896d111e3ba6de0d7e5f8672557aa788a441",
+    "judgment_labels": {
+      "missing-required-fields": 2,
+      "wrong-record": 1,
+      "site-blocked": 8,
+      "empty-result": 7,
+      "result-final-mismatch": 4,
+      "source-scope-drift": 1,
+      "source-limited": 1,
+      "runner-no-result": 1,
+      "synthetic-or-unsupported": 2
+    },
+    "cleanup_errors_reported": 1,
+    "tasks_with_screenshot_errors": 40,
+    "screenshot_errors": 417,
+    "tasks_with_screenshots": 105,
+    "empty_final_answers": 6,
+    "publication_recovery": {
+      "tasks": 1,
+      "method": "Unchanged original artifacts republished to same datapoint and trace via eval.py",
+      "agent_reruns": 0,
+      "judge_reruns": 0,
+      "github_workflow": "failure retained; original datapoint publication failed"
+    },
+    "historical": {
+      "evaluation_id": "96a1ab87-f2ae-4e80-a361-2d6d2035a585",
+      "passed": 89,
+      "total": 106,
+      "agent_cost": 136.81249000000003,
+      "trace_cost": 190.65395100000003,
+      "new_passes": 8,
+      "regressions": 18,
+      "comparison": "historical; not a controlled contemporaneous A/B"
+    },
+    "accounting": "Model cost estimates; excludes browser and runner charges and separate smokes."
   },
-  "historical": {
-    "evaluation_id": "96a1ab87-f2ae-4e80-a361-2d6d2035a585",
-    "passed": 89,
-    "total": 106,
-    "agent_cost": 136.81249000000003,
-    "trace_cost": 190.65395100000003,
-    "new_passes": 8,
-    "regressions": 18,
-    "comparison": "historical; not a controlled contemporaneous A/B"
+  "smokes": {
+    "delivery": {
+      "evaluation_id": "b460681c-9601-45d2-bfe9-d7af4a63e4d5",
+      "evaluated_commit": "58ed778b575f8a1c13479a0552ddadc38eea03bc",
+      "registered": 2,
+      "judged": 2,
+      "judgments": {
+        "pass": 2
+      },
+      "agent_cost": 1.238372,
+      "trace_cost": 1.8655019999999998,
+      "screenshot_errors": 7,
+      "cleanup_error_tasks": 0,
+      "substituted_into_full_run": false
+    },
+    "attachment": {
+      "evaluation_id": "1605ab28-f4bc-449a-98a4-4cac5e4cc332",
+      "evaluated_commit": "a5f2157e49476ffcde6520723d9524e7980ecca7",
+      "registered": 2,
+      "judged": 2,
+      "judgments": {
+        "pass": 2
+      },
+      "agent_cost": 1.4976720000000001,
+      "trace_cost": 2.339199,
+      "screenshot_errors": 9,
+      "cleanup_error_tasks": 0,
+      "substituted_into_full_run": false,
+      "capture_time_ms": {
+        "82kkzm": 111053,
+        "mbr5xq": 9510
+      },
+      "screenshot_detach_errors": 0
+    }
   },
-  "accounting": "Model cost estimates; excludes browser and runner charges and separate smokes."
+  "workflow_conclusions": {
+    "candidate": {
+      "run_id": "33995420997",
+      "conclusion": "failure",
+      "failed_task_ids": [
+        "v18kgy"
+      ],
+      "reason": "Audited delivered-script syntax failure mapped by judge adapter to error."
+    },
+    "baseline": {
+      "run_id": "33995448219",
+      "conclusion": "failure",
+      "failed_task_ids": [
+        "ozctwj"
+      ],
+      "reason": "CDP discovery HTTP 503 before inference."
+    },
+    "attachment_smoke": {
+      "run_id": "33998180917",
+      "conclusion": "success"
+    }
+  },
+  "repair_pair_outcomes": {
+    "pass_to_pass": 14,
+    "fail_to_fail": 4,
+    "fail_to_pass": 1
+  },
+  "score_interpretation": "Laith binary scores; pass means score >= 0.5. Raw statuses preserved."
 }

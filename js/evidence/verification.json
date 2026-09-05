@@ -17,7 +17,8 @@
     "docsBuild": "passed",
     "npmAuditAdvisories": 0,
     "separateApplicationInstall": "passed",
-    "externalTypeScriptConsumer": "passed"
+    "externalTypeScriptConsumer": "passed",
+    "cleanConsumerNodeVersion": "22.19.0"
   },
   "docsQA": {
     "desktopWidth": 1440,
@@ -40,20 +41,37 @@
     "attachmentCleanup": "Real CDP detach events observed after injected Page.enable and Runtime.enable failures; original caller session remains usable"
   },
   "remoteEval": {
-    "status": "completed",
-    "evaluationId": "0ee87e4e-cffb-487b-b160-51ffb5709de4",
-    "githubRunId": "33989195407",
-    "evaluatedCommit": "7ad464c9db872e3d0618662e6f08d40772b91b13",
-    "passed": 79,
-    "failed": 27,
+    "status": "all 106 outcomes recorded",
+    "evaluationId": "5ab99c00-c360-4ab9-b0f8-ca58bf80e5e0",
+    "githubRunId": "33995420997",
+    "evaluatedCommit": "58ed778b575f8a1c13479a0552ddadc38eea03bc",
+    "passed": 91,
+    "failed": 14,
+    "auditedZeroScoreError": 1,
     "judged": 106,
     "report": "benchmark.json",
-    "smoke": {
-      "original": "0/2 at 35 turns and 240000 text chars",
-      "expanded": "2/2 at 1000 turns and 800000 text chars",
-      "substitutedIntoFullRun": false
+    "baselineEvaluationId": "d11df546-072c-40e1-b90d-a9c2cd39354a",
+    "baselinePassed": 76,
+    "finalRuntimeSmoke": {
+      "evaluation_id": "1605ab28-f4bc-449a-98a4-4cac5e4cc332",
+      "evaluated_commit": "a5f2157e49476ffcde6520723d9524e7980ecca7",
+      "registered": 2,
+      "judged": 2,
+      "judgments": {
+        "pass": 2
+      },
+      "agent_cost": 1.4976720000000001,
+      "trace_cost": 2.339199,
+      "screenshot_errors": 9,
+      "cleanup_error_tasks": 0,
+      "substituted_into_full_run": false,
+      "capture_time_ms": {
+        "82kkzm": 111053,
+        "mbr5xq": 9510
+      },
+      "screenshot_detach_errors": 0
     },
-    "scope": "Baseline runtime before direct-delivery and missing-finish changes; candidate evaluation pending"
+    "scope": "Full score measures delivery candidate 58ed778. Later attachment/recorder runtime a5f2157 has separate 2-task smoke, not a full benchmark."
   },
   "platform": {
     "pythonTests": 74,
@@ -65,8 +83,9 @@
     "committed": true,
     "pushed": true,
     "branch": "codex/raw-cdp-k7m2",
-    "evaluatedCommit": "7ad464c9db872e3d0618662e6f08d40772b91b13",
+    "evaluatedCommit": "58ed778b575f8a1c13479a0552ddadc38eea03bc",
     "publishedToNpm": false,
-    "productionQualified": false
+    "productionQualified": false,
+    "runtimeCommit": "a5f2157e49476ffcde6520723d9524e7980ecca7"
   }
 }

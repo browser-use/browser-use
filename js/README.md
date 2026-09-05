@@ -67,7 +67,7 @@ Your application → BrowserUse → Pi → model provider
 
 [Design decisions](docs/architecture.md) · [API reference](docs/api.md) · [Migration scope](docs/migration.md) · [Verification](docs/verification.md)
 
-**Internal Bench Hard: 79/106 passed (74.5%) with GPT-5.5.** All 106 tasks were judged; agent inference cost was an estimated **$111.01**. The historical Python + Browser Harness run scored **89/106**. This is a historical comparison, not a controlled A/B. [Results, failure analysis, and exact configuration](docs/benchmark.md).
+**Internal Bench Hard: 91/106 passed (85.8%) vs 76/106 (71.7%) for the fresh frozen SDK baseline.** Same model, task set, judge configuration, and budgets; 19 gains, 4 regressions. Estimated candidate agent cost: **$123.63**. This full score belongs to `58ed778`; the later cleanup change passed a separate 2/2 smoke. [Results, failure analysis, and exact configuration](docs/benchmark.md).
 
 ## Documentation
 
