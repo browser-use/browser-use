@@ -16,6 +16,13 @@ Example usage:
         args=["@mycompany/mcp-server@latest"]
     )
 
+    # Or connect to a remote Streamable HTTP server
+    mcp_client = MCPClient(
+        server_name="remote-server",
+        url="https://mcp.example.com/mcp",
+        headers={"Authorization": "Bearer YOUR_TOKEN"},
+    )
+
     # Register all MCP tools as browser-use actions
     await mcp_client.register_to_tools(tools)
 
@@ -25,7 +32,9 @@ Example usage:
 import asyncio
 import logging
 import time
+from contextlib import AsyncExitStack
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -40,6 +49,8 @@ logger = logging.getLogger(__name__)
 # Import MCP SDK
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 
 MCP_AVAILABLE = True
 
@@ -50,9 +61,12 @@ class MCPClient:
 	def __init__(
 		self,
 		server_name: str,
-		command: str,
+		command: str | None = None,
 		args: list[str] | None = None,
 		env: dict[str, str] | None = None,
+		*,
+		url: str | None = None,
+		headers: dict[str, str] | None = None,
 	):
 		"""Initialize MCP client.
 
@@ -61,14 +75,29 @@ class MCPClient:
 			command: Command to start the MCP server (e.g., "npx", "python")
 			args: Arguments for the command (e.g., ["@playwright/mcp@latest"])
 			env: Environment variables for the server process
+			url: Streamable HTTP endpoint, instead of a stdio command
+			headers: HTTP request headers, such as an Authorization header (HTTP only)
 		"""
+		if (command is None) == (url is None):
+			raise ValueError('Provide exactly one of command or url')
+		if url is not None:
+			parsed_url = urlsplit(url)
+			if parsed_url.scheme not in {'http', 'https'} or not parsed_url.hostname:
+				raise ValueError('url must be an HTTP or HTTPS endpoint')
+			if args is not None or env is not None:
+				raise ValueError('args and env are only supported with a stdio command')
+		elif headers is not None:
+			raise ValueError('headers are only supported with an HTTP url')
+
 		self.server_name = server_name
 		self.command = command
 		self.args = args or []
 		self.env = env
+		self.url = url
+		self.headers = dict(headers) if headers is not None else None
 
 		self.session: ClientSession | None = None
-		self._stdio_task = None
+		self._connection_task: asyncio.Task[None] | None = None
 		self._read_stream = None
 		self._write_stream = None
 		self._tools: dict[str, types.Tool] = {}
@@ -85,17 +114,17 @@ class MCPClient:
 
 		start_time = time.time()
 		error_msg = None
+		connection_task: asyncio.Task[None] | None = None
 
 		try:
-			logger.info(f"🔌 Connecting to MCP server '{self.server_name}': {self.command} {' '.join(self.args)}")
+			if self.url is not None:
+				logger.info(f"🔌 Connecting to MCP server '{self.server_name}' via Streamable HTTP")
+			else:
+				logger.info(f"🔌 Connecting to MCP server '{self.server_name}': {self.command} {' '.join(self.args)}")
 
-			# Create server parameters
-			server_params = StdioServerParameters(command=self.command, args=self.args, env=self.env)
-
-			# Start stdio client in background task
-			self._stdio_task = create_task_with_error_handling(
-				self._run_stdio_client(server_params), name='mcp_stdio_client', suppress_exceptions=True
-			)
+			# Keep transport and session contexts in the same background task.
+			connection_task = create_task_with_error_handling(self._run_client(), name='mcp_client', suppress_exceptions=True)
+			self._connection_task = connection_task
 
 			# Wait for connection to be established
 			retries = 0
@@ -110,8 +139,11 @@ class MCPClient:
 
 			logger.info(f"📦 Discovered {len(self._tools)} tools from '{self.server_name}': {list(self._tools.keys())}")
 
-		except Exception as e:
+		except (Exception, asyncio.CancelledError) as e:
 			error_msg = str(e)
+			if connection_task is not None:
+				connection_task.cancel()
+				await asyncio.gather(connection_task, return_exceptions=True)
 			raise
 		finally:
 			# Capture telemetry for connect action
@@ -119,7 +151,7 @@ class MCPClient:
 			self._telemetry.capture(
 				MCPClientTelemetryEvent(
 					server_name=self.server_name,
-					command=self.command,
+					command=self.command or 'streamable-http',
 					tools_discovered=len(self._tools),
 					version=get_browser_use_version(),
 					action='connect',
@@ -128,10 +160,20 @@ class MCPClient:
 				)
 			)
 
-	async def _run_stdio_client(self, server_params: StdioServerParameters):
-		"""Run the stdio client connection in a background task."""
+	async def _run_client(self) -> None:
+		"""Own the transport and session until disconnect is requested."""
 		try:
-			async with stdio_client(server_params) as (read_stream, write_stream):
+			async with AsyncExitStack() as stack:
+				if self.url is not None:
+					http_client = await stack.enter_async_context(create_mcp_http_client(headers=self.headers))
+					read_stream, write_stream = await stack.enter_async_context(
+						streamable_http_client(self.url, http_client=http_client)
+					)
+				else:
+					assert self.command is not None
+					server_params = StdioServerParameters(command=self.command, args=self.args, env=self.env)
+					read_stream, write_stream = await stack.enter_async_context(stdio_client(server_params))
+
 				self._read_stream = read_stream
 				self._write_stream = write_stream
 
@@ -175,15 +217,15 @@ class MCPClient:
 			self._connected = False
 			self._disconnect_event.set()
 
-			# Wait for stdio task to finish
-			if self._stdio_task:
+			# Wait for the transport task to finish
+			if self._connection_task:
 				try:
-					await asyncio.wait_for(self._stdio_task, timeout=2.0)
+					await asyncio.wait_for(self._connection_task, timeout=2.0)
 				except TimeoutError:
 					logger.warning(f"Timeout waiting for MCP server '{self.server_name}' to disconnect")
-					self._stdio_task.cancel()
+					self._connection_task.cancel()
 					try:
-						await self._stdio_task
+						await self._connection_task
 					except asyncio.CancelledError:
 						pass
 
@@ -199,7 +241,7 @@ class MCPClient:
 			self._telemetry.capture(
 				MCPClientTelemetryEvent(
 					server_name=self.server_name,
-					command=self.command,
+					command=self.command or 'streamable-http',
 					tools_discovered=0,  # Tools cleared on disconnect
 					version=get_browser_use_version(),
 					action='disconnect',
@@ -346,7 +388,7 @@ class MCPClient:
 					self._telemetry.capture(
 						MCPClientTelemetryEvent(
 							server_name=self.server_name,
-							command=self.command,
+							command=self.command or 'streamable-http',
 							tools_discovered=len(self._tools),
 							version=get_browser_use_version(),
 							action='tool_call',
@@ -394,7 +436,7 @@ class MCPClient:
 					self._telemetry.capture(
 						MCPClientTelemetryEvent(
 							server_name=self.server_name,
-							command=self.command,
+							command=self.command or 'streamable-http',
 							tools_discovered=len(self._tools),
 							version=get_browser_use_version(),
 							action='tool_call',
