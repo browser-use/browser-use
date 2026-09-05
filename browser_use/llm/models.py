@@ -108,7 +108,8 @@ def get_llm_by_name(model_name: str):
 		'mistral_medium': 'mistral-medium-latest',
 		'mistral_small': 'mistral-small-latest',
 		'codestral': 'codestral-latest',
-		'pixtral_large': 'pixtral-large-latest',
+		# Pixtral Large was retired; Mistral names Mistral Medium 3.5 as the replacement
+		'pixtral_large': 'mistral-medium-latest',
 	}
 	if model_name in mistral_aliases:
 		api_key = os.getenv('MISTRAL_API_KEY')
@@ -195,7 +196,7 @@ def get_llm_by_name(model_name: str):
 			'medium': 'mistral-medium-latest',
 			'small': 'mistral-small-latest',
 			'codestral': 'codestral-latest',
-			'pixtral-large': 'pixtral-large-latest',
+			'pixtral-large': 'mistral-medium-latest',
 		}
 		normalized_model_part = model_part.replace('_', '-')
 		resolved_model = mistral_map.get(normalized_model_part, model.replace('_', '-'))
