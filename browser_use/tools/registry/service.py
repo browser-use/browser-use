@@ -33,11 +33,15 @@ logger = logging.getLogger(__name__)
 class Registry(Generic[Context]):
 	"""Service for registering and managing actions"""
 
-	def __init__(self, exclude_actions: list[str] | None = None):
+	def __init__(self, exclude_actions: list[str] | None = None, context: Context | None = None):
 		self.registry = ActionRegistry()
 		self.telemetry = ProductTelemetry()
 		# Create a new list to avoid mutable default argument issues
 		self.exclude_actions = list(exclude_actions) if exclude_actions is not None else []
+		# Optional user-provided context object passed down from Agent(context=...).
+		# browser-use doesn't use this at all, it is only forwarded to actions that
+		# declare a `context` parameter (see SpecialActionParameters).
+		self.context = context
 
 	def exclude_action(self, action_name: str) -> None:
 		"""Exclude an action from the registry after initialization.
@@ -221,6 +225,11 @@ class Registry(Generic[Context]):
 								raise ValueError(f'Action {func.__name__} requires available_file_paths but none provided.')
 							elif param.name == 'file_system':
 								raise ValueError(f'Action {func.__name__} requires file_system but none provided.')
+							elif param.name == 'context':
+								raise ValueError(
+									f'Action {func.__name__} requires context but none provided. '
+									f'Pass context=... to Agent() or Tools().'
+								)
 							else:
 								raise ValueError(f"{func.__name__}() missing required special parameter '{param.name}'")
 						call_args.append(value)
@@ -240,6 +249,11 @@ class Registry(Generic[Context]):
 							raise ValueError(f'Action {func.__name__} requires available_file_paths but none provided.')
 						elif param.name == 'file_system':
 							raise ValueError(f'Action {func.__name__} requires file_system but none provided.')
+						elif param.name == 'context':
+							raise ValueError(
+								f'Action {func.__name__} requires context but none provided. '
+								f'Pass context=... to Agent() or Tools().'
+							)
 						else:
 							raise ValueError(f"{func.__name__}() missing required special parameter '{param.name}'")
 				else:
@@ -366,6 +380,7 @@ class Registry(Generic[Context]):
 
 			# Build special context dict
 			special_context = {
+				'context': self.context,
 				'browser_session': browser_session,
 				'page_extraction_llm': page_extraction_llm,
 				'available_file_paths': available_file_paths,
@@ -386,8 +401,10 @@ class Registry(Generic[Context]):
 				except Exception:
 					special_context['page_url'] = None
 
-				# Add cdp_client
-				special_context['cdp_client'] = browser_session.cdp_client
+				# Add cdp_client, but only when the browser is actually connected:
+				# BrowserSession.cdp_client asserts, and test doubles may not define the attr.
+				cdp_root = getattr(browser_session, '_cdp_client_root', None)
+				special_context['cdp_client'] = browser_session.cdp_client if cdp_root else None
 
 			# All functions are now normalized to accept kwargs only
 			# Call with params and unpacked special context
