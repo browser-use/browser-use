@@ -91,6 +91,49 @@ async def test_act_passes_through_fast_handler():
 
 
 @pytest.mark.asyncio
+async def test_before_action_receives_defaulted_parameters():
+	"""Governance receives the same effective parameters as the action handler."""
+	seen: list[dict[str, Any]] = []
+
+	async def before_action(_name: str, params: dict[str, Any]) -> None:
+		seen.append(params)
+
+	tools = Tools(before_action=before_action)
+
+	@tools.registry.action(description='Action with a default parameter')
+	async def action_with_default(value: str = 'default') -> ActionResult:
+		return ActionResult(extracted_content=value)
+
+	ActionModel = tools.registry.create_action_model()
+	action = ActionModel(**{'action_with_default': {}})
+	result = await tools.act(action, browser_session=None)  # type: ignore[arg-type]
+
+	assert result.extracted_content == 'default'
+	assert seen == [{'value': 'default'}]
+
+
+@pytest.mark.asyncio
+async def test_before_action_timeout_fails_closed():
+	"""A stalled async governance callback must not stall action execution."""
+	tools = Tools()
+
+	async def before_action(_name: str, _params: dict[str, Any]) -> None:
+		await asyncio.sleep(30)
+
+	tools.before_action = before_action
+
+	@tools.registry.action(description='Action blocked by a stalled policy')
+	async def governed_action() -> ActionResult:
+		return ActionResult(extracted_content='should not execute')
+
+	ActionModel = tools.registry.create_action_model()
+	action = ActionModel(**{'governed_action': {}})
+	result = await tools.act(action, browser_session=None, action_timeout=0.1)  # type: ignore[arg-type]
+
+	assert result.error == 'Action governed_action rejected: pre-action governance timed out'
+
+
+@pytest.mark.asyncio
 async def test_act_rejects_invalid_action_timeout_override():
 	"""An invalid action_timeout override (nan / inf / <=0) must fall back to
 	the default, not silently defeat the timeout (nan → immediate timeout,
