@@ -3,7 +3,7 @@
   "browser_transport": "raw CDP over Node WebSocket; no Playwright dependency",
   "repl_boundary": "child process with empty environment and explicit heap-limit argument",
   "sdkTests": {
-    "passed": 35,
+    "passed": 42,
     "failed": 0,
     "nodeVersions": [
       "22.19.0",
@@ -34,7 +34,9 @@
   },
   "regressions": {
     "crossOriginFrames": "Out-of-process targets enumerated and real iframe input checked",
-    "nativeCrash": "Node 22 inspector/GC fatal crash reproduced in worker-thread version; child-process implementation passes both versions and explicit process-kill recovery test"
+    "nativeCrash": "Node 22 inspector/GC fatal crash reproduced in worker-thread version; child-process implementation passes both versions and explicit process-kill recovery test",
+    "directDelivery": "455 records delivered exactly despite 100-character observation limit; invalid values rejected; no completion leakage; same-batch actions blocked",
+    "finishRepair": "Single extra delivery turn under original budgets; no repair on provider errors/cancellation/exhaustion; partial text retained"
   },
   "remoteEval": {
     "status": "completed",
@@ -49,7 +51,8 @@
       "original": "0/2 at 35 turns and 240000 text chars",
       "expanded": "2/2 at 1000 turns and 800000 text chars",
       "substitutedIntoFullRun": false
-    }
+    },
+    "scope": "Baseline runtime before direct-delivery and missing-finish changes; candidate evaluation pending"
   },
   "platform": {
     "pythonTests": 74,

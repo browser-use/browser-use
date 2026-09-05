@@ -128,6 +128,7 @@ test('model failures and plain unfinished answers are distinct from completion',
   const s = await session([
     fauxAssistantMessage('partial', { stopReason: 'error', errorMessage: 'provider unavailable' }),
     fauxAssistantMessage('I will start'),
+    fauxAssistantMessage('Still unfinished'),
   ]);
   try {
     const failure = await s.agent.run('Research');
@@ -241,6 +242,188 @@ test('native screenshot bytes do not consume the text-context budget', async () 
   try {
     const result = await s.agent.run('Inspect the page', { maxContextChars: 8000 });
     assert.equal(result.status, 'completed');
+  } finally {
+    await s.close();
+  }
+});
+
+test('delivers a large existing value exactly, independent of observation truncation', async () => {
+  const rows = Array.from({ length: 455 }, (_, id) => ({
+    id,
+    text: 'record-' + id + '-'.repeat(200),
+  }));
+  const s = await session(
+    [
+      call('javascript', {
+        code: `const rows = ${JSON.stringify(rows)}; console.log(JSON.stringify(rows))`,
+      }),
+      (context) => {
+        assert.match(context.messages.at(-1).content[0].text, /Truncated/);
+        return call('finish_from_js', { expression: 'rows' });
+      },
+    ],
+    { maxOutputChars: 100 },
+  );
+  try {
+    const result = await s.agent.run('Deliver every row', {
+      schema: Type.Array(Type.Object({ id: Type.Number(), text: Type.String() })),
+    });
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(result.output, rows);
+    assert.equal(result.text, JSON.stringify(rows));
+    assert.equal(result.finishRepairs, 0);
+  } finally {
+    await s.close();
+  }
+});
+
+test('runtime delivery rejects invalid and lossy values, then repairs without losing state', async () => {
+  const bad = [
+    '({count:"wrong"})',
+    '({count:NaN})',
+    '({count:undefined})',
+    '({count:1n})',
+    '(()=>{const a={};a.a=a;return a})()',
+  ];
+  const s = await session([
+    call('javascript', { code: 'const verified = {count:200}' }),
+    ...bad.map((expression, i) => (context) => {
+      if (i) assert.equal(context.messages.at(-1).isError, true);
+      return call('finish_from_js', { expression });
+    }),
+    (context) => {
+      assert.equal(context.messages.at(-1).isError, true);
+      return call('finish_from_js', { expression: 'verified' });
+    },
+    call('finish', { result: 'next run' }),
+  ]);
+  try {
+    const result = await s.agent.run('Count', { schema: Type.Object({ count: Type.Number() }) });
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(result.output, { count: 200 });
+    assert.equal((await s.agent.run('New task')).output, 'next run');
+  } finally {
+    await s.close();
+  }
+});
+
+test('runtime completion blocks later actions in the same model batch', async () => {
+  const s = await session([
+    call('javascript', { code: 'let mutations = 0; const answerText = "verified"' }),
+    fauxAssistantMessage(
+      [
+        fauxToolCall('finish_from_js', { expression: 'answerText' }),
+        fauxToolCall('javascript', { code: 'mutations++' }),
+      ],
+      { stopReason: 'toolUse' },
+    ),
+  ]);
+  try {
+    assert.equal((await s.agent.run('Deliver')).output, 'verified');
+    assert.equal((await s.agent.execute('mutations')).text, '0');
+  } finally {
+    await s.close();
+  }
+});
+
+test('one empty-ending repair delivers existing records with the same transcript and budgets', async () => {
+  const s = await session([
+    call('javascript', {
+      code: 'const records = Array.from({length:200}, (_,id)=>({id})); let mutations = 1',
+    }),
+    fauxAssistantMessage(''),
+    (context) => {
+      assert.match(context.messages.at(-1).content[0].text, /single delivery repair/);
+      assert.deepEqual(
+        context.tools.map((t) => t.name),
+        ['finish', 'finish_from_js'],
+      );
+      return call('finish_from_js', { expression: 'JSON.stringify(records)' });
+    },
+  ]);
+  try {
+    const result = await s.agent.run('Deliver all', { maxSteps: 3 });
+    assert.equal(result.status, 'completed');
+    assert.equal(JSON.parse(result.output).length, 200);
+    assert.equal(result.steps, 3);
+    assert.equal(result.finishRepairs, 1);
+    assert.equal((await s.agent.execute('mutations')).text, '1');
+  } finally {
+    await s.close();
+  }
+});
+
+test('missing-finish repair never resets exhausted step, cost, context or cancellation budgets', async () => {
+  for (const [options, expected] of [
+    [{ maxSteps: 1 }, 'max_steps'],
+    [
+      {
+        maxCostUsd: 0.01,
+        onEvent: (e) => {
+          if (e.type === 'message_end' && e.message.role === 'assistant')
+            e.message.usage.cost.total = 1;
+        },
+      },
+      'cost_limit',
+    ],
+    [{ maxContextChars: 100 }, 'context_limit'],
+  ]) {
+    const s = await session([fauxAssistantMessage(''), call('finish', { result: 'unreachable' })]);
+    try {
+      const result = await s.agent.run('Deliver', options);
+      assert.equal(result.status, expected);
+      assert.equal(result.finishRepairs, 0);
+      assert.equal(s.faux.state.callCount, 1);
+    } finally {
+      await s.close();
+    }
+  }
+  const controller = new AbortController();
+  const s = await session([fauxAssistantMessage('')]);
+  try {
+    const result = await s.agent.run('Deliver', {
+      signal: controller.signal,
+      onEvent: (e) => {
+        if (e.type === 'agent_end') controller.abort();
+      },
+    });
+    assert.equal(result.status, 'cancelled');
+    assert.equal(result.finishRepairs, 0);
+    assert.equal(s.faux.state.callCount, 1);
+  } finally {
+    await s.close();
+  }
+});
+
+test('repair is one turn even when it calls an invalid finish', async () => {
+  const s = await session([
+    fauxAssistantMessage('partial evidence'),
+    call('finish_from_js', { expression: 'undefined' }),
+    call('finish', { result: 'unreachable' }),
+  ]);
+  try {
+    const result = await s.agent.run('Deliver');
+    assert.equal(result.status, 'incomplete');
+    assert.equal(result.finishRepairs, 1);
+    assert.equal(result.text, 'partial evidence');
+    assert.equal(result.steps, 2);
+    assert.equal(s.faux.state.callCount, 2);
+  } finally {
+    await s.close();
+  }
+});
+
+test('repair remains under the original deadline', async () => {
+  const s = await session([
+    fauxAssistantMessage(''),
+    call('finish_from_js', { expression: 'await new Promise(()=>{})' }),
+  ]);
+  try {
+    await s.agent.execute('42');
+    const result = await s.agent.run('Deliver', { timeoutMs: 200 });
+    assert.equal(result.status, 'timeout');
+    assert.equal(result.finishRepairs, 1);
+    assert.equal((await s.agent.execute('42')).text, '42');
   } finally {
     await s.close();
   }

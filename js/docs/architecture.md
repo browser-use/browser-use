@@ -43,6 +43,10 @@ This is deliberately not durable memory or automatic compaction. Those require t
 
 Structured results are schema-validated before acceptance. A valid finish ends the run without requiring another model call. Subsequent actions in the same batch are blocked. Exhausting a limit does not manufacture success.
 
+`finish_from_js` adds a direct value channel from V8 to the host. The model supplies an expression such as `rows`, not a regenerated literal. JSON delivery has its own 16 MB ceiling and does not consume the observation text budget. This keeps extracted data intact through the delivery boundary.
+
+A normal stop without delivery gets one bounded repair turn with only delivery tools exposed. It retains the same transcript and budgets; provider errors are not retried by this repair. Observers receive the current target ID rather than guessing from Chrome target ordering.
+
 Schema validity is not factual correctness. Research results still need sources and outcome evaluation.
 
 ## Keep the integration surface native

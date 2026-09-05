@@ -50,6 +50,23 @@ const realm = createContext(
 if (executionContextId === undefined)
   throw new Error('Could not initialize the JavaScript context.');
 Object.assign(realm, {
+  // Reject values JSON would silently drop or change. Dates/toJSON use normal JSON semantics.
+  __serializeResult(value: unknown) {
+    const json = JSON.stringify(value, (_key, item: unknown) => {
+      if (
+        ['undefined', 'function', 'symbol', 'bigint'].includes(typeof item) ||
+        (typeof item === 'number' && !Number.isFinite(item))
+      )
+        throw new Error(
+          'Result must contain JSON values: no undefined, functions, symbols, bigint, or non-finite numbers.',
+        );
+      return item;
+    });
+    if (json === undefined) throw new Error('Result must be JSON serializable.');
+    if (Buffer.byteLength(json) > 16_000_000)
+      throw new Error('Result exceeds 16 MB; save an artifact and return its path.');
+    return json;
+  },
   process,
   Buffer,
   URL,
@@ -93,11 +110,11 @@ Object.assign(realm, {
 });
 realm.console = new (await import('node:console')).Console(sink, sink);
 
-async function evaluate(code: string): Promise<void> {
+async function evaluate(code: string, captureJson = false): Promise<string | undefined> {
   try {
     // V8 supports replMode; Node 22's generated protocol types omit this field.
     const parameters = {
-      expression: code,
+      expression: captureJson ? `__serializeResult(await (${code}\n))` : code,
       contextId: executionContextId,
       awaitPromise: true,
       replMode: true,
@@ -117,6 +134,11 @@ async function evaluate(code: string): Promise<void> {
     );
     if (exceptionDetails)
       throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
+    if (captureJson) {
+      if (typeof result.value !== 'string')
+        throw new Error('Result serialization returned no JSON.');
+      return result.value;
+    }
     if (result.objectId) {
       await new Promise<void>((resolve, reject) =>
         evaluator.post(
@@ -151,7 +173,7 @@ process.on('message', async (message: WorkerRequest) => {
   images = [];
   overflow = false;
   try {
-    await evaluate(message.code);
+    const valueJson = await evaluate(message.code, message.captureJson);
     if (overflow) output += '\n[Output exceeded the 1 MB capture limit.]';
     let outputFile: string | undefined;
     if (output.length > config.maxOutputChars) {
@@ -161,7 +183,13 @@ process.on('message', async (message: WorkerRequest) => {
     }
     send({
       type: 'result',
-      result: { text: output || '(no output)', images, ...(outputFile ? { outputFile } : {}) },
+      result: {
+        text: output || '(no output)',
+        images,
+        targetId: (Reflect.get(realm, 'page') as Page)?.targetId,
+        ...(valueJson !== undefined ? { valueJson } : {}),
+        ...(outputFile ? { outputFile } : {}),
+      },
     });
   } catch (error) {
     send({ type: 'error', message: error instanceof Error ? error.message : String(error) });

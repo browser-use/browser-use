@@ -43,7 +43,7 @@ export class BrowserUse {
       throw new Error(
         `Unknown model ${options.model}. Supply a Pi models collection with this model registered.`,
       );
-    const names = new Set(['javascript', 'finish']);
+    const names = new Set(['javascript', 'finish', 'finish_from_js']);
     for (const tool of options.tools ?? []) {
       if (names.has(tool.name)) throw new Error(`Duplicate or reserved tool name: ${tool.name}`);
       names.add(tool.name);

@@ -96,7 +96,22 @@ export class BrowserRuntime {
     });
   }
 
-  async execute(code: string, timeoutMs = 30_000, signal?: AbortSignal): Promise<CellResult> {
+  async readResult(expression: string, timeoutMs = 30_000, signal?: AbortSignal): Promise<unknown> {
+    const result = await this.executeCell(expression, timeoutMs, signal, true);
+    if (result.valueJson === undefined) throw new Error('Worker returned no result value.');
+    return JSON.parse(result.valueJson);
+  }
+
+  execute(code: string, timeoutMs = 30_000, signal?: AbortSignal): Promise<CellResult> {
+    return this.executeCell(code, timeoutMs, signal, false);
+  }
+
+  private async executeCell(
+    code: string,
+    timeoutMs: number,
+    signal: AbortSignal | undefined,
+    captureJson: boolean,
+  ): Promise<CellResult> {
     positiveInteger('timeoutMs', timeoutMs);
     if (this.closed) throw new Error('BrowserUse is closed.');
     if (this.busy)
@@ -116,7 +131,7 @@ export class BrowserRuntime {
       const worker = await this.start(signal);
       if (signal?.aborted) throw new Error('Execution cancelled.');
       const response = this.receive(worker, timeoutMs, signal);
-      worker.send({ type: 'execute', code }, (error) => {
+      worker.send({ type: 'execute', code, captureJson }, (error) => {
         if (error) this.pending?.(error);
       });
       let message: WorkerResponse;

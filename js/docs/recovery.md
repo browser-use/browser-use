@@ -26,6 +26,12 @@ const result = await agent.run('Find the requested information.', {
 
 `maxSteps` counts model turns, not browser actions. A single code cell may contain multiple actions. Cost is estimated from Pi's catalog and checked between turns; it can overshoot by one response. It is not a hard billing cap. Context size is a character guard, not a tokenizer or automatic compactor.
 
+## Missing final delivery
+
+A normal provider stop without a validated result triggers at most one additional model turn. Only `finish` and `finish_from_js` are exposed in that turn. It shares the original deadline, step ceiling, cost estimate, and context guard. `finishRepairs` records 0 or 1; the turn and its usage are included in totals. Provider errors, cancellation, and exhausted budgets do not trigger this repair.
+
+The SDK does not replay browser actions. A JavaScript delivery expression remains executable code, so this is not a read-only sandbox. If the repair fails, useful earlier assistant text is retained and the run stays incomplete (or reports its budget/error status).
+
 ## What survives a failure?
 
 | Event                       | JavaScript bindings                  | Browser/tab                                  | Result                     |

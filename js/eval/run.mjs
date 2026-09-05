@@ -72,6 +72,7 @@ export function resultEnvelope(run, artifacts, metadata) {
     metadata: {
       ...metadata,
       stop_reason: run.status,
+      finish_repairs: run.finishRepairs,
       usage: run.usage,
       model: run.model,
     },
@@ -170,6 +171,7 @@ export async function main() {
     });
     let screenshotIndex = 0;
     let screenshotErrors = 0;
+    const screenshotErrorDetails = [];
     const clean = (value) =>
       JSON.parse(
         JSON.stringify(value, (key, value) =>
@@ -254,8 +256,9 @@ export async function main() {
                   try {
                     const targets = (await observer.send('Target.getTargets')).targetInfos;
                     const target = targets.find(
-                      (t) => t.type === 'page' && !t.url.startsWith('about:'),
+                      (t) => t.type === 'page' && t.targetId === event.result.details?.targetId,
                     );
+                    if (!target) throw new Error('Active page target unavailable after cell.');
                     if (target) {
                       session = await Page.attach(observer, target.targetId);
                       await writeFile(
@@ -263,8 +266,13 @@ export async function main() {
                         await session.screenshot(),
                       );
                     }
-                  } catch {
+                  } catch (error) {
                     screenshotErrors++;
+                    if (screenshotErrorDetails.length < 20)
+                      screenshotErrorDetails.push({
+                        tool_call_id: event.toolCallId,
+                        message: String(error.message).slice(0, 500),
+                      });
                   } finally {
                     if (session)
                       await observer
@@ -295,6 +303,7 @@ export async function main() {
           await readFile(join(workspace, 'dependencies.sha256'), 'utf8')
         ).trim(),
         screenshot_errors: screenshotErrors,
+        screenshot_error_details: screenshotErrorDetails,
         retries: 0,
       },
     );

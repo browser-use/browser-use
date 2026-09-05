@@ -6,6 +6,10 @@ export interface Image {
 export interface CellResult {
   text: string;
   images: Image[];
+  /** Current tab after this cell, for observers. */
+  targetId?: string;
+  /** JSON delivery channel; never clipped to the observation budget. */
+  valueJson?: string;
   /** Full output is written to the workspace when the model-facing output is truncated. */
   outputFile?: string;
 }
@@ -16,7 +20,8 @@ export interface WorkerConfig {
   operationTimeoutMs: number;
   maxOutputChars: number;
 }
-export type WorkerRequest = { type: 'execute'; code: string } | { type: 'close' };
+export type WorkerRequest =
+  { type: 'execute'; code: string; captureJson?: boolean } | { type: 'close' };
 export type WorkerResponse =
   | { type: 'owned'; targetId: string }
   | { type: 'ready'; targetId: string }

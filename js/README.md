@@ -53,9 +53,9 @@ Optional environment variables: `MODEL`, `BROWSER_CDP_URL`, and `BROWSER_CHANNEL
 - **Pi models and tools.** Provider/model IDs, reasoning, native events, and custom typed tools.
 - **Persistent JavaScript.** Real top-level bindings and `await`; native V8 REPL semantics.
 - **Browser capability.** Accessibility discovery, coordinate clicks, frames, shadow DOM, screenshots, uploads, download events, page evaluation, and explicit CDP commands.
-- **Typed delivery.** Schema-validated results; incomplete, cancelled, timed-out, and failed runs stay distinct.
+- **Typed delivery.** Return existing JavaScript values without rewriting them; schema-validated results; incomplete, cancelled, timed-out, and failed runs stay distinct.
 - **Explicit control.** One active operation per session; step/time/context limits and a soft estimated-cost threshold.
-- **Recovery.** Worker termination contains hangs. Reconnect to the primary tab without replaying failed actions.
+- **Recovery.** One budgeted delivery repair for unfinished answers. Worker termination contains hangs. Reconnect to the primary tab without replaying failed actions.
 - **Bounded context.** Output files for large results; native images; old screenshots omitted from later requests.
 
 ## Small architecture

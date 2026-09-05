@@ -73,7 +73,7 @@ test('real OpenAI Responses transport serializes tools and parses a local SSE co
     assert.equal(request.body.model, 'gpt-5.4');
     assert.deepEqual(
       request.body.tools.map((t) => t.name),
-      ['javascript', 'finish'],
+      ['javascript', 'finish', 'finish_from_js'],
     );
     assert.equal(result.usage.input, 10);
     assert.equal(result.usage.output, 5);

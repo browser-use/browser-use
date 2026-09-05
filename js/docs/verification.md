@@ -1,6 +1,6 @@
 # Verification
 
-**35 tests pass on Node 22.19.0 and Node 24.5.0.** The suite uses the package’s explicit raw-CDP transport. Evidence is recorded in `evidence/verification.json`. Tests use real local Chromium browsers and synthetic data.
+**42 tests pass on Node 22.19.0 and Node 24.5.0.** The suite uses the package’s explicit raw-CDP transport. Evidence is recorded in `evidence/verification.json`. Tests use real local Chromium browsers and synthetic data.
 
 ## What green proves
 
@@ -19,6 +19,8 @@
 | SDK boundary       | Concurrent operations and invalid settings fail explicitly                                                         |
 
 The deterministic integration demo completed three model turns: read a catalog, save a selection once and capture artifacts, then deliver typed output. The model responses in this demo are scripted. The browser operations and result checks are real.
+
+Direct-delivery regressions check all 455 records survive a 100-character observation limit; invalid JSON/schema values stay repairable; completion blocks a later action in the same batch. Missing-finish tests cover a single repair turn, retained data, original step/cost/context/deadline/cancellation budgets, and preservation of partial text.
 
 ## Hosted-model evaluation
 

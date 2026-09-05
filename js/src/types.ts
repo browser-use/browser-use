@@ -44,6 +44,8 @@ export interface RunOptions {
 export type StopReason =
   'max_steps' | 'timeout' | 'cancelled' | 'cost_limit' | 'context_limit' | 'incomplete' | 'error';
 export interface RunMetrics {
+  /** Additional delivery-only model turns, within the original budgets (0 or 1). */
+  finishRepairs: number;
   steps: number;
   durationMs: number;
   usage: Usage;

@@ -6,6 +6,7 @@ import {
 } from '@earendil-works/pi-agent-core';
 import type { Model, Api, Usage } from '@earendil-works/pi-ai';
 import { Type, type TSchema } from 'typebox';
+import { Check, Errors } from 'typebox/value';
 import type { BrowserRuntime } from './runtime.js';
 import type { BrowserUseOptions, RunOptions, RunResult, StopReason } from './types.js';
 import { SYSTEM_PROMPT } from './prompt.js';
@@ -74,6 +75,7 @@ export async function runAgent(
   }
   const start = Date.now();
   let steps = 0;
+  let finishRepairs = 0;
   let completion: { output: unknown; text: string } | undefined;
   let stopped: StopReason | undefined;
   const codeParameters = Type.Object({ code: Type.String({ minLength: 1 }) });
@@ -89,28 +91,55 @@ export async function runAgent(
       const result = await runtime.execute(params.code, config.cellTimeoutMs ?? 30_000, signal);
       return {
         content: [{ type: 'text', text: result.text }, ...result.images],
-        details: { outputFile: result.outputFile },
+        details: { outputFile: result.outputFile, targetId: result.targetId },
       };
     },
+  };
+  const acceptResult = (output: unknown) => {
+    if (!Check(schema, output))
+      throw new Error(
+        `Final result does not match schema: ${JSON.stringify(Errors(schema, output).slice(0, 5)).slice(0, 2000)}`,
+      );
+    const text = typeof output === 'string' ? output : JSON.stringify(output);
+    if (text === undefined) throw new Error('The final result must be JSON serializable.');
+    completion = { output, text };
+    return {
+      content: [{ type: 'text' as const, text: 'Result accepted.' }],
+      details: {},
+      terminate: true,
+    };
   };
   const resultParameters = Type.Object({ result: schema });
   const finish: AgentTool<typeof resultParameters> = {
     name: 'finish',
     label: 'Deliver result',
-    description: 'Submit the verified final result, matching this schema. This ends the task.',
+    description:
+      'Submit the verified final result, matching this schema. For data already in JavaScript, prefer finish_from_js to avoid rewriting it. This ends the task.',
     parameters: resultParameters,
     executionMode: 'sequential',
-    execute: async (_id, params: { result: unknown }) => {
-      const text =
-        typeof params.result === 'string' ? params.result : JSON.stringify(params.result);
-      if (text === undefined) throw new Error('The final result must be JSON serializable.');
-      completion = { output: params.result, text };
-      return {
-        content: [{ type: 'text', text: 'Result accepted.' }],
-        details: {},
-        terminate: true,
-      };
-    },
+    execute: async (_id, params: { result: unknown }) => acceptResult(params.result),
+  };
+  const expressionParameters = Type.Object({ expression: Type.String({ minLength: 1 }) });
+  const finishFromJs: AgentTool<typeof expressionParameters> = {
+    name: 'finish_from_js',
+    label: 'Deliver JavaScript value',
+    description:
+      'Deliver an existing value from the persistent REPL without printing or rewriting it. Expression must match the result schema of finish. For a string result use JSON.stringify(records) or an existing text variable. Evaluated once; ends the task after validation.',
+    parameters: expressionParameters,
+    executionMode: 'sequential',
+    replay: 'never',
+    execute: async (_id, params: { expression: string }, signal) =>
+      acceptResult(
+        await runtime.readResult(params.expression, config.cellTimeoutMs ?? 30_000, signal),
+      ),
+  };
+  const checkBudgets = (messages: AgentMessage[], systemPrompt: string) => {
+    if (steps >= maxSteps) stopped = 'max_steps';
+    if (options.maxCostUsd !== undefined && sumUsage(messages).cost.total >= options.maxCostUsd)
+      stopped = 'cost_limit';
+    if (systemPrompt.length + contextSize(recentImages(messages)) > maxContextChars)
+      stopped = 'context_limit';
+    return stopped !== undefined;
   };
   const agent = new Agent({
     streamFn: config.streamFn,
@@ -118,7 +147,7 @@ export async function runAgent(
       model,
       systemPrompt: `${SYSTEM_PROMPT}\n${config.instructions ?? ''}`,
       thinkingLevel: config.reasoning ?? 'medium',
-      tools: [javascript, finish, ...(config.tools ?? [])],
+      tools: [javascript, finish, finishFromJs, ...(config.tools ?? [])],
     },
     toolExecution: 'sequential',
     transformContext: async (messages) => recentImages(messages),
@@ -129,18 +158,7 @@ export async function runAgent(
     },
     shouldStopAfterTurn: ({ context }) => {
       if (completion || stopped) return true;
-      if (steps >= maxSteps) stopped = 'max_steps';
-      if (
-        options.maxCostUsd !== undefined &&
-        sumUsage(context.messages).cost.total >= options.maxCostUsd
-      )
-        stopped = 'cost_limit';
-      if (
-        context.systemPrompt.length + contextSize(recentImages(context.messages)) >
-        maxContextChars
-      )
-        stopped = 'context_limit';
-      return stopped !== undefined;
+      return checkBudgets(context.messages, context.systemPrompt) || finishRepairs > 0;
     },
   });
   agent.subscribe((event) => {
@@ -159,7 +177,28 @@ export async function runAgent(
   let error: string | undefined;
   try {
     if (options.signal?.aborted) stopped = 'cancelled';
-    else await agent.prompt(task);
+    else {
+      await agent.prompt(task);
+      const ending = agent.state.messages.findLast((m) => m.role === 'assistant');
+      // One delivery-only repair. The original timer, transcript and budgets remain in force.
+      if (!completion && !stopped && ending?.role === 'assistant' && ending.stopReason === 'stop') {
+        const repair: AgentMessage = {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'The run ended without a validated delivery. Use finish_from_js for an existing result or finish for a concise answer. Preserve all verified records; report missing evidence honestly. Do not repeat browser actions. This is the single delivery repair turn.',
+            },
+          ],
+          timestamp: Date.now(),
+        };
+        if (!checkBudgets([...agent.state.messages, repair], agent.state.systemPrompt)) {
+          finishRepairs = 1;
+          agent.state.tools = [finish, finishFromJs];
+          await agent.prompt(repair);
+        }
+      }
+    }
   } catch (cause) {
     error = cause instanceof Error ? cause.message : String(cause);
     stopped ??= 'error';
@@ -168,15 +207,20 @@ export async function runAgent(
     options.signal?.removeEventListener('abort', cancel);
   }
   const last = agent.state.messages.findLast((m) => m.role === 'assistant');
+  // A failed delivery repair must not erase useful text from the original ending.
   const text =
-    last?.role === 'assistant'
-      ? last.content
+    agent.state.messages
+      .filter((m) => m.role === 'assistant')
+      .map((m) =>
+        m.content
           .filter((c) => c.type === 'text')
           .map((c) => c.text)
-          .join('\n')
-      : '';
+          .join('\n'),
+      )
+      .findLast((value) => value.trim().length > 0) ?? '';
   const metrics = {
     steps,
+    finishRepairs,
     durationMs: Date.now() - start,
     usage: sumUsage(agent.state.messages),
     workspace,

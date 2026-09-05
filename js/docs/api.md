@@ -35,11 +35,11 @@ Returns `Promise<RunResult<string>>`, or `Promise<RunResult<Static<S>>>` when pa
 | `signal`          | absent          | Caller cancellation           |
 | `onEvent`         | absent          | Awaited Pi event listener     |
 
-Every result contains `status`, `text`, `steps`, `durationMs`, `usage`, `workspace`, and `model`. Completed results include `output`. Failed results may include `error`. `usage.cost` is catalog-estimated cost, not billed cost.
+Every result contains `status`, `text`, `steps`, `finishRepairs`, `durationMs`, `usage`, `workspace`, and `model`. Completed results include `output`. Failed results may include `error`. `usage.cost` is catalog-estimated cost, not billed cost.
 
 ## `agent.execute(code, options?)`
 
-Execute browser JavaScript directly. Options: `timeoutMs` and `signal`. Returns `{ text, images, outputFile? }`. Code and browser errors reject the promise.
+Execute browser JavaScript directly. Options: `timeoutMs` and `signal`. Returns `{ text, images, outputFile?, targetId? }`. `targetId` identifies the current tab after the cell for observers. Code and browser errors reject the promise.
 
 ## `agent.close()`
 
@@ -48,3 +48,5 @@ Idempotent asynchronous cleanup. Cancels active work and closes the owned browse
 ## Exports
 
 `BrowserUse`, `CDP`, `Page`, `Tabs`, `Type`, `builtinModels`, plus types: `Target`, `AXNode`, `BrowserUseOptions`, `BrowserOptions`, `RunOptions`, `RunResult`, `RunMetrics`, `StopReason`, `CellResult`, `Image`, `AgentTool`, `AgentEvent`, `StreamFn`, `Static`, and `TSchema`.
+
+The tool names `javascript`, `finish`, and `finish_from_js` are reserved. `finish_from_js` evaluates an expression once and validates its JSON value against the run schema. See [typed results](./results).
