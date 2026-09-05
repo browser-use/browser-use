@@ -60,6 +60,14 @@ _NETWORK_DOWNLOAD_FILE_EXTENSIONS = {
 
 _GENERIC_TEXT_ATTACHMENT_NAMES = {'f', 'download', 'response', 'data', 'callback'}
 
+_INCOMPLETE_DOWNLOAD_EXTENSIONS = ('.crdownload', '.part', '.tmp', '.download')
+
+
+def _is_incomplete_download(file_path: Path | str) -> bool:
+	"""Check if a file is an in-progress temporary download file."""
+	name = Path(file_path).name.lower()
+	return any(name.endswith(ext) for ext in _INCOMPLETE_DOWNLOAD_EXTENSIONS)
+
 
 def _filename_from_content_disposition(content_disposition: str) -> str | None:
 	filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
@@ -394,18 +402,18 @@ class DownloadsWatchdog(BaseWatchdog):
 
 			# Check if download is complete
 			if state == 'completed':
+				# Skip if already handled by poller or previous event
+				if guid and self._cdp_downloads_info.get(guid, {}).get('handled'):
+					return
+
 				file_path = event.get('filePath')
 				if self.browser_session.is_local:
 					if file_path:
 						self.logger.debug(f'[DownloadsWatchdog] Download completed: {file_path}')
 						# Track the download
-						self._track_download(file_path, guid=guid)
-						# Mark as handled to prevent fallback duplicate dispatch
-						try:
+						if self._track_download(file_path, guid=guid):
 							if guid in self._cdp_downloads_info:
 								self._cdp_downloads_info[guid]['handled'] = True
-						except (KeyError, AttributeError):
-							pass
 					else:
 						# No filePath provided - detect by comparing with initial snapshot
 						self.logger.debug('[DownloadsWatchdog] No filePath in progress event; detecting via filesystem')
@@ -417,24 +425,22 @@ class DownloadsWatchdog(BaseWatchdog):
 									if (
 										f.is_file()
 										and not f.name.startswith('.')
+										and not _is_incomplete_download(f)
 										and f.name not in self._initial_downloads_snapshot
 									):
 										# Check file has content before processing
 										if f.stat().st_size > 4:
-											# Found a new file! Add to snapshot immediately to prevent duplicate detection
-											self._initial_downloads_snapshot.add(f.name)
 											self.logger.debug(f'[DownloadsWatchdog] Detected new download: {f.name}')
-											self._track_download(str(f))
-											# Mark as handled
-											try:
+											if self._track_download(str(f), guid=guid):
+												self._initial_downloads_snapshot.add(f.name)
 												if guid in self._cdp_downloads_info:
 													self._cdp_downloads_info[guid]['handled'] = True
-											except (KeyError, AttributeError):
-												pass
-											break
+												break
 				else:
 					# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
-					info = self._cdp_downloads_info.get(guid, {})
+					info = self._cdp_downloads_info.get(guid)
+					if not info:
+						return
 					try:
 						suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
 						downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
@@ -884,12 +890,15 @@ class DownloadsWatchdog(BaseWatchdog):
 			self.logger.warning(f'[DownloadsWatchdog] Download failed: {type(e).__name__}: {e}')
 			return None
 
-	def _track_download(self, file_path: str, guid: str | None = None) -> None:
+	def _track_download(self, file_path: str, guid: str | None = None) -> bool:
 		"""Track a completed download and dispatch the appropriate event.
 
 		Args:
 			file_path: The path to the downloaded file
 			guid: Optional CDP download GUID for correlation with DownloadStartedEvent
+
+		Returns:
+			bool: True if the file was tracked and dispatched, False otherwise.
 		"""
 		try:
 			# Get file info
@@ -901,10 +910,13 @@ class DownloadsWatchdog(BaseWatchdog):
 				# Get file extension for file_type
 				file_ext = path.suffix.lower().lstrip('.')
 
+				info = self._cdp_downloads_info.get(guid, {}) if guid else {}
+				download_url = info.get('url') or str(path)
+
 				# Call direct callbacks first (for click handlers waiting for downloads)
 				complete_info = {
 					'guid': guid,
-					'url': str(path),
+					'url': download_url,
 					'path': str(path),
 					'file_name': path.name,
 					'file_size': file_size,
@@ -923,16 +935,19 @@ class DownloadsWatchdog(BaseWatchdog):
 				self.event_bus.dispatch(
 					FileDownloadedEvent(
 						guid=guid,
-						url=str(path),  # Use the file path as URL for local files
+						url=download_url,
 						path=str(path),
 						file_name=path.name,
 						file_size=file_size,
 					)
 				)
+				return True
 			else:
 				self.logger.warning(f'[DownloadsWatchdog] Downloaded file not found: {file_path}')
+				return False
 		except Exception as e:
 			self.logger.error(f'[DownloadsWatchdog] Error tracking download: {e}')
+			return False
 
 	async def _handle_cdp_download(
 		self, event: DownloadWillBeginEvent, target_id: TargetID, session_id: SessionID | None
@@ -981,51 +996,38 @@ class DownloadsWatchdog(BaseWatchdog):
 		while asyncio.get_event_loop().time() - start_time < max_wait:  # noqa: ASYNC110
 			await asyncio.sleep(5.0)  # Check every 5 seconds
 
+			# Skip if already handled by progress/JS fetch
+			info = self._cdp_downloads_info.get(guid, {})
+			if info.get('handled'):
+				return
+
 			if Path(downloads_dir).exists():
 				for file_path in Path(downloads_dir).iterdir():
-					# Skip hidden files and files that were already there
+					# Skip hidden files, in-progress partials, and files that were already there
 					if (
 						file_path.is_file()
 						and not file_path.name.startswith('.')
+						and not _is_incomplete_download(file_path)
 						and file_path.name not in self._initial_downloads_snapshot
 					):
-						# Add to snapshot immediately to prevent duplicate detection
-						self._initial_downloads_snapshot.add(file_path.name)
 						# Check if file has content (> 4 bytes)
 						try:
 							file_size = file_path.stat().st_size
 							if file_size > 4:
-								# Found a new download!
 								self.logger.debug(
 									f'[DownloadsWatchdog] ✅ Found downloaded file: {file_path} ({file_size} bytes)'
 								)
 
-								# Determine file type from extension
-								file_ext = file_path.suffix.lower().lstrip('.')
-								file_type = file_ext if file_ext else None
-
-								# Dispatch download event
 								# Skip if already handled by progress/JS fetch
 								info = self._cdp_downloads_info.get(guid, {})
 								if info.get('handled'):
 									return
-								self.event_bus.dispatch(
-									FileDownloadedEvent(
-										guid=guid,
-										url=download_url,
-										path=str(file_path),
-										file_name=file_path.name,
-										file_size=file_size,
-										file_type=file_type,
-									)
-								)
-							# Mark as handled after dispatch
-							try:
-								if guid in self._cdp_downloads_info:
-									self._cdp_downloads_info[guid]['handled'] = True
-							except (KeyError, AttributeError):
-								pass
-							return
+
+								if self._track_download(str(file_path), guid=guid):
+									self._initial_downloads_snapshot.add(file_path.name)
+									if guid in self._cdp_downloads_info:
+										self._cdp_downloads_info[guid]['handled'] = True
+									return
 						except Exception as e:
 							self.logger.debug(f'[DownloadsWatchdog] Error checking file {file_path}: {e}')
 
