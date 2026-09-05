@@ -87,9 +87,7 @@ class TestSendKeysEnterDelay:
 		# Allow generous margin for CI but catch the 100ms penalty.
 		assert elapsed < 0.5, f'send_keys("center") took {elapsed:.3f}s, suspected false Enter delay'
 
-	async def test_actual_enter_key_still_waits(
-		self, tools: Tools, browser_session: BrowserSession, base_url: str
-	):
+	async def test_actual_enter_key_still_waits(self, tools: Tools, browser_session: BrowserSession, base_url: str):
 		"""Sending 'Enter' must still trigger the post-Enter delay."""
 		await tools.navigate(url=f'{base_url}/send-keys-test', new_tab=False, browser_session=browser_session)
 		await asyncio.sleep(0.3)
