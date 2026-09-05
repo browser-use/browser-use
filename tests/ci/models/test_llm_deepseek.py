@@ -52,8 +52,10 @@ def test_cached_tokens_come_from_either_field_name():
 
 	model = ChatDeepSeek(model='deepseek-v4-flash', api_key='x')
 
-	assert model._get_usage(openai_shaped).prompt_cached_tokens == 600
-	assert model._get_usage(deepseek_shaped).prompt_cached_tokens == 600
+	for response in (openai_shaped, deepseek_shaped):
+		usage = model._get_usage(response)
+		assert usage is not None
+		assert usage.prompt_cached_tokens == 600
 
 
 def test_usage_is_none_when_the_response_has_no_usage_block():
