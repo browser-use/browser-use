@@ -9,7 +9,7 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared.chat_model import ChatModel
 from openai.types.shared_params.reasoning_effort import ReasoningEffort
 from openai.types.shared_params.response_format_json_schema import JSONSchema, ResponseFormatJSONSchema
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import BaseChatModel, is_reasoning_model
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
@@ -19,6 +19,11 @@ from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def _looks_like_json(text: str) -> bool:
+	"""Did the endpoint attempt JSON at all, or is this prose?"""
+	return (text or '').strip().startswith(('{', '['))
 
 
 @dataclass
@@ -298,7 +303,25 @@ class ChatOpenAI(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(choice.message.content)
+				try:
+					parsed = output_format.model_validate_json(choice.message.content)
+				except ValidationError as e:
+					# A custom endpoint may accept response_format and ignore it, replying in
+					# prose. Pydantic then only reports that the JSON is invalid, which points
+					# at the model rather than at the endpoint that dropped the schema.
+					if self.base_url and not _looks_like_json(choice.message.content):
+						raise ModelProviderError(
+							message=(
+								'Requested structured output but the response was not JSON. The '
+								f'endpoint at {self.base_url} may not support '
+								'response_format=json_schema; many OpenAI-compatible servers accept '
+								'the field and ignore it. Try '
+								'ChatOpenAI(..., add_schema_to_system_prompt=True). '
+								f'Response began: {choice.message.content.strip()[:120]!r}'
+							),
+							model=self.name,
+						) from e
+					raise
 
 				return ChatInvokeCompletion(
 					completion=parsed,
