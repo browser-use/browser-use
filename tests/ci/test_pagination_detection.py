@@ -71,6 +71,12 @@ def _clickable(
 	return node
 
 
+def _attach(parent: EnhancedDOMTreeNode, *children: EnhancedDOMTreeNode) -> None:
+	parent.children_nodes = list(children)
+	for child in children:
+		child.parent_node = parent
+
+
 def _types(buttons: list[dict[str, str | int | bool]]) -> list[tuple[str, str]]:
 	return [(str(button['text']), str(button['button_type'])) for button in buttons]
 
@@ -91,16 +97,25 @@ def test_pagination_ignores_css_class_and_substring_false_positives():
 
 
 def test_pagination_keeps_real_controls_and_decorated_labels():
+	page_one = _clickable('a', '1', node_id=4)
+	page_two = _clickable('a', '2', node_id=5)
+	_attach(_clickable('nav', '', node_id=90), page_one, page_two)
+
 	buttons = DomService.detect_pagination_buttons(
 		{
 			1: _clickable('a', 'Next', node_id=1, role='button'),
 			2: _clickable('a', '‹ Previous', node_id=2),
 			3: _clickable('button', 'Next page', node_id=3),
-			4: _clickable('a', '1', node_id=4),
-			5: _clickable('a', '2', node_id=5),
+			4: page_one,
+			5: page_two,
 			6: _clickable('button', 'First', node_id=6),
 			7: _clickable('button', 'Last', node_id=7),
 			8: _clickable('button', '>', node_id=8),
+			9: _clickable('button', '>>', node_id=9),
+			10: _clickable('button', '<<', node_id=10),
+			11: _clickable('a', 'Go to next page', node_id=11),
+			12: _clickable('a', 'Siguiente página', node_id=12),
+			13: _clickable('a', 'Volgende pagina', node_id=13),
 		}
 	)
 
@@ -113,6 +128,11 @@ def test_pagination_keeps_real_controls_and_decorated_labels():
 		('First', 'first'),
 		('Last', 'last'),
 		('>', 'next'),
+		('>>', 'next'),
+		('<<', 'prev'),
+		('Go to next page', 'next'),
+		('Siguiente página', 'next'),
+		('Volgende pagina', 'next'),
 	]
 
 
@@ -124,5 +144,16 @@ def test_pagination_rejects_lone_numeric_widgets():
 			3: _clickable('div', '10', node_id=3, role=''),
 		}
 	)
+
+	assert buttons == []
+
+
+def test_pagination_rejects_unrelated_numeric_controls():
+	rating = _clickable('button', '5', node_id=1, role='button')
+	quantity = _clickable('button', '10', node_id=2, role='button')
+	_attach(_clickable('div', '', node_id=90, class_name='star-rating'), rating)
+	_attach(_clickable('div', '', node_id=91, class_name='qty-stepper'), quantity)
+
+	buttons = DomService.detect_pagination_buttons({1: rating, 2: quantity})
 
 	assert buttons == []
