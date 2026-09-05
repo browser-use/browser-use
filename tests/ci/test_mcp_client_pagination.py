@@ -206,10 +206,12 @@ async def test_cancelled_discovery_closes_session_and_server(catalog_server):
 	tools = Tools()
 	registration = asyncio.create_task(server.client.register_to_tools(tools, prefix='catalog_'))
 	try:
-		async with asyncio.timeout(5):
-			# Readiness is reported by a separate stdio subprocess, not an in-loop event.
-			while len([event for event in server.events() if 'cursor' in event]) < 2:  # noqa: ASYNC110
-				await asyncio.sleep(0.01)
+		# Readiness follows the connection's own deadline, including subprocess startup.
+		while len([event for event in server.events() if 'cursor' in event]) < 2:
+			if registration.done():
+				await registration
+				pytest.fail('Registration completed before requesting the second page')
+			await asyncio.sleep(0.01)
 		registration.cancel()
 		with pytest.raises(asyncio.CancelledError):
 			await registration
