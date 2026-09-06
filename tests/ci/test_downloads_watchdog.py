@@ -144,6 +144,10 @@ async def test_downloads_watchdog_ignores_partial_crdownload(local_watchdog, tmp
 	partial_file.write_bytes(b'PARTIAL_CONTENT_123456789')
 
 	assert _is_incomplete_download(partial_file) is True
+	# Confirm .part, .tmp, and .download are NOT treated as incomplete
+	assert _is_incomplete_download(tmp_path / 'archive.part') is False
+	assert _is_incomplete_download(tmp_path / 'archive.tmp') is False
+	assert _is_incomplete_download(tmp_path / 'archive.download') is False
 
 	# Mock asyncio.sleep to break out after one poll iteration
 	sleep_calls = 0
@@ -204,6 +208,7 @@ async def test_poller_completion_followed_by_cdp_results_in_single_completion(
 	assert len(file_events) == 1
 	assert file_events[0].file_name == 'doc.pdf'
 	assert file_events[0].url == 'https://example.com/doc.pdf'
+	assert file_events[0].file_type == 'pdf'
 
 	# Now simulate CDP downloadProgress(completed) arriving afterwards
 	progress_capture.handler(
@@ -430,3 +435,34 @@ async def test_remote_download_duplicate_completed_is_ignored() -> None:
 	if wd._cdp_event_tasks:
 		await asyncio.gather(*wd._cdp_event_tasks, return_exceptions=True)
 	wd._cdp_event_tasks.clear()
+
+
+@pytest.mark.asyncio
+async def test_completed_files_with_part_or_download_extension_are_not_ignored(
+	local_watchdog, tmp_path: Path, monkeypatch
+) -> None:
+	"""Verify .part, .tmp, and .download files are NOT treated as incomplete (only .crdownload is)."""
+	wd, will_begin_capture, _, dispatched_events = local_watchdog
+
+	guid = 'guid-part-allowed-008'
+	will_begin_capture.handler(
+		cast(Any, {'guid': guid, 'url': 'https://example.com/data.part', 'suggestedFilename': 'data.part'}),
+		session_id=None,
+	)
+
+	part_file = tmp_path / 'data.part'
+	part_file.write_bytes(b'VALID_COMPLETED_PART_BYTES_12345')
+
+	# Run one poll iteration
+	monkeypatch.setattr(asyncio, 'sleep', AsyncMock())
+	await wd._handle_cdp_download(
+		cast(Any, {'guid': guid, 'url': 'https://example.com/data.part', 'suggestedFilename': 'data.part'}),
+		'FAKE_TARGET',
+		None,
+	)
+
+	file_events = [e for e in dispatched_events if isinstance(e, FileDownloadedEvent)]
+	assert len(file_events) == 1
+	assert file_events[0].file_name == 'data.part'
+	assert file_events[0].file_type == 'part'
+	assert wd._cdp_downloads_info[guid]['handled'] is True

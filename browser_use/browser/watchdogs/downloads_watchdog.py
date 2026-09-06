@@ -60,7 +60,7 @@ _NETWORK_DOWNLOAD_FILE_EXTENSIONS = {
 
 _GENERIC_TEXT_ATTACHMENT_NAMES = {'f', 'download', 'response', 'data', 'callback'}
 
-_INCOMPLETE_DOWNLOAD_EXTENSIONS = ('.crdownload', '.part', '.tmp', '.download')
+_INCOMPLETE_DOWNLOAD_EXTENSIONS = ('.crdownload',)
 
 
 def _is_incomplete_download(file_path: Path | str) -> bool:
@@ -939,6 +939,7 @@ class DownloadsWatchdog(BaseWatchdog):
 						path=str(path),
 						file_name=path.name,
 						file_size=file_size,
+						file_type=file_ext if file_ext else None,
 					)
 				)
 				return True
