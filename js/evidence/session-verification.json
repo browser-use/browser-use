@@ -1,0 +1,91 @@
+{
+  "date": "2026-09-06",
+  "baseCommit": "a70301fce3b03b32858b440158fd0a41ec430dae",
+  "branch": "codex/raw-cdp-k7m2",
+  "environment": {
+    "os": "macOS",
+    "node": "22.19.0",
+    "python": "3.14.7",
+    "browser": "installed Google Chrome",
+    "model": "local scripted SSE endpoint"
+  },
+  "checks": {
+    "javascript": {
+      "passed": 56,
+      "failed": 0,
+      "skipped": 0
+    },
+    "pythonInstalledWheel": {
+      "passed": 6,
+      "failed": 0
+    },
+    "installedNpmRealChromeSmoke": "passed",
+    "typescript": "passed",
+    "prettier": "passed",
+    "ruff": "passed",
+    "docsProductionBuild": "passed",
+    "docsChromePages": [
+      "sessions",
+      "events",
+      "recording",
+      "python"
+    ],
+    "remoteBenchmark": "not run",
+    "paidModelRequests": 0,
+    "ci": "not run"
+  },
+  "sourceSha256": {
+    "package-lock.json": "2c68cb0f7669f8430d226750221cb05a63c84fee174789f06714d308cccf9470",
+    "python/browser_use_next/__init__.py": "474ae21a3047c3955bae0cfc2d030daf1873e5f00591ede6a93aa732dc334842",
+    "scripts/build-python.mjs": "7b2fbb467cbf9c3cb3ddeebab9d89bebd4709f304823a2306e1d3b99a2c72896",
+    "src/agent.ts": "ec9b46b586ae963936be704c18eaf4eef532c738c0c27557ea42b1f181e1f2b5",
+    "src/browser.ts": "3722f099fae2a425565e6924b296f1c27c41d22a638a507059d6442adb9a38ca",
+    "src/cdp.ts": "2a55fab9c30159bae411d9307d339d2d2160310eb46a784906eba2c09e8c3f3b",
+    "src/control.ts": "4049c547e5032dd78ab58d464812013211ba9b07bc1a48bb64be62e9ec98dc64",
+    "src/events.ts": "5dcc878e49ba27c1569373cb2ee347d676be98b650636d720b7afb43f377fde4",
+    "src/history.ts": "27cde58654c87f1b8e658fd38b3060bfc30e360bd82d97b8cdc5ce7f084103a3",
+    "src/index.ts": "3c5716ac566ef0e6b294196664ef30224fe03760af080d51c712bd7ff87d13ff",
+    "src/page.ts": "19b018539da88e8788ec0d67f99f39f6833cb0e00e2201c1bcff2ec42c9341e2",
+    "src/prompt.ts": "0e700dfbec83c0686a529fda2578ab2259efb9b8ffa468142d76a1087e4bae9c",
+    "src/protocol.ts": "e033e2899661db042cbfbb75c3d2a18a0b5c6049298d0f38acc4eb4b31041b8d",
+    "src/recording.ts": "823531450c79fe6e3659838c42fa7a276900eb5617c6f1bdfdc079fd4ff70335",
+    "src/runtime.ts": "7f40f29ec5414407730997bbecd793fd4b20b45c4eca7d15b1cf9ab97fc6eb68",
+    "src/server.ts": "2433fea652f9fe01701d3673d103ba3538bc799f055dccd9da1ed44fba9d5ed6",
+    "src/tabs.ts": "ad4c25d3668bff8582d2c80aa5826c34c1783a15fcd7592971dec20b4d6667fa",
+    "src/types.ts": "4d09ddfe55ebb806ade51559036d63d9ac7553b0cb79d53230e25bd97c39e914",
+    "src/video.ts": "12475c377fe5b2fbc05a743d8f7fd39dc82d3ced32d89bd1a8be12c78a2a9002",
+    "src/worker.ts": "a4ea917ed15695981300107aec0bd7792ec4f69cca67e5717ecb7d6a25c63690"
+  },
+  "localArtifacts": [
+    {
+      "path": "artifacts/browser-use-next-0.1.0.tgz",
+      "bytes": 145473,
+      "sha256": "9f8fcd3c186ee0899909a9a929af0047e5af595b92b5b87cae0f226ffab0fee5"
+    },
+    {
+      "path": "artifacts/python/browser_use_next-0.1.0-py3-none-any.whl",
+      "bytes": 739463,
+      "sha256": "ebebe01a43aedd6e3ab910478d0f50f185c2ae1bba6ce011cd9f2f4899af78d9"
+    }
+  ],
+  "localLogs": [
+    {
+      "path": "artifacts/verification/js-tests-node22.log",
+      "sha256": "260526cce26cf161492d4ea813f03fdea91bd9f173c2d4b86f5e5bc2618c46f0"
+    },
+    {
+      "path": "artifacts/verification/npm-smoke.log",
+      "sha256": "1ca2fa928998c64a99dac58ecd538cf9d645ec820be35d92e26226c4d35d38f5"
+    },
+    {
+      "path": "artifacts/verification/wheel-smoke.log",
+      "sha256": "5215bd4decf324b3b1d2b31fedde0703ba221bf74b2385654a3c6c68523ba633"
+    }
+  ],
+  "limits": [
+    "Historical 91/106 is not a result for these changes.",
+    "Python 3.11, Windows and Linux were not exercised.",
+    "Existing Python beta was not replaced.",
+    "Packages are unpublished."
+  ]
+}

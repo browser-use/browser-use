@@ -19,7 +19,7 @@ Creates an owned local browser or attaches to a caller-owned CDP browser. The Ja
 | `beforeToolCall`     | absent                  | Async application preflight hook                   |
 | `streamFn`           | Pi `streamSimple`       | Advanced transport override                        |
 
-Local browser options: `headless`, `channel: 'chrome' | 'msedge'`, `executablePath`. They cannot be combined with `cdpUrl` in TypeScript.
+Local browser options: `profileDir`, `headless`, `channel: 'chrome' | 'msedge'`, `executablePath`. They cannot be combined with `cdpUrl`. An attached browser may specify `targetId` to select a caller-owned tab.
 
 ## `agent.run(task, options?)`
 
@@ -50,3 +50,26 @@ Idempotent asynchronous cleanup. Cancels active work and closes the owned browse
 `BrowserUse`, `CDP`, `Page`, `Tabs`, `Type`, `builtinModels`, plus types: `Target`, `AXNode`, `BrowserUseOptions`, `BrowserOptions`, `RunOptions`, `RunResult`, `RunMetrics`, `StopReason`, `CellResult`, `Image`, `AgentTool`, `AgentEvent`, `StreamFn`, `Static`, and `TSchema`.
 
 The tool names `javascript`, `finish`, and `finish_from_js` are reserved. `finish_from_js` evaluates an expression once and validates its JSON value against the run schema. See [typed results](./results).
+
+## Session additions
+
+| API / option              | Contract                                                                 |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `followUp(task, options)` | Same schemas/budgets as run; retains the conversation.                   |
+| `events()`                | Bounded async iterator of `SessionEvent`; finishes at close.             |
+| `history`, `usage`        | Independent snapshots of conversation/session accounting.                |
+| `files()`                 | Bounded inventory of ordinary workspace files.                           |
+| `saveHistory(path?)`      | Atomic versioned snapshot; default `.browser-use/session.json`.          |
+| `pause()`                 | Await a safe tool boundary or run completion; then check `isPaused`.     |
+| `resume()`                | Await manual code completion, then release the pause.                    |
+| `steer(text)`             | Queue feedback in the active Pi run.                                     |
+| `cancel()`                | Abort the run; await its result before starting more work.               |
+| `historyFile`             | Create option restoring same-model version 1 history.                    |
+| `log`                     | `false` (default), `pretty`, or `json`; writes stderr.                   |
+| `redact`                  | Exact text values removed from saved history/session events; not pixels. |
+| `hookTimeoutMs`           | Callback deadline; default 30,000 ms.                                    |
+| `afterToolCall`           | Pi result hook for non-finalization tools.                               |
+| `validateResult`          | Reject schema-valid final output by returning feedback.                  |
+| `recording`               | `false` (default), `true`, or `{ intervalMs, maxFrames }`.               |
+
+Auxiliary persistence failures appear in `warnings` and omit the unavailable path; they do not discard delivered output. Run results additionally carry `runId`, `historyPath`, `eventsPath` and optional `recordingPath`. `exportRecording(path, options)` exports MP4/GIF; see [recording](./recording). `SessionHistory`, `WorkspaceFile`, `SessionEvent`, `RecordingOptions`, `VideoOptions` and `formatEvent` are exported.

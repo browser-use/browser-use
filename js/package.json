@@ -21,7 +21,10 @@
     "docs/*.md",
     "DESIGN-REVIEW.md",
     "evidence/verification.json",
-    "evidence/benchmark.json"
+    "evidence/benchmark.json",
+    "python/pyproject.toml",
+    "python/browser_use_next/*.py",
+    "scripts/build-python.mjs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -33,7 +36,10 @@
     "docs:preview": "vitepress preview docs --host 127.0.0.1",
     "prepack": "npm run build",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "build:python": "node scripts/build-python.mjs",
+    "demo:session": "npm run build && node examples/session-demo.mjs",
+    "test:python": "npm run build:python && .venv/bin/python -m unittest discover -s python/tests -v"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.85.1",
@@ -44,6 +50,7 @@
   "devDependencies": {
     "@lmnr-ai/lmnr": "0.8.45",
     "@types/node": "^22.19.0",
+    "esbuild": "0.25.12",
     "prettier": "3.9.6",
     "typescript": "^5.9.3",
     "vitepress": "^1.6.4"
@@ -54,5 +61,8 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/browser-use/bu-pi.git"
+  },
+  "bin": {
+    "bu-pi-server": "./dist/server.js"
   }
 }

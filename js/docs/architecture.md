@@ -29,7 +29,7 @@ The worker uses Node's inspector protocol with V8's native `replMode` and `await
 
 ## Let Chrome outlive a worker
 
-The parent owns a temporary persistent browser profile. The worker attaches over CDP. Killing the worker loses JavaScript state but does not inherently kill Chrome. Reconnection uses the primary tab's target ID.
+The parent owns a temporary browser profile by default, or a locked persistent profile when explicitly configured. The worker attaches over CDP. Killing the worker loses JavaScript state but does not inherently kill Chrome. Reconnection uses the primary tab's target ID.
 
 An external browser has different ownership: the SDK disconnects, but never shuts down that browser. There is no automatic replay of failed actions.
 
@@ -58,3 +58,13 @@ The [hard benchmark](/benchmark) documents observed failures and comparison limi
 ## What this changes for existing users
 
 Nothing in the existing Python library or eval platform is replaced. This is an independently installable package with a new import path. No persisted customer sessions or settings are migrated. Adoption should begin in an isolated workload; rollback is selecting the old implementation for new runs. Never translate an active session halfway through a task.
+
+## Session architecture
+
+Pi is consumed as pinned npm packages, not copied into this repository. Each run constructs a Pi agent with the chosen transcript; `followUp()` supplies the prior messages while `run()` supplies an empty conversation. The same raw-CDP worker remains alive between runs. Control gates run before tools, and hooks use bounded cooperative waits.
+
+Conversation, profile and workspace remain independent. Version 1 transcript files preserve messages and cumulative usage; they do not serialize the V8 heap or replay browser actions. The workspace is the worker's current directory. Exact text redaction applies to saved history and emitted session events, not model input or screenshot pixels.
+
+Recording has a separate CDP connection and a bounded sampler. Export launches a separate local renderer against captured images. Python uses a versioned stdio protocol and a bundled JS runtime, with Python tool calls sent back to Python. It has no separate planning or execution loop.
+
+The context guard now checks before the first provider request as well as between turns. Existing tiny-context configurations can stop without a provider call. Treat this as an intentional limit-semantic change in future comparisons; the historical benchmark belongs to its frozen commit.

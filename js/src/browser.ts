@@ -1,12 +1,26 @@
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, open, readFile, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 export type BrowserOptions =
-  | { cdpUrl: string; headless?: never; channel?: never; executablePath?: never }
-  | { cdpUrl?: never; headless?: boolean; channel?: 'chrome' | 'msedge'; executablePath?: string };
+  | {
+      cdpUrl: string;
+      headless?: never;
+      channel?: never;
+      executablePath?: never;
+      profileDir?: never;
+      targetId?: string;
+    }
+  | {
+      cdpUrl?: never;
+      headless?: boolean;
+      channel?: 'chrome' | 'msedge';
+      executablePath?: string;
+      profileDir?: string;
+      targetId?: never;
+    };
 
 async function executable(options: Exclude<BrowserOptions, { cdpUrl: string }>) {
   if (options.executablePath) {
@@ -47,14 +61,26 @@ async function executable(options: Exclude<BrowserOptions, { cdpUrl: string }>) 
 /** Local Chrome has an isolated temporary profile; external Chrome always belongs to the caller. */
 export async function openBrowser(options: BrowserOptions = {}) {
   if (options.cdpUrl) {
-    if (['headless', 'channel', 'executablePath'].some((key) => key in options))
+    if (['headless', 'channel', 'executablePath', 'profileDir'].some((key) => key in options))
       throw new Error('cdpUrl cannot be combined with local browser options.');
     if (!['http:', 'https:', 'ws:', 'wss:'].includes(new URL(options.cdpUrl).protocol))
       throw new Error('cdpUrl must be an HTTP(S) or WebSocket endpoint.');
     return { endpoint: options.cdpUrl, close: async () => {} };
   }
   const path = await executable(options as Exclude<BrowserOptions, { cdpUrl: string }>);
-  const profile = await mkdtemp(join(tmpdir(), 'browser-use-'));
+  const persistent = !!options.profileDir;
+  if (options.profileDir) await mkdir(options.profileDir, { recursive: true, mode: 0o700 });
+  const profile = options.profileDir
+    ? await realpath(options.profileDir)
+    : await mkdtemp(join(tmpdir(), 'browser-use-'));
+  const lockPath = join(profile, '.bu-pi.lock');
+  const lock = await open(lockPath, 'wx', 0o600).catch(() => {
+    throw new Error(
+      `Browser profile is locked: ${profile}. Close its owner. After a crash, verify Chrome and the SDK have exited before removing .bu-pi.lock.`,
+    );
+  });
+  await lock.writeFile(JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
+  const launchedAt = Date.now();
   const child = spawn(
     path,
     [
@@ -83,7 +109,9 @@ export async function openBrowser(options: BrowserOptions = {}) {
         await exited;
         clearTimeout(timer);
       }
-      await rm(profile, { recursive: true, force: true });
+      await lock.close();
+      await rm(lockPath, { force: true });
+      if (!persistent) await rm(profile, { recursive: true, force: true });
     })());
   try {
     const deadline = Date.now() + 15_000;
@@ -92,6 +120,8 @@ export async function openBrowser(options: BrowserOptions = {}) {
       if (child.exitCode !== null || child.signalCode !== null)
         throw new Error('Chrome exited before exposing CDP.');
       try {
+        if ((await stat(join(profile, 'DevToolsActivePort'))).mtimeMs < launchedAt - 1)
+          throw new Error('Waiting for a fresh DevTools endpoint.');
         const [port, path] = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8'))
           .trim()
           .split('\n');

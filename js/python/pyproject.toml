@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "browser-use-next"
+version = "0.1.0"
+description = "Python client for the Pi + raw CDP Browser Use SDK"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2,<3"]
+license = "MIT"
+license-files = ["LICENSE"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["browser_use_next*"]
+
+[tool.setuptools.package-data]
+browser_use_next = ["runtime/*.mjs", "runtime/*.js", "runtime/package.json", "runtime/*.LEGAL.txt", "runtime/THIRD_PARTY_NOTICES.txt"]

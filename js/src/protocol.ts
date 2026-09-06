@@ -1,3 +1,9 @@
+export interface BrowserAction {
+  kind: string;
+  targetId: string;
+  x?: number;
+  y?: number;
+}
 export interface Image {
   type: 'image';
   data: string;
@@ -15,6 +21,7 @@ export interface CellResult {
 }
 export interface WorkerConfig {
   endpoint: string;
+  recording?: boolean;
   workspace: string;
   targetId?: string;
   operationTimeoutMs: number;
@@ -23,6 +30,7 @@ export interface WorkerConfig {
 export type WorkerRequest =
   { type: 'execute'; code: string; captureJson?: boolean } | { type: 'close' };
 export type WorkerResponse =
+  | { type: 'action'; action: BrowserAction }
   | { type: 'owned'; targetId: string }
   | { type: 'ready'; targetId: string }
   | { type: 'result'; result: CellResult }

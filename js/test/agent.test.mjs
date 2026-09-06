@@ -373,7 +373,8 @@ test('missing-finish repair never resets exhausted step, cost, context or cancel
       const result = await s.agent.run('Deliver', options);
       assert.equal(result.status, expected);
       assert.equal(result.finishRepairs, 0);
-      assert.equal(s.faux.state.callCount, 1);
+      // Oversized input now stops before the first provider request.
+      assert.equal(s.faux.state.callCount, expected === 'context_limit' ? 0 : 1);
     } finally {
       await s.close();
     }

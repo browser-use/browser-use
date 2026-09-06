@@ -1,10 +1,18 @@
 import { CDP } from './cdp.js';
 import { fork, type ChildProcess } from 'node:child_process';
-import type { CellResult, WorkerConfig, WorkerResponse } from './protocol.js';
+import type { BrowserAction, CellResult, WorkerConfig, WorkerResponse } from './protocol.js';
 import { positiveInteger } from './protocol.js';
 
 /** One worker, one active cell. Termination is the cancellation boundary. */
 export class BrowserRuntime {
+  onAction: ((event: BrowserAction) => void) | undefined;
+  get currentTarget() {
+    return this.targetId;
+  }
+  async initialize(signal?: AbortSignal) {
+    await this.start(signal);
+    return this.targetId!;
+  }
   private worker: ChildProcess | undefined;
   private owned = new Set<string>();
   private targetId: string | undefined;
@@ -27,6 +35,7 @@ export class BrowserRuntime {
     });
     this.worker = worker;
     worker.on('message', (message: WorkerResponse) => {
+      if (message.type === 'action') this.onAction?.(message.action);
       if (message.type === 'owned') this.owned.add(message.targetId);
     });
     worker.on('error', (error) => this.pending?.(error));
@@ -72,7 +81,7 @@ export class BrowserRuntime {
         else resolve(value);
       };
       const message = (value: WorkerResponse) => {
-        if (value.type !== 'owned') finish(value);
+        if (value.type !== 'owned' && value.type !== 'action') finish(value);
       };
       const abort = () =>
         finish(
@@ -143,6 +152,7 @@ export class BrowserRuntime {
       }
       if (message.type === 'error') throw new Error(message.message);
       if (message.type !== 'result') throw new Error('Unexpected browser worker response.');
+      if (message.result.targetId) this.targetId = message.result.targetId;
       return message.result;
     } finally {
       this.busy = false;

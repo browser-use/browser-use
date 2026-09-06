@@ -50,7 +50,7 @@ const result = await agent.run('Compare three products.', {
 });
 ```
 
-Events are Pi's native lifecycle events. Async listeners are awaited, preserving order and applying backpressure. A listener that never settles can prevent the run from settling; keep callbacks short, bounded, and abort-aware.
+Events are Pi's native lifecycle events. Async listeners are awaited, preserving order and applying backpressure. Awaited callbacks have a configurable `hookTimeoutMs` deadline. Keep them short and abort-aware; a timeout cannot undo external callback effects. Use the bounded `events()` iterator for independent streaming consumers. See [streaming and hooks](./events).
 
 ## Gate application actions
 

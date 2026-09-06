@@ -14,6 +14,8 @@ type Listener = {
 /** Explicit commands and one-shot events over one flattened CDP WebSocket. No proxies. */
 export class CDP {
   private nextId = 0;
+  /** Optional metadata observer; errors cannot change command delivery. Never receives responses. */
+  observeCommand: ((method: string, params: unknown, sessionId?: string) => void) | undefined;
   private pending = new Map<number, Pending>();
   private listeners = new Set<Listener>();
   private constructor(
@@ -87,6 +89,9 @@ export class CDP {
       return Promise.reject(new Error('CDP connection is closed.'));
     if (this.pending.size >= 256)
       return Promise.reject(new Error('Too many pending CDP commands (256).'));
+    try {
+      this.observeCommand?.(method, params, sessionId);
+    } catch {}
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
       const finish = (error?: Error, value?: unknown) => {

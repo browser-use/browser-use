@@ -1,6 +1,6 @@
 # Browser Use / next
 
-**A browser agent. A JavaScript import.**
+**A browser agent that keeps working with you.**
 
 A standalone TypeScript SDK built on Pi, a persistent V8 REPL, and raw CDP. Give it a task, get a validated result. Use the same browser directly whenever deterministic code is clearer.
 
@@ -48,6 +48,32 @@ node examples/research.mjs "Find the latest stable Node.js release on nodejs.org
 
 Optional environment variables: `MODEL`, `BROWSER_CDP_URL`, and `BROWSER_CHANNEL`. Real model runs incur provider charges. Browser provisioning is explicit; this SDK does not create paid cloud sessions.
 
+## Continue the work
+
+```ts
+const agent = await BrowserUse.create({
+  model: 'openai/gpt-5.5',
+  workspace: './work/research',
+  browser: { profileDir: './profiles/research' },
+  log: 'pretty',
+  recording: true,
+});
+try {
+  await agent.run('Find the products that match my brief.');
+  await agent.followUp('Save those products as a CSV.');
+  console.table(await agent.files());
+  await agent.saveHistory();
+} finally {
+  await agent.close();
+}
+```
+
+Persistent profiles keep login state. Workspaces keep ordinary files. Follow-ups keep the conversation and live JavaScript. Stream events, pause before the next tool, inspect the browser, steer, and resume. Export a captured run as an MP4 or GIF without repeating its browser actions.
+
+[Sessions & login](docs/sessions.md) · [Streaming & hooks](docs/events.md) · [Video](docs/recording.md) · [Python](docs/python.md)
+
+Run `npm run demo:session` for a scripted-model/real-browser demo with CSV, history, MP4 and GIF output. Requires Chrome and ffmpeg; no paid model requests. The Python wheel bundles this same JS engine; Node 22.19+ remains a prerequisite.
+
 ## What is included
 
 - **Pi models and tools.** Provider/model IDs, reasoning, native events, and custom typed tools.
@@ -79,6 +105,8 @@ Open the printed localhost URL. The docs include quickstart, providers, typed ex
 
 ## Develop and package
 
+The full browser/video test suite requires installed Chrome and ffmpeg. Python tests require the local Python environment described in [verification](docs/session-verification.md).
+
 ```sh
 npm run check
 npm test
@@ -92,4 +120,4 @@ Install the resulting `browser-use-next-0.1.0.tgz` in a separate application. Th
 
 The worker is **not a security sandbox**. Model-generated Node code can access the filesystem and network. Provider environment variables are not inherited by the worker, but this does not isolate host files. Run untrusted tasks in containers/VMs with restricted mounts and accounts. Custom application tools must honor cancellation. Artifacts remain after cleanup; your application owns their retention.
 
-This prototype does not provide durable transcript restore, automatic compaction, cloud provisioning, stealth guarantees, or a hosted agent service. Existing Python Browser Use users and persisted sessions are unaffected.
+Versioned transcript restore is supported; arbitrary live JavaScript state is not serialized. Automatic compaction, cloud provisioning, stealth guarantees and a hosted service are outside this package. Existing Python Browser Use users and persisted sessions are unaffected.

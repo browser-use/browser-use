@@ -12,7 +12,7 @@ export default defineConfig({
     nav: [
       { text: 'Documentation', link: '/quickstart' },
       { text: 'Design decisions', link: '/architecture' },
-      { text: 'Verification', link: '/verification' },
+      { text: 'Verification', link: '/session-verification' },
     ],
     sidebar: [
       {
@@ -26,6 +26,10 @@ export default defineConfig({
       {
         text: 'TAKE CONTROL',
         items: [
+          { text: 'Sessions, login & workspaces', link: '/sessions' },
+          { text: 'Streaming, logs & hooks', link: '/events' },
+          { text: 'GIF & video', link: '/recording' },
+          { text: 'Python', link: '/python' },
           { text: 'Browser & JavaScript', link: '/browser' },
           { text: 'Custom tools & events', link: '/tools' },
           { text: 'Limits & recovery', link: '/recovery' },
@@ -36,7 +40,7 @@ export default defineConfig({
         items: [
           { text: 'Design decisions', link: '/architecture' },
           { text: 'Migration & scope', link: '/migration' },
-          { text: 'Verification', link: '/verification' },
+          { text: 'Verification', link: '/session-verification' },
           { text: 'Hard benchmark', link: '/benchmark' },
           { text: 'API reference', link: '/api' },
         ],

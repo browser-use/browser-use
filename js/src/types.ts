@@ -5,8 +5,11 @@ import type {
   ThinkingLevel,
   BeforeToolCallContext,
   BeforeToolCallResult,
+  AfterToolCallContext,
+  AfterToolCallResult,
 } from '@earendil-works/pi-agent-core';
 import type { Models, Usage } from '@earendil-works/pi-ai';
+import type { RecordingOptions } from './recording.js';
 import type { BrowserOptions } from './browser.js';
 
 export interface BrowserUseOptions {
@@ -30,6 +33,19 @@ export interface BrowserUseOptions {
   ) => Promise<BeforeToolCallResult | undefined>;
   /** Advanced transport override; useful for deterministic tests or a model gateway. */
   streamFn?: StreamFn;
+  /** Named values to redact from saved text/events. Does not redact screenshots. */
+  redact?: string[];
+  log?: false | 'pretty' | 'json';
+  hookTimeoutMs?: number;
+  afterToolCall?: (
+    context: AfterToolCallContext,
+    signal?: AbortSignal,
+  ) => Promise<AfterToolCallResult | undefined>;
+  /** Return feedback to reject a schema-valid result and let the agent correct it. */
+  validateResult?: (output: unknown, signal?: AbortSignal) => Promise<string | void>;
+  /** Restore a versioned transcript. Browser profile and JS heap are separate. */
+  historyFile?: string;
+  recording?: boolean | RecordingOptions;
 }
 export interface RunOptions {
   maxSteps?: number;
@@ -52,6 +68,12 @@ export interface RunMetrics {
   workspace: string;
   /** Approximate token costs from the configured model catalog, not an invoice. */
   model: string;
+  runId?: string;
+  historyPath?: string;
+  eventsPath?: string;
+  recordingPath?: string;
+  /** Auxiliary recording/history persistence failures; delivered output remains available. */
+  warnings?: string[];
 }
 export type RunResult<T = string> = RunMetrics &
   (

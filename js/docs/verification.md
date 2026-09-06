@@ -1,5 +1,7 @@
 # Verification
 
+**Session SDK update · September 6, 2026:** see [current verification](./session-verification) for the 56 JavaScript tests, Python integration tests, packaging and video evidence. The prototype results below are historical evidence for their original commits.
+
 **43 tests pass on Node 22.19.0 and Node 24.5.0.** The suite uses the package’s explicit raw-CDP transport. Evidence is recorded in `evidence/verification.json`. Tests use real local Chromium browsers and synthetic data.
 
 ## What green proves

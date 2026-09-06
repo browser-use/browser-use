@@ -11,3 +11,8 @@ evidence/*.log
 evidence/eval-plan.json
 evidence/local-inference-blocker.json
 evidence/package-install.txt
+python/browser_use_next/runtime/
+python/build/
+python/*.egg-info/
+**/__pycache__/
+.venv/

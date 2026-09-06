@@ -15,6 +15,7 @@ import type { Image, WorkerConfig, WorkerRequest, WorkerResponse } from './proto
 process.on('disconnect', () => process.exit(0));
 const config = await new Promise<WorkerConfig>((resolve) => process.once('message', resolve));
 const send = (message: WorkerResponse) => process.send!(message);
+process.chdir(config.workspace);
 const browser = await CDP.connect(config.endpoint, config.operationTimeoutMs);
 const tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
 const page = config.targetId
@@ -86,7 +87,7 @@ Object.assign(realm, {
   tabs,
   page,
   workspace: config.workspace,
-  require: createRequire(import.meta.url),
+  require: createRequire(join(config.workspace, 'package.json')),
   async screenshot() {
     const current = Reflect.get(realm, 'page') as Page;
     const bytes = await current.screenshot({ quality: 70 });
@@ -108,6 +109,30 @@ Object.assign(realm, {
     return path;
   },
 });
+if (config.recording)
+  browser.observeCommand = (method, raw) => {
+    const params = raw as { type?: string; x?: number; y?: number };
+    const targetId = (Reflect.get(realm, 'page') as Page)?.targetId;
+    if (!targetId) return;
+    if (
+      method === 'Input.dispatchMouseEvent' &&
+      ['mouseReleased', 'mouseWheel'].includes(params.type ?? '')
+    )
+      send({
+        type: 'action',
+        action: {
+          kind: params.type === 'mouseReleased' ? 'Click' : 'Scroll',
+          targetId,
+          ...(params.x !== undefined ? { x: params.x } : {}),
+          ...(params.y !== undefined ? { y: params.y } : {}),
+        },
+      });
+    else if (method === 'Input.insertText' || method === 'Page.navigate')
+      send({
+        type: 'action',
+        action: { kind: method === 'Page.navigate' ? 'Navigate' : 'Type', targetId },
+      });
+  };
 realm.console = new (await import('node:console')).Console(sink, sink);
 
 async function evaluate(code: string, captureJson = false): Promise<string | undefined> {
