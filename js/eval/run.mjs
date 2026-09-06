@@ -4,6 +4,8 @@ import { mkdir, readFile, writeFile, appendFile, readdir } from 'node:fs/promise
 import { join, resolve, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 export function parseOptions(value) {
   const allowed = new Set([
@@ -12,6 +14,7 @@ export function parseOptions(value) {
     'task_timeout_seconds',
     'proxy_country_code',
     'browser_timeout_minutes',
+    'evidence_format',
   ]);
   if (!value || Array.isArray(value) || typeof value !== 'object')
     throw new Error('options must be an object');
@@ -36,9 +39,9 @@ export function parseOptions(value) {
   if (
     !Number.isInteger(options.task_timeout_seconds) ||
     options.task_timeout_seconds < 1 ||
-    options.task_timeout_seconds > 3500
+    options.task_timeout_seconds > 7200
   )
-    throw new Error('task_timeout_seconds must be 1..3500');
+    throw new Error('task_timeout_seconds must be 1..7200');
   if (
     !Number.isInteger(options.browser_timeout_minutes) ||
     options.browser_timeout_minutes < 1 ||
@@ -49,7 +52,19 @@ export function parseOptions(value) {
     throw new Error('Browser lifetime must exceed task timeout plus 30 seconds');
   if (options.proxy_country_code !== null && !/^[a-z]{2}$/.test(options.proxy_country_code))
     throw new Error('proxy_country_code must be a lowercase country code or null');
+  if (options.evidence_format !== undefined && options.evidence_format !== 'findings')
+    throw new Error('evidence_format must be findings when provided');
   return options;
+}
+
+export function clipEvidence(text, limit) {
+  if (text.length <= limit) return text;
+  const omitted = text.length - limit;
+  const marker = `...[at least ${omitted} characters omitted from the middle]...`;
+  const budget = limit - marker.length;
+  if (budget <= 0) return text.slice(0, limit);
+  const head = Math.floor(budget / 3);
+  return text.slice(0, head) + marker + text.slice(-(budget - head));
 }
 
 export function resultEnvelope(run, artifacts, metadata) {
@@ -169,6 +184,11 @@ export async function main() {
       instructions:
         'Use browser UI and page evaluation for research. Do not use web search or read files outside the output workspace. Do not inspect benchmark source, rubrics, judge code, or credentials. Save requested files in workspace.',
     });
+    const findings = options.evidence_format === 'findings';
+    const steps = [];
+    const toolInputs = new Map();
+    const judgeScreenshots = [];
+    const judgeScreenshotSteps = [];
     let screenshotIndex = 0;
     let screenshotErrors = 0;
     let screenshotTimeMs = 0;
@@ -192,6 +212,22 @@ export async function main() {
             timeoutMs: options.task_timeout_seconds * 1000,
             maxContextChars: options.max_context_chars,
             async onEvent(event) {
+              if (findings) {
+                if (event.type === 'tool_execution_start')
+                  toolInputs.set(event.toolCallId, clipEvidence(JSON.stringify(event.args), 2000));
+                if (event.type === 'tool_execution_end') {
+                  steps.push(
+                    `${event.toolName}: ${toolInputs.get(event.toolCallId) ?? ''}\nresult: ${clipEvidence(JSON.stringify(clean(event.result)), 20000)}`,
+                  );
+                  toolInputs.delete(event.toolCallId);
+                }
+                if (event.type === 'message_end' && event.message.role === 'assistant')
+                  for (const part of event.message.content)
+                    if (part.type === 'thinking' || part.type === 'text')
+                      steps.push(
+                        `${part.type}: ${clipEvidence(part.type === 'thinking' ? part.thinking : part.text, 4000)}`,
+                      );
+              }
               if (
                 ['message_end', 'tool_execution_start', 'tool_execution_end'].includes(event.type)
               )
@@ -267,15 +303,20 @@ export async function main() {
                     const { data } = await observer.send(
                       'Page.captureScreenshot',
                       {
-                        format: 'jpeg',
-                        quality: 70,
+                        format: findings ? 'png' : 'jpeg',
+                        ...(findings ? {} : { quality: 70 }),
                       },
                       sessionId,
                     );
-                    await writeFile(
-                      join(screenshots, `${String(++screenshotIndex).padStart(3, '0')}.jpg`),
-                      Buffer.from(data, 'base64'),
+                    const shot = join(
+                      screenshots,
+                      `${String(++screenshotIndex).padStart(3, '0')}.${findings ? 'png' : 'jpg'}`,
                     );
+                    await writeFile(shot, Buffer.from(data, 'base64'));
+                    if (findings) {
+                      judgeScreenshots.push(relative(workspace, shot));
+                      judgeScreenshotSteps.push(steps.length);
+                    }
                   } catch (error) {
                     screenshotErrors++;
                     if (screenshotErrorDetails.length < 20)
@@ -301,6 +342,26 @@ export async function main() {
         ),
       false,
     );
+    let findingsEvidence = {};
+    if (findings) {
+      const evidencePath = join(workspace, 'findings-evidence.json');
+      await promisify(execFile)(
+        join(workspace, '.venv', 'bin', 'python'),
+        [join(sdk, 'eval', 'findings.py'), outputDir, evidencePath],
+        {
+          timeout: 60000,
+          maxBuffer: 1024 * 1024,
+          env: { PATH: env.PATH ?? '', LANG: 'en_US.UTF-8' },
+        },
+      );
+      findingsEvidence = {
+        ...JSON.parse(await readFile(evidencePath, 'utf8')),
+        steps,
+        judge_screenshots: judgeScreenshots,
+        judge_screenshot_steps: judgeScreenshotSteps,
+        timed_out: run.status === 'timeout',
+      };
+    }
     await writeFile(join(workspace, 'final_message.txt'), run.text);
     await writeFile(join(workspace, 'sdk-result.json'), JSON.stringify(run, null, 2));
     envelope = resultEnvelope(
@@ -309,6 +370,7 @@ export async function main() {
         .map((p) => `agent_outputs/${p}`)
         .concat(['events.jsonl', 'agent_steps.txt', 'final_message.txt', 'sdk-result.json']),
       {
+        ...findingsEvidence,
         browser: { id: browser.id },
         options,
         node: process.version,
