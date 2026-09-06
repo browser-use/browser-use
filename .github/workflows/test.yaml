@@ -191,11 +191,14 @@ jobs:
       run:
         shell: bash
     env:
-      # Deliberately no IN_DOCKER here: it disables the Chromium sandbox, and a
-      # Windows runner is not a container.
+      # IN_DOCKER is intentionally left unset: setting it would turn the Chromium
+      # sandbox off, and a Windows runner is not a container.
       ANONYMIZED_TELEMETRY: 'false'
       BROWSER_USE_CLOUD_SYNC: 'false'
       BROWSER_USE_LOGGING_LEVEL: 'DEBUG'
+      # Redirected stdout defaults to the ANSI code page on Windows, and addopts
+      # carries -s, so non-ASCII test output would depend on the runner locale.
+      PYTHONIOENCODING: 'utf-8'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
