@@ -1,6 +1,6 @@
-# Models & providers
+# Models
 
-Choose the model explicitly. Pi handles provider protocols, authentication, reasoning, tool calls, and images.
+Choose a provider and model. Use the same agent API.
 
 ```js
 const agent = await BrowserUse.create({
@@ -9,37 +9,30 @@ const agent = await BrowserUse.create({
 });
 ```
 
-## One identifier, many providers
+## API keys
 
-The format is `provider/model-id`. Everything after the first slash belongs to the model ID, so OpenRouter IDs with slashes work.
+Set your provider’s key in the environment:
 
-| Provider  | Example                       | Environment variable |
+| Provider  | Model example                 | Environment variable |
 | --------- | ----------------------------- | -------------------- |
 | OpenAI    | `openai/gpt-5.5`              | `OPENAI_API_KEY`     |
 | Anthropic | `anthropic/claude-sonnet-4-6` | `ANTHROPIC_API_KEY`  |
 | Google    | `google/gemini-2.5-pro`       | `GEMINI_API_KEY`     |
 
-These are explicit examples, not moving “latest” aliases. Availability depends on the provider and your account. A model present in Pi's catalog is not a claim that it has been tested with this SDK.
+Model IDs use `provider/model-id`. Availability depends on your provider account. Pi supplies the model catalog; catalog support does not mean we have tested every model.
 
-## Discover the installed catalog
+## Find a model
 
 ```js
 import { builtinModels } from '@browser-use/next';
 
 const models = builtinModels();
-console.table(
-  models.getModels('openai').map((m) => ({
-    id: m.id,
-    vision: m.input.includes('image'),
-    context: m.contextWindow,
-  })),
-);
+console.table(models.getModels('openai'));
 ```
 
-An unknown model fails during `create()`, before launching a browser. No model substitution occurs.
+An unknown model fails before Chrome launches.
 
-## Bring your own provider
-
+::: details Custom providers
 The SDK accepts Pi's native `Models` collection. Register a provider using Pi's factories, including compatible endpoints or your own model definitions, then pass the collection:
 
 ```js
@@ -57,7 +50,4 @@ const agent = await BrowserUse.create({
 ```
 
 This keeps new model support in Pi instead of maintaining another provider registry here. The lockfile pins Pi for reproducible installs. Upgrade it deliberately, run compatibility tests, and compare matched evaluations before changing your application's default.
-
-## Model choice is part of the experiment
-
-For quality comparisons, freeze the model ID, reasoning level, task IDs, browser environment, step/time limits, retries, and judge. Report price and completion separately. A newer model or different judge makes a different experiment.
+:::

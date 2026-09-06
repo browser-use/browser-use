@@ -1,0 +1,186 @@
+{
+  "date": "2026-09-06",
+  "baseCommit": "334af6166e68e516a0ae4e6142b2e7a7ff865462",
+  "scope": "Documentation and theme only; SDK runtime unchanged.",
+  "references": [
+    "https://docs.browser-use.com/cloud/quickstart",
+    "https://docs.browser-use.com/open-source/quickstart"
+  ],
+  "checks": {
+    "productionBuild": "passed",
+    "prettier": "passed",
+    "internalLinks": {
+      "pages": 19,
+      "internalLinksChecked": 505,
+      "errors": []
+    },
+    "desktop": [
+      {
+        "route": "",
+        "title": "Quickstart \u200b",
+        "width": 1440,
+        "documentWidth": 1440
+      },
+      {
+        "route": "quickstart",
+        "title": "Quickstart \u200b",
+        "width": 1440,
+        "documentWidth": 1440
+      },
+      {
+        "route": "models",
+        "title": "Models \u200b",
+        "width": 1440,
+        "documentWidth": 1440
+      },
+      {
+        "route": "python",
+        "title": "Python \u200b",
+        "width": 1440,
+        "documentWidth": 1440
+      },
+      {
+        "route": "sessions",
+        "title": "Sessions & login \u200b",
+        "width": 1440,
+        "documentWidth": 1440
+      },
+      {
+        "route": "results",
+        "title": "Structured output \u200b",
+        "width": 1440,
+        "documentWidth": 1440
+      },
+      {
+        "route": "events",
+        "title": "Streaming & hooks \u200b",
+        "width": 1440,
+        "documentWidth": 1440
+      },
+      {
+        "route": "tools",
+        "title": "Custom tools \u200b",
+        "width": 1440,
+        "documentWidth": 1440
+      },
+      {
+        "route": "recording",
+        "title": "Video & GIFs \u200b",
+        "width": 1440,
+        "documentWidth": 1440
+      },
+      {
+        "route": "api",
+        "title": "API reference \u200b",
+        "width": 1440,
+        "documentWidth": 1440
+      }
+    ],
+    "mobile": [
+      {
+        "route": "",
+        "width": 390,
+        "documentWidth": 390,
+        "h1": "Quickstart \u200b"
+      },
+      {
+        "route": "quickstart",
+        "width": 390,
+        "documentWidth": 390,
+        "h1": "Quickstart \u200b"
+      },
+      {
+        "route": "models",
+        "width": 390,
+        "documentWidth": 390,
+        "h1": "Models \u200b"
+      },
+      {
+        "route": "python",
+        "width": 390,
+        "documentWidth": 390,
+        "h1": "Python \u200b"
+      },
+      {
+        "route": "sessions",
+        "width": 390,
+        "documentWidth": 390,
+        "h1": "Sessions & login \u200b"
+      },
+      {
+        "route": "results",
+        "width": 390,
+        "documentWidth": 390,
+        "h1": "Structured output \u200b"
+      },
+      {
+        "route": "events",
+        "width": 390,
+        "documentWidth": 390,
+        "h1": "Streaming & hooks \u200b"
+      },
+      {
+        "route": "tools",
+        "width": 390,
+        "documentWidth": 390,
+        "h1": "Custom tools \u200b"
+      },
+      {
+        "route": "recording",
+        "width": 390,
+        "documentWidth": 390,
+        "h1": "Video & GIFs \u200b"
+      },
+      {
+        "route": "api",
+        "width": 390,
+        "documentWidth": 390,
+        "h1": "API reference \u200b"
+      }
+    ],
+    "interactions": [
+      "Search profileDir returns Sessions, Python and API results",
+      "Copy Code reports successful clipboard write",
+      "Theme switch toggles light/dark",
+      "Details opens on click",
+      "Mobile Menu opens sidebar without page overflow"
+    ],
+    "snippets": {
+      "javascript": "guide snippets parsed with node --check",
+      "python": "guide snippets parsed with ast.parse",
+      "typescript": "standalone custom-tool and structured-output examples passed strict tsc"
+    },
+    "sdkSuite": "not rerun: no SDK code changes",
+    "paidModelRuns": 0
+  },
+  "screenshots": {
+    "before": "evidence/docs-redesign-before.png",
+    "after": "evidence/docs-redesign-after.png"
+  },
+  "sourceSha256": {
+    "docs/.vitepress/config.mts": "b4d92e126f9e1a65a6ee75d3d5784ac7a7d605cba1536e3fece262c109756e59",
+    "docs/.vitepress/theme/index.ts": "5c2b42b7e9eb595f943c10a1d2ced05edfe9d35b9a8f85a3ff91c1893365e509",
+    "docs/.vitepress/theme/style.css": "67da4de3bd6590c965aea556a463dc8abdd289472f260a66a49a356f293f9333",
+    "docs/api.md": "400648f5b059fb6a39c22487f5ba44c6c095325d12fc63645c536fe01dd14d91",
+    "docs/architecture.md": "26833fdd7a2bce9c1454e0fd2cac433c9bf0b16d43ef7fd2478e867919690231",
+    "docs/benchmark-baseline.md": "46ed30ace378cc89bafffc389de524975c268797d9192096827456ee70199ed2",
+    "docs/benchmark.md": "189283794bad4a05b956f02b023e56e4faa88f998c00182c37f8cc1ed61e2f49",
+    "docs/browser.md": "16296c890e3509e6742e06a15ff38c783d684fe8b4faadb17ee31d41ff4ad469",
+    "docs/events.md": "41e158ea428eb7cafef37155ca8cc2d5ce15d615f47f6373e00bfac6f5430b46",
+    "docs/index.md": "cca52260267f48b86d19cc2209c3dd9ba87d0d39de667bc27b3436126f5a40a5",
+    "docs/migration.md": "ed108e346fb02eadc0974efa983cd88382478ede026464f182fb712a77544c5b",
+    "docs/models.md": "c1c74a40597707b21eeb3054bb64d52b8988400d4055c479c4dc96f302ecbf3b",
+    "docs/public/mark.svg": "458ad44958a620b96edfb1173ba2b0ad7a4dde48446c349fcf4fad20d6e7c141",
+    "docs/python.md": "60fd286fdfd60385acfe1b4497118042fa6ea7915fda801136971898956c84d9",
+    "docs/quickstart.md": "a4507ca4c7e2a5f87a776b7fa6edb329513e3ec483a0fd87cd9b3ae76a28c116",
+    "docs/recording.md": "6b0070a47cc349cabebb2586abdc2d0a988b4644ee61da36e1691345632cec8d",
+    "docs/recovery.md": "e4bf8f4a0aa1592f3e96f253d5562b803e886e086b39324c0469233feb3cc83f",
+    "docs/results.md": "ea5345dba2dbce6e048ec0dfbefa402d6e218f1b13663b4781e830b30958bd49",
+    "docs/session-verification.md": "b21a622640e51a9988690d022c1c2428f68a1413f0a8b276d2d5ce79fc18a2f7",
+    "docs/sessions.md": "c9ad7840c6fc3e3ba43f78a794fb81960b492917df50e8a8ebb766753354bc19",
+    "docs/tools.md": "ae17a3766df5cbf7959855f4465be03a81d2c3120683855a604a6d136a616e32",
+    "docs/verification.md": "3a5d68a73173d7dfc70be47f3f31b7e30743671e26725e5e89696debe07ce476"
+  },
+  "rollout": "Same documentation URLs; reference pages remain available. Homepage now uses the quickstart. No hosted deployment.",
+  "rollback": "Revert this documentation commit; no runtime or persisted state migration."
+}

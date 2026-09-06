@@ -1,40 +1,51 @@
-# Typed results
+# Structured output
 
-Define the shape your application needs. The model delivers it through `finish` or `finish_from_js`; both validate against your schema. Invalid arguments are returned to the model as a repairable error.
+Get a typed object instead of parsing the agent’s answer.
+
+## Define a schema
 
 ```ts
 import { BrowserUse, Type } from '@browser-use/next';
 
-const schema = Type.Object({
-  products: Type.Array(
-    Type.Object({
-      name: Type.String(),
-      price: Type.Number({ minimum: 0 }),
-      source: Type.String(),
-    }),
-  ),
-  missing: Type.Array(Type.String()),
-});
-
 const agent = await BrowserUse.create({ model: 'openai/gpt-5.5' });
 try {
-  const result = await agent.run('Compare three travel chargers. Include price and source URL.', {
-    schema,
+  const result = await agent.run('Find three travel chargers under $100.', {
+    schema: Type.Array(
+      Type.Object({
+        name: Type.String(),
+        price: Type.Number(),
+        url: Type.String(),
+      }),
+    ),
   });
+
   if (result.status === 'completed') {
-    // Inferred: { products: { name: string; price: number; source: string }[]; missing: string[] }
-    console.table(result.output.products);
+    console.table(result.output); // typed array
   }
 } finally {
   await agent.close();
 }
 ```
 
-## Completion is an explicit event
+Use `Type.Object`, `Type.Array`, `Type.String` and other TypeBox schemas. Without a schema, the output is a string.
 
-`completed` means a delivery tool accepted a value matching your schema. It does **not** mean an independent judge verified every factual claim. Use source fields, application checks, and an outcome evaluator for consequential workflows.
+## Handle the result
 
-If the model stops without delivery, the SDK gives it one delivery-only repair turn within the original budgets. If that fails, the run is `incomplete`. A budget limit, timeout, cancellation, or model error does not become a successful result.
+Only `completed` results have `output`. Other statuses include available text and may include an error:
+
+```js
+if (result.status !== 'completed') {
+  console.log(result.status, result.text, result.error);
+}
+```
+
+The schema validates the shape. Use [`validateResult`](/events#hooks) for your own checks.
+
+## Return files
+
+Ask the agent to save a file in the [workspace](/sessions#keep-your-files). Use a schema with a `path` field when your application needs the filename.
+
+::: details Result statuses
 
 | Status          | Meaning                                                   |
 | --------------- | --------------------------------------------------------- |
@@ -48,15 +59,17 @@ If the model stops without delivery, the SDK gives it one delivery-only repair t
 | `error`         | Model, callback, or runtime failure prevented completion  |
 
 Only `completed` has an `output` property in the TypeScript union. Other statuses preserve available assistant text and may include an error.
+:::
 
-## Files are first-class outputs
-
+::: details File outputs
 The browser tool has `artifact(name, data)`. Large tool outputs are captured into files automatically and returned as bounded text plus the file path. Local downloads use `Browser.setDownloadBehavior`; remote files require the browser provider’s download API or a fetch of an observed URL.
 
 Use a schema containing artifact paths when the deliverable is a file. The helper refuses overwriting an existing filename. Artifacts remain after `close()`; your application owns retention and deletion.
+:::
 
-## Deliver large tables without regenerating them
+<span id="deliver-large-tables-without-regenerating-them"></span>
 
+::: details Large results & delivery
 The model can call `finish_from_js({ expression: 'rows' })` to return an existing array directly. The SDK evaluates the expression once in the persistent REPL, transfers its JSON value to the host, validates your schema, and returns it as `result.output`. No rows pass through the model's generated answer or the truncated observation channel.
 
 ```ts
@@ -68,3 +81,4 @@ const result = await agent.run('Extract every listing with its source URL.', {
 For the default string schema, the model uses `finish_from_js({ expression: 'JSON.stringify(rows)' })`. For a structured schema, it returns the matching value directly. Invalid schema values, cycles, and unsupported JSON values produce a repairable tool error. Delivery is limited to 16 MB of serialized JSON; use an artifact path for larger files. Dates and custom `toJSON` methods follow normal JSON serialization semantics.
 
 This removes a demonstrated delivery failure: the baseline extracted 125 jobs, then regenerated 126. It does not prove source coverage or factual correctness. Check record counts, filters, required fields, and source URLs before delivery. The SDK never automatically replays an expression after a timeout; expressions are executable JavaScript and may have side effects.
+:::

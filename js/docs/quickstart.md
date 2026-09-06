@@ -1,86 +1,80 @@
-# Your first web agent
+# Quickstart
 
-One session, one model, one task. The browser and JavaScript variables stay alive until you close the session.
+Give an agent a task. Get the result.
 
-::: info Source preview
-`@browser-use/next` is a working prototype, not a published npm release. Clone the source branch below. Node.js **22.19 or newer** is required.
-:::
+You need **Node.js 22.19+**, **Google Chrome** and a model API key. Works with JavaScript and TypeScript.
 
-## Install and verify locally
+## 1. Install
+
+The package is in preview. Install from source for now:
 
 ```sh
 git clone --branch codex/raw-cdp-k7m2 https://github.com/browser-use/bu-pi.git
 cd bu-pi
 npm ci
-# Install Google Chrome, or attach an existing CDP endpoint.
-npm run demo
+npm run build
 ```
 
-The demo uses Pi's **scripted test provider** against a local product catalog in a real Chromium browser. It exercises the complete tool loop and typed delivery without an API key or model charges. It is a plumbing demonstration, not an autonomous-agent benchmark.
-
-Install Google Chrome locally, specify `browser.executablePath`, or attach to a cloud browser using `browser.cdpUrl`. No browser automation runtime or browser download is bundled.
-
-## Use a real model
-
-Set your provider's API key through your normal environment or secret manager. For OpenAI, that is `OPENAI_API_KEY`. Then run:
+## 2. Add your API key
 
 ```sh
-node examples/research.mjs "Find the latest stable Node.js release on nodejs.org."
+export OPENAI_API_KEY="your-key"
 ```
 
-This example makes real provider requests and incurs the provider's normal charges. It reads `MODEL` if set; otherwise it uses `openai/gpt-5.5`.
+Using Anthropic or Google? See [models](/models).
+
+## 3. Run an agent
+
+Save this as `agent.mjs` in the `bu-pi` directory:
 
 ```js
 import { BrowserUse } from '@browser-use/next';
 
 const agent = await BrowserUse.create({
   model: 'openai/gpt-5.5',
+  browser: { headless: false },
 });
 
 try {
-  const result = await agent.run('Find the latest stable Node.js release on nodejs.org.', {
-    maxSteps: 20,
-    timeoutMs: 120_000,
-  });
-
-  if (result.status === 'completed') {
-    console.log(result.output);
-  } else {
-    console.log(result.status, result.text, result.error);
-  }
+  const result = await agent.run('Find the top story on Hacker News.');
+  console.log(result.status, result.text);
 } finally {
   await agent.close();
 }
 ```
 
-## Install into another project
-
-From the package directory:
-
 ```sh
-npm run check
-npm test
-npm pack
+node agent.mjs
 ```
 
-Then, in your application:
+Chrome opens, the agent works, and the answer prints in your terminal. Model requests use your provider account.
+
+## Keep going
+
+Before closing the agent, ask a follow-up:
+
+```js
+await agent.followUp('Summarize the comments on that story.');
+```
+
+[Save your login](/sessions) · [Get structured output](/results) · [Record a GIF](/recording)
+
+::: details Try it without an API key
+Run `npm run demo` from the checkout. It uses scripted model responses and real Chrome against a local fixture. It tests the setup without paid model requests.
+:::
+
+::: details Install in your own project
+Run `npm pack` in the checkout, then install the tarball in your application:
 
 ```sh
 npm install /path/to/browser-use-next-0.1.0.tgz
-# Install Google Chrome, or attach an existing CDP endpoint.
 ```
 
-The tarball contains compiled ESM, TypeScript declarations, source maps, examples, and the license. It has no dependency on the evaluation platform and runs without its credentials.
+Use the same import from an ESM JavaScript or TypeScript file. The package includes compiled JavaScript and TypeScript definitions. It is not published to npm yet.
 
-## Make cleanup automatic
+Node 22.19 and npm installs are tested on macOS. pnpm/Yarn installs and Linux/Windows have not been verified. Bun runtime execution is not currently supported. [Test coverage](/session-verification).
+:::
 
-TypeScript projects targeting explicit resource management can use:
-
-```ts
-await using agent = await BrowserUse.create({
-  model: 'openai/gpt-5.5',
-});
-const result = await agent.run('Read the current Node.js release notes.');
-```
-
-For portable JavaScript, use `try/finally`. `close()` is idempotent. Output files remain available in `agent.workspace` after closing.
+::: details Running tasks for other users
+The agent executes Node code with filesystem and network access. Use an isolated container or VM for untrusted tasks. [Execution boundaries](/recovery#execution-boundaries).
+:::

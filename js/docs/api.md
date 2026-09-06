@@ -51,7 +51,7 @@ Idempotent asynchronous cleanup. Cancels active work and closes the owned browse
 
 The tool names `javascript`, `finish`, and `finish_from_js` are reserved. `finish_from_js` evaluates an expression once and validates its JSON value against the run schema. See [typed results](./results).
 
-## Session additions
+## Sessions & control
 
 | API / option              | Contract                                                                 |
 | ------------------------- | ------------------------------------------------------------------------ |
