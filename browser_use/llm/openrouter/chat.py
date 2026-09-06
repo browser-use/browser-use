@@ -1,10 +1,11 @@
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
 import httpx
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
-from openai.types.chat.chat_completion import ChatCompletion
+from openai.types.chat.chat_completion import ChatCompletion, Choice
 from openai.types.shared_params.response_format_json_schema import (
 	JSONSchema,
 	ResponseFormatJSONSchema,
@@ -57,17 +58,23 @@ class ChatOpenRouter(BaseChatModel):
 
 	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
+		api_key = self.api_key or os.getenv('OPENROUTER_API_KEY')
+		if not api_key:
+			raise ModelProviderError(
+				message='Missing OpenRouter API key. Set OPENROUTER_API_KEY or pass api_key.',
+				status_code=401,
+				model=self.name,
+			)
+
 		# Define base client params
 		base_params = {
-			'api_key': self.api_key,
+			'api_key': api_key,
 			'base_url': self.base_url,
 			'timeout': self.timeout,
 			'max_retries': self.max_retries,
 			'default_headers': self.default_headers,
 			'default_query': self.default_query,
 			'_strict_response_validation': self._strict_response_validation,
-			'top_p': self.top_p,
-			'seed': self.seed,
 		}
 
 		# Create client_params dict with non-None values
@@ -90,6 +97,15 @@ class ChatOpenRouter(BaseChatModel):
 			client_params = self._get_client_params()
 			self._client = AsyncOpenAI(**client_params)
 		return self._client
+
+	def _get_first_choice(self, response: ChatCompletion) -> Choice:
+		if response.choices:
+			return response.choices[0]
+		raise ModelProviderError(
+			message='Invalid OpenRouter response: missing or empty `choices`.',
+			status_code=502,
+			model=self.name,
+		)
 
 	@property
 	def name(self) -> str:
@@ -154,9 +170,10 @@ class ChatOpenRouter(BaseChatModel):
 					**(self.extra_body or {}),
 				)
 
+				choice = self._get_first_choice(response)
 				usage = self._get_usage(response)
 				return ChatInvokeCompletion(
-					completion=response.choices[0].message.content or '',
+					completion=choice.message.content or '',
 					usage=usage,
 				)
 
@@ -185,7 +202,8 @@ class ChatOpenRouter(BaseChatModel):
 					**(self.extra_body or {}),
 				)
 
-				if response.choices[0].message.content is None:
+				choice = self._get_first_choice(response)
+				if choice.message.content is None:
 					raise ModelProviderError(
 						message='Failed to parse structured output from model response',
 						status_code=500,
@@ -193,12 +211,15 @@ class ChatOpenRouter(BaseChatModel):
 					)
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(response.choices[0].message.content)
+				parsed = output_format.model_validate_json(choice.message.content)
 
 				return ChatInvokeCompletion(
 					completion=parsed,
 					usage=usage,
 				)
+
+		except ModelProviderError:
+			raise
 
 		except RateLimitError as e:
 			raise ModelRateLimitError(message=e.message, model=self.name) from e

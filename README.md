@@ -142,6 +142,7 @@ Browser Use is also **#1 on the [Odysseys leaderboard](https://odysseysbench.com
 - Best stealth with proxy rotation and captcha solving
 - 1000+ integrations (Gmail, Slack, Notion, and more)
 - Persistent filesystem and memory
+- Rerunnable scripts fetch live data, even when sites change ([guide](https://docs.browser-use.com/cloud/agent/scripts))
 
 ```sh
 curl -X POST https://api.browser-use.com/api/v4/runs \

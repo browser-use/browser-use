@@ -25,10 +25,12 @@ async def test_browseruse_bu_latest(httpserver):
 # --- Model validation -------------------------------------------------------
 
 
-def test_default_model_is_bu_2_0_mini_preview():
+def test_default_model_is_bu_2_0():
+	"""The default must be a stable model - a preview is opt-in, never reached by omission."""
 	chat = ChatBrowserUse(api_key=TEST_API_KEY)
-	assert chat.model == 'bu-2-0-mini-preview'
+	assert chat.model == 'bu-2-0'
 	assert chat.provider == 'browser-use'
+	assert 'preview' not in chat.model
 
 
 @pytest.mark.parametrize('alias', ['bu-1-0', 'bu-2-0', 'bu-2-0-mini-preview', 'bu-qa-1'])
@@ -39,12 +41,12 @@ def test_bu_aliases_are_accepted(alias):
 	assert chat.provider == 'browser-use'
 
 
-def test_bu_latest_still_normalizes_to_bu_2_0():
-	"""'latest' tracks the stable premium line, so it does NOT follow the preview default."""
+def test_bu_latest_normalizes_to_bu_2_0():
+	"""'latest' tracks the stable premium line, which is also what omitting the model gives."""
 	chat = ChatBrowserUse(model='bu-latest', api_key=TEST_API_KEY)
 	assert chat.model == 'bu-2-0'
 	assert chat.name == 'bu-2-0'
-	assert ChatBrowserUse(api_key=TEST_API_KEY).model != chat.model
+	assert ChatBrowserUse(api_key=TEST_API_KEY).model == chat.model
 
 
 def test_bu_2_0_mini_preview_is_priced():
