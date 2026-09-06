@@ -181,6 +181,62 @@ jobs:
           retry_on: error
           command: pytest "tests/ci/${{ matrix.test_filename }}.py"
 
+  windows-tests:
+    # The suite otherwise only ever runs on Linux, so the Windows branches in
+    # chrome discovery, profile locking, process teardown and path handling are
+    # never exercised. This job covers the platform-sensitive, non-UI tests.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Deliberately no IN_DOCKER here: it disables the Chromium sandbox, and a
+      # Windows runner is not a container.
+      ANONYMIZED_TELEMETRY: 'false'
+      BROWSER_USE_CLOUD_SYNC: 'false'
+      BROWSER_USE_LOGGING_LEVEL: 'DEBUG'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          activate-environment: true
+
+      - name: Cache uv packages and venv
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/uv/cache
+            .venv
+          key: ${{ runner.os }}-uv-venv-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-venv-
+
+      - run: uv sync --dev --all-extras --refresh-package browser-use-core
+
+      - name: Get week number for cache key
+        id: week
+        run: echo "number=$(date +%Y-W%U)" >> $GITHUB_OUTPUT
+
+      - name: Cache chromium binaries
+        id: cache-chromium
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-chromium-${{ steps.week.outputs.number }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-chromium-
+
+      - name: Install Chromium browser if not cached
+        if: steps.cache-chromium.outputs.cache-hit != 'true'
+        # --with-deps installs Linux system packages and is not supported here
+        run: uvx playwright install chromium --no-shell
+
+      - name: Run platform-sensitive tests
+        run: pytest tests/ci/infrastructure tests/ci/models tests/ci/security
+
   evaluate-tasks:
     needs: setup-chromium
     runs-on: ubuntu-latest
