@@ -523,14 +523,14 @@ class AgentHistory(BaseModel):
 		return redact_sensitive_string(value, sensitive_values)
 
 	def _filter_sensitive_data_from_value(self, value: Any, sensitive_data: Mapping[str, str | Mapping[str, str]] | None) -> Any:
-		"""Recursively filter sensitive data from any value (string, dict, list, or tuple)."""
+		"""Recursively filter sensitive data from any supported container or string value"""
 		if isinstance(value, str):
 			return self._filter_sensitive_data_from_string(value, sensitive_data)
-		elif isinstance(value, dict):
-			return self._filter_sensitive_data_from_dict(value, sensitive_data)
-		elif isinstance(value, list):
+		if isinstance(value, dict):
+			return {key: self._filter_sensitive_data_from_value(item, sensitive_data) for key, item in value.items()}
+		if isinstance(value, list):
 			return [self._filter_sensitive_data_from_value(item, sensitive_data) for item in value]
-		elif isinstance(value, tuple):
+		if isinstance(value, tuple):
 			return tuple(self._filter_sensitive_data_from_value(item, sensitive_data) for item in value)
 		return value
 
@@ -541,10 +541,7 @@ class AgentHistory(BaseModel):
 		if not sensitive_data:
 			return data
 
-		filtered_data = {}
-		for key, value in data.items():
-			filtered_data[key] = self._filter_sensitive_data_from_value(value, sensitive_data)
-		return filtered_data
+		return {key: self._filter_sensitive_data_from_value(value, sensitive_data) for key, value in data.items()}
 
 	def model_dump(self, sensitive_data: dict[str, str | dict[str, str]] | None = None, **kwargs) -> dict[str, Any]:
 		"""Custom serialization handling circular references and filtering sensitive data"""
