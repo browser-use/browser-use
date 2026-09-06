@@ -1008,6 +1008,22 @@ PyPI (once a day) for a newer version and names it; BROWSER_USE_NO_UPDATE_CHECK=
 Library: from browser_use import Agent, see https://github.com/browser-use/browser-use"""
 
 
+def _read_piped_stdin() -> str:
+	"""Read piped stdin as UTF-8.
+
+	On Windows, the process code page (e.g. GBK) can make ``sys.stdin.read()``
+	raise ``UnicodeDecodeError`` for Chinese and other non-ASCII input even when
+	the pipe bytes are valid UTF-8. Prefer the binary buffer with an explicit
+	UTF-8 wrapper when available.
+	"""
+	import io
+
+	buffer = getattr(sys.stdin, 'buffer', None)
+	if buffer is not None:
+		return io.TextIOWrapper(buffer, encoding='utf-8', errors='strict').read()
+	return sys.stdin.read()
+
+
 def _command_name(args: list[str]) -> str:
 	if '--cli-mcp' in args:
 		return 'cli-mcp'
@@ -1109,7 +1125,7 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		if _stdin_is_terminal():
 			print(_QUICKSTART.replace('{version}', _browser_use_version()))
 			return 0, 'quickstart'
-		code = sys.stdin.read()
+		code = _read_piped_stdin()
 		if not code.strip():
 			print(_EMPTY_STDIN_MESSAGE, file=sys.stderr)
 			return 1, 'run'

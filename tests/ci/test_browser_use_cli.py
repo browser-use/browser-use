@@ -602,3 +602,37 @@ def test_a_malformed_bh_dir_override_keeps_the_bh_home_hint(monkeypatch, tmp_pat
 	monkeypatch.setenv('BH_CONFIG_DIR', '~nosuchuser_bu101/cfg')
 	assert harness_dir_setting(tmp_path / 'x') == 'BH_HOME'
 	assert harness_dir_setting('~nosuchuser_bu101/x') == 'BH_HOME'
+
+
+def test_read_piped_stdin_uses_utf8_even_when_text_wrapper_is_gbk(monkeypatch):
+	"""Windows zh-CN pipes often expose stdin text via a legacy code page."""
+	import importlib.util
+	import io
+	import sys
+	from pathlib import Path
+
+	cli_path = Path(__file__).resolve().parents[2] / 'browser_use' / 'cli.py'
+	spec = importlib.util.spec_from_file_location('browser_use_cli_under_test', cli_path)
+	assert spec is not None and spec.loader is not None
+	browser_use_cli = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(browser_use_cli)
+
+	class _LegacyStdin:
+		encoding = 'gbk'
+
+		def __init__(self, data: bytes):
+			self.buffer = io.BytesIO(data)
+
+		def read(self, *args, **kwargs):  # noqa: ANN002, ANN003
+			raise AssertionError('must not decode piped stdin through the legacy text wrapper')
+
+		def isatty(self) -> bool:
+			return False
+
+	monkeypatch.setattr(
+		browser_use_cli.sys,
+		'stdin',
+		_LegacyStdin('print("你好")\n'.encode('utf-8')),
+	)
+
+	assert browser_use_cli._read_piped_stdin() == 'print("你好")\n'
