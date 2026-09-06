@@ -557,6 +557,11 @@ class BrowserUseServer:
 					)
 				)
 
+		self.server.add_request_handler('tools/list', types.PaginatedRequestParams, handle_list_tools)
+		self.server.add_request_handler('resources/list', types.PaginatedRequestParams, handle_list_resources)
+		self.server.add_request_handler('prompts/list', types.PaginatedRequestParams, handle_list_prompts)
+		self.server.add_request_handler('tools/call', types.CallToolRequestParams, handle_call_tool)
+
 	@staticmethod
 	def _gated_tool_result_succeeded(tool_name: str, result: str | list[types.ContentBlock]) -> bool:
 		"""Return True only when a gated tool's string-result contract indicates success.
@@ -576,11 +581,6 @@ class BrowserUseServer:
 				if line.startswith('Success:'):
 					return line.removeprefix('Success:').strip() == 'True'
 		return True
-
-		self.server.add_request_handler('tools/list', types.PaginatedRequestParams, handle_list_tools)
-		self.server.add_request_handler('resources/list', types.PaginatedRequestParams, handle_list_resources)
-		self.server.add_request_handler('prompts/list', types.PaginatedRequestParams, handle_list_prompts)
-		self.server.add_request_handler('tools/call', types.CallToolRequestParams, handle_call_tool)
 
 	async def _execute_tool(self, tool_name: str, arguments: dict[str, Any]) -> str | list[types.ContentBlock]:
 		"""Execute a browser-use tool. Returns str for most tools, or a content list for tools with image output."""
