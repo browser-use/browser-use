@@ -9,7 +9,6 @@ Tests cover:
 5. Registry execution edge cases
 """
 
-import asyncio
 import logging
 
 import pytest
@@ -106,8 +105,10 @@ async def browser_session(base_url):
 	await browser_session.start()
 	from browser_use.browser.events import NavigateToUrlEvent
 
-	browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/test'))
-	await asyncio.sleep(0.5)  # Wait for navigation
+	# Await the event instead of sleeping: a fixed delay is not long enough for a
+	# cold browser start on a slower runner, which leaves the page on about:blank
+	event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/test'))
+	await event
 	yield browser_session
 	await browser_session.kill()
 
