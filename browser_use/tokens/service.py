@@ -425,7 +425,8 @@ class TokenCost:
 
 	async def get_usage_summary(self, model: str | None = None, since: datetime | None = None) -> UsageSummary:
 		"""Get summary of token usage and costs (costs calculated on-the-fly)"""
-		filtered_usage = self.usage_history
+		# Keep token totals and costs on the same snapshot while pricing is awaited.
+		filtered_usage = list(self.usage_history)
 
 		if model:
 			filtered_usage = [u for u in filtered_usage if u.model == model]
