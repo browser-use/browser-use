@@ -97,7 +97,7 @@ async def test_x402_gated_tools_advertise_payment_argument(server: BrowserUseSer
 	by_name = {tool.name: tool for tool in tools}
 
 	for tool_name in ('browser_extract_content', 'retry_with_browser_use_agent'):
-		properties = by_name[tool_name].inputSchema.get('properties', {})
+		properties = by_name[tool_name].input_schema.get('properties', {})
 		assert properties.get('x_payment', {}).get('type') == 'string', (
 			f'{tool_name} must advertise x_payment so schema-driven clients can supply it'
 		)

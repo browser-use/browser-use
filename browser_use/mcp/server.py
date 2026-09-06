@@ -507,7 +507,9 @@ class BrowserUseServer:
 						x402_response = get_x402_response(name, validation_error or 'X-PAYMENT header required')
 						# Return JSON string that represents 402 status with x402 body
 						error_msg = 'x402_payment_required'
-						return [types.TextContent(type='text', text=json.dumps({'status': 402, **x402_response}))]
+						return types.CallToolResult(
+							content=[types.TextContent(type='text', text=json.dumps({'status': 402, **x402_response}))]
+						)
 
 				result = await self._execute_tool(name, args)
 
@@ -519,15 +521,15 @@ class BrowserUseServer:
 						pending_payment = None
 						error_msg = result if isinstance(result, str) else 'Tool failed'
 						if isinstance(result, list):
-							return result
-						return [types.TextContent(type='text', text=result)]
+							return types.CallToolResult(content=result)
+						return types.CallToolResult(content=[types.TextContent(type='text', text=result)])
 
 					settled, settle_error = await settle_x402_payment(name, pending_payment)
 					pending_payment = None  # success → replay cache; definite fail → release; ambiguous → keep reserved
 					if not settled:
 						error_msg = settle_error or 'Payment settlement failed'
 						logger.error(f'Tool {name} succeeded but x402 settle failed: {error_msg}')
-						return [types.TextContent(type='text', text=f'Error: {error_msg}')]
+						return types.CallToolResult(content=[types.TextContent(type='text', text=f'Error: {error_msg}')])
 
 				if isinstance(result, list):
 					return types.CallToolResult(content=result)
@@ -556,7 +558,7 @@ class BrowserUseServer:
 				)
 
 	@staticmethod
-	def _gated_tool_result_succeeded(tool_name: str, result: str | list[types.TextContent | types.ImageContent]) -> bool:
+	def _gated_tool_result_succeeded(tool_name: str, result: str | list[types.ContentBlock]) -> bool:
 		"""Return True only when a gated tool's string-result contract indicates success.
 
 		Gated helpers often return 'Error: …' / 'Agent task failed: …' instead of raising,
