@@ -1212,13 +1212,14 @@ async function initialize(checkInitialized, magic) {{
 			if not (extract_dir / 'manifest.json').exists():
 				raise Exception('No manifest.json found in extension')
 
-		except (zipfile.BadZipFile, OSError) as e:
+		except (zipfile.BadZipFile, OSError, ValueError) as e:
 			# CRX files have a header before the ZIP data
 			# Skip the CRX header and extract the ZIP part
-			# A corrupt EOCD offset makes zipfile seek to an invalid position,
-			# which surfaces as OSError [Errno 22] (#5506). Other OSErrors are
-			# genuine I/O failures and must propagate instead of being reported
-			# as a format error by the fallback below.
+			# A corrupt EOCD offset makes zipfile seek to an invalid position:
+			# OSError [Errno 22] on real files, ValueError on BytesIO-backed
+			# ones (#5506). Non-EINVAL OSErrors are genuine I/O failures and
+			# must propagate instead of being reported as a format error by
+			# the fallback below.
 			if isinstance(e, OSError) and e.errno != errno.EINVAL:
 				raise
 			with open(crx_path, 'rb') as f:

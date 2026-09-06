@@ -96,3 +96,18 @@ class TestExtractExtension:
 
 		with pytest.raises(PermissionError):
 			BrowserProfile()._extract_extension(crx, tmp_path / 'out')
+
+	def test_valueerror_from_zipfile_reaches_fallback(self, tmp_path, monkeypatch: pytest.MonkeyPatch):
+		"""A ValueError from the first attempt — what a corrupt seek raises on
+		BytesIO-backed files, per #5506 — still routes to the fallback."""
+
+		def failing_extractall(self, path):
+			raise ValueError('negative seek value')
+
+		monkeypatch.setattr(zipfile.ZipFile, 'extractall', failing_extractall)
+
+		crx = tmp_path / 'plain.zip'
+		crx.write_bytes(_zip_payload(corrupt_eocd_offset=False))
+
+		with pytest.raises(Exception, match='Invalid CRX file format'):
+			BrowserProfile()._extract_extension(crx, tmp_path / 'out')
