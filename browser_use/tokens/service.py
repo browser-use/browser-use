@@ -478,6 +478,8 @@ class TokenCost:
 				cost = await self.calculate_cost(entry.model, entry.usage)
 				if cost:
 					stats.cost += cost.total_cost
+					stats.prompt_cost = (stats.prompt_cost or 0.0) + cost.prompt_cost
+					stats.completion_cost = (stats.completion_cost or 0.0) + cost.completion_cost
 					total_prompt_cost += cost.prompt_cost
 					total_completion_cost += cost.completion_cost
 					total_prompt_cached_cost += cost.prompt_read_cached_cost or 0
@@ -560,35 +562,16 @@ class TokenCost:
 			model_completion_fmt = self._format_tokens(stats.completion_tokens)
 			avg_tokens_fmt = self._format_tokens(int(stats.average_tokens_per_invocation))
 
-			# Format cost display (only if cost tracking is enabled)
-			if self.include_cost:
-				# Calculate per-model costs on-the-fly
-				total_model_cost = 0.0
-				model_prompt_cost = 0.0
-				model_completion_cost = 0.0
-
-				# Calculate costs for this model
-				for entry in self.usage_history:
-					if entry.model == model:
-						cost = await self.calculate_cost(entry.model, entry.usage)
-						if cost:
-							model_prompt_cost += cost.prompt_cost
-							model_completion_cost += cost.completion_cost
-
-				total_model_cost = model_prompt_cost + model_completion_cost
-
-				if total_model_cost > 0:
-					cost_part = f' (${C_MAGENTA}{total_model_cost:.4f}{C_RESET})'
-					prompt_part = f'{C_YELLOW}{model_prompt_fmt} (${model_prompt_cost:.4f}){C_RESET}'
-					completion_part = f'{C_GREEN}{model_completion_fmt} (${model_completion_cost:.4f}){C_RESET}'
-				else:
-					cost_part = ''
-					prompt_part = f'{C_YELLOW}{model_prompt_fmt}{C_RESET}'
-					completion_part = f'{C_GREEN}{model_completion_fmt}{C_RESET}'
-			else:
-				cost_part = ''
-				prompt_part = f'{C_YELLOW}{model_prompt_fmt}{C_RESET}'
-				completion_part = f'{C_GREEN}{model_completion_fmt}{C_RESET}'
+			# Use the summary's costs so logging does not price a different set of calls.
+			cost_part = ''
+			prompt_part = f'{C_YELLOW}{model_prompt_fmt}{C_RESET}'
+			completion_part = f'{C_GREEN}{model_completion_fmt}{C_RESET}'
+			if self.include_cost and stats.cost > 0:
+				cost_part = f' (${C_MAGENTA}{stats.cost:.4f}{C_RESET})'
+				if stats.prompt_cost is not None:
+					prompt_part = f'{C_YELLOW}{model_prompt_fmt} (${stats.prompt_cost:.4f}){C_RESET}'
+				if stats.completion_cost is not None:
+					completion_part = f'{C_GREEN}{model_completion_fmt} (${stats.completion_cost:.4f}){C_RESET}'
 
 			cost_logger.debug(
 				f'  🤖 {C_CYAN}{model}{C_RESET}: {C_BLUE}{model_total_fmt} tokens{C_RESET}{cost_part} | '
