@@ -9,6 +9,7 @@ Tests cover:
 5. Registry execution edge cases
 """
 
+import asyncio
 import logging
 
 import pytest
@@ -110,7 +111,7 @@ async def browser_session(base_url):
 	# dispatch swallows handler exceptions, so check the result to surface a failed
 	# navigation here rather than as a confusing assertion later in the test.
 	event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/test'))
-	await event
+	await asyncio.wait_for(event, timeout=15)
 	await event.event_result(raise_if_any=True, raise_if_none=False)
 	yield browser_session
 	await browser_session.kill()
