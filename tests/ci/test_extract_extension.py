@@ -11,6 +11,7 @@ import io
 import struct
 import tempfile
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -59,12 +60,13 @@ class TestExtractExtension:
 		"""Issue #5506 repro: the corrupt-EOCD OSError must be caught by the
 		widened guard so the header fallback runs (and then reports its own
 		failure for the corrupt payload) instead of escaping at first attempt."""
-		calls = []
+		temp_paths = []
 		real_named_temporary_file = tempfile.NamedTemporaryFile
 
 		def spy(*args, **kwargs):
-			calls.append(1)
-			return real_named_temporary_file(*args, **kwargs)
+			handle = real_named_temporary_file(*args, **kwargs)
+			temp_paths.append(handle.name)
+			return handle
 
 		monkeypatch.setattr(tempfile, 'NamedTemporaryFile', spy)
 
@@ -75,4 +77,22 @@ class TestExtractExtension:
 		with pytest.raises(Exception):
 			BrowserProfile()._extract_extension(crx, out)
 
-		assert calls, 'CRX-header fallback was not reached'
+		assert temp_paths, 'CRX-header fallback was not reached'
+		# The widened guard routes this corrupt payload into the fallback, whose
+		# extractall() then fails — the temp .zip must still be cleaned up.
+		assert not Path(temp_paths[0]).exists(), 'temp .zip leaked'
+
+	def test_genuine_io_error_is_not_masked_as_format_error(self, tmp_path, monkeypatch: pytest.MonkeyPatch):
+		"""Non-EINVAL OSErrors from the first attempt propagate instead of
+		triggering the fallback, which would misreport them as a format error."""
+
+		def failing_extractall(self, path):
+			raise PermissionError(13, 'permission denied')
+
+		monkeypatch.setattr(zipfile.ZipFile, 'extractall', failing_extractall)
+
+		crx = tmp_path / 'plain.zip'
+		crx.write_bytes(_zip_payload(corrupt_eocd_offset=False))
+
+		with pytest.raises(PermissionError):
+			BrowserProfile()._extract_extension(crx, tmp_path / 'out')

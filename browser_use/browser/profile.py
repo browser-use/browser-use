@@ -1192,7 +1192,7 @@ async function initialize(checkInitialized, magic) {{
 
 	def _extract_extension(self, crx_path: Path, extract_dir: Path) -> None:
 		"""Extract .crx file to directory."""
-		import os
+		import errno
 		import zipfile
 
 		# Remove existing directory
@@ -1212,9 +1212,15 @@ async function initialize(checkInitialized, magic) {{
 			if not (extract_dir / 'manifest.json').exists():
 				raise Exception('No manifest.json found in extension')
 
-		except (zipfile.BadZipFile, OSError, ValueError):
+		except (zipfile.BadZipFile, OSError) as e:
 			# CRX files have a header before the ZIP data
 			# Skip the CRX header and extract the ZIP part
+			# A corrupt EOCD offset makes zipfile seek to an invalid position,
+			# which surfaces as OSError [Errno 22] (#5506). Other OSErrors are
+			# genuine I/O failures and must propagate instead of being reported
+			# as a format error by the fallback below.
+			if isinstance(e, OSError) and e.errno != errno.EINVAL:
+				raise
 			with open(crx_path, 'rb') as f:
 				# Read CRX header to find ZIP start
 				magic = f.read(4)
@@ -1233,16 +1239,29 @@ async function initialize(checkInitialized, magic) {{
 				# Extract ZIP data
 				zip_data = f.read()
 
-			# Write ZIP data to temp file and extract
+			# Write ZIP data to temp file and extract.
+			# The temp file is created with delete=False, so cleanup is ours on
+			# every path: a corrupt payload makes extractall() raise, and the
+			# .zip would otherwise survive in the system temp dir. The handle is
+			# closed before unlinking since Windows refuses to remove files that
+			# still have an open handle.
+			temp_zip_path = None
+			try:
+				with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
+					temp_zip_path = Path(temp_zip.name)
+					temp_zip.write(zip_data)
+					temp_zip.flush()
 
-			with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
-				temp_zip.write(zip_data)
-				temp_zip.flush()
-
-				with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
+				with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
 					zip_ref.extractall(extract_dir)
-
-				os.unlink(temp_zip.name)
+			finally:
+				if temp_zip_path is not None:
+					try:
+						temp_zip_path.unlink(missing_ok=True)
+					except OSError as cleanup_error:
+						# Never let a cleanup failure replace the extraction
+						# error that is already propagating.
+						logger.warning(f'Failed to remove temp file {_log_pretty_path(temp_zip_path)}: {cleanup_error}')
 
 	def detect_display_configuration(self) -> None:
 		"""
