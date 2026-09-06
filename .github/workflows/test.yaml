@@ -218,27 +218,11 @@ jobs:
 
       - run: uv sync --dev --all-extras --refresh-package browser-use-core
 
-      - name: Get week number for cache key
-        id: week
-        run: echo "number=$(date +%Y-W%U)" >> $GITHUB_OUTPUT
-
-      - name: Cache chromium binaries
-        id: cache-chromium
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/AppData/Local/ms-playwright
-          key: ${{ runner.os }}-${{ runner.arch }}-chromium-${{ steps.week.outputs.number }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-chromium-
-
-      - name: Install Chromium browser if not cached
-        if: steps.cache-chromium.outputs.cache-hit != 'true'
-        # --with-deps installs Linux system packages and is not supported here
-        run: uvx playwright install chromium --no-shell
-
       - name: Run platform-sensitive tests
-        run: pytest tests/ci/infrastructure tests/ci/models tests/ci/security
+        # The two registry files drive a real browser, and starting/tearing down
+        # Chrome repeatedly hangs on the Windows runner rather than failing, which
+        # eats the whole job budget. Excluded until that is fixed separately.
+        run: pytest tests/ci/infrastructure tests/ci/models tests/ci/security --ignore=tests/ci/infrastructure/test_registry_core.py --ignore=tests/ci/infrastructure/test_registry_action_parameter_injection.py
 
   evaluate-tasks:
     needs: setup-chromium
