@@ -57,13 +57,10 @@ def test_browser_use_tui_is_deprecated_alias(monkeypatch, capsys):
 	assert capsys.readouterr().err == 'browser-use-tui is deprecated; use browser-use instead.\n'
 
 
-
-
 def test_read_piped_stdin_uses_utf8_even_when_text_wrapper_is_gbk(monkeypatch):
 	"""Windows zh-CN pipes often expose stdin text via a legacy code page."""
 	import importlib.util
 	import io
-	import sys
 	from pathlib import Path
 
 	cli_path = Path(__file__).resolve().parents[2] / 'browser_use' / 'cli.py'
@@ -78,7 +75,7 @@ def test_read_piped_stdin_uses_utf8_even_when_text_wrapper_is_gbk(monkeypatch):
 		def __init__(self, data: bytes):
 			self.buffer = io.BytesIO(data)
 
-		def read(self, *args, **kwargs):  # noqa: ANN002, ANN003
+		def read(self, *args, **kwargs):
 			raise AssertionError('must not decode piped stdin through the legacy text wrapper')
 
 		def isatty(self) -> bool:
@@ -87,7 +84,43 @@ def test_read_piped_stdin_uses_utf8_even_when_text_wrapper_is_gbk(monkeypatch):
 	monkeypatch.setattr(
 		browser_use_cli.sys,
 		'stdin',
-		_LegacyStdin('print("你好")\n'.encode('utf-8')),
+		_LegacyStdin('print("你好")\n'.encode()),
 	)
 
+	assert browser_use_cli._read_piped_stdin() == 'print("你好")\n'
+
+
+def test_read_piped_stdin_falls_back_to_legacy_encoding(monkeypatch):
+	"""GBK-piped bytes that are not valid UTF-8 should still decode via stdin.encoding."""
+	import importlib.util
+	import io
+	from pathlib import Path
+
+	cli_path = Path(__file__).resolve().parents[2] / 'browser_use' / 'cli.py'
+	spec = importlib.util.spec_from_file_location('browser_use_cli_under_test_fallback', cli_path)
+	assert spec is not None and spec.loader is not None
+	browser_use_cli = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(browser_use_cli)
+
+	class _LegacyStdin:
+		encoding = 'gbk'
+
+		def __init__(self, data: bytes):
+			self.buffer = io.BytesIO(data)
+
+		def read(self, *args, **kwargs):
+			raise AssertionError('buffer already consumed; must decode with fallback encoding')
+
+		def isatty(self) -> bool:
+			return False
+
+	payload = 'print("你好")\n'.encode('gbk')
+	# Sanity: these bytes are not valid UTF-8
+	try:
+		payload.decode('utf-8')
+		raise AssertionError('expected GBK payload to be invalid UTF-8')
+	except UnicodeDecodeError:
+		pass
+
+	monkeypatch.setattr(browser_use_cli.sys, 'stdin', _LegacyStdin(payload))
 	assert browser_use_cli._read_piped_stdin() == 'print("你好")\n'

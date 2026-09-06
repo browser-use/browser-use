@@ -335,20 +335,26 @@ _EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Py
   PY"""
 
 
-
 def _read_piped_stdin() -> str:
-	"""Read piped stdin as UTF-8.
+	"""Read piped stdin as UTF-8 when possible.
 
 	On Windows, the process code page (e.g. GBK) can make ``sys.stdin.read()``
 	raise ``UnicodeDecodeError`` for Chinese and other non-ASCII input even when
-	the pipe bytes are valid UTF-8. Prefer the binary buffer with an explicit
-	UTF-8 wrapper when available.
+	the pipe bytes are valid UTF-8. Read the binary buffer once and decode as
+	UTF-8 first; if that fails, fall back to the process/legacy encoding so
+	native code-page pipes still work. Avoid wrapping ``sys.stdin.buffer`` in a
+	throwaway ``TextIOWrapper`` (its close would close the underlying buffer).
 	"""
-	import io
+	import locale
 
 	buffer = getattr(sys.stdin, 'buffer', None)
 	if buffer is not None:
-		return io.TextIOWrapper(buffer, encoding='utf-8', errors='strict').read()
+		raw = buffer.read()
+		try:
+			return raw.decode('utf-8')
+		except UnicodeDecodeError:
+			encoding = getattr(sys.stdin, 'encoding', None) or locale.getpreferredencoding(False) or 'utf-8'
+			return raw.decode(encoding)
 	return sys.stdin.read()
 
 
