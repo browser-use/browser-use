@@ -1,7 +1,11 @@
+import json
 import os
 import subprocess
 import sys
+from importlib.metadata import version
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -23,7 +27,7 @@ def test_browser_use_doctor_help_prints_browser_use_usage():
 	result = _run_browser_use_cli('doctor', '--help')
 
 	assert result.returncode == 0
-	assert result.stdout == 'usage: browser-use doctor [--fix-snap]\n'
+	assert result.stdout == 'usage: browser-use doctor [--fix-snap|--json [--require-existing-daemon]]\n'
 	assert result.stderr == ''
 
 
@@ -55,3 +59,36 @@ def test_browser_use_tui_is_deprecated_alias(monkeypatch, capsys):
 
 	assert browser_use_cli.browser_use_tui_main() == 0
 	assert capsys.readouterr().err == 'browser-use-tui is deprecated; use browser-use instead.\n'
+
+
+def test_browser_use_version_reports_installed_distribution():
+	result = _run_browser_use_cli('--version')
+
+	assert result.returncode == 0
+	assert result.stdout.strip() == version('browser-use')
+	assert result.stderr == ''
+
+
+@pytest.mark.parametrize('args', [('--json', '--require-existing-daemon'), ('--require-existing-daemon', '--json')])
+def test_browser_use_doctor_json_reports_missing_daemon_without_starting_one(monkeypatch, tmp_path, args):
+	monkeypatch.setenv('BH_HOME', str(tmp_path))
+	monkeypatch.delenv('BROWSER_HARNESS_HOME', raising=False)
+	monkeypatch.delenv('BU_NAME', raising=False)
+	result = _run_browser_use_cli('doctor', *args)
+
+	assert result.returncode == 1
+	report = json.loads(result.stdout)
+	assert report['healthy'] is False
+	assert report['require_existing_daemon'] is True
+	assert report['daemon']['alive'] is False
+	assert result.stderr == ''
+	assert not list(tmp_path.rglob('*.sock'))
+
+
+@pytest.mark.parametrize('args', [('--require-existing-daemon',), ('--json', '--json'), ('--json', '--fix-snap'), ('--wat',)])
+def test_browser_use_doctor_still_rejects_invalid_options(args):
+	result = _run_browser_use_cli('doctor', *args)
+
+	assert result.returncode == 2
+	assert result.stdout == ''
+	assert result.stderr == 'usage: browser-use doctor [--fix-snap|--json [--require-existing-daemon]]\n'
