@@ -1,0 +1,48 @@
+examples/models/gpt-5.6-luna.py
+  s_86d24eaeebcb12::t_d779bbfb3da899 1-4,6-8,10-16,18-28
+  s_86d24eaeebcb12::t_69309fdf0b1a20 5,9,17
+examples/models/claude-opus-5.py
+  s_86d24eaeebcb12::t_d779bbfb3da899 1-2,5-10,12,14-27
+  s_86d24eaeebcb12::t_69309fdf0b1a20 3-4,11,13
+tests/ci/test_mcp_default_models.py
+  s_86d24eaeebcb12::t_b13b7b82c0c2af 1-64
+browser_use/config.py
+  s_86d24eaeebcb12::t_6ad9f70ada6be7 306
+browser_use/mcp/server.py
+  s_86d24eaeebcb12::t_3791b0a7d71fdb 639,686
+tests/ci/models/test_llm_anthropic.py
+  s_86d24eaeebcb12::t_d779bbfb3da899 16-26
+tests/ci/models/test_llm_model_factory.py
+  s_86d24eaeebcb12::t_383e2c71ea4973 8-19
+README.md
+  s_86d24eaeebcb12::t_6ad9f70ada6be7 103,110-112
+  s_86d24eaeebcb12::t_69309fdf0b1a20 93
+browser_use/llm/models.py
+  s_86d24eaeebcb12::t_6ad9f70ada6be7 50-51,78,131-133,292-293,315
+tests/ci/infrastructure/test_config.py
+  s_86d24eaeebcb12::t_6ad9f70ada6be7 5-13
+browser_use/llm/openai/chat.py
+  s_86d24eaeebcb12::t_6ad9f70ada6be7 76,194-195
+AGENTS.md
+  s_86d24eaeebcb12::t_d779bbfb3da899 146,163,661
+tests/ci/models/test_llm_openai.py
+  s_86d24eaeebcb12::t_6ad9f70ada6be7 43
+  s_86d24eaeebcb12::t_d779bbfb3da899 80-87
+  s_86d24eaeebcb12::t_383e2c71ea4973 5,7,15-42,44-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "68fb15f7bd438653b4441dcd640c5eb33f1cd338",
+  "prompts": {},
+  "sessions": {
+    "s_86d24eaeebcb12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a005bc-1d17-73c3-b1f5-38259988bc61",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Growth Radar QA <growth-radar-qa@local>"
+    }
+  }
+}
