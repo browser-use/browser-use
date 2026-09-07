@@ -50,20 +50,58 @@ PY
   `current_tab()` and `list_tabs()` and use `switch_tab()` to reuse a matching
   tab. Do not leave duplicate tabs on the same URL or close tabs you did not
   create.
+- At task completion, close tabs created for the task that are no longer needed.
+  Keep a tab open if the user needs to see it, it is needed for a known follow-up,
+  or closing it could discard unsaved work or other important state.
 - `new_tab()` and `switch_tab()` attach and move the horse marker without
   changing Chrome's visible tab. Screenshots and normal CDP input work in the
-  background; call `activate_tab(target)` only when the user explicitly asks
-  or a page demonstrably pauses rendering while hidden.
+  background. Never call `activate_tab(target)` automatically: it brings Chrome
+  to the foreground. Call it only when the user explicitly asks to see or
+  visibly switch to that tab. Do not pair `switch_tab()` with `activate_tab()`.
+- A local daemon is a connection to the whole Chrome instance, not to one site,
+  task, card, or agent. Omit `BU_NAME` and reuse the default daemon for normal
+  sequential local work across websites, tabs, screenshots, and Codex turns.
+  Do not invent per-job names such as `gmail1375` or `slack1371`: every new
+  local daemon opens another browser-level CDP connection and Chrome may show
+  another Allow prompt.
 - Set `BH_TAB_MARKER=0` before starting the daemon to leave page titles unchanged.
   The horse marker remains enabled by default.
-- A timed-out `scroll(...)` on an attached background tab is evidence that the
-  page needs to be visible. Call `activate_tab(current_tab())`, retry the same
-  scroll once, then re-read the scroll position. This visibly switches tabs,
-  so do not use it when the user has forbidden foreground changes. Do not
-  invent a `Runtime.evaluate` scroll replacement or a cross-frame JS walker.
+- A timeout or page that pauses while hidden is not permission to foreground
+  Chrome. Keep using background CDP operations. For a focus-gated page,
+  temporarily call `cdp("Emulation.setFocusEmulationEnabled", enabled=True)`,
+  perform and verify the operation, then disable it in a `finally` block. If
+  background control still cannot work, report that limitation instead of
+  activating the tab. Do not invent a `Runtime.evaluate` scroll replacement or
+  a cross-frame JS walker.
 - The normal local flow attaches to the running Chrome/Chromium CDP endpoint. No browser ids or local profile selection.
 
 ## Local Chrome
+
+The default daemon can keep many tabs and visit many sites; browser-use has
+no per-site, screenshot, or result-count limit that requires a new daemon.
+Chrome memory and page complexity are the practical limits. Reuse matching tabs
+with `list_tabs()` and `switch_tab()`.
+
+One daemon has one mutable attached/current tab. Many agents can share it when
+their browser operations are serialized: treat local Chrome as one shared
+browser lane while non-browser work continues in parallel. Sequential tab
+switching, input, and screenshot capture are safe. Do not create another local
+daemon merely because several agents exist.
+
+Two agents that switch tabs and act simultaneously can race, causing one to act
+on or capture the other's tab. For truly simultaneous interactive work, use
+separate remote browsers when Browser Use Cloud authentication is already
+available. Otherwise serialize browser operations through the default local
+daemon. A named local daemon is a last resort when simultaneous isolation is
+required, remote auth is unavailable or unsuitable, and the extra Chrome
+approval prompt is acceptable. It creates another controller and dedicated tab
+in the same local Chrome profile, not another Chrome profile or process.
+
+If the default daemon becomes stale, use its built-in reattachment/recovery
+first. A command timeout, truncated output, site change, closed tab, or new task
+is not a reason to create another daemon. Run `browser-use --doctor` and
+restart or replace the default daemon only when it is actually dead or cannot
+recover.
 
 If the daemon cannot connect, run diagnostics:
 
@@ -96,9 +134,31 @@ Settings > Privacy & Security > Accessibility, then call `mac-approve` once
 again. This is only for local Chrome; do not call it for `BU_CDP_URL`,
 `BU_CDP_WS`, or Browser Use Cloud.
 
+When the shell tool can yield a still-running process, use a short 3-5 second
+initial yield for the first local command, not a 30-second wait. If the command
+yields with the Allow hint, leave that exact process running, immediately call
+`browser-use mac-approve` in a second tool call, then resume or poll the
+original process. With a named daemon, preserve its exact `BU_NAME` for the
+helper. Never start the browser command again. If the user clicks Allow first,
+the same handshake completes and the original command returning successfully
+is the agent's feedback; `mac-approve` also returns `ready` when the daemon is
+already connected.
+
+`mac-approve` is macOS-only. On Linux or Windows, keep the original browser
+command running and ask the user to click Allow if Chrome presents the approval
+dialog. Their click completes the same handshake, so resume or poll the original
+process for success; do not rerun it or create a replacement daemon. If that
+Chrome build presents no approval dialog, the original command simply connects.
+
 ## Remote Browsers
 
 Use Browser Use cloud for headless servers, parallel sub-agents, or isolated work.
+
+Remote browsers require Browser Use Cloud authentication. Check
+`browser-use auth status` before depending on them. `browser-use auth
+login` stores authentication for later processes, so an API key does not need to
+be passed to every agent process; without stored authentication or an available
+`BROWSER_USE_API_KEY`, serialize work through the default local daemon instead.
 
 Cloud browsers are managed Chrome instances hosted by Browser Use. Each one is a fresh, isolated browser. Proactively suggest one (briefly explain why) when:
 
