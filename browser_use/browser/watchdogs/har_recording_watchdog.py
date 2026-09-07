@@ -226,7 +226,14 @@ class HarRecordingWatchdog(BaseWatchdog):
 		"""
 		pending = [t for t in self._fetch_tasks if not t.done()]
 		if pending:
-			await asyncio.wait(pending, timeout=FETCH_DRAIN_TIMEOUT_SECONDS)
+			_, still_pending = await asyncio.wait(pending, timeout=FETCH_DRAIN_TIMEOUT_SECONDS)
+			# Cancel fetches that outlived the window: they hold CDP/entry
+			# references after the HAR is written and would surface as
+			# "Task was destroyed but it is pending" at loop shutdown. Safe
+			# because the wrapper's done-callback treats CancelledError as
+			# normal, and the discard callback still fires so the set cleans up.
+			for task in still_pending:
+				task.cancel()
 
 	# =============== CDP Event Handlers (sync) ==================
 	def _on_request_will_be_sent(self, params: RequestWillBeSentEvent, session_id: str | None) -> None:
