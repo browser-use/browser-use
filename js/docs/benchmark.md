@@ -1,5 +1,7 @@
 # Internal Bench Hard
 
+> Historical verification. [Latest full evaluations](./vision-results.md) · [Current runtime tests](./vision-verification.md). Scores below belong to their stated commits.
+
 **The delivery candidate passed 91/106 tasks (85.8%).** The fresh frozen SDK baseline passed 76/106 (71.7%). The paired change is **+15 tasks / +14.2 percentage points**, with 19 gains and 4 regressions. Both full runs used GPT-5.5, medium reasoning, the same 106 tasks, and the same Laith judge configuration. No task was rerun or substituted.
 
 This measures one contemporaneous pair against our previous SDK. It does not establish SOTA against current competing agents. The earlier Python + Browser Harness score was 89/106 on another date; the [original 79/106 SDK report](/benchmark-baseline) preserves that history.

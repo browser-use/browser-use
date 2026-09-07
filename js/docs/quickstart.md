@@ -72,7 +72,22 @@ npm install /path/to/browser-use-next-0.1.0.tgz
 
 Use the same import from an ESM JavaScript or TypeScript file. The package includes compiled JavaScript and TypeScript definitions. It is not published to npm yet.
 
-Node 22.19 and npm installs are tested on macOS. pnpm/Yarn installs and Linux/Windows have not been verified. Bun runtime execution is not currently supported. [Test coverage](/session-verification).
+For TypeScript, use these compiler options:
+
+```json
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true
+  }
+}
+```
+
+`skipLibCheck` is currently required by upstream Pi/Google declaration errors. Strict checking still applies to your code and SDK options. [Exact verification and limitation](/vision-verification).
+
+The npm tarball is checked on macOS with Node 22.23.2; remote evaluations exercise Node 22 on Linux. pnpm/Yarn installs and Windows have not been verified. Bun runtime execution is not currently supported. [Test coverage](/session-verification).
 :::
 
 ::: details Running tasks for other users

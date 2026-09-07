@@ -1,5 +1,7 @@
 # Session SDK verification
 
+> Historical verification. [Latest full evaluations](./vision-results.md) · [Current runtime tests](./vision-verification.md). Scores below belong to their stated commits.
+
 **September 6, 2026 · 56 JavaScript tests passed on Node 22.19.0. Six Python integration tests passed.** Tests use real local Chrome, synthetic data and a local SSE model endpoint. No paid model request or remote benchmark was dispatched for this change.
 
 ## What was added

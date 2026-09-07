@@ -1696,7 +1696,8 @@
           "compactions": 0,
           "provider_retries": 0
         }
-      ]
+      ],
+      "project_id": "b657f811-13a7-4dae-a67a-91445a567f24"
     },
     {
       "name": "hard-86",
@@ -2781,7 +2782,8 @@
           "compactions": 0,
           "provider_retries": 0
         }
-      ]
+      ],
+      "project_id": "b657f811-13a7-4dae-a67a-91445a567f24"
     },
     {
       "name": "hard-new",
@@ -3867,7 +3869,8 @@
           "compactions": 0,
           "provider_retries": 0
         }
-      ]
+      ],
+      "project_id": "b657f811-13a7-4dae-a67a-91445a567f24"
     },
     {
       "name": "luna-34",
@@ -4493,7 +4496,8 @@
           "compactions": 0,
           "provider_retries": 0
         }
-      ]
+      ],
+      "project_id": "b657f811-13a7-4dae-a67a-91445a567f24"
     },
     {
       "name": "luna-new",
@@ -5122,7 +5126,8 @@
           "compactions": 1,
           "provider_retries": 0
         }
-      ]
+      ],
+      "project_id": "b657f811-13a7-4dae-a67a-91445a567f24"
     },
     {
       "name": "browsercode-luna",
@@ -5746,7 +5751,8 @@
           "compactions": 0,
           "provider_retries": 0
         }
-      ]
+      ],
+      "project_id": "502a9d52-2725-4410-9a58-e469aa10fd12"
     }
   ],
   "comparisons": [

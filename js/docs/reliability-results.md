@@ -1,5 +1,7 @@
 # Reliability evaluation — September 7, 2026
 
+> Historical verification. [Latest full evaluations](./vision-results.md) · [Current runtime tests](./vision-verification.md). Scores below belong to their stated commits.
+
 The candidate adds upstream Pi compaction, durable checkpoints, browser-independent code/files, optional Pi coding tools, explicit reconnect, partial-output recovery, a delivery reserve, and nonblocking screenshot observation. Pi supplies summary generation and token estimation; bu-pi schedules compaction and preserves the working context. No Pi fork or Playwright.
 
 ## Full results
@@ -69,7 +71,7 @@ These are deliberate treatment changes: compaction/accounting, response output c
 
 ## Comparison rules
 
-The same-day prior SDK runs are 86/106 Hard (`49046b14-4bec-48b4-96be-41408d185724`) and 34.12/100 Luna (`3e98b41b-2411-4531-b994-bad88026c6a3`). The older Hard peak is 91/106 (`5ab99c00-c360-4ab9-b0f8-ca58bf80e5e0`). The BrowserCode Luna reference is 41.17/100 (`d7fbccfc-03ad-428e-85c2-f280f88cc642`), from August 20. It used another runner/harness and earlier live website state; it is not a simultaneous control.
+The recent prior SDK runs are 86/106 Hard (`49046b14-4bec-48b4-96be-41408d185724`) and 34.12/100 Luna (`3e98b41b-2411-4531-b994-bad88026c6a3`). The older Hard peak is 91/106 (`5ab99c00-c360-4ab9-b0f8-ca58bf80e5e0`). The BrowserCode Luna reference is 41.17/100 (`d7fbccfc-03ad-428e-85c2-f280f88cc642`), from August 20. It used another runner/harness and earlier live website state; it is not a simultaneous control.
 
 Scores are paired by task ID. Report end-to-end scores and actual judgment coverage separately: prior SDK Hard has 103 actual judgments plus three runner failures; prior Luna has 51 judgments plus nine runner failures. The 91-run has 106 actual judgments, including one judge-labelled runtime-error outcome. A judge's `error` verdict is not automatically a failed judge invocation. Historical BrowserCode has 60 scored tasks plus two empty duplicate placeholders, which are excluded without discarding any scored task.
 
@@ -138,3 +140,5 @@ Luna cleanup diagnostics: four SDK close attempts failed (`002`, `040`, `054`, `
 The frozen full runs predate `2fd83d33ce2ad30383e3a66cd4fe802b13c09140`, which changes only eval artifact packaging, tests and docs. GitHub's default uploader omitted `.browser-use` despite those paths appearing in result manifests. Visible event streams, ordinary deliverables, screenshots and compaction counts survived; hidden summary contents did not. They cannot be recovered retrospectively from those uploaded bundles.
 
 The correction creates `sdk-audit.tar.gz` from regular SDK context/cell/journal files after cleanup. It excludes unrelated dotfiles and symlinks and records archive failures explicitly. Both local browser-backed adapter cases pass as part of the four adapter tests. Remote [smoke 34078962158](https://github.com/browser-use/new-eval-platform/actions/runs/34078962158) passed 1/1 and uploaded 32 cell files plus two journals, with no archive or cleanup errors. Local tests verified summary-file retention too; that remote smoke did not trigger compaction. This evidence correction does not alter the running cohorts or their scores.
+
+Recorder callback counters are separate from the outer observer warnings reported above: this first cohort logged 488 callback errors across 67/106 Hard tasks and 1,635 across all 60 Luna tasks. The counter mixes missing active-page targets and actual capture failures; it is not a count of missing native model images. Luna retained 5,442 judge screenshot paths. See the [latest recorder audit](./vision-results.md#trace-checks-after-the-image-change) for the subsequent cohort and the limits of the bounded error-detail records.

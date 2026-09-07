@@ -1,0 +1,6193 @@
+{
+  "date": "2026-09-07",
+  "project_id": "b657f811-13a7-4dae-a67a-91445a567f24",
+  "sdk_sha": "b430a91891e23f5ffb9ca816e5cbe63e73d2a248",
+  "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+  "hypothesis": "Explicit screenshots saved through Page/raw CDP must reach native model vision. The preceding runtime attached only global screenshot() results.",
+  "cost_scope": "Estimated agent inference only; excludes judge, browser, runner and separate smoke runs.",
+  "bootstrap": {
+    "unit": "task",
+    "samples": 20000,
+    "seed": 20260907
+  },
+  "limitation": "Live-site nonconcurrent runs, observed development tasks, no exhaustive leaderboard or held-out SOTA proof.",
+  "controls": {
+    "hard": {
+      "dispatched_at": "2026-09-07T04:31:19.835898+00:00",
+      "inputs": {
+        "platform_ref": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+        "target_repo": "browser-use/bu-pi",
+        "target_ref": "b430a91891e23f5ffb9ca816e5cbe63e73d2a248",
+        "harness": "pi-browser-use-next",
+        "task_limit": "0",
+        "max_steps": "1000",
+        "dataset": "datasets/internal-bench-hard.json",
+        "model": "gpt-5.5",
+        "judge": "laith",
+        "judge_model": "gpt-5.5",
+        "judge_options_json": "{}",
+        "max_parallel": "20",
+        "timeout_minutes": "30",
+        "options_json": "{\"reasoning_effort\": \"medium\", \"task_timeout_seconds\": 1700, \"proxy_country_code\": \"us\", \"browser_timeout_minutes\": 60, \"max_context_chars\": 800000}",
+        "message": "bu-pi b430a91 explicit screenshot vision: full Hard106; same controls; one attempt per task"
+      },
+      "workflow_ref": "codex/bu-pi-evals-k7m2",
+      "comparison": "Full a7fe3d4 reliability cohort; explicit screenshot attachment and prompt guidance are the runtime treatment.",
+      "dispatch_exit_code": 0,
+      "dispatch_output": "",
+      "dispatch_error": "",
+      "github_run_id": 34083412372,
+      "evaluation_id": "ed2fb652-9858-4a36-bac2-60b0d3270302",
+      "recorded_config_hashes": [
+        "15838cc978e41ce78e297eaf1b55291efc600d071c84e73a0f712492de0187f0"
+      ]
+    },
+    "luna": {
+      "dispatched_at": "2026-09-07T05:25:36.735633+00:00",
+      "inputs": {
+        "platform_ref": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+        "target_repo": "browser-use/bu-pi",
+        "target_ref": "b430a91891e23f5ffb9ca816e5cbe63e73d2a248",
+        "harness": "pi-browser-use-next",
+        "task_limit": "0",
+        "max_steps": "1000",
+        "dataset": "datasets/BU_Bench_v2.json",
+        "model": "gpt-5.6-luna",
+        "judge": "findings",
+        "judge_model": "gpt-5.6-luna",
+        "judge_options_json": "{\"reasoning_effort\": \"xhigh\"}",
+        "max_parallel": "12",
+        "timeout_minutes": "62",
+        "options_json": "{\"reasoning_effort\": \"xhigh\", \"task_timeout_seconds\": 3600, \"proxy_country_code\": \"us\", \"browser_timeout_minutes\": 70, \"max_context_chars\": 800000, \"evidence_format\": \"findings\"}",
+        "message": "bu-pi b430a91 explicit screenshot vision: full Luna60 xhigh; same controls; one attempt per task"
+      },
+      "workflow_ref": "codex/bu-pi-evals-k7m2",
+      "comparison": "Full a7fe3d4 reliability cohort; explicit screenshot attachment and prompt guidance are the runtime treatment.",
+      "dispatch_exit_code": 0,
+      "dispatch_output": "",
+      "dispatch_error": "",
+      "github_run_id": 34086771731,
+      "evaluation_id": "bf521f51-7920-4e55-8833-f6413b91a73d",
+      "recorded_config_hashes": [
+        "e74dd70936a1a5c1785523a17656ec47127e2a1ab59fe797f6538221cee1604c"
+      ]
+    }
+  },
+  "runs": [
+    {
+      "name": "hard-vision",
+      "outcomes": 106,
+      "actual_judgments": 106,
+      "mean_percent": 80.18867924528301,
+      "sum_score": 85.0,
+      "ci95_percent": [
+        72.64150943396227,
+        87.73584905660377
+      ],
+      "cost_usd": 126.124001,
+      "median_seconds": 178.5255,
+      "stops": {
+        "completed": 106
+      },
+      "compactions": 1,
+      "tasks_compacted": 1,
+      "provider_retries": 0,
+      "cleanup_error_tasks": 0,
+      "warnings": {},
+      "project_id": "b657f811-13a7-4dae-a67a-91445a567f24",
+      "evaluation_id": "ed2fb652-9858-4a36-bac2-60b0d3270302",
+      "github_run_id": 34083412372,
+      "workflow": {
+        "status": "completed",
+        "conclusion": "success"
+      },
+      "tasks": [
+        {
+          "task_id": "04k43s",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.48961699999999997,
+          "seconds": 114.815,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "0kqsos",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 2.5027640000000004,
+          "seconds": 996.274,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "0oxfq8",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.598558,
+          "seconds": 558.826,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "0qtl3q",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.402619,
+          "seconds": 309.379,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "0vgnxb",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.0772970000000002,
+          "seconds": 251.703,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "0x65mu",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 2.826229,
+          "seconds": 449.368,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "1b0z3n",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.8473,
+          "seconds": 411.117,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "2vxyzx",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.9324209999999999,
+          "seconds": 373,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "36zx1t",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.523727,
+          "seconds": 266.356,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "39e3nw",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.2714190000000001,
+          "seconds": 54.188,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "3d5iqv",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.5570979999999999,
+          "seconds": 124.917,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "3dd03u",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 2.1232220000000006,
+          "seconds": 206.259,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "3pt5r5",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.901691,
+          "seconds": 284.339,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "3qsqcq",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.34017200000000003,
+          "seconds": 183.618,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "3rzsj4",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.885817,
+          "seconds": 671.196,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "3w5uzb",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.444002,
+          "seconds": 246.473,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "4n89qk",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.7566170000000001,
+          "seconds": 176.07,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "4t60pl",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.6818230000000001,
+          "seconds": 119.831,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "55j2o7",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.090109,
+          "seconds": 28.453,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "5bwiko",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.52595,
+          "seconds": 99.505,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "5jtb9x",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.7621210000000003,
+          "seconds": 368.464,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "6dpbhs",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 7.989113999999999,
+          "seconds": 1566.965,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "6gvwrd",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 2.4255709999999997,
+          "seconds": 324.93,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "74rs7g",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.344675,
+          "seconds": 110.168,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "7bo119",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.7148070000000001,
+          "seconds": 181.76,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "7ln23y",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.3737379999999999,
+          "seconds": 92.681,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "82kkzm",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.2009300000000005,
+          "seconds": 163.973,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "84xyjo",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.175315,
+          "seconds": 52.429,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "8hyexf",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.5320170000000001,
+          "seconds": 92.492,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "95g3v2",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.822653,
+          "seconds": 635.845,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "983ep9",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.8975370000000001,
+          "seconds": 184.915,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "9itn7s",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.0993019999999998,
+          "seconds": 174.999,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "afeyuh",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.9681310000000001,
+          "seconds": 147.29,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "ahxthv",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.115847,
+          "seconds": 305.018,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "aoim45",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.71485,
+          "seconds": 489.772,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "asnwyw",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.8899260000000002,
+          "seconds": 154.439,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "axeqbn",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 2.466539,
+          "seconds": 1242.415,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "az39pe",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.073855,
+          "seconds": 20.245,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "c856wp",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.6850150000000002,
+          "seconds": 276.028,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "cfzw0l",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 4.246813,
+          "seconds": 605.209,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "cj4t0s",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.25861100000000004,
+          "seconds": 66.033,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "dtjvzh",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.6682569999999999,
+          "seconds": 139.022,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "e7flqh",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.6904589999999999,
+          "seconds": 114.746,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "ekgysp",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.21157499999999999,
+          "seconds": 52.475,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "eo2t8f",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 4.087023,
+          "seconds": 883.216,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "f8cgvy",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.11097399999999999,
+          "seconds": 25.451,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "gatj9t",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.3847700000000003,
+          "seconds": 135.3,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "ggsnpu",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.248259,
+          "seconds": 672.177,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "gh3015",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.367537,
+          "seconds": 193.196,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "gymdm0",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.11217,
+          "seconds": 28.42,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "h42m44",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.5488300000000002,
+          "seconds": 152.557,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "he7ur2",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.8810970000000001,
+          "seconds": 153.057,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "hukwqv",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.726602,
+          "seconds": 535.482,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "ibljh7",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 2.2465489999999995,
+          "seconds": 292.378,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "ijc1yd",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 2.085202,
+          "seconds": 290.872,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "iogxpb",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.299196,
+          "seconds": 156.647,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "j755nf",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.145019,
+          "seconds": 156.161,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "j9a3y3",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.061843999999999996,
+          "seconds": 19.879,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "jgzlma",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.5072759999999996,
+          "seconds": 268.691,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "k30lvy",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.622206,
+          "seconds": 161.626,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "l3gywi",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.8295160000000003,
+          "seconds": 251.537,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "m5zja8",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.7365090000000002,
+          "seconds": 133.162,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "mb5m9j",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 3.933726,
+          "seconds": 621.257,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "mbr5xq",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 3.4514600000000004,
+          "seconds": 1582.958,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "mlgses",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.347723,
+          "seconds": 84.871,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "mly4ly",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.10247300000000001,
+          "seconds": 40.456,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "mvxpj4",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.0822260000000004,
+          "seconds": 197.879,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "n1u349",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.590272,
+          "seconds": 106.516,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "nngh8r",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.36532299999999995,
+          "seconds": 67.881,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "o74v1q",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.2961520000000002,
+          "seconds": 262.781,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "objlzy",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.4694680000000002,
+          "seconds": 422.484,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "ozctwj",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.634699,
+          "seconds": 116.605,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "p6vz41",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.6970079999999998,
+          "seconds": 203.242,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "pvs7hz",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.746556,
+          "seconds": 175.148,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "q46nou",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.37969800000000004,
+          "seconds": 105.736,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "q85jsg",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.32235900000000006,
+          "seconds": 81.376,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "qewaou",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.8881150000000001,
+          "seconds": 124.022,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "qtxhi1",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 2.813224999999999,
+          "seconds": 305.658,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "r1dwwo",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 2.544776,
+          "seconds": 1247.564,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "r2dhyl",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.6074860000000004,
+          "seconds": 220.827,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "r5l8a7",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.170292,
+          "seconds": 38.608,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "rlexdw",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.20355700000000002,
+          "seconds": 62.899,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "s3kkv9",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.957722,
+          "seconds": 185.436,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "snbti2",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.6481100000000001,
+          "seconds": 180.981,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "sw2292",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.140035,
+          "seconds": 201.071,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "swebnv",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.045562000000000005,
+          "seconds": 23.034,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "t4p501",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.7068690000000001,
+          "seconds": 437.612,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "t9moge",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.49057599999999996,
+          "seconds": 236.18,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "taxp0w",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.306919,
+          "seconds": 216.469,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "togn1w",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.41598500000000005,
+          "seconds": 109.875,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "trp0j4",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.2778209999999994,
+          "seconds": 443.636,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "tteavt",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.8543450000000004,
+          "seconds": 95.559,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "u0env5",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.931956,
+          "seconds": 381.284,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "ul1rsr",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.16711600000000001,
+          "seconds": 77.088,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "up8ijl",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 3.0765789999999997,
+          "seconds": 427.189,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "v18kgy",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 2.9455280000000004,
+          "seconds": 457.242,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "vgww4f",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.268564,
+          "seconds": 55.508,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "xsfh4g",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.09234400000000001,
+          "seconds": 59.792,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "y0bvr6",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.011798,
+          "seconds": 159.958,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "y49e7e",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.8759969999999998,
+          "seconds": 145.405,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "y72ivg",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 2.0793190000000004,
+          "seconds": 490.696,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "yjb1qx",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.095204,
+          "seconds": 159.885,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "yv37di",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 1.3465310000000001,
+          "seconds": 502.316,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "zcotoh",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.560462,
+          "seconds": 96.678,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "ze5r5u",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.689235,
+          "seconds": 112.13,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "zocfi4",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.38614099999999996,
+          "seconds": 168.407,
+          "compactions": 0,
+          "provider_retries": 0
+        }
+      ]
+    },
+    {
+      "name": "luna-vision",
+      "outcomes": 60,
+      "actual_judgments": 59,
+      "mean_percent": 62.0,
+      "sum_score": 37.2,
+      "ci95_percent": [
+        54.25,
+        69.46666666666667
+      ],
+      "cost_usd": 17.86048933,
+      "median_seconds": 1005.6495,
+      "stops": {
+        "completed": 59,
+        "": 1
+      },
+      "compactions": 19,
+      "tasks_compacted": 19,
+      "provider_retries": 0,
+      "cleanup_error_tasks": 3,
+      "warnings": {
+        "Observer failed": 5,
+        "Observer coalesced 2 events. Use onEvent for lossless backpressure.": 1
+      },
+      "project_id": "b657f811-13a7-4dae-a67a-91445a567f24",
+      "evaluation_id": "bf521f51-7920-4e55-8833-f6413b91a73d",
+      "github_run_id": 34086771731,
+      "workflow": {
+        "status": "completed",
+        "conclusion": "failure"
+      },
+      "tasks": [
+        {
+          "task_id": "bub2-001",
+          "score": 0.75,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.19733435999999996,
+          "seconds": 728.603,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-002",
+          "score": 0.48,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.20329504999999998,
+          "seconds": 1113.796,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-003",
+          "score": 0.3,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.35150595999999995,
+          "seconds": 1014.401,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-004",
+          "score": 0.78,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.8330320099999995,
+          "seconds": 1913.985,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-005",
+          "score": 0.88,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.24511529999999992,
+          "seconds": 547.954,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-006",
+          "score": 0.58,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.4535135800000001,
+          "seconds": 1898.549,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-007",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.44347622000000003,
+          "seconds": 1232.618,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-008",
+          "score": 0.82,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.13477491,
+          "seconds": 824.963,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-009",
+          "score": 0.5,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.3890945199999999,
+          "seconds": 1077.049,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-010",
+          "score": 0.78,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.29610669999999994,
+          "seconds": 896.54,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-011",
+          "score": 0.58,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.26737778,
+          "seconds": 1169.07,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-012",
+          "score": 0.37,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.18758378,
+          "seconds": 859.929,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-013",
+          "score": 0.9,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.18744793,
+          "seconds": 1149.446,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-014",
+          "score": 0.7,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.38244912999999997,
+          "seconds": 1259.905,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-015",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.23527411999999992,
+          "seconds": 787.899,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-016",
+          "score": 0.6,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.31420636999999996,
+          "seconds": 954.15,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-017",
+          "score": 0.76,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.43756567000000013,
+          "seconds": 1271.919,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-018",
+          "score": 0.44,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.3800143999999999,
+          "seconds": 996.898,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-019",
+          "score": 0.52,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.43025847000000006,
+          "seconds": 1358.592,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-020",
+          "score": 0.73,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.4711880399999999,
+          "seconds": 1173.651,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-021",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.18183297999999998,
+          "seconds": 805.739,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-022",
+          "score": 0.44,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.5507144000000003,
+          "seconds": 2681.946,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-023",
+          "score": 0.72,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.2847603900000001,
+          "seconds": 1031.519,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-024",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.21221521,
+          "seconds": 810.432,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-025",
+          "score": 0.38,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.3814989699999999,
+          "seconds": 849.696,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-026",
+          "score": 0.92,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.2014803,
+          "seconds": 726.677,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-027",
+          "score": 0.83,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.26412667,
+          "seconds": 1182.987,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-028",
+          "score": 0.88,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.11730497000000001,
+          "seconds": 469.539,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-029",
+          "score": 0.88,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.31275421999999997,
+          "seconds": 807.533,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-030",
+          "score": 0.2,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.3867217300000001,
+          "seconds": 1631.216,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-031",
+          "score": 0.81,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.19118209000000005,
+          "seconds": 600.392,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-032",
+          "score": 0.44,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.35926418999999993,
+          "seconds": 876.969,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-033",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.19831734,
+          "seconds": 442.41,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-034",
+          "score": 0.8,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.23045713,
+          "seconds": 1190.9,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-035",
+          "score": 0.76,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.12132631,
+          "seconds": 475.779,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-036",
+          "score": 0.56,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.49525769000000025,
+          "seconds": 1918.732,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-037",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.33449126,
+          "seconds": 1195.363,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-038",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.3068321099999999,
+          "seconds": 972.383,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-039",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.12918398000000006,
+          "seconds": 683.116,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-040",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.54313269,
+          "seconds": 1596.205,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-041",
+          "score": 0.46,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.44898649999999996,
+          "seconds": 813.754,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-042",
+          "score": 0.52,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.18783009999999994,
+          "seconds": 800.087,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-043",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.14062342,
+          "seconds": 823.177,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-044",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.27703225,
+          "seconds": 764.226,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-045",
+          "score": 0.56,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.44635421000000003,
+          "seconds": 2238.984,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-046",
+          "score": 0.8,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.3183254199999999,
+          "seconds": 1317.68,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-047",
+          "score": 0.75,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.24268408,
+          "seconds": 1301.661,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-048",
+          "score": 0.57,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.22645609999999997,
+          "seconds": 584.434,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-049",
+          "score": 0.76,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.2267937000000001,
+          "seconds": 1298.426,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-050",
+          "score": 0.61,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.22610652,
+          "seconds": 909.504,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-051",
+          "score": 1.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.18709627999999992,
+          "seconds": 985.928,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-052",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.19392153,
+          "seconds": 1434.924,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-053",
+          "score": 0.2,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.34038398000000003,
+          "seconds": 1021.285,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-054",
+          "score": 0.6,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.4156069700000001,
+          "seconds": 2077.954,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-055",
+          "score": 0.78,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.4092789,
+          "seconds": 1103.248,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-056",
+          "score": 0.76,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.2809450900000001,
+          "seconds": 1080.708,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-057",
+          "score": 0.86,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.13838244999999996,
+          "seconds": 852.828,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-058",
+          "score": 0.88,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.2770377500000001,
+          "seconds": 1222.22,
+          "compactions": 0,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-059",
+          "score": 0.0,
+          "actual_judgment": true,
+          "stop": "completed",
+          "cost": 0.23317514999999997,
+          "seconds": 673.448,
+          "compactions": 1,
+          "provider_retries": 0
+        },
+        {
+          "task_id": "bub2-060",
+          "score": 0.0,
+          "actual_judgment": false,
+          "stop": "",
+          "cost": 0,
+          "seconds": 0,
+          "compactions": 0,
+          "provider_retries": 0
+        }
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "candidate": "hard-vision",
+      "baseline": "hard-new",
+      "paired_outcomes": 106,
+      "mean_delta_pp": -2.830188679245283,
+      "ci95_pp": [
+        -10.377358490566039,
+        4.716981132075472
+      ],
+      "raw_positive_negative_equal": [
+        7,
+        10,
+        89
+      ],
+      "shared_actual_judgments": 106,
+      "shared_judged_delta_pp": -2.830188679245283,
+      "shared_judged_ci95_pp": [
+        -10.377358490566039,
+        4.716981132075472
+      ],
+      "deltas": [
+        {
+          "task_id": "55j2o7",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "6dpbhs",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "cfzw0l",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "l3gywi",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mb5m9j",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mbr5xq",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "nngh8r",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "q46nou",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "v18kgy",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "yv37di",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "04k43s",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0kqsos",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0oxfq8",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0qtl3q",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0vgnxb",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "1b0z3n",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "2vxyzx",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "36zx1t",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "39e3nw",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3d5iqv",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3dd03u",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3pt5r5",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3qsqcq",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3rzsj4",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3w5uzb",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "4n89qk",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "4t60pl",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "5bwiko",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "5jtb9x",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "74rs7g",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "7bo119",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "7ln23y",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "82kkzm",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "8hyexf",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "95g3v2",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "983ep9",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "9itn7s",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ahxthv",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "aoim45",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "asnwyw",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "axeqbn",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "az39pe",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "c856wp",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "cj4t0s",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "dtjvzh",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "e7flqh",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ekgysp",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "eo2t8f",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "f8cgvy",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "gatj9t",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ggsnpu",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "gh3015",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "gymdm0",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "h42m44",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "he7ur2",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "hukwqv",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ibljh7",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ijc1yd",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "iogxpb",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "j755nf",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "j9a3y3",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "jgzlma",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "k30lvy",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mlgses",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mly4ly",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mvxpj4",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "n1u349",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "o74v1q",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "objlzy",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ozctwj",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "p6vz41",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "pvs7hz",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "q85jsg",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "qewaou",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "qtxhi1",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "r1dwwo",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "r2dhyl",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "r5l8a7",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "rlexdw",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "snbti2",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "sw2292",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "swebnv",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "t4p501",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "t9moge",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "taxp0w",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "togn1w",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "trp0j4",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "tteavt",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "u0env5",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ul1rsr",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "up8ijl",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "vgww4f",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "xsfh4g",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "y0bvr6",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "y49e7e",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "y72ivg",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "yjb1qx",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "zcotoh",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ze5r5u",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0x65mu",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "6gvwrd",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "84xyjo",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "afeyuh",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "m5zja8",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "s3kkv9",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "zocfi4",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        }
+      ]
+    },
+    {
+      "candidate": "hard-vision",
+      "baseline": "hard-91",
+      "paired_outcomes": 106,
+      "mean_delta_pp": -5.660377358490566,
+      "ci95_pp": [
+        -14.150943396226415,
+        1.8867924528301887
+      ],
+      "raw_positive_negative_equal": [
+        7,
+        13,
+        86
+      ],
+      "shared_actual_judgments": 106,
+      "shared_judged_delta_pp": -5.660377358490566,
+      "shared_judged_ci95_pp": [
+        -14.150943396226415,
+        1.8867924528301887
+      ],
+      "deltas": [
+        {
+          "task_id": "3pt5r5",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "6dpbhs",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "aoim45",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "cfzw0l",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "f8cgvy",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "h42m44",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mb5m9j",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mbr5xq",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "nngh8r",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "pvs7hz",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "q46nou",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "swebnv",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "yv37di",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "04k43s",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0oxfq8",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0qtl3q",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0vgnxb",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "1b0z3n",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "2vxyzx",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "36zx1t",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "39e3nw",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3d5iqv",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3dd03u",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3qsqcq",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3rzsj4",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3w5uzb",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "4n89qk",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "4t60pl",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "55j2o7",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "5bwiko",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "5jtb9x",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "6gvwrd",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "74rs7g",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "7bo119",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "7ln23y",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "82kkzm",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "84xyjo",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "8hyexf",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "95g3v2",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "983ep9",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "9itn7s",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ahxthv",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "asnwyw",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "axeqbn",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "az39pe",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "c856wp",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "cj4t0s",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "dtjvzh",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "e7flqh",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ekgysp",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "gatj9t",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ggsnpu",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "gh3015",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "gymdm0",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "he7ur2",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "hukwqv",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ibljh7",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ijc1yd",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "iogxpb",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "j755nf",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "j9a3y3",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "jgzlma",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "k30lvy",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "l3gywi",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "m5zja8",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mlgses",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mly4ly",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mvxpj4",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "n1u349",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ozctwj",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "p6vz41",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "q85jsg",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "qewaou",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "qtxhi1",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "r1dwwo",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "r2dhyl",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "r5l8a7",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "rlexdw",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "s3kkv9",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "snbti2",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "t4p501",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "t9moge",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "taxp0w",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "togn1w",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "trp0j4",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "tteavt",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "u0env5",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ul1rsr",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "up8ijl",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "v18kgy",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "vgww4f",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "xsfh4g",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "y0bvr6",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "y49e7e",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "y72ivg",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "yjb1qx",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "zcotoh",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ze5r5u",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "zocfi4",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0kqsos",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0x65mu",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "afeyuh",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "eo2t8f",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "o74v1q",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "objlzy",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "sw2292",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        }
+      ]
+    },
+    {
+      "candidate": "hard-vision",
+      "baseline": "hard-86",
+      "paired_outcomes": 106,
+      "mean_delta_pp": -0.9433962264150944,
+      "ci95_pp": [
+        -8.49056603773585,
+        6.60377358490566
+      ],
+      "raw_positive_negative_equal": [
+        7,
+        8,
+        91
+      ],
+      "shared_actual_judgments": 103,
+      "shared_judged_delta_pp": -2.912621359223301,
+      "shared_judged_ci95_pp": [
+        -9.70873786407767,
+        3.883495145631068
+      ],
+      "deltas": [
+        {
+          "task_id": "3pt5r5",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "c856wp",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "cfzw0l",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mb5m9j",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "nngh8r",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "pvs7hz",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "q46nou",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "swebnv",
+          "candidate": 0.0,
+          "baseline": 1.0,
+          "delta_pp": -100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "04k43s",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0kqsos",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0oxfq8",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0qtl3q",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0vgnxb",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "0x65mu",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "1b0z3n",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "2vxyzx",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "36zx1t",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "39e3nw",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3d5iqv",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3dd03u",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3qsqcq",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3rzsj4",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "3w5uzb",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "4n89qk",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "4t60pl",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "55j2o7",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "5bwiko",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "5jtb9x",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "6dpbhs",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "6gvwrd",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "74rs7g",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "82kkzm",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "8hyexf",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "95g3v2",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "983ep9",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "9itn7s",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ahxthv",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "aoim45",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "asnwyw",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "axeqbn",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "az39pe",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "cj4t0s",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "dtjvzh",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "e7flqh",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ekgysp",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "f8cgvy",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "gatj9t",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ggsnpu",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "gh3015",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "gymdm0",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "h42m44",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "he7ur2",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "hukwqv",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ibljh7",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ijc1yd",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "iogxpb",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "j755nf",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "j9a3y3",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "jgzlma",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "k30lvy",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "l3gywi",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "m5zja8",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mbr5xq",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mlgses",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mly4ly",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "mvxpj4",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "n1u349",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "o74v1q",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "objlzy",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ozctwj",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "p6vz41",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "q85jsg",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "qewaou",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "qtxhi1",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "r1dwwo",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "r2dhyl",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "r5l8a7",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "rlexdw",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "s3kkv9",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "snbti2",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "t4p501",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "t9moge",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "taxp0w",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "togn1w",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "trp0j4",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "tteavt",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "u0env5",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ul1rsr",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "up8ijl",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "v18kgy",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "vgww4f",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "xsfh4g",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "y0bvr6",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "y72ivg",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "yjb1qx",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "yv37di",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "zcotoh",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "ze5r5u",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "zocfi4",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "7bo119",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "7ln23y",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "84xyjo",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "afeyuh",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "eo2t8f",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "sw2292",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "y49e7e",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        }
+      ]
+    },
+    {
+      "candidate": "luna-vision",
+      "baseline": "luna-new",
+      "paired_outcomes": 60,
+      "mean_delta_pp": 6.283333333333333,
+      "ci95_pp": [
+        -2.2,
+        14.75
+      ],
+      "raw_positive_negative_equal": [
+        36,
+        19,
+        5
+      ],
+      "shared_actual_judgments": 59,
+      "shared_judged_delta_pp": 6.593220338983051,
+      "shared_judged_ci95_pp": [
+        -2.169491525423729,
+        15.186440677966102
+      ],
+      "deltas": [
+        {
+          "task_id": "bub2-059",
+          "candidate": 0.0,
+          "baseline": 0.76,
+          "delta_pp": -76.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-015",
+          "candidate": 0.0,
+          "baseline": 0.59,
+          "delta_pp": -59.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-038",
+          "candidate": 0.0,
+          "baseline": 0.5,
+          "delta_pp": -50.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-003",
+          "candidate": 0.3,
+          "baseline": 0.78,
+          "delta_pp": -48.00000000000001,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-053",
+          "candidate": 0.2,
+          "baseline": 0.68,
+          "delta_pp": -48.00000000000001,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-006",
+          "candidate": 0.58,
+          "baseline": 1.0,
+          "delta_pp": -42.00000000000001,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-030",
+          "candidate": 0.2,
+          "baseline": 0.54,
+          "delta_pp": -34.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-041",
+          "candidate": 0.46,
+          "baseline": 0.8,
+          "delta_pp": -34.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-052",
+          "candidate": 0.0,
+          "baseline": 0.33,
+          "delta_pp": -33.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-039",
+          "candidate": 0.0,
+          "baseline": 0.28,
+          "delta_pp": -28.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-032",
+          "candidate": 0.44,
+          "baseline": 0.7,
+          "delta_pp": -25.999999999999996,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-009",
+          "candidate": 0.5,
+          "baseline": 0.66,
+          "delta_pp": -16.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-018",
+          "candidate": 0.44,
+          "baseline": 0.6,
+          "delta_pp": -15.999999999999998,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-004",
+          "candidate": 0.78,
+          "baseline": 0.92,
+          "delta_pp": -14.000000000000002,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-031",
+          "candidate": 0.81,
+          "baseline": 0.95,
+          "delta_pp": -13.99999999999999,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-047",
+          "candidate": 0.75,
+          "baseline": 0.88,
+          "delta_pp": -13.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-049",
+          "candidate": 0.76,
+          "baseline": 0.88,
+          "delta_pp": -12.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-060",
+          "candidate": 0.0,
+          "baseline": 0.12,
+          "delta_pp": -12.0,
+          "stop": ""
+        },
+        {
+          "task_id": "bub2-045",
+          "candidate": 0.56,
+          "baseline": 0.58,
+          "delta_pp": -1.9999999999999907,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-005",
+          "candidate": 0.88,
+          "baseline": 0.88,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-012",
+          "candidate": 0.37,
+          "baseline": 0.37,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-024",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-026",
+          "candidate": 0.92,
+          "baseline": 0.92,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-040",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-001",
+          "candidate": 0.75,
+          "baseline": 0.73,
+          "delta_pp": 2.0000000000000018,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-013",
+          "candidate": 0.9,
+          "baseline": 0.88,
+          "delta_pp": 2.0000000000000018,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-034",
+          "candidate": 0.8,
+          "baseline": 0.78,
+          "delta_pp": 2.0000000000000018,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-036",
+          "candidate": 0.56,
+          "baseline": 0.54,
+          "delta_pp": 2.0000000000000018,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-023",
+          "candidate": 0.72,
+          "baseline": 0.68,
+          "delta_pp": 3.9999999999999925,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-025",
+          "candidate": 0.38,
+          "baseline": 0.34,
+          "delta_pp": 3.9999999999999982,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-042",
+          "candidate": 0.52,
+          "baseline": 0.48,
+          "delta_pp": 4.0000000000000036,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-057",
+          "candidate": 0.86,
+          "baseline": 0.82,
+          "delta_pp": 4.0000000000000036,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-050",
+          "candidate": 0.61,
+          "baseline": 0.56,
+          "delta_pp": 4.999999999999993,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-035",
+          "candidate": 0.76,
+          "baseline": 0.71,
+          "delta_pp": 5.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-048",
+          "candidate": 0.57,
+          "baseline": 0.49,
+          "delta_pp": 7.9999999999999964,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-051",
+          "candidate": 1.0,
+          "baseline": 0.92,
+          "delta_pp": 7.9999999999999964,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-055",
+          "candidate": 0.78,
+          "baseline": 0.68,
+          "delta_pp": 9.999999999999998,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-037",
+          "candidate": 1.0,
+          "baseline": 0.86,
+          "delta_pp": 14.000000000000002,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-019",
+          "candidate": 0.52,
+          "baseline": 0.37,
+          "delta_pp": 15.000000000000002,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-010",
+          "candidate": 0.78,
+          "baseline": 0.62,
+          "delta_pp": 16.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-056",
+          "candidate": 0.76,
+          "baseline": 0.6,
+          "delta_pp": 16.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-028",
+          "candidate": 0.88,
+          "baseline": 0.71,
+          "delta_pp": 17.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-022",
+          "candidate": 0.44,
+          "baseline": 0.24,
+          "delta_pp": 20.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-008",
+          "candidate": 0.82,
+          "baseline": 0.6,
+          "delta_pp": 21.999999999999996,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-027",
+          "candidate": 0.83,
+          "baseline": 0.61,
+          "delta_pp": 21.999999999999996,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-054",
+          "candidate": 0.6,
+          "baseline": 0.32,
+          "delta_pp": 27.999999999999996,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-029",
+          "candidate": 0.88,
+          "baseline": 0.58,
+          "delta_pp": 30.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-021",
+          "candidate": 1.0,
+          "baseline": 0.69,
+          "delta_pp": 31.000000000000007,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-044",
+          "candidate": 1.0,
+          "baseline": 0.68,
+          "delta_pp": 31.999999999999996,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-017",
+          "candidate": 0.76,
+          "baseline": 0.42,
+          "delta_pp": 34.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-011",
+          "candidate": 0.58,
+          "baseline": 0.2,
+          "delta_pp": 37.99999999999999,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-058",
+          "candidate": 0.88,
+          "baseline": 0.48,
+          "delta_pp": 40.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-002",
+          "candidate": 0.48,
+          "baseline": 0.06,
+          "delta_pp": 42.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-020",
+          "candidate": 0.73,
+          "baseline": 0.27,
+          "delta_pp": 46.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-033",
+          "candidate": 1.0,
+          "baseline": 0.44,
+          "delta_pp": 56.00000000000001,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-016",
+          "candidate": 0.6,
+          "baseline": 0.0,
+          "delta_pp": 60.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-043",
+          "candidate": 1.0,
+          "baseline": 0.35,
+          "delta_pp": 65.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-014",
+          "candidate": 0.7,
+          "baseline": 0.0,
+          "delta_pp": 70.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-046",
+          "candidate": 0.8,
+          "baseline": 0.0,
+          "delta_pp": 80.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-007",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        }
+      ]
+    },
+    {
+      "candidate": "luna-vision",
+      "baseline": "luna-34",
+      "paired_outcomes": 60,
+      "mean_delta_pp": 27.883333333333333,
+      "ci95_pp": [
+        18.916666666666668,
+        36.88333333333333
+      ],
+      "raw_positive_negative_equal": [
+        46,
+        12,
+        2
+      ],
+      "shared_actual_judgments": 50,
+      "shared_judged_delta_pp": 20.62,
+      "shared_judged_ci95_pp": [
+        11.54,
+        29.5
+      ],
+      "deltas": [
+        {
+          "task_id": "bub2-059",
+          "candidate": 0.0,
+          "baseline": 0.52,
+          "delta_pp": -52.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-052",
+          "candidate": 0.0,
+          "baseline": 0.46,
+          "delta_pp": -46.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-042",
+          "candidate": 0.52,
+          "baseline": 0.86,
+          "delta_pp": -34.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-053",
+          "candidate": 0.2,
+          "baseline": 0.52,
+          "delta_pp": -32.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-049",
+          "candidate": 0.76,
+          "baseline": 1.0,
+          "delta_pp": -24.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-019",
+          "candidate": 0.52,
+          "baseline": 0.72,
+          "delta_pp": -19.999999999999996,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-031",
+          "candidate": 0.81,
+          "baseline": 1.0,
+          "delta_pp": -18.999999999999993,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-039",
+          "candidate": 0.0,
+          "baseline": 0.18,
+          "delta_pp": -18.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-005",
+          "candidate": 0.88,
+          "baseline": 1.0,
+          "delta_pp": -12.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-060",
+          "candidate": 0.0,
+          "baseline": 0.12,
+          "delta_pp": -12.0,
+          "stop": ""
+        },
+        {
+          "task_id": "bub2-040",
+          "candidate": 0.0,
+          "baseline": 0.1,
+          "delta_pp": -10.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-017",
+          "candidate": 0.76,
+          "baseline": 0.82,
+          "delta_pp": -5.999999999999995,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-015",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-038",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-057",
+          "candidate": 0.86,
+          "baseline": 0.84,
+          "delta_pp": 2.0000000000000018,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-029",
+          "candidate": 0.88,
+          "baseline": 0.83,
+          "delta_pp": 5.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-035",
+          "candidate": 0.76,
+          "baseline": 0.71,
+          "delta_pp": 5.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-025",
+          "candidate": 0.38,
+          "baseline": 0.32,
+          "delta_pp": 6.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-021",
+          "candidate": 1.0,
+          "baseline": 0.94,
+          "delta_pp": 6.000000000000005,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-013",
+          "candidate": 0.9,
+          "baseline": 0.82,
+          "delta_pp": 8.000000000000007,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-026",
+          "candidate": 0.92,
+          "baseline": 0.84,
+          "delta_pp": 8.000000000000007,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-030",
+          "candidate": 0.2,
+          "baseline": 0.1,
+          "delta_pp": 10.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-024",
+          "candidate": 1.0,
+          "baseline": 0.88,
+          "delta_pp": 12.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-044",
+          "candidate": 1.0,
+          "baseline": 0.85,
+          "delta_pp": 15.000000000000002,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-012",
+          "candidate": 0.37,
+          "baseline": 0.2,
+          "delta_pp": 17.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-034",
+          "candidate": 0.8,
+          "baseline": 0.63,
+          "delta_pp": 17.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-002",
+          "candidate": 0.48,
+          "baseline": 0.3,
+          "delta_pp": 18.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-028",
+          "candidate": 0.88,
+          "baseline": 0.67,
+          "delta_pp": 20.999999999999996,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-041",
+          "candidate": 0.46,
+          "baseline": 0.22,
+          "delta_pp": 24.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-003",
+          "candidate": 0.3,
+          "baseline": 0.0,
+          "delta_pp": 30.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-051",
+          "candidate": 1.0,
+          "baseline": 0.7,
+          "delta_pp": 30.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-022",
+          "candidate": 0.44,
+          "baseline": 0.06,
+          "delta_pp": 38.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-036",
+          "candidate": 0.56,
+          "baseline": 0.18,
+          "delta_pp": 38.00000000000001,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-020",
+          "candidate": 0.73,
+          "baseline": 0.32,
+          "delta_pp": 41.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-056",
+          "candidate": 0.76,
+          "baseline": 0.34,
+          "delta_pp": 42.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-054",
+          "candidate": 0.6,
+          "baseline": 0.16,
+          "delta_pp": 43.99999999999999,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-018",
+          "candidate": 0.44,
+          "baseline": 0.0,
+          "delta_pp": 44.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-032",
+          "candidate": 0.44,
+          "baseline": 0.0,
+          "delta_pp": 44.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-045",
+          "candidate": 0.56,
+          "baseline": 0.1,
+          "delta_pp": 46.00000000000001,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-007",
+          "candidate": 1.0,
+          "baseline": 0.52,
+          "delta_pp": 48.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-055",
+          "candidate": 0.78,
+          "baseline": 0.29,
+          "delta_pp": 49.00000000000001,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-014",
+          "candidate": 0.7,
+          "baseline": 0.2,
+          "delta_pp": 49.99999999999999,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-009",
+          "candidate": 0.5,
+          "baseline": 0.0,
+          "delta_pp": 50.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-016",
+          "candidate": 0.6,
+          "baseline": 0.1,
+          "delta_pp": 50.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-033",
+          "candidate": 1.0,
+          "baseline": 0.44,
+          "delta_pp": 56.00000000000001,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-048",
+          "candidate": 0.57,
+          "baseline": 0.0,
+          "delta_pp": 56.99999999999999,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-006",
+          "candidate": 0.58,
+          "baseline": 0.0,
+          "delta_pp": 57.99999999999999,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-011",
+          "candidate": 0.58,
+          "baseline": 0.0,
+          "delta_pp": 57.99999999999999,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-050",
+          "candidate": 0.61,
+          "baseline": 0.0,
+          "delta_pp": 61.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-023",
+          "candidate": 0.72,
+          "baseline": 0.06,
+          "delta_pp": 65.99999999999999,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-010",
+          "candidate": 0.78,
+          "baseline": 0.12,
+          "delta_pp": 66.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-004",
+          "candidate": 0.78,
+          "baseline": 0.1,
+          "delta_pp": 68.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-001",
+          "candidate": 0.75,
+          "baseline": 0.0,
+          "delta_pp": 75.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-047",
+          "candidate": 0.75,
+          "baseline": 0.0,
+          "delta_pp": 75.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-043",
+          "candidate": 1.0,
+          "baseline": 0.23,
+          "delta_pp": 77.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-058",
+          "candidate": 0.88,
+          "baseline": 0.1,
+          "delta_pp": 78.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-046",
+          "candidate": 0.8,
+          "baseline": 0.0,
+          "delta_pp": 80.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-008",
+          "candidate": 0.82,
+          "baseline": 0.0,
+          "delta_pp": 82.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-027",
+          "candidate": 0.83,
+          "baseline": 0.0,
+          "delta_pp": 83.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-037",
+          "candidate": 1.0,
+          "baseline": 0.0,
+          "delta_pp": 100.0,
+          "stop": "completed"
+        }
+      ]
+    },
+    {
+      "candidate": "luna-vision",
+      "baseline": "browsercode-luna",
+      "paired_outcomes": 60,
+      "mean_delta_pp": 20.833333333333332,
+      "ci95_pp": [
+        11.983333333333333,
+        29.8
+      ],
+      "raw_positive_negative_equal": [
+        39,
+        17,
+        4
+      ],
+      "shared_actual_judgments": 59,
+      "shared_judged_delta_pp": 21.83050847457627,
+      "shared_judged_ci95_pp": [
+        13.11864406779661,
+        30.559322033898304
+      ],
+      "deltas": [
+        {
+          "task_id": "bub2-039",
+          "candidate": 0.0,
+          "baseline": 0.54,
+          "delta_pp": -54.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-041",
+          "candidate": 0.46,
+          "baseline": 0.9,
+          "delta_pp": -44.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-060",
+          "candidate": 0.0,
+          "baseline": 0.38,
+          "delta_pp": -38.0,
+          "stop": ""
+        },
+        {
+          "task_id": "bub2-030",
+          "candidate": 0.2,
+          "baseline": 0.54,
+          "delta_pp": -34.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-042",
+          "candidate": 0.52,
+          "baseline": 0.86,
+          "delta_pp": -34.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-032",
+          "candidate": 0.44,
+          "baseline": 0.76,
+          "delta_pp": -32.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-049",
+          "candidate": 0.76,
+          "baseline": 1.0,
+          "delta_pp": -24.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-059",
+          "candidate": 0.0,
+          "baseline": 0.21,
+          "delta_pp": -21.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-004",
+          "candidate": 0.78,
+          "baseline": 0.92,
+          "delta_pp": -14.000000000000002,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-009",
+          "candidate": 0.5,
+          "baseline": 0.62,
+          "delta_pp": -12.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-052",
+          "candidate": 0.0,
+          "baseline": 0.1,
+          "delta_pp": -10.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-017",
+          "candidate": 0.76,
+          "baseline": 0.86,
+          "delta_pp": -9.999999999999998,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-025",
+          "candidate": 0.38,
+          "baseline": 0.46,
+          "delta_pp": -8.000000000000002,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-031",
+          "candidate": 0.81,
+          "baseline": 0.88,
+          "delta_pp": -6.999999999999995,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-056",
+          "candidate": 0.76,
+          "baseline": 0.82,
+          "delta_pp": -5.999999999999995,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-006",
+          "candidate": 0.58,
+          "baseline": 0.6,
+          "delta_pp": -2.0000000000000018,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-054",
+          "candidate": 0.6,
+          "baseline": 0.62,
+          "delta_pp": -2.0000000000000018,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-015",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-024",
+          "candidate": 1.0,
+          "baseline": 1.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-038",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-040",
+          "candidate": 0.0,
+          "baseline": 0.0,
+          "delta_pp": 0.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-005",
+          "candidate": 0.88,
+          "baseline": 0.82,
+          "delta_pp": 6.000000000000005,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-045",
+          "candidate": 0.56,
+          "baseline": 0.5,
+          "delta_pp": 6.000000000000005,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-051",
+          "candidate": 1.0,
+          "baseline": 0.92,
+          "delta_pp": 7.9999999999999964,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-007",
+          "candidate": 1.0,
+          "baseline": 0.88,
+          "delta_pp": 12.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-028",
+          "candidate": 0.88,
+          "baseline": 0.75,
+          "delta_pp": 13.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-037",
+          "candidate": 1.0,
+          "baseline": 0.86,
+          "delta_pp": 14.000000000000002,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-053",
+          "candidate": 0.2,
+          "baseline": 0.05,
+          "delta_pp": 15.000000000000002,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-012",
+          "candidate": 0.37,
+          "baseline": 0.2,
+          "delta_pp": 17.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-035",
+          "candidate": 0.76,
+          "baseline": 0.59,
+          "delta_pp": 17.000000000000004,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-057",
+          "candidate": 0.86,
+          "baseline": 0.68,
+          "delta_pp": 17.999999999999993,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-008",
+          "candidate": 0.82,
+          "baseline": 0.6,
+          "delta_pp": 21.999999999999996,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-027",
+          "candidate": 0.83,
+          "baseline": 0.59,
+          "delta_pp": 24.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-044",
+          "candidate": 1.0,
+          "baseline": 0.75,
+          "delta_pp": 25.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-026",
+          "candidate": 0.92,
+          "baseline": 0.66,
+          "delta_pp": 26.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-029",
+          "candidate": 0.88,
+          "baseline": 0.61,
+          "delta_pp": 27.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-003",
+          "candidate": 0.3,
+          "baseline": 0.0,
+          "delta_pp": 30.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-021",
+          "candidate": 1.0,
+          "baseline": 0.65,
+          "delta_pp": 35.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-058",
+          "candidate": 0.88,
+          "baseline": 0.5,
+          "delta_pp": 38.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-020",
+          "candidate": 0.73,
+          "baseline": 0.33,
+          "delta_pp": 40.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-013",
+          "candidate": 0.9,
+          "baseline": 0.48,
+          "delta_pp": 42.00000000000001,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-018",
+          "candidate": 0.44,
+          "baseline": 0.0,
+          "delta_pp": 44.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-022",
+          "candidate": 0.44,
+          "baseline": 0.0,
+          "delta_pp": 44.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-002",
+          "candidate": 0.48,
+          "baseline": 0.0,
+          "delta_pp": 48.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-048",
+          "candidate": 0.57,
+          "baseline": 0.08,
+          "delta_pp": 48.99999999999999,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-014",
+          "candidate": 0.7,
+          "baseline": 0.2,
+          "delta_pp": 49.99999999999999,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-016",
+          "candidate": 0.6,
+          "baseline": 0.1,
+          "delta_pp": 50.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-019",
+          "candidate": 0.52,
+          "baseline": 0.0,
+          "delta_pp": 52.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-033",
+          "candidate": 1.0,
+          "baseline": 0.44,
+          "delta_pp": 56.00000000000001,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-036",
+          "candidate": 0.56,
+          "baseline": 0.0,
+          "delta_pp": 56.00000000000001,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-011",
+          "candidate": 0.58,
+          "baseline": 0.0,
+          "delta_pp": 57.99999999999999,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-050",
+          "candidate": 0.61,
+          "baseline": 0.0,
+          "delta_pp": 61.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-001",
+          "candidate": 0.75,
+          "baseline": 0.12,
+          "delta_pp": 63.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-047",
+          "candidate": 0.75,
+          "baseline": 0.04,
+          "delta_pp": 71.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-023",
+          "candidate": 0.72,
+          "baseline": 0.0,
+          "delta_pp": 72.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-043",
+          "candidate": 1.0,
+          "baseline": 0.23,
+          "delta_pp": 77.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-010",
+          "candidate": 0.78,
+          "baseline": 0.0,
+          "delta_pp": 78.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-055",
+          "candidate": 0.78,
+          "baseline": 0.0,
+          "delta_pp": 78.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-034",
+          "candidate": 0.8,
+          "baseline": 0.0,
+          "delta_pp": 80.0,
+          "stop": "completed"
+        },
+        {
+          "task_id": "bub2-046",
+          "candidate": 0.8,
+          "baseline": 0.0,
+          "delta_pp": 80.0,
+          "stop": "completed"
+        }
+      ]
+    }
+  ],
+  "coverage": {
+    "hard": {
+      "outcomes": 106,
+      "unjudged_outcomes": [],
+      "audit_archive_recorded": 106,
+      "tasks_with_screenshot_observer_errors": 73,
+      "tasks_with_observer_failures": 73,
+      "observer_failure_warnings": 0,
+      "tasks_with_coalesced_observer_events": 0,
+      "sdk_cleanup_failure_tasks": 0,
+      "cloud_cleanup_failure_tasks": 0,
+      "screenshot_observer_errors": 592,
+      "tasks_with_clipped_file_previews": 0,
+      "tasks_with_unrendered_staged_files": 0,
+      "node_versions": [
+        "v22.23.2"
+      ],
+      "dependency_locks": [
+        "7ab8ce4c0dd453995b211d1fff5fc61b43242742a02a064a88c9dfde15e86508"
+      ]
+    },
+    "luna": {
+      "outcomes": 60,
+      "unjudged_outcomes": [
+        {
+          "task_id": "bub2-060",
+          "status": "failed",
+          "error": "Browser provider POST returned HTTP 402",
+          "score": {
+            "findings": 0.0
+          }
+        }
+      ],
+      "audit_archive_recorded": 59,
+      "tasks_with_screenshot_observer_errors": 59,
+      "tasks_with_observer_failures": 59,
+      "observer_failure_warnings": 5,
+      "tasks_with_coalesced_observer_events": 1,
+      "sdk_cleanup_failure_tasks": 3,
+      "cloud_cleanup_failure_tasks": 0,
+      "screenshot_observer_errors": 1883,
+      "tasks_with_clipped_file_previews": 27,
+      "tasks_with_unrendered_staged_files": 3,
+      "node_versions": [
+        "",
+        "v22.23.2"
+      ],
+      "dependency_locks": [
+        "",
+        "7ab8ce4c0dd453995b211d1fff5fc61b43242742a02a064a88c9dfde15e86508"
+      ]
+    }
+  },
+  "reference_evidence": "evidence/reliability.json",
+  "luna_judge_audit": [
+    {
+      "task_id": "bub2-001",
+      "score": 0.75,
+      "earned_weight": 75,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-002",
+      "score": 0.48,
+      "earned_weight": 48,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": true,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-003",
+      "score": 0.3,
+      "earned_weight": 30,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-004",
+      "score": 0.78,
+      "earned_weight": 78,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-005",
+      "score": 0.88,
+      "earned_weight": 88,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-006",
+      "score": 0.58,
+      "earned_weight": 58,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-007",
+      "score": 1.0,
+      "earned_weight": 100,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-008",
+      "score": 0.82,
+      "earned_weight": 82,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-009",
+      "score": 0.5,
+      "earned_weight": 50,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-010",
+      "score": 0.78,
+      "earned_weight": 78,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-011",
+      "score": 0.58,
+      "earned_weight": 58,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-012",
+      "score": 0.37,
+      "earned_weight": 37,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-013",
+      "score": 0.9,
+      "earned_weight": 90,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-014",
+      "score": 0.7,
+      "earned_weight": 70,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-015",
+      "score": 0.0,
+      "earned_weight": 39,
+      "zeroed": true,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": true,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-016",
+      "score": 0.6,
+      "earned_weight": 60,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-017",
+      "score": 0.76,
+      "earned_weight": 76,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-018",
+      "score": 0.44,
+      "earned_weight": 44,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-019",
+      "score": 0.52,
+      "earned_weight": 52,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-020",
+      "score": 0.73,
+      "earned_weight": 73,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-021",
+      "score": 1.0,
+      "earned_weight": 100,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-022",
+      "score": 0.44,
+      "earned_weight": 44,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-023",
+      "score": 0.72,
+      "earned_weight": 72,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-024",
+      "score": 1.0,
+      "earned_weight": 100,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-025",
+      "score": 0.38,
+      "earned_weight": 38,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-026",
+      "score": 0.92,
+      "earned_weight": 92,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-027",
+      "score": 0.83,
+      "earned_weight": 83,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-028",
+      "score": 0.88,
+      "earned_weight": 88,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-029",
+      "score": 0.88,
+      "earned_weight": 88,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-030",
+      "score": 0.2,
+      "earned_weight": 20,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-031",
+      "score": 0.81,
+      "earned_weight": 81,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-032",
+      "score": 0.44,
+      "earned_weight": 44,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-033",
+      "score": 1.0,
+      "earned_weight": 100,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-034",
+      "score": 0.8,
+      "earned_weight": 80,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-035",
+      "score": 0.76,
+      "earned_weight": 76,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-036",
+      "score": 0.56,
+      "earned_weight": 56,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-037",
+      "score": 1.0,
+      "earned_weight": 100,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-038",
+      "score": 0.0,
+      "earned_weight": 44,
+      "zeroed": true,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": true,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-039",
+      "score": 0.0,
+      "earned_weight": 56,
+      "zeroed": true,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": true,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-040",
+      "score": 0.0,
+      "earned_weight": 58,
+      "zeroed": true,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": true,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-041",
+      "score": 0.46,
+      "earned_weight": 46,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-042",
+      "score": 0.52,
+      "earned_weight": 52,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-043",
+      "score": 1.0,
+      "earned_weight": 100,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-044",
+      "score": 1.0,
+      "earned_weight": 100,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-045",
+      "score": 0.56,
+      "earned_weight": 56,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-046",
+      "score": 0.8,
+      "earned_weight": 80,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-047",
+      "score": 0.75,
+      "earned_weight": 75,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-048",
+      "score": 0.57,
+      "earned_weight": 57,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-049",
+      "score": 0.76,
+      "earned_weight": 76,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-050",
+      "score": 0.61,
+      "earned_weight": 61,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-051",
+      "score": 1.0,
+      "earned_weight": 100,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-052",
+      "score": 0.0,
+      "earned_weight": 55,
+      "zeroed": true,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": true,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-053",
+      "score": 0.2,
+      "earned_weight": 20,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-054",
+      "score": 0.6,
+      "earned_weight": 60,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-055",
+      "score": 0.78,
+      "earned_weight": 78,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-056",
+      "score": 0.76,
+      "earned_weight": 76,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": true,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-057",
+      "score": 0.86,
+      "earned_weight": 86,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-058",
+      "score": 0.88,
+      "earned_weight": 88,
+      "zeroed": false,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": false,
+      "source": "Laminar judge.findings span"
+    },
+    {
+      "task_id": "bub2-059",
+      "score": 0.0,
+      "earned_weight": 45,
+      "zeroed": true,
+      "canary_leak": false,
+      "answer_key_access": false,
+      "infra_error": false,
+      "suspected_unsupported_claims": true,
+      "source": "Laminar judge.findings span"
+    }
+  ],
+  "recorder_audit": {
+    "hard-new": {
+      "callback_errors": 488,
+      "tasks_with_callback_errors": 67,
+      "retained_error_details": 433,
+      "no_active_target_in_retained_details": 221,
+      "other_retained_messages": {
+        "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.": 177,
+        "CDP Target.attachToTarget exceeded 1500 ms; the action may have happened.": 20,
+        "CDP -32602: No target with given id found": 2,
+        "CDP -32603: Internal error": 13
+      },
+      "findings_judge_screenshot_paths": null
+    },
+    "luna-new": {
+      "callback_errors": 1635,
+      "tasks_with_callback_errors": 60,
+      "retained_error_details": 851,
+      "no_active_target_in_retained_details": 367,
+      "other_retained_messages": {
+        "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.": 430,
+        "CDP Target.attachToTarget exceeded 1500 ms; the action may have happened.": 17,
+        "CDP -32602: No target with given id found": 4,
+        "CDP -32000: Not attached to an active page": 4,
+        "CDP -32603: Internal error": 23,
+        "CDP connection is closed.": 6
+      },
+      "findings_judge_screenshot_paths": 5442
+    },
+    "hard-vision": {
+      "callback_errors": 592,
+      "tasks_with_callback_errors": 73,
+      "retained_error_details": 419,
+      "no_active_target_in_retained_details": 212,
+      "other_retained_messages": {
+        "CDP Target.attachToTarget exceeded 1500 ms; the action may have happened.": 4,
+        "CDP -32602: No target with given id found": 8,
+        "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.": 190,
+        "CDP -32603: Internal error": 5
+      },
+      "findings_judge_screenshot_paths": null
+    },
+    "luna-vision": {
+      "callback_errors": 1883,
+      "tasks_with_callback_errors": 59,
+      "retained_error_details": 823,
+      "no_active_target_in_retained_details": 386,
+      "other_retained_messages": {
+        "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.": 357,
+        "CDP -32603: Internal error": 45,
+        "CDP Target.attachToTarget exceeded 1500 ms; the action may have happened.": 12,
+        "CDP -32001: Session with given id not found.": 2,
+        "CDP -32000: Not attached to an active page": 2,
+        "The operation was aborted due to timeout": 7,
+        "CDP -32602: No target with given id found": 1,
+        "CDP connection is closed.": 11
+      },
+      "findings_judge_screenshot_paths": 5033
+    }
+  }
+}

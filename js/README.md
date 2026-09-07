@@ -2,7 +2,7 @@
 
 **A browser agent that keeps working with you.**
 
-A standalone TypeScript SDK built on Pi, a persistent V8 REPL, and raw CDP. Give it a task, get a validated result. Use the same browser directly whenever deterministic code is clearer.
+A standalone TypeScript SDK built on Pi, a persistent V8 REPL, and raw CDP. Give it a task, get structured results and ordinary files. Use the same browser directly whenever deterministic code is clearer.
 
 **Prototype · v0.1.0 · Node.js 22.19+ · MIT · Not published to npm**
 
@@ -93,7 +93,7 @@ Your application → BrowserUse → Pi → model provider
 
 [Design decisions](docs/architecture.md) · [API reference](docs/api.md) · [Migration scope](docs/migration.md) · [Verification](docs/verification.md)
 
-**Internal Bench Hard: 91/106 passed (85.8%) vs 76/106 (71.7%) for the fresh frozen SDK baseline.** Same model, task set, judge configuration, and budgets; 19 gains, 4 regressions. Estimated candidate agent cost: **$123.63**. This full score belongs to `58ed778`; the later cleanup change passed a separate 2/2 smoke. [Results, failure analysis, and exact configuration](docs/benchmark.md).
+**Latest full evaluation (`b430a91`): Hard 85/106; Luna xhigh 62.00/100 over 60 tasks.** The first reliability iteration scored 88/106 and 55.72/100. The historical Hard peak remains 91/106. These are distinct complete cohorts; Luna is a continuous score. [Latest results and exact controls](docs/vision-results.md) · [Problem/remedy inventory](docs/reliability-results.md) · [Historical 91/106 experiment](docs/benchmark.md).
 
 ## Documentation
 

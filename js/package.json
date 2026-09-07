@@ -24,7 +24,9 @@
     "evidence/benchmark.json",
     "python/pyproject.toml",
     "python/browser_use_next/*.py",
-    "scripts/build-python.mjs"
+    "scripts/build-python.mjs",
+    "evidence/reliability.json",
+    "evidence/vision.json"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

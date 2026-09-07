@@ -1,6 +1,6 @@
 # Reliability and BrowserCode comparison
 
-This candidate keeps Pi upstream and raw CDP. It repairs long-task execution and adds selected coding-agent capabilities. Its benchmark quality is **not established until the new runs finish**.
+This candidate keeps Pi upstream and raw CDP. It repairs long-task execution and adds selected coding-agent capabilities. Both full evaluation iterations are complete. [Latest scores and comparisons](./vision-results.md) · [First reliability results and remaining problems](./reliability-results.md).
 
 ## What BrowserCode adds
 

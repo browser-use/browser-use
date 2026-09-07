@@ -152,6 +152,7 @@ test('explicit page, other-tab and raw CDP captures attach native images without
     const captured = await page.screenshot({quality:70});
     await artifact('attached-capture.jpg', captured);
     const imageTab = await tabs.open(${JSON.stringify(fixture.url)});
+    await imageTab.cdp('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:false});
     await imageTab.cdp('Page.captureScreenshot', {format:'png'});
     await browser.send('Page.captureScreenshot', {format:'webp'}, imageTab.sessionId);
     await imageTab.close();
@@ -161,6 +162,9 @@ test('explicit page, other-tab and raw CDP captures attach native images without
     result.images.map((image) => image.mimeType),
     ['image/jpeg', 'image/png', 'image/webp', 'image/jpeg'],
   );
+  const otherTabPng = Buffer.from(result.images[1].data, 'base64');
+  assert.equal(otherTabPng.readUInt32BE(16), 390);
+  assert.equal(otherTabPng.readUInt32BE(20), 844);
   assert.deepEqual(
     await readFile(join(workspace, 'attached-capture.jpg')),
     Buffer.from(result.images[0].data, 'base64'),
