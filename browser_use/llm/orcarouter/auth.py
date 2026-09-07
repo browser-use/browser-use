@@ -12,17 +12,18 @@ import os
 import secrets
 import tempfile
 import webbrowser
-from collections.abc import Callable
-from contextlib import suppress
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
+from filelock import FileLock
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from browser_use.config import CONFIG, DBStyleConfigJSON, LLMEntry, create_default_config
+from browser_use.config import CONFIG, DBStyleConfigJSON, LLMEntry, create_default_config, load_and_migrate_config
 
 DEFAULT_ORCAROUTER_AUTH_BASE_URL = 'https://www.orcarouter.ai'
 DEFAULT_ORCAROUTER_API_BASE_URL = 'https://api.orcarouter.ai/v1'
@@ -112,25 +113,33 @@ class OrcaRouterCredentialStore:
 		return credential
 
 	def mark_needs_reauth(self, generation: str) -> bool:
-		credential = self.load()
-		if credential is None or credential.generation != generation:
-			return False
-		self._write(credential.model_copy(update={'needs_reauth': True}))
-		return True
+		with self._locked():
+			credential = self.load()
+			if credential is None or credential.generation != generation:
+				return False
+			self._write_unlocked(credential.model_copy(update={'needs_reauth': True}))
+			return True
 
 	def clear(self) -> bool:
-		config = self._load_config()
-		entry_ids = [
-			entry_id for entry_id, entry in config.llm.items() if entry.provider == 'orcarouter' and entry.auth_method == 'pkce'
-		]
-		if not entry_ids:
-			return False
-		for entry_id in entry_ids:
-			del config.llm[entry_id]
-		self._write_config(config)
-		return True
+		with self._locked():
+			config = self._load_config()
+			entry_ids = [
+				entry_id
+				for entry_id, entry in config.llm.items()
+				if entry.provider == 'orcarouter' and entry.auth_method == 'pkce'
+			]
+			if not entry_ids:
+				return False
+			for entry_id in entry_ids:
+				del config.llm[entry_id]
+			self._write_config(config)
+			return True
 
 	def _write(self, credential: OrcaRouterCredential) -> None:
+		with self._locked():
+			self._write_unlocked(credential)
+
+	def _write_unlocked(self, credential: OrcaRouterCredential) -> None:
 		config = self._load_config()
 		entry_id = next(
 			(
@@ -161,15 +170,30 @@ class OrcaRouterCredentialStore:
 		if not self.path.exists():
 			return create_default_config()
 		try:
-			return DBStyleConfigJSON.model_validate_json(self.path.read_text())
+			return load_and_migrate_config(self.path)
 		except Exception as exc:
 			raise OrcaRouterAuthError(f'Could not read Browser Use configuration at {self.path}') from exc
 
-	def _write_config(self, config: DBStyleConfigJSON) -> None:
-		self.path.parent.mkdir(parents=True, exist_ok=True)
-		fd, temporary_name = tempfile.mkstemp(prefix=f'.{self.path.name}.', dir=self.path.parent)
-		temporary_path = Path(temporary_name)
+	@contextmanager
+	def _locked(self) -> Iterator[None]:
+		"""Serialize credential read-modify-write operations across processes."""
+		lock_path = self.path.with_name(f'.{self.path.name}.lock')
 		try:
+			self.path.parent.mkdir(parents=True, exist_ok=True)
+			with FileLock(lock_path):
+				with suppress(OSError):
+					os.chmod(lock_path, 0o600)
+				yield
+		except OrcaRouterAuthError:
+			raise
+		except Exception as exc:
+			raise OrcaRouterAuthError(f'Could not update Browser Use configuration at {self.path}') from exc
+
+	def _write_config(self, config: DBStyleConfigJSON) -> None:
+		try:
+			self.path.parent.mkdir(parents=True, exist_ok=True)
+			fd, temporary_name = tempfile.mkstemp(prefix=f'.{self.path.name}.', dir=self.path.parent)
+			temporary_path = Path(temporary_name)
 			os.chmod(temporary_path, 0o600)
 			with os.fdopen(fd, 'w') as file:
 				json.dump(config.model_dump(mode='json'), file, indent=2)
@@ -178,13 +202,14 @@ class OrcaRouterCredentialStore:
 				os.fsync(file.fileno())
 			os.replace(temporary_path, self.path)
 			os.chmod(self.path, 0o600)
-		except Exception:
-			try:
-				os.close(fd)
-			except OSError:
-				pass
-			temporary_path.unlink(missing_ok=True)
-			raise
+		except Exception as exc:
+			if 'fd' in locals():
+				with suppress(OSError):
+					os.close(fd)
+			if 'temporary_path' in locals():
+				with suppress(OSError):
+					temporary_path.unlink(missing_ok=True)
+			raise OrcaRouterAuthError(f'Could not write Browser Use configuration at {self.path}') from exc
 
 
 def _is_loopback_host(host: str | None) -> bool:
@@ -199,11 +224,11 @@ def _is_loopback_host(host: str | None) -> bool:
 
 
 def _validated_auth_base_url(value: str) -> str:
-	parsed = urlsplit(value)
 	try:
+		parsed = urlsplit(value)
 		parsed.port
 	except ValueError as exc:
-		raise OrcaRouterAuthError('OrcaRouter auth base URL contains an invalid port') from exc
+		raise OrcaRouterAuthError('OrcaRouter auth base URL is invalid') from exc
 	if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
 		raise OrcaRouterAuthError('OrcaRouter auth base URL must be an origin without credentials, query, or fragment')
 	if parsed.path not in {'', '/'}:
@@ -237,11 +262,11 @@ def resolve_orcarouter_api_base_url() -> str:
 
 
 def validate_orcarouter_api_base_url(value: str | httpx.URL, *, append_version_if_origin: bool = False) -> str:
-	parsed = urlsplit(str(value))
 	try:
+		parsed = urlsplit(str(value))
 		parsed.port
 	except ValueError as exc:
-		raise OrcaRouterAuthError('OrcaRouter API base URL contains an invalid port') from exc
+		raise OrcaRouterAuthError('OrcaRouter API base URL is invalid') from exc
 	if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
 		raise OrcaRouterAuthError('OrcaRouter API base URL must not contain credentials, query, or fragment')
 	if parsed.scheme != 'https' and not (parsed.scheme == 'http' and _is_loopback_host(parsed.hostname)):

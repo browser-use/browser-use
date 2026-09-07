@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import math
 import sys
 
 from browser_use.llm.orcarouter.auth import OrcaRouterAuthError, OrcaRouterCredentialStore, OrcaRouterPKCEClient
@@ -27,11 +28,9 @@ def _parser() -> argparse.ArgumentParser:
 
 
 async def _login(args: argparse.Namespace) -> int:
-	if args.timeout <= 0:
-		print('browser-use orcarouter: --timeout must be greater than zero', file=sys.stderr)
+	if not math.isfinite(args.timeout) or args.timeout <= 0:
+		print('browser-use orcarouter: --timeout must be a finite number greater than zero', file=sys.stderr)
 		return 2
-
-	client = OrcaRouterPKCEClient(auth_base_url=args.auth_base_url)
 
 	def show_authorization_url(url: str) -> None:
 		print('Authorize Browser Use with OrcaRouter:')
@@ -40,6 +39,7 @@ async def _login(args: argparse.Namespace) -> int:
 			print('Waiting for authorization in that browser tab...', flush=True)
 
 	try:
+		client = OrcaRouterPKCEClient(auth_base_url=args.auth_base_url)
 		credential = await client.login(
 			open_browser=not args.no_open,
 			on_authorization_url=show_authorization_url,
