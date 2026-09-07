@@ -23,7 +23,7 @@ import httpx
 from filelock import FileLock
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from browser_use.config import CONFIG, DBStyleConfigJSON, LLMEntry, create_default_config, load_and_migrate_config
+from browser_use.config import CONFIG, DBStyleConfigJSON, LLMEntry, create_default_config
 
 DEFAULT_ORCAROUTER_AUTH_BASE_URL = 'https://www.orcarouter.ai'
 DEFAULT_ORCAROUTER_API_BASE_URL = 'https://api.orcarouter.ai/v1'
@@ -170,7 +170,25 @@ class OrcaRouterCredentialStore:
 		if not self.path.exists():
 			return create_default_config()
 		try:
-			return load_and_migrate_config(self.path)
+			data = json.loads(self.path.read_text())
+			if not isinstance(data, dict):
+				raise ValueError('Browser Use configuration must be a JSON object')
+
+			required_sections = {'browser_profile', 'llm', 'agent'}
+			present_sections = required_sections.intersection(data)
+			if not present_sections:
+				# The existing migration discards the legacy flat format. Build its replacement
+				# in memory so the caller can persist it through the atomic writer.
+				return create_default_config()
+			if present_sections != required_sections:
+				raise ValueError('Browser Use configuration has incomplete database-style sections')
+			if not all(isinstance(data[section], dict) for section in required_sections):
+				raise ValueError('Browser Use configuration sections must be objects')
+			if not data['browser_profile'] or not all(
+				isinstance(entry, dict) and 'id' in entry for entry in data['browser_profile'].values()
+			):
+				raise ValueError('Browser Use configuration contains invalid browser profiles')
+			return DBStyleConfigJSON.model_validate(data)
 		except Exception as exc:
 			raise OrcaRouterAuthError(f'Could not read Browser Use configuration at {self.path}') from exc
 

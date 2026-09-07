@@ -324,15 +324,18 @@ def test_stale_401_cannot_invalidate_a_replacement_key(tmp_path: Path) -> None:
 	old = store.save(key=_fake_orcarouter_key('o'), user_id='user-old')
 	new = store.save(key=_fake_orcarouter_key('n'), user_id='user-new')
 
-	assert store.mark_needs_reauth(old.generation) is False
+	stale_mark_applied = store.mark_needs_reauth(old.generation)
+
+	assert stale_mark_applied is False
 	assert store.load() == new
 
 
-def test_concurrent_stale_401_cannot_overwrite_a_replacement_key(tmp_path: Path) -> None:
+def test_credential_lock_serializes_mark_and_replacement_save(tmp_path: Path) -> None:
 	loaded_old_credential = threading.Event()
 	allow_stale_write = threading.Event()
 	replacement_started = threading.Event()
 	replacement_finished = threading.Event()
+	mark_results: list[bool] = []
 	config_path = tmp_path / 'config.json'
 
 	class PausingStore(OrcaRouterCredentialStore):
@@ -353,7 +356,10 @@ def test_concurrent_stale_401_cannot_overwrite_a_replacement_key(tmp_path: Path)
 	store = PausingStore(config_path)
 	old = store.save(key=_fake_orcarouter_key('o'), user_id='user-old')
 	replacement_store = ReplacementStore(config_path)
-	marker = threading.Thread(target=store.mark_needs_reauth, args=(old.generation,), name='stale-marker')
+	marker = threading.Thread(
+		target=lambda: mark_results.append(store.mark_needs_reauth(old.generation)),
+		name='stale-marker',
+	)
 	replacement = threading.Thread(
 		target=replacement_store.save,
 		kwargs={'key': _fake_orcarouter_key('n'), 'user_id': 'user-new'},
@@ -371,6 +377,7 @@ def test_concurrent_stale_401_cannot_overwrite_a_replacement_key(tmp_path: Path)
 
 	assert not marker.is_alive()
 	assert not replacement.is_alive()
+	assert mark_results == [True]
 	credential = OrcaRouterCredentialStore(config_path).load()
 	assert credential is not None
 	assert credential.api_key == _fake_orcarouter_key('n')
@@ -387,6 +394,32 @@ def test_pkce_save_migrates_legacy_config_before_writing(tmp_path: Path) -> None
 	assert config.browser_profile
 	assert config.agent
 	assert any(entry.provider == 'orcarouter' for entry in config.llm.values())
+
+
+def test_failed_pkce_save_does_not_modify_legacy_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+	config_path = tmp_path / 'config.json'
+	original = '{"llm_model":"gpt-4.1-mini"}'
+	config_path.write_text(original)
+
+	def fail_replace(source, destination):
+		raise OSError('read-only filesystem')
+
+	monkeypatch.setattr('browser_use.llm.orcarouter.auth.os.replace', fail_replace)
+	with pytest.raises(OrcaRouterAuthError, match='configuration'):
+		OrcaRouterCredentialStore(config_path).save(key=_fake_orcarouter_key(), user_id='user-123')
+
+	assert config_path.read_text() == original
+
+
+def test_pkce_save_rejects_malformed_config_without_modifying_it(tmp_path: Path) -> None:
+	config_path = tmp_path / 'config.json'
+	original = '{"browser_profile":'
+	config_path.write_text(original)
+
+	with pytest.raises(OrcaRouterAuthError, match='read Browser Use configuration'):
+		OrcaRouterCredentialStore(config_path).save(key=_fake_orcarouter_key(), user_id='user-123')
+
+	assert config_path.read_text() == original
 
 
 @pytest.mark.parametrize('operation', ['save', 'clear'])

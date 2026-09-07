@@ -57,7 +57,7 @@ PY
   changing Chrome's visible tab. Screenshots and normal CDP input work in the
   background. Never call `activate_tab(target)` automatically: it brings Chrome
   to the foreground. Call it only when the user explicitly asks to see or
-  visibly switch to that tab. Do not pair `switch_tab()` with `activate_tab()`.
+  visibly switch to that tab. Never add `activate_tab()` after `switch_tab()` unless the user explicitly asked to see or visibly switch to the tab.
 - A local daemon is a connection to the whole Chrome instance, not to one site,
   task, card, or agent. Omit `BU_NAME` and reuse the default daemon for normal
   sequential local work across websites, tabs, screenshots, and Codex turns.
@@ -209,6 +209,9 @@ Cloud profile cookie sync reference: https://github.com/browser-use/browser-harn
 - When entering unusually long text, avoid slow per-character typing: find a faster page-appropriate input method, then verify the page kept the exact value.
 - Login walls: stop and ask. Exception: use available SSO automatically when Chrome is already signed in; still stop for passwords, MFA, consent, or ambiguous account choice.
 - Raw CDP is available with `cdp("Domain.method", ...)`.
+  Pass CDP parameters as keywords: `cdp("Input.insertText", text="hello")`.
+  The second positional argument is a session ID, not a parameters dictionary.
+  When targeting an explicit session, use `session_id="..."` alongside the keywords.
 
 ## Recordings and Videos
 

@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from browser_use.skills.browser_use import as_browser_use_skill
+
 ROOT = Path(__file__).resolve().parents[2]
 BROWSER_USE_REPO_SKILL_URL = 'https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md'
 EXPECTED_SKILL_INSTALL_PATHS = (
@@ -155,6 +157,22 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 	)
 	for installed in (home / path for path in EXPECTED_SKILL_INSTALL_PATHS):
 		assert installed.read_text(encoding='utf-8') == expected
+
+
+def test_browser_use_skill_allows_an_explicitly_requested_visible_tab_switch():
+	source = (
+		'---\nname: browser-harness\n---\n\n# Browser Harness\n\n'
+		'Call `activate_tab(target)` only when the user explicitly asks to see or visibly switch to that tab. '
+		'Do not pair `switch_tab()` with `activate_tab()`.\n'
+	)
+
+	converted = as_browser_use_skill(source)
+
+	assert (
+		'Never add `activate_tab()` after `switch_tab()` unless the user explicitly asked to see or visibly switch to the tab.'
+		in converted
+	)
+	assert 'Do not pair `switch_tab()` with `activate_tab()`.' not in converted
 
 
 def test_browser_use_cli_validates_destination_before_installing_harness(tmp_path):
