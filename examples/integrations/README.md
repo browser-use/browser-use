@@ -28,3 +28,5 @@ Add entries in this format:
 ```markdown
 - [Project name](https://github.com/org/project) - One sentence about what it integrates with. Maintained by @github-handle.
 ```
+
+- [ai-stealth-crawler](https://github.com/AntonLi-PM/ai-stealth-crawler) - Dual-engine anti-bot crawler and residential proxy pool rotator for Browser-Use agents with sticky session locking and Cloudflare evasion. Maintained by @AntonLi-PM.
