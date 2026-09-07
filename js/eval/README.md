@@ -6,6 +6,10 @@ Default evidence remains compatible with Laith. Set `evidence_format: "findings"
 
 Findings text budgets match the BrowserCode adapter: 2,000 characters of tool input, 20,000 of tool output, 4,000 of assistant text/thinking; 50 rendered files sharing 600,000 characters. Truncation keeps both ends and is marked. All ordinary output paths remain available for the judge's raw canary scan. SDK internals, observer screenshots, packages and symlinks are excluded from deliverable inventory. XLSX/PDF rendering uses the baseline's pinned openpyxl/pypdf and copied rendering functions; it happens after execution and adds no agent tools.
 
+SDK audit files live in a hidden directory, which GitHub Actions excludes from ordinary artifact uploads. After browser cleanup, the adapter packages regular files from `.browser-use/context`, `cells`, and `runs` into the visible `sdk-audit.tar.gz` artifact. Other hidden files and symlinks are excluded. Archive failures are reported in `metadata.sdk_audit_archive_error`; they do not replace the agent's result. This requires the runner's standard `tar` executable.
+
+The reliability cohorts at `a7fe3d4` predate this archive correction. Their visible event streams, outputs and recorded compaction counts survive, but hidden summary/checkpoint audit files were omitted by the uploader. The archive correction cannot recover those files retroactively and does not change the agent loop or findings evidence.
+
 `task_timeout_seconds` accepts 1–7,200. The platform must allow an additional 90 seconds, and browser lifetime must exceed the task budget by 30 seconds. Defaults remain 1,700 seconds and a 60-minute browser.
 
 ## Local contract tests

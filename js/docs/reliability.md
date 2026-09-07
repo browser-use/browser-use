@@ -59,6 +59,8 @@ The REPL adds `checkpoint('progress.json', value)` and `reconnect()`. Standard N
 
 History version 1 remains readable. Saved context contains the compacted projection; the run event journal retains the original trajectory. Context checkpoint files and per-cell output live under `.browser-use/`. Existing workspace and artifact files remain in place. The user controls their retention.
 
+The eval adapter separately archives SDK audit files as `sdk-audit.tar.gz`, because GitHub's default artifact uploader omits hidden directories. This correction followed the `a7fe3d4` benchmark dispatch: those runs retain visible event logs and compaction counts, but their hidden summary files were not uploaded. Archive errors are explicit metadata, and unrelated hidden files and symlinks are excluded.
+
 ## Verification and evaluation
 
 Local tests use scripted models or mock provider responses; real Chrome tests use isolated temporary profiles and local fixtures. They prove execution, cancellation, recovery, schema and compatibility behavior. They do not establish benchmark gains.

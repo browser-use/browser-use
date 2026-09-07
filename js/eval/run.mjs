@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** Evaluate Pi + Browser Use Next over raw CDP. One isolated cloud browser; no action replay. */
-import { mkdir, readFile, writeFile, appendFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, appendFile, readdir, lstat, rm } from 'node:fs/promises';
 import { join, resolve, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
@@ -106,6 +106,36 @@ async function files(directory, root = directory) {
     else if (entry.isFile()) result.push(relative(root, path));
   }
   return result;
+}
+
+// Actions excludes hidden files by default. Package only SDK audit records, never all dotfiles.
+async function archiveAudit(workspace) {
+  const output = join(workspace, 'agent_outputs');
+  const audit = join(output, '.browser-use');
+  const paths = [];
+  for (const name of ['context', 'cells', 'runs']) {
+    const directory = join(audit, name);
+    try {
+      if (!(await lstat(audit)).isDirectory() || !(await lstat(directory)).isDirectory())
+        throw new Error('SDK audit directories must not be symlinks.');
+      paths.push(...(await files(directory)).map((path) => join('.browser-use', name, path)));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+  if (!paths.length) return undefined;
+  const archive = 'sdk-audit.tar.gz';
+  try {
+    await promisify(execFile)(
+      'tar',
+      ['-czf', join(workspace, archive), '-C', output, '--', ...paths],
+      { timeout: 15_000 },
+    );
+    return archive;
+  } catch (error) {
+    await rm(join(workspace, archive), { force: true });
+    throw error;
+  }
 }
 
 export async function main() {
@@ -427,6 +457,16 @@ export async function main() {
       }
     }
     if (cleanupErrors.length) envelope.metadata.cleanup_errors = cleanupErrors;
+    try {
+      const archive = await archiveAudit(workspace);
+      if (archive) {
+        envelope.artifacts.push(archive);
+        envelope.metadata.sdk_audit_archive = archive;
+      }
+    } catch (error) {
+      envelope.metadata.sdk_audit_archive_error = error.message;
+      console.error(`SDK audit archive unavailable: ${error.message}`);
+    }
     await writeFile(resultPath, JSON.stringify(envelope, null, 2) + '\n');
     if (root) {
       Laminar.withSpan(root, () => Laminar.setSpanOutput(envelope), false);

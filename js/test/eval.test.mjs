@@ -109,6 +109,16 @@ for (const evidenceFormat of [undefined, 'findings'])
         JSON.stringify({ task_id: 'fixture', confirmed_task: 'Read catalog; save once.' }),
       );
       await writeFile(join(dir, 'dependencies.sha256'), 'fixture-hash');
+      await mkdir(join(dir, 'agent_outputs/.browser-use/context'), { recursive: true });
+      await writeFile(
+        join(dir, 'agent_outputs/.browser-use/context/fixture.json'),
+        '{"saved":true}',
+      );
+      await writeFile(join(dir, '.unrelated-secret'), 'fixture-private');
+      await symlink(
+        join(dir, '.unrelated-secret'),
+        join(dir, 'agent_outputs/.browser-use/context/skip.txt'),
+      );
       Object.assign(process.env, {
         EVAL_WORKSPACE: dir,
         EVAL_RESULT_PATH: join(dir, 'result.json'),
@@ -203,6 +213,21 @@ for (const evidenceFormat of [undefined, 'findings'])
       assert.equal(result.metrics.steps, 2);
       assert.equal(result.metadata.screenshot_errors, 0);
       assert.equal(result.metadata.screenshot_detach_errors, 0);
+      assert.equal(result.metadata.sdk_audit_archive, 'sdk-audit.tar.gz');
+      assert.ok(result.artifacts.includes('sdk-audit.tar.gz'));
+      const { execFileSync } = await import('node:child_process');
+      const archive = join(dir, 'sdk-audit.tar.gz');
+      const archivedPaths = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8' });
+      assert.match(archivedPaths, /\.browser-use\/context\/fixture\.json/);
+      assert.match(archivedPaths, /\.browser-use\/cells\//);
+      assert.match(archivedPaths, /\.browser-use\/runs\//);
+      assert.doesNotMatch(archivedPaths, /unrelated-secret|skip\.txt/);
+      assert.equal(
+        execFileSync('tar', ['-xOzf', archive, '.browser-use/context/fixture.json'], {
+          encoding: 'utf8',
+        }),
+        '{"saved":true}',
+      );
       assert.ok(result.metadata.screenshot_time_ms > 0);
       assert.ok(result.artifacts.some((path) => path.endsWith(evidenceFormat ? '.png' : '.jpg')));
       if (evidenceFormat) {
