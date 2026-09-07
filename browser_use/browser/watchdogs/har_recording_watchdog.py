@@ -31,6 +31,12 @@ from browser_use.browser.watchdog_base import BaseWatchdog
 from browser_use.utils import create_task_with_error_handling
 
 
+# Grace window for in-flight response-body fetches when the browser stops.
+# A fetch that outlives the window is written without its body, which matches
+# the pre-existing behavior for that entry instead of stalling shutdown.
+FETCH_DRAIN_TIMEOUT_SECONDS = 10.0
+
+
 @dataclass
 class _HarContent:
 	mime_type: str | None = None
@@ -204,10 +210,23 @@ class HarRecordingWatchdog(BaseWatchdog):
 		if not self._enabled:
 			return
 		try:
+			await self._drain_fetch_tasks()
 			await self._write_har()
 			self.logger.info(f'📊 HAR file saved: {self._har_path}')
 		except Exception as e:
 			self.logger.warning(f'Failed to write HAR: {e}')
+
+	async def _drain_fetch_tasks(self) -> None:
+		"""Wait for in-flight body fetches so the HAR includes their bodies.
+
+		Bounded on purpose: a fetch that never completes must not stall
+		shutdown, so after the grace window the HAR is written with whatever
+		completed — the same outcome the entry had before this watchdog
+		tracked fetch tasks at all.
+		"""
+		pending = [t for t in self._fetch_tasks if not t.done()]
+		if pending:
+			await asyncio.wait(pending, timeout=FETCH_DRAIN_TIMEOUT_SECONDS)
 
 	# =============== CDP Event Handlers (sync) ==================
 	def _on_request_will_be_sent(self, params: RequestWillBeSentEvent, session_id: str | None) -> None:
