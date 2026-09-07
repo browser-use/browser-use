@@ -81,6 +81,79 @@ def test_image_only_interactive_parent_includes_child_image_context_in_llm_dom()
 	assert 'acme-bank-primary-card.png' in llm_dom
 
 
+def test_direct_interactive_image_includes_own_context_in_llm_dom():
+	"""A directly clickable image should expose its own sanitized source context."""
+	image = _make_element_node(
+		221,
+		'img',
+		{'src': 'https://cdn.example.test/logos/acme-card.png?token=must-not-leak#preview'},
+		x=18,
+		y=18,
+	)
+
+	llm_dom = DOMTreeSerializer.serialize_tree(
+		SimplifiedNode(
+			original_node=image,
+			children=[],
+			is_interactive=True,
+			selector_index=221,
+		),
+		DEFAULT_INCLUDE_ATTRIBUTES,
+	)
+
+	assert '[221]<img' in llm_dom
+	assert 'image_src=acme-card.png' in llm_dom
+	assert 'must-not-leak' not in llm_dom
+
+
+def test_direct_interactive_image_rejects_browser_normalized_data_src():
+	"""Data URLs remain hidden when URL parsing ignores control characters in the scheme."""
+	image = _make_element_node(
+		222,
+		'img',
+		{'src': '\x00Da\nTa:image/png;base64,must-not-leak'},
+		x=18,
+		y=18,
+	)
+
+	llm_dom = DOMTreeSerializer.serialize_tree(
+		SimplifiedNode(
+			original_node=image,
+			children=[],
+			is_interactive=True,
+			selector_index=222,
+		),
+		DEFAULT_INCLUDE_ATTRIBUTES,
+	)
+
+	assert llm_dom == '[222]<img />'
+	assert 'must-not-leak' not in llm_dom
+
+
+def test_direct_interactive_image_omits_oversized_src_context():
+	"""Image context does not scan or serialize oversized raw source attributes."""
+	image = _make_element_node(
+		223,
+		'img',
+		{'src': f'/{"a" * DOMTreeSerializer.MAX_IMAGE_CONTEXT_ATTRIBUTE_LENGTH}/must-not-leak.png'},
+		x=18,
+		y=18,
+	)
+
+	llm_dom = DOMTreeSerializer.serialize_tree(
+		SimplifiedNode(
+			original_node=image,
+			children=[],
+			is_interactive=True,
+			selector_index=223,
+		),
+		DEFAULT_INCLUDE_ATTRIBUTES,
+	)
+
+	assert llm_dom == '[223]<img />'
+	assert 'must-not-leak' not in llm_dom
+
+
 def _simplified_image(backend_node_id: int, attributes: dict[str, str]) -> SimplifiedNode:
 	image = _make_element_node(backend_node_id, 'img', attributes, x=18, y=18)
 	return SimplifiedNode(original_node=image, children=[])
