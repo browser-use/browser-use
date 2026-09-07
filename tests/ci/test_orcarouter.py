@@ -422,6 +422,23 @@ def test_pkce_save_rejects_malformed_config_without_modifying_it(tmp_path: Path)
 	assert config_path.read_text() == original
 
 
+@pytest.mark.parametrize(
+	'config_text',
+	[
+		'{"llm":{}}',
+		'{"browser_profile":{},"llm":{},"agent":{}}',
+	],
+)
+def test_pkce_save_accepts_db_config_with_defaultable_or_empty_sections(tmp_path: Path, config_text: str) -> None:
+	config_path = tmp_path / 'config.json'
+	config_path.write_text(config_text)
+	store = OrcaRouterCredentialStore(config_path)
+
+	credential = store.save(key=_fake_orcarouter_key(), user_id='user-123')
+
+	assert store.load() == credential
+
+
 @pytest.mark.parametrize('operation', ['save', 'clear'])
 def test_pkce_store_wraps_write_path_errors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, operation: str) -> None:
 	store = OrcaRouterCredentialStore(tmp_path / 'config.json')

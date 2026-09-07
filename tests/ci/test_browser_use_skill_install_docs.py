@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from browser_use.skills.browser_use import as_browser_use_skill
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -173,6 +175,16 @@ def test_browser_use_skill_allows_an_explicitly_requested_visible_tab_switch():
 		in converted
 	)
 	assert 'Do not pair `switch_tab()` with `activate_tab()`.' not in converted
+
+
+def test_browser_use_skill_rejects_unreviewed_activate_tab_guidance_drift():
+	source = (
+		'---\nname: browser-harness\n---\n\n# Browser Harness\n\n'
+		'Call `activate_tab(target)` only when foreground interaction is useful.\n'
+	)
+
+	with pytest.raises(ValueError, match='activate_tab guidance changed'):
+		as_browser_use_skill(source)
 
 
 def test_browser_use_cli_validates_destination_before_installing_harness(tmp_path):

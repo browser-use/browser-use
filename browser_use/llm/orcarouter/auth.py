@@ -180,14 +180,8 @@ class OrcaRouterCredentialStore:
 				# The existing migration discards the legacy flat format. Build its replacement
 				# in memory so the caller can persist it through the atomic writer.
 				return create_default_config()
-			if present_sections != required_sections:
-				raise ValueError('Browser Use configuration has incomplete database-style sections')
-			if not all(isinstance(data[section], dict) for section in required_sections):
+			if not all(isinstance(data[section], dict) for section in present_sections):
 				raise ValueError('Browser Use configuration sections must be objects')
-			if not data['browser_profile'] or not all(
-				isinstance(entry, dict) and 'id' in entry for entry in data['browser_profile'].values()
-			):
-				raise ValueError('Browser Use configuration contains invalid browser profiles')
 			return DBStyleConfigJSON.model_validate(data)
 		except Exception as exc:
 			raise OrcaRouterAuthError(f'Could not read Browser Use configuration at {self.path}') from exc

@@ -28,6 +28,11 @@ OPENCLAW_METADATA_LINES = (
 	'  }',
 )
 
+_OLD_ACTIVATE_TAB_GUIDANCE = 'Do not pair `switch_tab()` with `activate_tab()`.'
+_NEW_ACTIVATE_TAB_GUIDANCE = (
+	'Never add `activate_tab()` after `switch_tab()` unless the user explicitly asked to see or visibly switch to the tab.'
+)
+
 
 def as_browser_use_skill(text: str) -> str:
 	"""Expose the Browser Harness skill under the Browser Use skill identity."""
@@ -70,10 +75,11 @@ def as_browser_use_skill(text: str) -> str:
 	# Rebrand every mention except repo URLs (github.com/browser-use/browser-harness/...)
 	body = re.sub(r'(?<!/)browser-harness', 'browser-use', body)
 	body = body.replace('Browser Harness', 'Browser Use')
-	body = body.replace(
-		'Do not pair `switch_tab()` with `activate_tab()`.',
-		'Never add `activate_tab()` after `switch_tab()` unless the user explicitly asked to see or visibly switch to the tab.',
-	)
+	if '`activate_tab(target)`' in body and not any(
+		guidance in body for guidance in (_OLD_ACTIVATE_TAB_GUIDANCE, _NEW_ACTIVATE_TAB_GUIDANCE)
+	):
+		raise ValueError('Upstream activate_tab guidance changed; review the Browser Use foreground-tab policy')
+	body = body.replace(_OLD_ACTIVATE_TAB_GUIDANCE, _NEW_ACTIVATE_TAB_GUIDANCE)
 	frontmatter_text = '\n'.join(lines)
 	return f'---\n{frontmatter_text}\n---\n{body}'
 
