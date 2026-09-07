@@ -124,5 +124,3 @@ def test_merge_storage_states_does_not_restore_deleted_cookies() -> None:
 
 	assert merged['cookies'] == current['cookies']
 	assert merged['origins'] == existing['origins']
-
-
