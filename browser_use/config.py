@@ -271,6 +271,13 @@ class LLMEntry(DBStyleEntry):
 	model: str | None = None
 	temperature: float | None = None
 	max_tokens: int | None = None
+	provider: str | None = None
+	auth_method: str | None = None
+	user_id: str | None = None
+	scope: str | None = None
+	authorized_at: str | None = None
+	credential_generation: str | None = None
+	needs_reauth: bool = False
 
 
 class AgentEntry(DBStyleEntry):
