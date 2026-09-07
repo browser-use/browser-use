@@ -37,6 +37,7 @@ const page = deferredPage(config.targetId);
 let outputFile: string | undefined;
 let output = '';
 let images: Image[] = [];
+let captureResponse: CDP['observeResponse'];
 let overflow = false;
 // Bound memory even when generated code writes an unbounded amount of output.
 const hardLimit = 1_000_000;
@@ -107,6 +108,7 @@ Object.assign(realm, {
     const targetId = (Reflect.get(realm, 'page') as Page)?.targetId;
     browser.close();
     browser = CDP.lazy(config.endpoint, config.operationTimeoutMs);
+    browser.observeResponse = captureResponse;
     tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
     Object.assign(realm, { browser, tabs, page: deferredPage(targetId) });
     observe();
@@ -124,12 +126,10 @@ Object.assign(realm, {
   require: createRequire(join(config.workspace, 'package.json')),
   async screenshot() {
     const current = Reflect.get(realm, 'page') as Page;
-    const bytes = await current.screenshot({ quality: 70 });
     if (images.length >= 4) throw new Error('At most four screenshots per cell.');
-    if (bytes.length > 8_000_000)
-      throw new Error('Screenshot exceeds 8 MB; use a smaller viewport.');
-    images.push({ type: 'image', data: bytes.toString('base64'), mimeType: 'image/jpeg' });
-    return 'Screenshot attached.';
+    const count = images.length;
+    await current.screenshot({ quality: 70 });
+    return images.length > count ? 'Screenshot attached.' : 'Screenshot omitted; see warning.';
   },
   async snapshot() {
     const current = Reflect.get(realm, 'page') as Page;
@@ -233,6 +233,24 @@ process.on('message', async (message: WorkerRequest) => {
   }
   output = '';
   images = [];
+  const cellImages = images;
+  let active = true;
+  let warned = false;
+  captureResponse = (method, params, result) => {
+    if (!active || method !== 'Page.captureScreenshot') return;
+    const data = (result as { data?: unknown })?.data;
+    if (typeof data !== 'string') return;
+    if (cellImages.length >= 4 || Buffer.byteLength(data, 'base64') > 8_000_000) {
+      if (!warned) sink.write('[Screenshot omitted from model vision: four-image/8 MB limit.]\n');
+      warned = true;
+      return;
+    }
+    const format = (params as { format?: string })?.format ?? 'png';
+    const mimeType =
+      format === 'jpeg' ? 'image/jpeg' : format === 'webp' ? 'image/webp' : 'image/png';
+    cellImages.push({ type: 'image', data, mimeType });
+  };
+  browser.observeResponse = captureResponse;
   overflow = false;
   outputFile = message.outputFile;
   let valueJson: string | undefined;
@@ -241,6 +259,10 @@ process.on('message', async (message: WorkerRequest) => {
     valueJson = await evaluate(message.code, message.captureJson);
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
+  } finally {
+    active = false;
+    browser.observeResponse = undefined;
+    captureResponse = undefined;
   }
   if (overflow) output += '\n[Output exceeded the 1 MB capture limit.]';
   if (output.length > config.maxOutputChars)

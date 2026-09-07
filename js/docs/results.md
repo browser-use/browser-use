@@ -47,16 +47,16 @@ Ask the agent to save a file in the [workspace](/sessions#keep-your-files). Use 
 
 ::: details Result statuses
 
-| Status          | Meaning                                                   |
-| --------------- | --------------------------------------------------------- |
-| `completed`     | A schema-valid result was delivered                       |
-| `incomplete`    | Model stopped without validated delivery                  |
-| `max_steps`     | Maximum model turns reached                               |
-| `timeout`       | Run time limit reached                                    |
-| `cancelled`     | Caller cancelled or closed the session                    |
-| `cost_limit`    | Estimated cost crossed the threshold                      |
-| `context_limit` | Projected context exceeded the configured character limit |
-| `error`         | Model, callback, or runtime failure prevented completion  |
+| Status          | Meaning                                                                 |
+| --------------- | ----------------------------------------------------------------------- |
+| `completed`     | A schema-valid result was delivered                                     |
+| `incomplete`    | Model stopped without validated delivery                                |
+| `max_steps`     | Maximum model turns reached                                             |
+| `timeout`       | Run time limit reached                                                  |
+| `cancelled`     | Caller cancelled or closed the session                                  |
+| `cost_limit`    | Estimated cost crossed the threshold                                    |
+| `context_limit` | Projected context could not fit the character or provider-context guard |
+| `error`         | Model, callback, or runtime failure prevented completion                |
 
 Only `completed` has an `output` property in the TypeScript union. Other statuses preserve available assistant text and may include an error.
 :::

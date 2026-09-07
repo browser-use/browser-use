@@ -11,6 +11,7 @@ import {
 } from '@earendil-works/pi-ai';
 import { BrowserUse, Type } from '../dist/index.js';
 import { startFixture } from '../examples/fixture.mjs';
+import { SYSTEM_PROMPT } from '../dist/prompt.js';
 
 let fixture;
 before(async () => {
@@ -240,7 +241,9 @@ test('native screenshot bytes do not consume the text-context budget', async () 
     call('finish', { result: 'saw the page' }),
   ]);
   try {
-    const result = await s.agent.run('Inspect the page', { maxContextChars: 8000 });
+    const result = await s.agent.run('Inspect the page', {
+      maxContextChars: SYSTEM_PROMPT.length + 2000,
+    });
     assert.equal(result.status, 'completed');
   } finally {
     await s.close();
@@ -480,6 +483,77 @@ test('transient failed inference retries once without executing the failed respo
     assert.equal(result.providerRetries, 1);
     assert.equal(s.faux.state.callCount, 2);
     assert.equal(events.filter((x) => x === 'tool_execution_start').length, 1);
+  } finally {
+    await s.close();
+  }
+});
+
+test('provider recovery keeps original budgets and never becomes a repeated retry loop', async () => {
+  for (const scenario of ['steps', 'cost', 'cancel', 'permanent', 'repeated']) {
+    const controller = new AbortController();
+    const failure = () =>
+      fauxAssistantMessage(
+        fauxToolCall('javascript', { code: "throw new Error('not executed')" }),
+        {
+          stopReason: 'error',
+          errorMessage: scenario === 'permanent' ? 'Invalid API key' : 'socket hang up',
+        },
+      );
+    const s = await session([failure(), failure(), call('finish', { result: 'must not run' })]);
+    let tools = 0;
+    try {
+      const result = await s.agent.run('Inspect without repeating actions', {
+        maxSteps: scenario === 'steps' ? 1 : 10,
+        maxCostUsd: scenario === 'cost' ? 0.01 : undefined,
+        signal: controller.signal,
+        onEvent: (event) => {
+          if (event.type === 'tool_execution_start') tools++;
+          if (event.type === 'message_end' && event.message.role === 'assistant') {
+            if (scenario === 'cost') event.message.usage.cost.total = 0.02;
+            if (scenario === 'cancel') controller.abort();
+          }
+        },
+      });
+      assert.equal(
+        result.status,
+        {
+          steps: 'max_steps',
+          cost: 'cost_limit',
+          cancel: 'cancelled',
+          permanent: 'error',
+          repeated: 'error',
+        }[scenario],
+        scenario,
+      );
+      assert.equal(result.providerRetries, scenario === 'repeated' ? 1 : 0, scenario);
+      assert.equal(s.faux.state.callCount, scenario === 'repeated' ? 2 : 1, scenario);
+      assert.equal(tools, 0, scenario);
+      assert.equal(result.finishRepairs, 0, scenario);
+      if (scenario === 'cost') assert.equal(result.usage.cost.total, 0.02);
+    } finally {
+      await s.close();
+    }
+  }
+});
+
+test('saving an explicit page screenshot also supplies the image to the next model turn', async () => {
+  const s = await session([
+    call('javascript', {
+      code: `await page.goto(${JSON.stringify(fixture.url)}); await page.screenshot({quality:70}).then(bytes => artifact('visual-check.jpg', bytes))`,
+    }),
+    (context) => {
+      const result = context.messages.findLast((m) => m.role === 'toolResult');
+      const images = result.content.filter((part) => part.type === 'image');
+      assert.equal(images.length, 1);
+      assert.equal(images[0].mimeType, 'image/jpeg');
+      assert.equal(Buffer.from(images[0].data, 'base64')[0], 0xff);
+      return call('finish', { result: 'Image received' });
+    },
+  ]);
+  try {
+    const result = await s.agent.run('Inspect the mobile rendering');
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 'Image received');
   } finally {
     await s.close();
   }

@@ -16,10 +16,11 @@ This prototype recreates the common _documented_ Browser Use workflows. We did n
 | Step callbacks / history | Live events, saved history and run metrics        |
 | Stop a task              | `AbortSignal`, deadlines, `close()`               |
 | Output files             | Persistent workspace and artifact paths           |
+| Long conversations       | Upstream Pi compaction and explicit checkpoints   |
 
 ## Deliberate gaps
 
-This is not a drop-in Python replacement. It does not currently provide cloud provisioning, a hosted agent service, automatic CAPTCHA solving, stealth guarantees, automatic compaction, a scheduler, a drop-in Python beta compatibility layer, or sandboxing for untrusted users.
+This is not a drop-in Python replacement. It does not currently provide cloud provisioning, a hosted agent service, automatic CAPTCHA solving, stealth guarantees, a scheduler, a drop-in Python beta compatibility layer, or sandboxing for untrusted users.
 
 Runs reuse browser and JavaScript state in the same live instance, but each `run()` starts a fresh Pi transcript. Explicit `followUp()` retains the transcript. Saved version 1 histories can restore conversation after a restart, but live bindings are lost. Files survive according to the output directory's lifetime.
 

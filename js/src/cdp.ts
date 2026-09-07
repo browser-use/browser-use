@@ -16,6 +16,9 @@ export class CDP {
   private nextId = 0;
   /** Optional metadata observer; errors cannot change command delivery. Never receives responses. */
   observeCommand: ((method: string, params: unknown, sessionId?: string) => void) | undefined;
+  /** Passive result tap. Exceptions cannot change command delivery. May contain page data. */
+  observeResponse:
+    ((method: string, params: unknown, result: unknown, sessionId?: string) => void) | undefined;
   private pending = new Map<number, Pending>();
   private listeners = new Set<Listener>();
   private constructor(
@@ -115,7 +118,22 @@ export class CDP {
     params: Commands[M]['paramsType'][0] = {} as Commands[M]['paramsType'][0],
     sessionId?: string,
   ): Promise<Commands[M]['returnType']> {
-    if (this.endpoint) return (await this.connected()).send(method, params, sessionId);
+    // Capture the observer at dispatch, so late responses cannot enter a later cell.
+    const observe = this.observeResponse;
+    const result = this.endpoint
+      ? await (await this.connected()).send(method, params, sessionId)
+      : await this.sendMessage(method, params, sessionId);
+    try {
+      observe?.(method, params, result, sessionId);
+    } catch {}
+    return result;
+  }
+
+  private sendMessage<M extends keyof Commands>(
+    method: M,
+    params: Commands[M]['paramsType'][0],
+    sessionId?: string,
+  ): Promise<Commands[M]['returnType']> {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN)
       return Promise.reject(new Error('CDP connection is closed.'));
     if (this.pending.size >= 256)

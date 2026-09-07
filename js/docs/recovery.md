@@ -24,7 +24,7 @@ const result = await agent.run('Find the requested information.', {
 - **Cell:** execution deadline. A stuck cell causes worker termination.
 - **Run:** aborts the model loop and active browser cell.
 
-`maxSteps` counts model turns, not browser actions. A single code cell may contain multiple actions. Cost is estimated from Pi's catalog and checked between turns; it can overshoot by one response. It is not a hard billing cap. Context size is a character guard, not a tokenizer or automatic compactor.
+`maxSteps` counts model turns, not browser actions. A single code cell may contain multiple actions. Cost is estimated from Pi's catalog and checked between turns; it can overshoot by one response. It is not a hard billing cap. `maxContextChars` is a text-character guard. Automatic upstream Pi compaction also uses token estimates and provider usage before the context becomes full; set `compaction: false` to opt out. Summary inference counts toward usage and cost.
 
 ## Missing final delivery
 
@@ -40,12 +40,26 @@ The SDK does not replay browser actions. A JavaScript delivery expression remain
 | Caught syntax/runtime error | Preserved, including partial changes | Preserved                                    | Error returned to model    |
 | Cell timeout / cancellation | Reset                                | Reattached when target exists                | Explicit reset error       |
 | Worker crash                | Reset                                | Reattached when target exists                | Explicit worker-exit error |
-| Chrome exits                | Cannot preserve browser state        | Lost                                         | Reconnect fails explicitly |
+| Chrome exits                | Preserved while worker remains alive | Lost                                         | Reconnect fails explicitly |
 | `close()`                   | Discarded                            | Owned browser closes; external browser stays | Artifacts retained         |
 
 If page attachment fails after Chrome creates a protocol session, the SDK attempts to detach that session before returning the original error. It does not close the tab or caller-owned connection.
 
 A new worker reconnects to the primary tab by Chrome target ID. It never automatically replays the failed cell. The agent is instructed to inspect the current page before retrying a mutation. If the tab no longer exists, a fresh tab is created; do not assume the previous page survived.
+
+## Keep progress through a reset
+
+```js
+await checkpoint('records.json', records);
+// After a worker reset:
+const recovered = JSON.parse(require('node:fs').readFileSync('records.json', 'utf8'));
+```
+
+`checkpoint` atomically replaces JSON in the workspace. Save after each successful item or small batch. Work held only in memory is lost when the worker is terminated. Failed cells retain bounded captured output and report whether their JavaScript state was reset.
+
+Pure JavaScript and file work remain available when Chrome is unhealthy. Use `await reconnect()` for an explicit CDP reconnect, then reacquire cached page/frame handles and inspect state. Reconnect preserves Node bindings and files; it does not revive a dead remote Chrome or establish whether a timed-out action happened.
+
+Compaction preserves recent complete tool groups and exact original user messages. The run journal retains the original trajectory; context checkpoints are saved under `.browser-use/context`. Summary omissions remain possible, so canonical datasets should live in ordinary files. See [reliability](./reliability) for the full contract.
 
 ## Cancel a task
 

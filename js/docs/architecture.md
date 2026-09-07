@@ -35,9 +35,9 @@ An external browser has different ownership: the SDK disconnects, but never shut
 
 ## Keep the model context small
 
-The worker captures at most 1 MB of tool text. The model sees a bounded prefix, with full captured output saved to a file when truncated. Screenshots are images, not base64 text. Only recent tool images are carried forward. A context guard ends the run explicitly rather than silently deleting arbitrary evidence.
+The worker captures at most 1 MB of tool text. The model sees a bounded prefix, with full captured output saved to a file when truncated. Screenshots are images, not base64 text. Only recent tool images are carried forward. Upstream Pi compaction summarizes older messages while preserving the last two complete assistant/tool groups and exact original user requests. The raw transcript remains available for accounting and audit; canonical datasets and explicit checkpoints live in the workspace.
 
-This is deliberately not durable memory or automatic compaction. Those require their own semantics and evals.
+Character and provider-context guards remain in force. If compaction fails or cannot make enough room, the SDK retains the original context and reports the failure rather than pretending the run succeeded. Summary usage is included in cost. See [reliability](./reliability) for thresholds and recovery limits.
 
 ## Use a finish tool
 

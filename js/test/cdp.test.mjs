@@ -97,3 +97,39 @@ test('command deadline rejects; closing rejects pending commands without crashin
   await assert.rejects(pending, /closed/);
   assert.match((await cdp.send('Browser.getVersion')).product, /Chrome/);
 });
+
+test('response taps are passive, single-delivery and bound to the dispatched command', async () => {
+  const lazy = CDP.lazy(chrome.endpoint, 1000);
+  let observed = 0;
+  try {
+    lazy.observeResponse = (method, _params, result) => {
+      assert.equal(method, 'Browser.getVersion');
+      assert.match(result.product, /Chrome/);
+      observed++;
+      throw new Error('observer failure must not fail the command');
+    };
+    assert.match((await lazy.send('Browser.getVersion')).product, /Chrome/);
+    assert.equal(observed, 1);
+    await assert.rejects(lazy.send('MadeUp.method'), /CDP/);
+    assert.equal(observed, 1);
+    let original = 0,
+      replacement = 0;
+    cdp.observeResponse = () => original++;
+    const pending = cdp.send(
+      'Runtime.evaluate',
+      {
+        expression: 'new Promise(resolve => setTimeout(() => resolve(42), 50))',
+        awaitPromise: true,
+        returnByValue: true,
+      },
+      page.sessionId,
+    );
+    cdp.observeResponse = () => replacement++;
+    assert.equal((await pending).result.value, 42);
+    assert.equal(original, 1);
+    assert.equal(replacement, 0);
+  } finally {
+    cdp.observeResponse = undefined;
+    lazy.close();
+  }
+});

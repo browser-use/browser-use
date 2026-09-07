@@ -146,6 +146,49 @@ test('a crash between cells reports lost state before executing new code', async
   assert.equal((await agent.execute('42')).text, '42');
 });
 
+test('explicit page, other-tab and raw CDP captures attach native images without changing saved bytes', async () => {
+  const result = await agent.execute(`
+    await page.goto(${JSON.stringify(fixture.url)});
+    const captured = await page.screenshot({quality:70});
+    await artifact('attached-capture.jpg', captured);
+    const imageTab = await tabs.open(${JSON.stringify(fixture.url)});
+    await imageTab.cdp('Page.captureScreenshot', {format:'png'});
+    await browser.send('Page.captureScreenshot', {format:'webp'}, imageTab.sessionId);
+    await imageTab.close();
+    await screenshot();
+  `);
+  assert.deepEqual(
+    result.images.map((image) => image.mimeType),
+    ['image/jpeg', 'image/png', 'image/webp', 'image/jpeg'],
+  );
+  assert.deepEqual(
+    await readFile(join(workspace, 'attached-capture.jpg')),
+    Buffer.from(result.images[0].data, 'base64'),
+  );
+  assert.equal((await agent.execute('42')).images.length, 0);
+});
+
+test('screenshot bounds preserve command results and failed-cell images stay in their own cell', async () => {
+  const bounded = await agent.execute(`
+    for (let i=0;i<5;i++) await page.screenshot({quality:30});
+    console.log('all five captures returned');
+  `);
+  assert.equal(bounded.images.length, 4);
+  assert.match(bounded.text, /Screenshot omitted/);
+  assert.match(bounded.text, /all five captures returned/);
+  await assert.rejects(
+    agent.execute("await page.screenshot(); throw new Error('after capture')"),
+    (error) => {
+      assert.match(error.message, /after capture/);
+      assert.equal(error.result.images.length, 1);
+      return true;
+    },
+  );
+  assert.equal((await agent.execute('42')).images.length, 0);
+  const reconnected = await agent.execute('await reconnect(); await page.screenshot(); void 0');
+  assert.equal(reconnected.images.length, 1);
+});
+
 test('close is idempotent and closes active execution', async () => {
   const running = agent.execute('await new Promise(() => {})');
   const rejected = assert.rejects(running, /closed|exited|cancelled/);
