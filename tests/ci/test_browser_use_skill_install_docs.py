@@ -177,10 +177,23 @@ def test_browser_use_skill_allows_an_explicitly_requested_visible_tab_switch():
 	assert 'Do not pair `switch_tab()` with `activate_tab()`.' not in converted
 
 
+def test_browser_use_skill_accepts_pinned_browser_harness_activation_policy():
+	source = (
+		'---\nname: browser-harness\n---\n\n# Browser Harness\n\n'
+		"`new_tab()` and `switch_tab()` attach without changing Chrome's visible tab. "
+		'Call `activate_tab(target)` only when the user explicitly asks or a page pauses while hidden.\n'
+	)
+
+	converted = as_browser_use_skill(source)
+
+	assert 'Call `activate_tab(target)` only when the user explicitly asks or a page pauses while hidden.' in converted
+
+
 def test_browser_use_skill_rejects_unreviewed_activate_tab_guidance_drift():
 	source = (
 		'---\nname: browser-harness\n---\n\n# Browser Harness\n\n'
-		'Call `activate_tab(target)` only when foreground interaction is useful.\n'
+		'Never call `activate_tab(target)` automatically: it brings Chrome to the foreground. '
+		'Call it only when foreground interaction is useful. Avoid pairing `switch_tab()` with `activate_tab()`.\n'
 	)
 
 	with pytest.raises(ValueError, match='activate_tab guidance changed'):

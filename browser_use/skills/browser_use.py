@@ -32,6 +32,7 @@ _OLD_ACTIVATE_TAB_GUIDANCE = 'Do not pair `switch_tab()` with `activate_tab()`.'
 _NEW_ACTIVATE_TAB_GUIDANCE = (
 	'Never add `activate_tab()` after `switch_tab()` unless the user explicitly asked to see or visibly switch to the tab.'
 )
+_CURRENT_ACTIVATE_TAB_POLICY_MARKER = 'Never call `activate_tab(target)` automatically:'
 
 
 def as_browser_use_skill(text: str) -> str:
@@ -75,7 +76,7 @@ def as_browser_use_skill(text: str) -> str:
 	# Rebrand every mention except repo URLs (github.com/browser-use/browser-harness/...)
 	body = re.sub(r'(?<!/)browser-harness', 'browser-use', body)
 	body = body.replace('Browser Harness', 'Browser Use')
-	if '`activate_tab(target)`' in body and not any(
+	if _CURRENT_ACTIVATE_TAB_POLICY_MARKER in body and not any(
 		guidance in body for guidance in (_OLD_ACTIVATE_TAB_GUIDANCE, _NEW_ACTIVATE_TAB_GUIDANCE)
 	):
 		raise ValueError('Upstream activate_tab guidance changed; review the Browser Use foreground-tab policy')
