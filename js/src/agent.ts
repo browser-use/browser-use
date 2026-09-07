@@ -7,7 +7,10 @@ import {
 import type { Model, Api, Usage } from '@earendil-works/pi-ai';
 import { Type, type TSchema } from 'typebox';
 import { Check, Errors } from 'typebox/value';
-import type { BrowserRuntime } from './runtime.js';
+import { CellError, type BrowserRuntime } from './runtime.js';
+import { Observer } from './observer.js';
+import { RunContext } from './context.js';
+import { researchTools } from './research-tools.js';
 import type { BrowserUseOptions, RunOptions, RunResult, StopReason } from './types.js';
 import { SYSTEM_PROMPT } from './prompt.js';
 import { positiveInteger } from './protocol.js';
@@ -33,33 +36,6 @@ function sumUsage(messages: AgentMessage[]): Usage {
   return result;
 }
 
-/** Preserve the transcript; omit old images only in the provider-facing projection. */
-function recentImages(messages: AgentMessage[]): AgentMessage[] {
-  const imageMessages = messages.filter(
-    (m) => m.role === 'toolResult' && m.content.some((c) => c.type === 'image'),
-  );
-  const keep = new Set(imageMessages.slice(-2));
-  return messages.map((message) =>
-    message.role === 'toolResult' && !keep.has(message)
-      ? { ...message, content: message.content.filter((c) => c.type !== 'image') }
-      : message,
-  );
-}
-
-function contextSize(messages: AgentMessage[]): number {
-  // Image bytes travel as media, not text tokens. Do not charge base64 against the text guard.
-  return JSON.stringify(messages, (_key: string, value: unknown) => {
-    if (value && typeof value === 'object' && 'role' in value && value.role === 'toolResult') {
-      const { details: _details, ...message } = value as Record<string, unknown>;
-      return message; // Application metadata is not model-visible content.
-    }
-    if (value && typeof value === 'object' && 'type' in value && value.type === 'image') {
-      return { type: 'image' };
-    }
-    return value;
-  }).length;
-}
-
 export async function runAgent(
   runtime: BrowserRuntime,
   model: Model<Api>,
@@ -83,24 +59,47 @@ export async function runAgent(
   ) {
     throw new Error('maxCostUsd must be a finite positive number.');
   }
+  if (options.compaction !== undefined && typeof options.compaction !== 'boolean')
+    throw new Error('compaction must be boolean.');
   const start = Date.now();
   const previousMessages = session?.messages.length ?? 0;
   const hookTimeout = config.hookTimeoutMs ?? 30_000;
   let steps = 0;
   let finishRepairs = 0;
+  let providerRetries = 0;
+  let retriedUsage = zeroUsage();
+  let finalizing = false;
+  let compactionFailed = false;
+  const warnings: string[] = [];
+  const context = new RunContext(
+    model,
+    config.streamFn,
+    workspace,
+    maxContextChars,
+    options.compaction !== false,
+    config.redact ?? [],
+  );
   let completion: { output: unknown; text: string } | undefined;
   let stopped: StopReason | undefined;
   const codeParameters = Type.Object({ code: Type.String({ minLength: 1 }) });
   const javascript: AgentTool<typeof codeParameters> = {
     name: 'javascript',
     label: 'Browser JavaScript',
-    description:
-      'Execute JavaScript in the persistent browser REPL. Top-level await and normal variables persist. Return a focused value or console.log it. Use screenshot() for native images.',
+    description: `Execute JavaScript in a persistent Node REPL with raw CDP. Cell deadline: ${config.cellTimeoutMs ?? 30_000} ms. Checkpoint small batches before the deadline. Use screenshot() for native images.`,
     parameters: codeParameters,
     executionMode: 'sequential',
     replay: 'never',
     execute: async (_id, params: { code: string }, signal) => {
-      const result = await runtime.execute(params.code, config.cellTimeoutMs ?? 30_000, signal);
+      let result;
+      try {
+        result = await runtime.execute(params.code, config.cellTimeoutMs ?? 30_000, signal);
+      } catch (error) {
+        if (!(error instanceof CellError)) throw error;
+        // Pi marks thrown tools as errors. Preserve evidence in the error text as well.
+        throw new Error(
+          `${error.message}\nState reset: ${error.stateReset}. Actions may already have happened.\nPartial output: ${error.result.text}\nCaptured output file: ${error.result.outputFile ?? '(none)'}`,
+        );
+      }
       return {
         content: [{ type: 'text', text: result.text }, ...result.images],
         details: { outputFile: result.outputFile, targetId: result.targetId },
@@ -160,24 +159,82 @@ export async function runAgent(
     if (steps >= maxSteps) stopped = 'max_steps';
     if (
       options.maxCostUsd !== undefined &&
-      sumUsage(messages.slice(previousMessages)).cost.total >= options.maxCostUsd
+      sumUsage(messages.slice(previousMessages)).cost.total +
+        retriedUsage.cost.total +
+        context.usage.reduce((sum, usage) => sum + usage.cost.total, 0) >=
+        options.maxCostUsd
     )
       stopped = 'cost_limit';
-    if (systemPrompt.length + contextSize(recentImages(messages)) > maxContextChars)
+    if (options.compaction === false && !context.fits(messages, systemPrompt))
       stopped = 'context_limit';
     return stopped !== undefined;
   };
+  const observer = options.observe
+    ? new Observer(
+        options.observe,
+        positiveInteger('observerTimeoutMs', options.observerTimeoutMs ?? 3000),
+      )
+    : undefined;
   const agent = new Agent({
-    streamFn: config.streamFn,
+    streamFn: (selected, request, settings) =>
+      config.streamFn(selected, request, {
+        ...settings,
+        maxTokens: Math.min(selected.maxTokens, 32768, Math.floor(selected.contextWindow * 0.15)),
+      }),
     initialState: {
       model,
       messages: session?.messages ?? [],
       systemPrompt: `${SYSTEM_PROMPT}\n${config.instructions ?? ''}`,
       thinkingLevel: config.reasoning ?? 'medium',
-      tools: [javascript, finish, finishFromJs, ...(config.tools ?? [])],
+      tools: [
+        javascript,
+        finish,
+        finishFromJs,
+        ...(config.researchTools ? researchTools(workspace, config.cellTimeoutMs ?? 30_000) : []),
+        ...(config.tools ?? []),
+      ],
     },
     toolExecution: 'sequential',
-    transformContext: async (messages) => recentImages(messages),
+    transformContext: async (messages, signal) => {
+      try {
+        if (!compactionFailed) await context.prepare(messages, agent.state.systemPrompt, signal);
+      } catch (error) {
+        compactionFailed = true;
+        warnings.push(`Compaction unavailable: ${String(error)}`);
+      }
+      if (!context.fits(messages, agent.state.systemPrompt)) {
+        stopped = 'context_limit';
+        throw new Error('Context limit reached; checkpoint files and transcript retained.');
+      }
+      if (
+        options.maxCostUsd !== undefined &&
+        sumUsage(messages.slice(previousMessages)).cost.total +
+          retriedUsage.cost.total +
+          context.usage.reduce((sum, u) => sum + u.cost.total, 0) >=
+          options.maxCostUsd
+      ) {
+        stopped = 'cost_limit';
+        throw new Error('Cost limit reached during context preparation.');
+      }
+      return context.project(messages);
+    },
+    prepareNextTurnWithContext: ({ context: current }) => {
+      if (
+        !finalizing &&
+        ((maxSteps >= 10 && steps >= maxSteps - 2) || Date.now() - start >= timeoutMs * 0.9)
+      ) {
+        finalizing = true;
+        current.messages.push({
+          role: 'user',
+          content:
+            'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_js. Reference saved files; explicitly list missing evidence. Do not perform more browser actions.',
+          timestamp: Date.now(),
+        });
+        agent.state.tools = [finish, finishFromJs];
+        return { context: { ...current, tools: [finish, finishFromJs] } };
+      }
+      return undefined;
+    },
     beforeToolCall: async (call, signal) => {
       await session?.control.checkpoint(signal);
       if (completion || stopped || signal?.aborted)
@@ -211,6 +268,9 @@ export async function runAgent(
     agent.subscribe((event, signal) =>
       bounded(() => options.onEvent!(event, signal), hookTimeout, signal),
     );
+  agent.subscribe((event) => {
+    if (event.type === 'tool_execution_end') observer?.push(event);
+  });
   const cancel = () => {
     stopped = 'cancelled';
     agent.abort();
@@ -224,12 +284,36 @@ export async function runAgent(
   try {
     if (options.signal?.aborted) stopped = 'cancelled';
     else if (
+      !context.fits(
+        [...agent.state.messages, { role: 'user', content: task, timestamp: Date.now() }],
+        agent.state.systemPrompt,
+      ) &&
+      agent.state.messages.length === 0
+    )
+      stopped = 'context_limit';
+    else if (
       !checkBudgets(
         [...agent.state.messages, { role: 'user', content: task, timestamp: Date.now() }],
         agent.state.systemPrompt,
       )
     ) {
       await agent.prompt(task);
+      const failed = agent.state.messages.at(-1);
+      if (
+        failed?.role === 'assistant' &&
+        failed.stopReason === 'error' &&
+        /stream ended before a terminal|terminated|ECONNRESET|socket hang up/i.test(
+          failed.errorMessage ?? '',
+        ) &&
+        !checkBudgets(agent.state.messages, agent.state.systemPrompt) &&
+        !options.signal?.aborted
+      ) {
+        // Pi never executes tool calls from an error response. Retry inference once, not actions.
+        providerRetries = 1;
+        retriedUsage = failed.usage;
+        agent.state.messages = agent.state.messages.slice(0, -1);
+        await agent.continue();
+      }
       const ending = agent.state.messages.findLast((m) => m.role === 'assistant');
       // One delivery-only repair. The original timer, transcript and budgets remain in force.
       if (!completion && !stopped && ending?.role === 'assistant' && ending.stopReason === 'stop') {
@@ -255,8 +339,10 @@ export async function runAgent(
     stopped ??= 'error';
   } finally {
     clearTimeout(timer);
+    await observer?.close(stopped === 'cancelled' || stopped === 'timeout');
+    warnings.push(...(observer?.warnings ?? []));
     options.signal?.removeEventListener('abort', cancel);
-    session?.save(agent.state.messages);
+    session?.save(context.project(agent.state.messages));
     session?.control.finish();
   }
   const last = agent.state.messages.slice(previousMessages).findLast((m) => m.role === 'assistant');
@@ -272,11 +358,21 @@ export async function runAgent(
           .join('\n'),
       )
       .findLast((value) => value.trim().length > 0) ?? '';
+  const usage = sumUsage(agent.state.messages.slice(previousMessages));
+  for (const extra of [retriedUsage, ...context.usage]) {
+    for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const)
+      usage[key] += extra[key];
+    for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
+      usage.cost[key] += extra.cost[key];
+  }
   const metrics = {
     steps,
     finishRepairs,
     durationMs: Date.now() - start,
-    usage: sumUsage(agent.state.messages.slice(previousMessages)),
+    usage,
+    compactions: context.compactions,
+    providerRetries,
+    ...(warnings.length ? { warnings } : {}),
     workspace,
     model: config.model,
   };

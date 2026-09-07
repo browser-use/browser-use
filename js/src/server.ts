@@ -78,6 +78,7 @@ const CREATE_KEYS = new Set([
   'log',
   'historyFile',
   'recording',
+  'researchTools',
   'tools',
   'apiKey',
   'baseUrl',
@@ -169,7 +170,16 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
       if (typeof params.task !== 'string') throw new Error('task must be a string.');
       const options = (params.options ?? {}) as Record<string, unknown>;
       for (const key of Object.keys(options))
-        if (!['maxSteps', 'timeoutMs', 'maxCostUsd', 'maxContextChars', 'schema'].includes(key))
+        if (
+          ![
+            'maxSteps',
+            'timeoutMs',
+            'maxCostUsd',
+            'maxContextChars',
+            'compaction',
+            'schema',
+          ].includes(key)
+        )
           throw new Error(`Unsupported run option: ${key}`);
       return method === 'run'
         ? agent.run(params.task, options)

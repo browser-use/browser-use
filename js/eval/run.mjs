@@ -88,6 +88,10 @@ export function resultEnvelope(run, artifacts, metadata) {
       ...metadata,
       stop_reason: run.status,
       finish_repairs: run.finishRepairs,
+      compactions: run.compactions ?? 0,
+      provider_retries: run.providerRetries ?? 0,
+      max_output_tokens: 32768,
+      warnings: run.warnings ?? [],
       usage: run.usage,
       model: run.model,
     },
@@ -173,7 +177,7 @@ export async function main() {
     });
     if (!browser.id || !browser.cdpUrl)
       throw new Error('Browser provider returned no browser id/CDP endpoint');
-    observer = await CDP.connect(browser.cdpUrl);
+    observer = CDP.lazy(browser.cdpUrl, 1500);
     agent = await BrowserUse.create({
       model,
       reasoning: options.reasoning_effort,
@@ -181,8 +185,8 @@ export async function main() {
       workspace: outputDir,
       cellTimeoutMs: 120000,
       operationTimeoutMs: 20000,
-      instructions:
-        'Use browser UI and page evaluation for research. Do not use web search or read files outside the output workspace. Do not inspect benchmark source, rubrics, judge code, or credentials. Save requested files in workspace.',
+      researchTools: options.evidence_format === 'findings',
+      instructions: `${options.evidence_format === 'findings' ? 'Use browser UI, public search and source APIs for research; use files/scripts for processing.' : 'Use browser UI and page evaluation for research. Do not use web search.'} Do not read files outside the output workspace or inspect benchmark source, rubrics, judge code, or credentials. Save requested files incrementally in workspace.`,
     });
     const findings = options.evidence_format === 'findings';
     const steps = [];
@@ -211,6 +215,69 @@ export async function main() {
             maxSteps: Number(env.EVAL_MAX_STEPS || 35),
             timeoutMs: options.task_timeout_seconds * 1000,
             maxContextChars: options.max_context_chars,
+            observerTimeoutMs: 3500,
+            async observe(event, signal) {
+              if (event.type !== 'tool_execution_end' || event.toolName !== 'javascript') return;
+              if (signal.aborted) return;
+              const stepAtRequest = steps.length;
+              const connection = observer;
+              const abort = () => connection.close();
+              signal.addEventListener('abort', abort, { once: true });
+              try {
+                if (event.toolName === 'javascript') {
+                  let sessionId;
+                  const captureStarted = Date.now();
+                  try {
+                    const targetId = event.result.details?.targetId;
+                    if (!targetId) throw new Error('Active page target unavailable after cell.');
+                    // Screenshot capture needs a target session, not Page/Runtime event subscriptions.
+                    ({ sessionId } = await connection.send('Target.attachToTarget', {
+                      targetId,
+                      flatten: true,
+                    }));
+                    const { data } = await connection.send(
+                      'Page.captureScreenshot',
+                      {
+                        format: findings ? 'png' : 'jpeg',
+                        ...(findings ? {} : { quality: 70 }),
+                      },
+                      sessionId,
+                    );
+                    const shot = join(
+                      screenshots,
+                      `${String(++screenshotIndex).padStart(3, '0')}.${findings ? 'png' : 'jpg'}`,
+                    );
+                    signal.throwIfAborted();
+                    await writeFile(shot, Buffer.from(data, 'base64'));
+                    if (findings) {
+                      judgeScreenshots.push(relative(workspace, shot));
+                      judgeScreenshotSteps.push(stepAtRequest);
+                    }
+                  } catch (error) {
+                    screenshotErrors++;
+                    if (screenshotErrorDetails.length < 20)
+                      screenshotErrorDetails.push({
+                        tool_call_id: event.toolCallId,
+                        message: String(error.message).slice(0, 500),
+                      });
+                  } finally {
+                    if (sessionId)
+                      await connection
+                        .send('Target.detachFromTarget', {
+                          sessionId,
+                        })
+                        .catch(() => {
+                          screenshotDetachErrors++;
+                        });
+                    screenshotTimeMs += Date.now() - captureStarted;
+                  }
+                }
+              } finally {
+                signal.removeEventListener('abort', abort);
+                if (signal.aborted && observer === connection)
+                  observer = CDP.lazy(browser.cdpUrl, 1500);
+              }
+            },
             async onEvent(event) {
               if (findings) {
                 if (event.type === 'tool_execution_start')
@@ -289,53 +356,6 @@ export async function main() {
                   join(workspace, 'agent_steps.txt'),
                   `${event.toolName}${event.isError ? ' ERROR' : ''}\n${JSON.stringify(clean(event.result))}\n`,
                 );
-                if (event.toolName === 'javascript') {
-                  let sessionId;
-                  const captureStarted = Date.now();
-                  try {
-                    const targetId = event.result.details?.targetId;
-                    if (!targetId) throw new Error('Active page target unavailable after cell.');
-                    // Screenshot capture needs a target session, not Page/Runtime event subscriptions.
-                    ({ sessionId } = await observer.send('Target.attachToTarget', {
-                      targetId,
-                      flatten: true,
-                    }));
-                    const { data } = await observer.send(
-                      'Page.captureScreenshot',
-                      {
-                        format: findings ? 'png' : 'jpeg',
-                        ...(findings ? {} : { quality: 70 }),
-                      },
-                      sessionId,
-                    );
-                    const shot = join(
-                      screenshots,
-                      `${String(++screenshotIndex).padStart(3, '0')}.${findings ? 'png' : 'jpg'}`,
-                    );
-                    await writeFile(shot, Buffer.from(data, 'base64'));
-                    if (findings) {
-                      judgeScreenshots.push(relative(workspace, shot));
-                      judgeScreenshotSteps.push(steps.length);
-                    }
-                  } catch (error) {
-                    screenshotErrors++;
-                    if (screenshotErrorDetails.length < 20)
-                      screenshotErrorDetails.push({
-                        tool_call_id: event.toolCallId,
-                        message: String(error.message).slice(0, 500),
-                      });
-                  } finally {
-                    if (sessionId)
-                      await observer
-                        .send('Target.detachFromTarget', {
-                          sessionId,
-                        })
-                        .catch(() => {
-                          screenshotDetachErrors++;
-                        });
-                    screenshotTimeMs += Date.now() - captureStarted;
-                  }
-                }
               }
             },
           },

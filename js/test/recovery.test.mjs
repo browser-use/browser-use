@@ -1,0 +1,158 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { BrowserRuntime, CellError } from '../dist/runtime.js';
+import { Observer } from '../dist/observer.js';
+import { RunContext, contextChars } from '../dist/context.js';
+import { researchTools } from '../dist/research-tools.js';
+import { createModels, fauxProvider, fauxAssistantMessage } from '@earendil-works/pi-ai';
+
+async function workspace(fn) {
+  const path = await mkdtemp(join(tmpdir(), 'bu-recovery-'));
+  try {
+    await fn(path);
+  } finally {
+    await rm(path, { recursive: true, force: true });
+  }
+}
+
+test('unavailable CDP cannot block JS/files; killed cells retain output and durable checkpoints', () =>
+  workspace(async (path) => {
+    const runtime = new BrowserRuntime({
+      endpoint: 'ws://127.0.0.1:1',
+      workspace: path,
+      operationTimeoutMs: 50,
+      maxOutputChars: 100,
+    });
+    try {
+      await runtime.execute(
+        "let rows=[1,2,3]; await checkpoint('rows.json', rows); console.log('saved')",
+      );
+      await assert.rejects(
+        runtime.execute("console.log('before failure'); throw new Error('broken')"),
+        (error) => {
+          assert(error instanceof CellError);
+          assert.equal(error.stateReset, false);
+          assert.match(error.result.text, /before failure/);
+          return true;
+        },
+      );
+      await assert.rejects(runtime.execute('await page.info()'), /connect/);
+      assert.match((await runtime.execute('rows.length')).text, /3/);
+      await assert.rejects(
+        runtime.execute("console.log('last progress'); while(true){}", 100),
+        (error) => {
+          assert.equal(error.stateReset, true);
+          assert.match(error.result.text, /last progress/);
+          return true;
+        },
+      );
+      assert.match(
+        (
+          await runtime.execute(
+            "console.log(typeof rows); console.log(require('node:fs').readFileSync('rows.json','utf8'))",
+          )
+        ).text,
+        /undefined\n\[1,2,3\]/,
+      );
+      assert.equal(await readFile(join(path, 'rows.json'), 'utf8'), '[1,2,3]');
+    } finally {
+      await runtime.close();
+    }
+  }));
+
+test('observer timeout aborts observation without blocking work; shutdown cancels active callback', async () => {
+  let aborted = false;
+  const observer = new Observer(
+    (_event, signal) =>
+      new Promise((resolve) =>
+        signal.addEventListener(
+          'abort',
+          () => {
+            aborted = true;
+            resolve();
+          },
+          { once: true },
+        ),
+      ),
+    20,
+  );
+  observer.push({ type: 'agent_start' });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert(aborted);
+  assert.match(observer.warnings[0], /exceeded/);
+  await observer.close();
+});
+
+test('Pi compaction preserves exact user constraints, recent tool pairs and provider signatures', () =>
+  workspace(async (path) => {
+    const faux = fauxProvider({ tokensPerSecond: 1e6 }),
+      models = createModels();
+    models.setProvider(faux.provider);
+    faux.setResponses([
+      fauxAssistantMessage(
+        'Saved records in rows.json. Do not submit anything; finish the remaining inspection.',
+      ),
+    ]);
+    const messages = [
+      { role: 'user', content: 'Never submit. Inspect records and preserve IDs.', timestamp: 1 },
+    ];
+    for (let i = 0; i < 8; i++) {
+      messages.push(
+        fauxAssistantMessage(
+          [
+            { type: 'thinking', thinking: 'inspect', thinkingSignature: 'x'.repeat(30000) },
+            { type: 'toolCall', id: `t${i}`, name: 'javascript', arguments: { code: 'inspect' } },
+          ],
+          { stopReason: 'toolUse' },
+        ),
+      );
+      messages.push({
+        role: 'toolResult',
+        toolCallId: `t${i}`,
+        toolName: 'javascript',
+        content: [{ type: 'text', text: 'evidence '.repeat(600) }],
+        isError: false,
+        timestamp: i + 2,
+      });
+    }
+    const before = contextChars(messages);
+    assert(before < 100000);
+    const ctx = new RunContext(
+      faux.getModel(),
+      models.streamSimple.bind(models),
+      path,
+      30000,
+      true,
+    );
+    await ctx.prepare(messages, 'system');
+    assert.equal(ctx.compactions, 1);
+    assert.equal(faux.state.callCount, 1);
+    const projected = ctx.project(messages);
+    assert.match(projected[0].content, /Never submit/);
+    assert(projected.length < messages.length);
+    assert.equal(projected[1].content[0].thinkingSignature.length, 30000);
+    assert.equal(projected[2].toolCallId, projected[1].content[1].id);
+    assert.equal(messages.length, 17);
+    assert(ctx.fits(messages, 'system'));
+  }));
+
+test('Pi shell tools do not inherit provider or judge secrets and work without a browser', () =>
+  workspace(async (path) => {
+    process.env.BU_FAKE_PROVIDER_SECRET = 'must-not-leak';
+    try {
+      const tools = researchTools(path, 2000);
+      const bash = tools.find((t) => t.name === 'bash');
+      const result = await bash.execute('test', {
+        command: 'printf "%s" "${BU_FAKE_PROVIDER_SECRET-unset}"',
+      });
+      assert.match(result.content[0].text, /unset/);
+      const write = tools.find((t) => t.name === 'write');
+      await write.execute('write', { path: 'answer.json', content: '{"done":3}' });
+      assert.equal(await readFile(join(path, 'answer.json'), 'utf8'), '{"done":3}');
+    } finally {
+      delete process.env.BU_FAKE_PROVIDER_SECRET;
+    }
+  }));

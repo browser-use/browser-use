@@ -21,6 +21,8 @@ export interface BrowserUseOptions {
   /** Supply a Pi collection for custom providers or freshly released model definitions. */
   models?: Models;
   reasoning?: ThinkingLevel;
+  /** Opt-in Pi read/write/edit/bash tools. Not a filesystem sandbox. */
+  researchTools?: boolean;
   tools?: AgentState['tools'];
   instructions?: string;
   operationTimeoutMs?: number;
@@ -52,8 +54,13 @@ export interface RunOptions {
   timeoutMs?: number;
   /** Soft threshold: checked between model turns. May exceed by one response. */
   maxCostUsd?: number;
+  /** Automatically summarize older context with Pi; false retains hard-stop behavior. */
+  compaction?: boolean;
   maxContextChars?: number;
   signal?: AbortSignal;
+  /** Best-effort nonblocking observations. Coalesces under load; honor the abort signal. */
+  observe?: (event: AgentEvent, signal: AbortSignal) => void | Promise<void>;
+  observerTimeoutMs?: number;
   /** Pi lifecycle events. Async listeners apply backpressure; keep them bounded. */
   onEvent?: (event: AgentEvent, signal: AbortSignal) => void | Promise<void>;
 }
@@ -62,6 +69,8 @@ export type StopReason =
 export interface RunMetrics {
   /** Additional delivery-only model turns, within the original budgets (0 or 1). */
   finishRepairs: number;
+  compactions?: number;
+  providerRetries?: number;
   steps: number;
   durationMs: number;
   usage: Usage;

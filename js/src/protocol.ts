@@ -28,13 +28,13 @@ export interface WorkerConfig {
   maxOutputChars: number;
 }
 export type WorkerRequest =
-  { type: 'execute'; code: string; captureJson?: boolean } | { type: 'close' };
+  { type: 'execute'; code: string; captureJson?: boolean; outputFile?: string } | { type: 'close' };
 export type WorkerResponse =
   | { type: 'action'; action: BrowserAction }
   | { type: 'owned'; targetId: string }
   | { type: 'ready'; targetId: string }
   | { type: 'result'; result: CellResult }
-  | { type: 'error'; message: string }
+  | { type: 'error'; message: string; result?: CellResult }
   | { type: 'closed' };
 
 export function positiveInteger(name: string, value: number): number {

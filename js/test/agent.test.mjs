@@ -429,3 +429,58 @@ test('repair remains under the original deadline', async () => {
     await s.close();
   }
 });
+
+test('automatic Pi compaction resumes the same run, preserves constraints and accounts for summary calls', async () => {
+  let work = 0,
+    summaries = 0;
+  const response = (context) => {
+    if (!context.tools?.length) {
+      summaries++;
+      return fauxAssistantMessage(
+        'Task: inspect only; never purchase. Progress in memory and notes.json. Continue remaining observations.',
+      );
+    }
+    assert.match(JSON.stringify(context.messages), /never purchase/);
+    if (++work > 8) return call('finish', { result: 'done' });
+    return call('javascript', { code: "console.log('evidence '.repeat(800))" });
+  };
+  const s = await session(
+    Array.from({ length: 20 }, () => response),
+    { maxOutputChars: 8000 },
+  );
+  try {
+    const result = await s.agent.run('Inspect only; never purchase.', {
+      maxSteps: 20,
+      maxContextChars: 35000,
+    });
+    assert.equal(result.status, 'completed');
+    assert(summaries > 0);
+    assert.equal(result.compactions, summaries);
+    assert.equal(result.steps, 9);
+    assert.equal(s.faux.state.callCount, 9 + summaries);
+    assert.match(JSON.stringify(s.agent.history.messages), /never purchase/);
+  } finally {
+    await s.close();
+  }
+});
+
+test('transient failed inference retries once without executing the failed response tools', async () => {
+  const failed = fauxAssistantMessage(
+    fauxToolCall('javascript', { code: "throw new Error('must not execute')" }),
+    {
+      stopReason: 'error',
+      errorMessage: 'OpenAI Responses stream ended before a terminal response event',
+    },
+  );
+  const s = await session([failed, call('finish', { result: 'recovered' })]);
+  try {
+    const events = [];
+    const result = await s.agent.run('Inspect', { onEvent: (e) => events.push(e.type) });
+    assert.equal(result.status, 'completed');
+    assert.equal(result.providerRetries, 1);
+    assert.equal(s.faux.state.callCount, 2);
+    assert.equal(events.filter((x) => x === 'tool_execution_start').length, 1);
+  } finally {
+    await s.close();
+  }
+});

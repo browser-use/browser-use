@@ -82,7 +82,7 @@ Run `npm run demo:session` for a scripted-model/real-browser demo with CSV, hist
 - **Typed delivery.** Return existing JavaScript values without rewriting them; schema-validated results; incomplete, cancelled, timed-out, and failed runs stay distinct.
 - **Explicit control.** One active operation per session; step/time/context limits and a soft estimated-cost threshold.
 - **Recovery.** One budgeted delivery repair for unfinished answers. Worker termination contains hangs. Reconnect to the primary tab without replaying failed actions.
-- **Bounded context.** Output files for large results; native images; old screenshots omitted from later requests.
+- **Context and recovery.** Upstream Pi compaction, output checkpoints, browser-independent JavaScript/files, and optional Pi coding tools. Nonblocking observers cannot override policy hooks.
 
 ## Small architecture
 
@@ -120,4 +120,4 @@ Install the resulting `browser-use-next-0.1.0.tgz` in a separate application. Th
 
 The worker is **not a security sandbox**. Model-generated Node code can access the filesystem and network. Provider environment variables are not inherited by the worker, but this does not isolate host files. Run untrusted tasks in containers/VMs with restricted mounts and accounts. Custom application tools must honor cancellation. Artifacts remain after cleanup; your application owns their retention.
 
-Versioned transcript restore is supported; arbitrary live JavaScript state is not serialized. Automatic compaction, cloud provisioning, stealth guarantees and a hosted service are outside this package. Existing Python Browser Use users and persisted sessions are unaffected.
+Versioned transcript restore is supported; arbitrary live JavaScript state is not serialized. Cloud provisioning, stealth guarantees and a hosted service are outside this package. Automatic context compaction uses upstream Pi; optional coding tools and recovery behavior are described in [reliability](docs/reliability.md). Existing Python Browser Use users and persisted sessions are unaffected.

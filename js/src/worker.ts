@@ -3,7 +3,8 @@ import { Session, type Runtime } from 'node:inspector';
 import { createRequire } from 'node:module';
 import { createContext, constants } from 'node:vm';
 import { inspect } from 'node:util';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, rename } from 'node:fs/promises';
+import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { CDP } from './cdp.js';
@@ -16,11 +17,24 @@ process.on('disconnect', () => process.exit(0));
 const config = await new Promise<WorkerConfig>((resolve) => process.once('message', resolve));
 const send = (message: WorkerResponse) => process.send!(message);
 process.chdir(config.workspace);
-const browser = await CDP.connect(config.endpoint, config.operationTimeoutMs);
-const tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
-const page = config.targetId
-  ? await tabs.get(config.targetId).catch(() => tabs.open())
-  : await tabs.open();
+let browser = CDP.lazy(config.endpoint, config.operationTimeoutMs);
+let tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
+function deferredPage(targetId?: string) {
+  return Page.deferred(
+    browser,
+    async () => {
+      if (targetId) {
+        // Only create a replacement when the target is actually absent, not on an attach timeout.
+        const existing = await tabs.list();
+        if (existing.some((t) => t.targetId === targetId)) return tabs.get(targetId);
+      }
+      return tabs.open();
+    },
+    targetId,
+  );
+}
+const page = deferredPage(config.targetId);
+let outputFile: string | undefined;
 let output = '';
 let images: Image[] = [];
 let overflow = false;
@@ -30,7 +44,9 @@ const sink = new Writable({
   write(chunk: Buffer, _encoding, callback) {
     const text = chunk.toString();
     if (output.length + text.length > hardLimit) overflow = true;
-    output += text.slice(0, Math.max(0, hardLimit - output.length));
+    const captured = text.slice(0, Math.max(0, hardLimit - output.length));
+    output += captured;
+    if (outputFile && captured) appendFileSync(outputFile, captured, { mode: 0o600 });
     callback();
   },
 });
@@ -87,6 +103,24 @@ Object.assign(realm, {
   tabs,
   page,
   workspace: config.workspace,
+  async reconnect() {
+    const targetId = (Reflect.get(realm, 'page') as Page)?.targetId;
+    browser.close();
+    browser = CDP.lazy(config.endpoint, config.operationTimeoutMs);
+    tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
+    Object.assign(realm, { browser, tabs, page: deferredPage(targetId) });
+    observe();
+    return 'Connection reset. Inspect the page; no browser action was replayed. Reacquire other page/frame handles.';
+  },
+  async checkpoint(name: string, value: unknown) {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,119}$/.test(name))
+      throw new Error('Use a plain checkpoint filename.');
+    const path = join(config.workspace, name);
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    await writeFile(temporary, JSON.stringify(value), { flag: 'wx', mode: 0o600 });
+    await rename(temporary, path);
+    return path;
+  },
   require: createRequire(join(config.workspace, 'package.json')),
   async screenshot() {
     const current = Reflect.get(realm, 'page') as Page;
@@ -109,30 +143,33 @@ Object.assign(realm, {
     return path;
   },
 });
-if (config.recording)
-  browser.observeCommand = (method, raw) => {
-    const params = raw as { type?: string; x?: number; y?: number };
-    const targetId = (Reflect.get(realm, 'page') as Page)?.targetId;
-    if (!targetId) return;
-    if (
-      method === 'Input.dispatchMouseEvent' &&
-      ['mouseReleased', 'mouseWheel'].includes(params.type ?? '')
-    )
-      send({
-        type: 'action',
-        action: {
-          kind: params.type === 'mouseReleased' ? 'Click' : 'Scroll',
-          targetId,
-          ...(params.x !== undefined ? { x: params.x } : {}),
-          ...(params.y !== undefined ? { y: params.y } : {}),
-        },
-      });
-    else if (method === 'Input.insertText' || method === 'Page.navigate')
-      send({
-        type: 'action',
-        action: { kind: method === 'Page.navigate' ? 'Navigate' : 'Type', targetId },
-      });
-  };
+function observe() {
+  if (config.recording)
+    browser.observeCommand = (method, raw) => {
+      const params = raw as { type?: string; x?: number; y?: number };
+      const targetId = (Reflect.get(realm, 'page') as Page)?.targetId;
+      if (!targetId) return;
+      if (
+        method === 'Input.dispatchMouseEvent' &&
+        ['mouseReleased', 'mouseWheel'].includes(params.type ?? '')
+      )
+        send({
+          type: 'action',
+          action: {
+            kind: params.type === 'mouseReleased' ? 'Click' : 'Scroll',
+            targetId,
+            ...(params.x !== undefined ? { x: params.x } : {}),
+            ...(params.y !== undefined ? { y: params.y } : {}),
+          },
+        });
+      else if (method === 'Input.insertText' || method === 'Page.navigate')
+        send({
+          type: 'action',
+          action: { kind: method === 'Page.navigate' ? 'Navigate' : 'Type', targetId },
+        });
+    };
+}
+observe();
 realm.console = new (await import('node:console')).Console(sink, sink);
 
 async function evaluate(code: string, captureJson = false): Promise<string | undefined> {
@@ -197,27 +234,25 @@ process.on('message', async (message: WorkerRequest) => {
   output = '';
   images = [];
   overflow = false;
+  outputFile = message.outputFile;
+  let valueJson: string | undefined;
+  let failure: string | undefined;
   try {
-    const valueJson = await evaluate(message.code, message.captureJson);
-    if (overflow) output += '\n[Output exceeded the 1 MB capture limit.]';
-    let outputFile: string | undefined;
-    if (output.length > config.maxOutputChars) {
-      outputFile = join(config.workspace, `output-${randomUUID()}.txt`);
-      await writeFile(outputFile, output, { flag: 'wx' });
-      output = `${output.slice(0, config.maxOutputChars)}\n[Truncated. Full captured output: ${outputFile}]`;
-    }
-    send({
-      type: 'result',
-      result: {
-        text: output || '(no output)',
-        images,
-        targetId: (Reflect.get(realm, 'page') as Page)?.targetId,
-        ...(valueJson !== undefined ? { valueJson } : {}),
-        ...(outputFile ? { outputFile } : {}),
-      },
-    });
+    valueJson = await evaluate(message.code, message.captureJson);
   } catch (error) {
-    send({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+    failure = error instanceof Error ? error.message : String(error);
   }
+  if (overflow) output += '\n[Output exceeded the 1 MB capture limit.]';
+  if (output.length > config.maxOutputChars)
+    output = `${output.slice(0, config.maxOutputChars)}\n[Truncated. Full captured output: ${outputFile}]`;
+  const result = {
+    text: output || '(no output)',
+    images,
+    targetId: (Reflect.get(realm, 'page') as Page)?.targetId,
+    ...(valueJson !== undefined ? { valueJson } : {}),
+    ...(outputFile ? { outputFile } : {}),
+  };
+  if (failure) send({ type: 'error', message: failure, result });
+  else send({ type: 'result', result });
 });
 send({ type: 'ready', targetId: page.targetId });

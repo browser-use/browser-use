@@ -10,12 +10,32 @@ export type AXNode = { id: number; role: string; name: string; value?: string };
 export class Page {
   private constructor(
     readonly connection: CDP,
-    readonly targetId: string,
-    readonly sessionId: string,
+    public targetId: string,
+    public sessionId: string,
     private contextId?: number,
     private frameId?: string,
   ) {}
 
+  private initialize: (() => Promise<Page>) | undefined;
+  private initializing: Promise<void> | undefined;
+  static deferred(connection: CDP, initialize: () => Promise<Page>, targetId = '') {
+    const page = new Page(connection, targetId, '');
+    page.initialize = initialize;
+    return page;
+  }
+  private async ready() {
+    if (!this.initialize) return;
+    this.initializing ??= this.initialize()
+      .then((page) => {
+        this.targetId = page.targetId;
+        this.sessionId = page.sessionId;
+        this.initialize = undefined;
+      })
+      .finally(() => {
+        this.initializing = undefined;
+      });
+    await this.initializing;
+  }
   static async attach(connection: CDP, targetId: string) {
     const { sessionId } = await connection.send('Target.attachToTarget', {
       targetId,
@@ -32,12 +52,13 @@ export class Page {
       throw error;
     }
   }
-  cdp<
+  async cdp<
     M extends keyof import('devtools-protocol/types/protocol-mapping.js').ProtocolMapping.Commands,
   >(
     method: M,
     params?: import('devtools-protocol/types/protocol-mapping.js').ProtocolMapping.Commands[M]['paramsType'][0],
   ) {
+    await this.ready();
     return this.connection.send(method, params, this.sessionId);
   }
   async goto(url: string) {
@@ -218,7 +239,20 @@ export class Page {
       }
       return hit === this || (hit !== null && this.contains(hit));
     });
-    if (!clear) throw new Error('Element is covered. Inspect the page before clicking.');
+    if (!clear) {
+      const obstruction = await this.withNode(id, function () {
+        const r = this.getBoundingClientRect();
+        const hit = this.ownerDocument.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return {
+          target: this.outerHTML.slice(0, 400),
+          hit: hit?.outerHTML.slice(0, 500),
+          url: this.ownerDocument.URL,
+        };
+      });
+      throw new Error(
+        `Element is covered. Inspect the obstruction; do not force a click: ${JSON.stringify(obstruction)}`,
+      );
+    }
     await this.clickAt(x, y);
   }
   async clickAt(x: number, y: number) {
@@ -373,6 +407,7 @@ export class Page {
     return new Page(this.connection, this.targetId, this.sessionId, executionContextId, id);
   }
   async close() {
+    await this.ready();
     await this.connection.send('Target.closeTarget', { targetId: this.targetId });
   }
 }

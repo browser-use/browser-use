@@ -1,7 +1,21 @@
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { CDP } from './cdp.js';
 import { fork, type ChildProcess } from 'node:child_process';
 import type { BrowserAction, CellResult, WorkerConfig, WorkerResponse } from './protocol.js';
 import { positiveInteger } from './protocol.js';
+
+export class CellError extends Error {
+  constructor(
+    message: string,
+    readonly result: CellResult,
+    readonly stateReset: boolean,
+  ) {
+    super(message);
+    this.name = 'CellError';
+  }
+}
 
 /** One worker, one active cell. Termination is the cancellation boundary. */
 export class BrowserRuntime {
@@ -10,7 +24,7 @@ export class BrowserRuntime {
     return this.targetId;
   }
   async initialize(signal?: AbortSignal) {
-    await this.start(signal);
+    await this.execute('await page.info()', 4 * this.config.operationTimeoutMs, signal);
     return this.targetId!;
   }
   private worker: ChildProcess | undefined;
@@ -139,8 +153,12 @@ export class BrowserRuntime {
     try {
       const worker = await this.start(signal);
       if (signal?.aborted) throw new Error('Execution cancelled.');
+      const directory = join(this.config.workspace, '.browser-use', 'cells');
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      const outputFile = join(directory, `${randomUUID()}.txt`);
+      await writeFile(outputFile, '', { flag: 'wx', mode: 0o600 });
       const response = this.receive(worker, timeoutMs, signal);
-      worker.send({ type: 'execute', code, captureJson }, (error) => {
+      worker.send({ type: 'execute', code, captureJson, outputFile }, (error) => {
         if (error) this.pending?.(error);
       });
       let message: WorkerResponse;
@@ -148,9 +166,15 @@ export class BrowserRuntime {
         message = await response;
       } catch (error) {
         await this.terminate();
-        throw error;
+        const text = (await readFile(outputFile, 'utf8')).slice(0, this.config.maxOutputChars);
+        throw new CellError(
+          String(error instanceof Error ? error.message : error),
+          { text, images: [], outputFile },
+          true,
+        );
       }
-      if (message.type === 'error') throw new Error(message.message);
+      if (message.type === 'error')
+        throw new CellError(message.message, message.result ?? { text: '', images: [] }, false);
       if (message.type !== 'result') throw new Error('Unexpected browser worker response.');
       if (message.result.targetId) this.targetId = message.result.targetId;
       return message.result;

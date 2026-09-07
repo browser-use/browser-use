@@ -19,9 +19,10 @@ export class CDP {
   private pending = new Map<number, Pending>();
   private listeners = new Set<Listener>();
   private constructor(
-    private socket: WebSocket,
+    private socket: WebSocket | undefined,
     readonly timeoutMs: number,
   ) {
+    if (!socket) return;
     socket.addEventListener('message', ({ data }) => {
       try {
         const message = JSON.parse(String(data));
@@ -45,6 +46,35 @@ export class CDP {
       this.fail(new Error('CDP connection closed. Inspect state before retrying.')),
     );
     socket.addEventListener('error', () => this.fail(new Error('CDP connection failed.')));
+  }
+
+  private endpoint: string | undefined;
+  private delegate: Promise<CDP> | undefined;
+  private closed = false;
+
+  /** Defer network access until the first browser operation. Never replay a command. */
+  static lazy(endpoint: string, timeoutMs = 15_000) {
+    const connection = new CDP(undefined, timeoutMs);
+    connection.endpoint = endpoint;
+    return connection;
+  }
+  private connected(): Promise<CDP> {
+    if (this.closed) return Promise.reject(new Error('CDP connection is closed.'));
+    this.delegate ??= CDP.connect(this.endpoint!, this.timeoutMs)
+      .then((connection) => {
+        if (this.closed) {
+          connection.close();
+          throw new Error('CDP connection is closed.');
+        }
+        connection.observeCommand = (method, params, sessionId) =>
+          this.observeCommand?.(method, params, sessionId);
+        return connection;
+      })
+      .catch((error) => {
+        this.delegate = undefined;
+        throw error;
+      });
+    return this.delegate;
   }
 
   static async connect(endpoint: string, timeoutMs = 15_000): Promise<CDP> {
@@ -80,12 +110,13 @@ export class CDP {
     return connection;
   }
 
-  send<M extends keyof Commands>(
+  async send<M extends keyof Commands>(
     method: M,
     params: Commands[M]['paramsType'][0] = {} as Commands[M]['paramsType'][0],
     sessionId?: string,
   ): Promise<Commands[M]['returnType']> {
-    if (this.socket.readyState !== WebSocket.OPEN)
+    if (this.endpoint) return (await this.connected()).send(method, params, sessionId);
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN)
       return Promise.reject(new Error('CDP connection is closed.'));
     if (this.pending.size >= 256)
       return Promise.reject(new Error('Too many pending CDP commands (256).'));
@@ -112,7 +143,7 @@ export class CDP {
         reject: (error) => finish(error),
       });
       try {
-        this.socket.send(
+        this.socket!.send(
           JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }),
         );
       } catch (error) {
@@ -131,6 +162,8 @@ export class CDP {
     } = {},
   ): Promise<Events[M][0]> {
     const timeoutMs = positiveInteger('timeoutMs', options.timeoutMs ?? this.timeoutMs);
+    if (this.endpoint)
+      return this.connected().then((connection) => connection.waitFor(method, options));
     const promise = new Promise<Events[M][0]>((resolve, reject) => {
       const finish = (error?: Error, value?: unknown) => {
         clearTimeout(timer);
@@ -160,7 +193,7 @@ export class CDP {
       this.listeners.add(listener);
       options.signal?.addEventListener('abort', abort, { once: true });
       if (options.signal?.aborted) abort();
-      else if (this.socket.readyState !== WebSocket.OPEN)
+      else if (this.socket?.readyState !== WebSocket.OPEN)
         finish(new Error('CDP connection is closed.'));
     });
     // A caller commonly registers a waiter before an action, then awaits it afterward.
@@ -173,7 +206,9 @@ export class CDP {
     for (const listener of [...this.listeners]) listener.reject(error);
   }
   close() {
+    this.closed = true;
+    void this.delegate?.then((connection) => connection.close()).catch(() => {});
     this.fail(new Error('CDP connection closed.'));
-    this.socket.close();
+    this.socket?.close();
   }
 }

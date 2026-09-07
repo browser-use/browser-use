@@ -73,3 +73,7 @@ The tool names `javascript`, `finish`, and `finish_from_js` are reserved. `finis
 | `recording`               | `false` (default), `true`, or `{ intervalMs, maxFrames }`.               |
 
 Auxiliary persistence failures appear in `warnings` and omit the unavailable path; they do not discard delivered output. Run results additionally carry `runId`, `historyPath`, `eventsPath` and optional `recordingPath`. `exportRecording(path, options)` exports MP4/GIF; see [recording](./recording). `SessionHistory`, `WorkspaceFile`, `SessionEvent`, `RecordingOptions`, `VideoOptions` and `formatEvent` are exported.
+
+## Long tasks
+
+See [reliability](./reliability) for automatic Pi compaction (`compaction: false` opts out), optional `researchTools`, `observe`/`observerTimeoutMs`, checkpointing and explicit browser reconnect. `onEvent` remains awaited; observational work belongs in `observe`.

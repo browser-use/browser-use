@@ -30,6 +30,7 @@ test('external tabs/cookies survive normal cleanup and timeout; SDK tabs are rem
           (await agent.execute("await browser.send('Storage.getCookies')")).text,
           /fixture-only/,
         );
+        await agent.execute('await page.info()');
         await agent.execute("await tabs.open('data:text/html,owned-secondary')");
         assert.equal(
           (await cdp.send('Target.getTargets')).targetInfos.filter((t) => t.type === 'page').length,

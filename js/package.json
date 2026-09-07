@@ -44,6 +44,7 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.85.1",
     "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
     "devtools-protocol": "0.0.1692173",
     "typebox": "1.3.7"
   },

@@ -25,6 +25,7 @@ import type { BrowserUseOptions, RunOptions, RunResult } from './types.js';
 export type { BrowserUseOptions, RunOptions, RunResult, StopReason, RunMetrics } from './types.js';
 export type { BrowserOptions } from './browser.js';
 export type { CellResult, Image } from './protocol.js';
+export { CellError } from './runtime.js';
 export type { AgentTool, AgentEvent, StreamFn } from '@earendil-works/pi-agent-core';
 export { Type, type Static, type TSchema } from 'typebox';
 export { builtinModels } from '@earendil-works/pi-ai/providers/all';
@@ -55,6 +56,8 @@ export class BrowserUse {
   ) {}
 
   static async create(options: BrowserUseOptions): Promise<BrowserUse> {
+    if (options.researchTools !== undefined && typeof options.researchTools !== 'boolean')
+      throw new Error('researchTools must be boolean.');
     if (options.recording && typeof options.recording === 'object') {
       positiveInteger('recording.intervalMs', options.recording.intervalMs ?? 750);
       positiveInteger('recording.maxFrames', options.recording.maxFrames ?? 400);
@@ -77,7 +80,12 @@ export class BrowserUse {
       throw new Error(
         `Unknown model ${options.model}. Supply a Pi models collection with this model registered.`,
       );
-    const names = new Set(['javascript', 'finish', 'finish_from_js']);
+    const names = new Set([
+      'javascript',
+      'finish',
+      'finish_from_js',
+      ...(options.researchTools ? ['read', 'write', 'edit', 'bash'] : []),
+    ]);
     for (const tool of options.tools ?? []) {
       if (names.has(tool.name)) throw new Error(`Duplicate or reserved tool name: ${tool.name}`);
       names.add(tool.name);
@@ -247,7 +255,7 @@ export class BrowserUse {
       for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
         this.totalUsage.cost[key] += result.usage.cost[key];
       this.runtime.onAction = undefined;
-      const warnings: string[] = [];
+      const warnings: string[] = [...(result.warnings ?? [])];
       let recordingPath: string | undefined;
       if (recorder) {
         try {
