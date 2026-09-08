@@ -1,0 +1,404 @@
+{
+  "reviewed_at": "2026-09-08T11:00:01.826278+00:00",
+  "task_id": "bub2-005",
+  "scope": "Largest loss and gain among seven shared completed Luna pairs at selection; not aggregate performance.",
+  "arms": {
+    "reference": {
+      "manifest": {
+        "config_hash": "b47f74853ac540a79de2daf4386025aef081b2fdc515bd7633fd1275df378e0a",
+        "datapoint_id": "15baead0-2019-47a1-b87c-958e8f45160b",
+        "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+        "evaluation_id": "5ee7c760-b920-4e66-82eb-2eb161a5d42e",
+        "github_run_attempt": "1",
+        "github_run_id": "34215096477",
+        "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34215096477",
+        "harness": "pi-browser-use-next",
+        "judge": "findings",
+        "judge_model": "gpt-5.6-luna",
+        "judge_options": {
+          "reasoning_effort": "xhigh"
+        },
+        "max_steps": 1000,
+        "model": "gpt-5.6-luna",
+        "options": {
+          "browser_timeout_minutes": 70,
+          "evidence_format": "findings",
+          "max_context_chars": 800000,
+          "proxy_country_code": "us",
+          "reasoning_effort": "xhigh",
+          "task_timeout_seconds": 3600
+        },
+        "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+        "schema_version": 1,
+        "target_repo": "browser-use/bu-pi",
+        "target_sha": "c3f7fac2d8a46a3801e06d89a3c3c9b1343db79e",
+        "task_id": "bub2-005",
+        "timeout_minutes": 62
+      },
+      "judgment": {
+        "audit_coverage": null,
+        "duration_seconds": 117.267,
+        "evidence_checked": [
+          "result.json",
+          "rubrics/bub2-005.md",
+          "71 judge screenshots",
+          "12 deliverable files"
+        ],
+        "failure_class": "",
+        "model": "gpt-5.6-luna",
+        "reason": "60/100 rubric weight met",
+        "replicate_scores": [],
+        "rubric": {
+          "A1_grid_capture_complete": false,
+          "A2_card_fields_faithful": true,
+          "A3_context_and_coverage_log": false,
+          "A4_derived_discipline": true,
+          "A5_internal_consistency": true,
+          "A6_deliverables_shape": true,
+          "A7_action_boundary": true,
+          "A8_claims_honesty": false,
+          "A9_derived_labels": true
+        },
+        "score": 0.6,
+        "score_range": 0,
+        "score_stddev": 0,
+        "status": "scored"
+      },
+      "judge_findings": [
+        {
+          "evidence": "The trace shows 29 card wrappers in the main product-grid structure (steps 69, 99, and 142), but only 24 hydrated product titles/cards. Step 77 and step 142 identify five empty wrappers at positions 25\u201329 with product-card focus IDs, while the ordered_raw_cards.csv contains only 24 rows. The five slots were excluded as supposedly outside the boundary, but the trace places them in the same grid before pagination; they were not captured as rows.",
+          "item": "A1_grid_capture_complete",
+          "status": "violated"
+        },
+        {
+          "evidence": "The DOM extraction supports the recorded names, prices, URLs, ratings, sponsorship, fulfillment/check-stores labels, and title-derived package sizes (steps 59, 79, 81, 90, 103, and 163). Step 92 found no markdown/compare-at values, consistent with blank regular-price fields. Step 85 and the raw CSV show promotion text only on positions 20 and 22, with the displayed unit-price strings preserved; rating counts and sponsored statuses are populated rather than zeroed or invented.",
+          "item": "A2_card_fields_faithful",
+          "status": "met"
+        },
+        {
+          "evidence": "The log correctly records the category path, Ship to 06339/Waterford context, 286 results, page 1 of 12, count=24/offset=0, observation time, visible modules, and the five empty wrapper IDs (steps 142\u2013146 and the coverage CSV). However, it records the sort only as \u201cdefault/not changed\u201d rather than the required default option Featured, and it classifies positions 25\u201329 as outside page one even though the trace reports 29 grid wrappers and shows them inside the product-grid module before pagination. These are coverage-log inaccuracies.",
+          "item": "A3_context_and_coverage_log",
+          "status": "violated"
+        },
+        {
+          "evidence": "The normalized_analysis.csv keeps displayed strings separate from normalized numeric columns, derives ounce quantities from title size tokens, and calculates normalized unit prices arithmetically; for example, position 1 records 4.99/7.2 = 0.6931. Positions 20 and 22 have null unconditional prices and are marked quantity-qualified, while their conditional displayed prices remain separately recorded. The summaries exclude those promotions from unconditional price ranges and means (steps 130, 153, 155, and the normalized CSV).",
+          "item": "A4_derived_discipline",
+          "status": "met"
+        },
+        {
+          "evidence": "The duplicate-impact table is populated and reconciles 24 raw cards, 23 distinct product IDs, and one extra repeat; it identifies product 89082984 at positions 3 and 19. Brand and meal-type tables reconcile to the ledger, and the summary\u2019s 22 unconditional cards, two conditional promotions, 22 displayed unit prices, and price ranges/means match the extracted data (steps 151, 155, 163, and the delivered CSV/Markdown files).",
+          "item": "A5_internal_consistency",
+          "status": "met"
+        },
+        {
+          "evidence": "All required artifact types exist as distinct deliverables: ordered_raw_cards.csv, normalized_analysis.csv, page_coverage_module_exclusion.csv, duplicate_impact.csv, and page_one_pricing_summary.md. The trace verifies 24-row raw and normalized files and confirms the coverage, duplicate, and summary files exist (steps 138, 140, 149, 151, 159, and 163). Additional brand/meal summary CSVs and screenshots are also present.",
+          "item": "A6_deliverables_shape",
+          "status": "met"
+        },
+        {
+          "evidence": "The trace ends on the category URL, and product links were inspected in the DOM without navigation (steps 59, 103, and 163). The sign-in popover was dismissed rather than used (steps 61\u201363); there is no sign-in, address/store personalization, product-detail navigation, cart addition, or purchase in the trajectory. The agent did not interact with the CAPTCHA verification control.",
+          "item": "A7_action_boundary",
+          "status": "met"
+        },
+        {
+          "evidence": "The final result and summary claim \u201c24/24 main-grid cards populated\u201d and describe five empty wrappers as following the page-size boundary. The agent\u2019s own DOM evidence instead reports gridCards=29, loadedCards=24, and five empty wrappers within the product-grid structure before pagination (steps 99, 142, and 163). Thus the claim that the five slots were outside the main page-one grid, and the resulting zero unreadable page-one cards claim, is not supported by the run\u2019s trace.",
+          "item": "A8_claims_honesty",
+          "status": "violated"
+        },
+        {
+          "evidence": "The normalized table explicitly labels meal types as meal_type_derived with meal_type_basis='displayed product-title keyword', and the pricing summary explains that these are derived rather than displayed facet labels. Brand values come from the displayed brand line, and conditional-promotion classifications are separated from displayed promotion text (step 130 and page_one_pricing_summary.md).",
+          "item": "A9_derived_labels",
+          "status": "met"
+        }
+      ],
+      "metrics": {
+        "cache_write_tokens": 481577,
+        "cached_input_tokens": 4314705,
+        "duration_seconds": 564.291,
+        "input_tokens": 252,
+        "output_tokens": 35229,
+        "steps": 84,
+        "total_cost": 0.24901354999999997,
+        "total_tokens": 4831763
+      },
+      "tool_error_events": [
+        19,
+        39,
+        51,
+        91,
+        139,
+        235,
+        247,
+        291
+      ],
+      "compactions": 0,
+      "provider_retries": 0,
+      "screenshot_errors": 8,
+      "cleanup_errors": [],
+      "stop_reason": "completed",
+      "final_matches_sdk_text": true,
+      "sha256": {
+        "manifest.json": "f54307af5f9c275f5c2a7f560e7e8909ee6b4abf056543f666b2c0ab0e2c54b4",
+        "events.jsonl": "ff2982aee13d7bd479b87ca940014fe844c19f129290abb993ee4c97502a596b",
+        "task.json": "37a2292fb1488dbbd5c9a2a1b7cb019fb24acb889cf0165c562dc7df6d683d31",
+        "result.json": "7a6f44e8cab6b87530002c86adcc01d6ff2ed8f48cf45649607042e5575f2b3c",
+        "sdk-result.json": "df806bad276eda489ea85aaf044a99c1ce23a91d1bcfb66f91449690428a8800",
+        "judgment.json": "a0a237ef38789c1a3ac1bc8ad39198f4a8ef9494bf7eb39b663af7e5891456a4",
+        "judge_trace.json": "41660991a00dda30e845bc06b3846689ca188c731248967fa4c14b05a683fd36",
+        "findings-evidence.json": "632bb367b07262cb1f15a17e0dc79c4556294fb45a9586b8c099259838829bea",
+        "final_message.txt": "61079c50bd03e9abfc30d83fa886a86a7fc72fa06d9dabc556228bb1d97d63ff",
+        "agent_outputs/price_summary_by_meal_type.csv": "776869599ea73c05e6bc88032e824cb8b57ef73a2af0ba900e35161e2b56f980",
+        "agent_outputs/price_summary_by_brand.csv": "c7cd56155ef3d169b5df7a13f6e510d2e15a04973175c1edf436814f99536c85",
+        "agent_outputs/ordered_raw_cards.csv": "24733c4f4d365bfe812d487254843b10a1df2cde647d8955a49ecf6f02526279",
+        "agent_outputs/page_one_pricing_summary.md": "24beb5b1ae96e889a1c0c5d50d39ace29a1aba89a0f078d99939ea74d25f237c",
+        "agent_outputs/target_frozen_single_serve_page1_grid.jpg": "26b660e44019f8b025b531498f1246c5739e4541fde608d021b4e13d178c9fc7",
+        "agent_outputs/duplicate_impact.csv": "6a49bd370688853014226d7079b2934b4de5789bd2ce930602312f125ee6a93b",
+        "agent_outputs/target_frozen_single_serve_page1_top.jpg": "acaed5a292304b750abfe15b47624e9bab3460dc3ee4e0a7eab2985fd65acea2",
+        "agent_outputs/normalized_analysis.csv": "133c859b358bf86a42a1b1cef80eb8f81e85b9667461aeaf67b9129b23c8c32f",
+        "agent_outputs/page_coverage_module_exclusion.csv": "f79e70e40241eed55ec0e7409651297b8ac93d8fbe2149ae1c2864661bbcc6ed",
+        "agent_outputs/capture_metadata.json": "4d2e0ae82a95ebd920f473aa133f6434992645d42fe8dd81d8e6ccbd380f4cea",
+        "agent_outputs/progress.json": "53c259b15376c493e52d1c9ad324991f12a796aa65c8bd10297d38ea7a169bca",
+        "agent_outputs/target_frozen_single_serve_captcha_blocker.jpg": "b4fd076454912c76ba4a21b9e28b07769ecc18fd1b55c8d81f6635563ee57454"
+      }
+    },
+    "candidate": {
+      "manifest": {
+        "config_hash": "bf9f6f907fb9e1b789e35e8df6f5fb06e6ba5a18c5cdee447b4d6d3b9e86c437",
+        "datapoint_id": "a08e799a-b99a-4a37-a1f4-738f921574a9",
+        "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+        "evaluation_id": "4ba9d7bc-998b-430c-a870-6d8e289a037c",
+        "github_run_attempt": "1",
+        "github_run_id": "34215099251",
+        "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34215099251",
+        "harness": "pi-browser-use-next",
+        "judge": "findings",
+        "judge_model": "gpt-5.6-luna",
+        "judge_options": {
+          "reasoning_effort": "xhigh"
+        },
+        "max_steps": 1000,
+        "model": "gpt-5.6-luna",
+        "options": {
+          "browser_timeout_minutes": 70,
+          "evidence_format": "findings",
+          "max_context_chars": 800000,
+          "proxy_country_code": "us",
+          "reasoning_effort": "xhigh",
+          "task_timeout_seconds": 3600
+        },
+        "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+        "schema_version": 1,
+        "target_repo": "browser-use/bu-pi",
+        "target_sha": "29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b",
+        "task_id": "bub2-005",
+        "timeout_minutes": 62
+      },
+      "judgment": {
+        "audit_coverage": null,
+        "duration_seconds": 87.393,
+        "evidence_checked": [
+          "result.json",
+          "rubrics/bub2-005.md",
+          "95 judge screenshots",
+          "8 deliverable files"
+        ],
+        "failure_class": "",
+        "model": "gpt-5.6-luna",
+        "reason": "88/100 rubric weight met",
+        "replicate_scores": [],
+        "rubric": {
+          "A1_grid_capture_complete": true,
+          "A2_card_fields_faithful": true,
+          "A3_context_and_coverage_log": false,
+          "A4_derived_discipline": true,
+          "A5_internal_consistency": true,
+          "A6_deliverables_shape": true,
+          "A7_action_boundary": true,
+          "A8_claims_honesty": true,
+          "A9_derived_labels": true
+        },
+        "score": 0.88,
+        "score_range": 0,
+        "score_stddev": 0,
+        "status": "scored"
+      },
+      "judge_findings": [
+        {
+          "evidence": "The trace identified 29 ProductCardWrapper slots in the main product grid (step 79), and after scrolling all 29 had loaded. The grid-child inspection separated three ad/module rows from the product wrappers (step 81). The raw CSV contains 29 ordered rows, positions 1\u201329, and preserves the repeated product at positions 2 and 6; no off-grid product rows appear.",
+          "item": "A1_grid_capture_complete",
+          "status": "met"
+        },
+        {
+          "evidence": "DOM extraction exposed the card title, brand, current-price, unit-price, fulfillment, rating, sponsoredText, and title-link fields (steps 35, 39, 41). The extraction found no comparison/regular-price value on the loaded cards (steps 43\u201345), and found the two displayed promo lines exactly as quantity offers (steps 114, 120). The delivered raw CSV preserves displayed names, prices, blank regular prices, exact promo text, title-derived size tokens, unit strings, stock/fulfillment labels, rating counts, sponsored status, and product URLs across all 29 rows; sample rows and later rows are corroborated by the file reads at steps 195 and 197.",
+          "item": "A2_card_fields_faithful",
+          "status": "met"
+        },
+        {
+          "evidence": "The run accurately records the accepted three-level category_path, Ship to 91790, Baldwin Park, zero applied filters, Featured sort, 267 results, page 1 of 12, observation time, lazy-load resolution, zero final unloaded/unreadable cards, and named in-grid/off-grid exclusions (steps 134, 159, 163, 175, 191; coverage file). However, the metadata\u2019s `target_breadcrumb_context_observed` entry is wrong: it lists `Grocery, Frozen Foods, Frozen Meals & Entrees, Frozen Foods`, omitting the final Frozen Single Serve Meals crumb and inserting a duplicate Frozen Foods. The screenshot and page snapshot show the actual breadcrumb `Target > Grocery > Frozen Foods > Frozen Meals & Entrees > Frozen Single Serve Meals` (step 31/screenshot 11), although a separate `visible_breadcrumb_text` field was later corrected.",
+          "item": "A3_context_and_coverage_log",
+          "status": "violated"
+        },
+        {
+          "evidence": "The normalized CSV keeps displayed currency, size, and unit strings in raw/displayed columns and places numeric currency, ounce weights, counts, and normalized unit prices in derived columns. The trace shows the two missing displayed unit-price cases (positions 13 and 23) were calculated from displayed price/package weight, while position 26\u2019s 4ct package was excluded from weight-based comparison (steps 151, 157; normalized CSV). The two Buy 2 for $5 offers are explicitly labeled quantity-qualified and are represented as conditional $2.50 values, while unconditional summaries use the displayed card prices (steps 151, 189, summary file).",
+          "item": "A4_derived_discipline",
+          "status": "met"
+        },
+        {
+          "evidence": "The duplicate-impact CSV is populated and reports product 93214454 at positions 2 and 6, 29 raw rows, 28 unique IDs, and one extra repeat row (step 171). The summary\u2019s 29-row price range, $5.00 mean, 28-row/$4.96 deduplicated mean, two promotions, brand counts, meal-type counts, and unit-price extrema match the extracted ledger and recomputation outputs (steps 153, 157, 171, 204).",
+          "item": "A5_internal_consistency",
+          "status": "met"
+        },
+        {
+          "evidence": "The file verification at step 191 shows all required distinct artifacts exist and parse as expected: ordered raw CSV (30 lines including header), normalized analysis CSV (30 lines), coverage/module-exclusion CSV, non-empty duplicate-impact CSV, and pricing-summary Markdown. Metadata, raw JSON, and progress JSON are also present.",
+          "item": "A6_deliverables_shape",
+          "status": "met"
+        },
+        {
+          "evidence": "The trace shows navigation only through Target category pages and DOM/anchor inspection; no product link was clicked. The final tab listing contains only the category page and an about:blank tab, with no `/p/` detail tab (step 208), and the final verification reports zero detail tabs (step 210). The account control remained `Account, sign in`, the context was not changed, and no cart or purchase action was taken.",
+          "item": "A7_action_boundary",
+          "status": "met"
+        },
+        {
+          "evidence": "The major process claims are supported by trace evidence: category navigation is shown in steps 9, 27, and 31; the 29-card load is evidenced by steps 77 and 79; sort options and Featured selection are visible in step 108/screenshot 21; off-grid modules and ads were inspected in steps 71, 81, and 144\u2013146; and no detail-page tab exists at step 208. The breadcrumb discrepancy is an inaccurate metadata entry, but it was produced from the run\u2019s observed DOM extraction and the agent did not claim an unsupported cross-load comparison or fabricate unloaded-card resolution.",
+          "item": "A8_claims_honesty",
+          "status": "met"
+        },
+        {
+          "evidence": "The pricing summary explicitly labels meal types as \u201cname-derived labels,\u201d and the normalized CSV marks each with `meal_type_basis=name keyword`; unclassified items are retained rather than presented as Target-displayed types (steps 141, 153; summary file). Brand summaries use the displayed brand line extracted from each card, and conditional promotion labels are distinguished from displayed promotion text.",
+          "item": "A9_derived_labels",
+          "status": "met"
+        }
+      ],
+      "metrics": {
+        "cache_write_tokens": 376437,
+        "cached_input_tokens": 7624492,
+        "duration_seconds": 684.389,
+        "input_tokens": 300,
+        "output_tokens": 43106,
+        "steps": 100,
+        "total_cost": 0.29838629,
+        "total_tokens": 8044335
+      },
+      "tool_error_events": [
+        199,
+        295,
+        319,
+        331,
+        335,
+        343
+      ],
+      "compactions": 0,
+      "provider_retries": 0,
+      "screenshot_errors": 0,
+      "cleanup_errors": [],
+      "stop_reason": "completed",
+      "final_matches_sdk_text": true,
+      "sha256": {
+        "manifest.json": "ecee914881ec91125397871bf049753714ed34cb7b9618bade42f60594a8989d",
+        "events.jsonl": "5d9cb96bba8a2be04bdb2fb555602d290e29a893ef149e3e5d6bc4a893378c9d",
+        "task.json": "37a2292fb1488dbbd5c9a2a1b7cb019fb24acb889cf0165c562dc7df6d683d31",
+        "result.json": "80c518fb279028580439ad03c48f495ab5196c8fb13d866584c35a7be4a92804",
+        "sdk-result.json": "a71b81769118c57e8476cd92b4b2a38a0ce2a1807b1ef35c8bc8519b3251a11c",
+        "judgment.json": "2d8eface4a42d633885a8cbe52421876380390a053263360b338ed97028995aa",
+        "judge_trace.json": "be69b4dd6f7b989084affddbc840782776ca3818b0b8c711b4960490443e6d32",
+        "findings-evidence.json": "caad7e05f243839da72351acedcc3324b30dcfe3ba02df63c31ccb63960ad322",
+        "final_message.txt": "813c8d2f488e792e9421bef742a42d62810ee6546358d0bf81404cf881fffc98",
+        "agent_outputs/frozen_single_serve_page1_coverage_and_module_exclusions.csv": "95a0902964c82ed234bb6fdfb48f2ce893941d35cfc321fcf947f9cb8bb53c1f",
+        "agent_outputs/frozen_single_serve_page1_normalized_analysis.csv": "e3db6c9c7db9c8dbeaf33201d0f2c68d654640662f7e0026ac822715eb5f9f2c",
+        "agent_outputs/frozen_single_serve_page1_raw_cards.csv": "691728caf4a6005fb56b40b4fc1b4e2efe0f06f90f4da4fd8d35ace60ac00be2",
+        "agent_outputs/frozen_single_serve_page1_pricing_summary.md": "b6c2cd47a0fead79fcadef98dd15cd98a1d44a34400f4d14ee5c31a3bd0cf3c1",
+        "agent_outputs/frozen_single_serve_page1_duplicate_impact.csv": "8d7d019321ea97075e4cdf8d2f5c406a698833439ecc6b84573c44fdd6762694",
+        "agent_outputs/frozen_single_serve_page1_metadata.json": "d633acdcb10b264a54ccd8ea209435b4637a6433af38989429f0d7c6c3addd6f",
+        "agent_outputs/progress.json": "02af58e677adb95c5af9aa8144b95bd633dc769c94b8c09ef498f0608c21ccfe",
+        "agent_outputs/raw_cards.json": "be2a15ad1f646013ee5029e86c742f11f890f5af4af8d33c11f62bca82f5b122"
+      }
+    }
+  },
+  "artifact_checks": {
+    "reference": {
+      "rows": 24,
+      "columns": [
+        "position",
+        "card_status",
+        "product_id",
+        "product_name_displayed",
+        "brand_displayed",
+        "current_displayed_price",
+        "regular_price_displayed",
+        "price_line_displayed",
+        "promotion_qualification_displayed",
+        "promotion_condition_type",
+        "price_unconditional_status",
+        "package_size_as_displayed_in_title",
+        "package_size_source",
+        "unit_price_displayed",
+        "fulfillment_label_displayed",
+        "stock_label_displayed",
+        "check_stores_label_displayed",
+        "fulfillment_or_stock_label_displayed_combined",
+        "rating_displayed",
+        "rating_aria_label",
+        "rating_count_displayed",
+        "sponsored_status",
+        "sponsored_text_displayed",
+        "card_badge_displayed",
+        "product_url_displayed",
+        "product_url_canonical",
+        "card_text_displayed",
+        "observation_time",
+        "source_url"
+      ]
+    },
+    "candidate": {
+      "rows": 29,
+      "columns": [
+        "grid_position",
+        "product_id",
+        "product_name_displayed",
+        "brand_displayed",
+        "current_price_displayed",
+        "regular_price_displayed",
+        "promotion_displayed",
+        "promotion_qualification",
+        "package_size_displayed",
+        "unit_price_displayed",
+        "fulfillment_stock_displayed",
+        "eligibility_displayed",
+        "rating_displayed",
+        "rating_count_displayed",
+        "sponsored_status",
+        "card_labels_displayed",
+        "product_url",
+        "load_status",
+        "category_path",
+        "store_context_displayed",
+        "filters_applied",
+        "sort_selected",
+        "result_count",
+        "page_indicator",
+        "observation_time",
+        "source_url",
+        "raw_card_text"
+      ],
+      "unique_product_ids": 28,
+      "all_positions_ordered": true,
+      "all_saved_statuses_loaded": true
+    }
+  },
+  "confirmed_observations": [
+    "Candidate events 146/147 observe 20 loaded product cards. Event 150 registers a condition wait, scrolls with raw CDP wheel input, then event 151 reports 29 loaded. Event 155 lists 29 loaded wrapper slots.",
+    "Candidate events 158/159 inspect grid children to separate display-ad modules from product wrappers. Event 242 extracts one record per wrapper with an explicit unloaded fallback. It ultimately delivers 29 rows with one repeated product retained.",
+    "Reference event 263 observes gridCards=29, loadedCards=24, and five empty focus IDs. It delivers 24 rows and classifies the empty five as outside the page-size boundary. Its own observation does not establish that exclusion.",
+    "Candidate final metadata still contains an incorrect target_breadcrumb_context_observed list. Event 374 adds the corrected visible_breadcrumb_text but reassigns the stale original breadcrumb too. Both conflicting values survive in the delivered metadata.",
+    "The contexts differ: reference Ship to 06339/Waterford and 286 results; candidate Ship to 91790/Baldwin Park and 267 results. Each preserves its logged-out context as requested; prices and products are not identical."
+  ],
+  "generalized_candidates": [
+    "Count structural inventory and loaded records separately; keep unresolved slots rather than making them disappear through a loaded-only selector.",
+    "When correcting a canonical observation, update derived copies or retain an explicit conflict. Adding a correct field does not repair a contradictory older field."
+  ],
+  "limitations": [
+    "This is mechanism evidence for loading and coverage reconciliation, not an isolated speed, price or product-quality comparison.",
+    "The candidate has no compaction or provider retry in this task. Neither mechanism explains this win.",
+    "Both scores and all artifacts remain unchanged; no Target-specific rule or fixed row count enters the SDK."
+  ]
+}

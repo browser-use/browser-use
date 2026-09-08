@@ -1,0 +1,361 @@
+{
+  "reviewed_at": "2026-09-08T11:00:01.807894+00:00",
+  "task_id": "bub2-003",
+  "scope": "Largest loss and gain among seven shared completed Luna pairs at selection; not aggregate performance.",
+  "arms": {
+    "reference": {
+      "manifest": {
+        "config_hash": "b47f74853ac540a79de2daf4386025aef081b2fdc515bd7633fd1275df378e0a",
+        "datapoint_id": "67ae4dc7-210c-4d49-abd9-d5c28c917308",
+        "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+        "evaluation_id": "5ee7c760-b920-4e66-82eb-2eb161a5d42e",
+        "github_run_attempt": "1",
+        "github_run_id": "34215096477",
+        "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34215096477",
+        "harness": "pi-browser-use-next",
+        "judge": "findings",
+        "judge_model": "gpt-5.6-luna",
+        "judge_options": {
+          "reasoning_effort": "xhigh"
+        },
+        "max_steps": 1000,
+        "model": "gpt-5.6-luna",
+        "options": {
+          "browser_timeout_minutes": 70,
+          "evidence_format": "findings",
+          "max_context_chars": 800000,
+          "proxy_country_code": "us",
+          "reasoning_effort": "xhigh",
+          "task_timeout_seconds": 3600
+        },
+        "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+        "schema_version": 1,
+        "target_repo": "browser-use/bu-pi",
+        "target_sha": "c3f7fac2d8a46a3801e06d89a3c3c9b1343db79e",
+        "task_id": "bub2-003",
+        "timeout_minutes": 62
+      },
+      "judgment": {
+        "audit_coverage": null,
+        "duration_seconds": 176.175,
+        "evidence_checked": [
+          "result.json",
+          "rubrics/bub2-003.md",
+          "63 judge screenshots",
+          "4 deliverable files"
+        ],
+        "failure_class": "",
+        "model": "gpt-5.6-luna",
+        "reason": "78/100 rubric weight met",
+        "replicate_scores": [],
+        "rubric": {
+          "A10_boundaries_honesty": true,
+          "A1_window_scope": true,
+          "A2_storyline_cohort": true,
+          "A3_corpus_counts": true,
+          "A4_article_evidence": true,
+          "A5_record_fidelity": false,
+          "A6_type_independence": true,
+          "A7_primary_documents": false,
+          "A8_deliverable_shape": true,
+          "A9_framing_restraint": true
+        },
+        "score": 0.78,
+        "score_range": 0,
+        "score_stddev": 0,
+        "status": "scored"
+      },
+      "judge_findings": [
+        {
+          "evidence": "Step 3 records the research start as 2026-09-08. The delivered metadata and brief declare 2026-08-25 through 2026-09-07 inclusive, and the validation at steps 157 and 177 reports no retained publication dates outside that range. The retained article table shows publication dates from 2026-08-27 through 2026-09-05.",
+          "item": "A1_window_scope",
+          "status": "met"
+        },
+        {
+          "evidence": "The delivered workbook and JSON contain five storylines with four retained records each (steps 176 and 190). Opened pages corroborate each storyline: Modi\u2013Putin coverage at steps 47, 49, and 134; SCO terrorism/photo coverage at steps 47, 120, and 136; Iran coverage at steps 92, 98, and 124; India\u2013Belgium coverage at steps 102, 126, and 132; and youth/CJP coverage at steps 61, 140, and 149. Each is a real Modi-relevant development in the declared window.",
+          "item": "A2_storyline_cohort",
+          "status": "met"
+        },
+        {
+          "evidence": "The validation at step 157 reports 20 records, 18 outlets, four records per storyline, and no outlet over two records; step 176 confirms 20 article rows and step 190 confirms the workbook counts. The records identify Bloomberg/The National as syndicated rather than a separate Bloomberg article, and the brief explicitly limits the shared official-photo reports to one primary-post evidence base. Each storyline still has four distinct originating newsrooms after that disclosure: four for S1, Al Jazeera/ThePrint/The Federal/HT for S2, NDTV/Bloomberg/SCMP/MEE for S3, Reuters/Open/POLITICO/TOI for S4, and BBC/Diplomat/TOI/Open for S5.",
+          "item": "A3_corpus_counts",
+          "status": "met"
+        },
+        {
+          "evidence": "The retained records correspond to direct article pages that were opened and had content extracted: the first set at steps 39, 45, and 47; the SCO/Iran set at steps 51, 53, and 124; the youth set at steps 55, 59, and 61; and the official/Belgium pages at steps 75, 81, 92, 102, 118, 126, 132, and 134. The blocked Telegraph page seen at steps 47 and 120 was not retained. The final article table contains direct links for all 20 retained records.",
+          "item": "A4_article_evidence",
+          "status": "met"
+        },
+        {
+          "evidence": "The delivered records contain fidelity errors visible against opened-page evidence. A20 records the long Google-result headline \u201cWhat Rahul Gandhi Wants: Inside His Youth Outreach, Mandal Politics and Clash with BJP\u2019s Nationalist Narrative,\u201d while the opened Open Magazine page shows the heading \u201cWhat Rahul Gandhi Wants\u201d (steps 61 and 140), and the JSON itself records the shorter observed title. A14, A19, and A20 use 2026-09-04, 2026-09-05, and 2026-08-28 as publication dates even though the opened pages visibly label those dates as \u201cLast Updated\u201d or \u201cUpdated\u201d rather than publication dates (steps 132, 112, and 61). A08 supplies \u201cHindustan Times News Desk\u201d as a byline although the extracted page metadata has no author and the visible page content only shows a generic \u201cABOUT THE AUTHOR\u201d section (steps 51 and 120). These are retained-record mismatches, not merely missing evidence.",
+          "item": "A5_record_fidelity",
+          "status": "violated"
+        },
+        {
+          "evidence": "Every article row has an articleType and wireStatus field in the delivered workbook/JSON. The National is explicitly labeled a Bloomberg syndicated republication (steps 124 and 181); Reuters is labeled original Reuters wire; and the brief identifies Reuters/AFP/ANI photo credits and the shared ThePrint/The Federal official-photo basis as non-independent duplication rather than additional origins. The matrix and storyline summaries do not present the Bloomberg republication or the shared photo evidence as separate independent corroboration.",
+          "item": "A6_type_independence",
+          "status": "met"
+        },
+        {
+          "evidence": "Opened primary documents include the MEA Russia readout (steps 75\u201377), SCO institutional record (steps 79\u201381), MEA Iran readout (step 92), State Department transcript (steps 96\u201398), MEA Belgium statement (steps 100\u2013102), and Congress event page (steps 116\u2013118). However, P6 (the Modi video) was not opened as a native official post: only the NDTV report was opened at steps 106\u2013112, and the deliverable says the native social URL was not captured. P8 (the PMO photo posts) was also not directly opened; the deliverable says it was only partially traced through A06/A07 and that direct URLs were not captured. Despite that, matrix rows C21\u2013C22 label P6-backed claims \u201cCorroborated,\u201d and C7\u2013C8 label P8-backed visual claims \u201cCorroborated,\u201d rather than marking those unopened primary documents as unverified.",
+          "item": "A7_primary_documents",
+          "status": "violated"
+        },
+        {
+          "evidence": "All requested artifacts exist: XLSX, Markdown brief, and structured JSON are listed at steps 168, 172, 174, and 188. The workbook has Articles, Storylines, Claim-to-Source, Chronology, Primary Sources, and Framing sheets; step 190 confirms 20 article rows, 5 storylines, 25 claims, 20 chronology rows, and 8 primary-source rows. The article sheet contains the requested record fields, including access and type labels.",
+          "item": "A8_deliverable_shape",
+          "status": "met"
+        },
+        {
+          "evidence": "The dated brief and workbook framing table compare domestic and international coverage by emphasis, terminology, attributed causes, and omitted context for all five storylines (steps 166 and 181). The brief explicitly distinguishes outlet framing from established facts, e.g. treating \u201cveiled China dig,\u201d \u201cchoreography,\u201d and \u201cinsult\u201d as interpretations, and it does not attribute motive or bias to a news outlet. Summaries are concise paraphrases rather than reproduced article text.",
+          "item": "A9_framing_restraint",
+          "status": "met"
+        },
+        {
+          "evidence": "Access labels are supplied per record, including partial/support-prompt labels for The Hindu, The Independent, The National, and POLITICO, and the brief expressly discloses the Bloomberg syndication, Tasnim secondary attribution, and incomplete PMO-post tracing (step 181). The deliverables contain summaries and claims, not full or near-full article bodies. The final counts and cap claims match the validated artifacts: 20 articles, 18 outlets, maximum two per outlet, five storylines, and 25 matrix rows (steps 176, 177, and 190).",
+          "item": "A10_boundaries_honesty",
+          "status": "met"
+        }
+      ],
+      "metrics": {
+        "cache_write_tokens": 220768,
+        "cached_input_tokens": 5253263,
+        "duration_seconds": 737.558,
+        "input_tokens": 270,
+        "output_tokens": 38078,
+        "steps": 90,
+        "total_cost": 0.20600486000000004,
+        "total_tokens": 5512379
+      },
+      "tool_error_events": [
+        77,
+        137
+      ],
+      "compactions": 0,
+      "provider_retries": 0,
+      "screenshot_errors": 20,
+      "cleanup_errors": [],
+      "stop_reason": "completed",
+      "final_matches_sdk_text": true,
+      "sha256": {
+        "manifest.json": "cb179f5387ab60b8ef4faa7921d431cb197db49be2d7ecb39307990e8a5b514b",
+        "events.jsonl": "6002231df031052cd218bbc35ce4fdf9fb36b9c1032923fc85dfe1cebd6b4254",
+        "task.json": "aa74217ff0c7c870818c31388d5b95043d861018267b3174f3a1f6857743fd73",
+        "result.json": "55a1a9701da192b22148a2e7589ffc7e8b095bb5dd40e351798e9335cc866ae1",
+        "sdk-result.json": "b100c4c85c94023febd8c10ffa35e5e5b00c069a8af2aaa0926f75a9bf90b0f5",
+        "judgment.json": "d343042b39c704b9b23f9d9459575bb4fd764945ebb6ebaf7af7322c60e33b66",
+        "judge_trace.json": "2e3b3022401fab54ccfb94b9ea4c04034d2107694ceb43ef28284c2b86dd1561",
+        "findings-evidence.json": "0418f46e22c92eb497a22434c07d0d99833e01709745fe245d1b15f7f4f1f9ff",
+        "final_message.txt": "4caaebf12aed78d9e473c62b961308eef513fa946280ce40affd57fbdee88aab",
+        "agent_outputs/modi_brief_2026-09-08_data.json": "6865bcd81c9a3ad99a5efeec2ab971e22b30292e92197e3415d266391a6069d2",
+        "agent_outputs/modi_brief_2026-09-08.xlsx": "b4ccbfba3b66b306dbbba2dd2b310086c9250bff93e3ee3a3bd398a68540a413",
+        "agent_outputs/modi_brief_2026-09-08.md": "fc2db7366356b188e6157b28d57ab51869a1d4fbce1ce810170281c053fb2709",
+        "agent_outputs/progress.json": "bf53c6c63809db6a0210f0dfdd10fffc896b546eaa48cb30c2504b64df1cd300"
+      }
+    },
+    "candidate": {
+      "manifest": {
+        "config_hash": "bf9f6f907fb9e1b789e35e8df6f5fb06e6ba5a18c5cdee447b4d6d3b9e86c437",
+        "datapoint_id": "1fbb95a3-b304-4157-9fa7-0064effa3107",
+        "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+        "evaluation_id": "4ba9d7bc-998b-430c-a870-6d8e289a037c",
+        "github_run_attempt": "1",
+        "github_run_id": "34215099251",
+        "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34215099251",
+        "harness": "pi-browser-use-next",
+        "judge": "findings",
+        "judge_model": "gpt-5.6-luna",
+        "judge_options": {
+          "reasoning_effort": "xhigh"
+        },
+        "max_steps": 1000,
+        "model": "gpt-5.6-luna",
+        "options": {
+          "browser_timeout_minutes": 70,
+          "evidence_format": "findings",
+          "max_context_chars": 800000,
+          "proxy_country_code": "us",
+          "reasoning_effort": "xhigh",
+          "task_timeout_seconds": 3600
+        },
+        "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+        "schema_version": 1,
+        "target_repo": "browser-use/bu-pi",
+        "target_sha": "29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b",
+        "task_id": "bub2-003",
+        "timeout_minutes": 62
+      },
+      "judgment": {
+        "audit_coverage": null,
+        "duration_seconds": 184.701,
+        "evidence_checked": [
+          "result.json",
+          "rubrics/bub2-003.md",
+          "65 judge screenshots",
+          "11 deliverable files"
+        ],
+        "failure_class": "",
+        "model": "gpt-5.6-luna",
+        "reason": "50/100 rubric weight met",
+        "replicate_scores": [],
+        "rubric": {
+          "A10_boundaries_honesty": false,
+          "A1_window_scope": true,
+          "A2_storyline_cohort": true,
+          "A3_corpus_counts": true,
+          "A4_article_evidence": false,
+          "A5_record_fidelity": false,
+          "A6_type_independence": true,
+          "A7_primary_documents": false,
+          "A8_deliverable_shape": true,
+          "A9_framing_restraint": true
+        },
+        "score": 0.5,
+        "score_range": 0,
+        "score_stddev": 0,
+        "status": "scored"
+      },
+      "judge_findings": [
+        {
+          "evidence": "The run established 8 September 2026 as the research date at step 4, declared 25 August\u20138 September at steps 150 and 167, and the validation at step 148 returned `within true` for all retained publication dates. The workbook Readme also records the same window.",
+          "item": "A1_window_scope",
+          "status": "met"
+        },
+        {
+          "evidence": "The retained corpus contains five storylines, listed at steps 146 and 150. Each has opened-page support: Reuters GDP reporting at step 50; PMO Russia/SCO pages at step 68; the PMO Iran page at step 71; India Today Iran reporting at step 83; Al Jazeera SCO reporting at step 87; and Uzbekistan reporting extracted at step 101. These are all Modi-relevant developments within the declared window.",
+          "item": "A2_storyline_cohort",
+          "status": "met"
+        },
+        {
+          "evidence": "The corpus has 25 retained records, 19 outlets, and storyline counts of 4\u20137, with a maximum outlet count of 3, as calculated at step 148 and verified from the workbook at step 183. Excluding the one record whose article body did not render (R3), the run still has 24 directly extracted article records. Source labels and the matrix identify Reuters/ANI/PTI/Bloomberg and readout repetition; after those deductions, each storyline still has at least four distinct originating reports: Russia (Reuters, New Indian Express, Bloomberg, Fortune), SCO (India Today, Al Jazeera, Outlook, Moneycontrol), Iran (India Today, ANI, CNBC-TV18, plus the distinct Iranian-follow-up reporting origin), GDP (Reuters, BusinessLine, CNBC, Firstpost), and Uzbekistan (India Today, PTI, Mint, The Week).",
+          "item": "A3_corpus_counts",
+          "status": "met"
+        },
+        {
+          "evidence": "Record R3, Anadolu Agency, is retained even though `articles_batch1.json` records its extracted `text` as empty. The direct-page attempts at steps 108 and 116 produced no body text; only page metadata/chrome and the headline were available. The canonical record itself acknowledges `article body did not render in session`. Under the opened-page boundary, this record lacks article-content extraction evidence.",
+          "item": "A4_article_evidence",
+          "status": "violated"
+        },
+        {
+          "evidence": "The I3 Deccan Chronicle record gives an event date of `2026-09-02`, but the opened article at step 99 shows publication on 3 September and says only that Rubio spoke `on Tuesday`; it does not show 2 September, and the exact date was guessed rather than left unknown. The same record therefore contains a date that does not match the opened source\u2019s displayed information. R3 is excluded from this item because its lack of article evidence is handled under A4.",
+          "item": "A5_record_fidelity",
+          "status": "violated"
+        },
+        {
+          "evidence": "The workbook labels records by type, including Reuters wire/original, ANI and PTI wire republications, Bloomberg syndicated republication, analysis/explainer, original reporting, and mixed agency-input reporting. R4 is explicitly labeled Bloomberg syndicated; I2 and I3 are explicitly ANI republications; U2 is PTI; and the matrix notes that I4/I6/I7 follow the same Iranian statement and that agency copies are not separate wire independence. The labels are consistent with the opened pages and duplicates are identified rather than silently treated as independent.",
+          "item": "A6_type_independence",
+          "status": "met"
+        },
+        {
+          "evidence": "The run opened and extracted P2/P3 at step 66, P4/P5 at step 68, and P6 at step 71; P7 and P8 are explicitly marked as inaccessible/unverified. However, P1, the PMO itinerary page, is listed in `primary_docs.json` and the brief as `verified page`, while step 64 shows only a search-result discovery and step 66\u2019s opened URL loop omits P1. No direct opening of P1 appears in the trace. This is an unsupported verification claim for a consulted primary document.",
+          "item": "A7_primary_documents",
+          "status": "violated"
+        },
+        {
+          "evidence": "The XLSX and Markdown brief are surfaced deliverables. Step 183 verifies workbook sheets Articles, ClaimMatrix, Chronology, PrimaryDocs, Framing, and Readme; the Articles sheet has 25 rows and the required headline, outlet, publication/event dates, byline, storyline, access, type, summary, claims, quoted/attributed people or institutions, and links. The brief contains a dated chronology, claim findings, primary-document section, and domestic/international framing comparison.",
+          "item": "A8_deliverable_shape",
+          "status": "met"
+        },
+        {
+          "evidence": "The brief\u2019s `Domestic vs international framing` section compares emphasis, terminology, attributed causes, and omissions across all five storylines. It explicitly labels coverage gaps, including the lack of a standalone international Uzbekistan article, and says the comparison does not infer motive. Its language reports framing choices and political actors\u2019 stated positions without asserting outlet intent or bias.",
+          "item": "A9_framing_restraint",
+          "status": "met"
+        },
+        {
+          "evidence": "The surfaced `articles_batch1.json`, `articles_batch2.json`, and `articles_batch3.json` deliverables contain full or near-full article bodies in their `text` fields, including extensive Reuters, Al Jazeera, Times of Oman, and other page text, contrary to the instruction not to reproduce full article text. In addition, the brief labels P1 `Access: verified page` despite no direct opening in the trace. These are boundary/compliance failures even though the final response honestly discloses the Anadolu, MoSPI, and Rubio limitations.",
+          "item": "A10_boundaries_honesty",
+          "status": "violated"
+        }
+      ],
+      "metrics": {
+        "cache_write_tokens": 201413,
+        "cached_input_tokens": 6028857,
+        "duration_seconds": 708.092,
+        "input_tokens": 57205,
+        "output_tokens": 44503,
+        "steps": 91,
+        "total_cost": 0.23577499000000005,
+        "total_tokens": 6331978
+      },
+      "tool_error_events": [
+        303,
+        307,
+        319
+      ],
+      "compactions": 1,
+      "provider_retries": 0,
+      "screenshot_errors": 12,
+      "cleanup_errors": [],
+      "stop_reason": "completed",
+      "final_matches_sdk_text": true,
+      "sha256": {
+        "manifest.json": "b74b23535471154fe49b81d8439cbf327ffa16c61f7108b115817e89d162e41b",
+        "events.jsonl": "b8856ec42938eaf3b14fd3aa9e0fa8e4d95b63b40c156e70fc30bb5753e4c929",
+        "task.json": "aa74217ff0c7c870818c31388d5b95043d861018267b3174f3a1f6857743fd73",
+        "result.json": "b39bc4f525828b131f8711f411a4597074719ceaca87fc3ee381f49cc4206d48",
+        "sdk-result.json": "d793a2651e53b0cde323dff68c2361552f9d6dfd84be06f6518ecc46c73e699c",
+        "judgment.json": "8d363f1ca93dd67ba82b1fe2ca02fa3447f287b3065e64527927ef8efa857fbf",
+        "judge_trace.json": "9e190a8b393417076bd46bd83f0e2145387374c315f4a9b1822408a2a0d1eba3",
+        "findings-evidence.json": "4278805433dae73670a6c4451ef802147e1c51c7960be2e1b20afd336bbc5ae3",
+        "final_message.txt": "781cb7a2f611c54ea2d9336f0dd422e405395f2c350734d174485d77f1f752ae",
+        "agent_outputs/canonical_articles.json": "2212ca64a14598b03b0e78fdeb515649f260b3cdd40696eec3c3004649f7c0b8",
+        "agent_outputs/claim_matrix.json": "29a1905178fa49118d83acf615e84c83b68f00dc016d0e4e6d3172350fde29b9",
+        "agent_outputs/modi_briefing_2026-09-08.md": "9c84b3c7f92ddf2167cd265d3782c7a45bbe840d48745bda573664a4ebc8be07",
+        "agent_outputs/chronology.json": "7b9d965e8b7d93d015f22f0b0c2ea5f961338c25134f19831624fd9f86147276",
+        "agent_outputs/articles_batch3.json": "e6b18624336c6bed3f70a00976514ce46e4db5b075de8f6a2a7fa1bc47e589f2",
+        "agent_outputs/articles_batch2.json": "4ab7a455f18d09a1f027660d0448c8bb427b1c3d8cc13054af4567cf90f7b7a5",
+        "agent_outputs/primary_docs.json": "10c5847f3923535fe13efc961dca77264802885348a1a254688bf02abddb2a97",
+        "agent_outputs/articles_batch1.json": "26a24e9b67ba540f8ec8f27f0db85410b470f784e833096f0d5c9ff049e71277",
+        "agent_outputs/modi_briefing_2026-09-08.xlsx": "6be6eb864133fdb5744ac5c22d6f176ef120510dcb34c648d4e9549c1d479202",
+        "agent_outputs/framing.json": "e731800001d91c52a47d059d34b7ebc22f2dec8622786b49462f023f299de72d",
+        "agent_outputs/progress.json": "5c47fb4223ffd07a9feb029db11bd6b029c5b38c3db3bcb1203633431b41bcaf"
+      }
+    }
+  },
+  "candidate_batch_checks": [
+    {
+      "name": "articles_batch1.json",
+      "records": 5,
+      "body_text_characters": 21401,
+      "empty_text_ids": [
+        "R3"
+      ],
+      "judge_preview_matches_file": true,
+      "clipped": false
+    },
+    {
+      "name": "articles_batch2.json",
+      "records": 5,
+      "body_text_characters": 30328,
+      "empty_text_ids": [],
+      "judge_preview_matches_file": true,
+      "clipped": false
+    },
+    {
+      "name": "articles_batch3.json",
+      "records": 5,
+      "body_text_characters": 29033,
+      "empty_text_ids": [],
+      "judge_preview_matches_file": true,
+      "clipped": false
+    }
+  ],
+  "confirmed_observations": [
+    "Candidate events 186,190,194 save three raw extraction batches with 15 records and 80,762 characters in text fields. All three files enter findings-evidence output_files in full, without clipping.",
+    "The user explicitly says not to reproduce full article text. The final requested brief uses paraphrases, but raw work files are also surfaced by the adapter. The current workspace has no explicit application-level distinction between scratch files and delivered files.",
+    "Candidate R3 has empty extracted text in batch1 and repeated attempts at events 214/215 and 230/231 do not provide body evidence. The canonical retained row openly labels the body unavailable, yet includes it in the retained corpus.",
+    "P1 is discovered in search output event 127. The direct official-page loop at event 130 omits it. Event 294 assigns it access=verified page; the final primary_docs.json repeats that status. No direct P1 opening was found in the recorded tool calls.",
+    "The I3 canonical row assigns 2026-09-02 to a source described as Tuesday following a 2026-09-03 publication. The judge flags an unsupported exact event date. This audit preserves the judge classification rather than independently verifying every article fact.",
+    "The reference also loses record-fidelity and primary-document criteria, but does not lose article-body evidence and output-boundary criteria. Both originals remain 78 and 50."
+  ],
+  "generalized_candidates": [
+    "Explicitly distinguish working evidence from files selected for user delivery, while retaining all working evidence in audit artifacts. Never hide scratch evidence from the judge to improve a score.",
+    "Retain original source observations and retrieval status when constructing canonical claims. Search discovery, metadata access and body access are different states.",
+    "Validate completion across the files actually being delivered, not just the summary and row counts."
+  ],
+  "limitations": [
+    "This paired loss does not isolate the causal contribution of a specific prompt or runtime change.",
+    "A delivery/scratch API would change a public contract and require compatibility, persistence and evaluator evidence checks. It is not implemented in the running candidate.",
+    "The current adapter intentionally enumerates ordinary workspace files. A different delivery selection must preserve separate working evidence and cannot retroactively change this judgment."
+  ]
+}

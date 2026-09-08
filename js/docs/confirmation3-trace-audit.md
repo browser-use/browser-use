@@ -77,3 +77,29 @@ The reference dismisses the dialogs, enters the rated puzzle workflow, moves pie
 Browser recovery and outcome verification are separate problems here. A transport reconnect does not fix every renderer stall, and success from another execution mode does not by itself prove the requested outcome. The reference judge also accepts a rated puzzle without strong evidence of trending rank. Both official scores remain unchanged; no external actions are replayed to repair this comparison.
 
 [Interaction sequence, errors and original judgments](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-interaction-pair.json).
+
+## Luna research loss: working files became delivered content
+
+Task `bub2-003` requests a current Modi briefing, article spreadsheet and supporting analysis, with no full article reproduction. The reference scores 78/100; the candidate scores 50/100. This was the largest loss among seven shared completed Luna pairs at selection.
+
+The candidate writes three raw extraction batches while researching. Their 15 records contain 80,762 characters of page text, including an empty article body. All three files enter the evaluator's output-file collection in full, without clipping. The final brief uses paraphrases, but those raw files are surfaced alongside it. The existing collector treats ordinary workspace files as outputs; the SDK does not distinguish working evidence from files selected for delivery.
+
+The candidate also retains the article with no body evidence and labels a primary itinerary page “verified page” after finding it in search. Its explicit direct-page loop does not open that itinerary. An additional exact event date is unsupported according to the judge. These are different problems from losing source text in compaction: the raw evidence survives, but canonical claims and delivered content exceed it. The reference also loses record-fidelity and primary-document criteria; it is not a perfect factual reference.
+
+A possible general improvement is explicit delivery selection around a persistent workspace, with all working evidence retained for audit. This must not become an evaluator trick that hides mistakes: scratch evidence remains available, and the original score cannot change. Source discovery, metadata access, body access and verified claims also need to remain distinct when the agent builds its records. File existence and article counts do not prove those transitions were justified.
+
+[Raw-file accounting, event indices and original findings](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-research-delivery-pair.json).
+
+## Luna coverage gain: resolve empty slots rather than exclude them
+
+Task `bub2-005` requests every card in Target's first category-page grid, preserving repeats and recording unloaded cards. The candidate scores 88/100; the reference scores 60/100. This was the largest gain among the same seven completed pairs.
+
+The candidate observes 20 loaded cards, registers a condition wait and scrolls. The next result reports 29 loaded cards; a wrapper inventory confirms all 29 slots. It inspects grid children to separate ad modules from product cards and extracts one record per wrapper, including an explicit unloaded fallback. The delivered ledger has 29 ordered rows and 28 unique product IDs.
+
+The reference's own final page observation reports 29 wrappers, 24 loaded cards and five empty wrapper IDs. It delivers 24 rows and claims the other five are outside the page-one boundary. Its evidence does not establish that exclusion. Separating structural inventory from loaded records explains the visible behavioral advantage here; it does not isolate which runtime change caused it.
+
+The candidate still delivers contradictory breadcrumb metadata. It adds a corrected visible breadcrumb but also retains the stale, incorrect breadcrumb list. Correcting one copy does not update the others. This repeats the broader issue of canonical observations and derived outputs drifting apart.
+
+The two sessions have different logged-out locations and result inventories: Waterford/286 results versus Baldwin Park/267. The comparison therefore does not isolate prices or identical product sets. Neither task uses compaction or provider retry. All original outcomes remain unchanged.
+
+[Grid transitions, file checks and original findings](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-grid-coverage-pair.json).
