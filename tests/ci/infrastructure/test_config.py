@@ -8,6 +8,22 @@ from browser_use.config import CONFIG
 class TestLazyConfig:
 	"""Test lazy loading of environment variables through CONFIG object."""
 
+	def test_proxy_env_vars_are_loaded_into_browser_profile(self, monkeypatch):
+		"""Test proxy environment variables map to the BrowserProfile proxy config."""
+		monkeypatch.setenv('BROWSER_USE_PROXY_URL', 'http://proxy.example.com:8080')
+		monkeypatch.setenv('BROWSER_USE_NO_PROXY', 'localhost, 127.0.0.1, *.internal')
+		monkeypatch.setenv('BROWSER_USE_PROXY_USERNAME', 'username')
+		monkeypatch.setenv('BROWSER_USE_PROXY_PASSWORD', 'password')
+
+		config = CONFIG.load_config()
+
+		assert config['browser_profile']['proxy'] == {
+			'server': 'http://proxy.example.com:8080',
+			'bypass': 'localhost,127.0.0.1,*.internal',
+			'username': 'username',
+			'password': 'password',
+		}
+
 	def test_config_reads_env_vars_lazily(self):
 		"""Test that CONFIG reads environment variables each time they're accessed."""
 		# Set an env var
