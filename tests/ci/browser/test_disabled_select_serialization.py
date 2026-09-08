@@ -1,13 +1,17 @@
 """Expose live values of visible disabled selects without assigning action indices."""
 
+import base64
+import io
 import json
 from collections.abc import AsyncIterator, Iterator
 
 import pytest
+from PIL import Image
 from pytest_httpserver import HTTPServer
 
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.profile import ViewportSize
+from browser_use.dom.service import DomService
 from browser_use.dom.views import SerializedDOMState
 from browser_use.tools.service import Tools
 
@@ -404,3 +408,80 @@ async def test_css_hidden_enabled_scrollable_select_does_not_expose_values(
 	serialized = state.llm_representation()
 	for hidden_content in ('hidden-scrollable-status', 'hidden-choice-', 'Hidden choice', 'Hidden internal option'):
 		assert hidden_content not in serialized, serialized
+
+
+@pytest.mark.parametrize('disabled', [False, True], ids=['enabled', 'disabled'])
+@pytest.mark.parametrize('opacity', [0, 1])
+@pytest.mark.parametrize('ancestor_display', ['block', 'contents'])
+async def test_select_visibility_matches_painting_with_layoutless_ancestors(
+	select_browser: BrowserSession,
+	select_server: HTTPServer,
+	disabled: bool,
+	opacity: int,
+	ancestor_display: str,
+):
+	"""A boxless wrapper's opacity must not hide a select that Chromium actually paints."""
+	await _open_form(
+		select_browser,
+		select_server,
+		'<style>body { background: white; } '
+		'#status { width: 300px; height: 60px; background: lime; color: black; font-size: 16px; opacity: 1; }</style>'
+		f'<div id="ancestor" style="display: {ancestor_display}; opacity: {opacity}">'
+		f'<select id="status" {"disabled" if disabled else ""}>'
+		'<option value="active">Active</option></select></div>',
+	)
+	state, tree, _ = await DomService(select_browser).get_serialized_dom_tree()
+	pending = [tree]
+	ancestor = None
+	while pending:
+		node = pending.pop()
+		if node.attributes.get('id') == 'ancestor':
+			ancestor = node
+			break
+		pending.extend(node.children_and_shadow_roots)
+	assert ancestor is not None and ancestor.snapshot_node is not None
+	if ancestor_display == 'contents':
+		assert ancestor.snapshot_node.bounds is None
+		assert ancestor.snapshot_node.computed_styles is None
+	else:
+		assert ancestor.snapshot_node.bounds is not None
+		assert ancestor.snapshot_node.computed_styles is not None
+		assert ancestor.snapshot_node.computed_styles['opacity'] == str(opacity)
+
+	session = await select_browser.get_or_create_cdp_session()
+	readback = await session.cdp_client.send.Runtime.evaluate(
+		params={
+			'expression': """(() => {
+				const ancestor = document.getElementById('ancestor');
+				const rect = document.getElementById('status').getBoundingClientRect();
+				return {opacity: getComputedStyle(ancestor).opacity,
+					clip: {x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1}};
+			})()""",
+			'returnByValue': True,
+		},
+		session_id=session.session_id,
+	)
+	value = readback['result'].get('value')
+	assert isinstance(value, dict) and value['opacity'] == str(opacity)
+	screenshot = await session.cdp_client.send.Page.captureScreenshot(
+		params={'format': 'png', 'clip': value['clip']}, session_id=session.session_id
+	)
+	# checkVisibility({opacityProperty: true}) also sees boxless ancestors and
+	# can disagree with painting. Check a background pixel away from text/arrow.
+	with Image.open(io.BytesIO(base64.b64decode(screenshot['data']))) as screenshot_image:
+		rgb = screenshot_image.convert('RGB')
+		pixel = rgb.getpixel((rgb.width * 3 // 4, rgb.height // 2))
+	assert isinstance(pixel, tuple)
+	is_painted = pixel[1] > pixel[0] + 100 and pixel[1] > pixel[2] + 100
+	expected_visible = ancestor_display == 'contents' or opacity == 1
+	assert is_painted is expected_visible, (ancestor_display, opacity, pixel)
+
+	serialized = state.llm_representation()
+	if expected_visible:
+		assert _reported_selection(state) == [{'value': 'active', 'label': 'Active'}]
+		if disabled:
+			_assert_disabled_controls_not_indexed(state)
+		else:
+			assert any(node.attributes.get('id') == 'status' for node in state.selector_map.values())
+	else:
+		assert '<select' not in serialized and 'Active' not in serialized, serialized

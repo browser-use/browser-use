@@ -450,6 +450,9 @@ class DOMTreeSerializer:
 			return False
 		current: EnhancedDOMTreeNode | None = node
 		while current:
+			# DOMSnapshot has no layout styles for display:contents wrappers. They
+			# generate no box, so their own opacity does not hide painted descendants.
+			# Do not treat missing layout styles as evidence that a select is hidden.
 			styles = current.snapshot_node.computed_styles or {} if current.snapshot_node else {}
 			if styles.get('display', '').lower() == 'none':
 				return False
