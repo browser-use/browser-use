@@ -20,7 +20,7 @@ There are judge-evidence limits. In `bub2-016`, the judge could not corroborate 
 
 ## Generalized next experiments
 
-The complete Hard comparison has four losses. Two content failures were also inspected in both arms: `6gvwrd` uses an agent-written prose regex to fill brand fields, producing description fragments as brand names; `mb5m9j` delivers 76 mobile rows with 10 provider-logo placeholders and 30 null plan names. These are field-validation defects despite successful browsing and JSON delivery. The retailer reference and candidate both produced 188 products; the candidate judge's broader inventory-coverage complaint is not independently established here. The other two losses are judge-classified access blocks and are not yet a causal diagnosis. [Full Hard comparison](./iteration-protocol.md#complete-fresh-hard-comparison).
+The complete Hard comparison has four losses. Two content failures were also inspected in both arms: `6gvwrd` uses an agent-written prose regex to fill brand fields, producing description fragments as brand names; `mb5m9j` delivers 76 mobile rows with 10 provider-logo placeholders and 30 null plan names. These are field-validation defects despite successful browsing and JSON delivery. The retailer reference and candidate both produced 188 products; the candidate judge's broader inventory-coverage complaint is not independently established here. The other two losses are audited below; they involve different access and search-strategy outcomes. [Full Hard comparison](./iteration-protocol.md#complete-fresh-hard-comparison).
 
 These observations motivate experiments, not benchmark-specific rules:
 
@@ -56,3 +56,12 @@ The corresponding `bub2-009` reference scored **82/100**, compacted once, and re
 The generalized candidate for further testing is semantic validation of generated transformations: test actual missing/error/negative cases, expected value types, and agreement between canonical records and final rendered fields. Presence, row counts and successful JSON parsing do not cover these failures. This observation does not justify hardcoded registry formats, benchmark-specific field checks, or claiming that another instruction guarantees fidelity. The current prompt already requests final reconciliation. Any additional enforcement or review step needs its own budget accounting and evaluation.
 
 [Counts, exact faulty expressions, trace IDs and source hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation-semantic-audit.json). Raw source payloads stay out of the repository.
+
+## Remaining Hard access losses
+
+Both arms of `pvs7hz` and `8hyexf` have now been inspected, completing the audit of all four negative Hard pairs. Neither is evidence of a CDP action failure.
+
+- **Wikiwand (`pvs7hz`):** both agents encountered sign-in for timeline generation. The reference's direct generation request returned 401. It later inspected the public sitemap, opened an existing public timeline and extracted 34 events from its DOM. The candidate returned the sign-in blocker without inspecting that public source. The distinction is generation versus discovery of an already-public result. This does not prove that generation needs no login or that the candidate browser would have loaded the same public URL.
+- **GoDaddy (`8hyexf`):** the candidate's first, unmodified navigation already showed Access Denied; the later user-agent override cannot explain that initial denial. A subsequent ordinary Node fetch returned 403. The reference loaded the same URL, applied the UI filters, and saved the captured export response as a 1,394,697-byte CSV with 10,000 data rows. Access diverged before the task interactions. The trace does not establish which IP, reputation, browser, timing or origin-side factor caused it.
+
+These observations support separating access variability from search strategy and data fidelity. They do not justify changing authentication, browser identity or benchmark tasks to erase the losses. [Paired IDs, metrics and evidence hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation-access-audit.json).
