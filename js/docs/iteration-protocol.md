@@ -88,7 +88,7 @@ The reference's provider failure was `bub2-051`; the candidate's was `bub2-046`.
 
 Large audited losses include misplaced deliverables (`bub2-021`), source observations lost from a summary before entering a durable dataset (`bub2-041`, `bub2-045`), and unsupported source/verification claims without any compaction (`bub2-052`). The judge globally zeroed seven reference tasks and four candidate tasks for suspected fabrication or related integrity failures. Those are retained judge classifications, not proof of malicious intent; no alternative scores replace them. Neither the workspace fix nor the [context archive experiment](./context-archive-experiment.md) can be credited with resolving every such failure.
 
-Numeric evidence: [all task scores, controls, costs and comparisons](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/iteration1-luna.json). Recorded costs exclude judge, browser, runner and separate diagnostic runs. The task bootstrap does not independently measure judge sampling variance. Cleanup errors and incomplete judgment coverage remain explicit limitations. The separate extraction-only Hard cohort finished at 90/106 with all actual judgments; its Luna cohort remains ongoing. See the [extraction report](./extraction-experiment.md). Candidate selection and fresh confirmation remain outstanding.
+Numeric evidence: [all task scores, controls, costs and comparisons](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/iteration1-luna.json). Recorded costs exclude judge, browser, runner and separate diagnostic runs. The task bootstrap does not independently measure judge sampling variance. Cleanup errors and incomplete judgment coverage remain explicit limitations. The separate extraction-only cohorts finished at 90/106 Hard and 59.22/100 Luna, with all 166 actual judgments. See the [extraction report](./extraction-experiment.md). The selected candidate and fresh confirmation are recorded below.
 
 ## Compatibility and recovery
 
@@ -105,6 +105,15 @@ On September 8 UTC, freeze SDK `f41c5b7116ede9393696b67a166e38f91893163f` for bo
 Selection occurred while three tasks in the earlier extraction-only Luna cohort were still pending: `bub2-054`, `bub2-056`, and `bub2-060`. Giving all three hypothetical scores of 100 produces a best possible exploratory one-sided 95% lower bound of −5.82 points versus the recorded strongest-reference rerun, or −6.45 versus the prior candidate. Neither can clear the −3-point margin. These are monotone upper bounds from the unfinished cohort, not final scores, substituted outcomes, a causal claim, or fresh confirmation. The old run continues and its complete results will be retained.
 
 The fresh plan contains all four arms, exact task IDs and hashes, full platform/SDK refs, model/reasoning, judge, budgets, and 12-job concurrency per arm. The final old tasks may overlap fresh dispatch; retain run times and this overlap. No task retries enter a cohort. Report all assigned outcomes, missing judgments, shared-judgment comparisons, costs, flips, and the same bootstrap uncertainty before claiming parity. [Frozen plan](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation1-plan.json).
+
+All four arms were dispatched once at 04:02 UTC on September 8, after the plan was pushed and the exact workflow SHA and latest smoke were rechecked. The earlier extraction-only Luna workflow subsequently completed successfully; its outcomes were not substituted into confirmation.
+
+| Benchmark | Reference execution | Candidate execution |
+| --- | --- | --- |
+| Hard106 | [34185574950](https://github.com/browser-use/new-eval-platform/actions/runs/34185574950) | [34185576664](https://github.com/browser-use/new-eval-platform/actions/runs/34185576664) |
+| Luna60 | [34185578184](https://github.com/browser-use/new-eval-platform/actions/runs/34185578184) | [34185579665](https://github.com/browser-use/new-eval-platform/actions/runs/34185579665) |
+
+Confirmation is ongoing. Partial scores do not establish parity, and the selected runtime remains unchanged during execution.
 
 ## Compatibility and rollback
 

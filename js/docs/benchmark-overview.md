@@ -46,7 +46,7 @@ The Hard peak has not been a stable result across later changes. See [reliabilit
 
 The subsequent concurrent reference/candidate comparisons at candidate `0baa51d` finished at **84 versus 82/106 on Hard**, and **58.45 versus 59.63/100 on Luna**. Neither cleared the prespecified statistical noninferiority margin. Luna retains one provider-failure zero without an actual judgment in each arm. These later runs are retained separately from the historical README chart; see the [complete paired results and uncertainty](./iteration-protocol.md).
 
-The extraction-only candidate `4a09ee3` subsequently scored **90/106 on Hard**, with all 106 actual judgments and $120.98 recorded agent inference cost. Its full Luna cohort is still incomplete. This is a nonconcurrent development comparison, not fresh confirmation or a result for the current HEAD. The [extraction report](./extraction-experiment.md) retains uncertainty, workflow closure, and factual limitations found even in passing traces.
+The extraction-only candidate `4a09ee3` subsequently scored **90/106 on Hard** and **59.22/100 on Luna**, with all 166 actual judgments. Recorded agent inference costs were $120.98 and $19.99 respectively. Luna's paired lower bounds did not clear the prespecified margin. This is a nonconcurrent development comparison, not fresh confirmation or a result for the current HEAD. The [extraction report](./extraction-experiment.md) retains uncertainty, workflow closure, delivery failures, and factual limitations found even in passing traces.
 
 ## Sources and reproduction
 

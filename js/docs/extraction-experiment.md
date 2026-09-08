@@ -51,4 +51,29 @@ The last workflow job, `sw2292`, published a passing judgment before finishing i
 
 These examples support testing general extraction discipline while showing why a passing score cannot certify every field. No task-specific repair, alternative judgment, or substituted outcome was added.
 
-[Per-task scores, frozen inputs, costs, and comparisons](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/extraction-hard.json). Costs exclude judge, browser, runner, and diagnostic runs. The Luna cohort remains separate and incomplete; do not combine this Hard result with Luna scores from another SDK to claim parity on both benchmarks.
+[Per-task scores, frozen inputs, costs, and comparisons](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/extraction-hard.json). Costs exclude judge, browser, runner, and diagnostic runs.
+
+## Complete Luna result
+
+The same extraction-only SDK finished at **59.22/100 across all 60 assigned tasks**, with **60 actual judgments**, a successful workflow, and **$19.98612436** recorded agent inference cost. It recorded 24 compactions, one SDK inference retry, and one task with an SDK cleanup error. All outcomes remain in the report, including seven official global zeros classified by the judge as suspected reward hacking. That classification does not establish intent.
+
+| Comparison | Reference mean / 100 | Candidate mean / 100 | Paired delta | 95% task-bootstrap interval | One-sided 95% lower bound |
+| --- | ---: | ---: | ---: | --- | ---: |
+| Prior candidate `0baa51d` | 59.63 | 59.22 | −0.42 pp | [−9.17, +8.80] pp | −7.77 pp |
+| Historical-reference SDK `b430a91`, rerun | 58.45 | 59.22 | +0.77 pp | [−8.13, +9.80] pp | −6.73 pp |
+
+Neither lower bound clears the −3-point margin. Both comparators retain one provider-failure zero without an actual judgment. On each comparison's 59 shared actual judgments, the candidate delta is −1.92 points against the prior candidate, or −0.41 against the strongest-reference rerun. Their lower bounds are −9.08 and −7.86 points respectively. The candidate is 2.78 points below the historical 62.00 point estimate; that descriptive proximity does not establish statistical parity.
+
+The extraction rule's apparent Hard gain did not transfer into a clear Luna gain. These nonconcurrent development runs cannot establish that the prompt caused either change. Large gains and losses coexist: for example, `bub2-021` moved from 0 to 94, while `bub2-041` moved from 66 to 6. No retry or alternate judgment replaces either result.
+
+### Audited failure mechanisms
+
+- **Files outside the collected workspace (`bub2-041`, 66 → 6):** the agent explicitly created a sibling directory before compaction. The downloaded artifact contains 44 files there, including a valid 12-sheet workbook and 366-row ledger retaining the relevant cash-flow figures. The official output-file list is empty. This is primarily a delivery failure, unlike the prior cohort's summary omission. The later workspace prompt is absent from this experiment; its native-write warning would not intercept this Bash/Python write path.
+- **Observed facts changed before delivery (`bub2-003`, 70 → 0):** source tool results preserve bylines and dates that the final records omit or change. The compaction summary already contains a wrong date and an unresolved coverage warning. The final still claims completion. Its official global zero is retained; this does not prove compaction alone caused the failure.
+- **Recovery loops plus unsupported facts (`bub2-023`, 68 → 0):** the candidate issued 178 tool starts with 36 errors, including 23 CDP command timeouts. Thirteen cells reconnected, compared with one in the prior candidate. Unsupported fields were already in files before compaction. The old timeout guidance incorrectly implied that every timeout resets the worker. The selected recovery SDK corrects that guidance, but these traces do not establish it as the cause of the score loss.
+- **Unknown converted into false (`bub2-049`, 70 → 0):** two rows in the actual verification CSV have null grid prices and concrete product-page prices, yet `price_mismatch=false`. The code also backfills six unknown search-result sellers from product-page observations, changing the source represented by the summary. Both runs had zero compactions. This is a source-semantics and three-valued-logic failure, not evidence that a context archive would fix it. The judge awarded 62 raw rubric points before its official global zero; zero remains the reported score.
+- **Coverage checks over the wrong unit (`bub2-010`, 86 → 18):** the delivered inventory contains 13 US, 11 GB, 13 CA, and 13 AU concepts. Independent parsing finds Library IDs repeated across different concept rows in US, CA, and AU. The report calls this an up-to-15 selection without clearly marking the shortfall incomplete. Both runs had zero compactions. A final row-count check succeeded, but it did not validate unique source identities or the original coverage requirement.
+
+The combined extraction-only result is therefore **90/106 Hard and 59.22/100 Luna at `4a09ee3`**. It excludes the later workspace, extra transient-error retry coverage, context archive, and timeout-guidance fixes. Those are frozen together at `f41c5b7` for a separate fresh confirmation.
+
+[All 180 outcomes, exact controls, costs, and assigned/shared comparisons](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/extraction-luna.json). Costs exclude judge, browser, runner, and diagnostic runs. Recorded failed-response usage may be incomplete. Bootstrap uncertainty is across tasks and does not independently measure judge sampling variance.
