@@ -25,3 +25,5 @@ Run `mlgses` on Hard106 with GPT-5.5 medium and `bub2-023` on BU_Bench_v2 with L
 Inspect actual tool execution, protocol errors, before/after-timeout behavior, model recovery, original judgments, delivered evidence and browser cleanup. A passing score alone does not isolate the mechanism. A failure without a synchronous-evaluation stall does not falsify the local reproduction. Do not weaken or relabel the original score.
 
 Only after all four diagnostics complete and their integration evidence is checked, select the next frozen full comparison. Both original task sets, historical floors (88/106 Hard, 59/100 Luna), full actual-judgment coverage, 3-point margin, and 20,000 paired bootstrap resamples with seed 20260907 remain unchanged. No SOTA or full-benchmark gain is claimed here.
+
+The frozen candidate is `45cedf407debcc6615462a3ca9eecf8d3b4e98c0`. The diagnostic control `62e9caf5e241cc27c36ef863476544df1fe044ec` retains the complete evaluated `29e2b5e` runtime; its eval adapter and dependency lock match the candidate. [Exact inputs and gate](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/evaluation-deadline-plan.json).
