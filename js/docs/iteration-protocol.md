@@ -166,6 +166,14 @@ A read-only Cloud API audit confirmed **334/334 owned browsers from completed co
 
 [Complete Luna evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation1-luna.json) · [Combined frozen confirmation](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation1.json). The next prepared runtime and its one-task diagnostic are documented in the [semantic validation experiment](./semantic-validation-experiment.md); no new full-cohort score is attributed to them.
 
+## Second frozen confirmation
+
+After retaining all 332 confirmation1 outcomes and the completed semantic diagnostic, freeze runtime **`65a16cb6e43a31e67d59a7ed841858e70f05a5ba`** for a second full matched confirmation. References remain `58ed778` for Hard and `b430a91` for Luna. Historical targets, the 3-point margin, the bootstrap, all 106/60 task IDs, model/reasoning, judge, renderer, budgets and 12-job concurrency per arm remain unchanged. All prior bu-pi iteration workflows are terminal at selection.
+
+The candidate bundles the later image-preview guard, exact generic-provider recovery, journal discovery, owned-tab cleanup verification and semantic-test guidance. The [completed diagnostic](./semantic-validation-experiment.md#completed-diagnostic) establishes integration and cleanup, but does not establish semantic-test adoption or improved quality. Its workbook still lost screening fields despite preserving them in canonical data. Keep that failure and its 60/100 score separate from both full cohorts.
+
+Four arms are frozen before dispatch; no newer SDK commit may enter them. Every assigned outcome is retained, including failures and missing judgments. Completion requires actual-judgment coverage and the original acceptance on both benchmarks. These remain development benchmarks, not held-out SOTA evidence. No new full result exists at selection. [Exact plan](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-plan.json).
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.

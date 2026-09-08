@@ -1,0 +1,162 @@
+{
+  "collected_at": "2026-09-08T06:56:23.007249+00:00",
+  "plan": "evidence/semantic-validation-plan.json",
+  "manifest": {
+    "config_hash": "ace52134711210c21e56d1f0653297d0f12ef53d79a911319acd7545772097a6",
+    "datapoint_id": "678ad335-9fa5-4869-bbcb-cfe544c04064",
+    "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+    "evaluation_id": "a520cb80-e082-40b1-ad4c-ec7b64e57eba",
+    "github_run_attempt": "1",
+    "github_run_id": "34193959471",
+    "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34193959471",
+    "harness": "pi-browser-use-next",
+    "judge": "findings",
+    "judge_model": "gpt-5.6-luna",
+    "judge_options": {
+      "reasoning_effort": "xhigh"
+    },
+    "max_steps": 1000,
+    "model": "gpt-5.6-luna",
+    "options": {
+      "browser_timeout_minutes": 70,
+      "evidence_format": "findings",
+      "max_context_chars": 800000,
+      "proxy_country_code": "us",
+      "reasoning_effort": "xhigh",
+      "task_timeout_seconds": 3600
+    },
+    "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "schema_version": 1,
+    "target_repo": "browser-use/bu-pi",
+    "target_sha": "65a16cb6e43a31e67d59a7ed841858e70f05a5ba",
+    "task_id": "bub2-009",
+    "timeout_minutes": 62
+  },
+  "workflow_conclusion": "success",
+  "score_per_100": 60.0,
+  "actual_judgment": true,
+  "agent_metrics": {
+    "cache_write_tokens": 129097,
+    "cached_input_tokens": 9274037,
+    "duration_seconds": 1899.345,
+    "input_tokens": 384,
+    "output_tokens": 59526,
+    "steps": 128,
+    "total_cost": 0.28926299000000005,
+    "total_tokens": 9463044
+  },
+  "agent_model": "openai/gpt-5.6-luna",
+  "node": "v22.23.2",
+  "dependency_lock_sha256": "7ab8ce4c0dd453995b211d1fff5fc61b43242742a02a064a88c9dfde15e86508",
+  "tool_executions": {
+    "javascript": 104,
+    "bash": 14,
+    "write": 2,
+    "edit": 6,
+    "read": 1,
+    "finish": 1
+  },
+  "compactions": 0,
+  "provider_retries": 0,
+  "recorded_cleanup_errors": [],
+  "browser_cleanup": {
+    "label": "semantic-validation-smoke-luna",
+    "task_id": "bub2-009",
+    "github_run_id": 34193959471,
+    "checked_at": "2026-09-08T06:53:28.786232+00:00",
+    "id": "846afd1b-e31c-41f9-a721-04ce5f089c32",
+    "status": "stopped",
+    "startedAt": "2026-09-08T06:17:37.848977Z",
+    "finishedAt": "2026-09-08T06:49:18.730219Z"
+  },
+  "screenshot_count": 101,
+  "png_signatures_verified": 101,
+  "screenshot_warning_count": 3,
+  "screenshot_warning_context": [
+    "initial tabs-list cell",
+    "two syntax-error cells"
+  ],
+  "delivered_files": 21,
+  "judgment_rubric": {
+    "A10_qualification_calls": false,
+    "A1_six_searches_executed": true,
+    "A2_screening_depth": true,
+    "A3_screening_log_complete": true,
+    "A4_dedup_and_classification": true,
+    "A5_deliverable_shape": true,
+    "A6_verification_not_fabricated": false,
+    "A7_verification_coverage": false,
+    "A8_data_faithful": false,
+    "A9_completion_honesty": true
+  },
+  "behavior_audit": {
+    "exclusion_reason_types": {
+      "str": 93
+    },
+    "workbook": {
+      "search_inventory_columns": {
+        "status": {
+          "blank": 171,
+          "rows": 171
+        },
+        "reason": {
+          "blank": 171,
+          "rows": 171
+        },
+        "firstQuery": {
+          "blank": 171,
+          "rows": 171
+        },
+        "latestCommitDate": {
+          "blank": 171,
+          "rows": 171
+        },
+        "licenseObserved": {
+          "blank": 171,
+          "rows": 171
+        }
+      },
+      "canonical_screened_rows": 171,
+      "canonical_nonempty_reasons": 171,
+      "exclusion_reasons_nonempty_strings": 93,
+      "exclusion_rows": 93
+    },
+    "installation_evidence_fallbacks": 10,
+    "retained_projects": 53,
+    "validation_seen": [
+      "Repaired undefined page ranks in inventory.",
+      "Checked file existence, counts, categories and duplicate assignments.",
+      "Inspected a workbook coverage row and README timestamps/counts.",
+      "Regenerated artifacts after source changes."
+    ],
+    "not_observed_in_128_tool_calls": [
+      "Tests of transformation functions on observed missing/error/contradictory records.",
+      "Comparison of screening status/reason fields between canonical screened rows and workbook."
+    ],
+    "independently_verified_source_defects": [
+      "Bastrio exclusion says no license; captured README explicitly identifies GNU GPL v3.0.",
+      "Stagehand Python retained and highly ranked despite captured archived/read-only notice.",
+      "Search Inventory workbook is populated from raw searchInventory rather than screenedProjects, leaving all171 status and reason cells blank."
+    ],
+    "judge_scope_caveat": "Silkworm row explicitly says its package JSON was not queried; preserve that disclosure when describing the judge verification failure.",
+    "parser_suspicion_rejected": "Decoded JavaScript correctly splits real newline characters; apparent double escaping was trace serialization, not a code defect."
+  },
+  "source_sha256": {
+    "manifest.json": "d68e6c899701dc4d7bad7887b79856b4678dbe339b13953acaa4e5d888c4ba22",
+    "events.jsonl": "8d7fb0dfc3ed28462ab9a1763b8a7285361d88348f321642a2a35142d1b7e0f1",
+    "judgment.json": "7ae31e3ff4a38e659dd0783c617da4c88dc11c6581b29cbc6769ba9c8fb81643",
+    "judge_trace.json": "8ec3d0f88a15049bf66dcda07b82a59da97cc66863c92f1a30bc0a05f991dd5c",
+    "agent_outputs/landscape_canonical.json": "c6438e61d32ba950ddcd77821f6f24a3c7afd7dbf81239cc4c107059f2632125",
+    "agent_outputs/build_workbook.py": "4dc6d56db438f84f0ef54b79214d74bb16d3693cd007cbfa306850abb8dd4737",
+    "agent_outputs/browser_automation_landscape.xlsx": "43fada5f8a81228ef983e580d37d1267a8d3ea597f6a50e2d59af2bc6e27e74b"
+  },
+  "interpretation": "Integration and lifecycle gate passed. Specific prior boolean-reason corruption did not recur. Intended semantic-test adoption is unproven; do not infer quality gain from one nonconcurrent task.",
+  "limitations": [
+    "One known development task, not fresh ranking or held-out generalization.",
+    "Full per-task budgets but concurrency1 and different live timing.",
+    "May overlap last confirmation jobs; preserve timings.",
+    "Higher score alone does not establish validation adoption.",
+    "Runtime also includes image guard, generic provider recovery, journal guidance and cleanup verification.",
+    "Agent cost excludes judge/browser/runner and unreported usage."
+  ]
+}
