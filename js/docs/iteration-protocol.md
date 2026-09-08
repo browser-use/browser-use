@@ -9,6 +9,8 @@ BU_Bench_v2: GPT-5.6-luna xhigh, Findings Luna xhigh, reference `b430a91891e23f5
 
 The September 7 direct Laminar inventory of this project's same-model runs since August 15 found no stronger result on these task sets. The historical BrowserCode Luna reference is 41.17/100. This is a scoped reference inventory, not an exhaustive public SOTA ranking.
 
+A September 8 refresh of full-sized same-model cohorts recorded since September 7 found no higher recorded mean than either frozen target in this project. Cohort size is a screening condition, not proof of task identity or complete actual judgments. No reference, margin or floor changes. [Scoped query and retained inventory](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/reference-refresh-20260908.json).
+
 The practical noninferiority margin is **3 percentage points** on each benchmark's original metric. It is a chosen product tolerance, not measured judge noise. Pair by task ID; compute candidate minus reference. A confirmation passes only if the one-sided 95% task-bootstrap lower bound is greater than -3 points on **both** benchmarks. Use 20,000 resamples and seed 20260907. Overlapping marginal intervals and a nonsignificant difference do not establish noninferiority. If the interval is too wide, report inconclusive.
 
 Historical scores remain descriptive. Rerun the frozen references with the candidate's controls. Retain all assigned tasks and every attempt; never splice retries into a cohort. Report provisioning/provider/runner/judge failures separately, including their effect on the assigned-task denominator. Missing real judgments make confirmation preliminary; do not silently call an infrastructure zero a real judgment.
