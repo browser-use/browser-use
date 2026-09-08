@@ -50,5 +50,14 @@
     "observation-target-before.log": "18b403c39b02cd583fe61575995f24cd293fece9bad0806cc3ba50ae00322d25",
     "observation-evidence-supported-node-tests.log": "b5c5a6c04e3ba7d9d27967ac25344db8126f452d231bd3c0c0ffd660b9feeeac",
     "observation-evidence-python.log": "d1ad4e980ade760a85294605d4cf698e37c1f688e9d7ae12d8c2c0f2e6690c29"
+  },
+  "transport_followup": {
+    "checked_at": "2026-09-08T10:06:00.854239+00:00",
+    "passed": 5,
+    "total": 5,
+    "new_case": "A real Chrome screenshot captured before a thrown cell error is serialized as input_image in the next HTTP OpenAI Responses request, with a valid JPEG payload and retained tool error flag.",
+    "scope": "Local SSE endpoint and scripted responses; no paid inference. Runtime unchanged from 29e2b5e.",
+    "source_sha256": "3eee4ecc9eece5c7f0c276a0441ae5dec73275d023ea5831ef8896f5f0d39645",
+    "log_sha256": "a80dad10ef429affa44fce1d4ac2d0508c55958e8fdb900cfd6c0f154c61915c"
   }
 }

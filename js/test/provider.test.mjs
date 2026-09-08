@@ -53,9 +53,10 @@ test(
   },
 );
 
-for (const recovery of ['none', 'uncoded', 'server_error']) {
-  const recover = recovery !== 'none';
-  test(`real OpenAI Responses transport parses SSE completion; generic error recovery=${recovery}`, async () => {
+for (const recovery of ['none', 'uncoded', 'server_error', 'failed-cell-image']) {
+  const recover = ['uncoded', 'server_error'].includes(recovery);
+  const imageFailure = recovery === 'failed-cell-image';
+  test(`real OpenAI Responses transport parses SSE completion; scenario=${recovery}`, async () => {
     let request;
     let requests = 0;
     const server = createServer(async (req, res) => {
@@ -64,6 +65,7 @@ for (const recovery of ['none', 'uncoded', 'server_error']) {
       request = { url: req.url, body: JSON.parse(body) };
       requests++;
       const fail = recover && requests === 1;
+      const captureThenFail = imageFailure && requests === 1;
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       const event = (type, body) =>
         res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...body })}\n\n`);
@@ -71,10 +73,14 @@ for (const recovery of ['none', 'uncoded', 'server_error']) {
         id: 'fc_fixture',
         type: 'function_call',
         call_id: 'call_fixture',
-        name: fail ? 'javascript' : 'finish',
-        arguments: fail
-          ? JSON.stringify({ code: "throw new Error('failed response tool executed')" })
-          : '{"result":"transport verified"}',
+        name: fail || captureThenFail ? 'javascript' : 'finish',
+        arguments: captureThenFail
+          ? JSON.stringify({
+              code: "await page.goto('data:text/html,<title>Captured before error</title>'); await screenshot(); throw new Error('failure after real capture')",
+            })
+          : fail
+            ? JSON.stringify({ code: "throw new Error('failed response tool executed')" })
+            : '{"result":"transport verified"}',
         status: 'completed',
       };
       event('response.created', {
@@ -147,11 +153,27 @@ for (const recovery of ['none', 'uncoded', 'server_error']) {
         request.body.tools.map((t) => t.name),
         ['javascript', 'finish', 'finish_from_js'],
       );
-      assert.equal(requests, recover ? 2 : 1);
+      assert.equal(requests, recover || imageFailure ? 2 : 1);
       assert.equal(result.providerRetries, recover ? 1 : 0);
-      assert.deepEqual(tools, ['finish']);
-      assert.equal(result.usage.input, 10);
-      assert.equal(result.usage.output, 5);
+      assert.deepEqual(tools, imageFailure ? ['javascript', 'finish'] : ['finish']);
+      assert.equal(result.usage.input, imageFailure ? 20 : 10);
+      assert.equal(result.usage.output, imageFailure ? 10 : 5);
+      if (imageFailure) {
+        const output = request.body.input.find(
+          (item) => item.type === 'function_call_output',
+        ).output;
+        assert.match(
+          output.find((part) => part.type === 'input_text').text,
+          /failure after real capture/,
+        );
+        const image = output.find((part) => part.type === 'input_image');
+        assert.match(image.image_url, /^data:image\/jpeg;base64,/);
+        assert.equal(Buffer.from(image.image_url.split(',')[1], 'base64').readUInt16BE(0), 0xffd8);
+        assert.equal(
+          agent.history.messages.find((message) => message.role === 'toolResult').isError,
+          true,
+        );
+      }
     } finally {
       await agent.close();
       await rm(agent.workspace, { recursive: true, force: true });
