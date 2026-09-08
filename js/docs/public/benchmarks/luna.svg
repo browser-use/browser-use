@@ -1,48 +1,45 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 622" role="img" aria-labelledby="title description">
-<title id="title">Luna xhigh results on BU_Bench_v2</title>
-<desc id="description">Historical bu-pi b430a91: 62.0 out of 100, recorded agent cost $17.86. Latest full candidate 29e2b5e: 61.75 out of 100, $20.25. Historical BrowserCode: 41.2 out of 100, $21.49. Each retains 60 tasks. Different dates and runners. One bu-pi provisioning failure stays at zero. Costs are agent estimates only. This is not a controlled efficiency comparison.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 556" role="img" aria-labelledby="title description">
+<title id="title">Concurrent bu-pi comparison: Luna xhigh on BU_Bench_v2</title>
+<desc id="description">Candidate 61.75/100 versus reference 54.22/100, all 60 tasks judged per arm. Agent costs $20.25 versus $19.28. Total reported tokens 530303645 versus 499248761. Paired score difference +7.53 points, 95% interval +0.10 to +15.42. More tokens and cost, not an efficiency win. Development benchmark, not held-out SOTA.</desc>
 <style>
 text{font-family:Inter,Arial,sans-serif;fill:#20221f}
 .muted{fill:#676b63}.small{font-size:13px}.label{font-size:22px;font-weight:700}.value{font-size:23px;font-weight:700}
 </style>
-<rect width="920" height="622" rx="14" fill="#faf9f6"/>
-<text x="38" y="39" font-size="12" font-weight="700" letter-spacing="1.6" fill="#bc4328">BU-PI / PINNED EVALUATIONS</text>
-<text x="38" y="83" font-size="31" font-weight="700">Luna, on 60 real browser tasks.</text>
-<text x="38" y="112" font-size="16" class="muted">BU_Bench_v2 · GPT-5.6-luna · xhigh reasoning</text>
-<text x="250" y="148" font-size="13" font-weight="700">MEAN SCORE / 100 ↑</text>
-<text x="782" y="148" text-anchor="middle" font-size="13" font-weight="700">RECORDED AGENT COST</text>
+<rect width="960" height="556" rx="14" fill="#faf9f6"/>
+<text x="36" y="36" font-size="12" font-weight="700" letter-spacing="1.6">BU-PI / CONCURRENT EVALUATION</text>
+<text x="36" y="80" font-size="31" font-weight="700">Same model. Same 60 tasks.</text>
+<text x="36" y="110" font-size="16" class="muted">BU_Bench_v2 · Luna xhigh · September 8, 2026 · matched budgets and judge</text>
+<text x="252" y="149" font-size="12" font-weight="700">MEAN SCORE / 100 ↑</text>
+<text x="705" y="149" text-anchor="middle" font-size="12" font-weight="700">AGENT COST</text>
+<text x="854" y="149" text-anchor="middle" font-size="12" font-weight="700">TOTAL TOKENS</text>
 
-  <line x1="250" x2="250" y1="162" y2="466" stroke="#e2e0da"/>
-  <text x="250" y="486" text-anchor="middle" class="muted small">0</text>
-  <line x1="352.5" x2="352.5" y1="162" y2="466" stroke="#e2e0da"/>
-  <text x="352.5" y="486" text-anchor="middle" class="muted small">25</text>
-  <line x1="455" x2="455" y1="162" y2="466" stroke="#e2e0da"/>
-  <text x="455" y="486" text-anchor="middle" class="muted small">50</text>
-  <line x1="557.5" x2="557.5" y1="162" y2="466" stroke="#e2e0da"/>
-  <text x="557.5" y="486" text-anchor="middle" class="muted small">75</text>
-  <line x1="660" x2="660" y1="162" y2="466" stroke="#e2e0da"/>
-  <text x="660" y="486" text-anchor="middle" class="muted small">100</text>
-  <text x="38" y="209" class="label">bu-pi · historical</text>
-  <text x="38" y="234" class="muted small">b430a91 · Sep 7, 2026</text>
-  <rect x="250" y="185" width="254.2" height="44" rx="4" fill="#c77d64"/>
-  <text x="516.2" y="215" class="value">62.0</text>
-  <text x="782" y="215" text-anchor="middle" class="value">$17.86</text>
-  <text x="782" y="239" text-anchor="middle" class="muted small">60 assigned tasks</text>
-  <text x="38" y="315" class="label">bu-pi · candidate</text>
-  <text x="38" y="340" class="muted small">29e2b5e · Sep 8, 2026</text>
-  <rect x="250" y="291" width="253.175" height="44" rx="4" fill="#e65b37"/>
-  <text x="515.175" y="321" class="value">61.8</text>
-  <text x="782" y="321" text-anchor="middle" class="value">$20.25</text>
-  <text x="782" y="345" text-anchor="middle" class="muted small">60 assigned tasks</text>
-  <text x="38" y="421" class="label">BrowserCode</text>
-  <text x="38" y="446" class="muted small">Historical · Aug 20, 2026</text>
-  <rect x="250" y="397" width="168.7833333333333" height="44" rx="4" fill="#6b7280"/>
-  <text x="430.7833333333333" y="427" class="value">41.2</text>
-  <text x="782" y="427" text-anchor="middle" class="value">$21.49</text>
-  <text x="782" y="451" text-anchor="middle" class="muted small">60 assigned tasks</text>
-<line x1="38" x2="882" y1="514" y2="514" stroke="#deddd6"/>
-<text x="38" y="541" class="muted small">Same task IDs. Different dates and runners. Not a controlled efficiency comparison.</text>
-<text x="38" y="563" class="muted small">Historical bu-pi: 59 judged + 1 provisioning zero. Other bars: 60 judged. Continuous scores, not pass rates.</text>
-<text x="38" y="585" class="muted small">Costs exclude judge, browser, and runner. Exact run IDs and accounting: docs/benchmark-overview.md</text>
-<text x="38" y="607" class="muted small">Latest full candidate is not current SDK HEAD. Matched reference and uncertainty: see benchmark evidence.</text>
+  <line x1="252" x2="252" y1="163" y2="338" stroke="#e2e0da"/>
+  <text x="252" y="360" text-anchor="middle" class="muted small">0</text>
+  <line x1="342" x2="342" y1="163" y2="338" stroke="#e2e0da"/>
+  <text x="342" y="360" text-anchor="middle" class="muted small">25</text>
+  <line x1="432" x2="432" y1="163" y2="338" stroke="#e2e0da"/>
+  <text x="432" y="360" text-anchor="middle" class="muted small">50</text>
+  <line x1="522" x2="522" y1="163" y2="338" stroke="#e2e0da"/>
+  <text x="522" y="360" text-anchor="middle" class="muted small">75</text>
+  <line x1="612" x2="612" y1="163" y2="338" stroke="#e2e0da"/>
+  <text x="612" y="360" text-anchor="middle" class="muted small">100</text>
+  <text x="36" y="210" class="label">bu-pi candidate</text>
+  <text x="36" y="234" class="muted small">29e2b5e · 60/60 judged</text>
+  <rect x="252" y="185" width="222.30000000000004" height="43" rx="4" fill="#e65b37"/>
+  <text x="486.30000000000007" y="214" class="value">61.75</text>
+  <text x="705" y="214" text-anchor="middle" class="value">$20.25</text>
+  <text x="854" y="214" text-anchor="middle" class="value">530.3M</text>
+  <text x="36" y="306" class="label">bu-pi reference</text>
+  <text x="36" y="330" class="muted small">c3f7fac · 60/60 judged</text>
+  <rect x="252" y="281" width="195.18" height="43" rx="4" fill="#7b8078"/>
+  <text x="459.18" y="310" class="value">54.22</text>
+  <text x="705" y="310" text-anchor="middle" class="value">$19.28</text>
+  <text x="854" y="310" text-anchor="middle" class="value">499.2M</text>
+<line x1="36" x2="924" y1="386" y2="386" stroke="#deddd6"/>
+<text x="36" y="419" font-size="20" font-weight="700">+7.53 score points</text>
+<text x="322" y="419" font-size="15" class="muted">Paired 95% interval: [+0.10, +15.42]</text>
+<text x="36" y="451" font-size="15">6.22% more reported tokens · 5.04% more agent cost. No efficiency gain.</text>
+<text x="36" y="485" class="muted small">Continuous scores, not pass rates. Tokens include repeated cached context and compaction.</text>
+<text x="36" y="507" class="muted small">Costs exclude judge, browser, and runner. Previously inspected development tasks, not held-out SOTA.</text>
+<text x="36" y="529" class="muted small">Candidate is the latest fully evaluated runtime, not current HEAD. Run IDs: docs/benchmark-overview.md</text>
 </svg>

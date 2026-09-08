@@ -60,7 +60,7 @@ Your app -> BrowserUse -> Pi -> Luna / your model
 
 ## Benchmarks
 
-![Luna xhigh on BU_Bench_v2: historical bu-pi 62.00/100 at $17.86, latest full candidate 61.75/100 at $20.25, historical BrowserCode 41.17/100 at $21.49. Each retains 60 assigned tasks. Different dates and runners; not a controlled efficiency comparison.](docs/public/benchmarks/luna.svg)
+![Concurrent Luna xhigh comparison on BU_Bench_v2: bu-pi candidate 61.75/100, $20.25, 530.3M reported tokens; bu-pi reference 54.22/100, $19.28, 499.2M tokens. All 60 tasks judged in each arm. No token-efficiency gain.](docs/public/benchmarks/luna.svg)
 
 **61.75/100 with Luna xhigh on BU_Bench_v2**, versus **54.22/100** for the concurrently dispatched bu-pi reference. Both have all 60 actual judgments. The latest evaluated runtime (`29e2b5e`) improves the mean by **7.53 points**; the paired 95% interval is **[+0.10, +15.42]**. Scores are continuous rubric means, not pass rates. Historical best: **62.00/100**.
 
@@ -68,7 +68,7 @@ The candidate records **$20.25** in agent inference cost versus **$19.28** for t
 
 **Hard106, GPT-5.5 medium:** historical best **91/106**; latest full candidate (`29e2b5e`) **84/106** versus its concurrent reference at **84/106**. Candidate agent inference cost is **$128.65**, reference **$137.28**. The candidate has all 106 judgments; the reference has 105, with its missing judgment retained as an assigned zero. The point-estimate tie does not establish parity: paired uncertainty exceeds our margin, and the candidate misses the required 88/106 historical floor.
 
-The chart includes a historical BrowserCode comparison. Dates, runners, and live sites differ. Agent costs exclude judge, browser, and runner charges. These results do not establish SOTA, higher speed, or lower token use. **The architectural benefit is programmability; its efficiency advantage still needs a controlled measurement.**
+Historical BrowserCode results are retained in the [benchmark evidence](docs/benchmark-overview.md), with their different dates and runners. Agent costs exclude judge, browser, and runner charges. These development benchmarks do not establish SOTA. **The architectural benefit is programmability; an efficiency advantage is not yet demonstrated.**
 
 [Run IDs, token accounting, and full history](docs/benchmark-overview.md) · [Paired comparisons and uncertainty](docs/iteration-protocol.md)
 

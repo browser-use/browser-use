@@ -1,8 +1,10 @@
 # Benchmark evidence
 
-The README shows two historical Luna xhigh cohorts and the latest full candidate on BU_Bench_v2. This page keeps the comparison's scope and accounting next to its chart.
+The README shows the latest completed concurrent bu-pi pair on BU_Bench_v2, using Luna xhigh. Both arms retain all 60 assigned tasks and actual judgments. Historical cross-harness results are kept separately below.
 
-![Luna xhigh scores and recorded agent costs at three pinned runs](/benchmarks/luna.svg)
+![Concurrent bu-pi Luna xhigh scores, agent costs, and total reported tokens](/benchmarks/luna.svg)
+
+## Historical context
 
 | Cohort                                | Date (UTC)        | Mean score / 100 | Assigned / judged | Recorded agent cost |
 | ------------------------------------- | ----------------- | ---------------: | ----------------: | ------------------: |
@@ -18,7 +20,7 @@ The two historical cohorts recorded a 20.83-point score difference. They share t
 
 Recorded agent estimates total $17.86048933 and $21.48721706. They exclude judge, browser, runner, and separate diagnostic runs. They are not invoices or independently normalized prices. We do not use their ratio to advertise a percentage cost reduction.
 
-The historical bu-pi bar is pinned to `b430a91891e23f5ffb9ca816e5cbe63e73d2a248`; the latest full candidate bar is pinned to `29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b`. They are separate cohorts. Runtime source and dependency versions at the current documentation update remain identical to the evaluated candidate; the optional eval resizing setting was not enabled in these cohorts. The candidate recorded $20.25096091 in agent inference cost across 60 metered tasks.
+The historical bu-pi cohort is pinned to `b430a91891e23f5ffb9ca816e5cbe63e73d2a248`; the latest full candidate is pinned to `29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b`. They are separate cohorts. Current HEAD contains subsequent runtime changes and is not this evaluated candidate; the optional eval resizing setting was not enabled in these cohorts. The candidate recorded $20.25096091 in agent inference cost across 60 metered tasks.
 
 ## Latest concurrent comparison
 
@@ -65,7 +67,7 @@ These are cumulative tokens over model calls, including compaction. Repeated cac
 
 The Hard peak has not been a stable result across later changes. See [reliability results](./reliability-results.md), [vision results](./vision-results.md), and the [extraction experiment](./extraction-experiment.md) for failures and subsequent tests. Repeated development on these tasks also limits claims about unseen tasks.
 
-The subsequent concurrent reference/candidate comparisons at candidate `0baa51d` finished at **84 versus 82/106 on Hard**, and **58.45 versus 59.63/100 on Luna**. Neither cleared the prespecified statistical noninferiority margin. Luna retains one provider-failure zero without an actual judgment in each arm. These later runs are retained separately from the historical README chart; see the [complete paired results and uncertainty](./iteration-protocol.md).
+The subsequent concurrent reference/candidate comparisons at candidate `0baa51d` finished at **84 versus 82/106 on Hard**, and **58.45 versus 59.63/100 on Luna**. Neither cleared the prespecified statistical noninferiority margin. Luna retains one provider-failure zero without an actual judgment in each arm. These later runs are retained separately from the current README chart; see the [complete paired results and uncertainty](./iteration-protocol.md).
 
 The extraction-only candidate `4a09ee3` subsequently scored **90/106 on Hard** and **59.22/100 on Luna**, with all 166 actual judgments. Recorded agent inference costs were $120.98 and $19.99 respectively. Luna's paired lower bounds did not clear the prespecified margin. This is a nonconcurrent development comparison, not fresh confirmation or a result for the current HEAD. The [extraction report](./extraction-experiment.md) retains uncertainty, workflow closure, delivery failures, and factual limitations found even in passing traces.
 
@@ -78,6 +80,6 @@ The **second fresh Hard confirmation** at `65a16cb` scored **81/106 versus 85/10
 - [bu-pi Luna evaluation](https://www.lmnr.ai/project/b657f811-13a7-4dae-a67a-91445a567f24/evaluations/bf521f51-7920-4e55-8833-f6413b91a73d) · [GitHub execution](https://github.com/browser-use/new-eval-platform/actions/runs/34086771731).
 - [BrowserCode Luna evaluation](https://www.lmnr.ai/project/502a9d52-2725-4410-9a58-e469aa10fd12/evaluations/d7fbccfc-03ad-428e-85c2-f280f88cc642).
 - `evidence/vision.json`, `evidence/reliability.json`, and `evidence/confirmation3-luna.json` retain the per-task scores and costs. The latest candidate evaluation is `4ba9d7bc-998b-430c-a870-6d8e289a037c`, [GitHub execution](https://github.com/browser-use/new-eval-platform/actions/runs/34215099251). `evidence/readme-usage.json` retains the new numeric usage query, without task prompts or traces.
-- The chart uses those fixed cohorts. It does not search for the highest score. Regenerate it from the repository root with `node scripts/benchmark-chart.mjs`. The script checks task identity, score bounds, score/cost totals, and usage reconciliation before writing the SVG.
+- The chart uses only the fixed concurrent reference/candidate pair in `evidence/confirmation3-luna.json`. It does not search for the highest score. Regenerate it from the repository root with `node scripts/benchmark-chart.mjs`. The script checks task identity, judgment coverage, matched inputs, score bounds, score/cost totals, and token reconciliation before writing the SVG.
 
 The exact bu-pi platform SHA, judge, browser, and budget controls are retained in `evidence/vision.json`. The [full report](./vision-results.md) covers evidence-preview clipping, screenshot observation errors, and cleanup diagnostics. A recorded judgment does not mean that every artifact byte was visible to the judge.
