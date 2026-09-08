@@ -434,6 +434,36 @@ class DOMTreeSerializer:
 		return {'count': len(options), 'first_options': first_options, 'format_hint': format_hint}
 
 	@staticmethod
+	def _is_disabled_select(node: EnhancedDOMTreeNode) -> bool:
+		"""Use native and accessibility state, including disabled fieldset inheritance."""
+		return node.tag_name == 'select' and (
+			'disabled' in node.attributes
+			or bool(node.ax_node and any(prop.name == 'disabled' and prop.value for prop in node.ax_node.properties or []))
+		)
+
+	@staticmethod
+	def _has_visible_select_layout(node: EnhancedDOMTreeNode) -> bool:
+		"""Check CSS visibility without treating an offscreen control as hidden."""
+		if not node.snapshot_node or not node.snapshot_node.bounds:
+			return False
+		if (node.snapshot_node.computed_styles or {}).get('visibility', '').lower() in {'hidden', 'collapse'}:
+			return False
+		current: EnhancedDOMTreeNode | None = node
+		while current:
+			styles = current.snapshot_node.computed_styles or {} if current.snapshot_node else {}
+			if styles.get('display', '').lower() == 'none':
+				return False
+			try:
+				if float(styles.get('opacity', '1')) <= 0:
+					return False
+			except (ValueError, TypeError):
+				pass
+			# Ancestor opacity affects the entire subtree. Visibility, in contrast,
+			# can be overridden by a child, so its computed value is checked above.
+			current = current.parent_node
+		return True
+
+	@staticmethod
 	def _serialize_selected_options(select_node: EnhancedDOMTreeNode) -> str:
 		"""Describe live selections without guessing from HTML defaults or the option list."""
 		if not select_node.snapshot_node or select_node.snapshot_node.option_selected is None:
@@ -702,11 +732,7 @@ class DOMTreeSerializer:
 			return
 
 		# Disabled selects and their options are readable, but cannot be action targets.
-		original = node.original_node
-		if original.tag_name == 'select' and (
-			'disabled' in original.attributes
-			or (original.ax_node and any(prop.name == 'disabled' and prop.value for prop in original.ax_node.properties or []))
-		):
+		if self._is_disabled_select(node.original_node):
 			return
 
 		# Skip assigning index to excluded nodes, or ignored by paint order
@@ -1053,10 +1079,17 @@ class DOMTreeSerializer:
 
 		if node.original_node.node_type == NodeType.ELEMENT_NODE:
 			is_select = node.original_node.tag_name == 'select'
+			is_disabled_select = DOMTreeSerializer._is_disabled_select(node.original_node)
 			if is_select:
-				# Keep the existing indexed shadow-control fallback when CDP has no layout.
+				# Read-only selects require viewport visibility. Existing action targets
+				# may be outside that cutoff, but CSS-hidden data must stay excluded.
+				can_display = node.original_node.is_visible or (node.is_interactive and not is_disabled_select)
 				indexed_without_layout = node.is_interactive and node.original_node.snapshot_node is None
-				if node.ignored_by_paint_order or not (node.original_node.is_visible or indexed_without_layout):
+				if (
+					node.ignored_by_paint_order
+					or not can_display
+					or not (indexed_without_layout or DOMTreeSerializer._has_visible_select_layout(node.original_node))
+				):
 					return ''
 
 			# Skip displaying nodes marked as should_display=False
@@ -1198,6 +1231,10 @@ class DOMTreeSerializer:
 						line += f' ({scroll_info_text})'
 
 				formatted_text.append(line)
+				if is_disabled_select:
+					# The live selection already describes this read-only control.
+					# Option/selectedcontent descendants can otherwise repeat its label.
+					return '\n'.join(formatted_text)
 
 		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
 			# Shadow DOM representation - show clearly to LLM
