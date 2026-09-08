@@ -30,6 +30,26 @@ test('actual let/const/functions persist across awaited cells', async () => {
   );
   assert.equal((await agent.execute('increment += 1; add(answer)')).text, '42');
 });
+test('a CDP deadline preserves Node bindings and reports an uncertain action without replay', async () => {
+  await agent.execute("await page.goto('data:text/html,<title>CDP deadline</title>')");
+  await assert.rejects(
+    agent.execute(
+      'const cdpDeadlineMarker = 73; const cdpDeadlineTarget = page.targetId; await page.evaluate(() => { globalThis.deadlineActions = (globalThis.deadlineActions ?? 0) + 1; return new Promise(() => {}); })',
+      { timeoutMs: 10_000 },
+    ),
+    (error) => {
+      assert.match(error.message, /CDP Runtime.evaluate exceeded 1500 ms/);
+      assert.equal(error.stateReset, false);
+      return true;
+    },
+  );
+  assert.equal((await agent.execute('cdpDeadlineMarker')).text, '73');
+  assert.equal((await agent.execute('page.targetId === cdpDeadlineTarget')).text, 'true');
+  assert.equal(
+    (await agent.execute('await page.evaluate(() => globalThis.deadlineActions)')).text,
+    '1',
+  );
+});
 test('browser interaction, extraction, native vision, iframes and shadow DOM', async () => {
   await agent.execute(
     `await page.goto(${JSON.stringify(fixture.url)}); await page.fill({role:'searchbox'}, 'Atlas'); await page.click({role:'button',name:'Search'})`,

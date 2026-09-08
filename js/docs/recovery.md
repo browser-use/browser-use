@@ -67,6 +67,8 @@ const recovered = JSON.parse(require('node:fs').readFileSync('records.json', 'ut
 
 Pure JavaScript and file work remain available when Chrome is unhealthy. Use `await reconnect()` for an explicit CDP reconnect, then reacquire cached page/frame handles and inspect state. Reconnect preserves Node bindings and files; it does not revive a dead remote Chrome or establish whether a timed-out action happened.
 
+An individual CDP command or page-condition timeout does not itself terminate the JavaScript worker. Check the reported `State reset` flag. A timed-out command can already have changed the page even while Node bindings survive. A real-Chrome fault test verifies both facts: a browser-side counter increments once before a stalled command times out, and the next cell can read that counter and its existing Node binding without reconnecting or replaying the action.
+
 Compaction preserves recent complete tool groups and exact original user messages. The run journal retains the original trajectory; context checkpoints are saved under `.browser-use/context`. Summary omissions remain possible, so canonical datasets should live in ordinary files. See [reliability](./reliability) for the full contract.
 
 ## Cancel a task
