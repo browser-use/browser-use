@@ -21,6 +21,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from browser_use.init_templates import CORE_INIT_TEMPLATE_CONTENTS, CORE_INIT_TEMPLATES
+
 # Rich console for styled output
 console = Console()
 
@@ -49,14 +51,16 @@ def _fetch_template_list() -> dict[str, Any] | None:
 
 def _get_template_list() -> dict[str, Any]:
 	"""
-	Get template list from GitHub.
+	Get template list from GitHub, falling back to the core templates.
 
-	Raises FileNotFoundError if GitHub fetch fails.
+	The default, advanced, and tools templates are bundled so the documented
+	init flow still works when the remote template library is unavailable.
 	"""
 	templates = _fetch_template_list()
 	if templates is not None:
 		return templates
-	raise FileNotFoundError('Could not fetch templates from GitHub. Check your internet connection.')
+	console.print('[yellow]⚠ Could not reach the template library; using built-in core templates.[/yellow]')
+	return dict(CORE_INIT_TEMPLATES)
 
 
 def _fetch_from_github(file_path: str) -> str | None:
@@ -97,6 +101,9 @@ def _get_template_content(file_path: str) -> str:
 
 	if content is not None:
 		return content
+
+	if file_path in CORE_INIT_TEMPLATE_CONTENTS:
+		return CORE_INIT_TEMPLATE_CONTENTS[file_path]
 
 	raise FileNotFoundError(f'Could not fetch template from GitHub: {file_path}')
 
