@@ -222,6 +222,16 @@ Missing judgment coverage independently makes confirmation ineligible. The candi
 
 [Complete per-task Luna evidence and uncertainty](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-luna.json).
 
+## Third frozen comparison
+
+After both original [observation diagnostics](./observation-evidence-experiment.md) completed and their artifacts were audited, freeze candidate **`29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b`** for the next full comparison. The diagnostic scores, Hard 0/1 and Luna 73/100 on one task, establish no ranking. Their manifests, actual judgments, evidence paths and Cloud cleanup were checked before selection.
+
+The reference adapter refs are **`769ea148382cb9094662188a593b0410f6e9f0d5`** for Hard and **`c3f7fac2d8a46a3801e06d89a3c3c9b1343db79e`** for Luna. Their complete runtime source trees, manifests and dependency locks remain byte-identical to historical `58ed778` and `b430a91`. Only the previously tested [evaluator screenshot ownership correction](./evidence-ownership.md) enters those adapters. Candidate evidence preservation is part of the treatment; a score change cannot be assigned solely to model reasoning.
+
+Four arms retain the original 106/60 task IDs, models, reasoning, judges, budgets, one attempt and 12 concurrent task jobs per arm. The historical floors remain **88/106 Hard** and **59/100 Luna**. Each paired one-sided 95% bootstrap lower bound must exceed **−3 points**, using 20,000 resamples and seed 20260907, with all actual judgments present on both benchmarks. No prior outcome is replaced. These are development benchmarks.
+
+The plan is frozen before dispatch. [Exact four-arm inputs, task hashes, audit hashes and acceptance](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-plan.json).
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.

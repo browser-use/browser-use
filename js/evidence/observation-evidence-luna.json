@@ -1,0 +1,668 @@
+{
+  "checked_at": "2026-09-08T10:16:59.218440+00:00",
+  "scope": "Original one-task diagnostic; not a ranking or full-benchmark result.",
+  "manifest": {
+    "config_hash": "bf9f6f907fb9e1b789e35e8df6f5fb06e6ba5a18c5cdee447b4d6d3b9e86c437",
+    "datapoint_id": "59179934-2002-4c67-b69c-41c24938db80",
+    "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+    "evaluation_id": "e520f1fa-cdf8-4688-8126-d364c9d7fd1b",
+    "github_run_attempt": "1",
+    "github_run_id": "34211870650",
+    "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34211870650",
+    "harness": "pi-browser-use-next",
+    "judge": "findings",
+    "judge_model": "gpt-5.6-luna",
+    "judge_options": {
+      "reasoning_effort": "xhigh"
+    },
+    "max_steps": 1000,
+    "model": "gpt-5.6-luna",
+    "options": {
+      "browser_timeout_minutes": 70,
+      "evidence_format": "findings",
+      "max_context_chars": 800000,
+      "proxy_country_code": "us",
+      "reasoning_effort": "xhigh",
+      "task_timeout_seconds": 3600
+    },
+    "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "schema_version": 1,
+    "target_repo": "browser-use/bu-pi",
+    "target_sha": "29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b",
+    "task_id": "bub2-020",
+    "timeout_minutes": 62
+  },
+  "workflow": {
+    "conclusion": "success",
+    "status": "completed",
+    "url": "https://github.com/browser-use/new-eval-platform/actions/runs/34211870650"
+  },
+  "actual_judgment": {
+    "audit_coverage": null,
+    "duration_seconds": 153.823,
+    "evidence_checked": [
+      "result.json",
+      "rubrics/bub2-020.md",
+      "122 judge screenshots",
+      "10 deliverable files"
+    ],
+    "failure_class": "",
+    "model": "gpt-5.6-luna",
+    "reason": "73/100 rubric weight met",
+    "replicate_scores": [],
+    "rubric": {
+      "A10_observation_honesty": true,
+      "A11_no_interaction": true,
+      "A1_ebay_search_state": true,
+      "A2_ebay_rows_first10": false,
+      "A3_ebay_rows_full20": false,
+      "A4_airbnb_states": true,
+      "A5_airbnb_exact_strings": true,
+      "A6_standards_verified": true,
+      "A7_reference_rates": false,
+      "A8_artifact_set": true,
+      "A9_parser_brief": true
+    },
+    "score": 0.73,
+    "score_range": 0,
+    "score_stddev": 0,
+    "status": "scored"
+  },
+  "metrics": {
+    "cache_write_tokens": 417687,
+    "cached_input_tokens": 17866853,
+    "duration_seconds": 1506.168,
+    "input_tokens": 72515,
+    "output_tokens": 59455,
+    "steps": 191,
+    "total_cost": 0.54760781,
+    "total_tokens": 18416510
+  },
+  "sdk_stop_reason": "completed",
+  "compactions": 1,
+  "provider_retries": 0,
+  "screenshot_count": 122,
+  "registered_images_retained": true,
+  "screenshot_errors": 17,
+  "screenshot_error_details_retained": [
+    {
+      "message": "Active page target unavailable after cell.",
+      "tool_call_id": "call_ewfuqiD0WdclzYu5IFDoCUxy|fc_078dc544d7798160016a9fd9cad6a487d09d1fdd74eca5c2e9"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_GcskgCMHetzO8yQ53WCV8yWf|fc_078dc544d7798160016a9fdad995c887d091006d0708142e04"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_9prJS5T7BShzk843Xy3PAUN3|fc_078dc544d7798160016a9fdc01a4b087d08b25225955703612"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_ykRQPTWFi5I1KH1BH7LWz7iL|fc_078dc544d7798160016a9fdc0d58c487d0a96f54b4565b9579"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_dPMtLjSXE62NuOISvEFfDqNS|fc_078dc544d7798160016a9fdc9fb5f087d0bda4df795b93f529"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_mq91CV6rsat6QSd1TOGLxOFX|fc_078dc544d7798160016a9fdd127fe887d0a16eb5edce227b20"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_m1iNpTnQiCIWyp3h7BKOPNGl|fc_078dc544d7798160016a9fdd16759887d0ba75d2d9d7c94ddc"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_vRdn8USQaU8xiKPZ6BkmnyRh|fc_078dc544d7798160016a9fdd65f3b887d0ae1d4cbfb70dd9ce"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_z0AMSemSvrLeUEi1njn4Knut|fc_078dc544d7798160016a9fdd68dc0487d09f4ef51055ccb8f8"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_a6Q0IhCtsK6Wfd8isQZKNsp5|fc_078dc544d7798160016a9fdd6d335c87d089dab74c22172455"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_fLuSbTg5Tg327C9Jn9QbOUeg|fc_078dc544d7798160016a9fdd840f2887d09bcbbb50649df9e2"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_hXvYiHcw3ft4EW31L7rnxTQQ|fc_078dc544d7798160016a9fdd8ad4fc87d089dcc5cf7d1645b8"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_nwzwyi8OHbBzF60IlF8Kt4jJ|fc_078dc544d7798160016a9fdd8ef41887d0af2e609b71921f0d"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_2mt8ipZso9SKbAiXBRiDHuzC|fc_078dc544d7798160016a9fde231fa487d081764573777e8a89"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_WnLM56md25Gyc1oZmrE6r0gu|fc_078dc544d7798160016a9fde3b389887d0b35b427c60150496"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_rXT0VAm5FpM2m2cUNcbfICQ1|fc_078dc544d7798160016a9fde4ff09c87d084e9722a61b797ab"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_5u0gcRUHQ20DapjoSzxQanaH|fc_078dc544d7798160016a9fde68621887d08d9037fc1c2c6323"
+    }
+  ],
+  "javascript_tools": 139,
+  "failed_javascript_tools": 11,
+  "failed_tools_with_observation_target": 11,
+  "failed_tools_with_native_images": [],
+  "primary_targets": [
+    "89A5F25BBE8BB9813B856FE2F8DD9396"
+  ],
+  "observation_targets": [
+    "1B95000145D55468B5EAD20BDC2DD699",
+    "1FC823813AA6F1E38679C95332473E92",
+    "3622ECBB545EBCF532471AD881CE4B95",
+    "49829E85386A4BFE5493B47917FA6EAD",
+    "782C104DE9C4A809786F2CC1F225EB6E",
+    "8401EA389737E9683094A22F4AE0ECC8",
+    "89A5F25BBE8BB9813B856FE2F8DD9396",
+    "8F0B781AB02FF0FF2990F71B6B5B8778",
+    "9BDB7FBF9C97DA5E982A49BA80034F90",
+    "A633F996BF6D2995E0619EC071CC6FD5",
+    "B70FEA07A03794670061CEA320242BAE",
+    "BA09D8D60EF962332BE04B71BA3721F6",
+    "BBE746FEFB66FC617B69A7826F08EDA8",
+    "EC61230C25893C3454A1D33E31F706DA",
+    "F8CD86A36A774906A99D167AB7B37E63"
+  ],
+  "cells_observing_a_nonprimary_target": [
+    {
+      "event_index": 155,
+      "tool_call_id": "call_cfaZNHG1gFfQDb6QDIAOJ5eM|fc_078dc544d7798160016a9fdac3d46887d09a8ed9f6a2c612d1"
+    },
+    {
+      "event_index": 159,
+      "tool_call_id": "call_9pghHOquIdi8mf7z6Ttjxo3k|fc_078dc544d7798160016a9fdacf037c87d09a95e0bd3ef5b6be"
+    },
+    {
+      "event_index": 163,
+      "tool_call_id": "call_GInJwaJcoZj7Tk3LTJCwFUUo|fc_078dc544d7798160016a9fdad2a27887d0b7c6557b55319dfb"
+    },
+    {
+      "event_index": 167,
+      "tool_call_id": "call_tUOg5bU21TWMvA0l8XbNLfu9|fc_078dc544d7798160016a9fdad61bec87d083d54bdfa2e8a318"
+    },
+    {
+      "event_index": 171,
+      "tool_call_id": "call_GcskgCMHetzO8yQ53WCV8yWf|fc_078dc544d7798160016a9fdad995c887d091006d0708142e04"
+    },
+    {
+      "event_index": 175,
+      "tool_call_id": "call_pazLIQCsB8vkPOtODDuEp8bV|fc_078dc544d7798160016a9fdae70f7887d0a4e195b9f8153890"
+    },
+    {
+      "event_index": 179,
+      "tool_call_id": "call_DTZ2Jb9DLjcSexcjRaUmzo0B|fc_078dc544d7798160016a9fdafa643487d09f75065c8e55add0"
+    },
+    {
+      "event_index": 183,
+      "tool_call_id": "call_uSwKdkSc4JKhncfjwlWzlmDn|fc_078dc544d7798160016a9fdafd90f887d0b9c6c3329538dce9"
+    },
+    {
+      "event_index": 187,
+      "tool_call_id": "call_Pn0PjeE9EbDNj7SyWTWoeOU1|fc_078dc544d7798160016a9fdb0b32b087d085091ba0afa61f9f"
+    },
+    {
+      "event_index": 191,
+      "tool_call_id": "call_vowTzQtzZjGQaDGVugsqxc0C|fc_078dc544d7798160016a9fdb0edbb487d097e5817bbe581305"
+    },
+    {
+      "event_index": 195,
+      "tool_call_id": "call_j2Q78XmqtIdkhHIII5ng8mlS|fc_078dc544d7798160016a9fdb13e9cc87d08b3c82d12ce6602a"
+    },
+    {
+      "event_index": 199,
+      "tool_call_id": "call_WMQ3Fii1fSMqF8rhAgKdcbwU|fc_078dc544d7798160016a9fdb172b2487d08fce2032d15713be"
+    },
+    {
+      "event_index": 203,
+      "tool_call_id": "call_fUMJiVxt50roOq2AOolTsZWT|fc_078dc544d7798160016a9fdb1cd21c87d083cf145688a02576"
+    },
+    {
+      "event_index": 207,
+      "tool_call_id": "call_XoSrJHNnmAwlUFhCjq37arjv|fc_078dc544d7798160016a9fdb1fea2c87d0972013fab955bc50"
+    },
+    {
+      "event_index": 211,
+      "tool_call_id": "call_43HJUJ0mk0Pk5fZZaSipEW0y|fc_078dc544d7798160016a9fdb23aa2887d09ceef795b06134b4"
+    },
+    {
+      "event_index": 215,
+      "tool_call_id": "call_6Ov4RgYuZ20MYE51DmFOHoQ0|fc_078dc544d7798160016a9fdb26e2bc87d0b1d53f0e30cb34d5"
+    },
+    {
+      "event_index": 219,
+      "tool_call_id": "call_3utH2RW6FZDQRi79xyxOuq4C|fc_078dc544d7798160016a9fdb2b2ccc87d0a60619be11f639cf"
+    },
+    {
+      "event_index": 223,
+      "tool_call_id": "call_phCqFgXxbpnACp08uXG9obp6|fc_078dc544d7798160016a9fdb30b2c487d087c07deafa30067c"
+    },
+    {
+      "event_index": 227,
+      "tool_call_id": "call_AL9kpZ2IZlGBbXcFVEpzxZ3i|fc_078dc544d7798160016a9fdb365fa487d08f62ed00bd030f64"
+    },
+    {
+      "event_index": 231,
+      "tool_call_id": "call_oSkZVKisjz8V3MFWADqxuTiz|fc_078dc544d7798160016a9fdb40265087d099ab0771cfd4fddf"
+    },
+    {
+      "event_index": 235,
+      "tool_call_id": "call_NdK2OBVaHbi0JHemdWDS6aw1|fc_078dc544d7798160016a9fdb4316fc87d0bbd5ad0b64112cdd"
+    },
+    {
+      "event_index": 239,
+      "tool_call_id": "call_DAC2IH7tIkMlstkN7YbqfLDT|fc_078dc544d7798160016a9fdb46fb5487d088e7a6d4f933f835"
+    },
+    {
+      "event_index": 243,
+      "tool_call_id": "call_enilG7GpzEDXKWAlfa8nKenF|fc_078dc544d7798160016a9fdb4c5d3887d0a3ff2909e8199bf5"
+    },
+    {
+      "event_index": 247,
+      "tool_call_id": "call_uLGdUoOntsAou7x3FMl2ObxS|fc_078dc544d7798160016a9fdb4ea32487d0878fbab73f4c28b3"
+    },
+    {
+      "event_index": 251,
+      "tool_call_id": "call_P8mIcntLbu4cjUxstL4emezU|fc_078dc544d7798160016a9fdb55196087d0ab1ba10dfb1169c2"
+    },
+    {
+      "event_index": 255,
+      "tool_call_id": "call_aiDNoPuWI9pmGLkmKngKAFzn|fc_078dc544d7798160016a9fdb5993e087d0b75ffad40387da5d"
+    },
+    {
+      "event_index": 259,
+      "tool_call_id": "call_a6VtOXrJbyQZfMqsbAo7EfxM|fc_078dc544d7798160016a9fdb6132d487d0897fee38faba4701"
+    },
+    {
+      "event_index": 263,
+      "tool_call_id": "call_enaFu9LQv7pIBOmjdMAGZo0y|fc_078dc544d7798160016a9fdb65126887d0aaeacf9e58cb55ce"
+    },
+    {
+      "event_index": 267,
+      "tool_call_id": "call_1iyW2mx75JTsx7wpHkyVy3Xd|fc_078dc544d7798160016a9fdb68846087d09f93227dfb7d82dc"
+    },
+    {
+      "event_index": 271,
+      "tool_call_id": "call_Qsa0UXrQ37BrmcXLGprTPULw|fc_078dc544d7798160016a9fdb72445087d096fef0df939729dd"
+    },
+    {
+      "event_index": 275,
+      "tool_call_id": "call_cQARwl1hODPlTchUow0SCT2n|fc_078dc544d7798160016a9fdb76c8e487d08b0f72e0a3fe6fdd"
+    },
+    {
+      "event_index": 279,
+      "tool_call_id": "call_JIXgzVPeUmkJ8eZoyid08DwC|fc_078dc544d7798160016a9fdb7b8abc87d080a0b8822d0560e5"
+    },
+    {
+      "event_index": 283,
+      "tool_call_id": "call_TRane85pQhS1Y3IlkcIuN4sP|fc_078dc544d7798160016a9fdb7e4a1c87d0af3076d96591e81d"
+    },
+    {
+      "event_index": 287,
+      "tool_call_id": "call_RY53lpGJ8CvPNCF01am2QiVq|fc_078dc544d7798160016a9fdb81405c87d0adbabbba09ead287"
+    },
+    {
+      "event_index": 291,
+      "tool_call_id": "call_nw9Y48QtxMKOYeFGurrVfVcu|fc_078dc544d7798160016a9fdb838bd487d082829d3d31f67ab0"
+    },
+    {
+      "event_index": 295,
+      "tool_call_id": "call_c1XXK160YBQvufUuNwCPPxqj|fc_078dc544d7798160016a9fdb886ed887d0a603af1f305b6765"
+    },
+    {
+      "event_index": 299,
+      "tool_call_id": "call_KudJO5cEPUupTDjaxJHj3mwV|fc_078dc544d7798160016a9fdb8b8ef487d0a99cda63e879a728"
+    },
+    {
+      "event_index": 303,
+      "tool_call_id": "call_CsTrI1p8tX7zJzvBvyR4sdmQ|fc_078dc544d7798160016a9fdb8ec48c87d096b6044da3228c20"
+    },
+    {
+      "event_index": 307,
+      "tool_call_id": "call_woebiqQtpfyq33DuDdJCgaR1|fc_078dc544d7798160016a9fdb928e0487d0b49c21c2a6c3e308"
+    },
+    {
+      "event_index": 311,
+      "tool_call_id": "call_Ef43ZDIUIUTxWKbyMpGJZLDS|fc_078dc544d7798160016a9fdb999ce887d0a6b7ef6b6e470663"
+    },
+    {
+      "event_index": 315,
+      "tool_call_id": "call_RhMOa1zDcjP4t1w1LDbw7lZi|fc_078dc544d7798160016a9fdb9ddfa487d08064d4f270c6d07f"
+    },
+    {
+      "event_index": 319,
+      "tool_call_id": "call_VqN6SGHikQPlpuIwiQBNcPua|fc_078dc544d7798160016a9fdba3b61c87d0b38080231976b8d6"
+    },
+    {
+      "event_index": 323,
+      "tool_call_id": "call_TjrLRwES0MxDD6wNrXivyMD9|fc_078dc544d7798160016a9fdba7517087d08236ca89dd3d29f8"
+    },
+    {
+      "event_index": 327,
+      "tool_call_id": "call_3Yqx8iVxdRMDUdWuNfMFpH1S|fc_078dc544d7798160016a9fdbaf518487d09cb8cdc5b3b994c9"
+    },
+    {
+      "event_index": 331,
+      "tool_call_id": "call_ziQ93eMxUIJxDCPuqG4ra6o6|fc_078dc544d7798160016a9fdbb5a1bc87d0a41015a5cd6cc947"
+    },
+    {
+      "event_index": 335,
+      "tool_call_id": "call_kNSKLjjvPE7z4HVuduJcX1N7|fc_078dc544d7798160016a9fdbbe945c87d08a52751d88e5a77f"
+    },
+    {
+      "event_index": 339,
+      "tool_call_id": "call_XFaix4A91t1KrwFYMckup7Uv|fc_078dc544d7798160016a9fdbc497ac87d0a4e7d7e0798c82ce"
+    },
+    {
+      "event_index": 343,
+      "tool_call_id": "call_4eyRccoJeLNl2Ycuf1o6ATwa|fc_078dc544d7798160016a9fdbc84e9487d0a8dfa1ad1cb797fe"
+    },
+    {
+      "event_index": 347,
+      "tool_call_id": "call_K6mWc1EouiCM9g5UcJaKkGYC|fc_078dc544d7798160016a9fdbd17e2487d0b48a39682b5da3d2"
+    },
+    {
+      "event_index": 351,
+      "tool_call_id": "call_OxuCgfTfVGwcTZgAP6HkvGqr|fc_078dc544d7798160016a9fdbd9faec87d0ab642fe4bab49adc"
+    },
+    {
+      "event_index": 355,
+      "tool_call_id": "call_lvaNy6IuhwlSgH2Wev1928uC|fc_078dc544d7798160016a9fdbdea97087d09155efe856728d1f"
+    },
+    {
+      "event_index": 359,
+      "tool_call_id": "call_af5yPZ6owV26VWFCazMlkZfn|fc_078dc544d7798160016a9fdbe165f487d0b66a775d0addb28b"
+    },
+    {
+      "event_index": 363,
+      "tool_call_id": "call_gdEgi3810LhzO0EOCl8Z6IMb|fc_078dc544d7798160016a9fdbe8103887d0b56a3d06ef7d8b07"
+    },
+    {
+      "event_index": 367,
+      "tool_call_id": "call_lAs6ukj6DgUsAla4534WS48R|fc_078dc544d7798160016a9fdbee838887d08ecc0a034fdd46ed"
+    },
+    {
+      "event_index": 371,
+      "tool_call_id": "call_5zylsI0ahKfHTibv8XpN7Osj|fc_078dc544d7798160016a9fdbf79bd087d0ac0971d4d9e7865c"
+    },
+    {
+      "event_index": 375,
+      "tool_call_id": "call_7cGjvoJwytjn1lBXcQC58bkX|fc_078dc544d7798160016a9fdbfb6c5487d0a76d44c37851d7f4"
+    },
+    {
+      "event_index": 455,
+      "tool_call_id": "call_u4lqyoTxhOTJzn2TW5YytAOz|fc_078dc544d7798160016a9fdd92f9e487d0be2a7c0c62672a03"
+    },
+    {
+      "event_index": 459,
+      "tool_call_id": "call_hh3lvCpdKVgJmaoR72H1b4KF|fc_078dc544d7798160016a9fdd9afd5887d09b6cf15293ed0d97"
+    },
+    {
+      "event_index": 463,
+      "tool_call_id": "call_wHTa4mCdoRgwTiFW4M4PEQMy|fc_078dc544d7798160016a9fdd9dd17887d0a0790605624d3fa1"
+    },
+    {
+      "event_index": 467,
+      "tool_call_id": "call_XxLZHKmqTSJuMuHBCbOR7NT9|fc_078dc544d7798160016a9fdda2340887d09af4e0f75808b85a"
+    },
+    {
+      "event_index": 471,
+      "tool_call_id": "call_SBPvDLq9xcCqcwerDGyEEpcK|fc_078dc544d7798160016a9fddab893087d0991819475744f9f6"
+    },
+    {
+      "event_index": 475,
+      "tool_call_id": "call_Fqm3fbKAv1cgNk900q5Fdals|fc_078dc544d7798160016a9fddb4f32087d0936c247a26879673"
+    },
+    {
+      "event_index": 479,
+      "tool_call_id": "call_Uo8s6WtbgiPRxQophF5MnmM8|fc_078dc544d7798160016a9fddbc1e8c87d09654ebba4c05d72e"
+    },
+    {
+      "event_index": 483,
+      "tool_call_id": "call_9re8OtyAhP8TzuibNOeiWDAJ|fc_078dc544d7798160016a9fddc52f0c87d0909615e25f6ab515"
+    },
+    {
+      "event_index": 487,
+      "tool_call_id": "call_ZmW9vuINbuIAt4Zs00tsn1jv|fc_078dc544d7798160016a9fddc9fc0487d0b01f2bc6681af996"
+    },
+    {
+      "event_index": 491,
+      "tool_call_id": "call_1vIqkSBB4tzjtStQaYtfP6LK|fc_078dc544d7798160016a9fddcd210087d0a954c3262b38c947"
+    },
+    {
+      "event_index": 495,
+      "tool_call_id": "call_Yn8FJCtfQ8hFXsooU0GFB25b|fc_078dc544d7798160016a9fddd7396487d091e697379a3d2c3b"
+    },
+    {
+      "event_index": 499,
+      "tool_call_id": "call_9w8A5hTIH0AxaBxYmOXA3J8u|fc_078dc544d7798160016a9fdddcdd9887d0a8902bf713948acd"
+    },
+    {
+      "event_index": 503,
+      "tool_call_id": "call_gGNyZAVRCzNlPTOWes4yS9Rs|fc_078dc544d7798160016a9fdde6a98487d0ab5652fb5930a878"
+    },
+    {
+      "event_index": 507,
+      "tool_call_id": "call_w1Ujghi0omjSlGPBOTxJiCrH|fc_078dc544d7798160016a9fddeba24087d0ac2c24669f4a3d89"
+    },
+    {
+      "event_index": 515,
+      "tool_call_id": "call_E9ZNevWk4dpie4xN9a9d4G0c|fc_078dc544d7798160016a9fde00c2c087d08b23c4fba3414069"
+    },
+    {
+      "event_index": 523,
+      "tool_call_id": "call_BcoJ2NBhhamG3mezNBp9BMm6|fc_078dc544d7798160016a9fde09fe1887d09dc4127ab9be10b0"
+    },
+    {
+      "event_index": 527,
+      "tool_call_id": "call_GoPqOG89PWaXt0rVuUsErGHM|fc_078dc544d7798160016a9fde0ff4d887d0b7a760720969618f"
+    },
+    {
+      "event_index": 531,
+      "tool_call_id": "call_mgh0e2OSdjQCusLHOqumXFF4|fc_078dc544d7798160016a9fde13c39c87d0bb2471ab5303ab6a"
+    },
+    {
+      "event_index": 535,
+      "tool_call_id": "call_wquTuJX0i5Aef77pnQPvuacW|fc_078dc544d7798160016a9fde1754b087d089e9c088296d17c1"
+    },
+    {
+      "event_index": 539,
+      "tool_call_id": "call_VM2UEWqM20U5AE3hRodKW4t0|fc_078dc544d7798160016a9fde1a64f087d0b002e96b60c37259"
+    },
+    {
+      "event_index": 543,
+      "tool_call_id": "call_2mt8ipZso9SKbAiXBRiDHuzC|fc_078dc544d7798160016a9fde231fa487d081764573777e8a89"
+    },
+    {
+      "event_index": 547,
+      "tool_call_id": "call_dRpfL6DWGsRb0vIErxpDd9sF|fc_078dc544d7798160016a9fde27941487d08d835f9620e801ff"
+    },
+    {
+      "event_index": 551,
+      "tool_call_id": "call_WnLM56md25Gyc1oZmrE6r0gu|fc_078dc544d7798160016a9fde3b389887d0b35b427c60150496"
+    },
+    {
+      "event_index": 555,
+      "tool_call_id": "call_HyrahkL2mIWwzj61dxJjray0|fc_078dc544d7798160016a9fde4a78d887d0a77d56fa16a7c5f5"
+    },
+    {
+      "event_index": 559,
+      "tool_call_id": "call_rXT0VAm5FpM2m2cUNcbfICQ1|fc_078dc544d7798160016a9fde4ff09c87d084e9722a61b797ab"
+    },
+    {
+      "event_index": 563,
+      "tool_call_id": "call_5u0gcRUHQ20DapjoSzxQanaH|fc_078dc544d7798160016a9fde68621887d08d9037fc1c2c6323"
+    }
+  ],
+  "cleanup": {
+    "label": "observation-evidence-smoke-luna",
+    "task_id": "bub2-020",
+    "github_run_id": 34211870650,
+    "checked_at": "2026-09-08T10:16:51.967353+00:00",
+    "id": "1452c74b-527d-456c-8812-790ce2f8c09a",
+    "status": "stopped",
+    "startedAt": "2026-09-08T09:47:49.298892Z",
+    "finishedAt": "2026-09-08T10:12:57.954121Z"
+  },
+  "integration_gate": true,
+  "limitations": [
+    "One diagnostic cannot establish full-benchmark parity.",
+    "Sixteen capture timeouts plus one initial unselected page; retained pixels remain asynchronous.",
+    "No failed cell in this run exercised native-image error transport.",
+    "Artifact arithmetic and consistency checks do not verify all source claims."
+  ],
+  "sha256": {
+    "manifest.json": "5dece2d634cda5d76a78372182227b53c4917818185d10db5dfb70967b1b230d",
+    "result.json": "6a4bc6d2983fc78176fc1a861a356aad52b8957c8f62295ed53da92206817f54",
+    "judgment.json": "5679b5dfd8cc14cbf44629f8fce4760e248817874ba8a86d8fba1fa5c67a559b",
+    "events.jsonl": "ada4180c1702103f98f9aeb3ea22b33b4b4477986fd6dec84c3ba9a534d4b04c",
+    "final_message.txt": "cdc64e9b3fbfb67fc5e3326dc6cd072bfa70c2d9787a5cb056f992fe5d2e5c35",
+    "sdk-result.json": "124a71c3bab61694a1962deade0ad16010ad2767e9b31c1ad1719dbae1e4c914"
+  },
+  "trace_review": {
+    "reviewed_at": "2026-09-08T10:19:18.477957+00:00",
+    "event_index_convention": "Zero-based events.jsonl index split on LF.",
+    "failed_cells": [
+      {
+        "event_index": 199,
+        "tool_call_id": "call_WMQ3Fii1fSMqF8rhAgKdcbwU|fc_078dc544d7798160016a9fdb172b2487d08fce2032d15713be",
+        "classification": "covered currency control",
+        "observation_target_retained": true,
+        "capture_error": null
+      },
+      {
+        "event_index": 291,
+        "tool_call_id": "call_nw9Y48QtxMKOYeFGurrVfVcu|fc_078dc544d7798160016a9fdb838bd487d082829d3d31f67ab0",
+        "classification": "covered price control",
+        "observation_target_retained": true,
+        "capture_error": null
+      },
+      {
+        "event_index": 351,
+        "tool_call_id": "call_OxuCgfTfVGwcTZgAP6HkvGqr|fc_078dc544d7798160016a9fdbd9faec87d0ab642fe4bab49adc",
+        "classification": "ambiguous dialog",
+        "observation_target_retained": true,
+        "capture_error": null
+      },
+      {
+        "event_index": 371,
+        "tool_call_id": "call_5zylsI0ahKfHTibv8XpN7Osj|fc_078dc544d7798160016a9fdbf79bd087d0ac0971d4d9e7865c",
+        "classification": "download-like navigation aborted",
+        "observation_target_retained": true,
+        "capture_error": null
+      },
+      {
+        "event_index": 427,
+        "tool_call_id": "call_m1iNpTnQiCIWyp3h7BKOPNGl|fc_078dc544d7798160016a9fdd16759887d0ba75d2d9d7c94ddc",
+        "classification": "eBay page readiness timeout",
+        "observation_target_retained": true,
+        "capture_error": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened."
+      },
+      {
+        "event_index": 435,
+        "tool_call_id": "call_z0AMSemSvrLeUEi1njn4Knut|fc_078dc544d7798160016a9fdd68dc0487d09f4ef51055ccb8f8",
+        "classification": "eBay missing document body",
+        "observation_target_retained": true,
+        "capture_error": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened."
+      },
+      {
+        "event_index": 439,
+        "tool_call_id": "call_a6Q0IhCtsK6Wfd8isQZKNsp5|fc_078dc544d7798160016a9fdd6d335c87d089dab74c22172455",
+        "classification": "eBay body readiness timeout",
+        "observation_target_retained": true,
+        "capture_error": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened."
+      },
+      {
+        "event_index": 463,
+        "tool_call_id": "call_wHTa4mCdoRgwTiFW4M4PEQMy|fc_078dc544d7798160016a9fdd9dd17887d0a0790605624d3fa1",
+        "classification": "standards page tunnel connection failure",
+        "observation_target_retained": true,
+        "capture_error": null
+      },
+      {
+        "event_index": 487,
+        "tool_call_id": "call_ZmW9vuINbuIAt4Zs00tsn1jv|fc_078dc544d7798160016a9fddc9fc0487d0b01f2bc6681af996",
+        "classification": "page-side fetch failed",
+        "observation_target_retained": true,
+        "capture_error": null
+      },
+      {
+        "event_index": 551,
+        "tool_call_id": "call_WnLM56md25Gyc1oZmrE6r0gu|fc_078dc544d7798160016a9fde3b389887d0b35b427c60150496",
+        "classification": "Airbnb missing document element during reload",
+        "observation_target_retained": true,
+        "capture_error": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened."
+      },
+      {
+        "event_index": 559,
+        "tool_call_id": "call_rXT0VAm5FpM2m2cUNcbfICQ1|fc_078dc544d7798160016a9fde4ff09c87d084e9722a61b797ab",
+        "classification": "Airbnb currency readiness timeout",
+        "observation_target_retained": true,
+        "capture_error": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened."
+      }
+    ],
+    "capture_coverage": {
+      "javascript_completions": 139,
+      "captures_retained": 122,
+      "capture_errors": 17,
+      "initial_unselected_tab_list": 1,
+      "capture_screenshot_timeouts": 16,
+      "failed_cells_with_capture": 6,
+      "nonprimary_observations": 82,
+      "nonprimary_captures": 77
+    },
+    "visually_inspected_capture": {
+      "path": "judge_screenshots/048.png",
+      "sha256": "9fe9e8ce6b0518a0d9b7c7b8942089727a3f21dd9e71ae2d1ee4a63f5d9d2881",
+      "registered_step": 100,
+      "event_index": 199,
+      "observation": "Airbnb language/currency modal, behind which the listing displays $3,239 for 5 nights. This matches the named air tab after the covered currency click, rather than the primary eBay page. Timing remains asynchronous."
+    },
+    "native_image_error_path": "No failed cell carried a native image before throwing. Local real-Chrome/Pi HTTP transport regression covers it; do not credit this remote run with exercising it.",
+    "compaction_recovery": "One successful compaction. Events 584 through 632 explicitly read archived pre-compaction browser observations; event 640 builds deliverables from that evidence. This shows archive retrieval being used, not that all restored claims are correct.",
+    "delivery_checks": {
+      "json_deliverables_parse": true,
+      "airbnb_records": 4,
+      "ebay_qualifying_records": 0,
+      "ebay_counterexamples": 1,
+      "persisted_120_card_pages": 40,
+      "raw_codepoint_arrays_recomputed": true,
+      "airbnb_subtotal_tax_total_reconciled": true,
+      "scope": "Structural, Unicode and arithmetic checks; not independent verification of every observed fact."
+    },
+    "quality_limitations": [
+      "Actual Findings score is 73/100; A2/A3 eBay collection and A7 same-day rates remain false. Keep the original judgment.",
+      "The final explicitly reports zero qualifying eBay rows and incomplete acquisition, not global absence. A saved checkpoint has pages 1-40; event 431 reports runtime length 49, with page 50 blank. Those are separate evidence scopes.",
+      "The same-day Bank of Canada query returns no observation; closest prior date is labeled September 4. No inferred same-day comparison is claimed.",
+      "Sixteen screenshot captures timed out, including five failed cells. No worker reset, uncontrolled SDK error or cleanup error is recorded. Browser/source failures still limit task completion."
+    ],
+    "runtime_change_from_this_audit": false,
+    "integration_assessment": "Original workflow, pin, lock, inference, browser tools, surviving evidence, real judge and stopped owned browser verified. Error paths are contained. Both original diagnostics are now audited; full comparison may be frozen.",
+    "sdk_cleanup_errors": [],
+    "diagnostic_gate_complete": true,
+    "artifact_sha256": {
+      "capture_ledger.json": "5e7f84f6d34bb2964e34139edf43008697996ca10b67cd0ead4c3fe3f1d35092",
+      "capture_ledger.csv": "185fc81bf334d94cd1127acdafeac1504213a43c09c08a9cd6c5e23c46b4b190",
+      "normalized_price_dataset.json": "e0800f824d95066dbf0720082c7ab990258a7a1c2bf97412e101e7787f14f711",
+      "verification_conflict_log.json": "2d4da8baec074d81d210b7fb71683f556464d0bfd95b55f6a280c5a524428c97",
+      "parser_rules_tests.json": "a9887e8a705d00507ff2cfb340874fa30967e1a6ebed403960181eedab3d634c",
+      "parser_readiness_brief.md": "e76665640362c03223297bd5a569998bb7dccb15ef1a8ebb5da49d416c27f83e",
+      "ebay_progress.json": "42ebb07015628f21faccb6783ff8f21065380b8e96fa6120c5553433e5ea23f6",
+      "progress.json": "10cc34d114a42c89e1176994d4b7a86653850055fc3522c400b42c9de1432e09"
+    }
+  }
+}
