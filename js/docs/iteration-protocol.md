@@ -315,6 +315,16 @@ Candidate reported total tokens are **530,303,645** versus **499,248,761** refer
 
 [All 120 outcomes, original run IDs, controls and uncertainty](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-luna.json).
 
+## Fourth frozen comparison
+
+Select **`ce3d029607e103f137fc13ad176dcc97b819d8cf`** for both benchmarks after completing and auditing both original [native coding-tool diagnostics](./native-coding-tools-experiment.md). The pair scored 0/1 in both arms. Eight native bash calls and valid regenerated workbook delivery establish that the capability works, not that it improves task quality. The final Node `global` alias correction is covered by local regression tests and was not in that diagnostic SHA.
+
+Since confirmation3, this candidate adds the native synchronous evaluation deadline, consistent reset metadata between cells, and Node's global alias. It explicitly enables Pi coding tools on Hard; Findings already enabled them on Luna. This is a bundled recovery/capability experiment. It does not fix all observed factual, field-coverage or checkpoint-use mistakes. No benchmark-specific selector, answer, prompt or judge changes enter this iteration.
+
+The original 106/60 tasks, models, reasoning, budgets, judges, US proxy settings, one attempt and 12 parallel jobs per arm remain frozen. Historical reference adapters remain `769ea148382cb9094662188a593b0410f6e9f0d5` and `c3f7fac2d8a46a3801e06d89a3c3c9b1343db79e`; their source, manifest and lock remain byte-identical to the historical runtimes. Acceptance still requires both historical floors (88/106 and 59/100), all actual judgments and each one-sided 95% paired bootstrap lower bound above −3 points. The task bootstrap remains 20,000 samples with seed 20260907.
+
+No results are available for this selected candidate yet. [Exact frozen plan and audit hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation4-plan.json). No original run or outcome is replaced. The SDK default, customer profiles/history, Python API and legacy Browser Use library are unchanged. Rollback is the prior SDK SHA or disabling optional coding tools; no data migration, merge or package publication.
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.

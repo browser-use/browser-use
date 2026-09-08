@@ -25,7 +25,7 @@ Both original arms completed successfully, with actual failure judgments: **0/1 
 - native-coding-tools-hard-control: [workflow 34234054610](https://github.com/browser-use/new-eval-platform/actions/runs/34234054610).
 - native-coding-tools-hard-candidate: [workflow 34234058141](https://github.com/browser-use/new-eval-platform/actions/runs/34234058141).
 
-[Recorded original inputs and handles](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/native-coding-tools-dispatch.json). No full-cohort run has been selected yet.
+[Recorded original inputs and handles](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/native-coding-tools-dispatch.json). The subsequent full candidate is selected separately in the [fourth comparison](./iteration-protocol.md#fourth-frozen-comparison).
 
 
 ## Completed diagnostic
