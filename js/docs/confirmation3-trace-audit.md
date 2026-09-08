@@ -330,3 +330,15 @@ The original `bub2-035-1` artifact from workflow `34215096477`, attempt 1, conta
 The paired reporter retains the raw Laminar snapshot and supplements only the missing fields from those original files, after verifying their hashes and identity plus equality with the recorded Laminar score. The recovered task is marked with its artifact evidence source. This establishes **60/60 actual reference judgments**, despite the broken telemetry envelope. The precise truncation component remains unisolated; the SDK and platform are not patched speculatively.
 
 [Original judgment, manifest, sizes, metrics and source hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-laminar-payload-recovery.json).
+
+## Reusable script delivery loses escapes before the shell receives it
+
+Hard task `v18kgy` requires an upcoming-game spreadsheet and a reusable scraper with pagination. Its original 0/1 judgment remains. The delivered spreadsheet has 72 rows but only three descriptions and one external creator website. The saved scraper also fails Node 22 syntax checking. Fixing the script alone would not recover those missing fields.
+
+The first script-writing cell (event 142) fails on a nested template syntax error. The next attempt (event 146) places a quoted shell heredoc inside a normal JavaScript template literal. JavaScript consumes backslashes before the shell sees that heredoc: `\\s` and `\\d` become plain letters in regexes, and a newline appears inside a quoted string. An offline VM probe intercepts `execSync` without executing any shell or browser operation. Its constructed heredoc matches the **5,835-byte original delivered file exactly**. The SDK did not alter the file.
+
+The final check inspects the workbook's sheet name, hyperlinks and row count. It never checks the scraper's syntax or ability to regenerate the workbook. No compaction occurs. This is another case where validation targets the wrong deliverable.
+
+The eval adapter enables native Pi file/shell tools only for `evidence_format: findings`; Hard has only JavaScript and finish tools. It therefore forces file operations through model-written JavaScript, while Luna already has native write/edit/read/bash. Decoupling coding-tool availability from judge evidence is a generalized experiment worth testing. It is not yet implemented or selected, and native file tools alone do not establish validation or source completeness.
+
+[Original code, manifest, judgment, hashes and non-executing reconstruction](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-script-delivery.json).

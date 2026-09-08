@@ -1,0 +1,101 @@
+{
+  "reviewed_at": "2026-09-08T13:14:51.031484+00:00",
+  "task_id": "v18kgy",
+  "scope": "Original confirmation3 Hard loss; no rerun or rejudge. Offline construction replay captures strings without executing shell or browser actions.",
+  "manifest": {
+    "config_hash": "247d1ac2ec0ced9f3d0969fe40afb9d0dc3aabd0bbba7d9c21b0890fb44c71fc",
+    "datapoint_id": "d4212e6e-4459-42db-9404-64b0bc2c9973",
+    "dataset_sha256": "62ca711571e3337234efb54e7708d5768dec8c849bb8a2a54e010c4e31e988c4",
+    "evaluation_id": "6ddb509c-b233-4610-9dae-16b6c08877b6",
+    "github_run_attempt": "1",
+    "github_run_id": "34215093599",
+    "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34215093599",
+    "harness": "pi-browser-use-next",
+    "judge": "laith",
+    "judge_model": "gpt-5.5",
+    "judge_options": {},
+    "max_steps": 1000,
+    "model": "gpt-5.5",
+    "options": {
+      "browser_timeout_minutes": 60,
+      "max_context_chars": 800000,
+      "proxy_country_code": "us",
+      "reasoning_effort": "medium",
+      "task_timeout_seconds": 1700
+    },
+    "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "schema_version": 1,
+    "target_repo": "browser-use/bu-pi",
+    "target_sha": "29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b",
+    "task_id": "v18kgy",
+    "timeout_minutes": 30
+  },
+  "judgment": {
+    "audit_coverage": null,
+    "duration_seconds": 38.213,
+    "evidence_checked": [
+      "agent_outputs/upcoming_tabletop_projects.csv",
+      "agent_outputs/upcoming_projects_data.json",
+      "agent_outputs/README_report.md",
+      "agent_outputs/scraper_browseruse.js",
+      "final_message.txt",
+      "agent_steps.txt"
+    ],
+    "failure_class": "missing-required-fields",
+    "model": "gpt-5.5",
+    "reason": "The agent worked on the right report and produced an Excel/CSV with 72 Kickstarter/Gamefound rows, but the required fields were largely incomplete: only 3 rows had descriptions and only 1 row had a creator website, despite the task requiring descriptions and creator About-page websites for each project where available. The final response explicitly reports an unresolved Cloudflare/detail-page blocker, and the included scraper intended to make the report regenerable is syntactically invalid under node --check, so the automation/pagination deliverable is not reliable. The outcome is therefore not complete or well supported enough to pass.",
+    "replicate_scores": [],
+    "rubric": {
+      "correctIntent": true,
+      "evidenceBackedOutcome": false,
+      "noUnresolvedBlocker": false,
+      "requirementsSatisfied": false
+    },
+    "score": 0.0,
+    "score_range": 0,
+    "score_stddev": 0,
+    "status": "fail"
+  },
+  "metrics": {
+    "cache_write_tokens": 0,
+    "cached_input_tokens": 1127936,
+    "duration_seconds": 649.119,
+    "input_tokens": 77487,
+    "output_tokens": 18077,
+    "steps": 38,
+    "total_cost": 1.493713,
+    "total_tokens": 1223500
+  },
+  "reproduction": {
+    "captured_shell_executed": false,
+    "generated_equals_saved_file": true,
+    "bytes": 5835,
+    "literal_newline_in_quoted_split": true,
+    "lost_whitespace_regex": true,
+    "lost_digit_regex": true
+  },
+  "syntax_check": "/private/tmp/bupi-iteration/confirmation3-flips/hard/v18kgy/candidate/agent_outputs/scraper_browseruse.js:29\n  const raw=await p.evaluate(()=>{ const out=[]; for(const a of document.querySelectorAll('a[href*=\"/en/projects/\"]')){ const text=a.textContent.trim().replace(/s+/g,' '); if(!text || /^d+(.d+k|k)?$/i.test(text) || text.length>160) continue; let el=a, card=null; for(let i=0;el&&i<8;i++,el=el.parentElement){ if((el.innerText||'').includes('UPCOMING') && (el.innerText||'').includes('by')){card=el;break;} } if(!card) continue; const t=card.innerText.split('\n                                                                                                                                                                                                                                                                                                                                                                                                                                                                         ^\n\nSyntaxError: Invalid or unexpected token\n    at wrapSafe (node:internal/modules/cjs/loader:1713:18)\n    at checkSyntax (node:internal/main/check_syntax:78:3)\n\nNode.js v22.23.2\n",
+  "observations": [
+    "Event 142 attempts a nested String.raw script, rejected with SyntaxError at event 143.",
+    "Event 146 wraps shell heredoc contents inside a normal JavaScript template literal. JavaScript consumes backslashes before the shell sees the quoted heredoc.",
+    "Offline interception of execSync reconstructs exactly the 5835-byte delivered file without executing shell commands.",
+    "Delivered code has a literal newline inside a quoted string and loses whitespace/digit/slash regex escapes. Node 22 syntax check fails.",
+    "No node --check command is present in the original execution. Final verification checks workbook sheet/hyperlinks/count only.",
+    "The adapter enables Pi native coding tools only for findings evidence; this Hard run exposes only javascript and finish tools.",
+    "No compaction occurs. The source code corruption is model-written serialization, not SDK transport alteration."
+  ],
+  "potential_solution": "Decouple coding-tool availability from judge evidence format. Evaluate native read/write/edit/bash on Hard with unchanged model, browser, judge and budgets. Preserve Luna configuration and explicit SDK opt-out. This is not yet implemented or proven.",
+  "limitations": [
+    "File tools do not guarantee validation or factual completeness.",
+    "Fixing this script alone would not recover the missing descriptions and creator websites.",
+    "The passing parser check would prove syntax only, not current selectors, pagination or successful regeneration."
+  ],
+  "sha256": {
+    "manifest.json": "c0ac3f864af90d2ac10fb34c2e8a4707930d2ee1bcc41599c137ae3b6e9e9553",
+    "result.json": "9920da97f48f8655c824ce308c978cf5da03a4ee86a7d7af6969508547444586",
+    "events.jsonl": "ebc70b9f9ff89fb88a21565854f8a8ffe8e24a8c1e0b1f46915422be909b640c",
+    "judgment.json": "83fae4b0f7743c1afb5ff0349d9050ecb70b02b9c6033bf806d50428ed02636d",
+    "agent_outputs/scraper_browseruse.js": "c8489201d244190f27879edfe069d3676a089f113b430cc23e1b2b16dd8f3f1e",
+    "agent_outputs/upcoming_projects_data.json": "fe6368ec6dc3f35f8d2f5ee39b20328405c68cca237639848d9b4e8df97f77af"
+  }
+}
