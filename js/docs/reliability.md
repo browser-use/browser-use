@@ -96,3 +96,12 @@ The persistent JavaScript context now exposes `global === globalThis`, matching 
 A regression test fails before the fix and passes afterward. It exercises the exact declaration, a local data-URL fetch, cross-cell property persistence and absence of that property in the parent process. The full 116-test Node suite, seven Python bridge tests and typecheck pass. This adds one global name; it changes no model, prompt, dependency, browser behavior, checkpoint or profile/history format. Existing code that intentionally tests for the absence of `global` now sees it. It is not a security boundary or a cure for arbitrary failed declarations. Roll back by pinning the prior SDK; there is no data migration.
 
 The original native-tool diagnostic does not include this change. [Verification evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/global-alias-verification.json).
+
+
+## Bounded transport recovery
+
+The existing single SDK inference retry now also recognizes OpenAI's normalized HTTP 5xx errors and the exact transport message `Connection error.`. The initial fourth-comparison Luna failures exposed both forms. Pi 0.85.1 has an optional lower-level request retry helper; its default `maxRetries` is zero and this SDK does not override it. Using Pi alone therefore did not provide that recovery.
+
+The new cases share the preexisting one-retry allowance, original transcript and whole-run budgets. Tools from failed partial responses never execute. Repeated failure stops; HTTP 400/401/403 and explicit access denials do not gain retries. The change neither replays browser actions nor resets the JavaScript worker. There is no model, prompt, dependency, API option, profile or history migration. One additional inference attempt can add latency/cost or fail again. Custom stream implementations may have their own transport retries, which the SDK counter does not measure.
+
+The three new local regression cases fail before the patch and pass afterward. They verify retained records and absence of the failed response's destructive tool call. Repeated failures, budgets, cancellation and deterministic client/access errors are also covered. This patch is separate from runtime `ce3d029` in the running fourth comparison; no remote quality recovery is claimed. Rollback is the prior SDK SHA.

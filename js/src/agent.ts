@@ -337,9 +337,11 @@ export async function runAgent(
       if (
         failed?.role === 'assistant' &&
         failed.stopReason === 'error' &&
-        (/stream ended before a terminal|Model stream exceeded|terminated|ECONNRESET|socket hang up|Unable to verify model access right now\. Please retry\./i.test(
-          failed.errorMessage ?? '',
-        ) ||
+        (/^OpenAI API error \(5\d{2}\): /.test(failed.errorMessage ?? '') ||
+          failed.errorMessage === 'Connection error.' ||
+          /stream ended before a terminal|Model stream exceeded|terminated|ECONNRESET|socket hang up|Unable to verify model access right now\. Please retry\./i.test(
+            failed.errorMessage ?? '',
+          ) ||
           /^(?:(?:server_error|unknown): )?Sorry, something went wrong\.$/.test(
             failed.errorMessage ?? '',
           ) ||

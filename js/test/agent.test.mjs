@@ -605,6 +605,9 @@ var journalRecovered = {observation:JSON.parse(observedEnd.event.result.content.
 });
 
 for (const errorMessage of [
+  'OpenAI API error (520): 520 status code (no body)',
+  'OpenAI API error (503): Service Unavailable',
+  'Connection error.',
   'Sorry, something went wrong.',
   'server_error: Sorry, something went wrong.',
   'Unable to verify model access right now. Please retry.',
@@ -646,12 +649,20 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
     'generic-repeated',
     'access-denied',
     'generic-with-denial',
+    'http-repeated',
+    'connection-repeated',
+    'http-bad-request',
+    'http-auth-denied',
+    'http-access-denied',
+    'connection-with-denial',
   ]) {
     const retryAllowed = [
       'repeated',
       'temporary-repeated',
       'processing-repeated',
       'generic-repeated',
+      'http-repeated',
+      'connection-repeated',
     ].includes(scenario);
     const controller = new AbortController();
     const failure = () =>
@@ -662,6 +673,12 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
           errorMessage:
             {
               permanent: 'Invalid API key',
+              'http-repeated': 'OpenAI API error (520): 520 status code (no body)',
+              'connection-repeated': 'Connection error.',
+              'http-bad-request': 'OpenAI API error (400): Invalid request',
+              'http-auth-denied': 'OpenAI API error (401): Invalid API key',
+              'http-access-denied': 'OpenAI API error (403): You do not have access to this model.',
+              'connection-with-denial': 'Connection error. You do not have access to this model.',
               'temporary-repeated': 'Unable to verify model access right now. Please retry.',
               'processing-repeated':
                 'An error occurred while processing your request. You can retry your request, or contact support.',
@@ -694,6 +711,12 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
           cost: 'cost_limit',
           cancel: 'cancelled',
           permanent: 'error',
+          'http-repeated': 'error',
+          'connection-repeated': 'error',
+          'http-bad-request': 'error',
+          'http-auth-denied': 'error',
+          'http-access-denied': 'error',
+          'connection-with-denial': 'error',
           repeated: 'error',
           'temporary-repeated': 'error',
           'processing-repeated': 'error',
