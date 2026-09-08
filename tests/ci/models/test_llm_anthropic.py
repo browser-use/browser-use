@@ -13,3 +13,14 @@ async def test_anthropic_claude_sonnet_4_6(httpserver):
 		extra_kwargs={},
 		httpserver=httpserver,
 	)
+
+
+async def test_anthropic_claude_opus_5(httpserver):
+	"""Exercise Opus 5 with the adapter's default thinking and tool choice."""
+	await run_model_button_click_test(
+		model_class=ChatAnthropic,
+		model_name='claude-opus-5',
+		api_key_env='ANTHROPIC_API_KEY',
+		extra_kwargs={},
+		httpserver=httpserver,
+	)

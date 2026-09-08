@@ -143,7 +143,7 @@ See [Supported Models](https://docs.browser-use.com/supported-models#supported-m
   load_dotenv()
 
   async def main():
-      llm = ChatOpenAI(model="gpt-4.1-mini")
+      llm = ChatOpenAI(model="gpt-5.6-luna")
       task = "Find the number 1 post on Show HN"
       agent = Agent(task=task, llm=llm)
       await agent.run()
@@ -160,7 +160,7 @@ See [Supported Models](https://docs.browser-use.com/supported-models#supported-m
   load_dotenv()
 
   async def main():
-      llm = ChatAnthropic(model='claude-sonnet-4-0', temperature=0.0)
+      llm = ChatAnthropic(model='claude-opus-5')
       task = "Find the number 1 post on Show HN"
       agent = Agent(task=task, llm=llm)
       await agent.run()
@@ -658,7 +658,7 @@ browser = Browser(
 agent = Agent(
     task='Visit https://duckduckgo.com and search for "browser-use founders"',
     browser=browser,
-    llm=ChatOpenAI(model='gpt-4.1-mini'),
+    llm=ChatOpenAI(model='gpt-5.6-luna'),
 )
 async def main():
 	await agent.run()

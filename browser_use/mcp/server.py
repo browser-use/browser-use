@@ -636,7 +636,7 @@ class BrowserUseServer:
 			kwargs['base_url'] = base_url
 		if api_key := llm_config.get('api_key'):
 			self.llm = ChatOpenAI(
-				model=llm_config.get('model', 'gpt-o4-mini'),
+				model=llm_config.get('model', 'gpt-5.6-luna'),
 				api_key=api_key,
 				temperature=llm_config.get('temperature', 0.7),
 				**kwargs,
@@ -683,7 +683,7 @@ class BrowserUseServer:
 				return 'Error: OPENAI_API_KEY not set in config or environment'
 
 			# Use explicit model from tool call, otherwise fall back to configured default
-			llm_model = model or llm_config.get('model', 'gpt-4o')
+			llm_model = model or llm_config.get('model', 'gpt-5.6-luna')
 
 			base_url = llm_config.get('base_url', None)
 			kwargs = {}
