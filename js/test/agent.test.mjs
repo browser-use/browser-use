@@ -472,6 +472,56 @@ test('automatic Pi compaction resumes the same run, preserves constraints and ac
   }
 });
 
+test('agent retrieves an observation omitted by compaction without repeating its source action', async () => {
+  let work = 0;
+  let retrieving = false;
+  let sourceActions = 0;
+  const sourceCode = "console.log('inventory_units=73')";
+  const response = (context) => {
+    if (!context.tools?.length)
+      return fauxAssistantMessage('Continue the task; the exact count was omitted.');
+    if (retrieving) return call('finish_from_js', { expression: 'String(recoveredUnits)' });
+    const checkpoint = context.messages.find(
+      (m) =>
+        m.role === 'user' &&
+        typeof m.content === 'string' &&
+        m.content.includes('Evidence archive (JSON path):'),
+    );
+    if (checkpoint) {
+      assert.doesNotMatch(JSON.stringify(context.messages), /inventory_units=73/);
+      const path = JSON.parse(
+        checkpoint.content.match(/^Evidence archive \(JSON path\): (.+)$/m)[1],
+      );
+      retrieving = true;
+      return call('javascript', {
+        code: `const evidence = JSON.parse(require('node:fs').readFileSync(${JSON.stringify(path)}, 'utf8')); const observation = evidence.messages.filter(m => m.role === 'toolResult').flatMap(m => m.content).find(c => c.type === 'text' && c.text.includes('inventory_units=')); const recoveredUnits = Number(observation.text.match(/inventory_units=(\\d+)/)[1]);`,
+      });
+    }
+    return call('javascript', {
+      code: work++ === 0 ? sourceCode : "console.log('unrelated evidence '.repeat(400))",
+    });
+  };
+  const s = await session(
+    Array.from({ length: 20 }, () => response),
+    { maxOutputChars: 10000 },
+  );
+  try {
+    const result = await s.agent.run('Return the observed inventory count.', {
+      maxSteps: 20,
+      maxContextChars: 35000,
+      onEvent: (e) => {
+        if (e.type === 'tool_execution_start' && e.args.code === sourceCode) sourceActions++;
+      },
+    });
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, '73');
+    assert(result.compactions >= 1);
+    assert.equal(sourceActions, 1);
+  } finally {
+    await s.close();
+  }
+});
+
 test('transient failed inference retries once without executing the failed response tools', async () => {
   const failed = fauxAssistantMessage(
     fauxToolCall('javascript', { code: "throw new Error('must not execute')" }),

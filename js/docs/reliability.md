@@ -62,6 +62,8 @@ The same single inference retry also covers the explicit temporary errors `Unabl
 
 History version 1 remains readable. Saved context contains the compacted projection; the run event journal retains the original trajectory. Context checkpoint files and per-cell output live under `.browser-use/`. Existing workspace and artifact files remain in place. The user controls their retention.
 
+New compaction checkpoints also retain the covered messages as a text evidence archive. The model receives its path and can search omitted observations with ordinary JavaScript/file tools. Standard message text, tool calls and tool-result error states survive independently of the summary; configured secrets are redacted, and images, reasoning and signatures are omitted. Each later checkpoint links previous archives. This is observational evidence, not replayable history or a correctness validator. An archive-write failure retains the original context. Old checkpoints remain usable but cannot recover source messages they never stored. See the [experiment](./context-archive-experiment.md).
+
 The eval adapter separately archives SDK audit files as `sdk-audit.tar.gz`, because GitHub's default artifact uploader omits hidden directories. This correction followed the `a7fe3d4` benchmark dispatch: those runs retain visible event logs and compaction counts, but their hidden summary files were not uploaded. Archive errors are explicit metadata, and unrelated hidden files and symlinks are excluded.
 
 ## Verification and evaluation

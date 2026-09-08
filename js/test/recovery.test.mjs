@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile, mkdir, symlink, readdir } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, mkdir, symlink, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserRuntime, CellError } from '../dist/runtime.js';
@@ -138,6 +138,116 @@ test('Pi compaction preserves exact user constraints, recent tool pairs and prov
     assert.equal(projected[2].toolCallId, projected[1].content[1].id);
     assert.equal(messages.length, 17);
     assert(ctx.fits(messages, 'system'));
+  }));
+
+test('compaction archives omitted observations privately and links earlier archives across repeated compaction', () =>
+  workspace(async (path) => {
+    const faux = fauxProvider({ tokensPerSecond: 1e6 });
+    const models = createModels();
+    models.setProvider(faux.provider);
+    faux.setResponses([
+      fauxAssistantMessage('Continue the task.'),
+      fauxAssistantMessage('Continue.'),
+    ]);
+    const ctx = new RunContext(
+      faux.getModel(),
+      models.streamSimple.bind(models),
+      path,
+      15000,
+      true,
+      ['test-secret'],
+    );
+    const messages = [{ role: 'user', content: 'Inspect; never submit.', timestamp: 1 }];
+    const append = (from) => {
+      for (let i = from; i < from + 8; i++) {
+        messages.push(
+          fauxAssistantMessage(
+            [
+              {
+                type: 'thinking',
+                thinking: 'private reasoning',
+                thinkingSignature: 'private signature',
+              },
+              {
+                type: 'toolCall',
+                id: `t${i}`,
+                name: 'javascript',
+                arguments: { code: `inspect(${i})` },
+              },
+            ],
+            { stopReason: 'toolUse' },
+          ),
+        );
+        messages.push({
+          role: 'toolResult',
+          toolCallId: `t${i}`,
+          toolName: 'javascript',
+          content: [
+            {
+              type: 'text',
+              text: i === 0 ? 'observed_units=73 test-secret' : 'evidence '.repeat(400),
+            },
+            { type: 'image', data: 'private-image-bytes', mimeType: 'image/png' },
+          ],
+          isError: i === 1,
+          timestamp: i + 2,
+        });
+      }
+    };
+    append(0);
+    await ctx.prepare(messages, 'system');
+    const archivePath = () =>
+      JSON.parse(
+        ctx.project(messages)[0].content.match(/^Evidence archive \(JSON path\): (.+)$/m)[1],
+      );
+    const firstPath = archivePath();
+    const firstText = await readFile(firstPath, 'utf8');
+    const first = JSON.parse(firstText);
+    assert.equal(first.summary, 'Continue the task.');
+    assert.match(firstText, /observed_units=73 \[REDACTED\]/);
+    assert.doesNotMatch(
+      firstText,
+      /test-secret|private reasoning|private signature|private-image-bytes/,
+    );
+    assert.equal(first.messages.find((m) => m.toolCallId === 't1').isError, true);
+    assert.equal(first.messages.find((m) => m.toolCallId === 't0').toolName, 'javascript');
+    assert.equal((await stat(firstPath)).mode & 0o777, 0o600);
+    assert.equal(messages[2].content[0].text, 'observed_units=73 test-secret');
+    assert.equal((await workspaceFiles(path)).length, 0);
+    append(8);
+    await ctx.prepare(messages, 'system');
+    assert.equal(ctx.compactions, 2);
+    const secondPath = archivePath();
+    assert.notEqual(secondPath, firstPath);
+    const second = JSON.parse(await readFile(secondPath, 'utf8'));
+    assert(
+      second.messages.some((m) => typeof m.content === 'string' && m.content.includes(firstPath)),
+    );
+    assert.equal(await readFile(firstPath, 'utf8'), firstText);
+  }));
+
+test('failed evidence archive write leaves original context available', () =>
+  workspace(async (path) => {
+    const faux = fauxProvider({ tokensPerSecond: 1e6 });
+    const models = createModels();
+    models.setProvider(faux.provider);
+    faux.setResponses([fauxAssistantMessage('Summary that must not replace evidence.')]);
+    const ctx = new RunContext(
+      faux.getModel(),
+      models.streamSimple.bind(models),
+      path,
+      15000,
+      true,
+    );
+    const messages = [
+      { role: 'user', content: 'Keep evidence.', timestamp: 1 },
+      ...Array.from({ length: 8 }, () => fauxAssistantMessage('observation '.repeat(400))),
+    ];
+    await mkdir(join(path, '.browser-use'));
+    await writeFile(join(path, '.browser-use', 'context'), 'occupied');
+    await assert.rejects(ctx.prepare(messages, 'system'), /EEXIST|ENOTDIR/);
+    assert.equal(ctx.compactions, 0);
+    assert.deepEqual(ctx.project(messages), messages);
   }));
 
 test('Pi shell tools do not inherit provider or judge secrets and work without a browser', () =>

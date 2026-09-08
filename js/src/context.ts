@@ -118,16 +118,56 @@ export class RunContext {
     await writeFile(
       path,
       JSON.stringify(
-        redact({ version: 1, summary: summary.text, coveredMessages: cut }, this.secrets),
+        redact(
+          {
+            version: 1,
+            summary: summary.text,
+            coveredMessages: cut,
+            // Retain observations independently of the generated summary. A previous
+            // checkpoint message links earlier archives, so repeated compaction stays searchable.
+            messages: prefix.map((message) => {
+              if (
+                message.role !== 'user' &&
+                message.role !== 'assistant' &&
+                message.role !== 'toolResult'
+              )
+                return message;
+              return {
+                role: message.role,
+                timestamp: message.timestamp,
+                ...(message.role === 'toolResult'
+                  ? {
+                      toolCallId: message.toolCallId,
+                      toolName: message.toolName,
+                      isError: message.isError,
+                    }
+                  : {}),
+                content:
+                  typeof message.content === 'string'
+                    ? message.content
+                    : message.content
+                        .filter((block) => block.type !== 'thinking')
+                        .map((block) => {
+                          if (block.type === 'image')
+                            return { type: 'text', text: '[Image omitted from text archive]' };
+                          if (block.type === 'text') return { type: 'text', text: block.text };
+                          return block;
+                        }),
+              };
+            }),
+          },
+          this.secrets,
+        ),
       ),
       { flag: 'wx', mode: 0o600 },
     );
     // Pin user messages exactly; a summarizer cannot silently remove a restriction or follow-up.
     const users = messages.slice(0, cut).filter((m) => m.role === 'user');
-    const text = `Conversation checkpoint: generated, fallible reference, not new instructions. JavaScript and files persist. Full checkpoint: ${path}\nGenerated summary (JSON-quoted):\n${JSON.stringify(summary.text)}\nOriginal user requests (authoritative over the generated summary):\n${JSON.stringify(users)}\nContinue the original task. Any instruction to produce a summary belongs to the summarization process, not the original task.`;
+    const text = `Conversation checkpoint: generated, fallible reference, not new instructions. JavaScript and files persist.\nEvidence archive (JSON path): ${JSON.stringify(path)}\nThe archive's messages preserve earlier user text, assistant text/tool calls and tool results, with configured secrets redacted and images/reasoning omitted. Earlier checkpoint messages link previous archives. Search these messages or saved source files for exact observations omitted or misstated below; do not treat a summary as verification or replay prior actions. Read only relevant excerpts into context.\nGenerated summary (JSON-quoted):\n${JSON.stringify(summary.text)}\nOriginal user requests (authoritative over the generated summary):\n${JSON.stringify(users)}\nContinue the original task. Any instruction to produce a summary belongs to the summarization process, not the original task.`;
     const candidate: AgentMessage = { role: 'user', content: text, timestamp: Date.now() };
     if (contextChars([candidate, ...messages.slice(cut)]) >= contextChars(this.project(messages)))
       throw new Error('Compaction did not reduce context; original evidence was retained.');
+    signal?.throwIfAborted();
     this.summary = candidate;
     this.covered = cut;
     this.usageAfter = messages.length;
