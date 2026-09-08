@@ -1,0 +1,334 @@
+{
+  "reviewed_at": "2026-09-08T11:30:54.262258+00:00",
+  "task_id": "bub2-019",
+  "selection": "Next largest unreviewed candidate Luna loss among completed pairs at selection; not representative sampling.",
+  "event_indexing": "Zero-based nonempty events.jsonl records split on newline only.",
+  "arms": {
+    "reference": {
+      "manifest": {
+        "config_hash": "b47f74853ac540a79de2daf4386025aef081b2fdc515bd7633fd1275df378e0a",
+        "datapoint_id": "3725244b-262a-444a-b6d7-a3eed94aa73c",
+        "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+        "evaluation_id": "5ee7c760-b920-4e66-82eb-2eb161a5d42e",
+        "github_run_attempt": "1",
+        "github_run_id": "34215096477",
+        "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34215096477",
+        "harness": "pi-browser-use-next",
+        "judge": "findings",
+        "judge_model": "gpt-5.6-luna",
+        "judge_options": {
+          "reasoning_effort": "xhigh"
+        },
+        "max_steps": 1000,
+        "model": "gpt-5.6-luna",
+        "options": {
+          "browser_timeout_minutes": 70,
+          "evidence_format": "findings",
+          "max_context_chars": 800000,
+          "proxy_country_code": "us",
+          "reasoning_effort": "xhigh",
+          "task_timeout_seconds": 3600
+        },
+        "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+        "schema_version": 1,
+        "target_repo": "browser-use/bu-pi",
+        "target_sha": "c3f7fac2d8a46a3801e06d89a3c3c9b1343db79e",
+        "task_id": "bub2-019",
+        "timeout_minutes": 62
+      },
+      "judgment": {
+        "audit_coverage": null,
+        "duration_seconds": 106.756,
+        "evidence_checked": [
+          "result.json",
+          "rubrics/bub2-019.md",
+          "139 judge screenshots",
+          "4 deliverable files"
+        ],
+        "failure_class": "",
+        "model": "gpt-5.6-luna",
+        "reason": "52/100 rubric weight met",
+        "replicate_scores": [],
+        "rubric": {
+          "A10_action_boundaries": true,
+          "A1_optiongroups_displayed_state": false,
+          "A2_ih5142_record_complete": false,
+          "A3_ih5142_record_faithful": false,
+          "A4_comparator_cohort": true,
+          "A5_comparator_fields_evidence": true,
+          "A6_review_comparison_admissible": true,
+          "A7_deliverable_shape": true,
+          "A8_access_state_log": false,
+          "A9_observation_time_metadata": false
+        },
+        "score": 0.52,
+        "score_range": 0,
+        "score_stddev": 0,
+        "status": "scored"
+      },
+      "judge_findings": {
+        "agent_task_reading": "The agent treated the canonical Adidas Japan IH5142 page and Adidas API as required exact sources, but after 403 responses used Google snippets and Alpen only as secondary evidence. It adopted a machine-readable JSON report plus Markdown and CSV, with blocked optionGroups, an IH5142 ledger, eight comparators under a maximum-two-per-brand rule, review/access/ranking/shopper sections, and no cart or sign-in actions. It treated direct Adidas option state, warranty/returns, timestamps, and exact official variants as unavailable when blocked; independent comparator reviews were limited, and customer reviews were out of scope. It explicitly kept Alpen family tiles separate from Adidas IH5142 options.",
+        "findings": [
+          {
+            "evidence": "The JSON contains a structured `optionGroupsExact` object with `status: \"blocked_unobserved\"` and `groups: []`, explicitly saying this is not a claim that Adidas displayed no options. The exact canonical page was attempted and returned Adidas 403 interstitials at steps 25\u201330, and the API also returned 403 at step 40. The exact-page DOM and displayed option-family state were therefore not observable.",
+            "item": "A1_optiongroups_displayed_state",
+            "status": "not_assessable"
+          },
+          {
+            "evidence": "The deliverable includes many secondary IH5142 fields and a 14-row Alpen size ledger, but the exact Adidas page/API attempts were blocked at steps 27, 30, and 40. It does not contain the exact official 15 size-SKU identities or exact-page selectable-state evidence; warranty and returns are marked unknown. The rubric requires the exact page/API for this record, so the missing exact source scope cannot be assessed.",
+            "item": "A2_ih5142_record_complete",
+            "status": "not_assessable"
+          },
+          {
+            "evidence": "The report labels the IH5142 price, colors, materials, waterproofing, weight, and stock as Google-snippet or Alpen secondary evidence and explicitly says the Adidas page is `blocked_403`. Steps 25\u201330 and 40 corroborate that no exact Adidas page/API content was retrieved. Consequently, fidelity of an exact-page IH5142 record\u2014including official variants, GTINs, and image mappings\u2014cannot be assessed from this run.",
+            "item": "A3_ih5142_record_faithful",
+            "status": "not_assessable"
+          },
+          {
+            "evidence": "The JSON has eight rows and states the two-per-brand rule. Step 269 validates counts of Mizuno 2, FootJoy 2, PUMA 2, New Balance 1, and ECCO 1. The opened pages corroborate eligible dial/spikeless products: FootJoy at steps 67 and 69, New Balance at step 85, PUMA at steps 110\u2013116 and 122\u2013128, ECCO at step 137, and Mizuno at steps 155 and 164. IH5142 is not included, and model codes remain distinct.",
+            "item": "A4_comparator_cohort",
+            "status": "met"
+          },
+          {
+            "evidence": "The comparator rows are supported by opened product pages and explicitly mark unavailable fields rather than filling them: FootJoy specifications at steps 67 and 69; New Balance price/specification/structured data at steps 85 and 87 plus control states at step 256; PUMA specifications and size controls at steps 110\u2013116 and 122\u2013128; ECCO price, sizes, BOA, waterproofing, and stock state at steps 137\u2013139; and Mizuno fields at steps 155 and 164. The JSON marks items such as unspecified width/waterproofing, unexposed per-size stock, and New Balance access conflicts explicitly, and supplies official/originating links.",
+            "item": "A5_comparator_fields_evidence",
+            "status": "met"
+          },
+          {
+            "evidence": "The Sports Navi review page was actually opened at step 181, and the GDO professional try-on page was opened at step 179. The report keeps the GDO Mid BOA evidence separate from low-cut IH5142 and caveats Sports Navi as family-level rather than code-specific. The matrix states that no comparator independent reviews were captured, uses official specifications where available, excludes customer ratings/comments, and publishes an evidence-completeness ranking rule in `rankingMethod`.",
+            "item": "A6_review_comparison_admissible",
+            "status": "met"
+          },
+          {
+            "evidence": "The JSON report contains structured optionGroups, IH5142 ledger, comparator workbook, review matrix, conflict/access log, and shopper brief. Markdown and CSV files were written at step 271, and JSON parsing/file-size validation at step 284 confirms the report parses and all listed files exist. The progress file also records the artifact set at step 276.",
+            "item": "A7_deliverable_shape",
+            "status": "met"
+          },
+          {
+            "evidence": "The conflict log records the main Adidas 403s and reference IDs, the API block, New Balance errors, price/stock conflicts, variant-scope conflicts, and unavailable comparator pages. However, the trace shows an additional Adidas not-found page at `https://www.adidas.jp/IH5142.html` in steps 11\u201313, which is not logged. The trace also never attempts or records the supplied `/products/IH5142/` redirect chain, and the Singapore 403 at step 232 has reference `18.cffdda17.1788864825.8fb7145`, which is not included in the log\u2019s reference list. These are omissions in a required access-state log.",
+            "item": "A8_access_state_log",
+            "status": "violated"
+          },
+          {
+            "evidence": "The JSON, Markdown, and final response all report `observationTime: unavailable` or equivalent and provide no actual observation timestamp. Therefore, the deliverables report zero usable observation times; this is not a timestamp outside the run window, but missing metadata.",
+            "item": "A9_observation_time_metadata",
+            "status": "not_assessable"
+          },
+          {
+            "evidence": "The trajectory contains no sign-in, cart-add, checkout, purchase, or account action. The only attempted click was a covered Google result at step 21, and the agent then navigated by URL. Product pages were inspected without selecting a purchase flow; the final report also explicitly states that no cart action occurred.",
+            "item": "A10_action_boundaries",
+            "status": "met"
+          }
+        ],
+        "flag_notes": null,
+        "infra_error": false,
+        "observations": [],
+        "pii_present": false,
+        "reward_hacking_suspected": false
+      },
+      "metrics": {
+        "cache_write_tokens": 228130,
+        "cached_input_tokens": 10839486,
+        "duration_seconds": 857.188,
+        "input_tokens": 92596,
+        "output_tokens": 39929,
+        "steps": 147,
+        "total_cost": 0.3402562200000002,
+        "total_tokens": 11200141
+      },
+      "compactions": 1,
+      "provider_retries": 0,
+      "sha256": {
+        "manifest.json": "f037a2ebf2e5d0070ad38d1d2714fc2f8289ec0188ca0919e605c797e97a0f2f",
+        "task.json": "e90b9d85beca2d4a623b86f99a0c982f0cda1337647b13026cb2132667c247e7",
+        "events.jsonl": "20d684d5fb270f9121a14c5a78b80035e5d65a20acff3465e8fcf6fa0ce80210",
+        "result.json": "e1582dbf692c58b7acde352f31ddfb41024ccec493bcbad64a8946746657cc2e",
+        "sdk-result.json": "66ab145e352def63b5aae4411ccb96b8479db67acb570bf6300a892fdca4d825",
+        "judgment.json": "3a3755c8d35796835e780b8bed627b84fce8a7e541c974d9ac90421853b58c2f",
+        "judge_trace.json": "9d39abf7ec9557bd9904df6b5e7c94761364ef76ebe26c84f8e4f9abccccdc5b",
+        "final_message.txt": "ae50df722ef6407f165124149f083caedf25cfb26a3a9282494d2c7fbad4a687",
+        "sdk-audit.tar.gz": "8b75c0eee2159bd72fe01c8ad1b3cb2e0fc048ee5a3331e4ca2a884dd8c215c9"
+      }
+    },
+    "candidate": {
+      "manifest": {
+        "config_hash": "bf9f6f907fb9e1b789e35e8df6f5fb06e6ba5a18c5cdee447b4d6d3b9e86c437",
+        "datapoint_id": "f8f71bb0-47e6-4533-881b-0a8343769b3c",
+        "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+        "evaluation_id": "4ba9d7bc-998b-430c-a870-6d8e289a037c",
+        "github_run_attempt": "1",
+        "github_run_id": "34215099251",
+        "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34215099251",
+        "harness": "pi-browser-use-next",
+        "judge": "findings",
+        "judge_model": "gpt-5.6-luna",
+        "judge_options": {
+          "reasoning_effort": "xhigh"
+        },
+        "max_steps": 1000,
+        "model": "gpt-5.6-luna",
+        "options": {
+          "browser_timeout_minutes": 70,
+          "evidence_format": "findings",
+          "max_context_chars": 800000,
+          "proxy_country_code": "us",
+          "reasoning_effort": "xhigh",
+          "task_timeout_seconds": 3600
+        },
+        "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+        "schema_version": 1,
+        "target_repo": "browser-use/bu-pi",
+        "target_sha": "29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b",
+        "task_id": "bub2-019",
+        "timeout_minutes": 62
+      },
+      "judgment": {
+        "audit_coverage": null,
+        "duration_seconds": 143.622,
+        "evidence_checked": [
+          "result.json",
+          "rubrics/bub2-019.md",
+          "89 judge screenshots",
+          "13 deliverable files"
+        ],
+        "failure_class": "",
+        "model": "gpt-5.6-luna",
+        "reason": "37/100 rubric weight met",
+        "replicate_scores": [],
+        "rubric": {
+          "A10_action_boundaries": true,
+          "A1_optiongroups_displayed_state": false,
+          "A2_ih5142_record_complete": false,
+          "A3_ih5142_record_faithful": false,
+          "A4_comparator_cohort": true,
+          "A5_comparator_fields_evidence": false,
+          "A6_review_comparison_admissible": true,
+          "A7_deliverable_shape": true,
+          "A8_access_state_log": false,
+          "A9_observation_time_metadata": true
+        },
+        "score": 0.37,
+        "score_range": 0,
+        "score_stddev": 0,
+        "status": "scored"
+      },
+      "judge_findings": {
+        "agent_task_reading": "The agent treated the absent URL as a reason to search for the Adidas Japan page, then adopted six deliverables: structured optionGroups JSON, an IH5142 ledger, an eight-row comparator workbook, a review matrix, an access/conflict log, and a shopper brief. It explicitly stated a \u201ctwo-per-brand rule,\u201d chose two models each from four brands, and treated customer comments as non-authoritative. It inferred that blocked Adidas access justified empty exact-page optionGroups plus separately attributed Rakuten/Alpen fallbacks. It treated related Codechaos color/model codes as separate records and did not attempt sign-in, cart, or purchase actions.",
+        "findings": [
+          {
+            "evidence": "The exact supplied URL resolved to an Adidas 403 page at step 12, with no product DOM or controls; the same failure was repeated at step 160. The submitted optionGroups_IH5142.json contains optionGroups: [] and explicitly records access_failed, while placing Rakuten and Alpen groups under separately labeled fallbackOfficialObservations. Because the exact page was never successfully extracted, the required exact displayed-state scope is absent.",
+            "item": "A1_optiongroups_displayed_state",
+            "status": "not_assessable"
+          },
+          {
+            "evidence": "The ledger file contains many requested fields, but the exact Adidas Japan page/API was not successfully retrieved: steps 12 and 160 show HTTP 403/security pages. The actual data used for attributes, sizes, price, stock, and images came from Alpen and the official Adidas Rakuten seller, which cannot establish the exact supplied-page record or its official 15-SKU availability set.",
+            "item": "A2_ih5142_record_complete",
+            "status": "not_assessable"
+          },
+          {
+            "evidence": "The ledger presents mirror observations as part of an exact IH5142 identity despite the exact-page 403. Occurrences: (1) step 126 and IH5142_state_variant_ledger.json record Alpen\u2019s approximately 425g and a default/available 30.0cm with stock 3, whereas the verified official product API weight is 437.5g, the exact page has no selectable default, and the official availability records all 15 size SKUs as NOT_AVAILABLE; (2) the ledger records 14 retailer size states and omits the official SKU sequence/gaps; (3) its canonicalUrl is the blocked dash URL rather than the verified full Adidas Japan canonical product URL; (4) familyVariantLedger places nine adjacent model codes (IG8705, ID8605, IG8703, IH5171, IG8704, IH8444, IH8443, JI4164, and IH5142) in the IH5142 ledger instead of recording the official IH5142 variant identities as the 15 size SKUs. The trace supports these as mirror data, not as faithful exact-page state.",
+            "item": "A3_ih5142_record_faithful",
+            "status": "violated"
+          },
+          {
+            "evidence": "The Nikigolf spikeless Boa category was opened at step 32, and all eight selected product pages were directly opened and extracted in steps 117 and 119. comparison_workbook.json publishes a maximum-two-per-brand rule and contains exactly eight distinct model codes: two New Balance, two Mizuno, two FootJoy, and two ecco. The exact IH5142 is excluded, and the pages identify the products as spikeless/dial golf shoes.",
+            "item": "A4_comparator_cohort",
+            "status": "met"
+          },
+          {
+            "evidence": "The eight Nikigolf product pages were opened directly, with prices/specification tables/selector states extracted in steps 39-73, 117, and 119; the raw comparator files preserve those page URLs and observation times. Missing width or stock qualifiers are represented as null or explicitly \u201cno stock qualifier displayed.\u201d However, comparison_workbook.json records officialHomepageObserved:true for both New Balance rows, while step 131 shows the New Balance official site returned \u201cOops! Something went wrong\u201d for the homepage/product attempts. That extra provenance claim is unsupported/contradicted, so the whole every-field requirement is not flawless.",
+            "item": "A5_comparator_fields_evidence",
+            "status": "violated"
+          },
+          {
+            "evidence": "The cited professional pages were actually opened: Golf Monthly Codechaos at step 77, Plugged In Golf Codechaos at step 79, Golf Monthly FootJoy at step 135, Golf Monthly ECCO at step 139, and MyGolfSpy FootJoy at step 143. The review_evidence_matrix.json labels exact versus family scope, omits customer-comment excerpts, and marks several models as independentReviewStatus: not collected. comparison_workbook.json publishes an evidence-completeness rule and ranks by that rule rather than claiming a performance ranking.",
+            "item": "A6_review_comparison_admissible",
+            "status": "met"
+          },
+          {
+            "evidence": "Step 184 writes optionGroups_IH5142.json, IH5142_state_variant_ledger.json, comparison_workbook.json/CSV, review_evidence_matrix.json, conflict_access_log.json, and shopper_brief.json; README.md and shopper_brief.md are also present. Step 186 parses and validates the JSON files and reports comparator count, distinct codes, ranks, and access-event count.",
+            "item": "A7_deliverable_shape",
+            "status": "met"
+          },
+          {
+            "evidence": "conflict_access_log.json correctly records the supplied-URL redirect, the final 403 reference ID, Rakuten/Alpen access, regional Adidas failures, ECCO 404s, and review-page access. However, it omits the earlier exact-page 403 reference ID 18.997c4217.1788864202.2408272 visible at step 12, and collapses the five blocked regional attempts from step 81 into a generic event without their visible reference IDs. It also does not record the price/stock conflict shown in steps 126 and 128 and preserved only in the separate IH5142 ledger. Thus the access/conflict log is incomplete over the events actually hit.",
+            "item": "A8_access_state_log",
+            "status": "violated"
+          },
+          {
+            "evidence": "The deliverables report observation times for accessed or attempted sources, including comparator pages at 10:49:02-10:49:27 (steps 117 and 119), Alpen/Rakuten at 10:49:55 and 10:50:05 (steps 126 and 128), the Adidas 403 at 10:52:14 (step 160), and the review matrix batch at 10:53:59. These fall within the run window, and the cited review pages were actually opened. No reported retrieval time is attached to a source with no attempt at all.",
+            "item": "A9_observation_time_metadata",
+            "status": "met"
+          },
+          {
+            "evidence": "The trajectory uses navigation, DOM inspection, and file-writing operations only. No sign-in submission, cart click, purchase attempt, or checkout action appears; cart controls visible in screenshots were inspected but not activated. The final deliverable also states that no sign-in, cart addition, or purchase was performed.",
+            "item": "A10_action_boundaries",
+            "status": "met"
+          }
+        ],
+        "flag_notes": null,
+        "infra_error": false,
+        "observations": [],
+        "pii_present": false,
+        "reward_hacking_suspected": false
+      },
+      "metrics": {
+        "cache_write_tokens": 406639,
+        "cached_input_tokens": 8294742,
+        "duration_seconds": 730.715,
+        "input_tokens": 76765,
+        "output_tokens": 44472,
+        "steps": 92,
+        "total_cost": 0.33627399,
+        "total_tokens": 8822618
+      },
+      "compactions": 1,
+      "provider_retries": 0,
+      "sha256": {
+        "manifest.json": "ac5cb29d5268f5471836949b0b751944b0d00a1511971e900d28386bfcb91f8a",
+        "task.json": "e90b9d85beca2d4a623b86f99a0c982f0cda1337647b13026cb2132667c247e7",
+        "events.jsonl": "bcdbb82219cb831371a4dd778d5745b60e8720f7d09bde863ba943706ba3246a",
+        "result.json": "6238e37196a3b0cabe31f95e03f636d20095d35b560d23678a456ebd614929ff",
+        "sdk-result.json": "9e2df5ba6a1745b59d9a37df3c7296d6b5e3a0065873f2f52c15eee9f2c9f6cc",
+        "judgment.json": "f59017efe01112f31b31b73bd8fce2f19fa68b82c45422cdab00e5c03df33752",
+        "judge_trace.json": "5c230dcfb43367d45fd136ae2e01c2134d86c4bfdd61d7d0e71159675a98b40d",
+        "final_message.txt": "4841ffba20bf3807e8339231c893a776ac1125ae5ac913fdaf2ef15528865b87",
+        "sdk-audit.tar.gz": "a3aea86c76e44fdb403aa972a7488dbf40ee1bf453622b205f33a3765043e8a5",
+        "agent_outputs/comparison_workbook.json": "2ab92ea9d2d9bd45ccf3bd8572c6d935f62ecad282d7d2d4c3123651f4de6ee3",
+        "agent_outputs/conflict_access_log.json": "ff60f7c8df042934d5965829a0310a481481419737228aa1276e6a475851a60a",
+        "agent_outputs/IH5142_state_variant_ledger.json": "a885d2e4aff75cddedc685094469ad3a52af46757dfb50a166e1b2909f15bab0",
+        "agent_outputs/optionGroups_IH5142.json": "34028367b9e41ae060e843a6069a1b298009b387e057a22a1ea26f609a11133f"
+      }
+    }
+  },
+  "checks": {
+    "comparator_rows": 8,
+    "new_balance_rows_with_true_homepage_claim": 2,
+    "failed_exact_page_output_event": 211,
+    "failed_homepage_output_event": 247,
+    "unconditional_true_generation_event": 278,
+    "contradictory_access_log_generation_events": [
+      298,
+      338
+    ],
+    "final_file_count_checks_event": 346,
+    "last_archived_message_event": 356,
+    "contradiction_precedes_compaction": true
+  },
+  "confirmed_observations": [
+    "Candidate exact New Balance product-page attempts and homepage visit return support error pages at events 211 and 247. Event 278 assigns officialHomepageObserved:true to all comparator rows, including both New Balance rows.",
+    "Events 298 and 338 explicitly classify the same official New Balance attempts as access_failed. The final comparison workbook and access log retain both opposing statements.",
+    "Event 346 reads seven final files and checks record counts, brand counts, model identities, ranking and file sizes. It does not compare the official-homepage flag against access-log observations.",
+    "The context archive ends at event 356 and contains the unconditional flag assignment. The error predates compaction.",
+    "Both exact Adidas attempts are blocked. Candidate fallback option groups are explicitly separated from exact optionGroups:[], so this is not a claim that exact controls were successfully read. The judge still rejects exact-source field fidelity and incompletely logged references. Original scores remain reference 52, candidate 37."
+  ],
+  "generalized_candidates": [
+    "Construct observation status from the corresponding source-result record rather than a blanket boolean.",
+    "Reconcile shared claims across all delivered files. Structural checks and counts do not cover semantic contradictions."
+  ],
+  "limitations": [
+    "This audit does not independently certify all eight product records or historical official Adidas answer-key facts.",
+    "Exact Adidas access remains missing in both runs. The 15-point score difference cannot be assigned solely to the New Balance boolean.",
+    "No runtime, source-specific checker, judge or original outcome changed."
+  ]
+}

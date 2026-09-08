@@ -157,3 +157,15 @@ Three further completed Hard losses show distinct access and verification bounda
 The generalized distinction is between source access, target identity and evidence-backed completion. A successful archived-page test cannot certify a blocked live target. A positive control plus per-record misses is stronger than a blanket unavailable claim. A score loss following different site access is not, by itself, evidence for another CDP helper patch. No source-specific fallback or judge change enters the running candidate.
 
 [Four paired manifests, positive controls, exact event checks and original judgments](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-access-and-absence-pairs.json).
+
+## Contradictory source states across delivered files
+
+Task `bub2-019` requests an exact Adidas product record, controls and a comparison workbook. The reference scores 52/100; the candidate scores 37/100. Both encounter an exact-source block. The candidate explicitly separates fallback option groups from its empty exact-page `optionGroups`; the missing exact-source scope remains unresolved.
+
+A separate comparator error is directly reproducible from the saved files. The New Balance product and homepage visits return “Oops! Something went wrong” at events 211 and 247. Event 278 nevertheless assigns `officialHomepageObserved: true` to every comparator. Both New Balance rows retain that flag. The final access log correctly labels those same attempts `access_failed` and describes the support error.
+
+Event 346 reads seven delivered files and checks their counts, brand distribution, model identities, ranks and sizes. Those checks pass without comparing the homepage flag to the access log. The contradiction is already in the transcript archived through event 356, before compaction. Source observations survive; the derived statements disagree.
+
+This reinforces the need to derive status from the corresponding source-result record and reconcile shared claims across delivered files. It does not justify a New Balance-specific classifier. The exact Adidas source is missing in both runs, and the full 15-point score difference cannot be assigned solely to these two boolean values. The original judgments remain unchanged.
+
+[Cross-file values, source errors, validation code and compaction ordering](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-cross-file-state-pair.json).

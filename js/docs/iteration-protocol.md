@@ -251,6 +251,14 @@ At the retained September 8 snapshot, the candidate has **76 passes from 95 actu
 
 All four original arms continue unchanged. Complete the cohorts before calculating the frozen paired intervals or selecting the next intervention. [Snapshot, all assigned task IDs and upper-bound calculation](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-hard-floor-bound.json).
 
+### Reference execution and evidence failures
+
+The Hard reference has an additional, independent confirmation gap. Task `swebnv` ends after six steps with the provider response “Sorry, something went wrong.” The runner records a zero with an empty rubric, no judge model and zero judge duration. It is a synthetic assigned outcome, not an actual judgment. The original zero stays; the frozen full-coverage requirement is therefore unmet even if every remaining task receives a judgment.
+
+Reference task `aoim45` is different: its agent result and actual judgment exist in Laminar, but the GitHub **Upload task evidence** step fails with “Upload progress stalled.” The original run's complete artifact inventory has no `aoim45-1` artifact at inspection. Keep its actual score and judgment; report the missing downloadable evidence separately. Neither failure authorizes a replacement task or a changed judge.
+
+[Original provider-error artifact hashes, judgment coverage and upload-failure classification](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-reference-failures.json).
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.
