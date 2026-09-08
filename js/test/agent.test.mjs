@@ -544,6 +544,66 @@ test('transient failed inference retries once without executing the failed respo
   }
 });
 
+test('the agent can recover a prior observation window from its live redacted journal', async () => {
+  let journalPath;
+  const s = await session(
+    [
+      call('javascript', {
+        code: `await page.goto(${JSON.stringify(fixture.url)}); console.log(JSON.stringify(await page.evaluate(() => { globalThis.journalReads = (globalThis.journalReads ?? 0) + 1; return {value:'journal-sample', separator:'line\u2028separator', secret:'journal-secret', observedAt:Date.now()}; })));`,
+      }),
+      (context) => {
+        const match = context.systemPrompt.match(/^Run journal \(JSON path\): (.+)$/m);
+        assert.ok(match, 'The live journal must be discoverable before delivery.');
+        journalPath = JSON.parse(match[1]);
+        return call('javascript', {
+          code: `var journalText = require('node:fs').readFileSync(${JSON.stringify(journalPath)}, 'utf8');
+var journalEvents = journalText.split('\\n').filter(Boolean).map(JSON.parse);
+var observedEnd = journalEvents.find(e => e.event?.type === 'tool_execution_end' && e.event.result?.content?.some(c => c.type === 'text' && c.text.includes('journal-sample')));
+var observedStart = journalEvents.find(e => e.event?.type === 'tool_execution_start' && e.event.toolCallId === observedEnd.event.toolCallId);
+var journalRecovered = {observation:JSON.parse(observedEnd.event.result.content.find(c=>c.type==='text').text), startedAt:observedStart.timestamp, endedAt:observedEnd.timestamp, recoveredAt:Date.now(), redacted:!journalText.includes('journal-' + 'secret')};`,
+        });
+      },
+      call('finish_from_js', {
+        expression:
+          'JSON.stringify({...journalRecovered, readCount:await page.evaluate(()=>globalThis.journalReads)})',
+      }),
+    ],
+    { redact: ['journal-secret'] },
+  );
+  try {
+    const result = await s.agent.run('Recover the original observation and its execution window.');
+    assert.equal(result.status, 'completed', result.error);
+    assert.equal(result.eventsPath, journalPath);
+    const recovered = JSON.parse(result.output);
+    assert.deepEqual(recovered.observation, {
+      value: 'journal-sample',
+      separator: 'line\u2028separator',
+      secret: '[REDACTED]',
+      observedAt: recovered.observation.observedAt,
+    });
+    assert.ok(recovered.startedAt <= recovered.observation.observedAt);
+    assert.ok(recovered.observation.observedAt <= recovered.endedAt);
+    assert.ok(recovered.endedAt <= recovered.recoveredAt);
+    assert.equal(recovered.redacted, true);
+    assert.equal(recovered.readCount, 1);
+    let followUpPath;
+    s.faux.setResponses([
+      (context) => {
+        followUpPath = JSON.parse(
+          context.systemPrompt.match(/^Run journal \(JSON path\): (.+)$/m)[1],
+        );
+        return call('finish', { result: 'continued' });
+      },
+    ]);
+    const next = await s.agent.followUp('Continue with a new run journal.');
+    assert.equal(next.status, 'completed');
+    assert.equal(next.eventsPath, followUpPath);
+    assert.notEqual(followUpPath, journalPath);
+  } finally {
+    await s.close();
+  }
+});
+
 for (const errorMessage of [
   'Sorry, something went wrong.',
   'server_error: Sorry, something went wrong.',

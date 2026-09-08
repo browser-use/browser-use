@@ -1,0 +1,29 @@
+{
+  "source_sdk_sha": "f41c5b7116ede9393696b67a166e38f91893163f",
+  "source_evaluation_id": "7cfa2933-9af7-4139-a949-773edb96d00b",
+  "source_github_run_id": 34185579665,
+  "source_task_id": "bub2-043",
+  "source_trace_id": "e0c0a2b7-7c8a-8a8d-bebb-2d510b56c1d7",
+  "source_compactions": 0,
+  "journal_tool_end_records": 80,
+  "journal_truncated_records": 0,
+  "snapshot_execution_start_utc": "2026-09-08T05:05:50.637Z",
+  "snapshot_execution_end_utc": "2026-09-08T05:05:51.105Z",
+  "reported_observation_utc": "2026-09-08T05:20:35.889Z",
+  "source_sha256": {
+    "sdk-audit.tar.gz": "2a148d499e4d07a2670dda3eed63ccfffecb4a69a978ebbefef650ed73b68eb0",
+    "agent_outputs/page2_result_ledger.json": "d175b97ea6f781fa43cfe6c88c7de2831e14b12d4913d860644c87306be05510",
+    "events.jsonl": "1cd9d6181d74150b0e088e24c87d713e6022afa020c64e9d7bc40c2b95aec097"
+  },
+  "verification": {
+    "previous_built_runtime_discovery_test": "failed: journal path absent",
+    "initial_long_guidance_full_suite": "91 pass, 1 context-limit regression",
+    "short_guidance_full_suite": "92 pass, 0 fail; original 35000-character compaction test unchanged",
+    "python_source_bundle_tests": "7 pass",
+    "typecheck": "passed",
+    "docs_build": "passed",
+    "real_model_adoption": "not yet tested"
+  },
+  "report": "docs/journal-discovery-experiment.md",
+  "scope": "Existing journal discovery only. No changed logger, judge, benchmark outcome, automatic browser action or runtime budget."
+}

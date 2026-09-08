@@ -245,6 +245,7 @@ export class BrowserUse {
         {
           messages: this.messages,
           control,
+          eventsPath,
           save: (messages) => {
             this.messages = messages;
             this.hasConversation = true;

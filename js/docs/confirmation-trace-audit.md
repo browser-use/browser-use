@@ -31,6 +31,8 @@ These observations motivate experiments, not benchmark-specific rules:
 
 The current prompt already requests source provenance, unknown states, canonical datasets, and final reconciliation. These traces show that instructions alone do not enforce those properties. No new evidence framework, source restriction, changed judge, or task-specific selector has been added on the strength of this interim audit. Select the next quality experiment after the complete paired outcomes.
 
+Two further completed candidate losses were inspected: `bub2-035` assigns source authorities using broad text matches such as `ai` and `ust`, creating unrelated source mappings and assigning confidence without per-record verification; `bub2-043` collects a directory but replaces its page-observation timestamp during final file construction. Both have zero compactions. The latter already has a recoverable, timestamped SDK journal in its audit archive. A separate [journal discovery experiment](./journal-discovery-experiment.md) exposes that existing path to the model; it does not alter these outcomes or establish a quality gain.
+
 ## Separate provider recovery gap
 
 The same confirmation candidate stopped `bub2-038` after 78 steps and 597.872 seconds with a terminal OpenAI Responses assistant error: `Sorry, something went wrong.` It had zero compactions and used zero SDK inference retries. Its trace ID is `05cadcfa-0373-ab0a-9192-4e1f6c356e3e`. The reference also recorded this error on `bub2-041`. The observed message does not reveal the provider's internal cause or guarantee that retrying will work.

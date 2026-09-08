@@ -49,6 +49,7 @@ export async function runAgent(
     messages: AgentMessage[];
     control: RunControl;
     save: (messages: AgentMessage[]) => void;
+    eventsPath?: string;
   },
 ): Promise<RunResult<unknown>> {
   const maxSteps = positiveInteger('maxSteps', options.maxSteps ?? 40);
@@ -176,6 +177,9 @@ export async function runAgent(
         positiveInteger('observerTimeoutMs', options.observerTimeoutMs ?? 3000),
       )
     : undefined;
+  const journalGuidance = session?.eventsPath
+    ? `Run journal (JSON path): ${JSON.stringify(session.eventsPath)}\nRead relevant JSONL events to recover original tool execution times and observations. Event timestamps are not simultaneous page snapshots; never replace missing capture times with report time.\n`
+    : '';
   const agent = new Agent({
     streamFn: deadlineStream(
       (selected, request, settings) =>
@@ -188,7 +192,7 @@ export async function runAgent(
     initialState: {
       model,
       messages: session?.messages ?? [],
-      systemPrompt: `${SYSTEM_PROMPT}\nWorkspace directory (JSON string): ${JSON.stringify(workspace)}. Relative file-tool paths and the JavaScript working directory start here. Save deliverables inside this directory; files outside it are not included by BrowserUse.files(). Use relative paths or the exact workspace value, not a guessed parent directory.\n${config.instructions ?? ''}`,
+      systemPrompt: `${SYSTEM_PROMPT}\nWorkspace directory (JSON string): ${JSON.stringify(workspace)}. Relative file-tool paths and the JavaScript working directory start here. Save deliverables inside this directory; files outside it are not included by BrowserUse.files(). Use relative paths or the exact workspace value, not a guessed parent directory.\n${journalGuidance}${config.instructions ?? ''}`,
       thinkingLevel: config.reasoning ?? 'medium',
       tools: [
         javascript,
