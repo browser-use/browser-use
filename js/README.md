@@ -62,6 +62,8 @@ These are nonconcurrent development runs, not a controlled speed/token-efficienc
 
 The fresh Hard106 pair at `f41c5b7` scored **89/106 versus 79/106** for the reference, with all 212 judgments. It cleared the frozen noninferiority margin; recorded agent inference cost was **$131.89 versus $117.87**. [Full paired results and uncertainty](docs/iteration-protocol.md#complete-fresh-hard-comparison). The fresh Luna pair scored **57.17/100 versus 58.72/100**, missing the frozen target; three provider failures lack actual judgments. Later SDK commits remain separate.
 
+The second fresh Hard pair at `65a16cb` fell to **81/106 versus 85/106**, with all 212 judgments, and failed the same frozen acceptance criteria. Its Luna pair is still running. [Second confirmation](docs/iteration-protocol.md#complete-second-hard-comparison). These results do not establish stable parity for the current SDK.
+
 [Chart data, accounting, and limitations](docs/benchmark-overview.md) · [Full results](docs/vision-results.md) · [Hard106 history](docs/benchmark.md) · [Current experiment protocol](docs/iteration-protocol.md)
 
 ## Try it

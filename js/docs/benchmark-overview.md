@@ -50,6 +50,8 @@ The extraction-only candidate `4a09ee3` subsequently scored **90/106 on Hard** a
 
 The subsequent **fresh Hard confirmation** at `f41c5b7` finished at **89/106 versus 79/106** for the concurrently dispatched historical-reference SDK, with all 212 actual judgments. The paired delta is +9.43 points, 95% interval [+1.89, +16.98], and one-sided lower bound +2.83. It clears the frozen noninferiority margin and sits two tasks below the historical 91. Agent inference cost was $131.89 candidate versus $117.87 reference. The fresh Luna pair finished at **57.17/100 candidate versus 58.72/100 reference**, with 59 and 58 actual judgments respectively. It fails both the frozen statistical margin and the historical-point tolerance; the two-benchmark goal remains unmet. This is not a result for later runtime commits or a claim of token efficiency. [Full confirmation report](./iteration-protocol.md#complete-fresh-hard-comparison).
 
+The **second fresh Hard confirmation** at `65a16cb` scored **81/106 versus 85/106**, with all 212 actual judgments. The delta is −3.77 points, 95% interval [−10.38, +2.83], one-sided lower bound −9.43. It fails both the frozen noninferiority margin and the historical-point floor of 88/106. Recorded agent cost is $144.008744 candidate versus $123.165385 reference. Its Luna pair remains unfinished; later accessibility fixes remain separate. [Second confirmation report](./iteration-protocol.md#complete-second-hard-comparison).
+
 ## Sources and reproduction
 
 - [bu-pi Luna evaluation](https://www.lmnr.ai/project/b657f811-13a7-4dae-a67a-91445a567f24/evaluations/bf521f51-7920-4e55-8833-f6413b91a73d) · [GitHub execution](https://github.com/browser-use/new-eval-platform/actions/runs/34086771731).

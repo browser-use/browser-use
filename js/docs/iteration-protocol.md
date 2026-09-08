@@ -174,7 +174,7 @@ The candidate bundles the later image-preview guard, exact generic-provider reco
 
 Four arms are frozen before dispatch; no newer SDK commit may enter them. Every assigned outcome is retained, including failures and missing judgments. Completion requires actual-judgment coverage and the original acceptance on both benchmarks. These remain development benchmarks, not held-out SOTA evidence. No new full result exists at selection. [Exact plan](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-plan.json).
 
-The plan was pushed at `3b3536a` before all four arms were dispatched once. The workflow ref still resolved to `3fbf236`; the execution platform remains `ddc48ee`. All four prepare jobs succeeded, created all 332 datapoints and started 12 task jobs per arm. Results are pending.
+The plan was pushed at `3b3536a` before all four arms were dispatched once. The workflow ref still resolved to `3fbf236`; the execution platform remains `ddc48ee`. All four prepare jobs succeeded, created all 332 datapoints and started 12 task jobs per arm. The Hard pair is complete; both Luna workflows are still running.
 
 | Benchmark | Reference execution | Candidate execution |
 | --- | --- | --- |
@@ -184,6 +184,27 @@ The plan was pushed at `3b3536a` before all four arms were dispatched once. The 
 [Recorded dispatch inputs and Laminar evaluation IDs](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-dispatch.json).
 
 The [ongoing trace audit](./confirmation2-trace-audit.md) separates early access losses from source-state and arithmetic errors in delivered artifacts. It is a selected diagnostic view, not a score for the unfinished cohorts.
+
+### Complete second Hard comparison
+
+Both original Hard workflows completed on September 8 UTC with **all 212 actual judgments**. Candidate `65a16cb` scored **81/106** against reference `58ed778` at **85/106**. The candidate workflow succeeded; the reference concluded `failure` with a real runtime-failure judge verdict. Execution conclusion is separate from actual-judgment coverage.
+
+| Measure | Reference `58ed778` | Candidate `65a16cb` |
+| --- | ---: | ---: |
+| Passes / assigned | 85/106 | 81/106 |
+| Actual judgments | 106 | 106 |
+| Recorded agent inference cost | $123.165385 | $144.008744 |
+| Median steps | 33 | 32 |
+| Median agent duration, seconds | 281.9255 | 249.115 |
+| Tasks with SDK cleanup errors | 2 | 0 |
+
+The paired candidate-minus-reference difference is **−3.77 percentage points**: five gains, 92 ties and nine losses. The frozen 20,000-resample bootstrap gives a 95% interval of **[−10.38, +2.83]**, with one-sided 95% lower bound **−9.43**. This fails the original −3-point noninferiority criterion. The candidate also falls seven tasks below the required historical-tolerance floor of 88/106. The interval includes zero, so this single cohort does not establish a statistically isolated harmful code effect either. **Parity is not established; the two-benchmark goal remains unmet.**
+
+The candidate has 14 `site-blocked` judge labels versus seven in the reference; six of the nine candidate losses carry that label. These are classifications, not a verified common cause. The [trace audit](./confirmation2-trace-audit.md) separately establishes selected access-state differences, stale product identity and variant acquisition errors. Requested Cloud settings and tab lifecycle were checked earlier, but actual IP/reputation/browser versions and live-site state were not matched. The change bundle and external variation prevent attributing the full drop to any single prompt or runtime patch.
+
+All task IDs, manifests, model/reasoning, judges, budgets, assigned zeros and attempt numbers are retained. Each dependency lock matches its pinned SDK. Agent costs exclude judge, browser, runner and unreported usage. Median durations are descriptive. Later accessibility-state and label-click fixes are separate and replace no outcomes. Luna remains unfinished, with a missing actual judgment from the [reference screenshot-ownership failure](./evidence-ownership.md). The agent deleted the evaluator screenshot directory while cleaning deliverables; its official zero remains.
+
+[Complete per-task Hard evidence and frozen uncertainty calculation](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-hard.json).
 
 ## Compatibility and rollback
 
