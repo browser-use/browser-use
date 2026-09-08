@@ -1,0 +1,62 @@
+{
+  "sdk_sha": "2737754a3ce02ce908942602e1246b7a074f2363",
+  "github_run_id": 34191816472,
+  "evaluation_id": "e5207fa4-aceb-409b-8664-a70f1af87c4b",
+  "trace_id": "717d8494-643d-fcb0-2def-cc5b0503be3e",
+  "task_id": "bub2-043",
+  "model": "gpt-5.6-luna",
+  "reasoning": "xhigh",
+  "judge": "findings",
+  "judge_model": "gpt-5.6-luna",
+  "score_per_100": 23,
+  "workflow_conclusion": "success",
+  "metrics": {
+    "cache_write_tokens": 12757,
+    "cached_input_tokens": 80034,
+    "duration_seconds": 104.072,
+    "input_tokens": 42,
+    "output_tokens": 7001,
+    "steps": 14,
+    "total_cost": 0.01319953,
+    "total_tokens": 99834
+  },
+  "tool_calls": {
+    "javascript": 12,
+    "write": 7,
+    "bash": 1,
+    "finish": 1
+  },
+  "journal_read_calls": 0,
+  "journal_adoption": "unexercised",
+  "page2_tool_start_utc": "2026-09-08T05:47:04.155Z",
+  "page2_tool_end_utc": "2026-09-08T05:47:05.122Z",
+  "reported_observation_utc": "2026-09-08T05:47:04Z",
+  "reported_timestamp_source": "Visible Google interstitial Time field, not SDK journal; second resolution.",
+  "compactions": 0,
+  "provider_retries": 0,
+  "screenshot_errors": 0,
+  "output_files": 7,
+  "browser_status": "stopped",
+  "browser_checked_at": "2026-09-08T05:53:16.526266+00:00",
+  "findings": [
+    "Required Google page-two results were never observed.",
+    "All 21 tool calls inspected; no journal read.",
+    "After writing artifacts, an additional failed navigation was omitted from the access record.",
+    "Final response claimed page-two was still the browser state after the later query navigation.",
+    "No global integrity zero; score remains 23/100."
+  ],
+  "limitations": [
+    "One known task with reduced 100-turn/1200-second limits, not ranking evidence.",
+    "Access conditions differ from previous run; no causal score comparison.",
+    "No native image resize, compaction or provider retry exercised.",
+    "Agent cost excludes judge, browser, runner and unreported usage."
+  ],
+  "sha256": {
+    "events.jsonl": "fd67ae5095f42b86f4bf22a6e1f89925778f42c01681db581db7a0c80343c1a0",
+    "sdk-audit.tar.gz": "10b071c3640c5001dc14ecd8aa97986a559a859f3bc913923d66e968c86fe63a",
+    "judgment.json": "067993678ee7c30bc1067b6924cf343ce390b2f4437e5c2687eda5b320df3246",
+    "judge_trace.json": "d621f6cbb6b533d44771e396af2a0719a54ab3cfc412e61da4b1f794fe24076e",
+    "agent_outputs/page2_result_ledger.json": "7bf22ef380e21d14596f6e6afc578efc28c66863aca5a00cc03c22716cbb9bba",
+    "agent_outputs/access_record.json": "abaa5d8f2f0a506aaf03599c070384c10230b889f82c8f8b5ab895c620b67dcb"
+  }
+}

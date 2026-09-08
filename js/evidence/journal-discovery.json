@@ -22,7 +22,7 @@
     "python_source_bundle_tests": "7 pass",
     "typecheck": "passed",
     "docs_build": "passed",
-    "real_model_adoption": "not yet tested"
+    "real_model_adoption": "One task completed at 23/100; Google blocked; no journal read among 21 tool calls. Mechanism unexercised."
   },
   "report": "docs/journal-discovery-experiment.md",
   "scope": "Existing journal discovery only. No changed logger, judge, benchmark outcome, automatic browser action or runtime budget."
