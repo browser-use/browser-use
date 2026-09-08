@@ -69,6 +69,7 @@ const realm = createContext(
 if (executionContextId === undefined)
   throw new Error('Could not initialize the JavaScript context.');
 Object.assign(realm, {
+  global: realm, // Node's global alias refers to this REPL realm, not the worker host.
   // Reject values JSON would silently drop or change. Dates/toJSON use normal JSON semantics.
   __serializeResult(value: unknown) {
     const json = JSON.stringify(value, (_key, item: unknown) => {

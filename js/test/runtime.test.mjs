@@ -31,6 +31,21 @@ test('actual let/const/functions persist across awaited cells', async () => {
   );
   assert.equal((await agent.execute('increment += 1; add(answer)')).text, '42');
 });
+test('Node global alias points to the REPL realm and preserves native fetch bindings', async () => {
+  assert.equal((await agent.execute('global === globalThis')).text, 'true');
+  assert.equal(
+    (
+      await agent.execute(
+        "const fetch = global.fetch; await (await fetch('data:text/plain,alias-works')).text()",
+      )
+    ).text,
+    "'alias-works'",
+  );
+  await agent.execute('global.aliasMarker = 73; void 0');
+  assert.equal((await agent.execute('globalThis.aliasMarker')).text, '73');
+  assert.equal(globalThis.aliasMarker, undefined);
+  await agent.execute('delete global.aliasMarker; void 0');
+});
 test('a CDP deadline preserves Node bindings and reports an uncertain action without replay', async () => {
   await agent.execute("await page.goto('data:text/html,<title>CDP deadline</title>')");
   await assert.rejects(

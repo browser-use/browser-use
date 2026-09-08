@@ -1,0 +1,47 @@
+{
+  "verified_at": "2026-09-08T14:12:14.895251+00:00",
+  "parent_sha": "cc9e6e80cd59ad96a2370006216e0ebe2908ce44",
+  "scope": "Add Node global alias pointing at the persistent REPL realm. No task-specific code, model, prompt or dependency change.",
+  "original_trace": {
+    "github_run_id": 34234054610,
+    "task_id": "v18kgy",
+    "declaration_event": 78,
+    "error_event": 79,
+    "declaration": "const fetch = global.fetch",
+    "error": "ReferenceError: global is not defined",
+    "follow_on_error_event": 83,
+    "follow_on_error": "ReferenceError: fetch is not defined"
+  },
+  "tests": {
+    "before": "Selected regression fails: global is not defined.",
+    "targeted_after": "Selected regression passes.",
+    "full_node_suite": "116/116 pass; includes exact const fetch = global.fetch and data URL fetch.",
+    "python_bridge": "7/7 pass",
+    "typecheck": "passed",
+    "docs_build": "passed"
+  },
+  "contracts": [
+    "global === globalThis within the REPL.",
+    "Exact Node-style fetch declaration works.",
+    "Global properties persist across cells.",
+    "REPL marker property is absent in parent process."
+  ],
+  "limitations": [
+    "No benchmark score improvement established.",
+    "Original native-tool diagnostics use ef19eac and do not contain this patch.",
+    "A global alias is not a security sandbox or general failed-declaration recovery."
+  ],
+  "sha256": {
+    "src/worker.ts": "cffd38d08ad6e80cf789154c9100d36cb683e3718674d108628a3a861777f4a3",
+    "test/runtime.test.mjs": "6fb6f1492951ef2db0b6ef9f246aa52ddf69e33043f1f109941ed4d29bbc8790"
+  },
+  "log_sha256": {
+    "global-alias-before.log": "8f3e4c41759fa3f050eb8644a64eefdd162a6f928b628997e51ecdacabef6929",
+    "global-alias-after.log": "8255ba87f4a0a3ca134f1781fac921c424a537a4aa2729d59f03e4ca72c3a513",
+    "global-alias-build.log": "de61e7643e66698efc024fc9a4eab244dc59c8bf7c18ce6ba711256a2f8db4b8",
+    "global-alias-full-tests.log": "a71970f81d6de89234d8f24a3413e115c4563a18546a3a1b7fba19ec62bbf7b4",
+    "global-alias-check.log": "e5a8888b0f03f02a82bf18ff2de74d597b88b8fb1652730650d3596e9993b407",
+    "global-alias-python.log": "d1ad4e980ade760a85294605d4cf698e37c1f688e9d7ae12d8c2c0f2e6690c29",
+    "global-alias-docs.log": "c9d37fd250fabb080092a4a441645df1ab2249d016e631184077bfc58ad83daa"
+  }
+}

@@ -87,3 +87,12 @@ A worker exit between cells now reports `CellError` with `stateReset: true`, jus
 The next requested cell is rejected before it executes; nothing is replayed. A subsequent explicit cell may start a new worker. The lost cell's images and output are not attached to the skipped request. Existing `Error` handling remains compatible, and `CellError` consumers now get the documented reset field. No browser action, prompt, model, dependency, persisted history/profile, or Python option changes.
 
 A regression fixture fails on the old code and passes after the fix. A real Pi loop with scripted model responses verifies the flag in the next model context and application hook, then proves that the skipped file write did not happen and the old binding is absent. This establishes error reporting and recovery behavior, not a benchmark score gain. Rollback is the previous SDK commit; there is no data migration.
+
+
+## Node global compatibility
+
+The persistent JavaScript context now exposes `global === globalThis`, matching Node's global alias. Previously ordinary Node code such as `const fetch = global.fetch` failed despite `fetch` being preloaded. A failed top-level declaration could then shadow that binding in later cells. The alias points to the REPL realm, not the worker host's global object.
+
+A regression test fails before the fix and passes afterward. It exercises the exact declaration, a local data-URL fetch, cross-cell property persistence and absence of that property in the parent process. The full 116-test Node suite, seven Python bridge tests and typecheck pass. This adds one global name; it changes no model, prompt, dependency, browser behavior, checkpoint or profile/history format. Existing code that intentionally tests for the absence of `global` now sees it. It is not a security boundary or a cure for arbitrary failed declarations. Roll back by pinning the prior SDK; there is no data migration.
+
+The original native-tool diagnostic does not include this change. [Verification evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/global-alias-verification.json).
