@@ -11,6 +11,7 @@ import { CDP } from './cdp.js';
 import { Page } from './page.js';
 import { Tabs } from './tabs.js';
 import type { Image, WorkerConfig, WorkerRequest, WorkerResponse } from './protocol.js';
+import { prepareModelImages } from './images.js';
 
 // IPC initialization keeps connection details out of argv and environment.
 process.on('disconnect', () => process.exit(0));
@@ -129,7 +130,7 @@ Object.assign(realm, {
     if (images.length >= 4) throw new Error('At most four screenshots per cell.');
     const count = images.length;
     await current.screenshot({ quality: 70 });
-    return images.length > count ? 'Screenshot attached.' : 'Screenshot omitted; see warning.';
+    return images.length > count ? 'Screenshot captured.' : 'Screenshot omitted; see warning.';
   },
   async snapshot() {
     const current = Reflect.get(realm, 'page') as Page;
@@ -267,9 +268,10 @@ process.on('message', async (message: WorkerRequest) => {
   if (overflow) output += '\n[Output exceeded the 1 MB capture limit.]';
   if (output.length > config.maxOutputChars)
     output = `${output.slice(0, config.maxOutputChars)}\n[Truncated. Full captured output: ${outputFile}]`;
+  const previews = await prepareModelImages(images);
   const result = {
-    text: output || '(no output)',
-    images,
+    text: [output, ...previews.notes].filter(Boolean).join('\n') || '(no output)',
+    images: previews.images,
     targetId: (Reflect.get(realm, 'page') as Page)?.targetId,
     ...(valueJson !== undefined ? { valueJson } : {}),
     ...(outputFile ? { outputFile } : {}),

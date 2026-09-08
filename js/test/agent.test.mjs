@@ -12,6 +12,7 @@ import {
 import { BrowserUse, Type } from '../dist/index.js';
 import { startFixture } from '../examples/fixture.mjs';
 import { SYSTEM_PROMPT } from '../dist/prompt.js';
+import { imageDimensions } from '../dist/images.js';
 
 let fixture;
 before(async () => {
@@ -659,6 +660,33 @@ test('saving an explicit page screenshot also supplies the image to the next mod
     const result = await s.agent.run('Inspect the mobile rendering');
     assert.equal(result.status, 'completed');
     assert.equal(result.output, 'Image received');
+  } finally {
+    await s.close();
+  }
+});
+
+test('a full-page image exceeding provider patch limits reaches the next model turn as a bounded preview', async () => {
+  const s = await session([
+    call('javascript', {
+      code: `await page.goto(${JSON.stringify(fixture.url)}); await page.evaluate(() => { document.body.style.height='22000px'; }); await page.cdp('Page.captureScreenshot', {format:'jpeg',quality:60,captureBeyondViewport:true,clip:{x:0,y:0,width:1440,height:22000,scale:1}}).then(r => artifact('original.jpg', Buffer.from(r.data,'base64')));`,
+    }),
+    (context) => {
+      const result = context.messages.findLast((m) => m.role === 'toolResult');
+      const images = result.content.filter((part) => part.type === 'image');
+      assert.equal(images.length, 1);
+      const size = imageDimensions(Buffer.from(images[0].data, 'base64'));
+      assert.ok(size.width <= 2000 && size.height <= 2000);
+      assert.match(
+        result.content.find((part) => part.type === 'text').text,
+        /model preview.*unreadable text/,
+      );
+      return call('finish', { result: 'Preview received; original retained' });
+    },
+  ]);
+  try {
+    const result = await s.agent.run('Capture the full page');
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 'Preview received; original retained');
   } finally {
     await s.close();
   }

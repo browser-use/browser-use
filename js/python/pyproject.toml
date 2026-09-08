@@ -16,4 +16,4 @@ where = ["."]
 include = ["browser_use_next*"]
 
 [tool.setuptools.package-data]
-browser_use_next = ["runtime/*.mjs", "runtime/*.js", "runtime/package.json", "runtime/*.LEGAL.txt", "runtime/THIRD_PARTY_NOTICES.txt"]
+browser_use_next = ["runtime/*.mjs", "runtime/*.js", "runtime/*.wasm", "runtime/package.json", "runtime/*.LEGAL.txt", "runtime/THIRD_PARTY_NOTICES.txt"]

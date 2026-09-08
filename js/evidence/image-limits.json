@@ -1,0 +1,59 @@
+{
+  "benchmark": "BU_Bench_v2",
+  "task_id": "bub2-002",
+  "arm": "confirmation1-luna-reference",
+  "sdk_sha": "b430a91891e23f5ffb9ca816e5cbe63e73d2a248",
+  "github_run_id": 34185578184,
+  "evaluation_id": "228eee8b-4e78-4978-b3e5-0f718b4c4930",
+  "failure": "Provider rejects one full-page screenshot at 30465 image patches, maximum 30000",
+  "image": {
+    "width": 1425,
+    "height": 21637,
+    "jpeg_bytes": 387728,
+    "patch_side_pixels": 32,
+    "computed_patches": 30465
+  },
+  "mechanism": "Raw CDP Page.captureScreenshot with captureBeyondViewport=true was automatically attached; the worker checked encoded bytes and image count but not dimensions. The JPEG was below the 8 MB attachment limit.",
+  "compactions": 0,
+  "outcome_retained": "Assigned runner zero; no actual judgment; no task rerun or replacement",
+  "local_resize": {
+    "mimeType": "image/png",
+    "originalWidth": 1425,
+    "originalHeight": 21637,
+    "width": 132,
+    "height": 2000,
+    "wasResized": true,
+    "elapsedMs": 1253.818917,
+    "note": "[Image: original 1425x21637, displayed at 132x2000. Multiply coordinates by 10.80 to map to original image.]",
+    "base64Bytes": 44016
+  },
+  "limitations": [
+    "The fix is a separate next candidate, absent from the frozen f41c5b7 confirmation cohorts; not yet remotely evaluated.",
+    "A 132-pixel-wide preview loses legibility; original files and crop/viewport follow-up are needed.",
+    "Other provider limits may differ; the generic fix needs dimension and format validation plus failure containment."
+  ],
+  "local_validation": {
+    "node_tests": {
+      "passed": 87,
+      "failed": 0
+    },
+    "python_source_bundle_tests": {
+      "passed": 7,
+      "failed": 0
+    },
+    "python_wheel_bundle_tests": {
+      "passed": 7,
+      "failed": 0
+    },
+    "typecheck": "passed",
+    "docs_build": "passed",
+    "fixtures": "Real local Chrome plus scripted/local SSE model responses; no paid model calls",
+    "remote_smoke": "not yet dispatched"
+  },
+  "wheel": {
+    "wheel": "browser_use_next-0.1.0-py3-none-any.whl",
+    "wheel_bytes": 5465959,
+    "wasm_bytes": 1881634,
+    "wasm_sha256": "10468181565c56004c867f3a4af96f89a0ef5a63a72f2b5fb12c1f1992a3615c"
+  }
+}

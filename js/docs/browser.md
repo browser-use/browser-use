@@ -94,14 +94,16 @@ Register events before triggering actions. `page.cdp()` scopes commands to its s
 
 `downloadPath` and file-input paths belong to the machine running Chrome. With remote Chrome, transfer files through the provider's file API or fetch an observed download URL into a local artifact. A remote path alone is not a delivered file.
 
-Inside `agent.execute()` and the agent's JavaScript tool, every explicit screenshot on the worker's browser connection attaches a native image. This includes `screenshot()`, `page.screenshot()`, other tabs, and raw `Page.captureScreenshot` calls. Saving the bytes still works:
+Inside `agent.execute()` and the agent's JavaScript tool, explicit screenshots on the worker's browser connection supply native model previews. This includes `screenshot()`, `page.screenshot()`, other tabs, and raw `Page.captureScreenshot` calls. Saving the original bytes still works:
 
 ```js
 await artifact('mobile.jpg', await mobilePage.screenshot({ quality: 80 }));
 // The file is saved and the model receives the image on its next turn.
 ```
 
-The global helper attaches once; it does not duplicate the underlying CDP capture. Each cell returns `{text, images, outputFile?}`. At most four images of up to 8 MB each are attached; excess explicit captures still return their bytes but produce a vision-omission warning. Two recent image-bearing messages are retained in model context. Late responses from an ended cell are not attached to a later cell.
+The global helper captures once; it does not duplicate the underlying CDP command. Each cell returns `{text, images, outputFile?}`. Up to four captures of at most 8 MB each enter preview processing. Ordinary viewport images under 2000 pixels on each axis and 4.5 MiB of base64 data pass through unchanged. Larger previews use upstream Pi resizing to fit those limits. Original CDP responses and saved files remain unchanged. A text note states the original and preview dimensions; long-page thumbnails can lose legibility, so capture a viewport or bounded `Page.captureScreenshot` clip for readable detail. Preview coordinates are not automatically viewport coordinates.
+
+Excess captures, unsupported dimensions, images above 50 megapixels, and failed resizing produce explicit model-vision omission warnings. They do not replay the capture or discard its original bytes. Processing remains inside the existing cell deadline; deadline/cancellation can still reset the worker as documented. Two recent image-bearing messages are retained in model context. Late responses from an ended cell are not attached to a later cell. These limits bound screenshot previews, not every possible provider restriction or images returned by application-defined tools.
 
 This does not automatically take screenshots after actions. Recording/eval observers use separate connections and do not feed their images to the agent. Saving an existing image file does not display it; use Pi's image-capable `read` tool when enabled. Model vision still depends on the chosen provider/model. Standalone `Page` calls outside the worker continue returning bytes to your application.
 

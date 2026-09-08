@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserUse } from '../dist/index.js';
 import { startFixture } from '../examples/fixture.mjs';
+import { imageDimensions } from '../dist/images.js';
 
 let agent, fixture, workspace;
 before(async () => {
@@ -190,6 +191,41 @@ test('explicit page, other-tab and raw CDP captures attach native images without
     Buffer.from(result.images[0].data, 'base64'),
   );
   assert.equal((await agent.execute('42')).images.length, 0);
+});
+
+test('oversized JPEG, PNG and WebP captures keep original artifacts and attach bounded previews without replay', async () => {
+  const result = await agent.execute(
+    `
+    await page.goto(${JSON.stringify(fixture.url)});
+    await page.evaluate(() => { document.body.style.height = '22000px'; globalThis.imageGuardActions = 1; });
+    const imageGuardTarget = page.targetId;
+    for (const format of ['jpeg', 'png', 'webp']) {
+      const raw = await page.cdp('Page.captureScreenshot', {format, quality:60, captureBeyondViewport:true,
+        clip:{x:0,y:0,width:1440,height:format==='webp'?6000:22000,scale:1}});
+      await artifact('tall-original.' + format, Buffer.from(raw.data, 'base64'));
+    }
+    console.log('three original captures saved');
+  `,
+    { timeoutMs: 30_000 },
+  );
+  assert.equal(result.images.length, 3, result.text);
+  assert.match(result.text, /model preview/);
+  assert.match(result.text, /Do not assume preview coordinates are viewport coordinates/);
+  for (const [index, format] of ['jpeg', 'png', 'webp'].entries()) {
+    const original = await readFile(join(workspace, 'tall-original.' + format));
+    const source = imageDimensions(original);
+    assert.ok(source.height >= (format === 'webp' ? 6000 : 22000), format);
+    const preview = Buffer.from(result.images[index].data, 'base64');
+    const size = imageDimensions(preview);
+    assert.ok(size.width <= 2000 && size.height <= 2000, format);
+    assert.notDeepEqual(original, preview, format);
+  }
+  assert.equal((await agent.execute('page.targetId === imageGuardTarget')).text, 'true');
+  assert.equal(
+    (await agent.execute('await page.evaluate(() => globalThis.imageGuardActions)')).text,
+    '1',
+  );
+  await agent.execute(`await page.goto(${JSON.stringify(fixture.url)})`);
 });
 
 test('screenshot bounds preserve command results and failed-cell images stay in their own cell', async () => {

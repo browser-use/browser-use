@@ -1,6 +1,7 @@
 """Real Python -> bundled Node -> Pi -> local SSE transport -> Python callable tests."""
 
 import asyncio
+import base64
 import json
 import tempfile
 import unittest
@@ -174,6 +175,32 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("remember the first task", json.dumps(self.requests[1]))
         path = await agent.save_history()
         self.assertEqual(json.loads(Path(path).read_text())["version"], 1)
+
+    async def test_bundled_oversized_screenshot_preserves_original_and_reaches_provider(self):
+        agent = await self.create()
+        capture = await agent.execute(
+            "await page.goto('data:text/html,<body>Image fixture</body>'); "
+            "await page.cdp('Page.captureScreenshot', {format:'png',captureBeyondViewport:true,"
+            "clip:{x:0,y:0,width:1440,height:22000,scale:1}})"
+            ".then(r=>artifact('original.png',Buffer.from(r.data,'base64')))"
+        )
+        self.assertEqual(len(capture["images"]), 1, capture["text"])
+        self.assertIn("model preview", capture["text"])
+        original = (Path(self.directory.name) / "original.png").read_bytes()
+        self.assertEqual(int.from_bytes(original[20:24], "big"), 22000)
+        preview = base64.b64decode(capture["images"][0]["data"])
+        self.assertNotEqual(original, preview)
+        # Run the screenshot through the real bundled Pi loop and inspect the local provider request.
+        self.responses = [
+            ("javascript", {"code": "await page.cdp('Page.captureScreenshot', {format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width:1440,height:22000,scale:1}}); void 0"}),
+            ("finish", {"result": "preview received"}),
+        ]
+        result = await agent.run("Capture and inspect the full page")
+        self.assertEqual(result.output, "preview received")
+        serialized = json.dumps(self.requests[-1])
+        self.assertIn("input_image", serialized)
+        self.assertIn("model preview", serialized)
+        self.assertNotIn(base64.b64encode(original).decode(), serialized)
 
     async def test_cancel_propagates_to_python_tool(self):
         entered, cancelled = asyncio.Event(), asyncio.Event()
