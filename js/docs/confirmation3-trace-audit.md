@@ -135,3 +135,25 @@ The reference instead assigns `blocked_robot_or_human` to every supplemental rec
 Preserving incomplete streams without executing their calls is useful recovery behavior. Persisting the pending inventory and retaining per-record attempt states across every output remains a separate requirement. The candidate initially had Walmart access while the reference was blocked, so this pair cannot isolate how much of the score difference recovery caused. Its SDK cleanup reports a timeout; the independent owned-browser audit verifies Cloud cleanup separately. Both original scores remain unchanged.
 
 [Stream events, per-record counts, screenshot hash and original judgments](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-stream-recovery-pair.json).
+
+## Missing listings: both extractors pass a positive control
+
+Task `l3gywi` requests a CSV for 27 exact CarMax URLs. Both runs return the same 27 URLs in the same order, with unavailable vehicle data. The reference passes; the candidate fails. Reading only those judgments would miss a significant control in the candidate trace.
+
+The candidate's extractor successfully reads a current control vehicle, including VIN, mileage, price and title, at event 87. It then runs that extractor on every requested URL and records 27 HTTP 404 responses with the page title “404 Error.” Its saved status file agrees with the batch output. There are no candidate tool errors. The reference likewise gets valid vehicle JSON for a current control through CarMax's compare API, then 27 missing car objects with HTTP 404 for the requested IDs.
+
+Both controls support the source-miss interpretation. They do not prove the missing vehicles were permanently unavailable through every possible route, but this pair does not demonstrate a candidate extractor regression. The reference fills the title column with an unavailable label; the candidate leaves it blank and explains the 404s outside the CSV.
+
+Neither initial judge prompt includes the corresponding positive-control stock number. The reference judge later reads its control in a small, untruncated events excerpt. Candidate raw judge command outputs contain its control among large outputs marked truncated. That raises an evidence-discovery question without proving exactly what the judge retained or isolating judge randomness. Both original scores remain unchanged. Do not change extraction logic merely to imitate the passing unavailable-row wording.
+
+## Access differences and an unsupported archive fallback
+
+Three further completed Hard losses show distinct access and verification boundaries:
+
+- **McGrath, `0x65mu`:** the reference reaches live Manly/2095 results. The candidate encounters a Vercel checkpoint and validates selectors on 12 archived homepage cards, including unrelated Hunters Hill and Kellyville Ridge properties. Its final JSON omits the archive/block disclosure and adds unvalidated listing-field and pagination selectors. The fallback yields useful examples but does not establish selectors for the requested live result page. This is a confirmed source-scope gap following different observed access.
+- **LoopNet, `55j2o7`:** the candidate's homepage and search route are already Access Denied before it overrides the user agent. The override also fails. It cannot explain the initial block. The reference reaches the filtered listing workflow and reports 52 listings. This audit verifies the access sequence, not all 52 reference records.
+- **Instagram, `74rs7g`:** both begin at the same Google profile URL. The reference observes “Here to help” and `linkin.bio/google`; the candidate immediately redirects to login. Its reader fallback also returns login, and two profile API routes return 429. The evidence establishes different access outcomes, not their underlying IP, browser or runtime cause.
+
+The generalized distinction is between source access, target identity and evidence-backed completion. A successful archived-page test cannot certify a blocked live target. A positive control plus per-record misses is stronger than a blanket unavailable claim. A score loss following different site access is not, by itself, evidence for another CDP helper patch. No source-specific fallback or judge change enters the running candidate.
+
+[Four paired manifests, positive controls, exact event checks and original judgments](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-access-and-absence-pairs.json).
