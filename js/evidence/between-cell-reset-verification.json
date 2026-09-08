@@ -1,0 +1,48 @@
+{
+  "verified_at": "2026-09-08T13:45:04.476507+00:00",
+  "parent_sha": "4c78f4ca595a41aab6bd05ad7761f0c9987a8df2",
+  "scope": "Expose CellError stateReset=true when an already exited worker is detected before a new cell. No action replay or browser-side cancellation change.",
+  "original_trace": {
+    "github_run_id": 34230002630,
+    "task_id": "mlgses",
+    "event_index": 19,
+    "text": "Browser worker exited (1). JavaScript state was reset; check browser state before retrying an action.",
+    "details": {},
+    "limitation": "Original worker exit cause remains unisolated. This fix adds missing reset metadata; it does not prevent the exit."
+  },
+  "tests": {
+    "before": "1/1 selected regression fails: Error rather than CellError",
+    "targeted_after": "2/2 pass; direct runtime and actual Pi loop with scripted model responses",
+    "runtime_agent_files": "50/50 pass",
+    "initial_full_attempt": "107/115 passed; 8 Findings adapter failures select the unavailable macOS/Xcode Python shim. Original failed log retained.",
+    "corrected_full_attempt": "115/115 pass with existing documented BU_EVAL_PYTHON pin; no source changes between attempts",
+    "python_bridge": "7/7 pass",
+    "typecheck": "passed",
+    "docs_build": "passed"
+  },
+  "contracts": [
+    "Skipped write is never executed; no automatic retry.",
+    "Old JavaScript binding absent after explicit recovery.",
+    "Model context and application hook see true reset metadata.",
+    "No old image or output attached to the skipped request."
+  ],
+  "limitations": [
+    "No remote benchmark improvement claimed.",
+    "Original deadline diagnostics use 45cedf4 and do not include this fix."
+  ],
+  "sha256": {
+    "src/runtime.ts": "2f7f25b5ae61e8c8473db1db0313f969ec2aa683b2ac147c79a00ca11d324efd",
+    "test/runtime.test.mjs": "0d4e6d849d0aed4bbec2ea60dfb06b82b143e96588742877a2e79381a9877a2e",
+    "test/agent.test.mjs": "492b99fec08a88107584a8e977b659ab19c405c7942e013d8028efc6dba25ef1"
+  },
+  "log_sha256": {
+    "between-cell-reset-before.log": "3510646d405606acfb1a4f293eeaf78c8a36ae818e2932c34836ed465ac86a98",
+    "between-cell-reset-after.log": "4bcb1589ab8b758c9fba3f5328b429cb12212e31855d035a7ff106d0aa8a1eee",
+    "between-cell-reset-tests.log": "260587a373ca1d24103cfa2229d07abed90b15cdaf0b34ce312bbc9f839aeaf7",
+    "between-cell-reset-full-tests.log": "2174e7082c6410edf08ed3bb50c7cf84702c4fa4931972e732c0e112bcf6f3d3",
+    "between-cell-reset-full-tests-python-pinned.log": "d959bd8b09027fd1e60fabc9ce072edfe275b651c123c6944607e3dfa077b00e",
+    "between-cell-reset-python.log": "4ff3d4da0cc69bc0ef6c279571307a53b2e66d45474fe93bdc7a884de79cbbdd",
+    "between-cell-reset-check.log": "e5a8888b0f03f02a82bf18ff2de74d597b88b8fb1652730650d3596e9993b407",
+    "between-cell-reset-docs.log": "4ef8e8e8a667626994462b0511ad1dad879a5db864e23d35eeac04f745975553"
+  }
+}

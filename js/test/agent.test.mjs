@@ -815,3 +815,56 @@ test('a failed JavaScript cell retains native images and target metadata through
     await s.close();
   }
 });
+
+test('a between-cell worker crash reports reset to the model and hooks before executing more code', async () => {
+  let calls = 0;
+  let hookSawReset = false;
+  const s = await session(
+    [
+      call('javascript', {
+        code: "const lostBinding = 73; setTimeout(() => { throw new Error('background fixture failure'); }, 20); 'scheduled'",
+      }),
+      call('javascript', {
+        code: "require('node:fs').writeFileSync(require('node:path').join(workspace, 'skipped.txt'), 'must not execute')",
+      }),
+      (context) => {
+        const result = context.messages.at(-1);
+        assert.equal(result.isError, true);
+        assert.match(result.content[0].text, /State reset: true/);
+        assert.equal(result.details.stateReset, true);
+        assert.deepEqual(
+          result.content.filter((part) => part.type === 'image'),
+          [],
+        );
+        return call('javascript', {
+          code: "console.log(typeof lostBinding, require('node:fs').existsSync(require('node:path').join(workspace, 'skipped.txt')))",
+        });
+      },
+      (context) => {
+        assert.equal(context.messages.at(-1).isError, false);
+        assert.match(context.messages.at(-1).content[0].text, /undefined false/);
+        return call('finish', { result: 'reset observed; no skipped action replayed' });
+      },
+    ],
+    {
+      async beforeToolCall() {
+        // Let the first cell's deliberately detached timer fire while the worker is idle.
+        if (++calls === 2) await new Promise((resolve) => setTimeout(resolve, 150));
+      },
+      afterToolCall(call) {
+        if (call.isError) {
+          assert.equal(call.result.details.stateReset, true);
+          hookSawReset = true;
+        }
+      },
+    },
+  );
+  try {
+    const result = await s.agent.run('Recover from the explicit worker crash without replay.');
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 'reset observed; no skipped action replayed');
+    assert.equal(hookSawReset, true);
+  } finally {
+    await s.close();
+  }
+});

@@ -79,3 +79,11 @@ The first frozen reliability runs are Internal Bench Hard (106 tasks, GPT-5.5 me
 No benchmark answers, rubrics, task IDs or site-specific extraction rules are added to the agent. Known trace failures are development evidence, so a gain on these benchmarks still needs replication and held-out validation before a broad SOTA claim.
 
 Roll back by pinning the prior SDK SHA. New checkpoint/output files remain ordinary files; older SDKs ignore them. Disable `researchTools`, `observe` or compaction individually to diagnose behavior. No Python Browser Use implementation, customer sessions or production deployment is modified.
+
+## Worker exits between cells
+
+A worker exit between cells now reports `CellError` with `stateReset: true`, just like an exit during execution. Previously the SDK returned a generic error in this path, so Pi and application hooks did not receive the reset metadata despite losing the JavaScript bindings. The original Hard deadline control demonstrates that missing metadata at event 19.
+
+The next requested cell is rejected before it executes; nothing is replayed. A subsequent explicit cell may start a new worker. The lost cell's images and output are not attached to the skipped request. Existing `Error` handling remains compatible, and `CellError` consumers now get the documented reset field. No browser action, prompt, model, dependency, persisted history/profile, or Python option changes.
+
+A regression fixture fails on the old code and passes after the fix. A real Pi loop with scripted model responses verifies the flag in the next model context and application hook, then proves that the skipped file write did not happen and the old binding is absent. This establishes error reporting and recovery behavior, not a benchmark score gain. Rollback is the previous SDK commit; there is no data migration.

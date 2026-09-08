@@ -165,7 +165,19 @@ test('a crash between cells reports lost state before executing new code', async
     "setTimeout(() => { throw new Error('background failure'); }, 20); 'scheduled'",
   );
   await new Promise((resolve) => setTimeout(resolve, 150));
-  await assert.rejects(agent.execute('42'), /worker exited/);
+  await assert.rejects(
+    agent.execute(
+      "require('node:fs').writeFileSync(require('node:path').join(workspace, 'must-not-run.txt'), 'unexpected')",
+    ),
+    (error) => {
+      assert.match(error.message, /worker exited/);
+      assert.equal(error.name, 'CellError');
+      assert.equal(error.stateReset, true);
+      assert.deepEqual(error.result.images, []);
+      return true;
+    },
+  );
+  await assert.rejects(readFile(join(workspace, 'must-not-run.txt')), { code: 'ENOENT' });
   assert.equal((await agent.execute('42')).text, '42');
 });
 

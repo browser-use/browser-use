@@ -144,7 +144,8 @@ export class BrowserRuntime {
     if (this.workerLoss) {
       const error = this.workerLoss;
       this.workerLoss = undefined;
-      throw error;
+      // No new cell ran. Expose the same reset contract as a crash during execution.
+      throw new CellError(error.message, { text: '', images: [] }, true);
     }
     this.busy = true;
     this.settled = new Promise((resolve) => {
