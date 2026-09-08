@@ -4,7 +4,7 @@
 
 Embed a coding agent for the web in your JavaScript or TypeScript app. Luna writes browser code, inspects what happened, and adapts its helpers as it goes. Your app gets typed results, files, and a session it can keep talking to.
 
-Pi runs the agent loop. Raw CDP controls Chrome. bu-pi connects them with a small application API.
+The programmable browser approach of Browser Harness, packaged as an embeddable TypeScript SDK. Pi runs the agent loop. Raw CDP controls Chrome. No Pi fork, Playwright layer, or separate browser daemon.
 
 **Prototype · v0.1.0 · Node.js 22.19+ · MIT · Not published to npm**
 
@@ -60,9 +60,11 @@ Your app -> BrowserUse -> Pi -> Luna / your model
 
 ## Benchmarks
 
-![Luna xhigh on BU_Bench_v2: historical bu-pi 62.00/100 at $17.86, latest full candidate 58.27/100 at $21.18, historical BrowserCode 41.17/100 at $21.49. Each retains 60 assigned tasks. Different dates and runners; not a controlled efficiency comparison.](docs/public/benchmarks/luna.svg)
+![Luna xhigh on BU_Bench_v2: historical bu-pi 62.00/100 at $17.86, latest full candidate 61.75/100 at $20.25, historical BrowserCode 41.17/100 at $21.49. Each retains 60 assigned tasks. Different dates and runners; not a controlled efficiency comparison.](docs/public/benchmarks/luna.svg)
 
-**Historical best: 62.00/100 with Luna xhigh on BU_Bench_v2.** The latest full candidate (`65a16cb`) scored **58.27/100** against its concurrently dispatched bu-pi reference at **57.73/100**. These are continuous mean scores over 60 assigned tasks, not pass rates. The reference has one missing judgment retained as an assigned zero; the candidate has all 60 judgments.
+**61.75/100 with Luna xhigh on BU_Bench_v2**, versus **54.22/100** for the concurrently dispatched bu-pi reference. Both have all 60 actual judgments. The latest evaluated runtime (`29e2b5e`) improves the mean by **7.53 points**; the paired 95% interval is **[+0.10, +15.42]**. Scores are continuous rubric means, not pass rates. Historical best: **62.00/100**.
+
+The candidate records **$20.25** in agent inference cost versus **$19.28** for the reference. It clears our frozen Luna criterion, but this pair shows no token-efficiency gain.
 
 **Hard106, GPT-5.5 medium:** historical best **91/106**; latest full candidate (`29e2b5e`) **84/106** versus its concurrent reference at **84/106**. Candidate agent inference cost is **$128.65**, reference **$137.28**. The candidate has all 106 judgments; the reference has 105, with its missing judgment retained as an assigned zero. The point-estimate tie does not establish parity: paired uncertainty exceeds our margin, and the candidate misses the required 88/106 historical floor.
 

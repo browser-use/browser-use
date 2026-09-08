@@ -183,7 +183,7 @@ The plan was pushed at `3b3536a` before all four arms were dispatched once. The 
 
 [Recorded dispatch inputs and Laminar evaluation IDs](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-dispatch.json).
 
-The [ongoing trace audit](./confirmation2-trace-audit.md) separates early access losses from source-state and arithmetic errors in delivered artifacts. It is a selected diagnostic view, not an estimate of aggregate quality.
+The [trace audit](./confirmation2-trace-audit.md) separates early access losses from source-state and arithmetic errors in delivered artifacts. It is a selected diagnostic view, not an estimate of aggregate quality.
 
 ### Complete second Hard comparison
 
@@ -232,7 +232,7 @@ Four arms retain the original 106/60 task IDs, models, reasoning, judges, budget
 
 The plan is frozen before dispatch. [Exact four-arm inputs, task hashes, audit hashes and acceptance](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-plan.json).
 
-All four arms were dispatched once at 10:22 UTC on September 8, after plan commit `63bd10e` was pushed and both original diagnostic workflows were rechecked as terminal. All four prepare jobs succeeded. Results remain pending; delayed Laminar rows are not replacement-task authorization.
+All four arms were dispatched once at 10:22 UTC on September 8, after plan commit `63bd10e` was pushed and both original diagnostic workflows were rechecked as terminal. All four prepare jobs succeeded. All four original workflows are now terminal; final results appear below. No task was replaced.
 
 | Benchmark | Reference execution                                                                      | Candidate execution                                                                      |
 | --------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
@@ -243,7 +243,7 @@ All four arms were dispatched once at 10:22 UTC on September 8, after plan commi
 
 The local report was fault-tested against the historical browser-provisioning failure shape: such a failure has no SDK model/lock metadata or usage. It now retains the assigned zero and unknown metrics instead of crashing, while rejecting a completed row with missing SDK metadata or a reported wrong model. Four offline cases pass; task scores, runtime, judges, bootstrap and acceptance are unchanged. Unreported capture counts remain unknown rather than zero. [Accounting regression evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-report-verification.json).
 
-The [ongoing trace audit](./confirmation3-trace-audit.md) separates model-written extraction errors from SDK transport faults in selected completed pairs. These findings do not change the running candidate or replace outcomes.
+The [trace audit](./confirmation3-trace-audit.md) separates model-written extraction errors from SDK transport faults in selected completed pairs. These findings did not change the frozen candidate or replace outcomes.
 
 ### Historical Hard floor is already unreachable
 
@@ -281,9 +281,37 @@ The assigned paired delta is **0.00 percentage points**. The prespecified 20,000
 
 Confirmation fails independently on missing actual-judgment coverage and the candidate's **84/106 versus 88/106 historical floor**. The point-estimate tie does not establish statistical equivalence, while the interval also does not isolate a harmful code effect. Both fresh runs score below the original historical 91/106; the selected trace audits show several access and judgment differences alongside actual model-written errors.
 
-Costs are recorded agent inference estimates, excluding judge, browser, runner and unreported usage. The reference includes one early provider failure; cost and median duration differences are descriptive, not a controlled isolated speed or token-efficiency claim. Its `aoim45` artifact-upload failure remains a separate evidence gap. Both Luna arms continue unchanged.
+Costs are recorded agent inference estimates, excluding judge, browser, runner and unreported usage. The reference includes one early provider failure; cost and median duration differences are descriptive, not a controlled isolated speed or token-efficiency claim. Its `aoim45` artifact-upload failure remains a separate evidence gap. The complete Luna result follows below.
 
 [All assigned outcomes, shared-judgment calculation, frozen controls and uncertainty](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-hard.json).
+
+### Complete third Luna comparison
+
+Both original Luna workflows succeeded. Candidate `29e2b5e` scores **61.75/100** versus **54.2166667/100** for reference adapter `c3f7fac`, whose runtime remains historical `b430a91`. Both have **60/60 actual judgments**. All frozen task/config pins and dependency locks validate; the two Luna dependency locks are equal.
+
+| Measure                       |    Reference |    Candidate |
+| ----------------------------- | -----------: | -----------: |
+| Mean score / 100              |   54.2166667 |        61.75 |
+| Actual judgments / assigned   |        60/60 |        60/60 |
+| Recorded agent inference cost | $19.27955570 | $20.25096091 |
+| Median agent seconds          |      978.589 |     1025.671 |
+| Median steps                  |          116 |          114 |
+| Compactions / tasks compacted |      26 / 24 |      32 / 29 |
+| SDK provider retries          |            0 |            1 |
+| SDK cleanup errors            |            0 |            2 |
+| Zero scores                   |            8 |            3 |
+
+The assigned paired delta is **+7.5333333 points**, with **30 gains, 7 ties and 23 losses**. The frozen 20,000-resample bootstrap (seed 20260907) gives a two-sided 95% interval **[+0.10, +15.4167]** and one-sided 95% lower bound **+1.166667**. All assigned tasks have actual judgments, so the shared-judgment calculation is identical.
+
+**Luna passes the prespecified criterion:** the lower bound exceeds −3 points, coverage is complete, and 61.75 clears the historical floor of 59/100. It is 0.25 points below the historical 62. This does not establish SOTA or certify every output. The runtime changes are a bundle, and task bootstrap does not capture independent judge/provider sampling variation.
+
+Reference `bub2-035` required [original-artifact recovery](./confirmation3-trace-audit.md#a-truncated-telemetry-payload-hides-an-existing-judgment) because its Laminar executor JSON is truncated. The original artifact contains the actual 71/100 judgment, identical to Laminar's 0.71 score. The report validates original file hashes, task/evaluation/run/attempt identity, pins and score equality. The raw Laminar snapshot and original outcome remain unchanged; no rejudge or rerun occurred.
+
+Candidate reported total tokens are **530,303,645** versus **499,248,761** reference; agent costs and median duration also increase. This pair does not support an efficiency claim. Costs exclude judge, browser, runner and unreported usage. Two SDK cleanup errors remain recorded; the separate ownership audit verified **1004/1004 completed owned evaluation browsers stopped** at cohort closure. The two disposable viewport-probe browsers were independently stopped as well.
+
+**The combined goal remains unmet because Hard fails.** Do not combine an earlier passing Hard runtime with this Luna runtime as proof of one candidate. No further experiment is included in this documentation update.
+
+[All 120 outcomes, original run IDs, controls and uncertainty](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-luna.json).
 
 ## Compatibility and rollback
 

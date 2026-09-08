@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 622" role="img" aria-labelledby="title description">
 <title id="title">Luna xhigh results on BU_Bench_v2</title>
-<desc id="description">Historical bu-pi b430a91: 62.0 out of 100, recorded agent cost $17.86. Latest full candidate 65a16cb: 58.27 out of 100, $21.18. Historical BrowserCode: 41.2 out of 100, $21.49. Each retains 60 tasks. Different dates and runners. One bu-pi provisioning failure stays at zero. Costs are agent estimates only. This is not a controlled efficiency comparison.</desc>
+<desc id="description">Historical bu-pi b430a91: 62.0 out of 100, recorded agent cost $17.86. Latest full candidate 29e2b5e: 61.75 out of 100, $20.25. Historical BrowserCode: 41.2 out of 100, $21.49. Each retains 60 tasks. Different dates and runners. One bu-pi provisioning failure stays at zero. Costs are agent estimates only. This is not a controlled efficiency comparison.</desc>
 <style>
 text{font-family:Inter,Arial,sans-serif;fill:#20221f}
 .muted{fill:#676b63}.small{font-size:13px}.label{font-size:22px;font-weight:700}.value{font-size:23px;font-weight:700}
@@ -29,10 +29,10 @@ text{font-family:Inter,Arial,sans-serif;fill:#20221f}
   <text x="782" y="215" text-anchor="middle" class="value">$17.86</text>
   <text x="782" y="239" text-anchor="middle" class="muted small">60 assigned tasks</text>
   <text x="38" y="315" class="label">bu-pi · candidate</text>
-  <text x="38" y="340" class="muted small">65a16cb · Sep 8, 2026</text>
-  <rect x="250" y="291" width="238.89333333333332" height="44" rx="4" fill="#e65b37"/>
-  <text x="500.8933333333333" y="321" class="value">58.3</text>
-  <text x="782" y="321" text-anchor="middle" class="value">$21.18</text>
+  <text x="38" y="340" class="muted small">29e2b5e · Sep 8, 2026</text>
+  <rect x="250" y="291" width="253.175" height="44" rx="4" fill="#e65b37"/>
+  <text x="515.175" y="321" class="value">61.8</text>
+  <text x="782" y="321" text-anchor="middle" class="value">$20.25</text>
   <text x="782" y="345" text-anchor="middle" class="muted small">60 assigned tasks</text>
   <text x="38" y="421" class="label">BrowserCode</text>
   <text x="38" y="446" class="muted small">Historical · Aug 20, 2026</text>

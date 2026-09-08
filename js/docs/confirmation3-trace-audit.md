@@ -1,6 +1,6 @@
 # Third comparison: trace findings
 
-Both Hard cohorts are complete; the two Luna cohorts are still running. This page records selected mechanisms, not an aggregate score or a new acceptance rule. All original outcomes remain in their assigned cohorts.
+All four original cohorts are complete. Luna clears the frozen criterion at 61.75/100 versus 54.22/100; Hard fails it at 84/106 versus 84/106. This page records selected mechanisms, not an aggregate score or a new acceptance rule. All original outcomes remain in their assigned cohorts.
 
 ## First differing Hard pair: a repair replaced good fields
 

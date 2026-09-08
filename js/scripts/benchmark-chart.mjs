@@ -8,10 +8,10 @@ const [vision, reliability, usage, confirmation] = await Promise.all([
   read('evidence/vision.json'),
   read('evidence/reliability.json'),
   read('evidence/readme-usage.json'),
-  read('evidence/confirmation2-luna.json'),
+  read('evidence/confirmation3-luna.json'),
 ]);
 const candidate = confirmation.arms.candidate;
-assert.equal(candidate.sdk_sha, '65a16cb6e43a31e67d59a7ed841858e70f05a5ba');
+assert.equal(candidate.sdk_sha, '29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b');
 assert.equal(candidate.complete, true);
 assert.equal(candidate.actual_judgments, 60);
 assert.equal(candidate.inputs.model, 'gpt-5.6-luna');
@@ -31,7 +31,7 @@ const arms = [
       cost_usd: candidate.recorded_agent_cost_usd,
     },
     label: 'bu-pi · candidate',
-    detail: '65a16cb · Sep 8, 2026',
+    detail: '29e2b5e · Sep 8, 2026',
     color: '#e65b37',
   },
   {
@@ -102,7 +102,7 @@ const rows = arms
   .join('');
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 622" role="img" aria-labelledby="title description">
 <title id="title">Luna xhigh results on BU_Bench_v2</title>
-<desc id="description">Historical bu-pi b430a91: 62.0 out of 100, recorded agent cost $17.86. Latest full candidate 65a16cb: 58.27 out of 100, $21.18. Historical BrowserCode: 41.2 out of 100, $21.49. Each retains 60 tasks. Different dates and runners. One bu-pi provisioning failure stays at zero. Costs are agent estimates only. This is not a controlled efficiency comparison.</desc>
+<desc id="description">Historical bu-pi b430a91: 62.0 out of 100, recorded agent cost $17.86. Latest full candidate 29e2b5e: 61.75 out of 100, $20.25. Historical BrowserCode: 41.2 out of 100, $21.49. Each retains 60 tasks. Different dates and runners. One bu-pi provisioning failure stays at zero. Costs are agent estimates only. This is not a controlled efficiency comparison.</desc>
 <style>
 text{font-family:Inter,Arial,sans-serif;fill:#20221f}
 .muted{fill:#676b63}.small{font-size:13px}.label{font-size:22px;font-weight:700}.value{font-size:23px;font-weight:700}

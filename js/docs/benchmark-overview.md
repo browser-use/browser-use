@@ -7,7 +7,7 @@ The README shows two historical Luna xhigh cohorts and the latest full candidate
 | Cohort                                | Date (UTC)        | Mean score / 100 | Assigned / judged | Recorded agent cost |
 | ------------------------------------- | ----------------- | ---------------: | ----------------: | ------------------: |
 | bu-pi `b430a91`                       | September 7, 2026 |            62.00 |           60 / 59 |              $17.86 |
-| bu-pi latest full candidate `65a16cb` | September 8, 2026 |            58.27 |           60 / 60 |              $21.18 |
+| bu-pi latest full candidate `29e2b5e` | September 8, 2026 |            61.75 |           60 / 60 |              $20.25 |
 | BrowserCode historical reference      | August 20, 2026   |            41.17 |           60 / 60 |              $21.49 |
 
 All three retain `bub2-001` through `bub2-060`. Scores are continuous rubric scores, averaged over all 60 assigned tasks. The historical bu-pi cohort's browser-provisioning failure stays in that denominator at zero. BrowserCode had two additional empty duplicate placeholders; neither was a scored task. Those placeholders are excluded.
@@ -18,7 +18,27 @@ The two historical cohorts recorded a 20.83-point score difference. They share t
 
 Recorded agent estimates total $17.86048933 and $21.48721706. They exclude judge, browser, runner, and separate diagnostic runs. They are not invoices or independently normalized prices. We do not use their ratio to advertise a percentage cost reduction.
 
-The historical bu-pi bar is pinned to `b430a91891e23f5ffb9ca816e5cbe63e73d2a248`; the latest full candidate bar is pinned to `65a16cb6e43a31e67d59a7ed841858e70f05a5ba`. They are separate cohorts. Neither is a score for the current branch HEAD. The candidate recorded $21.17715822 in agent inference cost across 60 metered tasks.
+The historical bu-pi bar is pinned to `b430a91891e23f5ffb9ca816e5cbe63e73d2a248`; the latest full candidate bar is pinned to `29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b`. They are separate cohorts. Runtime source and dependency versions at the current documentation update remain identical to the evaluated candidate; the optional eval resizing setting was not enabled in these cohorts. The candidate recorded $20.25096091 in agent inference cost across 60 metered tasks.
+
+## Latest concurrent comparison
+
+Candidate `29e2b5e` scores **61.75/100** versus **54.22/100** for reference adapter `c3f7fac` (historical runtime `b430a91`). Both retain all 60 assigned tasks and actual judgments. The paired improvement is **+7.53 points**, 95% bootstrap interval **[+0.10, +15.42]**, one-sided lower bound **+1.17**. It clears the frozen −3-point margin and the historical floor of 59/100. These are previously inspected development tasks, not held-out SOTA evidence.
+
+| Measure                       |   Reference |   Candidate |
+| ----------------------------- | ----------: | ----------: |
+| Recorded agent inference cost |      $19.28 |      $20.25 |
+| Median agent seconds          |     978.589 |   1,025.671 |
+| Uncached input tokens         |   1,775,402 |   2,109,019 |
+| Output tokens                 |   2,621,643 |   2,837,733 |
+| Cached input tokens           | 469,280,110 | 499,631,938 |
+| Cache-write tokens            |  25,571,606 |  25,724,955 |
+| Total tokens                  | 499,248,761 | 530,303,645 |
+
+The candidate uses **6.22% more reported tokens** and **5.04% more estimated agent cost** in this pair. There is no measured efficiency win here. Tokens are cumulative across model calls, including compaction and repeated cached context. Costs exclude judge, browser, and runner charges.
+
+Reference `bub2-035` has truncated Laminar executor JSON. Its original score and judgment were recovered from hash-verified original workflow artifacts, with task/run identity and score equality checked. No task was rerun or rejudged. [Recovery evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-laminar-payload-recovery.json).
+
+The same candidate scores **84/106 versus 84/106 on Hard106**, with 106 versus 105 actual judgments. It fails the frozen Hard margin, historical floor, and full-coverage requirement. **The two-benchmark goal remains unmet.** [Full paired report](./iteration-protocol.md#complete-third-luna-comparison).
 
 ## Token efficiency is still an open question
 
@@ -57,7 +77,7 @@ The **second fresh Hard confirmation** at `65a16cb` scored **81/106 versus 85/10
 
 - [bu-pi Luna evaluation](https://www.lmnr.ai/project/b657f811-13a7-4dae-a67a-91445a567f24/evaluations/bf521f51-7920-4e55-8833-f6413b91a73d) · [GitHub execution](https://github.com/browser-use/new-eval-platform/actions/runs/34086771731).
 - [BrowserCode Luna evaluation](https://www.lmnr.ai/project/502a9d52-2725-4410-9a58-e469aa10fd12/evaluations/d7fbccfc-03ad-428e-85c2-f280f88cc642).
-- `evidence/vision.json`, `evidence/reliability.json`, and `evidence/confirmation2-luna.json` retain the per-task scores and costs. The latest candidate evaluation is `06ccffa3-4789-4bfd-bd78-8ca365772d91`, [GitHub execution](https://github.com/browser-use/new-eval-platform/actions/runs/34197094678). `evidence/readme-usage.json` retains the new numeric usage query, without task prompts or traces.
+- `evidence/vision.json`, `evidence/reliability.json`, and `evidence/confirmation3-luna.json` retain the per-task scores and costs. The latest candidate evaluation is `4ba9d7bc-998b-430c-a870-6d8e289a037c`, [GitHub execution](https://github.com/browser-use/new-eval-platform/actions/runs/34215099251). `evidence/readme-usage.json` retains the new numeric usage query, without task prompts or traces.
 - The chart uses those fixed cohorts. It does not search for the highest score. Regenerate it from the repository root with `node scripts/benchmark-chart.mjs`. The script checks task identity, score bounds, score/cost totals, and usage reconciliation before writing the SVG.
 
 The exact bu-pi platform SHA, judge, browser, and budget controls are retained in `evidence/vision.json`. The [full report](./vision-results.md) covers evidence-preview clipping, screenshot observation errors, and cleanup diagnostics. A recorded judgment does not mean that every artifact byte was visible to the judge.

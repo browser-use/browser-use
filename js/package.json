@@ -29,6 +29,7 @@
     "evidence/vision.json",
     "evidence/readme-usage.json",
     "evidence/confirmation2-luna.json",
+    "evidence/confirmation3-luna.json",
     "docs/public/benchmarks/*.svg",
     "scripts/benchmark-chart.mjs"
   ],
