@@ -1,0 +1,45 @@
+{
+  "label": "semantic-validation-smoke-luna",
+  "selected_at": "2026-09-08T06:15:46.699382+00:00",
+  "inputs": {
+    "platform_ref": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "target_repo": "browser-use/bu-pi",
+    "target_ref": "65a16cb6e43a31e67d59a7ed841858e70f05a5ba",
+    "harness": "pi-browser-use-next",
+    "task_limit": "1",
+    "max_steps": "1000",
+    "dataset": "datasets/BU_Bench_v2.json",
+    "model": "gpt-5.6-luna",
+    "judge": "findings",
+    "judge_model": "gpt-5.6-luna",
+    "judge_options_json": "{\"reasoning_effort\": \"xhigh\"}",
+    "max_parallel": "1",
+    "timeout_minutes": "62",
+    "options_json": "{\"reasoning_effort\": \"xhigh\", \"task_timeout_seconds\": 3600, \"proxy_country_code\": \"us\", \"browser_timeout_minutes\": 70, \"max_context_chars\": 800000, \"evidence_format\": \"findings\"}",
+    "message": "bu-pi semantic validation diagnostic; bub2-009; full per-task Luna controls; retain outcome; 20260908",
+    "task_ids": "bub2-009"
+  },
+  "workflow_ref": "codex/bu-pi-evals-k7m2",
+  "workflow_sha": "3fbf23625bf5883cb83e1c088d743e835429997c",
+  "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+  "purpose": "One previously inspected task. Check actual tests of generated transformations, success/error/unknown handling, field types, canonical/export agreement, artifact delivery and cleanup. Not ranking or outcome replacement.",
+  "selection_context": {
+    "confirmation_candidate_ended": 59,
+    "confirmation_candidate_assigned": 60,
+    "confirmation_candidate_maximum_possible_score_per_100": 58.833333333333336,
+    "frozen_historical_target_floor": 59.0,
+    "remaining_confirmation_task_ids": [
+      "reference:bub2-056",
+      "candidate:bub2-055"
+    ],
+    "full_cohort_selection": "None. Retain full confirmation first."
+  },
+  "limitations": [
+    "One known development task, not fresh ranking or held-out generalization.",
+    "Full per-task budgets but concurrency1 and different live timing.",
+    "May overlap last confirmation jobs; preserve timings.",
+    "Higher score alone does not establish validation adoption.",
+    "Runtime also includes image guard, generic provider recovery, journal guidance and cleanup verification.",
+    "Agent cost excludes judge/browser/runner and unreported usage."
+  ]
+}

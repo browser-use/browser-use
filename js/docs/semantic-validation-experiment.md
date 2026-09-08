@@ -23,3 +23,9 @@ Typecheck and the existing compaction, journal and structured-result tests pass 
 The candidate was prepared while five confirmation outcomes remained pending. Select any next full cohort only after retaining the complete current outcomes. A real-model diagnostic must inspect actual checking behavior and source-to-report agreement; a higher single score alone cannot validate the mechanism. Keep its outcome, controls, costs and cleanup separate. The model may spend additional existing steps on validation, reducing time for collection; neither speed nor improved quality is guaranteed.
 
 No public option, persisted-data format, Python API, login profile, or legacy Browser Use behavior changes. The Python bundle must be rebuilt to carry the same prompt. Rollback is runtime `2737754`; histories and existing artifacts remain readable. No package publication or merge is included.
+
+## Frozen diagnostic
+
+One task, `bub2-009`, at SDK `65a16cb6e43a31e67d59a7ed841858e70f05a5ba`, Luna/Findings Luna xhigh, 1,000 steps, 3,600 seconds, 800,000 characters and one parallel job. The full per-task controls are preserved; timing and concurrency differ from the cohorts. Inspect actual transformation checks and the generated fields. Do not substitute the outcome into confirmation or treat the previous 44/100 as a concurrent control. [Exact plan](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/semantic-validation-plan.json).
+
+The earlier candidate had 59 of 60 outcomes at diagnostic selection. Even a perfect last task would cap its assigned mean at 58.83/100, below the frozen 59.00 floor. This monotone upper bound explains why another experiment is necessary; it is not a replacement score. Both remaining confirmation tasks continue, and all outcomes will be retained before the next full-cohort selection.
