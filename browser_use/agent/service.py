@@ -1043,6 +1043,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			if self.browser_session:
 				try:
+					# Covers navigations that happened via an in-page click (e.g. a showtime
+					# link) rather than an explicit navigate action, which the CDP hook in
+					# on_NavigateToUrlEvent alone would miss. No-op on non-Bright Data connections.
+					await self.browser_session.solve_captcha_on_current_page_if_brightdata()
+				except Exception as e:
+					self.logger.warning(f'Phase 0 Bright Data captcha solve failed (non-fatal): {e}')
+
+				try:
 					captcha_wait = await self.browser_session.wait_if_captcha_solving()
 					if captcha_wait and captcha_wait.waited:
 						# Reset step timing to exclude the captcha wait from step duration metrics
