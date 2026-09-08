@@ -60,7 +60,7 @@ Your app -> BrowserUse -> Pi -> Luna / your model
 
 These are nonconcurrent development runs, not a controlled speed/token-efficiency comparison or a SOTA claim. The chart belongs to its pinned commits; newer runtime experiments are evaluated separately. Hard106 uses **GPT-5.5 medium**: the historical peak was **91/106**, followed by **86, 88, and 85/106** in later full cohorts.
 
-The fresh Hard106 pair at `f41c5b7` scored **89/106 versus 79/106** for the reference, with all 212 judgments. It cleared the frozen noninferiority margin; recorded agent inference cost was **$131.89 versus $117.87**. [Full paired results and uncertainty](docs/iteration-protocol.md#complete-fresh-hard-comparison). Luna confirmation is still running; later SDK commits remain separate.
+The fresh Hard106 pair at `f41c5b7` scored **89/106 versus 79/106** for the reference, with all 212 judgments. It cleared the frozen noninferiority margin; recorded agent inference cost was **$131.89 versus $117.87**. [Full paired results and uncertainty](docs/iteration-protocol.md#complete-fresh-hard-comparison). The fresh Luna pair scored **57.17/100 versus 58.72/100**, missing the frozen target; three provider failures lack actual judgments. Later SDK commits remain separate.
 
 [Chart data, accounting, and limitations](docs/benchmark-overview.md) · [Full results](docs/vision-results.md) · [Hard106 history](docs/benchmark.md) · [Current experiment protocol](docs/iteration-protocol.md)
 

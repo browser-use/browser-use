@@ -1,0 +1,37 @@
+{
+  "reference": {
+    "score_per_100": 56.00000000000001,
+    "compactions": 1,
+    "source_sha256": {
+      "events.jsonl": "ba28d18fbab58b2e2313c385d8d2f89fc56904a01a64e53ac7220f9047ce82aa",
+      "judgment.json": "9573e1222652867e28488b32da7d9f2f2e91ff073ae1b1a706f2df085d37115f",
+      "judge_trace.json": "e78da9ebfa4da6e101a5837d748e6c0c66a980993e98b5acba63d3b0ccd1cad8",
+      "task.json": "1709a4f0733d2455db6550005b8712df12c48b53eec9344aaf9ac9b54744fa8d",
+      "final_message.txt": "f5b57929ca962ced567d840b567119c94305555d11af94447d29171dbb5a02d7"
+    }
+  },
+  "candidate": {
+    "score_per_100": 13.0,
+    "compactions": 1,
+    "source_sha256": {
+      "events.jsonl": "c8aadc86e15dfeb396dbb797289db3409f7a5b600b74039617d7013ff91fd38d",
+      "judgment.json": "4637290029463aaf64d23bc3d125ed87f7317a6cfdc0ec2501514fb440c9f6b7",
+      "judge_trace.json": "b7967e91d985ddfa712ab127be6ec8d2b261dc705b656db715bec200f8deb483",
+      "task.json": "1709a4f0733d2455db6550005b8712df12c48b53eec9344aaf9ac9b54744fa8d",
+      "final_message.txt": "883f4c55b7d5a0f586cc3cb88384faae2d8662b4abd268fdb8291b19ff0339ef"
+    }
+  },
+  "task_id": "bub2-060",
+  "scope": "Completed pair; original13/100 and56/100 retained. Both compacted once. No new score or task-specific fix.",
+  "observations": [
+    "Candidate interpreted five complete years as a rolling interval before its first compaction; judge requires preceding complete calendar years.",
+    "Candidate reasoning explicitly proposed estimating ex-dates from record dates, contrary to the task prohibition on estimating unresolved fields.",
+    "Final output calls the package completed and verified and checks dates against its own chosen window; no row-level inference marker accompanies those dates.",
+    "Reference uses calendar-year inventory but also has date-normalization, notice-section and revision omissions; not a perfect output."
+  ],
+  "limits": [
+    "The task says five complete years, without the word calendar; preserve the task/interpretation distinction.",
+    "Inspecting these traces does not isolate the effect of any specific SDK change.",
+    "Generalized semantic guidance is already frozen in the separate diagnostic; this audit adds no calendar/date/finance-specific rule."
+  ]
+}

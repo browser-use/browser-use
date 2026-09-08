@@ -113,7 +113,7 @@ All four arms were dispatched once at 04:02 UTC on September 8, after the plan w
 | Hard106   | [34185574950](https://github.com/browser-use/new-eval-platform/actions/runs/34185574950) | [34185576664](https://github.com/browser-use/new-eval-platform/actions/runs/34185576664) |
 | Luna60    | [34185578184](https://github.com/browser-use/new-eval-platform/actions/runs/34185578184) | [34185579665](https://github.com/browser-use/new-eval-platform/actions/runs/34185579665) |
 
-The Hard pair is complete; Luna confirmation is ongoing. Partial Luna scores do not establish parity, and the selected runtime remains unchanged during execution.
+Both pairs are complete. Hard passes the frozen criterion; Luna fails it and has three missing actual judgments. The selected runtime remained unchanged throughout execution.
 
 An [interim trace audit](./confirmation-trace-audit.md) separates observed evidence-fidelity failures from delivery, compaction, and judge interpretation. It also records a subsequently fixed generic provider-error recovery gap. That later patch does not change the candidate or replace any outcomes in these four confirmation runs.
 
@@ -137,6 +137,34 @@ The candidate incurred more recorded agent inference cost in this pair. The dura
 An initial local reporting rule incorrectly treated every `runner-no-result` label as a missing judgment. Candidate `6dpbhs` has that label, but its downloaded artifact contains a real 17.77-second Laith judgment, populated rubric, checked task evidence, and a final response explaining the unresolved historical puzzle. The classifier now distinguishes synthetic runner zeros by their absent rubric rather than the failure label alone. Its official zero never changed. All 106 paired Hard judgments are included. The three provider-failure Luna zeros currently lack actual rubrics and remain missing judgments.
 
 [Complete per-task evidence, controls, costs and uncertainty](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation1-hard.json). Both SDKs were frozen before dispatch. The difference bundles runtime, prompt, and dependency changes; it does not isolate their individual causal effects. The historical reference itself has now scored 91, 84, and 79 in distinct live cohorts, so historical movement cannot be attributed solely to new SDK code.
+
+### Complete fresh Luna comparison
+
+Both Luna workflows finished on September 8 UTC. **All 120 assigned outcomes are retained**, including three provider-failure zeros without actual judgments. Both workflow conclusions are `failure`; those execution failures are distinct from the many completed tasks with low judge scores.
+
+| Measure                                         | Reference `b430a91` | Candidate `f41c5b7` |
+| ----------------------------------------------- | ------------------: | ------------------: |
+| Continuous mean / 100, all 60 assigned          |             58.7167 |             57.1667 |
+| Actual judgments                                |                  58 |                  59 |
+| Recorded agent inference cost, all assigned     |        $18.88851468 |        $21.07582767 |
+| Recorded agent cost, 57 shared actual judgments |        $18.51239706 |        $20.42569297 |
+| Compactions / tasks that compacted              |             19 / 17 |             26 / 24 |
+| SDK-recorded inference retries                  |                   0 |                   0 |
+| SDK cleanup errors                              |                   1 |                   2 |
+| Median steps                                    |                 124 |                 119 |
+| Median agent duration, seconds                  |           1024.7935 |             974.356 |
+
+Candidate minus reference is **−1.55 points** across all 60 assigned tasks. The paired 95% interval is **[−10.60, +7.53]**; its one-sided 95% lower bound is **−9.13**, below the frozen −3-point margin. Raw task differences are positive on 27, equal on 7 and negative on 26; no calibrated tie margin is implied. Over the **57 shared actual judgments**, the delta is **−1.74**, interval **[−10.70, +7.12]**, and lower bound **−9.25**. Neither view establishes noninferiority.
+
+The candidate is **4.83 points below** the historical 62.00 target, outside the frozen 3-point product tolerance. Missing real judgments also make confirmation ineligible. **The two-benchmark goal is not achieved.** The historical target, judge, margin, assigned denominator and recorded scores stay unchanged. The bootstrap uses the task as its unit and does not independently measure provider or judge sampling variation.
+
+Missing judgments: reference `bub2-002` exceeded the provider's image-patch limit; reference `bub2-041` and candidate `bub2-038` ended on the generic provider error. Later image/recovery patches are separate and replace none of these zeros. Candidate `bub2-040` has an infrastructure flag but a real 42/100 rubric judgment with checked evidence; candidate `bub2-002` has both integrity and infrastructure flags with a real rubric. Flags alone do not turn recorded judgments into missing data.
+
+The judge applied its global integrity penalty to **11 candidate tasks versus four reference tasks**. Those are judge classifications, not proof of intent. Audited failures include loss of reason strings through boolean expressions, unknown/negative states converted into positive claims, altered excerpts and timestamps, incorrect eligibility, and scope choices made before compaction. The [trace audit](./confirmation-trace-audit.md) distinguishes independently observed defects from clipped evidence and judge interpretation. Both arms have imperfect artifacts; file delivery and schema validity did not establish factual correctness.
+
+A read-only Cloud API audit confirmed **334/334 owned browsers from completed confirmation tasks plus the image and journal diagnostics stopped**. This is separate from the recorded SDK cleanup errors. Costs exclude judge, browser, runner, separate diagnostics and unreported usage. The candidate cost more in this pair; duration medians do not establish a causal speed advantage.
+
+[Complete Luna evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation1-luna.json) · [Combined frozen confirmation](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation1.json). The next prepared runtime and its one-task diagnostic are documented in the [semantic validation experiment](./semantic-validation-experiment.md); no new full-cohort score is attributed to them.
 
 ## Compatibility and rollback
 
