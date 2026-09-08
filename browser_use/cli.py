@@ -335,6 +335,24 @@ _EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Py
   PY"""
 
 
+def _build_help_message() -> str:
+	from browser_harness import run
+
+	harness_help = _as_browser_use_cli_text(run.HELP)
+	browser_use_only = """Additional commands and flags (Browser Use specific):
+
+  browser-use install              Install Chromium browser and system dependencies
+  browser-use init                 Scaffold a new project
+  browser-use --mcp                Start MCP server (stdio, full browser tools)
+  browser-use --cli-mcp            Start MCP server (stdio, CLI helpers only)
+  browser-use --template, -t       Same as 'init'
+  browser-use --help, -h           Show this help message
+
+More info: https://github.com/browser-use/browser-use"""
+
+	return f'{harness_help}\n{browser_use_only}'
+
+
 def _command_name(args: list[str]) -> str:
 	if '--cli-mcp' in args:
 		return 'cli-mcp'
@@ -361,6 +379,9 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	if '--mcp' in args:
 		_run_mcp_server()
 		return 0, 'mcp'
+	if args and args[0] in ('--help', '-h'):
+		print(_build_help_message())
+		return 0, 'help'
 	if args and args[0] == 'install':
 		return _run_install_command(args[1:]), 'install'
 	if args and args[0] == 'init':
