@@ -1,0 +1,677 @@
+{
+  "task_id": "bub2-047",
+  "scope": "Paired code, delivered records, original judgments and two independently inspected screenshots. All official scores retained.",
+  "indexing": "zero-based events.jsonl indices; screenshot steps use result.metadata.judge_screenshot_steps",
+  "arms": {
+    "candidate": {
+      "score": 0.49,
+      "evaluation_id": "4ba9d7bc-998b-430c-a870-6d8e289a037c",
+      "target_sha": "29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b",
+      "compactions": 0,
+      "metrics": {
+        "cache_write_tokens": 523983,
+        "cached_input_tokens": 9286275,
+        "duration_seconds": 2453.704,
+        "input_tokens": 468,
+        "output_tokens": 54182,
+        "steps": 156,
+        "total_cost": 0.3818332500000001,
+        "total_tokens": 9864908
+      },
+      "weights": {
+        "A1_search_attempt_honest": 8,
+        "A2_sitemap_exhaustion": 14,
+        "A3_candidate_membership": 13,
+        "A4_slug_fields_faithful": 12,
+        "A5_url_bound_page_facts": 12,
+        "A6_memory_ledger_graded": 12,
+        "A7_price_gate": 10,
+        "A8_shortlist_integrity": 15,
+        "A9_scope_prohibitions": 4
+      },
+      "original_findings": [
+        {
+          "evidence": "Step 6 records the exact search URL and retrieval timestamp 2026-09-08T11:36:16.675Z and shows the query heading. The screenshot after step 6 shows the rendered Worten results template, while step 66 and its screenshot show a Cloudflare “Performing security verification” page. The final report accurately calls this inconsistent state an access gap and explicitly says it was not interpreted as zero results.",
+          "item": "A1_search_attempt_honest",
+          "status": "met"
+        },
+        {
+          "evidence": "Steps 14 and 16 show the robots-linked sitemap index and 1,005 listed shard URLs, from sitemap_wortenpt_0.xml through _1004.xml. Steps 23-33 complete an initial pass over all 1,005 shards with HTTP 200 outcomes; after a worker reset, steps 72-82 complete the broad candidate pass through shard 1004, ending with count 92. The delivered exhaustion CSV/JSON contains 1,005 per-shard rows with listedInCompleteIndex=true, scanned=true, and observedStatus=HTTP 200. The run’s own index had 1,005 shards, a later site state than the rubric-date 906/909 population, so the run-relative population is the applicable one.",
+          "item": "A2_sitemap_exhaustion",
+          "status": "met"
+        },
+        {
+          "evidence": "The candidate metadata and step 131 show 87 unique exact Worten URLs, with the five overt non-tower matches excluded: two Beelink Mini S12 URLs, one Ninkear mini-PC, and one GT1030 graphics card. The candidate table is explicitly labeled “sitemap-derived candidate set,” not exact-search membership or ordering. Variants remain separate by URL/reference, and bundle flags are present for pack/monitor/accessory wording, including the Neo-PC bundle and NitroPC packs. The two sitemap URLs that returned 404 are retained as access gaps rather than treated as non-DDR5 results.",
+          "item": "A3_candidate_membership",
+          "status": "met"
+        },
+        {
+          "evidence": "The delivered candidate table contains clear slug-parser errors corroborated by steps 271 and 284. Occurrences include candidate 16 (CPU parsed as “amd ryzen 7 7700x geforce”), candidate 33 (“intel core i9 14900k geforce”), candidate 44 (“amd ryzen 7 9800x3d geforce”), candidate 53 (“intel core i7 14700kf geforce”), candidate 72 (“amd ryzen 7 7700x geforce”), and candidate 83 (“amd ryzen 7 7800x3d geforce”); each adds a GPU-brand token to the CPU field. Candidate 81 parses the GPU as “rtx 5060 monitor fullhd 27 teclado e rato” and leaves slug storage null despite the visible 1TB token. Candidates 38, 50, and 87 append the repeated Vanguard CPU/platform text to the GPU field instead of extracting only Radeon RX 7600. These are faithful-slug extraction failures.",
+          "item": "A4_slug_fields_faithful",
+          "status": "violated"
+        },
+        {
+          "evidence": "The scraper generally records each page URL, page title, JSON-LD price, availability, and source URL together, and the two 404 pages are explicitly marked as access gaps. However, the delivered price comparison misattributes accessory struck prices to products. For example, candidate 87 reports current €2,005.88 and struck-through €99.99, while the screenshot after step 255 shows no struck-through main-product price; the €99.99 struck price belongs to the separate keyboard accessory card. The same €99.99 misattribution occurs in the delivered rows for candidates 12, 16, 19, 25, 33, 40, 44, 50, 53-55, 72-74, and 87. Those page-sourced product facts are not bound to the product offer they describe.",
+          "item": "A5_url_bound_page_facts",
+          "status": "violated"
+        },
+        {
+          "evidence": "Step 101 shows the Worten technical panel publishes only Referência MRKEAN-8436627950572, EAN, and Marca for the inspected product; no manufacturer part/reference is shown. Nevertheless, the final ledger labels 17 records as exact-reference-confirmation while their manufacturerReference fields are blank and their published references are only MRKEAN/EAN values. The occurrences are candidates 18, 24, 36, 43, 52, 56, 57, 58, 59, 60, 75, 76, 77, 78, 84, 85, and 86. Steps 307 and 313 and the ledger CSV corroborate these labels. MRKEAN/EAN is a Worten reference for deduplication, not exact manufacturer-reference confirmation. The ledger also labels the ranking candidate’s prose description as product-page confirmation, although the visible evidence for it is marketing/description text rather than a shown structured DDR5 RAM field.",
+          "item": "A6_memory_ledger_graded",
+          "status": "violated"
+        },
+        {
+          "evidence": "The final price comparison marks only candidate 2 as price-qualified at €1,192.29 and leaves above-ceiling or unavailable prices unverified. Steps 151 and 279 corroborate the candidate-2 current price and description, and screenshot 16 shows €1,192.29 with €1,487.52 struck through on that URL. The delivered comparison is scoped to the 85 records with publicly observed current prices; the two 404 records have no current price and are not admitted.",
+          "item": "A7_price_gate",
+          "status": "met"
+        },
+        {
+          "evidence": "The ranking contains one choice, states a four-place shortfall, applies an ascending-price rule, and does not pad the list. Its price is verified and qualifying. However, the sole choice is candidate 2, whose ledger evidence is “product-page-description-confirmation,” with no exact manufacturer reference and no DDR5 value shown in the delivered technicalMemoryPublished field. The trace evidence used for it is the product description stating 16GB DDR5 (step 279); step 151 reports only a row count, not the DDR5 field value. Under the required hierarchy, description/marketing prose is title-only evidence and cannot admit the machine without a corroborated structured DDR5 RAM field. Thus the one admitted choice lacks required grade-(a)-or-(b) evidence. The honest shortfall itself is not the defect.",
+          "item": "A8_shortlist_integrity",
+          "status": "violated"
+        },
+        {
+          "evidence": "The trajectory shows no account creation or sign-in, no cart/order action, no retailer or seller contact, and no challenge-solving or circumvention attempt. Cart buttons appear on product pages, but the agent never clicks them. The agent only rejected cookie dialogs and used public search, robots, sitemap, product, and Google pages.",
+          "item": "A9_scope_prohibitions",
+          "status": "met"
+        }
+      ],
+      "selected_code": [
+        {
+          "event_index": 230,
+          "code": "const scrapeOne=async(p,u)=>{const collectedAt=new Date().toISOString();let gotoErr=null;try{await p.goto(u);}catch(e){gotoErr=String(e)}try{await p.waitFor(()=>document.querySelector('.table-specifications__body')||/Just a moment|security verification|Cloudflare/i.test(document.body?.innerText||''),undefined,{timeoutMs:8000});}catch{}const info=await p.info();const d=await p.evaluate(()=>{function parseLd(){for(const s of document.querySelectorAll('script[type=\"application/ld+json\"]')){try{const x=JSON.parse(s.textContent);if(x&&x['@type']==='Product')return x;}catch{}}return null}const body=document.body?.innerText||'';const ld=parseLd();const challenge=/Just a moment|Performing security verification|security service to protect|cf-chl|Cloudflare/i.test(body+' '+document.title)||!!document.querySelector('[id*=\"challenge\"],#challenge-error');const rows=Array.from(document.querySelectorAll('.table-specifications tr')).map(tr=>{const vals=Array.from(tr.querySelectorAll('p,span')).map(e=>e.textContent.trim()).filter(Boolean);return vals.length>=2?{label:vals[0],value:vals[1]}:null}).filter(Boolean);return {challenge,title:document.title,name:ld?.name||'',sku:ld?.sku||'',brand:ld?.brand?.name||'',ldDescription:ld?.description||'',ldPrice:ld?.offers?.price||null,currency:ld?.offers?.priceCurrency||null,availability:ld?.offers?.availability||null,itemCondition:ld?.offers?.itemCondition||null,rows,currentPriceTexts:Array.from(document.querySelectorAll('.price__numbers--bold')).map(e=>e.textContent.trim()).filter(Boolean),struckPrices:Array.from(document.querySelectorAll('.price__scratched-price')).map(e=>e.textContent.trim()).filter(Boolean),body:body.slice(0,6000)}});return {url:u,collectedAt,gotoErr,info,...d};};console.log(await scrapeOne(pA,broad2[0]))"
+        },
+        {
+          "event_index": 550,
+          "code": "function eurNum(t){if(t==null)return null;const m=String(t).replace(/[^0-9,.-]/g,'').replace(/\\./g,'').replace(',','.');const n=Number(m);return Number.isFinite(n)?n:null} function firstRow(x,label){return x.rows.find(r=>r.label.toLowerCase()===label.toLowerCase())?.value||null} function rowLike(x,substr){return x.rows.find(r=>r.label.toLowerCase().includes(substr))?.value||null} function availabilityLabel(v){return v?String(v).split('/').pop():null} function pubPsu(desc){const t=stripHtml(desc);const m=t.match(/(?:fonte(?: de alimenta(?:ção|cao))?|power supply)[^.]{0,180}/i);return m?m[0].trim():null} const googleRefUrl='https://www.google.com/search?q=%22EQ-G-WOR-11%22+Epical'; const canonical=productRecordsR.map((x,i)=>{const slug=slugSpecs3(towerUrlsR[i]);const rm=rowLike(x,'memória ram');const ref=firstRow(x,'Referência');const model=firstRow(x,'Modelo');const descText=stripHtml(x.description);const descDdr=/\\bddr5\\b/i.test(descText);const nameDdr=/\\bddr5\\b/i.test(x.name||'');const refConfirmed=!!(rm&&/ddr5/i.test(rm)&&ref&&x.info?.title&&!/^404/.test(x.info.title));const evidenceLevel=refConfirmed?'exact-reference-confirmation':descDdr?'product-page-description-confirmation':nameDdr?'title-only':'slug-only';const page404=/^404\\b/.test(x.info?.title||'')||/Ups! Algo correu mal/i.test(x.body||'');const curr=x.ldPrice==null?null:Number(x.ldPrice);const struck=eurNum(x.struckPrices?.[0]);const os=firstRow(x,'Sistema Operativo')||((x.name||'').match(/(?:Windows ?11[^,|–-]*|Win11 ?Pro)/i)||[])[0]||null;const manufacturerReference=model&&/^[A-Z]{2,}[-_][A-Z0-9-]+$/i.test(model)?model:null;return {candidateIndex:i+1,sourceUrl:towerUrlsR[i],discovery:'sitemap-derived candidate set',sitemapSlug:slug.rawSlug,productName:x.name||words(slug.rawSlug),brand:x.brand||null,publishedModel:model||null,publishedWortenReference:ref||null,manufacturerReference,slugVisibleSpecifications:{processor:slug.processor,gpu:slug.gpu,ramCapacityGb:slug.ramCapacityGb,memoryGeneration:slug.memoryGeneration,storage:slug.storage,rawSlug:slug.rawSlug},technicalSpecifications:{processor:rowLike(x,'cpu')||null,gpu:rowLike(x,'gráfica')||null,ram:rm||null,storage:rowLike(x,'armazenamento')||null},operatingSystem:os,powerSupply:pubPsu(x.description),currentPriceEur:curr,struckThroughPriceEur:struck,priceSource:curr!=null?towerUrlsR[i]:null,availability:availabilityLabel(x.availability),itemCondition:x.itemCondition?availabilityLabel(x.itemCondition):null,accessStatus:page404?'public URL returned a 404 page at retrieval':'public product page reachable',challengedProductPage:false,memoryEvidence:{level:evidenceLevel,ddr5Confirmed:evidenceLevel!=='title-only'&&evidenceLevel!=='slug-only',sourceUrl:towerUrlsR[i],exactReference:ref||null,observedMemory:rm||null,descriptionExcerpt:descDdr?descText.slice(0,500):null},bundleFlag:/\\bpack\\b|monitor|teclado|rato|acess[oó]rios/i.test((x.name||'')+' '+slug.rawSlug),refurbishedFlag:/recondicionado|refurbished|recondicionado|outlet/i.test((x.name||'')+' '+slug.rawSlug),manufacturerLookup:manufacturerReference?{exactReference:manufacturerReference,searchUrl:googleRefUrl,result:'No exact public manufacturer technical page surfaced in public search; no conflicting manufacturer reading found',retrievedAt:'2026-09-08T12:11:36.373Z'}:null,sourceRetrieval:{retrievedAt:x.collectedAt,pageTitle:x.info?.title||null,sku:x.sku||null}}}); console.log({len:canonical,unique:new Set(canonical.map(x=>x.sourceUrl)).size,evidence:canonical.reduce((a,x)=>(a[x.memoryEvidence.level]=(a[x.memoryEvidence.level]||0)+1,a),{}),priceUnder:canonical.filter(x=>x.currentPriceEur!=null&&x.currentPriceEur<=1200).map(x=>({name:x.productName,price:x.currentPriceEur,mem:x.memoryEvidence.level})),page404:canonical.filter(x=>x.accessStatus.includes('404')).map(x=>x.sourceUrl),bundles:canonical.filter(x=>x.bundleFlag).length,psu:canonical.filter(x=>x.powerSupply).length})"
+        }
+      ],
+      "sha256": {
+        "events.jsonl": "c489f0c710b4147232c97e4c61f8b5693fa3bef20d8a1b03d78104ea06d9c1bb",
+        "judge_trace.json": "be359ff65716a848dd4be409c87a6650a91fbbca620af4f01626456532a8d6d5",
+        "manifest.json": "478dd3346832afee3f3b22f5f92aa625377b4ba56c9743da0612dcf1c0f02117"
+      }
+    },
+    "reference": {
+      "score": 0.88,
+      "evaluation_id": "5ee7c760-b920-4e66-82eb-2eb161a5d42e",
+      "target_sha": "c3f7fac2d8a46a3801e06d89a3c3c9b1343db79e",
+      "compactions": 0,
+      "metrics": {
+        "cache_write_tokens": 122229,
+        "cached_input_tokens": 7383624,
+        "duration_seconds": 1505.348,
+        "input_tokens": 381,
+        "output_tokens": 45672,
+        "steps": 127,
+        "total_cost": 0.23311232999999998,
+        "total_tokens": 7551906
+      },
+      "weights": {
+        "A1_search_attempt_honest": 8,
+        "A2_sitemap_exhaustion": 14,
+        "A3_candidate_membership": 13,
+        "A4_slug_fields_faithful": 12,
+        "A5_url_bound_page_facts": 12,
+        "A6_memory_ledger_graded": 12,
+        "A7_price_gate": 10,
+        "A8_shortlist_integrity": 15,
+        "A9_scope_prohibitions": 4
+      },
+      "original_findings": [
+        {
+          "evidence": "The agent opened the exact search URL at step 4 and recorded retrieval timestamp 2026-09-08T11:41:31.778Z at step 6. Step 12 extracted the rendered heading and result text “1 - 48 de 125 produtos”; step 232 independently recorded the exact heading, 125-product count, 48 product links, and no visible challenge/CAPTCHA. The report correctly called the status accessible and did not claim no results.",
+          "item": "A1_search_attempt_honest",
+          "status": "met"
+        },
+        {
+          "evidence": "Step 14 fetched robots.txt and showed the sitemap directive; step 16 reached the official sitemap index. Steps 20–22 extracted 1,005 unique shards, 0 through 1004. Steps 41–49 show the scan progressing to shard 1004 and 1,005 processed shards. Step 192 recorded nine transient failures; step 204 retried shards 700–707 and 709, each returning HTTP 200; step 206 reports 1,005 processed and zero errors. The exhaustion CSV was saved as worten-sitemap-exhaustion.csv with per-shard fields. This run’s own September index state is 1,005 shards, a post-rubric-date site change from the smaller August populations.",
+          "item": "A2_sitemap_exhaustion",
+          "status": "met"
+        },
+        {
+          "evidence": "Step 51 produced 37 raw slug matches; step 55 identifies the four excluded entries as three explicit Beelink mini-PCs and one GT1030 GPU accessory. Step 53 retained 33 tower URLs, and step 236 reports 33 unique URLs and 33 unique published references. The reports label the set sitemap-derived and not exact-search membership/order. Step 263 flags both the VANGUARD Pack and the NEO-PC monitor/keyboard/mouse bundle, while configuration variants remain separate.",
+          "item": "A3_candidate_membership",
+          "status": "met"
+        },
+        {
+          "evidence": "The candidate table and JSON preserve the slug-derived family, CPU, GPU, RAM capacity, DDR5 token, storage, and source URL for all 33 rows. Step 51 exposes the retained slugs, including RTX 5060 Ti and the Vanguard variants; step 219 tests parsing of RTX 5060 Ti, 32 GB DDR5, and 1 TB/2 TB storage; step 229 reports no missing slug-derived processor/GPU/RAM/storage fields. The table preserves Ti-class GPU wording and does not substitute title-only DDR5 evidence for slug parsing.",
+          "item": "A4_slug_fields_faithful",
+          "status": "met"
+        },
+        {
+          "evidence": "Product records retain each exact URL alongside its page facts. Step 71 shows the technical panel for MRKEAN-8544494565567, including the exact reference, RAM, storage, GPU, OS, and 650W text; step 75 extracts that page’s current and struck prices and seller. Step 91 shows the corresponding URL-specific technical panel for a separate variant, and step 138 lists URL-specific records across the set. The saved records mark unavailable fields as not published and product challenges as false; no redirected or cross-product pairing is shown.",
+          "item": "A5_url_bound_page_facts",
+          "status": "met"
+        },
+        {
+          "evidence": "The run’s trace shows the technical evidence was a Worten retailer panel, not a manufacturer technical page: step 81 explicitly displays “Memória RAM (GB) — 32 Gb Ddr5” in the Worten modal, while the same panel publishes only MRKEAN/EAN and brand. Nevertheless, the ledger labels 24 entries as both “exactReferenceConfirmation=confirmed” and “exact-reference-confirmed (Worten technical panel RAM field explicitly says DDR5).” Occurrences are candidate rows 1–3, 5, 7, 10–12, 15–16, 18–28, and 30–32. Under the rubric, these are grade-(b) retailer-page confirmations, not grade-(a) exact-reference manufacturer confirmations. The nine title-only rows are graded correctly. The EQ-G-WOR-11 lookup was attempted via DuckDuckGo/Google (steps 148–166), but that does not cure the incorrect grade applied to the 24 retailer-panel entries.",
+          "item": "A6_memory_ledger_graded",
+          "status": "violated"
+        },
+        {
+          "evidence": "The product extraction records show current prices for all 33 retained URLs; step 242 summarizes 33 verified current prices, zero price-qualified, and 33 above the ceiling. Step 245 shows the comparison sorted by verified current price, beginning at €1,339.91, and the report labels every row “verified current price above €1,200.” No machine without a cited public current price is admitted or silently excluded as unverified, and the price/spec comparison contains only the verified-price records.",
+          "item": "A7_price_gate",
+          "status": "met"
+        },
+        {
+          "evidence": "The final report states a ranking rule, returns zero price-qualified choices, and states a shortfall of five. The five cheapest machines are explicitly presented as comparisons rather than recommendations, and all are shown above €1,200. No over-ceiling or title-only machine is used as shortlist filler. An honest zero-result shortlist is compliant with this item.",
+          "item": "A8_shortlist_integrity",
+          "status": "met"
+        },
+        {
+          "evidence": "The trajectory shows navigation, search, sitemap fetching, product-page inspection, technical-modal opening, and cookie rejection only. No sign-in, account creation, cart addition, order, retailer/seller message, or contact action occurred. A Google CAPTCHA/anti-bot page was observed at step 148, but there is no attempt to solve or circumvent it.",
+          "item": "A9_scope_prohibitions",
+          "status": "met"
+        }
+      ],
+      "selected_code": [
+        {
+          "event_index": 74,
+          "code": "async function fetchShardBatch(us){return await pageIndex.evaluate(async us=>Promise.all(us.map(async u=>{try{const r=await fetch(u);const t=await r.text();const locs=[...t.matchAll(/<loc>([^<]+)<\\/loc>/g)].map(m=>m[1]);const prod=locs.filter(x=>x.includes('/produtos/'));const matches=prod.filter(x=>{const s=x.split('/produtos/')[1].toLowerCase();return s.includes('desktop-gaming')&&s.includes('ddr5');});return {shard:u.match(/_(\\d+)\\.xml$/)[1],url:u,status:r.status,bytes:t.length,locs:locs.length,productUrls:prod.length,matches,error:null};}catch(e){return {shard:u.match(/_(\\d+)\\.xml$/)[1],url:u,status:null,bytes:0,locs:0,productUrls:0,matches:[],error:String(e)}}})),us)}; let nextShard=10; let processedBatches=0;"
+        }
+      ],
+      "sha256": {
+        "events.jsonl": "4348c1f6645248217746410dfe42b0ae2c4d6f0ad3735c9923fa13e46b93178d",
+        "judge_trace.json": "da6dbe3e2cdab971cc3b2924366be2fa44ee890a784af703bcfeb4870955f43b",
+        "manifest.json": "cba5196638d5a07e64304422cd169eb69faa8e235b214d1280f2628696972fb3"
+      }
+    }
+  },
+  "set_comparison": {
+    "candidate_count": 87,
+    "reference_count": 33,
+    "shared": 33,
+    "candidate_only_urls": [
+      "https://www.worten.pt/produtos/pc-gaming-desktop-greed-mk5-amd-ryzen-5-9600x-rtx-5070-water-cooler-cpu-32gb-ddr5-1tb-ssd-wifi-win11-pro-mrkean-4742024632060",
+      "https://www.worten.pt/produtos/pc-gaming-desktop-greed-mk5-intel-core-i7-12700f-rtx-5070-water-cooler-cpu-32gb-ddr5-1tb-ssd-wifi-win11-pro-mrkean-4742024632077",
+      "https://www.worten.pt/produtos/pc-gaming-desktop-greed-mk5-power-amd-ryzen-5-9600x-rtx-5070ti-water-cooler-cpu-32gb-ddr5-1tb-ssd-wifi-win11-pro-mrkean-4742024632015",
+      "https://www.worten.pt/produtos/pc-gaming-desktop-greed-mk5-power-intel-core-i9-12900kf-rtx-5070ti-water-cooler-cpu-32gb-ddr5-1tb-ssd-wifi-win11-pro-mrkean-4742024632022",
+      "https://www.worten.pt/produtos/pc-gaming-desktop-greed-mk5-pro-amd-ryzen-7-7800x3d-rtx-5080-water-cooler-cpu-32gb-ddr5-2tb-ssd-wifi-win11-pro-mrkean-4742024632039",
+      "https://www.worten.pt/produtos/pc-gaming-desktop-greed-mk5-pro-intel-core-i9-12900kf-rtx-5080-water-cooler-cpu-32gb-ddr5-2tb-ssd-wifi-win11-pro-mrkean-4742024632046",
+      "https://www.worten.pt/produtos/pc-gaming-desktop-greed-mkm-edition-amd-ryzen-5-7500f-rtx-5070-ti-water-cooler-cpu-32gb-ddr5-1tb-ssd-wifi-win11-pro-mrkean-4742024632626",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-boost-amd-ryzen-7-7700x-nvidia-geforce-rtx-5060-ti-16-gb-32-gb-ddr5-2-tb-m2-win11-pro-pronto-a-jogar-mrkean-8437026200510",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-boost-amd-ryzen-7-7800x3d-nvidia-geforce-rtx-5070-ti-16-gb-32-gb-ddr5-2-tb-m2-win11-pro-pronto-a-jogar-mrkean-8437026200534",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-boost-intel-core-i7-14700kf-nvidia-geforce-rtx-5070-12-gb-32-gb-ddr5-2-tb-m2-win11-pro-pronto-a-jogar-mrkean-8437026200527",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-boost-intel-core-i9-14900kf-nvidia-geforce-rtx-5080-16-gb-32-gb-ddr5-2-tb-m2-win11-pro-pronto-a-jogar-mrkean-8437026200541",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-elite-amd-ryzen-7-7800x3d-nvidia-geforce-rtx-5070-ti-16-gb-32-gb-ddr5-2-tb-m2-win11-pro-pronto-a-jogar-mrkean-8425402437827",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-elite-amd-ryzen-7-9800x3d-nvidia-geforce-rtx-5080-16-gb-32-gb-ddr5-2-tb-m2-win11-pro-pronto-a-jogar-mrkean-8437026200565",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-elite-intel-core-i7-14700kf-nvidia-geforce-rtx-5070-12-gb-32-gb-ddr5-2-tb-m2-win11-pro-pronto-a-jogar-mrkean-8425402437810",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-elite-intel-core-i9-14900kf-nvidia-geforce-rtx-5080-16-gb-64-gb-ddr5-2-tb-m2-win11-pro-pronto-a-jogar-mrkean-8437026200558",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-extremo-amd-ryzen-5-7600x-amd-radeon-rx-9060-xt-16-gb-16-gb-ddr5-1-tb-m2-win11-pro-pronto-a-jogar-mrkean-8425402437933",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-extremo-amd-ryzen-5-7600x-amd-radeon-rx-9060-xt-16-gb-16-gb-ddr5-1-tb-m2-win11-pro-pronto-a-jogar-mrkean-8436628080032",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-extremo-amd-ryzen-5-8400f-nvidia-geforce-rtx-5060-8-gb-16-gb-ddr5-1-tb-m2-win11-pro-pronto-a-jogar-mrkean-8436628080001",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-extremo-amd-ryzen-7-7700x-nvidia-geforce-rtx-5060-ti-16-gb-16-gb-ddr5-2-tb-m2-win11-pro-pronto-a-jogar-mrkean-8436628080049",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-extremo-amd-ryzen-7-7700x-nvidia-geforce-rtx-5060-ti-16-gb-16-gb-ddr5-2-tb-m2-win11-pro-pronto-a-jogar-mrkean-8436628080346",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-extremo-amd-ryzen-7-7800x3d-nvidia-geforce-rtx-5070-12-gb-32-gb-ddr5-2-tb-m2-win11-pro-pronto-a-jogar-mrkean-8436628080056",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-extremo-amd-ryzen-7-7800x3d-nvidia-geforce-rtx-5070-12-gb-32-gb-ddr5-2-tb-m2-win11-pro-pronto-a-jogar-mrkean-8436628080353",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-pack-boost-amd-ryzen-7-7800x3d-geforce-rtx-5070-12gb-32gb-ddr5-2tb-m2-win11-pro-acessorios-monitor-27-qhd-180hz-mrkean-8425402437988",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-pack-boost-intel-core-i7-14700kf-geforce-rtx-5060-ti-16gb-32gb-ddr5-2tb-m2-win11-pro-acessorios-monitor-27-qhd-180hz-mrkean-8425402437971",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-pack-elite-amd-ryzen-7-9800x3d-geforce-rtx-5080-16gb-32gb-ddr5-2tb-m2-win11-pro-acessorios-monitor-27-4k-165hz-mrkean-8437026200596",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-pack-elite-intel-core-i9-14900k-geforce-rtx-5070-ti-16gb-32gb-ddr5-2tb-m2-win11-pro-acessorios-monitor-27-4k-165hz-mrkean-8425402437995",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-pack-extremo-amd-ryzen-7-7700x-geforce-rtx-5060-ti-16gb-32gb-ddr5-1tb-m2-win11-pro-acessorios-monitor-27-qhd-180hz-mrkean-8436628080407",
+      "https://www.worten.pt/produtos/pc-gaming-nitropc-pack-extremo-amd-ryzen-7-7700x-geforce-rtx-5060-ti-16gb-32gb-ddr5-1tb-m2-win11-pro-acessorios-monitor-27-qhd-180hz-mrkean-8437026200992",
+      "https://www.worten.pt/produtos/pc-gaming-pc-racing-amd-ryzen-7-8700f-32-gb-ddr5-2-tb-ssd-nvme-geforce-rtx-5060-ti-mrkean-8436627950206",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-hyperwake-a-amd-ryzen-5-9600x-radeon-rx-9060-xt-16-gb-32gb-ram-ddr5-1tb-ssd-wifi-mrkean-6930489000298",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-hyperwake-amd-ryzen-5-9600x-rtx-5060-8gb-32gb-ram-ddr5-1tb-ssd-rgb-wifi-mrkean-6930489000212",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-hyperwake-m-amd-ryzen-5-9600x-rtx-5060ti-8gb-32gb-ram-ddr5-1tb-ssd-rgb-wifii-mrkean-6930489000229",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-hyperwake-x-amd-ryzen-5-9600x-rtx-5070-12gb-32gb-ram-ddr5-1tb-ssd-rgb-wifi-mrkean-6930489000236",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakeboost-com-intel-core-i5-14400f-radeon-rx-9060-xt-16gb-32gb-ram-ddr5-1tb-ssd-wi-fi-mrkean-6930489000281",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakeboost-m-intel-core-i5-14400f-rtx-5060ti-8gb-32gb-ram-ddr5-1tb-ssd-nvme-rgb-y-wifi-mrkean-6930489000199",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakeboost-x-intel-core-i5-14400f-rtx-5070-12gb-32gb-ram-ddr5-1tb-ssd-nvme-rgb-y-wifi-mrkean-6930489000205",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakedova-16-ryzen-7-8700f-rtx-5060-8gb-16gb-ram-ddr5-1tb-ssd-wifi-mrkean-6930489000861",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakedova-m-16-ryzen-7-8700f-rtx-5060ti-8gb-16gb-ram-ddr5-1tb-ssd-wifi-mrkean-6930489000885",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakedova-m-ryzen-7-8700f-rtx-5060ti-8gb-32gb-ram-ddr5-1tb-ssd-wifi-mrkean-6930489000878",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakedova-ryzen-7-8700f-rtx-5060-8gb-32gb-ram-ddr5-1tb-ssd-wifi-mrkean-6930489000854",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakedova-x-16-ryzen-7-8700f-rtx-5070-12gb-16gb-ram-ddr5-1tb-ssd-wifi-mrkean-6930489000908",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakedova-x-ryzen-7-8700f-rtx-5070-12gb-32gb-ram-ddr5-1tb-ssd-wifi-mrkean-6930489000892",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakextreme-16-intel-core-i5-14400f-rtx-5060-8gb-16gb-ram-ddr5-1tb-ssd-wifi-mrkean-6930489000687",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakextreme-intel-core-i5-14400f-rtx-5060-8gb-32gb-ram-ddr5-1tb-ssd-wifi-mrkean-6930489000670",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakextreme-m-16-intel-core-i5-14400f-rtx-5060ti-8gb-16gb-ram-ddr5-1tb-ssd-wifi-mrkean-6930489000700",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakextreme-m-intel-core-i5-14400f-rtx-5060ti-8gb-32gb-ram-ddr5-1tb-ssd-wifi-mrkean-6930489000694",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakextreme-x-16-com-intel-core-i5-14400f-rtx-5070-12gb-16gb-ram-ddr5-1tb-ssd-wi-fi-mrkean-6930489000724",
+      "https://www.worten.pt/produtos/pc-gaming-tecnowake-wakextreme-x-intel-core-i5-14400f-rtx-5070-12gb-32gb-ram-ddr5-1tb-ssd-wifi-mrkean-6930489000717",
+      "https://www.worten.pt/produtos/redsec-pc-gaming-amd-ryzen-5-7500f-16gb-ddr5-1tb-ssd-rtx-5050-windows-11-pc-racing-mrkean-8436627950565",
+      "https://www.worten.pt/produtos/redsec-pc-gaming-amd-ryzen-5-7500f-16gb-ddr5-1tb-ssd-rtx-5060-windows-11-pc-racing-mrkean-8436627950596",
+      "https://www.worten.pt/produtos/redsec-pc-gaming-amd-ryzen-5-7500f-32gb-ddr5-1tb-ssd-nvme-rtx-5060-windows-11-pc-racing-mrkean-8436627950602",
+      "https://www.worten.pt/produtos/redsec-pc-gaming-amd-ryzen-5-7500f-32gb-ddr5-1tb-ssd-rtx-5050-windows-11-pc-racing-mrkean-8436627950572",
+      "https://www.worten.pt/produtos/redsec-pc-gaming-amd-ryzen-5-7500f-32gb-ddr5-2tb-ssd-nvme-rtx-5060-windows-11-pc-racing-mrkean-8436627950619",
+      "https://www.worten.pt/produtos/redsec-pc-gaming-amd-ryzen-5-7500f-32gb-ddr5-2tb-ssd-rtx-5050-windows-11-pc-racing-mrkean-8436627950589"
+    ],
+    "reference_only_urls": []
+  },
+  "candidate_cpu_contamination": [
+    {
+      "index": 16,
+      "url": "https://www.worten.pt/produtos/pc-gaming-nitropc-pack-extremo-amd-ryzen-7-7700x-geforce-rtx-5060-ti-16gb-32gb-ddr5-1tb-m2-win11-pro-acessorios-monitor-27-qhd-180hz-mrkean-8437026200992",
+      "slug": "pc-gaming-nitropc-pack-extremo-amd-ryzen-7-7700x-geforce-rtx-5060-ti-16gb-32gb-ddr5-1tb-m2-win11-pro-acessorios-monitor-27-qhd-180hz",
+      "cpu": "amd ryzen 7 7700x geforce"
+    },
+    {
+      "index": 33,
+      "url": "https://www.worten.pt/produtos/pc-gaming-nitropc-pack-elite-intel-core-i9-14900k-geforce-rtx-5070-ti-16gb-32gb-ddr5-2tb-m2-win11-pro-acessorios-monitor-27-4k-165hz-mrkean-8425402437995",
+      "slug": "pc-gaming-nitropc-pack-elite-intel-core-i9-14900k-geforce-rtx-5070-ti-16gb-32gb-ddr5-2tb-m2-win11-pro-acessorios-monitor-27-4k-165hz",
+      "cpu": "intel core i9 14900k geforce"
+    },
+    {
+      "index": 44,
+      "url": "https://www.worten.pt/produtos/pc-gaming-nitropc-pack-elite-amd-ryzen-7-9800x3d-geforce-rtx-5080-16gb-32gb-ddr5-2tb-m2-win11-pro-acessorios-monitor-27-4k-165hz-mrkean-8437026200596",
+      "slug": "pc-gaming-nitropc-pack-elite-amd-ryzen-7-9800x3d-geforce-rtx-5080-16gb-32gb-ddr5-2tb-m2-win11-pro-acessorios-monitor-27-4k-165hz",
+      "cpu": "amd ryzen 7 9800x3d geforce"
+    },
+    {
+      "index": 53,
+      "url": "https://www.worten.pt/produtos/pc-gaming-nitropc-pack-boost-intel-core-i7-14700kf-geforce-rtx-5060-ti-16gb-32gb-ddr5-2tb-m2-win11-pro-acessorios-monitor-27-qhd-180hz-mrkean-8425402437971",
+      "slug": "pc-gaming-nitropc-pack-boost-intel-core-i7-14700kf-geforce-rtx-5060-ti-16gb-32gb-ddr5-2tb-m2-win11-pro-acessorios-monitor-27-qhd-180hz",
+      "cpu": "intel core i7 14700kf geforce"
+    },
+    {
+      "index": 72,
+      "url": "https://www.worten.pt/produtos/pc-gaming-nitropc-pack-extremo-amd-ryzen-7-7700x-geforce-rtx-5060-ti-16gb-32gb-ddr5-1tb-m2-win11-pro-acessorios-monitor-27-qhd-180hz-mrkean-8436628080407",
+      "slug": "pc-gaming-nitropc-pack-extremo-amd-ryzen-7-7700x-geforce-rtx-5060-ti-16gb-32gb-ddr5-1tb-m2-win11-pro-acessorios-monitor-27-qhd-180hz",
+      "cpu": "amd ryzen 7 7700x geforce"
+    },
+    {
+      "index": 83,
+      "url": "https://www.worten.pt/produtos/pc-gaming-nitropc-pack-boost-amd-ryzen-7-7800x3d-geforce-rtx-5070-12gb-32gb-ddr5-2tb-m2-win11-pro-acessorios-monitor-27-qhd-180hz-mrkean-8425402437988",
+      "slug": "pc-gaming-nitropc-pack-boost-amd-ryzen-7-7800x3d-geforce-rtx-5070-12gb-32gb-ddr5-2tb-m2-win11-pro-acessorios-monitor-27-qhd-180hz",
+      "cpu": "amd ryzen 7 7800x3d geforce"
+    }
+  ],
+  "candidate_99_99_struck_prices": {
+    "count": 17,
+    "indices": [
+      12,
+      16,
+      17,
+      19,
+      25,
+      33,
+      34,
+      40,
+      41,
+      44,
+      50,
+      54,
+      55,
+      72,
+      73,
+      74,
+      87
+    ],
+    "limit": "Only candidate 87 independently checked against its screenshot; equal price alone does not prove misattribution in all 17 records."
+  },
+  "checked_accessory_misattribution": {
+    "candidateIndex": 87,
+    "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-vanguard-r7-7700-32gb-ram-ddr5-2tb-ssd-radeon-rx-7600-amd-am5-ryzen-7-7700-amd-radeon-rx-7600-ram-32-gb-2-tb-ssd-mrkean-0729859199351",
+    "discovery": "sitemap-derived candidate set",
+    "sitemapSlug": "desktop-gaming-vanguard-r7-7700-32gb-ram-ddr5-2tb-ssd-radeon-rx-7600-amd-am5-ryzen-7-7700-amd-radeon-rx-7600-ram-32-gb-2-tb-ssd",
+    "productName": "Desktop Gaming VANGUARD R7 7700 32gb Ram Ddr5 2tb Ssd Radeon Rx 7600 (AMD AM5 Ryzen 7 7700 - AMD Radeon RX 7600 - RAM: 32 GB - 2 TB SSD)",
+    "brand": "VANGUARD",
+    "publishedModel": "R7 7700 32gb Ram Ddr5 2tb Ssd Radeon Rx 7600",
+    "publishedWortenReference": "MRKEAN-0729859199351",
+    "manufacturerReference": null,
+    "slugVisibleSpecifications": {
+      "processor": "ryzen 7 7700",
+      "gpu": "radeon rx 7600 amd am5 ryzen 7 7700 amd radeon rx 7600",
+      "ramCapacityGb": 32,
+      "memoryGeneration": "DDR5",
+      "storage": "2 TB SSD",
+      "rawSlug": "desktop-gaming-vanguard-r7-7700-32gb-ram-ddr5-2tb-ssd-radeon-rx-7600-amd-am5-ryzen-7-7700-amd-radeon-rx-7600-ram-32-gb-2-tb-ssd"
+    },
+    "technicalSpecifications": {
+      "processor": "AMD AM5 Ryzen 7 7700",
+      "gpu": "AMD Radeon RX 7600",
+      "ram": "32 GB",
+      "storage": "2 TB SSD"
+    },
+    "operatingSystem": "WINDOWS 11 PRO",
+    "powerSupply": null,
+    "currentPriceEur": 2005.88,
+    "struckThroughPriceEur": 99.99,
+    "priceSource": "https://www.worten.pt/produtos/desktop-gaming-vanguard-r7-7700-32gb-ram-ddr5-2tb-ssd-radeon-rx-7600-amd-am5-ryzen-7-7700-amd-radeon-rx-7600-ram-32-gb-2-tb-ssd-mrkean-0729859199351",
+    "availability": "InStock",
+    "itemCondition": "NewCondition",
+    "accessStatus": "public product page reachable",
+    "challengedProductPage": false,
+    "memoryEvidence": {
+      "level": "title-only",
+      "ddr5Confirmed": false,
+      "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-vanguard-r7-7700-32gb-ram-ddr5-2tb-ssd-radeon-rx-7600-amd-am5-ryzen-7-7700-amd-radeon-rx-7600-ram-32-gb-2-tb-ssd-mrkean-0729859199351",
+      "exactReference": "MRKEAN-0729859199351",
+      "observedMemory": "32 GB",
+      "descriptionExcerpt": null,
+      "confirmedForRanking": false
+    },
+    "bundleFlag": false,
+    "refurbishedFlag": false,
+    "manufacturerLookup": null,
+    "sourceRetrieval": {
+      "retrievedAt": "2026-09-08T12:11:12.749Z",
+      "pageTitle": "Desktop Gaming VANGUARD R7 7700 32gb Ram Ddr5 2tb Ssd Radeon Rx 7600 (AMD AM5 Ryzen 7 7700 - AMD Radeon RX 7600 - RAM: 32 GB - 2 TB SSD) | Worten.pt",
+      "sku": "MRKEAN-0729859199351"
+    },
+    "currentPriceVerified": true,
+    "priceEligibility": "unverified",
+    "priceEligibilityNote": "Current published price is above €1,200; not admitted to price-qualified ranking.",
+    "technicalClassificationControl": "Worten product-page technical table/description; no exact manufacturer reference page publicly identified."
+  },
+  "candidate_only_under_ceiling": {
+    "candidateIndex": 2,
+    "sourceUrl": "https://www.worten.pt/produtos/redsec-pc-gaming-amd-ryzen-5-7500f-16gb-ddr5-1tb-ssd-rtx-5050-windows-11-pc-racing-mrkean-8436627950565",
+    "discovery": "sitemap-derived candidate set",
+    "sitemapSlug": "redsec-pc-gaming-amd-ryzen-5-7500f-16gb-ddr5-1tb-ssd-rtx-5050-windows-11-pc-racing",
+    "productName": "Redsec Pc Gaming Amd Ryzen 5 7500f / 16gb Ddr5 / 1tb Ssd / Rtx 5050 Windows 11 Pc Racing",
+    "brand": "PC RACING",
+    "publishedModel": null,
+    "publishedWortenReference": "MRKEAN-8436627950565",
+    "manufacturerReference": null,
+    "slugVisibleSpecifications": {
+      "processor": "amd ryzen 5 7500f",
+      "gpu": "rtx 5050",
+      "ramCapacityGb": 16,
+      "memoryGeneration": "DDR5",
+      "storage": "1 TB SSD",
+      "rawSlug": "redsec-pc-gaming-amd-ryzen-5-7500f-16gb-ddr5-1tb-ssd-rtx-5050-windows-11-pc-racing"
+    },
+    "technicalSpecifications": {
+      "processor": null,
+      "gpu": null,
+      "ram": null,
+      "storage": null
+    },
+    "operatingSystem": "Windows 11",
+    "powerSupply": "fonte Thermalright 650W 80 Bronze eficiente e segura",
+    "currentPriceEur": 1192.29,
+    "struckThroughPriceEur": 1487.52,
+    "priceSource": "https://www.worten.pt/produtos/redsec-pc-gaming-amd-ryzen-5-7500f-16gb-ddr5-1tb-ssd-rtx-5050-windows-11-pc-racing-mrkean-8436627950565",
+    "availability": "InStock",
+    "itemCondition": "NewCondition",
+    "accessStatus": "public product page reachable",
+    "challengedProductPage": false,
+    "memoryEvidence": {
+      "level": "product-page-description-confirmation",
+      "ddr5Confirmed": true,
+      "sourceUrl": "https://www.worten.pt/produtos/redsec-pc-gaming-amd-ryzen-5-7500f-16gb-ddr5-1tb-ssd-rtx-5050-windows-11-pc-racing-mrkean-8436627950565",
+      "exactReference": "MRKEAN-8436627950565",
+      "observedMemory": null,
+      "descriptionExcerpt": "O PC Racing RedSec foi desenvolvido para jogadores e criadores que procuram alto desempenho e estabilidade. Equipado com o processador AMD Ryzen 5 7500F, 16GB de memória DDR5 a 6000MHz e uma poderosa placa gráfica NVIDIA GeForce RTX 5050, garante excelente desempenho em jogos modernos e tarefas de edição ou produtividade. O rápido SSD NVMe de 1TB oferece arranques e carregamentos ultrarrápidos. Inclui Windows 11 instalado e ativado, pronto a usar desde o primeiro arranque. A caixa GTI 95 Supra G",
+      "confirmedForRanking": true
+    },
+    "bundleFlag": false,
+    "refurbishedFlag": false,
+    "manufacturerLookup": null,
+    "sourceRetrieval": {
+      "retrievedAt": "2026-09-08T11:52:44.100Z",
+      "pageTitle": "Redsec Pc Gaming Amd Ryzen 5 7500f / 16gb Ddr5 / 1tb Ssd / Rtx 5050 Windows 11 Pc Racing | Worten.pt",
+      "sku": "MRKEAN-8436627950565"
+    },
+    "currentPriceVerified": true,
+    "priceEligibility": "price-qualified",
+    "priceEligibilityNote": "Current public price is at or below €1,200.",
+    "technicalClassificationControl": "Worten product-page technical table/description; no exact manufacturer reference page publicly identified."
+  },
+  "exact_reference_labels_without_manufacturer_reference": [
+    {
+      "index": 18,
+      "retailer_reference": "MRKEAN-5054425141577",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-intelstorm-5-intel-ultra-5-225f-nvidia-geforce-rtx-5060-ram-32-gb-ddr5-m-2-nvme-1-tb-ssd-mrkean-5054425141577",
+        "exactReference": "MRKEAN-5054425141577",
+        "observedMemory": "32 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 24,
+      "retailer_reference": "MRKEAN-8130528856857",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-fenix-245kf-intel-ultra-5-245kf-nvidia-geforce-rtx-5050-ram-16-gb-ddr5-m-2-nvme-2-tb-ssd-mrkean-8130528856857",
+        "exactReference": "MRKEAN-8130528856857",
+        "observedMemory": "16 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 36,
+      "retailer_reference": "MRKEAN-5862431591695",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-titanio-5f-intel-ultra-5-225f-nvidia-geforce-rtx-5070-ram-32-gb-ddr5-m-2-nvme-1-tb-ssd-mrkean-5862431591695",
+        "exactReference": "MRKEAN-5862431591695",
+        "observedMemory": "32 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 43,
+      "retailer_reference": "MRKEAN-8436627950596",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/redsec-pc-gaming-amd-ryzen-5-7500f-16gb-ddr5-1tb-ssd-rtx-5060-windows-11-pc-racing-mrkean-8436627950596",
+        "exactReference": "MRKEAN-8436627950596",
+        "observedMemory": "16GB DDR5 6000MHz",
+        "descriptionExcerpt": "O PC Racing RedSec oferece uma combinação perfeita de potência, velocidade e fiabilidade. Equipado com o processador AMD Ryzen 5 7500F, 16GB de memória DDR5 a 6000MHz e uma placa gráfica NVIDIA GeForce RTX 5060 de 8GB GDDR7, garante desempenho excecional em jogos modernos e aplicações de criação de conteúdo. O SSD NVMe de 1TB proporciona tempos de carregamento ultrarrápidos e amplo espaço de armazenamento. A caixa GTI 95 Supra Gaming preta combina design moderno e excelente ventilação, enquanto ",
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 52,
+      "retailer_reference": "MRKEAN-8436627950589",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/redsec-pc-gaming-amd-ryzen-5-7500f-32gb-ddr5-2tb-ssd-rtx-5050-windows-11-pc-racing-mrkean-8436627950589",
+        "exactReference": "MRKEAN-8436627950589",
+        "observedMemory": "32GB DDR5 6000MHz",
+        "descriptionExcerpt": "O PC Racing RedSec foi criado para jogadores e utilizadores exigentes que procuram desempenho, estabilidade e estilo. Equipado com o processador AMD Ryzen 5 7500F, 32GB de memória DDR5 a 6000MHz e uma poderosa placa gráfica NVIDIA GeForce RTX 5050 de 8GB GDDR7, garante fluidez total em jogos modernos e aplicações de criação ou edição. O rápido SSD NVMe de 2TB oferece tempos de carregamento ultrarrápidos e amplo espaço para jogos e ficheiros. A caixa GTI 95 Supra Gaming preta combina design arroj",
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 56,
+      "retailer_reference": "MRKEAN-4699315829961",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-ultra-fury-225-intel-ultra-5-225f-nvidia-geforce-rtx-5050-ram-32-gb-ddr5-m-2-nvme-1-tb-ssd-mrkean-4699315829961",
+        "exactReference": "MRKEAN-4699315829961",
+        "observedMemory": "32 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 57,
+      "retailer_reference": "MRKEAN-7721950672644",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-vortice-245kf-intel-ultra-5-245kf-nvidia-geforce-rtx-5070-ram-16-gb-ddr5-m-2-nvme-2-tb-ssd-mrkean-7721950672644",
+        "exactReference": "MRKEAN-7721950672644",
+        "observedMemory": "16 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 58,
+      "retailer_reference": "MRKEAN-3148846039826",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-fenix-245kf-intel-ultra-5-245kf-nvidia-geforce-rtx-5050-ram-32-gb-ddr5-m-2-nvme-1-tb-ssd-mrkean-3148846039826",
+        "exactReference": "MRKEAN-3148846039826",
+        "observedMemory": "32 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 59,
+      "retailer_reference": "MRKEAN-8875814654884",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-titanio-ultra-5-intel-ultra-5-245kf-nvidia-geforce-rtx-5060-ram-32-gb-ddr5-m-2-nvme-1-tb-ssd-mrkean-8875814654884",
+        "exactReference": "MRKEAN-8875814654884",
+        "observedMemory": "32 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 60,
+      "retailer_reference": "MRKEAN-6971021251600",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-intelstorm-5-intel-ultra-5-225f-nvidia-geforce-rtx-5060-ram-16-gb-ddr5-m-2-nvme-2-tb-ssd-mrkean-6971021251600",
+        "exactReference": "MRKEAN-6971021251600",
+        "observedMemory": "16 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 75,
+      "retailer_reference": "MRKEAN-3386142982747",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-fenix-245kf-intel-ultra-5-245kf-nvidia-geforce-rtx-5050-ram-16-gb-ddr5-m-2-nvme-1-tb-ssd-mrkean-3386142982747",
+        "exactReference": "MRKEAN-3386142982747",
+        "observedMemory": "16 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 76,
+      "retailer_reference": "MRKEAN-5802989144585",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-fenix-245kf-intel-ultra-5-245kf-nvidia-geforce-rtx-5050-ram-32-gb-ddr5-m-2-nvme-2-tb-ssd-mrkean-5802989144585",
+        "exactReference": "MRKEAN-5802989144585",
+        "observedMemory": "32 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 77,
+      "retailer_reference": "MRKEAN-2200954309367",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-ultra-fury-225-intel-ultra-5-225f-nvidia-geforce-rtx-5050-ram-32-gb-ddr5-m-2-nvme-2-tb-ssd-mrkean-2200954309367",
+        "exactReference": "MRKEAN-2200954309367",
+        "observedMemory": "32 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 78,
+      "retailer_reference": "MRKEAN-3020253387533",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-titanio-5f-intel-ultra-5-225f-nvidia-geforce-rtx-5070-ram-16-gb-ddr5-m-2-nvme-1-tb-ssd-mrkean-3020253387533",
+        "exactReference": "MRKEAN-3020253387533",
+        "observedMemory": "16 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 84,
+      "retailer_reference": "MRKEAN-8465415920466",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-titanio-ultra-5-intel-ultra-5-245kf-nvidia-geforce-rtx-5060-ram-16-gb-ddr5-m-2-nvme-2-tb-ssd-mrkean-8465415920466",
+        "exactReference": "MRKEAN-8465415920466",
+        "observedMemory": "16 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 85,
+      "retailer_reference": "MRKEAN-1231850609115",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-titanio-ultra-5-intel-ultra-5-245kf-nvidia-geforce-rtx-5060-ram-32-gb-ddr5-m-2-nvme-2-tb-ssd-mrkean-1231850609115",
+        "exactReference": "MRKEAN-1231850609115",
+        "observedMemory": "32 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    },
+    {
+      "index": 86,
+      "retailer_reference": "MRKEAN-5851795165772",
+      "manufacturer_reference": null,
+      "evidence": {
+        "level": "exact-reference-confirmation",
+        "ddr5Confirmed": true,
+        "sourceUrl": "https://www.worten.pt/produtos/desktop-gaming-joybe-intelstorm-5-intel-ultra-5-225f-nvidia-geforce-rtx-5060-ram-16-gb-ddr5-m-2-nvme-1-tb-ssd-mrkean-5851795165772",
+        "exactReference": "MRKEAN-5851795165772",
+        "observedMemory": "16 Gb Ddr5",
+        "descriptionExcerpt": null,
+        "confirmedForRanking": true
+      }
+    }
+  ],
+  "screenshots": [
+    {
+      "arm": "candidate",
+      "step": 151,
+      "file": "judge_screenshots/057.png",
+      "sha256": "fa76a49432de270315b7b0f6fcdf332933eb8d1684b3145b3717b4a5af919e8d",
+      "inspected": true
+    },
+    {
+      "arm": "candidate",
+      "step": 255,
+      "file": "judge_screenshots/076.png",
+      "sha256": "016b44347699dc870fcd18eb063a51c6c84526f77dc0072be291f5a63fba22d2",
+      "inspected": true
+    }
+  ],
+  "limits": [
+    "The 54 extra URLs are observed candidate records, not an independently certified exhaustive population of eligible machines.",
+    "Candidate 2 is independently visible as a desktop at EUR1192.29; genuine DDR5 qualification under the original evidence hierarchy is not independently established.",
+    "The original candidate shortlist penalty applies the judge hierarchy that rejects product-description evidence; the audit does not change the judge or add that hierarchy to the agent prompt.",
+    "Reference and candidate used different URL populations and access states; task-paired scores are not a matched product-level extraction experiment.",
+    "Both original judgments reject memory-evidence grading; that shared loss does not explain the 39-point difference."
+  ]
+}
