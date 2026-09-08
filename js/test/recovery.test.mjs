@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, mkdir, symlink, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserRuntime, CellError } from '../dist/runtime.js';
 import { Observer } from '../dist/observer.js';
 import { RunContext, contextChars } from '../dist/context.js';
 import { researchTools } from '../dist/research-tools.js';
+import { workspaceFiles } from '../dist/history.js';
 import { createModels, fauxProvider, fauxAssistantMessage } from '@earendil-works/pi-ai';
 
 async function workspace(fn) {
@@ -155,4 +156,53 @@ test('Pi shell tools do not inherit provider or judge secrets and work without a
     } finally {
       delete process.env.BU_FAKE_PROVIDER_SECRET;
     }
+  }));
+
+test('write reports delivery outside workspace without moving or replaying the successful write', () =>
+  workspace(async (root) => {
+    const path = join(root, 'deliverables');
+    await mkdir(path);
+    const write = researchTools(path, 2000).find((t) => t.name === 'write');
+    const outside = await write.execute('outside', {
+      path: '../report.md',
+      content: 'observed data',
+    });
+    assert.match(outside.content.at(-1).text, /write succeeded outside workspace/);
+    assert.equal(await readFile(join(root, 'report.md'), 'utf8'), 'observed data');
+    assert.deepEqual(await workspaceFiles(path), []);
+    const inside = await write.execute('repair', { path: 'report.md', content: 'observed data' });
+    assert.equal(inside.content.length, 1);
+    assert.deepEqual(
+      (await workspaceFiles(path)).map((f) => f.relativePath),
+      ['report.md'],
+    );
+    assert.equal(await readFile(join(root, 'report.md'), 'utf8'), 'observed data');
+  }));
+
+test('write location checks resolve symlink escapes and keep concurrent write observations separate', () =>
+  workspace(async (root) => {
+    const path = join(root, 'deliverables');
+    const outside = join(root, 'deliverables-other');
+    await mkdir(path);
+    await mkdir(outside);
+    await symlink(outside, join(path, 'link'), 'dir');
+    const write = researchTools(path, 2000).find((t) => t.name === 'write');
+    const [escaped, normal] = await Promise.all([
+      write.execute('escaped', { path: 'link/report.md', content: 'external' }),
+      write.execute('normal', { path: 'nested/report.md', content: 'local' }),
+    ]);
+    assert.match(escaped.content.at(-1).text, /write succeeded outside workspace/);
+    assert.equal(normal.content.length, 1);
+    assert.equal(await readFile(join(outside, 'report.md'), 'utf8'), 'external');
+    assert.deepEqual(
+      (await workspaceFiles(path)).map((f) => f.relativePath),
+      ['nested/report.md'],
+    );
+    const abort = new AbortController();
+    abort.abort();
+    await assert.rejects(
+      write.execute('aborted', { path: '../aborted.md', content: 'no' }, abort.signal),
+      /aborted/i,
+    );
+    assert(!(await readdir(root)).includes('aborted.md'));
   }));

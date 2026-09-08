@@ -52,6 +52,11 @@ test('Pi loop reads a real browser and returns schema-validated data with events
       code: `await page.goto(${JSON.stringify(fixture.url)}); console.log(JSON.stringify(await page.evaluate(() => Array.from(document.querySelectorAll('article h2'), el => el.textContent))))`,
     }),
     (context) => {
+      assert.ok(
+        context.systemPrompt.includes(
+          `Workspace directory (JSON string): ${JSON.stringify(s.agent.workspace)}`,
+        ),
+      );
       const result = context.messages.findLast((m) => m.role === 'toolResult');
       assert.equal(result.isError, false);
       return call('finish', { result: { products: JSON.parse(result.content[0].text) } });
