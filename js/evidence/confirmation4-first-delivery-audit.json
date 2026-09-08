@@ -1,0 +1,154 @@
+{
+  "checked_at": "2026-09-08T14:22:36.366431+00:00",
+  "scope": "First two completed candidate Hard tasks; integration and delivery audit, not paired or aggregate ranking.",
+  "candidate_sha": "ce3d029607e103f137fc13ad176dcc97b819d8cf",
+  "tasks": {
+    "dtjvzh": {
+      "actual_judgment": 1.0,
+      "tool_counts": {
+        "javascript": 14,
+        "finish_from_js": 1
+      },
+      "native_tools_enabled": true,
+      "native_tool_selections": 0,
+      "javascript_errors": 0,
+      "screenshots_retained": 14,
+      "capture_errors": 0,
+      "browser_status": "stopped",
+      "delivered_rows": 60,
+      "all_final_rows_equal_saved_records": true,
+      "limitations": [
+        "ASIN uses disclosed data-asin fallback; no data-dib-asin observed.",
+        "Prime shipping false records icon absence, not independently verified shipping eligibility.",
+        "Observed cards can repeat ASINs; 60 cards is not a claim of 60 unique products."
+      ],
+      "sha256": {
+        "manifest.json": "3223f7985b26e7b32adf8133344d349f0d8a42e0ca29cdb67cebbc24d7d0e068",
+        "result.json": "8bfecde44cb5e1af364729cb2598073d252b65c563b87a68fbc3f31ab7692d76",
+        "judgment.json": "1571914bdb22c0a7308ae520ec81e7bd3a4c60188222b6310fcb5af8cdfdf872",
+        "events.jsonl": "66585ae9dda41cc58a10925b3bee1bf230bfd7c65180dbf171d7b1e4badc31f3",
+        "final_message.txt": "c777b147f0eeb6281ddec9c046cb7da9c2320cb36f9efea34e144e0dbb958ec9",
+        "agent_outputs/amazon_alpha_gpc_records.json": "60598eeb25fd12873b6868b3351b399af09e22f1b3c8a77e0962ba2f69f931d8"
+      }
+    },
+    "ekgysp": {
+      "actual_judgment": 1.0,
+      "tool_counts": {
+        "javascript": 11,
+        "finish_from_js": 1
+      },
+      "native_tools_enabled": true,
+      "native_tool_selections": 0,
+      "javascript_errors": 1,
+      "screenshots_retained": 11,
+      "capture_errors": 0,
+      "browser_status": "stopped",
+      "delivered_rows": 15,
+      "all_final_rows_equal_corrected_records": true,
+      "repair": {
+        "observed_sequence": "Initial extractor selected badge headings as two product titles. Agent inspected card structure at event30, revised extractor at event34, then recovered from Node location ReferenceError at event35 using page.info at event38. Final table uses full corrected dataset.",
+        "changed_fields": {
+          "3": {
+            "Description": [
+              "Brand: PUMA; Rating: 4.5 out of 5 stars; 3.2K ratings; 100+ bought in past month; Overall Pick",
+              "Brand: PUMA; Rating: 4.5 out of 5 stars; 3,277 ratings; 100+ bought in past month; Overall Pick"
+            ]
+          },
+          "4": {
+            "Description": [
+              "Brand: PUMA; Rating: 4.5 out of 5 stars; 46.6K ratings",
+              "Brand: PUMA; Rating: 4.5 out of 5 stars; 46,619 ratings"
+            ]
+          },
+          "6": {
+            "Description": [
+              "Brand: PUMA; Rating: 4.5 out of 5 stars; 15K ratings; 100+ bought in past month",
+              "Brand: PUMA; Rating: 4.5 out of 5 stars; 15,098 ratings; 100+ bought in past month"
+            ]
+          },
+          "7": {
+            "Description": [
+              "Brand: PUMA; Rating: 4.5 out of 5 stars; 3.2K ratings",
+              "Brand: PUMA; Rating: 4.5 out of 5 stars; 3,277 ratings"
+            ]
+          },
+          "8": {
+            "Description": [
+              "Brand: PUMA; Rating: 4.5 out of 5 stars; 3.2K ratings",
+              "Brand: PUMA; Rating: 4.5 out of 5 stars; 3,277 ratings"
+            ]
+          },
+          "9": {
+            "Title": [
+              "Leather Working Group",
+              "Women's Carina Leather Sneaker"
+            ],
+            "Description": [
+              "Brand: PUMA; Rating: 4.5 out of 5 stars; 2.5K ratings; 100+ bought in past month",
+              "Brand: PUMA; Rating: 4.5 out of 5 stars; 2,585 ratings; 100+ bought in past month; Manufacturing practices"
+            ]
+          },
+          "11": {
+            "Description": [
+              "Brand: Project Cloud; Rating: 3.9 out of 5 stars; 2.6K ratings; Sponsored",
+              "Brand: Project Cloud; Rating: 3.9 out of 5 stars; 2,605 ratings; Sponsored"
+            ]
+          },
+          "12": {
+            "Description": [
+              "Brand: LUCKY STEP; Rating: 4.4 out of 5 stars; 1.2K ratings; Sponsored",
+              "Brand: LUCKY STEP; Rating: 4.4 out of 5 stars; 1,232 ratings; Sponsored"
+            ]
+          },
+          "14": {
+            "Title": [
+              "Global Recycled Standard",
+              "Mary Jane Sneakers for Women Slip on Ballet Flats Walking Retro Sneakers"
+            ],
+            "Description": [
+              "Brand: Tigeridea; Rating: 4.3 out of 5 stars; 572 ratings; Sponsored",
+              "Brand: Tigeridea; Rating: 4.3 out of 5 stars; 572 ratings; Recycled materials +2 more; Sponsored"
+            ]
+          },
+          "15": {
+            "Description": [
+              "Brand: PUMA; Rating: 4.4 out of 5 stars; 2.2K ratings",
+              "Brand: PUMA; Rating: 4.4 out of 5 stars; 2,250 ratings"
+            ]
+          }
+        },
+        "preserved_fields": [
+          "No",
+          "Image",
+          "Price",
+          "Source",
+          "ASIN"
+        ],
+        "state_reset_on_error": false
+      },
+      "visual_check": {
+        "file": "judge_screenshots/010.jpg",
+        "observation": "Amazon puma shoes results visible with 1-48 of over 6000 heading. Top cards visible; screenshot does not independently verify all 15 rows or variants."
+      },
+      "limitations": [
+        "Includes other-brand sponsored cards from the first 15 search results.",
+        "Descriptions are result-card metadata, not fetched detail-page descriptions."
+      ],
+      "sha256": {
+        "manifest.json": "a1689cd5a06781199241a8cb2cc5c7d3f64a5ecfa2a0bad136baceaf43275ff6",
+        "result.json": "fdfeeb9a480bc3219cd261c98ca548aac3395a3c07505ec552c912114331cd51",
+        "judgment.json": "72598f9c68d80b5c32c72e86b7ede1a5aa88534489271c5b7abb0185f57a49e5",
+        "events.jsonl": "8e1764120c88c5fbc7f178f72b47af454d8fd3713a76c625d7cca91b82edd464",
+        "final_message.txt": "b262589341d4a4ac43b6a703b4594f40324f011b974f3ee24682ff02ee6d13e9",
+        "agent_outputs/amazon_puma_shoes_first15.json": "6e3b9539b785b1a112017487ba2f0fcb6c3031e98dc4897045cc0480c87585f9",
+        "agent_outputs/amazon_puma_shoes_first15_corrected.json": "1f6b5477c9ea0c5753b36f2b5b200fca587d0d84dc7da13275fc88ff65c5f91e",
+        "judge_screenshots/010.jpg": "d3f031651291a9cc31469333655e0375d331744a1586e52a3e866ca89cc97eb5"
+      }
+    }
+  },
+  "limitations": [
+    "No native tools were selected in these two tasks, so their passes cannot establish a native-tool effect.",
+    "Original judgments and artifacts unchanged. No generated browser/network code re-executed.",
+    "Full four-arm comparison remains incomplete."
+  ]
+}
