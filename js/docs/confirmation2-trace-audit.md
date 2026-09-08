@@ -65,6 +65,14 @@ The detailed page-one and continuation ledgers were re-extracted about 11 second
 
 This case warrants a judge/evidence-fidelity flag, not a rule banning legitimate clock reads or a benchmark-specific runtime patch. It does not explain other observed extraction failures. [Exact code, journal bounds, source hashes and official judgments](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-observation-clock.json).
 
+## Correct source strings changed during reconstruction
+
+**Currency parser, `bub2-020`: reference 72 → candidate 0/100, one compaction each.** The candidate had 30/100 rubric weight before the global integrity penalty. Its parser document says its test strings are “exact representatives from the capture,” but includes `US $12.34`, `C $12.34` and `$12.34` while its retained eBay qualifying set is empty. Synthetic examples can be useful; labeling them as captured observations is the demonstrated defect.
+
+Event 311 delivers the French EUR text with U+00A0 before the euro symbol. Event 459 still exposes those original strings intact. Events 622/630 manually reconstruct the final records with ordinary U+0020 spaces in the unit, subtotal, tax, total and payment lines. The generated `cpObj` helper then computes code points from those new literals. That verifies the transcription's characters, not agreement with the source. The saved dataset advertises verbatim raw strings while changing these five inspected fields. This is not SDK string corruption or proof that compaction erased the original values.
+
+The candidate also has incomplete eBay/standards coverage and an observed public-form submission that violates the task's restriction. A delivery check cannot undo that action. The reference also missed the requested eBay.co.uk qualifying scope and clearly labeled its cross-site alternatives. Official scores and all these limitations remain intact. [Source-to-artifact Unicode comparison and evidence hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-currency-fidelity.json).
+
 ## Implication for the next decision
 
 ### New acquisition and interpretation losses

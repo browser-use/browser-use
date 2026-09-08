@@ -15,6 +15,7 @@ export function parseOptions(value) {
     'proxy_country_code',
     'browser_timeout_minutes',
     'evidence_format',
+    'delivery_review',
   ]);
   if (!value || Array.isArray(value) || typeof value !== 'object')
     throw new Error('options must be an object');
@@ -54,6 +55,8 @@ export function parseOptions(value) {
     throw new Error('proxy_country_code must be a lowercase country code or null');
   if (options.evidence_format !== undefined && options.evidence_format !== 'findings')
     throw new Error('evidence_format must be findings when provided');
+  if (options.delivery_review !== undefined && typeof options.delivery_review !== 'boolean')
+    throw new Error('delivery_review must be boolean');
   return options;
 }
 
@@ -210,6 +213,7 @@ export async function main() {
     if (!browser.id || !browser.cdpUrl)
       throw new Error('Browser provider returned no browser id/CDP endpoint');
     observer = CDP.lazy(browser.cdpUrl, 1500);
+    let deliveryReviewSubmissions = 0;
     agent = await BrowserUse.create({
       model,
       reasoning: options.reasoning_effort,
@@ -218,6 +222,14 @@ export async function main() {
       cellTimeoutMs: 120000,
       operationTimeoutMs: 20000,
       researchTools: options.evidence_format === 'findings',
+      ...(options.delivery_review
+        ? {
+            validateResult: async () => {
+              if (deliveryReviewSubmissions++ === 0)
+                return 'Delivery review checkpoint, not a correctness verdict. Before submitting again, compare your proposed answer and saved deliverables with the original request and retained source observations. Check consequential claims and exact fields against the source values, not just your reconstructed dataset or its schema. Correct unsupported claims, altered source values, mislabeled examples, and coverage claims; preserve conflicts and failed observations. Use existing records, files, or the session journal where possible. State unresolved gaps honestly. Stay within the original task boundaries and budget; do not replay uncertain actions. Then submit the checked result with finish or finish_from_js.';
+            },
+          }
+        : {}),
       instructions: `${options.evidence_format === 'findings' ? 'Use browser UI, public search and source APIs for research; use files/scripts for processing.' : 'Use browser UI and page evaluation for research. Do not use web search.'} Do not read files outside the output workspace or inspect benchmark source, rubrics, judge code, or credentials. Save requested files incrementally in workspace.`,
     });
     const findings = options.evidence_format === 'findings';
@@ -435,6 +447,7 @@ export async function main() {
         screenshot_detach_errors: screenshotDetachErrors,
         screenshot_error_details: screenshotErrorDetails,
         retries: 0,
+        delivery_review_submissions: deliveryReviewSubmissions,
       },
     );
   } catch (error) {

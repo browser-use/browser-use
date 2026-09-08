@@ -5,6 +5,9 @@ import { parseOptions, resultEnvelope } from '../eval/run.mjs';
 test('eval options reject unknown settings, invalid budgets and browser expiry', () => {
   assert.equal(parseOptions({}).reasoning_effort, 'medium');
   assert.equal(parseOptions({}).max_context_chars, 800000);
+  assert.equal(parseOptions({}).delivery_review, undefined);
+  assert.equal(parseOptions({ delivery_review: true }).delivery_review, true);
+  assert.equal(parseOptions({ delivery_review: false }).delivery_review, false);
   assert.equal(
     parseOptions({
       task_timeout_seconds: 3600,
@@ -16,6 +19,8 @@ test('eval options reject unknown settings, invalid budgets and browser expiry',
   for (const options of [
     { typo: true },
     { evidence_format: 'other' },
+    { delivery_review: 'true' },
+    { delivery_review: 1 },
     { task_timeout_seconds: 7201 },
     { task_timeout_seconds: 3600, browser_timeout_minutes: 60 },
     { max_context_chars: NaN },
@@ -58,12 +63,14 @@ test('partial agent outcomes remain judgeable; provider errors remain failures',
   );
 });
 
-for (const [evidenceFormat, cleanScreenshots] of [
+for (const [evidenceFormat, cleanScreenshots, deliveryReview, maxSteps] of [
   [undefined, false],
   ['findings', false],
   ['findings', true],
+  ['findings', false, true, 4],
+  ['findings', false, true, 2],
 ])
-  test(`adapter uses real CDP and cleans up (${evidenceFormat ?? 'default'} evidence${cleanScreenshots ? ', agent screenshot cleanup' : ''})`, async () => {
+  test(`adapter uses real CDP and cleans up (${evidenceFormat ?? 'default'} evidence${cleanScreenshots ? ', agent screenshot cleanup' : ''}${deliveryReview ? ', delivery review budget ' + maxSteps : ''})`, async () => {
     const { main } = await import('../eval/run.mjs');
     const { openBrowser } = await import('../dist/browser.js');
     const { startFixture } = await import('../examples/fixture.mjs');
@@ -130,10 +137,11 @@ for (const [evidenceFormat, cleanScreenshots] of [
         EVAL_TASK_PATH: join(dir, 'task.json'),
         EVAL_TARGET_DIR: fileURLToPath(new URL('../', import.meta.url)),
         EVAL_MODEL: evidenceFormat ? 'gpt-5.6-luna' : 'gpt-5.5',
-        EVAL_MAX_STEPS: '4',
-        EVAL_OPTIONS_JSON: JSON.stringify(
-          evidenceFormat ? { evidence_format: evidenceFormat, reasoning_effort: 'xhigh' } : {},
-        ),
+        EVAL_MAX_STEPS: String(maxSteps ?? 4),
+        EVAL_OPTIONS_JSON: JSON.stringify({
+          ...(evidenceFormat ? { evidence_format: evidenceFormat, reasoning_effort: 'xhigh' } : {}),
+          ...(deliveryReview ? { delivery_review: true } : {}),
+        }),
         EVAL_TIMEOUT_MINUTES: '30',
         EVAL_MODEL_API_KEY: 'fixture-only',
         BROWSER_USE_API_KEY: 'fixture-only',
@@ -154,6 +162,8 @@ for (const [evidenceFormat, cleanScreenshots] of [
           assert.equal(requestBody.model, evidenceFormat ? 'gpt-5.6-luna' : 'gpt-5.5');
           assert.equal(requestBody.reasoning.effort, evidenceFormat ? 'xhigh' : 'medium');
           requests++;
+          if (deliveryReview && requests === 3)
+            assert.match(JSON.stringify(requestBody.input), /Delivery review checkpoint/);
           const cleanup = cleanScreenshots && requests === 2;
           if (cleanup) {
             // Observers are nonblocking. Wait until a real capture exists before
@@ -231,8 +241,14 @@ for (const [evidenceFormat, cleanScreenshots] of [
       };
       assert.equal(await main(), 0);
       const result = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
-      assert.equal(result.metadata.stop_reason, 'completed');
-      assert.equal(result.metrics.steps, cleanScreenshots ? 3 : 2);
+      const reviewExhausted = deliveryReview && maxSteps === 2;
+      assert.equal(result.metadata.stop_reason, reviewExhausted ? 'max_steps' : 'completed');
+      const expectedRequests = cleanScreenshots || (deliveryReview && !reviewExhausted) ? 3 : 2;
+      assert.equal(result.metrics.steps, expectedRequests);
+      assert.equal(
+        result.metadata.delivery_review_submissions,
+        deliveryReview ? (reviewExhausted ? 1 : 2) : 0,
+      );
       assert.equal(result.metadata.screenshot_errors, 0);
       assert.equal(result.metadata.screenshot_detach_errors, 0);
       assert.equal(result.metadata.sdk_audit_archive, 'sdk-audit.tar.gz');
@@ -274,7 +290,7 @@ for (const [evidenceFormat, cleanScreenshots] of [
       }
       assert.equal(await readFile(join(dir, 'agent_outputs/proof.txt'), 'utf8'), 'Saved 1 time(s)');
       assert.equal(stops, 1);
-      assert.equal(requests, cleanScreenshots ? 3 : 2);
+      assert.equal(requests, expectedRequests);
       assert.equal(telemetry[0].parentSpanContext, 'fixture-parent');
       assert.equal(telemetry.filter((s) => s.spanType === 'LLM').length, requests);
       assert.ok(telemetry.every((s) => s.ended));
