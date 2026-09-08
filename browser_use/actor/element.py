@@ -418,7 +418,7 @@ class Element:
 				try:
 					clear_verification = await cdp_client.send.Runtime.callFunctionOn(
 						params={
-							'functionDeclaration': 'function() { return this.value !== undefined ? this.value : this.textContent; }',
+							'functionDeclaration': 'function() { return this.isContentEditable ? this.textContent : this.value; }',
 							'objectId': object_id,
 							'returnByValue': True,
 						},
@@ -524,7 +524,7 @@ class Element:
 				try:
 					value_verification = await cdp_client.send.Runtime.callFunctionOn(
 						params={
-							'functionDeclaration': 'function() { return this.value !== undefined ? this.value : this.textContent; }',
+							'functionDeclaration': 'function() { return this.isContentEditable ? this.textContent : this.value; }',
 							'objectId': object_id,
 							'returnByValue': True,
 						},
@@ -537,7 +537,9 @@ class Element:
 								'functionDeclaration': """
 									function(newValue) {
 										const setValue = () => {
-											if (this.value !== undefined) {
+											if (this.isContentEditable) {
+												this.textContent = newValue;
+											} else if (this.value !== undefined) {
 												if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {
 													const proto = this instanceof HTMLTextAreaElement
 														? window.HTMLTextAreaElement.prototype
@@ -547,14 +549,12 @@ class Element:
 												} else {
 													this.value = newValue;
 												}
-											} else if (this.isContentEditable) {
-												this.textContent = newValue;
 											}
 										};
 										setValue();
 										this.dispatchEvent(new Event('input', { bubbles: true }));
-										if (newValue === '' && (this.value !== undefined ? this.value : this.textContent) !== newValue) setValue();
-										return this.value !== undefined ? this.value : this.textContent;
+										if (newValue === '' && (this.isContentEditable ? this.textContent : this.value) !== newValue) setValue();
+										return this.isContentEditable ? this.textContent : this.value;
 									}
 								""",
 								'arguments': [{'value': value}],
@@ -1037,6 +1037,13 @@ class Element:
 				params={
 					'functionDeclaration': """
 						function() {
+							if (this.isContentEditable) {
+								this.textContent = '';
+								this.innerHTML = '';
+								this.focus();
+								this.dispatchEvent(new Event('input', { bubbles: true }));
+								return this.textContent;
+							}
 							// Try to select all text first (only works on text-like inputs)
 							// This handles cases where cursor is in the middle of text
 							try {
@@ -1061,7 +1068,7 @@ class Element:
 			# Verify clearing worked by checking the value
 			verify_result = await cdp_client.send.Runtime.callFunctionOn(
 				params={
-					'functionDeclaration': 'function() { return this.value; }',
+					'functionDeclaration': 'function() { return this.isContentEditable ? this.textContent : this.value; }',
 					'objectId': object_id,
 					'returnByValue': True,
 				},
