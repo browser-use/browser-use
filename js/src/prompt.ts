@@ -6,7 +6,7 @@ Preloaded globals:
 - page: current tab. Reassign with page = await tabs.open(url) or page = await tabs.get(id).
 - tabs: await tabs.list() -> [{targetId,url,title,...}]; await tabs.open(url); await tabs.get(targetId).
 - browser: root CDP connection. await browser.send('Domain.method', params); browser.waitFor('Domain.event', {timeoutMs, predicate, signal}). Register a waiter BEFORE triggering its event. Events are not commands. Do not close this connection.
-- snapshot(): {url,title,nodes:[{id,role,name,value?}]} accessibility tree. Filter large trees in JS before printing.
+- snapshot(): {url,title,nodes:[{id,role,name,value?,checked?,pressed?,selected?,expanded?,disabled?}]} accessibility tree. States are booleans (checked/pressed may be 'mixed'); absent means unreported. Filter large trees in JS before printing.
 - screenshot(): attach a viewport image directly. Never print image bytes/base64.
 - artifact(filename, textOrBytes): create an exclusive file in workspace; returns its absolute path.
 - checkpoint(filename, jsonValue): atomically save/replace a JSON checkpoint in workspace. Save each bounded successful batch, not only after a long loop. Reload using require('node:fs').readFileSync.

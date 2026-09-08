@@ -45,6 +45,13 @@ await page.upload({ css: 'input[type=file]' }, [workspace + '/notes.txt']);
 
 Targets accept `{role, name?}`, `{css}`, or an observed numeric backend DOM node id. Accessibility names normalize whitespace. Matches are exact. Multiple matches fail, and missing elements wait up to `operationTimeoutMs`. IDs expire after navigation. CSS queries stay within the current document; accessibility discovery reaches open shadow roots.
 
+Snapshot nodes retain Chrome's reported `checked`, `pressed`, `selected`, `expanded`, and `disabled` states. Values are booleans; `checked` and `pressed` may also be `'mixed'`. An absent property means Chrome did not report it, not `false`. Read a fresh snapshot after input to observe changes. A control's name describes its label; its state describes the current selection.
+
+```js
+const radios = (await page.snapshot()).nodes.filter((node) => node.role === 'radio');
+const selected = radios.filter((node) => node.checked === true);
+```
+
 Clicks scroll into view, check enabled state and overlay coverage, then send real CDP mouse input to the box center. There is no hidden retry after a mutation. Custom widgets can use `page.clickAt(x, y)` and raw input commands.
 
 ```js

@@ -4,7 +4,36 @@ import { CDP } from './cdp.js';
 import { positiveInteger } from './protocol.js';
 
 export type Target = number | { role: string; name?: string } | { css: string };
-export type AXNode = { id: number; role: string; name: string; value?: string };
+export type AXNode = {
+  id: number;
+  role: string;
+  name: string;
+  value?: string;
+  /** Present only when Chrome reports this state; absence does not mean false. */
+  checked?: boolean | 'mixed';
+  pressed?: boolean | 'mixed';
+  selected?: boolean;
+  expanded?: boolean;
+  disabled?: boolean;
+};
+
+function controlState(node: Protocol.Accessibility.AXNode) {
+  const state: Pick<AXNode, 'checked' | 'pressed' | 'selected' | 'expanded' | 'disabled'> = {};
+  for (const { name, value } of node.properties ?? []) {
+    const observed = value.value;
+    if (name === 'checked' || name === 'pressed') {
+      if (observed === 'mixed') state[name] = 'mixed';
+      else if (observed === true || observed === 'true') state[name] = true;
+      else if (observed === false || observed === 'false') state[name] = false;
+    } else if (
+      (name === 'selected' || name === 'expanded' || name === 'disabled') &&
+      typeof observed === 'boolean'
+    ) {
+      state[name] = observed;
+    }
+  }
+  return state;
+}
 
 /** A tab or an explicit frame execution context. DOM ids expire across navigation. */
 export class Page {
@@ -141,6 +170,7 @@ export class Page {
             .replace(/\s+/g, ' ')
             .trim(),
           ...(n.value ? { value: String(n.value.value) } : {}),
+          ...controlState(n),
         })),
     };
   }

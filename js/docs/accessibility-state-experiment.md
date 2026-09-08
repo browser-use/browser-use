@@ -1,0 +1,27 @@
+# Accessibility state preservation
+
+Prepared separately from the running second confirmation. No benchmark result is attributed to this change.
+
+## Observed gap
+
+At runtime `65a16cb`, `Page.snapshot()` receives Chrome's complete accessibility nodes but maps each one to only its ID, role, name and optional value. It discards reported control properties. A checked radio and an unchecked radio therefore lack their checked state in the returned snapshot. Raw CDP and DOM inspection can recover it, but the advertised discovery helper loses it.
+
+Two local tests against that unchanged build failed because checked state was `undefined`, including controls inside shadow DOM. These are real isolated Chrome sessions with synthetic fixtures, not live benchmark sites or mocked CDP responses.
+
+## Change
+
+Preserve five optional properties directly from Chrome: `checked`, `pressed`, `selected`, `expanded`, and `disabled`. Checked and pressed support `true`, `false`, and `'mixed'`; the other fields are booleans. Absent state remains absent rather than becoming false. Do not infer selection from names, add domain selectors, or automatically act on any state.
+
+The same mapping applies to page and explicit-frame snapshots. Each call reads fresh Chrome data; earlier returned observations remain unchanged. The model-facing API description documents the fields and absent-state semantics. There are no additional CDP requests, new tools, retries, or changes to task/model/judge budgets.
+
+## Verification and limits
+
+The targeted real-Chrome tests pass after the mapping change. They exercise native radios, an indeterminate checkbox, ARIA selected/expanded/pressed state, disabled input rejection, actual clicks and subsequent snapshots, navigation, shadow DOM and an explicit iframe. The ordinary button has no invented state properties. These checks prove exposure of the observed fixture state. They do not prove that a model will use it correctly or that any live score will increase.
+
+The first broader suite passed 95 of 96 tests. Its Findings fixture failed because the default `python3` resolved to macOS's Xcode shim; the existing `BU_EVAL_PYTHON` override selected the installed CPython interpreter. The full rerun passed **96/96 Node tests**, including the unchanged 35,000-character compaction and journal boundaries. The rebuilt Python engine passed **7/7 integration tests**. Typecheck passed. The local environment was Node 23.11.0 and CPython 3.12.11 on macOS; this does not establish new cross-platform coverage or a tested wheel release.
+
+This is an additive change to the public `AXNode` type and snapshot output. Existing IDs, role/name matching and click behavior remain unchanged. There is no profile, transcript or persisted-data migration, no Pi fork, and no modification to the Python Browser Use library. Snapshots can contain more text, so the existing context/compaction boundary tests remain required. Rollback is the previous SDK SHA. All four running confirmation2 arms remain pinned to their original commits.
+
+The [trace audit](./confirmation2-trace-audit.md) includes control-state interpretation errors, but those traces do not isolate missing AX properties as their cause. A fresh frozen diagnostic and complete matched evaluation are required before making a quality claim.
+
+[Verification evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/accessibility-state.json).
