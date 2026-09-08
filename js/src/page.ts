@@ -119,6 +119,8 @@ export class Page {
         : `(${fn.toString()})(${JSON.stringify(argument) ?? 'undefined'})`;
     const response = await this.cdp('Runtime.evaluate', {
       expression,
+      // Bound synchronous execution in Chrome too; rejecting a CDP promise does not stop it.
+      timeout: this.connection.timeoutMs,
       awaitPromise: true,
       returnByValue: true,
       userGesture: true,

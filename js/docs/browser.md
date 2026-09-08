@@ -88,6 +88,8 @@ await page.waitFor(() => document.querySelector('#status')?.textContent.includes
 
 Functions and a JSON argument are serialized into the browser. They cannot capture Node variables. Use `evaluate(fn, argument)` instead of escaping nested source strings. Wait for an observable outcome after actions; no network-idle assumption is made.
 
+`page.evaluate()` also passes the connection's operation timeout to Chrome's execution watchdog. This stops synchronous evaluation that exceeds the deadline, so a rejected client promise does not leave that script consuming the renderer. It does not undo prior effects or cancel asynchronous callbacks, fetches, or other page work. Inspect state after every timeout; never assume cancellation or replay an action. Raw `page.cdp()` parameters remain caller-controlled.
+
 ## Frames and tabs
 
 ```js

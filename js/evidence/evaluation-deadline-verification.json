@@ -1,0 +1,31 @@
+{
+  "checked_at": "2026-09-08T13:06:00.772184+00:00",
+  "control_sdk_sha": "29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b",
+  "mechanism": "Page.evaluate supplies the existing operation deadline to Chrome Runtime.evaluate.timeout; synchronous execution can stop instead of only expiring the client promise.",
+  "not_established": "No causal attribution to original remote stalls and no benchmark quality gain established. Asynchronous callbacks and previous side effects remain.",
+  "tests": {
+    "node": {
+      "passed": 112,
+      "failed": 0,
+      "node_version": "v22.23.2"
+    },
+    "python": {
+      "passed": 7,
+      "failed": 0
+    },
+    "typecheck": "passed",
+    "docs_build": "passed"
+  },
+  "reproduction": {
+    "before": "TAP version 13\n# Subtest: a timed-out synchronous page evaluation stops in Chrome without replaying or undoing prior effects\nnot ok 1 - a timed-out synchronous page evaluation stops in Chrome without replaying or undoing prior effects\n  ---\n  duration_ms: 959.641792\n  type: 'test'\n  location: '/Users/greg/.codex/worktrees/c50f/bu-pi-raw-cdp-k7m2/test/evaluation-deadline.test.mjs:7:1'\n  failureType: 'testCodeFailure'\n  error: 'CDP Runtime.evaluate exceeded 200 ms; the action may have happened.'\n  code: 'ERR_TEST_FAILURE'\n  stack: |-\n    Timeout.<anonymous> (file:///Users/greg/.codex/worktrees/c50f/bu-pi-raw-cdp-k7m2/dist/cdp.js:197:51)\n    listOnTimeout (node:internal/timers:585:17)\n    process.processTimers (node:internal/timers:521:7)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1810.9665\n",
+    "after_single_case": "TAP version 13\n# Subtest: a timed-out synchronous page evaluation stops in Chrome without replaying or undoing prior effects\nok 1 - a timed-out synchronous page evaluation stops in Chrome without replaying or undoing prior effects\n  ---\n  duration_ms: 2018.144791\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2475.927958\n"
+  },
+  "sha256": {
+    "src/page.ts": "ee8a58c43884eae020b852c49c8c56845277db0d867072355fcd6968502726ae",
+    "test/evaluation-deadline.test.mjs": "5878db963964e3018405a01ab48d3e829107330fed314643714814cb7d45ecda",
+    "package-lock.json": "7ab8ce4c0dd453995b211d1fff5fc61b43242742a02a064a88c9dfde15e86508",
+    "evaluation-deadline-full-tests.log": "a84cfe1bcb2e8e59aa08e63e2a3b0b798c545ebfa759647253f31f4f2e4292bf",
+    "evaluation-deadline-python.log": "b36dbc35295f0ec641f2626b19e1a930df2c90fc86b1f2f3397b5e2540675f56",
+    "evaluation-deadline-docs.log": "9da2ed60499582cce0ebf7b1c7760c27c58ec62fe0b3aff0e20cd27ceece2ddd"
+  }
+}
