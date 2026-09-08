@@ -375,8 +375,12 @@ class MessageManager:
 					history_item = HistoryItem(step_number=step_number, action_results=action_results)
 					self.state.agent_history_items.append(history_item)
 				elif step_number > 0:
-					# Error case for steps > 0
-					history_item = HistoryItem(step_number=step_number, error='Agent failed to output in the right format.')
+					# Error case for steps > 0: report why the step actually failed (LLM timeout, CDP
+					# error, ...) and only assume a malformed response when no reason was recorded.
+					if action_results:
+						history_item = HistoryItem(step_number=step_number, action_results=action_results)
+					else:
+						history_item = HistoryItem(step_number=step_number, error='Agent failed to output in the right format.')
 					self.state.agent_history_items.append(history_item)
 		else:
 			history_item = HistoryItem(
