@@ -43,6 +43,9 @@ from mcp.client.stdio import stdio_client
 
 MCP_AVAILABLE = True
 
+MCP_CONNECT_TIMEOUT_SECONDS = 10.0
+MCP_DISCONNECT_TIMEOUT_SECONDS = 2.0
+
 
 class MCPClient:
 	"""Client for connecting to MCP servers and exposing their tools as browser-use actions."""
@@ -68,48 +71,76 @@ class MCPClient:
 		self.env = env
 
 		self.session: ClientSession | None = None
-		self._stdio_task = None
+		self._stdio_task: asyncio.Task[None] | None = None
 		self._read_stream = None
 		self._write_stream = None
 		self._tools: dict[str, types.Tool] = {}
 		self._registered_actions: set[str] = set()
 		self._connected = False
 		self._disconnect_event = asyncio.Event()
+		self._connection_ready_event = asyncio.Event()
+		self._connection_error: Exception | None = None
+		self._lifecycle_lock = asyncio.Lock()
 		self._telemetry = ProductTelemetry()
 
 	async def connect(self) -> None:
 		"""Connect to the MCP server and discover available tools."""
-		if self._connected:
-			logger.debug(f'Already connected to {self.server_name}')
-			return
-
 		start_time = time.time()
 		error_msg = None
+		stdio_task: asyncio.Task[None] | None = None
 
 		try:
-			logger.info(f"🔌 Connecting to MCP server '{self.server_name}': {self.command} {' '.join(self.args)}")
+			async with self._lifecycle_lock:
+				if self._connected:
+					logger.debug(f'Already connected to {self.server_name}')
+					return
 
-			# Create server parameters
-			server_params = StdioServerParameters(command=self.command, args=self.args, env=self.env)
+				if self._stdio_task is None or self._stdio_task.done():
+					logger.info(f"🔌 Connecting to MCP server '{self.server_name}': {self.command} {' '.join(self.args)}")
 
-			# Start stdio client in background task
-			self._stdio_task = create_task_with_error_handling(
-				self._run_stdio_client(server_params), name='mcp_stdio_client', suppress_exceptions=True
-			)
+					self._disconnect_event.clear()
+					self._connection_ready_event.clear()
+					self._connection_error = None
 
-			# Wait for connection to be established
-			retries = 0
-			max_retries = 100  # 10 second timeout (increased for parallel test execution)
-			while not self._connected and retries < max_retries:
-				await asyncio.sleep(0.1)
-				retries += 1
+					server_params = StdioServerParameters(command=self.command, args=self.args, env=self.env)
+					self._stdio_task = create_task_with_error_handling(
+						self._run_stdio_client(server_params), name='mcp_stdio_client', suppress_exceptions=True
+					)
+
+				stdio_task = self._stdio_task
+
+			assert stdio_task is not None
+
+			try:
+				await asyncio.wait_for(
+					self._connection_ready_event.wait(),
+					timeout=MCP_CONNECT_TIMEOUT_SECONDS,
+				)
+			except TimeoutError:
+				error_msg = f"Failed to connect to MCP server '{self.server_name}' after {MCP_CONNECT_TIMEOUT_SECONDS} seconds"
+				async with self._lifecycle_lock:
+					if self._stdio_task is stdio_task:
+						await self._cancel_stdio_task(stdio_task)
+				raise RuntimeError(error_msg)
 
 			if not self._connected:
-				error_msg = f"Failed to connect to MCP server '{self.server_name}' after {max_retries * 0.1} seconds"
-				raise RuntimeError(error_msg)
+				connection_error = self._connection_error
+				error_msg = f"Failed to connect to MCP server '{self.server_name}'"
+				if connection_error:
+					error_msg = f'{error_msg}: {connection_error}'
+				async with self._lifecycle_lock:
+					if self._stdio_task is stdio_task:
+						await self._cancel_stdio_task(stdio_task)
+				raise RuntimeError(error_msg) from connection_error
 
 			logger.info(f"📦 Discovered {len(self._tools)} tools from '{self.server_name}': {list(self._tools.keys())}")
 
+		except asyncio.CancelledError:
+			if stdio_task is not None:
+				async with self._lifecycle_lock:
+					if self._stdio_task is stdio_task:
+						await self._cancel_stdio_task(stdio_task)
+			raise
 		except Exception as e:
 			error_msg = str(e)
 			raise
@@ -148,47 +179,80 @@ class MCPClient:
 
 					# Mark as connected
 					self._connected = True
+					self._connection_ready_event.set()
 
 					# Keep the connection alive until disconnect is called
 					await self._disconnect_event.wait()
 
+		except asyncio.CancelledError:
+			raise
 		except Exception as e:
 			logger.error(f'MCP server connection error: {e}')
 			self._connected = False
+			self._connection_error = e
 			raise
 		finally:
 			self._connected = False
 			self.session = None
+			self._read_stream = None
+			self._write_stream = None
+			self._connection_ready_event.set()
+
+	async def _cancel_stdio_task(self, stdio_task: asyncio.Task[None]) -> None:
+		"""Cancel and await a stdio task, then clear it if it is still current."""
+		if not stdio_task.done():
+			stdio_task.cancel()
+
+		try:
+			await stdio_task
+		except asyncio.CancelledError:
+			pass
+		except Exception:
+			# The task helper already logged the connection failure.
+			pass
+
+		if self._stdio_task is stdio_task:
+			self._stdio_task = None
 
 	async def disconnect(self) -> None:
 		"""Disconnect from the MCP server."""
-		if not self._connected:
-			return
-
 		start_time = time.time()
 		error_msg = None
 
 		try:
-			logger.info(f"🔌 Disconnecting from MCP server '{self.server_name}'")
+			async with self._lifecycle_lock:
+				stdio_task = self._stdio_task
+				if not self._connected and stdio_task is None:
+					return
 
-			# Signal disconnect
-			self._connected = False
-			self._disconnect_event.set()
+				logger.info(f"🔌 Disconnecting from MCP server '{self.server_name}'")
+				was_connected = self._connected
+				self._connected = False
+				self._disconnect_event.set()
 
-			# Wait for stdio task to finish
-			if self._stdio_task:
-				try:
-					await asyncio.wait_for(self._stdio_task, timeout=2.0)
-				except TimeoutError:
-					logger.warning(f"Timeout waiting for MCP server '{self.server_name}' to disconnect")
-					self._stdio_task.cancel()
-					try:
-						await self._stdio_task
-					except asyncio.CancelledError:
-						pass
+				if stdio_task:
+					if not was_connected:
+						await self._cancel_stdio_task(stdio_task)
+					else:
+						try:
+							await asyncio.wait_for(
+								asyncio.shield(stdio_task),
+								timeout=MCP_DISCONNECT_TIMEOUT_SECONDS,
+							)
+						except TimeoutError:
+							logger.warning(f"Timeout waiting for MCP server '{self.server_name}' to disconnect")
+							await self._cancel_stdio_task(stdio_task)
+						except Exception:
+							# The task helper already logged the connection failure.
+							if self._stdio_task is stdio_task:
+								self._stdio_task = None
+						else:
+							if self._stdio_task is stdio_task:
+								self._stdio_task = None
 
-			self._tools.clear()
-			self._registered_actions.clear()
+				self._connection_ready_event.set()
+				self._tools.clear()
+				self._registered_actions.clear()
 
 		except Exception as e:
 			error_msg = str(e)
