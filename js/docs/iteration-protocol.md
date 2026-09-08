@@ -325,6 +325,15 @@ The original 106/60 tasks, models, reasoning, budgets, judges, US proxy settings
 
 No results are available for this selected candidate yet. [Exact frozen plan and audit hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation4-plan.json). No original run or outcome is replaced. The SDK default, customer profiles/history, Python API and legacy Browser Use library are unchanged. Rollback is the prior SDK SHA or disabling optional coding tools; no data migration, merge or package publication.
 
+All four arms were dispatched once at 14:15 UTC on September 8 after the frozen plan was pushed as `c7b4452`. All four prepare jobs succeeded. No completed comparison is available yet.
+
+| Benchmark | Reference execution | Candidate execution |
+| --- | --- | --- |
+| Hard106 | [34237107569](https://github.com/browser-use/new-eval-platform/actions/runs/34237107569) | [34237112140](https://github.com/browser-use/new-eval-platform/actions/runs/34237112140) |
+| Luna60 | [34237116926](https://github.com/browser-use/new-eval-platform/actions/runs/34237116926) | [34237121250](https://github.com/browser-use/new-eval-platform/actions/runs/34237121250) |
+
+[Original inputs, dispatch times and Laminar evaluation IDs](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation4-dispatch.json). No redispatch or task retry. The result-retention reporter passes four offline failure/metadata cases using original confirmation3 fixtures; that validates accounting, not this candidate's task results.
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.
