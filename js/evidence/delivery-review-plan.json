@@ -1,0 +1,79 @@
+{
+  "selected_at": "2026-09-08T08:47:24.453346+00:00",
+  "sdk_sha": "5c4c9ce7b7402c0ed6485516f18fc3a70a9e2370",
+  "workflow_ref": "codex/bu-pi-evals-k7m2",
+  "workflow_sha": "3fbf23625bf5883cb83e1c088d743e835429997c",
+  "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+  "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+  "arms": {
+    "delivery-review-smoke-luna-control": {
+      "inputs": {
+        "platform_ref": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+        "target_repo": "browser-use/bu-pi",
+        "target_ref": "5c4c9ce7b7402c0ed6485516f18fc3a70a9e2370",
+        "harness": "pi-browser-use-next",
+        "task_limit": "1",
+        "max_steps": "1000",
+        "dataset": "datasets/BU_Bench_v2.json",
+        "model": "gpt-5.6-luna",
+        "judge": "findings",
+        "judge_model": "gpt-5.6-luna",
+        "judge_options_json": "{\"reasoning_effort\": \"xhigh\"}",
+        "max_parallel": "1",
+        "timeout_minutes": "62",
+        "options_json": "{\"reasoning_effort\": \"xhigh\", \"task_timeout_seconds\": 3600, \"proxy_country_code\": \"us\", \"browser_timeout_minutes\": 70, \"max_context_chars\": 800000, \"evidence_format\": \"findings\", \"delivery_review\": false}",
+        "message": "bu-pi delivery review diagnostic; bub2-020; review disabled; same SDK and full Luna task controls; 20260908",
+        "task_ids": "bub2-020"
+      },
+      "task_ids": [
+        "bub2-020"
+      ]
+    },
+    "delivery-review-smoke-luna-review": {
+      "inputs": {
+        "platform_ref": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+        "target_repo": "browser-use/bu-pi",
+        "target_ref": "5c4c9ce7b7402c0ed6485516f18fc3a70a9e2370",
+        "harness": "pi-browser-use-next",
+        "task_limit": "1",
+        "max_steps": "1000",
+        "dataset": "datasets/BU_Bench_v2.json",
+        "model": "gpt-5.6-luna",
+        "judge": "findings",
+        "judge_model": "gpt-5.6-luna",
+        "judge_options_json": "{\"reasoning_effort\": \"xhigh\"}",
+        "max_parallel": "1",
+        "timeout_minutes": "62",
+        "options_json": "{\"reasoning_effort\": \"xhigh\", \"task_timeout_seconds\": 3600, \"proxy_country_code\": \"us\", \"browser_timeout_minutes\": 70, \"max_context_chars\": 800000, \"evidence_format\": \"findings\", \"delivery_review\": true}",
+        "message": "bu-pi delivery review diagnostic; bub2-020; review enabled; same SDK and full Luna task controls; 20260908",
+        "task_ids": "bub2-020"
+      },
+      "task_ids": [
+        "bub2-020"
+      ]
+    }
+  },
+  "purpose": "One previously inspected task with one attempt per arm. Same SDK and controls; only delivery_review differs. Measure review adoption and correction, not ranking or parity.",
+  "required_audit": [
+    "Both manifests, original attempts, task/model/reasoning/judge/budget controls and dependency locks.",
+    "Actual review submissions and subsequent source/file inspection; a second finish alone is not semantic review.",
+    "Source versus delivered exact values, synthetic/observed labels, source coverage and boundary violations before and after checkpoint.",
+    "Original outcome, actual judgment, provider/runtime failures, artifact inventory, screenshots, costs and owned-browser cleanup."
+  ],
+  "selection_context": {
+    "confirmation2_hard_reference": 85,
+    "confirmation2_hard_candidate": 81,
+    "confirmation2_hard_denominator": 106,
+    "confirmation2_luna_reference_outcomes": 50,
+    "confirmation2_luna_candidate_outcomes": 50,
+    "full_cohort_selection": "None. Retain remaining original Luna outcomes."
+  },
+  "limitations": [
+    "One selected development task, not independent generalization or statistical noninferiority.",
+    "First-stage live behavior can differ between arms before either reaches finish. Do not attribute all score differences to review.",
+    "A late check cannot undo a forbidden action or restore absent source evidence.",
+    "Original task, step, context, time and cost policies remain; review can cause budget exhaustion.",
+    "All original confirmation2 cohorts retain their own SDK pins and outcomes.",
+    "Costs are recorded agent estimates, excluding judge/browser/runner and unreported usage."
+  ]
+}

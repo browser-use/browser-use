@@ -26,6 +26,6 @@ Prepare a two-arm diagnostic on the previously inspected `bub2-020` task: the sa
 
 The purpose is to observe whether the checkpoint is reached, whether retained sources are consulted, whether source/artifact discrepancies are actually repaired, and whether the extra phase stays within budget with complete evidence and cleanup. Preserve the full task outcomes, missing judgments, boundary violations and costs. This selected one-task comparison cannot rank harnesses or satisfy either full-benchmark criterion. It may overlap the original Luna confirmation; all original SDK pins and outcomes remain untouched. No full-cohort candidate is selected from an unfinished confirmation.
 
-The exact SDK and dispatch inputs will be pinned in a separate plan after local verification. Any later full confirmation must retain the original historical targets, paired uncertainty procedure and three-point margin.
+The exact SDK is frozen at `5c4c9ce7b7402c0ed6485516f18fc3a70a9e2370`. Both arms use that same commit. [Frozen inputs and audit requirements](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/delivery-review-plan.json). The plan is retained before either dispatch. Any later full confirmation must retain the original historical targets, paired uncertainty procedure and three-point margin.
 
 [Local verification and source hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/delivery-review-verification.json).
