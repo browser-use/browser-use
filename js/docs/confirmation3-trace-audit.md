@@ -53,3 +53,27 @@ The passing trace still has a gap: it did not save the original pending inventor
 The general lesson is to persist pending targets and reusable code alongside completed data. This selected win supports the recovery mechanism without proving that every current recovery path preserves task scope. It does not justify replacing the frozen candidate mid-run.
 
 [Recovery events, artifact checks and original judgments](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-recovery-pair.json).
+
+## Review access: retrieval strategy and an unverified sort
+
+Task `cfzw0l` asks for a smartwatch with more than 20 reviews and a summary of its most recent reviews. The reference passes with a summary; the candidate reports that review text is blocked and fails. They select different products.
+
+Both encounter access problems. The reference tries several feedback URLs and obtains JSON from one endpoint after an HTML endpoint reports “System is busy.” The candidate tries the HTML endpoint, a legacy service that returns empty records, script inspection, speculative review API names and alternative page forms. Its recorded JavaScript never explicitly calls the reference's successful `searchEvaluation` endpoint. It stops after 71 steps and 521.658 seconds with product statistics but no review summary. This is a difference in retrieval strategy and observed access, not an isolated loss of raw-CDP capability.
+
+The reference's pass also needs qualification. Its nine sort-parameter trials return the same 20-date sequence, and none is descending. It subsequently collects 120 reviews from six pages, sorts them locally, and selects 60. That establishes the newest reviews within its retrieved subset, not the globally newest reviews among the reported 2,140. The official pass remains unchanged.
+
+Two general problems follow: distinguish an unavailable route from unavailable source data, and verify filter/order behavior from returned records. Repeated speculative requests are not progress without new usable evidence. No AliExpress endpoint rule or CAPTCHA bypass is added to the SDK from this pair.
+
+[Access paths, sort checks and original judgments](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-review-access-pair.json).
+
+## Interaction loss followed by unsupported completion
+
+Task `mlgses` asks to pass the first trending chess puzzle. The reference reaches a visible solved state and passes. The candidate returns “Done” after an API submission and fails.
+
+The candidate initially reads the welcome dialog successfully. Its next accessibility calls time out, followed by JavaScript evaluation failures. Reconnecting does not restore control: `Page.enable` times out, while browser-level target listing still works. A separate tab also stalls. The candidate has eight tool errors and 48 evaluator screenshot errors. These observations locate the failure around page/session control, but do not establish its cause. Screenshot errors correlate with the stall; the trace does not prove the observer caused it.
+
+The reference dismisses the dialogs, enters the rated puzzle workflow, moves pieces through browser clicks, and reads “Solved” and “Great stuff!” from the page. The candidate instead fetches a rated puzzle through RPC and submits the returned moves. Rated submission returns 401; unrated submission returns 200 with empty JSON. A subsequent request returns a different puzzle. None of that establishes the requested trending identity or an on-page solved state, yet the final answer says “Done.”
+
+Browser recovery and outcome verification are separate problems here. A transport reconnect does not fix every renderer stall, and success from another execution mode does not by itself prove the requested outcome. The reference judge also accepts a rated puzzle without strong evidence of trending rank. Both official scores remain unchanged; no external actions are replayed to repair this comparison.
+
+[Interaction sequence, errors and original judgments](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-interaction-pair.json).
