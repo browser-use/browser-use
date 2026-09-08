@@ -35,14 +35,36 @@ Keep the task prompt, browser helpers, output schema, judge and evidence rendere
 
 Candidate runtime: `0baa51da98e93accf0c3471eff9a74f5d76e6819`. The two diagnostic smokes completed provisioning, inference, tool use, evidence, real judgments and cleanup. Their reduced 12-turn budgets forced early delivery; the failed Hard judgment and 12/100 Luna judgment remain diagnostic outcomes, not ranking evidence.
 
-The full exploratory pairs are running:
+The full exploratory pairs were dispatched:
 
 | Benchmark | Frozen reference                                                                         | Candidate                                                                                |
 | --------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | Hard106   | [34173484591](https://github.com/browser-use/new-eval-platform/actions/runs/34173484591) | [34173486020](https://github.com/browser-use/new-eval-platform/actions/runs/34173486020) |
 | Luna60    | [34173710531](https://github.com/browser-use/new-eval-platform/actions/runs/34173710531) | [34173712013](https://github.com/browser-use/new-eval-platform/actions/runs/34173712013) |
 
-Exact task hashes, IDs, dispatch inputs, evaluation IDs and local verification are retained in `evidence/iteration1-dispatch.json`. A real local SSE fault test additionally verifies that both stalled HTTP connections close after one additional inference retry. No score claim is made before the full cohorts finish.
+Exact task hashes, IDs, dispatch inputs, evaluation IDs and local verification are retained in `evidence/iteration1-dispatch.json`. A real local SSE fault test additionally verifies that both stalled HTTP connections close after one additional inference retry.
+
+## Complete Hard result
+
+Both 106-task Hard cohorts finished on September 8 UTC. All 212 actual judgments are retained, including the reference's judge-labelled runtime failures. Those verdicts caused two failed workflow jobs; they are not missing judgments.
+
+| Measure                        |           Reference `58ed778` | Candidate `0baa51d` |
+| ------------------------------ | ----------------------------: | ------------------: |
+| Passes / assigned tasks        |                        84/106 |              82/106 |
+| Actual judgments               |                           106 |                 106 |
+| Estimated agent inference cost |                       $123.71 |             $137.21 |
+| SDK-recorded inference retries |              Not instrumented |                   0 |
+| Successful compactions         | Not available in this runtime |                   3 |
+
+Candidate minus reference: **−1.89 percentage points**, with 7 gains, 90 ties, and 9 losses. The paired task-bootstrap 95% interval is **[−9.43, +5.66] points**; its one-sided 95% lower bound is **−7.55**. This does **not** clear the −3-point noninferiority margin. The candidate also did not reach the historical 91/106 target within that margin. Luna is still running; neither benchmark has a fresh confirmation claim.
+
+The historical 91/106 SDK itself scored 84/106 here. Consequently, the historical decline cannot all be assigned to newer SDK changes. Dates, live sites, and sampling remain possible contributors; this is not a measurement of pure judge noise.
+
+The candidate's 24 zeros have judge-assigned classes: 14 site-blocked, 3 missing-required-fields, 2 wrong-record, 2 empty-result, and one each listing-vs-detail, synthetic-or-unsupported, and source-limited. Those are classifications, not independently proven root causes. For example, one access-loss trace reconstructed a form POST with invented verification state, while the reference used the page's form handler and obtained records. The extractor-validation and workspace-delivery experiments address separate observed mechanisms.
+
+Two candidate SDK cleanup errors were recorded. No claim of complete browser-lifecycle verification follows from the passing workflow. Cost estimates exclude judge, browser, runner, and diagnostic runs.
+
+[Per-task numerical evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/iteration1-hard.json) · [Extraction experiment](./extraction-experiment.md) · [Workspace delivery experiment](./workspace-experiment.md)
 
 ## Compatibility and recovery
 

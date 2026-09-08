@@ -12,7 +12,9 @@ The task scored zero after the judge flagged unsupported claims. File placement 
 
 No path rewriting, file relocation, automatic replay, sandbox claim, Pi fork, judge change, or expanded artifact collection. Other tools can still write outside the workspace. This is delivery feedback for the native `write` tool, not comprehensive filesystem enforcement. Hidden paths and symlinks also remain subject to the existing inventory rules.
 
-This candidate builds on the separate extraction guidance at `4a09ee3`. A one-task paired diagnostic will compare against that exact commit, with the same full Luna task budget. It must show actual output files reaching the unchanged evidence renderer before a broader evaluation. A diagnostic on this observed failure cannot establish general accuracy or SOTA.
+This candidate builds on the separate extraction guidance at `4a09ee3`. A one-task paired diagnostic compares against that exact commit, with the same full Luna task budget. It must show actual output files reaching the unchanged evidence renderer before a broader evaluation. A diagnostic on this observed failure cannot establish general accuracy or SOTA.
+
+The frozen candidate is `4cade93461cbfc366b7e8b7e929a0349de6d5b17`. The diagnostic is running: [reference execution 34177518105](https://github.com/browser-use/new-eval-platform/actions/runs/34177518105), evaluation `0a960cff-41fc-4809-a7d9-c6932f9c535e`; [candidate execution 34177519663](https://github.com/browser-use/new-eval-platform/actions/runs/34177519663), evaluation `f22f3eec-994f-461d-b1ea-af89f7f414a8`. Both use the unchanged Luna xhigh/Findings xhigh controls, 3600 seconds, 1000 turns, and one parallel job per arm. No diagnostic score is available yet.
 
 ## Verification and compatibility
 
