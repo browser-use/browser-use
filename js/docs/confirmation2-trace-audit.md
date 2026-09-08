@@ -55,7 +55,29 @@ The general lesson is to validate source identity after uncertain navigation, pr
 
 **Luna, `bub2-011`: 60/100, task job succeeded.** The SDK recorded a 20-second `Target.getTargets` cleanup timeout, but the Cloud browser was independently confirmed stopped. The error does not distinguish initial enumeration from final disappearance verification. The judge logged its score at 07:15:21 UTC; the same original task job uploaded evidence at 07:29:27–28 UTC. Its log recorded a Laminar trace-export `DEADLINE_EXCEEDED` at 07:29:25 UTC. This confirms an exporter failure near job completion, not the cause of the entire delay. The original artifact is available and the actual judgment is retained; no task was redispatched.
 
+## A clock observation classified as fabrication
+
+**Google contact directory, `bub2-033`: reference 44 → candidate 0/100, zero compactions in both.** The candidate received 92/100 rubric weight before a global integrity penalty. The sole stated penalty reason was that it generated `obsTime` with `new Date().toISOString()` and published unsupported observation metadata. The task asks for UTC observation time; it does not require a timestamp printed by Google.
+
+The actual generated cell reads the system clock and immediately inspects the Google query tab's URL, locale, sign-in affordance and body prefix. Event 83 prints **2026-09-08T07:58:09.625Z**, later preserved unchanged as `query.observation_time_utc`. The SDK journal brackets that same tool call at **07:58:09.624–07:58:09.652 UTC**. The value lies inside the recorded 28-millisecond execution interval. Thus the claim that no tool timestamp corroborates the observation is contradicted by retained evidence. A clock read is appropriate for collection time; a website publication date is a different field.
+
+The detailed page-one and continuation ledgers were re-extracted about 11 seconds later. This audit does not establish an atomic timestamp for the whole directory or independently verify host clock synchronization. It also does not audit every contact field. The reference encountered Google blocks and explicitly delivered a Startpage fallback, receiving 44/100. **Official scores remain 44 and 0.** The 92 is the judge's pre-penalty rubric weight, not a replacement outcome or another run.
+
+This case warrants a judge/evidence-fidelity flag, not a rule banning legitimate clock reads or a benchmark-specific runtime patch. It does not explain other observed extraction failures. [Exact code, journal bounds, source hashes and official judgments](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-observation-clock.json).
+
 ## Implication for the next decision
+
+### New acquisition and interpretation losses
+
+**Redfin, `bub2-024`: 100 → 50/100, zero compactions in both arms.** The candidate established the requested screen with a displayed count of 62, observed 41 cards on page one and 21 on page two, but retained only `slice(0, 5)` from page one before navigating away. Its final ledger contains orders 1–5 and 42–62. It explicitly reports the other 36 missing rows. This is not an SDK truncation of a complete 62-row dataset: the complete first-page ledger was never saved.
+
+The captured filter URL used `%0C` separators. The model reconstructed a URL mixing `%0C` and `%2C`; that navigation landed on unfiltered Vancouver. Restoring the original observed URL then returned 403. Do not "correct" every `%0C` to a conventional comma encoding: the original UI-generated URL really contained `%0C`. The final claim that no filter change occurred is contradicted by the temporary unfiltered navigation. The report also calls the approximately C$899/sq-ft anchor the largest such value while another listed anchor is approximately C$1,313/sq ft. The official penalty includes that prose contradiction, not an SDK arithmetic error. The reference's official 100 is retained without treating it as an independent audit of every field.
+
+**Netherlands jobs, `bub2-015`: 75 → 34/100, one compaction in each arm.** The candidate's Flosum source says, “You don't need to be a Salesforce admin,” yet its final certification field says “Salesforce Administrator.” Its generated `listPatterns` helper classifies a match of `/Salesforce Administrator|Salesforce Admin(?!istration)/i` as that certification, without testing negation or whether the phrase describes a credential. Applying the unchanged helper to the captured negative statement reproduces the positive label. The final record retains the negative sentence as certification evidence, so the contradiction can be checked without attributing it to compaction.
+
+The same record's work-arrangement evidence includes unrelated similar-job snippets from the page body. Other official penalties concern platform job IDs labelled as employer requisition IDs, search/listing pages counted as verified role details, and contact details captured before later redaction despite the user's restriction. The reference also has field and logging failures, including dates from generic page time elements and missed contract terms. These are source-scoping and interpretation defects, not proof that one universal regex or a longer verification instruction will fix the cohort.
+
+[Source hashes, original controls, selected records and negation reproduction](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-acquisition-semantics.json).
 
 Three additional pairs sharpen the distinction between execution and quality:
 

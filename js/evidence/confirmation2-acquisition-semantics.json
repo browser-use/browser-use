@@ -1,0 +1,358 @@
+{
+  "collected_at": "2026-09-08T08:03:58.708268+00:00",
+  "scope": "Two selected completed pairs from unfinished confirmation2. Retain original scores. Generated-code reproduction is not an SDK regression test.",
+  "cases": {
+    "bub2-024": {
+      "arms": {
+        "reference": {
+          "manifest": {
+            "config_hash": "e74dd70936a1a5c1785523a17656ec47127e2a1ab59fe797f6538221cee1604c",
+            "datapoint_id": "6dbe714f-705c-49e4-9d90-f53ac03b753e",
+            "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+            "evaluation_id": "d782ed1d-d0c3-45f6-9927-e3defa54183e",
+            "github_run_attempt": "1",
+            "github_run_id": "34197091644",
+            "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34197091644",
+            "harness": "pi-browser-use-next",
+            "judge": "findings",
+            "judge_model": "gpt-5.6-luna",
+            "judge_options": {
+              "reasoning_effort": "xhigh"
+            },
+            "max_steps": 1000,
+            "model": "gpt-5.6-luna",
+            "options": {
+              "browser_timeout_minutes": 70,
+              "evidence_format": "findings",
+              "max_context_chars": 800000,
+              "proxy_country_code": "us",
+              "reasoning_effort": "xhigh",
+              "task_timeout_seconds": 3600
+            },
+            "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+            "schema_version": 1,
+            "target_repo": "browser-use/bu-pi",
+            "target_sha": "b430a91891e23f5ffb9ca816e5cbe63e73d2a248",
+            "task_id": "bub2-024",
+            "timeout_minutes": 62
+          },
+          "score": 1.0,
+          "steps": 122,
+          "compactions": 0,
+          "judge_findings": [],
+          "source_sha256": {
+            "manifest.json": "752849292767c2d3d2e30d8a63ef309b70821a5504bba5cad3942d590dcacad2",
+            "events.jsonl": "d5bda639c2b849c5ed6ff5ae95bd33fedd24da5bc7c083e4af7a906613e3d101",
+            "sdk-result.json": "020cf52119bbd48af4d0b3e44ed01761ecd425951369b2bb35efb41a6cc29db2",
+            "judgment.json": "dbc2931cbd7ec29512cf09a5199fe676e23d506e7a975021bb0ab7ed1dd7b2a2",
+            "judge_trace.json": "64d0b1025679be1e53ee2eba58d013a7d114699eccc63f863436314a66a3076b",
+            "final_message.txt": "e815edafa5fe7b1420dec4db828f962192b5833761ef4916794762216139f0be"
+          }
+        },
+        "candidate": {
+          "manifest": {
+            "config_hash": "ace52134711210c21e56d1f0653297d0f12ef53d79a911319acd7545772097a6",
+            "datapoint_id": "dced0db5-28fe-4d4d-886f-5bdc3cce16c2",
+            "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+            "evaluation_id": "06ccffa3-4789-4bfd-bd78-8ca365772d91",
+            "github_run_attempt": "1",
+            "github_run_id": "34197094678",
+            "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34197094678",
+            "harness": "pi-browser-use-next",
+            "judge": "findings",
+            "judge_model": "gpt-5.6-luna",
+            "judge_options": {
+              "reasoning_effort": "xhigh"
+            },
+            "max_steps": 1000,
+            "model": "gpt-5.6-luna",
+            "options": {
+              "browser_timeout_minutes": 70,
+              "evidence_format": "findings",
+              "max_context_chars": 800000,
+              "proxy_country_code": "us",
+              "reasoning_effort": "xhigh",
+              "task_timeout_seconds": 3600
+            },
+            "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+            "schema_version": 1,
+            "target_repo": "browser-use/bu-pi",
+            "target_sha": "65a16cb6e43a31e67d59a7ed841858e70f05a5ba",
+            "task_id": "bub2-024",
+            "timeout_minutes": 62
+          },
+          "score": 0.5,
+          "steps": 124,
+          "compactions": 0,
+          "judge_findings": [
+            {
+              "evidence": "Steps 46 and 60 show the $750k and 1+ bedroom filters; step 76 records the exact keyword field value; step 88 shows the exact encoded filter URL, 62 homes, and Recommended sorting; step 106 records the real UTC timestamp 2026-09-08T07:38:21.729Z. However, step 136 navigated to a malformed keyword URL and landed on the unfiltered https://www.redfin.ca/bc/vancouver page showing 4,204 homes, and step 138 then attempted the exact filtered URL. This altered/relaxed the filters during the run, contrary to the preservation requirement. The run's September 8 state is used rather than the rubric's earlier dated count.",
+              "item": "A1_screen_established",
+              "status": "violated"
+            },
+            {
+              "evidence": "Step 100 shows page 1 had 41 cards and step 112 shows page 2 had 21 cards, for the evidenced population of 62. Step 246 verifies that the ledger has only 26 rows and explicitly lists missing orders 6\u201341; the delivered ledger likewise contains rows 1\u20135 and 42\u201362 only. Thus it does not preserve one individual row for every displayed result, although the inaccessible range and shortfall are honestly named.",
+              "item": "A4_screening_ledger",
+              "status": "violated"
+            },
+            {
+              "evidence": "The comparison covers asking price, area, disclosed public-MLS fees, price-per-square-foot calculations, and exact keyword evidence, and explicitly distinguishes seller/listing wording from independently observed facts while refusing construction or quietness inferences. However, it states: \u201cLowest asking price / largest derived asking-price-per-sq-ft value: R3160384\u201d at approximately C$899/sq ft. Its own listed values show C$899/sq ft is the lowest, while R3160574 is highest at approximately C$1,313/sq ft; the report later correctly calls R3160574 highest. This is a contradictory comparison claim.",
+              "item": "A7_comparison",
+              "status": "violated"
+            },
+            {
+              "evidence": "The access shortfall, 62-result state, 26 captured rows, missing orders 6\u201341, and 403 blocks are generally reported consistently with steps 88, 112, 138, 150, and 246. But the final report says \u201cNo sign-in, agent contact, tour request, or filter change was made,\u201d and the conflict log repeats that no filter change was made. Step 136 positively shows the browser navigated to the unfiltered Vancouver URL after the filtered screen had been captured. That process claim exceeds the trace evidence.",
+              "item": "A8_report_honesty",
+              "status": "violated"
+            }
+          ],
+          "source_sha256": {
+            "manifest.json": "e5108ef7b080ac896da42e8731928e6016f9b6d5a6332b02335558359d098d63",
+            "events.jsonl": "863c94006be6b42eaeafacd3e3305dc9421f5683f3c745cc3116d86b39fcdec5",
+            "sdk-result.json": "8153d5fa6af1789b7e936b716df3aa2e48229d4f7f8c2645a69c20f3c556feb8",
+            "judgment.json": "ac529bae1efef7fcb7a645b67ccdeef7fd0667c3bcb9f757a21c9fadc9c902b8",
+            "judge_trace.json": "6f3cf8a1fd4e4e3f2505df791943cfce9528ec304b7d41206252ebdf68734820",
+            "final_message.txt": "6bd23a9639b62512b2577d294cf28fee8873c2744526041090af439f1c74a8bf"
+          }
+        }
+      },
+      "observed": {
+        "population_displayed": 62,
+        "first_page_card_count": 41,
+        "second_page_card_count": 21,
+        "retained_orders": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62
+        ],
+        "missing_orders": [
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "first_page_capture_code": "const detailTabId=(await tabs.list()).find(t=>t.url.includes('/home/154855378'))?.targetId; page=await tabs.get(searchTabId); const obsUTC=new Date().toISOString(); const first5=await page.evaluate(()=>[...document.querySelectorAll('[id^=\"MapHomeCard_\"]')].slice(0,5).map((x,i)=>({order:i+1,addr:x.querySelector('a.bp-Homecard__Address')?.innerText.trim(),href:x.querySelector('a.bp-Homecard__Address')?.href,text:x.innerText,html:x.outerHTML.slice(0,1000)}))); console.log(obsUTC, first5.map(x=>({order:x.order,addr:x.addr,href:x.href,text:x.text.slice(-350)})));",
+        "progress_save_code": "const progress0={observation_utc:obsUTC,filter_url:'https://www.redfin.ca/bc/vancouver/filter/max-price=750k,min-beds=1,remarks=luxury%0C+new+build%0C+trusted+developer%0C+quiet',filters:{city:'Vancouver',max_price_cad:750000,min_beds:1,keywords:'luxury, new build, trusted developer, quiet',sort:'Recommended'},count:62,first5, page2Records, access:{search_tab_id:searchTabId,detail_tab_id:detailTabId,search_blocked_at:new Date().toISOString()}}; await checkpoint('progress.json',progress0); console.log('saved',workspace);",
+        "limits": [
+          "No complete62rowdataset was saved then truncated by SDK.",
+          "OriginalobservedURLuses%0C; mixed%0C/%2Creconstruction diverged from it.",
+          "Temporaryunfilterednavigation observed; did not proveintentional filter relaxation."
+        ]
+      }
+    },
+    "bub2-015": {
+      "arms": {
+        "reference": {
+          "manifest": {
+            "config_hash": "e74dd70936a1a5c1785523a17656ec47127e2a1ab59fe797f6538221cee1604c",
+            "datapoint_id": "35256c1b-2038-498f-a83e-912504479177",
+            "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+            "evaluation_id": "d782ed1d-d0c3-45f6-9927-e3defa54183e",
+            "github_run_attempt": "1",
+            "github_run_id": "34197091644",
+            "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34197091644",
+            "harness": "pi-browser-use-next",
+            "judge": "findings",
+            "judge_model": "gpt-5.6-luna",
+            "judge_options": {
+              "reasoning_effort": "xhigh"
+            },
+            "max_steps": 1000,
+            "model": "gpt-5.6-luna",
+            "options": {
+              "browser_timeout_minutes": 70,
+              "evidence_format": "findings",
+              "max_context_chars": 800000,
+              "proxy_country_code": "us",
+              "reasoning_effort": "xhigh",
+              "task_timeout_seconds": 3600
+            },
+            "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+            "schema_version": 1,
+            "target_repo": "browser-use/bu-pi",
+            "target_sha": "b430a91891e23f5ffb9ca816e5cbe63e73d2a248",
+            "task_id": "bub2-015",
+            "timeout_minutes": 62
+          },
+          "score": 0.75,
+          "steps": 109,
+          "compactions": 1,
+          "judge_findings": [
+            {
+              "evidence": "The spreadsheet contains all requested fields, but multiple recorded values are not supported by the captured source content. Occurrences include: (1) NL-LI-4413426339/Postcode Loterij records posting_date 2026-07-09 although the main detail content says \u201c1 week ago\u201d (step 34); the 2026-07-09 value came from the first generic time element, whose text was \u201c2 months ago,\u201d not the main role (step 32). (2) NL-LI-4453255855/Accenture records 2026-07-13 while the search/detail listing identifies it as posted \u201c3 days ago\u201d (steps 20 and 54). Similar absolute dates were derived from unreliable generic time elements. (3) NL-LI-4456315794/Booking Ads records contract_duration \u201cnot disclosed,\u201d despite the inspected employer page stating \u201cThis role is a one-year contract\u201d (steps 94 and 96). (4) NL-LI-4459308588/Elevation records contract_duration \u201cnot disclosed,\u201d although the captured description states a one-year contract (step 115). (5) SxBlue rows record \u201cDutch required\u201d and \u201cGood English required\u201d without labeling these as inferences, while the captured text says the team speaks/writes/understands those languages rather than stating a hard role requirement (steps 111 and 130). These are whole-cohort field-truth defects.",
+              "item": "A2_member_fields_faithful",
+              "status": "violated"
+            },
+            {
+              "evidence": "The logs contain source order, filters, access failures, exclusions, and aggregate counts, but they do not fulfill the required process-log scope. The persisted Bing rows BING1\u2013BING6 say the exact query text was unavailable even though the actual query arrays are visible in steps 14, 16, 58, 60, 64, and 70; therefore every query was not recorded. The query log also has no observation-time field. Its Employer/official ATS row reports 24 screened, while the trajectory shows 15 official URLs plus 10 second-batch URLs attempted and reports 14 plus 8 successful loads (step 139). These omissions and the screened-count mismatch violate faithful process logging.",
+              "item": "A6_process_log_faithful",
+              "status": "violated"
+            }
+          ],
+          "source_sha256": {
+            "manifest.json": "9dc0b8e237abfa6cea52e1345a6457397c01baeb817b07f7059411eeb8c0307e",
+            "events.jsonl": "5fcbb10f5ab7774f3546ca64e571e0115a9230116fefbb5ebd029431f4e7a88c",
+            "sdk-result.json": "d7a99492fdb67ef54546bf2e4b1ccabf423ea98c071455679bdc0baf9e54f3c8",
+            "judgment.json": "168f9ef644c480bdff43f2a3b7c0512aac9431d5c684c75d3e9023361bf9afc2",
+            "judge_trace.json": "85a22e91903ddc3ecd7b4303e2946b23b574b96737d2a5f360fb14dabc0dd57f",
+            "final_message.txt": "bcdcab88075bcbaa13dcadb2d2bf912a86e8673db23a5a450d76c6c0660a9062"
+          }
+        },
+        "candidate": {
+          "manifest": {
+            "config_hash": "ace52134711210c21e56d1f0653297d0f12ef53d79a911319acd7545772097a6",
+            "datapoint_id": "684ec57e-019e-4fbf-83cf-52622399d38a",
+            "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+            "evaluation_id": "06ccffa3-4789-4bfd-bd78-8ca365772d91",
+            "github_run_attempt": "1",
+            "github_run_id": "34197094678",
+            "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34197094678",
+            "harness": "pi-browser-use-next",
+            "judge": "findings",
+            "judge_model": "gpt-5.6-luna",
+            "judge_options": {
+              "reasoning_effort": "xhigh"
+            },
+            "max_steps": 1000,
+            "model": "gpt-5.6-luna",
+            "options": {
+              "browser_timeout_minutes": 70,
+              "evidence_format": "findings",
+              "max_context_chars": 800000,
+              "proxy_country_code": "us",
+              "reasoning_effort": "xhigh",
+              "task_timeout_seconds": 3600
+            },
+            "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+            "schema_version": 1,
+            "target_repo": "browser-use/bu-pi",
+            "target_sha": "65a16cb6e43a31e67d59a7ed841858e70f05a5ba",
+            "task_id": "bub2-015",
+            "timeout_minutes": 62
+          },
+          "score": 0.34,
+          "steps": 143,
+          "compactions": 1,
+          "judge_findings": [
+            {
+              "evidence": "The retained row `Field Service Specialist` (Salesforce, LinkedIn ID 4437858477) is supported in step 90 by a description headed `Job Category Sales` that calls the role the primary strategic driver for complex deal execution. The captured evidence does not clearly show Salesforce development, integration, administration, architecture, or configuration work. This is inconsistent with the cohort's stated scope rule, even though other retained examples such as SxBlue (step 28), Brightfox (step 57), Guidion (step 104), and InterEx (step 141) do show technical Salesforce work.",
+              "item": "A1_member_scope",
+              "status": "violated"
+            },
+            {
+              "evidence": "The spreadsheet records raw numeric LinkedIn job IDs such as `4429900029` and `4448840519` in the employer `requisition_id` field without labeling them as LinkedIn platform IDs. Step 50 shows that the captured JobPosting identifier can contain only the employer name and that the numeric value is from the LinkedIn URL, while step 53 similarly extracts numeric URL IDs. This affects the LinkedIn rows broadly and contradicts the requisition-ID rule. There are also field-level extraction errors: the Flosum `AI Go-to-Market Engineer` row records `Salesforce Administrator` under certifications although step 92 describes a GTM/AI-agent role rather than that certification, and its saved arrangement evidence contains unrelated remote similar-job snippets. The run did show LinkedIn `validThrough` in JSON-LD at step 50, so that particular source-metadata change is judged against run-time evidence rather than treated as an unsupported closing date.",
+              "item": "A2_member_fields_faithful",
+              "status": "violated"
+            },
+            {
+              "evidence": "Discovery URLs are generally corroborated: LinkedIn category pages were visited and role links extracted in steps 26 and 42, and the WeAreDevelopers list/detail pages were visited in steps 143\u2013146. However, several retained verification claims are not R1-grade. `Salesforce Developer (Medior/Senior)` and `Implementatie Consultant Salesforce` at Profit4SF use the generic careers listing visited in step 96, not their role pages; `Lead Salesforce Developer` at Welisa relies on the careers page visited in step 112, while only the Medior and Senior role pages were opened in steps 120\u2013122; and `Salesforce Data & Platform Engineer` at Empiric is labeled agency-verified even though step 94 shows only a Bing result and no navigation to the recorded Empiric URL. These are marked as verification rather than honest unverified/discovery-only records. Other conflicts, such as Jobbird's removed Cloudmuscle page versus the live WeAreDevelopers detail, were preserved.",
+              "item": "A3_member_provenance",
+              "status": "violated"
+            },
+            {
+              "evidence": "The logs capture many visible actions: 33 Bing query rows, LinkedIn list/detail counts, WAD card/detail counts, access blockers, and role exclusions. However, the Google query executed in step 6 is absent from `query_log.csv` and from the source-order inventory. More materially, `source_inventory_detail.csv` records Empiric as screened 1 and retained 1 even though step 94 only shows an Empiric search result and no Empiric page was navigated; the verification URL was not opened. Thus the process log is not complete and its per-source retained count is not faithful to the trajectory.",
+              "item": "A6_process_log_faithful",
+              "status": "violated"
+            },
+            {
+              "evidence": "The README and market brief state that no recruiter-contact details were collected, but step 141 printed the InterEx application email address from the captured role description, and the batch data contained such contact information before the later scrub in step 223. The final framing also claims 14 independent employer/partner/ATS/agency/aggregator cross-checks, while the Empiric role is counted as agency-cross-checked even though the trajectory never navigated the recorded Empiric URL; step 94 only shows a search result. These are positive run-level claims that do not match the trace.",
+              "item": "A9_report_honesty",
+              "status": "violated"
+            },
+            {
+              "evidence": "No sign-in, applicant-information entry, application submission, or employer contact is shown. However, the run did collect recruiter/contact information from public vacancy pages: step 141 extracted and printed an application email address, and the captured job descriptions also included recruiter/contact context. The later redaction of email addresses from saved files in step 223 does not undo the trajectory action.",
+              "item": "A10_boundary_compliance",
+              "status": "violated"
+            }
+          ],
+          "source_sha256": {
+            "manifest.json": "cfa1c58d19d1ae1f3ae62ff518a5207b3279b98644505268bd272db7834edf89",
+            "events.jsonl": "7550273a9e1061a89e280ffb1cfd4001b875ea0ee1929e5a457bca5034e53821",
+            "sdk-result.json": "040cff7c251bf0e67c235f0a49d14abeeae5b95ba586235c9e3ad2c6677a822e",
+            "judgment.json": "d2bc116b2c3bc41b6f273f618b907700dc95ee0e6cb9fdaefa1f7bee9c9eda39",
+            "judge_trace.json": "3d43085f2338bbceb16993d7e75497f9d5516218c415aad9aeaeadbff92ed556",
+            "final_message.txt": "1ed4f8ffe52ee961ee12a48079d652339178da7075f5cb13b04896db68ab7d5e"
+          }
+        }
+      },
+      "selected_record": {
+        "cohort_id": "NL-SF-4402539318",
+        "title": "AI Go-to-Market Engineer (Netherlands)",
+        "employer": "Flosum",
+        "certifications": "Salesforce Administrator",
+        "certification_evidence": "llow-up sequencing, proposal drafting, and pipeline updates \u2014 eliminating every minute of admin work that doesn't directly produce revenue Architect the AI layer across Flosum's GTM stack (Salesforce, Marketo, Outreach, Qualified, Gong) so that | tection, and compliance workflows is a major advantage. You don't need to be a Salesforce admin, but you need to understand what our buyers care about and why Benefits Why Flosum Category-defining opportunity: You will shape the future of how en",
+        "work_arrangement": "Not disclosed",
+        "work_arrangement_evidence": [
+          "Solutions Engineer (Core AI) Solutions Engineer (Core AI) Mendix Rotterdam 1 week geleden Remote AI Systems & Automation Engineer (Internal Operations) (m/f/d) Remote AI Systems & Automation Engineer (Internal Operations) (m/f/d) RoomPriceGenie N",
+          "rdam 1 week geleden Remote AI Systems & Automation Engineer (Internal Operations) (m/f/d) Remote AI Systems & Automation Engineer (Internal Operations) (m/f/d) RoomPriceGenie Nederland \u20ac 85.000 - \u20ac 95.000 4 dagen geleden AI Adoption Enablement En"
+        ],
+        "requisition_id": "4402539318",
+        "external_requisition_id": "Not disclosed",
+        "verification_status": "Syndicated-only"
+      },
+      "negation_reproduction": {
+        "scope": "Actual generated classifier applied to the captured negative statement; not an SDK transformation",
+        "observed": "You don't need to be a Salesforce admin, but you need to understand what our buyers care about and why\n\nBenefits\n\nWhy Flosum\n\n\nCategory-defining opportunity: You will shape the future of how enterprises build on Salesforce.",
+        "result": [
+          "Salesforce Administrator"
+        ]
+      },
+      "cohort_size": 40
+    }
+  }
+}

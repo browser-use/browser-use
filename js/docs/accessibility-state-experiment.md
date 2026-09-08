@@ -1,6 +1,6 @@
 # Accessibility state preservation
 
-Prepared separately from the running second confirmation. No benchmark result is attributed to this change.
+Evaluated separately from the running second confirmation. The one-task diagnostic completed at 0/1; no quality improvement is established.
 
 ## Observed gap
 
@@ -32,4 +32,18 @@ Freeze runtime `7d1c107` on the single previously inspected Hard task `hukwqv`, 
 
 [Frozen inputs and selection limits](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/accessibility-state-plan.json).
 
-The plan was pushed at `775129f` before the single diagnostic was dispatched. Its prepare job succeeded and its original task job is running: [GitHub 34201460363](https://github.com/browser-use/new-eval-platform/actions/runs/34201460363), Laminar `676dfc4f-1a92-425f-9b33-d837a96e6edd`. No outcome exists yet. [Dispatch record](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/accessibility-state-dispatch.json).
+The plan was pushed at `775129f` before the single diagnostic was dispatched. The original workflow completed successfully: [GitHub 34201460363](https://github.com/browser-use/new-eval-platform/actions/runs/34201460363), Laminar `676dfc4f-1a92-425f-9b33-d837a96e6edd`. Its real Laith judgment is **0/1**, classified `missing-required-fields`. Execution success is separate from task success. [Dispatch record](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/accessibility-state-dispatch.json).
+
+## Completed diagnostic
+
+The agent used 41 steps and 520.712 seconds, with $1.489674 in recorded agent inference cost. It had zero compactions, SDK provider retries and SDK cleanup errors. One post-cell screenshot failed because its active target was unavailable. The owned Cloud browser is confirmed stopped. Costs exclude judge, browser and runner charges.
+
+Event indices below are zero-based nonempty JSONL records. Event 67 delivered native AX radios with explicit `checked: true/false`. The generated selection helpers did not explicitly consume AX checked state; separate DOM queries did inspect `input.checked`. Exposing state did not automatically produce verified extraction.
+
+Events 77/79 show a physical click on the AX radio failing as covered: the native input is visually clipped and its label is the visible control. The agent explicitly clicked the associated label next. Event 83 confirms `young=true`, `consumer=false`, with visible young options 20GB, 100GB and Unlimited. Event 87 shows two stale label selectors failing, young still selected, and bundle eligibility false. This is a concrete candidate for a generic label-aware click fix, but the model recovered from it in this trace; it is not a proven cause of the final zero.
+
+The later extraction helper selected the correct young input-group name conditionally, yet swallowed selection errors and never asserted eligibility. Event 147 returned `vfYoung: []`. The young landing page then displayed an adblocker warning and the same three visible tiers. Source HTML/footnotes mention 280GB in GigaMobil Young L and historical 2024 roaming terms; that does not prove 280GB was selectable in this diagnostic's UI. A loose initial HTML search also matched the CSS breakpoint 1280.
+
+The final artifact supplied adult 25GB, 35GB, 100GB, 120GB and Unlimited alternatives with caveats. The judge rejected the missing requested Vodafone tiers. Retain that zero. The audit proves state exposure and a recoverable click-helper gap; it does not establish complete variant acquisition, semantic-test adoption, or a score improvement. It replaces no outcome in either full confirmation benchmark.
+
+[Completed diagnostic evidence and artifact hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/accessibility-state-diagnostic.json).
