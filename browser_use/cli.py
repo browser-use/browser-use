@@ -336,25 +336,36 @@ _EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Py
 
 
 def _read_piped_stdin() -> str:
-	"""Read piped stdin as UTF-8 when possible.
+	"""Read piped stdin using an explicit process encoding, with UTF-8 fallback.
 
-	On Windows, the process code page (e.g. GBK) can make ``sys.stdin.read()``
-	raise ``UnicodeDecodeError`` for Chinese and other non-ASCII input even when
-	the pipe bytes are valid UTF-8. Read the binary buffer once and decode as
-	UTF-8 first; if that fails, fall back to the process/legacy encoding so
-	native code-page pipes still work. Avoid wrapping ``sys.stdin.buffer`` in a
-	throwaway ``TextIOWrapper`` (its close would close the underlying buffer).
+	Prefer ``BROWSER_USE_STDIN_ENCODING`` when set (non-empty after strip); otherwise
+	``sys.stdin.encoding``, ``locale.getpreferredencoding(False)``, or ``utf-8``.
+	Decode the raw buffer with that chosen encoding first so legacy code-page pipes
+	(e.g. GBK ``茅`` as ``c3 a9``) keep their intended characters instead of being
+	misread as UTF-8 (``é``). Only if the chosen encoding raises
+	``UnicodeDecodeError``, fall back to UTF-8 — covering UTF-8 pipes that are
+	illegal in the process code page (e.g. UTF-8 ``中文`` under GBK).
+
+	Avoid wrapping ``sys.stdin.buffer`` in a throwaway ``TextIOWrapper`` (its close
+	would close the underlying buffer / stdin).
 	"""
 	import locale
+	import os
 
 	buffer = getattr(sys.stdin, 'buffer', None)
 	if buffer is not None:
 		raw = buffer.read()
+		override = (os.environ.get('BROWSER_USE_STDIN_ENCODING') or '').strip()
+		encoding = (
+			override
+			or getattr(sys.stdin, 'encoding', None)
+			or locale.getpreferredencoding(False)
+			or 'utf-8'
+		)
 		try:
-			return raw.decode('utf-8')
-		except UnicodeDecodeError:
-			encoding = getattr(sys.stdin, 'encoding', None) or locale.getpreferredencoding(False) or 'utf-8'
 			return raw.decode(encoding)
+		except UnicodeDecodeError:
+			return raw.decode('utf-8')
 	return sys.stdin.read()
 
 
