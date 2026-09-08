@@ -30,3 +30,14 @@ Run one original-budget diagnostic on Hard task `hukwqv` and one on Luna task `b
 Only after those diagnostics are terminal and audited, select the next full matched arms. Use the corrected screenshot-ownership reference pins `769ea148382cb9094662188a593b0410f6e9f0d5` (Hard) and `c3f7fac2d8a46a3801e06d89a3c3c9b1343db79e` (Luna), whose agent runtime trees remain byte-identical to their historical originals. Candidate evidence completeness is part of the treatment; the judge and evidence renderer remain unchanged. Do not interpret a score gain as pure improvement in agent reasoning.
 
 The original 106/60 task sets, model/reasoning, judges, budgets, one attempt, 12-job full-arm concurrency, historical targets, 3-point margin and frozen 20,000-resample uncertainty procedure remain in force. All previous results remain. These are development benchmarks, not held-out SOTA evidence. Rollback is the prior SDK SHA; never replay uncertain browser actions during rollback.
+
+## Original diagnostic executions
+
+Runtime **`29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b`** was frozen in the plan before dispatch. Both prepare jobs succeeded, and both task jobs were verified running on September 8 UTC. No original outcome is replaced.
+
+| Task       | GitHub workflow                                                                          | Laminar evaluation                     |
+| ---------- | ---------------------------------------------------------------------------------------- | -------------------------------------- |
+| `hukwqv`   | [34211867686](https://github.com/browser-use/new-eval-platform/actions/runs/34211867686) | `ad97de9c-b2ea-41c1-b846-5051afd65f23` |
+| `bub2-020` | [34211870650](https://github.com/browser-use/new-eval-platform/actions/runs/34211870650) | `e520f1fa-cdf8-4688-8126-d364c9d7fd1b` |
+
+[Exact frozen plan](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/observation-evidence-plan.json) · [Original dispatch record](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/observation-evidence-dispatch.json). These two diagnostics must finish and be audited before the full comparison is selected.
