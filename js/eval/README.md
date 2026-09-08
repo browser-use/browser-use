@@ -16,6 +16,14 @@ For viewport-changing tasks, `browser_allow_resizing: true` passes `allowResizin
 
 This changes the browser environment, not the agent loop. In the September 8 synthetic-page probe, default Cloud browsers acknowledged resize commands without changing their viewport. Enabling resizing made 390×844 layout, screenshots and media queries work. It also changed the initial viewport despite the same requested screen dimensions, and reported DPR still differed from the emulation request. Cloud documents reduced stealth with this option. Measure actual geometry; do not infer mobile-device fidelity or equal site access. Freeze the same setting in comparison arms and report the environment change. It is not enabled in the original confirmation cohorts. [Probe evidence](../docs/confirmation3-trace-audit.md#cloud-resizing-is-an-explicit-provisioning-capability).
 
+## Coding tools independently of evidence format
+
+`research_tools: true` enables upstream Pi read/write/edit/bash tools for either judge evidence format. `false` disables them. Omission preserves historical behavior: enabled for Findings, disabled for default Laith evidence. Non-boolean values fail before browser provisioning. The explicit option is retained in result metadata and the platform configuration hash.
+
+This maps to the existing SDK `researchTools` option; it changes no SDK default or Python API. Prefer the explicit option when comparing tool availability so judge formatting does not implicitly select the agent's capabilities. Native tools can avoid nested JavaScript/shell escaping and provide file operations independently of the browser worker. They do not guarantee syntax checks, truthful fields or complete coverage. The agent already has unrestricted Node execution; file tools retain the existing workspace guidance, filtered shell environment and shared run budgets.
+
+No original run used this new override. Any experiment must freeze it before dispatch, preserve old outcomes and separate this treatment from the execution-deadline patch. Rollback is omitting the option or restoring the previous adapter SHA.
+
 ## Local contract tests
 
 ```sh

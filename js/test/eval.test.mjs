@@ -5,6 +5,9 @@ import { parseOptions, resultEnvelope } from '../eval/run.mjs';
 test('eval options reject unknown settings, invalid budgets and browser expiry', () => {
   assert.equal(parseOptions({}).reasoning_effort, 'medium');
   assert.equal(parseOptions({}).max_context_chars, 800000);
+  assert.equal(parseOptions({}).research_tools, undefined);
+  assert.equal(parseOptions({ research_tools: true }).research_tools, true);
+  assert.equal(parseOptions({ research_tools: false }).research_tools, false);
   assert.equal(parseOptions({}).delivery_review, undefined);
   assert.equal(parseOptions({ delivery_review: true }).delivery_review, true);
   assert.equal(parseOptions({ delivery_review: false }).delivery_review, false);
@@ -21,6 +24,9 @@ test('eval options reject unknown settings, invalid budgets and browser expiry',
   );
   for (const options of [
     { typo: true },
+    { research_tools: 'true' },
+    { research_tools: null },
+    { research_tools: 1 },
     { evidence_format: 'other' },
     { delivery_review: 'true' },
     { delivery_review: 1 },
@@ -77,8 +83,17 @@ for (const {
   maxSteps,
   namedFailure = false,
   allowResizing,
+  researchTools,
+  exerciseFiles = false,
 } of [
   { label: 'default evidence' },
+  {
+    label: 'native files on default evidence',
+    researchTools: true,
+    exerciseFiles: true,
+    maxSteps: 8,
+  },
+  { label: 'native files disabled on findings', evidenceFormat: 'findings', researchTools: false },
   { label: 'findings evidence', evidenceFormat: 'findings' },
   { label: 'agent screenshot cleanup', evidenceFormat: 'findings', cleanScreenshots: true },
   { label: 'delivery review', evidenceFormat: 'findings', deliveryReview: true, maxSteps: 4 },
@@ -117,6 +132,8 @@ for (const {
     let requests = 0,
       stops = 0;
     let firstCapture;
+    const scriptSource =
+      String.raw`const words = text => text.split('\n').filter(s => /\s+\d+/.test(s));` + '\n';
     const patches = [
       mock.method(Laminar, 'initialize', () => {}),
       mock.method(Laminar, 'startSpan', (options) => {
@@ -168,6 +185,7 @@ for (const {
         EVAL_OPTIONS_JSON: JSON.stringify({
           ...(evidenceFormat ? { evidence_format: evidenceFormat, reasoning_effort: 'xhigh' } : {}),
           ...(deliveryReview ? { delivery_review: true } : {}),
+          ...(researchTools === undefined ? {} : { research_tools: researchTools }),
           ...(allowResizing === undefined ? {} : { browser_allow_resizing: allowResizing }),
         }),
         EVAL_TIMEOUT_MINUTES: '30',
@@ -194,6 +212,11 @@ for (const {
           assert.equal(requestBody.model, evidenceFormat ? 'gpt-5.6-luna' : 'gpt-5.5');
           assert.equal(requestBody.reasoning.effort, evidenceFormat ? 'xhigh' : 'medium');
           requests++;
+          if (requests === 1) {
+            const names = requestBody.tools.map((t) => t.name);
+            for (const name of ['read', 'write', 'edit', 'bash'])
+              assert.equal(names.includes(name), researchTools ?? evidenceFormat === 'findings');
+          }
           if (deliveryReview && requests === 3)
             assert.match(JSON.stringify(requestBody.input), /Delivery review checkpoint/);
           const cleanup = cleanScreenshots && requests === 2;
@@ -209,8 +232,8 @@ for (const {
             }
             assert.ok(firstCapture, 'capture must exist before agent cleanup');
           }
-          const name = requests === 1 || cleanup ? 'javascript' : 'finish';
-          const args =
+          let name = requests === 1 || cleanup ? 'javascript' : 'finish';
+          let args =
             requests === 1
               ? {
                   code: namedFailure
@@ -222,6 +245,13 @@ for (const {
                     code: "await require('node:fs/promises').rm(require('node:path').join(workspace,'screenshots'),{recursive:true,force:true}); await page.text({role:'status'})",
                   }
                 : { result: 'Saved exactly once; see proof.txt' };
+          if (exerciseFiles && requests === 2) {
+            name = 'write';
+            args = { path: 'reusable.cjs', content: scriptSource };
+          } else if (exerciseFiles && requests === 3) {
+            name = 'bash';
+            args = { command: 'node --check reusable.cjs', timeout: 10 };
+          }
           const item = {
             id: `fc_${requests}`,
             call_id: `call_${requests}`,
@@ -276,9 +306,27 @@ for (const {
       assert.equal(await main(), 0);
       const result = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
       assert.equal(result.metadata.options.browser_allow_resizing, allowResizing);
+      assert.equal(result.metadata.options.research_tools, researchTools);
+      if (exerciseFiles) {
+        assert.equal(await readFile(join(dir, 'agent_outputs/reusable.cjs'), 'utf8'), scriptSource);
+        const events = (await readFile(join(dir, 'events.jsonl'), 'utf8'))
+          .split('\n')
+          .filter(Boolean)
+          .map(JSON.parse);
+        const fileCalls = events.filter(
+          (e) => e.type === 'tool_execution_end' && ['write', 'bash'].includes(e.toolName),
+        );
+        assert.equal(fileCalls.length, 2);
+        assert.ok(fileCalls.every((e) => !e.isError));
+        assert.ok(result.artifacts.includes('agent_outputs/reusable.cjs'));
+      }
       const reviewExhausted = deliveryReview && maxSteps === 2;
       assert.equal(result.metadata.stop_reason, reviewExhausted ? 'max_steps' : 'completed');
-      const expectedRequests = cleanScreenshots || (deliveryReview && !reviewExhausted) ? 3 : 2;
+      const expectedRequests = exerciseFiles
+        ? 4
+        : cleanScreenshots || (deliveryReview && !reviewExhausted)
+          ? 3
+          : 2;
       assert.equal(result.metrics.steps, expectedRequests);
       assert.equal(
         result.metadata.delivery_review_submissions,

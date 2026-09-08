@@ -16,6 +16,7 @@ export function parseOptions(value) {
     'browser_timeout_minutes',
     'browser_allow_resizing',
     'evidence_format',
+    'research_tools',
     'delivery_review',
   ]);
   if (!value || Array.isArray(value) || typeof value !== 'object')
@@ -56,6 +57,8 @@ export function parseOptions(value) {
     throw new Error('proxy_country_code must be a lowercase country code or null');
   if (options.evidence_format !== undefined && options.evidence_format !== 'findings')
     throw new Error('evidence_format must be findings when provided');
+  if (options.research_tools !== undefined && typeof options.research_tools !== 'boolean')
+    throw new Error('research_tools must be boolean');
   if (options.delivery_review !== undefined && typeof options.delivery_review !== 'boolean')
     throw new Error('delivery_review must be boolean');
   if (
@@ -230,7 +233,7 @@ export async function main() {
       workspace: outputDir,
       cellTimeoutMs: 120000,
       operationTimeoutMs: 20000,
-      researchTools: options.evidence_format === 'findings',
+      researchTools: options.research_tools ?? options.evidence_format === 'findings',
       ...(options.delivery_review
         ? {
             validateResult: async () => {
