@@ -25,3 +25,9 @@ This is an additive change to the public `AXNode` type and snapshot output. Exis
 The [trace audit](./confirmation2-trace-audit.md) includes control-state interpretation errors, but those traces do not isolate missing AX properties as their cause. A fresh frozen diagnostic and complete matched evaluation are required before making a quality claim.
 
 [Verification evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/accessibility-state.json).
+
+## Frozen diagnostic
+
+Freeze runtime `7d1c107` on the single previously inspected Hard task `hukwqv`, GPT-5.5 medium and unchanged Laith GPT-5.5. Retain the full per-task Hard budgets, US proxy and browser lifetime; concurrency is one. Inspect whether actual tools read the new state properties, verify selection after changing configuration, and preserve requested variants. Provisioning, inference, screenshots, delivered artifacts, actual judgment and cleanup must also complete. The same four confirmation2 cohorts remain untouched. This diagnostic is separate, can overlap them, and cannot establish a ranking or replace an outcome. The exact plan is saved before dispatch.
+
+[Frozen inputs and selection limits](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/accessibility-state-plan.json).

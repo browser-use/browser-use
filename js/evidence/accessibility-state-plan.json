@@ -1,0 +1,37 @@
+{
+  "label": "accessibility-state-smoke-hard",
+  "selected_at": "2026-09-08T07:51:04.142644+00:00",
+  "inputs": {
+    "platform_ref": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "target_repo": "browser-use/bu-pi",
+    "target_ref": "7d1c107cd506c3e583a49f45260ffa4e9cf45ad9",
+    "harness": "pi-browser-use-next",
+    "task_limit": "1",
+    "max_steps": "1000",
+    "dataset": "datasets/internal-bench-hard.json",
+    "model": "gpt-5.5",
+    "judge": "laith",
+    "judge_model": "gpt-5.5",
+    "judge_options_json": "{}",
+    "max_parallel": "1",
+    "timeout_minutes": "30",
+    "options_json": "{\"reasoning_effort\": \"medium\", \"task_timeout_seconds\": 1700, \"proxy_country_code\": \"us\", \"browser_timeout_minutes\": 60, \"max_context_chars\": 800000}",
+    "message": "bu-pi accessibility state diagnostic; hukwqv; full per-task Hard controls; retain outcome; 20260908",
+    "task_ids": "hukwqv"
+  },
+  "workflow_ref": "codex/bu-pi-evals-k7m2",
+  "workflow_sha": "3fbf23625bf5883cb83e1c088d743e835429997c",
+  "dataset_sha256": "62ca711571e3337234efb54e7708d5768dec8c849bb8a2a54e010c4e31e988c4",
+  "purpose": "One previously inspected task. Check actual use of observed AX checked/selected states, selection verification, preservation of requested variants, native screenshots, artifact judgment and cleanup. Not ranking or outcome replacement.",
+  "selection_context": {
+    "running_confirmation": "The same four confirmation2 arms still use65a16cb and their frozen references. No new full-cohort treatment selected.",
+    "runtime_change_from_confirmation2": "Only AX control-state mapping and its model-facing API description; code independently reproduced on local Chrome."
+  },
+  "limitations": [
+    "Known development task; no held-out ranking.",
+    "Full per-task Hard budgets, but concurrency1 and different site timing.",
+    "Overlaps original confirmation2; retain timestamps.",
+    "One positive score does not establish use of AX properties or quality improvement.",
+    "Agent cost excludes judge/browser/runner and unreported usage."
+  ]
+}
