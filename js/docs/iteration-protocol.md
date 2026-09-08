@@ -183,6 +183,8 @@ The plan was pushed at `3b3536a` before all four arms were dispatched once. The 
 
 [Recorded dispatch inputs and Laminar evaluation IDs](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-dispatch.json).
 
+The [ongoing trace audit](./confirmation2-trace-audit.md) separates early access losses from source-state and arithmetic errors in delivered artifacts. It is a selected diagnostic view, not a score for the unfinished cohorts.
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.

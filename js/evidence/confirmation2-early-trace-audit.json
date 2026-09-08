@@ -1,0 +1,215 @@
+{
+  "collected_at": "2026-09-08T07:16:04.657450+00:00",
+  "scope": "Early completed negative pairs from confirmation2. Cohorts remain unfinished. Official scores unchanged; no general ranking.",
+  "cases": {
+    "f8cgvy": {
+      "collected_at": "2026-09-08T07:06:35.727326+00:00",
+      "task_id": "f8cgvy",
+      "arms": {
+        "reference": {
+          "sdk_sha": "58ed778b575f8a1c13479a0552ddadc38eea03bc",
+          "github_run_id": "34197086884",
+          "evaluation_id": "ced16e6b-c7f5-46d7-b795-17553dcefa1c",
+          "score": 1.0,
+          "metrics": {
+            "cache_write_tokens": 0,
+            "cached_input_tokens": 896512,
+            "duration_seconds": 274.053,
+            "input_tokens": 102353,
+            "output_tokens": 12158,
+            "steps": 39,
+            "total_cost": 1.324761,
+            "total_tokens": 1011023
+          },
+          "failure_class": "",
+          "sha256": {
+            "manifest.json": "e63e65b71cbcd38d126941275540ec7b78cf1cba8912cc4ebad23710afad2400",
+            "events.jsonl": "ac11c436e6520a290ba58a980f2e412a2943bfa001b42a8e64b868840c991ab6",
+            "result.json": "8c4edd2dd2cd708650ceb3aeabbb0968e933f3b9810f7e3865553e9ac822bfe1",
+            "judgment.json": "20dd84991feb2f0ebc8e2ecd2d662c54ffb6da9f6ff9469ba42fa38a015cfed0"
+          }
+        },
+        "candidate": {
+          "sdk_sha": "65a16cb6e43a31e67d59a7ed841858e70f05a5ba",
+          "github_run_id": "34197089074",
+          "evaluation_id": "410923a8-baea-4e03-a9d5-11c7818c26c0",
+          "score": 0.0,
+          "metrics": {
+            "cache_write_tokens": 0,
+            "cached_input_tokens": 11264,
+            "duration_seconds": 42.761,
+            "input_tokens": 12912,
+            "output_tokens": 1381,
+            "steps": 7,
+            "total_cost": 0.11162200000000001,
+            "total_tokens": 25557
+          },
+          "failure_class": "site-blocked",
+          "sha256": {
+            "manifest.json": "09d60226e175da326ceca2030373404407f49ba51cb3a8c68dfc6082a298e63f",
+            "events.jsonl": "2ee2b540deff06a713e2f2dc70600ed6fee92a7240579c6a6ed789e5535facb1",
+            "result.json": "b5be11e2c75d01a665863c209741fb39833bd5af2789e205abfa7de13576d317",
+            "judgment.json": "a16f5074c381582fe262c0a1067bd8bb59f3f8f82521956eb245fd150598d379"
+          }
+        }
+      },
+      "findings": [
+        "Candidate first unmodified homepage navigation and city page showed Access Denied.",
+        "Candidate later user-agent override did not precede the initial denial.",
+        "Reference initial browser opened the actual site and city listing page. It extracted43visible cards,retained37Burleson rows,and savedCSV/JSON.",
+        "Reference metadata recorded747rentals available and scoped the export to loaded cards;the relationship of rentals to cards was not independently established.",
+        "Reference detail fetches also included403responses. It was not uniformly unblocked."
+      ],
+      "interpretation": "Paired access outcomes diverged before extraction. This does not establish whether IP,reputation,timing,origin behavior or another browser setting caused the divergence. Not evidence of a CDP action regression;official scores unchanged."
+    },
+    "cfzw0l": {
+      "arms": {
+        "reference": {
+          "sdk_sha": "58ed778b575f8a1c13479a0552ddadc38eea03bc",
+          "github_run_id": "34197086884",
+          "evaluation_id": "ced16e6b-c7f5-46d7-b795-17553dcefa1c",
+          "score": 1.0,
+          "metrics": {
+            "cache_write_tokens": 0,
+            "cached_input_tokens": 514688,
+            "duration_seconds": 216.458,
+            "input_tokens": 99402,
+            "output_tokens": 4957,
+            "steps": 31,
+            "total_cost": 0.9030640000000001,
+            "total_tokens": 619047
+          },
+          "failure_class": "",
+          "compactions": null,
+          "source_sha256": {
+            "manifest.json": "47c8910dcba0115f4489027064d58b80b8adf11bdb4e4fceb007cf86800698ba",
+            "events.jsonl": "6598bda3e06a8f1d616755b9de8714b62595d4dfd30c6ef80fea63029a29f811",
+            "result.json": "6a6fc3287c35bf779b5451be2c52ef138a4b9bb5c3543c60446546bb82c0466a",
+            "judgment.json": "bed198ebec2b51040535dccb0d6a3fb30f8bc01a1b93dfc8c298647d3a48565f"
+          }
+        },
+        "candidate": {
+          "sdk_sha": "65a16cb6e43a31e67d59a7ed841858e70f05a5ba",
+          "github_run_id": "34197089074",
+          "evaluation_id": "410923a8-baea-4e03-a9d5-11c7818c26c0",
+          "score": 0.0,
+          "metrics": {
+            "cache_write_tokens": 0,
+            "cached_input_tokens": 3904768,
+            "duration_seconds": 530.772,
+            "input_tokens": 434161,
+            "output_tokens": 17026,
+            "steps": 67,
+            "total_cost": 4.6339690000000004,
+            "total_tokens": 4355955
+          },
+          "failure_class": "site-blocked",
+          "compactions": 0,
+          "source_sha256": {
+            "manifest.json": "4f09ff7eaf4037359a97f05846d77feae3e00c32e05bbf636a02b797e3df2dcd",
+            "events.jsonl": "31d101605740471356090d69d4266022dfaa9bb8131a65c3c5ad16d57c591afa",
+            "result.json": "798939b836101d5f3861ce4ab7cd3796aece44c2cb27abd01c803858d136b4c2",
+            "judgment.json": "cff99f56f3c5cd02ca3cfe7b435099de976cdce10984dcc38895d0ffa2b147e3"
+          }
+        }
+      },
+      "observed": [
+        "Both agents could reach AliExpress search;they selected different product pages.",
+        "Candidate encountered product-page CAPTCHA and mobile sign-in;then spent many cells probing review API variants and returned no review text.",
+        "Reference loaded a different selected product,opened the review UI,selected latest and extracted dated review text.",
+        "Candidate also obtained qualifying aggregate review counts;aggregate counts did not supply the requested review content."
+      ],
+      "interpretation": "Site-blocked is the official class, but this is not proof every qualifying product or UI path was inaccessible. Different product choices and access outcomes confound SDK attribution. No SDK protocol failure is established."
+    },
+    "bub2-005": {
+      "arms": {
+        "reference": {
+          "sdk_sha": "b430a91891e23f5ffb9ca816e5cbe63e73d2a248",
+          "github_run_id": "34197091644",
+          "evaluation_id": "d782ed1d-d0c3-45f6-9927-e3defa54183e",
+          "score": 1.0,
+          "metrics": {
+            "cache_write_tokens": 108368,
+            "cached_input_tokens": 4830083,
+            "duration_seconds": 527.67,
+            "input_tokens": 225,
+            "output_tokens": 32112,
+            "steps": 75,
+            "total_cost": 0.16227306,
+            "total_tokens": 4970788
+          },
+          "failure_class": "",
+          "compactions": 0,
+          "source_sha256": {
+            "manifest.json": "b1a96088edccfc99d09ca35fbcee1943e802b6c7c78e590f72c2639cd4fbfedd",
+            "events.jsonl": "86b263d432a5602450469b2a44fb67c1deea95839f4506b39066c2e025dd02f3",
+            "result.json": "bd97b13449a441a92c4084ad0bff5fd3f034fafbfc6e2a44097f2735e5041417",
+            "judgment.json": "d755fed5b13a2585047cb719654bcf8ccb5f901a1e64554543ff3fe62c9c799b"
+          }
+        },
+        "candidate": {
+          "sdk_sha": "65a16cb6e43a31e67d59a7ed841858e70f05a5ba",
+          "github_run_id": "34197094678",
+          "evaluation_id": "06ccffa3-4789-4bfd-bd78-8ca365772d91",
+          "score": 0.68,
+          "metrics": {
+            "cache_write_tokens": 116210,
+            "cached_input_tokens": 3264485,
+            "duration_seconds": 454.898,
+            "input_tokens": 201,
+            "output_tokens": 29502,
+            "steps": 67,
+            "total_cost": 0.1297848,
+            "total_tokens": 3410398
+          },
+          "failure_class": "",
+          "compactions": 0,
+          "source_sha256": {
+            "manifest.json": "55e4fddf3d60454d9d0f91bc010381fec55f8f6bcb2264e74925fdc34bf17263",
+            "events.jsonl": "16d5de9e63412b7f1fa2f37607732d0998fe319c1c529cf01c91e8b137167d18",
+            "result.json": "74089057287e62f851a874b9ee6ad4999097c39cab789bdf66d954ee38946ecb",
+            "judgment.json": "994a7fb2328e56b16b99b778081f63f8ecf7c70b4ef0b971a290b6654661986b"
+          }
+        }
+      },
+      "observed": {
+        "candidate_cards": 30,
+        "reference_cards": 29,
+        "context_difference": "Candidate Laurel/20707,reference Harker Heights/76522. Each preserved its initial logged-out context. Different cards/prices are not themselves errors.",
+        "candidate_sort_expression": "sort_display:clean(sortButtons.find(b=>b.dataset.test==='facet-button-New & Top Rated')?.innerText)",
+        "reference_sort_observation": {
+          "value": "Featured-Featured",
+          "checked": true
+        },
+        "candidate_actual_selected_sort": "Not independently observed. The candidate read a separate facet label rather than selected sort state.",
+        "rounding": {
+          "positions": [
+            11,
+            16,
+            23,
+            29
+          ],
+          "displayed_prices": [
+            "6.29",
+            "3.59",
+            "2.99",
+            "5.99"
+          ],
+          "exact_decimal_mean": "4.715",
+          "decimal_half_up_2dp": "4.72",
+          "reported_mean": "4.71",
+          "local_node_reproduction": "[6.29,3.59,2.99,5.99].reduce((a,b)=>a+b,0)/4 = 4.7149999999999999; toFixed(2) returns 4.71.",
+          "scope": "Agent-generated arithmetic/rounding behavior,not corruption introduced by the SDK serializer.",
+          "limitation": "The task did not specify a rounding convention; the judge expects decimal rounding. Official score unchanged."
+        }
+      },
+      "interpretation": "Browser execution and file delivery succeeded. Both arms had zero compactions. Candidate source-state verification and decimal rounding did not cover the reported claims;no single SDK change is causally isolated."
+    }
+  },
+  "next_action": "Retain complete frozen cohorts and inspect additional flips before selecting another runtime. Current candidate remains65a16cb.",
+  "limitations": [
+    "Known development tasks,not held-out examples.",
+    "Early negative-pair audit is selected for diagnosis,not a representative failure rate.",
+    "Judge explanations are kept separate from independently observed facts."
+  ]
+}
