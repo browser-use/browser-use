@@ -115,6 +115,8 @@ All four arms were dispatched once at 04:02 UTC on September 8, after the plan w
 
 Confirmation is ongoing. Partial scores do not establish parity, and the selected runtime remains unchanged during execution.
 
+An [interim trace audit](./confirmation-trace-audit.md) separates observed evidence-fidelity failures from delivery, compaction, and judge interpretation. It also records a subsequently fixed generic provider-error recovery gap. That later patch does not change the candidate or replace any outcomes in these four confirmation runs.
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.

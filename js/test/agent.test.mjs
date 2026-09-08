@@ -545,6 +545,8 @@ test('transient failed inference retries once without executing the failed respo
 });
 
 for (const errorMessage of [
+  'Sorry, something went wrong.',
+  'server_error: Sorry, something went wrong.',
   'Unable to verify model access right now. Please retry.',
   'An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists. Please include the request ID req_fixture in your message.',
 ]) {
@@ -581,11 +583,16 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
     'repeated',
     'temporary-repeated',
     'processing-repeated',
+    'generic-repeated',
     'access-denied',
+    'generic-with-denial',
   ]) {
-    const retryAllowed = ['repeated', 'temporary-repeated', 'processing-repeated'].includes(
-      scenario,
-    );
+    const retryAllowed = [
+      'repeated',
+      'temporary-repeated',
+      'processing-repeated',
+      'generic-repeated',
+    ].includes(scenario);
     const controller = new AbortController();
     const failure = () =>
       fauxAssistantMessage(
@@ -599,6 +606,9 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
               'processing-repeated':
                 'An error occurred while processing your request. You can retry your request, or contact support.',
               'access-denied': 'You do not have access to this model.',
+              'generic-repeated': 'Sorry, something went wrong.',
+              'generic-with-denial':
+                'Sorry, something went wrong. You do not have access to this model.',
             }[scenario] ?? 'socket hang up',
         },
       );
@@ -627,7 +637,9 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
           repeated: 'error',
           'temporary-repeated': 'error',
           'processing-repeated': 'error',
+          'generic-repeated': 'error',
           'access-denied': 'error',
+          'generic-with-denial': 'error',
         }[scenario],
         scenario,
       );

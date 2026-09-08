@@ -310,6 +310,9 @@ export async function runAgent(
         (/stream ended before a terminal|Model stream exceeded|terminated|ECONNRESET|socket hang up|Unable to verify model access right now\. Please retry\./i.test(
           failed.errorMessage ?? '',
         ) ||
+          /^(?:(?:server_error|unknown): )?Sorry, something went wrong\.$/.test(
+            failed.errorMessage ?? '',
+          ) ||
           failed.errorMessage?.startsWith(
             'An error occurred while processing your request. You can retry your request,',
           )) &&
