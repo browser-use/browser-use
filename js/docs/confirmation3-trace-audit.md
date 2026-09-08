@@ -339,6 +339,6 @@ The first script-writing cell (event 142) fails on a nested template syntax erro
 
 The final check inspects the workbook's sheet name, hyperlinks and row count. It never checks the scraper's syntax or ability to regenerate the workbook. No compaction occurs. This is another case where validation targets the wrong deliverable.
 
-The eval adapter enables native Pi file/shell tools only for `evidence_format: findings`; Hard has only JavaScript and finish tools. It therefore forces file operations through model-written JavaScript, while Luna already has native write/edit/read/bash. Decoupling coding-tool availability from judge evidence is a generalized experiment worth testing. It is not yet implemented or selected, and native file tools alone do not establish validation or source completeness.
+The eval adapter enables native Pi file/shell tools only for `evidence_format: findings`; Hard has only JavaScript and finish tools. It therefore forces file operations through model-written JavaScript, while Luna already has native write/edit/read/bash. Decoupling coding-tool availability from judge evidence is a generalized experiment worth testing. The explicit `research_tools` eval option is now implemented at `003a32d`; omission preserves historical behavior. Native file tools alone do not establish validation or source completeness.
 
 [Original code, manifest, judgment, hashes and non-executing reconstruction](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-script-delivery.json).

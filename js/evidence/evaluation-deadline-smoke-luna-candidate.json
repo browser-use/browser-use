@@ -1,0 +1,858 @@
+{
+  "checked_at": "2026-09-08T13:40:30.958458+00:00",
+  "scope": "Original page-evaluation deadline diagnostic; not a ranking or full-benchmark result.",
+  "manifest": {
+    "config_hash": "5a065ce9d5db35ddd9b34eaefff99c2c2524895236579727a5fcaab782e92aaf",
+    "datapoint_id": "56f5e3cb-172d-4e2c-8106-0618c6e9b62b",
+    "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+    "evaluation_id": "1037a431-3d9a-4979-930c-d9c258af7b10",
+    "github_run_attempt": "1",
+    "github_run_id": "34230012210",
+    "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34230012210",
+    "harness": "pi-browser-use-next",
+    "judge": "findings",
+    "judge_model": "gpt-5.6-luna",
+    "judge_options": {
+      "reasoning_effort": "xhigh"
+    },
+    "max_steps": 1000,
+    "model": "gpt-5.6-luna",
+    "options": {
+      "browser_timeout_minutes": 70,
+      "evidence_format": "findings",
+      "max_context_chars": 800000,
+      "proxy_country_code": "us",
+      "reasoning_effort": "xhigh",
+      "task_timeout_seconds": 3600
+    },
+    "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "schema_version": 1,
+    "target_repo": "browser-use/bu-pi",
+    "target_sha": "45cedf407debcc6615462a3ca9eecf8d3b4e98c0",
+    "task_id": "bub2-023",
+    "timeout_minutes": 62
+  },
+  "workflow": {
+    "conclusion": "success",
+    "status": "completed",
+    "url": "https://github.com/browser-use/new-eval-platform/actions/runs/34230012210"
+  },
+  "actual_judgment": {
+    "audit_coverage": null,
+    "duration_seconds": 176.166,
+    "evidence_checked": [
+      "result.json",
+      "rubrics/bub2-023.md",
+      "93 judge screenshots",
+      "3 deliverable files"
+    ],
+    "failure_class": "",
+    "model": "gpt-5.6-luna",
+    "reason": "82/100 rubric weight met",
+    "replicate_scores": [],
+    "rubric": {
+      "A10_boundaries": true,
+      "A1_ring5_gold_verified": true,
+      "A2_oura_inventory": true,
+      "A3_samsung_inventory": true,
+      "A4_ultrahuman_inventory": false,
+      "A5_ringconn_inventory": false,
+      "A6_zip10001_disclosure": true,
+      "A7_crosswalk_claims_separation": true,
+      "A8_cost_model": true,
+      "A9_comparison_recommendation": true
+    },
+    "score": 0.82,
+    "score_range": 0,
+    "score_stddev": 0,
+    "status": "scored"
+  },
+  "metrics": {
+    "cache_write_tokens": 276895,
+    "cached_input_tokens": 9917839,
+    "duration_seconds": 1573.229,
+    "input_tokens": 59706,
+    "output_tokens": 42499,
+    "steps": 158,
+    "total_cost": 0.3305205299999999,
+    "total_tokens": 10296939
+  },
+  "sdk_stop_reason": "completed",
+  "compactions": 1,
+  "provider_retries": 0,
+  "screenshot_count": 93,
+  "registered_images_retained": true,
+  "screenshot_errors": 67,
+  "screenshot_error_details_retained": [
+    {
+      "message": "Active page target unavailable after cell.",
+      "tool_call_id": "call_1N5OWdxvGKg9YO60qKLcp918|fc_0f961cc75612e79f016aa008c993ac87d0a447403a52dc4070"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_vR8eq8fhTCna7ja9LcTxL2H4|fc_0f961cc75612e79f016aa008d8593087d09c92d4decf510bd8"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_zmEEzmWUjHVsdRud5hnfr8CF|fc_0f961cc75612e79f016aa008e230a887d08bbee70496e228ed"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_dksmqg7afPM4bHoXsPQ5TXa4|fc_0f961cc75612e79f016aa008ea7ba887d09511edb4a6228507"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_u3OFe7flXnmD5LcA5PEYstrz|fc_0f961cc75612e79f016aa008eff8c487d0b69554a84308d7d3"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_nF3Nqh1PdkPdOZfD6ygYYde0|fc_0f961cc75612e79f016aa008fa5f1487d0a308ab72d0cde6f3"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_cUezA4Zrt7UBg6UGkyePSMws|fc_0f961cc75612e79f016aa008ff51bc87d08e6ae0bd9cc9a62e"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_2jmmBhSHHPQwXx8H8Ca8MfOV|fc_0f961cc75612e79f016aa009164ac887d08d1e7131dbb8e2b2"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_MEZ7piEHg61LQn3EGw6bL8Mi|fc_0f961cc75612e79f016aa0092e23f887d08296b7074e2b500a"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_p5heEAUifF9pAoYHK7bJ500b|fc_0f961cc75612e79f016aa009c2e5ec87d0aeacb06a81365d3f"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_ogPSIpIAMZA2GStlOQ5w9Es2|fc_0f961cc75612e79f016aa009d2f17487d0a326fbba68b16a79"
+    },
+    {
+      "message": "CDP Target.attachToTarget exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_QNsbFYVNFZegX2paOuuFtVtA|fc_0f961cc75612e79f016aa009d74fbc87d0a83721d90062ecf6"
+    },
+    {
+      "message": "CDP Target.attachToTarget exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_7A4zpkFLrQnzcAb7p2BoiLAL|fc_0f961cc75612e79f016aa009d74fd487d094a7437dff288ac5"
+    },
+    {
+      "message": "CDP Target.attachToTarget exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_SH6buPA910PU0gdT2hGEASZ0|fc_0f961cc75612e79f016aa00a38cd8487d083c048ba4879d566"
+    },
+    {
+      "message": "CDP Page.captureScreenshot exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_75wNpW2v9H2WlON9XppCZb0y|fc_0f961cc75612e79f016aa00a4a563087d0bc1cd08707700e3e"
+    },
+    {
+      "message": "CDP Target.attachToTarget exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_2a6feHU5qHFwY5J4kyX7WAWO|fc_0f961cc75612e79f016aa00a70ae8087d08c9ab48bcd4d3a54"
+    },
+    {
+      "message": "CDP Target.attachToTarget exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_weebWZP1F4Uer9rRwtEDNU6u|fc_0f961cc75612e79f016aa00a8d451087d09ccef0c3bda58551"
+    },
+    {
+      "message": "CDP Target.attachToTarget exceeded 1500 ms; the action may have happened.",
+      "tool_call_id": "call_EGW8KeTNs1B9ALIe2PXawXVv|fc_0f961cc75612e79f016aa00aa35bfc87d08f40db1ce1fd5afe"
+    },
+    {
+      "message": "Active page target unavailable after cell.",
+      "tool_call_id": "call_5kS3hHv5jONC1HU1n9DhNj81|fc_0f961cc75612e79f016aa00ab94f3087d085040c374733a58f"
+    },
+    {
+      "message": "Active page target unavailable after cell.",
+      "tool_call_id": "call_e2DD8RQv2hhcnBpg0IHJ033B|fc_0f961cc75612e79f016aa00abddddc87d09278e8b060ee9fe2"
+    }
+  ],
+  "javascript_tools": 160,
+  "failed_javascript_tools": 24,
+  "tool_errors": [
+    {
+      "event_index": 58,
+      "tool_call_id": "call_cUezA4Zrt7UBg6UGkyePSMws|fc_0f961cc75612e79f016aa008ff51bc87d08e6ae0bd9cc9a62e",
+      "text": "Error: Element is covered. Inspect the obstruction; do not force a click: {\"target\":\"<label aria-label=\\\"Select your size\\\" class=\\\"p-5 cursor-pointer overflow-hidden rounded-xl border border-gray-300 hover:border-gray-600/30\\\" data-cy=\\\"card-radio-selector-label\\\" data-value=\\\"choose-size\\\" for=\\\"_R_2t6hinpfj6iv5ubsnjaivb_\\\"><input id=\\\"_R_2t6hinpfj6iv5ubsnjaivb_\\\" data-react-aria-pressable=\\\"true\\\" tabindex=\\\"-1\\\" type=\\\"radio\\\" aria-describedby=\\\"react-aria-_R_16hinpfj6iv5ubsnjaivbH3_\\\" class=\\\"pee\",\"hit\":\"<button id=\\\"onetrust-reject-all-handler\\\" class=\\\"ot-button-order-1\\\">Accept Necessary </button>\",\"url\":\"https://ouraring.com/store/rings/oura-ring-5/gold\"}\n    at Page.clickNode (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/page.js:308:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async Page.clickNode (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/page.js:295:21)\n    at async Page.click (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/page.js:260:9)\n    at async <anonymous>:1:1\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/bff2cb5f-cf8f-4b54-8bf8-8ec567ca460d.txt"
+    },
+    {
+      "event_index": 154,
+      "tool_call_id": "call_fKPH3CQ6tSRZHaByuJZ8hznG|fc_0f961cc75612e79f016aa0097c043887d0bd40c35a102e53ee",
+      "text": "Error: Element is covered. Inspect the obstruction; do not force a click: {\"target\":\"<div tabindex=\\\"0\\\" role=\\\"button\\\" aria-label=\\\"Color Variant: Titanium Gold\\\" an-tr=\\\"option selector-product detail-option service selector-option_click3\\\" an-ca=\\\"option click\\\" an-ac=\\\"pd buying tool\\\" an-la=\\\"ring-finish:titanium gold\\\" data-product-state=\\\"Physical\\\" data-modelcode=\\\"sm-q507nzdaxar\\\" data-modelname=\\\"sm-q506\\\" data-modeldisplay=\\\"titanium gold\\\" data-modelprice=\\\"399.99\\\" data-modelunit=\\\"1\\\" data-p\",\"hit\":\"<div id=\\\"truste-consent-track\\\" class=\\\"trustarc-banner truste-responsive ta-show ta-display-block\\\" style=\\\"display:block;\\\">    <div class=\\\"truste-consent-content\\\">        <div class=\\\"truste-custom-samsung-wrap\\\">            <div class=\\\"truste-custom-wrapper\\\">                <div class=\\\"truste-custom-img\\\">                    <img src=\\\"https://consent.trustarc.com/get?name=samsungblack_logo.png\\\">                </div>            </div>            <p class=\\\"truste-custom-text-wrapper\\\">Samsung Electron\",\"url\":\"https://www.samsung.com/us/rings/galaxy-ring/buy/galaxy-ring-titanium-black-size-6-sku-sm-q506nzkaxar/\"}\n    at Page.clickNode (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/page.js:308:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async Page.click (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/page.js:260:9)\n    at async <anonymous>:1:1\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/103ed65d-7f65-4b95-ba4d-1403a16e8cde.txt"
+    },
+    {
+      "event_index": 170,
+      "tool_call_id": "call_bVD6ohJovoK0xcp4VA6bZtxp|fc_0f961cc75612e79f016aa00986ae9c87d0bbb11aa1c21d2695",
+      "text": "Error: CDP -32000: Node does not have a layout object\n    at WebSocket.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:42:41)\n    at [nodejs.internal.kHybridDispatch] (node:internal/event_target:843:20)\n    at WebSocket.dispatchEvent (node:internal/event_target:776:26)\n    at fireEvent (node:internal/deps/undici/undici:12006:14)\n    at websocketMessageReceived (node:internal/deps/undici/undici:12028:7)\n    at ByteParser.run (node:internal/deps/undici/undici:12719:19)\n    at ByteParser._write (node:internal/deps/undici/undici:12591:14)\n    at writeOrBuffer (node:internal/streams/writable:572:12)\n    at _write (node:internal/streams/writable:501:10)\n    at Writable.write (node:internal/streams/writable:510:10)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/b6c043e7-0264-48b5-9f49-5a2a9c36492d.txt"
+    },
+    {
+      "event_index": 228,
+      "tool_call_id": "call_QNsbFYVNFZegX2paOuuFtVtA|fc_0f961cc75612e79f016aa009d74fbc87d0a83721d90062ecf6",
+      "text": "Error: CDP Page.enable exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/1489e595-a97c-4052-8e3f-f51bf923c63f.txt"
+    },
+    {
+      "event_index": 231,
+      "tool_call_id": "call_7A4zpkFLrQnzcAb7p2BoiLAL|fc_0f961cc75612e79f016aa009d74fd487d094a7437dff288ac5",
+      "text": "Error: CDP Target.createTarget exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/d85a2172-292c-49e6-a46d-8a4487996321.txt"
+    },
+    {
+      "event_index": 247,
+      "tool_call_id": "call_2a6feHU5qHFwY5J4kyX7WAWO|fc_0f961cc75612e79f016aa00a70ae8087d08c9ab48bcd4d3a54",
+      "text": "Error: CDP Runtime.evaluate exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/707df803-b1eb-48a5-a803-648c84cb872f.txt"
+    },
+    {
+      "event_index": 251,
+      "tool_call_id": "call_weebWZP1F4Uer9rRwtEDNU6u|fc_0f961cc75612e79f016aa00a8d451087d09ccef0c3bda58551",
+      "text": "Error: CDP Runtime.evaluate exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/81980628-4e57-44ad-a9f1-660e5c9d873f.txt"
+    },
+    {
+      "event_index": 255,
+      "tool_call_id": "call_EGW8KeTNs1B9ALIe2PXawXVv|fc_0f961cc75612e79f016aa00aa35bfc87d08f40db1ce1fd5afe",
+      "text": "Error: CDP Target.getTargets exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/75b25e39-eec6-4ec4-9e32-ceccf03c5cb8.txt"
+    },
+    {
+      "event_index": 263,
+      "tool_call_id": "call_e2DD8RQv2hhcnBpg0IHJ033B|fc_0f961cc75612e79f016aa00abddddc87d09278e8b060ee9fe2",
+      "text": "Error: CDP -32602: No target with given id found\n    at WebSocket.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:42:41)\n    at [nodejs.internal.kHybridDispatch] (node:internal/event_target:843:20)\n    at WebSocket.dispatchEvent (node:internal/event_target:776:26)\n    at fireEvent (node:internal/deps/undici/undici:12006:14)\n    at websocketMessageReceived (node:internal/deps/undici/undici:12028:7)\n    at ByteParser.run (node:internal/deps/undici/undici:12719:19)\n    at ByteParser._write (node:internal/deps/undici/undici:12591:14)\n    at writeOrBuffer (node:internal/streams/writable:572:12)\n    at _write (node:internal/streams/writable:501:10)\n    at Writable.write (node:internal/streams/writable:510:10)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/86de160c-7445-45cd-9981-af32971fdb4e.txt"
+    },
+    {
+      "event_index": 298,
+      "tool_call_id": "call_HrdZ0nU2E7H7WKWyUT77RkSc|fc_0f961cc75612e79f016aa00af64e5c87d0aa6fa1b90efa251f",
+      "text": "Error: CDP Runtime.evaluate exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/2665d32c-05e7-4862-8af3-6fa052444048.txt"
+    },
+    {
+      "event_index": 310,
+      "tool_call_id": "call_wJ6tcbQmeUrARmoJ2vXOo6Gx|fc_0f961cc75612e79f016aa00b22ef5487d0856be2a299816c02",
+      "text": "Error: CDP Runtime.evaluate exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/148330be-6426-4815-97a8-7218d55f78c9.txt"
+    },
+    {
+      "event_index": 318,
+      "tool_call_id": "call_eLi1bDFidGcy9Bgooa4zesqo|fc_0f961cc75612e79f016aa00b430e0487d0af79fa42b61611a9",
+      "text": "Error: CDP connection is closed.\n    at CDP.connected (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:74:35)\n    at CDP.send (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:131:33)\n    at Page.cdp (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/page.js:77:32)\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async Page.goto (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/page.js:80:24)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/79f584db-1d68-43da-b57d-d71418d06bc0.txt"
+    },
+    {
+      "event_index": 334,
+      "tool_call_id": "call_DuO9cgRpplJkqXMrmjBmuwHz|fc_0f961cc75612e79f016aa00b7017f487d0a667a68d53b0912d",
+      "text": "Error: TypeError: Cannot read properties of undefined (reading 'trim')\n    at <anonymous>:1:426\n    at Array.map (<anonymous>)\n    at <anonymous>:1:403\n    at <anonymous>:1:528\n    at Page.evaluate (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/page.js:111:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async <anonymous>:1:11\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/9f132c34-494a-44f2-823f-c176777644e1.txt"
+    },
+    {
+      "event_index": 342,
+      "tool_call_id": "call_IDj9Wrrbd3p6Y96gos6rfW89|fc_0f961cc75612e79f016aa00b7bc65487d0b86fde2d60d01555",
+      "text": "Error: Page condition exceeded 20000 ms.\n    at Page.waitFor (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/page.js:130:15)\n    at async Page.goto (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/page.js:91:9)\n    at async Tabs.open (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/tabs.js:19:13)\n    at async <anonymous>:1:10\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/735ee279-e7b9-4ec8-8162-50db65b8ef10.txt"
+    },
+    {
+      "event_index": 350,
+      "tool_call_id": "call_ZRg1FSwvoG2wdOd1FsX4XTHt|fc_0f961cc75612e79f016aa00b987d8487d088eb7d90014c7bdb",
+      "text": "Error: CDP Page.enable exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/5d22d926-71ad-46c0-a271-4cdcd711580a.txt"
+    },
+    {
+      "event_index": 354,
+      "tool_call_id": "call_rpyPA3mmq3pEbwCUnSxITzsn|fc_0f961cc75612e79f016aa00bb1fb8887d0886c79c78258dba6",
+      "text": "Error: CDP Page.enable exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/4a09dac6-7377-4171-b8d3-55c1a61164b3.txt"
+    },
+    {
+      "event_index": 366,
+      "tool_call_id": "call_Qm36KM4dNPEc7Y5RogHwZws7|fc_0f961cc75612e79f016aa00bdde8d487d0a817c9c6331752b3",
+      "text": "Error: CDP Runtime.evaluate exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/7c548efa-f127-4f8a-a250-b4022b1fddbd.txt"
+    },
+    {
+      "event_index": 378,
+      "tool_call_id": "call_6o2Ed0hT3gsiZSkmOwSkUYiN|fc_0f961cc75612e79f016aa00c08e4b487d0b6555e33148df9ae",
+      "text": "Error: CDP Page.enable exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/4c7bf747-57d3-4ea1-a3e0-c8b361d95250.txt"
+    },
+    {
+      "event_index": 386,
+      "tool_call_id": "call_vJWJix1k2vpPryPn54yndxUZ|fc_0f961cc75612e79f016aa00c237d0487d08ad586ea354e401f",
+      "text": "Error: CDP Page.enable exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/2d103a5f-0c34-4da4-b23f-62774a70c8ce.txt"
+    },
+    {
+      "event_index": 586,
+      "tool_call_id": "call_LAN7kLGzOr8rFbuStyfLNQGi|fc_0f961cc75612e79f016aa00da0a28887d0b92ca256698f30b8",
+      "text": "Error: CDP Runtime.evaluate exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/2edb497e-c546-405b-a030-2a0da23caa01.txt"
+    },
+    {
+      "event_index": 590,
+      "tool_call_id": "call_lOHuAyXsTpDUEIFGlRlpTREd|fc_0f961cc75612e79f016aa00db6b55c87d090181dfc3c0d10ca",
+      "text": "Error: CDP Page.navigate exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/3faa39eb-3324-470b-8f4c-76ce07774aca.txt"
+    },
+    {
+      "event_index": 594,
+      "tool_call_id": "call_0pLDulFE4CsVhu0B2OMOfZ9z|fc_0f961cc75612e79f016aa00dd11da087d0b10240a6c0db8b6b",
+      "text": "Error: CDP -32000: Inspected target navigated or closed\n    at WebSocket.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:42:41)\n    at [nodejs.internal.kHybridDispatch] (node:internal/event_target:843:20)\n    at WebSocket.dispatchEvent (node:internal/event_target:776:26)\n    at fireEvent (node:internal/deps/undici/undici:12006:14)\n    at websocketMessageReceived (node:internal/deps/undici/undici:12028:7)\n    at ByteParser.run (node:internal/deps/undici/undici:12719:19)\n    at ByteParser._write (node:internal/deps/undici/undici:12591:14)\n    at writeOrBuffer (node:internal/streams/writable:572:12)\n    at _write (node:internal/streams/writable:501:10)\n    at Writable.write (node:internal/streams/writable:510:10)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/0f34d982-703c-451c-9724-249e015e0262.txt"
+    },
+    {
+      "event_index": 602,
+      "tool_call_id": "call_4XbAMpOlPBcnKlxm7qp1llRu|fc_0f961cc75612e79f016aa00de11adc87d0ac07b2131b18410f",
+      "text": "Error: CDP Runtime.evaluate exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/2f93f90a-88c9-487e-8205-354538a06273.txt"
+    },
+    {
+      "event_index": 606,
+      "tool_call_id": "call_h8MoFvaYZyvqaBK4dtADtURG|fc_0f961cc75612e79f016aa00dfccd1c87d0ab27f71b5f47752a",
+      "text": "Error: CDP Page.enable exceeded 20000 ms; the action may have happened.\n    at Timeout.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/cdp.js:197:51)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/bub2-023/agent_outputs/.browser-use/cells/2544576d-9340-43a2-b669-f4c5b508cf23.txt"
+    }
+  ],
+  "failed_tools_with_observation_target": 22,
+  "failed_tools_with_native_images": [],
+  "primary_targets": [
+    "688D3F41F31A515F0C1D32D804EF107D"
+  ],
+  "observation_targets": [
+    "111ADFC8CFCF9A5B8CBD3E73782A769B",
+    "1512AC1C27EF4BB0199E11BC0D2D1BE7",
+    "249389C00D602B1312CB43DFCBFB32AB",
+    "253A8986A83704C8240E316CA8A8C760",
+    "26DBCEC14D0CF6BF9C803B58CC818EEA",
+    "2756AB73E0675E87B79F2253204EB806",
+    "3805FB8BBC59B5A432FEBBD6EE97CC09",
+    "557DB0ECDBCB57E50B5D496D6E80BDCB",
+    "5655FD7637E81A6D8942508BA54F01A0",
+    "688D3F41F31A515F0C1D32D804EF107D",
+    "71ACBB5D0CDA1C6287F8CA1CC22578A4",
+    "76B2874CF11F709F39FCA0C234288BCF",
+    "87157EC74B06AEF8ABEE8B8CB43FC1F2",
+    "90A1B9F754E45D0EC526A88857D973CB",
+    "95D72C21824496C6DFC0D379EE1061C8",
+    "9CB7B4933871E10E25CA6B1ABA7AFEF7",
+    "C0ECF6EDE6EBC4175EAEBA35DCBF783E",
+    "C43EF5F7E39CA2474E60F279EF4995C8",
+    "C4A3340D89E6BD43C1832E8C04F8BB33",
+    "D80F8931BD46FF618E7F33EF38AB5E40",
+    "DB71CFB77BB8575ACCA46FC21419EDAB",
+    "F167D033A494D79AA5BE76A7D7A007F8"
+  ],
+  "cells_observing_a_nonprimary_target": [
+    {
+      "event_index": 14,
+      "tool_call_id": "call_nefAeWZiOC6nqVrRCYhjSYrv|fc_0f961cc75612e79f016aa008d1ee9887d09ff0ea613c56a4f8"
+    },
+    {
+      "event_index": 70,
+      "tool_call_id": "call_1XKrpLBt7mx97rdGq7LYefZV|fc_0f961cc75612e79f016aa0091d7c0887d0ad1e1ed3620ba8f2"
+    },
+    {
+      "event_index": 73,
+      "tool_call_id": "call_apS6pgUggHHzC1PmOnIbqDcL|fc_0f961cc75612e79f016aa0091d7c1c87d0ad725b5da4814d9e"
+    },
+    {
+      "event_index": 76,
+      "tool_call_id": "call_jIjthTXLrRb8dNl4sBw6df2D|fc_0f961cc75612e79f016aa0091d7c2887d0add0ed77c737d2d1"
+    },
+    {
+      "event_index": 80,
+      "tool_call_id": "call_9GLcyenb4FN6QVeFNJhdfYwu|fc_0f961cc75612e79f016aa00923d8f487d0ab6c1bbe80bc7317"
+    },
+    {
+      "event_index": 96,
+      "tool_call_id": "call_577uB8WXj7kBMgG5B1QUVMMK|fc_0f961cc75612e79f016aa0093039b087d0b14b2c552633e0d4"
+    },
+    {
+      "event_index": 100,
+      "tool_call_id": "call_tohZil2Wl4FBQ2vKGFJbkUQy|fc_0f961cc75612e79f016aa00934b7b087d0b3a6c61af4d6ff4c"
+    },
+    {
+      "event_index": 104,
+      "tool_call_id": "call_e6NN5aOHOOs2ce0ueiARKe9q|fc_0f961cc75612e79f016aa00939c9e887d0a417b1e829850751"
+    },
+    {
+      "event_index": 107,
+      "tool_call_id": "call_Te7B8fvVS0F4G5OHFJDEABO5|fc_0f961cc75612e79f016aa00939c9f887d08b78d6732ac2d27f"
+    },
+    {
+      "event_index": 110,
+      "tool_call_id": "call_agJJ3z5DYPjdQ191Uez8E8Ro|fc_0f961cc75612e79f016aa00939ca0487d09d2ae199617c4bfb"
+    },
+    {
+      "event_index": 122,
+      "tool_call_id": "call_41ilDqag58GxrbsXkiQBWlB6|fc_0f961cc75612e79f016aa00946590487d0963191044137f140"
+    },
+    {
+      "event_index": 126,
+      "tool_call_id": "call_0H4KI5zranFW6zJu2GuJvLJe|fc_0f961cc75612e79f016aa0094e7a5087d097dd8cf0e7e9846e"
+    },
+    {
+      "event_index": 130,
+      "tool_call_id": "call_uRcvcUR0MMdaonRwJLQ5KtYF|fc_0f961cc75612e79f016aa00958e7b087d0afa3b6b25326f8f5"
+    },
+    {
+      "event_index": 134,
+      "tool_call_id": "call_7kjQRfPuxUIcQtpux0ZsUoDw|fc_0f961cc75612e79f016aa0095d45e887d09c92f6fa8ef2abda"
+    },
+    {
+      "event_index": 138,
+      "tool_call_id": "call_6f0wHJvrPshPlEjWhg1Xc2fA|fc_0f961cc75612e79f016aa00968093087d0a22aab6e02970198"
+    },
+    {
+      "event_index": 142,
+      "tool_call_id": "call_3l1HsGQW8gWmG1fUARZCp9H7|fc_0f961cc75612e79f016aa009700e4c87d089f477016f4e716a"
+    },
+    {
+      "event_index": 146,
+      "tool_call_id": "call_l3AEUyYctSFrkXgYnoLNQDjo|fc_0f961cc75612e79f016aa00974df7087d0984ed60fff4eb63e"
+    },
+    {
+      "event_index": 150,
+      "tool_call_id": "call_TldQwHEewKGwyixGnKtlPpS1|fc_0f961cc75612e79f016aa0097931e487d0a93e6e61f9d7a9a2"
+    },
+    {
+      "event_index": 154,
+      "tool_call_id": "call_fKPH3CQ6tSRZHaByuJZ8hznG|fc_0f961cc75612e79f016aa0097c043887d0bd40c35a102e53ee"
+    },
+    {
+      "event_index": 158,
+      "tool_call_id": "call_4WqnSi4Fco83V94RcUQCeb7h|fc_0f961cc75612e79f016aa00980362c87d0b8bd834346dba418"
+    },
+    {
+      "event_index": 162,
+      "tool_call_id": "call_ThVyeQRhwYYnKhHQq9Hfb7hK|fc_0f961cc75612e79f016aa00982d27c87d088218ff5a627cacf"
+    },
+    {
+      "event_index": 166,
+      "tool_call_id": "call_TIQvDUpJ0FrYx3utKV0mvPFY|fc_0f961cc75612e79f016aa00984747487d0bd77a1d872b5da9e"
+    },
+    {
+      "event_index": 170,
+      "tool_call_id": "call_bVD6ohJovoK0xcp4VA6bZtxp|fc_0f961cc75612e79f016aa00986ae9c87d0bbb11aa1c21d2695"
+    },
+    {
+      "event_index": 174,
+      "tool_call_id": "call_vqIY3ZX4cQdsDTTQzvDcXnXI|fc_0f961cc75612e79f016aa00989037c87d0806664a635a43d80"
+    },
+    {
+      "event_index": 178,
+      "tool_call_id": "call_Uye0fERD6OdN5SxG4VywepXq|fc_0f961cc75612e79f016aa0098cce3c87d0b962260096b25614"
+    },
+    {
+      "event_index": 182,
+      "tool_call_id": "call_iAPM612RhgrBwWbV69tTnSxG|fc_0f961cc75612e79f016aa0098fd5b087d0b878006006dcd24f"
+    },
+    {
+      "event_index": 186,
+      "tool_call_id": "call_3dPM9Epma8IzbCEkeOwfIiVJ|fc_0f961cc75612e79f016aa00991fee087d084b48a393915fd8f"
+    },
+    {
+      "event_index": 190,
+      "tool_call_id": "call_0QvivTq73V159uLYY3iF67Th|fc_0f961cc75612e79f016aa00996377087d0a1654084f752598c"
+    },
+    {
+      "event_index": 194,
+      "tool_call_id": "call_eK5PocbaBzQIlra3m2ol12Gx|fc_0f961cc75612e79f016aa00998718487d0951d7ac32ed179ee"
+    },
+    {
+      "event_index": 198,
+      "tool_call_id": "call_izMJgYaf9WVeCL85lD87oZl9|fc_0f961cc75612e79f016aa0099ccddc87d0b140891f61d104eb"
+    },
+    {
+      "event_index": 202,
+      "tool_call_id": "call_iFVgkg4jUEZNP1rwrNcBrtKe|fc_0f961cc75612e79f016aa0099f3d8887d093996317a57a7aa9"
+    },
+    {
+      "event_index": 206,
+      "tool_call_id": "call_vcUrXzgB6FE29Gt20rzlX86n|fc_0f961cc75612e79f016aa009a68bf087d09a8df20785bc65cd"
+    },
+    {
+      "event_index": 210,
+      "tool_call_id": "call_qzT7KIR4Vfud8jKJrg6Zn2i8|fc_0f961cc75612e79f016aa009af174087d0bf10ac4ad3662d80"
+    },
+    {
+      "event_index": 213,
+      "tool_call_id": "call_Gu5iTIEzOfpJTc20odOPMXBc|fc_0f961cc75612e79f016aa009af175887d08eb9816977760db0"
+    },
+    {
+      "event_index": 216,
+      "tool_call_id": "call_lrD0SfhSG2aTU0NPjjGy1QiU|fc_0f961cc75612e79f016aa009af176487d0b140f97578919ab8"
+    },
+    {
+      "event_index": 220,
+      "tool_call_id": "call_p5heEAUifF9pAoYHK7bJ500b|fc_0f961cc75612e79f016aa009c2e5ec87d0aeacb06a81365d3f"
+    },
+    {
+      "event_index": 228,
+      "tool_call_id": "call_QNsbFYVNFZegX2paOuuFtVtA|fc_0f961cc75612e79f016aa009d74fbc87d0a83721d90062ecf6"
+    },
+    {
+      "event_index": 231,
+      "tool_call_id": "call_7A4zpkFLrQnzcAb7p2BoiLAL|fc_0f961cc75612e79f016aa009d74fd487d094a7437dff288ac5"
+    },
+    {
+      "event_index": 235,
+      "tool_call_id": "call_SH6buPA910PU0gdT2hGEASZ0|fc_0f961cc75612e79f016aa00a38cd8487d083c048ba4879d566"
+    },
+    {
+      "event_index": 239,
+      "tool_call_id": "call_75wNpW2v9H2WlON9XppCZb0y|fc_0f961cc75612e79f016aa00a4a563087d0bc1cd08707700e3e"
+    },
+    {
+      "event_index": 243,
+      "tool_call_id": "call_18hcmQVqGvruLFHeGWssNFWp|fc_0f961cc75612e79f016aa00a6d5ff887d0abc127c1c28fdcb1"
+    },
+    {
+      "event_index": 247,
+      "tool_call_id": "call_2a6feHU5qHFwY5J4kyX7WAWO|fc_0f961cc75612e79f016aa00a70ae8087d08c9ab48bcd4d3a54"
+    },
+    {
+      "event_index": 251,
+      "tool_call_id": "call_weebWZP1F4Uer9rRwtEDNU6u|fc_0f961cc75612e79f016aa00a8d451087d09ccef0c3bda58551"
+    },
+    {
+      "event_index": 255,
+      "tool_call_id": "call_EGW8KeTNs1B9ALIe2PXawXVv|fc_0f961cc75612e79f016aa00aa35bfc87d08f40db1ce1fd5afe"
+    },
+    {
+      "event_index": 275,
+      "tool_call_id": "call_anFescueP0nS6xnnWI79M1BA|fc_0f961cc75612e79f016aa00acb751887d0ad7bca9f95f55320"
+    },
+    {
+      "event_index": 287,
+      "tool_call_id": "call_ASMs2oRgvT3O89X6eZMZ3Q6P|fc_0f961cc75612e79f016aa00adce13887d0ac249b5be082bf83"
+    },
+    {
+      "event_index": 290,
+      "tool_call_id": "call_OXdl9KG2SXdqVfWVfg1qUrXO|fc_0f961cc75612e79f016aa00adce14c87d09b8d356952ecd145"
+    },
+    {
+      "event_index": 294,
+      "tool_call_id": "call_xTNAW2V9V7POtf1Y3c7xetgv|fc_0f961cc75612e79f016aa00ae8316487d0a52e489c938c2b4f"
+    },
+    {
+      "event_index": 298,
+      "tool_call_id": "call_HrdZ0nU2E7H7WKWyUT77RkSc|fc_0f961cc75612e79f016aa00af64e5c87d0aa6fa1b90efa251f"
+    },
+    {
+      "event_index": 306,
+      "tool_call_id": "call_CxDLqTcIIs8aKJSDqGK4xPJv|fc_0f961cc75612e79f016aa00b102e4c87d0aa99e3dc26bea212"
+    },
+    {
+      "event_index": 310,
+      "tool_call_id": "call_wJ6tcbQmeUrARmoJ2vXOo6Gx|fc_0f961cc75612e79f016aa00b22ef5487d0856be2a299816c02"
+    },
+    {
+      "event_index": 326,
+      "tool_call_id": "call_vL9WQunupLxHrSc60SqQmn04|fc_0f961cc75612e79f016aa00b5faaf487d0b7e541b0e25bdd9f"
+    },
+    {
+      "event_index": 330,
+      "tool_call_id": "call_YcTK3adxqyAV7rkflBoWGECw|fc_0f961cc75612e79f016aa00b682b8487d093696386bf07fce0"
+    },
+    {
+      "event_index": 334,
+      "tool_call_id": "call_DuO9cgRpplJkqXMrmjBmuwHz|fc_0f961cc75612e79f016aa00b7017f487d0a667a68d53b0912d"
+    },
+    {
+      "event_index": 338,
+      "tool_call_id": "call_qi7riLP4F32DLaUpD4S6Ngb9|fc_0f961cc75612e79f016aa00b770b1c87d0a916c0a6a4ee017b"
+    },
+    {
+      "event_index": 342,
+      "tool_call_id": "call_IDj9Wrrbd3p6Y96gos6rfW89|fc_0f961cc75612e79f016aa00b7bc65487d0b86fde2d60d01555"
+    },
+    {
+      "event_index": 346,
+      "tool_call_id": "call_f3GiRJnbvjhRVudbM7klCzCh|fc_0f961cc75612e79f016aa00b955ba087d092103c30e84519ec"
+    },
+    {
+      "event_index": 350,
+      "tool_call_id": "call_ZRg1FSwvoG2wdOd1FsX4XTHt|fc_0f961cc75612e79f016aa00b987d8487d088eb7d90014c7bdb"
+    },
+    {
+      "event_index": 354,
+      "tool_call_id": "call_rpyPA3mmq3pEbwCUnSxITzsn|fc_0f961cc75612e79f016aa00bb1fb8887d0886c79c78258dba6"
+    },
+    {
+      "event_index": 366,
+      "tool_call_id": "call_Qm36KM4dNPEc7Y5RogHwZws7|fc_0f961cc75612e79f016aa00bdde8d487d0a817c9c6331752b3"
+    },
+    {
+      "event_index": 370,
+      "tool_call_id": "call_oRqvtEZzKo5qRfuhvqq6Pq7G|fc_0f961cc75612e79f016aa00bfbe4e487d0beb180ab2091de5a"
+    },
+    {
+      "event_index": 374,
+      "tool_call_id": "call_7XfFEGyRxt5Pb3mCShPwW5Yo|fc_0f961cc75612e79f016aa00c00a1b087d0966b80fbdfe2da8a"
+    },
+    {
+      "event_index": 378,
+      "tool_call_id": "call_6o2Ed0hT3gsiZSkmOwSkUYiN|fc_0f961cc75612e79f016aa00c08e4b487d0b6555e33148df9ae"
+    },
+    {
+      "event_index": 394,
+      "tool_call_id": "call_VgrQqPGNJKfnlAM2j3KFFjeU|fc_0f961cc75612e79f016aa00c46360087d0a45038aca341f83f"
+    },
+    {
+      "event_index": 398,
+      "tool_call_id": "call_EoIKE5hwrHEsE40nvISkK1Wo|fc_0f961cc75612e79f016aa00c48e5e087d0b4e48b737403fe57"
+    },
+    {
+      "event_index": 402,
+      "tool_call_id": "call_jwFbF3tLbHmLlvnsLN7l1Tca|fc_0f961cc75612e79f016aa00c4ebefc87d0bc08b1285f7cb346"
+    },
+    {
+      "event_index": 406,
+      "tool_call_id": "call_ySWfeVQby3tpeFsuLUK42hbS|fc_0f961cc75612e79f016aa00c52ecc087d09a10e2ed1beebf25"
+    },
+    {
+      "event_index": 410,
+      "tool_call_id": "call_NjUyTiguhJOOTnWOoKLCj1LK|fc_0f961cc75612e79f016aa00c586d7487d08f1f46180686cf35"
+    },
+    {
+      "event_index": 414,
+      "tool_call_id": "call_si3Vwb9XOAPu85nnci6UuER2|fc_0f961cc75612e79f016aa00c5e5b4487d0a0c9cb5fcd72e1a1"
+    },
+    {
+      "event_index": 418,
+      "tool_call_id": "call_yUoTvSnku5cY12LLNIc8RfBE|fc_0f961cc75612e79f016aa00c67898087d0846d2b57cf0144a8"
+    },
+    {
+      "event_index": 422,
+      "tool_call_id": "call_OueIVoO8ca2CKLxxNMtWZAW0|fc_0f961cc75612e79f016aa00c6ddc6c87d0b3fb72c43602971a"
+    },
+    {
+      "event_index": 426,
+      "tool_call_id": "call_yr4ghiMdrXoRPBSckoS0bA0A|fc_0f961cc75612e79f016aa00c72cabc87d0bf7ac46efe757dc1"
+    },
+    {
+      "event_index": 430,
+      "tool_call_id": "call_IWQHIojfmllJWRLwE3zA31b8|fc_0f961cc75612e79f016aa00c75b96087d09346a876670e1958"
+    },
+    {
+      "event_index": 434,
+      "tool_call_id": "call_taCrj5MlWwxR3aONWEro9eTS|fc_0f961cc75612e79f016aa00c80ac4487d0826cbbdbb48aee70"
+    },
+    {
+      "event_index": 438,
+      "tool_call_id": "call_iq5VvDXtBeNY1abr0vTHwopG|fc_0f961cc75612e79f016aa00c8dae8487d08180b8941cf3d90c"
+    },
+    {
+      "event_index": 442,
+      "tool_call_id": "call_jZzIEvKBU9d527R2VieMWJLa|fc_0f961cc75612e79f016aa00c9bbc3487d0b56990d8c6c98b1b"
+    },
+    {
+      "event_index": 446,
+      "tool_call_id": "call_WMa4pbOK7IZvqIKFzCgEKP0A|fc_0f961cc75612e79f016aa00ca0d3bc87d0b5762948e9380b5f"
+    },
+    {
+      "event_index": 450,
+      "tool_call_id": "call_zHQJIBauancYYezKNYCg3ZR6|fc_0f961cc75612e79f016aa00cb589a487d098ef84f3af34fe5e"
+    },
+    {
+      "event_index": 454,
+      "tool_call_id": "call_ond7bCqABdEiRrcHz1tsX1JU|fc_0f961cc75612e79f016aa00cbe8c6487d0ad2c989171ab64cb"
+    },
+    {
+      "event_index": 458,
+      "tool_call_id": "call_SfMBOC8FRWm0or2AMStO8ken|fc_0f961cc75612e79f016aa00cc6eb3487d0b476a8fc1df0cd10"
+    },
+    {
+      "event_index": 462,
+      "tool_call_id": "call_YHQLhWuyyzhY7Ip6zvIDpsEv|fc_0f961cc75612e79f016aa00ccd8be887d08ea9d85fec79f84c"
+    },
+    {
+      "event_index": 466,
+      "tool_call_id": "call_dRgfXtTOfh6efhvQOZbvMI89|fc_0f961cc75612e79f016aa00cd9757487d0ba81030ab0c255a7"
+    },
+    {
+      "event_index": 470,
+      "tool_call_id": "call_d9ycMgQA25GAx0y9Fsqqzlmd|fc_0f961cc75612e79f016aa00ce01d2887d081c90b9e98feb174"
+    },
+    {
+      "event_index": 474,
+      "tool_call_id": "call_ar0kyht3aDjOWMlpSgEssAtO|fc_0f961cc75612e79f016aa00ce91a1087d090137d6d23f57a01"
+    },
+    {
+      "event_index": 478,
+      "tool_call_id": "call_s4KXhinU9wM3Z4lDWMg37cAO|fc_0f961cc75612e79f016aa00cee91f487d0a93f7a5765b9399d"
+    },
+    {
+      "event_index": 482,
+      "tool_call_id": "call_zMrxE8wKDLLrDmy0L66WovdC|fc_0f961cc75612e79f016aa00cf49e3087d09701d9bb1eb7358c"
+    },
+    {
+      "event_index": 486,
+      "tool_call_id": "call_uxwefgPSXZFxldR5IHjOKyD2|fc_0f961cc75612e79f016aa00d247b3087d0999f6ae7656b5397"
+    },
+    {
+      "event_index": 494,
+      "tool_call_id": "call_fFc5ZXNIJhb8iVyjBBVJAnky|fc_0f961cc75612e79f016aa00d2a81c887d0832590c708c723f7"
+    },
+    {
+      "event_index": 498,
+      "tool_call_id": "call_l2wiKkPXjZvjcBjR9Cscvuvo|fc_0f961cc75612e79f016aa00d2e4bb087d0b3054fbe7a41f8d5"
+    },
+    {
+      "event_index": 502,
+      "tool_call_id": "call_ju5gXsrz4jOP1OYHa4Guz3pH|fc_0f961cc75612e79f016aa00d317cdc87d0bfc3d9d142590642"
+    },
+    {
+      "event_index": 506,
+      "tool_call_id": "call_2OVMpPj1hI1NW850iGe4npLo|fc_0f961cc75612e79f016aa00d35c8ec87d097ffd582ade65762"
+    },
+    {
+      "event_index": 510,
+      "tool_call_id": "call_q5s406a4chEG9i3xevG72Af0|fc_0f961cc75612e79f016aa00d3cc30087d0a570530c10cd8824"
+    },
+    {
+      "event_index": 514,
+      "tool_call_id": "call_Vs3ECqNxwUGLZ8ePcba9FnAs|fc_0f961cc75612e79f016aa00d3ee56087d094bf50536d11dc21"
+    },
+    {
+      "event_index": 518,
+      "tool_call_id": "call_dzWlIurdtZfTPjKbDM66nrSg|fc_0f961cc75612e79f016aa00d42f04887d0bacbc71ab971328f"
+    },
+    {
+      "event_index": 522,
+      "tool_call_id": "call_U3iiiMuwJeGa6vIJjo3ooQrU|fc_0f961cc75612e79f016aa00d45a18c87d0925bfbeb38be12bd"
+    },
+    {
+      "event_index": 526,
+      "tool_call_id": "call_9vTrCzFEKMOihfMlfY2PThvl|fc_0f961cc75612e79f016aa00d537c9887d0b125c19f07beec61"
+    },
+    {
+      "event_index": 530,
+      "tool_call_id": "call_Oyx4aOc5ROJdBOBSHq2RyIHa|fc_0f961cc75612e79f016aa00d56579087d082539eac00a74804"
+    },
+    {
+      "event_index": 534,
+      "tool_call_id": "call_gHRfzMi53LnQtK31hT6GdfyJ|fc_0f961cc75612e79f016aa00d5ad7ec87d0a34b3a68834edbe1"
+    },
+    {
+      "event_index": 538,
+      "tool_call_id": "call_fymJ1gHcW32klahOWPjumlWf|fc_0f961cc75612e79f016aa00d5e1cfc87d08ec5de0d40cf60bc"
+    },
+    {
+      "event_index": 542,
+      "tool_call_id": "call_4PPoLguVDVauB5Ezxe4Q0w7F|fc_0f961cc75612e79f016aa00d61b57487d0ab683858343752b5"
+    },
+    {
+      "event_index": 546,
+      "tool_call_id": "call_uilbVTVDcEccwLspaLxUP2bU|fc_0f961cc75612e79f016aa00d6964c087d0a4c717d83aa4f039"
+    },
+    {
+      "event_index": 550,
+      "tool_call_id": "call_QCiGJiaPqVPj3f6u8xwzhFDp|fc_0f961cc75612e79f016aa00d6e128487d08933bb20838c25e0"
+    },
+    {
+      "event_index": 554,
+      "tool_call_id": "call_xMydIts9AzdyU969BlSDOmaO|fc_0f961cc75612e79f016aa00d7014d487d0a8e841c76e4a77dc"
+    },
+    {
+      "event_index": 558,
+      "tool_call_id": "call_ZLnnmVtbePcl5TXynpuOW6Y5|fc_0f961cc75612e79f016aa00d741c1c87d0b4df23dffec61444"
+    },
+    {
+      "event_index": 562,
+      "tool_call_id": "call_SZiXK5UJ4e031VcSJC4KNMRL|fc_0f961cc75612e79f016aa00d7b3ee887d0877d460183eab293"
+    },
+    {
+      "event_index": 566,
+      "tool_call_id": "call_cRhxPML4pfXueveIIvTRhDqL|fc_0f961cc75612e79f016aa00d88c42887d097ec435b34f625dd"
+    },
+    {
+      "event_index": 570,
+      "tool_call_id": "call_4EAOV4IzZZNefAe7XzGEx3Fm|fc_0f961cc75612e79f016aa00d8c30ac87d08e7172f09334d1a0"
+    },
+    {
+      "event_index": 574,
+      "tool_call_id": "call_D8aTaklDRa147D7eT0f8gchd|fc_0f961cc75612e79f016aa00d8ea59487d08bf3aff9d45d82f7"
+    },
+    {
+      "event_index": 578,
+      "tool_call_id": "call_kjRdrezRbod6eUIH0nc53puj|fc_0f961cc75612e79f016aa00d93221087d080d54281244d4964"
+    },
+    {
+      "event_index": 582,
+      "tool_call_id": "call_zhOFoRb9d69h1YRfMIeXfbJ9|fc_0f961cc75612e79f016aa00d9b1e7487d0967b47bfa15a6fe8"
+    },
+    {
+      "event_index": 586,
+      "tool_call_id": "call_LAN7kLGzOr8rFbuStyfLNQGi|fc_0f961cc75612e79f016aa00da0a28887d0b92ca256698f30b8"
+    },
+    {
+      "event_index": 590,
+      "tool_call_id": "call_lOHuAyXsTpDUEIFGlRlpTREd|fc_0f961cc75612e79f016aa00db6b55c87d090181dfc3c0d10ca"
+    },
+    {
+      "event_index": 594,
+      "tool_call_id": "call_0pLDulFE4CsVhu0B2OMOfZ9z|fc_0f961cc75612e79f016aa00dd11da087d0b10240a6c0db8b6b"
+    },
+    {
+      "event_index": 598,
+      "tool_call_id": "call_GGQCYNQrqTIgn8wvnea6fphc|fc_0f961cc75612e79f016aa00ddc1d2487d098deeafabe3c5d4b"
+    },
+    {
+      "event_index": 602,
+      "tool_call_id": "call_4XbAMpOlPBcnKlxm7qp1llRu|fc_0f961cc75612e79f016aa00de11adc87d0ac07b2131b18410f"
+    },
+    {
+      "event_index": 606,
+      "tool_call_id": "call_h8MoFvaYZyvqaBK4dtADtURG|fc_0f961cc75612e79f016aa00dfccd1c87d0ab27f71b5f47752a"
+    },
+    {
+      "event_index": 610,
+      "tool_call_id": "call_Vhf44TBeXeMIzoh19yZ42TNx|fc_0f961cc75612e79f016aa00e22dbd087d0a81a29d6ca7802f3"
+    },
+    {
+      "event_index": 618,
+      "tool_call_id": "call_lN4ZWresER77OFQriTnk2nAd|fc_0f961cc75612e79f016aa00e6329e087d0b417f045edc8d91f"
+    },
+    {
+      "event_index": 622,
+      "tool_call_id": "call_wOWXiaOXp2whHsBrXNT1KsLa|fc_0f961cc75612e79f016aa00e8ae50087d09d8787f8cba0c684"
+    },
+    {
+      "event_index": 626,
+      "tool_call_id": "call_evsiXNdXkQwNh1z7ItdthMBe|fc_0f961cc75612e79f016aa00e905e1887d09d2b13aad7bd2485"
+    },
+    {
+      "event_index": 630,
+      "tool_call_id": "call_fkaImjeoZRN2ZMRJOs3JUALB|fc_0f961cc75612e79f016aa00e99d56087d0a8dc526a508c6519"
+    },
+    {
+      "event_index": 634,
+      "tool_call_id": "call_8hobWQmaFG8TkrTxKlMvhNLw|fc_0f961cc75612e79f016aa00e9b934487d0ab1c3d86a528337c"
+    },
+    {
+      "event_index": 638,
+      "tool_call_id": "call_1aG1kXXaCrXFkzmd4Sq0V7yo|fc_0f961cc75612e79f016aa00ea8bec887d0b54d8aa2abba01e7"
+    },
+    {
+      "event_index": 646,
+      "tool_call_id": "call_N46jDbqqmtL8FQyOozwF54xC|fc_0f961cc75612e79f016aa00ec9310887d0bf0f759418b0f824"
+    }
+  ],
+  "cleanup": {
+    "label": "evaluation-deadline-smoke-luna-candidate",
+    "task_id": "bub2-023",
+    "github_run_id": 34230012210,
+    "checked_at": "2026-09-08T13:40:29.669744+00:00",
+    "id": "9eb10dd5-d218-4141-bbbb-21de3daa6d9e",
+    "status": "stopped",
+    "startedAt": "2026-09-08T13:08:23.129025Z",
+    "finishedAt": "2026-09-08T13:34:39.132528Z"
+  },
+  "integration_gate": true,
+  "limitations": [
+    "A smoke cannot establish either full-benchmark acceptance criterion.",
+    "Registered capture retention does not prove pixel timing; the observer remains asynchronous.",
+    "Capture errors and task quality require trace interpretation before full dispatch."
+  ],
+  "sha256": {
+    "manifest.json": "5dbe2054e020c0bfb5d36c3913ac4434557755cd8da4b875eab24b65809dc9d9",
+    "result.json": "dc1603222e43c7fce8c349ac45fddd186a9eb17622f4a3e6336ba79eaf5375c5",
+    "judgment.json": "53fe20720ec29868f0ca1e52adaac74950c40caa468750f5f3c323b9b923faa8",
+    "events.jsonl": "1b039a36c72aaac6ec7d6ff10c894229df4552c7ca667a3248e70552a364bc43",
+    "final_message.txt": "1393f91ec6a6e48d25ddefa71477392f655c4e96d18523c06bf93ad5c2a20170",
+    "sdk-result.json": "53115a9d85aea43a59dd5ca6cd153feef9f93fb36f1a2d2bacfe10522f75666a"
+  },
+  "visual_check": {
+    "screenshots": [
+      {
+        "file": "judge_screenshots/076.png",
+        "step": 261,
+        "observation": "U.S. locale selector, Ring PRO, $479 and September 15 shipping displayed."
+      },
+      {
+        "file": "judge_screenshots/078.png",
+        "step": 265,
+        "observation": "GLOBAL locale selector, Ring AIR, $349 displayed."
+      }
+    ],
+    "scope": "Original artifact images visually inspected. These observations do not establish a U.S. manufacturer AIR offer."
+  }
+}

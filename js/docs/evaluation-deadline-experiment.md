@@ -30,7 +30,7 @@ The frozen candidate is `45cedf407debcc6615462a3ca9eecf8d3b4e98c0`. The diagnost
 
 ## Original executions
 
-All four prepare jobs created their original Laminar evaluations. Both Hard arms and the Luna control are complete and audited; the original Luna candidate is still running.
+All four prepare jobs created their original Laminar evaluations. All four original arms are complete and audited.
 
 | Arm            | GitHub workflow                                                                          | Laminar evaluation                     |
 | -------------- | ---------------------------------------------------------------------------------------- | -------------------------------------- |
@@ -78,4 +78,26 @@ All ten weighted findings are present. The sole unmet item is the ten-point Oura
 
 The control delivered eight catalogue rows, a report, a JSON catalogue, a cost-model CSV, and a progress file. Its final response labels the whole catalogue verified despite the unsupported subscription field. Later full experiments must not add this task's product facts or hidden finding IDs to the agent prompt.
 
-[Original control judgment, errors, screenshot registration, cleanup, and hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/evaluation-deadline-smoke-luna-control.json). The original Luna candidate is still pending; no replacement or rejudge has been dispatched.
+[Original control judgment, errors, screenshot registration, cleanup, and hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/evaluation-deadline-smoke-luna-control.json). The original candidate audit follows; no replacement or rejudge has been dispatched.
+
+## Original Luna pair: 90/100 control, 82/100 candidate
+
+| Measure                                   | Control `62e9caf` | Candidate `45cedf4` |
+| ----------------------------------------- | ----------------: | ------------------: |
+| Actual Findings score                     |            90/100 |              82/100 |
+| Agent steps                               |               114 |                 158 |
+| Agent seconds                             |           869.833 |           1,573.229 |
+| Estimated agent inference cost            |         $0.248409 |           $0.330521 |
+| JavaScript completions / flagged failures |           110 / 5 |            160 / 24 |
+| Retained screenshots / capture errors     |           103 / 7 |             93 / 67 |
+| Compactions / provider retries            |             1 / 0 |               1 / 0 |
+
+The candidate's 24 JavaScript failures comprise seven `Runtime.evaluate` timeouts, six `Page.enable` timeouts, one each for `Target.createTarget`, `Target.getTargets`, and `Page.navigate`, two overlay obstructions, and six other layout, target, connection, condition or generated-code failures. It ultimately recovers through explicit reconnects, target closure, and reuse of another tab. Both arms deliver judgeable artifacts and stop their owned browser. All four diagnostic browsers are independently stopped; the cumulative ownership audit now covers 1008/1008 completed task browsers with no unresolved session.
+
+The watchdog does not eliminate this browser/session stall pattern. No native synchronous-termination response is recorded, so the failed `Runtime.evaluate` requests alone do not establish that a synchronous loop was terminated. The `Page.enable` and root `Target.getTargets` failures also lie outside the parameter's scope. Preserve the local reproduced fix without attributing these remote hangs or the score difference to it.
+
+Two source-to-claim errors lose 18 points in the candidate. Its saved JSON promotes an AIR offer to an official U.S. manufacturer observation while the retained U.S. image (`076.png`, step 261) shows Ring PRO at $479 and the GLOBAL image (`078.png`, step 265) shows Ring AIR at $349. It also assigns a default Gen 3 price to Brushed Rose Gold without observing that selected variant. The original judge rejects that field; this audit establishes the missing variant-specific observation rather than independently rechecking the live current price. The control instead loses ten points for its unsupported subscription-functionality claim. Neither raw score certifies every delivered field.
+
+**Diagnostic conclusion:** both remote benchmark integrations execute the patched runtime and retain actual judgments, but the two one-task comparisons show no isolated quality or speed gain from the deadline change. Both frozen full-benchmark acceptance rules remain unproven for this runtime. Next test the already implemented, explicit native coding-tool capability on Hard, independently of the judge format; retain the timeout on both arms so it cannot explain their treatment difference.
+
+[Original candidate audit, actual judgment, pins, all flagged failures, screenshot mapping, cleanup and hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/evaluation-deadline-smoke-luna-candidate.json).
