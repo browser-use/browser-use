@@ -357,6 +357,8 @@ class EnhancedSnapshotNode:
 	"""Live value of an <input> or <textarea> (DOMSnapshot inputValue/textValue), which the value attribute misses when JS, autofill, or a framework set it."""
 	input_checked: bool | None = None
 	"""Live checked state of a checkbox or radio input (DOMSnapshot inputChecked)."""
+	option_selected: bool | None = None
+	"""Live option selection from DOMSnapshot; None when that data was not captured."""
 
 
 # @dataclass(slots=True)

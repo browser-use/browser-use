@@ -114,6 +114,8 @@ def build_snapshot_lookup(
 		# At 20k elements: 5,925ms (list) → 2ms (set) = 3,000x speedup.
 		has_clickable_data = 'isClickable' in nodes
 		is_clickable_set: set[int] = set(nodes['isClickable']['index']) if has_clickable_data else set()
+		has_option_selected_data = 'optionSelected' in nodes
+		selected_option_indices = set(nodes['optionSelected']['index']) if has_option_selected_data else set()
 
 		# Live form values live in the snapshot, not in the DOM attributes. Map
 		# snapshot index -> string once so each node lookup stays O(1).
@@ -211,6 +213,7 @@ def build_snapshot_lookup(
 				stacking_contexts=stacking_contexts,
 				input_value=input_value_by_index.get(snapshot_index),
 				input_checked=(snapshot_index in input_checked_set) if has_checked_data else None,
+				option_selected=snapshot_index in selected_option_indices if has_option_selected_data else None,
 			)
 
 	# Count how many have bounds (are actually visible/laid out)

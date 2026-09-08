@@ -1,5 +1,7 @@
 # @file purpose: Serializes enhanced DOM trees to string format for LLM consumption
 
+import json
+import re
 from typing import Any
 
 from browser_use.dom.serializer.clickable_elements import ClickableElementDetector
@@ -431,6 +433,43 @@ class DOMTreeSerializer:
 
 		return {'count': len(options), 'first_options': first_options, 'format_hint': format_hint}
 
+	@staticmethod
+	def _serialize_selected_options(select_node: EnhancedDOMTreeNode) -> str:
+		"""Describe live selections without guessing from HTML defaults or the option list."""
+		if not select_node.snapshot_node or select_node.snapshot_node.option_selected is None:
+			return 'unknown'
+
+		selected_options: list[dict[str, str]] = []
+		pending = list(reversed(select_node.children))
+		while pending:
+			option = pending.pop()
+			if option.tag_name != 'option':
+				pending.extend(reversed(option.children))
+				continue
+			if not option.snapshot_node or option.snapshot_node.option_selected is None:
+				return 'unknown'
+			if not option.snapshot_node.option_selected:
+				continue
+
+			# option.text collapses HTML whitespace; label/value may differ from that text.
+			text_parts: list[str] = []
+			text_nodes = list(reversed(option.children))
+			while text_nodes:
+				child = text_nodes.pop()
+				if child.node_type == NodeType.TEXT_NODE:
+					text_parts.append(child.node_value)
+				elif child.tag_name != 'script':
+					text_nodes.extend(reversed(child.children))
+			option_text = re.sub(r'[\t\n\f\r ]+', ' ', ''.join(text_parts)).strip(' ')
+			selected_options.append(
+				{
+					'value': option.attributes.get('value', option_text),
+					'label': option.attributes.get('label') or option_text,
+				}
+			)
+
+		return json.dumps(selected_options, ensure_ascii=False, separators=(',', ':'))
+
 	def _is_interactive_cached(self, node: EnhancedDOMTreeNode) -> bool:
 		"""Cached version of clickable element detection to avoid redundant calls."""
 
@@ -660,6 +699,14 @@ class DOMTreeSerializer:
 	def _assign_interactive_indices_and_mark_new_nodes(self, node: SimplifiedNode | None) -> None:
 		"""Assign interactive indices to clickable elements that are also visible."""
 		if not node:
+			return
+
+		# Disabled selects and their options are readable, but cannot be action targets.
+		original = node.original_node
+		if original.tag_name == 'select' and (
+			'disabled' in original.attributes
+			or (original.ax_node and any(prop.name == 'disabled' and prop.value for prop in original.ax_node.properties or []))
+		):
 			return
 
 		# Skip assigning index to excluded nodes, or ignored by paint order
@@ -1005,6 +1052,13 @@ class DOMTreeSerializer:
 		next_depth = depth
 
 		if node.original_node.node_type == NodeType.ELEMENT_NODE:
+			is_select = node.original_node.tag_name == 'select'
+			if is_select:
+				# Keep the existing indexed shadow-control fallback when CDP has no layout.
+				indexed_without_layout = node.is_interactive and node.original_node.snapshot_node is None
+				if node.ignored_by_paint_order or not (node.original_node.is_visible or indexed_without_layout):
+					return ''
+
 			# Skip displaying nodes marked as should_display=False
 			if not node.should_display:
 				for child in node.children:
@@ -1046,6 +1100,7 @@ class DOMTreeSerializer:
 			if (
 				node.is_interactive
 				or is_any_scrollable
+				or is_select
 				or node.original_node.tag_name.upper() == 'IFRAME'
 				or node.original_node.tag_name.upper() == 'FRAME'
 			):
@@ -1056,6 +1111,9 @@ class DOMTreeSerializer:
 				attributes_html_str = DOMTreeSerializer._build_attributes_string(
 					node.original_node, include_attributes, text_content
 				)
+				if is_select:
+					selection = DOMTreeSerializer._serialize_selected_options(node.original_node)
+					attributes_html_str = f'{attributes_html_str} selected={selection}'.strip()
 				if node.is_interactive:
 					image_context = DOMTreeSerializer._get_child_image_context(node)
 					if image_context:
@@ -1065,7 +1123,7 @@ class DOMTreeSerializer:
 							attributes_html_str = image_context
 
 				# Add compound component information to attributes if present
-				if node.original_node._compound_children:
+				if node.original_node._compound_children and (not is_select or node.is_interactive):
 					compound_info = []
 					for child_info in node.original_node._compound_children:
 						parts = []
@@ -1339,6 +1397,14 @@ class DOMTreeSerializer:
 						if value_str:
 							attributes_to_include['value'] = value_str
 							break
+
+		if node.tag_name == 'select':
+			# Avoid stale or duplicate value summaries alongside the explicit live
+			# selection rendered from the snapshot.
+			for attribute in ('value', 'valuetext', 'selected'):
+				attributes_to_include.pop(attribute, None)
+			if 'disabled' in node.attributes:
+				attributes_to_include['disabled'] = 'true'
 
 		if not attributes_to_include:
 			return ''
