@@ -1,0 +1,84 @@
+{
+  "task_id": "6dpbhs",
+  "candidate_sdk_sha": "29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b",
+  "manifest": {
+    "config_hash": "247d1ac2ec0ced9f3d0969fe40afb9d0dc3aabd0bbba7d9c21b0890fb44c71fc",
+    "datapoint_id": "07b3aa5a-bf9c-4067-99a8-ac2be2dd52e7",
+    "dataset_sha256": "62ca711571e3337234efb54e7708d5768dec8c849bb8a2a54e010c4e31e988c4",
+    "evaluation_id": "6ddb509c-b233-4610-9dae-16b6c08877b6",
+    "github_run_attempt": "1",
+    "github_run_id": "34215093599",
+    "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34215093599",
+    "harness": "pi-browser-use-next",
+    "judge": "laith",
+    "judge_model": "gpt-5.5",
+    "judge_options": {},
+    "max_steps": 1000,
+    "model": "gpt-5.5",
+    "options": {
+      "browser_timeout_minutes": 60,
+      "max_context_chars": 800000,
+      "proxy_country_code": "us",
+      "reasoning_effort": "medium",
+      "task_timeout_seconds": 1700
+    },
+    "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "schema_version": 1,
+    "target_repo": "browser-use/bu-pi",
+    "target_sha": "29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b",
+    "task_id": "6dpbhs",
+    "timeout_minutes": 30
+  },
+  "judgment": {
+    "audit_coverage": null,
+    "duration_seconds": 65.221,
+    "evidence_checked": [
+      "../../README.md",
+      "task.json",
+      "result.json",
+      "sdk-result.json",
+      "final_message.txt",
+      "agent_steps.txt",
+      "events.jsonl",
+      "agent_outputs/matches1914.json",
+      "agent_outputs/hits_candidates_1914.json",
+      "agent_outputs/ballard_1904.json",
+      "agent_outputs/ballard_1905.json",
+      "agent_outputs/ballard_1906.json",
+      "agent_outputs/ballard_1907.json",
+      "agent_outputs/king1914_texts.json",
+      "agent_outputs/pHits1940.json"
+    ],
+    "failure_class": "weak-evidence",
+    "model": "gpt-5.5",
+    "reason": "The agent worked on the right kind of historical directory/photography-business puzzle, but the final answer was only \"Ira W. Webster\" and explicitly admitted that it did not preserve a verified source chain. The saved artifacts show many searches, partial directory extracts, and eliminated leads, but no complete evidence tying Ira W. Webster to every required clue or proving he was the owner no longer listed. Because the final outcome is not supported by the available evidence and the agent itself reports unresolved missing validation, this would not survive human/admin review.",
+    "replicate_scores": [],
+    "rubric": {
+      "correctIntent": true,
+      "evidenceBackedOutcome": false,
+      "noUnresolvedBlocker": false,
+      "requirementsSatisfied": false
+    },
+    "score": 0.0,
+    "score_range": 0,
+    "score_stddev": 0,
+    "status": "fail"
+  },
+  "counts": {
+    "javascript_completions": 241,
+    "without_observation_target": 197,
+    "recorded_screenshot_errors": 197,
+    "saved_screenshots": 44,
+    "retained_error_details": 20
+  },
+  "retained_error_message": "Active page target unavailable after cell.",
+  "interpretation": "Missing target metadata is rejected before capture. All 20 retained error details name that branch; the missing-target count equals all 197 reported screenshot errors. This count must not be described as 197 renderer or CDP screenshot timeouts. Later unretained error messages are not individually available.",
+  "failure": "Agent delivered an unverified historical name without the required source chain, retaining an explicit caveat.",
+  "sha256": {
+    "manifest.json": "6cabdef183d0eddeda1a47bbdd1ba3bf299c197a00d39beaa22a7625b1db40e1",
+    "result.json": "dce828f1b00095d81112f3d7999e0d9adb634999752c30650b304ba249d89338",
+    "events.jsonl": "3fc6b02fe3f7784c6451a81df586b16ce55a9a2c5cc082cb38cafa85e9349262",
+    "judgment.json": "a8210424b9ec802a2fe3123f33891637ed7902e22791e50437c5992d8b0b7e3a",
+    "final_message.txt": "6012250e093b5487d67a8c6bb3ed9f8619f5f4d960293c86144e93c8724b6e2a"
+  }
+}

@@ -259,6 +259,12 @@ Reference task `aoim45` is different: its agent result and actual judgment exist
 
 [Original provider-error artifact hashes, judgment coverage and upload-failure classification](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-reference-failures.json).
 
+### Candidate Hard cohort complete
+
+The original candidate workflow completed successfully with **84/106 passes and 106 actual judgments**, at runtime `29e2b5e`. Recorded agent inference cost is **$128.653298**, excluding judge, browser, runner and unreported usage. Its final task, `6dpbhs`, receives a real failure judgment; no outcome was replaced. The historical floor of 88/106 is missed by four tasks.
+
+At this snapshot the reference still has one task pending. Do not infer a paired final score or interval yet. Its missing actual judgment on `swebnv` remains an independent eligibility failure. Both Luna arms continue. [Complete candidate task-level results and validated pins](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-hard-candidate-terminal.json).
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.

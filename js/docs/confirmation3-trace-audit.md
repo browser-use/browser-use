@@ -169,3 +169,27 @@ Event 346 reads seven delivered files and checks their counts, brand distributio
 This reinforces the need to derive status from the corresponding source-result record and reconcile shared claims across delivered files. It does not justify a New Balance-specific classifier. The exact Adidas source is missing in both runs, and the full 15-point score difference cannot be assigned solely to these two boolean values. The original judgments remain unchanged.
 
 [Cross-file values, source errors, validation code and compaction ordering](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-cross-file-state-pair.json).
+
+## Bounded acquisition gain, with an incomplete recovery checkpoint
+
+Task `bub2-006` requests H&M Singapore children's T-shirts, detail verification and material comparisons. The candidate scores 78/100 against the reference's 32/100. Neither compacts or uses the SDK inference retry.
+
+The candidate fetches complete HTML responses in the browser context and parses them with `DOMParser`, in batches of 12 parallel requests. Its final dataset has 295 unique detail URLs with recorded HTTP 200/accessibility states and observed timestamps, consistent with its aggregate verification log. All 295 garment-care fields remain explicitly unknown; generic care-guide links are kept separately. These checks establish internal record consistency, not independent truth for every product attribute.
+
+The reference instead repeatedly navigates several live tabs. It encounters three whole-cell timeouts and worker resets during the wider run. A later raw-navigation path waits only for the product-data script to exist, then receives incomplete JSON while parsing the page. That is a page-data error, not evidence of a corrupted on-disk checkpoint.
+
+The candidate's progress file is weaker than its successful completion suggests: it saves counters and the last batch summary, not all acquired detail records or the pending URL inventory. No worker reset interrupts its detail acquisition. This run therefore supports the bounded acquisition strategy but does not validate full recovery from its checkpoint.
+
+Source scope also differs. The candidate chooses gender filters on a mixed category with reported counts 251/205, while the reference uses dedicated gender paths with counts 274/269. The candidate loses the dedicated-path requirement, and both lose full-catalog boundary credit. Do not present 295 versus 272 unique URLs as a matched product-level coverage comparison or attribute the entire score gain to batching.
+
+Preserve complete response parsing and bounded batches as available strategies. Save records and pending work alongside counters when recovery matters. Keep the original source boundary separate from subsequent expansion. No H&M-specific parser or boundary rule is added to the frozen SDK.
+
+[Batch events, 295-row checks, checkpoint contents and original judgments](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-bounded-acquisition-pair.json).
+
+## Screenshot-error counts are not an outage count
+
+The candidate's final Hard task, `6dpbhs`, has 241 JavaScript completions, 197 without `observationTargetId`, and 44 saved screenshots. Its reported screenshot-error count is also 197. All 20 retained error messages say “Active page target unavailable after cell,” which the adapter raises before attempting a screenshot. The remaining individual error messages are not retained.
+
+Those counts are consistent with missing observation targets, not evidence of 197 renderer stalls or capture timeouts. Browser-independent work can continue without an initialized observation target; a retained primary recovery target is a separate concept. The task fails because the final historical name lacks a verified source chain, with that limitation explicitly disclosed. Keep the delivery failure separate from this capture-metadata count.
+
+[Complete counts, retained messages, final judgment and artifact hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-observer-count-scope.json).
