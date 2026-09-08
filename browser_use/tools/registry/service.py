@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable
 from inspect import Parameter, iscoroutinefunction, signature
 from types import UnionType
-from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
+from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin, get_type_hints
 
 import pyotp
 from pydantic import BaseModel, Field, RootModel, create_model
@@ -87,6 +87,12 @@ class Registry(Generic[Context]):
 		"""
 		sig = signature(func)
 		parameters = list(sig.parameters.values())
+		try:
+			resolved_annotations = get_type_hints(func, include_extras=True)
+		except (NameError, TypeError):
+			# Preserve the previous behavior for dynamically-created functions whose
+			# forward references cannot be resolved in their defining namespace.
+			resolved_annotations = {}
 		special_param_types = self._get_special_param_types()
 		special_param_names = set(special_param_types.keys())
 
@@ -113,11 +119,12 @@ class Registry(Generic[Context]):
 			if param.name in special_param_names:
 				# Validate special parameter type
 				expected_type = special_param_types.get(param.name)
-				if param.annotation != Parameter.empty and expected_type is not None:
+				param_annotation = resolved_annotations.get(param.name, param.annotation)
+				if param_annotation != Parameter.empty and expected_type is not None:
 					# Handle Optional types - normalize both sides
-					param_type = param.annotation
+					param_type = param_annotation
 					origin = get_origin(param_type)
-					if origin is Union:
+					if origin in (Union, UnionType):
 						args = get_args(param_type)
 						# Find non-None type
 						param_type = next((arg for arg in args if arg is not type(None)), param_type)
@@ -152,7 +159,8 @@ class Registry(Generic[Context]):
 			if action_params:
 				params_dict = {}
 				for param in action_params:
-					annotation = param.annotation if param.annotation != Parameter.empty else str
+					annotation = resolved_annotations.get(param.name, param.annotation)
+					annotation = annotation if annotation != Parameter.empty else str
 					default = ... if param.default == Parameter.empty else param.default
 					params_dict[param.name] = (annotation, default)
 
