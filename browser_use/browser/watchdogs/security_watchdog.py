@@ -217,35 +217,17 @@ class SecurityWatchdog(BaseWatchdog):
 		):
 			return True
 
-		# Check allowed domains (fast path for sets, slow path for lists with patterns)
+		# Use the same matcher for lists and optimized sets. Sets may contain
+		# protocol-qualified or glob patterns, so hostname-only comparisons would
+		# change policy semantics when optimization is enabled.
 		if self.browser_session.browser_profile.allowed_domains:
 			allowed_domains = self.browser_session.browser_profile.allowed_domains
+			return any(self._is_url_match(url, host, parsed.scheme, pattern) for pattern in allowed_domains)
 
-			if isinstance(allowed_domains, set):
-				# Fast path: O(1) exact hostname match - check both www and non-www variants
-				host_variant, host_alt = self._get_domain_variants(host)
-				return host_variant in allowed_domains or host_alt in allowed_domains
-			else:
-				# Slow path: O(n) pattern matching for lists
-				for pattern in allowed_domains:
-					if self._is_url_match(url, host, parsed.scheme, pattern):
-						return True
-				return False
-
-		# Check prohibited domains (fast path for sets, slow path for lists with patterns)
+		# Apply the same matcher for lists and optimized sets.
 		if self.browser_session.browser_profile.prohibited_domains:
 			prohibited_domains = self.browser_session.browser_profile.prohibited_domains
-
-			if isinstance(prohibited_domains, set):
-				# Fast path: O(1) exact hostname match - check both www and non-www variants
-				host_variant, host_alt = self._get_domain_variants(host)
-				return host_variant not in prohibited_domains and host_alt not in prohibited_domains
-			else:
-				# Slow path: O(n) pattern matching for lists
-				for pattern in prohibited_domains:
-					if self._is_url_match(url, host, parsed.scheme, pattern):
-						return False
-				return True
+			return not any(self._is_url_match(url, host, parsed.scheme, pattern) for pattern in prohibited_domains)
 
 		return True
 
