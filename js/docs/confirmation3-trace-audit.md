@@ -226,3 +226,41 @@ Final checks at events 502 and 530 verify required keys, nonempty values, excerp
 The reference is not a matched record-level extraction control. It uses another Blanchard ATS host, observes ten listings and retains one different role; the candidate observes 48 and retains six. Both lose Blanchard population and summary-consistency credit. Candidate judgment also rejects membership, deliverable shape and boundary quarantine. These four checked values do not explain the entire 36-point score difference. Both scores remain unchanged.
 
 [Field comparisons, compaction ordering, validation code, manifests and hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-source-field-loss-pair.json).
+
+## A recovered timestamp never updates the source record
+
+For `bub2-020`, the candidate scores 48/100 against the reference's 73/100. The original judge findings assign the 25-point difference to observation honesty (15 points) and parser analysis (10 points). Both fail the eBay row-coverage and implied-rate items: neither supplies qualifying marketplace records or establishes complete source exhaustion.
+
+At candidate event 492, the agent assigns the literal `2026-09-08T11:00:00Z` as the common ECB observation time. At event 520 it reconstructs later timestamps, `11:01:00.163Z` and `11:03:43.011Z`, yet the earlier literal remains in both `/standards/ecb/observedAt` and `/sources/6/observationAt` in the delivered source archive. Both the invented literal and the later recovered times precede compaction; the archive ends after event 537. Source timing recovery therefore occurred without correcting its dependent records.
+
+The candidate brief discusses display precision and minor units, but gives no explicit rounding rule or quantified headline/detail comparison. The reference preserves `$3,239` versus `$3,238.39`, explains the $0.61 difference, and states a rule to retain both. The two agents use different Airbnb listings and stay dates, so detail availability differs. This is missing requested analysis, not a demonstrated arithmetic or browser parsing bug.
+
+The general target is to derive repeated facts from one corrected source record and recheck dependent deliverables after corrections. A hardcoded time plus later clock inspection is insufficient. The original scores remain unchanged, and no eBay-specific acquisition rule or currency-specific validator is added.
+
+[Timestamp creation and recovery, original judge findings, weights and artifact hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-timestamp-and-coverage-pair.json).
+
+## Real tests cover the wrong transformation
+
+Task `bub2-039` compares opening jump balls and first made baskets across three NBA games. The candidate scores 64/100; the reference scores 84/100. Neither compacts. The candidate's saved roster places Mark Sears on Denver, and ESPN's play-by-play says he gains possession. Its generated record nevertheless assigns the tip team to Toronto, which scored the first basket.
+
+At event 234 the agent really tests its `classify` function with same-team, different-team, missing and unavailable inputs. The function compares the two team strings correctly. However, the records supplied to it contain manually assigned team names, so those tests do not check the raw-roster-to-team mapping. Recomputing the relation from the original saved rosters and first made field goals gives **2/3**, while the delivered brief claims **3/3**. This is evidence of validation at the wrong layer, not evidence that the model never tests.
+
+All three candidate `winner` fields identify the possession recipient rather than one of the two jumpers; the Denver game's team assignment is an additional, independently checkable error. Both arms also add a game ID inside `game_details`, beyond the requested fields. The candidate prints the key lists at event 254 but does not assert an exact allowed-key set.
+
+The general lesson is to validate source-to-record mappings, entity roles and joins before testing downstream arithmetic. A correct comparison cannot repair incorrect inputs. The offline audit uses the recorded roster/event relationship; it adds no NBA parser, task-specific rule, runtime change or new judgment.
+
+[Three-game source re-derivation, actual generated tests, original judgments and hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-source-mapping-pair.json).
+
+## Coverage replacement triggers a whole-task penalty
+
+For Toronto rental task `bub2-038`, both arms earn **62/100 rubric weight**, on different items. The candidate's official score becomes **0/100** after a suspected-reward-hacking flag; the reference retains 62. That categorical penalty is not evidence that all candidate work was absent, or proof of intentional gaming.
+
+The saved coverage transformation contains independently checkable errors. HotPads query output at event 239 reports **8, 14, 12, 752**; event 470 replaces all four with the constant **752**. The liv.rent query loop reports **null, null, 7, 15**; the coverage file instead records **0, 0, 0, 1**, mixing later category-page observations into the earlier query timestamps. Those different source scopes should remain separate. This audit verifies the replacements, not the true full platform populations.
+
+Two original screenshots corroborate additional discrepancies. `014.png` shows Kijiji garden-suite results **1–40 of 51**, while the report uses 41 extracted links/cards and claims exhaustion. `077.png` shows listing cards and prices behind Facebook's login modal; the log says no listings were visible. Public card visibility and access to deeper details are separate states.
+
+The coverage code is written at event 470. Compaction later archives through event 515, including the incorrect coverage. The final checks count files, records, queries and links; they do not reconcile query-level counts with their observations. These errors precede compaction. The reference also has unsupported inventory and duplicate claims, so its retained 62 does not certify a fully correct result.
+
+Preserve each observation's query, source scope, count and time together; derive coverage tables from those records instead of substituting constants. Retain the original scores and flag, with no task-specific rule or changed judge.
+
+[Exact count replacements, visual checks, original penalty and source hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-coverage-replacement-pair.json).
