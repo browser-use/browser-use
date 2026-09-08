@@ -4,6 +4,17 @@ from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 
 
+def test_constructor_does_not_create_cloud_client_for_socks_proxy(monkeypatch) -> None:
+	"""A non-cloud session must not require optional SOCKS support at construction time."""
+	for variable in ('ALL_PROXY', 'all_proxy', 'HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy'):
+		monkeypatch.delenv(variable, raising=False)
+	monkeypatch.setenv('ALL_PROXY', 'socks5://127.0.0.1:9999')
+
+	session = BrowserSession()
+
+	assert session._cloud_browser_client_instance is None
+
+
 class MessageHandlerClient:
 	def __init__(self, task: asyncio.Task) -> None:
 		self._message_handler_task = task
