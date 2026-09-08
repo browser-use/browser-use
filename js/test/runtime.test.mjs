@@ -96,7 +96,9 @@ test('cross-origin iframe discovery and input use a real frame context', async (
   await agent.execute(
     "const cross = await page.frame((await page.frames()).find(f=>f.url===crossUrl).id); await cross.fill({role:'textbox',name:'Reference'}, 'CROSS'); await cross.click({role:'button',name:'Save reference'})",
   );
-  assert.match((await agent.execute("await cross.text({css:'#value'})")).text, /CROSS/);
+  const crossResult = await agent.execute("await cross.text({css:'#value'})");
+  assert.match(crossResult.text, /CROSS/);
+  assert.equal(crossResult.observationTargetId, crossResult.targetId);
 });
 test('conventional filesystem API, output spooling, and exclusive artifact writes', async () => {
   assert.equal(
@@ -247,6 +249,61 @@ test('screenshot bounds preserve command results and failed-cell images stay in 
   assert.equal((await agent.execute('42')).images.length, 0);
   const reconnected = await agent.execute('await reconnect(); await page.screenshot(); void 0');
   assert.equal(reconnected.images.length, 1);
+});
+
+test('observation target follows named tabs and raw sessions without replacing the primary page', async () => {
+  const primary = await agent.execute(
+    `await page.goto(${JSON.stringify(fixture.url)}); page.targetId`,
+  );
+  const named = await agent.execute(
+    `const observedTab = await tabs.open('data:text/html,<title>Named tab</title>'); await observedTab.info(); observedTab.targetId`,
+  );
+  assert.equal(named.targetId, primary.targetId);
+  assert.notEqual(named.observationTargetId, primary.targetId);
+  assert.equal(named.observationTargetId, named.text.slice(1, -1));
+  const raw = await agent.execute(
+    "await browser.send('Runtime.evaluate', {expression:'document.title', returnByValue:true}, observedTab.sessionId)",
+  );
+  assert.equal(raw.observationTargetId, named.observationTargetId);
+  const first = await agent.execute('await page.info()');
+  assert.equal(first.observationTargetId, primary.targetId);
+  await assert.rejects(
+    agent.execute("await observedTab.evaluate(() => {throw new Error('named tab failure')})"),
+    (error) => {
+      assert.equal(error.result.observationTargetId, named.observationTargetId);
+      assert.equal(error.result.targetId, primary.targetId);
+      return true;
+    },
+  );
+  const closed = await agent.execute('await observedTab.close()');
+  assert.equal(closed.observationTargetId, undefined);
+  const reconnected = await agent.execute('await reconnect(); await page.info()');
+  assert.equal(reconnected.targetId, primary.targetId);
+  assert.equal(reconnected.observationTargetId, primary.targetId);
+});
+
+test('primary browser state from an initially failed cell survives a later worker reset', async () => {
+  const isolated = await BrowserUse.create({ model: 'openai/gpt-5.4' });
+  let primary;
+  try {
+    await assert.rejects(
+      isolated.execute(
+        `await page.goto(${JSON.stringify(fixture.url)}); await page.click({role:'button',name:'Save selection'}); throw new Error('first cell failed')`,
+      ),
+      (error) => {
+        primary = error.result.targetId;
+        assert.ok(primary);
+        return true;
+      },
+    );
+    await assert.rejects(isolated.execute('while(true){}', { timeoutMs: 100 }), /exceeded/);
+    const result = await isolated.execute("await page.text({role:'status'})");
+    assert.equal(result.targetId, primary);
+    assert.match(result.text, /Saved 1 time/);
+  } finally {
+    await isolated.close();
+    await rm(isolated.workspace, { recursive: true, force: true });
+  }
 });
 
 test('close is idempotent and closes active execution', async () => {

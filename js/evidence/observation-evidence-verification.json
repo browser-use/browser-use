@@ -1,0 +1,54 @@
+{
+  "verified_at": "2026-09-08T09:45:47.200315+00:00",
+  "node_version": "22.23.2",
+  "additional_node_version": "23.11.0",
+  "node_tests": {
+    "passed": 107,
+    "total": 107
+  },
+  "python_tests": {
+    "passed": 7,
+    "total": 7
+  },
+  "typecheck": "passed",
+  "docs_build": "passed",
+  "before_patch_failures": [
+    "Agent-level failed-cell image/metadata regression failed against baseline.",
+    "Named-tab observation target regression failed against baseline."
+  ],
+  "verified": [
+    "Failed JavaScript cells retain native model images, error status and structured evidence through Pi and application hooks.",
+    "Later successful cell carries no stale images; saved mutation still happened exactly once.",
+    "Named-tab and raw-session observations differ from primary recovery target.",
+    "Cross-origin iframe observation maps to its owning top-level page.",
+    "Successful tab close invalidates its observation target; reconnect retains primary.",
+    "A primary target established during a failed initial cell survives a later worker reset.",
+    "The evaluator captures a 390x844 PNG from the named tab after its cell throws, rather than the primary tab.",
+    "Existing cancellation, persistence, recording exports and Python bridge regressions pass."
+  ],
+  "limitations": [
+    "No remote quality improvement established yet.",
+    "Observer captures remain asynchronous; this fixes target identity, not pixel timing relative to concurrent subsequent actions.",
+    "Whole-cell termination cannot recover unsent in-memory images.",
+    "Separate user-created CDP connections are outside shared-connection tracking.",
+    "Native images previously lost can increase next-turn image usage."
+  ],
+  "source_sha256": {
+    "src/agent.ts": "0df79b2cccbba5203d0b14ab126b04e410d87b049ad07ef6a7f37207186f6f40",
+    "src/cdp.ts": "3893d20e63538bd2b07e4772915eafe31a7626d609f167e3af8e460a8208aaa7",
+    "src/worker.ts": "5e8f1f0ca7fbca849333432deaebb709b85d01e289ca7eaa58d45c82d95e3b8c",
+    "src/protocol.ts": "9144c01b31ec4435cdd55a4ddabbdf71e983904d675a7020edba1bc659e5b61f",
+    "src/runtime.ts": "fa7418d144b799e10fa439cebb821d146fa61d19f591210494d8b08d999536f8",
+    "eval/run.mjs": "22ab255d5ed885edec426786bc0d1c5fbc0e2cb871ebc27353c3828c6130223e",
+    "test/agent.test.mjs": "1ffba142e58b764a3490fdf1a5d8e5a1c1106b289d663756fb929ed621f7d7db",
+    "test/runtime.test.mjs": "a218170fa68178625e28686b6d11a5947587f162cb5bdc5c6392842ff3a6ddb6",
+    "test/eval.test.mjs": "6942586125058c81c49093eda18acbf79c1e8ab12117c14b0324b2f41b03db53"
+  },
+  "log_sha256": {
+    "error-evidence-before.log": "a4e9592414e475040d3ca1e68a26bfe30d55067392f1b131bab072f85bbb3893",
+    "error-evidence-after.log": "a75a86bc519c4ecd9e3c6609765a3ebf5cedc39f5b456029e3d1ee9ad9208d33",
+    "observation-target-before.log": "18b403c39b02cd583fe61575995f24cd293fece9bad0806cc3ba50ae00322d25",
+    "observation-evidence-supported-node-tests.log": "b5c5a6c04e3ba7d9d27967ac25344db8126f452d231bd3c0c0ffd660b9feeeac",
+    "observation-evidence-python.log": "d1ad4e980ade760a85294605d4cf698e37c1f688e9d7ae12d8c2c0f2e6690c29"
+  }
+}

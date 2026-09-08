@@ -63,14 +63,15 @@ test('partial agent outcomes remain judgeable; provider errors remain failures',
   );
 });
 
-for (const [evidenceFormat, cleanScreenshots, deliveryReview, maxSteps] of [
+for (const [evidenceFormat, cleanScreenshots, deliveryReview, maxSteps, namedFailure] of [
   [undefined, false],
   ['findings', false],
   ['findings', true],
   ['findings', false, true, 4],
   ['findings', false, true, 2],
+  ['findings', false, false, undefined, true],
 ])
-  test(`adapter uses real CDP and cleans up (${evidenceFormat ?? 'default'} evidence${cleanScreenshots ? ', agent screenshot cleanup' : ''}${deliveryReview ? ', delivery review budget ' + maxSteps : ''})`, async () => {
+  test(`adapter uses real CDP and cleans up (${evidenceFormat ?? 'default'} evidence${cleanScreenshots ? ', agent screenshot cleanup' : ''}${deliveryReview ? ', delivery review budget ' + maxSteps : ''}${namedFailure ? ', failed named tab' : ''})`, async () => {
     const { main } = await import('../eval/run.mjs');
     const { openBrowser } = await import('../dist/browser.js');
     const { startFixture } = await import('../examples/fixture.mjs');
@@ -181,7 +182,9 @@ for (const [evidenceFormat, cleanScreenshots, deliveryReview, maxSteps] of [
           const args =
             requests === 1
               ? {
-                  code: `await page.goto(${JSON.stringify(fixture.url)});await page.click({role:'button',name:'Save selection'});await artifact('proof.txt',await page.text({role:'status'}));await page.text({role:'status'})`,
+                  code: namedFailure
+                    ? `await page.goto('data:text/html,<title>Primary stays here</title>'); const named = await tabs.open(${JSON.stringify(fixture.url)}); await named.cdp('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false}); await named.click({role:'button',name:'Save selection'}); await artifact('proof.txt',await named.text({role:'status'})); throw new Error('failure after named-tab action')`
+                    : `await page.goto(${JSON.stringify(fixture.url)});await page.click({role:'button',name:'Save selection'});await artifact('proof.txt',await page.text({role:'status'}));await page.text({role:'status'})`,
                 }
               : cleanup
                 ? {
@@ -268,6 +271,11 @@ for (const [evidenceFormat, cleanScreenshots, deliveryReview, maxSteps] of [
       );
       assert.ok(result.metadata.screenshot_time_ms > 0);
       assert.ok(result.artifacts.some((path) => path.endsWith(evidenceFormat ? '.png' : '.jpg')));
+      if (namedFailure) {
+        const image = await readFile(join(dir, result.metadata.judge_screenshots[0]));
+        assert.equal(image.readUInt32BE(16), 390);
+        assert.equal(image.readUInt32BE(20), 844);
+      }
       if (evidenceFormat) {
         assert.equal(result.metadata.output_files.length, 1);
         assert.equal(result.metadata.output_files[0].name, 'proof.txt');

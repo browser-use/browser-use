@@ -763,3 +763,55 @@ test('a full-page image exceeding provider patch limits reaches the next model t
     await s.close();
   }
 });
+
+test('a failed JavaScript cell retains native images and target metadata through Pi and hooks', async () => {
+  let hookSawEvidence = false;
+  const s = await session(
+    [
+      call('javascript', {
+        code: `await page.goto(${JSON.stringify(fixture.url)}); await page.click({role:'button',name:'Save selection'}); await screenshot(); throw new Error('failure after capture')`,
+      }),
+      (context) => {
+        const result = context.messages.at(-1);
+        assert.equal(result.isError, true);
+        assert.match(result.content[0].text, /failure after capture/);
+        assert.match(result.content[0].text, /State reset: false/);
+        assert.equal(result.content.filter((part) => part.type === 'image').length, 1);
+        return call('javascript', { code: "await page.text({role:'status'})" });
+      },
+      (context) => {
+        const result = context.messages.at(-1);
+        assert.equal(result.isError, false);
+        assert.match(result.content[0].text, /Saved 1 time/);
+        assert.equal(result.content.filter((part) => part.type === 'image').length, 0);
+        return call('finish', { result: 'retained without replay' });
+      },
+    ],
+    {
+      afterToolCall(call) {
+        if (!call.isError) return;
+        assert.equal(call.result.content.filter((part) => part.type === 'image').length, 1);
+        assert.ok(call.result.details.targetId);
+        assert.ok(call.result.details.observationTargetId);
+        assert.ok(call.result.details.outputFile);
+        hookSawEvidence = true;
+      },
+    },
+  );
+  const events = [];
+  try {
+    const result = await s.agent.run('Retain evidence through a failed cell.', {
+      onEvent: (event) => {
+        if (event.type === 'tool_execution_end') events.push(event);
+      },
+    });
+    assert.equal(result.status, 'completed');
+    assert.equal(hookSawEvidence, true);
+    const failed = events.find((event) => event.toolName === 'javascript' && event.isError);
+    assert.ok(failed?.result.details.targetId);
+    assert.equal(failed.result.details.observationTargetId, failed.result.details.targetId);
+    assert.equal(failed.result.content.filter((part) => part.type === 'image').length, 1);
+  } finally {
+    await s.close();
+  }
+});

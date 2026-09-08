@@ -14,6 +14,24 @@ type Listener = {
 /** Explicit commands and one-shot events over one flattened CDP WebSocket. No proxies. */
 export class CDP {
   private nextId = 0;
+  // Shared with the lazy connection. Observation follows protocol sessions, not JS variable names.
+  private activity = {
+    targets: new Map<string, string>(),
+    parents: new Map<string, string>(),
+    targetId: undefined as string | undefined,
+  };
+  get observationTargetId() {
+    let targetId = this.activity.targetId;
+    const visited = new Set<string>();
+    while (targetId && this.activity.parents.has(targetId) && !visited.has(targetId)) {
+      visited.add(targetId);
+      targetId = this.activity.parents.get(targetId);
+    }
+    return targetId;
+  }
+  targetForSession(sessionId: string) {
+    return this.activity.targets.get(sessionId);
+  }
   /** Optional metadata observer; errors cannot change command delivery. Never receives responses. */
   observeCommand: ((method: string, params: unknown, sessionId?: string) => void) | undefined;
   /** Passive result tap. Exceptions cannot change command delivery. May contain page data. */
@@ -35,6 +53,8 @@ export class CDP {
             request?.reject(new Error(`CDP ${message.error.code}: ${message.error.message}`));
           else request?.resolve(message.result);
         } else {
+          if (message.method === 'Target.detachedFromTarget')
+            this.activity.targets.delete(message.params.sessionId);
           for (const listener of [...this.listeners]) {
             if (listener.method === message.method && listener.sessionId === message.sessionId)
               listener.accept(message.params);
@@ -69,6 +89,7 @@ export class CDP {
           connection.close();
           throw new Error('CDP connection is closed.');
         }
+        connection.activity = this.activity;
         connection.observeCommand = (method, params, sessionId) =>
           this.observeCommand?.(method, params, sessionId);
         return connection;
@@ -123,6 +144,40 @@ export class CDP {
     const result = this.endpoint
       ? await (await this.connected()).send(method, params, sessionId)
       : await this.sendMessage(method, params, sessionId);
+    if (method === 'Target.attachToTarget') {
+      const attached = result as Commands['Target.attachToTarget']['returnType'];
+      const target = (params as Commands['Target.attachToTarget']['paramsType'][0]).targetId;
+      this.activity.targets.set(attached.sessionId, target);
+      this.activity.targetId = target;
+    } else if (method === 'Target.detachFromTarget') {
+      const detached = params as Commands['Target.detachFromTarget']['paramsType'][0];
+      if (detached?.sessionId) this.activity.targets.delete(detached.sessionId);
+    } else if (method === 'Target.closeTarget' && (result as { success?: boolean }).success) {
+      const target = (params as Commands['Target.closeTarget']['paramsType'][0]).targetId;
+      if (this.observationTargetId === target || this.activity.targetId === target)
+        this.activity.targetId = undefined;
+      for (const [id, value] of this.activity.targets)
+        if (value === target) this.activity.targets.delete(id);
+      this.activity.parents.delete(target);
+    }
+    if (method === 'Target.getTargets' || method === 'Target.getTargetInfo') {
+      const infos =
+        method === 'Target.getTargets'
+          ? (result as Commands['Target.getTargets']['returnType']).targetInfos
+          : [(result as Commands['Target.getTargetInfo']['returnType']).targetInfo];
+      for (const info of infos)
+        if (info.type === 'iframe' && info.parentFrameId)
+          this.activity.parents.set(info.targetId, info.parentFrameId);
+    }
+    if (method === 'Page.getFrameTree' && sessionId) {
+      const targetId = this.targetForSession(sessionId);
+      const visit = (tree: import('devtools-protocol').Protocol.Page.FrameTree) => {
+        if (targetId && tree.frame.id !== targetId)
+          this.activity.parents.set(tree.frame.id, targetId);
+        tree.childFrames?.forEach(visit);
+      };
+      visit((result as Commands['Page.getFrameTree']['returnType']).frameTree);
+    }
     try {
       observe?.(method, params, result, sessionId);
     } catch {}
@@ -138,6 +193,7 @@ export class CDP {
       return Promise.reject(new Error('CDP connection is closed.'));
     if (this.pending.size >= 256)
       return Promise.reject(new Error('Too many pending CDP commands (256).'));
+    if (sessionId) this.activity.targetId = this.targetForSession(sessionId);
     try {
       this.observeCommand?.(method, params, sessionId);
     } catch {}
@@ -225,6 +281,9 @@ export class CDP {
   }
   close() {
     this.closed = true;
+    this.activity.targets.clear();
+    this.activity.parents.clear();
+    this.activity.targetId = undefined;
     void this.delegate?.then((connection) => connection.close()).catch(() => {});
     this.fail(new Error('CDP connection closed.'));
     this.socket?.close();

@@ -1,0 +1,143 @@
+{
+  "checked_at": "2026-09-08T09:41:51.400842+00:00",
+  "scope": "Original one-task diagnostic; no replacement, rejudge or ranking.",
+  "manifest": {
+    "config_hash": "f6e82ec565267cfd8217bcebfb1920fc16463f847fdcd7810941f986afe0de15",
+    "datapoint_id": "7a485d3f-0bab-4b28-a890-4dc8a0ccae37",
+    "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+    "evaluation_id": "91f081c6-4f92-4133-9930-8a60fa832b6b",
+    "github_run_attempt": "1",
+    "github_run_id": "34206488995",
+    "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34206488995",
+    "harness": "pi-browser-use-next",
+    "judge": "findings",
+    "judge_model": "gpt-5.6-luna",
+    "judge_options": {
+      "reasoning_effort": "xhigh"
+    },
+    "max_steps": 1000,
+    "model": "gpt-5.6-luna",
+    "options": {
+      "browser_timeout_minutes": 70,
+      "delivery_review": true,
+      "evidence_format": "findings",
+      "max_context_chars": 800000,
+      "proxy_country_code": "us",
+      "reasoning_effort": "xhigh",
+      "task_timeout_seconds": 3600
+    },
+    "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "schema_version": 1,
+    "target_repo": "browser-use/bu-pi",
+    "target_sha": "5c4c9ce7b7402c0ed6485516f18fc3a70a9e2370",
+    "task_id": "bub2-020",
+    "timeout_minutes": 62
+  },
+  "metrics": {
+    "cache_write_tokens": 286683,
+    "cached_input_tokens": 18485996,
+    "duration_seconds": 2134.86,
+    "input_tokens": 86736,
+    "output_tokens": 71010,
+    "steps": 228,
+    "total_cost": 0.5439498700000002,
+    "total_tokens": 18930425
+  },
+  "score": 0.43,
+  "judge": {
+    "audit_coverage": null,
+    "duration_seconds": 144.891,
+    "evidence_checked": [
+      "result.json",
+      "rubrics/bub2-020.md",
+      "50 judge screenshots",
+      "9 deliverable files"
+    ],
+    "failure_class": "",
+    "model": "gpt-5.6-luna",
+    "reason": "43/100 rubric weight met",
+    "replicate_scores": [],
+    "rubric": {
+      "A10_observation_honesty": false,
+      "A11_no_interaction": true,
+      "A1_ebay_search_state": false,
+      "A2_ebay_rows_first10": false,
+      "A3_ebay_rows_full20": false,
+      "A4_airbnb_states": false,
+      "A5_airbnb_exact_strings": true,
+      "A6_standards_verified": true,
+      "A7_reference_rates": true,
+      "A8_artifact_set": true,
+      "A9_parser_brief": true
+    },
+    "score": 0.43,
+    "score_range": 0,
+    "score_stddev": 0,
+    "status": "scored"
+  },
+  "delivery_review_submissions": 2,
+  "compactions": 1,
+  "provider_retries": 0,
+  "registered_screenshots": 50,
+  "registered_pngs_present_and_in_inventory": 50,
+  "screenshot_errors": 165,
+  "retained_screenshot_error_details": 20,
+  "cleanup": {
+    "label": "delivery-review-smoke-luna-review",
+    "task_id": "bub2-020",
+    "github_run_id": 34206488995,
+    "checked_at": "2026-09-08T09:28:14.444388+00:00",
+    "id": "0771bf05-c92c-41b1-9d77-30dd7ff8a58d",
+    "status": "stopped",
+    "startedAt": "2026-09-08T08:49:21.079415Z",
+    "finishedAt": "2026-09-08T09:24:58.297663Z"
+  },
+  "checkpoint": {
+    "first_finish_event_index": 907,
+    "feedback_event_index": 908,
+    "post_checkpoint_tools": [
+      {
+        "event_index": 911,
+        "tool": "javascript",
+        "arguments_sha256": "8ec39886cff6a66b993c604d2b7f244836b3499888ab58fd6a72c94722a4f3f1"
+      },
+      {
+        "event_index": 915,
+        "tool": "javascript",
+        "arguments_sha256": "c21c442c4bc5e4a86b4ee16451f9b86ad50aa9feaf22af083ad270c64347e882"
+      },
+      {
+        "event_index": 919,
+        "tool": "finish_from_js",
+        "arguments_sha256": "2a81d856848563042080bd3d09ebf618e47b370670f537b6587bf50bbcdb8264"
+      }
+    ],
+    "post_checkpoint_agent_cost": 0.01172071,
+    "seconds_between_finish_results": 28.549,
+    "observed_behavior": "Reads and patches report.md, then rewrites final text. No post-checkpoint source/browser/dataset lookup or data correction. Adds rank, timestamp and access caveats."
+  },
+  "observation_defects": {
+    "javascript_tool_ends": 215,
+    "error_ends": 31,
+    "ends_missing_target": 32,
+    "nonempty_target_ids": [
+      "26DBCEC14D0CF6BF9C803B58CC818EEA"
+    ]
+  },
+  "decision": "Do not enable delivery review by default. Test native evidence preservation and protocol-session observation routing separately.",
+  "limitations": [
+    "43 vs 41 is a one-task descriptive result, not a causal score or cost improvement.",
+    "Whole-run cost and duration differences include work before the checkpoint.",
+    "Judge accepted exact strings but failed source population, complete Airbnb states and observation honesty. No hidden rubric rule is added to SDK."
+  ],
+  "sha256": {
+    "events.jsonl": "6a08b32eb286270e7898edbaed7e9b45070bd65827f532aebe4cf38e52a985b5",
+    "manifest.json": "e8c1537799c34a2916b87c9fe3661f7a3df2808e22c82e863b24db9e0cde7e68",
+    "judgment.json": "12e6b85ef0f36df7a6443a077925925f429b89bf3af8ba2f5580936bdec1f10d",
+    "result.json": "22b6d7f8929b69d550129a222f71990d5b22c953fc0bab0f5a62b9ee8d05d498",
+    "final_message.txt": "3b2611f4932a15ca2b2408f87a19769a9419a4e0a328dc9d2bbd52178691040e",
+    "agent_outputs/report.md": "85ec32f6f665f5dc6b003f0065a137a683f41ca9757be2156558699e4ba99d6c",
+    "agent_outputs/normalized_price_string_dataset.json": "61d5f2348d36cb72990ac42940287d11b983580d4ac9e0c3ddd652d4a972fbc2",
+    "agent_outputs/parsing_tests.json": "f4f73d7fc6e4570ff5bfbf4dbb3a17c82e64a9ada50de91411ae4b2f0d2b2298"
+  }
+}

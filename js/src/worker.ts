@@ -146,9 +146,10 @@ Object.assign(realm, {
 });
 function observe() {
   if (config.recording)
-    browser.observeCommand = (method, raw) => {
+    browser.observeCommand = (method, raw, sessionId) => {
       const params = raw as { type?: string; x?: number; y?: number };
-      const targetId = (Reflect.get(realm, 'page') as Page)?.targetId;
+      const protocolTarget = sessionId ? browser.targetForSession(sessionId) : undefined;
+      const targetId = protocolTarget ? browser.observationTargetId : undefined;
       if (!targetId) return;
       if (
         method === 'Input.dispatchMouseEvent' &&
@@ -159,8 +160,8 @@ function observe() {
           action: {
             kind: params.type === 'mouseReleased' ? 'Click' : 'Scroll',
             targetId,
-            ...(params.x !== undefined ? { x: params.x } : {}),
-            ...(params.y !== undefined ? { y: params.y } : {}),
+            ...(protocolTarget === targetId && params.x !== undefined ? { x: params.x } : {}),
+            ...(protocolTarget === targetId && params.y !== undefined ? { y: params.y } : {}),
           },
         });
       else if (method === 'Input.insertText' || method === 'Page.navigate')
@@ -273,6 +274,7 @@ process.on('message', async (message: WorkerRequest) => {
     text: [output, ...previews.notes].filter(Boolean).join('\n') || '(no output)',
     images: previews.images,
     targetId: (Reflect.get(realm, 'page') as Page)?.targetId,
+    ...(browser.observationTargetId ? { observationTargetId: browser.observationTargetId } : {}),
     ...(valueJson !== undefined ? { valueJson } : {}),
     ...(outputFile ? { outputFile } : {}),
   };

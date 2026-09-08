@@ -272,7 +272,7 @@ export async function main() {
                   let sessionId;
                   const captureStarted = Date.now();
                   try {
-                    const targetId = event.result.details?.targetId;
+                    const targetId = event.result.details?.observationTargetId;
                     if (!targetId) throw new Error('Active page target unavailable after cell.');
                     // Screenshot capture needs a target session, not Page/Runtime event subscriptions.
                     ({ sessionId } = await connection.send('Target.attachToTarget', {

@@ -84,6 +84,7 @@ export async function runAgent(
   let completion: { output: unknown; text: string } | undefined;
   let stopped: StopReason | undefined;
   const codeParameters = Type.Object({ code: Type.String({ minLength: 1 }) });
+  const cellFailures = new Map<string, CellError>();
   const javascript: AgentTool<typeof codeParameters> = {
     name: 'javascript',
     label: 'Browser JavaScript',
@@ -97,14 +98,20 @@ export async function runAgent(
         result = await runtime.execute(params.code, config.cellTimeoutMs ?? 30_000, signal);
       } catch (error) {
         if (!(error instanceof CellError)) throw error;
-        // Pi marks thrown tools as errors. Preserve evidence in the error text as well.
+        // Pi converts thrown tools to text-only errors. Restore their native evidence
+        // in afterToolCall while retaining Pi's error flag and application hook control.
+        cellFailures.set(_id, error);
         throw new Error(
           `${error.message}\nState reset: ${error.stateReset}. Actions may already have happened.\nPartial output: ${error.result.text}\nCaptured output file: ${error.result.outputFile ?? '(none)'}`,
         );
       }
       return {
         content: [{ type: 'text', text: result.text }, ...result.images],
-        details: { outputFile: result.outputFile, targetId: result.targetId },
+        details: {
+          outputFile: result.outputFile,
+          targetId: result.targetId,
+          observationTargetId: result.observationTargetId,
+        },
       };
     },
   };
@@ -253,14 +260,33 @@ export async function runAgent(
         : undefined;
     },
     afterToolCall: async (call, signal) => {
+      const failure = cellFailures.get(call.toolCall.id);
+      cellFailures.delete(call.toolCall.id);
+      const evidence = failure
+        ? {
+            content: [...call.result.content, ...failure.result.images],
+            details: {
+              outputFile: failure.result.outputFile,
+              targetId: failure.result.targetId,
+              observationTargetId: failure.result.observationTargetId,
+              stateReset: failure.stateReset,
+            },
+          }
+        : undefined;
       // Completion validation belongs in validateResult, not a post-effect override.
       if (
         !config.afterToolCall ||
         call.toolCall.name === 'finish' ||
         call.toolCall.name === 'finish_from_js'
       )
-        return undefined;
-      return bounded(() => config.afterToolCall!(call, signal), hookTimeout, signal);
+        return evidence;
+      const observed = evidence ? { ...call, result: { ...call.result, ...evidence } } : call;
+      const override = await bounded(
+        () => config.afterToolCall!(observed, signal),
+        hookTimeout,
+        signal,
+      );
+      return { ...evidence, ...override };
     },
     shouldStopAfterTurn: ({ context }) => {
       if (completion || stopped) return true;

@@ -1,6 +1,6 @@
 # Delivery review experiment
 
-This is an optional evaluation policy using the SDK's existing `validateResult` hook. It is not enabled by default and does not add an SDK parameter, a second model, a new tool or a new agent loop. Both diagnostic arms were dispatched once. The control has completed; the review-enabled arm is still running at the latest recorded check.
+This is an optional evaluation policy using the SDK's existing `validateResult` hook. It is not enabled by default and does not add an SDK parameter, a second model, a new tool or a new agent loop. Both diagnostic arms were dispatched once. Both original arms have completed. Review remains disabled by default.
 
 ## Hypothesis
 
@@ -34,10 +34,10 @@ The exact SDK is frozen at `5c4c9ce7b7402c0ed6485516f18fc3a70a9e2370`. Both arms
 
 Both prepare jobs succeeded. Both task jobs were executing at the status check retained in [the dispatch record](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/delivery-review-dispatch.json). These are the original runs; observation delays do not authorize replacement dispatches.
 
-| Arm | GitHub workflow | Laminar evaluation |
-| --- | --- | --- |
+| Arm             | GitHub workflow                                                                          | Laminar evaluation                     |
+| --------------- | ---------------------------------------------------------------------------------------- | -------------------------------------- |
 | Review disabled | [34206486851](https://github.com/browser-use/new-eval-platform/actions/runs/34206486851) | `574fb8df-19e1-4393-a8a4-2d23757df88b` |
-| Review enabled | [34206488995](https://github.com/browser-use/new-eval-platform/actions/runs/34206488995) | `91f081c6-4f92-4133-9930-8a60fa832b6b` |
+| Review enabled  | [34206488995](https://github.com/browser-use/new-eval-platform/actions/runs/34206488995) | `91f081c6-4f92-4133-9930-8a60fa832b6b` |
 
 No adoption, improvement or parity conclusion follows from successful setup.
 
@@ -49,6 +49,18 @@ All **92 registered PNG screenshots** exist and remain in the artifact inventory
 
 The control retains a concrete exact-string defect: the observed JPY tax `2\u202f325\u00a0¥\u00a0JPY` is preserved in the main `raw.taxes` field, but a duplicate `fees_or_taxes.itemized_components[0].raw` replaces the two U+00A0 characters with U+0020. The main-field code-point check passes while the duplicate disagrees. This illustrates why review must compare each delivered representation with the original source. The judge also alleges a raw-summary mismatch; the final main summary preserves the NBSP before “au,” so that part of the rationale is not adopted as independently verified. The nested tax discrepancy remains real.
 
-The control inspected 240 eBay cards with no qualifying dollar-price records; it did not establish exhaustion. It captured three Airbnb currency states but left EUR's observation timestamp uncaptured, and retained unlabeled synthetic parser examples. It did not receive a reward-hacking penalty. These facts stay with this control and do not establish a benefit from the still-running treatment.
+The control inspected 240 eBay cards with no qualifying dollar-price records; it did not establish exhaustion. It captured three Airbnb currency states but left EUR's observation timestamp uncaptured, and retained unlabeled synthetic parser examples. It did not receive a reward-hacking penalty. These facts stay with this control and do not establish a benefit from the treatment.
 
 [Control manifest, source comparison, evidence hashes and cleanup](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/delivery-review-control.json).
+
+## Completed treatment and decision
+
+The original review-enabled run finished at **43/100**, versus the control's **41/100**. It used **228 steps**, **2134.860 seconds**, **$0.54394987** in recorded agent inference, one compaction and zero SDK provider retries. Its manifest, task, attempt, model/reasoning/judge settings, budgets and dependency lock match the frozen plan. All **50 registered PNGs** are retained in the artifact inventory; the owned Cloud browser is stopped. The adapter recorded **165 screenshot errors**, with only the first 20 error details retained.
+
+The first finish was rejected at event 908. The agent then made two JavaScript calls: event 911 read and patched `report.md` to add rank, timestamp and access caveats; event 915 rewrote the final text. Event 919 submitted again. There was **no source lookup, canonical-dataset read, browser verification or dataset correction after the checkpoint**. The phase between finish results lasted **28.549 seconds** and recorded **$0.01172071** in additional agent inference. The much larger whole-run cost/time difference includes acquisition work before review and cannot be assigned to the checkpoint.
+
+The final brief labels its synthetic CAD example, but it already existed before review. The judge accepts Airbnb exact strings and rejects requested eBay population, complete Airbnb states and observation honesty. These are recorded judgments, not independently certified factual conclusions. The review did add useful caveats; this selected single-task diagnostic does not establish a quality benefit or justify enabling it by default.
+
+The audit uncovered separate SDK evidence defects. Across 215 JavaScript tool completions, 31 failed tools lost target metadata at Pi's error boundary. One successful initial tab-list call also had no initialized target. All remaining **183 nonempty target IDs were the same primary tab**, including cells opening and inspecting named tabs. Observer capture success therefore does not establish that the screenshot corresponds to the page just used. Those defects are investigated in the [observation evidence experiment](./observation-evidence-experiment.md), independently of delivery-review policy.
+
+[Exact checkpoint events, usage, file hashes, manifest and cleanup](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/delivery-review-treatment.json).

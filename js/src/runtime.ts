@@ -173,10 +173,11 @@ export class BrowserRuntime {
           true,
         );
       }
+      if ((message.type === 'result' || message.type === 'error') && message.result?.targetId)
+        this.targetId = message.result.targetId;
       if (message.type === 'error')
         throw new CellError(message.message, message.result ?? { text: '', images: [] }, false);
       if (message.type !== 'result') throw new Error('Unexpected browser worker response.');
-      if (message.result.targetId) this.targetId = message.result.targetId;
       return message.result;
     } finally {
       this.busy = false;
