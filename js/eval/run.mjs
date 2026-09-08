@@ -192,7 +192,9 @@ export async function main() {
       input: { task, options, model: env.EVAL_MODEL },
     });
     const outputDir = join(workspace, 'agent_outputs');
-    const screenshots = join(outputDir, 'screenshots');
+    // Evaluator captures are not agent deliverables. Workspace cleanup must not
+    // delete already-recorded images that the judge will read after the run.
+    const screenshots = join(workspace, 'judge_screenshots');
     await mkdir(screenshots, { recursive: true });
     const model = env.EVAL_MODEL.includes('/') ? env.EVAL_MODEL : `openai/${env.EVAL_MODEL}`;
     if (!model.startsWith('openai/'))
@@ -418,6 +420,7 @@ export async function main() {
       run,
       (await files(outputDir))
         .map((p) => `agent_outputs/${p}`)
+        .concat((await files(screenshots)).map((p) => `judge_screenshots/${p}`))
         .concat(['events.jsonl', 'agent_steps.txt', 'final_message.txt', 'sdk-result.json']),
       {
         ...findingsEvidence,

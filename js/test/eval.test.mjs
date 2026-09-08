@@ -58,8 +58,12 @@ test('partial agent outcomes remain judgeable; provider errors remain failures',
   );
 });
 
-for (const evidenceFormat of [undefined, 'findings'])
-  test(`adapter uses real CDP and cleans up (${evidenceFormat ?? 'default'} evidence)`, async () => {
+for (const [evidenceFormat, cleanScreenshots] of [
+  [undefined, false],
+  ['findings', false],
+  ['findings', true],
+])
+  test(`adapter uses real CDP and cleans up (${evidenceFormat ?? 'default'} evidence${cleanScreenshots ? ', agent screenshot cleanup' : ''})`, async () => {
     const { main } = await import('../eval/run.mjs');
     const { openBrowser } = await import('../dist/browser.js');
     const { startFixture } = await import('../examples/fixture.mjs');
@@ -78,6 +82,7 @@ for (const evidenceFormat of [undefined, 'findings'])
       telemetry = [];
     let requests = 0,
       stops = 0;
+    let firstCapture;
     const patches = [
       mock.method(Laminar, 'initialize', () => {}),
       mock.method(Laminar, 'startSpan', (options) => {
@@ -149,13 +154,30 @@ for (const evidenceFormat of [undefined, 'findings'])
           assert.equal(requestBody.model, evidenceFormat ? 'gpt-5.6-luna' : 'gpt-5.5');
           assert.equal(requestBody.reasoning.effort, evidenceFormat ? 'xhigh' : 'medium');
           requests++;
-          const name = requests === 1 ? 'javascript' : 'finish';
+          const cleanup = cleanScreenshots && requests === 2;
+          if (cleanup) {
+            // Observers are nonblocking. Wait until a real capture exists before
+            // issuing cleanup, so this tests retention, not a capture race.
+            for (let attempt = 0; attempt < 100 && !firstCapture; attempt++) {
+              firstCapture = await Promise.any([
+                readFile(join(dir, 'judge_screenshots/001.png')),
+                readFile(join(dir, 'agent_outputs/screenshots/001.png')),
+              ]).catch(() => undefined);
+              if (!firstCapture) await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+            assert.ok(firstCapture, 'capture must exist before agent cleanup');
+          }
+          const name = requests === 1 || cleanup ? 'javascript' : 'finish';
           const args =
             requests === 1
               ? {
                   code: `await page.goto(${JSON.stringify(fixture.url)});await page.click({role:'button',name:'Save selection'});await artifact('proof.txt',await page.text({role:'status'}));await page.text({role:'status'})`,
                 }
-              : { result: 'Saved exactly once; see proof.txt' };
+              : cleanup
+                ? {
+                    code: "await require('node:fs/promises').rm(require('node:path').join(workspace,'screenshots'),{recursive:true,force:true}); await page.text({role:'status'})",
+                  }
+                : { result: 'Saved exactly once; see proof.txt' };
           const item = {
             id: `fc_${requests}`,
             call_id: `call_${requests}`,
@@ -210,7 +232,7 @@ for (const evidenceFormat of [undefined, 'findings'])
       assert.equal(await main(), 0);
       const result = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
       assert.equal(result.metadata.stop_reason, 'completed');
-      assert.equal(result.metrics.steps, 2);
+      assert.equal(result.metrics.steps, cleanScreenshots ? 3 : 2);
       assert.equal(result.metadata.screenshot_errors, 0);
       assert.equal(result.metadata.screenshot_detach_errors, 0);
       assert.equal(result.metadata.sdk_audit_archive, 'sdk-audit.tar.gz');
@@ -235,17 +257,26 @@ for (const evidenceFormat of [undefined, 'findings'])
         assert.equal(result.metadata.output_files[0].name, 'proof.txt');
         assert.equal(result.metadata.output_files[0].text, 'Saved 1 time(s)');
         assert.ok(result.metadata.steps.some((s) => s.includes('Save selection')));
-        assert.equal(result.metadata.judge_screenshots.length, 1);
+        if (cleanScreenshots) assert.ok(result.metadata.judge_screenshots.length >= 1);
+        else assert.equal(result.metadata.judge_screenshots.length, 1);
         assert.equal(result.metadata.judge_screenshot_steps[0], 1);
-        const shot = await readFile(join(dir, result.metadata.judge_screenshots[0]));
-        assert.equal(shot.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+        if (cleanScreenshots)
+          assert.deepEqual(
+            await readFile(join(dir, result.metadata.judge_screenshots[0])),
+            firstCapture,
+          );
+        for (const path of result.metadata.judge_screenshots) {
+          assert.ok(result.artifacts.includes(path));
+          const shot = await readFile(join(dir, path));
+          assert.equal(shot.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+        }
         assert.deepEqual(result.metadata.staged_outputs, ['agent_outputs/proof.txt']);
       }
       assert.equal(await readFile(join(dir, 'agent_outputs/proof.txt'), 'utf8'), 'Saved 1 time(s)');
       assert.equal(stops, 1);
-      assert.equal(requests, 2);
+      assert.equal(requests, cleanScreenshots ? 3 : 2);
       assert.equal(telemetry[0].parentSpanContext, 'fixture-parent');
-      assert.equal(telemetry.filter((s) => s.spanType === 'LLM').length, 2);
+      assert.equal(telemetry.filter((s) => s.spanType === 'LLM').length, requests);
       assert.ok(telemetry.every((s) => s.ended));
     } finally {
       globalThis.fetch = originalFetch;
