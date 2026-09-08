@@ -26,8 +26,33 @@ The candidate also summarized four displayed prices, **6.29, 3.59, 2.99 and 5.99
 
 The task did not specify a rounding convention. This reproduction explains the disagreement with the judge's decimal expectation; it does not establish a browser failure or justify changing the recorded score.
 
+## Recovery lost product identity
+
+**Amazon, `0oxfq8`: reference 1, candidate 0.** The candidate delivered 29 rows but only 28 distinct URLs. Its search inventory identified `B0HCBWJNQ6` as an Aurant laptop; its progress record assigned that ID the title, specifications and URL of the preceding search product, `B0HF7SXJT8`. The final export retained the duplicate. The candidate recorded zero compactions; the reference's older result has no compaction counter. The reference's 51-row output passed the official judge, which is not an independent exhaustive audit of that output.
+
+The candidate hit three 120-second JavaScript cell limits and recovered from saved progress. Before the third batch it had 23 records. That batch introduced the affected record with a generated `extractFast` helper:
+
+```js
+try { await page.cdp('Page.navigate', { url: product.url }); } catch {}
+await page.waitFor(() => document.querySelector('#productTitle') ||
+  /* challenge text or */ document.readyState === 'complete',
+  undefined, { timeoutMs: 9000 }).catch(() => {});
+try { await page.cdp('Page.stopLoading', {}); } catch {}
+// Extract current DOM, but assign ASIN from the requested product.
+```
+
+The readiness predicate accepts any product title. Extraction sets `URL` from `location.href` and `ASIN` from the input without checking that they refer to the same product. It also allows the search title to establish `retrieval_status: 'observed'`. Subsequent retries select only records not marked observed, so they skip the mismatched record. Final validation counts missing fields and rows; it does not check product identity or duplicate URLs.
+
+A deterministic mock running the unchanged generated functions reproduces the defect: navigation throws while product A remains readable; the helper returns A's URL/title with requested ID B and marks it observed. This proves the helper accepts stale content after a failed navigation. It does **not** establish which CDP response or redirect occurred during the original Amazon batch. These are batched tool traces without per-command navigation events. The helper bypasses `page.goto`, so this case does not prove a bug in that SDK method.
+
+The general lesson is to validate source identity after uncertain navigation, preserve failure/unknown states, and include those states in helper tests. A blanket navigation retry could repeat actions or hide a legitimate redirect. No site-specific identity rule or SDK patch was added from this audit.
+
+## Recovery and artifact delivery
+
+**Luna, `bub2-001`: 73/100.** One inference retry followed `OpenAI Responses stream ended before a terminal response event`. The failed response contained thinking, with no partial tool call; 55 completed tool calls followed. This exercises the existing truncated-stream recovery branch, not the new generic-error branch or partial-tool suppression. Failed-response usage was recorded as zero, so the recorded agent inference cost can undercount provider usage.
+
 ## Implication for the next decision
 
 Successful browser execution, delivered files and matching row counts still leave source interpretation and numerical validation unchecked. A generic instruction to verify does not prove those checks happened. Keep these outcomes and the completed [semantic diagnostic](./semantic-validation-experiment.md#completed-diagnostic) alongside the full results before selecting another treatment. Candidate `65a16cb`, references, tasks, judge and budgets remain frozen. No new runtime patch or task-specific selector follows from this interim audit.
 
-[Paired IDs, metrics, source hashes and reproduction](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-early-trace-audit.json).
+[Early paired cases](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-early-trace-audit.json) · [Amazon identity evidence and mock](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-amazon-identity.json) · [Inference retry evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-retry.json).
