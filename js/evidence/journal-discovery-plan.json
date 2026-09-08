@@ -1,0 +1,32 @@
+{
+  "label": "journal-discovery-smoke-luna",
+  "selected_at": "2026-09-08T05:44:11.822434+00:00",
+  "inputs": {
+    "platform_ref": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "target_repo": "browser-use/bu-pi",
+    "target_ref": "2737754a3ce02ce908942602e1246b7a074f2363",
+    "harness": "pi-browser-use-next",
+    "task_limit": "1",
+    "max_steps": "100",
+    "dataset": "datasets/BU_Bench_v2.json",
+    "model": "gpt-5.6-luna",
+    "judge": "findings",
+    "judge_model": "gpt-5.6-luna",
+    "judge_options_json": "{\"reasoning_effort\": \"xhigh\"}",
+    "max_parallel": "1",
+    "timeout_minutes": "22",
+    "options_json": "{\"reasoning_effort\":\"xhigh\",\"task_timeout_seconds\":1200,\"proxy_country_code\":\"us\",\"browser_timeout_minutes\":25,\"max_context_chars\":800000,\"evidence_format\":\"findings\"}",
+    "message": "bu-pi journal discovery diagnostic; bub2-043; 100 turns 1200s; retain outcome; 20260908",
+    "task_ids": "bub2-043"
+  },
+  "workflow_ref": "codex/bu-pi-evals-k7m2",
+  "workflow_sha": "3fbf23625bf5883cb83e1c088d743e835429997c",
+  "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+  "purpose": "One previously inspected task. Check real-model journal adoption, timestamp provenance, artifacts, judgment and browser cleanup. Not a ranking or replacement for confirmation.",
+  "limitations": [
+    "Reduced 100-turn/1200-second controls differ from full cohorts.",
+    "May overlap remaining confirmation jobs; retain timings and outcome separately.",
+    "A successful task does not prove journal adoption; inspect actual reads.",
+    "Runtime includes separately tested image guard and generic provider retry; this does not isolate their score effects."
+  ]
+}
