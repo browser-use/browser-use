@@ -5,6 +5,54 @@ import { rm } from 'node:fs/promises';
 import { streamSimple } from '@earendil-works/pi-ai/api/openai-responses';
 import { BrowserUse } from '../dist/index.js';
 
+test(
+  'stalled real SSE responses abort their connections and retry inference only once',
+  { timeout: 10000 },
+  async () => {
+    let requests = 0,
+      closed = 0;
+    const server = createServer(async (req, res) => {
+      for await (const _chunk of req) {
+        /* consume request before responding */
+      }
+      requests++;
+      res.on('close', () => closed++);
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write(
+        'event: response.created\ndata: {"type":"response.created","response":{"id":"stalled","status":"in_progress","output":[]}}\n\n',
+      );
+      // Intentionally keep the response open. The client must close it on timeout.
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    let agent;
+    try {
+      agent = await BrowserUse.create({
+        model: 'openai/gpt-5.4',
+        modelTimeoutMs: 200,
+        streamFn: (model, context, options) =>
+          streamSimple(
+            { ...model, baseUrl: `http://127.0.0.1:${server.address().port}/v1` },
+            context,
+            { ...options, apiKey: 'fixture-key', transport: 'sse' },
+          ),
+      });
+      const result = await agent.run('Inspect', { timeoutMs: 5000 });
+      assert.equal(result.status, 'error');
+      assert.match(result.error, /Model stream exceeded/);
+      assert.equal(result.providerRetries, 1);
+      for (let i = 0; i < 50 && closed < 2; i++)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(requests, 2);
+      assert.equal(closed, 2);
+    } finally {
+      await agent?.close();
+      if (agent) await rm(agent.workspace, { recursive: true, force: true });
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  },
+);
+
 test('real OpenAI Responses transport serializes tools and parses a local SSE completion', async () => {
   let request;
   const server = createServer(async (req, res) => {

@@ -33,6 +33,17 @@ Clarify summary provenance: the summarization request is outside the original co
 
 Keep the task prompt, browser helpers, output schema, judge and evidence renderer unchanged in this candidate. Test answer-completeness changes separately.
 
+Candidate runtime: `0baa51da98e93accf0c3471eff9a74f5d76e6819`. The two diagnostic smokes completed provisioning, inference, tool use, evidence, real judgments and cleanup. Their reduced 12-turn budgets forced early delivery; the failed Hard judgment and 12/100 Luna judgment remain diagnostic outcomes, not ranking evidence.
+
+The full exploratory pairs are running:
+
+| Benchmark | Frozen reference                                                                         | Candidate                                                                                |
+| --------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Hard106   | [34173484591](https://github.com/browser-use/new-eval-platform/actions/runs/34173484591) | [34173486020](https://github.com/browser-use/new-eval-platform/actions/runs/34173486020) |
+| Luna60    | [34173710531](https://github.com/browser-use/new-eval-platform/actions/runs/34173710531) | [34173712013](https://github.com/browser-use/new-eval-platform/actions/runs/34173712013) |
+
+Exact task hashes, IDs, dispatch inputs, evaluation IDs and local verification are retained in `evidence/iteration1-dispatch.json`. A real local SSE fault test additionally verifies that both stalled HTTP connections close after one additional inference retry. No score claim is made before the full cohorts finish.
+
 ## Compatibility and recovery
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.
