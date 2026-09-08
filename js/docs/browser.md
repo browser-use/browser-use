@@ -17,6 +17,25 @@ An attached browser belongs to you. The SDK creates a dedicated tab in its defau
 
 Cloud provisioning and proxies belong to the provider. The SDK accepts an endpoint and has no implicit cloud billing.
 
+## Responsive layouts
+
+Resize a page with raw CDP, then inspect the resulting layout and screenshot:
+
+```js
+await page.cdp('Emulation.setDeviceMetricsOverride', {
+  width: 390,
+  height: 844,
+  deviceScaleFactor: 1,
+  mobile: false,
+});
+console.log((await page.cdp('Page.getLayoutMetrics')).cssVisualViewport);
+await screenshot();
+```
+
+This tests a narrow desktop viewport. `mobile: true` additionally enables Chrome's mobile layout behavior; pages without a responsive viewport meta tag can have a wider layout viewport. Neither setting makes Chrome a physical mobile device.
+
+For Browser Use Cloud, provision the browser with **`allowResizing: true`** before attaching the SDK. Default cloud sessions can acknowledge resize commands while retaining their original dimensions. The option can affect stealth and initial geometry; verify the actual viewport after connecting. Reported device-pixel ratio may still differ from the requested scale. The SDK cannot change the provisioning policy of an already attached browser. [Measured behavior and limits](./confirmation3-trace-audit.md#cloud-resizing-is-an-explicit-provisioning-capability).
+
 ## Accessibility first, raw CDP underneath
 
 ```js

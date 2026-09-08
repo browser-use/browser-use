@@ -292,3 +292,15 @@ The current SDK forwards `Page.cdp` parameters with the page session ID. A fresh
 The original remote environment, browser version, possible property overrides and other CDP clients remain unresolved variables. The evidence does not justify changing SDK command routing or naming a provider root cause. Since both arms lose this item, the viewport limitation alone cannot explain the 16-point score difference. No runtime or prompt change follows from this probe.
 
 [Original commands and results, local probe source, measurements and limits](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-viewport-pair.json).
+
+## Cloud resizing is an explicit provisioning capability
+
+Two subsequent disposable Cloud sessions test only a synthetic responsive page, with no model inference or third-party website. With the eval adapter's existing creation parameters, page-scoped SDK emulation, direct session-scoped CDP emulation, and browser window resizing all return success while JavaScript, CDP layout metrics, PNG dimensions and a CSS media query remain at desktop width 1440. This reproduces the remote limitation independently of TotalEnergies and the agent's reasoning.
+
+With the same creation parameters plus `allowResizing: true`, both emulation calls produce **390×844** JavaScript dimensions, layout metrics and PNGs; the narrow-screen media query and rendered CSS switch to mobile. Window bounds also change successfully. Both browsers report Chrome 151.0.7922.108 and are independently confirmed stopped. The Cloud API schema defaults this capability to false, and its service passes `ALLOW_RESIZING=true` only when requested. Together these observations support a missing provisioning capability as the mechanism in this probe; no live-site performance conclusion follows.
+
+The treatment is not otherwise an identical environment: its initial viewport is 780×493 instead of 1440×688 despite the same screen-size request, and its reported DPR stays 1.25 after requesting 1. The provider documents a stealth tradeoff. Thus resizing support is not full mobile emulation, and a rollout across all tasks could change site access. The original two eval traces also have different initial viewport heights. Preserve these differences instead of claiming a pure same-browser experiment.
+
+The adapter now accepts an explicit boolean `browser_allow_resizing`, forwards it to Cloud, and retains it in metadata. Omission preserves the original request. This adds no SDK runtime, prompt, history or Python change and selects no new full-cohort treatment. Future comparisons must freeze the option and actual initialization in both arms; the current cohorts and historical scores remain unchanged. Rollback is omitting the option. Local contract tests cover omitted/true/false forwarding, invalid values, metadata, real CDP execution, retained evidence and cleanup; they do not emulate Cloud's resizing policy.
+
+[Both cloud probes, source hashes, original screenshot dimensions and cleanup](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/cloud-viewport-capability.json).

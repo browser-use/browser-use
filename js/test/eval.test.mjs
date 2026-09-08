@@ -8,6 +8,9 @@ test('eval options reject unknown settings, invalid budgets and browser expiry',
   assert.equal(parseOptions({}).delivery_review, undefined);
   assert.equal(parseOptions({ delivery_review: true }).delivery_review, true);
   assert.equal(parseOptions({ delivery_review: false }).delivery_review, false);
+  assert.equal(parseOptions({}).browser_allow_resizing, undefined);
+  assert.equal(parseOptions({ browser_allow_resizing: true }).browser_allow_resizing, true);
+  assert.equal(parseOptions({ browser_allow_resizing: false }).browser_allow_resizing, false);
   assert.equal(
     parseOptions({
       task_timeout_seconds: 3600,
@@ -21,6 +24,9 @@ test('eval options reject unknown settings, invalid budgets and browser expiry',
     { evidence_format: 'other' },
     { delivery_review: 'true' },
     { delivery_review: 1 },
+    { browser_allow_resizing: 'true' },
+    { browser_allow_resizing: null },
+    { browser_allow_resizing: 1 },
     { task_timeout_seconds: 7201 },
     { task_timeout_seconds: 3600, browser_timeout_minutes: 60 },
     { max_context_chars: NaN },
@@ -63,15 +69,35 @@ test('partial agent outcomes remain judgeable; provider errors remain failures',
   );
 });
 
-for (const [evidenceFormat, cleanScreenshots, deliveryReview, maxSteps, namedFailure] of [
-  [undefined, false],
-  ['findings', false],
-  ['findings', true],
-  ['findings', false, true, 4],
-  ['findings', false, true, 2],
-  ['findings', false, false, undefined, true],
+for (const {
+  label,
+  evidenceFormat,
+  cleanScreenshots = false,
+  deliveryReview = false,
+  maxSteps,
+  namedFailure = false,
+  allowResizing,
+} of [
+  { label: 'default evidence' },
+  { label: 'findings evidence', evidenceFormat: 'findings' },
+  { label: 'agent screenshot cleanup', evidenceFormat: 'findings', cleanScreenshots: true },
+  { label: 'delivery review', evidenceFormat: 'findings', deliveryReview: true, maxSteps: 4 },
+  {
+    label: 'review budget exhaustion',
+    evidenceFormat: 'findings',
+    deliveryReview: true,
+    maxSteps: 2,
+  },
+  { label: 'failed named tab', evidenceFormat: 'findings', namedFailure: true },
+  {
+    label: 'resizing enabled',
+    evidenceFormat: 'findings',
+    namedFailure: true,
+    allowResizing: true,
+  },
+  { label: 'resizing disabled', evidenceFormat: 'findings', allowResizing: false },
 ])
-  test(`adapter uses real CDP and cleans up (${evidenceFormat ?? 'default'} evidence${cleanScreenshots ? ', agent screenshot cleanup' : ''}${deliveryReview ? ', delivery review budget ' + maxSteps : ''}${namedFailure ? ', failed named tab' : ''})`, async () => {
+  test(`adapter uses real CDP and cleans up (${label})`, async () => {
     const { main } = await import('../eval/run.mjs');
     const { openBrowser } = await import('../dist/browser.js');
     const { startFixture } = await import('../examples/fixture.mjs');
@@ -142,6 +168,7 @@ for (const [evidenceFormat, cleanScreenshots, deliveryReview, maxSteps, namedFai
         EVAL_OPTIONS_JSON: JSON.stringify({
           ...(evidenceFormat ? { evidence_format: evidenceFormat, reasoning_effort: 'xhigh' } : {}),
           ...(deliveryReview ? { delivery_review: true } : {}),
+          ...(allowResizing === undefined ? {} : { browser_allow_resizing: allowResizing }),
         }),
         EVAL_TIMEOUT_MINUTES: '30',
         EVAL_MODEL_API_KEY: 'fixture-only',
@@ -151,8 +178,12 @@ for (const [evidenceFormat, cleanScreenshots, deliveryReview, maxSteps, namedFai
       });
       globalThis.fetch = async (input, options) => {
         const url = String(input instanceof Request ? input.url : input);
-        if (url === 'https://api.browser-use.com/api/v3/browsers')
+        if (url === 'https://api.browser-use.com/api/v3/browsers') {
+          const body = JSON.parse(options.body);
+          assert.equal(body.allowResizing, allowResizing);
+          assert.equal(Object.hasOwn(body, 'allowResizing'), allowResizing !== undefined);
           return Response.json({ id: 'fixture-browser', cdpUrl: chrome.endpoint });
+        }
         if (url.endsWith('/api/v3/browsers/fixture-browser')) {
           stops++;
           assert.equal(options.method, 'PATCH');
@@ -244,6 +275,7 @@ for (const [evidenceFormat, cleanScreenshots, deliveryReview, maxSteps, namedFai
       };
       assert.equal(await main(), 0);
       const result = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
+      assert.equal(result.metadata.options.browser_allow_resizing, allowResizing);
       const reviewExhausted = deliveryReview && maxSteps === 2;
       assert.equal(result.metadata.stop_reason, reviewExhausted ? 'max_steps' : 'completed');
       const expectedRequests = cleanScreenshots || (deliveryReview && !reviewExhausted) ? 3 : 2;

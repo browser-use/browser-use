@@ -14,6 +14,7 @@ export function parseOptions(value) {
     'task_timeout_seconds',
     'proxy_country_code',
     'browser_timeout_minutes',
+    'browser_allow_resizing',
     'evidence_format',
     'delivery_review',
   ]);
@@ -57,6 +58,11 @@ export function parseOptions(value) {
     throw new Error('evidence_format must be findings when provided');
   if (options.delivery_review !== undefined && typeof options.delivery_review !== 'boolean')
     throw new Error('delivery_review must be boolean');
+  if (
+    options.browser_allow_resizing !== undefined &&
+    typeof options.browser_allow_resizing !== 'boolean'
+  )
+    throw new Error('browser_allow_resizing must be boolean');
   return options;
 }
 
@@ -209,6 +215,9 @@ export async function main() {
       browserScreenWidth: 1440,
       browserScreenHeight: 900,
       enableRecording: false,
+      ...(options.browser_allow_resizing === undefined
+        ? {}
+        : { allowResizing: options.browser_allow_resizing }),
     });
     if (!browser.id || !browser.cdpUrl)
       throw new Error('Browser provider returned no browser id/CDP endpoint');

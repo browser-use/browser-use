@@ -1,0 +1,669 @@
+{
+  "scope": "Synthetic-page browser capability diagnostic, not benchmark or model quality.",
+  "sdk_runtime_sha": "29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b",
+  "creation_common": {
+    "timeout": 5,
+    "proxyCountryCode": "us",
+    "browserScreenWidth": 1440,
+    "browserScreenHeight": 900,
+    "enableRecording": false
+  },
+  "treatment": {
+    "allowResizing": true
+  },
+  "probes": {
+    "default": {
+      "startedAt": "2026-09-08T12:26:18.555Z",
+      "scope": "One disposable cloud browser; synthetic data URL; no model requests",
+      "samples": [
+        {
+          "label": "before",
+          "js": {
+            "width": 1440,
+            "height": 688,
+            "dpr": 2,
+            "visualWidth": 1440,
+            "documentWidth": 1440,
+            "media": false,
+            "css": "\" DESKTOP\""
+          },
+          "layout": {
+            "layoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688
+            },
+            "visualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688,
+              "scale": 1,
+              "zoom": 1
+            },
+            "contentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 1440,
+              "height": 688
+            },
+            "cssLayoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688
+            },
+            "cssVisualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688,
+              "scale": 1,
+              "zoom": 1
+            },
+            "cssContentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 1440,
+              "height": 688
+            }
+          },
+          "png": {
+            "width": 1440,
+            "height": 688
+          }
+        },
+        {
+          "label": "sdk-mobile",
+          "js": {
+            "width": 1440,
+            "height": 688,
+            "dpr": 2,
+            "visualWidth": 1440,
+            "documentWidth": 1440,
+            "media": false,
+            "css": "\" DESKTOP\""
+          },
+          "layout": {
+            "layoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688
+            },
+            "visualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688,
+              "scale": 1,
+              "zoom": 1
+            },
+            "contentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 1440,
+              "height": 688
+            },
+            "cssLayoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688
+            },
+            "cssVisualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688,
+              "scale": 1,
+              "zoom": 1
+            },
+            "cssContentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 1440,
+              "height": 688
+            }
+          },
+          "png": {
+            "width": 1440,
+            "height": 688
+          }
+        },
+        {
+          "label": "raw-desktop",
+          "js": {
+            "width": 1440,
+            "height": 688,
+            "dpr": 2,
+            "visualWidth": 1440,
+            "documentWidth": 1440,
+            "media": false,
+            "css": "\" DESKTOP\""
+          },
+          "layout": {
+            "layoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688
+            },
+            "visualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688,
+              "scale": 1,
+              "zoom": 1
+            },
+            "contentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 1440,
+              "height": 688
+            },
+            "cssLayoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688
+            },
+            "cssVisualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688,
+              "scale": 1,
+              "zoom": 1
+            },
+            "cssContentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 1440,
+              "height": 688
+            }
+          },
+          "png": {
+            "width": 1440,
+            "height": 688
+          }
+        },
+        {
+          "label": "window-bounds",
+          "js": {
+            "width": 1440,
+            "height": 688,
+            "dpr": 2,
+            "visualWidth": 1440,
+            "documentWidth": 1440,
+            "media": false,
+            "css": "\" DESKTOP\""
+          },
+          "layout": {
+            "layoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688
+            },
+            "visualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688,
+              "scale": 1,
+              "zoom": 1
+            },
+            "contentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 1440,
+              "height": 688
+            },
+            "cssLayoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688
+            },
+            "cssVisualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 1440,
+              "clientHeight": 688,
+              "scale": 1,
+              "zoom": 1
+            },
+            "cssContentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 1440,
+              "height": 688
+            }
+          },
+          "png": {
+            "width": 1440,
+            "height": 688
+          }
+        }
+      ],
+      "browserId": "32cd88b5-1565-4779-a1ed-ee1e2d3324cd",
+      "version": {
+        "protocolVersion": "1.3",
+        "product": "Chrome/151.0.7922.108",
+        "revision": "@4744b886309d987d292e43232776d2206cccb13d",
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+        "jsVersion": "15.1.206.16"
+      },
+      "sdkReply": {},
+      "rawReply": {},
+      "windowBefore": {
+        "windowId": 1377543776,
+        "bounds": {
+          "left": 0,
+          "top": 0,
+          "width": 1440,
+          "height": 775,
+          "windowState": "normal"
+        }
+      },
+      "boundsReply": {},
+      "windowAfter": {
+        "bounds": {
+          "left": 0,
+          "top": 0,
+          "width": 1440,
+          "height": 775,
+          "windowState": "normal"
+        }
+      },
+      "cleanup": {
+        "id": "32cd88b5-1565-4779-a1ed-ee1e2d3324cd",
+        "status": "stopped",
+        "startedAt": "2026-09-08T12:26:19.020263Z",
+        "finishedAt": "2026-09-08T12:26:24.614358Z"
+      },
+      "finishedAt": "2026-09-08T12:26:25.007Z"
+    },
+    "resizable": {
+      "startedAt": "2026-09-08T12:27:05.575Z",
+      "scope": "One disposable cloud browser with allowResizing:true; synthetic data URL; no model requests",
+      "samples": [
+        {
+          "label": "before",
+          "js": {
+            "width": 780,
+            "height": 493,
+            "dpr": 1.25,
+            "visualWidth": 780,
+            "documentWidth": 780,
+            "media": false,
+            "css": "\" DESKTOP\""
+          },
+          "layout": {
+            "layoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 780,
+              "clientHeight": 493
+            },
+            "visualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 780,
+              "clientHeight": 493,
+              "scale": 1,
+              "zoom": 1
+            },
+            "contentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 780,
+              "height": 493
+            },
+            "cssLayoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 780,
+              "clientHeight": 493
+            },
+            "cssVisualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 780,
+              "clientHeight": 493,
+              "scale": 1,
+              "zoom": 1
+            },
+            "cssContentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 780,
+              "height": 493
+            }
+          },
+          "png": {
+            "width": 780,
+            "height": 493
+          }
+        },
+        {
+          "label": "sdk-mobile",
+          "js": {
+            "width": 390,
+            "height": 844,
+            "dpr": 1.25,
+            "visualWidth": 390,
+            "documentWidth": 390,
+            "media": true,
+            "css": "\" MOBILE\""
+          },
+          "layout": {
+            "layoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 390,
+              "clientHeight": 844
+            },
+            "visualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 390,
+              "clientHeight": 844,
+              "scale": 1,
+              "zoom": 1
+            },
+            "contentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 390,
+              "height": 844
+            },
+            "cssLayoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 390,
+              "clientHeight": 844
+            },
+            "cssVisualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 390,
+              "clientHeight": 844,
+              "scale": 1,
+              "zoom": 1
+            },
+            "cssContentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 390,
+              "height": 844
+            }
+          },
+          "png": {
+            "width": 390,
+            "height": 844
+          }
+        },
+        {
+          "label": "raw-desktop",
+          "js": {
+            "width": 390,
+            "height": 844,
+            "dpr": 1.25,
+            "visualWidth": 390,
+            "documentWidth": 390,
+            "media": true,
+            "css": "\" MOBILE\""
+          },
+          "layout": {
+            "layoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 390,
+              "clientHeight": 844
+            },
+            "visualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 390,
+              "clientHeight": 844,
+              "scale": 1,
+              "zoom": 1
+            },
+            "contentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 390,
+              "height": 844
+            },
+            "cssLayoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 390,
+              "clientHeight": 844
+            },
+            "cssVisualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 390,
+              "clientHeight": 844,
+              "scale": 1,
+              "zoom": 1
+            },
+            "cssContentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 390,
+              "height": 844
+            }
+          },
+          "png": {
+            "width": 390,
+            "height": 844
+          }
+        },
+        {
+          "label": "window-bounds",
+          "js": {
+            "width": 390,
+            "height": 844,
+            "dpr": 1.25,
+            "visualWidth": 390,
+            "documentWidth": 390,
+            "media": true,
+            "css": "\" MOBILE\""
+          },
+          "layout": {
+            "layoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 390,
+              "clientHeight": 844
+            },
+            "visualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 390,
+              "clientHeight": 844,
+              "scale": 1,
+              "zoom": 1
+            },
+            "contentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 390,
+              "height": 844
+            },
+            "cssLayoutViewport": {
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 390,
+              "clientHeight": 844
+            },
+            "cssVisualViewport": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "pageX": 0,
+              "pageY": 0,
+              "clientWidth": 390,
+              "clientHeight": 844,
+              "scale": 1,
+              "zoom": 1
+            },
+            "cssContentSize": {
+              "x": 0,
+              "y": 0,
+              "width": 390,
+              "height": 844
+            }
+          },
+          "png": {
+            "width": 390,
+            "height": 844
+          }
+        }
+      ],
+      "browserId": "eaa5bca9-37cc-4493-a8c1-d7d84364bbf3",
+      "version": {
+        "protocolVersion": "1.3",
+        "product": "Chrome/151.0.7922.108",
+        "revision": "@4744b886309d987d292e43232776d2206cccb13d",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+        "jsVersion": "15.1.206.16"
+      },
+      "sdkReply": {},
+      "rawReply": {},
+      "windowBefore": {
+        "windowId": 1377543776,
+        "bounds": {
+          "left": 10,
+          "top": 10,
+          "width": 780,
+          "height": 580,
+          "windowState": "normal"
+        }
+      },
+      "boundsReply": {},
+      "windowAfter": {
+        "bounds": {
+          "left": 10,
+          "top": 10,
+          "width": 390,
+          "height": 844,
+          "windowState": "normal"
+        }
+      },
+      "cleanup": {
+        "id": "eaa5bca9-37cc-4493-a8c1-d7d84364bbf3",
+        "status": "stopped",
+        "startedAt": "2026-09-08T12:27:06.021051Z",
+        "finishedAt": "2026-09-08T12:27:10.914392Z"
+      },
+      "finishedAt": "2026-09-08T12:27:11.302Z"
+    }
+  },
+  "original_screenshots": {
+    "candidate": [
+      {
+        "width": 1440,
+        "height": 679,
+        "count": 167
+      }
+    ],
+    "reference": [
+      {
+        "width": 1440,
+        "height": 654,
+        "count": 153
+      }
+    ]
+  },
+  "cloud_source": [
+    {
+      "path": "backend/app/endpoints/api/v2/browsers/views.py",
+      "sha256": "0fa630ca228e996375c40f03775720a42ab4e519d089c9abd0de4870ee1fcf95"
+    },
+    {
+      "path": "backend/common/services/browser/service.py",
+      "sha256": "24d1a026f95962d7be9e17898a9827c84a79930596e6ddd29bc1faab37395400"
+    },
+    {
+      "path": "backend/app/endpoints/api/v3/deps.py",
+      "sha256": "1dcfeb866178ebfd4c226afefc1a4b37862a6ee84aa2921c6545710d6cbad191"
+    }
+  ],
+  "cloud_checkout_sha": "cb0b2c7338fd4f164ad36ed15321d94e7fcf678d",
+  "source_probe_sha256": {
+    "cloud-viewport-probe.mjs": "5a994ce8f068469883358594d5730af9a6fb0f15974c57d2b861917f16be5a94",
+    "cloud-viewport-resizable-probe.mjs": "43e40f8035f5d22e54ff68e391c00cabba66925d3291dcb2e8f290a0b4129ce5"
+  },
+  "limits": [
+    "Two sequential sessions, one per condition; no repeated-session variance estimate.",
+    "Initial viewport and fingerprint properties differ; no isolated stealth or live-site performance estimate.",
+    "No model or judge inference, no task-specific behavior, no original outcome replaced.",
+    "Adapter option tested locally against intercepted Cloud requests; the live probes used the same creation JSON directly."
+  ],
+  "verification": {
+    "node": "v22.23.2",
+    "adapter_tests": {
+      "passed": 10,
+      "failed": 0,
+      "command": "BU_EVAL_PYTHON=<Python 3.12> node --test --test-concurrency=1 test/eval.test.mjs",
+      "log_sha256": "3af80546d96142fc8b2f04085699319178ee665df8ec5fa53ab029883b4eea63"
+    },
+    "docs_build": "passed",
+    "git_diff_check": "passed",
+    "unchanged_since_frozen_runtime": [
+      "src/",
+      "package.json",
+      "package-lock.json"
+    ],
+    "source_sha256": {
+      "eval/run.mjs": "3a1cc61740bbe0a10f91e07b58cea1f14ef138ce3d48a53d5e3fc3749287f218",
+      "test/eval.test.mjs": "ae7d311dadc99043c44a9ef292d751cdab0044c48790eef70a6b26f33ae74ed9"
+    }
+  },
+  "probe_screenshot_sha256": {
+    "cloud-viewport-window-bounds.png": "161c2203a793160054f185d096fe9b611140bb8bdcbee639b95db5bbae66cdd3",
+    "cloud-viewport-resizable-window-bounds.png": "c9408def4ebab118e0947bcf9a00d55867464d81a77cc4da9e13da92b8d300eb",
+    "cloud-viewport-raw-desktop.png": "161c2203a793160054f185d096fe9b611140bb8bdcbee639b95db5bbae66cdd3",
+    "cloud-viewport-resizable-raw-desktop.png": "c9408def4ebab118e0947bcf9a00d55867464d81a77cc4da9e13da92b8d300eb",
+    "cloud-viewport-resizable-sdk-mobile.png": "c9408def4ebab118e0947bcf9a00d55867464d81a77cc4da9e13da92b8d300eb",
+    "cloud-viewport-before.png": "161c2203a793160054f185d096fe9b611140bb8bdcbee639b95db5bbae66cdd3",
+    "cloud-viewport-sdk-mobile.png": "161c2203a793160054f185d096fe9b611140bb8bdcbee639b95db5bbae66cdd3",
+    "cloud-viewport-resizable-before.png": "4010f6590da322d8f22482b1426ad1af9f45080b67d77ff9f7a2125b8dc89429"
+  }
+}

@@ -12,6 +12,10 @@ The reliability cohorts at `a7fe3d4` predate this archive correction. Their visi
 
 `task_timeout_seconds` accepts 1–7,200. The platform must allow an additional 90 seconds, and browser lifetime must exceed the task budget by 30 seconds. Defaults remain 1,700 seconds and a 60-minute browser.
 
+For viewport-changing tasks, `browser_allow_resizing: true` passes `allowResizing: true` to Browser Use Cloud. Omission preserves the existing provider request; explicit false disables resizing. Non-boolean values fail before provisioning. The option remains in the recorded options and configuration hash.
+
+This changes the browser environment, not the agent loop. In the September 8 synthetic-page probe, default Cloud browsers acknowledged resize commands without changing their viewport. Enabling resizing made 390×844 layout, screenshots and media queries work. It also changed the initial viewport despite the same requested screen dimensions, and reported DPR still differed from the emulation request. Cloud documents reduced stealth with this option. Measure actual geometry; do not infer mobile-device fidelity or equal site access. Freeze the same setting in comparison arms and report the environment change. It is not enabled in the original confirmation cohorts. [Probe evidence](../docs/confirmation3-trace-audit.md#cloud-resizing-is-an-explicit-provisioning-capability).
+
 ## Local contract tests
 
 ```sh
