@@ -70,15 +70,15 @@ Two candidate SDK cleanup errors were recorded. No claim of complete browser-lif
 
 Both 60-task Luna cohorts finished on September 8 UTC. All 120 assigned outcomes are retained. Each arm has one provider-failure runner zero without an actual judgment; both workflows consequently concluded `failure`. The two missing judgments concern different tasks, leaving 58 shared actual judgments.
 
-| Measure | Reference `b430a91` | Candidate `0baa51d` |
-| --- | ---: | ---: |
-| Mean score / 100, all 60 assigned tasks | 58.45 | 59.63 |
-| Actual judgments | 59 | 59 |
-| Recorded agent inference cost, all assigned tasks | $19.56921285 | $19.30596715 |
-| Recorded agent inference cost, 58 shared judgments | $18.98211235 | $19.04315836 |
-| Compactions / tasks that compacted | 22 / 21 | 19 / 19 |
-| SDK-recorded inference retries | 0 | 1 |
-| Tasks with SDK cleanup errors | 2 | 2 |
+| Measure                                            | Reference `b430a91` | Candidate `0baa51d` |
+| -------------------------------------------------- | ------------------: | ------------------: |
+| Mean score / 100, all 60 assigned tasks            |               58.45 |               59.63 |
+| Actual judgments                                   |                  59 |                  59 |
+| Recorded agent inference cost, all assigned tasks  |        $19.56921285 |        $19.30596715 |
+| Recorded agent inference cost, 58 shared judgments |        $18.98211235 |        $19.04315836 |
+| Compactions / tasks that compacted                 |             22 / 21 |             19 / 19 |
+| SDK-recorded inference retries                     |                   0 |                   1 |
+| Tasks with SDK cleanup errors                      |                   2 |                   2 |
 
 Candidate minus reference over all 60 assigned tasks is **+1.18 points**. Raw task differences are positive on 28, zero on 7, and negative on 25; these signs use no calibrated tie margin. The paired task-bootstrap 95% interval is **[−8.08, +10.22]**, with a one-sided 95% lower bound of **−6.55**. This does **not** clear the −3-point noninferiority margin. Over the 58 shared actual judgments, the delta is **+0.36**, interval **[−8.72, +9.05]**, and lower bound **−7.24**. Missing actual judgments also make confirmation preliminary.
 
@@ -108,14 +108,35 @@ The fresh plan contains all four arms, exact task IDs and hashes, full platform/
 
 All four arms were dispatched once at 04:02 UTC on September 8, after the plan was pushed and the exact workflow SHA and latest smoke were rechecked. The earlier extraction-only Luna workflow subsequently completed successfully; its outcomes were not substituted into confirmation.
 
-| Benchmark | Reference execution | Candidate execution |
-| --- | --- | --- |
-| Hard106 | [34185574950](https://github.com/browser-use/new-eval-platform/actions/runs/34185574950) | [34185576664](https://github.com/browser-use/new-eval-platform/actions/runs/34185576664) |
-| Luna60 | [34185578184](https://github.com/browser-use/new-eval-platform/actions/runs/34185578184) | [34185579665](https://github.com/browser-use/new-eval-platform/actions/runs/34185579665) |
+| Benchmark | Reference execution                                                                      | Candidate execution                                                                      |
+| --------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Hard106   | [34185574950](https://github.com/browser-use/new-eval-platform/actions/runs/34185574950) | [34185576664](https://github.com/browser-use/new-eval-platform/actions/runs/34185576664) |
+| Luna60    | [34185578184](https://github.com/browser-use/new-eval-platform/actions/runs/34185578184) | [34185579665](https://github.com/browser-use/new-eval-platform/actions/runs/34185579665) |
 
-Confirmation is ongoing. Partial scores do not establish parity, and the selected runtime remains unchanged during execution.
+The Hard pair is complete; Luna confirmation is ongoing. Partial Luna scores do not establish parity, and the selected runtime remains unchanged during execution.
 
 An [interim trace audit](./confirmation-trace-audit.md) separates observed evidence-fidelity failures from delivery, compaction, and judge interpretation. It also records a subsequently fixed generic provider-error recovery gap. That later patch does not change the candidate or replace any outcomes in these four confirmation runs.
+
+### Complete fresh Hard comparison
+
+Both Hard workflows finished on September 8 UTC with all 212 actual judgments. The reference workflow concluded `failure` because one real judge verdict was classified `runtime-failure`; its rubric and checked evidence are present. The candidate workflow succeeded.
+
+| Measure                        | Reference `58ed778` | Candidate `f41c5b7` |
+| ------------------------------ | ------------------: | ------------------: |
+| Passes / assigned tasks        |              79/106 |              89/106 |
+| Actual judgments               |                 106 |                 106 |
+| Recorded agent inference cost  |         $117.866279 |         $131.890341 |
+| Median steps                   |                  30 |                  29 |
+| Median agent duration, seconds |            231.3265 |            219.4085 |
+| Tasks with SDK cleanup errors  |                   1 |                   0 |
+
+Candidate minus reference is **+9.43 percentage points**, with 14 gains, 88 ties, and 4 losses. The paired 20,000-resample 95% interval is **[+1.89, +16.98]**, with a one-sided 95% lower bound of **+2.83**. This fresh Hard comparison clears the prespecified −3-point noninferiority margin. The candidate is two tasks below the historical 91/106 target, also within the 3-point tolerance. It does not set a new historical peak or establish public SOTA. Luna must still satisfy its separate conditions before claiming the two-benchmark goal.
+
+The candidate incurred more recorded agent inference cost in this pair. The duration medians are descriptive; this is not an isolated speed or token-efficiency experiment. Costs exclude judge, browser, runner, and unreported usage. There were no successful candidate compactions or recorded SDK inference retries in this Hard cohort, so this result does not demonstrate gains from either mechanism.
+
+An initial local reporting rule incorrectly treated every `runner-no-result` label as a missing judgment. Candidate `6dpbhs` has that label, but its downloaded artifact contains a real 17.77-second Laith judgment, populated rubric, checked task evidence, and a final response explaining the unresolved historical puzzle. The classifier now distinguishes synthetic runner zeros by their absent rubric rather than the failure label alone. Its official zero never changed. All 106 paired Hard judgments are included. The three provider-failure Luna zeros currently lack actual rubrics and remain missing judgments.
+
+[Complete per-task evidence, controls, costs and uncertainty](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation1-hard.json). Both SDKs were frozen before dispatch. The difference bundles runtime, prompt, and dependency changes; it does not isolate their individual causal effects. The historical reference itself has now scored 91, 84, and 79 in distinct live cohorts, so historical movement cannot be attributed solely to new SDK code.
 
 ## Compatibility and rollback
 

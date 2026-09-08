@@ -20,6 +20,8 @@ There are judge-evidence limits. In `bub2-016`, the judge could not corroborate 
 
 ## Generalized next experiments
 
+The complete Hard comparison has four losses. Two content failures were also inspected in both arms: `6gvwrd` uses an agent-written prose regex to fill brand fields, producing description fragments as brand names; `mb5m9j` delivers 76 mobile rows with 10 provider-logo placeholders and 30 null plan names. These are field-validation defects despite successful browsing and JSON delivery. The retailer reference and candidate both produced 188 products; the candidate judge's broader inventory-coverage complaint is not independently established here. The other two losses are judge-classified access blocks and are not yet a causal diagnosis. [Full Hard comparison](./iteration-protocol.md#complete-fresh-hard-comparison).
+
 These observations motivate experiments, not benchmark-specific rules:
 
 - Keep raw observed values separate from interpreted states and derived labels. Generate final tables from retained records instead of manually reconstructing the fields.
