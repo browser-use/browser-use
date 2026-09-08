@@ -1,6 +1,6 @@
 # Delivery review experiment
 
-This is an optional evaluation policy using the SDK's existing `validateResult` hook. It is not enabled by default and does not add an SDK parameter, a second model, a new tool or a new agent loop. No live quality result exists at preparation.
+This is an optional evaluation policy using the SDK's existing `validateResult` hook. It is not enabled by default and does not add an SDK parameter, a second model, a new tool or a new agent loop. The two diagnostic arms have been dispatched once; no completed quality result is available at this status check.
 
 ## Hypothesis
 
@@ -29,3 +29,14 @@ The purpose is to observe whether the checkpoint is reached, whether retained so
 The exact SDK is frozen at `5c4c9ce7b7402c0ed6485516f18fc3a70a9e2370`. Both arms use that same commit. [Frozen inputs and audit requirements](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/delivery-review-plan.json). The plan is retained before either dispatch. Any later full confirmation must retain the original historical targets, paired uncertainty procedure and three-point margin.
 
 [Local verification and source hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/delivery-review-verification.json).
+
+## Original dispatches
+
+Both prepare jobs succeeded. Both task jobs were executing at the status check retained in [the dispatch record](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/delivery-review-dispatch.json). These are the original runs; observation delays do not authorize replacement dispatches.
+
+| Arm | GitHub workflow | Laminar evaluation |
+| --- | --- | --- |
+| Review disabled | [34206486851](https://github.com/browser-use/new-eval-platform/actions/runs/34206486851) | `574fb8df-19e1-4393-a8a4-2d23757df88b` |
+| Review enabled | [34206488995](https://github.com/browser-use/new-eval-platform/actions/runs/34206488995) | `91f081c6-4f92-4133-9930-8a60fa832b6b` |
+
+No adoption, improvement or parity conclusion follows from successful setup.

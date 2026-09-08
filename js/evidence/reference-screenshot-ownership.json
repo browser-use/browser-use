@@ -1,0 +1,56 @@
+{
+  "verified_at": "2026-09-08T08:58:18.229424+00:00",
+  "scope": "Future reference adapter preparation only. Existing evaluation results remain unchanged.",
+  "arms": {
+    "hard": {
+      "historical_sdk_sha": "58ed778b575f8a1c13479a0552ddadc38eea03bc",
+      "derived_adapter_sha": "769ea148382cb9094662188a593b0410f6e9f0d5",
+      "branch": "codex/hard-reference-evidence-k7m2",
+      "runtime_tree": "e5cd323418926388b1fcf0a0cf5102daf43e8157",
+      "runtime_unchanged": true,
+      "dependencies_unchanged": true,
+      "lock_sha256": "c6694c15c7ab43eba1ae55da26553f3a00c13156896269e63aa631363e41d007",
+      "only_capture_storage_and_inventory_changed": true,
+      "adapter_tests_before": {
+        "passed": 3,
+        "failed": 1
+      },
+      "adapter_tests_after": {
+        "passed": 4,
+        "failed": 0
+      },
+      "typecheck": "passed",
+      "test_scope": "Real isolated Chrome, scripted model, no paid model requests. Agent deletes its screenshots directory after an actual capture; captured bytes and artifact registration survive. Checks telemetry completion and one browser stop.",
+      "logs": {
+        "before": "c1587d6c20da84845d128f370c73bb3b5eb7c6f61e5660de6790b2b8a2b22097",
+        "after": "13e2f7fa0b352a942ef00b769e49196e81d5cd8cfae95062caa4add29313a01f"
+      },
+      "findings_renderer_unchanged": null
+    },
+    "luna": {
+      "historical_sdk_sha": "b430a91891e23f5ffb9ca816e5cbe63e73d2a248",
+      "derived_adapter_sha": "c3f7fac2d8a46a3801e06d89a3c3c9b1343db79e",
+      "branch": "codex/luna-reference-evidence-k7m2",
+      "runtime_tree": "fd35d227ed80c37626310f42d736a58780f87b68",
+      "runtime_unchanged": true,
+      "dependencies_unchanged": true,
+      "lock_sha256": "7ab8ce4c0dd453995b211d1fff5fc61b43242742a02a064a88c9dfde15e86508",
+      "only_capture_storage_and_inventory_changed": true,
+      "adapter_tests_before": {
+        "passed": 4,
+        "failed": 1
+      },
+      "adapter_tests_after": {
+        "passed": 5,
+        "failed": 0
+      },
+      "typecheck": "passed",
+      "test_scope": "Real isolated Chrome, scripted model, no paid model requests. Agent deletes its screenshots directory after an actual capture; captured bytes and artifact registration survive. Checks telemetry completion and one browser stop.",
+      "logs": {
+        "before": "a91a2417b00b076dc0adaf921c55a523b666b946d82ffbb2c0bb0f56f54a678b",
+        "after": "09e7f1f651855fc2edd929a5334d2e08085ce132f9ba1b2059b62c500ac73857"
+      },
+      "findings_renderer_unchanged": true
+    }
+  }
+}
