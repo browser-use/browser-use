@@ -1,0 +1,89 @@
+{
+  "scope": "Supplemental audit of original submitted artifacts; original judgments unchanged.",
+  "control": {
+    "scope": "Original control artifacts. No scraper network code is executed and no submitted artifact changed.",
+    "scripts": [
+      {
+        "path": "make_xlsx.py",
+        "syntax": "passed",
+        "sha256": "264b8ba9a8e866a0e537ca4f89f8617b7bee9d904d32ce170d865274e5820a5b"
+      },
+      {
+        "path": "scrape_upcoming_projects.py",
+        "syntax": "passed",
+        "sha256": "4f788ba5f8bb63491be3ca6149ba552bca74cee8f42ee263b62a3f64bed11804"
+      }
+    ],
+    "workbook_regeneration": {
+      "status": "passed",
+      "scope": "Reviewed generator executed on copied original data in a disposable directory. All seven ZIP entry payloads byte-equal; ZIP timestamp bytes excluded. Scraper not executed."
+    },
+    "rows": 915,
+    "rows_by_platform": {
+      "Kickstarter": 334,
+      "Gamefound": 581
+    },
+    "with_websites_by_platform": {
+      "Kickstarter": 139,
+      "Gamefound": 0
+    },
+    "gamefound_date_added_values": {
+      "2026-09-08": 581
+    },
+    "all_workbook_rows_equal_json": true,
+    "limitations": [
+      "Regenerating the workbook from saved data does not prove live scraping, source completeness, or correctness of Date Added.",
+      "Original judgment remains 0/1.",
+      "Observed date was substituted for every Gamefound first-appearance date; report disclosed fallback."
+    ]
+  },
+  "candidate": {
+    "scope": "Original candidate artifacts. No scraper network code executed and no submitted artifact changed.",
+    "scripts": [
+      {
+        "path": "build_report.js",
+        "sha256": "b1b20f554124fbd377db2ed5a1ee556a1f872c0ed183bc4a4f36ff260e2a8319",
+        "syntax": "passed"
+      },
+      {
+        "path": "scraper_browseruse.js",
+        "sha256": "73e841b0a0d3bb5ee01112cd6805157fad177677a173a03c009878116367a180",
+        "syntax": "passed"
+      }
+    ],
+    "workbook_regeneration": {
+      "status": "passed",
+      "scope": "Reviewed builder executed on copied original data in a disposable directory. JSON rows and notes identical. Seven of eight ZIP entry payloads identical; Run Notes generation timestamp differs. Scraper not executed.",
+      "equal_zip_entries": [
+        "[Content_Types].xml",
+        "_rels/.rels",
+        "xl/workbook.xml",
+        "xl/_rels/workbook.xml.rels",
+        "xl/styles.xml",
+        "xl/worksheets/sheet1.xml",
+        "xl/worksheets/_rels/sheet1.xml.rels"
+      ]
+    },
+    "rows": 701,
+    "rows_by_platform": {
+      "Kickstarter": 120,
+      "Gamefound": 581
+    },
+    "with_websites_by_platform": {
+      "Kickstarter": 0,
+      "Gamefound": 0
+    },
+    "all_workbook_rows_equal_json": true,
+    "lost_inventory": {
+      "event158": "Model checkpoint saved pagesDone/count/total, not ksProjectsRaw records; long loop printed 889 records at page75.",
+      "event159": "120-second cell timeout kills worker and loses that in-memory array.",
+      "event162": "Model fetches first ten pages again, saves 120 records and later delivers that subset.",
+      "limitation": "Printed count does not independently certify 889 unique valid source records. No raw array checkpoint survives for the larger intermediate set."
+    },
+    "limitations": [
+      "Native bash used eight times, including direct heredoc delivery. Native read/write/edit not selected.",
+      "Both scripts parse and the workbook regenerates; live scrape correctness and complete coverage unproven.",
+      "Original judgment remains 0/1. No score gain or causal degradation established by this single pair."
+    ]
+  }
+}

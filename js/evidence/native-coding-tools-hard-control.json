@@ -1,0 +1,149 @@
+{
+  "checked_at": "2026-09-08T14:01:19.182145+00:00",
+  "scope": "Original native coding-tools capability diagnostic; not a ranking or full-benchmark result.",
+  "manifest": {
+    "config_hash": "f58431969f859ff5bccda59d43cd101a7ce734ce17f2f4d8e91a221e90ca0f4f",
+    "datapoint_id": "2c4f7032-fee3-49d2-a014-7f84fc49e949",
+    "dataset_sha256": "62ca711571e3337234efb54e7708d5768dec8c849bb8a2a54e010c4e31e988c4",
+    "evaluation_id": "23d9c2f0-9cda-4f3e-98d7-e574ab113853",
+    "github_run_attempt": "1",
+    "github_run_id": "34234054610",
+    "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34234054610",
+    "harness": "pi-browser-use-next",
+    "judge": "laith",
+    "judge_model": "gpt-5.5",
+    "judge_options": {},
+    "max_steps": 1000,
+    "model": "gpt-5.5",
+    "options": {
+      "browser_timeout_minutes": 60,
+      "max_context_chars": 800000,
+      "proxy_country_code": "us",
+      "reasoning_effort": "medium",
+      "research_tools": false,
+      "task_timeout_seconds": 1700
+    },
+    "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "schema_version": 1,
+    "target_repo": "browser-use/bu-pi",
+    "target_sha": "ef19eac636da4f12d0a567590b49059adf41ac7d",
+    "task_id": "v18kgy",
+    "timeout_minutes": 30
+  },
+  "workflow": {
+    "conclusion": "success",
+    "status": "completed",
+    "url": "https://github.com/browser-use/new-eval-platform/actions/runs/34234054610"
+  },
+  "actual_judgment": {
+    "audit_coverage": null,
+    "duration_seconds": 40.243,
+    "evidence_checked": [
+      "agent_outputs/README_upcoming_projects.md",
+      "agent_outputs/upcoming_projects_data.json",
+      "agent_outputs/ks_projects.json",
+      "agent_outputs/gf_projects.json",
+      "agent_outputs/scrape_upcoming_projects.py",
+      "agent_outputs/make_xlsx.py",
+      "agent_outputs/upcoming_tabletop_projects.xlsx",
+      "agent_steps.txt",
+      "final_message.txt"
+    ],
+    "failure_class": "site-blocked",
+    "model": "gpt-5.5",
+    "reason": "The agent understood the goal and produced an Excel workbook plus scraper files, but the saved evidence shows the required report is substantially incomplete: Kickstarter had 2,872 reported upcoming tabletop records but only 334 were captured, Gamefound has 581 rows but zero creator website values, only 139 total rows have creator websites, and Gamefound Date Added values are just the run observation date rather than when projects first appeared. The agent documented unresolved HTTP 429/Cloudflare blocking, so the outcome does not satisfy the full coverage and About-page website requirements.",
+    "replicate_scores": [],
+    "rubric": {
+      "correctIntent": true,
+      "evidenceBackedOutcome": false,
+      "noUnresolvedBlocker": false,
+      "requirementsSatisfied": false
+    },
+    "score": 0.0,
+    "score_range": 0,
+    "score_stddev": 0,
+    "status": "fail"
+  },
+  "metrics": {
+    "cache_write_tokens": 0,
+    "cached_input_tokens": 1392128,
+    "duration_seconds": 648.139,
+    "input_tokens": 131580,
+    "output_tokens": 17860,
+    "steps": 44,
+    "total_cost": 1.889764,
+    "total_tokens": 1541568
+  },
+  "sdk_stop_reason": "completed",
+  "compactions": 0,
+  "provider_retries": 0,
+  "screenshot_count": 41,
+  "registered_images_retained": true,
+  "screenshot_errors": 1,
+  "screenshot_error_details_retained": [
+    {
+      "message": "Active page target unavailable after cell.",
+      "tool_call_id": "call_fTKV1SCYoqGbkMTaqr7wIzMG|fc_0c70ed26555b9d7e016aa012f427c087d2ae43206df5e8c119"
+    }
+  ],
+  "native_tool_use": {
+    "enabled": false,
+    "counts": {},
+    "failures": [],
+    "writes": [],
+    "bash_commands": [],
+    "interpretation": "Actual selections only. Tool availability does not establish a correct script, regeneration or factual coverage."
+  },
+  "javascript_tools": 42,
+  "failed_javascript_tools": 3,
+  "tool_errors": [
+    {
+      "event_index": 79,
+      "tool_call_id": "call_bmZ7zTY45PO8s52uZykpkaZr|fc_0c70ed26555b9d7e016aa0127f3f7487d28bd44a084d795b29",
+      "text": "ReferenceError: global is not defined\n    at <anonymous>:1:15\n    at Session.post (node:inspector:142:22)\n    at evaluator.post.objectId (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/worker.js:179:23)\n    at new Promise (<anonymous>)\n    at evaluate (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/worker.js:178:52)\n    at process.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/worker.js:247:27)\n    at process.emit (node:events:519:28)\n    at emit (node:internal/child_process:949:14)\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/v18kgy/agent_outputs/.browser-use/cells/3ae2e642-6e22-4606-aa8c-ed4efaaa0453.txt"
+    },
+    {
+      "event_index": 83,
+      "tool_call_id": "call_rqWH855kpfO8NEriXH08dh1w|fc_0c70ed26555b9d7e016aa012834a1487d293eaa391f36e91cc",
+      "text": "ReferenceError: fetch is not defined\n    at <anonymous>:1:9\n    at Session.post (node:inspector:142:22)\n    at evaluator.post.objectId (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/worker.js:179:23)\n    at new Promise (<anonymous>)\n    at evaluate (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/worker.js:178:52)\n    at process.<anonymous> (file:///home/runner/work/new-eval-platform/new-eval-platform/target/dist/worker.js:247:27)\n    at process.emit (node:events:519:28)\n    at emit (node:internal/child_process:949:14)\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\nState reset: false. Actions may already have happened.\nPartial output: (no output)\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/v18kgy/agent_outputs/.browser-use/cells/80bafcee-b74f-4d73-851e-9ba7bb8d75b7.txt"
+    },
+    {
+      "event_index": 111,
+      "tool_call_id": "call_fTKV1SCYoqGbkMTaqr7wIzMG|fc_0c70ed26555b9d7e016aa012f427c087d2ae43206df5e8c119",
+      "text": "Cell exceeded 120000 ms. JavaScript state was reset; inspect the page before retrying actions.\nState reset: true. Actions may already have happened.\nPartial output: unique KS creators 327\nKS about batch 0 - 9 statuses 200,200,200,200,200,200,200,200,200,200\nKS about batch 10 - 19 statuses 200,200,200,200,200,200,200,200,200,200\nKS about batch 20 - 29 statuses 200,200,200,200,200,200,200,200,200,200\nKS about batch 30 - 39 statuses 200,200,200,200,200,200,200,200,200,200\nKS about batch 40 - 49 statuses 200,200,200,200,200,200,200,200,200,200\nKS about batch 50 - 59 statuses 200,200,200,200,200,200,200,200,200,200\nKS about batch 60 - 69 statuses 200,200,200,200,200,200,200,200,200,200\nKS about batch 70 - 79 statuses 200,200,200,200,200,200,200,200,200,200\nKS about batch 80 - 89 statuses 200,200,200,200,200,200,200,200,200,200\n\nCaptured output file: /home/runner/work/new-eval-platform/new-eval-platform/artifacts/v18kgy/agent_outputs/.browser-use/cells/b078ecc5-735e-4710-b882-003602a576f5.txt"
+    }
+  ],
+  "failed_tools_with_observation_target": 2,
+  "failed_tools_with_native_images": [],
+  "primary_targets": [
+    "3D933257C526260E1BDD27E606BC1074"
+  ],
+  "observation_targets": [
+    "3D933257C526260E1BDD27E606BC1074"
+  ],
+  "cells_observing_a_nonprimary_target": [],
+  "cleanup": {
+    "label": "native-coding-tools-hard-control",
+    "task_id": "v18kgy",
+    "github_run_id": 34234054610,
+    "checked_at": "2026-09-08T14:01:17.931761+00:00",
+    "id": "a354ccc6-d311-48ee-b9c6-7e30729178a2",
+    "status": "stopped",
+    "startedAt": "2026-09-08T13:47:44.554840Z",
+    "finishedAt": "2026-09-08T13:58:33.359907Z"
+  },
+  "integration_gate": true,
+  "limitations": [
+    "A smoke cannot establish either full-benchmark acceptance criterion.",
+    "Registered capture retention does not prove pixel timing; the observer remains asynchronous.",
+    "Capture errors and task quality require trace interpretation before full dispatch."
+  ],
+  "sha256": {
+    "manifest.json": "5f8894b5d87a36ce7e9152b7958f1c5d87b77db308fb1a72a3c636b5f548ccbd",
+    "result.json": "662943a267f0c81fb8e53263327f97eab279c36aebf564a6efe47d46b60e9695",
+    "judgment.json": "04bf2b862acdea3416f51642dad8c7f18ef118e2c086a9f00d9443ebb6a30ee0",
+    "events.jsonl": "519609a1832e8b11c867822c124cea4e0051c2d80b306529e4e879f23e21d358",
+    "final_message.txt": "a224ceb451c89309f0a2e6bcc5ebcd1f1b45b5b0aa746cd942359392923dddb0",
+    "sdk-result.json": "bd7a1075ca65ba820d4d245a5136eba97aac76b350ffd41eaf5fe19fea7885a5"
+  }
+}
