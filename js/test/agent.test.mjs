@@ -493,15 +493,49 @@ test('transient failed inference retries once without executing the failed respo
   }
 });
 
+test('temporary model access verification failure preserves prior work without replaying actions', async () => {
+  const s = await session([
+    call('javascript', { code: 'let deliveredRows = [{value:42}]; let mutations = 1;' }),
+    fauxAssistantMessage(fauxToolCall('javascript', { code: 'mutations++; deliveredRows = [];' }), {
+      stopReason: 'error',
+      errorMessage: 'Unable to verify model access right now. Please retry.',
+    }),
+    call('finish_from_js', { expression: 'JSON.stringify({rows:deliveredRows,mutations})' }),
+  ]);
+  try {
+    const result = await s.agent.run('Return the collected rows.');
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(JSON.parse(result.output), { rows: [{ value: 42 }], mutations: 1 });
+    assert.equal(result.providerRetries, 1);
+    assert.equal(s.faux.state.callCount, 3);
+  } finally {
+    await s.close();
+  }
+});
+
 test('provider recovery keeps original budgets and never becomes a repeated retry loop', async () => {
-  for (const scenario of ['steps', 'cost', 'cancel', 'permanent', 'repeated']) {
+  for (const scenario of [
+    'steps',
+    'cost',
+    'cancel',
+    'permanent',
+    'repeated',
+    'temporary-repeated',
+    'access-denied',
+  ]) {
+    const retryAllowed = scenario === 'repeated' || scenario === 'temporary-repeated';
     const controller = new AbortController();
     const failure = () =>
       fauxAssistantMessage(
         fauxToolCall('javascript', { code: "throw new Error('not executed')" }),
         {
           stopReason: 'error',
-          errorMessage: scenario === 'permanent' ? 'Invalid API key' : 'socket hang up',
+          errorMessage:
+            {
+              permanent: 'Invalid API key',
+              'temporary-repeated': 'Unable to verify model access right now. Please retry.',
+              'access-denied': 'You do not have access to this model.',
+            }[scenario] ?? 'socket hang up',
         },
       );
     const s = await session([failure(), failure(), call('finish', { result: 'must not run' })]);
@@ -527,11 +561,13 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
           cancel: 'cancelled',
           permanent: 'error',
           repeated: 'error',
+          'temporary-repeated': 'error',
+          'access-denied': 'error',
         }[scenario],
         scenario,
       );
-      assert.equal(result.providerRetries, scenario === 'repeated' ? 1 : 0, scenario);
-      assert.equal(s.faux.state.callCount, scenario === 'repeated' ? 2 : 1, scenario);
+      assert.equal(result.providerRetries, retryAllowed ? 1 : 0, scenario);
+      assert.equal(s.faux.state.callCount, retryAllowed ? 2 : 1, scenario);
       assert.equal(tools, 0, scenario);
       assert.equal(result.finishRepairs, 0, scenario);
       if (scenario === 'cost') assert.equal(result.usage.cost.total, 0.02);

@@ -25,6 +25,8 @@ const result = await agent.run('Find the requested information.', {
 - **Operation:** CDP command and element lookup deadline.
 - **Cell:** execution deadline. A stuck cell causes worker termination.
 - **Model:** connection setup plus the entire streamed response. A timeout gets at most one extra inference attempt per run, sharing the existing transient-stream retry budget. Partial tool calls never execute.
+
+The same single retry also handles the provider's explicit temporary message, `Unable to verify model access right now. Please retry.` A Luna evaluation encountered it after 38 turns and returned an error without delivering its collected listings. Recovery preserves the existing transcript and JavaScript state; it does not repeat prior browser actions. Invalid API keys and permanent model-access denials still fail immediately. The original time, step, cancellation, and cost limits remain in force, and a repeated temporary error does not start another retry loop. This later fix does not alter that recorded evaluation outcome or the commits already running in full evaluations.
 - **Compaction:** summary response deadline. Failure keeps the original context, disables further compaction for that run and emits a warning. The context guard still applies.
 - **Run:** aborts the model loop and active browser cell.
 

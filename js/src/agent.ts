@@ -307,7 +307,7 @@ export async function runAgent(
       if (
         failed?.role === 'assistant' &&
         failed.stopReason === 'error' &&
-        /stream ended before a terminal|Model stream exceeded|terminated|ECONNRESET|socket hang up/i.test(
+        /stream ended before a terminal|Model stream exceeded|terminated|ECONNRESET|socket hang up|Unable to verify model access right now\. Please retry\./i.test(
           failed.errorMessage ?? '',
         ) &&
         !checkBudgets(agent.state.messages, agent.state.systemPrompt) &&
