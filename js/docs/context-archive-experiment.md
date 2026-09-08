@@ -23,3 +23,14 @@ Files use exclusive names and mode 0600 under `.browser-use/context/`. Redaction
 Local fault tests check an omitted observation's survival, configured-secret redaction, reasoning/image/signature omission, tool error status, file permissions, repeated-compaction links, unchanged original messages, and original-context retention after a write failure. A scripted-model integration test runs the actual Pi loop and JavaScript worker: compaction deliberately omits an observed count, the agent reads it from the archive, and delivery succeeds without repeating the source action. Existing deadline tests check late summary rejection.
 
 These prove recovery capability under controlled conditions. They do not establish a remote score improvement. The running extraction-only cohorts are pinned to `4a09ee3` and do not contain this treatment. Any real-model diagnostic must be retained separately; full candidate selection and fresh confirmation still follow the [iteration protocol](./iteration-protocol.md).
+
+## Frozen diagnostic
+
+One paired diagnostic on `bub2-041` was dispatched after 81 local tests, typecheck and docs build passed. Both arms use Luna xhigh, Findings Luna xhigh, platform `ddc48ee93ea863c26d78c45a09760e4951b48a3d`, the full 3600-second/1000-turn/800000-character budgets, a US proxy and 70-minute browser, and one parallel task per arm. Workspace and temporary-provider-error fixes are identical in both arms. There are no replacement attempts.
+
+| Arm | SDK | Execution | Evaluation |
+| --- | --- | --- | --- |
+| Reference | `1f1952bbf98676e9995acde47949e3236c078e0d` | [34180143452](https://github.com/browser-use/new-eval-platform/actions/runs/34180143452) | `173b4a3f-a1d5-4913-85cb-ee1bc8631a7d` |
+| Archive | `0f99a63a9812cd59d267954fbcde170d277f22dc` | [34180148395](https://github.com/browser-use/new-eval-platform/actions/runs/34180148395) | `bd99a0f7-1454-4bb4-ae94-238b97f84829` |
+
+Pending checks: actual compaction, archive content, model retrieval from the archive, delivered source coverage, judgment, cost and cleanup. A run without archive retrieval does not validate that behavior, even if its score improves. This is one previously inspected task, not ranking evidence.
