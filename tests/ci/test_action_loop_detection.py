@@ -1,11 +1,17 @@
 """Tests for action loop detection — behavioral cycle breaking (PR #4)."""
 
+from unittest.mock import AsyncMock
+
+import pytest
+
 from browser_use.agent.service import Agent
 from browser_use.agent.views import (
 	ActionLoopDetector,
+	ActionResult,
 	PageFingerprint,
 	compute_action_hash,
 )
+from browser_use.browser import BrowserSession
 from browser_use.llm.messages import UserMessage
 from tests.ci.conftest import create_mock_llm
 
@@ -402,3 +408,124 @@ async def test_loop_detector_default_window_size():
 	agent = Agent(task='Test task', llm=llm)
 	assert agent.settings.loop_detection_enabled is True
 	assert agent.state.loop_detector.window_size == 20
+
+
+@pytest.fixture
+def loop_recording_agent(monkeypatch: pytest.MonkeyPatch) -> Agent:
+	"""Exercise the real batch executor without starting a browser or calling an LLM."""
+	agent = Agent(task='Test executed-action accounting', llm=create_mock_llm())
+	agent.browser_profile.wait_between_actions = 0
+	monkeypatch.setattr(BrowserSession, 'get_current_page_url', AsyncMock(return_value='https://example.test/form'))
+	return agent
+
+
+@pytest.mark.parametrize('results', [None, []])
+def test_loop_recording_ignores_plans_without_results(loop_recording_agent: Agent, results: list[ActionResult] | None):
+	"""Planning an action without executing it must not advance repetition statistics."""
+	agent = loop_recording_agent
+	agent.state.last_model_output = agent.AgentOutput.model_validate({'action': [{'click': {'index': 1}}]})
+	agent.state.last_result = results
+	agent._update_loop_detector_actions()
+	assert agent.state.loop_detector.recent_action_hashes == []
+
+
+@pytest.mark.parametrize('stop_reason', ['static', 'url', 'focus', 'error', 'exception', 'done', 'later_done'])
+async def test_loop_recording_excludes_unexecuted_batch_tail(
+	loop_recording_agent: Agent, monkeypatch: pytest.MonkeyPatch, stop_reason: str
+):
+	"""A real multi_act early exit must not count queued tools that were never called."""
+	agent = loop_recording_agent
+	first_action = {'click': {'index': 1}}
+	if stop_reason == 'static':
+		first_action = {'navigate': {'url': 'https://example.test/next'}}
+	elif stop_reason == 'done':
+		first_action = {'done': {'text': 'Finished', 'success': True}}
+
+	planned_actions = [first_action]
+	if stop_reason == 'later_done':
+		planned_actions.append({'done': {'text': 'Finished', 'success': True}})
+	planned_actions.append({'click': {'index': 99}})
+	agent.state.last_model_output = agent.AgentOutput.model_validate({'action': planned_actions})
+	if stop_reason == 'url':
+		monkeypatch.setattr(
+			BrowserSession,
+			'get_current_page_url',
+			AsyncMock(side_effect=['https://example.test/form', 'https://example.test/next']),
+		)
+
+	async def execute_action(**kwargs) -> ActionResult:
+		if stop_reason == 'focus':
+			agent.browser_session.agent_focus_target_id = 'new-target'
+		if stop_reason == 'exception':
+			raise ValueError('Tool execution failed')
+		if stop_reason == 'error':
+			return ActionResult(error='Tool execution failed')
+		if stop_reason == 'done':
+			return ActionResult(is_done=True, success=True, extracted_content='Finished')
+		return ActionResult(extracted_content='Action completed')
+
+	act = AsyncMock(side_effect=execute_action)
+	monkeypatch.setattr(agent.tools, 'act', act)
+	# One more false count for index 99 would trigger the first repetition nudge.
+	for _ in range(4):
+		agent.state.loop_detector.record_action('click', {'index': 99})
+	prior_hashes = list(agent.state.loop_detector.recent_action_hashes)
+
+	await agent._execute_actions()
+	agent._update_loop_detector_actions()
+
+	act.assert_awaited_once()
+	assert act.await_args is not None
+	assert act.await_args.kwargs['action'].model_dump(exclude_unset=True) == first_action
+	assert agent.state.last_result is not None and len(agent.state.last_result) == 1
+	expected_hashes = list(prior_hashes)
+	if stop_reason != 'done':
+		action_name, params = next(iter(first_action.items()))
+		expected_hashes.append(compute_action_hash(action_name, params))
+	assert agent.state.loop_detector.recent_action_hashes == expected_hashes
+	assert agent.state.loop_detector.get_nudge_message() is None
+
+
+@pytest.mark.parametrize('failure_point', ['before_first', 'before_second', 'after_first'])
+async def test_loop_recording_ignores_batch_bookkeeping_errors(
+	loop_recording_agent: Agent, monkeypatch: pytest.MonkeyPatch, failure_point: str
+):
+	"""A synthetic result from a page-state check must not stand in for an uncalled tool."""
+	agent = loop_recording_agent
+	agent.state.last_model_output = agent.AgentOutput.model_validate(
+		{'action': [{'click': {'index': index}} for index in (1, 2, 3)]}
+	)
+	url = 'https://example.test/form'
+	checks_before_failure = {'before_first': 0, 'before_second': 2, 'after_first': 1}[failure_point]
+	monkeypatch.setattr(
+		BrowserSession,
+		'get_current_page_url',
+		AsyncMock(side_effect=[url] * checks_before_failure + [ValueError('Could not inspect page state')]),
+	)
+	act = AsyncMock(return_value=ActionResult(extracted_content='Clicked element 1'))
+	monkeypatch.setattr(agent.tools, 'act', act)
+
+	await agent._execute_actions()
+	agent._update_loop_detector_actions()
+
+	expected_calls = 0 if failure_point == 'before_first' else 1
+	assert act.await_count == expected_calls
+	assert agent.state.last_result is not None and len(agent.state.last_result) == expected_calls + 1
+	assert agent.state.last_result[-1].error == 'ValueError: Could not inspect page state'
+	expected_hashes = [compute_action_hash('click', {'index': 1})] if expected_calls else []
+	assert agent.state.loop_detector.recent_action_hashes == expected_hashes
+
+
+async def test_loop_recording_keeps_all_executed_repetitions(loop_recording_agent: Agent, monkeypatch: pytest.MonkeyPatch):
+	"""Successful repeated tool calls still produce the existing advisory nudge."""
+	agent = loop_recording_agent
+	agent.state.last_model_output = agent.AgentOutput.model_validate({'action': [{'click': {'index': 1}}] * 5})
+	act = AsyncMock(return_value=ActionResult(extracted_content='Clicked element 1'))
+	monkeypatch.setattr(agent.tools, 'act', act)
+
+	await agent._execute_actions()
+	agent._update_loop_detector_actions()
+
+	assert act.await_count == 5
+	assert agent.state.loop_detector.recent_action_hashes == [compute_action_hash('click', {'index': 1})] * 5
+	assert agent.state.loop_detector.get_nudge_message() is not None
