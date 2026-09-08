@@ -254,20 +254,25 @@ jobs:
             cat result.txt
             echo "PASSED=$(grep '^PASSED=' result.txt | cut -d= -f2)" >> $GITHUB_ENV
             echo "TOTAL=$(grep '^TOTAL=' result.txt | cut -d= -f2)" >> $GITHUB_ENV
+            echo "SKIPPED=$(grep '^SKIPPED=' result.txt | cut -d= -f2)" >> $GITHUB_ENV
             echo "DETAILED_RESULTS=$(grep '^DETAILED_RESULTS=' result.txt | cut -d= -f2-)" >> $GITHUB_ENV
 
       - name: Print agent evaluation summary
         run: |
-          echo "Agent tasks passed: $PASSED / $TOTAL"
+          EXECUTED=$((TOTAL - SKIPPED))
+          echo "Agent tasks passed: $PASSED / $EXECUTED (skipped: $SKIPPED)"
 
       - name: Write agent evaluation summary to workflow overview
         run: |
-          if [ "$PASSED" = "$TOTAL" ]; then
+          EXECUTED=$((TOTAL - SKIPPED))
+          if [ "$EXECUTED" -eq 0 ]; then
+            COLOR="gray"
+          elif [ "$PASSED" = "$EXECUTED" ]; then
             COLOR="green"
           else
             COLOR="yellow"
           fi
-          echo "<h2>Agent Tasks Score: <span style='color:$COLOR;'>$PASSED/$TOTAL</span></h2>" >> $GITHUB_STEP_SUMMARY
+          echo "<h2>Agent Tasks Score: <span style='color:$COLOR;'>$PASSED/$EXECUTED passed</span> ($SKIPPED skipped)</h2>" >> $GITHUB_STEP_SUMMARY
 
       - name: Comment PR with agent evaluation results
         if: github.event_name == 'pull_request'
@@ -277,24 +282,28 @@ jobs:
           script: |
             const passed = parseInt(process.env.PASSED);
             const total = parseInt(process.env.TOTAL);
+            const skipped = parseInt(process.env.SKIPPED || '0');
+            const executed = total - skipped;
             const detailedResults = JSON.parse(process.env.DETAILED_RESULTS);
-            const score = `${passed}/${total}`;
-            const percentage = Math.round((passed / total) * 100);
+            const score = `${passed}/${executed}`;
+            const percentage = executed > 0 ? Math.round((passed / executed) * 100) : null;
 
-            // Fail the workflow if 0% pass rate
-            if (percentage === 0) {
-              core.setFailed(`Evaluation failed: 0% pass rate (${passed}/${total})`);
+            // Fail only when an executed task set has a 0% pass rate.
+            // A fork PR with no secrets has only skipped tasks and remains neutral.
+            if (executed > 0 && passed === 0) {
+              core.setFailed(`Evaluation failed: 0% pass rate (${passed}/${executed})`);
             }
 
             // Create detailed table
             let tableRows = '';
             detailedResults.forEach(result => {
-              const emoji = result.success ? '✅' : '❌';
-              const status = result.success ? 'Pass' : 'Fail';
+              const emoji = result.status === 'skipped' ? '⏭️' : result.success ? '✅' : '❌';
+              const status = result.status === 'skipped' ? 'Skipped' : result.success ? 'Pass' : 'Fail';
               tableRows += `| ${result.task} | ${emoji} ${status} | ${result.reason} |\n`;
             });
 
-            const comment = `## Agent Task Evaluation Results: ${score} (${percentage}%)
+            const percentageText = percentage === null ? 'no tasks executed' : `${percentage}%`;
+            const comment = `## Agent Task Evaluation Results: ${score} passed (${percentageText}; ${skipped} skipped)
 
             <details>
             <summary>View detailed results</summary>
