@@ -40,3 +40,13 @@ All four prepare jobs created their original Laminar evaluations. Results remain
 | luna-candidate | [34230012210](https://github.com/browser-use/new-eval-platform/actions/runs/34230012210) | `1037a431-3d9a-4979-930c-d9c258af7b10` |
 
 [Original dispatch inputs and IDs](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/evaluation-deadline-dispatch.json). Preserve each original handle until terminal; an observation timeout is not a reason to restart.
+
+## Candidate Hard diagnostic: complete
+
+The original candidate `mlgses` workflow completed successfully with an actual Laith **1/1** judgment. All frozen manifest, task, model/reasoning, budget and dependency-lock checks pass. The agent used **15 steps**, **111.927 seconds** and **$0.346486** recorded agent inference. Fourteen JavaScript calls succeeded; all fourteen evaluator screenshots are retained, with zero capture errors. The owned Cloud browser is independently confirmed stopped.
+
+The model dismissed onboarding dialogs, entered the rated puzzle UI, checked a guessed trending route that returned 404, returned to the rated workflow and played board moves through CDP mouse input. Original screenshot `014.jpg` and event 55 both show **Solved / Very good!**. The pass is retained, but neither establishes that this puzzle was first in a trending ranking. Its solution was read from the site's own stored puzzle state, so this is not evidence of independent chess reasoning.
+
+There was **no recorded tool timeout**. Consequently this run supports compatibility and delivered browser evidence, not a causal performance gain from the new synchronous execution deadline. The control and both Luna diagnostics remain pending at this snapshot. No full evaluation is selected yet.
+
+[Original judgment, manifest, errors, metrics, cleanup and hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/evaluation-deadline-smoke-hard-candidate.json).
