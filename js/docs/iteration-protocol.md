@@ -96,7 +96,17 @@ The latest recovery SDK `f41c5b7116ede9393696b67a166e38f91893163f` includes the 
 
 A bounded integration smoke on `bub2-060` completed at that exact SDK: [GitHub 34183301120](https://github.com/browser-use/new-eval-platform/actions/runs/34183301120), evaluation `3ed7037e-31b5-4153-9376-b16a226d3022`. It used 12 turns and 240 seconds with Luna xhigh and Findings Luna xhigh. Actual inference/browser execution produced eight verified PNG evidence images and a real **20/100** judgment. The final response explicitly described unfinished work; no task deliverable files were created. Recorded agent execution was 53.454 seconds, 11 steps and $0.01861405. Two screenshot warnings reported an unavailable active target: one after the initial clock/tab-list cell, the other after a failed attempt to open a workbook URL in a new tab. No SDK cleanup errors were recorded, and a separate Cloud API read confirmed that this smoke's browser was stopped. No compaction or inference retry occurred, so neither mechanism gains remote validation from this smoke. [Exact inputs and numeric evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/recovery-sdk-smoke.json).
 
-This smoke checks the current package and evaluation integration, not benchmark quality. It substitutes no outcomes into either full cohort. Full candidate selection and fresh matched confirmation remain outstanding.
+This smoke checks the current package and evaluation integration, not benchmark quality. It substitutes no outcomes into either full cohort.
+
+## Selected candidate and fresh confirmation
+
+On September 8 UTC, freeze SDK `f41c5b7116ede9393696b67a166e38f91893163f` for both fresh comparisons. Its generalized fixes have local fault-test coverage and the completed integration smoke above. Do not change the candidate during these cohorts. References remain `58ed778` for Hard and `b430a91` for Luna; historical targets and the prespecified −3-point margin remain unchanged.
+
+Selection occurred while three tasks in the earlier extraction-only Luna cohort were still pending: `bub2-054`, `bub2-056`, and `bub2-060`. Giving all three hypothetical scores of 100 produces a best possible exploratory one-sided 95% lower bound of −5.82 points versus the recorded strongest-reference rerun, or −6.45 versus the prior candidate. Neither can clear the −3-point margin. These are monotone upper bounds from the unfinished cohort, not final scores, substituted outcomes, a causal claim, or fresh confirmation. The old run continues and its complete results will be retained.
+
+The fresh plan contains all four arms, exact task IDs and hashes, full platform/SDK refs, model/reasoning, judge, budgets, and 12-job concurrency per arm. The final old tasks may overlap fresh dispatch; retain run times and this overlap. No task retries enter a cohort. Report all assigned outcomes, missing judgments, shared-judgment comparisons, costs, flips, and the same bootstrap uncertainty before claiming parity. [Frozen plan](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation1-plan.json).
+
+## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.
 
