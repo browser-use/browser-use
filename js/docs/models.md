@@ -15,7 +15,7 @@ Set your provider’s key in the environment:
 
 | Provider  | Model example                 | Environment variable |
 | --------- | ----------------------------- | -------------------- |
-| OpenAI    | `openai/gpt-5.5`              | `OPENAI_API_KEY`     |
+| OpenAI    | `openai/gpt-5.6-luna`         | `OPENAI_API_KEY`     |
 | Anthropic | `anthropic/claude-sonnet-4-6` | `ANTHROPIC_API_KEY`  |
 | Google    | `google/gemini-2.5-pro`       | `GEMINI_API_KEY`     |
 
@@ -44,7 +44,7 @@ const models = createModels();
 models.setProvider(openaiProvider());
 
 const agent = await BrowserUse.create({
-  model: 'openai/gpt-5.5',
+  model: 'openai/gpt-5.6-luna',
   models,
 });
 ```

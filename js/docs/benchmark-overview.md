@@ -1,23 +1,24 @@
 # Benchmark evidence
 
-The README compares two historical Luna xhigh cohorts on BU_Bench_v2. This page keeps the comparison's scope and accounting next to its chart.
+The README shows two historical Luna xhigh cohorts and the latest full candidate on BU_Bench_v2. This page keeps the comparison's scope and accounting next to its chart.
 
-![Historical Luna xhigh scores and recorded agent costs](/benchmarks/luna.svg)
+![Luna xhigh scores and recorded agent costs at three pinned runs](/benchmarks/luna.svg)
 
-| Cohort                           | Date (UTC)        | Mean score / 100 | Assigned / judged | Recorded agent cost |
-| -------------------------------- | ----------------- | ---------------: | ----------------: | ------------------: |
-| bu-pi `b430a91`                  | September 7, 2026 |            62.00 |           60 / 59 |              $17.86 |
-| BrowserCode historical reference | August 20, 2026   |            41.17 |           60 / 60 |              $21.49 |
+| Cohort                                | Date (UTC)        | Mean score / 100 | Assigned / judged | Recorded agent cost |
+| ------------------------------------- | ----------------- | ---------------: | ----------------: | ------------------: |
+| bu-pi `b430a91`                       | September 7, 2026 |            62.00 |           60 / 59 |              $17.86 |
+| bu-pi latest full candidate `65a16cb` | September 8, 2026 |            58.27 |           60 / 60 |              $21.18 |
+| BrowserCode historical reference      | August 20, 2026   |            41.17 |           60 / 60 |              $21.49 |
 
-Both retain `bub2-001` through `bub2-060`. Scores are continuous rubric scores, averaged over all 60 assigned tasks. bu-pi's browser-provisioning failure stays in that denominator at zero. BrowserCode had two additional empty duplicate placeholders; neither was a scored task. Those placeholders are excluded.
+All three retain `bub2-001` through `bub2-060`. Scores are continuous rubric scores, averaged over all 60 assigned tasks. The historical bu-pi cohort's browser-provisioning failure stays in that denominator at zero. BrowserCode had two additional empty duplicate placeholders; neither was a scored task. Those placeholders are excluded.
 
 ## What the comparison establishes
 
-These particular cohorts recorded a 20.83-point score difference. They share task IDs and the Luna xhigh model setting. The runs used different harnesses, runners, dates, and live website state. There was no randomized concurrent control. The comparison does not isolate an architectural effect or establish a general ranking against Browser Use or Browser Harness.
+The two historical cohorts recorded a 20.83-point score difference. They share task IDs and the Luna xhigh model setting. The runs used different harnesses, runners, dates, and live website state. There was no randomized concurrent control. The comparison does not isolate an architectural effect or establish a general ranking against Browser Use or Browser Harness.
 
 Recorded agent estimates total $17.86048933 and $21.48721706. They exclude judge, browser, runner, and separate diagnostic runs. They are not invoices or independently normalized prices. We do not use their ratio to advertise a percentage cost reduction.
 
-The chart is pinned to evaluated SDK commit `b430a91891e23f5ffb9ca816e5cbe63e73d2a248`. Later timeout and extraction-guidance experiments are separate cohorts. This is not a score for the current branch HEAD.
+The historical bu-pi bar is pinned to `b430a91891e23f5ffb9ca816e5cbe63e73d2a248`; the latest full candidate bar is pinned to `65a16cb6e43a31e67d59a7ed841858e70f05a5ba`. They are separate cohorts. Neither is a score for the current branch HEAD. The candidate recorded $21.17715822 in agent inference cost across 60 metered tasks.
 
 ## Token efficiency is still an open question
 
@@ -50,13 +51,13 @@ The extraction-only candidate `4a09ee3` subsequently scored **90/106 on Hard** a
 
 The subsequent **fresh Hard confirmation** at `f41c5b7` finished at **89/106 versus 79/106** for the concurrently dispatched historical-reference SDK, with all 212 actual judgments. The paired delta is +9.43 points, 95% interval [+1.89, +16.98], and one-sided lower bound +2.83. It clears the frozen noninferiority margin and sits two tasks below the historical 91. Agent inference cost was $131.89 candidate versus $117.87 reference. The fresh Luna pair finished at **57.17/100 candidate versus 58.72/100 reference**, with 59 and 58 actual judgments respectively. It fails both the frozen statistical margin and the historical-point tolerance; the two-benchmark goal remains unmet. This is not a result for later runtime commits or a claim of token efficiency. [Full confirmation report](./iteration-protocol.md#complete-fresh-hard-comparison).
 
-The **second fresh Hard confirmation** at `65a16cb` scored **81/106 versus 85/106**, with all 212 actual judgments. The delta is −3.77 points, 95% interval [−10.38, +2.83], one-sided lower bound −9.43. It fails both the frozen noninferiority margin and the historical-point floor of 88/106. Recorded agent cost is $144.008744 candidate versus $123.165385 reference. Its Luna pair remains unfinished; later accessibility fixes remain separate. [Second confirmation report](./iteration-protocol.md#complete-second-hard-comparison).
+The **second fresh Hard confirmation** at `65a16cb` scored **81/106 versus 85/106**, with all 212 actual judgments. The delta is −3.77 points, 95% interval [−10.38, +2.83], one-sided lower bound −9.43. It fails both the frozen noninferiority margin and the historical-point floor of 88/106. Recorded agent cost is $144.008744 candidate versus $123.165385 reference. Its Luna pair completed at **58.27/100 candidate versus 57.73/100 reference**, with 60 versus 59 actual judgments. The assigned paired delta is +0.53 points, 95% interval [−8.80, +9.88], one-sided lower bound −7.38. Missing reference judgment coverage makes confirmation ineligible; the candidate also misses the historical floor of 59/100. Agent costs were $21.17715822 versus $19.93090848. Later accessibility fixes remain separate. [Second confirmation report](./iteration-protocol.md#complete-second-hard-comparison).
 
 ## Sources and reproduction
 
 - [bu-pi Luna evaluation](https://www.lmnr.ai/project/b657f811-13a7-4dae-a67a-91445a567f24/evaluations/bf521f51-7920-4e55-8833-f6413b91a73d) · [GitHub execution](https://github.com/browser-use/new-eval-platform/actions/runs/34086771731).
 - [BrowserCode Luna evaluation](https://www.lmnr.ai/project/502a9d52-2725-4410-9a58-e469aa10fd12/evaluations/d7fbccfc-03ad-428e-85c2-f280f88cc642).
-- `evidence/vision.json` and `evidence/reliability.json` retain the numeric per-task scores and costs. `evidence/readme-usage.json` retains the new numeric usage query, without task prompts or traces.
+- `evidence/vision.json`, `evidence/reliability.json`, and `evidence/confirmation2-luna.json` retain the per-task scores and costs. The latest candidate evaluation is `06ccffa3-4789-4bfd-bd78-8ca365772d91`, [GitHub execution](https://github.com/browser-use/new-eval-platform/actions/runs/34197094678). `evidence/readme-usage.json` retains the new numeric usage query, without task prompts or traces.
 - The chart uses those fixed cohorts. It does not search for the highest score. Regenerate it from the repository root with `node scripts/benchmark-chart.mjs`. The script checks task identity, score bounds, score/cost totals, and usage reconciliation before writing the SVG.
 
 The exact bu-pi platform SHA, judge, browser, and budget controls are retained in `evidence/vision.json`. The [full report](./vision-results.md) covers evidence-preview clipping, screenshot observation errors, and cleanup diagnostics. A recorded judgment does not mean that every artifact byte was visible to the judge.

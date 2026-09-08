@@ -1,8 +1,8 @@
 # bu-pi
 
-**Browser Harness-style freedom. A TypeScript SDK you can build on.**
+**Give your model a browser. Let it write the tools.**
 
-Give Luna a browser, a persistent JavaScript workspace, and a task. It writes code, inspects the result, and adapts its helpers as it goes. Your app gets typed results, files, and a session it can keep talking to.
+Embed a coding agent for the web in your JavaScript or TypeScript app. Luna writes browser code, inspects what happened, and adapts its helpers as it goes. Your app gets typed results, files, and a session it can keep talking to.
 
 Pi runs the agent loop. Raw CDP controls Chrome. bu-pi connects them with a small application API.
 
@@ -30,7 +30,13 @@ try {
 
 ## Why this exists
 
-The model can write a helper once, use it across pages, and repair it when the page changes. JavaScript bindings and extracted data stay alive between turns. A batch of browser operations can run in one tool call; a result already in memory can go straight to your app without the model retyping it.
+The useful part of Browser Harness is letting the model program the browser. bu-pi brings that approach into an embeddable SDK.
+
+- **Write a tool when the task needs it.** The agent can build an extractor, reuse it across pages, and revise it after inspecting failures.
+- **Keep the work alive.** Helpers, variables, and extracted data persist between turns. One tool call can execute a batch of browser operations.
+- **Deliver data directly.** Return an existing JavaScript value through a validated schema. The model does not have to rewrite every extracted row.
+
+You control the session through follow-ups, saved login profiles, streaming, hooks, and recordings. Those are application features around the same coding loop.
 
 | Starting point                                                    | What you get                                                                                                                  |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -52,19 +58,17 @@ Your app -> BrowserUse -> Pi -> Luna / your model
 
 [Design decisions](docs/architecture.md) · [API reference](docs/api.md) · [Migration scope](docs/migration.md)
 
-## Measured, with the runs attached
+## Benchmarks
 
-![Historical BU_Bench_v2 results with Luna xhigh: bu-pi 62.0/100 and $17.86 recorded agent cost; BrowserCode 41.2/100 and $21.49. Each cohort retains 60 tasks. Different dates and runners; not a controlled efficiency comparison.](docs/public/benchmarks/luna.svg)
+![Luna xhigh on BU_Bench_v2: historical bu-pi 62.00/100 at $17.86, latest full candidate 58.27/100 at $21.18, historical BrowserCode 41.17/100 at $21.49. Each retains 60 assigned tasks. Different dates and runners; not a controlled efficiency comparison.](docs/public/benchmarks/luna.svg)
 
-**62.0/100 on BU_Bench_v2 with Luna xhigh**, at evaluated commit `b430a91`. That is a continuous mean across 60 assigned tasks, including one browser-provisioning zero. BrowserCode's historical run scored 41.2/100 on the same task IDs. Both cost totals are recorded estimates for agent inference, excluding judge, browser, and runner charges.
+**Historical best: 62.00/100 with Luna xhigh on BU_Bench_v2.** The latest full candidate (`65a16cb`) scored **58.27/100** against its concurrently dispatched bu-pi reference at **57.73/100**. These are continuous mean scores over 60 assigned tasks, not pass rates. The reference has one missing judgment retained as an assigned zero; the candidate has all 60 judgments.
 
-These are nonconcurrent development runs, not a controlled speed/token-efficiency comparison or a SOTA claim. The chart belongs to its pinned commits; newer runtime experiments are evaluated separately. Hard106 uses **GPT-5.5 medium**: the historical peak was **91/106**, followed by **86, 88, and 85/106** in later full cohorts.
+**Hard106, GPT-5.5 medium:** historical best **91/106**; latest full candidate **81/106** against reference **85/106**, with all 212 judgments. The two-benchmark parity target remains unmet. Later SDK fixes are separate from these evaluated commits.
 
-The fresh Hard106 pair at `f41c5b7` scored **89/106 versus 79/106** for the reference, with all 212 judgments. It cleared the frozen noninferiority margin; recorded agent inference cost was **$131.89 versus $117.87**. [Full paired results and uncertainty](docs/iteration-protocol.md#complete-fresh-hard-comparison). The fresh Luna pair scored **57.17/100 versus 58.72/100**, missing the frozen target; three provider failures lack actual judgments. Later SDK commits remain separate.
+The chart includes a historical BrowserCode comparison. Dates, runners, and live sites differ. Agent costs exclude judge, browser, and runner charges. These results do not establish SOTA, higher speed, or lower token use. **The architectural benefit is programmability; its efficiency advantage still needs a controlled measurement.**
 
-The second fresh Hard pair at `65a16cb` fell to **81/106 versus 85/106**, with all 212 judgments, and failed the same frozen acceptance criteria. Its Luna pair is still running. [Second confirmation](docs/iteration-protocol.md#complete-second-hard-comparison). These results do not establish stable parity for the current SDK.
-
-[Chart data, accounting, and limitations](docs/benchmark-overview.md) · [Full results](docs/vision-results.md) · [Hard106 history](docs/benchmark.md) · [Current experiment protocol](docs/iteration-protocol.md)
+[Run IDs, token accounting, and full history](docs/benchmark-overview.md) · [Paired comparisons and uncertainty](docs/iteration-protocol.md)
 
 ## Try it
 

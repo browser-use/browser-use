@@ -31,7 +31,7 @@ Save this as `agent.mjs` in the `bu-pi` directory:
 import { BrowserUse } from '@browser-use/next';
 
 const agent = await BrowserUse.create({
-  model: 'openai/gpt-5.5',
+  model: 'openai/gpt-5.6-luna',
   browser: { headless: false },
 });
 

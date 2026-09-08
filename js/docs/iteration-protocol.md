@@ -174,37 +174,53 @@ The candidate bundles the later image-preview guard, exact generic-provider reco
 
 Four arms are frozen before dispatch; no newer SDK commit may enter them. Every assigned outcome is retained, including failures and missing judgments. Completion requires actual-judgment coverage and the original acceptance on both benchmarks. These remain development benchmarks, not held-out SOTA evidence. No new full result exists at selection. [Exact plan](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-plan.json).
 
-The plan was pushed at `3b3536a` before all four arms were dispatched once. The workflow ref still resolved to `3fbf236`; the execution platform remains `ddc48ee`. All four prepare jobs succeeded, created all 332 datapoints and started 12 task jobs per arm. The Hard pair is complete; both Luna workflows are still running.
+The plan was pushed at `3b3536a` before all four arms were dispatched once. The workflow ref still resolved to `3fbf236`; the execution platform remains `ddc48ee`. All four prepare jobs succeeded, created all 332 datapoints and started 12 task jobs per arm. All four workflows are now terminal; both full comparisons are retained below.
 
-| Benchmark | Reference execution | Candidate execution |
-| --- | --- | --- |
-| Hard106 | [34197086884](https://github.com/browser-use/new-eval-platform/actions/runs/34197086884) | [34197089074](https://github.com/browser-use/new-eval-platform/actions/runs/34197089074) |
-| Luna60 | [34197091644](https://github.com/browser-use/new-eval-platform/actions/runs/34197091644) | [34197094678](https://github.com/browser-use/new-eval-platform/actions/runs/34197094678) |
+| Benchmark | Reference execution                                                                      | Candidate execution                                                                      |
+| --------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Hard106   | [34197086884](https://github.com/browser-use/new-eval-platform/actions/runs/34197086884) | [34197089074](https://github.com/browser-use/new-eval-platform/actions/runs/34197089074) |
+| Luna60    | [34197091644](https://github.com/browser-use/new-eval-platform/actions/runs/34197091644) | [34197094678](https://github.com/browser-use/new-eval-platform/actions/runs/34197094678) |
 
 [Recorded dispatch inputs and Laminar evaluation IDs](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-dispatch.json).
 
-The [ongoing trace audit](./confirmation2-trace-audit.md) separates early access losses from source-state and arithmetic errors in delivered artifacts. It is a selected diagnostic view, not a score for the unfinished cohorts.
+The [ongoing trace audit](./confirmation2-trace-audit.md) separates early access losses from source-state and arithmetic errors in delivered artifacts. It is a selected diagnostic view, not an estimate of aggregate quality.
 
 ### Complete second Hard comparison
 
 Both original Hard workflows completed on September 8 UTC with **all 212 actual judgments**. Candidate `65a16cb` scored **81/106** against reference `58ed778` at **85/106**. The candidate workflow succeeded; the reference concluded `failure` with a real runtime-failure judge verdict. Execution conclusion is separate from actual-judgment coverage.
 
-| Measure | Reference `58ed778` | Candidate `65a16cb` |
-| --- | ---: | ---: |
-| Passes / assigned | 85/106 | 81/106 |
-| Actual judgments | 106 | 106 |
-| Recorded agent inference cost | $123.165385 | $144.008744 |
-| Median steps | 33 | 32 |
-| Median agent duration, seconds | 281.9255 | 249.115 |
-| Tasks with SDK cleanup errors | 2 | 0 |
+| Measure                        | Reference `58ed778` | Candidate `65a16cb` |
+| ------------------------------ | ------------------: | ------------------: |
+| Passes / assigned              |              85/106 |              81/106 |
+| Actual judgments               |                 106 |                 106 |
+| Recorded agent inference cost  |         $123.165385 |         $144.008744 |
+| Median steps                   |                  33 |                  32 |
+| Median agent duration, seconds |            281.9255 |             249.115 |
+| Tasks with SDK cleanup errors  |                   2 |                   0 |
 
 The paired candidate-minus-reference difference is **−3.77 percentage points**: five gains, 92 ties and nine losses. The frozen 20,000-resample bootstrap gives a 95% interval of **[−10.38, +2.83]**, with one-sided 95% lower bound **−9.43**. This fails the original −3-point noninferiority criterion. The candidate also falls seven tasks below the required historical-tolerance floor of 88/106. The interval includes zero, so this single cohort does not establish a statistically isolated harmful code effect either. **Parity is not established; the two-benchmark goal remains unmet.**
 
 The candidate has 14 `site-blocked` judge labels versus seven in the reference; six of the nine candidate losses carry that label. These are classifications, not a verified common cause. The [trace audit](./confirmation2-trace-audit.md) separately establishes selected access-state differences, stale product identity and variant acquisition errors. Requested Cloud settings and tab lifecycle were checked earlier, but actual IP/reputation/browser versions and live-site state were not matched. The change bundle and external variation prevent attributing the full drop to any single prompt or runtime patch.
 
-All task IDs, manifests, model/reasoning, judges, budgets, assigned zeros and attempt numbers are retained. Each dependency lock matches its pinned SDK. Agent costs exclude judge, browser, runner and unreported usage. Median durations are descriptive. Later accessibility-state and label-click fixes are separate and replace no outcomes. Luna remains unfinished, with a missing actual judgment from the [reference screenshot-ownership failure](./evidence-ownership.md). The agent deleted the evaluator screenshot directory while cleaning deliverables; its official zero remains.
+All task IDs, manifests, model/reasoning, judges, budgets, assigned zeros and attempt numbers are retained. Each dependency lock matches its pinned SDK. Agent costs exclude judge, browser, runner and unreported usage. Median durations are descriptive. Later accessibility-state and label-click fixes are separate and replace no outcomes. The completed Luna pair retains a missing actual judgment from the [reference screenshot-ownership failure](./evidence-ownership.md). The agent deleted the evaluator screenshot directory while cleaning deliverables; its official zero remains.
 
 [Complete per-task Hard evidence and frozen uncertainty calculation](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-hard.json).
+
+### Complete second Luna comparison
+
+Both original Luna workflows completed on September 8 UTC. Candidate `65a16cb` scored **58.27/100** versus reference `b430a91` at **57.73/100**. Each retains all 60 assigned outcomes. The candidate has 60 actual judgments; the reference has 59. Its screenshot-ownership failure remains an official zero, without restoration or rejudgment. GitHub reports candidate success and reference failure.
+
+| Measure                       | Reference `b430a91` | Candidate `65a16cb` |
+| ----------------------------- | ------------------: | ------------------: |
+| Continuous mean / 100         |               57.73 |               58.27 |
+| Assigned / actual judgments   |             60 / 59 |             60 / 60 |
+| Recorded agent inference cost |        $19.93090848 |        $21.17715822 |
+
+The assigned candidate-minus-reference delta is **+0.53 points**, with frozen 20,000-resample 95% interval **[−8.80, +9.88]** and one-sided lower bound **−7.38**. It fails the −3-point noninferiority margin. Across the 59 shared actual judgments, the paired delta is **−0.03 points**, interval **[−9.39, +9.49]**, and lower bound **−7.86**. This diagnostic subset does not replace the assigned denominator.
+
+Missing judgment coverage independently makes confirmation ineligible. The candidate also misses the historical-tolerance floor of **59/100**. **Neither benchmark establishes parity in this confirmation.** All task IDs, manifests, model/reasoning, judges, budgets, attempt numbers, and pinned dependency locks were validated against the frozen plan. Costs are reported agent inference estimates, excluding judge, browser, runner and unreported usage. These results do not establish a token-efficiency advantage or isolate any individual runtime change.
+
+[Complete per-task Luna evidence and uncertainty](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-luna.json).
 
 ## Compatibility and rollback
 
