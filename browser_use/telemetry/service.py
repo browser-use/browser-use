@@ -37,12 +37,12 @@ def get_or_create_device_id() -> str:
 def _persisted_device_id() -> str | None:
 	try:
 		if os.path.exists(DEVICE_ID_PATH):
-			with open(DEVICE_ID_PATH) as f:
+			with open(DEVICE_ID_PATH, encoding='utf-8') as f:
 				return f.read().strip() or None
 		os.makedirs(os.path.dirname(DEVICE_ID_PATH), exist_ok=True)
 		new_device_id = uuid7str()
 		tmp_path = f'{DEVICE_ID_PATH}.{os.getpid()}.tmp'
-		with open(tmp_path, 'w') as f:
+		with open(tmp_path, 'w', encoding='utf-8') as f:
 			f.write(new_device_id)
 		os.replace(tmp_path, DEVICE_ID_PATH)
 		return new_device_id

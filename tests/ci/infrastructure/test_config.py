@@ -1,8 +1,10 @@
 """Tests for lazy loading configuration system."""
 
+from datetime import datetime, timezone
+import json
 import os
 
-from browser_use.config import CONFIG
+from browser_use.config import CONFIG, BrowserProfileEntry, load_and_migrate_config
 
 
 class TestLazyConfig:
@@ -118,3 +120,23 @@ class TestLazyConfig:
 				os.environ['BROWSER_USE_CLOUD_SYNC'] = sync_original
 			else:
 				os.environ.pop('BROWSER_USE_CLOUD_SYNC', None)
+
+	def test_default_config_timestamps_are_timezone_aware_utc(self):
+		"""Test generated DB-style entries use explicit UTC timestamps."""
+		entry = BrowserProfileEntry()
+
+		created_at = datetime.fromisoformat(entry.created_at)
+
+		assert created_at.tzinfo == timezone.utc
+
+	def test_config_migration_round_trips_utf8(self, tmp_path):
+		"""Test config migration reads and writes UTF-8 text."""
+		config_path = tmp_path / 'config.json'
+		config_path.write_text('{"legacy": "cafe \\u2615"}', encoding='utf-8')
+
+		migrated = load_and_migrate_config(config_path)
+		reloaded = load_and_migrate_config(config_path)
+		written = json.loads(config_path.read_text(encoding='utf-8'))
+
+		assert migrated == reloaded
+		assert set(written) == {'browser_profile', 'llm', 'agent'}
