@@ -205,3 +205,24 @@ This is a suspected reference false positive against the literal prompt, or a ta
 This completes a detailed audit of the ten negative Hard pairs in the third comparison. They include acquisition and delivery errors, different source access, and questionable judgments. They do not establish ten runtime regressions or one common CDP failure. The remaining source-truth problems warrant general experiments in evidence-backed delivery, not a rule for this historical puzzle.
 
 [Paired manifests, literal clues, source excerpts, original judgments and hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-historical-identity-pair.json).
+
+## Retrieved requirements disappear during normalization
+
+Task `bub2-025` requests official-source technician hiring evidence across eight companies. The candidate scores 40/100; the reference scores 76/100. Four directly checked experience fields among the candidate's six retained Blanchard records contradict their own delivered source excerpts:
+
+| Role                                    | Source excerpt                              | Delivered experience              |
+| --------------------------------------- | ------------------------------------------- | --------------------------------- |
+| Shop Lead Technician                    | 10+ years preferred                         | not stated                        |
+| Shop Technician II                      | 3+ years required                           | 3+ years preferred                |
+| Field Preventive Maintenance Technician | One year or equivalent education/experience | not stated                        |
+| Shop Technician I                       | 3+ years required                           | Experience preferred; no duration |
+
+The model creates these values as literals in `bMeta` at event 402, attaching the full raw source text separately. The final CSV reproduces the JSON experience and source-excerpt fields exactly for all 40 rows. This is a normalization error, not CSV corruption or a missing browser response. Other fields were not exhaustively audited.
+
+This run compacts before normalization: its archive covers 183 messages through event 364. The summary points to `blanchard-raw.json` and live `bDetails`, but omits the Shop Lead ten-year requirement. Subsequent inspection initially uses wrong object-field names, then previews the beginning of the first raw record before constructing metadata. Full source text remains available in the final records. This supports investigating evidence rediscovery after compaction; it does not isolate compaction as the cause. Several earlier audited contradictions arose before compaction.
+
+Final checks at events 502 and 530 verify required keys, nonempty values, excerpt length, row counts and company access states. They do not compare experience fields against their source excerpts. The general failure is converting an unextracted value into a claim that the source did not state it, and weakening required/preferred distinctions during summarization.
+
+The reference is not a matched record-level extraction control. It uses another Blanchard ATS host, observes ten listings and retains one different role; the candidate observes 48 and retains six. Both lose Blanchard population and summary-consistency credit. Candidate judgment also rejects membership, deliverable shape and boundary quarantine. These four checked values do not explain the entire 36-point score difference. Both scores remain unchanged.
+
+[Field comparisons, compaction ordering, validation code, manifests and hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-source-field-loss-pair.json).
