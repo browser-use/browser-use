@@ -320,3 +320,13 @@ The reference returns no choices. The candidate admits that one cheaper desktop 
 The generalized targets are checking discovery predicates for missed naming variants, preserving the entity associated with each extracted field, and validating source-to-record mappings. Another unsupported verification label does not enforce any of those checks. No retailer-specific parser, expected answer, judge change or new prompt rule is added.
 
 [Exact set difference, generated code, records, original findings and inspected screenshot hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-entity-scoping-pair.json).
+
+## A truncated telemetry payload hides an existing judgment
+
+The Luna reference workflow completes successfully, yet the initial direct query reports only 59 completed judgments. Task `bub2-035` already has Laminar score **0.71**. Its stored `executor_output` is 16,154,106 bytes, fails `isValidJSON`, and ends inside an unfinished market-data string. Consequently the SQL JSON extractors return empty result/judgment/manifest fields; this is not evidence that the agent or judge is still running.
+
+The original `bub2-035-1` artifact from workflow `34215096477`, attempt 1, contains a complete 16,914,248-byte `result.json`, a populated Findings rubric and checked-evidence list, and the original **71/100** judgment. The manifest matches the frozen reference SDK, platform, task, dataset, model, options, judge and dependency lock. The result was delivered successfully. No task is rerun or rejudged, and its Laminar score is unchanged.
+
+The paired reporter retains the raw Laminar snapshot and supplements only the missing fields from those original files, after verifying their hashes and identity plus equality with the recorded Laminar score. The recovered task is marked with its artifact evidence source. This establishes **60/60 actual reference judgments**, despite the broken telemetry envelope. The precise truncation component remains unisolated; the SDK and platform are not patched speculatively.
+
+[Original judgment, manifest, sizes, metrics and source hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-laminar-payload-recovery.json).
