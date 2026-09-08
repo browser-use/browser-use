@@ -174,6 +174,15 @@ The candidate bundles the later image-preview guard, exact generic-provider reco
 
 Four arms are frozen before dispatch; no newer SDK commit may enter them. Every assigned outcome is retained, including failures and missing judgments. Completion requires actual-judgment coverage and the original acceptance on both benchmarks. These remain development benchmarks, not held-out SOTA evidence. No new full result exists at selection. [Exact plan](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-plan.json).
 
+The plan was pushed at `3b3536a` before all four arms were dispatched once. The workflow ref still resolved to `3fbf236`; the execution platform remains `ddc48ee`. All four prepare jobs succeeded, created all 332 datapoints and started 12 task jobs per arm. Results are pending.
+
+| Benchmark | Reference execution | Candidate execution |
+| --- | --- | --- |
+| Hard106 | [34197086884](https://github.com/browser-use/new-eval-platform/actions/runs/34197086884) | [34197089074](https://github.com/browser-use/new-eval-platform/actions/runs/34197089074) |
+| Luna60 | [34197091644](https://github.com/browser-use/new-eval-platform/actions/runs/34197091644) | [34197094678](https://github.com/browser-use/new-eval-platform/actions/runs/34197094678) |
+
+[Recorded dispatch inputs and Laminar evaluation IDs](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-dispatch.json).
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.
