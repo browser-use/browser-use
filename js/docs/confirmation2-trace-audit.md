@@ -51,6 +51,8 @@ The general lesson is to validate source identity after uncertain navigation, pr
 
 **Luna, `bub2-001`: 73/100.** One inference retry followed `OpenAI Responses stream ended before a terminal response event`. The failed response contained thinking, with no partial tool call; 55 completed tool calls followed. This exercises the existing truncated-stream recovery branch, not the new generic-error branch or partial-tool suppression. Failed-response usage was recorded as zero, so the recorded agent inference cost can undercount provider usage.
 
+**Luna, `bub2-011`: 60/100, task job succeeded.** The SDK recorded a 20-second `Target.getTargets` cleanup timeout, but the Cloud browser was independently confirmed stopped. The error does not distinguish initial enumeration from final disappearance verification. The judge logged its score at 07:15:21 UTC; the same original task job uploaded evidence at 07:29:27–28 UTC. Its log recorded a Laminar trace-export `DEADLINE_EXCEEDED` at 07:29:25 UTC. This confirms an exporter failure near job completion, not the cause of the entire delay. The original artifact is available and the actual judgment is retained; no task was redispatched.
+
 ## Implication for the next decision
 
 Successful browser execution, delivered files and matching row counts still leave source interpretation and numerical validation unchecked. A generic instruction to verify does not prove those checks happened. Keep these outcomes and the completed [semantic diagnostic](./semantic-validation-experiment.md#completed-diagnostic) alongside the full results before selecting another treatment. Candidate `65a16cb`, references, tasks, judge and budgets remain frozen. No new runtime patch or task-specific selector follows from this interim audit.
