@@ -243,6 +243,8 @@ All four arms were dispatched once at 10:22 UTC on September 8, after plan commi
 
 The local report was fault-tested against the historical browser-provisioning failure shape: such a failure has no SDK model/lock metadata or usage. It now retains the assigned zero and unknown metrics instead of crashing, while rejecting a completed row with missing SDK metadata or a reported wrong model. Four offline cases pass; task scores, runtime, judges, bootstrap and acceptance are unchanged. Unreported capture counts remain unknown rather than zero. [Accounting regression evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-report-verification.json).
 
+The [ongoing trace audit](./confirmation3-trace-audit.md) separates model-written extraction errors from SDK transport faults in selected completed pairs. These findings do not change the running candidate or replace outcomes.
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.
