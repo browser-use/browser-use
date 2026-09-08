@@ -27,3 +27,16 @@ Inspect actual tool execution, protocol errors, before/after-timeout behavior, m
 Only after all four diagnostics complete and their integration evidence is checked, select the next frozen full comparison. Both original task sets, historical floors (88/106 Hard, 59/100 Luna), full actual-judgment coverage, 3-point margin, and 20,000 paired bootstrap resamples with seed 20260907 remain unchanged. No SOTA or full-benchmark gain is claimed here.
 
 The frozen candidate is `45cedf407debcc6615462a3ca9eecf8d3b4e98c0`. The diagnostic control `62e9caf5e241cc27c36ef863476544df1fe044ec` retains the complete evaluated `29e2b5e` runtime; its eval adapter and dependency lock match the candidate. [Exact inputs and gate](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/evaluation-deadline-plan.json).
+
+## Original executions
+
+All four prepare jobs created their original Laminar evaluations. Results remain pending.
+
+| Arm | GitHub workflow | Laminar evaluation |
+| --- | --- | --- |
+| hard-control | [34230002630](https://github.com/browser-use/new-eval-platform/actions/runs/34230002630) | `4a175f9b-c914-445e-b4f5-beb0e5d7bfc1` |
+| hard-candidate | [34230005987](https://github.com/browser-use/new-eval-platform/actions/runs/34230005987) | `a83eaaac-a035-49ac-91bb-ed7924132d46` |
+| luna-control | [34230009051](https://github.com/browser-use/new-eval-platform/actions/runs/34230009051) | `fe55ecee-b13e-49c0-9843-5fed5734cf05` |
+| luna-candidate | [34230012210](https://github.com/browser-use/new-eval-platform/actions/runs/34230012210) | `1037a431-3d9a-4979-930c-d9c258af7b10` |
+
+[Original dispatch inputs and IDs](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/evaluation-deadline-dispatch.json). Preserve each original handle until terminal; an observation timeout is not a reason to restart.
