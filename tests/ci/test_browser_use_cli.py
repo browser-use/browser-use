@@ -82,7 +82,7 @@ def test_read_piped_stdin_falls_back_to_utf8_when_process_encoding_rejects(monke
 			return False
 
 	# UTF-8 of 中文 is invalid under GBK (unlike 你好, which is valid GBK mojibake).
-	payload = 'print("中文")\n'.encode('utf-8')
+	payload = 'print("中文")\n'.encode()
 	try:
 		payload.decode('gbk')
 		raise AssertionError('expected UTF-8 中文 payload to be invalid GBK')
@@ -194,3 +194,33 @@ def test_read_piped_stdin_honors_browser_use_stdin_encoding_override(monkeypatch
 	monkeypatch.setenv('BROWSER_USE_STDIN_ENCODING', 'utf-8')
 	monkeypatch.setattr(browser_use_cli.sys, 'stdin', _LegacyStdin(payload))
 	assert browser_use_cli._read_piped_stdin() == 'print("é")\n'
+
+
+def test_read_piped_stdin_unknown_encoding_override_falls_back_to_utf8(monkeypatch):
+	"""Unknown BROWSER_USE_STDIN_ENCODING must LookupError-fall back to UTF-8."""
+	import importlib.util
+	import io
+	from pathlib import Path
+
+	cli_path = Path(__file__).resolve().parents[2] / 'browser_use' / 'cli.py'
+	spec = importlib.util.spec_from_file_location('browser_use_cli_under_test_lookup', cli_path)
+	assert spec is not None and spec.loader is not None
+	browser_use_cli = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(browser_use_cli)
+
+	class _LegacyStdin:
+		encoding = 'ascii'
+
+		def __init__(self, data: bytes):
+			self.buffer = io.BytesIO(data)
+
+		def read(self, *args, **kwargs):
+			raise AssertionError('must not decode piped stdin through the legacy text wrapper')
+
+		def isatty(self) -> bool:
+			return False
+
+	payload = 'print("中文")\n'.encode()
+	monkeypatch.setenv('BROWSER_USE_STDIN_ENCODING', 'not-a-real-codec')
+	monkeypatch.setattr(browser_use_cli.sys, 'stdin', _LegacyStdin(payload))
+	assert browser_use_cli._read_piped_stdin() == 'print("中文")\n'
