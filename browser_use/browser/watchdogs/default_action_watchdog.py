@@ -1373,9 +1373,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 								selection.removeAllRanges();
 								selection.addRange(range);
 
-								// Dispatch events
+								// Dispatch input so frameworks observe the clear. The final
+								// change event is sent after replacement text is typed.
 								this.dispatchEvent(new Event("input", { bubbles: true }));
-								this.dispatchEvent(new Event("change", { bubbles: true }));
 
 								return {cleared: true, method: 'contenteditable', finalText: this.textContent};
 							} else if (this.value !== undefined) {
@@ -1406,7 +1406,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 									this.value = "";
 								}
 								this.dispatchEvent(new Event("input", { bubbles: true }));
-								this.dispatchEvent(new Event("change", { bubbles: true }));
 								return {cleared: true, method: 'value', finalText: this.value};
 							} else {
 								return {cleared: false, method: 'none', error: 'Not a supported input type'};
@@ -1847,6 +1846,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				return input_coordinates
 
 			# Step 3: Clear existing text if requested (only for regular inputs that support typing)
+			cleared_successfully = True
 			if clear:
 				cleared_successfully = await self._clear_text_field(object_id=object_id, cdp_session=cdp_session)
 				if not cleared_successfully:
@@ -2022,7 +2022,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Step 6: Auto-retry on concatenation mismatch (only when clear was requested)
 			# If we asked to clear but the readback value contains the typed text as a substring
 			# yet is longer, the field had pre-existing text that wasn't cleared. Set directly.
-			if clear and not is_sensitive and input_coordinates and 'actual_value' in input_coordinates:
+			if (
+				clear
+				and not is_sensitive
+				and input_coordinates
+				and 'actual_value' in input_coordinates
+				and (text or not cleared_successfully)
+			):
 				actual_value = input_coordinates['actual_value']
 				if (
 					isinstance(actual_value, str)

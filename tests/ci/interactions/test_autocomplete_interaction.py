@@ -13,6 +13,7 @@ Tests cover:
 """
 
 import asyncio
+import json
 
 import pytest
 from pytest_httpserver import HTTPServer
@@ -139,6 +140,42 @@ def http_server():
 						el.value = 'prefix_';
 					}
 				});
+			</script>
+		</body>
+		</html>
+		""",
+		content_type='text/html',
+	)
+
+	# Page 7: Formatter that must not observe an intermediate empty change event.
+	server.expect_request('/clear-change-order').respond_with_data(
+		"""
+		<!DOCTYPE html>
+		<html>
+		<head><title>Clear Change Order Test</title></head>
+		<body>
+			<input id="amount-input" type="text" value="0.00" />
+			<textarea id="amount-textarea">0.00</textarea>
+			<div id="amount-edit" contenteditable="true">0.00</div>
+			<script>
+				window.__fieldEvents = {};
+				for (const field of [
+					document.getElementById('amount-input'),
+					document.getElementById('amount-textarea'),
+					document.getElementById('amount-edit'),
+				]) {
+					window.__fieldEvents[field.id] = [];
+					const currentValue = () => 'value' in field ? field.value : field.textContent;
+					field.addEventListener('input', () => {
+						window.__fieldEvents[field.id].push({type: 'input', value: currentValue()});
+					});
+					field.addEventListener('change', () => {
+						window.__fieldEvents[field.id].push({type: 'change', value: currentValue()});
+						const formatted = (Number(currentValue()) || 0).toFixed(2);
+						if ('value' in field) field.value = formatted;
+						else field.textContent = formatted;
+					});
+				}
 			</script>
 		</body>
 		</html>
@@ -380,3 +417,64 @@ class TestAutocompleteInteraction:
 		# Datalist fields should complete without the 400ms tax.
 		# Normal typing for 3 chars takes well under 400ms.
 		assert duration < 0.4, f'Datalist field got unexpected delay: {duration:.3f}s (should be < 0.4s)'
+
+	@pytest.mark.parametrize('field_id', ['amount-input', 'amount-textarea', 'amount-edit'])
+	async def test_clear_defers_change_until_replacement_is_typed(
+		self, tools: Tools, browser_session: BrowserSession, base_url: str, field_id: str
+	):
+		"""A formatter must see the replacement value, not an intermediate empty value."""
+		await tools.navigate(url=f'{base_url}/clear-change-order', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.3)
+		await browser_session.get_browser_state_summary()
+
+		field_index = await browser_session.get_index_by_id(field_id)
+		assert field_index is not None, f'Could not find {field_id}'
+		result = await tools.input(index=field_index, text='1', browser_session=browser_session)
+		assert isinstance(result, ActionResult)
+		assert result.error is None, f'Input action failed: {result.error}'
+
+		cdp_session = await browser_session.get_or_create_cdp_session()
+		readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={
+				'expression': f'JSON.stringify(window.__fieldEvents[{json.dumps(field_id)}])',
+				'returnByValue': True,
+			},
+			session_id=cdp_session.session_id,
+		)
+		events = json.loads(readback.get('result', {}).get('value', '[]'))
+		changes = [event['value'] for event in events if event['type'] == 'change']
+		assert changes, f'Input action did not dispatch a final change event: {events}'
+		assert '' not in changes, f'Formatter saw a premature empty change: {events}'
+		assert changes[-1] == '1', f'Final change should observe the replacement text: {events}'
+
+		value_expression = f'document.getElementById({json.dumps(field_id)}).value'
+		if field_id == 'amount-edit':
+			value_expression = f'document.getElementById({json.dumps(field_id)}).textContent'
+		value = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': value_expression, 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		assert value.get('result', {}).get('value') == '1.00', f'Formatter did not apply final value: {events}'
+
+	async def test_clear_only_keeps_one_final_change_event(self, tools: Tools, browser_session: BrowserSession, base_url: str):
+		"""An intentional empty replacement still emits its one final change event."""
+		await tools.navigate(url=f'{base_url}/clear-change-order', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.3)
+		await browser_session.get_browser_state_summary()
+
+		field_index = await browser_session.get_index_by_id('amount-input')
+		assert field_index is not None
+		result = await tools.input(index=field_index, text='', browser_session=browser_session)
+		assert isinstance(result, ActionResult)
+		assert result.error is None, f'Input action failed: {result.error}'
+
+		cdp_session = await browser_session.get_or_create_cdp_session()
+		readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={
+				'expression': 'JSON.stringify(window.__fieldEvents["amount-input"])',
+				'returnByValue': True,
+			},
+			session_id=cdp_session.session_id,
+		)
+		events = json.loads(readback.get('result', {}).get('value', '[]'))
+		assert [event['value'] for event in events if event['type'] == 'change'] == ['']
