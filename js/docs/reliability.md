@@ -58,6 +58,8 @@ The REPL adds `checkpoint('progress.json', value)` and `reconnect()`. Standard N
 
 `RunResult` additionally reports `compactions`, `providerRetries` and warnings. Summary model usage is included in total run usage/cost. Main response output is capped at the smaller of 32,768 tokens, the model maximum, and 15% of the model context window, leaving space for reasoning/output within the input guard. This is a new effective configuration, not an unchanged-baseline claim.
 
+The same single inference retry also covers the explicit temporary errors `Unable to verify model access right now. Please retry.` and `An error occurred while processing your request. You can retry your request, ...`. Invalid keys and permanent model-access denials still fail immediately. This does not replay browser actions or reset step, time, cost or cancellation limits. Repeated failures stop after that one additional attempt.
+
 History version 1 remains readable. Saved context contains the compacted projection; the run event journal retains the original trajectory. Context checkpoint files and per-cell output live under `.browser-use/`. Existing workspace and artifact files remain in place. The user controls their retention.
 
 The eval adapter separately archives SDK audit files as `sdk-audit.tar.gz`, because GitHub's default artifact uploader omits hidden directories. This correction followed the `a7fe3d4` benchmark dispatch: those runs retain visible event logs and compaction counts, but their hidden summary files were not uploaded. Archive errors are explicit metadata, and unrelated hidden files and symlinks are excluded.
@@ -65,6 +67,8 @@ The eval adapter separately archives SDK audit files as `sdk-audit.tar.gz`, beca
 ## Verification and evaluation
 
 Local tests use scripted models or mock provider responses; real Chrome tests use isolated temporary profiles and local fixtures. They prove execution, cancellation, recovery, schema and compatibility behavior. They do not establish benchmark gains.
+
+The temporary-error cases came from retained Luna failures: `bub2-046` at `0baa51d` ([run](https://github.com/browser-use/new-eval-platform/actions/runs/34173712013)), after 38 turns, and `bub2-051` at `b430a91` ([run](https://github.com/browser-use/new-eval-platform/actions/runs/34173710531)), after 85 turns. Both retain their original runner zeros without actual judgments. Fault tests verify that the retry preserves prior JavaScript data and never executes tools from a failed partial response; these tests do not prove a recovered remote score. The running extraction cohorts use `4a09ee3` and contain neither temporary-error extension.
 
 The first frozen reliability runs are Internal Bench Hard (106 tasks, GPT-5.5 medium) and BU_Bench_v2 (60 tasks, Luna xhigh). Use the prior task sets, judges, time/step caps, US proxy and browser lifetimes. Freeze exact SDK/platform SHAs and dependency lock; retain every outcome, compaction/retry count, artifact and judgment. Research tools/search permission, compaction, recording and response cap are deliberate treatment changes.
 

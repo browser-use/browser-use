@@ -493,25 +493,33 @@ test('transient failed inference retries once without executing the failed respo
   }
 });
 
-test('temporary model access verification failure preserves prior work without replaying actions', async () => {
-  const s = await session([
-    call('javascript', { code: 'let deliveredRows = [{value:42}]; let mutations = 1;' }),
-    fauxAssistantMessage(fauxToolCall('javascript', { code: 'mutations++; deliveredRows = [];' }), {
-      stopReason: 'error',
-      errorMessage: 'Unable to verify model access right now. Please retry.',
-    }),
-    call('finish_from_js', { expression: 'JSON.stringify({rows:deliveredRows,mutations})' }),
-  ]);
-  try {
-    const result = await s.agent.run('Return the collected rows.');
-    assert.equal(result.status, 'completed');
-    assert.deepEqual(JSON.parse(result.output), { rows: [{ value: 42 }], mutations: 1 });
-    assert.equal(result.providerRetries, 1);
-    assert.equal(s.faux.state.callCount, 3);
-  } finally {
-    await s.close();
-  }
-});
+for (const errorMessage of [
+  'Unable to verify model access right now. Please retry.',
+  'An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists. Please include the request ID req_fixture in your message.',
+]) {
+  test(`explicit temporary provider failure preserves prior work: ${errorMessage.split('.')[0]}`, async () => {
+    const s = await session([
+      call('javascript', { code: 'let deliveredRows = [{value:42}]; let mutations = 1;' }),
+      fauxAssistantMessage(
+        fauxToolCall('javascript', { code: 'mutations++; deliveredRows = [];' }),
+        {
+          stopReason: 'error',
+          errorMessage,
+        },
+      ),
+      call('finish_from_js', { expression: 'JSON.stringify({rows:deliveredRows,mutations})' }),
+    ]);
+    try {
+      const result = await s.agent.run('Return the collected rows.');
+      assert.equal(result.status, 'completed');
+      assert.deepEqual(JSON.parse(result.output), { rows: [{ value: 42 }], mutations: 1 });
+      assert.equal(result.providerRetries, 1);
+      assert.equal(s.faux.state.callCount, 3);
+    } finally {
+      await s.close();
+    }
+  });
+}
 
 test('provider recovery keeps original budgets and never becomes a repeated retry loop', async () => {
   for (const scenario of [
@@ -521,9 +529,12 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
     'permanent',
     'repeated',
     'temporary-repeated',
+    'processing-repeated',
     'access-denied',
   ]) {
-    const retryAllowed = scenario === 'repeated' || scenario === 'temporary-repeated';
+    const retryAllowed = ['repeated', 'temporary-repeated', 'processing-repeated'].includes(
+      scenario,
+    );
     const controller = new AbortController();
     const failure = () =>
       fauxAssistantMessage(
@@ -534,6 +545,8 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
             {
               permanent: 'Invalid API key',
               'temporary-repeated': 'Unable to verify model access right now. Please retry.',
+              'processing-repeated':
+                'An error occurred while processing your request. You can retry your request, or contact support.',
               'access-denied': 'You do not have access to this model.',
             }[scenario] ?? 'socket hang up',
         },
@@ -562,6 +575,7 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
           permanent: 'error',
           repeated: 'error',
           'temporary-repeated': 'error',
+          'processing-repeated': 'error',
           'access-denied': 'error',
         }[scenario],
         scenario,
