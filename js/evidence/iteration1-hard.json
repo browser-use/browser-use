@@ -44,7 +44,10 @@
       90,
       9
     ],
-    "confirmation_eligible": true
+    "confirmation_eligible": false,
+    "complete_actual_judgment_coverage": true,
+    "fresh_confirmation": false,
+    "comparison_kind": "exploratory; concurrent paired dispatch"
   },
   "arms": [
     {
