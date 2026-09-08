@@ -20,4 +20,12 @@ The Python bundle initially omitted the image because the upstream WASM asset wa
 
 Final local checks passed: 87 Node tests, typecheck, documentation build, and all seven Python integration tests against both the source bundle and the unpacked built wheel. The wheel's WASM bytes match the pinned dependency asset. These checks use real local Chrome and scripted/local SSE provider responses; they do not measure benchmark quality. [Numeric diagnosis and validation](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/image-limits.json).
 
-The frozen `f41c5b7` confirmation arms do not contain this change. This is a separate next candidate. Local tests and a remote smoke must pass before any subsequent full-cohort dispatch. There is no benchmark improvement claim for this experiment yet.
+The frozen `f41c5b7` confirmation arms do not contain this change. The image fix is a separate next candidate, SDK `a4a0ba2c69a3c4ee5d2a0243734157fef7068fd2`.
+
+## Remote package smoke
+
+A 32-turn, 600-second diagnostic on `bub2-002` completed successfully at this exact SDK: [execution 34187516720](https://github.com/browser-use/new-eval-platform/actions/runs/34187516720), evaluation `26892b16-1c1c-4a3e-bcb5-138485904012`. It produced a real **20/100** Findings judgment, with 31 steps, 351.064 seconds of recorded agent execution, and $0.04605014 recorded agent inference cost. Its final response explicitly says the capture set is incomplete and makes no verified-deliverable claim. No task deliverable files were produced.
+
+The downloaded artifact contains 27 validated PNG evidence images. The separate eval observer recorded three screenshot errors; the SDK recorded no cleanup errors, compactions, or inference retries. An independent Cloud API read confirmed that this smoke's browser stopped.
+
+This attempt produced no native model-image attachments or resize notices. Consequently it verifies package/inference/browser/evidence integration, **not remote execution of the resize mechanism**. The real-Chrome local tests remain the mechanism proof. No outcome replaces the failed reference task or enters either full confirmation cohort. There is no benchmark improvement claim for this image experiment yet. [Exact inputs and numeric smoke evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/image-limits-smoke.json).

@@ -1,0 +1,256 @@
+{
+  "label": "image-limits-smoke-luna",
+  "sdk_sha": "a4a0ba2c69a3c4ee5d2a0243734157fef7068fd2",
+  "github_run_id": 34187516720,
+  "evaluation_id": "26892b16-1c1c-4a3e-bcb5-138485904012",
+  "inputs": {
+    "platform_ref": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "target_repo": "browser-use/bu-pi",
+    "target_ref": "a4a0ba2c69a3c4ee5d2a0243734157fef7068fd2",
+    "harness": "pi-browser-use-next",
+    "task_limit": "1",
+    "max_steps": "32",
+    "dataset": "datasets/BU_Bench_v2.json",
+    "model": "gpt-5.6-luna",
+    "judge": "findings",
+    "judge_model": "gpt-5.6-luna",
+    "judge_options_json": "{\"reasoning_effort\": \"xhigh\"}",
+    "max_parallel": "1",
+    "timeout_minutes": "12",
+    "options_json": "{\"reasoning_effort\": \"xhigh\", \"task_timeout_seconds\": 600, \"proxy_country_code\": \"us\", \"browser_timeout_minutes\": 20, \"max_context_chars\": 800000, \"evidence_format\": \"findings\"}",
+    "message": "bu-pi image-limits diagnostic smoke; a4a0ba2; bub2-002; 32 turns 600s; no replacement outcome; 20260908",
+    "task_ids": "bub2-002"
+  },
+  "manifest": {
+    "config_hash": "1e7f529e213f96f53654a2e2295d93b838b26cebacc3a2eec4f0f7e095c9e56b",
+    "datapoint_id": "1bc16c15-1df3-4851-a4d5-5a0ea8de7b49",
+    "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+    "evaluation_id": "26892b16-1c1c-4a3e-bcb5-138485904012",
+    "github_run_attempt": "1",
+    "github_run_id": "34187516720",
+    "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34187516720",
+    "harness": "pi-browser-use-next",
+    "judge": "findings",
+    "judge_model": "gpt-5.6-luna",
+    "judge_options": {
+      "reasoning_effort": "xhigh"
+    },
+    "max_steps": 32,
+    "model": "gpt-5.6-luna",
+    "options": {
+      "browser_timeout_minutes": 20,
+      "evidence_format": "findings",
+      "max_context_chars": 800000,
+      "proxy_country_code": "us",
+      "reasoning_effort": "xhigh",
+      "task_timeout_seconds": 600
+    },
+    "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+    "schema_version": 1,
+    "target_repo": "browser-use/bu-pi",
+    "target_sha": "a4a0ba2c69a3c4ee5d2a0243734157fef7068fd2",
+    "task_id": "bub2-002",
+    "timeout_minutes": 12
+  },
+  "workflow_conclusion": "success",
+  "score_per_100": 20.0,
+  "actual_judgment": true,
+  "metrics": {
+    "cache_write_tokens": 104212,
+    "cached_input_tokens": 541187,
+    "duration_seconds": 351.064,
+    "input_tokens": 93,
+    "output_tokens": 7629,
+    "steps": 31,
+    "total_cost": 0.04605014,
+    "total_tokens": 653121
+  },
+  "stop_reason": "completed",
+  "compactions": 0,
+  "provider_retries": 0,
+  "sdk_cleanup_errors": [],
+  "observer_screenshot_errors": 3,
+  "verified_png_evidence": [
+    {
+      "path": "agent_outputs/screenshots/001.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "ab6e46c68a1964a23f0fb95dd6f06ffda4d0599103b8abc9feaaa28f9d0cf7c2"
+    },
+    {
+      "path": "agent_outputs/screenshots/002.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "24694aa9f97bc6d8b2fda23fee709505658575a34d523c021a9f4a6c0decaf9f"
+    },
+    {
+      "path": "agent_outputs/screenshots/003.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "9f9b5d41763ef85894126d4f4ba2ae55f5381a91bd8aaee77edb4046c56672f4"
+    },
+    {
+      "path": "agent_outputs/screenshots/004.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "9f9b5d41763ef85894126d4f4ba2ae55f5381a91bd8aaee77edb4046c56672f4"
+    },
+    {
+      "path": "agent_outputs/screenshots/005.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "ff6c3eeaa27ff30d051024de89b97a9d6e4c346dff88d2f1f8a1d7c64f9d2899"
+    },
+    {
+      "path": "agent_outputs/screenshots/006.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "321b696b4ee7f25800983d62984935a9893bcf3287e6669a87c8a2881bc08af7"
+    },
+    {
+      "path": "agent_outputs/screenshots/007.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "4e37a079fcbdac449e1f43b943c43dab47860aa72ceeaf361aa7b40412ed0775"
+    },
+    {
+      "path": "agent_outputs/screenshots/008.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "7b99f144a6d38cab67fef0a43f0834ec4976693c0473f80e53401be981ddea69"
+    },
+    {
+      "path": "agent_outputs/screenshots/009.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "077b62315c650d6d59ed95f26951774f273517332dbfcfd19e55983347627080"
+    },
+    {
+      "path": "agent_outputs/screenshots/010.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "8854f50ecb90842f7b71c02a4eb8041701821430cd7b6469749cdac44781370f"
+    },
+    {
+      "path": "agent_outputs/screenshots/011.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "8865df2591969504bc6b26aa1ff78b3729f20743177d3da562397422d6823f71"
+    },
+    {
+      "path": "agent_outputs/screenshots/012.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "af7f6c22875d52eb7cf64d1a0a91e36d918f62e9256b5a7ea793d3051076728c"
+    },
+    {
+      "path": "agent_outputs/screenshots/013.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "470b6c267147e3747a323fe981e585e92868998b569d9ee2695d0adfd4791ced"
+    },
+    {
+      "path": "agent_outputs/screenshots/014.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "9a095157579e42b5fc067c873ac1da4a5ae004c58f429a1070fcc0f213a8d068"
+    },
+    {
+      "path": "agent_outputs/screenshots/015.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "5ea944151e436870a90c3ff316de31b0e29cae191c0fcacad82322d7496cc825"
+    },
+    {
+      "path": "agent_outputs/screenshots/016.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "ba41d7fc018de899122c21a1084d33ace8a0e6fdb6854ee6b3beba00f2c369c1"
+    },
+    {
+      "path": "agent_outputs/screenshots/017.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "377c32b73b286f11d9a549d6805266d8b37777f7276f2947f3283261f31d4069"
+    },
+    {
+      "path": "agent_outputs/screenshots/018.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "5048c4a1b5673bc02a28161d6ad26b138cb386fb00c51f73df615c69217d5f4e"
+    },
+    {
+      "path": "agent_outputs/screenshots/019.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "8b6ff25ed73400ce001e47c2c81a22d763947810c78a7d8ddee5730967d44451"
+    },
+    {
+      "path": "agent_outputs/screenshots/020.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "f10c7acd54817c1bf26f91708fd46034e7804d4dcf2f26181660ff813966f45d"
+    },
+    {
+      "path": "agent_outputs/screenshots/021.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "206d826a7ce57decabfc1b74033d6b2579683812d8702b63da2a30013abafcf3"
+    },
+    {
+      "path": "agent_outputs/screenshots/022.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "749e8f7b7f9c58d4a0e1ec5bc16df38e011a0b2d10f00c588ebb65d93c5e57d7"
+    },
+    {
+      "path": "agent_outputs/screenshots/023.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "9fe443f985dc9e45cc25f4ee7212dd54969ad77905e5fd0c3f451c89e6e061a0"
+    },
+    {
+      "path": "agent_outputs/screenshots/024.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "3fcedf04965226d1bd489dce2e4b826ffc6047bacf2c53cdab4613f0a12e99e3"
+    },
+    {
+      "path": "agent_outputs/screenshots/025.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "ce05f7ea2e5a9b8e7f780eb05d2e78547831c27cdc5789a7f9b0bc2c4e3d4840"
+    },
+    {
+      "path": "agent_outputs/screenshots/026.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "7f7074cbbee83cb7aff1ffc2fb2a57dd52ec1d6cc0e875a902ca58f641d51cca"
+    },
+    {
+      "path": "agent_outputs/screenshots/027.png",
+      "width": 1440,
+      "height": 654,
+      "sha256": "428402d8b44637e707b65993f5a663dd38238e2b2c56e304c4b53205ceffe94f"
+    }
+  ],
+  "cloud_cleanup": {
+    "label": "image-limits-smoke-luna",
+    "task_id": "bub2-002",
+    "github_run_id": 34187516720,
+    "checked_at": "2026-09-08T04:46:41.943461+00:00",
+    "id": "407ea802-181c-4af9-8fc2-39a2cb0b5209",
+    "status": "stopped",
+    "startedAt": "2026-09-08T04:36:29.838140Z",
+    "finishedAt": "2026-09-08T04:42:21.419912Z"
+  },
+  "task_deliverable_files": 0,
+  "resize_exercised_remotely": false,
+  "limitations": [
+    "Bounded diagnostic at 32 turns and 600 seconds; not a benchmark ranking or substituted result.",
+    "No explicit model screenshots were requested; resize behavior is proven locally, not by this smoke.",
+    "The final response states the requested capture set was incomplete and makes no verified-deliverable claim.",
+    "Recorded agent inference cost excludes judge, browser, and runner charges."
+  ],
+  "native_image_blocks_in_tool_results": 0
+}

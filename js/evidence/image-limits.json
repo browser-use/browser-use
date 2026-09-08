@@ -28,7 +28,7 @@
     "base64Bytes": 44016
   },
   "limitations": [
-    "The fix is a separate next candidate, absent from the frozen f41c5b7 confirmation cohorts; not yet remotely evaluated.",
+    "The fix is a separate next candidate, absent from frozen f41c5b7 confirmation. Package smoke completed; no full-cohort result or remote resize-path proof.",
     "A 132-pixel-wide preview loses legibility; original files and crop/viewport follow-up are needed.",
     "Other provider limits may differ; the generic fix needs dimension and format validation plus failure containment."
   ],
@@ -48,7 +48,7 @@
     "typecheck": "passed",
     "docs_build": "passed",
     "fixtures": "Real local Chrome plus scripted/local SSE model responses; no paid model calls",
-    "remote_smoke": "not yet dispatched"
+    "remote_smoke": "Completed package smoke; no native image attachments or resize path exercised; see evidence/image-limits-smoke.json"
   },
   "wheel": {
     "wheel": "browser_use_next-0.1.0-py3-none-any.whl",
