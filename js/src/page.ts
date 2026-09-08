@@ -221,19 +221,26 @@ export class Page {
       `Element not found within ${this.connection.timeoutMs} ms: ${JSON.stringify(target)}`,
     );
   }
-  private async withNode<T>(
-    id: number,
-    fn: (this: HTMLElement, arg: unknown) => T,
-    arg?: unknown,
-  ): Promise<T> {
+  private async withNodeHandle<T>(id: number, use: (objectId: string) => Promise<T>): Promise<T> {
     const { object } = await this.cdp('DOM.resolveNode', {
       backendNodeId: id,
       ...(this.contextId ? { executionContextId: this.contextId } : {}),
     });
     if (!object.objectId) throw new Error('Element is stale; inspect the page again.');
     try {
+      return await use(object.objectId);
+    } finally {
+      await this.cdp('Runtime.releaseObject', { objectId: object.objectId });
+    }
+  }
+  private async withNode<T>(
+    id: number,
+    fn: (this: HTMLElement, arg: unknown) => T,
+    arg?: unknown,
+  ): Promise<T> {
+    return this.withNodeHandle(id, async (objectId) => {
       const result = await this.cdp('Runtime.callFunctionOn', {
-        objectId: object.objectId,
+        objectId,
         functionDeclaration: fn.toString(),
         arguments: [{ value: arg }],
         returnByValue: true,
@@ -243,12 +250,58 @@ export class Page {
           result.exceptionDetails.exception?.description ?? result.exceptionDetails.text,
         );
       return result.result.value as T;
-    } finally {
-      await this.cdp('Runtime.releaseObject', { objectId: object.objectId });
-    }
+    });
+  }
+  private async controlLabel(id: number): Promise<number | undefined> {
+    return this.withNodeHandle(id, async (objectId) => {
+      const response = await this.cdp('Runtime.callFunctionOn', {
+        objectId,
+        functionDeclaration: function (this: HTMLInputElement) {
+          if (!this.matches('input[type=radio],input[type=checkbox]')) return null;
+          if (!this.isConnected || this.matches(':disabled,[aria-disabled="true"]'))
+            throw new Error('Element is disabled or stale.');
+          const rect = this.getBoundingClientRect();
+          const style = getComputedStyle(this);
+          // Only substitute a surface for a clipped control. A covered ordinary
+          // input must still fail even if another part of its label is exposed.
+          if (
+            rect.width > 1 &&
+            rect.height > 1 &&
+            style.clip === 'auto' &&
+            style.clipPath === 'none'
+          )
+            return null;
+          const labels = Array.from(this.labels ?? []).filter((label) => {
+            const style = getComputedStyle(label);
+            return (
+              label.control === this &&
+              label.getClientRects().length > 0 &&
+              style.visibility === 'visible' &&
+              style.display !== 'none'
+            );
+          });
+          if (labels.length > 1)
+            throw new Error('Ambiguous control labels. Inspect and click an exact label.');
+          return labels[0] ?? null;
+        }.toString(),
+      });
+      if (response.exceptionDetails)
+        throw new Error(
+          response.exceptionDetails.exception?.description ?? response.exceptionDetails.text,
+        );
+      const labelId = response.result.objectId;
+      if (!labelId) return;
+      try {
+        return (await this.cdp('DOM.describeNode', { objectId: labelId })).node.backendNodeId;
+      } finally {
+        await this.cdp('Runtime.releaseObject', { objectId: labelId });
+      }
+    });
   }
   async click(target: Target) {
-    const id = await this.find(target);
+    await this.clickNode(await this.find(target), true);
+  }
+  private async clickNode(id: number, allowLabel: boolean) {
     await this.cdp('DOM.scrollIntoViewIfNeeded', { backendNodeId: id });
     const { model } = await this.cdp('DOM.getBoxModel', { backendNodeId: id });
     const q = model.content;
@@ -267,9 +320,24 @@ export class Page {
         if (!inner || inner === hit) break;
         hit = inner;
       }
+      // A link/button inside a label has its own activation behavior.
+      if (
+        this.matches('label') &&
+        hit !== this &&
+        hit !== (this as HTMLLabelElement).control &&
+        hit?.closest('a[href],button,input,select,textarea,[contenteditable="true"]')
+      )
+        return false;
       return hit === this || (hit !== null && this.contains(hit));
     });
     if (!clear) {
+      if (allowLabel) {
+        const label = await this.controlLabel(id);
+        if (label) {
+          await this.clickNode(label, false);
+          return;
+        }
+      }
       const obstruction = await this.withNode(id, function () {
         const r = this.getBoundingClientRect();
         const hit = this.ownerDocument.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);

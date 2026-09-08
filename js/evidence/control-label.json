@@ -1,0 +1,54 @@
+{
+  "verified_at": "2026-09-08T08:25:02.789701+00:00",
+  "baseline_runtime_sha": "7d1c107cd506c3e583a49f45260ffa4e9cf45ad9",
+  "scope": "Local generalized clipped-control label activation; no live quality score for this patch.",
+  "node": "v24.5.0",
+  "python": "Python 3.12.11",
+  "platform": "macOS isolated installed Chrome; no cross-platform or wheel-release claim",
+  "checks": {
+    "before": {
+      "passed": 2,
+      "total": 4,
+      "log_sha256": "f148996c8c3fa2452fb9dd0ae74a736723b6d493a8cb21f5d4e77705eb47661f"
+    },
+    "after": {
+      "passed": 4,
+      "total": 4,
+      "log_sha256": "e891127c0e2239e8d268630b35e740e4dc46b03bf5eef032a459f2844464f100"
+    },
+    "final_targeted": {
+      "passed": 13,
+      "total": 13,
+      "log_sha256": "e1a2f1b402d829c8ff81deba4106e0102db23feaa41c8fc8514ff6caf8684d8f"
+    },
+    "final_full_node": {
+      "passed": 100,
+      "total": 100,
+      "log_sha256": "502c299306e8bad4b3cb27106131b5b5523f3d0631010e3129a4463cc2147084"
+    },
+    "python_engine": {
+      "passed": 7,
+      "total": 7,
+      "log_sha256": "5b47ef5d0dc5d67da9370e36d2c3fff4f0b71371e6158f4eee429bf084c75b00"
+    }
+  },
+  "typecheck": "passed",
+  "docs_build": "passed",
+  "source_sha256": {
+    "src/page.ts": "d71bb924421434f714dd25769a9a46e376f51589e91a40d87d466e85f78bfa09",
+    "test/control-label.test.mjs": "3caa16e5a9ec545550a46f6810a4f800569b625ba7576a30ac6e337d610c22cf"
+  },
+  "behavior": [
+    "Original clear target path unchanged in CDP call count.",
+    "Only a failed hit test for a clipped native radio/checkbox can resolve one visible native associated label before input.",
+    "Label must pass box, enabled and hit checks; unrelated interactive center rejected.",
+    "No DOM activation, force click, action replay, dependency, prompt or public signature change.",
+    "Source and label remote handles released."
+  ],
+  "risks": [
+    "This exact helper failure was manually recovered in the diagnostic; no score gain proven.",
+    "Hit testing retains existing per-document scope; ancestor-frame overlays and inspection/input races are not comprehensively covered.",
+    "Controls without a layout box still need explicit visible-UI targeting."
+  ],
+  "frozen_evals_unchanged": true
+}

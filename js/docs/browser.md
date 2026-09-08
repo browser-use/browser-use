@@ -54,6 +54,8 @@ const selected = radios.filter((node) => node.checked === true);
 
 Clicks scroll into view, check enabled state and overlay coverage, then send real CDP mouse input to the box center. There is no hidden retry after a mutation. Custom widgets can use `page.clickAt(x, y)` and raw input commands.
 
+For a clipped native radio or checkbox whose own center cannot receive input, `click()` can use its single visible associated HTML label. The label must pass the same hit test; an embedded link or unrelated interactive control is rejected. Disabled controls, covered ordinary inputs and ambiguous labels still fail. This resolves the click surface before sending input; it does not invoke DOM `.click()`, set checked state, or replay an action. Controls without a layout box still require explicit targeting of their visible UI. Inspect a fresh snapshot to verify the resulting selection.
+
 ```js
 const rows = await page.evaluate(() =>
   Array.from(document.querySelectorAll('article'), (el) => ({
