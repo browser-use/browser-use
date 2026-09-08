@@ -1,0 +1,780 @@
+{
+  "evaluation_id": "bf521f51-7920-4e55-8833-f6413b91a73d",
+  "project_id": "b657f811-13a7-4dae-a67a-91445a567f24",
+  "source": "Laminar evaluation_datapoints, latest created_at per datapoint id; executor_output.result.metrics",
+  "queried_at_utc": "2026-09-08",
+  "scope": "Agent-reported inference usage, including compaction; not trace-level judge-inclusive totals. Cached tokens are repeated input, not unique context. Missing metrics are null, not zero.",
+  "tasks": [
+    {
+      "task_id": "bub2-001",
+      "metrics": {
+        "steps": 68,
+        "duration_seconds": 728.603,
+        "input_tokens": 204,
+        "output_tokens": 63648,
+        "cached_input_tokens": 3709348,
+        "cache_write_tokens": 186916,
+        "total_tokens": 3960116,
+        "total_cost": 0.19733435999999996
+      }
+    },
+    {
+      "task_id": "bub2-002",
+      "metrics": {
+        "steps": 86,
+        "duration_seconds": 1113.796,
+        "input_tokens": 258,
+        "output_tokens": 34163,
+        "cached_input_tokens": 6494305,
+        "cache_write_tokens": 129447,
+        "total_tokens": 6658173,
+        "total_cost": 0.20329504999999998
+      }
+    },
+    {
+      "task_id": "bub2-003",
+      "metrics": {
+        "steps": 120,
+        "duration_seconds": 1014.401,
+        "input_tokens": 68903,
+        "output_tokens": 48678,
+        "cached_input_tokens": 7920088,
+        "cache_write_tokens": 483640,
+        "total_tokens": 8521309,
+        "total_cost": 0.35150595999999995
+      }
+    },
+    {
+      "task_id": "bub2-004",
+      "metrics": {
+        "steps": 223,
+        "duration_seconds": 1913.985,
+        "input_tokens": 66834,
+        "output_tokens": 55867,
+        "cached_input_tokens": 13579953,
+        "cache_write_tokens": 1924103,
+        "total_tokens": 15626757,
+        "total_cost": 0.8330320099999995
+      }
+    },
+    {
+      "task_id": "bub2-005",
+      "metrics": {
+        "steps": 93,
+        "duration_seconds": 547.954,
+        "input_tokens": 279,
+        "output_tokens": 34731,
+        "cached_input_tokens": 5229865,
+        "cache_write_tokens": 395140,
+        "total_tokens": 5660015,
+        "total_cost": 0.24511529999999992
+      }
+    },
+    {
+      "task_id": "bub2-006",
+      "metrics": {
+        "steps": 177,
+        "duration_seconds": 1898.549,
+        "input_tokens": 531,
+        "output_tokens": 56542,
+        "cached_input_tokens": 15330824,
+        "cache_write_tokens": 315762,
+        "total_tokens": 15703659,
+        "total_cost": 0.4535135800000001
+      }
+    },
+    {
+      "task_id": "bub2-007",
+      "metrics": {
+        "steps": 170,
+        "duration_seconds": 1232.618,
+        "input_tokens": 82278,
+        "output_tokens": 55590,
+        "cached_input_tokens": 14342981,
+        "cache_write_tokens": 293812,
+        "total_tokens": 14774661,
+        "total_cost": 0.44347622000000003
+      }
+    },
+    {
+      "task_id": "bub2-008",
+      "metrics": {
+        "steps": 86,
+        "duration_seconds": 824.963,
+        "input_tokens": 258,
+        "output_tokens": 29919,
+        "cached_input_tokens": 3761763,
+        "cache_write_tokens": 94341,
+        "total_tokens": 3886281,
+        "total_cost": 0.13477491
+      }
+    },
+    {
+      "task_id": "bub2-009",
+      "metrics": {
+        "steps": 120,
+        "duration_seconds": 1077.049,
+        "input_tokens": 360,
+        "output_tokens": 64626,
+        "cached_input_tokens": 9098341,
+        "cache_write_tokens": 518018,
+        "total_tokens": 9681345,
+        "total_cost": 0.3890945199999999
+      }
+    },
+    {
+      "task_id": "bub2-010",
+      "metrics": {
+        "steps": 112,
+        "duration_seconds": 896.54,
+        "input_tokens": 336,
+        "output_tokens": 70848,
+        "cached_input_tokens": 6056945,
+        "cache_write_tokens": 359532,
+        "total_tokens": 6487661,
+        "total_cost": 0.29610669999999994
+      }
+    },
+    {
+      "task_id": "bub2-011",
+      "metrics": {
+        "steps": 99,
+        "duration_seconds": 1169.07,
+        "input_tokens": 297,
+        "output_tokens": 43935,
+        "cached_input_tokens": 6422569,
+        "cache_write_tokens": 344580,
+        "total_tokens": 6811381,
+        "total_cost": 0.26737778
+      }
+    },
+    {
+      "task_id": "bub2-012",
+      "metrics": {
+        "steps": 89,
+        "duration_seconds": 859.929,
+        "input_tokens": 267,
+        "output_tokens": 33266,
+        "cached_input_tokens": 4843659,
+        "cache_write_tokens": 202952,
+        "total_tokens": 5080144,
+        "total_cost": 0.18758378
+      }
+    },
+    {
+      "task_id": "bub2-013",
+      "metrics": {
+        "steps": 120,
+        "duration_seconds": 1149.446,
+        "input_tokens": 360,
+        "output_tokens": 27510,
+        "cached_input_tokens": 5915484,
+        "cache_write_tokens": 144217,
+        "total_tokens": 6087571,
+        "total_cost": 0.18744793
+      }
+    },
+    {
+      "task_id": "bub2-014",
+      "metrics": {
+        "steps": 137,
+        "duration_seconds": 1259.905,
+        "input_tokens": 87413,
+        "output_tokens": 56179,
+        "cached_input_tokens": 9075774,
+        "cache_write_tokens": 464145,
+        "total_tokens": 9683511,
+        "total_cost": 0.38244912999999997
+      }
+    },
+    {
+      "task_id": "bub2-015",
+      "metrics": {
+        "steps": 93,
+        "duration_seconds": 787.899,
+        "input_tokens": 279,
+        "output_tokens": 52399,
+        "cached_input_tokens": 6787151,
+        "cache_write_tokens": 146386,
+        "total_tokens": 6986215,
+        "total_cost": 0.23527411999999992
+      }
+    },
+    {
+      "task_id": "bub2-016",
+      "metrics": {
+        "steps": 168,
+        "duration_seconds": 954.15,
+        "input_tokens": 66820,
+        "output_tokens": 45745,
+        "cached_input_tokens": 9697031,
+        "cache_write_tokens": 208031,
+        "total_tokens": 10017627,
+        "total_cost": 0.31420636999999996
+      }
+    },
+    {
+      "task_id": "bub2-017",
+      "metrics": {
+        "steps": 160,
+        "duration_seconds": 1271.919,
+        "input_tokens": 83379,
+        "output_tokens": 77910,
+        "cached_input_tokens": 12059006,
+        "cache_write_tokens": 344871,
+        "total_tokens": 12565166,
+        "total_cost": 0.43756567000000013
+      }
+    },
+    {
+      "task_id": "bub2-018",
+      "metrics": {
+        "steps": 129,
+        "duration_seconds": 996.898,
+        "input_tokens": 387,
+        "output_tokens": 50911,
+        "cached_input_tokens": 10859240,
+        "cache_write_tokens": 406636,
+        "total_tokens": 11317174,
+        "total_cost": 0.3800143999999999
+      }
+    },
+    {
+      "task_id": "bub2-019",
+      "metrics": {
+        "steps": 174,
+        "duration_seconds": 1358.592,
+        "input_tokens": 71141,
+        "output_tokens": 49199,
+        "cached_input_tokens": 14005236,
+        "cache_write_tokens": 307547,
+        "total_tokens": 14433123,
+        "total_cost": 0.43025847000000006
+      }
+    },
+    {
+      "task_id": "bub2-020",
+      "metrics": {
+        "steps": 176,
+        "duration_seconds": 1173.651,
+        "input_tokens": 528,
+        "output_tokens": 42633,
+        "cached_input_tokens": 13386517,
+        "cache_write_tokens": 608770,
+        "total_tokens": 14038448,
+        "total_cost": 0.4711880399999999
+      }
+    },
+    {
+      "task_id": "bub2-021",
+      "metrics": {
+        "steps": 115,
+        "duration_seconds": 805.739,
+        "input_tokens": 345,
+        "output_tokens": 35237,
+        "cached_input_tokens": 5704579,
+        "cache_write_tokens": 101552,
+        "total_tokens": 5841713,
+        "total_cost": 0.18183297999999998
+      }
+    },
+    {
+      "task_id": "bub2-022",
+      "metrics": {
+        "steps": 253,
+        "duration_seconds": 2681.946,
+        "input_tokens": 72951,
+        "output_tokens": 59970,
+        "cached_input_tokens": 18824685,
+        "cache_write_tokens": 350666,
+        "total_tokens": 19308272,
+        "total_cost": 0.5507144000000003
+      }
+    },
+    {
+      "task_id": "bub2-023",
+      "metrics": {
+        "steps": 147,
+        "duration_seconds": 1031.519,
+        "input_tokens": 58576,
+        "output_tokens": 41994,
+        "cached_input_tokens": 7909657,
+        "cache_write_tokens": 257837,
+        "total_tokens": 8268064,
+        "total_cost": 0.2847603900000001
+      }
+    },
+    {
+      "task_id": "bub2-024",
+      "metrics": {
+        "steps": 106,
+        "duration_seconds": 810.432,
+        "input_tokens": 318,
+        "output_tokens": 29053,
+        "cached_input_tokens": 6081513,
+        "cache_write_tokens": 222631,
+        "total_tokens": 6333515,
+        "total_cost": 0.21221521
+      }
+    },
+    {
+      "task_id": "bub2-025",
+      "metrics": {
+        "steps": 144,
+        "duration_seconds": 849.696,
+        "input_tokens": 432,
+        "output_tokens": 42044,
+        "cached_input_tokens": 11021176,
+        "cache_write_tokens": 442145,
+        "total_tokens": 11505797,
+        "total_cost": 0.3814989699999999
+      }
+    },
+    {
+      "task_id": "bub2-026",
+      "metrics": {
+        "steps": 83,
+        "duration_seconds": 726.677,
+        "input_tokens": 249,
+        "output_tokens": 42225,
+        "cached_input_tokens": 5402650,
+        "cache_write_tokens": 170830,
+        "total_tokens": 5615954,
+        "total_cost": 0.2014803
+      }
+    },
+    {
+      "task_id": "bub2-027",
+      "metrics": {
+        "steps": 119,
+        "duration_seconds": 1182.987,
+        "input_tokens": 357,
+        "output_tokens": 44109,
+        "cached_input_tokens": 8849086,
+        "cache_write_tokens": 136571,
+        "total_tokens": 9030123,
+        "total_cost": 0.26412667
+      }
+    },
+    {
+      "task_id": "bub2-028",
+      "metrics": {
+        "steps": 73,
+        "duration_seconds": 469.539,
+        "input_tokens": 219,
+        "output_tokens": 31285,
+        "cached_input_tokens": 2794321,
+        "cache_write_tokens": 95331,
+        "total_tokens": 2921156,
+        "total_cost": 0.11730497000000001
+      }
+    },
+    {
+      "task_id": "bub2-029",
+      "metrics": {
+        "steps": 106,
+        "duration_seconds": 807.533,
+        "input_tokens": 318,
+        "output_tokens": 42419,
+        "cached_input_tokens": 8752066,
+        "cache_write_tokens": 346986,
+        "total_tokens": 9141789,
+        "total_cost": 0.31275421999999997
+      }
+    },
+    {
+      "task_id": "bub2-030",
+      "metrics": {
+        "steps": 154,
+        "duration_seconds": 1631.216,
+        "input_tokens": 58016,
+        "output_tokens": 50375,
+        "cached_input_tokens": 10373739,
+        "cache_write_tokens": 428775,
+        "total_tokens": 10910905,
+        "total_cost": 0.3867217300000001
+      }
+    },
+    {
+      "task_id": "bub2-031",
+      "metrics": {
+        "steps": 86,
+        "duration_seconds": 600.392,
+        "input_tokens": 258,
+        "output_tokens": 39186,
+        "cached_input_tokens": 5665477,
+        "cache_write_tokens": 123191,
+        "total_tokens": 5828112,
+        "total_cost": 0.19118209000000005
+      }
+    },
+    {
+      "task_id": "bub2-032",
+      "metrics": {
+        "steps": 128,
+        "duration_seconds": 876.969,
+        "input_tokens": 384,
+        "output_tokens": 46454,
+        "cached_input_tokens": 10479617,
+        "cache_write_tokens": 375401,
+        "total_tokens": 10901856,
+        "total_cost": 0.35926418999999993
+      }
+    },
+    {
+      "task_id": "bub2-033",
+      "metrics": {
+        "steps": 65,
+        "duration_seconds": 442.41,
+        "input_tokens": 195,
+        "output_tokens": 29928,
+        "cached_input_tokens": 4693362,
+        "cache_write_tokens": 273990,
+        "total_tokens": 4997475,
+        "total_cost": 0.19831734
+      }
+    },
+    {
+      "task_id": "bub2-034",
+      "metrics": {
+        "steps": 122,
+        "duration_seconds": 1190.9,
+        "input_tokens": 366,
+        "output_tokens": 32679,
+        "cached_input_tokens": 7931044,
+        "cache_write_tokens": 130193,
+        "total_tokens": 8094282,
+        "total_cost": 0.23045713
+      }
+    },
+    {
+      "task_id": "bub2-035",
+      "metrics": {
+        "steps": 62,
+        "duration_seconds": 475.779,
+        "input_tokens": 186,
+        "output_tokens": 23087,
+        "cached_input_tokens": 3064348,
+        "cache_write_tokens": 129191,
+        "total_tokens": 3216812,
+        "total_cost": 0.12132631
+      }
+    },
+    {
+      "task_id": "bub2-036",
+      "metrics": {
+        "steps": 198,
+        "duration_seconds": 1918.732,
+        "input_tokens": 56928,
+        "output_tokens": 60268,
+        "cached_input_tokens": 11971287,
+        "cache_write_tokens": 688499,
+        "total_tokens": 12776982,
+        "total_cost": 0.49525769000000025
+      }
+    },
+    {
+      "task_id": "bub2-037",
+      "metrics": {
+        "steps": 120,
+        "duration_seconds": 1195.363,
+        "input_tokens": 360,
+        "output_tokens": 39736,
+        "cached_input_tokens": 9819028,
+        "cache_write_tokens": 361422,
+        "total_tokens": 10220546,
+        "total_cost": 0.33449126
+      }
+    },
+    {
+      "task_id": "bub2-038",
+      "metrics": {
+        "steps": 105,
+        "duration_seconds": 972.383,
+        "input_tokens": 66668,
+        "output_tokens": 39181,
+        "cached_input_tokens": 8259928,
+        "cache_write_tokens": 325131,
+        "total_tokens": 8690908,
+        "total_cost": 0.3068321099999999
+      }
+    },
+    {
+      "task_id": "bub2-039",
+      "metrics": {
+        "steps": 86,
+        "duration_seconds": 683.116,
+        "input_tokens": 258,
+        "output_tokens": 24836,
+        "cached_input_tokens": 3946909,
+        "cache_write_tokens": 81564,
+        "total_tokens": 4053567,
+        "total_cost": 0.12918398000000006
+      }
+    },
+    {
+      "task_id": "bub2-040",
+      "metrics": {
+        "steps": 271,
+        "duration_seconds": 1596.205,
+        "input_tokens": 85715,
+        "output_tokens": 52059,
+        "cached_input_tokens": 13933632,
+        "cache_write_tokens": 739385,
+        "total_tokens": 14810791,
+        "total_cost": 0.54313269
+      }
+    },
+    {
+      "task_id": "bub2-041",
+      "metrics": {
+        "steps": 115,
+        "duration_seconds": 813.754,
+        "input_tokens": 345,
+        "output_tokens": 53730,
+        "cached_input_tokens": 7226900,
+        "cache_write_tokens": 959614,
+        "total_tokens": 8240589,
+        "total_cost": 0.44898649999999996
+      }
+    },
+    {
+      "task_id": "bub2-042",
+      "metrics": {
+        "steps": 82,
+        "duration_seconds": 800.087,
+        "input_tokens": 246,
+        "output_tokens": 33032,
+        "cached_input_tokens": 5928850,
+        "cache_write_tokens": 118262,
+        "total_tokens": 6080390,
+        "total_cost": 0.18783009999999994
+      }
+    },
+    {
+      "task_id": "bub2-043",
+      "metrics": {
+        "steps": 82,
+        "duration_seconds": 823.177,
+        "input_tokens": 246,
+        "output_tokens": 30990,
+        "cached_input_tokens": 3469011,
+        "cache_write_tokens": 136024,
+        "total_tokens": 3636271,
+        "total_cost": 0.14062342
+      }
+    },
+    {
+      "task_id": "bub2-044",
+      "metrics": {
+        "steps": 68,
+        "duration_seconds": 764.226,
+        "input_tokens": 204,
+        "output_tokens": 32703,
+        "cached_input_tokens": 2085105,
+        "cache_write_tokens": 784183,
+        "total_tokens": 2902195,
+        "total_cost": 0.27703225
+      }
+    },
+    {
+      "task_id": "bub2-045",
+      "metrics": {
+        "steps": 198,
+        "duration_seconds": 2238.984,
+        "input_tokens": 75306,
+        "output_tokens": 52224,
+        "cached_input_tokens": 13863298,
+        "cache_write_tokens": 365433,
+        "total_tokens": 14356261,
+        "total_cost": 0.44635421000000003
+      }
+    },
+    {
+      "task_id": "bub2-046",
+      "metrics": {
+        "steps": 123,
+        "duration_seconds": 1317.68,
+        "input_tokens": 73811,
+        "output_tokens": 54757,
+        "cached_input_tokens": 9838491,
+        "cache_write_tokens": 164340,
+        "total_tokens": 10131399,
+        "total_cost": 0.3183254199999999
+      }
+    },
+    {
+      "task_id": "bub2-047",
+      "metrics": {
+        "steps": 124,
+        "duration_seconds": 1301.661,
+        "input_tokens": 372,
+        "output_tokens": 47801,
+        "cached_input_tokens": 5903199,
+        "cache_write_tokens": 268738,
+        "total_tokens": 6220110,
+        "total_cost": 0.24268408
+      }
+    },
+    {
+      "task_id": "bub2-048",
+      "metrics": {
+        "steps": 107,
+        "duration_seconds": 584.434,
+        "input_tokens": 321,
+        "output_tokens": 24497,
+        "cached_input_tokens": 6611450,
+        "cache_write_tokens": 259066,
+        "total_tokens": 6895334,
+        "total_cost": 0.22645609999999997
+      }
+    },
+    {
+      "task_id": "bub2-049",
+      "metrics": {
+        "steps": 79,
+        "duration_seconds": 1298.426,
+        "input_tokens": 237,
+        "output_tokens": 69456,
+        "cached_input_tokens": 4490780,
+        "cache_write_tokens": 214334,
+        "total_tokens": 4774807,
+        "total_cost": 0.2267937000000001
+      }
+    },
+    {
+      "task_id": "bub2-050",
+      "metrics": {
+        "steps": 94,
+        "duration_seconds": 909.504,
+        "input_tokens": 282,
+        "output_tokens": 44412,
+        "cached_input_tokens": 6793286,
+        "cache_write_tokens": 147560,
+        "total_tokens": 6985540,
+        "total_cost": 0.22610652
+      }
+    },
+    {
+      "task_id": "bub2-051",
+      "metrics": {
+        "steps": 109,
+        "duration_seconds": 985.928,
+        "input_tokens": 327,
+        "output_tokens": 34821,
+        "cached_input_tokens": 5926334,
+        "cache_write_tokens": 106876,
+        "total_tokens": 6068358,
+        "total_cost": 0.18709627999999992
+      }
+    },
+    {
+      "task_id": "bub2-052",
+      "metrics": {
+        "steps": 101,
+        "duration_seconds": 1434.924,
+        "input_tokens": 303,
+        "output_tokens": 39206,
+        "cached_input_tokens": 5916099,
+        "cache_write_tokens": 113967,
+        "total_tokens": 6069575,
+        "total_cost": 0.19392153
+      }
+    },
+    {
+      "task_id": "bub2-053",
+      "metrics": {
+        "steps": 114,
+        "duration_seconds": 1021.285,
+        "input_tokens": 67100,
+        "output_tokens": 49686,
+        "cached_input_tokens": 9462339,
+        "cache_write_tokens": 312376,
+        "total_tokens": 9891501,
+        "total_cost": 0.34038398000000003
+      }
+    },
+    {
+      "task_id": "bub2-054",
+      "metrics": {
+        "steps": 173,
+        "duration_seconds": 2077.954,
+        "input_tokens": 92837,
+        "output_tokens": 75855,
+        "cached_input_tokens": 12440916,
+        "cache_write_tokens": 228781,
+        "total_tokens": 12838389,
+        "total_cost": 0.4156069700000001
+      }
+    },
+    {
+      "task_id": "bub2-055",
+      "metrics": {
+        "steps": 142,
+        "duration_seconds": 1103.248,
+        "input_tokens": 99905,
+        "output_tokens": 69343,
+        "cached_input_tokens": 12250140,
+        "cache_write_tokens": 244334,
+        "total_tokens": 12663722,
+        "total_cost": 0.4092789
+      }
+    },
+    {
+      "task_id": "bub2-056",
+      "metrics": {
+        "steps": 121,
+        "duration_seconds": 1080.708,
+        "input_tokens": 363,
+        "output_tokens": 37579,
+        "cached_input_tokens": 7722222,
+        "cache_write_tokens": 325333,
+        "total_tokens": 8085497,
+        "total_cost": 0.2809450900000001
+      }
+    },
+    {
+      "task_id": "bub2-057",
+      "metrics": {
+        "steps": 58,
+        "duration_seconds": 852.828,
+        "input_tokens": 174,
+        "output_tokens": 59361,
+        "cached_input_tokens": 1777535,
+        "cache_write_tokens": 126255,
+        "total_tokens": 1963325,
+        "total_cost": 0.13838244999999996
+      }
+    },
+    {
+      "task_id": "bub2-058",
+      "metrics": {
+        "steps": 140,
+        "duration_seconds": 1222.22,
+        "input_tokens": 420,
+        "output_tokens": 44675,
+        "cached_input_tokens": 8642125,
+        "cache_write_tokens": 202005,
+        "total_tokens": 8889225,
+        "total_cost": 0.2770377500000001
+      }
+    },
+    {
+      "task_id": "bub2-059",
+      "metrics": {
+        "steps": 96,
+        "duration_seconds": 673.448,
+        "input_tokens": 61115,
+        "output_tokens": 48638,
+        "cached_input_tokens": 5971715,
+        "cache_write_tokens": 172609,
+        "total_tokens": 6254077,
+        "total_cost": 0.23317514999999997
+      }
+    },
+    {
+      "task_id": "bub2-060",
+      "metrics": null
+    }
+  ]
+}

@@ -26,7 +26,10 @@
     "python/browser_use_next/*.py",
     "scripts/build-python.mjs",
     "evidence/reliability.json",
-    "evidence/vision.json"
+    "evidence/vision.json",
+    "evidence/readme-usage.json",
+    "docs/public/benchmarks/*.svg",
+    "scripts/benchmark-chart.mjs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

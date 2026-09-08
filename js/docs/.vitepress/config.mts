@@ -43,7 +43,7 @@ export default defineConfig({
           { text: 'Architecture', link: '/architecture' },
           { text: 'Migration', link: '/migration' },
           { text: 'Tests & compatibility', link: '/session-verification' },
-          { text: 'Benchmarks', link: '/vision-results' },
+          { text: 'Benchmarks', link: '/benchmark-overview' },
           { text: 'BrowserCode comparison', link: '/reliability' },
         ],
       },

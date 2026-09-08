@@ -1,15 +1,17 @@
-# Browser Use / next
+# bu-pi
 
-**A browser agent that keeps working with you.**
+**Browser Harness-style freedom. A TypeScript SDK you can build on.**
 
-A standalone TypeScript SDK built on Pi, a persistent V8 REPL, and raw CDP. Give it a task, get structured results and ordinary files. Use the same browser directly whenever deterministic code is clearer.
+Give Luna a browser, a persistent JavaScript workspace, and a task. It writes code, inspects the result, and adapts its helpers as it goes. Your app gets typed results, files, and a session it can keep talking to.
+
+Pi runs the agent loop. Raw CDP controls Chrome. bu-pi connects them with a small application API.
 
 **Prototype · v0.1.0 · Node.js 22.19+ · MIT · Not published to npm**
 
 ```ts
 import { BrowserUse, Type } from '@browser-use/next';
 
-const agent = await BrowserUse.create({ model: 'openai/gpt-5.5' });
+const agent = await BrowserUse.create({ model: 'openai/gpt-5.6-luna' });
 try {
   const result = await agent.run('Compare three travel chargers under $100.', {
     schema: Type.Array(
@@ -25,6 +27,40 @@ try {
   await agent.close();
 }
 ```
+
+## Why this exists
+
+The model can write a helper once, use it across pages, and repair it when the page changes. JavaScript bindings and extracted data stay alive between turns. A batch of browser operations can run in one tool call; a result already in memory can go straight to your app without the model retyping it.
+
+| Starting point                                                    | What you get                                                                                                                  |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| [Browser Use](https://github.com/browser-use/browser-use)         | The Python library's `Agent` loop and browser action interface.                                                               |
+| [Browser Harness](https://github.com/browser-use/browser-harness) | An editable browser tool for an existing coding agent such as Codex or Claude Code.                                           |
+| **bu-pi**                                                         | A standalone TypeScript agent SDK: Pi + persistent JavaScript + raw CDP, with sessions, typed delivery, hooks, and streaming. |
+
+bu-pi consumes upstream Pi packages. There is no Pi fork, Playwright layer, or separate browser daemon. You can extend the browser helpers in ordinary code and still call CDP directly. Repair is something the model does after observing a failure; it is not a guarantee that every task succeeds.
+
+```text
+Your app -> BrowserUse -> Pi -> Luna / your model
+                 |              |
+                 +<- JavaScript-+
+                        |
+                  persistent V8
+                    /       \
+               workspace   raw CDP -> Chrome
+```
+
+[Design decisions](docs/architecture.md) · [API reference](docs/api.md) · [Migration scope](docs/migration.md)
+
+## Measured, with the runs attached
+
+![Historical BU_Bench_v2 results with Luna xhigh: bu-pi 62.0/100 and $17.86 recorded agent cost; BrowserCode 41.2/100 and $21.49. Each cohort retains 60 tasks. Different dates and runners; not a controlled efficiency comparison.](docs/public/benchmarks/luna.svg)
+
+**62.0/100 on BU_Bench_v2 with Luna xhigh**, at evaluated commit `b430a91`. That is a continuous mean across 60 assigned tasks, including one browser-provisioning zero. BrowserCode's historical run scored 41.2/100 on the same task IDs. Both cost totals are recorded estimates for agent inference, excluding judge, browser, and runner charges.
+
+These are nonconcurrent development runs, not a controlled speed/token-efficiency comparison or a SOTA claim. The chart belongs to its pinned commits; newer runtime experiments are evaluated separately. Hard106 uses **GPT-5.5 medium**: the historical peak was **91/106**, followed by **86, 88, and 85/106** in later full cohorts.
+
+[Chart data, accounting, and limitations](docs/benchmark-overview.md) · [Full results](docs/vision-results.md) · [Hard106 history](docs/benchmark.md) · [Current experiment protocol](docs/extraction-experiment.md)
 
 ## Try it
 
@@ -43,7 +79,7 @@ The demo uses **scripted model responses and a real Chrome browser** against a l
 For an actual model run, configure the provider key (for example `OPENAI_API_KEY`), then:
 
 ```sh
-node examples/research.mjs "Find the latest stable Node.js release on nodejs.org."
+MODEL=openai/gpt-5.6-luna node examples/research.mjs "Find the latest stable Node.js release on nodejs.org."
 ```
 
 Optional environment variables: `MODEL`, `BROWSER_CDP_URL`, and `BROWSER_CHANNEL`. Real model runs incur provider charges. Browser provisioning is explicit; this SDK does not create paid cloud sessions.
@@ -52,7 +88,7 @@ Optional environment variables: `MODEL`, `BROWSER_CDP_URL`, and `BROWSER_CHANNEL
 
 ```ts
 const agent = await BrowserUse.create({
-  model: 'openai/gpt-5.5',
+  model: 'openai/gpt-5.6-luna',
   workspace: './work/research',
   browser: { profileDir: './profiles/research' },
   log: 'pretty',
@@ -83,17 +119,6 @@ Run `npm run demo:session` for a scripted-model/real-browser demo with CSV, hist
 - **Explicit control.** One active operation per session; step/time/context limits and a soft estimated-cost threshold.
 - **Recovery.** One budgeted delivery repair for unfinished answers. Worker termination contains hangs. Reconnect to the primary tab without replaying failed actions.
 - **Context and recovery.** Upstream Pi compaction, output checkpoints, browser-independent JavaScript/files, and optional Pi coding tools. Nonblocking observers cannot override policy hooks.
-
-## Small architecture
-
-```text
-Your application → BrowserUse → Pi → model provider
-                       └─ V8 child process → raw CDP → Chrome
-```
-
-[Design decisions](docs/architecture.md) · [API reference](docs/api.md) · [Migration scope](docs/migration.md) · [Verification](docs/verification.md)
-
-**Latest full evaluation (`b430a91`): Hard 85/106; Luna xhigh 62.00/100 over 60 tasks.** The first reliability iteration scored 88/106 and 55.72/100. The historical Hard peak remains 91/106. These are distinct complete cohorts; Luna is a continuous score. [Latest results and exact controls](docs/vision-results.md) · [Problem/remedy inventory](docs/reliability-results.md) · [Historical 91/106 experiment](docs/benchmark.md).
 
 ## Documentation
 
