@@ -1,8 +1,8 @@
 """Tests for lazy loading configuration system."""
 
-from datetime import datetime, timezone
 import json
 import os
+from datetime import datetime, timezone
 
 from browser_use.config import CONFIG, BrowserProfileEntry, load_and_migrate_config
 
