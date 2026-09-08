@@ -410,10 +410,24 @@ class Element:
 			)
 
 			# Step 2: Clear existing text if requested
+			cleared_successfully = True
 			if clear:
 				cleared_successfully = await self._clear_text_field(
 					object_id=object_id, cdp_client=cdp_client, session_id=session_id
 				)
+				try:
+					clear_verification = await cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': 'function() { return this.value !== undefined ? this.value : this.textContent; }',
+							'objectId': object_id,
+							'returnByValue': True,
+						},
+						session_id=session_id,
+					)
+					cleared_successfully = clear_verification.get('result', {}).get('value') == ''
+				except Exception as e:
+					logger.debug(f'Clear verification failed: {e}')
+					cleared_successfully = False
 				if not cleared_successfully:
 					logger.warning('Text field clearing failed, typing may append to existing text')
 
@@ -502,6 +516,52 @@ class Element:
 
 				# Add 18ms delay between keystrokes
 				await asyncio.sleep(0.018)
+
+			# Reconcile a controlled field that restored stale text before notifying
+			# change listeners. This keeps the clear and replacement atomic from the
+			# formatter's perspective, including an intentional empty replacement.
+			if clear:
+				value_verification = await cdp_client.send.Runtime.callFunctionOn(
+					params={
+						'functionDeclaration': 'function() { return this.value !== undefined ? this.value : this.textContent; }',
+						'objectId': object_id,
+						'returnByValue': True,
+					},
+					session_id=session_id,
+				)
+				actual_value = value_verification.get('result', {}).get('value')
+				if actual_value != value:
+					await cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': """
+								function(newValue) {
+									const setValue = () => {
+										if (this.value !== undefined) {
+											if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {
+												const proto = this instanceof HTMLTextAreaElement
+													? window.HTMLTextAreaElement.prototype
+													: window.HTMLInputElement.prototype;
+												const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+												try { desc.set.call(this, newValue); } catch (e) { this.value = newValue; }
+											} else {
+												this.value = newValue;
+											}
+									} else if (this.isContentEditable) {
+										this.textContent = newValue;
+									}
+								};
+								setValue();
+								this.dispatchEvent(new Event('input', { bubbles: true }));
+								if (newValue === '' && (this.value !== undefined ? this.value : this.textContent) !== newValue) setValue();
+								return this.value !== undefined ? this.value : this.textContent;
+								}
+							""",
+							'arguments': [{'value': value}],
+							'objectId': object_id,
+							'returnByValue': True,
+						},
+						session_id=session_id,
+					)
 
 			# Notify change listeners only after the replacement text is complete.
 			await cdp_client.send.Runtime.callFunctionOn(
@@ -1006,7 +1066,7 @@ class Element:
 			)
 
 			current_value = verify_result.get('result', {}).get('value', '')
-			if not current_value:
+			if current_value == '':
 				logger.debug('Text field cleared successfully using JavaScript')
 				return True
 			else:
