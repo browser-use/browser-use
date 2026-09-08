@@ -52,6 +52,13 @@ class SessionManager:
 		# leave every tab but the most recently attached one without lifecycle events.
 		self._lifecycle_events: dict[TargetID, deque[dict[str, Any]]] = {}
 
+		# Targets whose attachedToTarget event has been received but whose handler
+		# task has not finished registering the session in the pool yet. Written
+		# synchronously in the event callback so _initialize_existing_targets' fallback
+		# can distinguish "attach in flight" from "auto-attach never delivered this
+		# target" — explicitly attaching in the former case would double the sessions.
+		self._attaching_targets: set[TargetID] = set()
+
 		self._lock = asyncio.Lock()
 		self._recovery_lock = asyncio.Lock()
 
@@ -85,12 +92,19 @@ class SessionManager:
 			# - Create CDPSession
 			# - Enable monitoring (for pages/tabs)
 			# - Add to pool
-			create_task_with_error_handling(
+			# Mark the attach in flight BEFORE yielding to the event loop: the handler
+			# task may not reach its pool update within the startup grace window, and
+			# the fallback in _initialize_existing_targets must not mistake an
+			# in-flight attach for a target auto-attach never delivered.
+			target_id = event['targetInfo']['targetId']
+			self._attaching_targets.add(target_id)
+			task = create_task_with_error_handling(
 				self._handle_target_attached(event),
 				name='handle_target_attached',
 				logger_instance=self.logger,
 				suppress_exceptions=True,
 			)
+			task.add_done_callback(lambda _task, target_id=target_id: self._attaching_targets.discard(target_id))
 
 		def on_detached(event: DetachedFromTargetEvent, session_id: SessionID | None = None):
 			create_task_with_error_handling(
@@ -133,7 +147,14 @@ class SessionManager:
 
 		self.logger.debug('[SessionManager] Event monitoring started')
 
-		# Discover and initialize ALL existing targets
+		# Enable auto-attach AFTER handlers are registered. Per CDP semantics this
+		# attaches to all EXISTING related targets as well as future ones, so it is
+		# the single attach mechanism for startup targets — explicitly calling
+		# Target.attachToTarget for them too would create a second CDP session per
+		# pre-existing target (doubled event streams and monitoring).
+		await cdp_client.send.Target.setAutoAttach(params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True})
+
+		# Wait until every existing target is covered, explicitly attaching stragglers
 		await self._initialize_existing_targets()
 
 	def get_lifecycle_events(self, target_id: TargetID) -> 'deque[dict[str, Any]]':
@@ -781,14 +802,63 @@ class SessionManager:
 			self._recovery_task = None
 			self.logger.debug('[SessionManager] Recovery state reset')
 
+	def _is_target_ready(self, target_id: TargetID) -> bool:
+		"""A target is ready when it has a session and (for pages) monitoring is enabled."""
+		session = self._get_session_for_target(target_id)
+		if not session:
+			return False
+		target = self._targets.get(target_id)
+		target_type = target.target_type if target else 'unknown'
+		if target_type in ('page', 'tab'):
+			# For pages, verify monitoring is enabled
+			return hasattr(session, '_lifecycle_events') and session._lifecycle_events is not None
+		# Non-page targets don't need monitoring
+		return True
+
+	async def _wait_for_targets_ready(self, target_ids: list[TargetID], timeout: float) -> list[TargetID]:
+		"""Wait until every target has a ready session; returns the targets still missing at timeout.
+
+		Event handlers run via create_task, so this waits event-driven instead of polling callers.
+		"""
+		ready_event = asyncio.Event()
+
+		async def check_all_ready():
+			"""Check if all sessions are ready and signal completion."""
+			while True:
+				if all(self._is_target_ready(tid) for tid in target_ids):
+					ready_event.set()
+					return
+				await asyncio.sleep(0.05)
+
+		check_task = create_task_with_error_handling(
+			check_all_ready(), name='check_all_targets_ready', logger_instance=self.logger
+		)
+		try:
+			await asyncio.wait_for(ready_event.wait(), timeout=timeout)
+		except TimeoutError:
+			pass
+		finally:
+			check_task.cancel()
+			try:
+				await check_task
+			except asyncio.CancelledError:
+				pass
+
+		return [tid for tid in target_ids if not self._is_target_ready(tid)]
+
 	async def _initialize_existing_targets(self) -> None:
-		"""Discover and initialize all existing targets at startup.
+		"""Ensure every target that existed at startup has exactly ONE session before returning.
 
-		Attaches to each target and initializes it SYNCHRONOUSLY.
-		Chrome will also fire attachedToTarget events, but _handle_target_attached() is
-		idempotent (checks if target already in pool), so duplicate handling is safe.
+		Root Target.setAutoAttach (enabled in start_monitoring) already attaches to all
+		existing top-level targets, and each attached session auto-attaches its children,
+		so under normal Chrome semantics no explicit attach is needed here. Explicitly
+		calling Target.attachToTarget for targets autoAttach covers would create a SECOND
+		CDP session per pre-existing target: doubled event streams, duplicated lifecycle
+		events in the per-target buffers, and doubled Fetch auth interception.
 
-		This eliminates race conditions - monitoring is guaranteed ready before navigation.
+		Some CDP endpoints may not deliver a target through the auto-attach cascade, so
+		targets still missing a session after a grace period get an explicit attach as a
+		fallback, preserving the guarantee that monitoring is ready before navigation.
 		"""
 		cdp_client = self.browser_session._cdp_client_root
 		assert cdp_client is not None
@@ -799,83 +869,40 @@ class SessionManager:
 
 		self.logger.debug(f'[SessionManager] Discovered {len(existing_targets)} existing targets')
 
-		# Track target IDs for verification
-		target_ids_to_wait_for = []
+		target_ids_to_wait_for = [target['targetId'] for target in existing_targets]
+		target_types = {target['targetId']: target.get('type', 'unknown') for target in existing_targets}
 
-		# Just attach to ALL existing targets - Chrome fires attachedToTarget events
-		# The on_attached handler (via create_task) does ALL the work
-		for target in existing_targets:
-			target_id = target['targetId']
-			target_type = target.get('type', 'unknown')
+		# Normal path: auto-attach delivers every existing target
+		missing = await self._wait_for_targets_ready(target_ids_to_wait_for, timeout=1.0)
+		if not missing:
+			return
 
+		# Fallback: explicitly attach targets the auto-attach cascade did not deliver
+		for target_id in missing:
+			# Re-check right before attaching: the auto-attach event may have landed
+			# during the loop, or its handler may still be mid-flight — in either
+			# case attaching again would double the sessions. In-flight attaches are
+			# picked up by the ready-wait below once their handler completes.
+			if target_id in self._attaching_targets or self._get_session_for_target(target_id):
+				continue
 			try:
-				# Just attach - event handler does everything
 				await cdp_client.send.Target.attachToTarget(params={'targetId': target_id, 'flatten': True})
-				target_ids_to_wait_for.append(target_id)
+				self.logger.debug(
+					f'[SessionManager] Explicitly attached straggler target {target_id[:8]}... '
+					f'(type={target_types.get(target_id, "unknown")}) not covered by auto-attach'
+				)
 			except Exception as e:
 				self.logger.debug(
-					f'[SessionManager] Failed to attach to existing target {target_id[:8]}... (type={target_type}): {e}'
+					f'[SessionManager] Failed to attach to existing target {target_id[:8]}... '
+					f'(type={target_types.get(target_id, "unknown")}): {e}'
 				)
 
-		# Wait for event handlers to complete their work (they run via create_task)
-		# Use event-driven approach instead of polling for better performance
-		ready_event = asyncio.Event()
-
-		async def check_all_ready():
-			"""Check if all sessions are ready and signal completion."""
-			while True:
-				ready_count = 0
-				for tid in target_ids_to_wait_for:
-					session = self._get_session_for_target(tid)
-					if session:
-						target = self._targets.get(tid)
-						target_type = target.target_type if target else 'unknown'
-						# For pages, verify monitoring is enabled
-						if target_type in ('page', 'tab'):
-							if hasattr(session, '_lifecycle_events') and session._lifecycle_events is not None:
-								ready_count += 1
-						else:
-							# Non-page targets don't need monitoring
-							ready_count += 1
-
-				if ready_count == len(target_ids_to_wait_for):
-					ready_event.set()
-					return
-
-				await asyncio.sleep(0.05)
-
-		# Start checking in background
-		check_task = create_task_with_error_handling(
-			check_all_ready(), name='check_all_targets_ready', logger_instance=self.logger
-		)
-
-		try:
-			# Wait for completion with timeout
-			await asyncio.wait_for(ready_event.wait(), timeout=2.0)
-		except TimeoutError:
-			# Timeout - count what's ready
-			ready_count = 0
-			for tid in target_ids_to_wait_for:
-				session = self._get_session_for_target(tid)
-				if session:
-					target = self._targets.get(tid)
-					target_type = target.target_type if target else 'unknown'
-					# For pages, verify monitoring is enabled
-					if target_type in ('page', 'tab'):
-						if hasattr(session, '_lifecycle_events') and session._lifecycle_events is not None:
-							ready_count += 1
-					else:
-						# Non-page targets don't need monitoring
-						ready_count += 1
+		still_missing = await self._wait_for_targets_ready(target_ids_to_wait_for, timeout=1.0)
+		if still_missing:
+			ready_count = len(target_ids_to_wait_for) - len(still_missing)
 			self.logger.warning(
-				f'[SessionManager] Initialization timeout after 2.0s: {ready_count}/{len(target_ids_to_wait_for)} sessions ready'
+				f'[SessionManager] Initialization timeout: {ready_count}/{len(target_ids_to_wait_for)} sessions ready'
 			)
-		finally:
-			check_task.cancel()
-			try:
-				await check_task
-			except asyncio.CancelledError:
-				pass
 
 	async def _enable_page_monitoring(self, cdp_session: 'CDPSession') -> None:
 		"""Enable lifecycle events and network monitoring for a page target.
