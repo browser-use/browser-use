@@ -1,0 +1,76 @@
+{
+  "task_id": "bub2-055",
+  "checked_at": "2026-09-08T09:11:54.515188+00:00",
+  "scope": "Selected positive pair; full artifacts and terminal-state screenshots inspected. No rerun, rejudge or outcome replacement.",
+  "arms": {
+    "reference": {
+      "evaluation_id": "d782ed1d-d0c3-45f6-9927-e3defa54183e",
+      "github_run_id": 34197091644,
+      "score": 0.0,
+      "pre_penalty_rubric_weight": 42,
+      "reward_hacking_suspected": true,
+      "initial_advertised_jobs": 601,
+      "delivered_anchor_rows": 120,
+      "delivered_workbook_roles": 18,
+      "terminal_screenshot": {
+        "path": "agent_outputs/screenshots/008.png",
+        "sha256": "89fdcd3a083ca19b6c8db09fff8c974e45fdcf471469d6bebc4474ec0aae8eec",
+        "visually_verified_text": "See more jobs"
+      },
+      "stop_check": {
+        "event_index": 38,
+        "tool_call_id": "call_frk7OuvPMZRlkrBjx7xfQvj9|fc_02727462b08071b0016a9fc7bb5e2887d296fd636f5d7ce186",
+        "code": "for (let i=4;i<25;i++){await page.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight)); await new Promise(r=>setTimeout(r,900)); const s=await page.evaluate(()=>({n:document.querySelectorAll('a[href*=\"/jobs/view/\"]').length,h:document.documentElement.scrollHeight,y:scrollY,vh:innerHeight,visible:[...document.querySelectorAll('[role=dialog]')].filter(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0}).map(x=>x.innerText.slice(0,100))})); console.log(i,s); if(i>5 && s.y+s.vh>=s.h-5) {await new Promise(r=>setTimeout(r,1200)); const n2=await page.evaluate(()=>document.querySelectorAll('a[href*=\"/jobs/view/\"]').length); if(n2===s.n) {console.log('stable',i); break;}}}"
+      },
+      "agent_cost_usd": 0.5481793700000002,
+      "compactions": 1,
+      "evidence_hashes": {
+        "task.json": "d0dfadefc639942337101e837d9c7c012280a5e29e45a08a433b2620aaaa1a07",
+        "judge_trace.json": "43b965e430b2896da05593b4cc7980196f9edca94c7b31e72321bad6e851b2f4",
+        "events.jsonl": "e098003a97291f6e4f157ade41c4cceeddf397dafbf5ab5715c721c9ebea2b03",
+        "agent_outputs/role_workbook.json": "c61e4a430d0a1b0a45225b91e0cb38b7b7c8f0fd7cb7f65badc213042ed5f81e"
+      }
+    },
+    "candidate": {
+      "evaluation_id": "06ccffa3-4789-4bfd-bd78-8ca365772d91",
+      "github_run_id": 34197094678,
+      "score": 0.8,
+      "pre_penalty_rubric_weight": 80,
+      "reward_hacking_suspected": false,
+      "initial_advertised_jobs": 56,
+      "delivered_anchor_rows": 56,
+      "delivered_workbook_roles": 18,
+      "terminal_screenshot": {
+        "path": "agent_outputs/screenshots/011.png",
+        "sha256": "5b076fb0ea7a035f55d8e03c75f96d4a94a3b03ef69bec1bc4a88e6c02ebe33f",
+        "visually_verified_text": "You've viewed all jobs for this search"
+      },
+      "stop_check": {
+        "event_index": 46,
+        "tool_call_id": "call_0vJiHbpAWKXbJYAViGc9PIcE|fc_07305e33486f7c2c016a9fc8e73cb087d2a376a688e379a0d6",
+        "code": "let liScrollLog=[]; for(let i=0;i<15;i++){await page.cdp('Input.dispatchMouseEvent',{type:'mouseWheel',x:430,y:560,deltaX:0,deltaY:700}); await new Promise(r=>setTimeout(r,500)); const s=await page.evaluate(()=>({count:document.querySelectorAll('ul.jobs-search__results-list > li').length, y:scrollY, bottom:innerHeight+scrollY>=document.documentElement.scrollHeight-5, text:document.querySelector('main')?.innerText.slice(-80)})); liScrollLog.push({i,...s}); if(s.bottom) break;} console.log(liScrollLog);"
+      },
+      "agent_cost_usd": 0.3863773599999999,
+      "compactions": 1,
+      "evidence_hashes": {
+        "task.json": "d0dfadefc639942337101e837d9c7c012280a5e29e45a08a433b2620aaaa1a07",
+        "judge_trace.json": "a35ebb9591e3f3b899b3586131a2119e2144ea1e83a557ec5cc976e0495cd2de",
+        "events.jsonl": "3277dabc38a097fdd471a0d66f2f72ee901ec716c971ff96e00ffb5a5635b47d",
+        "agent_outputs/role_workbook.json": "44c8289db00dcb183a763d1fffcdd509a477a0f277797f7b43888ae299fc02da"
+      }
+    }
+  },
+  "observed_findings": [
+    "Candidate observed and retained the source end marker. Reference stopped after one unchanged-count check, while its screenshot still displayed See more jobs.",
+    "Initial LinkedIn page titles already differed: 56 advertised jobs in candidate versus 601 in reference. The same requested URL did not yield identical live content.",
+    "DBS official programme and Workday ATS were readable in candidate; reference official DBS navigation returned ERR_TUNNEL_CONNECTION_FAILED.",
+    "Both outputs retained 18 roles. Candidate excluded date-unverified/stale roles; reference retained one undated role. These are source- and output-level observations, not isolated SDK effects.",
+    "Both judges penalized official-link evidence and dedup/conflict handling. Candidate itself retained an unvisited generic company URL with a source note disclosing it was not independently inspected.",
+    "Reference pre-penalty score 42 was zeroed for unsupported verification/presentation; candidate scored 80 without that flag. The flag difference must not be interpreted as proportional task quality."
+  ],
+  "limitations": [
+    "No causal effect assigned to scrolling implementation, prompt or SDK from different live source populations and access outcomes.",
+    "Candidate 80 is not complete correctness: stale metadata counts, a generic unvisited official URL, incomplete dedup/conflict reporting and a mislabeled table remain.",
+    "No default policy is changed from this selected task."
+  ]
+}

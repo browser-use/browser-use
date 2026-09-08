@@ -122,3 +122,15 @@ Compaction did not originate the proxy ledger. The retained compaction archive c
 The general repair target is to preserve the requested source population when access fails: keep unavailable rows unavailable and put alternative discovery in a separately identified collection. Extra rows, explicit caveats and schema validity do not make a substitute population satisfy the original request. The existing review experiment is still pending; no new prompt or default behavior is selected from this one case.
 
 [Full artifact hashes, recorded flag and source/compaction checks](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-source-boundary.json).
+
+## A large gain combines completion, access and judgment
+
+`bub2-055` moves from **0/100 reference** (42 pre-penalty rubric points) to **80/100 candidate**, with 18 retained workbook roles in each arm. The candidate's saved screenshot and tool output show the literal “You've viewed all jobs for this search” marker after 56 cards. The reference stops after one unchanged count check; its corresponding screenshot still shows a visible “See more jobs” button. This verifies different completion evidence, not merely different final claims.
+
+The initial page titles already advertise **56 candidate jobs versus 601 reference jobs** for the same requested LinkedIn URL. The reference saved 120 rendered card records from that larger feed. DBS's official programme and Workday ATS pages loaded for the candidate, while reference navigation to DBS returned `ERR_TUNNEL_CONNECTION_FAILED`. These differing source populations and access outcomes prevent attributing the entire gain to SDK code or a scrolling strategy.
+
+The candidate also excludes undated/stale roles from its cohort; the reference retains an undated role. Both official judgments penalize link-evidence and dedup/conflict handling. Candidate artifacts still include one generic official-company URL that was only seen in a source card, with a note disclosing it was not independently inspected. Its metadata count is stale and one comparison-table heading is mislabeled. The 80-point result does not establish flawless delivery.
+
+The reference's extra zero penalty cites unsupported verification/presentation, including official URLs after failed navigation and the stop claim. Candidate receives no such penalty. The score gain therefore combines a 38-point rubric difference with removal of a 42-point reference penalty. Keep categorical judge flags separate from the underlying source and artifact quality. This positive-pair audit supports the same general need for observed completion and preserved retrieval status; it does not establish that one current SDK change solved those problems.
+
+[Exact runs, source checks, screenshot hashes and limitations](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation2-positive-pair.json).
