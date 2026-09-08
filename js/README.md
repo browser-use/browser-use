@@ -64,7 +64,7 @@ Your app -> BrowserUse -> Pi -> Luna / your model
 
 **Historical best: 62.00/100 with Luna xhigh on BU_Bench_v2.** The latest full candidate (`65a16cb`) scored **58.27/100** against its concurrently dispatched bu-pi reference at **57.73/100**. These are continuous mean scores over 60 assigned tasks, not pass rates. The reference has one missing judgment retained as an assigned zero; the candidate has all 60 judgments.
 
-**Hard106, GPT-5.5 medium:** historical best **91/106**; latest full candidate (`29e2b5e`) **84/106**, with all 106 judgments and **$128.65** recorded agent inference cost. Its concurrent reference is still running. The previous completed pair scored 81/106 candidate versus 85/106 reference. The two-benchmark parity target remains unmet; the new candidate misses the required 88/106 historical floor.
+**Hard106, GPT-5.5 medium:** historical best **91/106**; latest full candidate (`29e2b5e`) **84/106** versus its concurrent reference at **84/106**. Candidate agent inference cost is **$128.65**, reference **$137.28**. The candidate has all 106 judgments; the reference has 105, with its missing judgment retained as an assigned zero. The point-estimate tie does not establish parity: paired uncertainty exceeds our margin, and the candidate misses the required 88/106 historical floor.
 
 The chart includes a historical BrowserCode comparison. Dates, runners, and live sites differ. Agent costs exclude judge, browser, and runner charges. These results do not establish SOTA, higher speed, or lower token use. **The architectural benefit is programmability; its efficiency advantage still needs a controlled measurement.**
 

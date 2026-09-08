@@ -1,6 +1,6 @@
 # Third comparison: trace findings
 
-The four full cohorts are still running. This page records selected mechanisms, not an aggregate score or a new acceptance rule. All original outcomes remain in their assigned cohorts.
+Both Hard cohorts are complete; the two Luna cohorts are still running. This page records selected mechanisms, not an aggregate score or a new acceptance rule. All original outcomes remain in their assigned cohorts.
 
 ## First differing Hard pair: a repair replaced good fields
 
@@ -193,3 +193,15 @@ The candidate's final Hard task, `6dpbhs`, has 241 JavaScript completions, 197 w
 Those counts are consistent with missing observation targets, not evidence of 197 renderer stalls or capture timeouts. Browser-independent work can continue without an initialized observation target; a retained primary recovery target is a separate concept. The task fails because the final historical name lacks a verified source chain, with that limitation explicitly disclosed. Keep the delivery failure separate from this capture-metadata count.
 
 [Complete counts, retained messages, final judgment and artifact hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-observer-count-scope.json).
+
+## A reference pass does not resolve contradictory historical clues
+
+The paired reference for `6dpbhs` returns **E. Franklin Tucker** and passes. Its source really identifies the partnership of R.E. Benson and E.F. Tucker, followed by Benson's later photography business. However, the literal task asks for a business in the northwestern United States and a wife with initials G.F.P.
+
+The retrieved partnership record places the business in Revelstoke, British Columbia, in 1907. Benson's later numbered-street addresses are in Prince Rupert, British Columbia, Canada. His spouse is explicitly Gertrude Amelia Freshwater, also listed as Amelia Gertrude Freshwater and Amelia Gertrude Benson. Those observations do not establish either the US business location or the requested initials. The spouse record does mention Mount Vernon, Washington, as both spouses' residence at marriage; that does not establish the business-location sequence. The partnership record also says it was not listed in the 1910 Revelstoke directory, which does not establish a disappearance after 1910.
+
+This is a suspected reference false positive against the literal prompt, or a task-clue inconsistency requiring independent adjudication. The audit does not establish the correct answer. The candidate's unsupported **Ira W. Webster** answer remains a real delivery failure. Both original scores stay unchanged: reference 1, candidate 0.
+
+This completes a detailed audit of the ten negative Hard pairs in the third comparison. They include acquisition and delivery errors, different source access, and questionable judgments. They do not establish ten runtime regressions or one common CDP failure. The remaining source-truth problems warrant general experiments in evidence-backed delivery, not a rule for this historical puzzle.
+
+[Paired manifests, literal clues, source excerpts, original judgments and hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-historical-identity-pair.json).

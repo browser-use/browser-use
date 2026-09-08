@@ -265,6 +265,26 @@ The original candidate workflow completed successfully with **84/106 passes and 
 
 At this snapshot the reference still has one task pending. Do not infer a paired final score or interval yet. Its missing actual judgment on `swebnv` remains an independent eligibility failure. Both Luna arms continue. [Complete candidate task-level results and validated pins](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-hard-candidate-terminal.json).
 
+### Complete third Hard comparison
+
+Both original Hard workflows are now terminal. Candidate `29e2b5e` scores **84/106**, equal to reference adapter `769ea14` with historical runtime `58ed778`. There are **10 candidate gains, 86 ties and 10 losses** across all assigned tasks. All task/config pins and reported dependency locks pass the frozen report's checks. The SDK locks differ as part of the treatment; the reference runtime/dependencies remain identical to its historical source.
+
+| Measure                       |   Reference |   Candidate |
+| ----------------------------- | ----------: | ----------: |
+| Passes / assigned             |      84/106 |      84/106 |
+| Actual judgments              |         105 |         106 |
+| Recorded agent inference cost | $137.277252 | $128.653298 |
+| Median agent seconds          |     250.926 |    203.8165 |
+| Median steps                  |        32.5 |          26 |
+
+The assigned paired delta is **0.00 percentage points**. The prespecified 20,000-resample bootstrap gives a two-sided 95% interval of **[−8.49, +8.49]** and a one-sided 95% lower bound of **−6.60**. That fails the −3-point noninferiority margin. The 105 shared actual judgments also have delta 0.00, interval **[−8.57, +8.57]**, and lower bound **−6.67**. This subset does not replace the assigned cohort.
+
+Confirmation fails independently on missing actual-judgment coverage and the candidate's **84/106 versus 88/106 historical floor**. The point-estimate tie does not establish statistical equivalence, while the interval also does not isolate a harmful code effect. Both fresh runs score below the original historical 91/106; the selected trace audits show several access and judgment differences alongside actual model-written errors.
+
+Costs are recorded agent inference estimates, excluding judge, browser, runner and unreported usage. The reference includes one early provider failure; cost and median duration differences are descriptive, not a controlled isolated speed or token-efficiency claim. Its `aoim45` artifact-upload failure remains a separate evidence gap. Both Luna arms continue unchanged.
+
+[All assigned outcomes, shared-judgment calculation, frozen controls and uncertainty](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-hard.json).
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.
