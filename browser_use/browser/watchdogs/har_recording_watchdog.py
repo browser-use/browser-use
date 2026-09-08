@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, field
 from importlib import metadata as importlib_metadata
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from bubus import BaseEvent
 from cdp_use.cdp.network.events import (
@@ -27,6 +27,9 @@ from cdp_use.cdp.page.events import FrameNavigatedEvent, LifecycleEventEvent
 
 from browser_use.browser.events import BrowserConnectedEvent, BrowserStopEvent
 from browser_use.browser.watchdog_base import BaseWatchdog
+
+if TYPE_CHECKING:
+	from browser_use.browser.session_manager import SessionManager
 
 
 @dataclass
@@ -150,7 +153,7 @@ class HarRecordingWatchdog(BaseWatchdog):
 	def __init__(self, *args, **kwargs) -> None:
 		super().__init__(*args, **kwargs)
 		self._enabled: bool = False
-		self._lifecycle_listener_registered: bool = False
+		self._lifecycle_event_manager: SessionManager | None = None
 		self._lifecycle_event_listener = self._on_lifecycle_event
 		self._entries: dict[str, _HarEntryBuilder] = {}
 		self._top_level_pages: dict[
@@ -190,8 +193,10 @@ class HarRecordingWatchdog(BaseWatchdog):
 			cdp.Network.dataReceived(self._on_data_received)
 			cdp.Network.loadingFinished(self._on_loading_finished)
 			cdp.Network.loadingFailed(self._on_loading_failed)
-			self.browser_session.session_manager.add_lifecycle_event_listener(self._lifecycle_event_listener)
-			self._lifecycle_listener_registered = True
+			self._remove_lifecycle_event_listener()
+			manager = self.browser_session.session_manager
+			manager.add_lifecycle_event_listener(self._lifecycle_event_listener)
+			self._lifecycle_event_manager = manager
 			cdp.Page.frameNavigated(self._on_frame_navigated)
 
 			self._enabled = True
@@ -215,11 +220,10 @@ class HarRecordingWatchdog(BaseWatchdog):
 
 	# =============== CDP Event Handlers (sync) ==================
 	def _remove_lifecycle_event_listener(self) -> None:
-		if not self._lifecycle_listener_registered:
-			return
-		if self.browser_session.session_manager is not None:
-			self.browser_session.session_manager.remove_lifecycle_event_listener(self._lifecycle_event_listener)
-		self._lifecycle_listener_registered = False
+		# BrowserSession may reset its manager before the watchdog receives stop.
+		if self._lifecycle_event_manager is not None:
+			self._lifecycle_event_manager.remove_lifecycle_event_listener(self._lifecycle_event_listener)
+			self._lifecycle_event_manager = None
 
 	def _on_request_will_be_sent(self, params: RequestWillBeSentEvent, session_id: str | None) -> None:
 		try:
