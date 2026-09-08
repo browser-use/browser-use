@@ -232,6 +232,15 @@ Four arms retain the original 106/60 task IDs, models, reasoning, judges, budget
 
 The plan is frozen before dispatch. [Exact four-arm inputs, task hashes, audit hashes and acceptance](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-plan.json).
 
+All four arms were dispatched once at 10:22 UTC on September 8, after plan commit `63bd10e` was pushed and both original diagnostic workflows were rechecked as terminal. All four prepare jobs succeeded. Results remain pending; delayed Laminar rows are not replacement-task authorization.
+
+| Benchmark | Reference execution | Candidate execution |
+| --- | --- | --- |
+| Hard106 | [34215091305](https://github.com/browser-use/new-eval-platform/actions/runs/34215091305) | [34215093599](https://github.com/browser-use/new-eval-platform/actions/runs/34215093599) |
+| Luna60 | [34215096477](https://github.com/browser-use/new-eval-platform/actions/runs/34215096477) | [34215099251](https://github.com/browser-use/new-eval-platform/actions/runs/34215099251) |
+
+[Original dispatch inputs and Laminar evaluation IDs](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-dispatch.json).
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.
