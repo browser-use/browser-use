@@ -5,15 +5,9 @@ from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
 import httpx
-from openai import (
-	APIConnectionError,
-	APIError,
-	APIStatusError,
-	APITimeoutError,
-	AsyncOpenAI,
-	RateLimitError,
-)
+from openai import APIStatusError, AsyncOpenAI, RateLimitError
 from openai.types.chat import ChatCompletion
+from openai.types.chat.chat_completion import Choice
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
@@ -81,6 +75,11 @@ class ChatCerebras(BaseChatModel):
 			usage = None
 		return usage
 
+	def _first_choice(self, resp: ChatCompletion) -> Choice:
+		if not resp.choices:
+			raise ModelProviderError('Cerebras returned no choices', model=self.name)
+		return resp.choices[0]
+
 	@overload
 	async def ainvoke(
 		self,
@@ -131,13 +130,15 @@ class ChatCerebras(BaseChatModel):
 				)
 				usage = self._get_usage(resp)
 				return ChatInvokeCompletion(
-					completion=resp.choices[0].message.content or '',
+					completion=self._first_choice(resp).message.content or '',
 					usage=usage,
 				)
 			except RateLimitError as e:
-				raise ModelRateLimitError(str(e), model=self.name) from e
-			except (APIError, APIConnectionError, APITimeoutError, APIStatusError) as e:
-				raise ModelProviderError(str(e), model=self.name) from e
+				raise ModelRateLimitError(e.message, model=self.name) from e
+			except APIStatusError as e:
+				raise ModelProviderError(e.message, status_code=e.status_code, model=self.name) from e
+			except ModelProviderError:
+				raise
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
@@ -175,7 +176,7 @@ Your response must be valid JSON only, no other text.
 					messages=cerebras_messages,  # type: ignore
 					**common,
 				)
-				content = resp.choices[0].message.content
+				content = self._first_choice(resp).message.content
 				if not content:
 					raise ModelProviderError('Empty JSON content in Cerebras response', model=self.name)
 
@@ -196,9 +197,11 @@ Your response must be valid JSON only, no other text.
 					usage=usage,
 				)
 			except RateLimitError as e:
-				raise ModelRateLimitError(str(e), model=self.name) from e
-			except (APIError, APIConnectionError, APITimeoutError, APIStatusError) as e:
-				raise ModelProviderError(str(e), model=self.name) from e
+				raise ModelRateLimitError(e.message, model=self.name) from e
+			except APIStatusError as e:
+				raise ModelProviderError(e.message, status_code=e.status_code, model=self.name) from e
+			except ModelProviderError:
+				raise
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
