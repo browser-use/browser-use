@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -70,3 +70,59 @@ test('provider environment and host preload flags are not inherited; dynamic imp
     await rm(agent.workspace, { recursive: true, force: true });
   }
 });
+
+for (const delayed of [true, false]) {
+  test(`cleanup verifies tab disappearance after close acknowledgement: delayed=${delayed}`, async () => {
+    const external = await openBrowser();
+    const cdp = await CDP.connect(external.endpoint);
+    const agent = await BrowserUse.create({
+      model: 'openai/gpt-5.4',
+      browser: { cdpUrl: external.endpoint },
+      operationTimeoutMs: 500,
+    });
+    let patch;
+    try {
+      const caller = (await cdp.send('Target.getTargets')).targetInfos.find(
+        (t) => t.type === 'page',
+      );
+      const result = await agent.execute('await page.info()');
+      const ownedId = result.targetId;
+      assert.ok(ownedId);
+      assert.notEqual(ownedId, caller.targetId);
+      const send = CDP.prototype.send;
+      let closeRequests = 0;
+      let verificationReads = 0;
+      patch = mock.method(CDP.prototype, 'send', async function (method, params, sessionId) {
+        if (method === 'Target.closeTarget' && params.targetId === ownedId) {
+          closeRequests++;
+          // A successful command acknowledgement is not target-destruction evidence.
+          return { success: true };
+        }
+        if (method === 'Target.getTargets' && closeRequests) {
+          verificationReads++;
+          if (delayed && verificationReads === 3)
+            await send.call(this, 'Target.closeTarget', { targetId: ownedId });
+        }
+        return send.call(this, method, params, sessionId);
+      });
+      if (delayed) await agent.close();
+      else await assert.rejects(agent.close(), /SDK-owned.*remain/);
+      assert.equal(closeRequests, 1, 'Cleanup never repeats close actions.');
+      assert.ok(verificationReads >= 3, 'Cleanup must observe disappearance, not just an ack.');
+      patch.mock.restore();
+      patch = undefined;
+      const targets = (await cdp.send('Target.getTargets')).targetInfos;
+      assert.ok(targets.some((t) => t.targetId === caller.targetId));
+      assert.equal(
+        targets.some((t) => t.targetId === ownedId),
+        !delayed,
+      );
+    } finally {
+      patch?.mock.restore();
+      await agent.close().catch(() => {});
+      cdp.close();
+      await external.close();
+      await rm(agent.workspace, { recursive: true, force: true });
+    }
+  });
+}

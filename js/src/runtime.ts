@@ -212,7 +212,7 @@ export class BrowserRuntime {
     }
     await this.terminate();
     if (this.owned.size) {
-      const cdp = await CDP.connect(this.config.endpoint);
+      const cdp = await CDP.connect(this.config.endpoint, this.config.operationTimeoutMs);
       try {
         const { targetInfos } = await cdp.send('Target.getTargets');
         // Include popups recursively, but never a pre-existing caller tab.
@@ -225,6 +225,21 @@ export class BrowserRuntime {
         for (const targetId of this.owned) {
           if (targetInfos.some((t) => t.targetId === targetId))
             await cdp.send('Target.closeTarget', { targetId });
+        }
+        // closeTarget acknowledges the request before Chrome necessarily removes the tab.
+        // Verify only; never replay closure or touch a caller-owned target.
+        const deadline = Date.now() + this.config.operationTimeoutMs;
+        for (;;) {
+          const { targetInfos: current } = await cdp.send('Target.getTargets');
+          const remaining = current.filter((target) => this.owned.has(target.targetId));
+          if (!remaining.length) break;
+          if (Date.now() >= deadline)
+            throw new Error(
+              `SDK-owned tabs remain after cleanup deadline: ${remaining.map((target) => target.targetId).join(', ')}`,
+            );
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(50, Math.max(0, deadline - Date.now()))),
+          );
         }
       } finally {
         cdp.close();
