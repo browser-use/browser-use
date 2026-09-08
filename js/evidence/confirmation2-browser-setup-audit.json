@@ -1,0 +1,21 @@
+{
+  "checked_at": "2026-09-08T07:54:37.389650+00:00",
+  "refs": [
+    "58ed778b575f8a1c13479a0552ddadc38eea03bc",
+    "65a16cb6e43a31e67d59a7ed841858e70f05a5ba"
+  ],
+  "cloud_creation_payloads_identical": true,
+  "payload_source": "browser = await cloudRequest('/browsers', 'POST', {\n      timeout: options.browser_timeout_minutes,\n      proxyCountryCode: options.proxy_country_code,\n      browserScreenWidth: 1440,\n      browserScreenHeight: 900,\n      enableRecording: false,\n    });",
+  "tabs_source_identical": true,
+  "tabs_sha256": "ad4c25d3668bff8582d2c80aa5826c34c1783a15fcd7592971dec20b4d6667fa",
+  "observed_other_changes": [
+    "Worker/browser-observer connection initialization changed from eager to lazy.",
+    "Screenshot observer no longer enables Page/Runtime on each observer attachment.",
+    "Candidate preserves active primary tab across worker restart."
+  ],
+  "limits": [
+    "Same requested US proxy, viewport and lifetime do not guarantee equal exit IP, reputation, provider browser version or site response.",
+    "No experiment here isolates initialization timing or observer attachment as an access cause.",
+    "A common SDK/browser-setup cause of access differences remains unproven."
+  ]
+}
