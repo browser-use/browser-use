@@ -56,7 +56,7 @@ Both 106-task Hard cohorts finished on September 8 UTC. All 212 actual judgments
 | SDK-recorded inference retries |              Not instrumented |                   0 |
 | Successful compactions         | Not available in this runtime |                   3 |
 
-Candidate minus reference: **−1.89 percentage points**, with 7 gains, 90 ties, and 9 losses. The paired task-bootstrap 95% interval is **[−9.43, +5.66] points**; its one-sided 95% lower bound is **−7.55**. This does **not** clear the −3-point noninferiority margin. The candidate also did not reach the historical 91/106 target within that margin. Luna is still running; neither benchmark has a fresh confirmation claim.
+Candidate minus reference: **−1.89 percentage points**, with 7 gains, 90 ties, and 9 losses. The paired task-bootstrap 95% interval is **[−9.43, +5.66] points**; its one-sided 95% lower bound is **−7.55**. This does **not** clear the −3-point noninferiority margin. The candidate also did not reach the historical 91/106 target within that margin. Neither benchmark has a fresh confirmation claim.
 
 The historical 91/106 SDK itself scored 84/106 here. Consequently, the historical decline cannot all be assigned to newer SDK changes. Dates, live sites, and sampling remain possible contributors; this is not a measurement of pure judge noise.
 
@@ -65,6 +65,30 @@ The candidate's 24 zeros have judge-assigned classes: 14 site-blocked, 3 missing
 Two candidate SDK cleanup errors were recorded. No claim of complete browser-lifecycle verification follows from the passing workflow. Cost estimates exclude judge, browser, runner, and diagnostic runs.
 
 [Per-task numerical evidence](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/iteration1-hard.json) · [Extraction experiment](./extraction-experiment.md) · [Workspace delivery experiment](./workspace-experiment.md)
+
+## Complete Luna result
+
+Both 60-task Luna cohorts finished on September 8 UTC. All 120 assigned outcomes are retained. Each arm has one provider-failure runner zero without an actual judgment; both workflows consequently concluded `failure`. The two missing judgments concern different tasks, leaving 58 shared actual judgments.
+
+| Measure | Reference `b430a91` | Candidate `0baa51d` |
+| --- | ---: | ---: |
+| Mean score / 100, all 60 assigned tasks | 58.45 | 59.63 |
+| Actual judgments | 59 | 59 |
+| Recorded agent inference cost, all assigned tasks | $19.56921285 | $19.30596715 |
+| Recorded agent inference cost, 58 shared judgments | $18.98211235 | $19.04315836 |
+| Compactions / tasks that compacted | 22 / 21 | 19 / 19 |
+| SDK-recorded inference retries | 0 | 1 |
+| Tasks with SDK cleanup errors | 2 | 2 |
+
+Candidate minus reference over all 60 assigned tasks is **+1.18 points**. Raw task differences are positive on 28, zero on 7, and negative on 25; these signs use no calibrated tie margin. The paired task-bootstrap 95% interval is **[−8.08, +10.22]**, with a one-sided 95% lower bound of **−6.55**. This does **not** clear the −3-point noninferiority margin. Over the 58 shared actual judgments, the delta is **+0.36**, interval **[−8.72, +9.05]**, and lower bound **−7.24**. Missing actual judgments also make confirmation preliminary.
+
+The candidate point estimate is 2.37 points below the historical 62.00 score, within the chosen 3-point product tolerance. That point comparison does not establish statistical parity. The historical reference itself scored 58.45 in this cohort. Preserve both historical and current numbers rather than replacing the target with the weaker rerun.
+
+The reference's provider failure was `bub2-051`; the candidate's was `bub2-046`. Later SDK commits extend the existing one-inference retry to those explicit temporary error messages, without changing these recorded outcomes. The candidate's one observed retry was on `bub2-055`: the 300-second response cap fired, the partial response's tool call never executed, and 76 later tool executions produced artifacts. That task still scored zero for unsupported verification claims. The trace proves recovery behavior, not that the interrupted response was stalled or that the retry improved its score. Its missing failed-response usage can undercount cost.
+
+Large audited losses include misplaced deliverables (`bub2-021`), source observations lost from a summary before entering a durable dataset (`bub2-041`, `bub2-045`), and unsupported source/verification claims without any compaction (`bub2-052`). The judge globally zeroed seven reference tasks and four candidate tasks for suspected fabrication or related integrity failures. Those are retained judge classifications, not proof of malicious intent; no alternative scores replace them. Neither the workspace fix nor the [context archive experiment](./context-archive-experiment.md) can be credited with resolving every such failure.
+
+Numeric evidence: [all task scores, controls, costs and comparisons](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/iteration1-luna.json). Recorded costs exclude judge, browser, runner and separate diagnostic runs. The task bootstrap does not independently measure judge sampling variance. Cleanup errors and incomplete judgment coverage remain explicit limitations. The extraction-only full cohorts are separate, ongoing experiments; candidate selection and fresh confirmation remain outstanding.
 
 ## Compatibility and recovery
 

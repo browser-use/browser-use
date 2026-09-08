@@ -33,4 +33,16 @@ One paired diagnostic on `bub2-041` was dispatched after 81 local tests, typeche
 | Reference | `1f1952bbf98676e9995acde47949e3236c078e0d` | [34180143452](https://github.com/browser-use/new-eval-platform/actions/runs/34180143452) | `173b4a3f-a1d5-4913-85cb-ee1bc8631a7d` |
 | Archive | `0f99a63a9812cd59d267954fbcde170d277f22dc` | [34180148395](https://github.com/browser-use/new-eval-platform/actions/runs/34180148395) | `bd99a0f7-1454-4bb4-ae94-238b97f84829` |
 
-Pending checks: actual compaction, archive content, model retrieval from the archive, delivered source coverage, judgment, cost and cleanup. A run without archive retrieval does not validate that behavior, even if its score improves. This is one previously inspected task, not ranking evidence.
+Both workflows completed successfully. The candidate did **not compact**, created no context archive, and therefore never exercised archive retrieval. Its higher score cannot be attributed to that mechanism.
+
+| Measure | Reference | Archive candidate |
+| --- | ---: | ---: |
+| Score / 100 | 86 | 90 |
+| Compactions | 1 | 0 |
+| Agent duration | 669.989 s | 646.756 s |
+| Recorded agent inference cost | $0.29093108 | $0.32776182 |
+| Delivered files / clipped previews | 30 / 17 | 37 / 14 |
+
+Both delivered quarterly operating and free cash flow in their metric ledgers and reports. The reference lost points for an incorrect/incomplete source publication date. The candidate lost points because one brief sentence called a calculated margin a reported figure, despite correct labeling elsewhere. Neither recorded SDK inference retries, warnings or cleanup errors; that is not independent proof of every browser lifecycle event. Costs exclude judge, browser and runner charges.
+
+This closes the diagnostic without a remote archive-retrieval validation or causal score claim. Local forced-omission tests remain the proof of recovery capability. This is one previously inspected task, not ranking evidence.

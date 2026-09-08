@@ -44,6 +44,8 @@ These are cumulative tokens over model calls, including compaction. Repeated cac
 
 The Hard peak has not been a stable result across later changes. See [reliability results](./reliability-results.md), [vision results](./vision-results.md), and the [extraction experiment](./extraction-experiment.md) for failures and subsequent tests. Repeated development on these tasks also limits claims about unseen tasks.
 
+The subsequent concurrent reference/candidate comparisons at candidate `0baa51d` finished at **84 versus 82/106 on Hard**, and **58.45 versus 59.63/100 on Luna**. Neither cleared the prespecified statistical noninferiority margin. Luna retains one provider-failure zero without an actual judgment in each arm. These later runs are retained separately from the historical README chart; see the [complete paired results and uncertainty](./iteration-protocol.md).
+
 ## Sources and reproduction
 
 - [bu-pi Luna evaluation](https://www.lmnr.ai/project/b657f811-13a7-4dae-a67a-91445a567f24/evaluations/bf521f51-7920-4e55-8833-f6413b91a73d) · [GitHub execution](https://github.com/browser-use/new-eval-platform/actions/runs/34086771731).
