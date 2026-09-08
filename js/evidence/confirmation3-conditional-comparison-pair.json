@@ -1,0 +1,545 @@
+{
+  "task_id": "bub2-034",
+  "arms": {
+    "candidate": {
+      "manifest": {
+        "config_hash": "bf9f6f907fb9e1b789e35e8df6f5fb06e6ba5a18c5cdee447b4d6d3b9e86c437",
+        "datapoint_id": "de645e65-62f6-45b4-931a-f420d47543b9",
+        "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+        "evaluation_id": "4ba9d7bc-998b-430c-a870-6d8e289a037c",
+        "github_run_attempt": "1",
+        "github_run_id": "34215099251",
+        "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34215099251",
+        "harness": "pi-browser-use-next",
+        "judge": "findings",
+        "judge_model": "gpt-5.6-luna",
+        "judge_options": {
+          "reasoning_effort": "xhigh"
+        },
+        "max_steps": 1000,
+        "model": "gpt-5.6-luna",
+        "options": {
+          "browser_timeout_minutes": 70,
+          "evidence_format": "findings",
+          "max_context_chars": 800000,
+          "proxy_country_code": "us",
+          "reasoning_effort": "xhigh",
+          "task_timeout_seconds": 3600
+        },
+        "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+        "schema_version": 1,
+        "target_repo": "browser-use/bu-pi",
+        "target_sha": "29e2b5e49f6bcd8d9f1ecf1b737d143488abfb2b",
+        "task_id": "bub2-034",
+        "timeout_minutes": 62
+      },
+      "judgment": {
+        "audit_coverage": null,
+        "duration_seconds": 120.106,
+        "evidence_checked": [
+          "result.json",
+          "rubrics/bub2-034.md",
+          "100 judge screenshots",
+          "5 deliverable files"
+        ],
+        "failure_class": "",
+        "model": "gpt-5.6-luna",
+        "reason": "71/100 rubric weight met",
+        "replicate_scores": [],
+        "rubric": {
+          "A10_action_boundary": true,
+          "A1_search_reproducible": false,
+          "A2_cohort_complete_dedup": true,
+          "A3_fields_faithful": true,
+          "A4_vin_conflict_ledger": true,
+          "A5_recall_enrichment": true,
+          "A6_valuation_benchmark": false,
+          "A7_scoring_and_rankings": true,
+          "A8_deliverable_shape": true,
+          "A9_claims_honesty": false
+        },
+        "score": 0.71,
+        "score_range": 0,
+        "score_stddev": 0,
+        "status": "scored"
+      },
+      "metrics": {
+        "cache_write_tokens": 577915,
+        "cached_input_tokens": 7544366,
+        "duration_seconds": 853.124,
+        "input_tokens": 56948,
+        "output_tokens": 47105,
+        "steps": 128,
+        "total_cost": 0.36328167000000006,
+        "total_tokens": 8226334
+      },
+      "compactions": 1,
+      "selected_findings": [
+        {
+          "evidence": "AutoTrader trace shows Cambridge ZIP 02138, year 2018, AMG GT S, and a 200-mile selector with two visible matches (steps 64, 80, 90; screenshot after step 90). However, the CarGurus search was driven by URL parameters rather than an interactively set Cambridge location; the trace shows Boston context and later a 10-mile display for a Staten Island listing (steps 28, 40; screenshot after step 40). The Cars.com radius-filtered attempt returned Cloudflare security verification (step 48; screenshot after step 48). The workbook records these limitations, but its SearchLog still records the nationwide Cars.com snapshot and the CarGurus URL rather than three valid Cambridge-centered radius searches.",
+          "item": "A1_search_reproducible",
+          "status": "violated"
+        },
+        {
+          "evidence": "The trace shows KBB\u2019s dated/valid-through benchmark of $69,530 for a 2018 AMG GT S Coupe 2D in ZIP 38501 (step 182; screenshot after step 182). The workbook nevertheless includes that benchmark in per-vehicle valuation rows and records raw comparisons: V1 +$21,253/30.57%, V2 +$17,469/25.12%, and the CarGurus V2 price +$17,644/25.38%. The workbook labels the mileage/condition/options assumptions as not aligned and calls the figures context only, but A6 requires a misaligned benchmark to be skipped rather than used for raw per-vehicle comparisons.",
+          "item": "A6_valuation_benchmark",
+          "status": "violated"
+        },
+        {
+          "evidence": "The README claims a complete smaller population across the marketplace/dealer snapshot and the final response presents a verified two-vehicle cohort. That completeness claim is not supported by valid Cambridge-centered searches on all named marketplaces: CarGurus used a URL-based location/radius approach that the trace shows was not reliable for Cambridge (steps 28, 40), and Cars.com\u2019s radius-filtered page was blocked (step 48). The workbook\u2019s own SearchLog records the Cars.com radius attempt as unavailable, yet still uses the nationwide snapshot and the unreliable CarGurus result in the cohort/completeness narrative. This is a completeness/coverage claim resting on incomplete or wrong-location evidence.",
+          "item": "A9_claims_honesty",
+          "status": "violated"
+        }
+      ],
+      "workbook": "amg_gt_s_2018_cohort.xlsx",
+      "worksheets": {
+        "Valuation": [
+          [
+            "Item",
+            "Source / benchmark",
+            "Observed at (UTC)",
+            "ZIP / validity",
+            "Value or ask (USD)",
+            "Mileage/condition alignment",
+            "Delta vs KBB FPP",
+            "Delta %",
+            "Use in analysis",
+            "Notes"
+          ],
+          [
+            "Benchmark",
+            "KBB 2018 Mercedes-AMG GT S Coupe 2D",
+            "2026-09-08T11:20:40.732Z",
+            "38501; valid through 2026-09-08",
+            "69530",
+            "Trim/body match; generic mileage/condition/options assumptions; not vehicle-specific",
+            "\u2014",
+            "\u2014",
+            "Context only",
+            "KBB estimated private-party values: Excellent $68,940; Very Good $67,040; Good $64,940; Fair $59,640."
+          ],
+          [
+            "V1 ask",
+            "AutoTrader / DealerRater current detail",
+            "2026-09-08T11:19:41.378Z",
+            "Saugus, MA",
+            "90783",
+            "Mileage 9,991; seller claims clean/no accidents and general 100-point inspection; no service records or vehicle warranty terms",
+            "21253",
+            "0.3057",
+            "Not an adjusted valuation",
+            "Ask is 30.57% above KBB FPP; high equipment/low mileage may contribute, but KBB assumptions are not aligned."
+          ],
+          [
+            "V2 ask",
+            "AutoTrader / Cars.com / dealer VDP consensus",
+            "2026-09-08T11:19:31.291Z",
+            "Staten Island, NY",
+            "86999",
+            "Mileage 30,182; AutoCheck summary/claims; modifications stated; no service records or vehicle warranty terms",
+            "17469",
+            "0.2512",
+            "Not an adjusted valuation",
+            "Ask is 25.12% above KBB FPP. CarGurus separately showed $87,174 and $87,481 snapshots."
+          ],
+          [
+            "V2 CG detail",
+            "CarGurus detail",
+            "2026-09-08T11:20:58.564Z",
+            "Staten Island, NY",
+            "87174",
+            "Same VIN; CG page says price includes fees; 81 days/no price changes shown",
+            "17644",
+            "0.2538",
+            "Conflict ledger only",
+            "Not selected as consensus because three other accessible listing surfaces showed $86,999."
+          ]
+        ],
+        "SearchLog": [
+          [
+            "Log ID",
+            "Source",
+            "Search / check type",
+            "URL(s)",
+            "Filters / geography",
+            "Visible ordering / state",
+            "Screened count",
+            "Retained exact matches",
+            "Exclusions / location screen",
+            "Observed at (UTC)",
+            "Reproducibility note"
+          ],
+          [
+            "SL-01",
+            "AutoTrader",
+            "Exact filtered search",
+            "https://www.autotrader.com/cars-for-sale/2018/mercedes-benz/amg-gt/s/cambridge-ma?searchRadius=200&zip=02138",
+            "Cambridge/ZIP 02138; used; year 2018; Mercedes-Benz; AMG GT; trim S; searchRadius=200 (250 was not a selectable option)",
+            "Default/relevance; displayed Saugus first, Staten Island second",
+            "2",
+            "2",
+            "Both exact Coupe records; source distance 7.93 and 196.76 miles",
+            "2026-09-08T11:17:00Z",
+            "200-mi marketplace filter is a conservative subset of requested ~250-mi area; both retained locations are within about 250 mi"
+          ],
+          [
+            "SL-02",
+            "CarGurus",
+            "Exact trim SRP",
+            "https://www.cargurus.com/Cars/l-Used-2018-Mercedes-Benz-AMG-GT-S-t75097?zip=02196&distance=250",
+            "Used; 2018; Mercedes-Benz AMG GT; trim S; Boston location context; zip=02196; distance=250",
+            "Default result order; 1 vehicle found",
+            "1",
+            "1",
+            "Staten Island listing; delivery listing",
+            "2026-09-08T11:14:56.979Z",
+            "CG page displayed exact filter state and one vehicle; detail later confirmed VIN"
+          ],
+          [
+            "SL-03",
+            "Cars.com",
+            "Exact-trim nationwide SRP",
+            "https://www.cars.com/shopping/mercedes_benz-amg_gt-2018-s/",
+            "2018 Mercedes-Benz AMG GT S shopping page; nationwide visible snapshot",
+            "As rendered: Houston, Staten Island, Charlotte",
+            "3",
+            "1",
+            "Staten Island retained; Houston and Charlotte excluded by seller city/location screen",
+            "2026-09-08T11:15:03.823Z",
+            "Cars.com card distance labels were not treated as Cambridge distance; city was used for the 250-mi screen"
+          ],
+          [
+            "SL-04",
+            "Cars.com",
+            "Attempted location-filtered SRP",
+            "https://www.cars.com/shopping/mercedes_benz-amg_gt-2018-s/?zip=02138&radius=250",
+            "zip=02138; radius=250; otherwise same exact-trim page",
+            "Not available: Cloudflare security verification",
+            "Not available",
+            "0 from this attempt",
+            "No extraction possible",
+            "2026-09-08T11:15:18.526Z",
+            "Blocked by \u201cPerforming security verification\u201d; this does not establish an empty radius result"
+          ],
+          [
+            "SL-05",
+            "Auto Excellence Group",
+            "Dealer inventory check",
+            "https://www.autoexcellencegroup.com/",
+            "Current dealer site inventory; exact 2018 AMG GT S VIN search/check",
+            "As rendered on dealer site",
+            "No qualifying VIN displayed",
+            "0 additional",
+            "V1 source listing existed on AutoTrader/DealerRater, but current dealer inventory did not visibly include it",
+            "2026-09-08T11:18:23.463Z",
+            "Do not infer that V1 was sold; inventory absence is inconclusive"
+          ],
+          [
+            "SL-06",
+            "Brooklyn Auto Sales",
+            "Dealer inventory + VDP",
+            "https://www.brooklynautoonline.com/newandusedcars ; https://www.brooklynautoonline.com/vdp/24001728/Used-2018-MercedesBenz-AMG-GT-S-for-sale-in-Staten-Island-NY-10310",
+            "Dealer inventory and exact VDP check",
+            "Dealer inventory/VDP as rendered",
+            "1 qualifying exact VDP",
+            "0 additional",
+            "V2; duplicate of marketplace records",
+            "2026-09-08T11:19:31.291Z",
+            "Dealer VDP supplied seller-stated options and modifications"
+          ],
+          [
+            "SL-07",
+            "DealerRater / Auto Excellence",
+            "Dealer listing material",
+            "https://www.dealerrater.com/classifieds/2018-Mercedes_Benz-AMG-GT-ad-WDDYJ7JAXJA019396-104789/",
+            "VIN-specific page for V1",
+            "Direct detail",
+            "1",
+            "0 additional",
+            "V1; duplicate of AutoTrader record",
+            "2026-09-08T11:19:41.378Z",
+            "Current page price $90,783; general inspection/warranty language preserved as claims"
+          ]
+        ]
+      },
+      "sha256": {
+        "manifest.json": "7b6c7ea39bdfb9d028ef59a5070f77186b8e546ed5fac183ec5a2411003a4d65",
+        "events.jsonl": "2a7cf7b1969a762008b905a29d27aedf02099d55743f8168aa7b10d5057c000c",
+        "judge_trace.json": "05827cfbea863621d7e2a1be181ea53c8785db267eaf4263df451bb06ba417e5",
+        "judgment.json": "b7d3cfd427d9fabb16f6a2597e247eeb36bf3d1440bcb03f05276e1911444719",
+        "agent_outputs/amg_gt_s_2018_cohort.xlsx": "bffdfa3fd3985c4e9dd7a9a9a13b6bceeadfb458bfabd1adc0fb6ba85fe01c08"
+      }
+    },
+    "reference": {
+      "manifest": {
+        "config_hash": "b47f74853ac540a79de2daf4386025aef081b2fdc515bd7633fd1275df378e0a",
+        "datapoint_id": "f5726c9d-e1ee-4bb9-9fe1-1d6b5400c3b4",
+        "dataset_sha256": "fedc07de8d02a73e81fe1aa50775d753d00b7714203b87bbdd42e75a7257ffd0",
+        "evaluation_id": "5ee7c760-b920-4e66-82eb-2eb161a5d42e",
+        "github_run_attempt": "1",
+        "github_run_id": "34215096477",
+        "github_url": "https://github.com/browser-use/new-eval-platform/actions/runs/34215096477",
+        "harness": "pi-browser-use-next",
+        "judge": "findings",
+        "judge_model": "gpt-5.6-luna",
+        "judge_options": {
+          "reasoning_effort": "xhigh"
+        },
+        "max_steps": 1000,
+        "model": "gpt-5.6-luna",
+        "options": {
+          "browser_timeout_minutes": 70,
+          "evidence_format": "findings",
+          "max_context_chars": 800000,
+          "proxy_country_code": "us",
+          "reasoning_effort": "xhigh",
+          "task_timeout_seconds": 3600
+        },
+        "platform_sha": "ddc48ee93ea863c26d78c45a09760e4951b48a3d",
+        "schema_version": 1,
+        "target_repo": "browser-use/bu-pi",
+        "target_sha": "c3f7fac2d8a46a3801e06d89a3c3c9b1343db79e",
+        "task_id": "bub2-034",
+        "timeout_minutes": 62
+      },
+      "judgment": {
+        "audit_coverage": null,
+        "duration_seconds": 147.778,
+        "evidence_checked": [
+          "result.json",
+          "rubrics/bub2-034.md",
+          "139 judge screenshots",
+          "3 deliverable files"
+        ],
+        "failure_class": "",
+        "model": "gpt-5.6-luna",
+        "reason": "88/100 rubric weight met",
+        "replicate_scores": [],
+        "rubric": {
+          "A10_action_boundary": true,
+          "A1_search_reproducible": false,
+          "A2_cohort_complete_dedup": true,
+          "A3_fields_faithful": true,
+          "A4_vin_conflict_ledger": true,
+          "A5_recall_enrichment": true,
+          "A6_valuation_benchmark": true,
+          "A7_scoring_and_rankings": true,
+          "A8_deliverable_shape": true,
+          "A9_claims_honesty": true
+        },
+        "score": 0.88,
+        "score_range": 0,
+        "score_stddev": 0,
+        "status": "scored"
+      },
+      "metrics": {
+        "cache_write_tokens": 496284,
+        "cached_input_tokens": 9987616,
+        "duration_seconds": 1012.946,
+        "input_tokens": 81990,
+        "output_tokens": 48308,
+        "steps": 169,
+        "total_cost": 0.3981909200000001,
+        "total_tokens": 10614198
+      },
+      "compactions": 1,
+      "selected_findings": [
+        {
+          "evidence": "The trace shows Cambridge-centered, 250-mile, year-filtered searches: AutoTrader exact S search at step 257 shows 2 matches; CarGurus exact S data at steps 296-308 shows ZIP 02139, distance 250, year 2018, Cambridge, and 1 listing; Cars.com step 190 shows the correct Cambridge/250-mile/2018 search with 5 results. The workbook records filters, ordering, counts, and observation time. However, the workbook's Cars.com Search_Protocol row records '0 in screen' and says no qualifying S tile was visible, while the step-190 Cars.com result text visibly lists both 2018 AMG GT S cars at $90,783 and $86,999. The same false exclusion is repeated in Screened_Out.",
+          "item": "A1_search_reproducible",
+          "status": "violated"
+        },
+        {
+          "evidence": "The AutoTrader embedded record at steps 276 and 278 exposes the blue vehicle's KBB FPP field of $87,244 and validity date 2026-04-09; the workbook records the observation date, stale validity, and treats the comparison as contextual rather than a fresh hard valuation. CarGurus step 308 exposes the red vehicle's $95,030 IMV and $8,031 differential; the workbook records it but explicitly rejects it as an aligned benchmark because modification/condition assumptions are unresolved. No more than one benchmark is used per vehicle.",
+          "item": "A6_valuation_benchmark",
+          "status": "met"
+        },
+        {
+          "evidence": "The run reached all three named marketplaces with correct Cambridge searches, and its final report limits the completeness claim to the accessible public cohort while explicitly warning that unindexed, sold, private, or newly posted vehicles may exist. It records CarGurus' initial wrong-location behavior and later Cambridge correction in the trajectory, does not claim a VIN-recall result, and states that no paid report, inspection, or dealer contact occurred. The Cars.com no-S-tile statement is a factual count error already charged to A1, but it is not an unsupported source-coverage or wrong-location completeness claim.",
+          "item": "A9_claims_honesty",
+          "status": "met"
+        }
+      ],
+      "workbook": "AMG_GT_S_2018_Cambridge_250mi_cohort.xlsx",
+      "worksheets": {
+        "Search_Protocol": [
+          [
+            "Search protocol and observation log"
+          ],
+          [
+            "All counts are page-visible or embedded state counts observed in the browser; direct detail pages are supplemental duplicate evidence."
+          ],
+          [],
+          [
+            "Source / surface",
+            "URL",
+            "Center / radius",
+            "Filters applied",
+            "Visible ordering",
+            "Screened / visible count",
+            "Qualifying retained count",
+            "Observed at",
+            "Notes"
+          ],
+          [
+            "AutoTrader exact trim search",
+            "https://www.autotrader.com/cars-for-sale/2018/mercedes-benz/amg-gt/s/cambridge-ma?searchRadius=250&sortBy=relevance",
+            "Cambridge, MA (ZIP 02139; 42.3644,-71.1012) / 250 mi",
+            "Used; year 2018; Mercedes-Benz AMG GT; exact trim S; Coupe; searchRadius=250",
+            "Relevance (sortBy=relevance)",
+            "2 active exact-S results in refreshed state (IDs 745555048, 783471084); earlier session snapshot had 5 active IDs / 17 inventory objects",
+            "2",
+            "2026-09-08T11:26:19.802Z",
+            "Both active results qualify. Earlier three IDs were GT C/R variants and are preserved as screened-out context; do not combine earlier and final counts."
+          ],
+          [
+            "CarGurus exact trim search",
+            "https://www.cargurus.com/search?zip=02139&distance=250&startYear=2018&endYear=2018&makeModelTrimPaths=m43%2Fd2282%2FS",
+            "Cambridge, MA (ZIP 02139; 42.3644,-71.1012) / 250 mi",
+            "ZIP 02139; distance 250; startYear=2018; endYear=2018; makeModelTrimPaths=m43/d2282/S; body-style facet showed Coupe count 1",
+            "Best match (ASC)",
+            "1 total listing; body-style facet Coupe=1; exact S facet=1",
+            "1",
+            "2026-09-08T11:26:19.802Z",
+            "Listing is WDDYJ7JA3JA019224; 197.22266 mi; 80 days on market. No blue S tile was present in this exact screen."
+          ],
+          [
+            "Cars.com year/model screen",
+            "https://www.cars.com/shopping/results/?models%5B%5D=mercedes_benz-amg_gt&year_max=2018&zip=02139&maximum_distance=250&year_min=2018&stock_type=used&makes%5B%5D=mercedes_benz&sort=best_match_desc",
+            "Cambridge, MA (ZIP 02139; 42.3644,-71.1012) / 250 mi",
+            "Used; Mercedes-Benz; AMG GT; year_min=2018; year_max=2018; ZIP 02139; maximum_distance=250; best_match_desc; exact S not separately applied",
+            "Best match descending",
+            "5 listings total reported; visible population included GT R/C and other non-S variants; no qualifying S was visible in the screen",
+            "0 in screen; 2 direct detail pages retained",
+            "2026-09-08 session",
+            "Blue and red Cars.com detail pages were directly accessible and used as duplicate source records despite not being visible in the broad result list."
+          ],
+          [
+            "Cars.com blue detail",
+            "https://www.cars.com/vehicledetail/b0da0ebd-ea6f-4b13-a133-e2dec46fd87d/",
+            "Cambridge, MA (ZIP 02139; 42.3644,-71.1012) / seller location 9 mi",
+            "Direct VIN detail page; 2018 AMG GT S; 2-door coupe",
+            "Detail page (not a search ordering)",
+            "1 direct detail",
+            "1 duplicate",
+            "2026-09-08T11:26:19.802Z",
+            "WDDYJ7JAXJA019396; S1177; AutoCheck summary 1 owner / 0 accidents / clean title."
+          ],
+          [
+            "Cars.com red detail",
+            "https://www.cars.com/vehicledetail/54a29d6e-9bb8-4b63-99aa-179d2d174e3a/",
+            "Cambridge, MA (ZIP 02139; 42.3644,-71.1012) / seller location within 250 mi",
+            "Direct VIN detail page; 2018 AMG GT S; 2-door coupe",
+            "Detail page (not a search ordering)",
+            "1 direct detail",
+            "1 duplicate",
+            "2026-09-08T11:26:19.802Z",
+            "WDDYJ7JA3JA019224; stock 019224; AutoCheck summary multiple owners / 0 accidents / clean title."
+          ],
+          [
+            "Dealer / public materials",
+            "https://brooklynautoonline.com/vdp/24001728/Used-2018-MercedesBenz-AMG-GT-for-sale-in-Staten-Island-NY",
+            "Cambridge, MA (ZIP 02139; 42.3644,-71.1012) / 197.11\u2013197.22 mi",
+            "VIN/detail-page searches on dealer, J.D. Power, DealerRater; no contact or form submission",
+            "Detail pages",
+            "5 public source records across 2 VINs; all duplicate retained VINs",
+            "0 new VINs",
+            "2026-09-08T11:26:19.802Z",
+            "Brooklyn page provides the strongest itemized seller option list for red car. DealerRater provides blue seller comments/features. Auto Excellence homepage was checked; no separate exact blue detail URL was exposed."
+          ],
+          [
+            "NHTSA recall API",
+            "https://api.nhtsa.gov/recalls/recallsByVehicle?make=Mercedes-Benz&model=AMG%20GT&modelYear=2018",
+            "Model/year context, not radius-dependent",
+            "make=Mercedes-Benz; model=AMG GT; modelYear=2018",
+            "API result order",
+            "Count=5 model/year campaigns",
+            "0 VIN-specific statuses",
+            "2026-09-08T11:26:19.802Z",
+            "Model-level campaign exposure only; not a VIN completion lookup."
+          ]
+        ],
+        "Screened_Out": [
+          [
+            "Screened-out and incomplete population notes"
+          ],
+          [
+            "Only qualifying VINs were retained. Nonqualifying inventory is not silently dropped."
+          ],
+          [],
+          [
+            "Source / ID",
+            "What was seen",
+            "Why not retained",
+            "Evidence / URL",
+            "Status",
+            ""
+          ],
+          [
+            "AutoTrader earlier snapshot IDs 755591653, 787745733, 786538997",
+            "Earlier exact-search embedded state had 5 active results and 17 inventory objects; the two retained S VINs were also present.",
+            "Checkpoint inspection identified these three as 2018 GT C / GT R variants, not exact S trim; they also illustrate why broad AMG GT results must be screened.",
+            "AutoTrader exact search; active-ID snapshot preserved in research notes; refreshed final exact screen showed only 2 active S results.",
+            "Screened out; not current retained cohort",
+            ""
+          ],
+          [
+            "Cars.com model/year result set (5 total)",
+            "Visible population included GT R/C and other non-S variants; no qualifying S tile was visible in the final broad screen.",
+            "Exact S was not separately applied to the result URL; direct blue/red detail pages were separately accessible and retained by VIN as duplicate evidence. ",
+            "https://www.cars.com/shopping/results/?models%5B%5D=mercedes_benz-amg_gt&year_max=2018&zip=02139&maximum_distance=250&year_min=2018&stock_type=used&makes%5B%5D=mercedes_benz&sort=best_match_desc",
+            "Screened at search level; direct details retained",
+            ""
+          ],
+          [
+            "CarGurus exact S screen: no blue tile",
+            "Exact screen returned one listing only, the red VIN.",
+            "No distinct blue CarGurus VIN was exposed in the exact screen; blue was already retained from other accessible sources.",
+            "CarGurus exact search",
+            "No new VIN; not a failure",
+            ""
+          ],
+          [
+            "Auto Excellence Group homepage",
+            "Dealer inventory homepage was accessible; no separate exact blue VIN detail URL was exposed in the final session.",
+            "No new or independently accessible blue dealer-detail record beyond Cars/DealerRater/AT; do not infer additional inventory from dealership make counts.",
+            "https://www.autoexcellencegroup.com/",
+            "Incomplete / no new VIN",
+            ""
+          ],
+          [
+            "Mercedes-Benz USA VIN lookup",
+            "VIN input page and reCAPTCHA were present; submission did not produce a VIN result for blue; red lookup was not completed.",
+            "No VIN-specific recall status can be claimed.",
+            "https://www.mbusa.com/en/recall",
+            "Blocked / unavailable",
+            ""
+          ],
+          [
+            "NHTSA VIN lookup",
+            "Model/year recallsByVehicle endpoint returned five campaigns, not VIN completion status.",
+            "Record as model-level exposure only.",
+            "https://api.nhtsa.gov/recalls/recallsByVehicle?make=Mercedes-Benz&model=AMG%20GT&modelYear=2018",
+            "Model-level only",
+            ""
+          ]
+        ]
+      },
+      "sha256": {
+        "manifest.json": "64d7022595b941106e420e0862f5888e3a1268ab109e690ebb76bb643d1f4bb4",
+        "events.jsonl": "3cbdc3d7eb111f8367ed35d44e0b15a9c1c5ba492fe7679565d266d5511d7891",
+        "judge_trace.json": "5ca7db5a30e032e21c1ca64c006ba8c55533317813198990138029713870c51f",
+        "judgment.json": "c4f6b0b90d1acd84ef99b64b550a6ba1facef818aa6284144c657061e190af74",
+        "agent_outputs/AMG_GT_S_2018_Cambridge_250mi_cohort.xlsx": "da69f7abda593a3322be7188e544a4430cb2768da4b4a67ff15ac5d6ac03d3cf"
+      }
+    }
+  },
+  "findings": [
+    "The original task permits asking-price comparison to a dated benchmark only when trim, mileage and condition assumptions align. The candidate explicitly records misalignment but still delivers three per-vehicle price deltas against the benchmark. A context-only caveat does not satisfy that condition.",
+    "Candidate search logs retain the blocked Cars.com radius attempt and the narrower AutoTrader 200-mile scope. Those observations support a measured subset, not complete coverage of the requested approximately 250-mile population.",
+    "Reference search log and exclusion sheet say no qualifying S tiles were visible despite its source trace containing them; its higher score is not a fully correct search ledger.",
+    "The 17-point difference is valuation and claims-honesty items. Both fail search reproducibility. Do not attribute the whole gap to CDP navigation."
+  ],
+  "direct_scope": "Read-only workbook XML audit verifies the actual delivered cells and conditional-comparison mismatch. Search-access statements are tied to original judge findings and delivered logs; no independent live re-execution.",
+  "score_policy": "Retain candidate 71 and reference 88, with no task-specific gate or changed judge."
+}

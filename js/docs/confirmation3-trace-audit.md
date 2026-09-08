@@ -264,3 +264,31 @@ The coverage code is written at event 470. Compaction later archives through eve
 Preserve each observation's query, source scope, count and time together; derive coverage tables from those records instead of substituting constants. Retain the original scores and flag, with no task-specific rule or changed judge.
 
 [Exact count replacements, visual checks, original penalty and source hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-coverage-replacement-pair.json).
+
+## Form discovery and rank semantics
+
+Directory task `bub2-033` scores 72/100 candidate versus 90/100 reference. Neither compacts. Both enumerate `document.forms` on the PCGS contact page and see search, certification and newsletter forms. The candidate screenshot tied to judge step 113 (`029.png`) nevertheless shows a **PCGS Support Form** and a **Request Type** dropdown. The reference image at step 110 (`057.png`) shows those labels but no rendered dropdown at that instant. Neither image proves successful submission or explains why the DOM inspection missed the interface. The observations warrant reporting the visible interface and its uncertainty, not declaring that no contact interface exists.
+
+The candidate's ordered ledger also uses ten deduplicated destination ranks, promoting continuation entries to ranks 8–10. Its separate `raw_serp_inventory` preserves eight first-page and nine continuation cards with displayed indices, and the method/exclusion log discloses deduplication. The requested ledger semantics are wrong; the original ordering was not wholly lost or concealed. Preserve source rank separately from filtered rank. Both arms incur a form-related penalty under different rubric items, so the 18-point difference is not a pure measure of one browser capability.
+
+[Actual form queries, screenshot-to-step mapping, original/raw ledgers and judgments](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-dom-discovery-and-ranks-pair.json).
+
+## A caveat does not satisfy a conditional comparison
+
+Vehicle task `bub2-034` scores 71/100 candidate versus 88/100 reference. The user permits comparison with a dated valuation benchmark **only when trim, mileage and condition assumptions align**. The candidate workbook explicitly says the assumptions are not aligned, yet its Valuation sheet calculates per-vehicle deltas of **$21,253, $17,469 and $17,644** against the $69,530 benchmark. Labeling those figures “context only” does not meet the user's condition.
+
+Its SearchLog records the Cars.com radius attempt as blocked and AutoTrader's search as a narrower 200-mile subset. Those disclosures support a measured subset, not full coverage of the approximately 250-mile population. The reference also has a search-ledger defect: it records no qualifying Cars.com S tiles despite the original judgment citing those tiles in its trace. Both lose search-reproducibility credit. The 17-point difference lies in valuation and claims-honesty items; the higher-scoring reference is not a complete source-truth certificate.
+
+The general failure is performing a computation after its required precondition is known to be unmet, then relying on a caveat. Keep observed values and unavailable comparisons separate. The audit reads the delivered workbook cells without executing generated code or changing either score.
+
+[Workbook cells, exact manifests, original findings and hashes](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-conditional-comparison-pair.json).
+
+## Mobile emulation fails in both remote traces, but passes locally
+
+For `bub2-040`, the candidate scores 36/100 and the reference 52/100. Both original judgments reject the mobile-evidence item. Candidate events 689, 701 and 713 issue page-scoped `Emulation.setDeviceMetricsOverride` commands for 390×844 or 375×812. Subsequent JavaScript still reports width 1440 and device pixel ratio 1.25. Reference events 553, 1049 and 1057 also request 390×844; later reads report width 1440. Event indices here are zero-based in the original `events.jsonl`. The candidate additionally tries one incorrectly shaped browser-level command at event 705, but that does not account for the valid page-scoped attempts.
+
+The current SDK forwards `Page.cdp` parameters with the page session ID. A freshly built local probe passes four cases in isolated Chrome 152: headed/headless crossed with `mobile` true/false. All report 390×844, DPR 1 and a matching narrow-screen media query, immediately and after a same-document navigation plus a screenshot through another CDP session. Both probe-owned browsers close in `finally`. This is a local negative reproduction, not a remote fix or a full cross-process-navigation test.
+
+The original remote environment, browser version, possible property overrides and other CDP clients remain unresolved variables. The evidence does not justify changing SDK command routing or naming a provider root cause. Since both arms lose this item, the viewport limitation alone cannot explain the 16-point score difference. No runtime or prompt change follows from this probe.
+
+[Original commands and results, local probe source, measurements and limits](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-viewport-pair.json).
