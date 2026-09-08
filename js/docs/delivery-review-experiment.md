@@ -1,6 +1,6 @@
 # Delivery review experiment
 
-This is an optional evaluation policy using the SDK's existing `validateResult` hook. It is not enabled by default and does not add an SDK parameter, a second model, a new tool or a new agent loop. The two diagnostic arms have been dispatched once; no completed quality result is available at this status check.
+This is an optional evaluation policy using the SDK's existing `validateResult` hook. It is not enabled by default and does not add an SDK parameter, a second model, a new tool or a new agent loop. Both diagnostic arms were dispatched once. The control has completed; the review-enabled arm is still running at the latest recorded check.
 
 ## Hypothesis
 
@@ -40,3 +40,15 @@ Both prepare jobs succeeded. Both task jobs were executing at the status check r
 | Review enabled | [34206488995](https://github.com/browser-use/new-eval-platform/actions/runs/34206488995) | `91f081c6-4f92-4133-9930-8a60fa832b6b` |
 
 No adoption, improvement or parity conclusion follows from successful setup.
+
+## Completed control
+
+The original review-disabled control finished with an actual **41/100** judgment, **$0.37996301** recorded agent inference cost, **168 steps**, **1099.092 seconds**, one compaction, zero SDK provider retries and zero review-callback submissions. GitHub workflow `34206486851` completed successfully. Its manifest, original attempt, SDK/platform/dataset pins, model/reasoning/judge settings, budgets and dependency lock match the frozen plan.
+
+All **92 registered PNG screenshots** exist and remain in the artifact inventory under the corrected evaluator-owned directory. The adapter recorded 57 capture errors, with 20 detailed messages retained; these failed capture attempts do not imply missing registered files. The owned Cloud browser is confirmed stopped.
+
+The control retains a concrete exact-string defect: the observed JPY tax `2\u202f325\u00a0¥\u00a0JPY` is preserved in the main `raw.taxes` field, but a duplicate `fees_or_taxes.itemized_components[0].raw` replaces the two U+00A0 characters with U+0020. The main-field code-point check passes while the duplicate disagrees. This illustrates why review must compare each delivered representation with the original source. The judge also alleges a raw-summary mismatch; the final main summary preserves the NBSP before “au,” so that part of the rationale is not adopted as independently verified. The nested tax discrepancy remains real.
+
+The control inspected 240 eBay cards with no qualifying dollar-price records; it did not establish exhaustion. It captured three Airbnb currency states but left EUR's observation timestamp uncaptured, and retained unlabeled synthetic parser examples. It did not receive a reward-hacking penalty. These facts stay with this control and do not establish a benefit from the still-running treatment.
+
+[Control manifest, source comparison, evidence hashes and cleanup](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/delivery-review-control.json).
