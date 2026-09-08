@@ -103,3 +103,35 @@ The candidate still delivers contradictory breadcrumb metadata. It adds a correc
 The two sessions have different logged-out locations and result inventories: Waterford/286 results versus Baldwin Park/267. The comparison therefore does not isolate prices or identical product sets. Neither task uses compaction or provider retry. All original outcomes remain unchanged.
 
 [Grid transitions, file checks and original findings](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-grid-coverage-pair.json).
+
+## Verification loss: correct observations became contradictory claims
+
+Task `bub2-009` requests a browser-automation project landscape with per-project source verification. The reference scores 38/100. The candidate earns 50 rubric points but receives an overall zero for suspected fabricated verification. Both have one compaction.
+
+The candidate successfully fetches the Grizzly package from PyPI: version 1.3.0, released August 20. It then correctly records the package and installation command. But its manually built package-version map omits that project, so the final verification table says no relevant registry package was located. The exact successful response survives in the SDK's archived cell output. This is a contradiction introduced during output construction, not missing source access.
+
+Another final row contains both `pushed_at = 2026-02-19` and a generated claim that the project was pushed September 6. The table assigns all 50 projects the same “Verified in project README/docs” installation status. License, runtime and activity verification labels are also constructed from generated row values rather than retrieval outcomes.
+
+These errors precede compaction. The archived transcript includes the erroneous generation at events 337 and 357 and ends at event 407, after the table was created. Compaction therefore cannot explain the initial creation of these particular contradictions. This does not establish that compaction is harmless on other tasks.
+
+The reference also assigns blanket `PASS` to its 52 verification rows, including rows with blocked or missing registry checks. The original judgments remain 38 and 0. Shared weak labels do not prove equivalent severity or isolate judge randomness; this audit does not infer deliberate intent.
+
+The general problem is converting observations into claims without preserving their connection. Derive verification status from actual checks, preserve unknown states, and compare final canonical fields with their source observations. More retained context alone would not resolve this case. No project-specific mappings or prompt reminders are added to the frozen candidate.
+
+[Contradictory rows, preserved source response and compaction ordering](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-verification-contradiction-pair.json).
+
+## Stream recovery gain: progress resumes, coverage remains incomplete
+
+Task `bub2-007` requests a complete Walmart search sequence and per-record Walmart, Nike and authorized-retailer checks. The reference scores 0 after inventing checked access outcomes for 40 supplemental records. The candidate scores 66/100. Neither compacts.
+
+The candidate's model stream exceeds its 300-second deadline at event 121. Its incomplete JavaScript call never receives a tool-execution event. A new page-five navigation executes at event 123 and succeeds. The next assistant message's timestamp is 300,009 ms later; these timestamps do not identify the last successful stream chunk. The evidence supports recovery without executing the partial call, not a diagnosis of why the provider stopped completing the response.
+
+The run continues to 219 placements and 209 deduplicated cohorts. Its saved Walmart checks contain 80 observed pages and two blocked/error pages. The detailed product file marks the other 127 records not attempted. It derives final outputs from those saved files. The summary verification log still merges blocked and unattempted Walmart states, showing how status distinctions can disappear between output formats.
+
+Recovery does not establish full coverage. The visually inspected screenshot after step 68 shows page six selected and pages seven and eight exposed; those pages are absent from the collected sequence. Only ten of 73 discovered style identifiers receive Nike searches and ten receive Foot Locker searches. The final output reports zero strictly verified products, three partially supported, and 206 unknown/unverified.
+
+The reference instead assigns `blocked_robot_or_human` to every supplemental record after attempting two different, non-cohort product URLs. The judge zeroes those unsupported per-record access claims. The candidate's PII flag concerns public reviewer names captured from product pages; the judge separately confirms no personal-data entry and awards the conduct constraint.
+
+Preserving incomplete streams without executing their calls is useful recovery behavior. Persisting the pending inventory and retaining per-record attempt states across every output remains a separate requirement. The candidate initially had Walmart access while the reference was blocked, so this pair cannot isolate how much of the score difference recovery caused. Its SDK cleanup reports a timeout; the independent owned-browser audit verifies Cloud cleanup separately. Both original scores remain unchanged.
+
+[Stream events, per-record counts, screenshot hash and original judgments](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-stream-recovery-pair.json).

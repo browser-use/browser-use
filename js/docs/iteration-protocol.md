@@ -245,6 +245,12 @@ The local report was fault-tested against the historical browser-provisioning fa
 
 The [ongoing trace audit](./confirmation3-trace-audit.md) separates model-written extraction errors from SDK transport faults in selected completed pairs. These findings do not change the running candidate or replace outcomes.
 
+### Historical Hard floor is already unreachable
+
+At the retained September 8 snapshot, the candidate has **76 passes from 95 actual judgments**, with **11 of 106 tasks still pending**. Even if every pending task passes, its maximum is **87/106**, below the frozen historical floor of **88/106**. The two-benchmark goal therefore cannot be achieved by this candidate in this comparison. This is an arithmetic bound, not a final score or evidence of a statistically isolated harmful code effect.
+
+All four original arms continue unchanged. Complete the cohorts before calculating the frozen paired intervals or selecting the next intervention. [Snapshot, all assigned task IDs and upper-bound calculation](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/evidence/confirmation3-hard-floor-bound.json).
+
 ## Compatibility and rollback
 
 No Pi fork, browser engine change, history format migration, login/profile change, or legacy Python Browser Use modification. The Python bridge accepts the two new timeout options. Existing sessions and profiles remain compatible. Slow valid model responses can hit the new five-minute cap; callers may raise it, but the whole-run deadline still wins. A provider that ignores abort can continue spending remotely even though the SDK stops waiting; reported usage may undercount that work.
