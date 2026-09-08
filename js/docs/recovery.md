@@ -2,13 +2,15 @@
 
 Reliability means distinguishing “the request failed” from “the action did not happen.” A timed-out click may already have submitted a form.
 
-## Three separate budgets
+## Separate deadlines
 
 ```js
 const agent = await BrowserUse.create({
   model: 'openai/gpt-5.5',
   operationTimeoutMs: 15_000,
   cellTimeoutMs: 30_000,
+  modelTimeoutMs: 300_000,
+  compactionTimeoutMs: 120_000,
   maxOutputChars: 12_000,
 });
 
@@ -22,6 +24,8 @@ const result = await agent.run('Find the requested information.', {
 
 - **Operation:** CDP command and element lookup deadline.
 - **Cell:** execution deadline. A stuck cell causes worker termination.
+- **Model:** connection setup plus the entire streamed response. A timeout gets at most one extra inference attempt per run, sharing the existing transient-stream retry budget. Partial tool calls never execute.
+- **Compaction:** summary response deadline. Failure keeps the original context, disables further compaction for that run and emits a warning. The context guard still applies.
 - **Run:** aborts the model loop and active browser cell.
 
 `maxSteps` counts model turns, not browser actions. A single code cell may contain multiple actions. Cost is estimated from Pi's catalog and checked between turns; it can overshoot by one response. It is not a hard billing cap. `maxContextChars` is a text-character guard. Automatic upstream Pi compaction also uses token estimates and provider usage before the context becomes full; set `compaction: false` to opt out. Summary inference counts toward usage and cost.
@@ -72,7 +76,7 @@ controller.abort();
 const result = await running; // status: 'cancelled'
 ```
 
-The browser worker is terminable even during an infinite JavaScript loop. Provider transports, custom tools, and application callbacks must cooperate with abort. This is not a universal deadline guarantee over arbitrary third-party code.
+The browser worker is terminable even during an infinite JavaScript loop. The SDK stops waiting on provider responses even when a transport ignores abort; late output cannot change the result or execute tools. The transport must still honor abort to release its own network resources and stop billable work. Usage includes reported partial tokens, not an estimate of unreported provider work. Custom tools and application callbacks must cooperate with abort. This is not a universal deadline guarantee over arbitrary third-party code.
 
 ## Execution boundaries
 

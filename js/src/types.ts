@@ -27,6 +27,10 @@ export interface BrowserUseOptions {
   instructions?: string;
   operationTimeoutMs?: number;
   cellTimeoutMs?: number;
+  /** Whole model response, including connection setup. Default 300000 ms. */
+  modelTimeoutMs?: number;
+  /** Whole compaction response. Default 120000 ms; original context survives failure. */
+  compactionTimeoutMs?: number;
   maxOutputChars?: number;
   /** Before each tool call. Return {block:true, reason} to deny it. */
   beforeToolCall?: (

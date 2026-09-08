@@ -4,20 +4,22 @@
 
 Creates an owned local browser or attaches to a caller-owned CDP browser. The JavaScript worker starts on the first cell.
 
-| Option               | Default                 | Purpose                                            |
-| -------------------- | ----------------------- | -------------------------------------------------- |
-| `model`              | required                | Explicit `provider/model-id`                       |
-| `browser`            | `{ headless: true }`    | Local configuration or `{ cdpUrl }`                |
-| `workspace`          | new temporary directory | Artifact directory, retained after close           |
-| `models`             | Pi built-in collection  | Native Pi provider collection                      |
-| `reasoning`          | `medium`                | Pi reasoning level                                 |
-| `tools`              | `[]`                    | Additional Pi tools                                |
-| `instructions`       | empty                   | Application instructions appended to system prompt |
-| `operationTimeoutMs` | `15000`                 | CDP command and element lookup timeout             |
-| `cellTimeoutMs`      | `30000`                 | Worker execution timeout                           |
-| `maxOutputChars`     | `12000`                 | Model-facing text prefix limit                     |
-| `beforeToolCall`     | absent                  | Async application preflight hook                   |
-| `streamFn`           | Pi `streamSimple`       | Advanced transport override                        |
+| Option                | Default                 | Purpose                                                   |
+| --------------------- | ----------------------- | --------------------------------------------------------- |
+| `model`               | required                | Explicit `provider/model-id`                              |
+| `browser`             | `{ headless: true }`    | Local configuration or `{ cdpUrl }`                       |
+| `workspace`           | new temporary directory | Artifact directory, retained after close                  |
+| `models`              | Pi built-in collection  | Native Pi provider collection                             |
+| `reasoning`           | `medium`                | Pi reasoning level                                        |
+| `tools`               | `[]`                    | Additional Pi tools                                       |
+| `instructions`        | empty                   | Application instructions appended to system prompt        |
+| `operationTimeoutMs`  | `15000`                 | CDP command and element lookup timeout                    |
+| `cellTimeoutMs`       | `30000`                 | Worker execution timeout                                  |
+| `modelTimeoutMs`      | `300000`                | Entire model response, including connection setup         |
+| `compactionTimeoutMs` | `120000`                | Entire summary response; failure retains original context |
+| `maxOutputChars`      | `12000`                 | Model-facing text prefix limit                            |
+| `beforeToolCall`      | absent                  | Async application preflight hook                          |
+| `streamFn`            | Pi `streamSimple`       | Advanced transport override                               |
 
 Local browser options: `profileDir`, `headless`, `channel: 'chrome' | 'msedge'`, `executablePath`. They cannot be combined with `cdpUrl`. An attached browser may specify `targetId` to select a caller-owned tab.
 

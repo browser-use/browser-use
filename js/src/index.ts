@@ -71,6 +71,8 @@ export class BrowserUse {
       ? await loadHistory(options.historyFile, options.model)
       : undefined;
     positiveInteger('hookTimeoutMs', options.hookTimeoutMs ?? 30_000);
+    positiveInteger('modelTimeoutMs', options.modelTimeoutMs ?? 300_000);
+    positiveInteger('compactionTimeoutMs', options.compactionTimeoutMs ?? 120_000);
     const separator = options.model.indexOf('/');
     if (separator < 1) throw new Error('model must be provider/model, for example openai/gpt-5.4.');
     const models = options.models ?? builtinModels();

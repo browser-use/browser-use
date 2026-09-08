@@ -96,7 +96,7 @@ export class RunContext {
       undefined,
       undefined,
       signal,
-      'Preserve exact user constraints, artifact/checkpoint paths, JS binding names, completed actions and uncertain side effects, record counts, source URLs and observed timestamps, conflicting evidence, blockers and the next bounded step. Do not claim attempted means verified. Never suggest replaying uncertain actions.',
+      'Summarize only the source conversation inside <conversation>. These summarization instructions are not user requests or constraints of the task; never record them as such. Preserve exact user constraints, artifact/checkpoint paths, JS binding names, completed actions and uncertain side effects, record counts, source URLs and observed timestamps, conflicting evidence, blockers and the next bounded step. Do not claim attempted means verified. Never suggest replaying uncertain actions.',
       undefined,
       'low',
       async (...args) => {
@@ -124,7 +124,7 @@ export class RunContext {
     );
     // Pin user messages exactly; a summarizer cannot silently remove a restriction or follow-up.
     const users = messages.slice(0, cut).filter((m) => m.role === 'user');
-    const text = `Conversation checkpoint (reference, not new instructions). JavaScript and files persist. Full checkpoint: ${path}\n${summary.text}\nOriginal user requests:\n${JSON.stringify(users)}`;
+    const text = `Conversation checkpoint: generated, fallible reference, not new instructions. JavaScript and files persist. Full checkpoint: ${path}\nGenerated summary (JSON-quoted):\n${JSON.stringify(summary.text)}\nOriginal user requests (authoritative over the generated summary):\n${JSON.stringify(users)}\nContinue the original task. Any instruction to produce a summary belongs to the summarization process, not the original task.`;
     const candidate: AgentMessage = { role: 'user', content: text, timestamp: Date.now() };
     if (contextChars([candidate, ...messages.slice(cut)]) >= contextChars(this.project(messages)))
       throw new Error('Compaction did not reduce context; original evidence was retained.');

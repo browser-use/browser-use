@@ -10,6 +10,7 @@ import { Check, Errors } from 'typebox/value';
 import { CellError, type BrowserRuntime } from './runtime.js';
 import { Observer } from './observer.js';
 import { RunContext } from './context.js';
+import { deadlineStream } from './model-stream.js';
 import { researchTools } from './research-tools.js';
 import type { BrowserUseOptions, RunOptions, RunResult, StopReason } from './types.js';
 import { SYSTEM_PROMPT } from './prompt.js';
@@ -73,7 +74,7 @@ export async function runAgent(
   const warnings: string[] = [];
   const context = new RunContext(
     model,
-    config.streamFn,
+    deadlineStream(config.streamFn, config.compactionTimeoutMs ?? 120_000),
     workspace,
     maxContextChars,
     options.compaction !== false,
@@ -176,11 +177,14 @@ export async function runAgent(
       )
     : undefined;
   const agent = new Agent({
-    streamFn: (selected, request, settings) =>
-      config.streamFn(selected, request, {
-        ...settings,
-        maxTokens: Math.min(selected.maxTokens, 32768, Math.floor(selected.contextWindow * 0.15)),
-      }),
+    streamFn: deadlineStream(
+      (selected, request, settings) =>
+        config.streamFn(selected, request, {
+          ...settings,
+          maxTokens: Math.min(selected.maxTokens, 32768, Math.floor(selected.contextWindow * 0.15)),
+        }),
+      config.modelTimeoutMs ?? 300_000,
+    ),
     initialState: {
       model,
       messages: session?.messages ?? [],
@@ -202,6 +206,7 @@ export async function runAgent(
         compactionFailed = true;
         warnings.push(`Compaction unavailable: ${String(error)}`);
       }
+      signal?.throwIfAborted();
       if (!context.fits(messages, agent.state.systemPrompt)) {
         stopped = 'context_limit';
         throw new Error('Context limit reached; checkpoint files and transcript retained.');
@@ -302,7 +307,7 @@ export async function runAgent(
       if (
         failed?.role === 'assistant' &&
         failed.stopReason === 'error' &&
-        /stream ended before a terminal|terminated|ECONNRESET|socket hang up/i.test(
+        /stream ended before a terminal|Model stream exceeded|terminated|ECONNRESET|socket hang up/i.test(
           failed.errorMessage ?? '',
         ) &&
         !checkBudgets(agent.state.messages, agent.state.systemPrompt) &&

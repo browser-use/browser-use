@@ -141,7 +141,9 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             ("finish", {"result": {"total": 21}}),
         ]
         agent = await self.create(
-            tools=[Tool("quote", "Price the quantity", Quantity, quote)]
+            tools=[Tool("quote", "Price the quantity", Quantity, quote)],
+            modelTimeoutMs=5000,
+            compactionTimeoutMs=2000,
         )
         stream = agent.events()
         first = asyncio.create_task(anext(stream))
