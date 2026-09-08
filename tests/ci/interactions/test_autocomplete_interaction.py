@@ -442,6 +442,10 @@ class TestAutocompleteInteraction:
 			session_id=cdp_session.session_id,
 		)
 		events = json.loads(readback.get('result', {}).get('value', '[]'))
+		inputs = [event['value'] for event in events if event['type'] == 'input']
+		assert inputs, f'Input action did not dispatch an input event: {events}'
+		assert inputs[0] == '', f'Clear should notify frameworks before replacement typing: {events}'
+		assert inputs[-1] == '1', f'Final input event should observe the replacement text: {events}'
 		changes = [event['value'] for event in events if event['type'] == 'change']
 		assert changes, f'Input action did not dispatch a final change event: {events}'
 		assert '' not in changes, f'Formatter saw a premature empty change: {events}'
@@ -478,3 +482,24 @@ class TestAutocompleteInteraction:
 		)
 		events = json.loads(readback.get('result', {}).get('value', '[]'))
 		assert [event['value'] for event in events if event['type'] == 'change'] == ['']
+
+	async def test_empty_replacement_recovers_after_fallback_clear(
+		self, tools: Tools, browser_session: BrowserSession, base_url: str
+	):
+		"""A fallback that reports success after stale restoration must still clear an empty replacement."""
+		await tools.navigate(url=f'{base_url}/sticky-input', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.3)
+		await browser_session.get_browser_state_summary()
+
+		field_index = await browser_session.get_index_by_id('sticky')
+		assert field_index is not None
+		result = await tools.input(index=field_index, text='', browser_session=browser_session)
+		assert isinstance(result, ActionResult)
+		assert result.error is None, f'Input action failed: {result.error}'
+
+		cdp_session = await browser_session.get_or_create_cdp_session()
+		value = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': 'document.getElementById("sticky").value', 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		assert value.get('result', {}).get('value') == '', 'Empty replacement retained stale text after fallback clear'

@@ -503,6 +503,15 @@ class Element:
 				# Add 18ms delay between keystrokes
 				await asyncio.sleep(0.018)
 
+			# Notify change listeners only after the replacement text is complete.
+			await cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': 'function() { this.dispatchEvent(new Event("change", { bubbles: true })); }',
+					'objectId': object_id,
+				},
+				session_id=session_id,
+			)
+
 		except Exception as e:
 			raise Exception(f'Failed to fill element: {str(e)}')
 
@@ -977,7 +986,6 @@ class Element:
 							this.value = "";
 							// Dispatch events to notify frameworks like React
 							this.dispatchEvent(new Event("input", { bubbles: true }));
-							this.dispatchEvent(new Event("change", { bubbles: true }));
 							return this.value;
 						}
 					""",

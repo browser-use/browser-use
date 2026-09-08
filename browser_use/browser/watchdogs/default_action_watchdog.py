@@ -1849,6 +1849,25 @@ class DefaultActionWatchdog(BaseWatchdog):
 			cleared_successfully = True
 			if clear:
 				cleared_successfully = await self._clear_text_field(object_id=object_id, cdp_session=cdp_session)
+				if cleared_successfully:
+					# Fallback clearing strategies can report success even when a
+					# controlled field immediately restores its old value. Verify the
+					# live DOM value before deciding whether an empty replacement is
+					# already complete; otherwise the concatenation retry is skipped.
+					try:
+						clear_verification = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+							params={
+								'functionDeclaration': 'function() { return this.value !== undefined ? this.value : this.textContent; }',
+								'objectId': object_id,
+								'returnByValue': True,
+							},
+							session_id=cdp_session.session_id,
+						)
+						clear_value = clear_verification.get('result', {}).get('value')
+						cleared_successfully = isinstance(clear_value, str) and not clear_value.strip()
+					except Exception as e:
+						self.logger.debug(f'Clear verification failed: {e}')
+						cleared_successfully = False
 				if not cleared_successfully:
 					self.logger.warning('⚠️ Text field clearing failed, typing may append to existing text')
 
@@ -2068,6 +2087,24 @@ class DefaultActionWatchdog(BaseWatchdog):
 										}
 										this.dispatchEvent(new Event('input', { bubbles: true }));
 										this.dispatchEvent(new Event('change', { bubbles: true }));
+										// A controlled-field listener may synchronously restore its old
+										// value while handling the events. Reapply the native value so an
+										// empty replacement cannot finish with stale text.
+										if (newValue === '' && (this.value !== undefined ? this.value : this.textContent) !== newValue) {
+											if (this.value !== undefined) {
+												if (desc && desc.set) {
+													try {
+														desc.set.call(this, newValue);
+													} catch (e) {
+														this.value = newValue;
+													}
+												} else {
+													this.value = newValue;
+												}
+										} else if (this.isContentEditable) {
+											this.textContent = newValue;
+										}
+										}
 										return this.value !== undefined ? this.value : this.textContent;
 									}
 								""",
