@@ -5,6 +5,7 @@ import io
 import logging
 import os
 import platform
+import re
 from typing import TYPE_CHECKING
 
 from browser_use.agent.views import AgentHistoryList
@@ -20,16 +21,18 @@ logger = logging.getLogger(__name__)
 def decode_unicode_escapes_to_utf8(text: str) -> str:
 	"""Handle decoding any unicode escape sequences embedded in a string (needed to render non-ASCII languages like chinese or arabic in the GIF overlay text)"""
 
-	if r'\u' not in text:
-		# doesn't have any escape sequences that need to be decoded
+	if r'\u' not in text and r'\U' not in text:
 		return text
 
-	try:
-		# Try to decode Unicode escape sequences
-		return text.encode('latin1').decode('unicode_escape')
-	except (UnicodeEncodeError, UnicodeDecodeError):
-		# logger.debug(f"Failed to decode unicode escape sequences while generating gif text: {text}")
-		return text
+	def replace_match(match: re.Match) -> str:
+		try:
+			hex_val = match.group(1) or match.group(2)
+			return chr(int(hex_val, 16))
+		except Exception:
+			return match.group(0)
+
+	pattern = r'\\u([0-9a-fA-F]{4})|\\U([0-9a-fA-F]{8})'
+	return re.sub(pattern, replace_match, text)
 
 
 def create_history_gif(
