@@ -73,10 +73,20 @@ function resumePDF() {
   return Buffer.from(text);
 }
 
-for (const name of [...cases, 'link-denied', 'op-failed'])
+for (const name of [
+  ...cases,
+  'extract-invalid-paths',
+  'extract-missing',
+  'extract-empty',
+  'link-denied',
+  'op-failed',
+])
   test(
     `TypeScript example: ${name} (${browser})`,
-    { timeout: process.env.EXAMPLE_LIVE_MODEL ? 480_000 : 120_000 },
+    {
+      timeout: process.env.EXAMPLE_LIVE_MODEL ? 480_000 : 120_000,
+      skip: Boolean(process.env.EXAMPLE_LIVE_MODEL) && name.startsWith('extract-'),
+    },
     async () => {
       const dir = await mkdtemp(join(tmpdir(), 'bu-example-'));
       const events = [];
@@ -101,8 +111,13 @@ for (const name of [...cases, 'link-denied', 'op-failed'])
         server.listen(Number(process.env.EXAMPLE_FIXTURE_PORT || 0), '127.0.0.1', r),
       );
       const url = process.env.EXAMPLE_FIXTURE_ORIGIN || `http://127.0.0.1:${server.address().port}`;
-      const example =
-        name === 'link-denied' ? 'stripe-link' : name === 'op-failed' ? 'onepassword' : name;
+      const example = name.startsWith('extract-')
+        ? 'extract'
+        : name === 'link-denied'
+          ? 'stripe-link'
+          : name === 'op-failed'
+            ? 'onepassword'
+            : name;
       await mkdir(join(dir, 'bin'));
       await mkdir(join(dir, 'work'));
       await writeFile(join(dir, 'resume.pdf'), resumePDF());
@@ -138,7 +153,7 @@ process.stdout.write(JSON.stringify(value));`,
             inStock: true,
             url: `${url}/?book=${i}`,
           })),
-          csv: 'books.csv',
+          csvPath: join(dir, 'work/books.csv'),
         },
         qa: {
           tested: ['Search'],
@@ -181,6 +196,8 @@ process.stdout.write(JSON.stringify(value));`,
         'apply-to-job': `var bytes=(await fs.readFile('resume.pdf')).toString('base64');await page.evaluate(b64=>{document.querySelector('#applicant').value='Avery Example';const dt=new DataTransfer();dt.items.add(new File([Uint8Array.from(atob(b64),c=>c.charCodeAt(0))],'resume.pdf',{type:'application/pdf'}));const input=document.querySelector('#resume');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));},bytes);await fs.writeFile('application-review.md','Attached resume.pdf. Not submitted.');`,
         research: `console.log(await page.evaluate(()=>document.title));`,
       };
+      if (name === 'extract-missing') actions.extract = '';
+      if (name === 'extract-empty') actions.extract = `await fs.writeFile('books.csv', '');`;
       const preload = join(dir, 'preload.mjs');
       await writeFile(
         preload,
@@ -198,7 +215,12 @@ BrowserUse.create=async options=>{
   if(options.sensitiveData){action="var nodes=(await snapshot()).nodes;await fillSecret('cardNumber',nodes.find(n=>n.role==='textbox'&&n.name==='Card number').id);await fillSecret('expiry',nodes.find(n=>n.role==='textbox'&&n.name==='Expiry').id);await fillSecret('cvc',nodes.find(n=>n.role==='textbox'&&n.name==='CVC').id);await page.evaluate(()=>document.querySelector('#payment').dispatchEvent(new Event('change')));";output={filled:true,submitted:false,needsHuman:[]};}
   else output={supported:true,merchant:'Example Store',amountCents:1000,currency:'usd',reason:'Test checkout'};
  }
- faux.setResponses([call('javascript',{code:'var fs=await import("node:fs/promises");await page.goto('+${JSON.stringify(JSON.stringify(url))}+');'+action+'await new Promise(r=>setTimeout(r,150));console.log("fixture action complete");'}),context=>{const tool=context.messages.findLast(m=>m.role==='toolResult');assert.equal(tool.isError,false,JSON.stringify(tool.content));return call('finish',{result:output});}]);
+ const invalidPaths = ${JSON.stringify(name)} === 'extract-invalid-paths' ? [
+  () => call('finish', {result: {...output, csvPath: 'title,price\\nBook 1,1'}}),
+  context => { assert.equal(context.messages.findLast(m=>m.role==='toolResult').isError,true); return call('finish',{result:{...output,csvPath:'/wrong/books.csv'}}); },
+  context => { assert.equal(context.messages.findLast(m=>m.role==='toolResult').isError,true); return call('finish',{result:output}); },
+] : [];
+faux.setResponses([call('javascript',{code:'var fs=await import("node:fs/promises");await page.goto('+${JSON.stringify(JSON.stringify(url))}+');'+action+'await new Promise(r=>setTimeout(r,150));console.log("fixture action complete");'}),context=>{const tool=context.messages.findLast(m=>m.role==='toolResult');assert.equal(tool.isError,false,JSON.stringify(tool.content));return invalidPaths.length ? invalidPaths[0]() : call('finish',{result:output});}, ...invalidPaths.slice(1)]);
  const agent=await original(process.env.EXAMPLE_LIVE_MODEL ? {...options,telemetry:false} : {...options,model:faux.getModel().provider+'/'+faux.getModel().id,models,telemetry:false});
  const run=agent.run.bind(agent);agent.run=async(...args)=>{const result=await run(...args);await writeFile(${JSON.stringify(join(dir, 'result.json'))},JSON.stringify(result));if (process.env.EXAMPLE_LIVE_MODEL && 'qa'===${JSON.stringify(example)}) { assert.ok(result.status==='completed'||result.partial, result.text); } else assert.equal(result.status,'completed',result.text);return result;};return agent;
 };
@@ -264,7 +286,11 @@ BrowserUse.create=async options=>{
             );
           } catch {}
         }
-        assert.equal(failed, ['link-denied', 'op-failed'].includes(name), stderr);
+        assert.equal(
+          failed,
+          ['link-denied', 'op-failed', 'extract-missing', 'extract-empty'].includes(name),
+          stderr,
+        );
         for (const secret of ['fixture-secret-83', '4242424242424242'])
           assert.ok(!(stdout + stderr).includes(secret));
         assert.ok(!events.some((e) => ['charged', 'signed', 'applied'].includes(e.type)));
@@ -279,11 +305,17 @@ BrowserUse.create=async options=>{
             Buffer.from(events.find((e) => e.type === 'upload')?.data.bytes || []),
             resumePDF(),
           );
-        if (name === 'extract')
+        if (example === 'extract' && !failed) {
+          const result = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
+          assert.equal(result.output.csvPath, join(dir, 'work/books.csv'));
+          assert.deepEqual(JSON.parse(stdout), result.output);
           assert.equal(
-            (await readFile(join(dir, 'work/books.csv'), 'utf8')).trim().split('\n').length,
+            (await readFile(result.output.csvPath, 'utf8')).trim().split('\n').length,
             11,
           );
+        }
+        if (name === 'extract-missing') assert.match(stderr, /ENOENT/);
+        if (name === 'extract-empty') assert.match(stderr, /CSV file is empty/);
         if (name === 'qa') {
           const result = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
           const gif = await readFile(join(dir, 'work', `qa-${result.runId}.gif`));

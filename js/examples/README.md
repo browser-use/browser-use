@@ -55,4 +55,6 @@ The job example reads facts from your JSON file and attaches a real PDF by trans
 }
 ```
 
+The extraction result contains `books` and `csvPath`, an absolute path to the saved CSV. It checks that the file exists and is non-empty before printing a completed result.
+
 Each script caps steps, time and cost. A stopped run can return partial progress; inspect its status before treating the task as complete.
