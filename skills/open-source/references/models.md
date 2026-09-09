@@ -275,5 +275,19 @@ llm = ChatOpenAI(model="deepseek/deepseek-r1", base_url="https://api.novita.ai/v
 ```
 **Env:** `NOVITA_API_KEY`
 
+### PZERO
+```python
+import os
+
+llm = ChatOpenAI(
+    model="deepseek-v4-flash",
+    base_url="https://api.pzero.studio/v1",
+    api_key=os.getenv("PZERO_API_KEY"),
+)
+```
+**Env:** `PZERO_API_KEY` — get a key at https://pzero.studio/agents
+
+Use the `/v1` base URL (not `/v1/chat/completions`). Pass catalog model ids as-is (no `openai/` prefix). The default `deepseek-v4-flash` model is text-only — set `use_vision=False` on the agent unless you pick a vision-capable model. List available models with `GET https://api.pzero.studio/v1/models` (no auth required).
+
 ### LangChain
 See example at [examples/models/langchain](https://github.com/browser-use/browser-use/tree/main/examples/models/langchain).
