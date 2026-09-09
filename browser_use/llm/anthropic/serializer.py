@@ -1,5 +1,5 @@
 import json
-from typing import overload
+from typing import TypeVar, overload
 
 from anthropic.types import (
 	Base64ImageSourceParam,
@@ -22,6 +22,7 @@ from browser_use.llm.messages import (
 )
 
 NonSystemMessage = UserMessage | AssistantMessage
+CacheableMessage = TypeVar('CacheableMessage', bound=BaseMessage)
 
 
 class AnthropicMessageSerializer:
@@ -266,14 +267,14 @@ class AnthropicMessageSerializer:
 			raise ValueError(f'Unknown message type: {type(message)}')
 
 	@staticmethod
-	def _clean_cache_messages(messages: list[NonSystemMessage]) -> list[NonSystemMessage]:
+	def _clean_cache_messages_by_last_cache(messages: list[CacheableMessage]) -> list[CacheableMessage]:
 		"""Clean cache settings so only the last cache=True message remains cached.
 
 		Because of how Claude caching works, only the last cache message matters.
 		This method automatically removes cache=True from all messages except the last one.
 
 		Args:
-			messages: List of non-system messages to clean
+			messages: List of messages to clean
 
 		Returns:
 			List of messages with cleaned cache settings
@@ -301,6 +302,48 @@ class AnthropicMessageSerializer:
 		return cleaned_messages
 
 	@staticmethod
+	def _clean_cache_messages(messages: list[NonSystemMessage]) -> list[NonSystemMessage]:
+		"""Clean non-system cache settings so only the last cache=True message remains cached."""
+		return AnthropicMessageSerializer._clean_cache_messages_by_last_cache(messages)
+
+	@staticmethod
+	def _clean_cache_system_messages(messages: list[SystemMessage]) -> list[SystemMessage]:
+		"""Clean system cache settings so only the last cache=True system message remains cached."""
+		return AnthropicMessageSerializer._clean_cache_messages_by_last_cache(messages)
+
+	@staticmethod
+	def _serialize_system_messages(messages: list[SystemMessage]) -> list[TextBlockParam] | str | None:
+		"""Serialize all system messages without dropping earlier prompts."""
+		if not messages:
+			return None
+
+		messages = AnthropicMessageSerializer._clean_cache_system_messages(messages)
+
+		if len(messages) == 1:
+			message = messages[0]
+			return AnthropicMessageSerializer._serialize_content_to_str(message.content, use_cache=message.cache)
+
+		serialized_blocks: list[TextBlockParam] = []
+		for message_index, message in enumerate(messages):
+			serialized = AnthropicMessageSerializer._serialize_content_to_str(message.content, use_cache=message.cache)
+			if isinstance(serialized, str):
+				serialized_blocks.append(
+					TextBlockParam(
+						text=serialized,
+						type='text',
+						cache_control=AnthropicMessageSerializer._serialize_cache_control(message.cache),
+					)
+				)
+			else:
+				serialized_blocks.extend(serialized)
+
+			# Keep adjacent string/list system messages distinct while preserving order.
+			if message_index != len(messages) - 1:
+				serialized_blocks.append(TextBlockParam(text='\n\n', type='text'))
+
+		return serialized_blocks
+
+	@staticmethod
 	def serialize_messages(messages: list[BaseMessage]) -> tuple[list[MessageParam], list[TextBlockParam] | str | None]:
 		"""Serialize a list of messages, extracting any system message.
 
@@ -312,11 +355,11 @@ class AnthropicMessageSerializer:
 
 		# Separate system messages from normal messages
 		normal_messages: list[NonSystemMessage] = []
-		system_message: SystemMessage | None = None
+		system_messages: list[SystemMessage] = []
 
 		for message in messages:
 			if isinstance(message, SystemMessage):
-				system_message = message
+				system_messages.append(message)
 			else:
 				normal_messages.append(message)
 
@@ -328,11 +371,7 @@ class AnthropicMessageSerializer:
 		for message in normal_messages:
 			serialized_messages.append(AnthropicMessageSerializer.serialize(message))
 
-		# Serialize system message
-		serialized_system_message: list[TextBlockParam] | str | None = None
-		if system_message:
-			serialized_system_message = AnthropicMessageSerializer._serialize_content_to_str(
-				system_message.content, use_cache=system_message.cache
-			)
+		# Serialize system messages
+		serialized_system_message = AnthropicMessageSerializer._serialize_system_messages(system_messages)
 
 		return serialized_messages, serialized_system_message
