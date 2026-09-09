@@ -43,6 +43,22 @@ def _patched_del(self):
 base_subprocess.BaseSubprocessTransport.__del__ = _patched_del
 
 
+# Patch bubus 1.x's cross-loop EventBus contamination bug
+# (https://github.com/browser-use/browser-use/issues/5509) until a fixed bubus is released.
+# Without this, parallel agent sessions on separate event loops can run one bus's handlers
+# on another bus's loop, where they hang and pile up until the bus hits its 100-event
+# capacity. See browser_use/bubus_compat.py.
+try:
+	from browser_use.bubus_compat import apply_bubus_compat_patches
+
+	apply_bubus_compat_patches()
+except ImportError:
+	# bubus is a hard dependency of browser-use (pinned in pyproject.toml), but guard the
+	# compat patch anyway so a bare `import browser_use` can never hard-fail on a missing or
+	# partially-installed bubus.
+	pass
+
+
 # Type stubs for lazy imports - fixes linter warnings
 if TYPE_CHECKING:
 	from browser_use.agent.prompts import SystemPrompt
