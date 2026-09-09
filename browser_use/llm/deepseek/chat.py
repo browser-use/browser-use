@@ -6,14 +6,9 @@ from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
 import httpx
-from openai import (
-	APIConnectionError,
-	APIError,
-	APIStatusError,
-	APITimeoutError,
-	AsyncOpenAI,
-	RateLimitError,
-)
+from openai import APIStatusError, AsyncOpenAI, RateLimitError
+from openai.types.chat import ChatCompletion
+from openai.types.chat.chat_completion import Choice
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
@@ -91,6 +86,11 @@ class ChatDeepSeek(BaseChatModel):
 			}
 		return common
 
+	def _first_choice(self, resp: ChatCompletion) -> Choice:
+		if not resp.choices:
+			raise ModelProviderError('DeepSeek returned no choices', model=self.name)
+		return resp.choices[0]
+
 	@overload
 	async def ainvoke(
 		self,
@@ -147,13 +147,15 @@ class ChatDeepSeek(BaseChatModel):
 					**common,
 				)
 				return ChatInvokeCompletion(
-					completion=resp.choices[0].message.content or '',
+					completion=self._first_choice(resp).message.content or '',
 					usage=None,
 				)
 			except RateLimitError as e:
-				raise ModelRateLimitError(str(e), model=self.name) from e
-			except (APIError, APIConnectionError, APITimeoutError, APIStatusError) as e:
-				raise ModelProviderError(str(e), model=self.name) from e
+				raise ModelRateLimitError(e.message, model=self.name) from e
+			except APIStatusError as e:
+				raise ModelProviderError(e.message, status_code=e.status_code, model=self.name) from e
+			except ModelProviderError:
+				raise
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
@@ -184,10 +186,10 @@ class ChatDeepSeek(BaseChatModel):
 					tool_choice=tool_choice,  # type: ignore
 					**common,
 				)
-				msg = resp.choices[0].message
+				msg = self._first_choice(resp).message
 				if not msg.tool_calls:
 					raise ValueError('Expected tool_calls in response but got none')
-				raw_args = msg.tool_calls[0].function.arguments
+				raw_args = msg.tool_calls[0].function.arguments  # type: ignore[union-attr]
 				if isinstance(raw_args, str):
 					parsed = json.loads(raw_args)
 				else:
@@ -205,9 +207,11 @@ class ChatDeepSeek(BaseChatModel):
 						usage=None,
 					)
 			except RateLimitError as e:
-				raise ModelRateLimitError(str(e), model=self.name) from e
-			except (APIError, APIConnectionError, APITimeoutError, APIStatusError) as e:
-				raise ModelProviderError(str(e), model=self.name) from e
+				raise ModelRateLimitError(e.message, model=self.name) from e
+			except APIStatusError as e:
+				raise ModelProviderError(e.message, status_code=e.status_code, model=self.name) from e
+			except ModelProviderError:
+				raise
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
@@ -220,7 +224,7 @@ class ChatDeepSeek(BaseChatModel):
 					response_format={'type': 'json_object'},
 					**common,
 				)
-				content = resp.choices[0].message.content
+				content = self._first_choice(resp).message.content
 				if not content:
 					raise ModelProviderError('Empty JSON content in DeepSeek response', model=self.name)
 				parsed = output_format.model_validate_json(content)
@@ -229,9 +233,11 @@ class ChatDeepSeek(BaseChatModel):
 					usage=None,
 				)
 			except RateLimitError as e:
-				raise ModelRateLimitError(str(e), model=self.name) from e
-			except (APIError, APIConnectionError, APITimeoutError, APIStatusError) as e:
-				raise ModelProviderError(str(e), model=self.name) from e
+				raise ModelRateLimitError(e.message, model=self.name) from e
+			except APIStatusError as e:
+				raise ModelProviderError(e.message, status_code=e.status_code, model=self.name) from e
+			except ModelProviderError:
+				raise
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
