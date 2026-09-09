@@ -382,6 +382,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.directly_open_url = directly_open_url
 		self.include_recent_events = include_recent_events
 		self._url_shortening_limit = _url_shortening_limit
+		# {shortened_url: original_url} for the current model call, reset once per step
+		self._urls_replaced: dict[str, str] = {}
 
 		self.sensitive_data = sensitive_data
 
@@ -1669,6 +1671,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _get_model_output_with_retry(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get model output with retry logic for empty actions"""
+		# This is a fresh message list, so drop the replacements made for the previous step.
+		self._urls_replaced.clear()
 		model_output = await self.get_model_output(input_messages)
 		self.logger.debug(
 			f'✅ Step {self.state.n_steps}: Got LLM response with {len(model_output.action) if model_output.action else 0} actions'
@@ -1842,7 +1846,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		? @dev edits input_messages in place
 
 		returns:
-			tuple[filtered_input_messages, urls we replaced {shorter_url: original_url}]
+			every replacement made for the current model call {shorter_url: original_url}
 		"""
 		from browser_use.llm.messages import AssistantMessage, UserMessage
 
@@ -1864,7 +1868,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 							part.text, replaced_urls = self._replace_urls_in_text(part.text)
 							urls_replaced.update(replaced_urls)
 
-		return urls_replaced
+		# A retry re-sends the same messages, which are already shortened, so a second pass
+		# finds nothing to replace and would otherwise return an empty mapping. Accumulate
+		# instead, so the model's output can still be restored after a retry.
+		self._urls_replaced.update(urls_replaced)
+		return dict(self._urls_replaced)
 
 	@staticmethod
 	def _recursive_process_all_strings_inside_pydantic_model(model: BaseModel, url_replacements: dict[str, str]) -> None:
