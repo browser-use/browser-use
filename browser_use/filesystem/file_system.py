@@ -159,12 +159,26 @@ class BaseFile(BaseModel, ABC):
 			await asyncio.get_event_loop().run_in_executor(executor, lambda: file_path.write_text(self.content, encoding='utf-8'))
 
 	async def write(self, content: str, path: Path) -> None:
+		previous_content = self.content
 		self.write_file_content(content)
-		await self.sync_to_disk(path)
+		try:
+			await self.sync_to_disk(path)
+		except (Exception, asyncio.CancelledError):
+			# Persistence cancellation is a BaseException on supported Python
+			# versions, so handle it explicitly before propagating the cancellation.
+			self.content = previous_content
+			raise
 
 	async def append(self, content: str, path: Path) -> None:
+		previous_content = self.content
 		self.append_file_content(content)
-		await self.sync_to_disk(path)
+		try:
+			await self.sync_to_disk(path)
+		except (Exception, asyncio.CancelledError):
+			# Persistence cancellation is a BaseException on supported Python
+			# versions, so handle it explicitly before propagating the cancellation.
+			self.content = previous_content
+			raise
 
 	def read(self) -> str:
 		return self.content
@@ -899,6 +913,7 @@ class FileSystem:
 			await file_obj.write(content, self.data_dir)
 			if is_new:
 				self.files[full_filename] = file_obj
+
 			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
 			return f'Data written to file {full_filename} successfully.{sanitize_note}'
 		except FileSystemError as e:
