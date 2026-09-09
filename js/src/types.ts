@@ -10,9 +10,13 @@ import type {
 } from '@earendil-works/pi-agent-core';
 import type { Models, Usage } from '@earendil-works/pi-ai';
 import type { RecordingOptions } from './recording.js';
+import type { DomainOptions, SensitiveData } from './policy.js';
 import type { BrowserOptions } from './browser.js';
 
-export interface BrowserUseOptions {
+export interface BrowserUseOptions extends DomainOptions {
+  sensitiveData?: SensitiveData;
+  /** Anonymous run counters. Disable with false, DO_NOT_TRACK=1 or ANONYMIZED_TELEMETRY=false. */
+  telemetry?: boolean;
   /** provider/model ID, e.g. openai/gpt-5.4. No model is silently substituted. */
   model: string;
   browser?: BrowserOptions;
@@ -52,6 +56,8 @@ export interface BrowserUseOptions {
   /** Restore a versioned transcript. Browser profile and JS heap are separate. */
   historyFile?: string;
   recording?: boolean | RecordingOptions;
+  /** Show temporary orange corner brackets on the element just clicked or typed into. Default false. */
+  highlightActions?: boolean;
 }
 export interface RunOptions {
   maxSteps?: number;
@@ -91,5 +97,11 @@ export interface RunMetrics {
 export type RunResult<T = string> = RunMetrics &
   (
     | { status: 'completed'; output: T; text: string }
-    | { status: StopReason; output?: never; text: string; error?: string }
+    | {
+        status: StopReason;
+        output?: never;
+        text: string;
+        error?: string;
+        partial?: { path?: string; value: unknown };
+      }
   );

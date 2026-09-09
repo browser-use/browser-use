@@ -20,6 +20,12 @@ export class CellError extends Error {
 /** One worker, one active cell. Termination is the cancellation boundary. */
 export class BrowserRuntime {
   onAction: ((event: BrowserAction) => void) | undefined;
+  private runId: string | undefined;
+  partial: { path: string; value: unknown } | undefined;
+  beginRun() {
+    this.runId = randomUUID();
+    this.partial = undefined;
+  }
   get currentTarget() {
     return this.targetId;
   }
@@ -49,6 +55,8 @@ export class BrowserRuntime {
     });
     this.worker = worker;
     worker.on('message', (message: WorkerResponse) => {
+      if (message.type === 'partial' && this.runId && message.runId === this.runId)
+        this.partial = { path: message.path, value: JSON.parse(message.valueJson) };
       if (message.type === 'action') this.onAction?.(message.action);
       if (message.type === 'owned') this.owned.add(message.targetId);
     });
@@ -95,7 +103,8 @@ export class BrowserRuntime {
         else resolve(value);
       };
       const message = (value: WorkerResponse) => {
-        if (value.type !== 'owned' && value.type !== 'action') finish(value);
+        if (value.type !== 'owned' && value.type !== 'action' && value.type !== 'partial')
+          finish(value);
       };
       const abort = () =>
         finish(
@@ -159,9 +168,12 @@ export class BrowserRuntime {
       const outputFile = join(directory, `${randomUUID()}.txt`);
       await writeFile(outputFile, '', { flag: 'wx', mode: 0o600 });
       const response = this.receive(worker, timeoutMs, signal);
-      worker.send({ type: 'execute', code, captureJson, outputFile }, (error) => {
-        if (error) this.pending?.(error);
-      });
+      worker.send(
+        { type: 'execute', code, captureJson, outputFile, runId: this.runId },
+        (error) => {
+          if (error) this.pending?.(error);
+        },
+      );
       let message: WorkerResponse;
       try {
         message = await response;
@@ -214,7 +226,11 @@ export class BrowserRuntime {
     }
     await this.terminate();
     if (this.owned.size) {
-      const cdp = await CDP.connect(this.config.endpoint, this.config.operationTimeoutMs);
+      const cdp = await CDP.connect(
+        this.config.endpoint,
+        this.config.operationTimeoutMs,
+        this.config.approveConnection,
+      );
       try {
         const { targetInfos } = await cdp.send('Target.getTargets');
         // Include popups recursively, but never a pre-existing caller tab.

@@ -45,7 +45,10 @@ test('external tabs/cookies survive normal cleanup and timeout; SDK tabs are rem
         (await cdp.send('Target.getTargets')).targetInfos.filter((t) => t.type === 'page').length,
         1,
       );
-      assert.equal(await existing.text({ css: 'h1' }), 'Caller-owned tab');
+      assert.equal(
+        await existing.evaluate(() => document.querySelector('h1').textContent),
+        'Caller-owned tab',
+      );
       assert.equal((await cdp.send('Storage.getCookies')).cookies[0].value, 'fixture-only');
     }
   } finally {

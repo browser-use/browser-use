@@ -10,7 +10,7 @@ import {
   fauxToolCall,
 } from '@earendil-works/pi-ai';
 import { BrowserUse, Type } from '../dist/index.js';
-import { startFixture } from '../examples/fixture.mjs';
+import { startFixture } from './fixture.mjs';
 import { SYSTEM_PROMPT } from '../dist/prompt.js';
 import { imageDimensions } from '../dist/images.js';
 
@@ -792,7 +792,7 @@ test('a failed JavaScript cell retains native images and target metadata through
   const s = await session(
     [
       call('javascript', {
-        code: `await page.goto(${JSON.stringify(fixture.url)}); await page.click({role:'button',name:'Save selection'}); await screenshot(); throw new Error('failure after capture')`,
+        code: `await page.goto(${JSON.stringify(fixture.url)}); await page.clickAt(...await page.evaluate(s => {const el=document.querySelector(s);el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]}, '#save')); await screenshot(); throw new Error('failure after capture')`,
       }),
       (context) => {
         const result = context.messages.at(-1);
@@ -800,7 +800,9 @@ test('a failed JavaScript cell retains native images and target metadata through
         assert.match(result.content[0].text, /failure after capture/);
         assert.match(result.content[0].text, /State reset: false/);
         assert.equal(result.content.filter((part) => part.type === 'image').length, 1);
-        return call('javascript', { code: "await page.text({role:'status'})" });
+        return call('javascript', {
+          code: "await page.evaluate(() => document.querySelector('[role=status]').textContent)",
+        });
       },
       (context) => {
         const result = context.messages.at(-1);
@@ -887,6 +889,84 @@ test('a between-cell worker crash reports reset to the model and hooks before ex
     assert.equal(result.status, 'completed');
     assert.equal(result.output, 'reset observed; no skipped action replayed');
     assert.equal(hookSawReset, true);
+  } finally {
+    await s.close();
+  }
+});
+
+for (const limit of ['max_steps', 'cost_limit', 'timeout', 'cancelled']) {
+  test(`published partial findings survive ${limit} without a completion call`, async () => {
+    const controller = new AbortController();
+    const s = await session([
+      call('javascript', {
+        code: `let found=[{issue:'Broken search'}]; await checkpoint('findings.json',found,{partial:true}); found.push({issue:'not published'}); ${limit === 'timeout' ? 'while(true){}' : ''}`,
+      }),
+      call('finish', { result: 'must not run' }),
+    ]);
+    try {
+      const result = await s.agent.run('Audit', {
+        maxSteps: limit === 'max_steps' ? 1 : 10,
+        timeoutMs: limit === 'timeout' ? 1200 : 10000,
+        maxCostUsd: limit === 'cost_limit' ? 0.01 : undefined,
+        signal: controller.signal,
+        schema: Type.Object({ requiredFinalField: Type.String() }),
+        onEvent: (e) => {
+          if (limit === 'cost_limit' && e.type === 'message_end' && e.message.role === 'assistant')
+            e.message.usage.cost.total = 1;
+          if (limit === 'cancelled' && e.type === 'tool_execution_end') controller.abort();
+        },
+      });
+      assert.equal(result.status, limit, result.error);
+      assert.equal(result.output, undefined);
+      assert.deepEqual(result.partial?.value, [{ issue: 'Broken search' }]);
+      assert.equal(result.partial.path, join(s.agent.workspace, 'findings.json'));
+      assert.equal(s.faux.state.callCount, 1);
+      s.faux.setResponses([call('javascript', { code: '42' })]);
+      const next = await s.agent.followUp('Different scope', { maxSteps: 1 });
+      assert.equal(next.status, 'max_steps');
+      assert.equal(next.partial, undefined, 'Old findings must not masquerade as this run’s work');
+      assert.match(next.text, /42/);
+    } finally {
+      await s.close();
+    }
+  });
+}
+
+test('final allowed step is delivery-only and remains inside the turn cap', async () => {
+  const s = await session([
+    call('javascript', { code: "const findings='one verified finding'" }),
+    (context) => {
+      assert.deepEqual(
+        context.tools.map((t) => t.name),
+        ['finish', 'finish_from_js'],
+      );
+      return call('finish_from_js', { expression: 'findings' });
+    },
+  ]);
+  try {
+    const result = await s.agent.run('Audit', { maxSteps: 2 });
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 'one verified finding');
+    assert.equal(s.faux.state.callCount, 2);
+  } finally {
+    await s.close();
+  }
+});
+
+test('cancellation after accepted delivery preserves its value as partial', async () => {
+  const controller = new AbortController();
+  const s = await session([call('finish', { result: 'Findings already delivered' })]);
+  try {
+    const result = await s.agent.run('Audit', {
+      signal: controller.signal,
+      onEvent: (e) => {
+        if (e.type === 'tool_execution_end' && e.toolName === 'finish') controller.abort();
+      },
+    });
+    assert.equal(result.status, 'cancelled');
+    assert.deepEqual(result.partial, { value: 'Findings already delivered' });
+    assert.equal(result.output, undefined);
+    assert.equal(s.faux.state.callCount, 1);
   } finally {
     await s.close();
   }

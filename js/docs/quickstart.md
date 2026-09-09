@@ -1,43 +1,37 @@
-# Quickstart
+# Pi, with a browser
 
-Give an agent a task. Get the result.
+A TypeScript SDK. The agent writes JavaScript, sees Chrome’s accessibility tree, and uses raw CDP. Pi supplies the model loop. bu-pi adds the browser and a persistent session.
 
-You need **Node.js 22.19+**, **Google Chrome** and a model API key. Works with JavaScript and TypeScript.
+## Install
 
-## 1. Install
-
-The package is in preview. Install from source for now:
+You need Node **22.19+** and Chrome. npm and pnpm install packages; Node executes the SDK and its worker. Bun and Windows are not verified runtime targets.
 
 ```sh
 git clone --branch codex/raw-cdp-k7m2 https://github.com/browser-use/bu-pi.git
 cd bu-pi
 npm ci
 npm run build
+export OPENROUTER_API_KEY=...
 ```
 
-## 2. Add your API key
+This prototype is not published to npm. Run examples from the checkout, or use `npm pack` and install the resulting tarball into your project.
 
-```sh
-export OPENAI_API_KEY="your-key"
-```
+## Run
 
-Using Anthropic or Google? See [models](/models).
-
-## 3. Run an agent
-
-Save this as `agent.mjs` in the `bu-pi` directory:
+Save as `agent.mjs` inside the checkout:
 
 ```js
 import { BrowserUse } from '@browser-use/next';
 
 const agent = await BrowserUse.create({
-  model: 'openai/gpt-5.6-luna',
-  browser: { headless: false },
+  model: 'openrouter/openai/gpt-5.6-luna',
+  workspace: './work',
+  log: 'pretty',
 });
-
 try {
   const result = await agent.run('Find the top story on Hacker News.');
   console.log(result.status, result.text);
+  await agent.followUp('Summarize the comments.');
 } finally {
   await agent.close();
 }
@@ -47,49 +41,6 @@ try {
 node agent.mjs
 ```
 
-Chrome opens, the agent works, and the answer prints in your terminal. Model requests use your provider account.
+`completed` means the agent delivered a schema-valid answer. Verify business outcomes in your application. Other statuses describe the stop reason; always check them.
 
-## Keep going
-
-Before closing the agent, ask a follow-up:
-
-```js
-await agent.followUp('Summarize the comments on that story.');
-```
-
-[Save your login](/sessions) · [Get structured output](/results) · [Record a GIF](/recording)
-
-::: details Try it without an API key
-Run `npm run demo` from the checkout. It uses scripted model responses and real Chrome against a local fixture. It tests the setup without paid model requests.
-:::
-
-::: details Install in your own project
-Run `npm pack` in the checkout, then install the tarball in your application:
-
-```sh
-npm install /path/to/browser-use-next-0.1.0.tgz
-```
-
-Use the same import from an ESM JavaScript or TypeScript file. The package includes compiled JavaScript and TypeScript definitions. It is not published to npm yet.
-
-For TypeScript, use these compiler options:
-
-```json
-{
-  "compilerOptions": {
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "strict": true,
-    "skipLibCheck": true
-  }
-}
-```
-
-`skipLibCheck` is currently required by upstream Pi/Google declaration errors. Strict checking still applies to your code and SDK options. [Exact verification and limitation](/vision-verification).
-
-The npm tarball is checked on macOS with Node 22.23.2; remote evaluations exercise Node 22 on Linux. pnpm/Yarn installs and Windows have not been verified. Bun runtime execution is not currently supported. [Test coverage](/session-verification).
-:::
-
-::: details Running tasks for other users
-The agent executes Node code with filesystem and network access. Use an isolated container or VM for untrusted tasks. [Execution boundaries](/recovery#execution-boundaries).
-:::
+Use [models](./models.md) for credentials, [sessions](./sessions.md) for login and persistence, and [API](./api.md) for output, events and hooks.

@@ -80,6 +80,7 @@ test('run retries timed-out inference once without executing partial tools or re
         tools = 0;
       const result = await runAgent(
         {
+          beginRun() {},
           execute: async () => {
             tools++;
             throw new Error('unsafe');

@@ -20,14 +20,13 @@ export interface WorkspaceFile {
 
 /** JSON-safe observational copy. Non-JSON application metadata is labeled, never executed as code. */
 export function redact<T>(value: T, secrets: readonly string[]): T {
+  const mask = (text: string) =>
+    secrets.reduce((text, secret) => (secret ? text.split(secret).join('[REDACTED]') : text), text);
   const ancestors: object[] = [];
   return JSON.parse(
     JSON.stringify(value, function (_key, item: unknown): unknown {
-      if (typeof item === 'string')
-        return secrets.reduce(
-          (text, secret) => (secret ? text.split(secret).join('[REDACTED]') : text),
-          item,
-        );
+      if (_key === 'data' && this?.type === 'image') return item;
+      if (typeof item === 'string') return mask(item);
       if (typeof item === 'bigint') return `${item}n`;
       if (typeof item === 'function' || typeof item === 'symbol') return '[Non-JSON metadata]';
       if (item && typeof item === 'object') {
@@ -37,6 +36,10 @@ export function redact<T>(value: T, secrets: readonly string[]): T {
       }
       return item;
     }),
+    (_key, item: unknown) =>
+      item && typeof item === 'object' && !Array.isArray(item)
+        ? Object.fromEntries(Object.entries(item).map(([key, value]) => [mask(key), value]))
+        : item,
   ) as T;
 }
 

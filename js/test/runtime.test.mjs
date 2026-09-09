@@ -4,7 +4,7 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserUse } from '../dist/index.js';
-import { startFixture } from '../examples/fixture.mjs';
+import { startFixture } from './fixture.mjs';
 import { imageDimensions } from '../dist/images.js';
 
 let agent, fixture, workspace;
@@ -66,13 +66,16 @@ test('a CDP deadline preserves Node bindings and reports an uncertain action wit
     '1',
   );
 });
-test('browser interaction, extraction, native vision, iframes and shadow DOM', async () => {
-  await agent.execute(
-    `await page.goto(${JSON.stringify(fixture.url)}); await page.fill({role:'searchbox'}, 'Atlas'); await page.click({role:'button',name:'Search'})`,
-  );
+test('raw input, DOM extraction, AX discovery and native vision share the persistent REPL', async () => {
+  await agent.execute(`await page.goto(${JSON.stringify(fixture.url)});
+    const inputId=(await snapshot()).nodes.find(n=>n.role==='searchbox').id;
+    await page.cdp('DOM.focus',{backendNodeId:inputId});
+    await page.cdp('Input.insertText',{text:'Atlas'});
+    const searchId=(await snapshot()).nodes.find(n=>n.role==='button'&&n.name==='Search').id;
+    const box=(await page.cdp('DOM.getBoxModel',{backendNodeId:searchId})).model.content;
+    await page.clickAt((box[0]+box[2]+box[4]+box[6])/4,(box[1]+box[3]+box[5]+box[7])/4)`);
   assert.match(
-    (await agent.execute('(await snapshot()).nodes.filter(n => /Atlas|Shadow done/.test(n.name))'))
-      .text,
+    (await agent.execute('(await snapshot()).nodes.filter(n => /Atlas/.test(n.name))')).text,
     /Atlas/,
   );
   assert.equal(
@@ -83,37 +86,33 @@ test('browser interaction, extraction, native vision, iframes and shadow DOM', a
     ).text.trim(),
     "[ 'Atlas' ]",
   );
-  await agent.execute(
-    "const frame = await page.frame((await page.frames()).find(f=>f.url.endsWith('/frame')).id); await frame.fill({role:'textbox',name:'Reference'}, 'A42'); await frame.click({role:'button'}); await page.click({role:'button',name:'Shadow action'})",
-  );
-  assert.match((await agent.execute("await frame.text({css:'#value'})")).text, /A42/);
-  assert.match(
-    (await agent.execute('(await snapshot()).nodes.filter(n => /Atlas|Shadow done/.test(n.name))'))
-      .text,
-    /Shadow done/,
-  );
   const result = await agent.execute('await screenshot()');
   assert.equal(result.images[0].mimeType, 'image/jpeg');
   assert.equal(Buffer.from(result.images[0].data, 'base64')[0], 0xff);
   assert.ok(!result.text.includes('/9j/'));
 });
-test('cross-origin iframe discovery and input use a real frame context', async () => {
-  await agent.execute(
-    `const crossUrl=${JSON.stringify(fixture.url.replace('127.0.0.1', 'localhost'))} + '/frame'; await page.evaluate(url=>{const f=document.createElement('iframe');f.id='cross';f.src=url;document.body.append(f)},crossUrl);`,
-  );
-  let result;
-  for (let i = 0; i < 30; i++) {
-    result = await agent.execute('(await page.frames()).some(f=>f.url===crossUrl)');
+test('same-origin and cross-origin frames remain available through raw CDP', async () => {
+  await agent.execute(`const crossUrl=${JSON.stringify(fixture.url.replace('127.0.0.1', 'localhost'))}+'/frame';
+    await page.evaluate(url=>{const f=document.createElement('iframe');f.src=url;document.body.append(f)},crossUrl);`);
+  for (let i = 0; i < 40; i++) {
+    const result = await agent.execute(
+      "(await browser.send('Target.getTargets')).targetInfos.some(t=>t.type==='iframe'&&t.url===crossUrl)",
+    );
     if (result.text === 'true') break;
     await new Promise((r) => setTimeout(r, 50));
   }
-  assert.equal(result.text, 'true');
-  await agent.execute(
-    "const cross = await page.frame((await page.frames()).find(f=>f.url===crossUrl).id); await cross.fill({role:'textbox',name:'Reference'}, 'CROSS'); await cross.click({role:'button',name:'Save reference'})",
-  );
-  const crossResult = await agent.execute("await cross.text({css:'#value'})");
-  assert.match(crossResult.text, /CROSS/);
-  assert.equal(crossResult.observationTargetId, crossResult.targetId);
+  const result = await agent.execute(`
+    const tree=(await page.cdp('Page.getFrameTree')).frameTree;
+    const child=tree.childFrames.find(f=>f.frame.url.endsWith('/frame')).frame;
+    const ctx=(await page.cdp('Page.createIsolatedWorld',{frameId:child.id,worldName:'test'})).executionContextId;
+    const same=await page.cdp('Runtime.evaluate',{expression:'document.querySelector("label").textContent',contextId:ctx,returnByValue:true});
+    const target=(await browser.send('Target.getTargets')).targetInfos.find(t=>t.type==='iframe'&&t.url===crossUrl);
+    const attached=await browser.send('Target.attachToTarget',{targetId:target.targetId,flatten:true});
+    const cross=await browser.send('Runtime.evaluate',{expression:'location.href',returnByValue:true},attached.sessionId);
+    await browser.send('Target.detachFromTarget',{sessionId:attached.sessionId});
+    console.log({same:same.result.value,cross:cross.result.value})`);
+  assert.match(result.text, /Reference/);
+  assert.match(result.text, /localhost/);
 });
 test('conventional filesystem API, output spooling, and exclusive artifact writes', async () => {
   assert.equal(
@@ -131,14 +130,20 @@ test('conventional filesystem API, output spooling, and exclusive artifact write
   await assert.rejects(agent.execute("await artifact('notes.txt', 'overwrite')"), /EEXIST/);
   await assert.rejects(agent.execute("await artifact('../escape', 'no')"), /plain filename/);
 });
-test('raw CDP downloads, uploads, select and tabs', async () => {
-  await agent.execute(
-    "await page.select({role:'combobox',name:'Shipping'}, 'Express'); await page.upload({css:'#upload'}, [workspace + '/notes.txt']); await browser.send('Browser.setDownloadBehavior', {behavior:'allow',downloadPath:workspace,eventsEnabled:true}); const nextDownload = browser.waitFor('Browser.downloadProgress', {predicate:e=>e.state==='completed'}); await page.click({role:'link',name:'Export catalog'}); await nextDownload",
-  );
+test('raw CDP downloads, uploads and explicit tab ownership', async () => {
+  await agent.execute(`
+    const root=(await page.cdp('DOM.getDocument')).root.nodeId;
+    const upload=(await page.cdp('DOM.querySelector',{nodeId:root,selector:'#upload'})).nodeId;
+    await page.cdp('DOM.setFileInputFiles',{nodeId:upload,files:[workspace+'/notes.txt']});
+    await browser.send('Browser.setDownloadBehavior',{behavior:'allow',downloadPath:workspace,eventsEnabled:true});
+    const download=browser.waitFor('Browser.downloadProgress',{predicate:e=>e.state==='completed'});
+    await page.evaluate(()=>document.querySelector('[download]').click());
+    await download;
+    console.log(await page.evaluate(()=>document.querySelector('#upload').files[0].name));`);
   assert.match(await readFile(join(workspace, 'catalog.csv'), 'utf8'), /Atlas,29/);
-  const result = await agent.execute(
-    "await page.click({role:'link',name:'Open details'}); const popupInfo = (await tabs.list()).find(t=>t.openerId===page.targetId); const popup=await tabs.get(popupInfo.targetId); await popup.waitFor(()=>document.readyState==='complete'); const popupTitle=(await popup.info()).title; await popup.close(); popupTitle",
-  );
+  const result =
+    await agent.execute(`const popup=await tabs.open(${JSON.stringify(fixture.url)}+'/details');
+    const title=(await popup.info()).title;await popup.close();title`);
   assert.match(result.text, /Orbital Supply/);
 });
 test('a syntax or normal runtime error does not destroy healthy state', async () => {
@@ -147,10 +152,19 @@ test('a syntax or normal runtime error does not destroy healthy state', async ()
   assert.equal((await agent.execute('answer')).text, '40');
 });
 test('timeout kills infinite code; browser mutations survive exactly once', async () => {
-  await agent.execute("await page.click({role:'button',name:'Save selection'})");
+  await agent.execute(
+    "await page.clickAt(...await page.evaluate(s => {const el=document.querySelector(s);el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]}, '#save'))",
+  );
   await assert.rejects(agent.execute('while (true) {}', { timeoutMs: 100 }), /exceeded/);
   assert.equal((await agent.execute('typeof answer')).text, "'undefined'");
-  assert.match((await agent.execute("await page.text({role:'status'})")).text, /Saved 1 time/);
+  assert.match(
+    (
+      await agent.execute(
+        "await page.evaluate(() => document.querySelector('[role=status]').textContent)",
+      )
+    ).text,
+    /Saved 1 time/,
+  );
 });
 test('cancellation kills pending code; concurrent operations fail explicitly', async () => {
   const controller = new AbortController();
@@ -315,7 +329,7 @@ test('primary browser state from an initially failed cell survives a later worke
   try {
     await assert.rejects(
       isolated.execute(
-        `await page.goto(${JSON.stringify(fixture.url)}); await page.click({role:'button',name:'Save selection'}); throw new Error('first cell failed')`,
+        `await page.goto(${JSON.stringify(fixture.url)}); await page.clickAt(...await page.evaluate(s => {const el=document.querySelector(s);el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]}, '#save')); throw new Error('first cell failed')`,
       ),
       (error) => {
         primary = error.result.targetId;
@@ -324,7 +338,9 @@ test('primary browser state from an initially failed cell survives a later worke
       },
     );
     await assert.rejects(isolated.execute('while(true){}', { timeoutMs: 100 }), /exceeded/);
-    const result = await isolated.execute("await page.text({role:'status'})");
+    const result = await isolated.execute(
+      "await page.evaluate(() => document.querySelector('[role=status]').textContent)",
+    );
     assert.equal(result.targetId, primary);
     assert.match(result.text, /Saved 1 time/);
   } finally {
@@ -341,3 +357,73 @@ test('close is idempotent and closes active execution', async () => {
   await rejected;
   await assert.rejects(agent.execute('42'), /closed/);
 });
+
+for (const enabled of [false, true]) {
+  test(`interaction corner brackets are passive, transient and opt-in: ${enabled}`, async () => {
+    const session = await BrowserUse.create({ model: 'openai/gpt-5.4', highlightActions: enabled });
+    try {
+      await session.execute(`
+        await page.goto('data:text/html,<label>Postal code <input id="postal"></label><button onclick="window.clicked=event.isTrusted">Save</button>');
+        const before = await snapshot();
+        const input = before.nodes.find(n=>n.role==='textbox').id;
+        await page.cdp('DOM.focus',{backendNodeId:input});
+        await page.cdp('Input.insertText',{text:'06238'});
+        await new Promise(resolve=>setTimeout(resolve,200));
+        const afterTyping = await snapshot();
+      `);
+      assert.equal(
+        (
+          await session.execute(
+            `await page.evaluate(()=>!!document.querySelector('[data-browser-use-interaction-highlight]'))`,
+          )
+        ).text,
+        String(enabled),
+      );
+      if (enabled) {
+        assert.equal(
+          (
+            await session.execute(
+              `await page.evaluate(()=>getComputedStyle(document.querySelector('[data-browser-use-interaction-highlight]')).pointerEvents)`,
+            )
+          ).text,
+          "'none'",
+        );
+        assert.equal(
+          (
+            await session.execute(
+              `await page.evaluate(()=>document.querySelector('[data-browser-use-interaction-highlight]').getAttribute('aria-hidden'))`,
+            )
+          ).text,
+          "'true'",
+        );
+      }
+      const shot = await session.execute('await screenshot()');
+      assert.ok(shot.images.length);
+      await session.execute('await new Promise(resolve=>setTimeout(resolve,1400))');
+      assert.equal(
+        (
+          await session.execute(
+            `await page.evaluate(()=>!!document.querySelector('[data-browser-use-interaction-highlight]'))`,
+          )
+        ).text,
+        'false',
+      );
+      assert.equal(
+        (
+          await session.execute(
+            `JSON.stringify((await snapshot()).nodes.map(n=>[n.role,n.name])) === JSON.stringify(afterTyping.nodes.map(n=>[n.role,n.name]))`,
+          )
+        ).text,
+        'true',
+      );
+      await session.execute(`
+        const q=(await page.cdp('DOM.getBoxModel',{backendNodeId:(await snapshot()).nodes.find(n=>n.role==='button').id})).model.content;
+        await page.clickAt((q[0]+q[2]+q[4]+q[6])/4,(q[1]+q[3]+q[5]+q[7])/4);
+      `);
+      assert.equal((await session.execute('await page.evaluate(()=>window.clicked)')).text, 'true');
+    } finally {
+      await session.close();
+      await rm(session.workspace, { recursive: true, force: true });
+    }
+  });
+}

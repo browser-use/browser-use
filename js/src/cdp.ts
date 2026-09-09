@@ -1,4 +1,5 @@
 import type { ProtocolMapping } from 'devtools-protocol/types/protocol-mapping.js';
+import { approveChromeConnection } from './browser.js';
 import { positiveInteger } from './protocol.js';
 
 type Commands = ProtocolMapping.Commands;
@@ -37,6 +38,7 @@ export class CDP {
   /** Passive result tap. Exceptions cannot change command delivery. May contain page data. */
   observeResponse:
     ((method: string, params: unknown, result: unknown, sessionId?: string) => void) | undefined;
+  observeEvent: ((method: string, params: unknown, sessionId?: string) => void) | undefined;
   private pending = new Map<number, Pending>();
   private listeners = new Set<Listener>();
   private constructor(
@@ -53,6 +55,7 @@ export class CDP {
             request?.reject(new Error(`CDP ${message.error.code}: ${message.error.message}`));
           else request?.resolve(message.result);
         } else {
+          this.observeEvent?.(message.method, message.params, message.sessionId);
           if (message.method === 'Target.detachedFromTarget')
             this.activity.targets.delete(message.params.sessionId);
           for (const listener of [...this.listeners]) {
@@ -72,24 +75,28 @@ export class CDP {
   }
 
   private endpoint: string | undefined;
+  private approveConnection = false;
   private delegate: Promise<CDP> | undefined;
   private closed = false;
 
   /** Defer network access until the first browser operation. Never replay a command. */
-  static lazy(endpoint: string, timeoutMs = 15_000) {
+  static lazy(endpoint: string, timeoutMs = 15_000, approveConnection = false) {
     const connection = new CDP(undefined, timeoutMs);
     connection.endpoint = endpoint;
+    connection.approveConnection = approveConnection;
     return connection;
   }
   private connected(): Promise<CDP> {
     if (this.closed) return Promise.reject(new Error('CDP connection is closed.'));
-    this.delegate ??= CDP.connect(this.endpoint!, this.timeoutMs)
+    this.delegate ??= CDP.connect(this.endpoint!, this.timeoutMs, this.approveConnection)
       .then((connection) => {
         if (this.closed) {
           connection.close();
           throw new Error('CDP connection is closed.');
         }
         connection.activity = this.activity;
+        connection.observeEvent = (method, params, session) =>
+          this.observeEvent?.(method, params, session);
         connection.observeCommand = (method, params, sessionId) =>
           this.observeCommand?.(method, params, sessionId);
         return connection;
@@ -101,7 +108,13 @@ export class CDP {
     return this.delegate;
   }
 
-  static async connect(endpoint: string, timeoutMs = 15_000): Promise<CDP> {
+  static async connect(
+    endpoint: string,
+    timeoutMs = 15_000,
+    approveConnection = false,
+  ): Promise<CDP> {
+    if (approveConnection && process.platform !== 'darwin')
+      throw new Error('Chrome approval is macOS only.');
     positiveInteger('timeoutMs', timeoutMs);
     const url = new URL(endpoint);
     if (url.protocol === 'http:' || url.protocol === 'https:') {
@@ -114,7 +127,9 @@ export class CDP {
     const socket = new WebSocket(endpoint);
     const connection = new CDP(socket, timeoutMs);
     await new Promise<void>((resolve, reject) => {
+      const approval = new AbortController();
       const finish = (error?: Error) => {
+        approval.abort();
         clearTimeout(timer);
         socket.removeEventListener('open', open);
         socket.removeEventListener('error', failed);
@@ -130,6 +145,17 @@ export class CDP {
       socket.addEventListener('open', open, { once: true });
       socket.addEventListener('error', failed, { once: true });
       socket.addEventListener('close', failed, { once: true });
+      if (approveConnection) {
+        void (async () => {
+          while (!approval.signal.aborted) {
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            if (approval.signal.aborted) return;
+            if ((await approveChromeConnection(approval.signal)) === 'ready') return;
+          }
+        })().catch((error) => {
+          if (!approval.signal.aborted) finish(error);
+        });
+      }
     });
     return connection;
   }

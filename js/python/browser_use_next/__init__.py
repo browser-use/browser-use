@@ -68,6 +68,11 @@ class RunResult:
     metadata: dict[str, Any]
 
     @property
+    def partial(self) -> dict[str, Any] | None:
+        """Latest published checkpoint, explicitly not a completed schema-validated result."""
+        return self.metadata.get("partial")
+
+    @property
     def usage(self) -> dict[str, Any]:
         return self.metadata["usage"]
 

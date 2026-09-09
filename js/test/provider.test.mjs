@@ -181,3 +181,57 @@ for (const recovery of ['none', 'uncoded', 'server_error', 'failed-cell-image'])
     }
   });
 }
+
+test('OpenRouter Opus 5 uses completions across follow-ups without configuration_update', async () => {
+  const { mock } = await import('node:test');
+  const originalFetch = globalThis.fetch;
+  const previous = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = 'fixture-only';
+  const requests = [];
+  const patch = mock.method(globalThis, 'fetch', async (input, options) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (!url.startsWith('https://openrouter.ai/')) return originalFetch(input, options);
+    const body = JSON.parse(options.body);
+    requests.push({ url, body });
+    const delta = {
+      role: 'assistant',
+      tool_calls: [
+        {
+          index: 0,
+          id: `call_${requests.length}`,
+          type: 'function',
+          function: { name: 'finish', arguments: '{"result":"route verified"}' },
+        },
+      ],
+    };
+    const event = (d, finish_reason = null) =>
+      `data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', created: 1, model: body.model, choices: [{ index: 0, delta: d, finish_reason }] })}\n\n`;
+    return new Response(event(delta) + event({}, 'tool_calls') + 'data: [DONE]\n\n', {
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  });
+  let agent;
+  try {
+    agent = await BrowserUse.create({
+      model: 'openrouter/anthropic/claude-opus-5',
+      reasoning: 'medium',
+    });
+    for (const result of [await agent.run('Check.'), await agent.followUp('Again.')]) {
+      assert.equal(result.status, 'completed', result.error);
+      assert.equal(result.output, 'route verified');
+    }
+    assert.equal(requests.length, 2);
+    for (const { url, body } of requests) {
+      assert.equal(url, 'https://openrouter.ai/api/v1/chat/completions');
+      assert.equal(body.model, 'anthropic/claude-opus-5');
+      assert.doesNotMatch(JSON.stringify(body), /configuration_update/);
+    }
+    assert.ok(requests[1].body.messages.some((m) => m.role === 'tool'));
+  } finally {
+    patch.mock.restore();
+    if (previous === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = previous;
+    await agent?.close();
+    if (agent) await rm(agent.workspace, { recursive: true, force: true });
+  }
+});

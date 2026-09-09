@@ -80,6 +80,11 @@ const CREATE_KEYS = new Set([
   'log',
   'historyFile',
   'recording',
+  'highlightActions',
+  'allowedDomains',
+  'prohibitedDomains',
+  'sensitiveData',
+  'telemetry',
   'researchTools',
   'tools',
   'apiKey',
@@ -137,7 +142,6 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
         throw new Error('Invalid Python tool specifications.');
       agent = await BrowserUse.create({
         ...(options as unknown as BrowserUseOptions),
-        models,
         tools: toolSpecs.map((tool) => ({
           ...tool,
           label: tool.name,

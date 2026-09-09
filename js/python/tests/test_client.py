@@ -126,9 +126,33 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             workspace=self.directory.name,
             baseUrl=self.base_url,
             apiKey="local-fixture-key",
+            telemetry=False,
             **options,
         )
         return self.agent
+
+    async def test_browser_policy_and_secrets_cross_the_python_bridge(self):
+        agent = await self.create(
+            browser={"kind": "chromium"},
+            allowedDomains=[],
+            sensitiveData={"password": {"value": "fixture-private-password", "domains": ["example.com"]}},
+        )
+        with self.assertRaisesRegex(BrowserUseError, "domain policy"):
+            await agent.execute("await page.goto('https://example.com')")
+        self.responses = [("finish", {"result": "Policy configured"})]
+        result = await agent.run("Report readiness.")
+        self.assertEqual(result.status, "completed")
+        self.assertNotIn("fixture-private-password", json.dumps(self.requests))
+
+    async def test_partial_findings_survive_step_limit_without_final_schema_validation(self):
+        self.responses = [("javascript", {"code": "await checkpoint('findings.json', [{issue:'Broken search'}], {partial:true})"})]
+        agent = await self.create(highlightActions=True)
+        result = await agent.run("Audit", schema=Quote, maxSteps=1)
+        self.assertEqual(result.status, "max_steps")
+        self.assertIsNone(result.output)
+        self.assertEqual(result.partial["value"], [{"issue": "Broken search"}])
+        self.assertTrue(Path(result.partial["path"]).is_file())
+        self.assertEqual(len(self.requests), 1)
 
     async def test_typed_python_tool_round_trip_and_live_events(self):
         called = []

@@ -3,7 +3,7 @@ import { BrowserUse } from '@browser-use/next';
 const task = process.argv.slice(2).join(' ');
 if (!task) throw new Error('Usage: node examples/research.mjs "Your browser task"');
 const agent = await BrowserUse.create({
-  model: process.env.MODEL || 'openai/gpt-5.5',
+  model: process.env.MODEL || 'openrouter/openai/gpt-5.6-luna',
   browser: process.env.BROWSER_CDP_URL
     ? { cdpUrl: process.env.BROWSER_CDP_URL }
     : process.env.BROWSER_CHANNEL

@@ -48,9 +48,9 @@ export class Recorder {
       capped: false,
     };
   }
-  async start(endpoint: string, targetId: string) {
+  async start(endpoint: string, targetId: string, approveConnection = false) {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    this.connection = await CDP.connect(endpoint, 3000);
+    this.connection = await CDP.connect(endpoint, 3000, approveConnection);
     this.targetId = targetId;
     await this.capture();
     this.timer = setInterval(() => {

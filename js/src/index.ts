@@ -6,6 +6,8 @@ import { randomUUID } from 'node:crypto';
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
 import type { Api, Model, Usage } from '@earendil-works/pi-ai';
 import { Type, type Static, type TSchema } from 'typebox';
+import { navigationPolicy, validateSensitiveData } from './policy.js';
+import { telemetry } from './telemetry.js';
 import { openBrowser } from './browser.js';
 import { BrowserRuntime } from './runtime.js';
 import { runAgent, zeroUsage } from './agent.js';
@@ -23,7 +25,13 @@ import { positiveInteger } from './protocol.js';
 import type { BrowserUseOptions, RunOptions, RunResult } from './types.js';
 
 export type { BrowserUseOptions, RunOptions, RunResult, StopReason, RunMetrics } from './types.js';
-export type { BrowserOptions } from './browser.js';
+export { Browser } from './browser.js';
+export type {
+  BrowserOptions,
+  CloudBrowserOptions,
+  ChromeBrowserOptions,
+  LocalBrowserOptions,
+} from './browser.js';
 export type { CellResult, Image } from './protocol.js';
 export { CellError } from './runtime.js';
 export type { AgentTool, AgentEvent, StreamFn } from '@earendil-works/pi-agent-core';
@@ -32,6 +40,7 @@ export { builtinModels } from '@earendil-works/pi-ai/providers/all';
 
 /** One browser, workspace and JavaScript namespace. run() resets context; followUp() retains it. */
 export class BrowserUse {
+  private readonly reportRun: ReturnType<typeof telemetry>;
   private active = false;
   private closed = false;
   private controller: AbortController | undefined;
@@ -53,9 +62,24 @@ export class BrowserUse {
     private readonly runtime: BrowserRuntime,
     private readonly browser: Awaited<ReturnType<typeof openBrowser>>,
     readonly workspace: string,
-  ) {}
+  ) {
+    this.reportRun = telemetry(config.telemetry, config.browser);
+  }
 
   static async create(options: BrowserUseOptions): Promise<BrowserUse> {
+    if (options.telemetry !== undefined && typeof options.telemetry !== 'boolean')
+      throw new Error('telemetry must be boolean.');
+    navigationPolicy(options);
+    validateSensitiveData(options.sensitiveData);
+    options = {
+      ...options,
+      redact: [
+        ...(options.redact ?? []),
+        ...Object.values(options.sensitiveData ?? {}).map((secret) => secret.value),
+      ],
+    };
+    if (options.highlightActions !== undefined && typeof options.highlightActions !== 'boolean')
+      throw new Error('highlightActions must be boolean.');
     if (options.researchTools !== undefined && typeof options.researchTools !== 'boolean')
       throw new Error('researchTools must be boolean.');
     if (options.recording && typeof options.recording === 'object') {
@@ -77,7 +101,17 @@ export class BrowserUse {
     if (separator < 1) throw new Error('model must be provider/model, for example openai/gpt-5.4.');
     const models = options.models ?? builtinModels();
     const provider = options.model.slice(0, separator);
-    const model = models.getModel(provider, options.model.slice(separator + 1));
+    const resolvedModel = models.getModel(provider, options.model.slice(separator + 1));
+    // Pi 0.85.1 sends configuration_update via Messages, which OpenRouter Opus 5 rejects.
+    // Keep caller-supplied model collections untouched. Remove when upstream fixes routing.
+    const model =
+      !options.models && options.model === 'openrouter/anthropic/claude-opus-5' && resolvedModel
+        ? {
+            ...resolvedModel,
+            api: 'openai-completions' as const,
+            baseUrl: 'https://openrouter.ai/api/v1',
+          }
+        : resolvedModel;
     if (!model)
       throw new Error(
         `Unknown model ${options.model}. Supply a Pi models collection with this model registered.`,
@@ -105,8 +139,18 @@ export class BrowserUse {
     const browser = await openBrowser(options.browser);
     const runtime = new BrowserRuntime({
       endpoint: browser.endpoint,
+      ...(options.allowedDomains !== undefined ? { allowedDomains: options.allowedDomains } : {}),
+      ...(options.prohibitedDomains !== undefined
+        ? { prohibitedDomains: options.prohibitedDomains }
+        : {}),
+      ...(options.sensitiveData ? { sensitiveData: options.sensitiveData } : {}),
+      ...(options.redact ? { redact: options.redact } : {}),
+      approveConnection: options.browser?.kind === 'chrome' && !!options.browser.approveConnection,
       recording: !!options.recording,
-      ...(options.browser?.targetId ? { targetId: options.browser.targetId } : {}),
+      highlightActions: !!options.highlightActions,
+      ...(options.browser && 'targetId' in options.browser && options.browser.targetId
+        ? { targetId: options.browser.targetId }
+        : {}),
       workspace,
       operationTimeoutMs,
       maxOutputChars,
@@ -221,7 +265,11 @@ export class BrowserUse {
         );
         try {
           const targetId = await this.runtime.initialize(signal);
-          await recorder.start(this.browser.endpoint, targetId);
+          await recorder.start(
+            this.browser.endpoint,
+            targetId,
+            this.config.browser?.kind === 'chrome' && !!this.config.browser.approveConnection,
+          );
           this.runtime.onAction = (action) => recorder?.action(action);
         } catch (error) {
           await record({ type: 'warning', message: `Recording unavailable: ${String(error)}` });
@@ -289,7 +337,8 @@ export class BrowserUse {
           `Event log could not be finalized: ${String(error)}`,
         ];
       }
-      return delivered;
+      this.reportRun(delivered);
+      return redact(delivered, this.config.redact ?? []);
     } finally {
       this.runtime.onAction = undefined;
       await this.manualCell?.catch(() => {});
@@ -338,7 +387,7 @@ export class BrowserUse {
         usage: this.totalUsage,
         runs: this.runs,
       },
-      [],
+      this.config.redact ?? [],
     );
   }
   get usage(): Usage {
@@ -436,8 +485,7 @@ export class BrowserUse {
 }
 
 export { CDP } from './cdp.js';
-export { Page, type Target, type AXNode } from './page.js';
-export { Tabs } from './tabs.js';
+export { Page, Tabs, type AXNode } from './page.js';
 
 export type { SessionHistory, WorkspaceFile } from './history.js';
 export type { SessionEvent } from './events.js';
@@ -445,3 +493,5 @@ export { formatEvent } from './events.js';
 
 export { exportRecording, type VideoOptions } from './video.js';
 export type { RecordingOptions } from './recording.js';
+
+export type { DomainOptions, SensitiveData } from './policy.js';

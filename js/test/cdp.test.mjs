@@ -38,26 +38,34 @@ test('tab event waits are session scoped and commands remain usable', async () =
   const waiting = cdp.waitFor('Page.loadEventFired', { sessionId: page.sessionId });
   await page.goto('data:text/html,<h1>events</h1>');
   await waiting;
-  assert.equal(await page.text({ css: 'h1' }), 'events');
+  assert.equal(await page.evaluate(() => document.querySelector('h1').textContent), 'events');
 });
-test('strict matching, overlay guards, stale ids, unicode and replacement input', async () => {
+test('AX node IDs support trusted raw input, coordinates, unicode and stale-node errors', async () => {
   await page.goto(
     'data:text/html,' +
       encodeURIComponent(
-        '<meta charset="utf-8"><label>Email <input value="old"></label><button>Duplicate</button><button>Duplicate</button><button id="covered" style="position:absolute;top:100px;left:0">Covered</button><div style="position:absolute;top:100px;left:0;width:200px;height:100px;background:red;z-index:10"></div>',
+        '<meta charset="utf-8"><label>Email <input value="old"></label><button onclick="window.trusted=event.isTrusted">Save</button>',
       ),
   );
-  await assert.rejects(page.click({ role: 'button', name: 'Duplicate' }), /Ambiguous/);
-  await assert.rejects(page.click({ css: '#covered' }), /covered/);
-  await page.fill({ role: 'textbox', name: 'Email' }, '中文 é');
+  const nodes = (await page.snapshot()).nodes;
+  const input = nodes.find((n) => n.role === 'textbox').id;
+  await page.cdp('DOM.focus', { backendNodeId: input });
+  await page.cdp('Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    key: 'a',
+    code: 'KeyA',
+    commands: ['selectAll'],
+  });
+  await page.cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA' });
+  await page.cdp('Input.insertText', { text: '中文 é' });
   assert.equal(await page.evaluate(() => document.querySelector('input').value), '中文 é');
-  await page.fill({ css: 'input' }, 'second');
-  assert.equal(await page.evaluate(() => document.querySelector('input').value), 'second');
-  await page.fill({ css: 'input' }, '');
-  assert.equal(await page.evaluate(() => document.querySelector('input').value), '');
-  const stale = await page.find({ css: 'input' });
+  const id = nodes.find((n) => n.role === 'button').id;
+  const q = (await page.cdp('DOM.getBoxModel', { backendNodeId: id })).model.content;
+  await page.clickAt((q[0] + q[2] + q[4] + q[6]) / 4, (q[1] + q[3] + q[5] + q[7]) / 4);
+  assert.equal(await page.evaluate(() => window.trusted), true);
+  await assert.rejects(page.clickAt(NaN, 0), /finite/);
   await page.goto('data:text/html,new document');
-  await assert.rejects(page.fill(stale, 'oops'), /CDP|stale/);
+  await assert.rejects(page.cdp('DOM.focus', { backendNodeId: input }), /CDP/);
   await assert.rejects(
     page.waitFor(() => false, undefined, { timeoutMs: 30 }),
     /exceeded 30 ms/,

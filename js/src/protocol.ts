@@ -1,3 +1,4 @@
+import type { DomainOptions as importPolicy } from './policy.js';
 export interface BrowserAction {
   kind: string;
   targetId: string;
@@ -21,19 +22,25 @@ export interface CellResult {
   /** Full output is written to the workspace when the model-facing output is truncated. */
   outputFile?: string;
 }
-export interface WorkerConfig {
+export interface WorkerConfig extends importPolicy {
+  sensitiveData?: import('./policy.js').SensitiveData;
+  redact?: string[];
   endpoint: string;
   recording?: boolean;
+  highlightActions?: boolean;
+  approveConnection?: boolean;
   workspace: string;
   targetId?: string;
   operationTimeoutMs: number;
   maxOutputChars: number;
 }
 export type WorkerRequest =
-  { type: 'execute'; code: string; captureJson?: boolean; outputFile?: string } | { type: 'close' };
+  | { type: 'execute'; code: string; captureJson?: boolean; outputFile?: string; runId?: string }
+  | { type: 'close' };
 export type WorkerResponse =
   | { type: 'action'; action: BrowserAction }
   | { type: 'owned'; targetId: string }
+  | { type: 'partial'; runId?: string; path: string; valueJson: string }
   | { type: 'ready'; targetId: string }
   | { type: 'result'; result: CellResult }
   | { type: 'error'; message: string; result?: CellResult }

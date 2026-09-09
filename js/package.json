@@ -16,28 +16,12 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE",
-    "examples",
-    "docs/*.md",
-    "DESIGN-REVIEW.md",
-    "evidence/verification.json",
-    "evidence/benchmark.json",
-    "python/pyproject.toml",
-    "python/browser_use_next/*.py",
-    "scripts/build-python.mjs",
-    "evidence/reliability.json",
-    "evidence/vision.json",
-    "evidence/readme-usage.json",
-    "evidence/confirmation2-luna.json",
-    "evidence/confirmation3-luna.json",
-    "docs/public/benchmarks/*.svg",
-    "scripts/benchmark-chart.mjs"
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node -e \"require('node:fs').rmSync('dist', {recursive:true, force:true})\" && tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",
     "test": "npm run build && node --test --test-concurrency=1 test/*.test.mjs",
-    "demo": "npm run build && node examples/local-demo.mjs",
     "docs:dev": "vitepress dev docs --host 127.0.0.1",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs --host 127.0.0.1",
@@ -45,7 +29,6 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "build:python": "node scripts/build-python.mjs",
-    "demo:session": "npm run build && node examples/session-demo.mjs",
     "test:python": "npm run build:python && .venv/bin/python -m unittest discover -s python/tests -v"
   },
   "dependencies": {

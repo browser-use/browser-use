@@ -24,7 +24,7 @@ test('captures actual raw-CDP actions and exports playable MP4/GIF without repla
   models.setProvider(faux.provider);
   faux.setResponses([
     call('javascript', {
-      code: `await page.goto(${JSON.stringify('data:text/html,' + encodeURIComponent(`<body style="font:32px system-ui;padding:80px;background:#eff6ff"><h1>Session demo</h1><p id="count">0</p><button onclick="document.getElementById('count').textContent=Number(document.getElementById('count').textContent)+1">Collect record</button></body>`))}); await new Promise(r=>setTimeout(r,160)); await page.click({role:'button',name:'Collect record'}); await new Promise(r=>setTimeout(r,200));`,
+      code: `await page.goto(${JSON.stringify('data:text/html,' + encodeURIComponent(`<body style="font:32px system-ui;padding:80px;background:#eff6ff"><h1>Session demo</h1><p id="count">0</p><button onclick="document.getElementById('count').textContent=Number(document.getElementById('count').textContent)+1">Collect record</button></body>`))}); await new Promise(r=>setTimeout(r,160)); await page.clickAt(...await page.evaluate(s => {const el=document.querySelector(s);el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]}, 'button')); await new Promise(r=>setTimeout(r,200));`,
     }),
     call('finish', { result: 'Collected one record.' }),
   ]);
@@ -74,7 +74,14 @@ test('captures actual raw-CDP actions and exports playable MP4/GIF without repla
     await exportRecording(result.recordingPath, { output: gif, format: 'gif', maxFrames: 3 });
     assert.equal((await readFile(gif)).subarray(0, 6).toString(), 'GIF89a');
     await assert.rejects(exportRecording(result.recordingPath, { output, maxFrames: 2 }), /EEXIST/);
-    assert.equal((await agent.execute("await page.text({css:'#count'})")).text, "'1'");
+    assert.equal(
+      (
+        await agent.execute(
+          "await page.evaluate(() => document.querySelector('#count').textContent)",
+        )
+      ).text,
+      "'1'",
+    );
   } finally {
     await agent.close();
     await rm(workspace, { recursive: true, force: true });

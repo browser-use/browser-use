@@ -115,7 +115,7 @@ for (const {
   test(`adapter uses real CDP and cleans up (${label})`, async () => {
     const { main } = await import('../eval/run.mjs');
     const { openBrowser } = await import('../dist/browser.js');
-    const { startFixture } = await import('../examples/fixture.mjs');
+    const { startFixture } = await import('./fixture.mjs');
     const { mkdtemp, writeFile, readFile, rm, mkdir, symlink } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
@@ -237,12 +237,12 @@ for (const {
             requests === 1
               ? {
                   code: namedFailure
-                    ? `await page.goto('data:text/html,<title>Primary stays here</title>'); const named = await tabs.open(${JSON.stringify(fixture.url)}); await named.cdp('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false}); await named.click({role:'button',name:'Save selection'}); await artifact('proof.txt',await named.text({role:'status'})); throw new Error('failure after named-tab action')`
-                    : `await page.goto(${JSON.stringify(fixture.url)});await page.click({role:'button',name:'Save selection'});await artifact('proof.txt',await page.text({role:'status'}));await page.text({role:'status'})`,
+                    ? `await page.goto('data:text/html,<title>Primary stays here</title>'); const named = await tabs.open(${JSON.stringify(fixture.url)}); await named.cdp('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false}); await named.clickAt(...await named.evaluate(() => {const el=document.querySelector('#save');el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})); await artifact('proof.txt',await named.evaluate(() => document.querySelector('[role=status]').textContent)); throw new Error('failure after named-tab action')`
+                    : `await page.goto(${JSON.stringify(fixture.url)});await page.clickAt(...await page.evaluate(s => {const el=document.querySelector(s);el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]}, '#save'));await artifact('proof.txt',await page.evaluate(() => document.querySelector('[role=status]').textContent));await page.evaluate(() => document.querySelector('[role=status]').textContent)`,
                 }
               : cleanup
                 ? {
-                    code: "await require('node:fs/promises').rm(require('node:path').join(workspace,'screenshots'),{recursive:true,force:true}); await page.text({role:'status'})",
+                    code: "await require('node:fs/promises').rm(require('node:path').join(workspace,'screenshots'),{recursive:true,force:true}); await page.evaluate(() => document.querySelector('[role=status]').textContent)",
                   }
                 : { result: 'Saved exactly once; see proof.txt' };
           if (exerciseFiles && requests === 2) {
@@ -360,7 +360,7 @@ for (const {
         assert.equal(result.metadata.output_files.length, 1);
         assert.equal(result.metadata.output_files[0].name, 'proof.txt');
         assert.equal(result.metadata.output_files[0].text, 'Saved 1 time(s)');
-        assert.ok(result.metadata.steps.some((s) => s.includes('Save selection')));
+        assert.ok(result.metadata.steps.some((s) => s.includes('clickAt')));
         if (cleanScreenshots) assert.ok(result.metadata.judge_screenshots.length >= 1);
         else assert.equal(result.metadata.judge_screenshots.length, 1);
         assert.equal(result.metadata.judge_screenshot_steps[0], 1);

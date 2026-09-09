@@ -13,6 +13,7 @@ import { RunContext } from './context.js';
 import { deadlineStream } from './model-stream.js';
 import { researchTools } from './research-tools.js';
 import type { BrowserUseOptions, RunOptions, RunResult, StopReason } from './types.js';
+import { redact } from './history.js';
 import { SYSTEM_PROMPT } from './prompt.js';
 import { positiveInteger } from './protocol.js';
 import { bounded, type RunControl } from './control.js';
@@ -63,6 +64,7 @@ export async function runAgent(
   }
   if (options.compaction !== undefined && typeof options.compaction !== 'boolean')
     throw new Error('compaction must be boolean.');
+  runtime.beginRun();
   const start = Date.now();
   const previousMessages = session?.messages.length ?? 0;
   const hookTimeout = config.hookTimeoutMs ?? 30_000;
@@ -75,7 +77,11 @@ export async function runAgent(
   const warnings: string[] = [];
   const context = new RunContext(
     model,
-    deadlineStream(config.streamFn, config.compactionTimeoutMs ?? 120_000),
+    deadlineStream(
+      (selected, request, settings) =>
+        config.streamFn(selected, redact(request, config.redact ?? []), settings),
+      config.compactionTimeoutMs ?? 120_000,
+    ),
     workspace,
     maxContextChars,
     options.compaction !== false,
@@ -190,7 +196,7 @@ export async function runAgent(
   const agent = new Agent({
     streamFn: deadlineStream(
       (selected, request, settings) =>
-        config.streamFn(selected, request, {
+        config.streamFn(selected, redact(request, config.redact ?? []), {
           ...settings,
           maxTokens: Math.min(selected.maxTokens, 32768, Math.floor(selected.contextWindow * 0.15)),
         }),
@@ -199,7 +205,7 @@ export async function runAgent(
     initialState: {
       model,
       messages: session?.messages ?? [],
-      systemPrompt: `${SYSTEM_PROMPT}\nWorkspace directory (JSON string): ${JSON.stringify(workspace)}. Relative file-tool paths and the JavaScript working directory start here. Save deliverables inside this directory; files outside it are not included by BrowserUse.files(). Use relative paths or the exact workspace value, not a guessed parent directory.\n${journalGuidance}${config.instructions ?? ''}`,
+      systemPrompt: `${SYSTEM_PROMPT}\nWorkspace directory (JSON string): ${JSON.stringify(workspace)}. Relative file-tool paths and the JavaScript working directory start here. Save deliverables inside this directory; files outside it are not included by BrowserUse.files(). Use relative paths or the exact workspace value, not a guessed parent directory.\n${journalGuidance}${config.sensitiveData ? `Named secrets (values withheld): ${JSON.stringify(Object.fromEntries(Object.entries(config.sensitiveData).map(([name, entry]) => [name, entry.domains])))}. Use await fillSecret(name, backendNodeId, page) on an input found in the AX tree. Never read back, print or save credentials.\n` : ''}${config.instructions ?? ''}`,
       thinkingLevel: config.reasoning ?? 'medium',
       tools: [
         javascript,
@@ -237,7 +243,13 @@ export async function runAgent(
     prepareNextTurnWithContext: ({ context: current }) => {
       if (
         !finalizing &&
-        ((maxSteps >= 10 && steps >= maxSteps - 2) || Date.now() - start >= timeoutMs * 0.9)
+        ((maxSteps >= 2 && steps >= maxSteps - 1) ||
+          Date.now() - start >= timeoutMs * 0.9 ||
+          (options.maxCostUsd !== undefined &&
+            sumUsage(current.messages.slice(previousMessages)).cost.total +
+              retriedUsage.cost.total +
+              context.usage.reduce((sum, usage) => sum + usage.cost.total, 0) >=
+              options.maxCostUsd * 0.9))
       ) {
         finalizing = true;
         current.messages.push({
@@ -427,5 +439,25 @@ export async function runAgent(
     stopped ??= 'error';
     error ??= last.errorMessage ?? 'Model request failed.';
   }
-  return { ...metrics, status: stopped ?? 'incomplete', text, ...(error ? { error } : {}) };
+  const observation = agent.state.messages
+    .slice(previousMessages)
+    .findLast((m) => m.role === 'toolResult');
+  const fallback =
+    observation?.role === 'toolResult'
+      ? observation.content
+          .filter((c) => c.type === 'text')
+          .map((c) => c.text)
+          .join('\n')
+      : '';
+  return {
+    ...metrics,
+    status: stopped ?? 'incomplete',
+    text: text || (fallback ? `Last tool observation (unfinished):\n${fallback}` : ''),
+    ...(completion
+      ? { partial: { value: completion.output } }
+      : runtime.partial
+        ? { partial: structuredClone(runtime.partial) }
+        : {}),
+    ...(error ? { error } : {}),
+  };
 }
