@@ -172,19 +172,29 @@ class MessageManager:
 		if total_items <= self.max_history_items:
 			return compacted_prefix + '\n'.join(item.to_string() for item in self.state.agent_history_items)
 
-		# We have more items than the limit, so we need to omit some
-		omitted_count = total_items - self.max_history_items
-
-		# Show first item + omitted message + most recent (max_history_items - 1) items
+		# Show first item + omitted message + a window over the most recent items
 		# The omitted message doesn't count against the limit, only real history items do
 		recent_items_count = self.max_history_items - 1  # -1 for first item
+
+		# Drop older items in blocks rather than one per step. A window that slides every step
+		# rewrites this string every step, so provider prompt caches - which only reuse a
+		# byte-identical prefix - miss on every call for the rest of the run. Anchoring the
+		# window start to a multiple of the block size keeps the rendered transcript
+		# append-only between evictions, and holds omitted_count steady over the same span.
+		#
+		# The window refills one item per step and empties a block at a time, so the rendered
+		# count cycles between max_history_items and max_history_items - block + 1. It never
+		# exceeds the cap, which is what max_history_items documents.
+		block = max(1, recent_items_count // 4)
+		first_kept = ((total_items - recent_items_count + block - 1) // block) * block
+		omitted_count = first_kept - 1  # item 0 is rendered separately, above the marker
 
 		items_to_include = [
 			self.state.agent_history_items[0].to_string(),  # Keep first item (initialization)
 			f'<sys>[... {omitted_count} previous steps omitted...]</sys>',
 		]
 		# Add most recent items
-		items_to_include.extend([item.to_string() for item in self.state.agent_history_items[-recent_items_count:]])
+		items_to_include.extend(item.to_string() for item in self.state.agent_history_items[first_kept:])
 
 		return compacted_prefix + '\n'.join(items_to_include)
 
