@@ -12,6 +12,11 @@ from browser_use.llm.messages import UserMessage
 from browser_use.llm.mistral.chat import ChatMistral
 
 
+@pytest.fixture(autouse=True)
+def _isolate_env(monkeypatch: pytest.MonkeyPatch):
+	monkeypatch.delenv('MISTRAL_BASE_URL', raising=False)
+
+
 def test_client_uses_llm_scale_timeout_by_default():
 	# httpx's own default is Timeout(5.0), shorter than a typical agent step.
 	# The SDK-backed adapters get read=600 from their vendor SDK.
