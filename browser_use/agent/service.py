@@ -382,8 +382,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.directly_open_url = directly_open_url
 		self.include_recent_events = include_recent_events
 		self._url_shortening_limit = _url_shortening_limit
-		# {shortened_url: original_url} for the current model call, reset once per step
-		self._urls_replaced: dict[str, str] = {}
 
 		self.sensitive_data = sensitive_data
 
@@ -1671,9 +1669,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _get_model_output_with_retry(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get model output with retry logic for empty actions"""
-		# This is a fresh message list, so drop the replacements made for the previous step.
-		self._urls_replaced.clear()
-		model_output = await self.get_model_output(input_messages)
+		# The retry below re-sends the same message objects, which get_model_output has already
+		# shortened in place, so both calls have to share one {shortened_url: original_url} mapping.
+		url_replacements: dict[str, str] = {}
+		model_output = await self.get_model_output(input_messages, url_replacements)
 		self.logger.debug(
 			f'✅ Step {self.state.n_steps}: Got LLM response with {len(model_output.action) if model_output.action else 0} actions'
 		)
@@ -1690,7 +1689,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 
 			retry_messages = input_messages + [clarification_message]
-			model_output = await self.get_model_output(retry_messages)
+			model_output = await self.get_model_output(retry_messages, url_replacements)
 
 			if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
 				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
@@ -1846,7 +1845,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		? @dev edits input_messages in place
 
 		returns:
-			every replacement made for the current model call {shorter_url: original_url}
+			urls replaced in this pass {shorter_url: original_url}
 		"""
 		from browser_use.llm.messages import AssistantMessage, UserMessage
 
@@ -1868,11 +1867,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 							part.text, replaced_urls = self._replace_urls_in_text(part.text)
 							urls_replaced.update(replaced_urls)
 
-		# A retry re-sends the same messages, which are already shortened, so a second pass
-		# finds nothing to replace and would otherwise return an empty mapping. Accumulate
-		# instead, so the model's output can still be restored after a retry.
-		self._urls_replaced.update(urls_replaced)
-		return dict(self._urls_replaced)
+		return urls_replaced
 
 	@staticmethod
 	def _recursive_process_all_strings_inside_pydantic_model(model: BaseModel, url_replacements: dict[str, str]) -> None:
@@ -1950,10 +1945,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	@time_execution_async('--get_next_action')
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_model_output')
-	async def get_model_output(self, input_messages: list[BaseMessage]) -> AgentOutput:
-		"""Get next action from LLM based on current state"""
+	async def get_model_output(
+		self, input_messages: list[BaseMessage], url_replacements: dict[str, str] | None = None
+	) -> AgentOutput:
+		"""Get next action from LLM based on current state
 
-		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
+		Long URLs in input_messages are shortened in place before the call and restored in the output.
+		A caller that sends the same message objects again (the empty-action retry, the fallback-LLM
+		retry below) must pass the `url_replacements` mapping it got from the earlier call: a second
+		pass finds nothing left to shorten, so on its own it would have nothing to restore either.
+		"""
+
+		urls_replaced = url_replacements if url_replacements is not None else {}
+		urls_replaced.update(self._process_messsages_and_replace_long_urls_shorter_ones(input_messages))
 
 		# Build kwargs for ainvoke
 		# Note: ChatBrowserUse will automatically generate action descriptions from output_format schema
@@ -1985,8 +1989,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if not self._try_switch_to_fallback_llm(e):
 				# No fallback available, re-raise the original error
 				raise
-			# Retry with the fallback LLM
-			return await self.get_model_output(input_messages)
+			# Retry with the fallback LLM, keeping the mapping from this pass: the messages are already shortened
+			return await self.get_model_output(input_messages, urls_replaced)
 
 	def _try_switch_to_fallback_llm(self, error: ModelRateLimitError | ModelProviderError) -> bool:
 		"""

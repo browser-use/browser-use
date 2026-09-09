@@ -1,18 +1,23 @@
 """
 Simplified tests for URL shortening functionality in Agent service.
 
-Three focused tests:
+Four focused areas:
 1. Input message processing with URL shortening
 2. Output processing with custom actions and URL restoration
 3. End-to-end pipeline test
+4. Restoration surviving a second LLM call over the same, already shortened messages
 """
 
 import json
+from typing import cast
+from unittest.mock import AsyncMock
 
 import pytest
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentOutput
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.exceptions import ModelRateLimitError
 from browser_use.llm.messages import AssistantMessage, BaseMessage, UserMessage
 
 # Super long URL to reuse across tests - much longer than the 25 character limit
@@ -161,46 +166,85 @@ class TestUrlShorteningEndToEnd:
 		assert shortened_url not in (agent_output.memory or '')
 
 
-class TestUrlShorteningIdempotence:
-	"""Test that re-processing already-shortened messages keeps the restoration mapping."""
+class TestUrlShorteningAcrossRepeatedModelCalls:
+	"""URL restoration must survive a second LLM call that re-sends the same, already shortened messages.
 
-	def test_reprocessing_the_same_messages_keeps_the_mapping(self, agent: Agent):
-		"""A second pass finds nothing left to shorten but must not forget the first pass."""
-		messages: list[BaseMessage] = [UserMessage(content=f'Navigate to {SUPER_LONG_URL}')]
+	get_model_output shortens the input messages in place. A second pass over them finds nothing
+	left to shorten, so unless the mapping from the first pass is carried over there is nothing to
+	restore the model's output with. Both production paths that re-send messages are driven here.
+	"""
 
-		first_pass = agent._process_messsages_and_replace_long_urls_shorter_ones(messages)
-		shortened_url = next(iter(first_pass))
-		content_after_first_pass = messages[0].content
+	@staticmethod
+	def _navigate_response(url: str) -> str:
+		return json.dumps(
+			{
+				'evaluation_previous_goal': 'Retried after an empty action',
+				'memory': 'Target URL captured',
+				'next_goal': 'Open the documentation',
+				'action': [{'navigate': {'url': url, 'new_tab': False}}],
+			}
+		)
 
-		second_pass = agent._process_messsages_and_replace_long_urls_shorter_ones(messages)
+	EMPTY_ACTION_RESPONSE = json.dumps(
+		{
+			'evaluation_previous_goal': 'Thinking',
+			'memory': 'Nothing yet',
+			'next_goal': 'Decide what to do',
+			'action': [],
+		}
+	)
 
-		# The text is already shortened, so the second pass leaves it alone ...
-		assert messages[0].content == content_after_first_pass
-		# ... but the mapping needed to restore it must survive.
-		assert second_pass.get(shortened_url) == SUPER_LONG_URL
-
-	def test_retry_output_still_restores_urls(self, agent: Agent):
-		"""A retry re-sends the same message objects, and its output must still be restorable."""
-		messages: list[BaseMessage] = [UserMessage(content=f'Navigate to {SUPER_LONG_URL}')]
-		agent._process_messsages_and_replace_long_urls_shorter_ones(messages)
-
-		# _get_model_output_with_retry appends a clarification to the messages it already sent
-		retry_messages: list[BaseMessage] = messages + [UserMessage(content='You forgot to return an action.')]
-		url_mappings = agent._process_messsages_and_replace_long_urls_shorter_ones(retry_messages)
+	async def test_empty_action_retry_restores_urls_in_the_retried_output(self, agent: Agent):
+		"""_get_model_output_with_retry re-sends input_messages plus a clarification after an empty action."""
+		from tests.ci.conftest import create_mock_llm
 
 		shortened_url: str = agent._replace_urls_in_text(SUPER_LONG_URL)[0]
-		output_json = {
-			'evaluation_previous_goal': 'Retried after an empty action',
-			'memory': 'Target URL captured',
-			'next_goal': 'Open the documentation',
-			'action': [{'navigate': {'url': shortened_url, 'new_tab': False}}],
-		}
+		# First call: no action. Second call (the retry): the model echoes the shortened URL it was shown.
+		agent.llm = create_mock_llm([self.EMPTY_ACTION_RESPONSE, self._navigate_response(shortened_url)])
+		messages: list[BaseMessage] = [UserMessage(content=f'Navigate to {SUPER_LONG_URL}')]
 
-		ActionModel = agent.tools.registry.create_action_model()
-		AgentOutputWithActions = AgentOutput.type_with_custom_actions(ActionModel)
-		agent_output = AgentOutputWithActions.model_validate_json(json.dumps(output_json))
+		model_output = await agent._get_model_output_with_retry(messages)
 
-		agent._recursive_process_all_strings_inside_pydantic_model(agent_output, url_mappings)
+		ainvoke = cast(AsyncMock, agent.llm.ainvoke)
+		assert ainvoke.await_count == 2
+		# The retry sent the already shortened text, not the original ...
+		retry_messages = ainvoke.await_args_list[1].args[0]
+		assert retry_messages[0].content == f'Navigate to {shortened_url}'
+		# ... and the retried output was still restored to the original URL.
+		assert model_output.action[0].model_dump(exclude_unset=True)['navigate']['url'] == SUPER_LONG_URL
 
-		action_data = agent_output.action[0].model_dump()
-		assert action_data['navigate']['url'] == SUPER_LONG_URL
+	async def test_fallback_llm_retry_restores_urls_in_the_fallback_output(self, agent: Agent):
+		"""get_model_output recurses on the same messages after switching to the fallback LLM."""
+		from tests.ci.conftest import create_mock_llm
+
+		shortened_url: str = agent._replace_urls_in_text(SUPER_LONG_URL)[0]
+
+		primary = AsyncMock(spec=BaseChatModel)
+		primary.model = primary.name = primary.model_name = 'primary-model'
+		primary.provider = 'mock'
+		primary._verified_api_keys = True
+		primary.ainvoke.side_effect = ModelRateLimitError(message='Rate limit exceeded', status_code=429, model='primary-model')
+
+		fallback = create_mock_llm([self._navigate_response(shortened_url)])
+		agent.llm = agent._original_llm = primary
+		agent._fallback_llm = fallback
+		messages: list[BaseMessage] = [UserMessage(content=f'Navigate to {SUPER_LONG_URL}')]
+
+		model_output = await agent.get_model_output(messages)
+
+		assert agent.llm is fallback
+		assert model_output.action[0].model_dump(exclude_unset=True)['navigate']['url'] == SUPER_LONG_URL
+
+	async def test_independent_calls_do_not_share_a_mapping(self, agent: Agent):
+		"""Each direct get_model_output call starts from an empty mapping; only an explicit hand-over carries one."""
+		from tests.ci.conftest import create_mock_llm
+
+		shortened_url: str = agent._replace_urls_in_text(SUPER_LONG_URL)[0]
+		agent.llm = create_mock_llm([self._navigate_response(shortened_url), self._navigate_response(shortened_url)])
+
+		first = await agent.get_model_output([UserMessage(content=f'Navigate to {SUPER_LONG_URL}')])
+		assert first.action[0].model_dump(exclude_unset=True)['navigate']['url'] == SUPER_LONG_URL
+
+		# A later, unrelated call never saw the long URL, so nothing carries over and the text stays as the model wrote it.
+		second = await agent.get_model_output([UserMessage(content='Unrelated prompt')])
+		assert second.action[0].model_dump(exclude_unset=True)['navigate']['url'] == shortened_url
