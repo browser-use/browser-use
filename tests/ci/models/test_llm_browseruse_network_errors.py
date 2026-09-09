@@ -18,6 +18,7 @@ def _llm(max_retries: int) -> ChatBrowserUse:
 		(httpx.ReadTimeout('read timed out'), 504),
 		(httpx.ConnectError('connection refused'), 502),
 		(httpx.RemoteProtocolError('server disconnected without sending a response'), 502),
+		(httpx.ReadError('server disconnected'), 502),
 	],
 )
 async def test_exhausted_network_errors_are_provider_errors(error: httpx.TransportError, status_code: int):
@@ -38,7 +39,14 @@ async def test_exhausted_network_errors_are_provider_errors(error: httpx.Transpo
 	assert attempts == 2
 
 
-async def test_dropped_connection_is_retried():
+@pytest.mark.parametrize(
+	'error',
+	[
+		httpx.RemoteProtocolError('server disconnected without sending a response'),
+		httpx.ReadError('server disconnected'),
+	],
+)
+async def test_dropped_connection_is_retried(error: httpx.TransportError):
 	llm = _llm(max_retries=3)
 	attempts = 0
 
@@ -46,7 +54,7 @@ async def test_dropped_connection_is_retried():
 		nonlocal attempts
 		attempts += 1
 		if attempts == 1:
-			raise httpx.RemoteProtocolError('server disconnected without sending a response')
+			raise error
 		return {'completion': 'ok', 'usage': None}
 
 	llm._make_request = flaky_request  # type: ignore[method-assign]
