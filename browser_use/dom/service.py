@@ -403,13 +403,6 @@ class DomService:
 	async def _get_all_trees(self, target_id: TargetID) -> TargetAllTrees:
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
 
-		# Wait for the page to be ready first
-		try:
-			ready_state = await cdp_session.cdp_client.send.Runtime.evaluate(
-				params={'expression': 'document.readyState'}, session_id=cdp_session.session_id
-			)
-		except Exception as e:
-			pass  # Page might not be ready yet
 		# DEBUG: Log before capturing snapshot
 		self.logger.debug(f'🔍 DEBUG: Capturing DOM snapshot for target {target_id}')
 
