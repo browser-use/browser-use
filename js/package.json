@@ -16,8 +16,10 @@
   },
   "files": [
     "dist",
+    "examples",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    ".env.example"
   ],
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist', {recursive:true, force:true})\" && tsc -p tsconfig.build.json",
@@ -53,7 +55,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/browser-use/bu-pi.git"
+    "url": "git+https://github.com/browser-use/browser-use-js.git"
   },
   "bin": {
     "bu-pi-server": "./dist/server.js"

@@ -46,7 +46,7 @@ The default output is a string. Schema validation checks shape; `validateResult(
 | `compaction`, `maxContextChars`                     | Enabled, 240,000 characters         |
 | `signal`, `onEvent`, `observe`, `observerTimeoutMs` | Cancellation and observations       |
 
-[Type definitions](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/src/types.ts) are the complete contract. Browser launch options live in [browser.ts](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/src/browser.ts).
+[Type definitions](https://github.com/browser-use/browser-use-js/blob/main/src/types.ts) are the complete contract. Browser launch options live in [browser.ts](https://github.com/browser-use/browser-use-js/blob/main/src/browser.ts).
 
 ## Events and hooks
 

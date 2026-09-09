@@ -6,8 +6,9 @@ import { CDP, Page } from '../dist/index.js';
 
 test('a timed-out synchronous page evaluation stops in Chrome without replaying or undoing prior effects', async () => {
   const chrome = await openBrowser();
-  const cdp = await CDP.connect(chrome.endpoint, 200);
+  let cdp;
   try {
+    cdp = await CDP.connect(chrome.endpoint, 200);
     const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
     const page = await Page.attach(cdp, targetId);
     await page.evaluate(() => {
@@ -38,15 +39,16 @@ test('a timed-out synchronous page evaluation stops in Chrome without replaying 
       42,
     );
   } finally {
-    cdp.close();
+    cdp?.close();
     await chrome.close();
   }
 });
 
 test('evaluation deadlines do not claim cancellation of asynchronous page work', async () => {
   const chrome = await openBrowser();
-  const cdp = await CDP.connect(chrome.endpoint, 200);
+  let cdp;
   try {
+    cdp = await CDP.connect(chrome.endpoint, 200);
     const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
     const page = await Page.attach(cdp, targetId);
     await assert.rejects(
@@ -61,7 +63,7 @@ test('evaluation deadlines do not claim cancellation of asynchronous page work',
     await delay(800);
     assert.equal(await page.evaluate('window.delayed'), 1);
   } finally {
-    cdp.close();
+    cdp?.close();
     await chrome.close();
   }
 });

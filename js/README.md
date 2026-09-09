@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/browser-use/bu-pi/codex/raw-cdp-k7m2/docs/public/banner.webp" alt="A white arch above the clouds" width="100%" />
+<img src="https://raw.githubusercontent.com/browser-use/browser-use-js/main/docs/public/banner.webp" alt="A white arch above the clouds" width="100%" />
 
 # Browser Use JS
 
@@ -8,16 +8,14 @@ The agent gets a persistent JS session, an accessibility tree, screenshots, and 
 
 ## Start
 
-Runs in **Node 22.19+** or **Bun 1.3.14+**. Bun also needs Node installed for the execution worker. Use local Chrome or a [cloud browser](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/docs/sessions.md). Until the first npm release, install from source:
+Runs in **Node 22.19+** or **Bun 1.3.14+**. Bun also needs Node installed for the execution worker. Use local Chrome or a [cloud browser](https://github.com/browser-use/browser-use-js/blob/main/docs/sessions.md). Install with npm, pnpm or Bun:
 
 ```sh
-git clone --branch codex/raw-cdp-k7m2 https://github.com/browser-use/bu-pi.git browser-use-js
-cd browser-use-js
-npm ci && npm run build
+npm install @browser_use/js
 export OPENROUTER_API_KEY=...
 ```
 
-```js
+```ts
 import { BrowserUse } from '@browser_use/js';
 
 const agent = await BrowserUse.create({
@@ -34,7 +32,7 @@ try {
 }
 ```
 
-Run that file from the checkout. For another project, install a tarball made with `npm pack`. npm, pnpm, and Bun can install that tarball. The npm package will be `@browser_use/js`; it is not published yet.
+Save as `agent.ts`. Run with `node agent.ts` or `bun agent.ts`.
 
 ## How it works
 
@@ -48,7 +46,9 @@ AX first. Screenshots when useful. Real mouse and keyboard input. Small primitiv
 
 Follow-ups, saved logins, typed results, streaming, hooks, compaction, and GIF/video exports are included. JavaScript runs in a killable worker so a bad cell cannot hang your application. It has filesystem and network access; use an isolated machine for untrusted tasks.
 
-[Quickstart](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/docs/quickstart.md) · [API](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/docs/api.md) · [Browser primitives](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/docs/browser.md) · [Sessions](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/docs/sessions.md) · [Models](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/docs/models.md) · [Python](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/docs/python.md) · [Historical benchmarks](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/docs/benchmarks.md)
+[Quickstart](https://github.com/browser-use/browser-use-js/blob/main/docs/quickstart.md) · [API](https://github.com/browser-use/browser-use-js/blob/main/docs/api.md) · [Browser primitives](https://github.com/browser-use/browser-use-js/blob/main/docs/browser.md) · [Sessions](https://github.com/browser-use/browser-use-js/blob/main/docs/sessions.md) · [Models](https://github.com/browser-use/browser-use-js/blob/main/docs/models.md) · [Python](https://github.com/browser-use/browser-use-js/blob/main/docs/python.md) · [Historical benchmarks](https://github.com/browser-use/browser-use-js/blob/main/docs/benchmarks.md)
+
+[Eight TypeScript examples](examples/README.md): extraction, QA + GIF, EHR, forms, Link, 1Password, job applications and research.
 
 ## Develop
 
@@ -59,6 +59,6 @@ npm run docs:build
 npm run test:python
 ```
 
-Anonymous run counters are enabled. Disable with `telemetry: false` or `DO_NOT_TRACK=1`. [Payload](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/docs/api.md#telemetry).
+Anonymous run counters are enabled. Disable with `telemetry: false` or `DO_NOT_TRACK=1`. [Payload](https://github.com/browser-use/browser-use-js/blob/main/docs/api.md#telemetry).
 
-The [eval adapter](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/eval/README.md) keeps benchmark configuration explicit. Historical scores do not establish this simplified version’s performance.
+The [eval adapter](https://github.com/browser-use/browser-use-js/blob/main/eval/README.md) keeps benchmark configuration explicit. Historical scores do not establish this simplified version’s performance.

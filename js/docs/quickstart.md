@@ -9,26 +9,17 @@ Run your app with **Node 22.19+** or **Bun 1.3.14+**. Bun also requires Node on 
 Use local Chrome or [Browser Use Cloud](./sessions.md). Runtime checks cover macOS; Windows has not been verified.
 
 ```sh
-git clone --branch codex/raw-cdp-k7m2 https://github.com/browser-use/bu-pi.git browser-use-js
-cd browser-use-js
-npm ci
-npm run build
+npm install @browser_use/js
+# or: pnpm add @browser_use/js
+# or: bun add @browser_use/js
 export OPENROUTER_API_KEY=...
-```
-
-The package is named `@browser_use/js` and is not published yet. Run examples from the checkout, or create a tarball with `npm pack`. In another project, use any one of:
-
-```sh
-npm install /path/to/browser_use-js-0.1.0.tgz
-pnpm add /path/to/browser_use-js-0.1.0.tgz
-bun add /path/to/browser_use-js-0.1.0.tgz
 ```
 
 ## Run
 
-Save as `agent.mjs` inside the checkout:
+Save as `agent.ts`:
 
-```js
+```ts
 import { BrowserUse } from '@browser_use/js';
 
 const agent = await BrowserUse.create({
@@ -46,9 +37,9 @@ try {
 ```
 
 ```sh
-node agent.mjs
+node agent.ts
 # or
-bun agent.mjs
+bun agent.ts
 ```
 
 `completed` means the agent delivered a schema-valid answer. Verify business outcomes in your application. Other statuses describe the stop reason; always check them.

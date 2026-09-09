@@ -31,7 +31,7 @@ await page.clickAt((q[0] + q[2] + q[4] + q[6]) / 4, (q[1] + q[3] + q[5] + q[7]) 
 // Inspect the actual outcome. Coordinates can hit an overlay.
 ```
 
-Prefer AX for discovery and state. Use page evaluation for extraction, screenshots for visual questions, and raw CDP for typing, uploads and frame routing. The [agent prompt](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/src/prompt.ts) teaches these recipes. Reusable helpers belong in the agent’s workspace.
+Prefer AX for discovery and state. Use page evaluation for extraction, screenshots for visual questions, and raw CDP for typing, uploads and frame routing. The [agent prompt](https://github.com/browser-use/browser-use-js/blob/main/src/prompt.ts) teaches these recipes. Reusable helpers belong in the agent’s workspace.
 
 `artifact(name, data)` creates a new file; `checkpoint(name, value)` atomically saves JSON. `reconnect()` resets CDP; reacquire handles and inspect before acting. `finish_from_js({expression})` delivers an existing variable without asking the model to rewrite it.
 

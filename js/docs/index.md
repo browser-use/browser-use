@@ -13,5 +13,5 @@ hero:
       link: /quickstart
     - theme: alt
       text: GitHub
-      link: https://github.com/browser-use/bu-pi/tree/codex/raw-cdp-k7m2
+      link: https://github.com/browser-use/browser-use-js/tree/main
 ---
