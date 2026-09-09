@@ -159,3 +159,48 @@ class TestUrlShorteningEndToEnd:
 		# Verify original shortened content is no longer present
 		assert shortened_url not in (agent_output.thinking or '')
 		assert shortened_url not in (agent_output.memory or '')
+
+
+class TestUrlShorteningIdempotence:
+	"""Test that re-processing already-shortened messages keeps the restoration mapping."""
+
+	def test_reprocessing_the_same_messages_keeps_the_mapping(self, agent: Agent):
+		"""A second pass finds nothing left to shorten but must not forget the first pass."""
+		messages: list[BaseMessage] = [UserMessage(content=f'Navigate to {SUPER_LONG_URL}')]
+
+		first_pass = agent._process_messsages_and_replace_long_urls_shorter_ones(messages)
+		shortened_url = next(iter(first_pass))
+		content_after_first_pass = messages[0].content
+
+		second_pass = agent._process_messsages_and_replace_long_urls_shorter_ones(messages)
+
+		# The text is already shortened, so the second pass leaves it alone ...
+		assert messages[0].content == content_after_first_pass
+		# ... but the mapping needed to restore it must survive.
+		assert second_pass.get(shortened_url) == SUPER_LONG_URL
+
+	def test_retry_output_still_restores_urls(self, agent: Agent):
+		"""A retry re-sends the same message objects, and its output must still be restorable."""
+		messages: list[BaseMessage] = [UserMessage(content=f'Navigate to {SUPER_LONG_URL}')]
+		agent._process_messsages_and_replace_long_urls_shorter_ones(messages)
+
+		# _get_model_output_with_retry appends a clarification to the messages it already sent
+		retry_messages: list[BaseMessage] = messages + [UserMessage(content='You forgot to return an action.')]
+		url_mappings = agent._process_messsages_and_replace_long_urls_shorter_ones(retry_messages)
+
+		shortened_url: str = agent._replace_urls_in_text(SUPER_LONG_URL)[0]
+		output_json = {
+			'evaluation_previous_goal': 'Retried after an empty action',
+			'memory': 'Target URL captured',
+			'next_goal': 'Open the documentation',
+			'action': [{'navigate': {'url': shortened_url, 'new_tab': False}}],
+		}
+
+		ActionModel = agent.tools.registry.create_action_model()
+		AgentOutputWithActions = AgentOutput.type_with_custom_actions(ActionModel)
+		agent_output = AgentOutputWithActions.model_validate_json(json.dumps(output_json))
+
+		agent._recursive_process_all_strings_inside_pydantic_model(agent_output, url_mappings)
+
+		action_data = agent_output.action[0].model_dump()
+		assert action_data['navigate']['url'] == SUPER_LONG_URL
