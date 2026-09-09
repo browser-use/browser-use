@@ -1,6 +1,7 @@
 """Security watchdog for enforcing URL access policies."""
 
 from typing import TYPE_CHECKING, ClassVar
+from urllib.parse import urlparse
 
 from bubus import BaseEvent
 
@@ -187,9 +188,6 @@ class SecurityWatchdog(BaseWatchdog):
 		if url in ['about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/']:
 			return True
 
-		# Parse the URL to extract components
-		from urllib.parse import urlparse
-
 		try:
 			parsed = urlparse(url)
 		except Exception:
@@ -249,6 +247,40 @@ class SecurityWatchdog(BaseWatchdog):
 
 		return True
 
+	@staticmethod
+	def _is_scheme_qualified_url_match(url: str, pattern: str) -> bool:
+		"""Match a scheme-qualified URL pattern without losing path-prefix semantics.
+
+		The scheme and hostname are compared as parsed URL components so lookalike
+		hosts cannot match. An explicit pattern port must also match. Non-root
+		paths, queries, and fragments retain the historical prefix behavior.
+		"""
+		try:
+			parsed_url = urlparse(url)
+			parsed_pattern = urlparse(pattern)
+
+			if not parsed_url.hostname or not parsed_pattern.hostname:
+				return False
+			if parsed_url.scheme.lower() != parsed_pattern.scheme.lower():
+				return False
+			if parsed_url.hostname.lower() != parsed_pattern.hostname.lower():
+				return False
+			if parsed_pattern.port is not None and parsed_url.port != parsed_pattern.port:
+				return False
+		except (TypeError, ValueError):
+			return False
+
+		if parsed_pattern.path not in ('', '/') and not parsed_url.path.startswith(parsed_pattern.path):
+			return False
+		if parsed_pattern.params and not parsed_url.params.startswith(parsed_pattern.params):
+			return False
+		if parsed_pattern.query and not parsed_url.query.startswith(parsed_pattern.query):
+			return False
+		if parsed_pattern.fragment and not parsed_url.fragment.startswith(parsed_pattern.fragment):
+			return False
+
+		return True
+
 	def _is_url_match(self, url: str, host: str, scheme: str, pattern: str) -> bool:
 		"""Check if a URL matches a pattern."""
 
@@ -282,9 +314,7 @@ class SecurityWatchdog(BaseWatchdog):
 		else:
 			# Exact match
 			if '://' in pattern:
-				# Full URL pattern
-				if url.startswith(pattern):
-					return True
+				return self._is_scheme_qualified_url_match(url, pattern)
 			else:
 				# Domain-only pattern (case-insensitive comparison)
 				if host.lower() == pattern.lower():
