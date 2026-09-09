@@ -1,4 +1,4 @@
-import { Browser, BrowserUse } from '@browser_use/js';
+import { Browser, BrowserUse } from '@browser_use/pi';
 
 const task = process.argv.slice(2).join(' ');
 if (!task) throw new Error('Usage: node examples/research.ts "Your browser task"');

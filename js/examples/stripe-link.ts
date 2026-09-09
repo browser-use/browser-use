@@ -1,4 +1,4 @@
-import { Browser, BrowserUse, Type } from '@browser_use/js';
+import { Browser, BrowserUse, Type } from '@browser_use/pi';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout } from 'node:timers/promises';
@@ -98,7 +98,7 @@ let request = await link([
   '--currency',
   checkout.currency,
   '--context',
-  `Browser Use JS test checkout demonstration for ${purchase}. Inspect and prefill a test card form for the verified total only. Do not submit payment or place an order.`,
+  `Browser Use Pi test checkout demonstration for ${purchase}. Inspect and prefill a test card form for the verified total only. Do not submit payment or place an order.`,
 ]);
 if (typeof request.id !== 'string') throw new Error('Link returned no spend request ID.');
 const id = request.id;

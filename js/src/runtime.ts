@@ -27,7 +27,7 @@ export async function workerExecutable(): Promise<string> {
     // Do not expose subprocess output or inherit provider keys and preload flags.
   }
   throw new Error(
-    'Browser Use JS needs Node.js 22.19+ for its JavaScript worker, including when your app runs in Bun. Install Node on PATH or set BROWSER_USE_NODE to its absolute executable path.',
+    'Browser Use Pi needs Node.js 22.19+ for its JavaScript worker, including when your app runs in Bun. Install Node on PATH or set BROWSER_USE_NODE to its absolute executable path.',
   );
 }
 

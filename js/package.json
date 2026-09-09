@@ -1,7 +1,7 @@
 {
-  "name": "@browser_use/js",
+  "name": "@browser_use/pi",
   "version": "0.1.0",
-  "description": "A small, programmable web agent. Pi models, persistent JavaScript, real browsers.",
+  "description": "Browser Use, built on Pi. Persistent V8 REPL + raw CDP, in TypeScript.",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -55,7 +55,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/browser-use/browser-use-js.git"
+    "url": "git+https://github.com/browser-use/browser-use-pi.git"
   },
   "bin": {
     "bu-pi-server": "./dist/server.js"

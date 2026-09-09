@@ -1,26 +1,35 @@
-<img src="https://raw.githubusercontent.com/browser-use/browser-use-js/main/docs/public/banner.webp" alt="A white arch above the clouds" width="100%" />
+<img src="https://raw.githubusercontent.com/browser-use/browser-use-pi/main/docs/public/banner.webp" alt="A white arch above the clouds" width="100%" />
 
-# Browser Use JS
+# Browser Use Pi
 
-**Pi, with a browser.** A small TypeScript SDK for agents that write JavaScript and control Chrome through raw CDP.
+**Browser Use, built on Pi Mono. In TypeScript.**
 
-The agent gets a persistent JS session, an accessibility tree, screenshots, and a workspace. It writes the rest. No Playwright. No selector engine. No fork of Pi.
+Pi Mono + a persistent V8 REPL + raw CDP. The agent writes JavaScript, controls Chrome, and builds the helpers it needs as it goes.
+
+```text
+Your task → Pi Mono → persistent V8 REPL → raw CDP → Chrome
+                ↑                                    │
+                └──────── AX tree + screenshots ──────┘
+```
+
+The programmability of Browser Harness, with sessions, saved logins, streaming and typed results. One SDK you can put in your app.
 
 ## Start
 
-Runs in **Node 22.19+** or **Bun 1.3.14+**. Bun also needs Node installed for the execution worker. The example uses [Browser Use Cloud](https://github.com/browser-use/browser-use-js/blob/main/docs/sessions.md), so no local Chrome installation is needed. Install with npm, pnpm or Bun:
-
 ```sh
-npm install @browser_use/js
+npm install @browser_use/pi
+# or: pnpm add @browser_use/pi
+# or: bun add @browser_use/pi
 export OPENROUTER_API_KEY=...
 export BROWSER_USE_API_KEY=...
 ```
 
 ```ts
-import { Browser, BrowserUse } from '@browser_use/js';
+import { Browser, BrowserUse } from '@browser_use/pi';
 
 const agent = await BrowserUse.create({
   model: 'openrouter/openai/gpt-5.6-luna',
+  reasoning: 'xhigh',
   browser: Browser.cloud({ apiKey: process.env.BROWSER_USE_API_KEY! }),
   workspace: './work',
 });
@@ -34,23 +43,20 @@ try {
 }
 ```
 
-Save as `agent.ts`. Run with `node agent.ts` or `bun agent.ts`.
+Save as `agent.ts`. Run with `node agent.ts` or `bun agent.ts`. Uses [Browser Use Cloud](docs/sessions.md); no local Chrome installation needed.
 
-## How it works
+**Node 22.19+ · Bun 1.3.14+**. Bun also needs Node for the V8 worker.
 
-```text
-Your task → upstream Pi → persistent JavaScript → raw CDP → Chrome
-                  ↑          AX tree / screenshots          │
-                  └─────────────────────────────────────────┘
-```
+## Keep building
 
-AX first. Screenshots when useful. Real mouse and keyboard input. Small primitives, agent-written helpers.
+- **Models:** upstream Pi's model catalog and transports, with custom providers supported. Model capabilities and provider access vary. [Models](docs/models.md)
+- **Sessions:** follow-ups, saved logins, persistent workspaces, cloud browsers or your own Chrome. [Sessions](docs/sessions.md)
+- **Control:** streaming, hooks, typed results and compaction. Cap steps, time or cost and keep partial work. [API](docs/api.md)
+- **Show the work:** interaction highlights, recordings and GIF exports. [Examples](examples/README.md)
 
-Follow-ups, saved logins, typed results, streaming, hooks, compaction, and GIF/video exports are included. JavaScript runs in a killable worker so a bad cell cannot hang your application. It has filesystem and network access; use an isolated machine for untrusted tasks.
+[Quickstart](docs/quickstart.md) · [Browser primitives](docs/browser.md) · [Python](docs/python.md) · [Historical benchmarks](docs/benchmarks.md)
 
-[Quickstart](https://github.com/browser-use/browser-use-js/blob/main/docs/quickstart.md) · [API](https://github.com/browser-use/browser-use-js/blob/main/docs/api.md) · [Browser primitives](https://github.com/browser-use/browser-use-js/blob/main/docs/browser.md) · [Sessions](https://github.com/browser-use/browser-use-js/blob/main/docs/sessions.md) · [Models](https://github.com/browser-use/browser-use-js/blob/main/docs/models.md) · [Python](https://github.com/browser-use/browser-use-js/blob/main/docs/python.md) · [Historical benchmarks](https://github.com/browser-use/browser-use-js/blob/main/docs/benchmarks.md)
-
-[Eight TypeScript examples](examples/README.md): extraction, QA + GIF, EHR, forms, Link, 1Password, job applications and research.
+JavaScript runs in a killable worker with filesystem and network access. Use an isolated machine for untrusted tasks. Anonymous run counters are enabled; disable with `telemetry: false` or `DO_NOT_TRACK=1`. [Telemetry](docs/api.md#telemetry)
 
 ## Develop
 
@@ -60,7 +66,3 @@ npm run check
 npm run docs:build
 npm run test:python
 ```
-
-Anonymous run counters are enabled. Disable with `telemetry: false` or `DO_NOT_TRACK=1`. [Payload](https://github.com/browser-use/browser-use-js/blob/main/docs/api.md#telemetry).
-
-The [eval adapter](https://github.com/browser-use/browser-use-js/blob/main/eval/README.md) keeps benchmark configuration explicit. Historical scores do not establish this simplified version’s performance.

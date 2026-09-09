@@ -18,8 +18,8 @@ For `b430a91`, Hard evaluation ID is `ed2fb652-9858-4a36-bac2-60b0d3270302`; V2 
 
 The old reports are preserved at immutable commit `416b9906f0dbb5784ea4aa162345453842c260c3`:
 
-- [Run evidence](https://github.com/browser-use/browser-use-js/tree/416b9906f0dbb5784ea4aa162345453842c260c3/evidence)
-- [Benchmark analysis](https://github.com/browser-use/browser-use-js/blob/416b9906f0dbb5784ea4aa162345453842c260c3/docs/benchmark-overview.md)
-- [Trace audits](https://github.com/browser-use/browser-use-js/tree/416b9906f0dbb5784ea4aa162345453842c260c3/docs)
+- [Run evidence](https://github.com/browser-use/browser-use-pi/tree/416b9906f0dbb5784ea4aa162345453842c260c3/evidence)
+- [Benchmark analysis](https://github.com/browser-use/browser-use-pi/blob/416b9906f0dbb5784ea4aa162345453842c260c3/docs/benchmark-overview.md)
+- [Trace audits](https://github.com/browser-use/browser-use-pi/tree/416b9906f0dbb5784ea4aa162345453842c260c3/docs)
 
-The current repository keeps the [eval adapter](https://github.com/browser-use/browser-use-js/blob/main/eval/README.md) and automated tests. For a performance claim, freeze SDK SHA, task IDs, model, reasoning, budgets, judge, environment and retries. Run matched arms and inspect failures. A tiny model smoke proves integration, not benchmark parity.
+The current repository keeps the [eval adapter](https://github.com/browser-use/browser-use-pi/blob/main/eval/README.md) and automated tests. For a performance claim, freeze SDK SHA, task IDs, model, reasoning, budgets, judge, environment and retries. Run matched arms and inspect failures. A tiny model smoke proves integration, not benchmark parity.

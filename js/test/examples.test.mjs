@@ -24,9 +24,9 @@ const cases = [
   'research',
 ];
 const html = (body) =>
-  `<!doctype html><html><head><title>Browser Use JS test fixture</title></head><body>${body}</body></html>`;
+  `<!doctype html><html><head><title>Browser Use Pi test fixture</title></head><body>${body}</body></html>`;
 const fixture = html(`
-<h1>Browser Use JS sandbox</h1><p>Test checkout: Example Store, Demo book, final total USD 10.00. Tax and shipping included.</p>
+<h1>Browser Use Pi sandbox</h1><p>Test checkout: Example Store, Demo book, final total USD 10.00. Tax and shipping included.</p>
 <p>Patient TEST-1001: Avery Example, DOB 1990-01-02</p>
 ${Array.from({ length: 10 }, (_, i) => `<article><a href="?book=${i}">Book ${i + 1}</a><p>USD ${i + 1}.00, In stock</p></article>`).join('')}
 <form id="pizza"><label>Customer <input name="customer"></label><label>Phone <input name="phone"></label><label>Email <input name="email" type="email"></label><label>Pizza size <select name="size"><option>small</option><option>medium</option><option>large</option></select></label><label><input type="checkbox" name="cheese">Cheese</label><label><input type="checkbox" name="mushroom">Mushroom</label><label>Delivery time <input name="time" type="time"></label><label>Comment <textarea name="comment"></textarea></label><button>Submit demo form</button></form>

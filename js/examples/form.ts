@@ -1,4 +1,4 @@
-import { Browser, BrowserUse, Type } from '@browser_use/js';
+import { Browser, BrowserUse, Type } from '@browser_use/pi';
 
 const agent = await BrowserUse.create({
   model: process.env.MODEL || 'openrouter/openai/gpt-5.6-luna',
@@ -15,7 +15,7 @@ try {
     `Open ${process.env.START_URL || 'https://httpbin.org/forms/post'}.
     Fill the test pizza form: customer Avery Example, phone 202-555-0142,
     email avery@example.com, medium pizza, cheese and mushroom toppings,
-    delivery time 18:30, comment "Synthetic Browser Use JS demo".
+    delivery time 18:30, comment "Synthetic Browser Use Pi demo".
     Submit this demo form once. Inspect the response and verify the submitted fields.
     If the submission result is ambiguous, report that instead of submitting again.`,
     {

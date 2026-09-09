@@ -1,4 +1,4 @@
-import { Browser, BrowserUse, Type } from '@browser_use/js';
+import { Browser, BrowserUse, Type } from '@browser_use/pi';
 
 const url = process.env.EHR_URL;
 if (!url) throw new Error('Set EHR_URL to an EHR sandbox containing synthetic patient TEST-1001.');

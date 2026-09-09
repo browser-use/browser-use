@@ -1,12 +1,12 @@
 import { defineConfig } from 'vitepress';
 
 export default defineConfig({
-  title: 'Browser Use JS',
-  description: 'Pi, with a browser. Persistent JavaScript and raw CDP.',
+  title: 'Browser Use Pi',
+  description: 'Browser Use, built on Pi. Persistent V8 REPL + raw CDP, in TypeScript.',
   cleanUrls: true,
   themeConfig: {
     logo: '/mark.svg',
-    nav: [{ text: 'GitHub', link: 'https://github.com/browser-use/browser-use-js/tree/main' }],
+    nav: [{ text: 'GitHub', link: 'https://github.com/browser-use/browser-use-pi/tree/main' }],
     sidebar: [
       { text: 'Quickstart', link: '/quickstart' },
       { text: 'Models', link: '/models' },

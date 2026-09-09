@@ -1,4 +1,4 @@
-import { Browser, BrowserUse, Type } from '@browser_use/js';
+import { Browser, BrowserUse, Type } from '@browser_use/pi';
 
 // A website becomes a typed dataset and a CSV, with source URLs for every row.
 const agent = await BrowserUse.create({

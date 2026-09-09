@@ -1,4 +1,4 @@
-import { Browser, BrowserUse, Type, exportRecording } from '@browser_use/js';
+import { Browser, BrowserUse, Type, exportRecording } from '@browser_use/pi';
 import { join } from 'node:path';
 
 const url = process.env.START_URL;

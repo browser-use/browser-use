@@ -33,7 +33,7 @@ Set `BROWSER=cloud` for Browser Use Cloud, or `BROWSER=local` for isolated local
 **Link:** install `@stripe/link-cli@0.18.0` and put its `link-cli` executable on PATH. Check `link-cli auth status --format json`. For a new session:
 
 ```sh
-link-cli auth login --client-name "Browser Use JS" --scope "userinfo:read payment_methods.agentic"
+link-cli auth login --client-name "Browser Use Pi" --scope "userinfo:read payment_methods.agentic"
 ```
 
 For an existing session missing payment access, use `auth upgrade` with the same scope. The example inspects a test checkout, creates a `--test` card request, prints its approval URL, waits up to eight minutes, then prefills and cancels the unused request. It never clicks Pay. It supports ordinary card forms, not Link Pay Tokens or HTTP 402 flows. Keep the checkout directly revisitable: preflight and filling use separate browsers.
