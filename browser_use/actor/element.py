@@ -410,10 +410,24 @@ class Element:
 			)
 
 			# Step 2: Clear existing text if requested
+			cleared_successfully = True
 			if clear:
 				cleared_successfully = await self._clear_text_field(
 					object_id=object_id, cdp_client=cdp_client, session_id=session_id
 				)
+				try:
+					clear_verification = await cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': 'function() { return this.isContentEditable ? this.textContent : this.value; }',
+							'objectId': object_id,
+							'returnByValue': True,
+						},
+						session_id=session_id,
+					)
+					cleared_successfully = clear_verification.get('result', {}).get('value') == ''
+				except Exception as e:
+					logger.debug(f'Clear verification failed: {e}')
+					cleared_successfully = False
 				if not cleared_successfully:
 					logger.warning('Text field clearing failed, typing may append to existing text')
 
@@ -502,6 +516,64 @@ class Element:
 
 				# Add 18ms delay between keystrokes
 				await asyncio.sleep(0.018)
+
+			# Reconcile a controlled field that restored stale text before notifying
+			# change listeners. This keeps the clear and replacement atomic from the
+			# formatter's perspective, including an intentional empty replacement.
+			if clear and not cleared_successfully:
+				try:
+					value_verification = await cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': 'function() { return this.isContentEditable ? this.textContent : this.value; }',
+							'objectId': object_id,
+							'returnByValue': True,
+						},
+						session_id=session_id,
+					)
+					actual_value = value_verification.get('result', {}).get('value')
+					if actual_value != value:
+						await cdp_client.send.Runtime.callFunctionOn(
+							params={
+								'functionDeclaration': """
+									function(newValue) {
+										const setValue = () => {
+											if (this.isContentEditable) {
+												this.textContent = newValue;
+											} else if (this.value !== undefined) {
+												if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {
+													const proto = this instanceof HTMLTextAreaElement
+														? window.HTMLTextAreaElement.prototype
+														: window.HTMLInputElement.prototype;
+													const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+													try { desc.set.call(this, newValue); } catch (e) { this.value = newValue; }
+												} else {
+													this.value = newValue;
+												}
+											}
+										};
+										setValue();
+										this.dispatchEvent(new Event('input', { bubbles: true }));
+										if (newValue === '' && (this.isContentEditable ? this.textContent : this.value) !== newValue) setValue();
+										return this.isContentEditable ? this.textContent : this.value;
+									}
+								""",
+								'arguments': [{'value': value}],
+								'objectId': object_id,
+								'returnByValue': True,
+							},
+							session_id=session_id,
+						)
+				except Exception as e:
+					logger.debug(f'Value reconciliation failed: {e}')
+
+			# Notify change listeners only after the replacement text is complete.
+			await cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': 'function() { this.dispatchEvent(new Event("change", { bubbles: true })); }',
+					'objectId': object_id,
+				},
+				session_id=session_id,
+			)
 
 		except Exception as e:
 			raise Exception(f'Failed to fill element: {str(e)}')
@@ -965,6 +1037,13 @@ class Element:
 				params={
 					'functionDeclaration': """
 						function() {
+							if (this.isContentEditable) {
+								this.textContent = '';
+								this.innerHTML = '';
+								this.focus();
+								this.dispatchEvent(new Event('input', { bubbles: true }));
+								return this.textContent;
+							}
 							// Try to select all text first (only works on text-like inputs)
 							// This handles cases where cursor is in the middle of text
 							try {
@@ -977,7 +1056,6 @@ class Element:
 							this.value = "";
 							// Dispatch events to notify frameworks like React
 							this.dispatchEvent(new Event("input", { bubbles: true }));
-							this.dispatchEvent(new Event("change", { bubbles: true }));
 							return this.value;
 						}
 					""",
@@ -990,7 +1068,7 @@ class Element:
 			# Verify clearing worked by checking the value
 			verify_result = await cdp_client.send.Runtime.callFunctionOn(
 				params={
-					'functionDeclaration': 'function() { return this.value; }',
+					'functionDeclaration': 'function() { return this.isContentEditable ? this.textContent : this.value; }',
 					'objectId': object_id,
 					'returnByValue': True,
 				},
@@ -998,7 +1076,7 @@ class Element:
 			)
 
 			current_value = verify_result.get('result', {}).get('value', '')
-			if not current_value:
+			if current_value == '':
 				logger.debug('Text field cleared successfully using JavaScript')
 				return True
 			else:
