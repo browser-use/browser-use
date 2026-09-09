@@ -8,18 +8,20 @@ The agent gets a persistent JS session, an accessibility tree, screenshots, and 
 
 ## Start
 
-Runs in **Node 22.19+** or **Bun 1.3.14+**. Bun also needs Node installed for the execution worker. Use local Chrome or a [cloud browser](https://github.com/browser-use/browser-use-js/blob/main/docs/sessions.md). Install with npm, pnpm or Bun:
+Runs in **Node 22.19+** or **Bun 1.3.14+**. Bun also needs Node installed for the execution worker. The example uses [Browser Use Cloud](https://github.com/browser-use/browser-use-js/blob/main/docs/sessions.md), so no local Chrome installation is needed. Install with npm, pnpm or Bun:
 
 ```sh
 npm install @browser_use/js
 export OPENROUTER_API_KEY=...
+export BROWSER_USE_API_KEY=...
 ```
 
 ```ts
-import { BrowserUse } from '@browser_use/js';
+import { Browser, BrowserUse } from '@browser_use/js';
 
 const agent = await BrowserUse.create({
   model: 'openrouter/openai/gpt-5.6-luna',
+  browser: Browser.cloud({ apiKey: process.env.BROWSER_USE_API_KEY! }),
   workspace: './work',
 });
 
