@@ -605,3 +605,15 @@ class TestHostnameNormalization:
 		assert watchdog._is_url_allowed('http://www.example.com./x') is True
 		assert watchdog._is_url_allowed('http://docs.example.org/x') is True
 		assert watchdog._is_url_allowed('http://evil.com./x') is False
+
+	def test_set_entries_are_normalised(self):
+		watchdog = self._watchdog(prohibited_domains={'Example.COM.', 'other.org'})
+		assert watchdog._is_url_allowed('http://example.com/x') is False
+		assert watchdog._is_url_allowed('http://example.com./x') is False
+		assert watchdog._is_url_allowed('http://safe.com/x') is True
+
+		# Lists at the optimisation threshold are converted to sets and must be normalised on the way in
+		watchdog = self._watchdog(prohibited_domains=[f'blocked{i}.com' for i in range(99)] + ['Example.COM.'])
+		assert isinstance(watchdog.browser_session.browser_profile.prohibited_domains, set)
+		assert watchdog._is_url_allowed('http://example.com/x') is False
+		assert watchdog._is_url_allowed('http://blocked0.com/x') is False
