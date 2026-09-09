@@ -550,12 +550,11 @@ class AgentHistory(BaseModel):
 		if self.model_output:
 			action_dump = [action.model_dump(exclude_none=True, mode='json') for action in self.model_output.action]
 
-			# Filter sensitive data only from input action parameters if sensitive_data is provided
+			# Filter sensitive data from every action parameter payload. The dumped shape is
+			# {action_name: params}, so checking for a literal "input" key misses built-in
+			# actions like input_text and any custom action with a different name.
 			if sensitive_data:
-				action_dump = [
-					self._filter_sensitive_data_from_dict(action, sensitive_data) if 'input' in action else action
-					for action in action_dump
-				]
+				action_dump = [self._filter_sensitive_data_from_dict(action, sensitive_data) for action in action_dump]
 
 			model_output_dump = {
 				'evaluation_previous_goal': self.model_output.evaluation_previous_goal,
