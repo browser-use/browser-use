@@ -18,6 +18,7 @@ Browser Use natively supports 15+ LLM providers. Most providers accept any model
 | Cerebras | `ChatCerebras` | `CEREBRAS_API_KEY` |
 | Ollama | `ChatOllama` | — |
 | OpenRouter | `ChatOpenRouter` | `OPENROUTER_API_KEY` |
+| Volcengine Ark | `ChatVolcengine` | `ARK_API_KEY` |
 | Vercel AI Gateway | `ChatVercel` | `AI_GATEWAY_API_KEY` |
 | OCI (Oracle) | `ChatOCIRaw` | OCI config file |
 | LiteLLM | `ChatLiteLLM` | Provider-specific |
@@ -206,6 +207,22 @@ llm = ChatOpenRouter(model="anthropic/claude-sonnet-4-6")
 ```
 
 **Env:** `OPENROUTER_API_KEY` | [Available models](https://openrouter.ai/models)
+
+## Volcengine Ark
+
+ByteDance's Doubao models over an OpenAI-compatible endpoint:
+
+```python
+from browser_use import Agent, ChatVolcengine
+
+llm = ChatVolcengine(model="doubao-seed-2-1-pro-260628")
+```
+
+Model IDs need their full version suffix — the console's short names (e.g.
+`doubao-seed-2-1-pro`) return 404. `doubao-seed-evolving` is the only
+unversioned ID that resolves. Pass `reasoning_effort` to grade thinking depth.
+
+**Env:** `ARK_API_KEY` | [Available models](https://www.volcengine.com/docs/82379/1330310)
 
 ## Vercel AI Gateway
 
