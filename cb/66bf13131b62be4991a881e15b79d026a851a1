@@ -1,0 +1,21 @@
+static/readme/README.md
+  s_23e95dffff25a4::t_ecd411a28e4a2a 25,31-32
+README.md
+  s_23e95dffff25a4::t_ecd411a28e4a2a 46-52,135,139,147-150,155,237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cb66bf13131b62be4991a881e15b79d026a851a1",
+  "prompts": {},
+  "sessions": {
+    "s_23e95dffff25a4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0875d-4f70-7dc1-be66-b95b5c01daea",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "MagMueller <mamagnus00@gmail.com>"
+    }
+  }
+}
