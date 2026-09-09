@@ -1,0 +1,21 @@
+browser_use/dom/serializer/html_serializer.py
+  s_86d24eaeebcb12::t_6868296500cd19 80,82-85
+tests/ci/test_html_serializer.py
+  s_86d24eaeebcb12::t_6868296500cd19 17,27,47,54,78-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "312594ac885b357dbae3a3e7135b3c6fedf06b64",
+  "prompts": {},
+  "sessions": {
+    "s_86d24eaeebcb12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a005bc-1d17-73c3-b1f5-38259988bc61",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Growth Radar QA <growth-radar-qa@local>"
+    }
+  }
+}

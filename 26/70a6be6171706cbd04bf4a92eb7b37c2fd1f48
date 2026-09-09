@@ -1,0 +1,21 @@
+browser_use/cli.py
+  s_86d24eaeebcb12::t_e2b55a1b137318 194-195,197,199-203,363-365
+tests/ci/test_browser_use_cli.py
+  s_86d24eaeebcb12::t_e2b55a1b137318 1,5,8-9,30,62-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2670a6be6171706cbd04bf4a92eb7b37c2fd1f48",
+  "prompts": {},
+  "sessions": {
+    "s_86d24eaeebcb12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a005bc-1d17-73c3-b1f5-38259988bc61",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Growth Radar QA <growth-radar-qa@local>"
+    }
+  }
+}
