@@ -208,13 +208,15 @@ class ChatAnthropic(BaseChatModel):
 
 	def _get_usage(self, response: Any) -> ChatInvokeUsage | None:
 		cache_creation_5m_tokens, cache_creation_1h_tokens = self._get_cache_creation_tokens(response)
+		# Total tokens in Anthropic are a bit fucked: input_tokens excludes cache reads,
+		# so they have to be added back in to get the real prompt size. total_tokens is
+		# derived from that same prompt size so the
+		# total == prompt + completion invariant every other provider holds also holds here.
+		prompt_tokens = response.usage.input_tokens + (response.usage.cache_read_input_tokens or 0)
 		usage = ChatInvokeUsage(
-			prompt_tokens=response.usage.input_tokens
-			+ (
-				response.usage.cache_read_input_tokens or 0
-			),  # Total tokens in Anthropic are a bit fucked, you have to add cached tokens to the prompt tokens
+			prompt_tokens=prompt_tokens,
 			completion_tokens=response.usage.output_tokens,
-			total_tokens=response.usage.input_tokens + response.usage.output_tokens,
+			total_tokens=prompt_tokens + response.usage.output_tokens,
 			prompt_cached_tokens=response.usage.cache_read_input_tokens,
 			prompt_cache_creation_tokens=response.usage.cache_creation_input_tokens,
 			prompt_cache_creation_5m_tokens=cache_creation_5m_tokens,
