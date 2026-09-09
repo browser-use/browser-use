@@ -1898,9 +1898,14 @@ Validated Code (after quote fixing):
 				found_images = re.findall(image_pattern, result_text)
 
 				metadata = None
+				MAX_EVALUATE_IMAGES = 5
+				MAX_IMAGE_CHARS = 200_000  # ~150KB decoded
+
 				if found_images:
-					# Store images in metadata so they can be added as ContentPartImageParam
-					metadata = {'images': found_images}
+					kept = [img for img in found_images if len(img) <= MAX_IMAGE_CHARS][:MAX_EVALUATE_IMAGES]
+					dropped = len(found_images) - len(kept)
+					if kept:
+						metadata = {'images': kept}
 
 					# Replace image data in result text with shorter placeholder
 					modified_text = result_text
@@ -1908,6 +1913,9 @@ Validated Code (after quote fixing):
 						placeholder = '[Image]'
 						modified_text = modified_text.replace(img_data, placeholder)
 					result_text = modified_text
+
+					if dropped:
+						result_text += '\n[' + str(dropped) + ' image(s) omitted: exceeded size or count limit]'
 
 				# Apply length limit with better truncation (after image extraction)
 				if len(result_text) > 20000:
