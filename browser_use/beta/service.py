@@ -76,6 +76,7 @@ from browser_use.utils import (
 	check_latest_browser_use_version,
 	get_browser_use_version,
 	get_git_info,
+	has_url_negation,
 	is_placeholder_url,
 	sanitize_url_candidate,
 )
@@ -1460,8 +1461,6 @@ def _extract_start_url(task: str) -> str | None:
 		'rpm',
 		'iso',
 	}
-	excluded_words = {'never', 'dont', 'not', "don't"}
-
 	found_urls = []
 	matched_spans: list[tuple[int, int]] = []
 	for pattern in patterns:
@@ -1483,7 +1482,7 @@ def _extract_start_url(task: str) -> str | None:
 					continue
 			context_start = max(0, match.start() - 20)
 			context_text = task_without_emails[context_start : match.start()]
-			if any(word in context_text.lower() for word in excluded_words):
+			if has_url_negation(context_text):
 				continue
 			if not has_scheme:
 				url = 'https://' + url
@@ -4150,8 +4149,8 @@ def _eventbus_name(agent_id: str, prefix: str = 'Agent') -> str:
 
 
 class _CloudEventLLMProxy:
-	def __init__(self, model_name: str):
-		self.model_name = model_name
+	def __init__(self, model: str):
+		self.model = model
 
 
 class _CloudEventAgentProxy:

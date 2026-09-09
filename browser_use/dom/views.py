@@ -353,6 +353,10 @@ class EnhancedSnapshotNode:
 	"""Paint order from the layout tree"""
 	stacking_contexts: int | None
 	"""Stacking contexts from the layout tree"""
+	input_value: str | None = None
+	"""Live value of an <input> or <textarea> (DOMSnapshot inputValue/textValue), which the value attribute misses when JS, autofill, or a framework set it."""
+	input_checked: bool | None = None
+	"""Live checked state of a checkbox or radio input (DOMSnapshot inputChecked)."""
 
 
 # @dataclass(slots=True)

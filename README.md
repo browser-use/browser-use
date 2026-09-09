@@ -62,6 +62,14 @@ https://github.com/user-attachments/assets/485fd3ec-61b9-4afc-9e86-ee9b85acb592
 
 <br/>
 
+# Start with Browser Use Cloud
+
+Eligible new Google, GitHub or Microsoft signups get a one-time **$15 Cloud credit**. No card required; email/password signups do not qualify. [Pricing and eligibility](https://browser-use.com/pricing.md).
+
+- **Hosted agent:** [V4 quickstart](https://docs.browser-use.com/cloud/agent/quickstart), using `browser-use-sdk`.
+- **Your own agent:** [Managed browser quickstart](https://docs.browser-use.com/cloud/browser/quickstart).
+- **Local framework:** the `browser-use` Python library below.
+
 # Quickstart
 
 If you want to use Browser Use in your agent (Claude Code, Codex, Cursor, Hermes, OpenClaw, etc.), paste this prompt, and it sets everything up itself:

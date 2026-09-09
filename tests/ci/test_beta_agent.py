@@ -4297,6 +4297,10 @@ def test_beta_agent_exposes_task_helper_methods():
 	assert 'Expected output format: Answer' in enhanced
 	assert '"answer"' in enhanced
 	assert agent._extract_start_url('Open example.com and report the title.') == 'https://example.com'
+	assert agent._extract_start_url('Open this notable site: https://example.com') == 'https://example.com'
+	assert browser_use_agent._extract_start_url('Open this notable site: https://example.com') == 'https://example.com'
+	assert agent._extract_start_url('Do not open https://example.com.') is None
+	assert browser_use_agent._extract_start_url('Do not open https://example.com.') is None
 	assert agent._extract_start_url('Email support@example.com only.') is None
 	assert agent._extract_start_url('Open https://example.com/report.pdf and summarize it.') is None
 	assert agent._extract_start_url('Use https://XXX.XX as a placeholder in the table.') is None
