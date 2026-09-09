@@ -132,45 +132,62 @@ def test_default_action_timeout_accommodates_extract_action():
 	)
 
 
-@pytest.fixture
-def _restore_service_module():
-	"""Reload browser_use.tools.service without any env override on teardown.
+def _timeout_default_in_subprocess(env_value: str) -> float:
+	"""Import browser_use.tools.service in a fresh interpreter with the env var set.
 
-	Tests in this file intentionally reload the module with BROWSER_USE_ACTION_TIMEOUT_S
-	set to various values; without this fixture, the last reload's default leaks into
-	every later test in the same worker.
+	Run in a subprocess (rather than importlib.reload) because reloading the module in
+	this process would rebind browser_use.tools.service.Tools to a brand-new class
+	object, desyncing it from the by-value imports already held by agent/service.py,
+	beta/service.py, mcp/*, and __init__.py for the rest of the pytest run.
 	"""
-	import importlib
 	import os
+	import subprocess
+	import sys
 
-	import browser_use.tools.service as svc_module
+	script = 'import browser_use.tools.service as svc; print(svc._DEFAULT_ACTION_TIMEOUT_S)'
+	env = dict(os.environ)
+	env['BROWSER_USE_ACTION_TIMEOUT_S'] = env_value
+	out = subprocess.run(
+		[sys.executable, '-c', script],
+		capture_output=True,
+		text=True,
+		env=env,
+		check=True,
+	)
+	return float(out.stdout.strip())
 
-	yield svc_module
-	os.environ.pop('BROWSER_USE_ACTION_TIMEOUT_S', None)
-	importlib.reload(svc_module)
 
-
-def test_malformed_env_timeout_does_not_break_import(monkeypatch, _restore_service_module):
+def test_malformed_env_timeout_does_not_break_import():
 	"""Bad BROWSER_USE_ACTION_TIMEOUT_S values must fall back, not crash or misbehave.
 
 	Covers three failure modes:
 	- Non-numeric / empty (ValueError from float()): would crash module import.
 	- NaN: parses fine but makes asyncio.wait_for time out immediately for every action.
 	- Infinity / negative / zero: parses fine but effectively disables the hang guard.
+
+	Each scenario runs in its own subprocess so the in-process Tools class identity
+	is never corrupted (see _timeout_default_in_subprocess).
 	"""
-	import importlib
-
-	svc_module = _restore_service_module
-
 	bad_values = ('', 'not-a-number', 'abc', 'nan', 'NaN', 'inf', '-inf', '0', '-5')
 	for bad_value in bad_values:
-		monkeypatch.setenv('BROWSER_USE_ACTION_TIMEOUT_S', bad_value)
-		reloaded = importlib.reload(svc_module)
-		assert reloaded._DEFAULT_ACTION_TIMEOUT_S == 180.0, (
-			f'Expected fallback 180.0 for bad env {bad_value!r}, got {reloaded._DEFAULT_ACTION_TIMEOUT_S}'
-		)
+		parsed = _timeout_default_in_subprocess(bad_value)
+		assert parsed == 180.0, f'Expected fallback 180.0 for bad env {bad_value!r}, got {parsed}'
 
 	# Valid finite positive values still take effect.
-	monkeypatch.setenv('BROWSER_USE_ACTION_TIMEOUT_S', '45')
-	reloaded = importlib.reload(svc_module)
-	assert reloaded._DEFAULT_ACTION_TIMEOUT_S == 45.0
+	assert _timeout_default_in_subprocess('45') == 45.0
+
+
+def test_action_timeout_tests_do_not_corrupt_tools_class_identity():
+	"""Running the env-override tests must not desync the in-process Tools class.
+
+	Regression guard for the importlib.reload pattern this file used to use: each
+	reload() rebinds browser_use.tools.service.Tools to a new class object, while
+	modules like agent/service.py keep the by-value Tools they imported at startup.
+	The class identity must stay stable across the whole test run.
+	"""
+	import browser_use.agent.service as agent_service
+	import browser_use.tools.service as svc
+	from browser_use.tools.service import Tools
+
+	assert svc.Tools is Tools
+	assert svc.Tools is agent_service.Tools
