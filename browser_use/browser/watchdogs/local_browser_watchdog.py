@@ -26,6 +26,19 @@ if TYPE_CHECKING:
 	from browser_use.browser.profile import BrowserChannel
 
 
+# Prefixes of temp user_data_dirs this library creates itself, and may therefore delete.
+# 'browser-use-user-data-dir-' comes from BrowserProfile.get_args()/_copy_profile();
+# 'browseruse-tmp-' is the SingletonLock retry fallback below. A user-supplied
+# user_data_dir never matches either, so it is never removed.
+_TEMP_USER_DATA_DIR_PREFIXES = ('browser-use-user-data-dir-', 'browseruse-tmp-')
+
+
+def _is_browser_use_temp_dir(path: Path | str) -> bool:
+	"""True only for temp user_data_dirs created by browser-use itself."""
+	name = Path(path).name
+	return name.startswith(_TEMP_USER_DATA_DIR_PREFIXES)
+
+
 class LocalBrowserWatchdog(BaseWatchdog):
 	"""Manages local browser subprocess lifecycle."""
 
@@ -170,7 +183,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 						pass
 
 				# Keep only the in-use directory for cleanup during browser kill
-				if currently_used_dir and 'browseruse-tmp-' in currently_used_dir:
+				if currently_used_dir and _is_browser_use_temp_dir(currently_used_dir):
 					self._temp_dirs_to_cleanup = [Path(currently_used_dir)]
 				else:
 					self._temp_dirs_to_cleanup = []
@@ -501,7 +514,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		try:
 			temp_path = Path(temp_dir)
 			# Only remove if it's actually a temp directory we created
-			if 'browseruse-tmp-' in str(temp_path):
+			if _is_browser_use_temp_dir(temp_path):
 				shutil.rmtree(temp_path, ignore_errors=True)
 		except Exception as e:
 			self.logger.debug(f'Failed to cleanup temp dir {temp_dir}: {e}')

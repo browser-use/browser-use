@@ -486,8 +486,11 @@ class BrowserLaunchArgs(BaseModel):
 				unique_id = str(uuid.uuid4())[:8]
 				downloads_path = Path(tempfile.gettempdir()) / f'browser-use-downloads-{unique_id}'
 
+			# Only assign the path here. DownloadsWatchdog.on_BrowserLaunchEvent()
+			# creates it when a browser actually launches, so profiles that are
+			# constructed but never launched (unit tests, config plumbing) don't
+			# leak an empty dir into $TMPDIR that nothing ever removes.
 			self.downloads_path = downloads_path
-			self.downloads_path.mkdir(parents=True, exist_ok=True)
 		return self
 
 	@staticmethod
