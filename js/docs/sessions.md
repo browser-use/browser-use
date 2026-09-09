@@ -1,7 +1,7 @@
 # Sessions, login and files
 
 ```js
-import { Browser, BrowserUse } from '@browser-use/next';
+import { Browser, BrowserUse } from '@browser_use/js';
 
 const agent = await BrowserUse.create({
   model: 'openrouter/openai/gpt-5.6-luna',
@@ -31,7 +31,7 @@ Reuse a profile to keep login. Reuse a workspace to keep files. Restore history 
 ## Choose a browser
 
 ```js
-import { Browser, BrowserUse } from '@browser-use/next';
+import { Browser, BrowserUse } from '@browser_use/js';
 
 // Browser Use Cloud. close() stops the browser this session creates.
 const browser = Browser.cloud({
@@ -56,9 +56,9 @@ try {
 }
 ```
 
-Real Chrome must expose CDP. Enable `chrome://inspect/#remote-debugging`; bu-pi discovers `DevToolsActivePort` on macOS, Linux and Windows. It never copies your profile, relaunches your browser, or grants OS permissions. Pass `Browser.chrome({ cdpUrl })` for an explicit endpoint. `profileDir` in this mode selects the existing user-data root for discovery. The legacy `{cdpUrl}` and local browser options still work.
+Real Chrome must expose CDP. Enable `chrome://inspect/#remote-debugging`; Browser Use JS discovers `DevToolsActivePort` on macOS, Linux and Windows. It never copies your profile, relaunches your browser, or grants OS permissions. Pass `Browser.chrome({ cdpUrl })` for an explicit endpoint. `profileDir` in this mode selects the existing user-data root for discovery. The legacy `{cdpUrl}` and local browser options still work.
 
-A local `profileDir` stores cookies, local storage and IndexedDB on disk. First run: use `headless: false`, sign in, then close normally. Next run: reuse that directory. Without it, the local profile is temporary and deleted at close. Profile locks reject concurrent SDK owners; after a crash, verify Chrome and bu-pi have exited before removing `.bu-pi.lock`. A Chrome profile is sensitive data, not a portable login export.
+A local `profileDir` stores cookies, local storage and IndexedDB on disk. First run: use `headless: false`, sign in, then close normally. Next run: reuse that directory. Without it, the local profile is temporary and deleted at close. Profile locks reject concurrent SDK owners; after a crash, verify Chrome and the SDK have exited before removing `.bu-pi.lock`. A Chrome profile is sensitive data, not a portable login export.
 
 Cloud uses a provider-managed `profileId`, not a local directory. Its save/sync behavior follows Browser Use Cloud. Real Chrome retains its own profile normally. Workspace and conversation history never restore login. Remote downloads stay on the remote browser host; retrieve them through the provider API.
 
@@ -94,7 +94,7 @@ Each session accepts one operation at a time. Use separate sessions for concurre
 Enable `recording: true` on creation. When a run returns `recordingPath`:
 
 ```js
-import { exportRecording } from '@browser-use/next';
+import { exportRecording } from '@browser_use/js';
 await exportRecording(result.recordingPath, { output: './demo.gif' });
 ```
 

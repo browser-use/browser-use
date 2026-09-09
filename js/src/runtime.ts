@@ -1,10 +1,35 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { promisify } from 'node:util';
 import { CDP } from './cdp.js';
-import { fork, type ChildProcess } from 'node:child_process';
+import { execFile, fork, type ChildProcess } from 'node:child_process';
 import type { BrowserAction, CellResult, WorkerConfig, WorkerResponse } from './protocol.js';
 import { positiveInteger } from './protocol.js';
+
+/** Bun hosts use the same V8 worker as Node hosts, including its cancellation boundary. */
+export async function workerExecutable(): Promise<string> {
+  if (!process.versions.bun && !process.env.BROWSER_USE_NODE) return process.execPath;
+  try {
+    const { stdout } = await promisify(execFile)(
+      process.env.BROWSER_USE_NODE || 'node',
+      [
+        '-p',
+        'JSON.stringify({path:process.execPath,node:process.versions.node,bun:!!process.versions.bun})',
+      ],
+      { env: { PATH: process.env.PATH ?? '' }, timeout: 5_000 },
+    );
+    const runtime = JSON.parse(stdout);
+    const [major, minor] = runtime.node.split('.').map(Number);
+    if (!runtime.bun && isAbsolute(runtime.path) && (major > 22 || (major === 22 && minor >= 19)))
+      return runtime.path;
+  } catch {
+    // Do not expose subprocess output or inherit provider keys and preload flags.
+  }
+  throw new Error(
+    'Browser Use JS needs Node.js 22.19+ for its JavaScript worker, including when your app runs in Bun. Install Node on PATH or set BROWSER_USE_NODE to its absolute executable path.',
+  );
+}
 
 export class CellError extends Error {
   constructor(
@@ -43,15 +68,20 @@ export class BrowserRuntime {
   private release: (() => void) | undefined;
   private pending: ((error: Error) => void) | undefined;
 
-  constructor(private readonly config: WorkerConfig) {}
+  constructor(
+    private readonly config: WorkerConfig,
+    private readonly executable?: string,
+  ) {}
 
   private async start(signal?: AbortSignal): Promise<ChildProcess> {
     if (this.worker) return this.worker;
+    const execPath = this.executable ?? (await workerExecutable());
     const worker = fork(new URL('./worker.js', import.meta.url), [], {
+      execPath,
       execArgv: ['--max-old-space-size=256'], // Never inherit host loaders/preloads/inspectors.
       env: {}, // Provider keys stay in the agent process; this is not an OS sandbox.
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
-      serialization: 'advanced',
+      serialization: 'json', // Node and Bun use different advanced IPC formats.
     });
     this.worker = worker;
     worker.on('message', (message: WorkerResponse) => {

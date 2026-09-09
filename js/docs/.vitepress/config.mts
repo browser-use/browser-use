@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitepress';
 
 export default defineConfig({
-  title: 'bu-pi',
+  title: 'Browser Use JS',
   description: 'Pi, with a browser. Persistent JavaScript and raw CDP.',
   cleanUrls: true,
   themeConfig: {

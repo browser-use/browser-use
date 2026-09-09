@@ -1,4 +1,4 @@
-import { BrowserUse } from '@browser-use/next';
+import { BrowserUse } from '@browser_use/js';
 
 const task = process.argv.slice(2).join(' ');
 if (!task) throw new Error('Usage: node examples/research.mjs "Your browser task"');

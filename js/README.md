@@ -1,6 +1,6 @@
 <img src="https://raw.githubusercontent.com/browser-use/bu-pi/codex/raw-cdp-k7m2/docs/public/banner.webp" alt="A white arch above the clouds" width="100%" />
 
-# bu-pi
+# Browser Use JS
 
 **Pi, with a browser.** A small TypeScript SDK for agents that write JavaScript and control Chrome through raw CDP.
 
@@ -8,17 +8,17 @@ The agent gets a persistent JS session, an accessibility tree, screenshots, and 
 
 ## Start
 
-Requires Node **22.19+** and Chrome. This prototype is installed from source:
+Runs in **Node 22.19+** or **Bun 1.3.14+**. Bun also needs Node installed for the execution worker. Use local Chrome or a [cloud browser](https://github.com/browser-use/bu-pi/blob/codex/raw-cdp-k7m2/docs/sessions.md). Until the first npm release, install from source:
 
 ```sh
-git clone --branch codex/raw-cdp-k7m2 https://github.com/browser-use/bu-pi.git
-cd bu-pi
+git clone --branch codex/raw-cdp-k7m2 https://github.com/browser-use/bu-pi.git browser-use-js
+cd browser-use-js
 npm ci && npm run build
 export OPENROUTER_API_KEY=...
 ```
 
 ```js
-import { BrowserUse } from '@browser-use/next';
+import { BrowserUse } from '@browser_use/js';
 
 const agent = await BrowserUse.create({
   model: 'openrouter/openai/gpt-5.6-luna',
@@ -34,7 +34,7 @@ try {
 }
 ```
 
-Run that file from the checkout. For another project, install a tarball made with `npm pack`. Nothing is published to npm yet.
+Run that file from the checkout. For another project, install a tarball made with `npm pack`. npm, pnpm, and Bun can install that tarball. The npm package will be `@browser_use/js`; it is not published yet.
 
 ## How it works
 

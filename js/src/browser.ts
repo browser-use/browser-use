@@ -306,7 +306,7 @@ export function approveChromeConnection(signal: AbortSignal): Promise<string> {
       if (error)
         reject(
           new Error(
-            'Chrome approval needs macOS Accessibility permission for the app running bu-pi. Accept Chrome’s prompt manually, or grant that permission.',
+            'Chrome approval needs macOS Accessibility permission for the app running Browser Use JS. Accept Chrome’s prompt manually, or grant that permission.',
           ),
         );
       else resolve(stdout.trim());

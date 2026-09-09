@@ -1,7 +1,7 @@
 ---
 layout: home
 hero:
-  name: bu-pi
+  name: Browser Use JS
   text: Pi, with a browser.
   tagline: Persistent JavaScript. Raw CDP. Let the agent write the rest.
   image:

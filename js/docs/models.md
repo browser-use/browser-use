@@ -1,6 +1,6 @@
 # Models
 
-Use `provider/model`. bu-pi uses upstream Pi’s pinned model catalog and transports; it does not fork the model loop or silently substitute models.
+Use `provider/model`. Browser Use JS uses upstream Pi’s pinned model catalog and transports; it does not fork the model loop or silently substitute models.
 
 | Example                              | Environment variable |
 | ------------------------------------ | -------------------- |

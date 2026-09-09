@@ -9,7 +9,7 @@ import { Type, type Static, type TSchema } from 'typebox';
 import { navigationPolicy, validateSensitiveData } from './policy.js';
 import { telemetry } from './telemetry.js';
 import { openBrowser } from './browser.js';
-import { BrowserRuntime } from './runtime.js';
+import { BrowserRuntime, workerExecutable } from './runtime.js';
 import { runAgent, zeroUsage } from './agent.js';
 import { Recorder } from './recording.js';
 import { RunControl } from './control.js';
@@ -132,29 +132,34 @@ export class BrowserUse {
     );
     positiveInteger('cellTimeoutMs', options.cellTimeoutMs ?? 30_000);
     const maxOutputChars = positiveInteger('maxOutputChars', options.maxOutputChars ?? 12_000);
+    const executable = await workerExecutable(); // Fail before launching or provisioning a browser.
     const workspace = options.workspace
       ? resolve(options.workspace)
       : await mkdtemp(join(tmpdir(), 'browser-use-artifacts-'));
     await mkdir(workspace, { recursive: true });
     const browser = await openBrowser(options.browser);
-    const runtime = new BrowserRuntime({
-      endpoint: browser.endpoint,
-      ...(options.allowedDomains !== undefined ? { allowedDomains: options.allowedDomains } : {}),
-      ...(options.prohibitedDomains !== undefined
-        ? { prohibitedDomains: options.prohibitedDomains }
-        : {}),
-      ...(options.sensitiveData ? { sensitiveData: options.sensitiveData } : {}),
-      ...(options.redact ? { redact: options.redact } : {}),
-      approveConnection: options.browser?.kind === 'chrome' && !!options.browser.approveConnection,
-      recording: !!options.recording,
-      highlightActions: !!options.highlightActions,
-      ...(options.browser && 'targetId' in options.browser && options.browser.targetId
-        ? { targetId: options.browser.targetId }
-        : {}),
-      workspace,
-      operationTimeoutMs,
-      maxOutputChars,
-    });
+    const runtime = new BrowserRuntime(
+      {
+        endpoint: browser.endpoint,
+        ...(options.allowedDomains !== undefined ? { allowedDomains: options.allowedDomains } : {}),
+        ...(options.prohibitedDomains !== undefined
+          ? { prohibitedDomains: options.prohibitedDomains }
+          : {}),
+        ...(options.sensitiveData ? { sensitiveData: options.sensitiveData } : {}),
+        ...(options.redact ? { redact: options.redact } : {}),
+        approveConnection:
+          options.browser?.kind === 'chrome' && !!options.browser.approveConnection,
+        recording: !!options.recording,
+        highlightActions: !!options.highlightActions,
+        ...(options.browser && 'targetId' in options.browser && options.browser.targetId
+          ? { targetId: options.browser.targetId }
+          : {}),
+        workspace,
+        operationTimeoutMs,
+        maxOutputChars,
+      },
+      executable,
+    );
     const config = { ...options, streamFn: options.streamFn ?? models.streamSimple.bind(models) };
     const instance = new BrowserUse(config, model, runtime, browser, workspace);
     if (restored) {
