@@ -750,18 +750,21 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	@classmethod
 	def optimize_large_domain_lists(cls, v: list[str] | set[str] | None) -> list[str] | set[str] | None:
 		"""Convert large domain lists (>=100 items) to sets for O(1) lookup performance."""
-		if v is None or isinstance(v, set):
+		if v is None:
 			return v
 
-		if len(v) >= DOMAIN_OPTIMIZATION_THRESHOLD:
+		if isinstance(v, list):
+			if len(v) < DOMAIN_OPTIMIZATION_THRESHOLD:
+				return v
 			logger.warning(
 				f'🔧 Optimizing domain list with {len(v)} items to set for O(1) lookup. '
 				f'Note: Pattern matching (*.domain.com, etc.) is not supported for lists >= {DOMAIN_OPTIMIZATION_THRESHOLD} items. '
 				f'Use exact domains only or keep list size < {DOMAIN_OPTIMIZATION_THRESHOLD} for pattern support.'
 			)
-			return set(v)
 
-		return v
+		# Set entries are compared to the parsed hostname directly (lowercase, no trailing
+		# root-label dot), so normalise them the same way once here.
+		return {domain.lower().rstrip('.') for domain in v}
 
 	@model_validator(mode='after')
 	def copy_old_config_names_to_new(self) -> Self:
