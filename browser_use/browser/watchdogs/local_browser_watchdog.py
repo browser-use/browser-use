@@ -104,6 +104,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				self._subprocess_descendants = list(
 					{process.pid: process for process in [*self._subprocess_descendants, *descendants]}.values()
 				)
+				self._subprocess_descendants_complete = True
 			# Bubus includes child events in parent completion. Keep cleanup queued
 			# so recording/storage stop handlers can finish before process termination.
 			self.event_bus.dispatch(BrowserKillEvent())

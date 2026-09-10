@@ -49,6 +49,7 @@ async def test_stop_merges_new_descendants_with_launch_snapshot(monkeypatch, tmp
 	new_child.pid = 43
 	watchdog._subprocess = root
 	watchdog._subprocess_descendants = [orphan]
+	watchdog._subprocess_descendants_complete = False
 	monkeypatch.setattr(session.event_bus, 'dispatch', Mock())
 
 	async def snapshot_descendants(process):
