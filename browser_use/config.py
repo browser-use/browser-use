@@ -520,10 +520,14 @@ def load_browser_use_config() -> dict[str, Any]:
 
 
 def get_default_profile(config: dict[str, Any]) -> dict[str, Any]:
-	"""Get default browser profile from config dict."""
-	return config.get('browser_profile', {})
+	"""Get a copy of the default browser profile from config dict.
+
+	A copy so callers can layer per-call overrides on top without editing the
+	loaded config that later calls read.
+	"""
+	return dict(config.get('browser_profile', {}))
 
 
 def get_default_llm(config: dict[str, Any]) -> dict[str, Any]:
-	"""Get default LLM config from config dict."""
-	return config.get('llm', {})
+	"""Get a copy of the default LLM config from config dict."""
+	return dict(config.get('llm', {}))
