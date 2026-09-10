@@ -663,8 +663,11 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def model_dump(self, **kwargs) -> dict[str, Any]:
 		"""Custom serialization that properly uses AgentHistory's model_dump"""
+		# 'sensitive_data' is only understood by AgentHistory.model_dump, not by UsageSummary
+		usage_kwargs = {k: v for k, v in kwargs.items() if k != 'sensitive_data'}
 		return {
 			'history': [h.model_dump(**kwargs) for h in self.history],
+			'usage': self.usage.model_dump(**usage_kwargs) if self.usage else None,
 		}
 
 	@classmethod
