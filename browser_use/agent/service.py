@@ -608,6 +608,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
 
+		# Save last LLM usage for token count logging
+		self._last_llm_usage: Any = None
+
 	def _enhance_task_with_schema(self, task: str, output_model_schema: type[AgentStructuredOutput] | None) -> str:
 		"""Enhance task description with output schema information if provided."""
 		if output_model_schema is None:
@@ -1148,6 +1151,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			unavailable_skills_info=unavailable_skills_info,
 			plan_description=plan_description,
 			skip_state_update=True,
+			token_count=getattr(self._last_llm_usage, 'total_tokens', None),
 		)
 
 		await self._inject_budget_warning(step_info)
@@ -1954,6 +1958,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			response = await self.llm.ainvoke(input_messages, **kwargs)
 			parsed: AgentOutput = response.completion  # type: ignore[assignment]
+			self._last_llm_usage = response.usage  # type: ignore[assignment]
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
