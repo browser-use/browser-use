@@ -59,6 +59,7 @@ token.json
 temp-profile-*
 
 screenshot.png
+examples/integrations/minimax/output/
 
 # *.md
 
