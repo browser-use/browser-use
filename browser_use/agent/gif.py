@@ -5,6 +5,7 @@ import io
 import logging
 import os
 import platform
+import re
 from typing import TYPE_CHECKING
 
 from browser_use.agent.views import AgentHistoryList
@@ -17,19 +18,52 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+#: Matches `\\` (escaped backslash) plus `\\uXXXX` / `\\UXXXXXXXX` escapes, so a
+#: literal backslash before a `u` is preserved instead of being decoded twice.
+_ESCAPE_RUN_RE = re.compile(r'(?:\\\\|\\u[0-9a-fA-F]{4}|\\U[0-9a-fA-F]{8})')
+
+
+def _decode_unicode_escapes_fallback(text: str) -> str:
+	"""Decode `\\uXXXX` / `\\UXXXXXXXX` escapes without requiring the whole string to be Latin-1 encodable."""
+
+	def _replace(match: re.Match[str]) -> str:
+		seq = match.group(0)
+		if seq == '\\\\':
+			return seq
+		try:
+			return chr(int(seq[2:], 16))
+		except ValueError:
+			# e.g. a `\\UXXXXXXXX` value above U+10FFFF: leave it untouched
+			return seq
+
+	return _ESCAPE_RUN_RE.sub(_replace, text)
+
+
 def decode_unicode_escapes_to_utf8(text: str) -> str:
 	"""Handle decoding any unicode escape sequences embedded in a string (needed to render non-ASCII languages like chinese or arabic in the GIF overlay text)"""
 
-	if r'\u' not in text:
+	if r'\u' not in text and r'\U' not in text:
 		# doesn't have any escape sequences that need to be decoded
 		return text
+
+	if '\\\\' in text:
+		# An escaped backslash (`\\`) is literal text, not an escape. The fast
+		# path below would strip one backslash and expose e.g. `\\UXXXXXXXX`
+		# as a live escape to the next decoder call in the overlay path, so
+		# route such inputs through the fallback, which preserves `\\` pairs
+		# and is idempotent under repeated decoding.
+		return _decode_unicode_escapes_fallback(text)
 
 	try:
 		# Try to decode Unicode escape sequences
 		return text.encode('latin1').decode('unicode_escape')
 	except (UnicodeEncodeError, UnicodeDecodeError):
 		# logger.debug(f"Failed to decode unicode escape sequences while generating gif text: {text}")
-		return text
+		# The fast path above needs the whole string to be Latin-1 encodable, so any
+		# already-decoded character outside Latin-1 (e.g. emoji or CJK text next to a
+		# literal `\\uXXXX` escape) aborts the entire decode. Fall back to decoding
+		# just the `\\uXXXX` / `\\UXXXXXXXX` runs and leave everything else untouched.
+		return _decode_unicode_escapes_fallback(text)
 
 
 def create_history_gif(
