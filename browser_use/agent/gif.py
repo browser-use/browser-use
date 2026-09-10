@@ -46,6 +46,14 @@ def decode_unicode_escapes_to_utf8(text: str) -> str:
 		# doesn't have any escape sequences that need to be decoded
 		return text
 
+	if '\\\\' in text:
+		# An escaped backslash (`\\`) is literal text, not an escape. The fast
+		# path below would strip one backslash and expose e.g. `\\UXXXXXXXX`
+		# as a live escape to the next decoder call in the overlay path, so
+		# route such inputs through the fallback, which preserves `\\` pairs
+		# and is idempotent under repeated decoding.
+		return _decode_unicode_escapes_fallback(text)
+
 	try:
 		# Try to decode Unicode escape sequences
 		return text.encode('latin1').decode('unicode_escape')
