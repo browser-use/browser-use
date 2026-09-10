@@ -3,7 +3,8 @@ import json
 import logging
 import math
 import os
-from typing import Generic, TypeVar
+from collections.abc import Mapping
+from typing import Any, Generic, TypeVar
 
 import anyio
 
@@ -436,6 +437,54 @@ def _is_autocomplete_field(node: EnhancedDOMTreeNode) -> bool:
 	if haspopup and haspopup != 'false' and (attrs.get('aria-controls') or attrs.get('aria-owns')):
 		return True
 	return False
+
+
+def _format_js_exception_details(exception_details: Mapping[str, Any]) -> str:
+	"""Format CDP Runtime.evaluate exceptionDetails into a human-readable error string.
+
+	The CDP ``exceptionDetails`` object contains:
+		- ``text``: a short description (often just ``"Uncaught"``)
+		- ``exception.description``: the full exception message (e.g. ``"SyntaxError: Illegal return statement"``)
+		- ``stackTrace.callFrames``: source location info (line/column URL)
+
+	Previous code only used ``text``, dropping the actual error description and location.
+	"""
+	text = exception_details.get('text', 'Unknown error')
+	exception = exception_details.get('exception')
+
+	parts = [text]
+
+	# Prefer exception.description which contains the full error (e.g. "SyntaxError: Illegal return statement")
+	if exception is not None:
+		description = exception.get('description')
+		if description:
+			parts.append(description.strip())
+
+	# Location info: try stack-trace call frames first, then fall back to top-level fields
+	# CDP may provide location as either stackTrace.callFrames[0] OR top-level url/lineNumber/columnNumber
+	location_parts: list[str] = []
+	stack_trace = exception_details.get('stackTrace')
+	call_frames = (stack_trace or {}).get('callFrames') if stack_trace else None
+	if call_frames:
+		frame = call_frames[0]
+		if frame.get('url'):
+			location_parts.append(frame['url'])
+		if frame.get('lineNumber') is not None:
+			location_parts.append(f'line {frame["lineNumber"] + 1}')
+		if frame.get('columnNumber') is not None:
+			location_parts.append(f'column {frame["columnNumber"] + 1}')
+	else:
+		# Fallback: CDP top-level exceptionDetails may carry url/lineNumber/columnNumber directly
+		if exception_details.get('url'):
+			location_parts.append(exception_details['url'])
+		if exception_details.get('lineNumber') is not None:
+			location_parts.append(f'line {exception_details["lineNumber"] + 1}')
+		if exception_details.get('columnNumber') is not None:
+			location_parts.append(f'column {exception_details["columnNumber"] + 1}')
+	if location_parts:
+		parts.append(f'at {", ".join(location_parts)}')
+
+	return ' '.join(parts)
 
 
 class Tools(Generic[Context]):
@@ -1313,7 +1362,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 			if result.get('exceptionDetails'):
-				error_text = result['exceptionDetails'].get('text', 'Unknown JS error')
+				error_text = _format_js_exception_details(result['exceptionDetails'])
 				return ActionResult(error=f'search_page failed: {error_text}')
 
 			data = result.get('result', {}).get('value')
@@ -1348,7 +1397,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 			if result.get('exceptionDetails'):
-				error_text = result['exceptionDetails'].get('text', 'Unknown JS error')
+				error_text = _format_js_exception_details(result['exceptionDetails'])
 				return ActionResult(error=f'find_elements failed: {error_text}')
 
 			data = result.get('result', {}).get('value')
@@ -1837,8 +1886,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 				# Check for JavaScript execution errors
 				if result.get('exceptionDetails'):
-					exception = result['exceptionDetails']
-					error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
+					error_msg = f'JavaScript execution error: {_format_js_exception_details(result["exceptionDetails"])}'
 
 					# Enhanced error message with debugging info
 					enhanced_msg = f"""JavaScript Execution Failed:
