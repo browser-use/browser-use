@@ -1,12 +1,15 @@
 """Regression tests for Agent.close() keep-alive browser cleanup."""
 
+import asyncio
 from typing import Any, cast
 
 from browser_use import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 
 
-def _make_session(*, keep_alive: bool, is_local: bool, cdp_url: str | None = None) -> tuple[BrowserSession, Any]:
+def _make_session(
+	*, keep_alive: bool, is_local: bool, cdp_url: str | None = None, seed_event_bus: bool = True
+) -> tuple[BrowserSession, Any]:
 	session = BrowserSession(
 		browser_profile=BrowserProfile(
 			headless=True,
@@ -18,7 +21,9 @@ def _make_session(*, keep_alive: bool, is_local: bool, cdp_url: str | None = Non
 		cdp_url=cdp_url,
 	)
 	event_bus = cast(Any, session.event_bus)
-	event_bus._on_idle = object()
+	if seed_event_bus:
+		event_bus.event_queue = asyncio.Queue()
+		event_bus._on_idle = asyncio.Event()
 	return session, event_bus
 
 
@@ -47,7 +52,9 @@ async def test_agent_close_still_cleans_local_keep_alive_event_bus(mock_llm):
 
 
 async def test_agent_close_kills_non_keep_alive_browser_session(mock_llm):
-	session, event_bus = _make_session(keep_alive=False, is_local=False, cdp_url='ws://browser.example/devtools/browser/1')
+	session, event_bus = _make_session(
+		keep_alive=False, is_local=False, cdp_url='ws://browser.example/devtools/browser/1', seed_event_bus=False
+	)
 	original_event_bus = session.event_bus
 	agent = Agent(task='close browser session', llm=mock_llm, browser_session=session)
 
