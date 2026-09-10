@@ -141,6 +141,32 @@ class TestImageInLLMMessages:
 		assert 'data:image/' in img_part.image_url.url
 		assert 'base64,base64_image_data_here' in img_part.image_url.url
 
+	def test_available_file_paths_are_labeled_as_local_files(self, tmp_path: Path):
+		"""Test that uploaded HTML filenames are not presented as navigation targets."""
+		fs = FileSystem(tmp_path)
+		local_html = '/app/something_capabilities.html'
+
+		browser_state = BrowserStateSummary(
+			url='https://example.com',
+			title='Test',
+			tabs=[TabInfo(target_id='test-0', url='https://example.com', title='Test')],
+			screenshot=None,
+			dom_state=SerializedDOMState(_root=None, selector_map={}),
+		)
+
+		prompt = AgentMessagePrompt(
+			browser_state_summary=browser_state,
+			file_system=fs,
+			available_file_paths=[local_html],
+		)
+
+		user_message = prompt.get_user_message(use_vision=False)
+
+		assert isinstance(user_message.content, str)
+		assert local_html in user_message.content
+		assert 'These are local file paths for read_file or upload actions. They are not URLs.' in user_message.content
+		assert 'Do not navigate to a filename, file extension, or path fragment' in user_message.content
+
 	def test_agent_message_prompt_png_vs_jpg_media_type(self, tmp_path: Path):
 		"""Test that AgentMessagePrompt correctly detects PNG vs JPG media types."""
 		fs = FileSystem(tmp_path)
