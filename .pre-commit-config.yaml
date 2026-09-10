@@ -1,5 +1,5 @@
 default_language_version:
-  python: python3.11
+  python: python3.12
 
 repos:
   - repo: https://github.com/asottile/yesqa
