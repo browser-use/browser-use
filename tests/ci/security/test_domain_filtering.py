@@ -81,11 +81,12 @@ class TestUrlAllowlistSecurity:
 		assert watchdog._is_url_allowed('chrome://google.com') is False
 		assert watchdog._is_url_allowed('chrome://abc.google.com') is False
 
-		# Test browser internal URLs
+		# Non-http/https schemes are blocked when domain restrictions are active
 		assert watchdog._is_url_allowed('chrome://settings') is False
-		assert watchdog._is_url_allowed('chrome://version') is True
+		assert watchdog._is_url_allowed('chrome://version') is False
 		assert watchdog._is_url_allowed('chrome-extension://version/') is False
-		assert watchdog._is_url_allowed('brave://anything/') is True
+		assert watchdog._is_url_allowed('brave://anything/') is False
+		# Internal browser targets are always allowed
 		assert watchdog._is_url_allowed('about:blank') is True
 		assert watchdog._is_url_allowed('chrome://new-tab-page/') is True
 		assert watchdog._is_url_allowed('chrome://new-tab-page') is True
@@ -335,8 +336,8 @@ class TestUrlProhibitlistSecurity:
 		# Allow other domains
 		assert watchdog._is_url_allowed('https://notexample.com') is True
 
-		# Wildcard with domain-only should not apply to non-http(s)
-		assert watchdog._is_url_allowed('chrome://abc.example.com') is True
+		# Non-http/https schemes are blocked when domain restrictions (prohibited_domains) are active
+		assert watchdog._is_url_allowed('chrome://abc.example.com') is False
 
 	def test_full_url_prohibited_patterns(self):
 		"""Full URL patterns block only matching scheme/host/prefix."""
@@ -354,9 +355,9 @@ class TestUrlProhibitlistSecurity:
 		assert watchdog._is_url_allowed('https://wiki.org') is False
 		assert watchdog._is_url_allowed('https://wiki.org/path') is False
 
-		# Internal URL prefix blocking
+		# Non-http/https schemes are all blocked when domain restrictions are active
 		assert watchdog._is_url_allowed('brave://anything/') is False
-		assert watchdog._is_url_allowed('chrome://settings') is True
+		assert watchdog._is_url_allowed('chrome://settings') is False
 
 	def test_internal_urls_allowed_even_when_prohibited(self):
 		"""Internal new-tab/blank URLs are always allowed regardless of prohibited list."""
