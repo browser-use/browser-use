@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
 
 from groq import (
@@ -73,8 +73,16 @@ class ChatGroq(BaseChatModel):
 	timeout: float | Timeout | NotGiven | None = None
 	max_retries: int = 10  # Increase default retries for automation reliability
 
+	# Internal client cache: SDK clients own an httpx connection pool, so share
+	# one client per chat instance instead of allocating a pool on every call.
+	_client: AsyncGroq | None = field(default=None, init=False, repr=False, compare=False)
+
 	def get_client(self) -> AsyncGroq:
-		return AsyncGroq(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout, max_retries=self.max_retries)
+		if self._client is None:
+			self._client = AsyncGroq(
+				api_key=self.api_key, base_url=self.base_url, timeout=self.timeout, max_retries=self.max_retries
+			)
+		return self._client
 
 	@property
 	def provider(self) -> str:
