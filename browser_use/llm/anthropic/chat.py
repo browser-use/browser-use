@@ -1,7 +1,7 @@
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, TypeVar, overload
 
 import httpx
@@ -61,6 +61,10 @@ class ChatAnthropic(BaseChatModel):
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
 	http_client: httpx.AsyncClient | None = None
+
+	# Internal client cache: SDK clients own an httpx connection pool, so share
+	# one client per chat instance instead of allocating a pool on every call.
+	_client: AsyncAnthropic | None = field(default=None, init=False, repr=False, compare=False)
 
 	# Static
 	@property
@@ -170,13 +174,15 @@ class ChatAnthropic(BaseChatModel):
 
 	def get_client(self) -> AsyncAnthropic:
 		"""
-		Returns an AsyncAnthropic client.
+		Returns a cached AsyncAnthropic client.
 
 		Returns:
-			AsyncAnthropic: An instance of the AsyncAnthropic client.
+			AsyncAnthropic: The shared AsyncAnthropic client for this chat instance.
 		"""
-		client_params = self._get_client_params()
-		return AsyncAnthropic(**client_params)
+		if self._client is None:
+			client_params = self._get_client_params()
+			self._client = AsyncAnthropic(**client_params)
+		return self._client
 
 	@property
 	def name(self) -> str:
