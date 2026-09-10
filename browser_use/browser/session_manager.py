@@ -6,6 +6,7 @@ events, ensuring the session pool always reflects the current browser state.
 
 import asyncio
 from collections import deque
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from cdp_use.cdp.target import AttachedToTargetEvent, DetachedFromTargetEvent, SessionID, TargetID
@@ -51,6 +52,7 @@ class SessionManager:
 		# CDP method, so per-session handler registrations would replace each other and
 		# leave every tab but the most recently attached one without lifecycle events.
 		self._lifecycle_events: dict[TargetID, deque[dict[str, Any]]] = {}
+		self._lifecycle_event_listeners: set[Callable[[Any, Any], None]] = set()
 
 		self._lock = asyncio.Lock()
 		self._recovery_lock = asyncio.Lock()
@@ -113,18 +115,18 @@ class SessionManager:
 			# ONE global handler for all targets: route by session_id -> target_id.
 			# Registering per-session closures instead would clobber each other in
 			# cdp-use's single-slot registry (one handler per CDP method).
-			if not session_id:
-				return
-			target_id = self.get_target_id_from_session_id(session_id)
-			if not target_id:
-				return
-			self.get_lifecycle_events(target_id).append(
-				{
-					'name': event.get('name', 'unknown'),
-					'loaderId': event.get('loaderId'),
-					'timestamp': asyncio.get_event_loop().time(),
-				}
-			)
+			if session_id:
+				target_id = self.get_target_id_from_session_id(session_id)
+				if target_id:
+					self.get_lifecycle_events(target_id).append(
+						{
+							'name': event.get('name', 'unknown'),
+							'frameId': event.get('frameId'),
+							'loaderId': event.get('loaderId'),
+							'timestamp': asyncio.get_event_loop().time(),
+						}
+					)
+			self._notify_lifecycle_event_listeners(event, session_id)
 
 		cdp_client.register.Target.attachedToTarget(on_attached)
 		cdp_client.register.Target.detachedFromTarget(on_detached)
@@ -143,6 +145,21 @@ class SessionManager:
 			events = deque(maxlen=50)
 			self._lifecycle_events[target_id] = events
 		return events
+
+	def add_lifecycle_event_listener(self, listener: Callable[[Any, Any], None]) -> None:
+		"""Subscribe to the shared Page.lifecycleEvent stream without replacing the global handler."""
+		self._lifecycle_event_listeners.add(listener)
+
+	def remove_lifecycle_event_listener(self, listener: Callable[[Any, Any], None]) -> None:
+		"""Unsubscribe a listener previously registered with add_lifecycle_event_listener."""
+		self._lifecycle_event_listeners.discard(listener)
+
+	def _notify_lifecycle_event_listeners(self, event: Any, session_id: SessionID | None = None) -> None:
+		for listener in tuple(self._lifecycle_event_listeners):
+			try:
+				listener(event, session_id)
+			except Exception as e:
+				self.logger.debug(f'[SessionManager] Page.lifecycleEvent listener failed: {type(e).__name__}: {e}')
 
 	def _get_session_for_target(self, target_id: TargetID) -> 'CDPSession | None':
 		"""Internal: Get ANY valid session for a target (picks first available).
