@@ -21,19 +21,17 @@ def test_step_metadata_step_interval_optional():
 
 
 def test_step_interval_calculation():
-	"""Test step_interval calculation logic (uses previous step's duration)"""
-	# Previous step (Step 1): runs from 100.0 to 102.5 (duration: 2.5s)
-	previous_start = 100.0
+	"""Test that step_interval measures the gap between consecutive steps."""
+	# Previous step (Step 1): runs from 100.0 to 102.5.
 	previous_end = 102.5
-	previous_duration = previous_end - previous_start
 
-	# Current step (Step 2): should have step_interval = previous step's duration
-	# This tells the rerun system "wait 2.5s before executing Step 2"
-	expected_step_interval = previous_duration
-	calculated_step_interval = max(0, previous_end - previous_start)
+	# Current step (Step 2) starts after a 1.5s idle gap.
+	current_start = 104.0
+	expected_step_interval = current_start - previous_end
+	calculated_step_interval = max(0, current_start - previous_end)
 
 	assert abs(calculated_step_interval - expected_step_interval) < 0.001  # Float comparison
-	assert calculated_step_interval == 2.5
+	assert calculated_step_interval == 1.5
 
 
 def test_step_metadata_serialization_with_step_interval():
