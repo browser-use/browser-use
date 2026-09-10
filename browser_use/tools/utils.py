@@ -1,6 +1,74 @@
 """Utility functions for browser tools."""
 
+from typing import Any
+
 from browser_use.dom.service import EnhancedDOMTreeNode
+
+
+def get_click_target_fingerprint(node: EnhancedDOMTreeNode) -> dict[str, Any]:
+	"""Return a compact semantic identity for post-click state verification."""
+	semantic_attributes = {
+		key: value
+		for key in (
+			'id',
+			'name',
+			'role',
+			'type',
+			'aria-label',
+			'aria-busy',
+			'aria-checked',
+			'aria-selected',
+			'checked',
+			'selected',
+			'disabled',
+			'data-state',
+			'value',
+		)
+		if (value := node.attributes.get(key)) is not None
+	}
+	return {
+		'backend_node_id': node.backend_node_id,
+		'tag': node.tag_name,
+		'attributes': semantic_attributes,
+		'text': node.get_meaningful_text_for_llm()[:160],
+	}
+
+
+def is_commit_click_target_fingerprint(target: dict[str, Any]) -> bool:
+	"""Return whether a click target is likely to commit consequential state.
+
+	The check is deliberately semantic and site-independent. These controls often
+	start asynchronous work while unrelated page widgets continue mutating, so a
+	page-wide fingerprint alone is not enough to decide that the click settled.
+	"""
+	attributes = target.get('attributes', {})
+	semantic_text = ' '.join(
+		str(value)
+		for value in (
+			target.get('text', ''),
+			attributes.get('aria-label', ''),
+			attributes.get('name', ''),
+			attributes.get('id', ''),
+			attributes.get('value', ''),
+		)
+	).lower()
+	commit_phrases = (
+		'add to cart',
+		'book',
+		'check out',
+		'checkout',
+		'confirm',
+		'create',
+		'delete',
+		'place order',
+		'purchase',
+		'remove',
+		'reserve',
+		'save',
+		'send',
+		'submit',
+	)
+	return any(phrase in semantic_text for phrase in commit_phrases)
 
 
 def get_click_description(node: EnhancedDOMTreeNode) -> str:
@@ -80,3 +148,11 @@ def get_click_description(node: EnhancedDOMTreeNode) -> str:
 			parts.append(f'{attr}={node.attributes[attr][:20]}')
 
 	return ' '.join(parts)
+
+
+def get_click_delivery_message(target_description: str) -> str:
+	"""Describe a delivered click without claiming its intended side effect occurred."""
+	return (
+		f'Clicked {target_description}. Click delivery is confirmed, but its intended outcome is unverified; '
+		'verify the resulting browser state before marking progress.'
+	)

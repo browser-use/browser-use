@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionWatchdog
 from browser_use.browser.watchdogs.downloads_watchdog import DownloadsWatchdog
 
 
@@ -35,6 +36,19 @@ class _ProgressCapture:
 
 	def __call__(self, handler) -> None:
 		self.handler = handler
+
+
+@pytest.mark.asyncio
+async def test_click_skips_download_grace_period_when_downloads_disabled() -> None:
+	"""Non-download agents should not sleep 500 ms after every click."""
+	browser_session = SimpleNamespace(browser_profile=SimpleNamespace(accept_downloads=False))
+	watchdog = DefaultActionWatchdog.model_construct(browser_session=browser_session, event_bus=SimpleNamespace())
+	click_coro = AsyncMock(return_value={'clicked': True})
+
+	result = await watchdog._execute_click_with_download_detection(click_coro())
+
+	assert result == {'clicked': True}
+	click_coro.assert_awaited_once()
 
 
 def _make_watchdog(tmp_path) -> tuple[DownloadsWatchdog, _ProgressCapture]:

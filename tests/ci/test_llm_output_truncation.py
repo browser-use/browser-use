@@ -1,16 +1,202 @@
 """Regression test: structured output cut off at the completion-token cap must raise a
 clear truncation error, not a misleading JSON parse error ('Unterminated string...')."""
 
+import json
+
+import httpx
 import pytest
 from pydantic import BaseModel
 
 from browser_use.llm.exceptions import ModelProviderError
-from browser_use.llm.messages import UserMessage
+from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.llm.openai.chat import ChatOpenAI
 
 
 class AnswerFormat(BaseModel):
 	answer: str
+
+
+async def test_openai_extra_body_is_forwarded_to_provider():
+	"""Provider-specific sampling parameters must be merged into the JSON request body."""
+	captured_body: dict = {}
+
+	def handler(request: httpx.Request) -> httpx.Response:
+		captured_body.update(json.loads(request.content))
+		return httpx.Response(
+			200,
+			json={
+				'id': 'chatcmpl-test',
+				'object': 'chat.completion',
+				'created': 0,
+				'model': 'custom-model',
+				'choices': [
+					{
+						'index': 0,
+						'message': {'role': 'assistant', 'content': 'complete answer'},
+						'finish_reason': 'stop',
+					}
+				],
+				'usage': {'prompt_tokens': 2, 'completion_tokens': 2, 'total_tokens': 4},
+			},
+		)
+
+	http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+	llm = ChatOpenAI(
+		model='custom-model',
+		api_key='test-key',
+		base_url='https://provider.example/v1',
+		http_client=http_client,
+		extra_body={'repetition_penalty': 1.05},
+	)
+	try:
+		await llm.ainvoke([UserMessage(content='answer briefly')])
+	finally:
+		await http_client.aclose()
+
+	assert captured_body['repetition_penalty'] == 1.05
+
+
+async def test_openai_can_prompt_schema_without_provider_constrained_decoding():
+	"""Local providers can receive the schema in-prompt without response_format."""
+	captured_body: dict = {}
+
+	def handler(request: httpx.Request) -> httpx.Response:
+		captured_body.update(json.loads(request.content))
+		return httpx.Response(
+			200,
+			json={
+				'id': 'chatcmpl-test',
+				'object': 'chat.completion',
+				'created': 0,
+				'model': 'custom-model',
+				'choices': [
+					{
+						'index': 0,
+						'message': {'role': 'assistant', 'content': '{"answer": "complete answer"}'},
+						'finish_reason': 'stop',
+					}
+				],
+				'usage': {'prompt_tokens': 2, 'completion_tokens': 2, 'total_tokens': 4},
+			},
+		)
+
+	http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+	llm = ChatOpenAI(
+		model='custom-model',
+		api_key='test-key',
+		base_url='https://provider.example/v1',
+		http_client=http_client,
+		add_schema_to_system_prompt=True,
+		dont_force_structured_output=True,
+	)
+	try:
+		result = await llm.ainvoke(
+			[SystemMessage(content='Return valid JSON.'), UserMessage(content='answer briefly')],
+			output_format=AnswerFormat,
+		)
+	finally:
+		await http_client.aclose()
+
+	assert result.completion.answer == 'complete answer'
+	assert 'response_format' not in captured_body
+	system_content = captured_body['messages'][0]['content']
+	assert '<json_schema>' in system_content
+	schema_text = system_content.split('<json_schema>\n', 1)[1].split('\n</json_schema>', 1)[0]
+	schema = json.loads(schema_text)
+	assert 'answer' in schema['properties']
+	assert 'schema' not in schema
+
+
+@pytest.mark.parametrize(
+	'content',
+	[
+		'```json\n{"answer": "complete answer"}\n```',
+		'Here is the result: {"answer": "complete answer"}',
+	],
+)
+async def test_openai_prompted_schema_recovers_harmless_json_wrappers(content: str):
+	"""Prompt-only JSON should survive the wrappers local models commonly add."""
+
+	def handler(_request: httpx.Request) -> httpx.Response:
+		return httpx.Response(
+			200,
+			json={
+				'id': 'chatcmpl-test',
+				'object': 'chat.completion',
+				'created': 0,
+				'model': 'custom-model',
+				'choices': [
+					{
+						'index': 0,
+						'message': {'role': 'assistant', 'content': content},
+						'finish_reason': 'stop',
+					}
+				],
+				'usage': {'prompt_tokens': 2, 'completion_tokens': 2, 'total_tokens': 4},
+			},
+		)
+
+	http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+	llm = ChatOpenAI(
+		model='custom-model',
+		api_key='test-key',
+		base_url='https://provider.example/v1',
+		http_client=http_client,
+		add_schema_to_system_prompt=True,
+		dont_force_structured_output=True,
+	)
+	try:
+		result = await llm.ainvoke(
+			[SystemMessage(content='Return valid JSON.'), UserMessage(content='answer briefly')],
+			output_format=AnswerFormat,
+		)
+	finally:
+		await http_client.aclose()
+
+	assert result.completion.answer == 'complete answer'
+
+
+async def test_openai_invalid_prompted_json_is_not_mislabeled_as_502():
+	"""A formatting error must not trigger permanent provider fallback behavior."""
+
+	def handler(_request: httpx.Request) -> httpx.Response:
+		return httpx.Response(
+			200,
+			json={
+				'id': 'chatcmpl-test',
+				'object': 'chat.completion',
+				'created': 0,
+				'model': 'custom-model',
+				'choices': [
+					{
+						'index': 0,
+						'message': {'role': 'assistant', 'content': '<tool_call>{"answer": "wrong wrapper"}</tool_call>'},
+						'finish_reason': 'stop',
+					}
+				],
+				'usage': {'prompt_tokens': 2, 'completion_tokens': 2, 'total_tokens': 4},
+			},
+		)
+
+	http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+	llm = ChatOpenAI(
+		model='custom-model',
+		api_key='test-key',
+		base_url='https://provider.example/v1',
+		http_client=http_client,
+		add_schema_to_system_prompt=True,
+		dont_force_structured_output=True,
+	)
+	try:
+		with pytest.raises(ModelProviderError) as exc_info:
+			await llm.ainvoke(
+				[SystemMessage(content='Return valid JSON.'), UserMessage(content='answer briefly')],
+				output_format=AnswerFormat,
+			)
+	finally:
+		await http_client.aclose()
+
+	assert exc_info.value.status_code == 422
 
 
 async def test_openai_truncated_structured_output_raises_clear_error(httpserver):

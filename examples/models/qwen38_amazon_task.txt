@@ -1,0 +1,12 @@
+Use the connected Chromium browser. Go to https://www.amazon.com and add one of each of these items to the cart for delivery/shipping:
+
+- Hues and Cues board game
+- A pack of big claw hair clips
+- Starbursts candy
+- Birthday wrapping paper for my niece
+
+Choose clearly matching, available products. Use one-time purchases, not subscriptions, and delivery/shipping rather than pickup. Confirm each addition from the resulting page before moving on. Preserve unrelated items already in the cart. If a matching requested item is already there, count it instead of adding a duplicate.
+
+Verify that all four requested items are in the cart, then click Proceed to checkout. Stop as soon as checkout asks for a credit card or delivery address. Do not enter payment or address details, place an order, use Buy Now, or complete a purchase using saved information. If checkout already has saved details, stop on the review page before Place your order. If login or a CAPTCHA blocks progress, stop and report it.
+
+Report which requested items are in the cart and the checkout state reached. Leave the browser open on the final page.

@@ -70,8 +70,11 @@ class AgentSettings(BaseModel):
 	include_attributes: list[str] | None = DEFAULT_INCLUDE_ATTRIBUTES
 	max_actions_per_step: int = 5
 	use_thinking: bool = True
-	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
+	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal, next_goal, and planning
+	flash_mode_thinking: bool = False  # Opt in to a compact thinking field while retaining the Flash schema
 	use_judge: bool = True
+	judge_max_images: int = Field(default=10, ge=1, le=100)
+	judge_capture_final_state: bool = False
 	ground_truth: str | None = None  # Ground truth answer or criteria for judge validation
 	max_history_items: int | None = None
 	message_compaction: MessageCompactionSettings | None = None
@@ -90,6 +93,15 @@ class AgentSettings(BaseModel):
 	loop_detection_window: int = 20  # Rolling window size for action similarity tracking
 	loop_detection_enabled: bool = True  # Whether to enable loop detection nudges
 	max_clickable_elements_length: int = 40000  # Max characters for clickable elements in prompt
+	history_screenshot_interval: int = Field(
+		default=1,
+		ge=1,
+		description='Capture a browser-state screenshot for history every N steps. Explicit screenshot requests are always honored.',
+	)
+	loading_shell_max_wait_seconds: float = Field(default=0.0, ge=0.0, le=10.0)
+	loading_shell_poll_interval_seconds: float = Field(default=0.2, gt=0.0, le=2.0)
+	post_click_state_settle_max_wait_seconds: float = Field(default=0.0, ge=0.0, le=5.0)
+	post_click_state_settle_poll_interval_seconds: float = Field(default=0.1, gt=0.0, le=1.0)
 
 
 class PageFingerprint(BaseModel):
@@ -99,12 +111,13 @@ class PageFingerprint(BaseModel):
 
 	url: str
 	element_count: int
+	text_length: int = 0  # Older serialized loop-detector fingerprints omit this field.
 	text_hash: str  # First 16 chars of SHA-256 of the DOM text representation
 
 	@staticmethod
 	def from_browser_state(url: str, dom_text: str, element_count: int) -> PageFingerprint:
 		text_hash = hashlib.sha256(dom_text.encode('utf-8', errors='replace')).hexdigest()[:16]
-		return PageFingerprint(url=url, element_count=element_count, text_hash=text_hash)
+		return PageFingerprint(url=url, element_count=element_count, text_length=len(dom_text), text_hash=text_hash)
 
 
 def _normalize_action_for_hash(action_name: str, params: dict[str, Any]) -> str:
@@ -455,8 +468,43 @@ class AgentOutput(BaseModel):
 		return model
 
 	@staticmethod
-	def type_with_custom_actions_flash_mode(custom_actions: type[ActionModel]) -> type[AgentOutput]:
-		"""Extend actions with custom actions for flash mode - memory and action fields only"""
+	def type_with_custom_actions_flash_mode(
+		custom_actions: type[ActionModel], *, include_thinking: bool = False
+	) -> type[AgentOutput]:
+		"""Extend actions for Flash mode, optionally retaining a compact thinking field."""
+
+		if include_thinking:
+
+			class AgentOutputFlashModeWithThinking(AgentOutput):
+				thinking: str = Field(
+					default='',
+					description=(
+						'Two or three short sentences covering evidence, verified task progress, and the immediate action. '
+						'Never mark an intended effect complete when the only evidence is click delivery; require the resulting state. '
+						'Use at most six short sentences only when the state is genuinely hard or contradictory.'
+					),
+				)
+
+				@classmethod
+				def model_json_schema(cls, **kwargs):
+					schema = super().model_json_schema(**kwargs)
+					schema['properties'].pop('evaluation_previous_goal', None)
+					schema['properties'].pop('memory', None)
+					schema['properties'].pop('next_goal', None)
+					schema['properties'].pop('current_plan_item', None)
+					schema['properties'].pop('plan_update', None)
+					schema['required'] = ['thinking', 'action']
+					return schema
+
+			return create_model(
+				'AgentOutput',
+				__base__=AgentOutputFlashModeWithThinking,
+				action=(
+					list[custom_actions],  # type: ignore
+					Field(..., json_schema_extra={'min_items': 1}),
+				),
+				__module__=AgentOutputFlashModeWithThinking.__module__,
+			)
 
 		class AgentOutputFlashMode(AgentOutput):
 			@classmethod

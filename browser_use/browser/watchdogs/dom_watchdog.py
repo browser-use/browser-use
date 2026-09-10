@@ -284,8 +284,15 @@ class DOMWatchdog(BaseWatchdog):
 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for page stability...')
 			try:
 				if pending_requests_before_wait:
-					# Reduced from 1s to 0.3s for faster DOM builds while still allowing critical resources to load
-					await asyncio.sleep(0.3)
+					# Preserve the historical 300 ms cap by default, but honor lower
+					# latency profiles. They can pair zero here with the Agent's
+					# targeted post-click state settle instead of delaying every busy page.
+					network_settle_seconds = min(
+						self.browser_session.browser_profile.wait_for_network_idle_page_load_time,
+						0.3,
+					)
+					if network_settle_seconds > 0:
+						await asyncio.sleep(network_settle_seconds)
 				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Page stability complete')
 			except Exception as e:
 				self.logger.warning(

@@ -9,7 +9,10 @@ import anyio
 
 try:
 	from lmnr import Laminar  # type: ignore
-except ImportError:
+except (ImportError, TypeError):
+	# lmnr is optional. Some importlib-metadata versions raise TypeError when
+	# another installed package has incomplete .dist-info metadata; tracing
+	# should degrade to a no-op instead of preventing Browser Use from importing.
 	Laminar = None  # type: ignore
 from pydantic import BaseModel
 
@@ -36,7 +39,7 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
-from browser_use.tools.utils import get_click_description
+from browser_use.tools.utils import get_click_delivery_message, get_click_description, get_click_target_fingerprint
 from browser_use.tools.views import (
 	ClickElementAction,
 	ClickElementActionIndexOnly,
@@ -393,7 +396,8 @@ def _format_find_results(data: dict, selector: str) -> str:
 	if total == 0:
 		return f'No elements found matching "{selector}".'
 
-	lines = [f'Found {total} element{"s" if total != 1 else ""} matching "{selector}":']
+	lines = [f'Found {total} element{"s" if total != 1 else ""} matching "{selector}" (read-only results):']
+	lines.append('Result numbers below are list positions, not clickable browser-state indices.')
 	lines.append('')
 	for el in elements:
 		idx = el.get('index', 0)
@@ -403,7 +407,7 @@ def _format_find_results(data: dict, selector: str) -> str:
 		children = el.get('children_count', 0)
 
 		# Build element description
-		parts = [f'[{idx}] <{tag}>']
+		parts = [f'Result {idx + 1}: <{tag}>']
 		if text:
 			# Collapse whitespace for readability
 			display_text = ' '.join(text.split())
@@ -687,7 +691,7 @@ class Tools(Generic[Context]):
 					error_msg = click_metadata['validation_error']
 					return ActionResult(error=error_msg)
 
-				memory = f'Clicked on coordinate {params.coordinate_x}, {params.coordinate_y}'
+				memory = get_click_delivery_message(f'on coordinate {params.coordinate_x}, {params.coordinate_y}')
 				memory += await _detect_new_tab_opened(browser_session, tabs_before)
 				logger.info(f'🖱️ {memory}')
 
@@ -715,7 +719,7 @@ class Tools(Generic[Context]):
 				if node is None:
 					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 					logger.warning(f'⚠️ {msg}')
-					return ActionResult(extracted_content=msg)
+					return ActionResult(error=msg)
 
 				# Get description of clicked element
 				element_desc = get_click_description(node)
@@ -749,14 +753,17 @@ class Tools(Generic[Context]):
 					return ActionResult(error=error_msg)
 
 				# Build memory with element info
-				memory = f'Clicked {element_desc}'
+				memory = get_click_delivery_message(element_desc)
 				memory += await _detect_new_tab_opened(browser_session, tabs_before)
 				logger.info(f'🖱️ {memory}')
 
-				# Include click coordinates in metadata if available
+				# Include the semantic target identity so the agent can distinguish a
+				# still-pending button from unrelated background DOM mutations.
+				result_metadata = dict(click_metadata) if isinstance(click_metadata, dict) else {}
+				result_metadata['click_target_fingerprint'] = get_click_target_fingerprint(node)
 				return ActionResult(
 					extracted_content=memory,
-					metadata=click_metadata if isinstance(click_metadata, dict) else None,
+					metadata=result_metadata,
 				)
 			except BrowserError as e:
 				return handle_browser_error(e)
@@ -786,7 +793,7 @@ class Tools(Generic[Context]):
 			if node is None:
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(error=msg)
 
 			# Highlight the element being typed into (truly non-blocking)
 			create_task_with_error_handling(
@@ -1331,7 +1338,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			total = data.get('total', 0)
 			memory = f'Searched page for "{params.pattern}": {total} match{"es" if total != 1 else ""} found.'
 			logger.info(f'🔎 {memory}')
-			return ActionResult(extracted_content=formatted, long_term_memory=memory)
+			return ActionResult(
+				extracted_content=formatted,
+				long_term_memory=memory,
+				# The summary belongs in compact history, but the actual matches must
+				# reach the very next model turn or the agent only learns a count and
+				# repeats the same read action trying to recover the missing details.
+				include_extracted_content_only_once=True,
+			)
 
 		@self.registry.action(
 			"""Query DOM elements by CSS selector (like find). Zero LLM cost, instant. Returns matching elements with tag, text, and attributes. Use to explore page structure, count items, get links/attributes. Use attributes=["href","src"] to extract specific attributes.""",
@@ -1366,7 +1380,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			total = data.get('total', 0)
 			memory = f'Found {total} element{"s" if total != 1 else ""} matching "{params.selector}".'
 			logger.info(f'🔍 {memory}')
-			return ActionResult(extracted_content=formatted, long_term_memory=memory)
+			return ActionResult(
+				extracted_content=formatted,
+				long_term_memory=memory,
+				include_extracted_content_only_once=True,
+			)
 
 		@self.registry.action(
 			"""Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll elements (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
@@ -1514,8 +1532,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				)
 
 		@self.registry.action(
-			'Take a screenshot of the current viewport. If file_name is provided, saves to that file and returns the path. '
-			'Otherwise, screenshot is included in the next browser_state observation.',
+			'Take a screenshot of the current viewport. For model visual inspection, omit file_name so the image is included '
+			'in the next browser_state observation. Only provide file_name when the user explicitly wants a saved image file.',
 			param_model=ScreenshotAction,
 		)
 		async def screenshot(

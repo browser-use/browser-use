@@ -49,6 +49,13 @@ def sanitize_url_candidate(url: str) -> str:
 	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
 
 
+def url_path_has_extension(url: str, extensions: set[str]) -> bool:
+	"""Check a URL's path suffix without confusing hostname fragments for files."""
+	parsed = urlparse(url if '://' in url else f'https://{url}')
+	suffix = Path(parsed.path).suffix.lower().lstrip('.')
+	return bool(suffix and suffix in extensions)
+
+
 # Lazy import for error types
 # Use sentinel to avoid retrying import when package is not installed
 _IMPORT_NOT_FOUND: type = type('_ImportNotFound', (), {})

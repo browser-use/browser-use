@@ -58,6 +58,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 			Click metadata dict, potentially with 'download' key containing download info.
 			If a download times out but is still in progress, includes 'download_in_progress' with status.
 		"""
+		# When downloads are explicitly disabled, there is nothing to detect. Avoid
+		# paying the 500 ms download-start grace period on every ordinary click.
+		if not self.browser_session.browser_profile.accept_downloads:
+			click_metadata = await click_coro
+			return click_metadata if isinstance(click_metadata, dict) else None
+
 		import time
 
 		download_started = asyncio.Event()
@@ -448,6 +454,98 @@ class DefaultActionWatchdog(BaseWatchdog):
 		except Exception:
 			raise
 
+	async def _install_click_event_probe(self, cdp_session, backend_node_id: int) -> str | None:
+		"""Install a one-shot DOM click listener and return the element object id.
+
+		CDP mouse dispatch can resolve successfully even when the target never
+		receives a click event (notably buttons in animated dialogs). A cheap
+		capturing listener lets the standard click path distinguish delivery from
+		transport success without relying on page-specific state.
+		"""
+		try:
+			resolve_result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': backend_node_id},
+				session_id=cdp_session.session_id,
+			)
+			object_id = resolve_result.get('object', {}).get('objectId')
+			if not object_id:
+				return None
+			await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': """function() {
+						const key = '__browserUseClickProbe';
+						const oldProbe = this[key];
+						if (oldProbe && oldProbe.listener) {
+							this.removeEventListener('click', oldProbe.listener, true);
+						}
+						const probe = {received: false, listener: null};
+						probe.listener = () => { probe.received = true; };
+						this[key] = probe;
+						this.addEventListener('click', probe.listener, true);
+						return true;
+					}""",
+					'objectId': object_id,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+			return object_id
+		except Exception as e:
+			self.logger.debug(f'Could not install click-event probe: {e}')
+			return None
+
+	async def _read_click_event_probe(self, cdp_session, object_id: str, *, cleanup: bool = False) -> bool | None:
+		"""Read a click probe, optionally removing its listener and page state."""
+		function = (
+			"""function() {
+				const key = '__browserUseClickProbe';
+				const probe = this[key];
+				if (!probe) return null;
+				const received = Boolean(probe.received);
+				if (probe.listener) this.removeEventListener('click', probe.listener, true);
+				delete this[key];
+				return received;
+			}"""
+			if cleanup
+			else """function() {
+				const probe = this.__browserUseClickProbe;
+				return probe ? Boolean(probe.received) : null;
+			}"""
+		)
+		try:
+			result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={'functionDeclaration': function, 'objectId': object_id, 'returnByValue': True},
+				session_id=cdp_session.session_id,
+			)
+			return result.get('result', {}).get('value')
+		except Exception as e:
+			# A successful click may detach the element or replace its execution
+			# context. In that case delivery cannot be queried, so preserve the
+			# existing behavior rather than double-clicking.
+			self.logger.debug(f'Could not read click-event probe: {e}')
+			return None
+
+	async def _verify_click_event_or_fallback(self, cdp_session, object_id: str | None) -> bool | None:
+		"""Verify native click delivery and use the existing JS fallback if absent."""
+		if not object_id:
+			return None
+		try:
+			received = await self._read_click_event_probe(cdp_session, object_id)
+			if received is False:
+				self.logger.debug('Native CDP mouse dispatch emitted no click event; using JavaScript fallback immediately')
+				try:
+					await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+						params={'functionDeclaration': 'function() { this.click(); }', 'objectId': object_id},
+						session_id=cdp_session.session_id,
+					)
+					await asyncio.sleep(0.05)
+					received = await self._read_click_event_probe(cdp_session, object_id)
+				except Exception as e:
+					self.logger.debug(f'Click-event JavaScript fallback failed: {e}')
+			return received
+		finally:
+			await self._read_click_event_probe(cdp_session, object_id, cleanup=True)
+
 	async def on_TypeTextEvent(self, event: TypeTextEvent) -> dict | None:
 		"""Handle text input request with CDP."""
 		try:
@@ -732,6 +830,25 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Get element bounds
 			backend_node_id = element_node.backend_node_id
 
+			# Dynamic modal buttons commonly retain stale/zero geometry while their
+			# DOM click handler is already active. For latency-sensitive sessions,
+			# skip the coordinate path instead of spending another agent turn retrying.
+			inside_dialog = self._has_dialog_ancestor(element_node)
+			if (
+				self.browser_session.browser_profile.prefer_javascript_clicks_in_dialogs
+				and tag_name == 'button'
+				and inside_dialog
+			):
+				self.logger.debug('⚡ Clicking dialog button directly with JavaScript')
+				await self._click_element_with_javascript(cdp_session, backend_node_id)
+				# Give any synchronous click handler and immediate DOM update a brief,
+				# element-agnostic dispatch grace before the next observation.
+				await asyncio.sleep(0.25)
+				return {
+					'click_method': 'javascript',
+					'inside_dialog': inside_dialog,
+				}
+
 			# For checkbox/radio: capture pre-click state to verify toggle worked
 			is_toggle_element = tag_name == 'input' and element_type in ('checkbox', 'radio')
 			pre_click_checked: bool | None = None
@@ -902,6 +1019,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Perform the click using CDP (element is not occluded)
 			try:
+				click_probe_object_id = await self._install_click_event_probe(cdp_session, backend_node_id)
 				self.logger.debug(f'👆 Dragging mouse over element before clicking x: {center_x}px y: {center_y}px ...')
 				# Move mouse to element
 				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
@@ -954,6 +1072,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					self.logger.debug('⏱️ Mouse up timed out (possibly due to lag or dialog popup), continuing...')
 
 				self.logger.debug('🖱️ Clicked successfully using x,y coordinates')
+				click_event_received = await self._verify_click_event_or_fallback(cdp_session, click_probe_object_id)
 
 				# For checkbox/radio: verify state toggled, fall back to JS element.click() if not
 				if is_toggle_element and pre_click_checked is not None and checkbox_object_id:
@@ -988,12 +1107,24 @@ class DefaultActionWatchdog(BaseWatchdog):
 							)
 							post_click_checked = final_res.get('result', {}).get('value')
 						self.logger.debug(f'Checkbox post-click state: checked={post_click_checked}')
-						return {'click_x': center_x, 'click_y': center_y, 'checked': post_click_checked}
+						return {
+							'click_x': center_x,
+							'click_y': center_y,
+							'checked': post_click_checked,
+							'click_event_received': click_event_received,
+						}
 					except Exception as e:
 						self.logger.debug(f'Checkbox state verification failed (non-critical): {e}')
 
+				if click_event_received is False:
+					return {'validation_error': 'Click did not emit a DOM click event after native and JavaScript attempts.'}
+
 				# Return coordinates as dict for metadata
-				return {'click_x': center_x, 'click_y': center_y}
+				return {
+					'click_x': center_x,
+					'click_y': center_y,
+					'click_event_received': click_event_received,
+				}
 
 			except Exception as e:
 				self.logger.warning(f'CDP click failed: {type(e).__name__}: {e}')
@@ -1060,6 +1191,36 @@ class DefaultActionWatchdog(BaseWatchdog):
 				message=f'Failed to click element: {str(e)}',
 				long_term_memory=error_detail,
 			)
+
+	@staticmethod
+	def _has_dialog_ancestor(element_node: EnhancedDOMTreeNode) -> bool:
+		"""Return whether an element is nested inside a native or ARIA dialog."""
+		current_node = element_node.parent_node
+		while current_node is not None:
+			attributes = current_node.attributes or {}
+			if current_node.tag_name == 'dialog' or attributes.get('role', '').lower() in {'dialog', 'alertdialog'}:
+				return True
+			current_node = current_node.parent_node
+		return False
+
+	@staticmethod
+	async def _click_element_with_javascript(cdp_session, backend_node_id: int) -> None:
+		"""Resolve an element and invoke its existing DOM click behavior."""
+		result = await cdp_session.cdp_client.send.DOM.resolveNode(
+			params={'backendNodeId': backend_node_id},
+			session_id=cdp_session.session_id,
+		)
+		assert 'object' in result and 'objectId' in result['object'], (
+			'Failed to find DOM element based on backendNodeId, maybe page content changed?'
+		)
+		await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+			params={
+				'functionDeclaration': 'function() { this.click(); }',
+				'objectId': result['object']['objectId'],
+			},
+			session_id=cdp_session.session_id,
+		)
+		await asyncio.sleep(0.05)
 
 	async def _click_on_coordinate(self, coordinate_x: int, coordinate_y: int, force: bool = False) -> dict | None:
 		"""

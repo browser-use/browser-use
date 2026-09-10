@@ -7,7 +7,9 @@ disabled planning, replan nudge, flash mode schema, and edge cases.
 import json
 
 from browser_use.agent.views import (
+	ActionResult,
 	AgentOutput,
+	AgentStepInfo,
 	PlanItem,
 )
 from browser_use.tools.service import Tools
@@ -38,7 +40,8 @@ def _make_agent(browser_session, mock_llm, **kwargs):
 	"""Create an Agent with defaults suitable for unit tests."""
 	from browser_use import Agent
 
-	return Agent(task='Test task', llm=mock_llm, browser_session=browser_session, **kwargs)
+	task = kwargs.pop('task', 'Test task')
+	return Agent(task=task, llm=mock_llm, browser_session=browser_session, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +203,21 @@ async def test_flash_mode_schema_excludes_plan_fields():
 	assert 'current_plan_item' not in schema['properties']
 	assert 'plan_update' not in schema['properties']
 	assert 'thinking' not in schema['properties']
+
+
+async def test_flash_mode_can_include_compact_thinking():
+	tools = Tools()
+	ActionModel = tools.registry.create_action_model()
+	FlashOutput = AgentOutput.type_with_custom_actions_flash_mode(ActionModel, include_thinking=True)
+
+	schema = FlashOutput.model_json_schema()
+	assert list(schema['properties'])[:2] == ['thinking', 'action']
+	assert schema['required'] == ['thinking', 'action']
+	assert 'evaluation_previous_goal' not in schema['properties']
+	assert 'memory' not in schema['properties']
+	assert 'next_goal' not in schema['properties']
+	assert 'current_plan_item' not in schema['properties']
+	assert 'plan_update' not in schema['properties']
 
 
 # ---------------------------------------------------------------------------
@@ -385,3 +403,48 @@ async def test_exploration_nudge_disabled_when_planning_off(browser_session, moc
 async def test_flash_mode_disables_planning(browser_session, mock_llm):
 	agent = _make_agent(browser_session, mock_llm, flash_mode=True)
 	assert agent.settings.enable_planning is False
+	assert agent.settings.use_thinking is False
+
+
+async def test_flash_mode_thinking_is_explicit_opt_in(browser_session, mock_llm):
+	agent = _make_agent(browser_session, mock_llm, flash_mode=True, flash_mode_thinking=True)
+	assert agent.settings.enable_planning is False
+	assert agent.settings.use_thinking is True
+	assert 'thinking' in agent.AgentOutput.model_json_schema()['required']
+
+
+async def test_flash_mode_thinking_supports_synthetic_initial_navigation(browser_session, mock_llm, monkeypatch):
+	agent = _make_agent(
+		browser_session,
+		mock_llm,
+		task='Open https://example.com',
+		flash_mode=True,
+		flash_mode_thinking=True,
+	)
+
+	async def fake_multi_act(_actions):
+		return [ActionResult(long_term_memory='Navigated')]
+
+	monkeypatch.setattr(agent, 'multi_act', fake_multi_act)
+	await agent._execute_initial_actions()
+
+	initial_output = agent.history.history[0].model_output
+	assert initial_output is not None
+	assert initial_output.thinking == 'The initial URL was loaded automatically; inspect the resulting page.'
+
+
+async def test_thinking_only_flash_output_is_retained_as_recent_history(browser_session, mock_llm):
+	agent = _make_agent(browser_session, mock_llm, flash_mode=True, flash_mode_thinking=True)
+	output = agent.AgentOutput.model_validate(
+		{
+			'thinking': 'Items 1 and 2 are confirmed; item 3 is next.',
+			'action': [{'done': {'text': 'partial', 'success': False}}],
+		}
+	)
+
+	agent._message_manager._update_agent_history_description(
+		model_output=output,
+		step_info=AgentStepInfo(step_number=1, max_steps=10),
+	)
+
+	assert agent._message_manager.state.agent_history_items[-1].memory == output.thinking

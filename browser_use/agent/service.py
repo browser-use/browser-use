@@ -58,6 +58,7 @@ from browser_use.agent.views import (
 	DetectedVariable,
 	JudgementResult,
 	MessageCompactionSettings,
+	PageFingerprint,
 	PlanItem,
 	StepMetadata,
 )
@@ -72,6 +73,7 @@ from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
+from browser_use.tools.utils import get_click_target_fingerprint, is_commit_click_target_fingerprint
 from browser_use.utils import (
 	URL_PATTERN,
 	_log_pretty_path,
@@ -81,6 +83,7 @@ from browser_use.utils import (
 	sanitize_url_candidate,
 	time_execution_async,
 	time_execution_sync,
+	url_path_has_extension,
 )
 
 logger = logging.getLogger(__name__)
@@ -177,11 +180,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_actions_per_step: int = 5,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
+		flash_mode_thinking: bool = False,
 		demo_mode: bool | None = None,
 		max_history_items: int | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
 		fallback_llm: BaseChatModel | None = None,
 		use_judge: bool = True,
+		judge_max_images: int = 10,
+		judge_capture_final_state: bool = False,
 		ground_truth: str | None = None,
 		judge_llm: BaseChatModel | None = None,
 		injected_agent_state: AgentState | None = None,
@@ -207,6 +213,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		llm_screenshot_size: tuple[int, int] | None = None,
 		message_compaction: MessageCompactionSettings | bool | None = True,
 		max_clickable_elements_length: int = 40000,
+		history_screenshot_interval: int = 1,
+		loading_shell_max_wait_seconds: float = 0.0,
+		loading_shell_poll_interval_seconds: float = 0.2,
+		post_click_state_settle_max_wait_seconds: float = 0.0,
+		post_click_state_settle_poll_interval_seconds: float = 0.1,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
 		**kwargs,
@@ -240,6 +251,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Flash mode strips plan fields from the output schema, so planning is structurally impossible
 		if flash_mode:
 			enable_planning = False
+			# Flash mode historically omits thinking. Keep that default while
+			# allowing latency-sensitive agents to request a small visible thought.
+			use_thinking = flash_mode_thinking
 
 		# Auto-configure llm_screenshot_size for Claude Sonnet, including gateway ids like
 		# 'anthropic/claude-sonnet-4-6' (rsplit drops the provider prefix before matching).
@@ -402,6 +416,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			max_actions_per_step=max_actions_per_step,
 			use_thinking=use_thinking,
 			flash_mode=flash_mode,
+			flash_mode_thinking=flash_mode_thinking,
 			max_history_items=max_history_items,
 			page_extraction_llm=page_extraction_llm,
 			calculate_cost=calculate_cost,
@@ -410,6 +425,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
 			use_judge=use_judge,
+			judge_max_images=judge_max_images,
+			judge_capture_final_state=judge_capture_final_state,
 			ground_truth=ground_truth,
 			enable_planning=enable_planning,
 			planning_replan_on_stall=planning_replan_on_stall,
@@ -418,6 +435,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			loop_detection_enabled=loop_detection_enabled,
 			message_compaction=message_compaction,
 			max_clickable_elements_length=max_clickable_elements_length,
+			history_screenshot_interval=history_screenshot_interval,
+			loading_shell_max_wait_seconds=loading_shell_max_wait_seconds,
+			loading_shell_poll_interval_seconds=loading_shell_poll_interval_seconds,
+			post_click_state_settle_max_wait_seconds=post_click_state_settle_max_wait_seconds,
+			post_click_state_settle_poll_interval_seconds=post_click_state_settle_poll_interval_seconds,
 		)
 
 		# Token cost service
@@ -433,6 +455,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
+		self._last_observed_page_fingerprint: PageFingerprint | None = None
 
 		# Configure loop detector window size from settings
 		self.state.loop_detector.window_size = self.settings.loop_detection_window
@@ -777,7 +800,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.ActionModel = self.tools.registry.create_action_model()
 		# Create output model with the dynamic actions
 		if self.settings.flash_mode:
-			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
+			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(
+				self.ActionModel, include_thinking=self.settings.use_thinking
+			)
 		elif self.settings.use_thinking:
 			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
 		else:
@@ -786,7 +811,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# used to force the done action when max_steps is reached
 		self.DoneActionModel = self.tools.registry.create_action_model(include_actions=['done'])
 		if self.settings.flash_mode:
-			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(
+				self.DoneActionModel, include_thinking=self.settings.use_thinking
+			)
 		elif self.settings.use_thinking:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 		else:
@@ -1085,12 +1112,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
 		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
-		# Always take screenshots for all steps
-		self.logger.debug('📸 Requesting browser state with include_screenshot=True')
-		browser_state_summary = await self.browser_session.get_browser_state_summary(
-			include_screenshot=True,  # always capture even if use_vision=False so that cloud sync is useful (it's fast now anyway)
-			include_recent_events=self.include_recent_events,
-		)
+		include_screenshot = self._should_capture_history_screenshot()
+		self.logger.debug(f'📸 Requesting browser state with include_screenshot={include_screenshot}')
+		browser_state_summary = await self._get_browser_state_after_loading_settle(include_screenshot=include_screenshot)
+		self._last_observed_page_fingerprint = self._page_fingerprint(browser_state_summary)
 		if browser_state_summary.screenshot:
 			self.logger.debug(f'📸 Got browser state WITH screenshot, length: {len(browser_state_summary.screenshot)}')
 		else:
@@ -1152,6 +1177,311 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._force_done_after_last_step(step_info)
 		await self._force_done_after_failure()
 		return browser_state_summary
+
+	@staticmethod
+	def _browser_state_is_loading_shell(browser_state_summary: BrowserStateSummary) -> bool:
+		"""Return True for transient loading-only DOMs that are not useful to an LLM.
+
+		This intentionally requires strong signals. A normal page that merely uses
+		the word "loading" should still reach the model immediately.
+		"""
+		if browser_state_summary.state_error:
+			return False
+
+		dom_state = browser_state_summary.dom_state
+		if dom_state is None or dom_state._root is None:
+			return browser_state_summary.url.lower().startswith(('http://', 'https://'))
+
+		try:
+			dom_text = dom_state.llm_representation().lower()
+		except Exception:
+			return False
+
+		# Repeated skeleton placeholders are a strong transient signal even when a
+		# rich header/footer is already present. Polling those here avoids spending
+		# an entire model turn merely observing that product results are loading.
+		loading_placeholders = dom_text.count('loading...') + dom_text.count('loading…')
+		if loading_placeholders >= 3:
+			return True
+
+		# A single loading modal or lazy-loading label can coexist with an already
+		# useful page. Re-polling such a rich state before every LLM turn adds
+		# latency but cannot make the persistent marker disappear.
+		selector_map = getattr(dom_state, 'selector_map', {}) or {}
+		has_useful_page = len(selector_map) >= 8 and len(dom_text) >= 1500
+		if has_useful_page:
+			return False
+
+		strong_markers = ('loading screen', 'loading content', 'still loading')
+		if any(marker in dom_text for marker in strong_markers):
+			return True
+
+		busy_indicators = dom_text.count('role=progressbar') + dom_text.count('aria-busy=true')
+		return bool(browser_state_summary.pending_network_requests) and busy_indicators >= 2
+
+	@staticmethod
+	def _page_fingerprint(browser_state_summary: BrowserStateSummary) -> PageFingerprint:
+		"""Build the same lightweight state fingerprint used by loop detection."""
+		dom_state = browser_state_summary.dom_state
+		dom_text = ''
+		element_count = 0
+		if dom_state is not None:
+			element_count = len(getattr(dom_state, 'selector_map', {}) or {})
+			try:
+				dom_text = dom_state.llm_representation()
+			except Exception:
+				dom_text = ''
+		return PageFingerprint.from_browser_state(browser_state_summary.url or '', dom_text, element_count)
+
+	def _last_successful_step_included_click(self) -> bool:
+		"""Return whether the previous successful action batch delivered a click."""
+		model_output = self.state.last_model_output
+		if model_output is None or not self.state.last_result:
+			return False
+		if any(result.error for result in self.state.last_result):
+			return False
+		for action in model_output.action:
+			action_data = action.model_dump(exclude_unset=True)
+			if next(iter(action_data), None) in {'click', 'click_coordinate'}:
+				return True
+		return False
+
+	def _record_unchanged_post_click_state(self, detail: str) -> None:
+		"""Expose an unchanged delivered click to the next model turn exactly once."""
+		if not self.state.last_result:
+			return
+		if any((result.metadata or {}).get('post_click_state_unchanged') for result in self.state.last_result):
+			return
+		self.state.last_result.append(
+			ActionResult(
+				extracted_content=(
+					f'Post-click observation: {detail} Do not repeat the identical click blindly. '
+					'Inspect for a blocker, verify the target, or choose a different evidence-based route.'
+				),
+				include_extracted_content_only_once=True,
+				metadata={'post_click_state_unchanged': True},
+			)
+		)
+
+	def _last_click_target_state(
+		self, browser_state_summary: BrowserStateSummary
+	) -> Literal['same', 'pending', 'changed', 'missing']:
+		"""Compare the latest clicked commit control with its current semantic state."""
+		target = None
+		for result in reversed(self.state.last_result or []):
+			target = (getattr(result, 'metadata', None) or {}).get('click_target_fingerprint')
+			if target:
+				break
+		if not target or target.get('tag') not in {'button', 'input'}:
+			return 'missing'
+
+		dom_state = browser_state_summary.dom_state
+		if dom_state is None:
+			return 'missing'
+		current_targets = [
+			get_click_target_fingerprint(node)
+			for node in (getattr(dom_state, 'selector_map', {}) or {}).values()
+			if hasattr(node, 'attributes') and hasattr(node, 'tag_name')
+		]
+		current = next(
+			(item for item in current_targets if item['backend_node_id'] == target.get('backend_node_id')),
+			None,
+		)
+		if current is None:
+			target_attributes = target.get('attributes', {})
+			aria_label = target_attributes.get('aria-label')
+			name = target_attributes.get('name')
+			if aria_label:
+				current = next(
+					(
+						item
+						for item in current_targets
+						if item['tag'] == target.get('tag') and item.get('attributes', {}).get('aria-label') == aria_label
+					),
+					None,
+				)
+			elif name:
+				current = next(
+					(
+						item
+						for item in current_targets
+						if item['tag'] == target.get('tag') and item.get('attributes', {}).get('name') == name
+					),
+					None,
+				)
+			else:
+				target_id = target_attributes.get('id')
+				id_matches = [
+					item
+					for item in current_targets
+					if item['tag'] == target.get('tag') and item.get('attributes', {}).get('id') == target_id
+				]
+				# HTML IDs are frequently (and incorrectly) reused in product lists.
+				# Only use an ID fallback when it identifies exactly one element.
+				if target_id and len(id_matches) == 1:
+					current = id_matches[0]
+		if current is None or current['tag'] != target.get('tag'):
+			return 'missing'
+		if current['attributes'] == target.get('attributes') and current['text'] == target.get('text'):
+			return 'same'
+		transient_keys = {'disabled', 'aria-busy', 'data-state'}
+		current_stable = {key: value for key, value in current['attributes'].items() if key not in transient_keys}
+		target_stable = {key: value for key, value in target.get('attributes', {}).items() if key not in transient_keys}
+		data_state = current['attributes'].get('data-state', '').lower()
+		became_pending = (
+			('disabled' in current['attributes'] and 'disabled' not in target.get('attributes', {}))
+			or current['attributes'].get('aria-busy', '').lower() == 'true'
+			or data_state in {'busy', 'loading', 'pending', 'submitting'}
+		)
+		if current_stable == target_stable and current['text'] == target.get('text') and became_pending:
+			return 'pending'
+		return 'changed'
+
+	def _post_click_state_may_still_be_pending(
+		self,
+		browser_state_summary: BrowserStateSummary,
+		previous_fingerprint: PageFingerprint,
+	) -> bool:
+		"""Allow small incidental mutations while a clicked commit control remains unchanged."""
+		current = self._page_fingerprint(browser_state_summary)
+		if current == previous_fingerprint:
+			return True
+		target_state = self._last_click_target_state(browser_state_summary)
+		if current.url != previous_fingerprint.url or target_state not in {
+			'same',
+			'pending',
+		}:
+			return False
+		element_delta = abs(current.element_count - previous_fingerprint.element_count)
+		text_delta = abs(current.text_length - previous_fingerprint.text_length)
+		return element_delta <= max(3, int(previous_fingerprint.element_count * 0.05)) and text_delta <= max(
+			200, int(previous_fingerprint.text_length * 0.05)
+		)
+
+	async def _settle_unchanged_state_after_click(
+		self,
+		browser_state_summary: BrowserStateSummary,
+		capture: Callable[[], Awaitable[BrowserStateSummary]],
+	) -> BrowserStateSummary:
+		"""Poll only when a delivered click has not yet produced observable state.
+
+		Fast clicks return immediately. Asynchronous dialogs and cart updates get a
+		brief chance to render before another model turn sees stale DOM and repeats
+		the same consequential action.
+		"""
+		max_wait = self.settings.post_click_state_settle_max_wait_seconds
+		previous_fingerprint = getattr(self, '_last_observed_page_fingerprint', None)
+		if max_wait <= 0 or previous_fingerprint is None or not self._last_successful_step_included_click():
+			return browser_state_summary
+		if not self._post_click_state_may_still_be_pending(browser_state_summary, previous_fingerprint):
+			target = next(
+				(
+					(getattr(result, 'metadata', None) or {}).get('click_target_fingerprint')
+					for result in reversed(self.state.last_result or [])
+					if (getattr(result, 'metadata', None) or {}).get('click_target_fingerprint')
+				),
+				None,
+			)
+			# A dynamic page can mutate substantially even when a consequential
+			# control itself did nothing. Return the fresh state without an added
+			# delay, but make that uncertainty explicit so the model changes route
+			# instead of issuing the same commit again.
+			if (
+				target
+				and is_commit_click_target_fingerprint(target)
+				and self._last_click_target_state(browser_state_summary) in {'same', 'pending'}
+				and self._page_fingerprint(browser_state_summary).url == previous_fingerprint.url
+			):
+				self._record_unchanged_post_click_state(
+					'the clicked commit control remained unchanged while unrelated page content changed.'
+				)
+			return browser_state_summary
+
+		deadline = time.monotonic() + max_wait
+		polls = 0
+		saw_transient_pending_state = self._last_click_target_state(browser_state_summary) == 'pending'
+		settled_after_pending_state = False
+		while self._post_click_state_may_still_be_pending(browser_state_summary, previous_fingerprint):
+			remaining = deadline - time.monotonic()
+			if remaining <= 0:
+				break
+			await asyncio.sleep(min(self.settings.post_click_state_settle_poll_interval_seconds, remaining))
+			browser_state_summary = await capture()
+			polls += 1
+			target_state = self._last_click_target_state(browser_state_summary)
+			if target_state == 'pending':
+				saw_transient_pending_state = True
+			elif (
+				saw_transient_pending_state
+				and target_state == 'same'
+				and self._page_fingerprint(browser_state_summary) != previous_fingerprint
+			):
+				settled_after_pending_state = True
+				break
+
+		if polls:
+			status = (
+				'changed'
+				if settled_after_pending_state
+				or not self._post_click_state_may_still_be_pending(browser_state_summary, previous_fingerprint)
+				else 'unchanged'
+			)
+			self.logger.info(f'⚡ Refreshed post-click state {polls} time(s): {status}')
+			if status == 'unchanged':
+				self._record_unchanged_post_click_state(
+					f'the observable URL and DOM remained unchanged for {max_wait:.1f}s after click delivery.'
+				)
+		return browser_state_summary
+
+	def _should_capture_history_screenshot(self) -> bool:
+		"""Capture screenshots only when they can be consumed by vision or sampled history."""
+		if self.settings.use_vision is True:
+			return True
+
+		# In auto vision mode the screenshot action asks for the next state image.
+		if self.settings.use_vision == 'auto' and any(
+			result.metadata and result.metadata.get('include_screenshot') for result in (self.state.last_result or [])
+		):
+			return True
+
+		interval = self.settings.history_screenshot_interval
+		# An auto-vision screenshot is not sent to the LLM unless requested. With a
+		# sampled interval, capturing step 1 adds latency without helping the model;
+		# default interval=1 still preserves the historical capture-every-step mode.
+		return self.state.n_steps % interval == 0
+
+	async def _get_browser_state_after_loading_settle(self, *, include_screenshot: bool = True) -> BrowserStateSummary:
+		"""Capture state, polling transient loading shells within a small budget."""
+		assert self.browser_session is not None, 'BrowserSession is not set up'
+
+		async def capture() -> BrowserStateSummary:
+			return await self.browser_session.get_browser_state_summary(
+				include_screenshot=include_screenshot,
+				include_recent_events=self.include_recent_events,
+			)
+
+		browser_state_summary = await capture()
+		max_wait = self.settings.loading_shell_max_wait_seconds
+		if max_wait > 0 and self._browser_state_is_loading_shell(browser_state_summary):
+			deadline = time.monotonic() + max_wait
+			polls = 0
+			while self._browser_state_is_loading_shell(browser_state_summary):
+				remaining = deadline - time.monotonic()
+				if remaining <= 0:
+					break
+				await asyncio.sleep(min(self.settings.loading_shell_poll_interval_seconds, remaining))
+				browser_state_summary = await capture()
+				polls += 1
+
+			if polls:
+				status = 'ready' if not self._browser_state_is_loading_shell(browser_state_summary) else 'still loading'
+				self.logger.info(f'⚡ Refreshed transient loading state {polls} time(s): {status}')
+				if status == 'still loading' and self._last_successful_step_included_click():
+					self._record_unchanged_post_click_state(
+						f'the page remained a loading shell for {max_wait:.1f}s after click delivery.'
+					)
+					return browser_state_summary
+		return await self._settle_unchanged_state_after_click(browser_state_summary, capture)
 
 	async def _maybe_compact_messages(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Optionally compact message history to keep prompts small."""
@@ -1591,13 +1921,24 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		agent_steps = self.history.agent_steps()
 		screenshot_paths = [p for p in self.history.screenshot_paths() if p is not None]
 
+		# Fast agents can skip per-step screenshots while still giving the judge one
+		# fresh piece of visual evidence. This keeps image capture off the hot loop.
+		if self.settings.judge_capture_final_state and self.settings.use_vision is not False:
+			try:
+				final_state = await self.browser_session.get_browser_state_summary(include_screenshot=True)
+				if final_state.screenshot:
+					final_path = await self.screenshot_service.store_screenshot(final_state.screenshot, self.state.n_steps)
+					screenshot_paths.append(final_path)
+			except Exception as exc:
+				self.logger.debug(f'Could not capture final judge screenshot: {exc}')
+
 		# Construct input messages for judge evaluation
 		input_messages = construct_judge_messages(
 			task=task,
 			final_result=final_result,
 			agent_steps=agent_steps,
 			screenshot_paths=screenshot_paths,
-			max_images=10,
+			max_images=self.settings.judge_max_images,
 			ground_truth=self.settings.ground_truth,
 			use_vision=self.settings.use_vision,
 		)
@@ -2400,11 +2741,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Check if URL ends with file extension
 				should_exclude = False
 				if not url_lower.startswith('file://'):
-					for ext in excluded_extensions:
-						if f'.{ext}' in url_lower:
-							should_exclude = True
-							break
-					if not has_scheme and '.htm' in url_lower:
+					should_exclude = url_path_has_extension(url, excluded_extensions)
+					if not has_scheme and url_path_has_extension(url, {'htm', 'html'}):
 						should_exclude = True
 
 				if should_exclude:
@@ -3298,6 +3636,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Skip browser state capture for initial actions (usually just URL navigation)
 			if self.settings.flash_mode:
 				model_output = self.AgentOutput(
+					thinking=(
+						'The initial URL was loaded automatically; inspect the resulting page.'
+						if self.settings.use_thinking
+						else None
+					),
 					evaluation_previous_goal=None,
 					memory='Initial navigation',
 					next_goal=None,
@@ -4030,7 +4373,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.ActionModel = self.tools.registry.create_action_model(page_url=page_url)
 		# Update output model with the new actions
 		if self.settings.flash_mode:
-			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
+			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(
+				self.ActionModel, include_thinking=self.settings.use_thinking
+			)
 		elif self.settings.use_thinking:
 			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
 		else:
@@ -4039,7 +4384,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Update done action model too
 		self.DoneActionModel = self.tools.registry.create_action_model(include_actions=['done'], page_url=page_url)
 		if self.settings.flash_mode:
-			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(
+				self.DoneActionModel, include_thinking=self.settings.use_thinking
+			)
 		elif self.settings.use_thinking:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 		else:

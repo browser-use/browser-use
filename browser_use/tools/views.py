@@ -154,7 +154,10 @@ class ScreenshotAction(BaseModel):
 
 	file_name: str | None = Field(
 		default=None,
-		description='If provided, saves screenshot to this file and returns path. Otherwise screenshot is included in next observation.',
+		description=(
+			'Omit for model visual inspection so the screenshot appears in the next observation. '
+			'Only provide a filename when the user explicitly wants a saved image file.'
+		),
 	)
 
 

@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -9,7 +10,7 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared.chat_model import ChatModel
 from openai.types.shared_params.reasoning_effort import ReasoningEffort
 from openai.types.shared_params.response_format_json_schema import JSONSchema, ResponseFormatJSONSchema
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
@@ -19,6 +20,47 @@ from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def _validate_prompted_structured_output(content: str, output_format: type[T]) -> T:
+	"""Validate prompted JSON while tolerating harmless model-added wrappers.
+
+	Some OpenAI-compatible local models occasionally wrap an otherwise valid JSON
+	object in a Markdown fence or prepend one sentence of prose. Provider-enforced
+	structured output does not need this path, but prompted schemas do. Recovery is
+	intentionally narrow: only one complete top-level object is accepted, and that
+	object must still pass the requested Pydantic schema.
+	"""
+	try:
+		return output_format.model_validate_json(content)
+	except ValidationError as original_error:
+		candidate = content.strip()
+
+		# Recover a response consisting solely of a Markdown JSON fence.
+		lines = candidate.splitlines()
+		if len(lines) >= 3 and lines[0].strip().lower() in {'```', '```json'} and lines[-1].strip() == '```':
+			candidate = '\n'.join(lines[1:-1]).strip()
+			try:
+				return output_format.model_validate_json(candidate)
+			except ValidationError:
+				pass
+
+		# Recover one prose prefix followed by exactly one complete JSON object.
+		object_start = candidate.find('{')
+		if object_start > 0:
+			try:
+				value, object_end = json.JSONDecoder().raw_decode(candidate[object_start:])
+			except json.JSONDecodeError:
+				pass
+			else:
+				trailing = candidate[object_start + object_end :].strip()
+				if isinstance(value, dict) and not trailing:
+					try:
+						return output_format.model_validate(value)
+					except ValidationError:
+						pass
+
+		raise original_error
 
 
 @dataclass
@@ -40,6 +82,7 @@ class ChatOpenAI(BaseChatModel):
 	seed: int | None = None
 	service_tier: Literal['auto', 'default', 'flex', 'priority', 'scale'] | None = None
 	top_p: float | None = None
+	extra_body: dict[str, Any] | None = None
 	add_schema_to_system_prompt: bool = False  # Add JSON schema to system prompt instead of using response_format
 	dont_force_structured_output: bool = False  # If True, the model will not be forced to output a structured output
 	remove_min_items_from_schema: bool = (
@@ -186,6 +229,9 @@ class ChatOpenAI(BaseChatModel):
 			if self.service_tier is not None:
 				model_params['service_tier'] = self.service_tier
 
+			if self.extra_body is not None:
+				model_params['extra_body'] = self.extra_body
+
 			if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
 				model_params['reasoning_effort'] = self.reasoning_effort
 				model_params.pop('temperature', None)
@@ -234,7 +280,10 @@ class ChatOpenAI(BaseChatModel):
 
 				# Add JSON schema to system prompt if requested
 				if self.add_schema_to_system_prompt and openai_messages and openai_messages[0]['role'] == 'system':
-					schema_text = f'\n<json_schema>\n{response_format}\n</json_schema>'
+					# The model needs the schema it must satisfy, not the provider API's
+					# outer {name, strict, schema} envelope.
+					schema_json = json.dumps(response_format['schema'], separators=(',', ':'))
+					schema_text = f'\n<json_schema>\n{schema_json}\n</json_schema>'
 					if isinstance(openai_messages[0]['content'], str):
 						openai_messages[0]['content'] += schema_text
 					elif isinstance(openai_messages[0]['content'], Iterable):
@@ -298,7 +347,13 @@ class ChatOpenAI(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(choice.message.content)
+				try:
+					parsed = _validate_prompted_structured_output(choice.message.content, output_format)
+				except ValidationError as e:
+					# Malformed model output is not an upstream 502. Classifying it as
+					# unprocessable prevents the Agent from permanently switching to a
+					# fallback provider/sampler after one formatting mistake.
+					raise ModelProviderError(message=str(e), status_code=422, model=self.name) from e
 
 				return ChatInvokeCompletion(
 					completion=parsed,

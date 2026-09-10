@@ -379,10 +379,16 @@ class MessageManager:
 					history_item = HistoryItem(step_number=step_number, error='Agent failed to output in the right format.')
 					self.state.agent_history_items.append(history_item)
 		else:
+			# Thinking-only Flash output has no separate model-facing memory field.
+			# Preserve its compact thought as recent step history so the agent can
+			# carry verified progress without generating the same state twice.
+			history_memory = model_output.current_state.memory
+			if not history_memory and self.use_thinking:
+				history_memory = model_output.current_state.thinking
 			history_item = HistoryItem(
 				step_number=step_number,
 				evaluation_previous_goal=model_output.current_state.evaluation_previous_goal,
-				memory=model_output.current_state.memory,
+				memory=history_memory,
 				next_goal=model_output.current_state.next_goal,
 				action_results=action_results,
 			)

@@ -681,6 +681,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	wait_for_network_idle_page_load_time: float = Field(default=0.5, description='Time to wait for network idle.')
 
 	wait_between_actions: float = Field(default=0.1, description='Time to wait between actions.')
+	prefer_javascript_clicks_in_dialogs: bool = Field(
+		default=False,
+		description='Use DOM element.click() for buttons inside dialogs to avoid unreliable coordinate clicks.',
+	)
 
 	# --- UI/viewport/DOM ---
 	highlight_elements: bool = Field(default=True, description='Highlight interactive elements on the page.')

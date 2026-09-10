@@ -177,6 +177,7 @@ class TestSearchPage:
 		assert result.extracted_content is not None
 		assert 'Widget A' in result.extracted_content
 		assert '1 match' in result.extracted_content
+		assert result.include_extracted_content_only_once is True
 
 	async def test_regex_search_prices(self, tools, browser_session, base_url):
 		"""Regex search finds all price patterns on the page."""
@@ -305,6 +306,10 @@ class TestFindElements:
 		assert '4 elements' in result.extracted_content
 		assert 'Widget A' in result.extracted_content
 		assert 'Gadget D' in result.extracted_content
+		assert 'Result 1: <tr>' in result.extracted_content
+		assert 'not clickable browser-state indices' in result.extracted_content
+		assert '[0] <tr>' not in result.extracted_content
+		assert result.include_extracted_content_only_once is True
 
 	async def test_attribute_extraction(self, tools, browser_session, base_url):
 		"""attributes parameter extracts specific attributes from elements."""
