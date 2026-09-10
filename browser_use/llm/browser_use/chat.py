@@ -193,9 +193,9 @@ class ChatBrowserUse(BaseChatModel):
 				# Non-retryable HTTP error or exhausted retries
 				self._raise_http_error(e)
 
-			except (httpx.TimeoutException, httpx.ConnectError) as e:
+			except httpx.TransportError as e:
 				last_error = e
-				# Network errors are retryable
+				# Network errors (timeouts, refused/dropped connections, protocol errors) are retryable
 				if attempt < self.max_retries - 1:
 					delay = min(self.retry_base_delay * (2**attempt), self.retry_max_delay)
 					jitter = random.uniform(0, delay * 0.1)
@@ -209,17 +209,27 @@ class ChatBrowserUse(BaseChatModel):
 
 				# Exhausted retries
 				if isinstance(e, httpx.TimeoutException):
-					raise ValueError(f'Request timed out after {self.timeout}s (retried {self.max_retries} times)')
-				raise ValueError(f'Failed to connect to browser-use API after {self.max_retries} attempts: {e}')
+					raise ModelProviderError(
+						message=f'Request timed out after {self.timeout}s (retried {self.max_retries} times)',
+						status_code=504,
+						model=self.name,
+					) from e
+				raise ModelProviderError(
+					message=f'Failed to connect to browser-use API after {self.max_retries} attempts: {e}',
+					status_code=502,
+					model=self.name,
+				) from e
 
 			except Exception as e:
-				raise ValueError(f'Failed to connect to browser-use API: {e}')
+				raise ModelProviderError(message=f'browser-use API request failed: {e}', model=self.name) from e
 		else:
 			# Loop completed without break (all retries exhausted)
 			if last_error is not None:
 				if isinstance(last_error, httpx.HTTPStatusError):
 					self._raise_http_error(last_error)
-				raise ValueError(f'Request failed after {self.max_retries} attempts: {last_error}')
+				raise ModelProviderError(
+					message=f'Request failed after {self.max_retries} attempts: {last_error}', model=self.name
+				) from last_error
 			raise RuntimeError('Retry loop completed without return or exception')
 
 		# Parse response - server returns structured data as dict
