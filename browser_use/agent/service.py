@@ -2396,14 +2396,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				url_lower = url.lower()
 				has_scheme = url_lower.startswith(('http://', 'https://', 'file://'))
 
-				# Check if URL ends with file extension
+				# Check if the URL path ends with a file extension (python.org or texasmonthly.com must not count)
 				should_exclude = False
 				if not url_lower.startswith('file://'):
-					for ext in excluded_extensions:
-						if f'.{ext}' in url_lower:
-							should_exclude = True
-							break
-					if not has_scheme and '.htm' in url_lower:
+					path = urlparse(url_lower if has_scheme else f'//{url_lower}').path
+					suffix = Path(path).suffix.lstrip('.')
+					if suffix in excluded_extensions:
+						should_exclude = True
+					if not has_scheme and suffix.startswith('htm'):
 						should_exclude = True
 
 				if should_exclude:
