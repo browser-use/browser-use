@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import traceback
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, Literal
@@ -508,7 +509,7 @@ class AgentHistory(BaseModel):
 				elements.append(None)
 		return elements
 
-	def _filter_sensitive_data_from_string(self, value: str, sensitive_data: dict[str, str | dict[str, str]] | None) -> str:
+	def _filter_sensitive_data_from_string(self, value: str, sensitive_data: Mapping[str, str | Mapping[str, str]] | None) -> str:
 		"""Filter out sensitive data from a string value"""
 		if not sensitive_data:
 			return value
@@ -521,7 +522,7 @@ class AgentHistory(BaseModel):
 
 		return redact_sensitive_string(value, sensitive_values)
 
-	def _filter_sensitive_data_from_value(self, value: Any, sensitive_data: dict[str, str | dict[str, str]] | None) -> Any:
+	def _filter_sensitive_data_from_value(self, value: Any, sensitive_data: Mapping[str, str | Mapping[str, str]] | None) -> Any:
 		"""Recursively filter sensitive data from any supported container or string value"""
 		if isinstance(value, str):
 			return self._filter_sensitive_data_from_string(value, sensitive_data)
@@ -534,7 +535,7 @@ class AgentHistory(BaseModel):
 		return value
 
 	def _filter_sensitive_data_from_dict(
-		self, data: dict[str, Any], sensitive_data: dict[str, str | dict[str, str]] | None
+		self, data: dict[str, Any], sensitive_data: Mapping[str, str | Mapping[str, str]] | None
 	) -> dict[str, Any]:
 		"""Recursively filter sensitive data from a dictionary"""
 		if not sensitive_data:

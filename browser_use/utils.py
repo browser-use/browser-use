@@ -5,7 +5,7 @@ import platform
 import re
 import signal
 import time
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from fnmatch import fnmatch
 from functools import cache, wraps
 from pathlib import Path
@@ -88,14 +88,16 @@ _openai_bad_request_error: type | None = None
 _groq_bad_request_error: type | None = None
 
 
-def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]] | None) -> dict[str, str]:
+def collect_sensitive_data_values(
+	sensitive_data: Mapping[str, str | Mapping[str, str]] | None,
+) -> dict[str, str]:
 	"""Flatten legacy and domain-scoped sensitive data into placeholder -> value mappings."""
 	if not sensitive_data:
 		return {}
 
 	sensitive_values: dict[str, str] = {}
 	for key_or_domain, content in sensitive_data.items():
-		if isinstance(content, dict):
+		if isinstance(content, Mapping):
 			for key, val in content.items():
 				if val:
 					sensitive_values[key] = val
