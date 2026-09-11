@@ -106,8 +106,13 @@ async def browser_session(base_url):
 	await browser_session.start()
 	from browser_use.browser.events import NavigateToUrlEvent
 
-	browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/test'))
-	await asyncio.sleep(0.5)  # Wait for navigation
+	# Await the event instead of sleeping: a fixed delay is not long enough for a
+	# cold browser start on a slower runner, which leaves the page on about:blank.
+	# dispatch swallows handler exceptions, so check the result to surface a failed
+	# navigation here rather than as a confusing assertion later in the test.
+	event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/test'))
+	await asyncio.wait_for(event, timeout=15)
+	await event.event_result(raise_if_any=True, raise_if_none=False)
 	yield browser_session
 	await browser_session.kill()
 
