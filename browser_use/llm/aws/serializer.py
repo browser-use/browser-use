@@ -255,22 +255,23 @@ class AWSBedrockMessageSerializer:
 	@staticmethod
 	def serialize_messages(messages: list[BaseMessage]) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
 		"""
-		Serialize a list of messages, extracting any system message.
+		Serialize a list of messages, extracting the system messages.
 
 		Returns:
-			Tuple of (bedrock_messages, system_message) where system_message is extracted
-			from any SystemMessage in the list.
+			Tuple of (bedrock_messages, system_blocks) where system_blocks holds the content
+			blocks of every SystemMessage in the list, in order, or None if there were none.
 		"""
 		bedrock_messages: list[dict[str, Any]] = []
-		system_message: list[dict[str, Any]] | None = None
+		system_blocks: list[dict[str, Any]] = []
 
 		for message in messages:
 			if isinstance(message, SystemMessage):
-				# Extract system message content
-				system_message = AWSBedrockMessageSerializer._serialize_system_content(message.content)
+				# Converse takes `system` as a list of content blocks, so collect every system
+				# message instead of letting the last one replace the ones before it
+				system_blocks.extend(AWSBedrockMessageSerializer._serialize_system_content(message.content))
 			else:
 				# Serialize and add to regular messages
 				serialized = AWSBedrockMessageSerializer.serialize(message)
 				bedrock_messages.append(serialized)
 
-		return bedrock_messages, system_message
+		return bedrock_messages, system_blocks or None
