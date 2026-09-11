@@ -408,6 +408,9 @@ class TokenCost:
 		# OrcaRouter is a gateway with its own pricing; never attribute upstream prices to it.
 		if llm.provider == 'orcarouter' or base_url == 'https://api.orcarouter.ai/v1':
 			return f'orcarouter/{model}'
+		# aimlapi.com is a gateway with its own pricing; never attribute upstream prices to it.
+		if llm.provider == 'aimlapi' or base_url == 'https://api.aimlapi.com/v1':
+			return f'aimlapi/{model}'
 
 		return model
 
