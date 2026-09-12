@@ -2509,6 +2509,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 			is_combination = False
 			modifiers = []
 			main_key = None
+			# A modifier combination has no standalone ``normalized_keys`` value.
+			# Only a dispatched Enter (or a text newline) warrants the navigation wait.
+			should_wait_for_navigation = '\n' in keys or '\r' in keys
 			if '+' in keys and keys != '+':
 				if keys.endswith('++'):
 					prefix = keys[:-2]
@@ -2530,6 +2533,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							main_key = key_aliases.get(suffix.strip().lower(), suffix)
 
 			if is_combination and main_key is not None:
+				should_wait_for_navigation = should_wait_for_navigation or main_key == 'Enter'
 				# Calculate modifier bitmask
 				modifier_value = 0
 				for mod in modifiers:
@@ -2550,6 +2554,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			else:
 				keys_lower = keys.strip().lower()
 				normalized_keys = key_aliases.get(keys_lower, keys)
+				should_wait_for_navigation = should_wait_for_navigation or normalized_keys == 'Enter'
 
 				# Check if this is a text string or special key
 				special_keys = {
@@ -2678,12 +2683,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Note: We don't clear cached state on Enter; multi_act will detect DOM changes
 			# and rebuild explicitly. We still wait briefly for potential navigation.
-			if (
-				normalized_keys == 'Enter'
-				or normalized_keys.endswith('+Enter')
-				or '\n' in normalized_keys
-				or '\r' in normalized_keys
-			):
+			if should_wait_for_navigation:
 				await asyncio.sleep(0.1)
 		except Exception as e:
 			raise
