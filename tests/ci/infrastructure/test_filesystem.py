@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from pypdf import PdfReader
 
 from browser_use.filesystem.file_system import (
 	DEFAULT_FILE_SYSTEM_PATH,
@@ -16,7 +17,33 @@ from browser_use.filesystem.file_system import (
 	JsonlFile,
 	MarkdownFile,
 	TxtFile,
+	_markdown_inline_to_rml,
+	_split_heading,
 )
+
+
+def _extract_pdf_text(path: Path) -> tuple[str, list[str]]:
+	"""Extract a PDF as (whitespace-collapsed blob, non-empty stripped lines).
+
+	The blob tolerates line wrapping; the lines are what header markers would survive on.
+	"""
+	text = '\n'.join(page.extract_text() or '' for page in PdfReader(path).pages)
+	return ' '.join(text.split()), [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def _extract_pdf_fonts(path: Path) -> set[str]:
+	"""Return the PDF base fonts used to render non-empty text."""
+	fonts: set[str] = set()
+
+	def _record_font(text: str, _cm, _tm, font_dictionary, _font_size) -> None:
+		if text.strip() and font_dictionary is not None:
+			base_font = font_dictionary.get('/BaseFont')
+			if base_font is not None:
+				fonts.add(str(base_font))
+
+	for page in PdfReader(path).pages:
+		page.extract_text(visitor_text=_record_font)
+	return fonts
 
 
 class TestBaseFile:
@@ -32,6 +59,34 @@ class TestBaseFile:
 		assert md_file.full_name == 'test.md'
 		assert md_file.get_size == 13
 		assert md_file.get_line_count == 1
+
+	def test_split_heading_levels(self):
+		"""PdfFile and DocxFile share one heading parser."""
+		assert _split_heading('# Title') == ('Title', 1)
+		assert _split_heading('## Section') == ('Section', 2)
+		assert _split_heading('### Notes') == ('Notes', 3)
+		assert _split_heading('#hashtag is not a header') == ('#hashtag is not a header', None)
+		assert _split_heading('plain') == ('plain', None)
+		assert _split_heading('#### too deep') == ('#### too deep', None)
+
+	def test_markdown_inline_glob_is_not_bold(self):
+		"""Recursive globs must not be treated as bold delimiters."""
+		assert _markdown_inline_to_rml('**/foo/**') == '**/foo/**'
+		assert _markdown_inline_to_rml('**bold** and **/foo/**') == '<b>bold</b> and **/foo/**'
+
+	def test_markdown_inline_code_protects_emphasis(self):
+		"""Emphasis markers inside backticks stay Courier, not italic/bold."""
+		assert _markdown_inline_to_rml('`*literal*`') == '<font face="Courier">*literal*</font>'
+		assert _markdown_inline_to_rml('`**bold**`') == '<font face="Courier">**bold**</font>'
+
+	def test_markdown_inline_code_token_cannot_replace_user_text(self):
+		"""A user-provided placeholder-like sequence must survive code-span restoration."""
+		literal = '\x00C0\x00'
+		assert _markdown_inline_to_rml(f'Keep {literal} and `code`.') == (f'Keep {literal} and <font face="Courier">code</font>.')
+		prefix_literal = '\x00BROWSER_USE_INLINE_CODE_0\x00'
+		assert _markdown_inline_to_rml(f'Keep {prefix_literal} and `code`.') == (
+			f'Keep {prefix_literal} and <font face="Courier">code</font>.'
+		)
 
 	def test_txt_file_creation(self):
 		"""Test TxtFile creation and basic properties."""
@@ -222,6 +277,122 @@ class TestFileSystem:
 			except Exception:
 				pass
 
+	async def test_write_pdf_renders_content_as_plain_text(self, empty_filesystem):
+		"""PDF content should be rendered as plain text, not ReportLab markup."""
+		# (markdown source, text expected in the PDF)
+		headers = [
+			('# Q&A: <b y vs 5', 'Q&A: <b y vs 5'),
+			('## Section 2 & 3', 'Section 2 & 3'),
+			('### Notes <i> #1', 'Notes <i> #1'),
+		]
+		body = ['Comparison: 2 <b y & 5 > 4', '#hashtag is not a header', 'O\'Brien said "hi" & left']
+
+		result = await empty_filesystem.write_file('comparison.pdf', '\n\n'.join([source for source, _ in headers] + body))
+
+		assert result == 'Data written to file comparison.pdf successfully.'
+		blob, lines = _extract_pdf_text(empty_filesystem.data_dir / 'comparison.pdf')
+		for _, rendered in headers:
+			assert rendered in blob
+		for line in body:
+			assert line in blob
+		# Content checks alone pass with a leftover marker, e.g. '# Notes <i> #1' contains 'Notes <i> #1'
+		assert [line for line in lines if line.startswith(('# ', '## ', '### '))] == []
+
+	async def test_append_pdf_escapes_both_halves(self, empty_filesystem):
+		"""Appending re-renders the whole PDF, so old and new content must both stay plain text."""
+		# The markup that breaks ReportLab goes in the appended half, so this fails on the append path alone
+		await empty_filesystem.write_file('report.pdf', 'First & half')
+
+		result = await empty_filesystem.append_file('report.pdf', '\nSecond <b half > 2')
+
+		assert result == 'Data appended to file report.pdf successfully.'
+		blob, _ = _extract_pdf_text(empty_filesystem.data_dir / 'report.pdf')
+		assert 'First & half' in blob
+		assert 'Second <b half > 2' in blob
+
+	async def test_write_pdf_renders_markdown_formatting(self, empty_filesystem):
+		"""PDF export honors bold, italic, inline code, and bullets."""
+		source = '\n'.join(
+			[
+				'This is **bold text** in a sentence.',
+				'This is *italic text* in a sentence.',
+				'Use `inline_code` here.',
+				'- first bullet item',
+				'- second bullet item',
+				'* star bullet item',
+			]
+		)
+		result = await empty_filesystem.write_file('formatted.pdf', source)
+		assert result == 'Data written to file formatted.pdf successfully.'
+		pdf_path = empty_filesystem.data_dir / 'formatted.pdf'
+		blob, lines = _extract_pdf_text(pdf_path)
+		fonts = _extract_pdf_fonts(pdf_path)
+
+		assert 'bold text' in blob
+		assert '**bold text**' not in blob
+		assert 'italic text' in blob
+		assert '*italic text*' not in blob
+		assert 'inline_code' in blob
+		assert '`inline_code`' not in blob
+		assert 'first bullet item' in blob
+		assert 'second bullet item' in blob
+		assert 'star bullet item' in blob
+		assert not any(line.startswith(('- ', '* ')) for line in lines)
+		assert {'/Helvetica-Bold', '/Helvetica-Oblique', '/Courier'} <= fonts
+
+	async def test_write_pdf_star_overload_is_not_emphasis(self, empty_filesystem):
+		"""Arithmetic and glob stars must not be treated as italic or bullets."""
+		source = '\n'.join(
+			[
+				'Arithmetic 2 * 3 * 4 stays literal',
+				'Glob pattern *.txt and **/*.py stay literal',
+				'Recursive glob **/foo/** stays literal',
+			]
+		)
+		result = await empty_filesystem.write_file('stars.pdf', source)
+		assert result == 'Data written to file stars.pdf successfully.'
+		blob, _ = _extract_pdf_text(empty_filesystem.data_dir / 'stars.pdf')
+		assert '2 * 3 * 4' in blob
+		assert '*.txt' in blob
+		assert '**/*.py' in blob
+		assert '**/foo/**' in blob
+
+	async def test_write_pdf_underscore_is_not_italic(self, empty_filesystem):
+		"""Underscores are identifiers, not emphasis."""
+		source = 'Keep snake_case_names and file_name_here unchanged.'
+		result = await empty_filesystem.write_file('names.pdf', source)
+		assert result == 'Data written to file names.pdf successfully.'
+		blob, _ = _extract_pdf_text(empty_filesystem.data_dir / 'names.pdf')
+		assert 'snake_case_names' in blob
+		assert 'file_name_here' in blob
+
+	async def test_write_pdf_fenced_backticks_stay_literal(self, empty_filesystem):
+		"""Inline code strips backticks; fenced shell snippets keep them."""
+		source = '\n'.join(
+			[
+				'Run `$(cmd)` inline.',
+				'```',
+				'echo `$(cmd)`',
+				'```',
+			]
+		)
+		result = await empty_filesystem.write_file('backticks.pdf', source)
+		assert result == 'Data written to file backticks.pdf successfully.'
+		blob, _ = _extract_pdf_text(empty_filesystem.data_dir / 'backticks.pdf')
+		assert 'Run $(cmd) inline.' in blob
+		assert 'echo `$(cmd)`' in blob
+
+	async def test_write_pdf_inline_code_protects_emphasis_markers(self, empty_filesystem):
+		"""Stars inside inline code stay literal instead of becoming italic/bold."""
+		source = 'Keep `*literal*` and `**bold**` as code.'
+		result = await empty_filesystem.write_file('code_stars.pdf', source)
+		assert result == 'Data written to file code_stars.pdf successfully.'
+		blob, _ = _extract_pdf_text(empty_filesystem.data_dir / 'code_stars.pdf')
+		assert '*literal*' in blob
+		assert '**bold**' in blob
+		assert '`*literal*`' not in blob
+		assert '`**bold**`' not in blob
+
 	def test_filesystem_initialization(self, temp_filesystem):
 		"""Test FileSystem initialization with default files."""
 		fs = temp_filesystem
@@ -294,8 +465,16 @@ class TestFileSystem:
 		assert fs._is_valid_filename('.json') is False  # no name
 		assert fs._is_valid_filename('.jsonl') is False  # no name
 		assert fs._is_valid_filename('.csv') is False  # no name
-		assert fs._is_valid_filename('screenshot.png') is False  # binary extension
-		assert fs._is_valid_filename('image.jpg') is False  # binary extension
+		# Small image extensions are now supported (base64 content -> real bytes, for upload flows)
+		assert fs._is_valid_filename('screenshot.png') is True
+		assert fs._is_valid_filename('image.jpg') is True
+		assert fs._is_valid_filename('pic.gif') is True
+		assert fs._is_valid_filename('photo.webp') is True
+
+		# Other binary types remain unsupported
+		assert fs._is_valid_filename('clip.mp4') is False  # binary extension
+		assert fs._is_valid_filename('archive.zip') is False  # binary extension
+		assert fs._is_valid_filename('icon.svg') is False  # binary extension
 
 	def test_filename_parsing(self, temp_filesystem):
 		"""Test filename parsing into name and extension."""
@@ -1014,16 +1193,28 @@ class TestFilenameSanitization:
 			fs.nuke()
 
 	async def test_write_file_binary_extension_error(self):
-		"""Test that writing to binary extensions gives a clear error."""
+		"""Unsupported binary extensions give a clear error; small images accept base64."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
 			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
 
-			result = await fs.write_file('screenshot.png', 'content')
+			# Non-image binaries are still rejected outright
+			result = await fs.write_file('clip.mp4', 'content')
 			assert 'binary/image' in result.lower() or 'Cannot write' in result
-			assert 'screenshot.png' not in fs.list_files()
+			assert 'clip.mp4' not in fs.list_files()
 
-			result = await fs.write_file('photo.jpg', 'content')
+			result = await fs.write_file('archive.zip', 'content')
 			assert 'binary/image' in result.lower() or 'Cannot write' in result
+
+			# Small images are supported: non-base64 content is rejected (no corrupt file),
+			# valid base64 is written as real bytes.
+			result = await fs.write_file('screenshot.png', 'not base64!!!')
+			assert 'Error' in result
+			assert not (fs.get_dir() / 'screenshot.png').exists()
+
+			png_1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII='
+			result = await fs.write_file('logo.png', png_1x1)
+			assert 'successfully' in result
+			assert (fs.get_dir() / 'logo.png').read_bytes()[:8] == b'\x89PNG\r\n\x1a\n'
 
 			fs.nuke()
 
@@ -1144,8 +1335,8 @@ class TestFilenameSanitization:
 			result = await fs.read_file('noextension')
 			assert 'no extension' in result.lower()
 
-			# Binary extension - specific error
-			result = await fs.write_file('image.png', 'data')
+			# Unsupported binary extension - specific error
+			result = await fs.write_file('clip.mp4', 'data')
 			assert 'binary' in result.lower() or 'Cannot write' in result
 
 			fs.nuke()
