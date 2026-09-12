@@ -2475,6 +2475,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 	async def on_SendKeysEvent(self, event: SendKeysEvent) -> None:
 		"""Handle send keys request with CDP."""
 		cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
+		sent_enter = False
 		try:
 			# Normalize key names from common aliases
 			key_aliases = {
@@ -2544,6 +2545,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 				await self._dispatch_key_event(cdp_session, 'keyUp', main_key, modifier_value)
 
+				if main_key == 'Enter':
+					sent_enter = True
+
 				# Release modifier keys
 				for mod in reversed(modifiers):
 					await self._dispatch_key_event(cdp_session, 'keyUp', mod)
@@ -2589,6 +2593,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					await self._dispatch_key_event(cdp_session, 'keyDown', normalized_keys)
 					# For Enter key, also dispatch a char event to trigger keypress listeners
 					if normalized_keys == 'Enter':
+						sent_enter = True
 						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
 							params={
 								'type': 'char',
@@ -2604,6 +2609,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					for char in normalized_keys:
 						# Special-case newline characters to dispatch as Enter
 						if char in ('\n', '\r'):
+							sent_enter = True
 							await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
 								params={
 									'type': 'rawKeyDown',
@@ -2678,7 +2684,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Note: We don't clear cached state on Enter; multi_act will detect DOM changes
 			# and rebuild explicitly. We still wait briefly for potential navigation.
-			if 'enter' in event.keys.lower() or 'return' in event.keys.lower():
+			# Use parsed key path (sent_enter), not substring matching, otherwise
+			# ordinary text like "center" / "returning" pays the Enter delay.
+			if sent_enter:
 				await asyncio.sleep(0.1)
 		except Exception as e:
 			raise
