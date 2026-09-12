@@ -1208,7 +1208,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						}
 					)
 					self.state.last_model_output = replayed_output
-					self.logger.debug(f'🗂️  Replay cache: reconstructed output: {[list(a.model_dump(exclude_none=True).keys()) for a in replayed_output.action]}')
+					self.logger.debug(
+						f'🗂️  Replay cache: reconstructed output: {[list(a.model_dump(exclude_none=True).keys()) for a in replayed_output.action]}'
+					)
 					return
 				except Exception as replay_err:
 					# Reconstruction failed (e.g. action schema changed) — fall through to LLM.
@@ -1247,7 +1249,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# check again if Ctrl+C was pressed before we commit the output to history
 		await self._check_stop_or_pause()
-
 
 	async def _execute_actions(self) -> None:
 		"""Execute the actions from model output"""
@@ -1474,16 +1475,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					element_count=element_count,
 				)
 				actions_data = [
-					action.model_dump(exclude_none=True, mode='json')
-					for action in self.state.last_model_output.action
+					action.model_dump(exclude_none=True, mode='json') for action in self.state.last_model_output.action
 				]
 				self.state.replay_cache.record(
 					fp=fp,
 					actions=actions_data,
 					memory=self.state.last_model_output.memory,
 				)
-				self.logger.debug(f'🗂️  Replay cache: recorded fingerprint for {browser_state_summary.url} ({len(self.state.replay_cache.entries)} total entries)')
-
+				self.logger.debug(
+					f'🗂️  Replay cache: recorded fingerprint for {browser_state_summary.url} ({len(self.state.replay_cache.entries)} total entries)'
+				)
 
 	def _update_plan_from_model_output(self, model_output: AgentOutput) -> None:
 		"""Update the plan state from model output fields (current_plan_item, plan_update)."""
