@@ -62,7 +62,6 @@ class ChatBrowserUse(BaseChatModel):
 				- 'bu-2-0-mini-preview': Cheaper and faster per token, opt-in while in preview
 				- 'bu-1-0': Previous generation model, redirected to bu-2-0 at the gateway
 				- 'bu-qa-1': Website QA model (tests a site and scores functionality/aesthetics)
-				- 'browser-use/bu-30b-a3b-preview': Browser Use Open Source Model
 				- Provider-prefixed ids resolved by the gateway, e.g. 'anthropic/claude-sonnet-4-6',
 				  'openai/gpt-5.5', 'google/gemini-3-pro'.
 			api_key: API key for browser-use cloud. Defaults to BROWSER_USE_API_KEY env var.

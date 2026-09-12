@@ -71,7 +71,6 @@ llm = ChatBrowserUse(model='bu-2-0-mini-preview')   # Cheaper per token, opt-in 
 | bu-2-0 (default, premium) | $0.60 | $0.06 | $3.50 |
 | bu-2-0-mini-preview (opt-in) | $0.15 | $0.15 | $1.50 |
 | bu-1-0 (redirects to bu-2-0) | $0.60 | $0.06 | $3.50 |
-| browser-use/bu-30b-a3b-preview (OSS) | — | — | — |
 
 ## OpenAI
 
