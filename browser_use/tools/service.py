@@ -1013,19 +1013,27 @@ class Tools(Generic[Context]):
 
 				event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
 				await event
-				new_target_id = await event.event_result(raise_if_any=False, raise_if_none=False)  # Don't raise on errors
-
-				if new_target_id:
-					memory = f'Switched to tab #{new_target_id[-4:]}'
-				else:
-					memory = f'Switched to tab #{params.tab_id}'
-
-				logger.info(f'🔄  {memory}')
-				return ActionResult(extracted_content=memory, long_term_memory=memory)
+				# raise_if_any=True so a handler failure surfaces its real cause here instead
+				# of silently becoming a "produced no result" below.
+				new_target_id = await event.event_result(raise_if_any=True, raise_if_none=False)
 			except Exception as e:
-				logger.warning(f'Tab switch may have failed: {e}')
-				memory = f'Attempted to switch to tab #{params.tab_id}'
-				return ActionResult(extracted_content=memory, long_term_memory=memory)
+				logger.warning(f'Tab switch failed: {e}')
+				# Preserve the concrete cause (e.g. a stale tab_id) instead of a generic
+				# message, so the agent gets actionable failure info in both memories.
+				memory = f'Failed to switch to tab #{params.tab_id}: {e}'
+				raise BrowserError(memory, short_term_memory=memory, long_term_memory=memory)
+
+			# on_SwitchTabEvent returns the newly focused TargetID on every success path, so a
+			# missing result (with no exception raised) means the handler still failed rather
+			# than having quietly succeeded.
+			if not new_target_id:
+				memory = f'Failed to switch to tab #{params.tab_id}: tab switch produced no result'
+				logger.warning(memory)
+				raise BrowserError(memory, short_term_memory=memory, long_term_memory=memory)
+
+			memory = f'Switched to tab #{new_target_id[-4:]}'
+			logger.info(f'🔄  {memory}')
+			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
 		@self.registry.action(
 			'Close a tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use to clean up tabs you no longer need.',
@@ -1747,7 +1755,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			'Write content to a file. By default this OVERWRITES the entire file - use append=true to add to an existing file, or use replace_file for targeted edits within a file. '
 			'FILENAME RULES: Use only letters, numbers, underscores, hyphens, dots, parentheses. Spaces are auto-converted to hyphens. '
 			'SUPPORTED EXTENSIONS: .txt, .md, .json, .jsonl, .csv, .html, .xml, .pdf, .docx. '
-			'CANNOT write binary/image files (.png, .jpg, .mp4, etc.) - do not attempt to save screenshots as files. '
+			'For small images (.png, .gif, .jpg, .jpeg, .webp) — e.g. a tiny file to upload — set content to the '
+			'base64 of a valid image (a 1x1 PNG is ~92 base64 chars); the bytes are decoded and written for you. '
+			'CANNOT write other binary files (.mp4, .zip, etc.) and do not attempt to save screenshots as files. '
 			'For PDF files, write content in markdown format and it will be auto-converted to PDF.'
 		)
 		async def write_file(

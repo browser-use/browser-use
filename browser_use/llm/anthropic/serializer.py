@@ -29,20 +29,30 @@ class AnthropicMessageSerializer:
 
 	@staticmethod
 	def _is_base64_image(url: str) -> bool:
-		"""Check if the URL is a base64 encoded image."""
-		return url.startswith('data:image/')
+		"""Check if the URL is a base64 encoded image.
+
+		URI scheme names are case-insensitive (RFC 3986). MIME type/subtype
+		names are case-insensitive (RFC 2045). Compare the lowered scheme and
+		media type so DATA:image/PNG;base64,... is still treated as a data URL.
+		"""
+		scheme, sep, remainder = url.partition(':')
+		if not sep or scheme.lower() != 'data':
+			return False
+		media_type = remainder.split(',', 1)[0].split(';', 1)[0].lower()
+		return media_type.startswith('image/')
 
 	@staticmethod
 	def _parse_base64_url(url: str) -> tuple[SupportedImageMediaType, str]:
 		"""Parse a base64 data URL to extract media type and data."""
-		# Format: data:image/jpeg;base64,<data>
-		if not url.startswith('data:'):
+		# Format: data:image/jpeg;base64,<data> (scheme and media type case-insensitive)
+		scheme, sep, remainder = url.partition(':')
+		if not sep or scheme.lower() != 'data':
 			raise ValueError(f'Invalid base64 URL: {url}')
 
-		header, data = url.split(',', 1)
-		media_type = header.split(';')[0].replace('data:', '')
+		header, data = remainder.split(',', 1)
+		media_type = header.split(';', 1)[0].lower()
 
-		# Ensure it's a supported media type
+		# Ensure it's a supported media type (canonical lowercase for Anthropic)
 		supported_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 		if media_type not in supported_types:
 			# Default to jpeg if not recognized

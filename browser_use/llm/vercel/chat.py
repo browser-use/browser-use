@@ -348,6 +348,12 @@ class ChatVercel(BaseChatModel):
 	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
 		api_key = self.api_key or os.getenv('AI_GATEWAY_API_KEY') or os.getenv('VERCEL_OIDC_TOKEN')
+		if not api_key:
+			raise ModelProviderError(
+				message='Missing Vercel AI Gateway API key. Set AI_GATEWAY_API_KEY or VERCEL_OIDC_TOKEN, or pass api_key.',
+				status_code=401,
+				model=self.name,
+			)
 
 		base_params = {
 			'api_key': api_key,
@@ -660,6 +666,9 @@ class ChatVercel(BaseChatModel):
 						usage=usage,
 						stop_reason=response.choices[0].finish_reason if response.choices else None,
 					)
+
+		except ModelProviderError:
+			raise
 
 		except RateLimitError as e:
 			raise ModelRateLimitError(message=e.message, model=self.name) from e

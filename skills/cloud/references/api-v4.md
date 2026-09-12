@@ -9,6 +9,12 @@ is the persistent filesystem that can be reused across sessions.
 - Python: `from browser_use_sdk.v4 import BrowserUse`
 - TypeScript: `import { BrowserUse } from "browser-use-sdk/v4"`
 
+## Before the first run
+
+Eligible new Google, GitHub, or Microsoft signups receive a one-time $15 Cloud credit. No credit card is required. Email/password signups are not eligible; the credit does not renew. Start with the default V4 model (`gpt-5.6-luna`); paid-only models require a top-up. See [pricing](https://browser-use.com/pricing.md) for current eligibility and rates.
+
+Install or upgrade `browser-use-sdk` to 3.11.3 or newer. Read `BROWSER_USE_API_KEY` from the environment; do not embed it in source or a prompt.
+
 ## First Run
 
 ### Python
@@ -17,8 +23,12 @@ is the persistent filesystem that can be reused across sessions.
 from browser_use_sdk.v4 import BrowserUse
 
 with BrowserUse() as client:
-    created = client.runs.create("Find the top Hacker News story")
+    created = client.runs.create(
+        "Open https://example.com and return its title", max_cost_usd=1.00
+    )
     run = client.runs.wait_for_completion(created.id)
+    if run.status.value != "completed":
+        raise RuntimeError(f"Run {run.id}: {run.status}")
     print(run.result)
 ```
 
@@ -29,9 +39,13 @@ import { BrowserUse } from "browser-use-sdk/v4";
 
 const client = new BrowserUse();
 const created = await client.runs.create({
-  task: "Find the top Hacker News story",
+  task: "Open https://example.com and return its title",
+  maxCostUsd: 1.00,
 });
 const run = await client.runs.waitForCompletion(created.id);
+if (run.status !== "completed") {
+  throw new Error(`Run ${run.id}: ${run.status}`);
+}
 console.log(run.result);
 ```
 
@@ -52,6 +66,8 @@ curl https://api.browser-use.com/api/v4/runs/RUN_ID/status \
 curl https://api.browser-use.com/api/v4/runs/RUN_ID \
   -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY"
 ```
+
+Only `completed` means success. V4 returns a result string; parse and validate it in your application. A polling timeout does not cancel the remote run: use `client.runs.cancel` if abandoning it. Do not blindly retry an ambiguous create request, which could start duplicate paid work.
 
 Do not repeatedly poll the full run resource. The SDK wait helpers use the
 status route and fetch the full run once at the end.
@@ -114,10 +130,11 @@ The v4 REST API can create a browser for direct CDP control:
 3. `PATCH /browsers/{session_id}` with `{"action":"stop"}` stops the browser;
    replace `session_id` with the returned `id`.
 
-Closing a CDP client does not stop the cloud browser or its billing. The
-browser-management SDK wrapper currently uses the explicit v3 namespace; use
-`browser_use_sdk.v3` or `browser-use-sdk/v3` for that resource, or call the v4
-REST endpoint directly.
+Closing a CDP client does not stop the cloud browser or its billing. SDK
+3.11.3 or newer exposes `client.browsers.create()` and
+`client.browsers.stop(browser.id)` through `browser_use_sdk.v4` and
+`browser-use-sdk/v4`. Put the explicit stop in a `finally` block so failures
+also clean up the browser. Existing V3 integrations can keep their imports.
 
 ## Resource Map
 
@@ -126,7 +143,7 @@ REST endpoint directly.
 | Runs | create, list, get, status, events, cancel, attachments |
 | Sessions | list, get, queue messages, inspect/remove queued messages, purge |
 | Workspaces | create, get, update, archive, size, upload/list/delete files |
-| Browsers (REST) | create, inspect, stop |
+| Browsers | SDK: create, stop; REST: create, inspect, stop |
 
 For the complete current contract, use:
 
