@@ -225,7 +225,7 @@ def _detect_from_value_pattern(value: str) -> tuple[str, str | None] | None:
 	# Email detection - most specific first
 	if '@' in value and '.' in value:
 		# Basic email validation
-		if re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', value):
+		if re.match(r'^[\w\.+-]+@[\w\.-]+\.\w+$', value):
 			return ('email', 'email')
 
 	# Phone detection (digits with separators, 10+ chars)

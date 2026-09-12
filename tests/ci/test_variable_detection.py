@@ -63,6 +63,16 @@ def test_detect_email_from_pattern():
 	assert var_format == 'email'
 
 
+def test_detect_plus_addressed_email_from_pattern():
+	"""Test plus-addressed email detection via pattern matching"""
+	result = _detect_from_value_pattern('user+tag@example.com')
+
+	assert result is not None
+	var_name, var_format = result
+	assert var_name == 'email'
+	assert var_format == 'email'
+
+
 def test_detect_phone_from_attributes():
 	"""Test phone detection via type='tel' attribute"""
 	attributes = {'type': 'tel', 'name': 'phone'}
