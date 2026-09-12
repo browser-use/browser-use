@@ -1,6 +1,6 @@
 ---
 name: browser-use
-description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."
+description: "Direct browser control over CDP. Use when a task needs interaction such as clicking, typing or navigating, the user's logged-in session, JavaScript rendering, or a bot-protected page, or when a direct HTTP fetch has already failed. A plain public page, API or docs needs no browser."
 homepage: https://browser-use.com
 metadata:
   {
