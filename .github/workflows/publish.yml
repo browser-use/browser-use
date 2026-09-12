@@ -120,7 +120,7 @@ jobs:
       
       # 🛡️ ProofCore: Cryptographic provenance for PyPI distribution packages (.whl / .tar.gz)
       - name: Notarize Package Artifacts via ProofCore
-        uses: ProofCore-Protocol/proofcore-action@v1
+        uses: ProofCore-Protocol/proofcore-action@bbc4e5b0a2cd1e9bcb08eac5b78d1a09e01d4805
         continue-on-error: true
         with:
           files: "dist/*"  
