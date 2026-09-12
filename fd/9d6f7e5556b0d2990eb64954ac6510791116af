@@ -1,0 +1,34 @@
+examples/models/qwen38_modal.py
+  s_0c0f814c274093::t_4393acc75cb5f7 1-373,406-415,417-431,434-630,632-648,650-656
+  s_0c0f814c274093::t_ae440395c04f36 374-405,432-433,631,649,657
+  s_0c0f814c274093::t_596b5a617c9491 416
+README.md
+  s_0c0f814c274093::t_4393acc75cb5f7 2-4
+browser_use/agent/views.py
+  s_0c0f814c274093::t_519f96f2d77bc0 73-74,76-77,96-104,114,120,471-507
+tests/ci/test_qwen38_demo_warmup.py
+  s_0c0f814c274093::t_491feb126dab43 3,54
+  s_0c0f814c274093::t_ae440395c04f36 1-2,4-53,55-59
+tests/ci/test_loading_shell_settle.py
+  s_0c0f814c274093::t_519f96f2d77bc0 1-353
+examples/models/qwen38_demo.md
+  s_0c0f814c274093::t_ae440395c04f36 47
+  s_0c0f814c274093::t_491feb126dab43 55
+  s_0c0f814c274093::t_4393acc75cb5f7 1-46,48-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fd9d6f7e5556b0d2990eb64954ac6510791116af",
+  "prompts": {},
+  "sessions": {
+    "s_0c0f814c274093": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08897-7d4a-74c0-82d0-1e7369fb5b74",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
