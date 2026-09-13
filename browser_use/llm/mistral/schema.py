@@ -24,10 +24,15 @@ class MistralSchemaOptimizer:
 		return cls._strip_unsupported_keywords(base_schema)
 
 	@classmethod
-	def _strip_unsupported_keywords(cls, obj: Any) -> Any:
+	def _strip_unsupported_keywords(cls, obj: Any, *, in_properties: bool = False) -> Any:
 		if isinstance(obj, dict):
+			# Keys directly inside `properties` are model field names, not schema keywords.
+			if in_properties:
+				return {key: cls._strip_unsupported_keywords(value) for key, value in obj.items()}
 			return {
-				key: cls._strip_unsupported_keywords(value) for key, value in obj.items() if key not in cls.UNSUPPORTED_KEYWORDS
+				key: cls._strip_unsupported_keywords(value, in_properties=key == 'properties')
+				for key, value in obj.items()
+				if key not in cls.UNSUPPORTED_KEYWORDS
 			}
 		if isinstance(obj, list):
 			return [cls._strip_unsupported_keywords(item) for item in obj]
