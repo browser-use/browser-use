@@ -8,7 +8,9 @@ The orange key-shaped bridge is an existing painting from the
 The crop box is `(72, 0, 1384, 656)` in the original 1456×816 image, producing
 a 1312×656 JPEG (quality 95, no chroma subsampling). No artwork was generated.
 The README displays the crop at the full width of the content column
-(`width="100%"`) and links it to the website.
+(`width="100%"`) and links it to the website. An immutable raw GitHub URL keeps
+the banner accessible when the README is rendered outside the repository, such
+as on PyPI.
 
 ## Product diagram
 

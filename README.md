@@ -1,6 +1,6 @@
 <!-- mcp-name: com.browser-use/browser-use -->
 <a href="https://browser-use.com">
-  <img src="static/readme/key-banner.jpg" alt="A person crossing an orange canyon on a giant key-shaped bridge, from the Browser Use website." width="100%">
+  <img src="https://raw.githubusercontent.com/browser-use/browser-use/0dc80503557f54ccee5ecd4685ee6198221a251a/static/readme/key-banner.jpg" alt="A person crossing an orange canyon on a giant key-shaped bridge, from the Browser Use website." width="100%">
 </a>
 
 # Browser Use
