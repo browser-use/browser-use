@@ -550,10 +550,10 @@ class AgentHistory(BaseModel):
 		if self.model_output:
 			action_dump = [action.model_dump(exclude_none=True, mode='json') for action in self.model_output.action]
 
-			# Filter sensitive data only from input action parameters if sensitive_data is provided
+			# Filter sensitive data from all action parameters if sensitive_data is provided
 			if sensitive_data:
 				action_dump = [
-					self._filter_sensitive_data_from_dict(action, sensitive_data) if 'input' in action else action
+					self._filter_sensitive_data_from_dict(action, sensitive_data)
 					for action in action_dump
 				]
 

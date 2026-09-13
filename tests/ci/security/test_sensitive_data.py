@@ -670,3 +670,41 @@ def test_history_filters_sensitive_data_inside_nested_lists(tmp_path):
 
 	assert 'token-123' not in saved, 'Sensitive value leaked into the saved history file'
 	assert saved.count('<secret>api_key</secret>') == 2
+
+
+def test_history_filters_sensitive_data_from_input_text_action(tmp_path):
+	"""
+	Sensitive data must be redacted from the built-in input_text action.
+
+ Previously the guard ``'input' in action`` only matched actions whose dict key
+ was literally ``input``.  The built-in action uses ``input_text`` so the filter
+ was skipped entirely, leaking plaintext secrets into saved history files.
+	"""
+	from typing import Any
+
+	from pydantic import create_model
+
+	from browser_use.agent.views import AgentHistory, AgentHistoryList, AgentOutput
+	from browser_use.browser.views import BrowserStateHistory
+	from browser_use.tools.registry.views import ActionModel
+	from browser_use.tools.views import InputTextAction
+
+	Model = create_model('M', __base__=ActionModel, input_text=(InputTextAction | None, None))
+	Out = AgentOutput.type_with_custom_actions(Model)
+	act = Model(input_text=InputTextAction(index=1, text='token-123'))
+
+	history = AgentHistoryList[Any](
+		history=[
+			AgentHistory(
+				model_output=Out(memory='', action=[act]),
+				result=[],
+				state=BrowserStateHistory(url='https://x.test', title='t', tabs=[], interacted_element=[None]),
+			)
+		]
+	)
+	path = tmp_path / 'h.json'
+	history.save_to_file(path, sensitive_data={'api_key': 'token-123'})
+	saved = path.read_text(encoding='utf-8')
+
+	assert 'token-123' not in saved, 'Secret leaked into saved history for input_text action'
+	assert '<secret>api_key</secret>' in saved, 'Placeholder missing in saved history for input_text action'
