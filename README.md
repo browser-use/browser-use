@@ -5,11 +5,9 @@
 
 # Browser Use
 
-The AI browser agent.
+Tell an AI agent what to do on the web. Browser Use navigates websites, clicks, fills forms, and returns the result.
 
-[Demos](#navigate-the-web-like-a-human-does) · [Docs](https://docs.browser-use.com) · [Blog](https://browser-use.com/posts) · [Merch](https://browsermerch.com) · [GitHub](https://github.com/browser-use/browser-use) · [X](https://x.com/intent/user?screen_name=browser_use) · [Discord](https://link.browser-use.com/discord) · [Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud)
-
-<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-downloads"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
+Try it in [Browser Use Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud) or [run the agent from Python](#path-3-python-library).
 
 ## Navigate the web like a human does.
 
@@ -273,3 +271,5 @@ If you use Browser Use in your research or project, please cite:
 </div>
 
 <div align="center"> Made with ❤️ in Zurich and San Francisco </div>
+
+[Demos](#navigate-the-web-like-a-human-does) · [Docs](https://docs.browser-use.com) · [Blog](https://browser-use.com/posts) · [Merch](https://browsermerch.com) · [GitHub](https://github.com/browser-use/browser-use) · [X](https://x.com/intent/user?screen_name=browser_use) · [Discord](https://link.browser-use.com/discord) · [Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud)
