@@ -1,53 +1,17 @@
 <!-- mcp-name: com.browser-use/browser-use -->
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24">
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358">
-  <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24"  width="full">
-</picture>
+<a href="https://browser-use.com">
+  <img src="static/readme/key-banner.jpg" alt="A person crossing an orange canyon on a giant key-shaped bridge, from the Browser Use website." width="100%">
+</a>
 
-<div align="center">
-    <picture>
-    <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125">
-    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/6797d09b-8ac3-4cb9-ba07-b289e080765a">
-    <img alt="The AI browser agent." src="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125"  width="400">
-    </picture>
-</div>
+# Browser Use
 
-<div align="center">
+The AI browser agent.
+
+[Demos](#navigate-the-web-like-a-human-does) · [Docs](https://docs.browser-use.com) · [Blog](https://browser-use.com/posts) · [Merch](https://browsermerch.com) · [GitHub](https://github.com/browser-use/browser-use) · [X](https://x.com/intent/user?screen_name=browser_use) · [Discord](https://link.browser-use.com/discord) · [Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud)
+
 <a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-downloads"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
-</div>
 
----
-
-<div align="center">
-<a href="#navigate-the-web-like-a-human-does"><img src="https://media.browser-use.tools/badges/demos" alt="Demos"></a>
-<img width="16" height="1" alt="">
-<a href="https://docs.browser-use.com"><img src="https://media.browser-use.tools/badges/docs" alt="Docs"></a>
-<img width="16" height="1" alt="">
-<a href="https://browser-use.com/posts"><img src="https://media.browser-use.tools/badges/blog" alt="Blog"></a>
-<img width="16" height="1" alt="">
-<a href="https://browsermerch.com"><img src="https://media.browser-use.tools/badges/merch" alt="Merch"></a>
-<img width="100" height="1" alt="">
-<a href="https://github.com/browser-use/browser-use"><img src="https://media.browser-use.tools/badges/github" alt="Github Stars"></a>
-<img width="4" height="1" alt="">
-<a href="https://x.com/intent/user?screen_name=browser_use"><img src="https://media.browser-use.tools/badges/twitter" alt="Twitter"></a>
-<img width="4" height="1" alt="">
-<a href="https://link.browser-use.com/discord"><img src="https://media.browser-use.tools/badges/discord" alt="Discord"></a>
-<img width="4" height="1" alt="">
-<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud"><img src="https://media.browser-use.tools/badges/cloud" height="48" alt="Browser-Use Cloud"></a>
-</div>
-
-<br/>
-
-<div align="center">
-  <a href="https://browser-use.com">
-    <img src="https://browser-use.com/lander/plates/browsers-8dd60aa0.jpg" alt="A person crossing an orange canyon on a giant key-shaped bridge, from the Browser Use website." width="720">
-  </a>
-</div>
-
-<br/>
-
-# Navigate the web like a human does.
+## Navigate the web like a human does.
 
 Find an available slot, pick a date and time, handle the CAPTCHA, and book a driving test.
 
@@ -55,11 +19,9 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 
 [Explore more demos and prompts ↗](https://browser-use.com/showcase)
 
-<br/>
-
 > **AI agents and crawlers:** read [browser-use.com/llms.txt](https://browser-use.com/llms.txt) for the product map (open source, Browser Harness, Cloud browsers, Agents API, pricing) and [docs.browser-use.com/llms.txt](https://docs.browser-use.com/llms.txt) for the documentation index. Browser Use is the open-source browser agent (Python and TypeScript), a $0.02 per browser-hour cloud browser with stealth, CAPTCHA solving and residential proxies, and a hosted agent API.
 
-# Which Browser Use do I need?
+## Which Browser Use do I need?
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="static/readme/which-product-dark.svg">
@@ -70,9 +32,9 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 - **[Path 2: CLI](#path-2-cli):** Automate your own browser tasks.
 - **[Path 3: Python Library](#path-3-python-library):** Run the open source Browser Use agent locally from your own code.
 
-# Quickstart
+## Quickstart
 
-## Path 1: Fully Hosted Cloud
+### Path 1: Fully Hosted Cloud
 
 Scale browser automation with our hosted agent, stealth browsers, and infrastructure for profiles, recordings, and data policies.
 
@@ -80,9 +42,7 @@ Scale browser automation with our hosted agent, stealth browsers, and infrastruc
 
 New Google, GitHub, or Microsoft signups get **$15 cloud credit**.
 
-<br/>
-
-## Path 2: CLI
+### Path 2: CLI
 
 Paste this prompt into Claude Code, Codex, Hermes, OpenClaw, or your favorite agent.
 
@@ -90,9 +50,7 @@ Paste this prompt into Claude Code, Codex, Hermes, OpenClaw, or your favorite ag
 Install or upgrade browser-use to the latest stable version with uv using Python 3.12, run `browser-use skill install` to register the skill, and connect it to my browser. If setup or connection fails, follow https://github.com/browser-use/browser-harness/blob/main/install.md.
 ```
 
-<br/>
-
-## Path 3: Python Library
+### Path 3: Python Library
 
 Run the Browser Use agent locally from Python, with your choice of model and a local or cloud browser:
 
@@ -151,9 +109,7 @@ The agent opens a browser, looks up the repository, and prints its answer.
 
 [Python library docs ↗](https://docs.browser-use.com/open-source/introduction)
 
-<br/>
-
-# Browser Use Benchmark v2
+## Browser Use Benchmark v2
 
 <img alt="Browser Use Benchmark v2 - Mean rubric score by model and cost per task" src="static/hard_benchmark_v2.jpg" width="100%">
 
@@ -161,9 +117,7 @@ This [very hard benchmark](https://github.com/browser-use/benchmark) targets the
 
 ## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
 
-<br/>
-
-# FAQ
+## FAQ
 
 <details>
 <summary><b>Should I use the fully hosted cloud, CLI, or Python library?</b></summary>
@@ -280,8 +234,6 @@ Choose how much you want to manage:
 You can also host the Python library and browsers on your own infrastructure.
 </details>
 
-<br/>
-
 ## Related Repositories
 
 | Repository | What it's for |
@@ -293,8 +245,6 @@ You can also host the Python library and browsers on your own infrastructure.
 | [Video Use](https://github.com/browser-use/video-use) | Edit videos with your coding agent. |
 | [macOS Harness](https://github.com/browser-use/macos-harness) | Give your agent control of Mac apps, browsers, and files. |
 | [Benchmark](https://github.com/browser-use/benchmark) | Explore browser tasks and compare agent performance. |
-
-<br/>
 
 ## Citation
 
@@ -309,8 +259,6 @@ If you use Browser Use in your research or project, please cite:
   url = {https://github.com/browser-use/browser-use}
 }
 ```
-
-<br/>
 
 <div align="center">
 
