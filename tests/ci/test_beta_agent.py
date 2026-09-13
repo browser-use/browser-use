@@ -3952,6 +3952,7 @@ def test_beta_agent_translates_browser_profile_storage_state(monkeypatch, tmp_pa
 	from browser_use.beta import Agent
 
 	profile_storage_state_path = tmp_path / 'storage_state.json'
+	unicode_value = 'zażółć gęślą jaźń'
 	storage_state = {
 		'cookies': [
 			{
@@ -3964,11 +3965,21 @@ def test_beta_agent_translates_browser_profile_storage_state(monkeypatch, tmp_pa
 		'origins': [
 			{
 				'origin': 'https://example.com',
-				'localStorage': [{'name': 'theme', 'value': 'dark'}],
+				'localStorage': [{'name': 'theme', 'value': unicode_value}],
 			}
 		],
 	}
-	profile_storage_state_path.write_text(json.dumps(storage_state))
+	profile_storage_state_path.write_text(json.dumps(storage_state, ensure_ascii=False), encoding='utf-8')
+
+	encodings = []
+	original_read_text = Path.read_text
+
+	def track_encoding(path, encoding=None, errors=None):
+		if path == profile_storage_state_path:
+			encodings.append(encoding)
+		return original_read_text(path, encoding=encoding, errors=errors)
+
+	monkeypatch.setattr(Path, 'read_text', track_encoding)
 
 	class BrowserProfile:
 		storage_state = profile_storage_state_path
@@ -3980,6 +3991,7 @@ def test_beta_agent_translates_browser_profile_storage_state(monkeypatch, tmp_pa
 	env = agent._run_env()
 
 	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
+	assert encodings == ['utf-8']
 	assert agent.browser_storage_state == storage_state
 	assert json.loads(env['BU_BROWSER_STORAGE_STATE']) == storage_state
 
