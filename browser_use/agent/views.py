@@ -663,9 +663,15 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def model_dump(self, **kwargs) -> dict[str, Any]:
 		"""Custom serialization that properly uses AgentHistory's model_dump"""
-		return {
+		dump: dict[str, Any] = {
 			'history': [h.model_dump(**kwargs) for h in self.history],
 		}
+		if self.usage is not None:
+			usage_kwargs = {k: v for k, v in kwargs.items() if k != 'sensitive_data'}
+			dump['usage'] = self.usage.model_dump(**usage_kwargs)
+		elif not kwargs.get('exclude_none', False):
+			dump['usage'] = None
+		return dump
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
