@@ -666,11 +666,35 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		dump: dict[str, Any] = {
 			'history': [h.model_dump(**kwargs) for h in self.history],
 		}
-		if self.usage is not None:
-			usage_kwargs = {k: v for k, v in kwargs.items() if k != 'sensitive_data'}
-			dump['usage'] = self.usage.model_dump(**usage_kwargs)
-		elif not kwargs.get('exclude_none', False):
-			dump['usage'] = None
+
+		# Check if 'usage' should be excluded based on top-level include / exclude
+		include = kwargs.get('include')
+		exclude = kwargs.get('exclude')
+
+		should_include = True
+		if include is not None:
+			if isinstance(include, (set, list, tuple)) and 'usage' not in include:
+				should_include = False
+			elif isinstance(include, dict) and 'usage' not in include:
+				should_include = False
+
+		if exclude is not None:
+			if isinstance(exclude, (set, list, tuple)) and 'usage' in exclude:
+				should_include = False
+			elif isinstance(exclude, dict) and exclude.get('usage') is True:
+				should_include = False
+
+		if should_include:
+			if self.usage is not None:
+				usage_kwargs = {k: v for k, v in kwargs.items() if k not in ('sensitive_data', 'include', 'exclude')}
+				if isinstance(include, dict) and isinstance(include.get('usage'), (dict, set)):
+					usage_kwargs['include'] = include['usage']
+				if isinstance(exclude, dict) and isinstance(exclude.get('usage'), (dict, set)):
+					usage_kwargs['exclude'] = exclude['usage']
+				dump['usage'] = self.usage.model_dump(**usage_kwargs)
+			elif not (kwargs.get('exclude_none') or kwargs.get('exclude_unset') or kwargs.get('exclude_defaults')):
+				dump['usage'] = None
+
 		return dump
 
 	@classmethod
