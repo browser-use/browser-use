@@ -1005,6 +1005,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Reset control flags so agent can continue
 		self.state.stopped = False
 		self.state.paused = False
+		# A run that stopped on max_failures would otherwise stop the follow-up before its first step
+		self.state.consecutive_failures = 0
 		agent_id_suffix = str(self.id)[-4:].replace('-', '_')
 		if agent_id_suffix and agent_id_suffix[0].isdigit():
 			agent_id_suffix = 'a' + agent_id_suffix
@@ -2251,6 +2253,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 		)
 
+	def _step_recorded_done(self, history_length: int) -> bool:
+		"""Whether the step that started with ``history_length`` items recorded a done result.
+
+		A step that times out or is interrupted records nothing, and in a follow-up task the last history item is then
+		still the previous task's done step, so ``history.is_done()`` alone would report the follow-up as finished.
+		"""
+		return len(self.history.history) > history_length and self.history.is_done()
+
 	async def take_step(self, step_info: AgentStepInfo | None = None) -> tuple[bool, bool]:
 		"""Take a step
 
@@ -2268,9 +2278,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			except Exception as e:
 				raise e
 
+		history_length = len(self.history.history)
 		await self.step(step_info)
 
-		if self.history.is_done():
+		if self._step_recorded_done(history_length):
 			await self.log_completion()
 
 			# Run full judge before done callback if enabled
@@ -2460,6 +2471,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.logger.debug(f'🚶 Starting step {step + 1}/{max_steps}...')
 
+		history_length = len(self.history.history)
 		try:
 			await asyncio.wait_for(
 				self.step(step_info),
@@ -2481,7 +2493,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if on_step_end is not None:
 			await on_step_end(self)
 
-		if self.history.is_done():
+		if self._step_recorded_done(history_length):
 			await self.log_completion()
 
 			# Run full judge before done callback if enabled
