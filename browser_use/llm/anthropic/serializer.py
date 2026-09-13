@@ -65,8 +65,8 @@ class AnthropicMessageSerializer:
 		"""Serialize cache control.
 
 		Anthropic applies a 5-minute TTL when none is specified, which is the default.
-		Pass ``ttl='1h'`` to opt into the cheaper 1-hour cache, useful when inter-request
-		gaps exceed five minutes.
+		Pass ``ttl='1h'`` to opt into the longer-lived 1-hour cache, which can yield savings
+		across subsequent requests when inter-request gaps exceed five minutes.
 		"""
 		if use_cache:
 			if ttl is None:

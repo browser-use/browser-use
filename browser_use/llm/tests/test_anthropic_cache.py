@@ -373,6 +373,7 @@ if __name__ == '__main__':
 	test_instance.test_cache_cleaning_last_message_only()
 	test_instance.test_cache_cleaning_with_system_message()
 	test_instance.test_cache_cleaning_no_cached_messages()
+	test_instance.test_cache_control_ttl()
 	test_instance.test_max_4_cache_blocks()
 	test_instance.test_cache_only_last_block_in_message()
 	test_instance.test_cache_only_last_tool_call()
