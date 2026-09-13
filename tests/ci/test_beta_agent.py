@@ -3996,6 +3996,25 @@ def test_beta_agent_translates_browser_profile_storage_state(monkeypatch, tmp_pa
 	assert json.loads(env['BU_BROWSER_STORAGE_STATE']) == storage_state
 
 
+@pytest.mark.parametrize('contents', [b'\xff', b'{invalid json', b'[]'])
+def test_beta_agent_ignores_invalid_storage_state_file(monkeypatch, tmp_path, contents):
+	"""Malformed storage state must not prevent agent initialization."""
+	from browser_use.beta import Agent
+
+	storage_state_path = tmp_path / 'invalid_storage_state.json'
+	storage_state_path.write_bytes(contents)
+
+	class BrowserProfile:
+		storage_state = storage_state_path
+		cdp_url = 'http://127.0.0.1:9222'
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+
+	assert agent.browser_storage_state is None
+	assert 'BU_BROWSER_STORAGE_STATE' not in agent._run_env()
+
+
 def test_beta_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_path):
 	from browser_use.beta import Agent
 

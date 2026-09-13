@@ -1087,7 +1087,7 @@ def _storage_state_value(value: Any) -> dict[str, Any] | None:
 			return None
 		try:
 			loaded = json.loads(path.read_text(encoding='utf-8'))
-		except (OSError, json.JSONDecodeError):
+		except (OSError, UnicodeDecodeError, json.JSONDecodeError):
 			return None
 		return loaded if isinstance(loaded, dict) else None
 	return None
