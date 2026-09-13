@@ -406,3 +406,53 @@ def test_detect_variables_multiple_types():
 	assert result['email'].original_value == 'test@example.com'
 	assert result['first_name'].original_value == 'John'
 	assert result['date'].original_value == '1990-01-01'
+
+
+def test_detect_company_name_from_attributes():
+	"""Test that company_name attribute is detected as company, not name"""
+	attributes = {'name': 'company_name', 'placeholder': 'Company or organization'}
+	result = _detect_from_attributes(attributes)
+
+	assert result is not None
+	var_name, var_format = result
+	assert var_name == 'company', f'company_name should be detected as company, got {var_name}'
+
+
+def test_detect_organization_name_from_attributes():
+	"""Test that organization_name attribute is detected as company, not name"""
+	attributes = {'name': 'organization_name', 'placeholder': 'Company or organization'}
+	result = _detect_from_attributes(attributes)
+
+	assert result is not None
+	var_name, var_format = result
+	assert var_name == 'company', f'organization_name should be detected as company, got {var_name}'
+
+
+def test_detect_company_attribute():
+	"""Test that bare company attribute is still detected as company"""
+	attributes = {'name': 'company'}
+	result = _detect_from_attributes(attributes)
+
+	assert result is not None
+	var_name, _ = result
+	assert var_name == 'company'
+
+
+def test_detect_organization_attribute():
+	"""Test that bare organization attribute is still detected as company"""
+	attributes = {'name': 'organization'}
+	result = _detect_from_attributes(attributes)
+
+	assert result is not None
+	var_name, _ = result
+	assert var_name == 'company'
+
+
+def test_detect_first_name_still_works():
+	"""Test that first_name is still detected as first_name, not company"""
+	attributes = {'name': 'first_name'}
+	result = _detect_from_attributes(attributes)
+
+	assert result is not None
+	var_name, _ = result
+	assert var_name == 'first_name'
