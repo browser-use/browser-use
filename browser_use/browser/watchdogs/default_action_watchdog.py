@@ -1373,9 +1373,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 								selection.removeAllRanges();
 								selection.addRange(range);
 
-								// Dispatch events
+								// Dispatch input so frameworks observe the clear. The final
+								// change event is sent after replacement text is typed.
 								this.dispatchEvent(new Event("input", { bubbles: true }));
-								this.dispatchEvent(new Event("change", { bubbles: true }));
 
 								return {cleared: true, method: 'contenteditable', finalText: this.textContent};
 							} else if (this.value !== undefined) {
@@ -1406,7 +1406,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 									this.value = "";
 								}
 								this.dispatchEvent(new Event("input", { bubbles: true }));
-								this.dispatchEvent(new Event("change", { bubbles: true }));
 								return {cleared: true, method: 'value', finalText: this.value};
 							} else {
 								return {cleared: false, method: 'none', error: 'Not a supported input type'};
@@ -1847,8 +1846,28 @@ class DefaultActionWatchdog(BaseWatchdog):
 				return input_coordinates
 
 			# Step 3: Clear existing text if requested (only for regular inputs that support typing)
+			cleared_successfully = True
 			if clear:
 				cleared_successfully = await self._clear_text_field(object_id=object_id, cdp_session=cdp_session)
+				if cleared_successfully:
+					# Fallback clearing strategies can report success even when a
+					# controlled field immediately restores its old value. Verify the
+					# live DOM value before deciding whether an empty replacement is
+					# already complete; otherwise the concatenation retry is skipped.
+					try:
+						clear_verification = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+							params={
+								'functionDeclaration': 'function() { return this.value !== undefined ? this.value : this.textContent; }',
+								'objectId': object_id,
+								'returnByValue': True,
+							},
+							session_id=cdp_session.session_id,
+						)
+						clear_value = clear_verification.get('result', {}).get('value')
+						cleared_successfully = clear_value == ''
+					except Exception as e:
+						self.logger.debug(f'Clear verification failed: {e}')
+						cleared_successfully = False
 				if not cleared_successfully:
 					self.logger.warning('⚠️ Text field clearing failed, typing may append to existing text')
 
@@ -1994,10 +2013,47 @@ class DefaultActionWatchdog(BaseWatchdog):
 				# Small delay between characters to look human (realistic typing speed)
 				await asyncio.sleep(0.001)
 
-			# Step 4: Trigger framework-aware DOM events after typing completion
-			# Modern JavaScript frameworks (React, Vue, Angular) rely on these events
-			# to update their internal state and trigger re-renders
-			await self._trigger_framework_events(object_id=object_id, cdp_session=cdp_session)
+			# Step 4: Trigger framework-aware DOM events after typing completion.
+			# When an empty replacement follows a failed clear, correct the value and
+			# dispatch the final change only after any synchronous controlled-field
+			# listener has had a chance to restore stale state.
+			if clear and not text and not cleared_successfully:
+				await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+					params={
+						'functionDeclaration': """
+							function() {
+								const setEmpty = () => {
+									if (this.value !== undefined) {
+										if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {
+											const proto = this instanceof HTMLTextAreaElement
+												? window.HTMLTextAreaElement.prototype
+												: window.HTMLInputElement.prototype;
+											const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+											try { desc.set.call(this, ''); } catch (e) { this.value = ''; }
+										} else {
+											this.value = '';
+										}
+									} else if (this.isContentEditable) {
+										this.textContent = '';
+									}
+								};
+								setEmpty();
+								this.dispatchEvent(new Event('input', { bubbles: true }));
+								if ((this.value !== undefined ? this.value : this.textContent) !== '') setEmpty();
+								this.dispatchEvent(new Event('change', { bubbles: true }));
+								this.dispatchEvent(new Event('blur', { bubbles: true }));
+								return this.value !== undefined ? this.value : this.textContent;
+							}
+						""",
+						'objectId': object_id,
+						'returnByValue': True,
+					},
+					session_id=cdp_session.session_id,
+				)
+			else:
+				# Modern JavaScript frameworks (React, Vue, Angular) rely on these
+				# events to update their internal state and trigger re-renders.
+				await self._trigger_framework_events(object_id=object_id, cdp_session=cdp_session)
 
 			# Step 5: Read back actual value for verification (skip for sensitive data)
 			if not is_sensitive:
@@ -2022,7 +2078,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Step 6: Auto-retry on concatenation mismatch (only when clear was requested)
 			# If we asked to clear but the readback value contains the typed text as a substring
 			# yet is longer, the field had pre-existing text that wasn't cleared. Set directly.
-			if clear and not is_sensitive and input_coordinates and 'actual_value' in input_coordinates:
+			if (
+				clear
+				and not is_sensitive
+				and input_coordinates
+				and 'actual_value' in input_coordinates
+				and (text or not cleared_successfully)
+			):
 				actual_value = input_coordinates['actual_value']
 				if (
 					isinstance(actual_value, str)
@@ -2062,6 +2124,24 @@ class DefaultActionWatchdog(BaseWatchdog):
 										}
 										this.dispatchEvent(new Event('input', { bubbles: true }));
 										this.dispatchEvent(new Event('change', { bubbles: true }));
+										// A controlled-field listener may synchronously restore its old
+										// value while handling the events. Reapply the native value so an
+										// empty replacement cannot finish with stale text.
+										if (newValue === '' && (this.value !== undefined ? this.value : this.textContent) !== newValue) {
+											if (this.value !== undefined) {
+												if (desc && desc.set) {
+													try {
+														desc.set.call(this, newValue);
+													} catch (e) {
+														this.value = newValue;
+													}
+												} else {
+													this.value = newValue;
+												}
+										} else if (this.isContentEditable) {
+											this.textContent = newValue;
+										}
+										}
 										return this.value !== undefined ? this.value : this.textContent;
 									}
 								""",
