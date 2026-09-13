@@ -2506,6 +2506,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			keys = event.keys
 			modifier_map = {'Alt': 1, 'Control': 2, 'Meta': 4, 'Shift': 8}
+			dispatched_enter = False
 			is_combination = False
 			modifiers = []
 			main_key = None
@@ -2547,6 +2548,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 				# Release modifier keys
 				for mod in reversed(modifiers):
 					await self._dispatch_key_event(cdp_session, 'keyUp', mod)
+
+				if main_key == 'Enter':
+					dispatched_enter = True
 			else:
 				keys_lower = keys.strip().lower()
 				normalized_keys = key_aliases.get(keys_lower, keys)
@@ -2597,6 +2601,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							},
 							session_id=cdp_session.session_id,
 						)
+						dispatched_enter = True
 					await self._dispatch_key_event(cdp_session, 'keyUp', normalized_keys)
 				else:
 					# It's text (single character or string) - send each character as text input
@@ -2631,6 +2636,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 								},
 								session_id=cdp_session.session_id,
 							)
+							dispatched_enter = True
 							continue
 
 						# Get proper modifiers and key info for the character
@@ -2678,7 +2684,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Note: We don't clear cached state on Enter; multi_act will detect DOM changes
 			# and rebuild explicitly. We still wait briefly for potential navigation.
-			if 'enter' in event.keys.lower() or 'return' in event.keys.lower():
+			if dispatched_enter:
 				await asyncio.sleep(0.1)
 		except Exception as e:
 			raise
