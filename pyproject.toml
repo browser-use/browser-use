@@ -201,7 +201,7 @@ markers = [
 ]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
-addopts = "-svx --strict-markers --tb=short --dist=loadscope"
+addopts = "-svx --strict-markers --tb=short"
 log_cli = true
 log_cli_format = "%(levelname)-8s [%(name)s] %(message)s"
 filterwarnings = [
