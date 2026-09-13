@@ -1,5 +1,5 @@
 import json
-from typing import overload
+from typing import Literal, overload
 
 from anthropic.types import (
 	Base64ImageSourceParam,
@@ -61,10 +61,17 @@ class AnthropicMessageSerializer:
 		return media_type, data  # type: ignore
 
 	@staticmethod
-	def _serialize_cache_control(use_cache: bool) -> CacheControlEphemeralParam | None:
-		"""Serialize cache control."""
+	def _serialize_cache_control(use_cache: bool, ttl: Literal['5m', '1h'] | None = None) -> CacheControlEphemeralParam | None:
+		"""Serialize cache control.
+
+		Anthropic applies a 5-minute TTL when none is specified, which is the default.
+		Pass ``ttl='1h'`` to opt into the cheaper 1-hour cache, useful when inter-request
+		gaps exceed five minutes.
+		"""
 		if use_cache:
-			return CacheControlEphemeralParam(type='ephemeral')
+			if ttl is None:
+				return CacheControlEphemeralParam(type='ephemeral')
+			return CacheControlEphemeralParam(type='ephemeral', ttl=ttl)
 		return None
 
 	@staticmethod
@@ -125,7 +132,13 @@ class AnthropicMessageSerializer:
 		"""Serialize content to Anthropic format."""
 		if isinstance(content, str):
 			if use_cache:
-				return [TextBlockParam(text=content, type='text', cache_control=CacheControlEphemeralParam(type='ephemeral'))]
+				return [
+					TextBlockParam(
+						text=content,
+						type='text',
+						cache_control=AnthropicMessageSerializer._serialize_cache_control(True),
+					)
+				]
 			else:
 				return content
 
