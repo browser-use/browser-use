@@ -24,12 +24,17 @@ def decode_unicode_escapes_to_utf8(text: str) -> str:
 		# doesn't have any escape sequences that need to be decoded
 		return text
 
-	try:
-		# Try to decode Unicode escape sequences
-		return text.encode('latin1').decode('unicode_escape')
-	except (UnicodeEncodeError, UnicodeDecodeError):
-		# logger.debug(f"Failed to decode unicode escape sequences while generating gif text: {text}")
-		return text
+	import re
+
+	def _replace_escape(match: re.Match) -> str:
+		try:
+			return chr(int(match.group(1), 16))
+		except (ValueError, OverflowError):
+			return match.group(0)
+
+	# Decode \\uXXXX sequences individually to avoid latin1 encoding issues
+	# when the string already contains non-Latin-1 characters (emoji, CJK, etc.)
+	return re.sub(r'\\u([0-9a-fA-F]{4})', _replace_escape, text)
 
 
 def create_history_gif(
