@@ -89,8 +89,7 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 				client_params['aws_session_token'] = self.aws_session_token
 
 		# Add optional parameters
-		if self.max_retries:
-			client_params['max_retries'] = self.max_retries
+		client_params['max_retries'] = self.max_retries
 		if self.default_headers:
 			client_params['default_headers'] = self.default_headers
 		if self.default_query:

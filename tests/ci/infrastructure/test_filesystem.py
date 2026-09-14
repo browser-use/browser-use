@@ -195,6 +195,42 @@ class TestBaseFile:
 			assert (path / 'notes.txt').read_text(encoding='utf-8') == 'hello'
 			assert file_obj.content == 'hello'
 
+	@pytest.mark.parametrize('existing_target', [False, True])
+	async def test_write_preserves_symlink(self, tmp_path, existing_target):
+		"""Write through a relative symlink without replacing the link itself."""
+		target_dir = tmp_path / 'targets'
+		target_dir.mkdir()
+		target = target_dir / 'stored.txt'
+		if existing_target:
+			target.write_text('old', encoding='utf-8')
+		link = tmp_path / 'notes.txt'
+		link.symlink_to(Path('targets') / 'stored.txt')
+		file_obj = TxtFile(name='notes', content='old' if existing_target else '')
+
+		await file_obj.write('new', tmp_path)
+		await file_obj.append(' content', tmp_path)
+
+		assert link.is_symlink()
+		assert target.read_text(encoding='utf-8') == 'new content'
+		assert link.read_text(encoding='utf-8') == file_obj.content == 'new content'
+		assert list(target_dir.iterdir()) == [target]
+
+	async def test_write_rejects_hardlink_without_splitting_contents(self, tmp_path):
+		"""An atomic replacement must not silently detach an existing hard link."""
+		fs = FileSystem(base_dir=tmp_path, create_default_files=False)
+		await fs.write_file('notes.txt', 'old')
+		destination = fs.data_dir / 'notes.txt'
+		alias = tmp_path / 'alias.txt'
+		alias.hardlink_to(destination)
+
+		for operation in (fs.write_file, fs.append_file):
+			result = await operation('notes.txt', 'new')
+			assert 'hard link' in result.lower()
+			assert alias.samefile(destination)
+			assert alias.read_text(encoding='utf-8') == destination.read_text(encoding='utf-8') == 'old'
+			assert fs.get_state().files['notes.txt']['data']['content'] == 'old'
+			assert list(fs.data_dir.iterdir()) == [destination]
+
 	async def test_json_file_disk_operations(self):
 		"""Test JSON file sync to disk operations."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
@@ -477,8 +513,16 @@ class TestFileSystem:
 		assert fs._is_valid_filename('.json') is False  # no name
 		assert fs._is_valid_filename('.jsonl') is False  # no name
 		assert fs._is_valid_filename('.csv') is False  # no name
-		assert fs._is_valid_filename('screenshot.png') is False  # binary extension
-		assert fs._is_valid_filename('image.jpg') is False  # binary extension
+		# Small image extensions are now supported (base64 content -> real bytes, for upload flows)
+		assert fs._is_valid_filename('screenshot.png') is True
+		assert fs._is_valid_filename('image.jpg') is True
+		assert fs._is_valid_filename('pic.gif') is True
+		assert fs._is_valid_filename('photo.webp') is True
+
+		# Other binary types remain unsupported
+		assert fs._is_valid_filename('clip.mp4') is False  # binary extension
+		assert fs._is_valid_filename('archive.zip') is False  # binary extension
+		assert fs._is_valid_filename('icon.svg') is False  # binary extension
 
 	def test_filename_parsing(self, temp_filesystem):
 		"""Test filename parsing into name and extension."""
@@ -1361,16 +1405,28 @@ class TestFilenameSanitization:
 			fs.nuke()
 
 	async def test_write_file_binary_extension_error(self):
-		"""Test that writing to binary extensions gives a clear error."""
+		"""Unsupported binary extensions give a clear error; small images accept base64."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
 			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
 
-			result = await fs.write_file('screenshot.png', 'content')
+			# Non-image binaries are still rejected outright
+			result = await fs.write_file('clip.mp4', 'content')
 			assert 'binary/image' in result.lower() or 'Cannot write' in result
-			assert 'screenshot.png' not in fs.list_files()
+			assert 'clip.mp4' not in fs.list_files()
 
-			result = await fs.write_file('photo.jpg', 'content')
+			result = await fs.write_file('archive.zip', 'content')
 			assert 'binary/image' in result.lower() or 'Cannot write' in result
+
+			# Small images are supported: non-base64 content is rejected (no corrupt file),
+			# valid base64 is written as real bytes.
+			result = await fs.write_file('screenshot.png', 'not base64!!!')
+			assert 'Error' in result
+			assert not (fs.get_dir() / 'screenshot.png').exists()
+
+			png_1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII='
+			result = await fs.write_file('logo.png', png_1x1)
+			assert 'successfully' in result
+			assert (fs.get_dir() / 'logo.png').read_bytes()[:8] == b'\x89PNG\r\n\x1a\n'
 
 			fs.nuke()
 
@@ -1491,8 +1547,8 @@ class TestFilenameSanitization:
 			result = await fs.read_file('noextension')
 			assert 'no extension' in result.lower()
 
-			# Binary extension - specific error
-			result = await fs.write_file('image.png', 'data')
+			# Unsupported binary extension - specific error
+			result = await fs.write_file('clip.mp4', 'data')
 			assert 'binary' in result.lower() or 'Cannot write' in result
 
 			fs.nuke()
