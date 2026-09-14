@@ -1,8 +1,8 @@
 """Regression tests for GIF overlay unicode-escape decoding.
 
 Covers https://github.com/browser-use/browser-use/issues/5638: a literal
-``\\uXXXX`` escape next to an already-decoded non-Latin-1 character (emoji,
-CJK) must still be decoded instead of aborting the whole decode.
+``\\uXXXX`` escape next to an already-decoded non-Latin-1 character (emoji, CJK)
+must still be decoded instead of aborting the whole decode.
 
 The property the fallback is written against is that a caption decodes the same
 way regardless of whether the rest of it happens to be Latin-1 encodable, and
@@ -12,24 +12,29 @@ that the overlay path runs the decoder once per text.
 from browser_use.agent import gif
 from browser_use.agent.gif import decode_unicode_escapes_to_utf8
 
-# Forms the fast path decodes today, so the fallback has to return the identical result:
-# `\\uXXXX`, `\\UXXXXXXXX`, and an escaped backslash, which collapses to one backslash and
-# keeps the text behind it literal.
+EMOJI = ' \U0001f600'
+
+# Escape families the fast path handles today. The fallback has to return the
+# identical result, because it runs the same codec over each Latin-1 stretch.
 FAST_PATH_FORMS = [
 	r'\u4f60',
 	r'\U0001F600',
 	r'\u0041',
 	r'\\u4f60',
 	r'\\\\u4f60',
-	r'\\uZZZZ',
-	'price ' + r'\u0024' + ' and ' + r'\U0001F602',
 	r'C:\\path \u4f60',
+	r'\x5cu0041 \u0042',
+	r'\134u0041 \u0042',
+	r'newline \u4f60 and \n',
+	r'tab \t \u4f60',
+	'price ' + r'\u0024' + ' and ' + r'\U0001F602',
 ]
 
 # Forms neither branch can decode, which have to survive untouched either way.
 NEITHER_BRANCH_DECODES = [
 	r'\uZZZZ',
 	r'\U0011F600',
+	r'truncated \u4f',
 ]
 
 
@@ -78,24 +83,22 @@ def test_decoding_does_not_depend_on_the_rest_of_the_caption():
 	for form in FAST_PATH_FORMS:
 		fast_path = form.encode('latin1').decode('unicode_escape')
 		assert decode_unicode_escapes_to_utf8(form) == fast_path
-		assert decode_unicode_escapes_to_utf8(form + ' \U0001f600') == fast_path + ' \U0001f600'
+		assert decode_unicode_escapes_to_utf8(form + EMOJI) == fast_path + EMOJI
 		assert decode_unicode_escapes_to_utf8(form + ' \u4f60') == fast_path + ' \u4f60'
 
 
 def test_undecodable_escape_stays_untouched_either_way():
 	for form in NEITHER_BRANCH_DECODES:
 		assert decode_unicode_escapes_to_utf8(form) == form
-		assert decode_unicode_escapes_to_utf8(form + ' \U0001f600') == form + ' \U0001f600'
+		assert decode_unicode_escapes_to_utf8(form + EMOJI) == form + EMOJI
 
 
-def test_fallback_leaves_hex_and_octal_escapes_alone():
-	# Boundary of the fallback: it decodes only `\\uXXXX` / `\\UXXXXXXXX`, so a caption that
-	# also uses `\xNN` or octal escapes decodes differently with a non-Latin-1 character
-	# present -- the fast path turns `\x5c` into a backslash, the fallback leaves the run
-	# alone. Both branches still decode the unrelated `\u0042`.
-	assert decode_unicode_escapes_to_utf8(r'\x5cu0041 \u0042') == r'\u0041 B'
-	assert decode_unicode_escapes_to_utf8(r'\x5cu0041 \u0042' + ' \U0001f600') == r'\x5cu0041 B' + ' \U0001f600'
-	assert decode_unicode_escapes_to_utf8(r'\134u0041 \u0042' + ' \U0001f600') == r'\134u0041 B' + ' \U0001f600'
+def test_hex_octal_and_c_escapes_decode_the_same_with_an_emoji_present():
+	# Boundary check on the fallback: it is not limited to `\\uXXXX`, so the escape
+	# families only the codec knows about behave the way they do without the emoji.
+	assert decode_unicode_escapes_to_utf8(r'\x5cu0041 \u0042' + EMOJI) == '\\u0041 B' + EMOJI
+	assert decode_unicode_escapes_to_utf8(r'\134u0041 \u0042' + EMOJI) == '\\u0041 B' + EMOJI
+	assert decode_unicode_escapes_to_utf8(r'\u0041\n' + EMOJI) == 'A\n' + EMOJI
 
 
 def test_overlay_path_decodes_the_goal_text_once(monkeypatch):
