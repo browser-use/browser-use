@@ -50,21 +50,31 @@ class CrashWatchdog(BaseWatchdog):
 	# Configuration
 	network_timeout_seconds: float = Field(default=10.0)
 	check_interval_seconds: float = Field(default=5.0)  # Reduced frequency to reduce noise
+	crash_recovery_timeout_seconds: float = Field(default=10.0)  # Per-CDP-call budget while recovering a crashed target
+	enable_periodic_health_checks: bool = Field(default=False)  # Opt-in polling loop; crash handling is always on
 
 	# Private state
 	_active_requests: dict[str, NetworkRequestTracker] = PrivateAttr(default_factory=dict)
 	_monitoring_task: asyncio.Task | None = PrivateAttr(default=None)
 	_last_responsive_checks: dict[str, float] = PrivateAttr(default_factory=dict)  # target_url -> timestamp
 	_cdp_event_tasks: set[asyncio.Task] = PrivateAttr(default_factory=set)  # Track CDP event handler tasks
-	_targets_with_listeners: set[str] = PrivateAttr(default_factory=set)  # Track targets that already have event listeners
+	_crash_listener_registered: bool = PrivateAttr(default=False)  # Browser-wide Target.targetCrashed handler installed
+	_crashed_targets: set[str] = PrivateAttr(default_factory=set)  # Crashes currently being recovered (de-dupes retries)
 
 	async def on_BrowserConnectedEvent(self, event: BrowserConnectedEvent) -> None:
 		"""Start monitoring when browser is connected."""
 		# logger.debug('[CrashWatchdog] Browser connected event received, beginning monitoring')
 
-		create_task_with_error_handling(
-			self._start_monitoring(), name='start_crash_monitoring', logger_instance=self.logger, suppress_exceptions=True
-		)
+		# Register the crash listener up front so the tab the browser starts with is covered.
+		# It previously only got registered from on_TabCreatedEvent, which never fires for the
+		# initial tab, leaving the agent's very first page unmonitored for its whole lifetime.
+		self._register_crash_listener()
+
+		# The periodic responsiveness/network-timeout poll is opt-in; crash handling above is not.
+		if self.enable_periodic_health_checks:
+			create_task_with_error_handling(
+				self._start_monitoring(), name='start_crash_monitoring', logger_instance=self.logger, suppress_exceptions=True
+			)
 		# logger.debug(f'[CrashWatchdog] Monitoring task started: {self._monitoring_task and not self._monitoring_task.done()}')
 
 	async def on_BrowserStoppedEvent(self, event: BrowserStoppedEvent) -> None:
@@ -73,52 +83,50 @@ class CrashWatchdog(BaseWatchdog):
 		await self._stop_monitoring()
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
-		"""Attach to new tab."""
-		assert self.browser_session.agent_focus_target_id is not None, 'No current target ID'
-		await self.attach_to_target(self.browser_session.agent_focus_target_id)
+		"""Ensure crash monitoring is active. Covered by a single browser-wide listener."""
+		self._register_crash_listener()
 
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Clean up tracking when tab closes."""
-		# Remove target from listener tracking to prevent memory leak
-		if event.target_id in self._targets_with_listeners:
-			self._targets_with_listeners.discard(event.target_id)
-			self.logger.debug(f'[CrashWatchdog] Removed target {event.target_id[:8]}... from monitoring')
+		self._crashed_targets.discard(event.target_id)
 
-	async def attach_to_target(self, target_id: TargetID) -> None:
-		"""Set up crash monitoring for a specific target using CDP."""
-		try:
-			# Check if we already have listeners for this target
-			if target_id in self._targets_with_listeners:
-				self.logger.debug(f'[CrashWatchdog] Event listeners already exist for target: {target_id[:8]}...')
+	def _register_crash_listener(self) -> None:
+		"""Register the browser-wide `Target.targetCrashed` handler exactly once.
+
+		`Target.targetCrashed` is a browser-level event: it is delivered with session_id=None
+		and carries the crashed `targetId` in its payload. Every CDPSession in this codebase
+		shares a single underlying CDP client, so the previous per-target registration added a
+		*duplicate global* handler for each tab, and each of those handlers ignored the payload
+		and blamed the `target_id` captured in its closure. With three tabs open, one crash
+		therefore fired three handlers that between them reloaded two perfectly healthy tabs and
+		misattributed the crash. Register once, and trust the payload.
+		"""
+		if self._crash_listener_registered:
+			return
+
+		cdp_client = self.browser_session.cdp_client
+		if cdp_client is None:
+			self.logger.debug('[CrashWatchdog] No CDP client yet, deferring crash listener registration')
+			return
+
+		def on_target_crashed(event: TargetCrashedEvent, session_id: SessionID | None = None):
+			crashed_target_id = event.get('targetId')
+			if not crashed_target_id:
+				self.logger.warning(f'[CrashWatchdog] Target.targetCrashed without targetId: {event}')
 				return
 
-			# Create temporary session for monitoring without switching focus
-			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+			task = create_task_with_error_handling(
+				self._on_target_crash_cdp(crashed_target_id),
+				name='handle_target_crash',
+				logger_instance=self.logger,
+				suppress_exceptions=True,
+			)
+			self._cdp_event_tasks.add(task)
+			task.add_done_callback(lambda t: self._cdp_event_tasks.discard(t))
 
-			# Register crash event handler
-			def on_target_crashed(event: TargetCrashedEvent, session_id: SessionID | None = None):
-				# Create and track the task
-				task = create_task_with_error_handling(
-					self._on_target_crash_cdp(target_id),
-					name='handle_target_crash',
-					logger_instance=self.logger,
-					suppress_exceptions=True,
-				)
-				self._cdp_event_tasks.add(task)
-				# Remove from set when done
-				task.add_done_callback(lambda t: self._cdp_event_tasks.discard(t))
-
-			cdp_session.cdp_client.register.Target.targetCrashed(on_target_crashed)
-
-			# Track that we've added listeners to this target
-			self._targets_with_listeners.add(target_id)
-
-			target = self.browser_session.session_manager.get_target(target_id)
-			if target:
-				self.logger.debug(f'[CrashWatchdog] Added target to monitoring: {target.url}')
-
-		except Exception as e:
-			self.logger.warning(f'[CrashWatchdog] Failed to attach to target {target_id}: {e}')
+		cdp_client.register.Target.targetCrashed(on_target_crashed)
+		self._crash_listener_registered = True
+		self.logger.debug('[CrashWatchdog] Registered browser-wide Target.targetCrashed listener')
 
 	async def _on_request_cdp(self, event: dict) -> None:
 		"""Track new network request from CDP event."""
@@ -159,32 +167,104 @@ class CrashWatchdog(BaseWatchdog):
 		self._active_requests.pop(request_id, None)
 
 	async def _on_target_crash_cdp(self, target_id: TargetID) -> None:
-		"""Handle target crash detected via CDP."""
-		self.logger.debug(f'[CrashWatchdog] Target crashed: {target_id[:8]}..., waiting for detach event')
+		"""Handle target crash detected via CDP.
 
+		A renderer crash (OOM, WebGL context loss, sad-tab) is *not* a target detach: Chrome
+		emits `Target.targetCrashed` but keeps the target attached and in the target list, so
+		`SessionManager._handle_target_detached` — and therefore its auto-recovery — never runs.
+		Waiting for a detach event that never arrives is what left the agent looping over
+		'element not found' against a dead renderer until it burned its whole step budget.
+
+		So recover here instead: reload the crashed target (Chrome spawns a fresh renderer for
+		it), verify the new renderer answers, and only fall back to switching/creating a tab if
+		that fails.
+		"""
+		if target_id in self._crashed_targets:
+			# Chrome can emit targetCrashed more than once for the same death; don't stack recoveries.
+			self.logger.debug(f'[CrashWatchdog] Recovery already in progress for {target_id[:8]}..., ignoring')
+			return
+
+		self._crashed_targets.add(target_id)
+		try:
+			await self._handle_crash(target_id)
+		finally:
+			self._crashed_targets.discard(target_id)
+
+	async def _handle_crash(self, target_id: TargetID) -> None:
 		target = self.browser_session.session_manager.get_target(target_id)
+		url = target.url if target else None
 
-		is_agent_focus = (
-			target
-			and self.browser_session.agent_focus_target_id
-			and target.target_id == self.browser_session.agent_focus_target_id
+		is_agent_focus = bool(
+			self.browser_session.agent_focus_target_id and target_id == self.browser_session.agent_focus_target_id
 		)
 
-		if is_agent_focus:
-			self.logger.error(f'[CrashWatchdog] 💥 Agent focus tab crashed: {target.url} (SessionManager will auto-recover)')
+		self.logger.error(f'[CrashWatchdog] 💥 Target crashed: {url or target_id[:8]} (agent_focus={is_agent_focus})')
 
-		# Emit browser error event
+		recovered = await self._recover_crashed_target(target_id)
+
+		if not recovered and is_agent_focus:
+			# The tab itself is unrecoverable — hand off to SessionManager, which switches to
+			# another page target or opens a fresh one.
+			recovered = await self.browser_session.session_manager.recover_agent_focus(target_id)
+
+		if recovered:
+			self.logger.info(f'[CrashWatchdog] ✅ Recovered from crash of {url or target_id[:8]}')
+		else:
+			self.logger.error(
+				f'[CrashWatchdog] ❌ Could not recover crashed target {url or target_id[:8]} - '
+				f'subsequent actions on this tab will fail'
+			)
+
+		# Emit browser error event so the agent surfaces the crash as the root cause instead of
+		# reporting a stream of misleading 'element not found' errors.
 		self.event_bus.dispatch(
 			BrowserErrorEvent(
 				error_type='TargetCrash',
-				message=f'Target crashed: {target_id}',
+				message=(
+					f'Target crashed: {target_id}' + (' (recovered by reloading the page)' if recovered else ' (recovery failed)')
+				),
 				details={
-					'url': target.url if target else None,
+					'url': url,
 					'target_id': target_id,
 					'was_agent_focus': is_agent_focus,
+					'recovered': recovered,
 				},
 			)
 		)
+
+	async def _recover_crashed_target(self, target_id: TargetID) -> bool:
+		"""Reload a crashed target to respawn its renderer.
+
+		Returns True only if the target answers a CDP round-trip afterwards, so a reload that
+		silently lands on another dead renderer is still reported as a failure.
+		"""
+		try:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+		except Exception as e:
+			self.logger.warning(f'[CrashWatchdog] No CDP session for crashed target {target_id[:8]}...: {e}')
+			return False
+
+		try:
+			await asyncio.wait_for(
+				cdp_session.cdp_client.send.Page.reload(params={'ignoreCache': False}, session_id=cdp_session.session_id),
+				timeout=self.crash_recovery_timeout_seconds,
+			)
+		except Exception as e:
+			self.logger.warning(f'[CrashWatchdog] Reload of crashed target {target_id[:8]}... failed: {e}')
+			return False
+
+		try:
+			await asyncio.wait_for(
+				cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': '1', 'returnByValue': True}, session_id=cdp_session.session_id
+				),
+				timeout=self.crash_recovery_timeout_seconds,
+			)
+		except Exception as e:
+			self.logger.warning(f'[CrashWatchdog] Target {target_id[:8]}... still unresponsive after reload: {e}')
+			return False
+
+		return True
 
 	async def _start_monitoring(self) -> None:
 		"""Start the monitoring loop."""
@@ -220,8 +300,11 @@ class CrashWatchdog(BaseWatchdog):
 
 		# Clear all tracking
 		self._active_requests.clear()
-		self._targets_with_listeners.clear()
+		self._crashed_targets.clear()
 		self._last_responsive_checks.clear()
+		# The crash listener lives on the CDP client, which is torn down with the browser; a
+		# reconnect builds a new client, so allow it to be registered again.
+		self._crash_listener_registered = False
 
 	async def _monitoring_loop(self) -> None:
 		"""Main monitoring loop."""

@@ -1694,8 +1694,7 @@ class BrowserSession(BaseModel):
 
 		from browser_use.browser.watchdogs.aboutblank_watchdog import AboutBlankWatchdog
 		from browser_use.browser.watchdogs.captcha_watchdog import CaptchaWatchdog
-
-		# from browser_use.browser.crash_watchdog import CrashWatchdog
+		from browser_use.browser.watchdogs.crash_watchdog import CrashWatchdog
 		from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionWatchdog
 		from browser_use.browser.watchdogs.dom_watchdog import DOMWatchdog
 		from browser_use.browser.watchdogs.downloads_watchdog import DownloadsWatchdog
@@ -1708,12 +1707,19 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
 		from browser_use.browser.watchdogs.storage_state_watchdog import StorageStateWatchdog
 
-		# Initialize CrashWatchdog
-		# CrashWatchdog.model_rebuild()
-		# self._crash_watchdog = CrashWatchdog(event_bus=self.event_bus, browser_session=self)
-		# self.event_bus.on(BrowserConnectedEvent, self._crash_watchdog.on_BrowserConnectedEvent)
-		# self.event_bus.on(BrowserStoppedEvent, self._crash_watchdog.on_BrowserStoppedEvent)
-		# self._crash_watchdog.attach_to_session()
+		# Initialize CrashWatchdog.
+		# This was commented out during the watchdogs/ package refactor (note the stale import path
+		# it used to reference) and never re-enabled, which is why renderer crashes went completely
+		# undetected: the agent kept acting on a dead page until it exhausted its step budget.
+		# Crash detection itself is purely event-driven and costs nothing when nothing crashes; the
+		# periodic health/network polling loop stays opt-in via BrowserProfile.
+		CrashWatchdog.model_rebuild()
+		self._crash_watchdog = CrashWatchdog(
+			event_bus=self.event_bus,
+			browser_session=self,
+			enable_periodic_health_checks=self.browser_profile.enable_periodic_health_checks,
+		)
+		self._crash_watchdog.attach_to_session()
 
 		# Initialize DownloadsWatchdog
 		DownloadsWatchdog.model_rebuild()

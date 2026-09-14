@@ -427,6 +427,13 @@ class BrowserLaunchArgs(BaseModel):
 		validation_alias=AliasChoices('browser_binary_path', 'chrome_binary_path'),
 		description='Path to the chromium-based browser executable to use.',
 	)
+	enable_periodic_health_checks: bool = Field(
+		default=False,
+		description=(
+			'Whether CrashWatchdog should also poll target responsiveness and hung network requests on a timer. '
+			'Renderer-crash detection and recovery are always on and event-driven; this only adds the extra polling loop.'
+		),
+	)
 	headless: bool | None = Field(
 		default_factory=_get_headless_default,
 		description='Whether to run the browser in headless or windowed mode. Can be set via BROWSER_USE_HEADLESS environment variable.',
