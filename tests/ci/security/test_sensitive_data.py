@@ -2,7 +2,15 @@ import pytest
 from pydantic import BaseModel, Field
 
 from browser_use.agent.message_manager.service import MessageManager
-from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
+from browser_use.agent.views import (
+	ActionResult,
+	AgentHistory,
+	AgentHistoryList,
+	AgentOutput,
+	AgentStepInfo,
+	BrowserStateHistory,
+	MessageManagerState,
+)
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.dom.views import SerializedDOMState
 from browser_use.filesystem.file_system import FileSystem
@@ -625,6 +633,89 @@ def test_password_field_without_type_attribute():
 	assert value in attrs_str, 'Input without type attribute should preserve its value'
 
 
+# ─── Tests for nested container sensitive data redaction ────────────────────────
+
+_REDACT_NESTED = 'REDACT_ME_NESTED'
+_REDACT_MIXED = 'REDACT_ME_MIXED'
+_REDACT_TUPLE = 'REDACT_ME_TUPLE'
+_REDACT_NESTED_TUPLE = 'REDACT_ME_NESTED_TUPLE'
+_REDACT_PRESERVE = 'REDACT_ME_PRESERVE'
+
+
+def _history_for_filter_tests() -> AgentHistoryList:
+	return AgentHistoryList(
+		history=[
+			AgentHistory(
+				model_output=None,
+				result=[],
+				state=BrowserStateHistory(
+					url='https://example.com',
+					title='Example',
+					tabs=[],
+					interacted_element=[],
+				),
+			)
+		]
+	)
+
+
+def test_filter_nested_list_redacts_secrets():
+	"""Test that secrets inside nested lists are redacted (issue #5623)."""
+	history = _history_for_filter_tests()
+	sensitive_data = {'api_key': _REDACT_NESTED}
+
+	nested_list = [[_REDACT_NESTED]]
+	result = history.history[0]._filter_sensitive_data_from_value(nested_list, sensitive_data)
+	assert result == [['<secret>api_key</secret>']]
+	assert _REDACT_NESTED not in str(result)
+
+	single_list = [_REDACT_NESTED]
+	result = history.history[0]._filter_sensitive_data_from_value(single_list, sensitive_data)
+	assert result == ['<secret>api_key</secret>']
+
+
+def test_filter_nested_dict_and_list_combinations():
+	"""Test redaction works across mixed nested dict/list structures."""
+	history = _history_for_filter_tests()
+	sensitive_data = {'api_key': _REDACT_MIXED}
+
+	data = {'rows': [{'cells': [_REDACT_MIXED]}]}
+	result = history.history[0]._filter_sensitive_data_from_value(data, sensitive_data)
+	assert result == {'rows': [{'cells': ['<secret>api_key</secret>']}]}
+
+
+def test_filter_tuple_redacts_secrets():
+	"""Test that sensitive data inside tuples is redacted."""
+	history = _history_for_filter_tests()
+	sensitive_data = {'key': _REDACT_TUPLE}
+
+	data = (_REDACT_TUPLE, 'normal')
+	result = history.history[0]._filter_sensitive_data_from_value(data, sensitive_data)
+	assert result == ('<secret>key</secret>', 'normal')
+	assert _REDACT_TUPLE not in str(result)
+
+
+def test_filter_nested_tuple_redacts_secrets():
+	"""Test that sensitive data inside nested tuples is redacted."""
+	history = _history_for_filter_tests()
+	sensitive_data = {'token': _REDACT_NESTED_TUPLE}
+
+	data = {'tokens': ([_REDACT_NESTED_TUPLE],)}
+	result = history.history[0]._filter_sensitive_data_from_value(data, sensitive_data)
+	assert _REDACT_NESTED_TUPLE not in str(result)
+	assert '<secret>token</secret>' in str(result)
+
+
+def test_non_sensitive_values_preserved_in_nested_structures():
+	"""Test that non-sensitive values are not modified in nested structures."""
+	history = _history_for_filter_tests()
+	sensitive_data = {'api_key': _REDACT_PRESERVE}
+
+	data = {'rows': [['normal-value', _REDACT_PRESERVE], ['another-normal']]}
+	result = history.history[0]._filter_sensitive_data_from_value(data, sensitive_data)
+	assert result == {'rows': [['normal-value', '<secret>api_key</secret>'], ['another-normal']]}
+
+
 def test_history_filters_sensitive_data_inside_nested_lists(tmp_path):
 	"""
 	Saved history must not leak sensitive values that sit below a nested-list
@@ -634,9 +725,9 @@ def test_history_filters_sensitive_data_inside_nested_lists(tmp_path):
 
 	from pydantic import create_model
 
-	from browser_use.agent.views import AgentHistory, AgentHistoryList, AgentOutput
-	from browser_use.browser.views import BrowserStateHistory
 	from browser_use.tools.registry.views import ActionModel
+
+	history_secret = 'REDACT' + '_ME_HISTORY'
 
 	class NestedInputAction(BaseModel):
 		rows: list[list[str]]
@@ -649,8 +740,8 @@ def test_history_filters_sensitive_data_inside_nested_lists(tmp_path):
 	action = InputActionModel.model_validate(
 		{
 			'input': {
-				'rows': [['token-123']],
-				'lookup': {'headers': [{'authorization': 'token-123'}]},
+				'rows': [[history_secret]],
+				'lookup': {'headers': [{'authorization': history_secret}]},
 			}
 		}
 	)
@@ -665,8 +756,8 @@ def test_history_filters_sensitive_data_inside_nested_lists(tmp_path):
 	)
 
 	filepath = tmp_path / 'history.json'
-	history.save_to_file(filepath, sensitive_data={'api_key': 'token-123'})
+	history.save_to_file(filepath, sensitive_data={'api_key': history_secret})
 	saved = filepath.read_text(encoding='utf-8')
 
-	assert 'token-123' not in saved, 'Sensitive value leaked into the saved history file'
+	assert history_secret not in saved, 'Sensitive value leaked into the saved history file'
 	assert saved.count('<secret>api_key</secret>') == 2
