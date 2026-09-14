@@ -5,7 +5,7 @@ import io
 import logging
 import os
 import platform
-import re
+from itertools import groupby
 from typing import TYPE_CHECKING
 
 from browser_use.agent.views import AgentHistoryList
@@ -18,27 +18,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-#: Matches `\\` (escaped backslash) plus `\\uXXXX` / `\\UXXXXXXXX` escapes, so a
-#: literal backslash before a `u` keeps shielding the text behind it from being decoded.
-_ESCAPE_RUN_RE = re.compile(r'(?:\\\\|\\u[0-9a-fA-F]{4}|\\U[0-9a-fA-F]{8})')
+def _decode_latin1_runs(text: str) -> str:
+	"""Decode the escape sequences in each Latin-1-encodable run of a string that the fast path cannot encode as a whole."""
 
-
-def _decode_unicode_escapes_fallback(text: str) -> str:
-	"""Decode `\\uXXXX` / `\\UXXXXXXXX` escapes without requiring the whole string to be Latin-1 encodable."""
-
-	def _replace(match: re.Match[str]) -> str:
-		seq = match.group(0)
-		if seq == '\\\\':
-			# Collapse the pair the way the fast path does; matching it first is what keeps
-			# the `u4f60` behind it literal.
-			return '\\'
+	def _decode_run(is_latin1: bool, run: str) -> str:
+		if not is_latin1:
+			# already a real character (an emoji, CJK text), so there is nothing to decode
+			return run
 		try:
-			return chr(int(seq[2:], 16))
-		except ValueError:
-			# e.g. a `\\UXXXXXXXX` value above U+10FFFF: leave it untouched
-			return seq
+			return run.encode('latin1').decode('unicode_escape')
+		except UnicodeDecodeError:
+			# e.g. a `\\u` cut short by the end of the run: leave that run as it is
+			return run
 
-	return _ESCAPE_RUN_RE.sub(_replace, text)
+	return ''.join(_decode_run(latin1, ''.join(run)) for latin1, run in groupby(text, lambda c: ord(c) <= 0xFF))
 
 
 def decode_unicode_escapes_to_utf8(text: str) -> str:
@@ -55,9 +48,9 @@ def decode_unicode_escapes_to_utf8(text: str) -> str:
 		# logger.debug(f"Failed to decode unicode escape sequences while generating gif text: {text}")
 		# The fast path above needs the whole string to be Latin-1 encodable, so a single
 		# already-decoded character outside Latin-1 (an emoji, CJK text) aborts the entire
-		# decode. Decoding just the `\\uXXXX` / `\\UXXXXXXXX` runs leaves the rest of the
-		# caption alone, so it renders the way the same text would without that character.
-		return _decode_unicode_escapes_fallback(text)
+		# decode. Decoding the encodable stretches one at a time gives the same result as
+		# the fast path for the rest of the caption, so the escapes render either way.
+		return _decode_latin1_runs(text)
 
 	return decoded
 
