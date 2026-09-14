@@ -71,7 +71,28 @@ llm = ChatBrowserUse(model='bu-2-0-mini-preview')   # Cheaper per token, opt-in 
 | bu-2-0 (default, premium) | $0.60 | $0.06 | $3.50 |
 | bu-2-0-mini-preview (opt-in) | $0.15 | $0.15 | $1.50 |
 | bu-1-0 (redirects to bu-2-0) | $0.60 | $0.06 | $3.50 |
-| browser-use/bu-30b-a3b-preview (OSS) | — | — | — |
+
+### Open weights (self-hosted)
+
+`bu-30b-a3b-preview` is our open-weights browser model: 30B total, 3B active, 64K context.
+Browser Use Cloud does not route it, so there is no `bu-*` alias and no per-token price.
+Run it yourself and talk to it with `ChatOpenAI`:
+
+```bash
+vllm serve browser-use/bu-30b-a3b-preview --max-model-len 65536 --host 0.0.0.0 --port 8000
+```
+
+```python
+from browser_use import ChatOpenAI
+
+llm = ChatOpenAI(
+    model='browser-use/bu-30b-a3b-preview',
+    base_url='http://localhost:8000/v1',
+    api_key='not-needed',
+)
+```
+
+Weights: https://huggingface.co/browser-use/bu-30b-a3b-preview
 
 ## OpenAI
 
