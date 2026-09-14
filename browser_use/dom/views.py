@@ -1,7 +1,7 @@
 import hashlib
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from cdp_use.cdp.accessibility.commands import GetFullAXTreeReturns
 from cdp_use.cdp.accessibility.types import AXPropertyName
@@ -80,6 +80,8 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	# Accessibility name (contains text content for StaticText elements)
 	'ax_name',
 ]
+
+InputValueState = Literal['unknown', 'empty', 'filled']
 
 STATIC_ATTRIBUTES = {
 	'class',
@@ -355,6 +357,8 @@ class EnhancedSnapshotNode:
 	"""Stacking contexts from the layout tree"""
 	input_value: str | None = None
 	"""Live value of an <input> or <textarea> (DOMSnapshot inputValue/textValue), which the value attribute misses when JS, autofill, or a framework set it."""
+	input_value_state: InputValueState | None = None
+	"""Presence state for a redacted live input value. The value itself is never retained."""
 	input_checked: bool | None = None
 	"""Live checked state of a checkbox or radio input (DOMSnapshot inputChecked)."""
 
