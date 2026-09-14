@@ -4,9 +4,10 @@ Covers https://github.com/browser-use/browser-use/issues/5638: a literal
 ``\\uXXXX`` escape next to an already-decoded non-Latin-1 character (emoji, CJK)
 must still be decoded instead of aborting the whole decode.
 
-The property the fallback is written against is that a caption decodes the same
-way regardless of whether the rest of it happens to be Latin-1 encodable, and
-that the overlay path runs the decoder once per text.
+The properties the fallback is written against are that a caption decodes the same
+way regardless of whether the rest of it happens to be Latin-1 encodable, that a
+single escape the codec rejects does not keep the valid ones beside it raw, and that
+the overlay path runs the decoder once per text.
 """
 
 from browser_use.agent import gif
@@ -99,6 +100,24 @@ def test_hex_octal_and_c_escapes_decode_the_same_with_an_emoji_present():
 	assert decode_unicode_escapes_to_utf8(r'\x5cu0041 \u0042' + EMOJI) == '\\u0041 B' + EMOJI
 	assert decode_unicode_escapes_to_utf8(r'\134u0041 \u0042' + EMOJI) == '\\u0041 B' + EMOJI
 	assert decode_unicode_escapes_to_utf8(r'\u0041\n' + EMOJI) == 'A\n' + EMOJI
+
+
+def test_a_malformed_escape_does_not_poison_the_valid_ones_beside_it():
+	# The codec gives up on the first escape it cannot read, so a malformed one used to keep
+	# a valid `\\uXXXX` in the same Latin-1 stretch raw as collateral. Only the rejected
+	# escape stays literal now, which is the same failure #5638 reports in a smaller radius.
+	assert decode_unicode_escapes_to_utf8(r'\u0041 \uZZZZ') == 'A ' + r'\uZZZZ'
+	assert decode_unicode_escapes_to_utf8(r'\u0041 \U0011F600 next \u4f60') == 'A ' + r'\U0011F600 next ' + '你'
+	assert decode_unicode_escapes_to_utf8(r'\u0041 \uZZZZ' + EMOJI) == 'A ' + r'\uZZZZ' + EMOJI
+	assert decode_unicode_escapes_to_utf8(r'\u0041 \u0042: \u4f' + EMOJI) == 'A B: ' + r'\u4f' + EMOJI
+
+
+def test_a_caption_ending_mid_escape_decodes_the_same_with_or_without_an_emoji():
+	# The shape where an appended character used to change the answer on its own: with the
+	# emoji the trailing backslash escapes its space instead of the end of the caption.
+	for form in (r'\u0041', r'\u4f60', r'\U0001F600', r'\x5c'):
+		truncated = form + '\\'
+		assert decode_unicode_escapes_to_utf8(truncated + EMOJI) == decode_unicode_escapes_to_utf8(truncated) + EMOJI
 
 
 def test_overlay_path_decodes_the_goal_text_once(monkeypatch):

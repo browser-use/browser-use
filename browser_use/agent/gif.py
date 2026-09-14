@@ -25,11 +25,21 @@ def _decode_latin1_runs(text: str) -> str:
 		if not is_latin1:
 			# already a real character (an emoji, CJK text), so there is nothing to decode
 			return run
-		try:
-			return run.encode('latin1').decode('unicode_escape')
-		except UnicodeDecodeError:
-			# e.g. a `\\u` cut short by the end of the run: leave that run as it is
-			return run
+
+		chunks: list[str] = []
+		while run:
+			try:
+				return ''.join(chunks) + run.encode('latin1').decode('unicode_escape')
+			except UnicodeDecodeError as exc:
+				# The codec scans left to right and reports where it gave up, so everything before
+				# that position decodes after all. Keeping just the escape it rejected literal is
+				# what stops one malformed `\\u` from leaving a valid one in the same run raw.
+				start = min(exc.start, len(run))
+				end = max(start + 1, min(exc.end, len(run)))
+				chunks.append(run[:start].encode('latin1').decode('unicode_escape'))
+				chunks.append(run[start:end])
+				run = run[end:]
+		return ''.join(chunks)
 
 	return ''.join(_decode_run(latin1, ''.join(run)) for latin1, run in groupby(text, lambda c: ord(c) <= 0xFF))
 
