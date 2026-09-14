@@ -686,7 +686,7 @@ class SessionManager:
 
 			# Perform recovery (outside lock to allow concurrent operations)
 			# Try to find another valid page target
-			page_targets = self.get_all_page_targets()
+			page_targets = [target for target in self.get_all_page_targets() if target.target_id != crashed_target_id]
 
 			new_target_id = None
 			is_existing_tab = False
@@ -780,6 +780,20 @@ class SessionManager:
 			self._recovery_in_progress = False
 			self._recovery_task = None
 			self.logger.debug('[SessionManager] Recovery state reset')
+
+	async def recover_agent_focus(self, crashed_target_id: TargetID) -> bool:
+		"""Move agent focus off a target that is no longer usable.
+
+		`_recover_agent_focus` is normally driven by `Target.detachedFromTarget`. A renderer
+		crash produces no detach event, so `CrashWatchdog` calls this directly once it has
+		established that the crashed tab cannot be revived by reloading it.
+
+		Returns:
+			True if agent focus now points at a different, usable target.
+		"""
+		await self._recover_agent_focus(crashed_target_id)
+		current_focus = self.browser_session.agent_focus_target_id
+		return bool(current_focus and current_focus != crashed_target_id)
 
 	async def _initialize_existing_targets(self) -> None:
 		"""Discover and initialize all existing targets at startup.
