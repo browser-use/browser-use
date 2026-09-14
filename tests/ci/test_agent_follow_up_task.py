@@ -2,7 +2,7 @@
 
 import asyncio
 from typing import cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 from browser_use import Agent
 from browser_use.llm.exceptions import ModelProviderError
@@ -55,7 +55,12 @@ async def test_follow_up_step_that_times_out_is_not_reported_done(browser_sessio
 		return await answer(*args, **kwargs)
 
 	ainvoke.side_effect = answer_or_hang
-	done_callback = MagicMock()
+	done_calls = 0
+
+	def on_done(history):
+		nonlocal done_calls
+		done_calls += 1
+
 	agent = Agent(
 		task='First task',
 		llm=llm,
@@ -63,12 +68,12 @@ async def test_follow_up_step_that_times_out_is_not_reported_done(browser_sessio
 		max_failures=1,
 		final_response_after_failure=False,
 		use_judge=False,
-		register_done_callback=done_callback,
+		register_done_callback=on_done,
 	)
 
 	first = await agent.run(max_steps=3)
 	assert first.is_done()
-	done_callback.reset_mock()
+	done_calls = 0
 
 	slow = True
 	agent.settings.step_timeout = 1
@@ -76,5 +81,5 @@ async def test_follow_up_step_that_times_out_is_not_reported_done(browser_sessio
 	await agent.run(max_steps=3)
 
 	# The follow-up step timed out without an answer, so the first task's done step must not complete it.
-	done_callback.assert_not_called()
+	assert done_calls == 0
 	assert agent.state.consecutive_failures == 1
