@@ -77,7 +77,10 @@ async def _wait_for_crash_event(events: list[BrowserErrorEvent], timeout: float 
 
 def _collect_browser_errors(session: BrowserSession) -> list[BrowserErrorEvent]:
 	events: list[BrowserErrorEvent] = []
-	session.event_bus.on(BrowserErrorEvent, lambda event: events.append(event))
+	def collect_error(event: BrowserErrorEvent) -> None:
+		events.append(event)
+
+	session.event_bus.on(BrowserErrorEvent, collect_error)
 	return events
 
 
@@ -112,7 +115,7 @@ async def test_agent_can_keep_working_after_a_renderer_crash(crash_session: Brow
 		),
 		timeout=RECOVERY_TIMEOUT,
 	)
-	assert result['result']['value'] == 2
+	assert result['result'].get('value') == 2
 
 	# And the agent can still navigate afterwards.
 	await asyncio.wait_for(crash_session.navigate_to(heavy_page, new_tab=False), timeout=RECOVERY_TIMEOUT)
