@@ -3,6 +3,9 @@
 from browser_use.agent.service import Agent
 from browser_use.agent.views import (
 	ActionLoopDetector,
+	ActionResult,
+	AgentBrain,
+	AgentOutput,
 	PageFingerprint,
 	compute_action_hash,
 )
@@ -402,3 +405,27 @@ async def test_loop_detector_default_window_size():
 	agent = Agent(task='Test task', llm=llm)
 	assert agent.settings.loop_detection_enabled is True
 	assert agent.state.loop_detector.window_size == 20
+
+
+async def test_update_loop_detector_actions_skips_unexecuted():
+	"""Verify that unexecuted actions from an aborted multi_act sequence are not recorded."""
+	llm = create_mock_llm()
+	agent = Agent(task='Test task', llm=llm)
+
+	act1 = agent.ActionModel(click={'index': 1})
+	act2 = agent.ActionModel(click={'index': 2})
+	act3 = agent.ActionModel(click={'index': 3})
+	agent.state.last_model_output = agent.AgentOutput(
+		evaluation_previous_goal='',
+		memory='',
+		next_goal='',
+		action=[act1, act2, act3],
+	)
+	# Simulate multi_act aborted after the 1st action (only 1 ActionResult returned)
+	agent.state.last_result = [ActionResult(error='Failed')]
+
+	agent._update_loop_detector_actions()
+
+	# Only the first executed action should be recorded in the loop detector
+	assert len(agent.state.loop_detector.recent_action_hashes) == 1
+	assert agent.state.loop_detector.recent_action_hashes[0] == compute_action_hash('click', {'index': 1})

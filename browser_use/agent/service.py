@@ -1514,7 +1514,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Actions to exclude: wait always hashes identically (instant false positive),
 		# done is terminal, go_back is navigation recovery
 		_LOOP_EXEMPT_ACTIONS = {'wait', 'done', 'go_back'}
-		for action in self.state.last_model_output.action:
+		# Only record actions that were actually executed. In multi_act, execution
+		# may stop early due to errors or page changes, so slice to len(last_result).
+		executed_count = (
+			len(self.state.last_result)
+			if self.state.last_result is not None
+			else len(self.state.last_model_output.action)
+		)
+		executed_actions = self.state.last_model_output.action[:executed_count]
+		for action in executed_actions:
 			action_data = action.model_dump(exclude_unset=True)
 			action_name = next(iter(action_data.keys()), 'unknown')
 			if action_name in _LOOP_EXEMPT_ACTIONS:
