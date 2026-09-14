@@ -1,6 +1,6 @@
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, TypeVar, overload
 
 import httpx
@@ -15,11 +15,21 @@ from pydantic import BaseModel
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.orcarouter.auth import (
+	OrcaRouterAuthError,
+	OrcaRouterCredentialStore,
+	resolve_orcarouter_api_base_url,
+	validate_orcarouter_api_base_url,
+)
 from browser_use.llm.orcarouter.serializer import OrcaRouterMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def _default_api_base_url() -> str:
+	return resolve_orcarouter_api_base_url()
 
 
 @dataclass
@@ -41,7 +51,7 @@ class ChatOrcaRouter(BaseChatModel):
 
 	# Client initialization parameters
 	api_key: str | None = None
-	base_url: str | httpx.URL = 'https://api.orcarouter.ai/v1'
+	base_url: str | httpx.URL = field(default_factory=_default_api_base_url)
 	timeout: float | httpx.Timeout | None = None
 	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
@@ -58,17 +68,38 @@ class ChatOrcaRouter(BaseChatModel):
 	def _get_api_key(self) -> str:
 		# AsyncOpenAI falls back to OPENAI_API_KEY when api_key is unset, which would send an
 		# unrelated provider's key to the OrcaRouter endpoint.
-		key = self.api_key or os.getenv('ORCAROUTER_API_KEY')
-		if not key:
-			raise ModelProviderError('Missing OrcaRouter API key', status_code=401, model=self.name)
-		return key
+		self._pkce_credential_generation = None
+		if self.api_key:
+			return self.api_key
+		if env_key := os.getenv('ORCAROUTER_API_KEY'):
+			return env_key
+
+		try:
+			credential = OrcaRouterCredentialStore().load()
+		except OrcaRouterAuthError as exc:
+			raise ModelProviderError(str(exc), status_code=401, model=self.name) from exc
+		if credential is not None:
+			if credential.needs_reauth:
+				raise ModelProviderError(
+					'OrcaRouter login needs to be renewed; run `browser-use orcarouter login`',
+					status_code=401,
+					model=self.name,
+				)
+			self._pkce_credential_generation = credential.generation
+			return credential.api_key
+
+		raise ModelProviderError(
+			'Missing OrcaRouter API key; set ORCAROUTER_API_KEY or run `browser-use orcarouter login`',
+			status_code=401,
+			model=self.name,
+		)
 
 	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
 		# Define base client params
 		base_params = {
 			'api_key': self._get_api_key(),
-			'base_url': self.base_url,
+			'base_url': validate_orcarouter_api_base_url(self.base_url),
 			'timeout': self.timeout,
 			'max_retries': self.max_retries,
 			'default_headers': self.default_headers,
@@ -140,6 +171,13 @@ class ChatOrcaRouter(BaseChatModel):
 		Returns:
 		    Either a string response or an instance of output_format
 		"""
+		if getattr(self, '_pkce_needs_reauth', False):
+			raise ModelProviderError(
+				'OrcaRouter login needs to be renewed; run `browser-use orcarouter login`',
+				status_code=401,
+				model=self.name,
+			)
+
 		orcarouter_messages = OrcaRouterMessageSerializer.serialize_messages(messages)
 
 		try:
@@ -240,6 +278,14 @@ class ChatOrcaRouter(BaseChatModel):
 			raise ModelProviderError(message=str(e), model=self.name) from e
 
 		except APIStatusError as e:
+			credential_generation = getattr(self, '_pkce_credential_generation', None)
+			if e.status_code == 401 and isinstance(credential_generation, str):
+				self._pkce_needs_reauth = True
+				try:
+					OrcaRouterCredentialStore().mark_needs_reauth(credential_generation)
+				except OrcaRouterAuthError:
+					# Preserve the upstream authentication error if local status persistence fails.
+					pass
 			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
 
 		except Exception as e:
