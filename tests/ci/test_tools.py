@@ -12,6 +12,7 @@ from pytest_httpserver import HTTPServer
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
+from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, NodeType
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.tools.service import Tools
 
@@ -84,6 +85,101 @@ async def browser_session():
 def tools():
 	"""Create and provide a Tools instance."""
 	return Tools()
+
+
+class _MissingElementBrowserSession:
+	async def get_element_by_index(self, index: int):
+		return None
+
+
+class _EventWithResult:
+	def __init__(self, result):
+		self.result = result
+
+	async def event_result(self, **kwargs):
+		return self.result
+
+
+class _EventBus:
+	def __init__(self, result):
+		self.result = result
+
+	def dispatch(self, event):
+		return _EventWithResult(self.result)
+
+
+def _fake_dom_node() -> EnhancedDOMTreeNode:
+	return EnhancedDOMTreeNode(
+		node_id=1,
+		backend_node_id=1,
+		node_type=NodeType.ELEMENT_NODE,
+		node_name='select',
+		node_value='',
+		attributes={},
+		is_scrollable=False,
+		is_visible=True,
+		absolute_position=DOMRect(x=0, y=0, width=100, height=20),
+		target_id='target',
+		frame_id='frame',
+		session_id='session',
+		content_document=None,
+		shadow_root_type=None,
+		shadow_roots=[],
+		parent_node=None,
+		children_nodes=[],
+		ax_node=None,
+		snapshot_node=None,
+	)
+
+
+class _StructuredDropdownFailureBrowserSession:
+	event_bus = _EventBus(
+		{
+			'success': 'false',
+			'error': 'Option not found',
+			'short_term_memory': 'Available dropdown options are:\n- First Option',
+			'long_term_memory': "Couldn't select the dropdown option as 'Missing' is not one of the available options.",
+		}
+	)
+
+	async def get_element_by_index(self, index: int):
+		return _fake_dom_node()
+
+
+async def _run_registered_action(tools: Tools, name: str, browser_session, **params):
+	action = tools.registry.registry.actions[name]
+	return await action.function(params=action.param_model(**params), browser_session=browser_session)
+
+
+class TestToolsActionErrors:
+	async def test_click_missing_element_index_returns_error(self, tools):
+		result = await _run_registered_action(tools, 'click', _MissingElementBrowserSession(), index=7)
+
+		assert result.error == 'Element index 7 not available - page may have changed. Try refreshing browser state.'
+		assert result.extracted_content is None
+
+	async def test_dropdown_options_missing_element_index_returns_error(self, tools):
+		result = await _run_registered_action(tools, 'dropdown_options', _MissingElementBrowserSession(), index=7)
+
+		assert result.error == 'Element index 7 not available - page may have changed. Try refreshing browser state.'
+		assert result.extracted_content is None
+
+	async def test_select_dropdown_missing_element_index_returns_error(self, tools):
+		result = await _run_registered_action(
+			tools, 'select_dropdown', _MissingElementBrowserSession(), index=7, text='Second Option'
+		)
+
+		assert result.error == 'Element index 7 not available - page may have changed. Try refreshing browser state.'
+		assert result.extracted_content is None
+
+	async def test_select_dropdown_structured_failure_sets_error(self, tools):
+		result = await _run_registered_action(
+			tools, 'select_dropdown', _StructuredDropdownFailureBrowserSession(), index=7, text='Missing'
+		)
+
+		assert result.error == "Couldn't select the dropdown option as 'Missing' is not one of the available options."
+		assert result.extracted_content == 'Available dropdown options are:\n- First Option'
+		assert result.long_term_memory == result.error
 
 
 class TestToolsIntegration:
