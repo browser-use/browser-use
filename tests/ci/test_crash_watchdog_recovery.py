@@ -77,6 +77,7 @@ async def _wait_for_crash_event(events: list[BrowserErrorEvent], timeout: float 
 
 def _collect_browser_errors(session: BrowserSession) -> list[BrowserErrorEvent]:
 	events: list[BrowserErrorEvent] = []
+
 	def collect_error(event: BrowserErrorEvent) -> None:
 		events.append(event)
 
