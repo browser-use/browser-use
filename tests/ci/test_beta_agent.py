@@ -7918,3 +7918,24 @@ def test_rust_history_surfaces_terminal_session_interrupted_message():
 	assert history.is_done() is False
 	assert history.errors() == ['Rust terminal session was interrupted: interrupted by send_input']
 	assert history.action_results()[-1].error == 'Rust terminal session was interrupted: interrupted by send_input'
+
+
+async def test_beta_agent_retry_restores_shortened_urls_like_browser_use():
+	from browser_use.beta import Agent
+	from browser_use.llm.messages import UserMessage
+	from tests.ci.conftest import create_mock_llm
+
+	original_url = 'https://example.com/path?abcdefghijklmnopqrstuvwxyz#section'
+	agent = Agent(task='Retry restores URLs.', llm=create_mock_llm(), _url_shortening_limit=8)
+	shortened_url = agent._replace_urls_in_text(original_url)[0]
+
+	def response(action: list[dict[str, Any]]) -> str:
+		return json.dumps({'evaluation_previous_goal': 'e', 'memory': 'm', 'next_goal': 'n', 'action': action})
+
+	# The retry re-sends the same, already shortened message objects; the model echoes the shortened URL.
+	agent.llm = create_mock_llm([response([]), response([{'done': {'text': shortened_url, 'success': True}}])])
+
+	model_output = await agent._get_model_output_with_retry([UserMessage(content=f'Open {original_url} now.')])
+
+	assert agent.llm.ainvoke.await_count == 2
+	assert model_output.action[0].model_dump(exclude_unset=True)['done']['text'] == original_url
