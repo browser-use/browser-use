@@ -3,9 +3,34 @@
 Covers https://github.com/browser-use/browser-use/issues/5638: a literal
 ``\\uXXXX`` escape next to an already-decoded non-Latin-1 character (emoji,
 CJK) must still be decoded instead of aborting the whole decode.
+
+The property the fallback is written against is that a caption decodes the same
+way regardless of whether the rest of it happens to be Latin-1 encodable, and
+that the overlay path runs the decoder once per text.
 """
 
+from browser_use.agent import gif
 from browser_use.agent.gif import decode_unicode_escapes_to_utf8
+
+# Forms the fast path decodes today, so the fallback has to return the identical result:
+# `\\uXXXX`, `\\UXXXXXXXX`, and an escaped backslash, which collapses to one backslash and
+# keeps the text behind it literal.
+FAST_PATH_FORMS = [
+	r'\u4f60',
+	r'\U0001F600',
+	r'\u0041',
+	r'\\u4f60',
+	r'\\\\u4f60',
+	r'\\uZZZZ',
+	'price ' + r'\u0024' + ' and ' + r'\U0001F602',
+	r'C:\\path \u4f60',
+]
+
+# Forms neither branch can decode, which have to survive untouched either way.
+NEITHER_BRANCH_DECODES = [
+	r'\uZZZZ',
+	r'\U0011F600',
+]
 
 
 def test_mixed_emoji_and_escape_decodes_escape():
@@ -28,90 +53,70 @@ def test_no_escapes_passthrough():
 	assert decode_unicode_escapes_to_utf8(text) == text
 
 
-def test_escaped_backslash_is_not_double_decoded():
-	# `\\\\u4f60` is an escaped backslash followed by literal text, not an escape.
-	assert decode_unicode_escapes_to_utf8('\\\\u4f60\U0001f600') == '\\\\u4f60\U0001f600'
-
-
-def test_invalid_escape_left_untouched():
-	assert decode_unicode_escapes_to_utf8('\\uZZZZ\U0001f600') == '\\uZZZZ\U0001f600'
-
-
 def test_uppercase_escape_with_emoji():
 	assert decode_unicode_escapes_to_utf8('\\U0001F602\U0001f600') == '\U0001f602\U0001f600'
 
 
-def test_latin1_only_escaped_backslash_uppercase_preserved():
-	# P2 finding on PR #5748: a Latin-1-only `\\UXXXXXXXX` (escaped backslash,
-	# not an escape) must not lose a backslash via the fast path, which would
-	# expose it as a live escape to the next decoder call in the overlay path
-	# (`_add_overlay_to_image` decodes, then `_wrap_text` decodes again).
-	assert decode_unicode_escapes_to_utf8('\\\\U00000041') == '\\\\U00000041'
+def test_escaped_backslash_keeps_the_text_behind_it_literal():
+	# `\\u4f60` is an escaped backslash followed by literal text, not an escape, and
+	# collapses to one backslash exactly as it does without the emoji.
+	assert decode_unicode_escapes_to_utf8('\\\\u4f60\U0001f600') == '\\u4f60\U0001f600'
 
 
-def test_latin1_only_escaped_backslash_lowercase_preserved():
-	# Same hazard for the lowercase form (pre-existing, same root cause).
-	assert decode_unicode_escapes_to_utf8('\\\\u0041') == '\\\\u0041'
+def test_windows_path_and_cjk_keep_one_backslash():
+	# The escaped pairs in the path collapse the same way the fast path collapses them,
+	# and the sibling `\\u6587` decodes whether or not the caption holds more CJK.
+	text = 'C:\\\\Users\\\\demo \\u6587'
+	assert decode_unicode_escapes_to_utf8(text) == 'C:\\Users\\demo \u6587'
+	assert decode_unicode_escapes_to_utf8(text + ' 打开') == 'C:\\Users\\demo \u6587 打开'
 
 
-def test_escaped_backslash_decode_is_idempotent():
-	# The overlay path calls the decoder twice; a second pass must be a no-op
-	# so literal text can never collapse into a decoded character.
-	for text in ('\\\\U00000041', '\\\\u0041'):
-		once = decode_unicode_escapes_to_utf8(text)
-		assert decode_unicode_escapes_to_utf8(once) == once
+def test_decoding_does_not_depend_on_the_rest_of_the_caption():
+	# The bug generalizes: a non-Latin-1 character anywhere in the string used to abort
+	# the decode, so the same caption rendered two different ways. Appending an emoji
+	# must not change how any escape decodes.
+	for form in FAST_PATH_FORMS:
+		fast_path = form.encode('latin1').decode('unicode_escape')
+		assert decode_unicode_escapes_to_utf8(form) == fast_path
+		assert decode_unicode_escapes_to_utf8(form + ' \U0001f600') == fast_path + ' \U0001f600'
+		assert decode_unicode_escapes_to_utf8(form + ' \u4f60') == fast_path + ' \u4f60'
 
 
-def test_mixed_real_escape_and_escaped_backslash_latin1_only():
-	# A real escape still decodes while the escaped backslash next to it is
-	# preserved, and the result is stable under a second decode pass.
-	once = decode_unicode_escapes_to_utf8('open \\u4f60 \\\\u0041')
-	assert once == 'open \u4f60 \\\\u0041'
-	assert decode_unicode_escapes_to_utf8(once) == once
+def test_undecodable_escape_stays_untouched_either_way():
+	for form in NEITHER_BRANCH_DECODES:
+		assert decode_unicode_escapes_to_utf8(form) == form
+		assert decode_unicode_escapes_to_utf8(form + ' \U0001f600') == form + ' \U0001f600'
 
 
-def test_escaped_backslash_away_from_unicode_escape_keeps_other_escapes():
-	# P2 follow-up on PR #5748: the guard tests the decoded result, so an escaped
-	# backslash that leaves no live escape behind keeps the fast path and every escape
-	# it has always decoded (`\\` collapses, `\n` becomes a newline).
-	text = r'\\\n \u4f60'
-	once = decode_unicode_escapes_to_utf8(text)
-	assert once == '\\\n \u4f60'
-	assert decode_unicode_escapes_to_utf8(once) == once
+def test_fallback_leaves_hex_and_octal_escapes_alone():
+	# Boundary of the fallback: it decodes only `\\uXXXX` / `\\UXXXXXXXX`, so a caption that
+	# also uses `\xNN` or octal escapes decodes differently with a non-Latin-1 character
+	# present -- the fast path turns `\x5c` into a backslash, the fallback leaves the run
+	# alone. Both branches still decode the unrelated `\u0042`.
+	assert decode_unicode_escapes_to_utf8(r'\x5cu0041 \u0042') == r'\u0041 B'
+	assert decode_unicode_escapes_to_utf8(r'\x5cu0041 \u0042' + ' \U0001f600') == r'\x5cu0041 B' + ' \U0001f600'
+	assert decode_unicode_escapes_to_utf8(r'\134u0041 \u0042' + ' \U0001f600') == r'\134u0041 B' + ' \U0001f600'
 
 
-def test_windows_path_keeps_fast_path_decode():
-	text = r'C:\\path \u4f60'
-	once = decode_unicode_escapes_to_utf8(text)
-	assert once == 'C:\\path \u4f60'
-	assert decode_unicode_escapes_to_utf8(once) == once
+def test_overlay_path_decodes_the_goal_text_once(monkeypatch):
+	from PIL import Image, ImageFont
 
+	calls = []
+	real = gif.decode_unicode_escapes_to_utf8
 
-def test_hex_escape_minting_a_backslash_is_not_double_decoded():
-	# P3 follow-up on PR #5748: `\x5c` decodes to a backslash, so the `u0041` right
-	# after it turns into a live `\uXXXX` escape for the next overlay decode. The
-	# unrelated `\u0042` is what carries the string past the early bail-out.
-	text = r'\x5cu0041 \u0042'
-	once = decode_unicode_escapes_to_utf8(text)
-	assert once == '\\x5cu0041 B'
-	assert decode_unicode_escapes_to_utf8(once) == once
+	def spy(text: str) -> str:
+		calls.append(text)
+		return real(text)
 
-
-def test_octal_escape_minting_a_backslash_is_not_double_decoded():
-	# Same hazard through the octal form (`\134` is 0x5c), which no input-side pattern
-	# match could have anticipated.
-	text = r'\134u0041 \u0042'
-	once = decode_unicode_escapes_to_utf8(text)
-	assert once == '\\134u0041 B'
-	assert decode_unicode_escapes_to_utf8(once) == once
-
-
-def test_invalid_escape_tail_keeps_its_backslashes():
-	# `\uZZZZ` is not a decodable escape, but the fast path still eats one backslash of
-	# `\\\\uZZZZ` per pass, so the text keeps shrinking while the overlay path decodes
-	# it. Rejecting any `\\u`/`\\U` left in the result, not only valid escapes, is what
-	# makes the second pass a no-op.
-	text = r'\\\\uZZZZ'
-	once = decode_unicode_escapes_to_utf8(text)
-	assert once == text
-	assert decode_unicode_escapes_to_utf8(once) == once
+	monkeypatch.setattr(gif, 'decode_unicode_escapes_to_utf8', spy)
+	gif._add_overlay_to_image(
+		image=Image.new('RGB', (400, 400)),
+		step_number=1,
+		goal_text=r'open \u4f60',
+		regular_font=ImageFont.load_default(),  # type: ignore
+		title_font=ImageFont.load_default(),  # type: ignore
+		margin=10,
+	)
+	# Wrapping is where the decode happens; a second call would unescape the result of
+	# the first, which is how an escaped `\\u0041` used to end up rendered as `A`.
+	assert calls == [r'open \u4f60']

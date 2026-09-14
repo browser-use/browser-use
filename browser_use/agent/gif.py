@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 #: Matches `\\` (escaped backslash) plus `\\uXXXX` / `\\UXXXXXXXX` escapes, so a
-#: literal backslash before a `u` is preserved instead of being decoded twice.
+#: literal backslash before a `u` keeps shielding the text behind it from being decoded.
 _ESCAPE_RUN_RE = re.compile(r'(?:\\\\|\\u[0-9a-fA-F]{4}|\\U[0-9a-fA-F]{8})')
 
 
@@ -29,7 +29,9 @@ def _decode_unicode_escapes_fallback(text: str) -> str:
 	def _replace(match: re.Match[str]) -> str:
 		seq = match.group(0)
 		if seq == '\\\\':
-			return seq
+			# Collapse the pair the way the fast path does; matching it first is what keeps
+			# the `u4f60` behind it literal.
+			return '\\'
 		try:
 			return chr(int(seq[2:], 16))
 		except ValueError:
@@ -51,20 +53,10 @@ def decode_unicode_escapes_to_utf8(text: str) -> str:
 		decoded = text.encode('latin1').decode('unicode_escape')
 	except (UnicodeEncodeError, UnicodeDecodeError):
 		# logger.debug(f"Failed to decode unicode escape sequences while generating gif text: {text}")
-		# The fast path above needs the whole string to be Latin-1 encodable, so any
-		# already-decoded character outside Latin-1 (e.g. emoji or CJK text next to a
-		# literal `\\uXXXX` escape) aborts the entire decode. Fall back to decoding
-		# just the `\\uXXXX` / `\\UXXXXXXXX` runs and leave everything else untouched.
-		return _decode_unicode_escapes_fallback(text)
-
-	if r'\u' in decoded or r'\U' in decoded:
-		# The overlay path decodes twice (`_add_overlay_to_image`, then `_wrap_text`),
-		# so any backslash the fast path leaves in front of `uXXXX` gets eaten again on
-		# the next pass, until an escaped `\\u0041` collapses into `A`. A collapsed `\\`
-		# pair is not the only source: `\x5c` and octal `\134` mint a backslash too, so
-		# the decoded result is checked rather than the input. The fallback leaves those
-		# sequences literal, which is what stops an escaped backslash from decoding once
-		# more than it was written for.
+		# The fast path above needs the whole string to be Latin-1 encodable, so a single
+		# already-decoded character outside Latin-1 (an emoji, CJK text) aborts the entire
+		# decode. Decoding just the `\\uXXXX` / `\\UXXXXXXXX` runs leaves the rest of the
+		# caption alone, so it renders the way the same text would without that character.
 		return _decode_unicode_escapes_fallback(text)
 
 	return decoded
@@ -348,7 +340,6 @@ def _add_overlay_to_image(
 
 	from PIL import Image, ImageDraw
 
-	goal_text = decode_unicode_escapes_to_utf8(goal_text)
 	image = image.convert('RGBA')
 	txt_layer = Image.new('RGBA', image.size, (0, 0, 0, 0))
 	draw = ImageDraw.Draw(txt_layer)
@@ -387,6 +378,8 @@ def _add_overlay_to_image(
 
 	# Draw goal text (centered, bottom)
 	max_width = image.width - (4 * margin)
+	# `_wrap_text` is where the overlay's escapes get decoded, so decoding `goal_text`
+	# here as well would run the unescape a second time over whatever comes out.
 	wrapped_goal = _wrap_text(goal_text, title_font, max_width)
 	goal_bbox = draw.multiline_textbbox((0, 0), wrapped_goal, font=title_font)
 	goal_width = goal_bbox[2] - goal_bbox[0]
