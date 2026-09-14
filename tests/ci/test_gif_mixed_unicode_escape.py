@@ -71,9 +71,9 @@ def test_mixed_real_escape_and_escaped_backslash_latin1_only():
 
 
 def test_escaped_backslash_away_from_unicode_escape_keeps_other_escapes():
-	# P2 follow-up on PR #5748: only a `\\` pair directly in front of a unicode
-	# escape can expose a live escape, so elsewhere the fast path keeps decoding
-	# the escapes it has always decoded (`\\` collapses, `\n` becomes a newline).
+	# P2 follow-up on PR #5748: the guard tests the decoded result, so an escaped
+	# backslash that leaves no live escape behind keeps the fast path and every escape
+	# it has always decoded (`\\` collapses, `\n` becomes a newline).
 	text = r'\\\n \u4f60'
 	once = decode_unicode_escapes_to_utf8(text)
 	assert once == '\\\n \u4f60'
@@ -84,4 +84,34 @@ def test_windows_path_keeps_fast_path_decode():
 	text = r'C:\\path \u4f60'
 	once = decode_unicode_escapes_to_utf8(text)
 	assert once == 'C:\\path \u4f60'
+	assert decode_unicode_escapes_to_utf8(once) == once
+
+
+def test_hex_escape_minting_a_backslash_is_not_double_decoded():
+	# P3 follow-up on PR #5748: `\x5c` decodes to a backslash, so the `u0041` right
+	# after it turns into a live `\uXXXX` escape for the next overlay decode. The
+	# unrelated `\u0042` is what carries the string past the early bail-out.
+	text = r'\x5cu0041 \u0042'
+	once = decode_unicode_escapes_to_utf8(text)
+	assert once == '\\x5cu0041 B'
+	assert decode_unicode_escapes_to_utf8(once) == once
+
+
+def test_octal_escape_minting_a_backslash_is_not_double_decoded():
+	# Same hazard through the octal form (`\134` is 0x5c), which no input-side pattern
+	# match could have anticipated.
+	text = r'\134u0041 \u0042'
+	once = decode_unicode_escapes_to_utf8(text)
+	assert once == '\\134u0041 B'
+	assert decode_unicode_escapes_to_utf8(once) == once
+
+
+def test_invalid_escape_tail_keeps_its_backslashes():
+	# `\uZZZZ` is not a decodable escape, but the fast path still eats one backslash of
+	# `\\\\uZZZZ` per pass, so the text keeps shrinking while the overlay path decodes
+	# it. Rejecting any `\\u`/`\\U` left in the result, not only valid escapes, is what
+	# makes the second pass a no-op.
+	text = r'\\\\uZZZZ'
+	once = decode_unicode_escapes_to_utf8(text)
+	assert once == text
 	assert decode_unicode_escapes_to_utf8(once) == once
