@@ -23,12 +23,6 @@ logger = logging.getLogger(__name__)
 _ESCAPE_RUN_RE = re.compile(r'(?:\\\\|\\u[0-9a-fA-F]{4}|\\U[0-9a-fA-F]{8})')
 
 
-#: A backslash pair sitting directly in front of a unicode-escape payload. The
-#: fast path would strip one backslash and leave `\\uXXXX` behind as a live
-#: escape, so only these inputs are routed through the fallback.
-_LIVE_ESCAPE_PAIR_RE = re.compile(r'\\\\(?=u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})')
-
-
 def _decode_unicode_escapes_fallback(text: str) -> str:
 	"""Decode `\\uXXXX` / `\\UXXXXXXXX` escapes without requiring the whole string to be Latin-1 encodable."""
 
@@ -52,20 +46,9 @@ def decode_unicode_escapes_to_utf8(text: str) -> str:
 		# doesn't have any escape sequences that need to be decoded
 		return text
 
-	if _LIVE_ESCAPE_PAIR_RE.search(text):
-		# An escaped backslash directly in front of a `\\uXXXX` / `\\UXXXXXXXX`
-		# payload is literal text, not an escape. The fast path below would strip
-		# one backslash and expose e.g. `\\UXXXXXXXX` as a live escape to the next
-		# decoder call in the overlay path (`_add_overlay_to_image` decodes, then
-		# `_wrap_text` decodes again), so route such inputs through the fallback,
-		# which preserves the pair and is idempotent under repeated decoding.
-		# Elsewhere an escaped backslash cannot create that hazard, so leave the
-		# fast path to it.
-		return _decode_unicode_escapes_fallback(text)
-
 	try:
 		# Try to decode Unicode escape sequences
-		return text.encode('latin1').decode('unicode_escape')
+		decoded = text.encode('latin1').decode('unicode_escape')
 	except (UnicodeEncodeError, UnicodeDecodeError):
 		# logger.debug(f"Failed to decode unicode escape sequences while generating gif text: {text}")
 		# The fast path above needs the whole string to be Latin-1 encodable, so any
@@ -73,6 +56,18 @@ def decode_unicode_escapes_to_utf8(text: str) -> str:
 		# literal `\\uXXXX` escape) aborts the entire decode. Fall back to decoding
 		# just the `\\uXXXX` / `\\UXXXXXXXX` runs and leave everything else untouched.
 		return _decode_unicode_escapes_fallback(text)
+
+	if r'\u' in decoded or r'\U' in decoded:
+		# The overlay path decodes twice (`_add_overlay_to_image`, then `_wrap_text`),
+		# so any backslash the fast path leaves in front of `uXXXX` gets eaten again on
+		# the next pass, until an escaped `\\u0041` collapses into `A`. A collapsed `\\`
+		# pair is not the only source: `\x5c` and octal `\134` mint a backslash too, so
+		# the decoded result is checked rather than the input. The fallback leaves those
+		# sequences literal, which is what stops an escaped backslash from decoding once
+		# more than it was written for.
+		return _decode_unicode_escapes_fallback(text)
+
+	return decoded
 
 
 def create_history_gif(
