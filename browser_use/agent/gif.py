@@ -5,6 +5,7 @@ import io
 import logging
 import os
 import platform
+from itertools import groupby
 from typing import TYPE_CHECKING
 
 from browser_use.agent.views import AgentHistoryList
@@ -17,19 +18,51 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _decode_latin1_runs(text: str) -> str:
+	"""Decode the escape sequences in each Latin-1-encodable run of a string that the fast path cannot encode as a whole."""
+
+	def _decode_run(is_latin1: bool, run: str) -> str:
+		if not is_latin1:
+			# already a real character (an emoji, CJK text), so there is nothing to decode
+			return run
+
+		chunks: list[str] = []
+		while run:
+			try:
+				return ''.join(chunks) + run.encode('latin1').decode('unicode_escape')
+			except UnicodeDecodeError as exc:
+				# The codec scans left to right and reports where it gave up, so everything before
+				# that position decodes after all. Keeping just the escape it rejected literal is
+				# what stops one malformed `\\u` from leaving a valid one in the same run raw.
+				start = min(exc.start, len(run))
+				end = max(start + 1, min(exc.end, len(run)))
+				chunks.append(run[:start].encode('latin1').decode('unicode_escape'))
+				chunks.append(run[start:end])
+				run = run[end:]
+		return ''.join(chunks)
+
+	return ''.join(_decode_run(latin1, ''.join(run)) for latin1, run in groupby(text, lambda c: ord(c) <= 0xFF))
+
+
 def decode_unicode_escapes_to_utf8(text: str) -> str:
 	"""Handle decoding any unicode escape sequences embedded in a string (needed to render non-ASCII languages like chinese or arabic in the GIF overlay text)"""
 
-	if r'\u' not in text:
+	if r'\u' not in text and r'\U' not in text:
 		# doesn't have any escape sequences that need to be decoded
 		return text
 
 	try:
 		# Try to decode Unicode escape sequences
-		return text.encode('latin1').decode('unicode_escape')
+		decoded = text.encode('latin1').decode('unicode_escape')
 	except (UnicodeEncodeError, UnicodeDecodeError):
 		# logger.debug(f"Failed to decode unicode escape sequences while generating gif text: {text}")
-		return text
+		# The fast path above needs the whole string to be Latin-1 encodable, so a single
+		# already-decoded character outside Latin-1 (an emoji, CJK text) aborts the entire
+		# decode. Decoding the encodable stretches one at a time gives the same result as
+		# the fast path for the rest of the caption, so the escapes render either way.
+		return _decode_latin1_runs(text)
+
+	return decoded
 
 
 def create_history_gif(
@@ -310,7 +343,6 @@ def _add_overlay_to_image(
 
 	from PIL import Image, ImageDraw
 
-	goal_text = decode_unicode_escapes_to_utf8(goal_text)
 	image = image.convert('RGBA')
 	txt_layer = Image.new('RGBA', image.size, (0, 0, 0, 0))
 	draw = ImageDraw.Draw(txt_layer)
@@ -349,6 +381,8 @@ def _add_overlay_to_image(
 
 	# Draw goal text (centered, bottom)
 	max_width = image.width - (4 * margin)
+	# `_wrap_text` is where the overlay's escapes get decoded, so decoding `goal_text`
+	# here as well would run the unescape a second time over whatever comes out.
 	wrapped_goal = _wrap_text(goal_text, title_font, max_width)
 	goal_bbox = draw.multiline_textbbox((0, 0), wrapped_goal, font=title_font)
 	goal_width = goal_bbox[2] - goal_bbox[0]
