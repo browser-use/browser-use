@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from collections.abc import Mapping
@@ -21,7 +22,7 @@ from httpx import Timeout
 from pydantic import BaseModel
 
 from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
-from browser_use.llm.base import BaseChatModel
+from browser_use.llm.base import BaseChatModel, get_running_loop_or_none
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
@@ -65,6 +66,9 @@ class ChatAnthropic(BaseChatModel):
 	# Internal client cache: SDK clients own an httpx connection pool, so share
 	# one client per chat instance instead of allocating a pool on every call.
 	_client: AsyncAnthropic | None = field(default=None, init=False, repr=False, compare=False)
+	# A pooled keep-alive connection belongs to the loop that opened it, so the cached
+	# client is only reusable while that loop is still the running one.
+	_client_loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False, compare=False)
 
 	# Static
 	@property
@@ -179,9 +183,12 @@ class ChatAnthropic(BaseChatModel):
 		Returns:
 			AsyncAnthropic: The shared AsyncAnthropic client for this chat instance.
 		"""
-		if self._client is None:
+		loop = get_running_loop_or_none()
+		if self._client is None or self._client_loop is not loop:
+			# The old client's loop is already closed, so it cannot be awaited closed here.
 			client_params = self._get_client_params()
 			self._client = AsyncAnthropic(**client_params)
+			self._client_loop = loop
 		return self._client
 
 	@property

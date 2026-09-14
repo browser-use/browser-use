@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -19,7 +20,7 @@ from groq.types.chat.completion_create_params import (
 from httpx import URL
 from pydantic import BaseModel
 
-from browser_use.llm.base import BaseChatModel, ChatInvokeCompletion
+from browser_use.llm.base import BaseChatModel, ChatInvokeCompletion, get_running_loop_or_none
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.groq.parser import try_parse_groq_failed_generation
 from browser_use.llm.groq.serializer import GroqMessageSerializer
@@ -76,12 +77,18 @@ class ChatGroq(BaseChatModel):
 	# Internal client cache: SDK clients own an httpx connection pool, so share
 	# one client per chat instance instead of allocating a pool on every call.
 	_client: AsyncGroq | None = field(default=None, init=False, repr=False, compare=False)
+	# A pooled keep-alive connection belongs to the loop that opened it, so the cached
+	# client is only reusable while that loop is still the running one.
+	_client_loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False, compare=False)
 
 	def get_client(self) -> AsyncGroq:
-		if self._client is None:
+		loop = get_running_loop_or_none()
+		if self._client is None or self._client_loop is not loop:
+			# The old client's loop is already closed, so it cannot be awaited closed here.
 			self._client = AsyncGroq(
 				api_key=self.api_key, base_url=self.base_url, timeout=self.timeout, max_retries=self.max_retries
 			)
+			self._client_loop = loop
 		return self._client
 
 	@property
