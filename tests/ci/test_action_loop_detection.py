@@ -4,8 +4,6 @@ from browser_use.agent.service import Agent
 from browser_use.agent.views import (
 	ActionLoopDetector,
 	ActionResult,
-	AgentBrain,
-	AgentOutput,
 	PageFingerprint,
 	compute_action_hash,
 )
@@ -412,9 +410,9 @@ async def test_update_loop_detector_actions_skips_unexecuted():
 	llm = create_mock_llm()
 	agent = Agent(task='Test task', llm=llm)
 
-	act1 = agent.ActionModel(click={'index': 1})
-	act2 = agent.ActionModel(click={'index': 2})
-	act3 = agent.ActionModel(click={'index': 3})
+	act1 = agent.ActionModel(click={'index': 1})  # type: ignore
+	act2 = agent.ActionModel(click={'index': 2})  # type: ignore
+	act3 = agent.ActionModel(click={'index': 3})  # type: ignore
 	agent.state.last_model_output = agent.AgentOutput(
 		evaluation_previous_goal='',
 		memory='',

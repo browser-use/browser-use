@@ -1517,9 +1517,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Only record actions that were actually executed. In multi_act, execution
 		# may stop early due to errors or page changes, so slice to len(last_result).
 		executed_count = (
-			len(self.state.last_result)
-			if self.state.last_result is not None
-			else len(self.state.last_model_output.action)
+			len(self.state.last_result) if self.state.last_result is not None else len(self.state.last_model_output.action)
 		)
 		executed_actions = self.state.last_model_output.action[:executed_count]
 		for action in executed_actions:
