@@ -2115,8 +2115,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 					{ type: 'input', bubbles: true, cancelable: true },
 					// Change event - important for form validation and Vue v-model
 					{ type: 'change', bubbles: true, cancelable: true },
-					// Blur event - triggers validation in many frameworks
-					{ type: 'blur', bubbles: true, cancelable: true }
 				];
 
 				let success = true;
@@ -2145,6 +2143,17 @@ class DefaultActionWatchdog(BaseWatchdog):
 						console.warn('Framework event dispatch failed:', eventConfig.type, e);
 					}
 				});
+
+				// Call element.blur() to genuinely remove focus and commit the value.
+				// dispatchEvent(new Event('blur')) only fires the event listener but does
+				// NOT move focus away — element.blur() does both, which is what JS
+				// frameworks (React onBlur, Vue @blur, custom commit-on-blur handlers)
+				// actually wait for before persisting the field value.
+				try {
+					element.blur();
+				} catch (e) {
+					console.warn('element.blur() failed:', e);
+				}
 
 				// Special React synthetic event handling
 				// React uses internal fiber properties for event system
