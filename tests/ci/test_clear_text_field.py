@@ -1,4 +1,5 @@
 import inspect
+
 from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionWatchdog
 
 
