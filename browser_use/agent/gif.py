@@ -23,6 +23,12 @@ logger = logging.getLogger(__name__)
 _ESCAPE_RUN_RE = re.compile(r'(?:\\\\|\\u[0-9a-fA-F]{4}|\\U[0-9a-fA-F]{8})')
 
 
+#: A backslash pair sitting directly in front of a unicode-escape payload. The
+#: fast path would strip one backslash and leave `\\uXXXX` behind as a live
+#: escape, so only these inputs are routed through the fallback.
+_LIVE_ESCAPE_PAIR_RE = re.compile(r'\\\\(?=u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})')
+
+
 def _decode_unicode_escapes_fallback(text: str) -> str:
 	"""Decode `\\uXXXX` / `\\UXXXXXXXX` escapes without requiring the whole string to be Latin-1 encodable."""
 
@@ -46,12 +52,15 @@ def decode_unicode_escapes_to_utf8(text: str) -> str:
 		# doesn't have any escape sequences that need to be decoded
 		return text
 
-	if '\\\\' in text:
-		# An escaped backslash (`\\`) is literal text, not an escape. The fast
-		# path below would strip one backslash and expose e.g. `\\UXXXXXXXX`
-		# as a live escape to the next decoder call in the overlay path, so
-		# route such inputs through the fallback, which preserves `\\` pairs
-		# and is idempotent under repeated decoding.
+	if _LIVE_ESCAPE_PAIR_RE.search(text):
+		# An escaped backslash directly in front of a `\\uXXXX` / `\\UXXXXXXXX`
+		# payload is literal text, not an escape. The fast path below would strip
+		# one backslash and expose e.g. `\\UXXXXXXXX` as a live escape to the next
+		# decoder call in the overlay path (`_add_overlay_to_image` decodes, then
+		# `_wrap_text` decodes again), so route such inputs through the fallback,
+		# which preserves the pair and is idempotent under repeated decoding.
+		# Elsewhere an escaped backslash cannot create that hazard, so leave the
+		# fast path to it.
 		return _decode_unicode_escapes_fallback(text)
 
 	try:
