@@ -13,6 +13,7 @@ from pydantic import Field, PrivateAttr
 from browser_use.browser.events import (
 	BrowserConnectedEvent,
 	BrowserErrorEvent,
+	BrowserReconnectedEvent,
 	BrowserStoppedEvent,
 	TabClosedEvent,
 	TabCreatedEvent,
@@ -41,6 +42,7 @@ class CrashWatchdog(BaseWatchdog):
 	# Event contracts
 	LISTENS_TO: ClassVar[list[type[BaseEvent]]] = [
 		BrowserConnectedEvent,
+		BrowserReconnectedEvent,
 		BrowserStoppedEvent,
 		TabCreatedEvent,
 		TabClosedEvent,
@@ -81,6 +83,11 @@ class CrashWatchdog(BaseWatchdog):
 		"""Stop monitoring when browser stops."""
 		# logger.debug('[CrashWatchdog] Browser stopped, ending monitoring')
 		await self._stop_monitoring()
+
+	async def on_BrowserReconnectedEvent(self, event: BrowserReconnectedEvent) -> None:
+		"""Register crash monitoring on the CDP client created by reconnect()."""
+		self._crash_listener_registered = False
+		self._register_crash_listener()
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Ensure crash monitoring is active. Covered by a single browser-wide listener."""

@@ -686,7 +686,7 @@ class SessionManager:
 
 			# Perform recovery (outside lock to allow concurrent operations)
 			# Try to find another valid page target
-			page_targets = self.get_all_page_targets()
+			page_targets = [target for target in self.get_all_page_targets() if target.target_id != crashed_target_id]
 
 			new_target_id = None
 			is_existing_tab = False
