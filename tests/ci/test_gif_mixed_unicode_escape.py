@@ -68,3 +68,20 @@ def test_mixed_real_escape_and_escaped_backslash_latin1_only():
 	once = decode_unicode_escapes_to_utf8('open \\u4f60 \\\\u0041')
 	assert once == 'open \u4f60 \\\\u0041'
 	assert decode_unicode_escapes_to_utf8(once) == once
+
+
+def test_escaped_backslash_away_from_unicode_escape_keeps_other_escapes():
+	# P2 follow-up on PR #5748: only a `\\` pair directly in front of a unicode
+	# escape can expose a live escape, so elsewhere the fast path keeps decoding
+	# the escapes it has always decoded (`\\` collapses, `\n` becomes a newline).
+	text = r'\\\n \u4f60'
+	once = decode_unicode_escapes_to_utf8(text)
+	assert once == '\\\n \u4f60'
+	assert decode_unicode_escapes_to_utf8(once) == once
+
+
+def test_windows_path_keeps_fast_path_decode():
+	text = r'C:\\path \u4f60'
+	once = decode_unicode_escapes_to_utf8(text)
+	assert once == 'C:\\path \u4f60'
+	assert decode_unicode_escapes_to_utf8(once) == once
