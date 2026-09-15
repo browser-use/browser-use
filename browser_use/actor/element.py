@@ -828,6 +828,8 @@ class Element:
 				f'reply keys={sorted(result)!r}'
 			)
 
+		logger.debug(f'Runtime.callFunctionOn returned {remote_object.get("type")!r} on session {self._session_id!r}')
+
 		# Extract and return value
 		value = remote_object.get('value')
 
