@@ -4,13 +4,9 @@
 
 The orange key-shaped bridge is an existing painting from the
 [Browser Use website](https://browser-use.com/lander/plates/browsers-8dd60aa0.jpg).
-`key-banner.jpg` is a 2:1 crop of that painting, centered vertically on the key.
-The crop box is `(72, 0, 1384, 656)` in the original 1456×816 image, producing
-a 1312×656 JPEG (quality 95, no chroma subsampling). No artwork was generated.
-The README displays the crop at the full width of the content column
-(`width="100%"`) and links it to the website. An immutable raw GitHub URL keeps
-the banner accessible when the README is rendered outside the repository, such
-as on PyPI.
+The README displays the original image at a maximum width of 720 pixels and links
+it to the website. It is hosted on the website, so cloning the repository does
+not download the artwork.
 
 ## Product diagram
 
