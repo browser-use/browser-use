@@ -1,9 +1,17 @@
 <!-- mcp-name: com.browser-use/browser-use -->
-<a href="https://browser-use.com">
-  <img src="https://raw.githubusercontent.com/browser-use/browser-use/0dc80503557f54ccee5ecd4685ee6198221a251a/static/readme/key-banner.jpg" alt="A person crossing an orange canyon on a giant key-shaped bridge, from the Browser Use website." width="100%">
-</a>
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24">
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358">
+  <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24" width="100%">
+</picture>
 
-# Browser Use
+<div align="center">
+    <picture>
+    <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125">
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/6797d09b-8ac3-4cb9-ba07-b289e080765a">
+    <img alt="The AI browser agent." src="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125" width="400">
+    </picture>
+</div>
 
 The open-source Python library for AI browser agents.
 
