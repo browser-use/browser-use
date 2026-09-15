@@ -6,10 +6,23 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
 BASE_URL = 'https://api.browser-use.com/api/v4'
 POLL_INTERVAL = 3
 MAX_WAIT_TIME = 180
+
+
+def cancel_run(run_id: str, headers: dict[str, str]) -> None:
+	"""Cancel a hosted Browser Use run after a local timeout."""
+	try:
+		response = requests.post(
+			f'{BASE_URL}/runs/{run_id}/cancel',
+			headers=headers,
+			timeout=30,
+		)
+		response.raise_for_status()
+		print(f'[INFO] Cancelled timed-out run: {run_id}')
+	except requests.RequestException as exc:
+		print(f'[WARNING] Failed to cancel run {run_id}: {exc}')
 
 
 def run_browser_task(task: str):
@@ -23,7 +36,7 @@ def run_browser_task(task: str):
 			'task': task,
 			'result': None,
 			'execution_time': 0,
-			'error': 'BROWSER_USE_API_KEY is not loaded.',
+			'error': 'BROWSER_USE_API_KEY is not configured.',
 		}
 
 	headers = {
@@ -32,14 +45,12 @@ def run_browser_task(task: str):
 	}
 
 	try:
-		# Submit browser task
 		response = requests.post(
 			f'{BASE_URL}/runs',
 			headers=headers,
 			json={'task': task},
 			timeout=30,
 		)
-
 		response.raise_for_status()
 
 		run_data = response.json()
@@ -48,35 +59,42 @@ def run_browser_task(task: str):
 		print('\n[INFO] Browser task submitted.')
 		print(f'[INFO] Run ID: {run_id}')
 
-		# Poll until the task completes
 		while time.time() - start_time < MAX_WAIT_TIME:
 			time.sleep(POLL_INTERVAL)
 
 			status_response = requests.get(
-				f'{BASE_URL}/runs/{run_id}',
+				f'{BASE_URL}/runs/{run_id}/status',
 				headers=headers,
 				timeout=30,
 			)
-
 			status_response.raise_for_status()
 
-			run_data = status_response.json()
-			status = run_data.get('status')
+			status_data = status_response.json()
+			status = status_data.get('status')
 
 			print(f'[INFO] Status: {status}')
 
-			if status == 'completed':
-				result = run_data.get('result')
+			if status in {'completed', 'failed', 'cancelled', 'stopped'}:
+				final_response = requests.get(
+					f'{BASE_URL}/runs/{run_id}',
+					headers=headers,
+					timeout=30,
+				)
+				final_response.raise_for_status()
 
-				return {
-					'success': bool(result),
-					'task': task,
-					'result': result,
-					'execution_time': round(time.time() - start_time, 2),
-					'error': run_data.get('error'),
-				}
+				run_data = final_response.json()
 
-			if status in {'failed', 'cancelled', 'stopped'}:
+				if status == 'completed':
+					result = run_data.get('result')
+
+					return {
+						'success': bool(result),
+						'task': task,
+						'result': result,
+						'execution_time': round(time.time() - start_time, 2),
+						'error': run_data.get('error'),
+					}
+
 				return {
 					'success': False,
 					'task': task,
@@ -85,28 +103,45 @@ def run_browser_task(task: str):
 					'error': run_data.get('error') or f'Task {status}.',
 				}
 
+		cancel_run(run_id, headers)
+
 		return {
 			'success': False,
 			'task': task,
 			'result': None,
 			'execution_time': round(time.time() - start_time, 2),
-			'error': 'Browser task timed out.',
+			'error': 'Browser research timed out and the hosted run was cancelled.',
 		}
 
-	except requests.RequestException as e:
+	except requests.RequestException as exc:
+		print(f'[ERROR] Browser Use API request failed: {exc}')
+
 		return {
 			'success': False,
 			'task': task,
 			'result': None,
 			'execution_time': round(time.time() - start_time, 2),
-			'error': f'Browser Use API request failed: {e}',
+			'error': 'Browser Use API request failed. Please try again.',
 		}
 
-	except Exception as e:
+	except (KeyError, ValueError) as exc:
+		print(f'[ERROR] Invalid Browser Use API response: {exc}')
+
 		return {
 			'success': False,
 			'task': task,
 			'result': None,
 			'execution_time': round(time.time() - start_time, 2),
-			'error': str(e),
+			'error': 'Browser Use returned an invalid response.',
+		}
+
+	except Exception as exc:
+		print(f'[ERROR] Unexpected browser task failure: {exc}')
+
+		return {
+			'success': False,
+			'task': task,
+			'result': None,
+			'execution_time': round(time.time() - start_time, 2),
+			'error': 'An unexpected error occurred while running the browser task.',
 		}
