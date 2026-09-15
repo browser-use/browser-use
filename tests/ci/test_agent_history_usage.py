@@ -68,8 +68,29 @@ def test_agent_history_list_model_dump_filters():
 	assert 'usage' not in history_with_usage.model_dump(exclude={'usage'})
 	assert 'usage' not in history_with_usage.model_dump(include={'history'})
 
-	history_without_usage = AgentHistoryList[Any](history=[], usage=None)
+	# Nested include / exclude with set, list, and tuple
+	dump_inc_set = history_with_usage.model_dump(include={'usage': {'total_cost'}})
+	assert dump_inc_set['usage'] == {'total_cost': 0.03}
+
+	dump_inc_list = history_with_usage.model_dump(include={'usage': ['total_cost']})
+	assert dump_inc_list['usage'] == {'total_cost': 0.03}
+
+	dump_exc_list = history_with_usage.model_dump(exclude={'usage': ['total_cost']})
+	assert 'total_cost' not in dump_exc_list['usage']
+	assert 'total_tokens' in dump_exc_list['usage']
+
+	dump_inc_tuple = history_with_usage.model_dump(include={'usage': ('total_cost',)})
+	assert dump_inc_tuple['usage'] == {'total_cost': 0.03}
+
+	# Truly unset usage (not passed at construction)
+	history_without_usage = AgentHistoryList[Any](history=[])
 	assert history_without_usage.model_dump()['usage'] is None
 	assert 'usage' not in history_without_usage.model_dump(exclude_none=True)
 	assert 'usage' not in history_without_usage.model_dump(exclude_unset=True)
 	assert 'usage' not in history_without_usage.model_dump(exclude_defaults=True)
+
+	# Explicitly set usage=None (passed at construction, so it is in __pydantic_fields_set__)
+	history_explicit_none = AgentHistoryList[Any](history=[], usage=None)
+	assert history_explicit_none.model_dump(exclude_unset=True)['usage'] is None
+	assert 'usage' not in history_explicit_none.model_dump(exclude_none=True)
+	assert 'usage' not in history_explicit_none.model_dump(exclude_defaults=True)

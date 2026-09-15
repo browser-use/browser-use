@@ -687,12 +687,24 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		if should_include:
 			if self.usage is not None:
 				usage_kwargs = {k: v for k, v in kwargs.items() if k not in ('sensitive_data', 'include', 'exclude')}
-				if isinstance(include, dict) and isinstance(include.get('usage'), (dict, set)):
-					usage_kwargs['include'] = include['usage']
-				if isinstance(exclude, dict) and isinstance(exclude.get('usage'), (dict, set)):
-					usage_kwargs['exclude'] = exclude['usage']
+				if isinstance(include, dict):
+					inc_usage = include.get('usage')
+					if isinstance(inc_usage, (set, list, tuple)):
+						usage_kwargs['include'] = set(inc_usage)
+					elif isinstance(inc_usage, dict):
+						usage_kwargs['include'] = inc_usage
+				if isinstance(exclude, dict):
+					exc_usage = exclude.get('usage')
+					if isinstance(exc_usage, (set, list, tuple)):
+						usage_kwargs['exclude'] = set(exc_usage)
+					elif isinstance(exc_usage, dict):
+						usage_kwargs['exclude'] = exc_usage
 				dump['usage'] = self.usage.model_dump(**usage_kwargs)
-			elif not (kwargs.get('exclude_none') or kwargs.get('exclude_unset') or kwargs.get('exclude_defaults')):
+			elif not (
+				kwargs.get('exclude_none')
+				or (kwargs.get('exclude_unset') and 'usage' not in self.__pydantic_fields_set__)
+				or kwargs.get('exclude_defaults')
+			):
 				dump['usage'] = None
 
 		return dump
