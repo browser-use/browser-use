@@ -107,22 +107,19 @@ def convert_json_schema_to_pydantic(schema: dict[str, Any], model_name: str = 'S
 		elif field_type_str == 'object':
 			python_type = dict[str, Any]
 		elif field_type_str == 'array':
-			# Check if items type is specified
 			items_schema = field_schema.get('items', {})
-			items_type = items_schema.get('type', 'string')
-
-			if items_type == 'string':
-				python_type = list[str]
-			elif items_type == 'number':
-				python_type = list[float]
-			elif items_type == 'integer':
-				python_type = list[int]
-			elif items_type == 'boolean':
-				python_type = list[bool]
-			elif items_type == 'object':
-				python_type = list[dict[str, Any]]
+			items_enum = items_schema.get('enum')
+			if isinstance(items_enum, list) and items_enum:
+				item_type = Literal[tuple(items_enum)]
 			else:
-				python_type = list[Any]
+				item_type = {
+					'string': str,
+					'number': float,
+					'integer': int,
+					'boolean': bool,
+					'object': dict[str, Any],
+				}.get(items_schema.get('type', 'string'), Any)
+			python_type = list[item_type]
 
 		# Make optional if not required
 		is_required = field_name in required_fields
