@@ -6,7 +6,6 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 import pytest
-from browser_use.tools.frames import get_frame_evaluation_context, list_current_page_frames
 from pytest_httpserver import HTTPServer
 
 from browser_use.agent.views import ActionResult
@@ -76,10 +75,12 @@ async def listbox_browser() -> AsyncIterator[BrowserSession]:
 
 async def _evaluate(browser: BrowserSession, expression: str, frame_id: str | None = None) -> Any:
 	if frame_id:
-		context = await get_frame_evaluation_context(browser, frame_id)
-		session = context.session
+		session = await browser.cdp_client_for_frame(frame_id)
+		context = await session.cdp_client.send.Page.createIsolatedWorld(
+			params={'frameId': frame_id, 'worldName': 'native-listbox-test'}, session_id=session.session_id
+		)
 		response = await session.cdp_client.send.Runtime.evaluate(
-			params={'expression': expression, 'returnByValue': True, 'uniqueContextId': context.execution_context_unique_id},
+			params={'expression': expression, 'returnByValue': True, 'contextId': context['executionContextId']},
 			session_id=session.session_id,
 		)
 	else:
@@ -97,10 +98,10 @@ async def _open(browser: BrowserSession, server: HTTPServer, path: str) -> tuple
 	if path != '/form':
 		async with asyncio.timeout(15):
 			while True:
-				frames = await list_current_page_frames(browser)
-				matches = [frame for frame in frames.frames if frame.iframe_id == 'form-frame' and frame.title == 'Lookup form']
+				frames, _ = await browser.get_all_frames()
+				matches = [frame_id for frame_id, frame in frames.items() if frame.get('url', '').endswith('/form')]
 				if matches:
-					frame_id = matches[0].frame_id
+					frame_id = matches[0]
 					break
 				await asyncio.sleep(0.1)
 	await _evaluate(
@@ -163,7 +164,6 @@ async def test_real_click_commits_readonly_field_once(listbox_browser, listbox_s
 			"document.querySelector('#picker').options[1].outerHTML = '<optgroup disabled><option value=v1>Choice 1</option></optgroup>'",
 			'v1',
 		),
-		("document.querySelector('#picker').style.display = 'none'", 'v1'),
 		("document.querySelector('#picker').inert = true", 'v1'),
 		("document.querySelector('#picker').options[2].value = 'v1'", 'v1'),
 		("document.body.insertAdjacentHTML('beforeend', '<div style=\"position:fixed;inset:0;z-index:1000\"></div>')", 'v1'),
@@ -303,12 +303,39 @@ async def test_readonly_input_discovery_and_selection_open_and_commit_once(listb
 	assert actual['events'].count({'type': 'click', 'trusted': True}) == 1
 
 
+async def test_hidden_listbox_target_opens_its_readonly_input(listbox_browser, listbox_server):
+	await listbox_browser.navigate_to(listbox_server.url_for('/form'))
+	await _evaluate(listbox_browser, "document.querySelector('#picker').style.display = 'block'")
+	index = await _index(listbox_browser, 'picker')
+	await _evaluate(listbox_browser, "document.querySelector('#picker').style.display = 'none'")
+	result = await _select(listbox_browser, index, 'Choice 240')
+	assert result.error is None, result
+	assert result.metadata and result.metadata['opener_click_dispatched'] is True
+	assert await _evaluate(listbox_browser, 'window.openerClicks') == 1
+	actual = await _read(listbox_browser)
+	assert actual['code'] == actual['value'] == 'v240'
+
+
+@pytest.mark.parametrize('accessor', ['.display', "['display']"])
+async def test_style_assignment_without_focus_identifies_opener(listbox_browser, listbox_server, accessor):
+	await listbox_browser.navigate_to(listbox_server.url_for('/form'))
+	handler = f"picker.style{accessor} = 'block'"
+	await _evaluate(listbox_browser, f"document.querySelector('#lookup-code').setAttribute('onclick', {json.dumps(handler)})")
+	index = await _index(listbox_browser, 'lookup-code')
+	result = await _select(listbox_browser, index, 'v1')
+	assert result.error is None, result
+	assert (await _read(listbox_browser))['code'] == 'v1'
+
+
 @pytest.mark.parametrize(
 	'mutation',
 	[
 		"input.removeAttribute('onclick')",
 		'input.readOnly = false',
 		"""input.setAttribute('onclick', "console.log('picker.style.display'); /* picker.focus() */")""",
+		"""input.setAttribute('onclick', "picker.style.color='red'")""",
+		"""input.setAttribute('onclick', "console.log(picker.style.display)")""",
+		"""input.setAttribute('onclick', "console.log(picker.style.display === 'block')")""",
 	],
 )
 async def test_ordinary_listbox_keeps_value_selection_even_beside_an_input(listbox_browser, listbox_server, mutation):

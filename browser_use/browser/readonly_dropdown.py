@@ -48,9 +48,18 @@ _RESOLVE = r"""function() {
 			/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|[A-Za-z_$][\w$]*|[^\s]/g
 		) || []).filter(token => !token.startsWith('//') && !token.startsWith('/*'));
 		const literal = (token, value) => token === JSON.stringify(value) || token === "'" + value + "'";
-		const opens = index => tokens[index] === '.' &&
-			((tokens[index + 1] === 'style' && ['.', '['].includes(tokens[index + 2])) ||
-			 (tokens[index + 1] === 'focus' && tokens[index + 2] === '('));
+		const opens = index => {
+			if (tokens[index] !== '.') return false;
+			if (tokens[index + 1] === 'focus') return tokens[index + 2] === '(';
+			if (tokens[index + 1] !== 'style') return false;
+			const properties = ['display', 'visibility', 'opacity'];
+			let assignment;
+			if (tokens[index + 2] === '.' && properties.includes(tokens[index + 3])) assignment = index + 4;
+			else if (tokens[index + 2] === '[' && properties.some(property => literal(tokens[index + 3], property)) &&
+				tokens[index + 4] === ']') assignment = index + 5;
+			else return false;
+			return tokens[assignment] === '=' && tokens[assignment + 1] !== '=';
+		};
 		for (let index = 0; index < tokens.length; index++) {
 			if (tokens[index] === select.id && /^[A-Za-z_$][\w$]*$/.test(select.id) && opens(index + 1)) return true;
 			if (tokens[index] !== 'document' || tokens[index + 1] !== '.') continue;

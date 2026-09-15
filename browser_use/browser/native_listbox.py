@@ -250,10 +250,6 @@ async def select_native_listbox(
 			if state.error:
 				return NativeListboxSelection(error=state.error, picker_source=picker.source)
 			if not state.open:
-				if not picker.input_is_target:
-					return NativeListboxSelection(
-						error='The associated listbox is hidden. Open its read-only picker input first.'
-					)
 				point = await _click_point(browser, session, picker.input_object_id)
 				input_session = await browser.get_or_create_cdp_session(focus=False)
 				await input_session.cdp_client.send.Input.dispatchMouseEvent(
