@@ -1,0 +1,20 @@
+README.md
+  s_99b65093afeae3::t_12ceaa3b751fa8 17-19,24-26,28
+  s_99b65093afeae3::t_ad1764eadff1e2 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "afb6bf982a526bb50f23eb6150a1f1b4946ecc23",
+  "prompts": {},
+  "sessions": {
+    "s_99b65093afeae3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b9c-ef19-7650-9cf6-64935f163120",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
