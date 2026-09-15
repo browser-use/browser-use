@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field
 
 from app.agent import run_browser_task
 
-
 app = FastAPI(
 	title='Browser Research Agent API',
 	description='API for executing browser research tasks using Browser Use.',
