@@ -69,6 +69,14 @@ _LOGGED_UNIQUE_SESSION_IDS = set()  # track unique session IDs that have been lo
 red = '\033[91m'
 reset = '\033[0m'
 
+# Upper bound for each awaited teardown phase in BrowserSession.kill()/stop().
+# Teardown awaits every stop handler (CDP disconnect, storage save, process cleanup, ...);
+# a single wedged handler used to block teardown forever with no error and no timeout,
+# leaving the browser process behind until an outer job cap killed it. Generous next to a
+# healthy teardown (seconds, including the 5s process-cleanup wait) but well below the
+# suite's per-test timeout so the failure surfaces as an explicit error naming the phase.
+BROWSER_SESSION_TEARDOWN_TIMEOUT_S = 120.0
+
 
 class Target(BaseModel):
 	"""Browser target (page, iframe, worker) - the actual entity being controlled.
@@ -731,6 +739,23 @@ class BrowserSession(BaseModel):
 		# Ensure any exceptions from the event handler are propagated
 		await start_event.event_result(raise_if_any=True, raise_if_none=False)
 
+	async def _await_teardown_phase(self, awaitable: Any, *, phase: str, operation: str) -> None:
+		"""Await one teardown phase, failing loudly instead of blocking forever.
+
+		A single wedged stop handler (e.g. an unresponsive CDP connection) used to stall
+		teardown with no error and no timeout. Cancelling here only releases this waiter;
+		handler tasks keep running on the bus.
+		"""
+		try:
+			await asyncio.wait_for(awaitable, timeout=BROWSER_SESSION_TEARDOWN_TIMEOUT_S)
+		except TimeoutError as e:
+			raise TimeoutError(
+				f'BrowserSession.{operation}() timed out after {BROWSER_SESSION_TEARDOWN_TIMEOUT_S:g}s '
+				f'waiting for {phase} during teardown. '
+				'A teardown handler is likely blocked (e.g. an unresponsive CDP connection); '
+				'the browser process may still be alive.'
+			) from e
+
 	async def kill(self) -> None:
 		"""Kill the browser session and reset all state."""
 		self._intentional_stop = True
@@ -740,10 +765,12 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.events import SaveStorageStateEvent
 
 		save_event = self.event_bus.dispatch(SaveStorageStateEvent())
-		await save_event
+		await self._await_teardown_phase(save_event, phase='storage-state save', operation='kill')
 
 		# Dispatch stop event to kill the browser
-		await self.event_bus.dispatch(BrowserStopEvent(force=True))
+		await self._await_teardown_phase(
+			self.event_bus.dispatch(BrowserStopEvent(force=True)), phase='BrowserStopEvent handlers', operation='kill'
+		)
 		# Stop the event bus
 		await self.event_bus.stop(clear=True, timeout=5)
 		# Reset all state
@@ -765,10 +792,12 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.events import SaveStorageStateEvent
 
 		save_event = self.event_bus.dispatch(SaveStorageStateEvent())
-		await save_event
+		await self._await_teardown_phase(save_event, phase='storage-state save', operation='stop')
 
 		# Now dispatch BrowserStopEvent to notify watchdogs
-		await self.event_bus.dispatch(BrowserStopEvent(force=False))
+		await self._await_teardown_phase(
+			self.event_bus.dispatch(BrowserStopEvent(force=False)), phase='BrowserStopEvent handlers', operation='stop'
+		)
 
 		# Stop the event bus
 		await self.event_bus.stop(clear=True, timeout=5)
