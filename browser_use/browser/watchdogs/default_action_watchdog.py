@@ -22,7 +22,7 @@ from browser_use.browser.events import (
 	UploadFileEvent,
 	WaitEvent,
 )
-from browser_use.browser.native_listbox import get_readonly_dropdown_options, select_native_listbox
+from browser_use.browser.native_listbox import NativeListboxSelection, get_readonly_dropdown_options, select_native_listbox
 from browser_use.browser.views import BrowserError, URLNotAllowedError
 from browser_use.browser.watchdog_base import BaseWatchdog
 from browser_use.dom.service import EnhancedDOMTreeNode
@@ -3319,7 +3319,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 			'selector_index': str(index_for_logging),
 		}
 
-	async def on_SelectDropdownOptionEvent(self, event: SelectDropdownOptionEvent) -> dict[str, str]:
+	async def on_SelectDropdownOptionEvent(
+		self, event: SelectDropdownOptionEvent
+	) -> dict[str, str] | NativeListboxSelection:
 		"""Handle select dropdown option request with CDP."""
 		try:
 			# Use the provided node
