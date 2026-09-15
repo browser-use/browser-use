@@ -63,9 +63,18 @@ class Page:
 			await asyncio.gather(
 				self._client.send.Page.enable(session_id=self._session_id),
 				self._client.send.DOM.enable(session_id=self._session_id),
-				self._client.send.Runtime.enable(session_id=self._session_id),
 				self._client.send.Network.enable(session_id=self._session_id),
 			)
+
+			# Runtime.evaluate/callFunctionOn work without the Runtime domain staying
+			# "enabled" — enable is only needed to receive Runtime.* events, which we
+			# don't consume here. Leaving it enabled makes Chrome emit a
+			# Runtime.consoleAPICalled event that page-side JS can detect in a few
+			# lines, a signal anti-bot vendors (Cloudflare, DataDome) key off of.
+			# Immediately disabling after enable still lets executionContextCreated
+			# fire once, closing the leak window.
+			await self._client.send.Runtime.enable(session_id=self._session_id)
+			await self._client.send.Runtime.disable(session_id=self._session_id)
 
 		return self._session_id
 
