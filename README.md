@@ -1,327 +1,514 @@
-<!-- mcp-name: com.browser-use/browser-use -->
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24">
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358">
-  <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24"  width="full">
-</picture>
+<p align="center">
+  <img
+    src="assets/banner.svg"
+    alt="Browser Research Agent — AI-powered web research through automated browser workflows."
+    width="100%"
+  />
+</p>
 
-<div align="center">
-    <picture>
-    <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125">
-    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/6797d09b-8ac3-4cb9-ba07-b289e080765a">
-    <img alt="The AI browser agent." src="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125"  width="400">
-    </picture>
+# Browser Research Agent
+
+**AI-powered web research through automated browser workflows.**
+
+A full-stack application that turns a natural-language research task into a hosted Browser Use browser run, monitors its lifecycle, and presents the completed result in a responsive Next.js interface.
+
+[![Repository](https://img.shields.io/badge/GitHub-Repository-18181b?style=flat\&logo=github)](https://github.com/Tg289/Browser-Automation-Agent)
+[![Frontend](https://img.shields.io/badge/Frontend-Next.js%2016-18181b?style=flat\&logo=next.js)](https://nextjs.org/)
+[![Backend](https://img.shields.io/badge/Backend-FastAPI-18181b?style=flat\&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Language](https://img.shields.io/badge/Backend-Python-18181b?style=flat\&logo=python)](https://www.python.org/)
+
 </div>
 
-<div align="center">
-<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-downloads"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
-</div>
+> **Note:** Browser research is executed through the hosted Browser Use service. Runs may consume Browser Use account credits, so this repository is configured and documented for controlled/local development rather than unrestricted public use.
+
+---
+
+## Overview
+
+Browser Research Agent is a web application for delegating multi-step web research to a browser automation agent. Instead of manually opening sites, navigating pages, and collecting findings, a user submits a research task in natural language and receives the resulting research through the application's UI.
+
+The repository contains the application layer around the hosted Browser Use Web Agent API: a **FastAPI backend** validates requests, creates and monitors hosted runs, handles terminal states and timeouts, and returns a normalized result to a **Next.js + React frontend**. The frontend manages the research interaction, loading/error states, Markdown result rendering, and an in-memory list of recent research tasks.
+
+This makes the project primarily an **AI application engineering and full-stack integration project**: the browser automation infrastructure is provided by Browser Use, while the application-specific orchestration, API boundary, UI, and failure handling live in this repository.
+
+## Why This Project?
+
+Web research is often repetitive even when the question itself is simple. A person may need to:
+
+* Open multiple websites and navigate through them.
+* Find and extract information relevant to a specific question.
+* Consolidate the findings into a usable answer.
+
+Browser Research Agent moves that workflow behind a single natural-language interface. The application submits the task to a hosted browser agent and waits for the agent to complete the research before presenting the returned result.
+
+The engineering challenge isn't training a model here. It's integrating an external AI/browser-automation service into a usable application and handling the lifecycle around a potentially long-running remote operation.
+
+## Key Features
+
+Natural-language research tasks — submit a research request through a text-based interface.
+Hosted browser automation — delegates web navigation and research execution to the Browser Use hosted Web Agent API.
+Run lifecycle monitoring— creates a run, polls its status, and retrieves the completed run result.
+Timeout protection — stops waiting after the configured maximum wait period and attempts to cancel the hosted run.
+Failure-state handling — handles completed, failed, cancelled, and stopped run states.
+Input validation — validates task length with Pydantic and rejects empty/whitespace-only tasks at the API boundary.
+API error handling — converts upstream request failures and invalid responses into application-level errors.
+Markdown result rendering — displays returned research as rendered Markdown, with links opening in a new tab.
+Recent research history — keeps the latest 20 completed research items in frontend state and lets the user restore a previous task/result.
+Responsive dark UI — provides a focused research interface built with Next.js, React, TypeScript, and Tailwind CSS.
+
+---
+
+## Architecture
+flowchart LR
+    U[User] --> FE[Next.js Frontend<br/>React + TypeScript + Tailwind]
+    FE -->|POST /research| BE[FastAPI Backend<br/>Validation + Orchestration]
+    BE -->|Create run| BU[Browser Use Hosted<br/>Web Agent API]
+    BU -->|Browser automation| WEB[Web Research]
+    WEB --> BU
+    BU -->|Run status + result| BE
+    BE -->|Research response| FE
+    FE --> R[Rendered Markdown Result]
+
+    style U fill:#18181b,stroke:#52525b,color:#fff
+    style FE fill:#18181b,stroke:#52525b,color:#fff
+    style BE fill:#18181b,stroke:#52525b,color:#fff
+    style BU fill:#27272a,stroke:#71717a,color:#fff
+    style WEB fill:#27272a,stroke:#71717a,color:#fff
+    style R fill:#18181b,stroke:#52525b,color:#fff
+
+### Component responsibilities
+
+| Component                  | Responsibility                                                                                                                    |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Next.js frontend**       | Research task input, client-side interaction, loading/error states, result rendering, and recent-history state.                   |
+| **FastAPI backend**        | Request validation, CORS configuration, Browser Use API calls, run polling, timeout/cancellation handling, and error translation. |
+| **Browser Use hosted API** | Executes the browser-based research task and exposes the remote run lifecycle/result.                                             |
+
+---
+
+## How It Works
+
+1. The user enters a research task in the Next.js interface.
+2. The frontend trims the task and avoids submitting an empty value.
+3. The frontend sends `POST /research` to the FastAPI backend.
+4. FastAPI validates the task with a Pydantic `ResearchRequest` model. Tasks must contain at least 3 and at most 2,000 characters.
+5. The backend reads `BROWSER_USE_API_KEY` from the environment and creates a hosted Browser Use run with the submitted task.
+6. The backend polls the run status every **3 seconds** while the local **180-second maximum wait window** has not elapsed.
+7. For `completed`, `failed`, `cancelled`, or `stopped` runs, the backend retrieves the final run payload.
+8. A completed run returns its `result`; failed terminal states return an error derived from the hosted run when available.
+9. If the 180-second wait window expires, the backend attempts to cancel the hosted run and returns a timeout error to the frontend.
+10. The frontend displays the successful result as Markdown and records the task, result, and execution time in its in-memory recent-history list.
+
+---
+
+## Technical Implementation
+
+### Backend
+
+The backend is intentionally small and focused on the integration boundary.
+
+* **FastAPI** defines the application and REST endpoints.
+* **Pydantic** validates the incoming research task.
+* **Requests** handles synchronous HTTP communication with the hosted Browser Use API.
+* The Browser Use API key is loaded with `python-dotenv` and sent through the `X-Browser-Use-API-Key` request header.
+* Run creation, status polling, final-result retrieval, and cancellation are kept in `app/agent.py`.
+* The polling loop recognizes the terminal states `completed`, `failed`, `cancelled`, and `stopped`.
+* Each upstream HTTP request has a 30-second request timeout, while the overall research workflow has a separate 180-second maximum wait window.
+* Request failures, malformed upstream responses, missing configuration, and unexpected failures are converted into structured application results or HTTP errors.
+* CORS is explicitly configured for the local frontend origins `localhost:3000` and `127.0.0.1:3000`.
+
+### Frontend
+
+The frontend is implemented as a Next.js App Router application.
+
+* **React state** manages the active task, result, loading state, execution time, errors, and recent research history.
+* **TypeScript** defines the local `ResearchItem` shape used by the history UI.
+* The frontend calls the backend using the browser `fetch` API.
+* `NEXT_PUBLIC_API_URL` controls the backend URL, with `http://127.0.0.1:8000` as the local fallback.
+* **React Markdown** renders the research result returned by the backend.
+* The UI exposes example tasks, a character counter, progress feedback, error feedback, result timing, and a clear-history action.
+* Recent history is maintained in client-side React state; it is not persisted to a database.
+
+### External API integration
+
+The application integrates with the **Browser Use Hosted Web Agent API** rather than implementing its own browser automation engine or AI model.
+
+The backend uses the Browser Use v4 API base URL and follows this application-level lifecycle:
+
+POST /runs
+      ↓
+GET /runs/{run_id}/status   ← poll every 3s
+      ↓
+terminal state?
+  ├─ completed → GET /runs/{run_id} → return result
+  ├─ failed/cancelled/stopped → GET /runs/{run_id} → return error/result
+  └─ timeout → POST /runs/{run_id}/cancel → return timeout error
+
+No Browser Use credentials are hard-coded in the repository.
+---
+
+## Tech Stack
+
+| Layer              | Technology                       | Role                                |
+| ------------------ | -------------------------------- | ----------------------------------- |
+| Frontend           | Next.js 16                       | Web application framework           |
+| Frontend           | React 19                         | UI and client-side state            |
+| Frontend           | TypeScript                       | Static typing                       |
+| Styling            | Tailwind CSS 4                   | Interface styling                   |
+| Rendering          | React Markdown 10                | Research result rendering           |
+| Backend            | Python 3.11+                     | Application backend                 |
+| API                | FastAPI                          | REST API and request handling       |
+| Validation         | Pydantic 2                       | Research request validation         |
+| HTTP               | Requests                         | Browser Use API communication       |
+| Configuration      | python-dotenv                    | Environment variable loading        |
+| Browser automation | Browser Use Hosted Web Agent API | Remote browser-based task execution |
+
+---
+
+## Project Structure
+Browser-Automation-Agent/
+├── app/
+│   ├── __init__.py
+│   ├── agent.py          # Browser Use API integration and run lifecycle
+│   ├── api.py            # FastAPI application and REST endpoints
+│   └── main.py           # Simple CLI entry point for a browser task
+├── frontend/
+│   ├── src/
+│   │   └── app/
+│   │       ├── globals.css
+│   │       ├── layout.tsx # Application metadata/layout
+│   │       └── page.tsx  # Research UI and client-side workflow
+│   ├── public/            # Next.js public assets
+│   ├── eslint.config.mjs
+│   ├── next.config.ts
+│   ├── package.json
+│   ├── package-lock.json
+│   └── postcss.config.mjs
+├── .env.example           # Backend environment template
+├── .gitignore
+├── LICENSE
+├── pyproject.toml          # Python package/dependency configuration
+└── README.md
+The repository also retains the upstream Browser Use source tree and its project-level development configuration. The application-specific integration described above lives under `app/` and `frontend/`.
+
+---
+
+## Local Setup
+
+### Prerequisites
+
+Python 3.11+
+Node.js compatible with the Next.js 16 frontend
+A Browser Use API key with access to the hosted Web Agent API
+
+### 1. Clone the repository
+
+git clone https://github.com/Tg289/Browser-Automation-Agent.git
+
+cd Browser-Automation-Agent
+
+### 2. Create and activate the Python environment
+
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+If PowerShell blocks script execution, activate the environment using another supported shell rather than changing system policy solely for this project.
+
+### 3. Install backend dependencies
+
+The repository's Python project configuration defines the backend dependencies, so install the local project in editable mode:
+
+pip install -e .
+
+### 4. Configure the Browser Use API key
+
+Create .env in the repository root:
+
+env
+BROWSER_USE_API_KEY=your_browser_use_api_key
+
+Keep this file local. Do **not** commit API keys or other credentials.
+
+### 5. Start the FastAPI backend
+
+uvicorn app.api:app --reload --host 127.0.0.1 --port 8000
+
+The API will be available at:
+http://127.0.0.1:8000
+
+### 6. Install frontend dependencies
+
+Open a second terminal:
+cd frontend
+npm install
+
+### 7. Configure the frontend API URL
+
+Create:
+frontend/.env.local
+
+
+Add:
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+### 8. Start the frontend
+
+From frontend:
+
+npm run dev
+Open:
+http://localhost:3000
+
+### Cross-platform command summary
+
+The same setup works from macOS/Linux with the equivalent virtual-environment activation command:
+
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+uvicorn app.api:app --reload --host 127.0.0.1 --port 8000
+
+In a second terminal:
+
+cd frontend
+npm install
+npm run dev
+
+The frontend environment variable remains:
+
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+
+> **Usage cost:** research runs are executed by the hosted Browser Use service and may consume account credits. Treat the endpoint as a controlled development interface rather than an unrestricted public API.
+
+---
+
+## Environment Variables
+
+### Backend — `.env`
+
+| Variable              | Required | Purpose                                                         |
+| --------------------- | -------- | --------------------------------------------------------------- |
+| `BROWSER_USE_API_KEY` | Yes      | Authenticates requests to the Browser Use Hosted Web Agent API. |
+
+Template:
+
+BROWSER_USE_API_KEY=your_browser_use_api_key
+
+### Frontend — `frontend/.env.local`
+
+| Variable              | Required | Purpose                                                                                  |
+| --------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL` | No       | URL of the FastAPI backend. The frontend defaults to `http://127.0.0.1:8000` when unset. |
+
+Template:
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+
+Never place the Browser Use API key in a `NEXT_PUBLIC_` variable or expose it to the browser.
+
+---
+
+## API
+
+The FastAPI application exposes three routes.
+
+### `GET /`
+
+Basic API status response:
+
+
+{
+  "message": "Browser Research Agent API is running"
+}
+
+### `GET /health`
+
+Health-check response:
+
+{
+  "status": "healthy"
+}
+
+### `POST /research`
+
+Executes a browser research task.
+
+Request:
+
+
+{
+  "task": "Research the latest developments in renewable energy."
+}
+
+The `task` field must contain between 3 and 2,000 characters after Pydantic validation, and the backend also rejects values that become shorter than 3 characters after trimming whitespace.
+
+Successful response:
+
+{
+  "success": true,
+  "task": "Research the latest developments in renewable energy.",
+  "result": "...",
+  "execution_time": 42.31,
+  "error": null
+}
+
+The `result` contains the completed research returned by the hosted Browser Use run, while `execution_time` records the application's measured run duration.
+
+Error behavior:
+
+  422 — invalid request/task input.
+  502 — Browser Use configuration failure, upstream API failure, invalid hosted response, or an unsuccessful browser run.
+  500 — unexpected server-side failure while executing the research request.
+
+---
+
+## Engineering Highlights
+
+This project demonstrates several practical concerns involved in building an AI-powered application around an external agent service:
+
+  External AI/browser automation integration — connects a web application to a hosted browser agent rather than treating the model/service as a black-box UI dependency.
+  Remote run lifecycle management — separates run creation, status polling, terminal-state handling, and final-result retrieval.
+  Timeout and cancellation control— protects the API request from waiting indefinitely and attempts to cancel the remote run after the local deadline.
+  Failure isolation— distinguishes upstream HTTP failures, malformed responses, unsuccessful run states, missing API configuration, and unexpected exceptions.
+  Frontend/backend separation** — keeps the Browser Use credential and integration logic on the backend while the browser client communicates with the application API.
+  Environment-based configuration — uses environment variables for service credentials and the frontend API endpoint.
+  Input validation at the API boundary — rejects invalid research tasks before sending them to the hosted service.
+  User-facing result handling— presents long-form research as Markdown and retains recent completed work for quick reuse.
+  Controlled local operation — the default backend binding and CORS configuration are oriented around the local frontend rather than an openly exposed service.
+
+---
+
+## Validation & Quality Checks
+
+The repository includes configuration for frontend linting and Python-side validation tooling.
+
+### Frontend lint
+
+From `frontend/`:
+
+
+npm run lint
+
+The frontend script invokes ESLint with the Next.js Core Web Vitals and TypeScript configurations.
+
+### Frontend production build
+
+From `frontend/`:
+
+npm run build
+
+A production build can then be started with:
+
+npm run start
+
+
+### Backend syntax validation
+
+From the repository root:
+
+
+python -m py_compile app\agent.py app\api.py app\main.py
+
+### Automated tests
+
+The application-specific `app/` and `frontend/` changes do **not** currently include a dedicated project test suite. The repository contains upstream Browser Use test infrastructure, but those tests should not be represented as application-level coverage for this project.
+
+---
+
+## Security & Operational Considerations
+
+API credentials stay server-side.`BROWSER_USE_API_KEY` is loaded by the Python backend and is not part of the frontend configuration.
+Do not commit `.env`.The repository's `.gitignore` excludes `.env`; use `.env.example` as the safe configuration template.
+Local binding by default. The documented backend command binds to `127.0.0.1`, matching the project's controlled-development intent.
+Credit-consuming operations. Every submitted research task can invoke a hosted Browser Use run and may consume account credits.
+Public deployment needs additional controls.Before exposing `/research` to untrusted users, the application would need an appropriate authentication and rate-limiting strategy, along with stronger operational controls around credit usage.
+
+These are operational considerations for the current architecture, not claims that those controls are already implemented.
+
+---
+
+## Screenshots / Demo
+
+No repository screenshots or live deployment are currently included with the application-specific implementation.
+
+For a recruiter-facing portfolio, the most useful screenshots to add would be:
+
+1. Research interface — task input and example prompts.
+2. Completed research result — a real result rendered in Markdown.
+3. Recent Research — the client-side history UI after multiple runs.
+
+Recommended repository location:
+
+assets/
+├── research-interface.png
+├── research-result.png
+└── research-history.png
+
+Once real screenshots are added, reference them with relative paths such as:
+
+![Research interface](assets/research-interface.png)
+
+No live demo link is listed because the repository does not currently provide one.
+
+---
+
+## What I Built
+
+This repository should be understood as the **application layer around Browser Use's hosted browser automation infrastructure**.
+
+The Browser Use service provides the underlying hosted browser-agent capability. The application-specific engineering in this repository includes:
+
+* Next.js/React research interface
+* FastAPI REST API
+* Browser Use Hosted Web Agent API integration
+* Research task validation and handling
+* Remote run creation and status monitoring
+* Timeout protection and cancellation requests
+* Upstream error handling
+* Frontend loading/error states
+* Markdown result presentation
+* Client-side recent research history
+* Environment-based configuration and local CORS setup
+
+The project does **not** claim ownership of or authorship of the underlying Browser Use browser automation platform.
+
+---
+
+## Future Improvements
+
+The following are intentionally **not current features**. They are reasonable next steps for the application:
+
+* Move long-running research execution to an asynchronous background-job model so the HTTP request does not remain open for the full research lifecycle.
+* Persist research history in a database instead of keeping it only in browser memory.
+* Add authentication and per-user research history.
+* Add rate limiting and usage controls before any public deployment.
+* Add automated application-level unit and integration tests for API behavior and Browser Use lifecycle handling.
+* Return richer structured research data alongside Markdown when the hosted service supports a suitable contract.
+* Add a deployment configuration after the operational controls above are addressed.
+
+---
+
+## License & Attribution
+
+This repository retains the **MIT License** and the original copyright notice from the Browser Use project. The application is built around Browser Use infrastructure and its hosted Web Agent API.
+
+For the exact license terms, see [`LICENSE`](LICENSE).
+
+Browser Use is the underlying browser automation project used by this application. This repository's application-specific frontend and integration code should not be confused with the upstream Browser Use project itself.
+
+---
+
+## Author
+
+Tanishka Goel
+B.Tech Computer Science & Engineering
+
+GitHub: [@Tg289](https://github.com/Tg289)
 
 ---
 
 <div align="center">
-<a href="#navigate-the-web-like-a-human-does"><img src="https://media.browser-use.tools/badges/demos" alt="Demos"></a>
-<img width="16" height="1" alt="">
-<a href="https://docs.browser-use.com"><img src="https://media.browser-use.tools/badges/docs" alt="Docs"></a>
-<img width="16" height="1" alt="">
-<a href="https://browser-use.com/posts"><img src="https://media.browser-use.tools/badges/blog" alt="Blog"></a>
-<img width="16" height="1" alt="">
-<a href="https://browsermerch.com"><img src="https://media.browser-use.tools/badges/merch" alt="Merch"></a>
-<img width="100" height="1" alt="">
-<a href="https://github.com/browser-use/browser-use"><img src="https://media.browser-use.tools/badges/github" alt="Github Stars"></a>
-<img width="4" height="1" alt="">
-<a href="https://x.com/intent/user?screen_name=browser_use"><img src="https://media.browser-use.tools/badges/twitter" alt="Twitter"></a>
-<img width="4" height="1" alt="">
-<a href="https://link.browser-use.com/discord"><img src="https://media.browser-use.tools/badges/discord" alt="Discord"></a>
-<img width="4" height="1" alt="">
-<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud"><img src="https://media.browser-use.tools/badges/cloud" height="48" alt="Browser-Use Cloud"></a>
-</div>
 
-<br/>
-
-<div align="center">
-  <a href="https://browser-use.com">
-    <img src="https://browser-use.com/lander/plates/browsers-8dd60aa0.jpg" alt="A person crossing an orange canyon on a giant key-shaped bridge, from the Browser Use website." width="720">
-  </a>
-</div>
-
-<br/>
-
-# Navigate the web like a human does.
-
-Find an available slot, pick a date and time, handle the CAPTCHA, and book a driving test.
-
-![Browser Use V4 booking a driving test](https://github.com/user-attachments/assets/135885e8-1141-4e10-b719-bf690ae7d260)
-
-[Explore more demos and prompts ↗](https://browser-use.com/showcase)
-
-<br/>
-
-> **AI agents and crawlers:** read [browser-use.com/llms.txt](https://browser-use.com/llms.txt) for the product map (open source, Browser Harness, Cloud browsers, Agents API, pricing) and [docs.browser-use.com/llms.txt](https://docs.browser-use.com/llms.txt) for the documentation index. Browser Use is the open-source browser agent (Python and TypeScript), a $0.02 per browser-hour cloud browser with stealth, CAPTCHA solving and residential proxies, and a hosted agent API.
-
-# Which Browser Use do I need?
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="static/readme/which-product-dark.svg">
-  <img alt="Three ways to use Browser Use: fully hosted cloud; your existing agent with Browser Use CLI; or the open source Browser Use agent, available as a Python library. The CLI and library each connect to a local or cloud browser." src="static/readme/which-product-light.svg" width="100%">
-</picture>
-
-- **[Path 1: Fully Hosted Cloud](#path-1-fully-hosted-cloud):** Scale up with a fully hosted agent and browser.
-- **[Path 2: CLI](#path-2-cli):** Automate your own browser tasks.
-- **[Path 3: Python Library](#path-3-python-library):** Run the open source Browser Use agent locally from your own code.
-
-# Quickstart
-
-## Path 1: Fully Hosted Cloud
-
-Scale browser automation with our hosted agent, stealth browsers, and infrastructure for profiles, recordings, and data policies.
-
-[Get started with the API ↗](https://docs.browser-use.com/cloud/agent/quickstart)
-
-New Google, GitHub, or Microsoft signups get **$15 cloud credit**.
-
-<br/>
-
-## Path 2: CLI
-
-Paste this prompt into Claude Code, Codex, Hermes, OpenClaw, or your favorite agent.
-
-```text
-Install or upgrade browser-use to the latest stable version with uv using Python 3.12, run `browser-use skill install` to register the skill, and connect it to my browser. If setup or connection fails, follow https://github.com/browser-use/browser-harness/blob/main/install.md.
-```
-
-<br/>
-
-## Path 3: Python Library
-
-Run the Browser Use agent locally from Python, with your choice of model and a local or cloud browser:
-
-**1. Install Browser Use (Python >= 3.11):**
-
-With [uv](https://docs.astral.sh/uv/getting-started/installation/) installed, run `uv init --python 3.12` first if you're starting a new project.
-
-```bash
-uv add browser-use
-```
-
-**2. Add your [OpenAI API key](https://platform.openai.com/api-keys) to `.env`:**
-
-```bash
-# .env
-OPENAI_API_KEY=your-key
-# BROWSER_USE_API_KEY=your-key  # Optional: BU2 model or cloud browser
-```
-
-For either optional Browser Use service, get a [Browser Use API key](https://cloud.browser-use.com/new-api-key).
-
-**3. Save this as `agent.py`:**
-
-```python
-import asyncio
-
-from browser_use import Agent, Browser, ChatBrowserUse, ChatOpenAI
-from dotenv import load_dotenv
-
-load_dotenv()
-
-async def main():
-    llm = ChatOpenAI(model='gpt-5.6-luna', reasoning_effort='xhigh')
-    # llm = ChatBrowserUse(model='bu-2-0')  # Use BU2 instead; requires BROWSER_USE_API_KEY
-    agent = Agent(
-        task="Find the number of stars of the browser-use repo",
-        llm=llm,
-        # browser=Browser(use_cloud=True),  # Use a cloud browser; requires BROWSER_USE_API_KEY
-    )
-    history = await agent.run()
-    print(history.final_result())
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-To use BU2, replace the `ChatOpenAI` line with the commented `ChatBrowserUse` line. The cloud-browser option works with either model.
-
-**4. Run it:**
-
-```bash
-uv run agent.py
-```
-
-The agent opens a browser, looks up the repository, and prints its answer.
-
-[Python library docs ↗](https://docs.browser-use.com/open-source/introduction)
-
-<br/>
-
-# Browser Use Benchmark v2
-
-<img alt="Browser Use Benchmark v2 - Mean rubric score by model and cost per task" src="static/hard_benchmark_v2.jpg" width="100%">
-
-This [very hard benchmark](https://github.com/browser-use/benchmark) targets the hardest browser tasks. On easier tasks, even smaller models can achieve very high success rates. Results shown are from a 60-task subset of BU Bench V2.
-
-## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
-
-<br/>
-
-# FAQ
-
-<details>
-<summary><b>Should I use the fully hosted cloud, CLI, or Python library?</b></summary>
-
-- **[Fully Hosted Cloud](#path-1-fully-hosted-cloud):** Send tasks through the API and let Browser Use run the agent, browser, and infrastructure.
-- **[CLI](#path-2-cli):** Give an existing agent (Claude Code, Codex, Hermes, OpenClaw, Pi, Cursor, etc.) browser access. You can use it interactively or in scripts.
-- **[Python Library](#path-3-python-library):** Run the open source agent in your own application, with custom tools, structured output, and your choice of model.
-
-The CLI and Python library can each connect to a local or cloud browser. A cloud browser hosts the browser; the fully hosted API runs the agent as well.
-</details>
-
-<details>
-<summary><b>What's the best model to use?</b></summary>
-
-We recommend **BU2**, our model optimized for browser automation: `ChatBrowserUse(model='bu-2-0')`. It uses `BROWSER_USE_API_KEY`; `ChatBrowserUse()` currently selects the same model.
-
-The best choice depends on your tasks, latency, and budget. See the [BU2 model card](https://docs.browser-use.com/open-source/bu-2-0-model-card), [benchmark](https://github.com/browser-use/benchmark), and [supported models and pricing](https://docs.browser-use.com/open-source/supported-models) to compare options.
-</details>
-
-<details>
-<summary><b>Can I use Claude / GPT / Gemini through ChatBrowserUse?</b></summary>
-
-Yes. `ChatBrowserUse` accepts provider-prefixed model IDs through the Browser Use gateway, using `BROWSER_USE_API_KEY`:
-
-```python
-from browser_use import Agent, ChatBrowserUse
-
-llm = ChatBrowserUse(model='anthropic/claude-sonnet-4-6')  # or 'google/gemini-3-pro'
-agent = Agent(task='...', llm=llm)
-```
-
-You can also use providers directly through wrappers such as `ChatOpenAI`, `ChatAnthropic`, and `ChatGoogle`, with each provider's own API key. See [supported models](https://docs.browser-use.com/open-source/supported-models).
-</details>
-
-<details>
-<summary><b>Do I need to provide a system prompt?</b></summary>
-
-No. `Agent(...)` supplies the Browser Use system prompt automatically, including when you change models. Put your task in `task=`. Use `extend_system_message` to add instructions or `override_system_message` to replace the default prompt when you need custom behavior.
-
-See the [custom system prompt example](https://github.com/browser-use/browser-use/blob/main/examples/features/custom_system_prompt.py).
-</details>
-
-<details>
-<summary><b>Can I use custom tools with the agent?</b></summary>
-
-Yes. Register a function with `Tools` and pass it to the agent. This example adds a tool for the current UTC time and uses `BROWSER_USE_API_KEY` from `.env`:
-
-```python
-import asyncio
-from datetime import datetime, timezone
-
-from browser_use import ActionResult, Agent, ChatBrowserUse, Tools
-from dotenv import load_dotenv
-
-load_dotenv()
-tools = Tools()
-
-@tools.action(description='Get the current date and time in UTC.')
-def get_current_time() -> ActionResult:
-    return ActionResult(extracted_content=datetime.now(timezone.utc).isoformat())
-
-async def main():
-    agent = Agent(
-        task="What is the current UTC time?",
-        llm=ChatBrowserUse(model='bu-2-0'),
-        tools=tools,
-    )
-    history = await agent.run()
-    print(history.final_result())
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-</details>
-
-<details>
-<summary><b>Can I use this for free?</b></summary>
-
-The Python library is free and [MIT-licensed](LICENSE). Model inference and hosted browsers are separate: API providers, including `ChatBrowserUse`, and Browser Use Cloud charge for usage. You can also use a local browser and a local model through [Ollama](https://docs.browser-use.com/open-source/supported-models#ollama), subject to your hardware and model requirements.
-</details>
-
-<details>
-<summary><b>Terms of Service</b></summary>
-
-This open-source library is licensed under the MIT License. For Browser Use services & data policy, see our [Terms of Service](https://browser-use.com/legal/terms-of-service) and [Privacy Policy](https://browser-use.com/privacy/).
-</details>
-
-<details>
-<summary><b>How do I handle authentication?</b></summary>
-
-- **Local browser:** Use `Browser.from_system_chrome()` to reuse a Chrome profile. See the [real-browser guide](https://docs.browser-use.com/open-source/customize/browser/real-browser) and [example](https://github.com/browser-use/browser-use/blob/main/examples/browser/real_browser.py).
-- **Cloud browser:** Follow the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md), then use `Browser(use_cloud=True, cloud_profile_id='your-profile-id')`.
-
-Profile sync transfers cookies, not local storage, IndexedDB, or extensions. Some sites may require you to sign in again.
-</details>
-
-<details>
-<summary><b>How do I solve CAPTCHAs?</b></summary>
-
-[Browser Use Cloud](https://docs.browser-use.com/cloud/browser/quickstart) provides stealth browsers and proxies designed to reduce bot detection and CAPTCHA challenges. With the Python library, enable a cloud browser with `Browser(use_cloud=True)` and set `BROWSER_USE_API_KEY`.
-
-Results depend on the site and challenge; no browser configuration guarantees that every CAPTCHA can be avoided or solved.
-</details>
-
-<details>
-<summary><b>How do I go into production?</b></summary>
-
-Choose how much you want to manage:
-
-- **Keep your agent code:** Connect the CLI or Python library to [cloud browsers](https://docs.browser-use.com/cloud/browser/quickstart) for managed browser infrastructure, stealth, profiles, and recordings.
-- **Have us run the agent too:** Use the [fully hosted Cloud API](https://docs.browser-use.com/cloud/agent/quickstart) to submit tasks and retrieve results.
-
-You can also host the Python library and browsers on your own infrastructure.
-</details>
-
-<br/>
-
-## Related Repositories
-
-| Repository | What it's for |
-| --- | --- |
-| [Browser Harness](https://github.com/browser-use/browser-harness) | Our CLI for giving AI agents control of your browser. |
-| [Browser Harness JS](https://github.com/browser-use/browser-harness-js) | Give your JavaScript agent control of a real browser. |
-| [Browser Use Pi](https://github.com/browser-use/browser-use-pi) | Run a TypeScript browser agent built on Pi. |
-| [Cloud SDK](https://github.com/browser-use/sdk) | Integrate Browser Use Cloud into your application. |
-| [Video Use](https://github.com/browser-use/video-use) | Edit videos with your coding agent. |
-| [macOS Harness](https://github.com/browser-use/macos-harness) | Give your agent control of Mac apps, browsers, and files. |
-| [Benchmark](https://github.com/browser-use/benchmark) | Explore browser tasks and compare agent performance. |
-
-<br/>
-
-## Citation
-
-If you use Browser Use in your research or project, please cite:
-
-```bibtex
-@software{browser_use2024,
-  author = {Müller, Magnus and Žunič, Gregor},
-  title = {Browser Use: Enable AI to control your browser},
-  year = {2024},
-  publisher = {GitHub},
-  url = {https://github.com/browser-use/browser-use}
-}
-```
-
-<br/>
-
-<div align="center">
-
-**Tell your computer what to do, and it gets it done.**
-
-<img src="https://github.com/user-attachments/assets/06fa3078-8461-4560-b434-445510c1766f" width="400"/>
-
-[![Twitter Follow](https://img.shields.io/twitter/follow/Magnus?style=social)](https://x.com/intent/user?screen_name=mamagnus00)
-&emsp;&emsp;&emsp;
-[![Twitter Follow](https://img.shields.io/twitter/follow/Gregor?style=social)](https://x.com/intent/user?screen_name=gregpr07)
+Browser Research Agent
+AI application engineering through browser automation and full-stack API integration.*
 
 </div>
-
-<div align="center"> Made with ❤️ in Zurich and San Francisco </div>
