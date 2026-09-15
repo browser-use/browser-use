@@ -21,6 +21,16 @@ allowed-tools: Read
 Reference docs for the Cloud REST API, SDKs, and integration patterns.
 Read the relevant file based on what the user needs.
 
+## Choose a starter
+
+- Hosted task in, result out: use the V4 SDK `runs` resource in `references/api-v4.md`.
+- Your existing agent needs a browser: use the V4 SDK `browsers` resource or REST/CDP, then explicitly stop the browser.
+- Local framework development: use the open-source `browser-use` skill, not Cloud SDK calls.
+
+Eligible new Google, GitHub or Microsoft signups get a one-time **$15 Cloud credit**. No card required; email/password signups do not qualify. [Pricing and eligibility](https://browser-use.com/pricing.md). Use `gpt-5.6-luna` for the free starter; paid-only models need a top-up.
+
+Reuse `BROWSER_USE_API_KEY`, or guide the user through Cloud signup and key creation. Keep keys server-side, never in prompts or client bundles.
+
 ## API & Platform
 
 | Topic | Read |
@@ -56,5 +66,5 @@ Read the relevant file based on what the user needs.
 - TypeScript v2: `import { BrowserUse } from "browser-use-sdk"`
 - TypeScript v3: `import { BrowserUse } from "browser-use-sdk/v3"`
 - TypeScript v4: `import { BrowserUse } from "browser-use-sdk/v4"`
-- Browser management is available at the v4 REST `/browsers` resource, but its SDK wrapper still uses the explicit v3 namespace. Always stop a browser explicitly; closing CDP does not stop billing.
+- SDK 3.11.3 or newer exposes `browsers.create` and `browsers.stop` in the v4 namespace, alongside the v4 REST `/browsers` resource. Always stop a browser explicitly; closing CDP does not stop billing.
 - CDP WebSocket: `wss://connect.browser-use.com?apiKey=KEY&proxyCountryCode=us`

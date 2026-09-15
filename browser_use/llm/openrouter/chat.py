@@ -167,7 +167,7 @@ class ChatOpenRouter(BaseChatModel):
 					top_p=self.top_p,
 					seed=self.seed,
 					extra_headers=extra_headers,
-					**(self.extra_body or {}),
+					extra_body=self.extra_body,
 				)
 
 				choice = self._get_first_choice(response)
@@ -199,7 +199,7 @@ class ChatOpenRouter(BaseChatModel):
 						type='json_schema',
 					),
 					extra_headers=extra_headers,
-					**(self.extra_body or {}),
+					extra_body=self.extra_body,
 				)
 
 				choice = self._get_first_choice(response)
