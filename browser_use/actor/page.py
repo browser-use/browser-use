@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from browser_use import logger
 from browser_use.actor.utils import get_key_info
+from browser_use.browser.views import BrowserError
 from browser_use.dom.serializer.serializer import DOMTreeSerializer
 from browser_use.dom.service import DomService
 from browser_use.llm.messages import SystemMessage, UserMessage
@@ -142,7 +143,26 @@ class Page:
 		if 'exceptionDetails' in result:
 			raise RuntimeError(f'JavaScript evaluation failed: {result["exceptionDetails"]}')
 
-		value = result.get('result', {}).get('value')
+		# CDP always answers a successful `Runtime.evaluate` with a RemoteObject,
+		# and a RemoteObject always carries a `type` -- `{"type": "undefined"}`
+		# for an expression that genuinely returned nothing. A reply with no
+		# usable RemoteObject therefore means the evaluation did not run at all:
+		# the execution context it was addressed to is gone (a detach, or a
+		# top-level navigation that replaced the context while the session id
+		# stayed valid). Reading `.get('value')` off that collapses the two into
+		# the same empty string, so a session whose js lane is dead answers every
+		# call with `''` and no exception, indistinguishable from a page that
+		# legitimately returns nothing (#5803).
+		remote_object = result.get('result')
+		if not isinstance(remote_object, dict) or 'type' not in remote_object:
+			raise BrowserError(
+				f'JavaScript evaluation returned no result object, so the expression never ran: '
+				f'the execution context for this target is gone. session_id={session_id!r}, reply keys={sorted(result)!r}'
+			)
+
+		logger.debug(f'Runtime.evaluate returned {remote_object.get("type")!r} on session {session_id!r}')
+
+		value = remote_object.get('value')
 
 		# Always return string representation
 		if value is None:
