@@ -3319,9 +3319,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			'selector_index': str(index_for_logging),
 		}
 
-	async def on_SelectDropdownOptionEvent(
-		self, event: SelectDropdownOptionEvent
-	) -> dict[str, str] | NativeListboxSelection:
+	async def on_SelectDropdownOptionEvent(self, event: SelectDropdownOptionEvent) -> dict[str, str] | NativeListboxSelection:
 		"""Handle select dropdown option request with CDP."""
 		try:
 			# Use the provided node
