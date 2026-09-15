@@ -22,7 +22,7 @@ class AWSBedrockMessageSerializer:
 	@staticmethod
 	def _is_base64_image(url: str) -> bool:
 		"""Check if the URL is a base64 encoded image."""
-		return url.startswith('data:image/')
+		return url.lower().startswith('data:image/')
 
 	@staticmethod
 	def _is_url_image(url: str) -> bool:
@@ -44,7 +44,7 @@ class AWSBedrockMessageSerializer:
 	def _parse_base64_url(url: str) -> tuple[str, bytes]:
 		"""Parse a base64 data URL to extract format and raw bytes."""
 		# Format: data:image/jpeg;base64,<data>
-		if not url.startswith('data:'):
+		if not url.lower().startswith('data:'):
 			raise ValueError(f'Invalid base64 URL: {url}')
 
 		header, data = url.split(',', 1)
