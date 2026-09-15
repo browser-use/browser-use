@@ -1,6 +1,6 @@
 """Utilities for skill schema conversion"""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, create_model
 
@@ -93,7 +93,10 @@ def convert_json_schema_to_pydantic(schema: dict[str, Any], model_name: str = 'S
 		# Map JSON schema types to Python types
 		python_type: Any = str  # default
 
-		if field_type_str == 'string':
+		enum_values = field_schema.get('enum')
+		if isinstance(enum_values, list) and enum_values:
+			python_type = Literal[tuple(enum_values)]
+		elif field_type_str == 'string':
 			python_type = str
 		elif field_type_str == 'number':
 			python_type = float
