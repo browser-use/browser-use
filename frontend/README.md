@@ -1,36 +1,95 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Browser Research Agent — Frontend
 
-## Getting Started
+Frontend for the Browser Research Agent, an AI-powered web research application.
 
-First, run the development server:
+## What it does
 
-```bash
+The application lets users enter a research task in natural language. The frontend sends the task to a FastAPI backend, which executes the research through the Browser Use hosted browser agent and returns the result.
+
+## Tech Stack
+
+- Next.js 16
+- React 19
+- TypeScript
+- Tailwind CSS
+- React Markdown
+
+## Local Setup
+
+### Start the Backend
+
+From the project root:
+
+powershell
+.\.venv\Scripts\Activate.ps1
+uvicorn app.api:app --reload --host 127.0.0.1 --port 8000
+
+Start the Frontend
+
+From the frontend directory:
+
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+http://localhost:3000
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Environment Variables
 
-## Learn More
+Create frontend/.env.local:
 
-To learn more about Next.js, take a look at the following resources:
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The frontend also defaults to http://127.0.0.1:8000 when this variable is not provided.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The backend requires:
 
-## Deploy on Vercel
+BROWSER_USE_API_KEY=your_browser_use_api_key
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Keep API keys private and never commit them.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Application Flow
+User
+  ↓
+Next.js Frontend
+  ↓
+FastAPI Backend
+  ↓
+Browser Use Hosted Agent
+  ↓
+Research Result
+  ↓
+Frontend
+Development
+
+Run linting:
+
+npm run lint
+
+Create a production build:
+
+npm run build
+
+Run the production build:
+
+npm run start
+Backend API
+
+The frontend communicates with:
+
+POST /research
+GET /health
+
+Example research request:
+
+{
+  "task": "Research the latest developments in renewable energy."
+}
+Note
+
+Browser Use provides the underlying browser automation infrastructure. This repository contains the application-specific frontend and backend integration built around that service.
+
+Author
+Tanishka Goel
+B.Tech Computer Science & Engineering

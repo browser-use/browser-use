@@ -85,3 +85,7 @@ product_extraction.py
 plot.py
 
 .claude/
+
+# Frontend project files
+!frontend/package.json
+!frontend/package-lock.json
