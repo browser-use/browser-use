@@ -1,7 +1,10 @@
 import inspect
 import json
+import shutil
 import subprocess
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionWatchdog
 
@@ -110,6 +113,9 @@ def test_clear_text_field_does_not_dispatch_premature_change_event():
 		ceResult,
 	}}));
 	"""
+
+	if not shutil.which('node'):
+		pytest.skip('Node.js is not available on PATH')
 
 	res = subprocess.run(['node', '-e', node_runner], capture_output=True, text=True)
 	if res.returncode != 0:
