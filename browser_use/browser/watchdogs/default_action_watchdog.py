@@ -13,6 +13,7 @@ from browser_use.browser.events import (
 	GetDropdownOptionsEvent,
 	GoBackEvent,
 	GoForwardEvent,
+	HoverElementEvent,
 	RefreshEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
@@ -36,6 +37,7 @@ SelectDropdownOptionEvent.model_rebuild()
 TypeTextEvent.model_rebuild()
 ScrollEvent.model_rebuild()
 UploadFileEvent.model_rebuild()
+HoverElementEvent.model_rebuild()
 
 
 class DefaultActionWatchdog(BaseWatchdog):
@@ -1059,6 +1061,92 @@ class DefaultActionWatchdog(BaseWatchdog):
 			raise BrowserError(
 				message=f'Failed to click element: {str(e)}',
 				long_term_memory=error_detail,
+			)
+
+	async def on_HoverElementEvent(self, event: HoverElementEvent) -> dict | None:
+		"""Handle hover request with CDP. Moves the mouse over the element without clicking."""
+		try:
+			if not self.browser_session.agent_focus_target_id:
+				error_msg = 'Cannot execute hover: browser session is corrupted (target_id=None). Session may have crashed.'
+				self.logger.error(f'{error_msg}')
+				raise BrowserError(error_msg)
+
+			element_node = event.node
+			index_for_logging = self.browser_session.get_selector_index(element_node)
+
+			hover_metadata = await self._hover_element_node_impl(element_node)
+
+			self.logger.debug(f'🖱️ Hovered element index {index_for_logging}: {element_node.node_name}')
+			return hover_metadata
+		except Exception:
+			raise
+
+	async def _hover_element_node_impl(self, element_node) -> dict | None:
+		"""
+		Move the mouse over an element using pure CDP, without pressing/releasing any button.
+
+		Triggers CSS :hover rules and JS mouseenter/mouseover/mousemove listeners the same
+		way a real cursor movement would - useful for hover-revealed dropdowns, tooltips,
+		and menus that a plain click can't reach.
+
+		Args:
+			element_node: The DOM element to hover over
+		"""
+		try:
+			selector_index = self.browser_session.get_selector_index(element_node)
+
+			# Get CDP client for the element's frame
+			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
+			session_id = cdp_session.session_id
+			backend_node_id = element_node.backend_node_id
+
+			# Get viewport dimensions to clamp the hover point on-screen
+			layout_metrics = await cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
+			viewport_width = layout_metrics['layoutViewport']['clientWidth']
+			viewport_height = layout_metrics['layoutViewport']['clientHeight']
+
+			# Scroll element into view before computing coordinates
+			try:
+				await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
+					params={'backendNodeId': backend_node_id}, session_id=session_id
+				)
+				await asyncio.sleep(0.05)
+			except Exception as e:
+				self.logger.debug(f'Failed to scroll element into view before hover: {e}')
+
+			element_rect = await self.browser_session.get_element_coordinates(backend_node_id, cdp_session)
+			if not element_rect:
+				msg = f'Could not determine coordinates for element index {selector_index} - unable to hover.'
+				self.logger.warning(f'⚠️ {msg}')
+				return {'validation_error': msg}
+
+			center_x = element_rect.x + element_rect.width / 2
+			center_y = element_rect.y + element_rect.height / 2
+
+			# Keep the hover point within the viewport
+			center_x = max(0, min(viewport_width - 1, center_x))
+			center_y = max(0, min(viewport_height - 1, center_y))
+
+			self.logger.debug(f'🖱️ Moving mouse over element x: {center_x}px y: {center_y}px ...')
+			await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+				params={
+					'type': 'mouseMoved',
+					'x': center_x,
+					'y': center_y,
+				},
+				session_id=session_id,
+			)
+
+			# Give the page a beat to run CSS :hover / JS mouseenter handlers and render
+			# any hover-revealed content (dropdown, tooltip) before the next action runs.
+			await asyncio.sleep(0.15)
+
+			return {'x': center_x, 'y': center_y}
+		except Exception as e:
+			selector_index = self.browser_session.get_selector_index(element_node)
+			raise BrowserError(
+				message=f'Failed to hover element: {str(e)}',
+				long_term_memory=f'Failed to hover element index={selector_index}. The element may not be visible or interactable.',
 			)
 
 	async def _click_on_coordinate(self, coordinate_x: int, coordinate_y: int, force: bool = False) -> dict | None:
