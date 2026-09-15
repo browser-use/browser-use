@@ -1,4 +1,4 @@
-from agent import run_browser_task
+from app.agent import run_browser_task
 
 
 def main():
