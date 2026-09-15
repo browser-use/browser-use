@@ -15,13 +15,13 @@ def _image_and_font():
 
 def test_overlay_without_step_badge_renders_goal():
 	image, font = _image_and_font()
-	result = _add_overlay_to_image(image, 1, 'hello goal', font, font, 40, None, display_step=False)
+	result = _add_overlay_to_image(image, 1, 'hello goal', font, font, 40, None, display_step=False)  # type: ignore
 	assert result.size == (800, 600)
 	assert result.mode == 'RGB'
 
 
 def test_overlay_with_step_badge_still_renders():
 	image, font = _image_and_font()
-	result = _add_overlay_to_image(image, 1, 'hello goal', font, font, 40, None, display_step=True)
+	result = _add_overlay_to_image(image, 1, 'hello goal', font, font, 40, None, display_step=True)  # type: ignore
 	assert result.size == (800, 600)
 	assert result.mode == 'RGB'
