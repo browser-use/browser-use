@@ -5,11 +5,22 @@
 
 # Browser Use
 
-Tell an AI agent what to do on the web. Browser Use navigates websites, clicks, fills forms, and returns the result.
+The open-source Python library for AI browser agents.
 
-Try it in [Browser Use Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud) or [run the agent from Python](#path-3-python-library).
+```text
+● STATE:  [1] Search
+│         [2] Settings
+│
+● ACTION: click(index=1)
+│
+↺ LOOP
 
-## Navigate the web like a human does.
+= Browser Use
+```
+
+[Demos](#navigate-the-web-like-a-human-does) · [Docs](https://docs.browser-use.com) · [Blog](https://browser-use.com/posts) · [Merch](https://browsermerch.com) · [GitHub](https://github.com/browser-use/browser-use) · [X](https://x.com/intent/user?screen_name=browser_use) · [Discord](https://link.browser-use.com/discord) · [Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud)
+
+# Navigate the web like a human does.
 
 Find an available slot, pick a date and time, handle the CAPTCHA, and book a driving test.
 
@@ -17,9 +28,11 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 
 [Explore more demos and prompts ↗](https://browser-use.com/showcase)
 
+<br/>
+
 > **AI agents and crawlers:** read [browser-use.com/llms.txt](https://browser-use.com/llms.txt) for the product map (open source, Browser Harness, Cloud browsers, Agents API, pricing) and [docs.browser-use.com/llms.txt](https://docs.browser-use.com/llms.txt) for the documentation index. Browser Use is the open-source browser agent (Python and TypeScript), a $0.02 per browser-hour cloud browser with stealth, CAPTCHA solving and residential proxies, and a hosted agent API.
 
-## Which Browser Use do I need?
+# Which Browser Use do I need?
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="static/readme/which-product-dark.svg">
@@ -30,9 +43,9 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 - **[Path 2: CLI](#path-2-cli):** Automate your own browser tasks.
 - **[Path 3: Python Library](#path-3-python-library):** Run the open source Browser Use agent locally from your own code.
 
-## Quickstart
+# Quickstart
 
-### Path 1: Fully Hosted Cloud
+## Path 1: Fully Hosted Cloud
 
 Scale browser automation with our hosted agent, stealth browsers, and infrastructure for profiles, recordings, and data policies.
 
@@ -40,7 +53,9 @@ Scale browser automation with our hosted agent, stealth browsers, and infrastruc
 
 New Google, GitHub, or Microsoft signups get **$15 cloud credit**.
 
-### Path 2: CLI
+<br/>
+
+## Path 2: CLI
 
 Paste this prompt into Claude Code, Codex, Hermes, OpenClaw, or your favorite agent.
 
@@ -48,7 +63,9 @@ Paste this prompt into Claude Code, Codex, Hermes, OpenClaw, or your favorite ag
 Install or upgrade browser-use to the latest stable version with uv using Python 3.12, run `browser-use skill install` to register the skill, and connect it to my browser. If setup or connection fails, follow https://github.com/browser-use/browser-harness/blob/main/install.md.
 ```
 
-### Path 3: Python Library
+<br/>
+
+## Path 3: Python Library
 
 Run the Browser Use agent locally from Python, with your choice of model and a local or cloud browser:
 
@@ -107,7 +124,9 @@ The agent opens a browser, looks up the repository, and prints its answer.
 
 [Python library docs ↗](https://docs.browser-use.com/open-source/introduction)
 
-## Browser Use Benchmark v2
+<br/>
+
+# Browser Use Benchmark v2
 
 <img alt="Browser Use Benchmark v2 - Mean rubric score by model and cost per task" src="static/hard_benchmark_v2.jpg" width="100%">
 
@@ -115,7 +134,9 @@ This [very hard benchmark](https://github.com/browser-use/benchmark) targets the
 
 ## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
 
-## FAQ
+<br/>
+
+# FAQ
 
 <details>
 <summary><b>Should I use the fully hosted cloud, CLI, or Python library?</b></summary>
@@ -232,6 +253,8 @@ Choose how much you want to manage:
 You can also host the Python library and browsers on your own infrastructure.
 </details>
 
+<br/>
+
 ## Related Repositories
 
 | Repository | What it's for |
@@ -243,6 +266,8 @@ You can also host the Python library and browsers on your own infrastructure.
 | [Video Use](https://github.com/browser-use/video-use) | Edit videos with your coding agent. |
 | [macOS Harness](https://github.com/browser-use/macos-harness) | Give your agent control of Mac apps, browsers, and files. |
 | [Benchmark](https://github.com/browser-use/benchmark) | Explore browser tasks and compare agent performance. |
+
+<br/>
 
 ## Citation
 
@@ -258,6 +283,8 @@ If you use Browser Use in your research or project, please cite:
 }
 ```
 
+<br/>
+
 <div align="center">
 
 **Tell your computer what to do, and it gets it done.**
@@ -271,5 +298,3 @@ If you use Browser Use in your research or project, please cite:
 </div>
 
 <div align="center"> Made with ❤️ in Zurich and San Francisco </div>
-
-[Demos](#navigate-the-web-like-a-human-does) · [Docs](https://docs.browser-use.com) · [Blog](https://browser-use.com/posts) · [Merch](https://browsermerch.com) · [GitHub](https://github.com/browser-use/browser-use) · [X](https://x.com/intent/user?screen_name=browser_use) · [Discord](https://link.browser-use.com/discord) · [Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud)
