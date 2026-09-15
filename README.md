@@ -204,6 +204,7 @@ A Browser Use API key with access to the hosted Web Agent API
 ### 1. Clone the repository
 
 git clone https://github.com/Tg289/Browser-Automation-Agent.git
+
 cd Browser-Automation-Agent
 
 ### 2. Create and activate the Python environment
