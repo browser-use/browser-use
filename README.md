@@ -11,22 +11,21 @@
     <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/6797d09b-8ac3-4cb9-ba07-b289e080765a">
     <img alt="The AI browser agent." src="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125" width="400">
     </picture>
-</div>
 
-The open-source Python library for AI browser agents.
+[Demos](#navigate-the-web-like-a-human-does) · [Docs](https://docs.browser-use.com) · [Blog](https://browser-use.com/posts) · [Merch](https://browsermerch.com) · [GitHub](https://github.com/browser-use/browser-use) · [X](https://x.com/intent/user?screen_name=browser_use) · [Discord](https://link.browser-use.com/discord) · [Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud)
 
-```text
-● STATE:  [1] Search
+<table align="center">
+<tr><td align="left">
+<pre>● STATE:  [1] Search
 │         [2] Settings
 │
 ● ACTION: click(index=1)
 │
-↺ LOOP
+↺ LOOP</pre>
+</td></tr>
+</table>
 
-= Browser Use
-```
-
-[Demos](#navigate-the-web-like-a-human-does) · [Docs](https://docs.browser-use.com) · [Blog](https://browser-use.com/posts) · [Merch](https://browsermerch.com) · [GitHub](https://github.com/browser-use/browser-use) · [X](https://x.com/intent/user?screen_name=browser_use) · [Discord](https://link.browser-use.com/discord) · [Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud)
+</div>
 
 # Navigate the web like a human does.
 
