@@ -55,14 +55,14 @@ class _FakeClient:
 
 def _page(reply) -> Page:
 	page = Page.__new__(Page)
-	page._client = _FakeClient(reply)
+	page._client = _FakeClient(reply)  # type: ignore[assignment]
 	page._ensure_session = _returns('session-abc')
 	return page
 
 
 def _element(reply) -> Element:
 	element = Element.__new__(Element)
-	element._client = _FakeClient(reply)
+	element._client = _FakeClient(reply)  # type: ignore[assignment]
 	element._session_id = 'session-abc'
 	# The element's own resolution is not what is under test here; stub it so the
 	# cell measures how the callFunctionOn reply is read.
