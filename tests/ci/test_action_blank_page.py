@@ -56,6 +56,19 @@ def http_server():
 		content_type='text/html',
 	)
 
+	# --- sparse page with interactive elements: few nodes, but actionable ---
+	# Should NOT be flagged empty: an agent has something to do here.
+	server.expect_request('/sparse-interactive').respond_with_data(
+		'<!DOCTYPE html><html><body><button>Save</button><input value="name"></body></html>',
+		content_type='text/html',
+	)
+
+	# --- sparse page with nothing to act on ---
+	server.expect_request('/sparse-static').respond_with_data(
+		'<!DOCTYPE html><html><body><p>Loading</p></body></html>',
+		content_type='text/html',
+	)
+
 	yield server
 	server.stop()
 
@@ -193,3 +206,40 @@ class TestNavigateReloadFallback:
 		# No error — the body IS a valid DOM root, just visually empty.
 		# Skeleton detection (in AgentMessagePrompt._get_browser_state_description) warns the LLM.
 		assert result.error is None, f'Expected no error for empty-body page, got: {result.error}'
+
+
+# ---------------------------------------------------------------------------
+# Test 3: Empty-page hint should consider interactive elements
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyPageDetection:
+	"""The 'appears empty' hint should consider whether there is anything to act on."""
+
+	async def test_sparse_page_with_controls_not_flagged_empty(self, tools, browser_session, base_url):
+		"""Few elements, but real controls: the agent has something to do."""
+		await _navigate(tools, browser_session, f'{base_url}/sparse-interactive')
+
+		state = await browser_session.get_browser_state_summary(include_screenshot=False)
+		prompt = _make_prompt(state)
+		page_stats = prompt._extract_page_statistics()
+		description = prompt._get_browser_state_description()
+
+		assert page_stats['total_elements'] < 10, f'Fixture should stay sparse, got {page_stats["total_elements"]}'
+		assert page_stats['interactive_elements'] > 0, 'Fixture should expose interactive elements'
+		assert 'appears empty' not in description.lower(), (
+			f'Page with {page_stats["interactive_elements"]} interactive elements should not be called empty:\n{description[:500]}'
+		)
+
+	async def test_sparse_page_without_controls_still_flagged_empty(self, tools, browser_session, base_url):
+		"""Unchanged behaviour: nothing to act on still gets the hint."""
+		await _navigate(tools, browser_session, f'{base_url}/sparse-static')
+
+		state = await browser_session.get_browser_state_summary(include_screenshot=False)
+		prompt = _make_prompt(state)
+		page_stats = prompt._extract_page_statistics()
+		description = prompt._get_browser_state_description()
+
+		assert page_stats['total_elements'] < 10
+		assert page_stats['interactive_elements'] == 0
+		assert 'appears empty' in description.lower()
