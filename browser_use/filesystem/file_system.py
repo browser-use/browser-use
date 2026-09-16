@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import csv
+import html
 import io
 import os
 import re
@@ -13,13 +14,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 UNSUPPORTED_BINARY_EXTENSIONS = {
-	'png',
-	'jpg',
-	'jpeg',
-	'gif',
 	'bmp',
 	'svg',
-	'webp',
 	'ico',
 	'mp3',
 	'mp4',
@@ -71,6 +67,51 @@ def _build_filename_error_message(file_name: str, supported_extensions: list[str
 		f'Filenames must contain only letters, numbers, underscores, hyphens, dots, parentheses, and spaces. '
 		f'Supported extensions: {", ".join("." + e for e in supported_extensions)}.'
 	)
+
+
+def _split_heading(line: str) -> tuple[str, int | None]:
+	"""Split a markdown ATX heading into (text, level).
+
+	Only ``# `` / ``## `` / ``### `` (note the required space) are headings.
+	Anything else, including ``#hashtag``, is returned unchanged with level None.
+	"""
+	if line.startswith('### '):
+		return line[4:], 3
+	if line.startswith('## '):
+		return line[3:], 2
+	if line.startswith('# '):
+		return line[2:], 1
+	return line, None
+
+
+_BULLET_RE = re.compile(r'^(\s*)[-*]\s+(.*)$')
+
+
+def _markdown_inline_to_rml(text: str) -> str:
+	"""Escape plain text, then convert a markdown subset to ReportLab markup.
+
+	Order matters: after html.escape there are no user-supplied ``<`` left, so
+	injected ``<b>`` / ``<i>`` / ``<font>`` tags are unambiguous.
+
+	Underscore emphasis is intentionally unsupported so ``snake_case`` identifiers
+	survive unchanged. Inline code is stashed before emphasis so markers inside
+	backticks stay Courier-only. Bold content cannot start with ``/``, so globs
+	like ``**/foo/**`` stay literal.
+	"""
+	text = html.escape(text)
+	rendered: list[str] = []
+	for part in re.split(r'(`[^`]+`)', text):
+		if part.startswith('`') and part.endswith('`'):
+			rendered.append(f'<font face="Courier">{part[1:-1]}</font>')
+			continue
+		# Bold before italic so ``**`` is not treated as two italic markers.
+		# Content cannot contain ``*`` — otherwise globs like ``*.txt and **/*.py`` pair across tokens.
+		# Content cannot start with ``/`` — otherwise ``**/foo/**`` is treated as bold.
+		part = re.sub(r'\*\*([^\s*/](?:[^*]*[^\s*])?)\*\*', r'<b>\1</b>', part)
+		# Non-space boundaries keep ``2 * 3 * 4`` literal; leading ``* `` is a bullet, not italic
+		part = re.sub(r'(?<!\*)\*([^\s*](?:[^*]*[^\s*])?)\*(?!\*)', r'<i>\1</i>', part)
+		rendered.append(part)
+	return ''.join(rendered)
 
 
 DEFAULT_FILE_SYSTEM_PATH = 'browseruse_agent_data'
@@ -256,26 +297,36 @@ class PdfFile(BaseFile):
 			doc = SimpleDocTemplate(str(file_path), pagesize=letter)
 			styles = getSampleStyleSheet()
 			story = []
+			heading_styles = {1: styles['Title'], 2: styles['Heading1'], 3: styles['Heading2']}
 
-			# Convert markdown content to simple text and add to PDF
-			# For basic implementation, we'll treat content as plain text
-			# This avoids the AGPL license issue while maintaining functionality
-			content_lines = self.content.split('\n')
+			# Escape first, then markdown → RML. Avoids an AGPL markdown-to-PDF dependency.
+			in_fence = False
+			for line in self.content.split('\n'):
+				stripped = line.strip()
+				if stripped.startswith('```'):
+					in_fence = not in_fence
+					continue
 
-			for line in content_lines:
-				if line.strip():
-					# Handle basic markdown headers
-					if line.startswith('# '):
-						para = Paragraph(line[2:], styles['Title'])
-					elif line.startswith('## '):
-						para = Paragraph(line[3:], styles['Heading1'])
-					elif line.startswith('### '):
-						para = Paragraph(line[4:], styles['Heading2'])
-					else:
-						para = Paragraph(line, styles['Normal'])
-					story.append(para)
-				else:
+				if not stripped:
 					story.append(Spacer(1, 6))
+					continue
+
+				if in_fence:
+					# Fenced blocks are literal: no emphasis / inline-code conversion
+					story.append(Paragraph(html.escape(line), styles['Code']))
+					continue
+
+				text, heading_level = _split_heading(line)
+				if heading_level is not None:
+					story.append(Paragraph(_markdown_inline_to_rml(text), heading_styles[heading_level]))
+					continue
+
+				bullet = _BULLET_RE.match(line)
+				if bullet:
+					story.append(Paragraph(f'&bull; {_markdown_inline_to_rml(bullet.group(2))}', styles['Normal']))
+					continue
+
+				story.append(Paragraph(_markdown_inline_to_rml(line), styles['Normal']))
 
 			doc.build(story)
 		except Exception as e:
@@ -305,13 +356,9 @@ class DocxFile(BaseFile):
 
 			for line in content_lines:
 				if line.strip():
-					# Handle basic markdown headers
-					if line.startswith('# '):
-						doc.add_heading(line[2:], level=1)
-					elif line.startswith('## '):
-						doc.add_heading(line[3:], level=2)
-					elif line.startswith('### '):
-						doc.add_heading(line[4:], level=3)
+					text, heading_level = _split_heading(line)
+					if heading_level is not None:
+						doc.add_heading(text, level=heading_level)
 					else:
 						doc.add_paragraph(line)
 				else:
@@ -340,6 +387,109 @@ class XmlFile(BaseFile):
 	@property
 	def extension(self) -> str:
 		return 'xml'
+
+
+class Base64BinaryFile(BaseFile):
+	"""Small binary file the agent authors as base64 text.
+
+	``content`` holds the base64 string; the decoded bytes are written to disk so the
+	file is a real, uploadable image. ``read()`` returns a short stub instead of the
+	base64 so it never bloats or confuses the agent prompt (describe() calls read()
+	every step). Intended for tiny fixtures (e.g. a 1x1 PNG) for upload-validation
+	flows, not for arbitrary large binaries.
+	"""
+
+	# Leading magic bytes that identify a real file of this type. Keyed by extension so
+	# base64 that decodes but isn't actually an image (e.g. 'aGVsbG8=' -> b'hello') is
+	# rejected instead of written as a corrupt upload.
+	_MAGIC: dict[str, tuple[bytes, ...]] = {
+		'png': (b'\x89PNG\r\n\x1a\n',),
+		'gif': (b'GIF87a', b'GIF89a'),
+		'jpg': (b'\xff\xd8\xff',),
+		'jpeg': (b'\xff\xd8\xff',),
+		'webp': (b'RIFF',),  # RIFF container; 'WEBP' tag checked below
+	}
+
+	def _decoded(self) -> bytes:
+		# Strip all whitespace (the write_file action appends a trailing newline) then
+		# decode strictly so non-base64 text is rejected rather than silently corrupted.
+		return base64.b64decode(''.join(self.content.split()), validate=True)
+
+	def _validate(self, content: str) -> None:
+		"""Decode and confirm the bytes actually are an image of this extension. Raises FileSystemError."""
+		try:
+			data = base64.b64decode(''.join(content.split()), validate=True)
+		except Exception as e:
+			raise FileSystemError(
+				f"Error: content for '{self.full_name}' is not valid base64. "
+				f'For images, provide the base64 of a valid {self.extension} file. ({e})'
+			)
+		magic = self._MAGIC.get(self.extension, ())
+		if magic and not any(data.startswith(m) for m in magic):
+			raise FileSystemError(
+				f"Error: content for '{self.full_name}' is valid base64 but not a {self.extension} image "
+				f'(wrong magic bytes). Provide the base64 of a real {self.extension} file.'
+			)
+		if self.extension == 'webp' and not (data[:4] == b'RIFF' and data[8:12] == b'WEBP'):
+			raise FileSystemError(f"Error: content for '{self.full_name}' is not a valid WEBP file.")
+
+	def write_file_content(self, content: str) -> None:
+		self._validate(content)
+		self.update_content(content)
+
+	def append_file_content(self, content: str) -> None:
+		raise FileSystemError(f"Error: cannot append to binary file '{self.full_name}'. Overwrite it instead.")
+
+	def sync_to_disk_sync(self, path: Path) -> None:
+		(path / self.full_name).write_bytes(self._decoded())
+
+	async def sync_to_disk(self, path: Path) -> None:
+		with ThreadPoolExecutor() as executor:
+			await asyncio.get_event_loop().run_in_executor(executor, lambda: self.sync_to_disk_sync(path))
+
+	def read(self) -> str:
+		try:
+			n = len(self._decoded())
+		except Exception:
+			return '[binary file: content is not valid base64]'
+		return f'[binary {self.extension} file, {n} bytes]'
+
+	@property
+	def get_size(self) -> int:
+		try:
+			return len(self._decoded())
+		except Exception:
+			return 0
+
+
+class PngFile(Base64BinaryFile):
+	@property
+	def extension(self) -> str:
+		return 'png'
+
+
+class GifFile(Base64BinaryFile):
+	@property
+	def extension(self) -> str:
+		return 'gif'
+
+
+class JpgFile(Base64BinaryFile):
+	@property
+	def extension(self) -> str:
+		return 'jpg'
+
+
+class JpegFile(Base64BinaryFile):
+	@property
+	def extension(self) -> str:
+		return 'jpeg'
+
+
+class WebpFile(Base64BinaryFile):
+	@property
+	def extension(self) -> str:
+		return 'webp'
 
 
 class FileSystemState(BaseModel):
@@ -375,6 +525,11 @@ class FileSystem:
 			'docx': DocxFile,
 			'html': HtmlFile,
 			'xml': XmlFile,
+			'png': PngFile,
+			'gif': GifFile,
+			'jpg': JpgFile,
+			'jpeg': JpegFile,
+			'webp': WebpFile,
 		}
 
 		self.files = {}
@@ -524,7 +679,7 @@ class FileSystem:
 					return result
 
 				# Text-based extensions: derive from _file_types, excluding those with special readers
-				_special_extensions = {'docx', 'pdf', 'jpg', 'jpeg', 'png'}
+				_special_extensions = {'docx', 'pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'}
 				text_extensions = [ext for ext in self._file_types if ext not in _special_extensions]
 
 				if extension in text_extensions:
@@ -659,7 +814,7 @@ class FileSystem:
 					)
 					return result
 
-				elif extension in ['jpg', 'jpeg', 'png']:
+				elif extension in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
 					import anyio
 
 					# Read image file and convert to base64
@@ -734,15 +889,16 @@ class FileSystem:
 			if not file_class:
 				raise ValueError(f"Error: Invalid file extension '{extension}' for file '{full_filename}'.")
 
-			# Create or get existing file using full filename as key
-			if full_filename in self.files:
-				file_obj = self.files[full_filename]
-			else:
-				file_obj = file_class(name=name_without_ext)
-				self.files[full_filename] = file_obj  # Use full filename as key
+			# Create or get existing file using full filename as key. A NEW file is only
+			# registered after a successful write, so a failed write (e.g. invalid base64
+			# for an image) leaves no ghost entry in self.files / state.
+			is_new = full_filename not in self.files
+			file_obj = self.files[full_filename] if not is_new else file_class(name=name_without_ext)
 
 			# Use file-specific write method
 			await file_obj.write(content, self.data_dir)
+			if is_new:
+				self.files[full_filename] = file_obj
 			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
 			return f'Data written to file {full_filename} successfully.{sanitize_note}'
 		except FileSystemError as e:
@@ -792,6 +948,8 @@ class FileSystem:
 
 		try:
 			content = file_obj.read()
+			if old_str not in content:
+				return f'Error: Could not find the specified text in file {full_filename}.'
 			content = content.replace(old_str, new_str)
 			await file_obj.write(content, self.data_dir)
 			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
@@ -926,6 +1084,11 @@ class FileSystem:
 				'DocxFile': DocxFile,
 				'HtmlFile': HtmlFile,
 				'XmlFile': XmlFile,
+				'PngFile': PngFile,
+				'GifFile': GifFile,
+				'JpgFile': JpgFile,
+				'JpegFile': JpegFile,
+				'WebpFile': WebpFile,
 			}
 
 			file_class = file_type_map.get(file_type)

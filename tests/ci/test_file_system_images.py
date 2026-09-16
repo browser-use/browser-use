@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from browser_use.filesystem.file_system import FileSystem
+from browser_use.filesystem.file_system import Base64BinaryFile, FileSystem
 
 
 class TestImageFiles:
@@ -247,3 +247,67 @@ class TestActionResultImages:
 
 if __name__ == '__main__':
 	pytest.main([__file__, '-v'])
+
+
+class TestBinaryFileCreation:
+	"""The agent can author a tiny binary file (base64) that becomes a real, uploadable image."""
+
+	PNG_1X1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII='
+
+	async def test_write_png_produces_real_bytes(self, tmp_path: Path):
+		fs = FileSystem(str(tmp_path))
+		# write_file action appends a trailing newline; that must be tolerated
+		result = await fs.write_file('logo.png', self.PNG_1X1 + '\n')
+		assert 'successfully' in result
+		raw = (fs.get_dir() / 'logo.png').read_bytes()
+		assert raw[:8] == b'\x89PNG\r\n\x1a\n'  # real PNG magic, not base64 text
+		assert len(raw) > 0
+
+	async def test_binary_file_is_uploadable_by_basename(self, tmp_path: Path):
+		fs = FileSystem(str(tmp_path))
+		await fs.write_file('pic.gif', 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
+		fobj = fs.get_file('pic.gif')  # the exact resolution upload_file uses
+		assert fobj is not None
+		assert fobj.full_name == 'pic.gif'
+
+	async def test_describe_does_not_leak_base64(self, tmp_path: Path):
+		fs = FileSystem(str(tmp_path))
+		await fs.write_file('logo.png', self.PNG_1X1)
+		desc = fs.describe()
+		assert self.PNG_1X1[:24] not in desc  # base64 never enters the prompt
+		assert '[binary png file' in desc
+
+	async def test_invalid_base64_is_rejected_no_corrupt_file(self, tmp_path: Path):
+		fs = FileSystem(str(tmp_path))
+		result = await fs.write_file('bad.png', 'this is definitely not base64 @@@')
+		assert 'Error' in result
+		assert not (fs.get_dir() / 'bad.png').exists()  # no 0-byte / corrupt file left for upload
+		# No ghost entry in the in-memory filesystem / state either
+		assert 'bad.png' not in fs.list_files()
+		assert 'bad.png' not in [f for f in fs.get_state().model_dump().get('files', {})]
+
+	async def test_valid_base64_but_not_an_image_is_rejected(self, tmp_path: Path):
+		"""'aGVsbG8=' is valid base64 (-> b'hello') but not a PNG: must be rejected, not written."""
+		fs = FileSystem(str(tmp_path))
+		result = await fs.write_file('fake.png', 'aGVsbG8=')
+		assert 'Error' in result
+		assert not (fs.get_dir() / 'fake.png').exists()
+		assert 'fake.png' not in fs.list_files()
+
+	async def test_wrong_magic_for_extension_is_rejected(self, tmp_path: Path):
+		"""PNG bytes written under a .gif name are rejected (magic mismatch)."""
+		fs = FileSystem(str(tmp_path))
+		result = await fs.write_file('mislabeled.gif', self.PNG_1X1)
+		assert 'Error' in result
+		assert 'mislabeled.gif' not in fs.list_files()
+
+	async def test_state_round_trip_preserves_binary(self, tmp_path: Path):
+		fs = FileSystem(str(tmp_path))
+		await fs.write_file('logo.png', self.PNG_1X1)
+		original_bytes = (fs.get_dir() / 'logo.png').read_bytes()
+		fs2 = FileSystem.from_state(fs.get_state())
+		restored = fs2.get_file('logo.png')
+		assert isinstance(restored, Base64BinaryFile)
+		# Content integrity, not just existence: decoded bytes must round-trip and be a real PNG
+		assert restored._decoded() == original_bytes
+		assert restored._decoded()[:8] == b'\x89PNG\r\n\x1a\n'

@@ -238,7 +238,7 @@ class MessageManager:
 		# Char floor gate
 		history_items = self.state.agent_history_items
 		full_history_text = '\n'.join(item.to_string() for item in history_items).strip()
-		trigger_char_count = settings.trigger_char_count or 40000
+		trigger_char_count = settings.trigger_char_count if settings.trigger_char_count is not None else 40000
 		if len(full_history_text) < trigger_char_count:
 			return False
 
