@@ -1,6 +1,8 @@
 """Tests for markdown extractor preprocessing."""
 
-from browser_use.dom.markdown_extractor import _preprocess_markdown_content
+import pytest
+
+from browser_use.dom.markdown_extractor import _preprocess_markdown_content, convert_html_to_markdown
 
 
 class TestPreprocessMarkdownContent:
@@ -144,3 +146,41 @@ class TestPreservesLinksAndEncoding:
 		assert '%20' in content
 		assert '%2F' in content
 		assert '%26' in content
+
+
+class TestWhitespaceOnlyInlineElements:
+	"""An inline element holding only whitespace must not glue the words around it together."""
+
+	@staticmethod
+	def _markdown(html: str) -> str:
+		content, _, _ = convert_html_to_markdown(html)
+		return content.strip()
+
+	@pytest.mark.parametrize('tag', ['b', 'strong', 'em', 'i', 'u', 's', 'code', 'sub', 'sup'])
+	def test_word_boundary_survives(self, tag: str):
+		"""A page that styles the space between two words still reads as two words."""
+		assert self._markdown(f'<p>Hello<{tag}> </{tag}>world</p>') == 'Hello world'
+
+	def test_word_boundary_survives_an_anchor(self):
+		assert self._markdown('<p>Hello<a href="https://x.test"> </a>world</p>') == 'Hello world'
+
+	def test_space_between_two_styled_runs_survives(self):
+		"""An editor that emits one element per styled run puts the space in its own element."""
+		assert self._markdown('<p><b>First</b><b> </b><b>Last</b></p>') == '**First** **Last**'
+
+	def test_non_breaking_space_is_kept_as_itself(self):
+		assert self._markdown('<p>Hello<b>&#160;</b>world</p>') == 'Hello world'
+
+	@pytest.mark.parametrize(
+		('html', 'expected'),
+		[
+			('<p>Hello <b>bold</b> world</p>', 'Hello **bold** world'),
+			('<p>Hello <em>it</em> world</p>', 'Hello *it* world'),
+			('<p>Hello <code>x</code> world</p>', 'Hello `x` world'),
+			('<p>Hello <a href="https://x.test">site</a> world</p>', 'Hello [site](https://x.test) world'),
+			('<p>Hello<b></b>world</p>', 'Helloworld'),
+		],
+	)
+	def test_elements_with_content_are_unchanged(self, html: str, expected: str):
+		"""The control: only an element with nothing but whitespace in it is passed through."""
+		assert self._markdown(html) == expected
