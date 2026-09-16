@@ -26,6 +26,19 @@ def _overlay_bbox(image: Image.Image, result: Image.Image) -> tuple[int, int, in
 	return bbox
 
 
+def _count_light_pixels(result: Image.Image, bbox: tuple[int, int, int, int]) -> int:
+	"""How many pixels inside bbox are white-ish, i.e. came from drawn glyphs.
+
+	``getdata()`` is typed per image mode, so each element has to be narrowed to a
+	tuple of ints before its channels can be read.
+	"""
+	return sum(
+		1
+		for pixel in result.crop(bbox).getdata()
+		if isinstance(pixel, tuple) and all(isinstance(c, int) and c >= 150 for c in pixel)
+	)
+
+
 def test_overlay_without_step_badge_renders_goal():
 	image, result = _render(display_step=False)
 	assert result.size == (800, 600)
@@ -41,8 +54,7 @@ def test_overlay_without_step_badge_renders_goal():
 
 	# Glyphs, not only the background box: white text on a black box, drawn over
 	# a (10, 10, 10) frame, so a light pixel can only come from the goal text.
-	pixels = result.crop((x0, y0, x1, y1)).getdata()
-	assert any(all(channel >= 150 for channel in rgb) for rgb in pixels), 'no goal glyphs rendered'
+	assert _count_light_pixels(result, (x0, y0, x1, y1)), 'no goal glyphs rendered'
 
 
 def test_overlay_with_step_badge_still_renders():
@@ -55,8 +67,7 @@ def test_overlay_with_step_badge_still_renders():
 	# The step badge is anchored bottom-left, so the drawn region reaches further
 	# left than the goal band alone.
 	assert x0 < 100, (x0, y0, x1, y1)
-	pixels = result.crop((x0, y0, x1, y1)).getdata()
-	assert any(all(channel >= 150 for channel in rgb) for rgb in pixels), 'no glyphs rendered'
+	assert _count_light_pixels(result, (x0, y0, x1, y1)), 'no glyphs rendered'
 
 
 def test_overlay_without_step_badge_is_anchored_no_higher_than_with_one():
