@@ -3,9 +3,9 @@ This implementation is based on the OpenAI types, while removing all the parts t
 """
 
 # region - Content parts
-from typing import Literal, Union
+from typing import Any, Literal, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 def _truncate(text: str, max_length: int = 50) -> str:
@@ -130,6 +130,9 @@ class _MessageBase(BaseModel):
 	cache: bool = False
 	"""Whether to cache this message. This is only applicable when using Anthropic models.
 	"""
+
+	metadata: dict[str, Any] = Field(default_factory=dict)
+	"""Additional metadata for the message (e.g., token counts for logging)."""
 
 
 class UserMessage(_MessageBase):
