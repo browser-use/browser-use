@@ -41,6 +41,8 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 	# Private state for subprocess management
 	_subprocess: psutil.Process | None = PrivateAttr(default=None)
+	_subprocess_descendants: list[psutil.Process] = PrivateAttr(default_factory=list)
+	_subprocess_descendants_complete: bool = PrivateAttr(default=True)
 	_owns_browser_resources: bool = PrivateAttr(default=True)
 	_temp_dirs_to_cleanup: list[Path] = PrivateAttr(default_factory=list)
 	_original_user_data_dir: str | None = PrivateAttr(default=None)
@@ -55,6 +57,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			# self.logger.debug('[LocalBrowserWatchdog] Calling _launch_browser...')
 			process, cdp_url = await self._launch_browser()
 			self._subprocess = process
+			descendants = await self._snapshot_descendants(process)
+			self._subprocess_descendants = descendants or []
+			self._subprocess_descendants_complete = descendants is not None
 			# self.logger.debug(f'[LocalBrowserWatchdog] _launch_browser returned: process={process}, cdp_url={cdp_url}')
 
 			return BrowserLaunchResult(cdp_url=cdp_url)
@@ -67,8 +72,10 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		self.logger.debug('[LocalBrowserWatchdog] Killing local browser process')
 
 		if self._subprocess:
-			await self._cleanup_process(self._subprocess)
+			await self._cleanup_process(self._subprocess, self._subprocess_descendants, self._subprocess_descendants_complete)
 			self._subprocess = None
+			self._subprocess_descendants = []
+			self._subprocess_descendants_complete = True
 
 		# Clean up temp directories if any were created
 		for temp_dir in self._temp_dirs_to_cleanup:
@@ -83,10 +90,23 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		self.logger.debug('[LocalBrowserWatchdog] Browser cleanup completed')
 
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
-		"""Listen for BrowserStopEvent and dispatch BrowserKillEvent without awaiting it."""
+		"""Queue local process cleanup after the other stop handlers finish."""
+		if self.browser_session.browser_profile.keep_alive and not event.force:
+			return
 		if self.browser_session.is_local and self._subprocess:
 			self.logger.debug('[LocalBrowserWatchdog] BrowserStopEvent received, dispatching BrowserKillEvent')
-			# Dispatch BrowserKillEvent without awaiting so it gets processed after all BrowserStopEvent handlers
+			# Preserve the ownership edge before other stop handlers run. If Chrome's
+			# root exits during teardown, psutil can no longer discover its children.
+			descendants = await self._snapshot_descendants(self._subprocess)
+			if descendants is None:
+				self._subprocess_descendants_complete = False
+			else:
+				self._subprocess_descendants = list(
+					{process.pid: process for process in [*self._subprocess_descendants, *descendants]}.values()
+				)
+				self._subprocess_descendants_complete = True
+			# Bubus includes child events in parent completion. Keep cleanup queued
+			# so recording/storage stop handlers can finish before process termination.
 			self.event_bus.dispatch(BrowserKillEvent())
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='launch_browser_process')
@@ -457,37 +477,71 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		raise TimeoutError(f'Browser did not start within {timeout} seconds')
 
 	@staticmethod
-	async def _cleanup_process(process: psutil.Process) -> None:
-		"""Clean up browser process.
+	async def _snapshot_descendants(process: psutil.Process) -> list[psutil.Process] | None:
+		"""Capture owned descendants while the root/parent relationship still exists."""
 
-		Args:
-			process: psutil.Process to terminate
-		"""
+		def snapshot() -> list[psutil.Process] | None:
+			try:
+				return process.children(recursive=True)
+			except (psutil.NoSuchProcess, psutil.AccessDenied):
+				return None
+
+		return await asyncio.to_thread(snapshot)
+
+	@staticmethod
+	async def _cleanup_process(
+		process: psutil.Process,
+		known_descendants: list[psutil.Process] | None = None,
+		descendant_snapshot_complete: bool = True,
+	) -> None:
+		"""Terminate the owned process tree, then force-kill survivors with bounded waits."""
 		if not process:
 			return
 
-		try:
-			# Try graceful shutdown first
-			process.terminate()
+		def cleanup_tree() -> None:
+			tree_verified = descendant_snapshot_complete and known_descendants is not None
+			try:
+				# Snapshot descendants before terminating the parent: Windows does not
+				# automatically terminate them, and reparenting loses the ownership edge.
+				current_descendants = process.children(recursive=True)
+			except psutil.NoSuchProcess:
+				current_descendants = []
+			except psutil.AccessDenied:
+				current_descendants = []
+				tree_verified = False
 
-			# Use async wait instead of blocking wait
-			for _ in range(50):  # Wait up to 5 seconds (50 * 0.1)
-				if not process.is_running():
-					return
-				await asyncio.sleep(0.1)
+			# Keep both the early snapshot and a last-moment refresh. PID-based
+			# de-duplication avoids signalling the same process object twice.
+			processes_by_pid: dict[int, psutil.Process] = {}
+			for target in [*reversed(current_descendants), *reversed(known_descendants or []), process]:
+				processes_by_pid.setdefault(target.pid, target)
+			processes = list(processes_by_pid.values())
 
-			# If still running after 5 seconds, force kill
-			if process.is_running():
-				process.kill()
-				# Give it a moment to die
-				await asyncio.sleep(0.1)
+			for target in processes:
+				try:
+					target.terminate()
+				except psutil.NoSuchProcess:
+					pass
+				except psutil.AccessDenied:
+					# Continue cleaning siblings; survivors are escalated and reported below.
+					tree_verified = False
+			_, alive = psutil.wait_procs(processes, timeout=3)
+			for target in alive:
+				try:
+					target.kill()
+				except psutil.NoSuchProcess:
+					pass
+				except psutil.AccessDenied:
+					tree_verified = False
+			_, alive = psutil.wait_procs(alive, timeout=2)
+			if alive:
+				raise RuntimeError(f'Browser processes did not exit after cleanup: {[target.pid for target in alive]}')
+			if not tree_verified:
+				raise RuntimeError('Browser process cleanup could not be verified because a descendant snapshot was unavailable')
 
-		except psutil.NoSuchProcess:
-			# Process already gone
-			pass
-		except Exception:
-			# Ignore any other errors during cleanup
-			pass
+		# psutil's Windows process queries and bounded waits are synchronous. Keep
+		# them off the event loop so CDP teardown and timeout tasks can progress.
+		await asyncio.to_thread(cleanup_tree)
 
 	def _cleanup_temp_dir(self, temp_dir: Path | str) -> None:
 		"""Clean up temporary directory.
