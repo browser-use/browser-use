@@ -154,6 +154,7 @@ class AgentMessagePrompt:
 			'iframes': 0,
 			'shadow_open': 0,
 			'shadow_closed': 0,
+			'shadow_user_agent': 0,
 			'scroll_containers': 0,
 			'images': 0,
 			'interactive_elements': 0,
@@ -193,17 +194,13 @@ class AgentMessagePrompt:
 
 				# Check if this element hosts shadow DOM
 				if node.is_shadow_host:
-					# Check if any shadow children are closed
-					has_closed_shadow = any(
-						child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
-						and child.original_node.shadow_root_type
-						and child.original_node.shadow_root_type.lower() == 'closed'
-						for child in node.children
-					)
-					if has_closed_shadow:
+					shadow_root_type = node.shadow_root_type
+					if shadow_root_type == 'closed':
 						stats['shadow_closed'] += 1
-					else:
+					elif shadow_root_type == 'open':
 						stats['shadow_open'] += 1
+					elif shadow_root_type == 'user-agent':
+						stats['shadow_user_agent'] += 1
 
 			elif original.node_type == NodeType.TEXT_NODE:
 				stats['text_chars'] += len(original.node_value.strip())
@@ -242,8 +239,10 @@ class AgentMessagePrompt:
 			)
 		stats_text += f'{page_stats["links"]} links, {page_stats["interactive_elements"]} interactive, '
 		stats_text += f'{page_stats["iframes"]} iframes'
-		if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0:
+		if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0 or page_stats['shadow_user_agent'] > 0:
 			stats_text += f', {page_stats["shadow_open"]} shadow(open), {page_stats["shadow_closed"]} shadow(closed)'
+		if page_stats['shadow_user_agent'] > 0:
+			stats_text += f', {page_stats["shadow_user_agent"]} shadow(user-agent)'
 		if page_stats['images'] > 0:
 			stats_text += f', {page_stats["images"]} images'
 		stats_text += f', {page_stats["total_elements"]} total elements'
