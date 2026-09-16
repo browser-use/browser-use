@@ -239,7 +239,7 @@ class AgentMessagePrompt:
 			)
 		stats_text += f'{page_stats["links"]} links, {page_stats["interactive_elements"]} interactive, '
 		stats_text += f'{page_stats["iframes"]} iframes'
-		if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0 or page_stats['shadow_user_agent'] > 0:
+		if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0:
 			stats_text += f', {page_stats["shadow_open"]} shadow(open), {page_stats["shadow_closed"]} shadow(closed)'
 		if page_stats['shadow_user_agent'] > 0:
 			stats_text += f', {page_stats["shadow_user_agent"]} shadow(user-agent)'

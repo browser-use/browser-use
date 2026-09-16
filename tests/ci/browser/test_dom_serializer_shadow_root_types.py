@@ -187,3 +187,12 @@ def test_full_serializer_retains_type_when_empty_fragment_is_optimized_out(
 	assert stats['shadow_open'] == int(shadow_root_type == 'open')
 	assert stats['shadow_closed'] == int(shadow_root_type == 'closed')
 	assert stats['shadow_user_agent'] == int(shadow_root_type == 'user-agent')
+
+	page_stats = prompt._get_browser_state_description().split('</page_stats>', 1)[0]
+	if shadow_root_type == 'user-agent':
+		assert '1 shadow(user-agent)' in page_stats
+		assert 'shadow(open)' not in page_stats
+		assert 'shadow(closed)' not in page_stats
+	else:
+		assert f'1 shadow({shadow_root_type})' in page_stats
+		assert 'shadow(user-agent)' not in page_stats
