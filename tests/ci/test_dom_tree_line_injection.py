@@ -126,6 +126,8 @@ class TestNoPageControlledLineBreaks:
 
 		hint_lines = [line for line in serialized.splitlines() if 'pages down' in line]
 		assert len(hint_lines) == 1
+		# Both halves of the quoted text belong to the hint, not to a line of their own.
+		assert 'Subscribe' in hint_lines[0]
 		assert 'Cancel plan' in hint_lines[0]
 
 	def test_ordinary_text_is_untouched(self):
