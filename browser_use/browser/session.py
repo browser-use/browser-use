@@ -65,6 +65,18 @@ if TYPE_CHECKING:
 
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
 
+# Bounds for the individual phases of BrowserSession teardown (kill/stop/reset).
+# Teardown previously awaited every event dispatch with no timeout, so a single
+# wedged handler blocked kill() forever and orphaned the chrome process behind
+# it (https://github.com/browser-use/browser-use/issues/5770). Each phase below
+# is awaited with its own timeout; a phase that times out is logged and skipped
+# so the phases after it still run and teardown always completes.
+TEARDOWN_SAVE_TIMEOUT_S = 10.0
+TEARDOWN_STOP_TIMEOUT_S = 20.0
+TEARDOWN_PROCESS_KILL_TIMEOUT_S = 10.0
+TEARDOWN_RESET_TIMEOUT_S = 10.0
+TEARDOWN_STOPPED_NOTIFY_TIMEOUT_S = 5.0
+
 _LOGGED_UNIQUE_SESSION_IDS = set()  # track unique session IDs that have been logged to make sure we always assign a unique enough id to new sessions and avoid ambiguity in logs
 red = '\033[91m'
 reset = '\033[0m'
@@ -651,11 +663,17 @@ class BrowserSession(BaseModel):
 			await self.session_manager.clear()
 			self.session_manager = None
 
-		# Close CDP WebSocket before clearing to prevent stale event handlers
+		# Close CDP WebSocket before clearing to prevent stale event handlers.
+		# Bounded: closing the socket of a dead connection can block forever
+		# (https://github.com/browser-use/browser-use/issues/5770).
 		if self._cdp_client_root:
 			try:
-				await self._cdp_client_root.stop()
+				await asyncio.wait_for(self._cdp_client_root.stop(), timeout=TEARDOWN_RESET_TIMEOUT_S)
 				self.logger.debug('Closed CDP client WebSocket during reset')
+			except asyncio.TimeoutError:
+				self.logger.warning(
+					f'⏱️ Closing CDP client WebSocket timed out after {TEARDOWN_RESET_TIMEOUT_S}s, continuing reset'
+				)
 			except Exception as e:
 				self.logger.debug(f'Error closing CDP client during reset: {e}')
 
@@ -731,6 +749,51 @@ class BrowserSession(BaseModel):
 		# Ensure any exceptions from the event handler are propagated
 		await start_event.event_result(raise_if_any=True, raise_if_none=False)
 
+	async def _await_teardown_phase(self, awaitable: Any, *, phase: str, timeout: float) -> bool:
+		"""Await one teardown phase with a bound; log and continue when it fails.
+
+		Returns True when the phase completed, False when it timed out or raised.
+		Teardown must always make progress: a wedged handler may delay one phase
+		but must never block the phases after it
+		(https://github.com/browser-use/browser-use/issues/5770).
+		"""
+		try:
+			await asyncio.wait_for(awaitable, timeout=timeout)
+			return True
+		except asyncio.TimeoutError:
+			self.logger.warning(f'⏱️ Teardown phase {phase!r} timed out after {timeout}s, continuing teardown')
+			return False
+		except Exception as e:
+			self.logger.debug(f'Teardown phase {phase!r} failed with {type(e).__name__}: {e}, continuing teardown')
+			return False
+
+	async def _ensure_browser_process_dead(self, watchdog: Any | None = None) -> None:
+		"""Reap the local browser process even if the event-driven kill never ran.
+
+		LocalBrowserWatchdog kills chrome via BrowserKillEvent, but that event is
+		queued behind the BrowserStopEvent handlers — if any of them wedges, the
+		kill never runs and chrome is orphaned
+		(https://github.com/browser-use/browser-use/issues/5770). Invoke the
+		watchdog's kill handler directly, bounded, so kill() never leaves an
+		orphan behind.
+
+		The watchdog must be passed in (snapshotted before the stop dispatch):
+		the stop handlers reset session state, including the session's own
+		watchdog reference, so reading it afterwards would miss the orphan.
+		"""
+		if watchdog is None:
+			watchdog = self._local_browser_watchdog
+		subprocess = getattr(watchdog, '_subprocess', None)
+		if watchdog is None or subprocess is None:
+			return
+		from browser_use.browser.events import BrowserKillEvent
+
+		await self._await_teardown_phase(
+			watchdog.on_BrowserKillEvent(BrowserKillEvent()),
+			phase='browser_process_kill',
+			timeout=TEARDOWN_PROCESS_KILL_TIMEOUT_S,
+		)
+
 	async def kill(self) -> None:
 		"""Kill the browser session and reset all state."""
 		self._intentional_stop = True
@@ -740,14 +803,25 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.events import SaveStorageStateEvent
 
 		save_event = self.event_bus.dispatch(SaveStorageStateEvent())
-		await save_event
+		await self._await_teardown_phase(save_event, phase='save_storage_state', timeout=TEARDOWN_SAVE_TIMEOUT_S)
 
+		# Snapshot the watchdog before dispatching stop: the stop handlers reset
+		# session state (including this reference), and the fallback below must
+		# still find the browser process afterwards.
+		local_browser_watchdog = self._local_browser_watchdog
 		# Dispatch stop event to kill the browser
-		await self.event_bus.dispatch(BrowserStopEvent(force=True))
+		await self._await_teardown_phase(
+			self.event_bus.dispatch(BrowserStopEvent(force=True)),
+			phase='browser_stop',
+			timeout=TEARDOWN_STOP_TIMEOUT_S,
+		)
+		# The graceful kill event may be stuck behind a wedged stop handler,
+		# so reap the browser process directly instead of orphaning it.
+		await self._ensure_browser_process_dead(local_browser_watchdog)
 		# Stop the event bus
 		await self.event_bus.stop(clear=True, timeout=5)
 		# Reset all state
-		await self.reset()
+		await self._await_teardown_phase(self.reset(), phase='reset', timeout=TEARDOWN_RESET_TIMEOUT_S)
 		# Create fresh event bus
 		self.event_bus = ResilientEventBus()
 		self._register_session_event_handlers()
@@ -765,15 +839,19 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.events import SaveStorageStateEvent
 
 		save_event = self.event_bus.dispatch(SaveStorageStateEvent())
-		await save_event
+		await self._await_teardown_phase(save_event, phase='save_storage_state', timeout=TEARDOWN_SAVE_TIMEOUT_S)
 
 		# Now dispatch BrowserStopEvent to notify watchdogs
-		await self.event_bus.dispatch(BrowserStopEvent(force=False))
+		await self._await_teardown_phase(
+			self.event_bus.dispatch(BrowserStopEvent(force=False)),
+			phase='browser_stop',
+			timeout=TEARDOWN_STOP_TIMEOUT_S,
+		)
 
 		# Stop the event bus
 		await self.event_bus.stop(clear=True, timeout=5)
 		# Reset all state
-		await self.reset()
+		await self._await_teardown_phase(self.reset(), phase='reset', timeout=TEARDOWN_RESET_TIMEOUT_S)
 		# Create fresh event bus
 		self.event_bus = ResilientEventBus()
 		self._register_session_event_handlers()
@@ -1320,10 +1398,13 @@ class BrowserSession(BaseModel):
 			if self.is_local:
 				self.browser_profile.cdp_url = None
 
-			# Notify stop and wait for all handlers to complete
+			# Notify stop and wait for handlers to complete (bounded: a wedged
+			# notification handler must not wedge the stop dispatch awaiting us)
 			# LocalBrowserWatchdog listens for BrowserStopEvent and dispatches BrowserKillEvent
 			stop_event = self.event_bus.dispatch(BrowserStoppedEvent(reason='Stopped by request'))
-			await stop_event
+			await self._await_teardown_phase(
+				stop_event, phase='browser_stopped_notify', timeout=TEARDOWN_STOPPED_NOTIFY_TIMEOUT_S
+			)
 
 		except Exception as e:
 			self.event_bus.dispatch(
