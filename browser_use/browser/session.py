@@ -981,16 +981,17 @@ class BrowserSession(BaseModel):
 			await self._close_extension_options_pages()
 
 			# Dispatch navigation complete
-			self.logger.debug(f'Dispatching NavigationCompleteEvent for {event.url} (tab #{target_id[-4:]})')
+			navigation_url = self._get_navigation_result_url(target_id, event.url)
+			self.logger.debug(f'Dispatching NavigationCompleteEvent for {navigation_url} (tab #{target_id[-4:]})')
 			await self.event_bus.dispatch(
 				NavigationCompleteEvent(
 					target_id=target_id,
-					url=event.url,
+					url=navigation_url,
 					status=None,  # CDP doesn't provide status directly
 					loading_status=loading_status,  # non-None when readiness timed out
 				)
 			)
-			await self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=event.url))
+			await self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=navigation_url))
 
 			# Note: These should be handled by dedicated watchdogs:
 			# - Security checks (security_watchdog)
@@ -2429,6 +2430,13 @@ class BrowserSession(BaseModel):
 			target = self.session_manager.get_target(self.agent_focus_target_id)
 			return target.url
 		return 'about:blank'
+
+	def _get_navigation_result_url(self, target_id: str, fallback_url: str) -> str:
+		"""Return the browser's final URL after navigation, falling back to the requested URL."""
+		if not self.session_manager:
+			return fallback_url
+		target = self.session_manager.get_target(target_id)
+		return target.url if target and target.url else fallback_url
 
 	async def get_current_page_title(self) -> str:
 		"""Get the title of the current page."""
