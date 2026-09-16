@@ -981,7 +981,7 @@ class BrowserSession(BaseModel):
 			await self._close_extension_options_pages()
 
 			# Dispatch navigation complete
-			navigation_url = self._get_navigation_result_url(target_id, event.url)
+			navigation_url = await self._get_navigation_result_url(target_id, event.url)
 			self.logger.debug(f'Dispatching NavigationCompleteEvent for {navigation_url} (tab #{target_id[-4:]})')
 			await self.event_bus.dispatch(
 				NavigationCompleteEvent(
@@ -2431,11 +2431,20 @@ class BrowserSession(BaseModel):
 			return target.url
 		return 'about:blank'
 
-	def _get_navigation_result_url(self, target_id: str, fallback_url: str) -> str:
+	async def _get_navigation_result_url(self, target_id: str, fallback_url: str) -> str:
 		"""Return the browser's final URL after navigation, falling back to the requested URL."""
-		if not self.session_manager:
-			return fallback_url
-		target = self.session_manager.get_target(target_id)
+		target = self.session_manager.get_target(target_id) if self.session_manager else None
+		if self._cdp_client_root:
+			try:
+				result = await self._cdp_client_root.send.Target.getTargetInfo(params={'targetId': target_id})
+				target_url = result.get('targetInfo', {}).get('url')
+				if target_url:
+					if target:
+						target.url = target_url
+					return target_url
+			except Exception as exc:
+				self.logger.debug(f'Failed to query final URL for target {target_id}: {type(exc).__name__} {exc}')
+
 		return target.url if target and target.url else fallback_url
 
 	async def get_current_page_title(self) -> str:
