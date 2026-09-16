@@ -55,8 +55,22 @@ async def test_navigation_complete_reports_final_redirect_url():
 	assert target.url == redirect_url
 
 
-async def test_navigation_complete_falls_back_when_target_is_unavailable():
-	"""The requested URL is retained when no fresher target URL can be read."""
+async def test_navigation_complete_falls_back_to_session_target_when_cdp_is_unavailable():
+	"""The cached target URL is used when the fresh CDP query fails."""
+	requested_url = 'http://127.0.0.1:8080/redirect'
+	cached_url = 'http://127.0.0.1:8080/cached'
+	session, _, dispatch = _make_session(cached_url)
+
+	await session.on_NavigateToUrlEvent(NavigateToUrlEvent(url=requested_url))
+
+	events = [call.args[0] for call in dispatch.await_args_list]
+	completed = [event for event in events if isinstance(event, NavigationCompleteEvent)]
+
+	assert completed[-1].url == cached_url
+
+
+async def test_navigation_complete_falls_back_to_requested_url_when_target_is_unavailable():
+	"""The requested URL is retained when no cached or fresh target URL can be read."""
 	requested_url = 'http://127.0.0.1:8080/redirect'
 	session, _, dispatch = _make_session(None)
 
