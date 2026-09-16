@@ -406,3 +406,8 @@ def test_detect_variables_multiple_types():
 	assert result['email'].original_value == 'test@example.com'
 	assert result['first_name'].original_value == 'John'
 	assert result['date'].original_value == '1990-01-01'
+
+def test_detect_company_name_and_organization_name_from_attributes():
+	assert _detect_from_attributes({'name': 'company_name'}) == ('company', None)
+	assert _detect_from_attributes({'name': 'organization_name'}) == ('company', None)
+	assert _detect_from_attributes({'id': 'company_name_input'}) == ('company', None)
