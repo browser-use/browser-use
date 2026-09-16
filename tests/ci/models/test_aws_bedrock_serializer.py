@@ -44,7 +44,7 @@ def test_is_url_image_rejects_unsupported_urls(url: str) -> None:
 @pytest.mark.parametrize(
 	('url', 'expected_format'),
 	[
-		('DATA:image/png;base64,aGVsbG8=', 'png'),
+		('DATA:IMAGE/PNG;base64,aGVsbG8=', 'png'),
 		('Data:image/JPEG;base64,aGVsbG8=', 'jpeg'),
 	],
 )

@@ -50,7 +50,7 @@ class AWSBedrockMessageSerializer:
 		header, data = url.split(',', 1)
 
 		# Extract format from mime type
-		mime_match = re.search(r'image/(\w+)', header)
+		mime_match = re.search(r'image/(\w+)', header, re.IGNORECASE)
 		if mime_match:
 			format_name = mime_match.group(1).lower()
 			# Map common formats
