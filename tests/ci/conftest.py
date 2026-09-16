@@ -163,6 +163,7 @@ async def browser_session():
 			user_data_dir=None,  # Use temporary directory
 			keep_alive=True,
 			enable_default_extensions=True,  # Enable extensions during tests
+			use_system_keychain=False,  # tests must never touch the OS credential store
 		)
 	)
 	await session.start()
