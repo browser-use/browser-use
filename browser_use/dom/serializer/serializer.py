@@ -40,7 +40,7 @@ SVG_ELEMENTS = {
 }
 
 
-_LINE_BREAK_PATTERN = re.compile(r'[ \t]*[\r\n\u2028\u2029]+[ \t]*')
+_LINE_BREAK_PATTERN = re.compile(r'[ \t]*(?:[\r\n\u2028\u2029]+[ \t]*)+')
 
 
 def _to_single_line(text: str) -> str:
@@ -970,11 +970,11 @@ class DOMTreeSerializer:
 				raw_attr_value = str(attributes.get(attr_name) or '')
 				if len(raw_attr_value) > DOMTreeSerializer.MAX_IMAGE_CONTEXT_ATTRIBUTE_LENGTH:
 					continue
-				attr_value = raw_attr_value.strip()
+				attr_value = _to_single_line(raw_attr_value.strip())
 				if attr_value:
 					parts.append(f'{output_name}={cap_text_length(attr_value, 100)}')
 
-			src = normalize_src(str(attributes.get('src') or ''))
+			src = _to_single_line(normalize_src(str(attributes.get('src') or '')))
 			if src:
 				parts.append(f'image_src={cap_text_length(src, 100)}')
 
