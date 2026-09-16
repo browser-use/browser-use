@@ -125,7 +125,7 @@ def _WhitespacePreservingConverter(page_html: str, **options: Any) -> str:
 
 	class _Converter(MarkdownConverter):  # type: ignore[misc]
 		def get_conv_fn(self, tag_name: str) -> Any:
-			convert_fn = super().get_conv_fn(tag_name)
+			convert_fn = super().get_conv_fn(tag_name)  # pyright: ignore[reportAttributeAccessIssue]
 			if convert_fn is None or tag_name.lower() not in _WHITESPACE_ONLY_PRESERVING_TAGS:
 				return convert_fn
 
