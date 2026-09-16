@@ -6,4 +6,5 @@
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$SCRIPT_DIR/.." || exit 1
 
-exec uv run pytest --numprocesses auto tests/ci $1 $2 $3
+# Keep xdist local to this entry point; CI runs each test file in its own job.
+exec uv run pytest --numprocesses auto --dist=loadscope tests/ci $1 $2 $3
