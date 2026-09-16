@@ -580,7 +580,9 @@ class AgentHistory(BaseModel):
 			'result': result_dump,
 			'state': self.state.to_dict(),
 			'metadata': self.metadata.model_dump() if self.metadata else None,
-			'state_message': self.state_message,
+			'state_message': self._filter_sensitive_data_from_string(self.state_message, sensitive_data)
+			if self.state_message
+			else self.state_message,
 		}
 
 

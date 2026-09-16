@@ -670,3 +670,28 @@ def test_history_filters_sensitive_data_inside_nested_lists(tmp_path):
 
 	assert 'token-123' not in saved, 'Sensitive value leaked into the saved history file'
 	assert saved.count('<secret>api_key</secret>') == 2
+
+
+def test_history_filters_sensitive_data_from_state_message(tmp_path):
+	"""The stored state message is captured before redaction, so save_to_file must redact it itself."""
+	from browser_use.agent.views import AgentHistory, AgentHistoryList, BrowserStateHistory
+
+	history = AgentHistoryList(
+		history=[
+			AgentHistory(
+				model_output=None,
+				result=[],
+				state=BrowserStateHistory(url='https://example.test', title='t', tabs=[], interacted_element=[None]),
+				state_message='<agent_history>\nTyped token-123 into the password field\n</agent_history>',
+			)
+		]
+	)
+
+	filepath = tmp_path / 'history.json'
+	history.save_to_file(filepath, sensitive_data={'api_key': 'token-123'})
+	saved = filepath.read_text(encoding='utf-8')
+
+	assert 'token-123' not in saved, 'Sensitive value leaked into the saved history file via state_message'
+	assert '<secret>api_key</secret>' in saved
+	# Without sensitive_data the message is saved verbatim
+	assert history.history[0].model_dump()['state_message'] == history.history[0].state_message
