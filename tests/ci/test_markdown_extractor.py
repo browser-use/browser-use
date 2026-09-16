@@ -156,10 +156,30 @@ class TestWhitespaceOnlyInlineElements:
 		content, _, _ = convert_html_to_markdown(html)
 		return content.strip()
 
-	@pytest.mark.parametrize('tag', ['b', 'strong', 'em', 'i', 'u', 's', 'code', 'sub', 'sup'])
+	@pytest.mark.parametrize('tag', ['b', 'strong', 'em', 'i', 'u', 's', 'del', 'strike', 'code', 'kbd', 'samp', 'sub', 'sup'])
 	def test_word_boundary_survives(self, tag: str):
 		"""A page that styles the space between two words still reads as two words."""
 		assert self._markdown(f'<p>Hello<{tag}> </{tag}>world</p>') == 'Hello world'
+
+	@pytest.mark.parametrize(
+		'html',
+		[
+			'<p>Hello <b> </b>world</p>',
+			'<p>Hello<b> </b> world</p>',
+			'<p>Hello <b> </b> world</p>',
+			'<p>Hello<b>\n</b>world</p>',
+		],
+	)
+	def test_whitespace_around_the_element_matches_an_unconverted_one(self, html: str):
+		"""A styled space now behaves exactly like an unstyled one.
+
+		markdownify does not collapse whitespace across element boundaries, so
+		`Hello <span> </span>world` has always produced two spaces. The point of the fix is
+		that the boundary exists at all; normalising it here would make `<b>` behave
+		differently from `<span>`, which is markdownify's own baseline for an inline element
+		it does not convert.
+		"""
+		assert self._markdown(html) == self._markdown(html.replace('b>', 'span>'))
 
 	def test_word_boundary_survives_an_anchor(self):
 		assert self._markdown('<p>Hello<a href="https://x.test"> </a>world</p>') == 'Hello world'
