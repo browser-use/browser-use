@@ -39,4 +39,3 @@ def test_add_overlay_display_step_false_no_unbound_local_error() -> None:
 	)
 	assert isinstance(result, Image.Image)
 	assert result.size == (800, 600)
-
