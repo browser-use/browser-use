@@ -670,3 +670,79 @@ def test_history_filters_sensitive_data_inside_nested_lists(tmp_path):
 
 	assert 'token-123' not in saved, 'Sensitive value leaked into the saved history file'
 	assert saved.count('<secret>api_key</secret>') == 2
+
+
+def test_history_filters_sensitive_data_from_input_text_action(tmp_path):
+	"""Regression test for the built-in `input_text` action leaking secrets into saved history.
+
+	The name-based guard used to be `if 'input' in action`, which is a dict-key lookup on
+	`{'input_text': ...}` and therefore always False for the built-in action.
+	"""
+	from typing import Any
+
+	from pydantic import create_model
+
+	from browser_use.agent.views import AgentHistory, AgentHistoryList, AgentOutput
+	from browser_use.browser.views import BrowserStateHistory
+	from browser_use.tools.registry.views import ActionModel
+	from browser_use.tools.views import InputTextAction
+
+	InputTextActionModel = create_model('InputTextActionModel', __base__=ActionModel, input_text=(InputTextAction | None, None))
+	OutputModel = AgentOutput.type_with_custom_actions(InputTextActionModel)
+
+	# built via model_validate because create_model's field is invisible to static analysis
+	action = InputTextActionModel.model_validate({'input_text': {'index': 1, 'text': 'token-123', 'clear': True}})
+	history = AgentHistoryList[Any](
+		history=[
+			AgentHistory(
+				model_output=OutputModel(memory='', action=[action]),
+				result=[],
+				state=BrowserStateHistory(url='https://example.test', title='t', tabs=[], interacted_element=[None]),
+			)
+		]
+	)
+
+	filepath = tmp_path / 'history.json'
+	history.save_to_file(filepath, sensitive_data={'api_key': 'token-123'})
+	saved = filepath.read_text(encoding='utf-8')
+
+	assert 'token-123' not in saved, 'Sensitive value leaked into the saved history file'
+	assert '<secret>api_key</secret>' in saved
+
+
+def test_history_filters_sensitive_data_from_actions_without_input_in_the_name(tmp_path):
+	"""Redaction must not depend on the action name containing 'input'.
+
+	A custom action can carry a secret too, so every action's parameters are filtered.
+	"""
+	from typing import Any
+
+	from pydantic import BaseModel, create_model
+
+	from browser_use.agent.views import AgentHistory, AgentHistoryList, AgentOutput
+	from browser_use.browser.views import BrowserStateHistory
+	from browser_use.tools.registry.views import ActionModel
+
+	class SearchParams(BaseModel):
+		query: str
+
+	SearchActionModel = create_model('SearchActionModel', __base__=ActionModel, search=(SearchParams | None, None))
+	OutputModel = AgentOutput.type_with_custom_actions(SearchActionModel)
+
+	action = SearchActionModel.model_validate({'search': {'query': 'token-123'}})
+	history = AgentHistoryList[Any](
+		history=[
+			AgentHistory(
+				model_output=OutputModel(memory='', action=[action]),
+				result=[],
+				state=BrowserStateHistory(url='https://example.test', title='t', tabs=[], interacted_element=[None]),
+			)
+		]
+	)
+
+	filepath = tmp_path / 'history.json'
+	history.save_to_file(filepath, sensitive_data={'api_key': 'token-123'})
+	saved = filepath.read_text(encoding='utf-8')
+
+	assert 'token-123' not in saved, 'Sensitive value leaked into the saved history file'
+	assert '<secret>api_key</secret>' in saved
