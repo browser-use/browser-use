@@ -210,7 +210,7 @@ class BrowserStateRequestEvent(BaseEvent[BrowserStateSummary]):
 # 	state: Literal['attached', 'detached', 'visible', 'hidden'] | None = None
 
 
-class GoBackEvent(BaseEvent[None]):
+class GoBackEvent(BaseEvent[bool]):
 	"""Navigate back in browser history."""
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_GoBackEvent', 15.0))  # seconds

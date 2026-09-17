@@ -2367,7 +2367,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		cdp_session = await self.browser_session.get_or_create_cdp_session()
 		return cdp_session.session_id
 
-	async def on_GoBackEvent(self, event: GoBackEvent) -> None:
+	async def on_GoBackEvent(self, event: GoBackEvent) -> bool:
 		"""Handle navigate back request with CDP."""
 		cdp_session = await self.browser_session.get_or_create_cdp_session()
 		try:
@@ -2381,7 +2381,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Check if we can go back
 			if current_index <= 0:
 				self.logger.warning('⚠️ Cannot go back - no previous entry in history')
-				return
+				return False
 
 			# Navigate to the previous entry
 			previous_entry_id = entries[current_index - 1]['id']
@@ -2394,6 +2394,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Navigation is handled by BrowserSession via events
 
 			self.logger.info(f'🔙 Navigated back to {entries[current_index - 1]["url"]}')
+			return True
 		except Exception as e:
 			raise
 

@@ -1061,7 +1061,9 @@ class BrowserUseServer:
 		from browser_use.browser.events import GoBackEvent
 
 		event = self.browser_session.event_bus.dispatch(GoBackEvent())
-		await event
+		did_navigate = await event.event_result(raise_if_any=True, raise_if_none=True)
+		if not did_navigate:
+			return 'Error: Cannot go back - no previous entry in history'
 		return 'Navigated back'
 
 	async def _close_browser(self) -> str:
