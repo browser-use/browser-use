@@ -216,10 +216,9 @@ class BrowserUseServer:
 		# Setup handlers
 		self._setup_handlers()
 
-	
 	def _save_screenshot(self, screenshot_data: bytes) -> str:
 		"""Save screenshot data to a temporary file and return the path."""
-		filename = f"screenshot_{uuid7str()}.png"
+		filename = f'screenshot_{uuid7str()}.png'
 		file_path = self.screenshot_dir / filename
 		file_path.write_bytes(screenshot_data)
 		self.screenshot_files.append(file_path)
@@ -298,7 +297,7 @@ class BrowserUseServer:
 							'properties': {
 								'include_screenshot': {
 									'type': 'boolean',
-									'description': 'Whether to include a screenshot of the current page',
+									'description': 'Whether to include a screenshot of the current page. If true, the result will carry a screenshot_path field.',
 									'default': False,
 								}
 							},
@@ -954,9 +953,10 @@ class BrowserUseServer:
 		screenshot_path = None
 		if include_screenshot and state.screenshot:
 			import base64
+
 			screenshot_data = base64.b64decode(state.screenshot)
 			screenshot_path = self._save_screenshot(screenshot_data)
-			
+
 			# Include viewport dimensions in JSON so LLM can map pixels to coordinates
 			if state.page_info:
 				result['screenshot_dimensions'] = {
@@ -998,7 +998,6 @@ class BrowserUseServer:
 		"""Take a screenshot. Returns (metadata_json, screenshot_b64 | None)."""
 		if not self.browser_session:
 			return 'Error: No browser session active', None
-
 
 		self._update_session_activity(self.browser_session.id)
 
@@ -1199,7 +1198,7 @@ class BrowserUseServer:
 			if self.browser_session and self.browser_session.id == session_id:
 				self.browser_session = None
 				self.tools = None
-			
+
 			# Cleanup screenshot directory
 			if self.screenshot_dir.exists():
 				shutil.rmtree(self.screenshot_dir)

@@ -1,14 +1,14 @@
 
-import base64
-import json
+import asyncio
 import os
+import json
+import base64
 from unittest.mock import AsyncMock, MagicMock
-
 import pytest
+from pathlib import Path
 
-from browser_use.browser.session import BrowserSession
 from browser_use.mcp.server import BrowserUseServer
-
+from browser_use.browser.session import BrowserSession
 
 @pytest.mark.asyncio
 async def test_browser_screenshot_returns_path_not_blob():
@@ -34,6 +34,9 @@ async def test_browser_screenshot_returns_path_not_blob():
     assert "screenshot_path" in data
     assert os.path.exists(data["screenshot_path"])
     assert data["screenshot_path"].endswith(".png")
+    # Ensure no large base64 blob is returned in the text payload (Suggestion C)
+    assert "data:image" not in result
+    assert len(result) < 10000
 
 @pytest.mark.asyncio
 async def test_browser_get_state_returns_path_when_requested():
@@ -41,15 +44,12 @@ async def test_browser_get_state_returns_path_when_requested():
     mock_session = AsyncMock(spec=BrowserSession)
     mock_session.id = "test_session_state"
     
-    # Use a real dict-like object for state to avoid MagicMock serialization issues if possible,
-    # or just mock the attributes carefully.
     mock_state = MagicMock()
     mock_state.url = "https://example.com"
     mock_state.title = "Example"
     mock_state.tabs = []
     mock_state.screenshot = base64.b64encode(b"fake_state_screenshot").decode()
     
-    # Mock page_info carefully
     pi = MagicMock()
     pi.viewport_width = 1280
     pi.viewport_height = 720
@@ -59,7 +59,6 @@ async def test_browser_get_state_returns_path_when_requested():
     pi.scroll_y = 0
     mock_state.page_info = pi
     
-    # Mock dom_state
     ds = MagicMock()
     ds.selector_map = {}
     mock_state.dom_state = ds
@@ -75,6 +74,9 @@ async def test_browser_get_state_returns_path_when_requested():
     data = json.loads(result)
     assert "screenshot_path" in data
     assert os.path.exists(data["screenshot_path"])
+    # Ensure no large base64 blob is returned in the text payload (Suggestion C)
+    assert "data:image" not in result
+    assert len(result) < 10000
 
 @pytest.mark.asyncio
 async def test_screenshot_cleanup_on_session_close():
