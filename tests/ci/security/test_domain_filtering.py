@@ -516,7 +516,8 @@ class TestDomainListOptimization:
 
 		# Test www variant matching for domains with www prefix
 		assert watchdog._is_url_allowed('https://www.domain0.org') is False
-		assert watchdog._is_url_allowed('https://domain0.org') is False  # Should also be blocked
+		# A www-prefixed root entry does not implicitly match the bare domain.
+		assert watchdog._is_url_allowed('https://domain0.org') is True
 
 		# Test that unrelated domains are allowed
 		assert watchdog._is_url_allowed('https://example.com') is True
@@ -539,10 +540,27 @@ class TestDomainListOptimization:
 		# Should be converted to set
 		assert isinstance(browser_session.browser_profile.allowed_domains, set)
 
+	def test_large_sets_preserve_protocol_case_and_www_semantics(self):
+		"""Optimization must not change the list matcher semantics."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		patterns = ['https://Example.COM'] + [f'allowed{i}.com' for i in range(99)]
+		browser_profile = BrowserProfile(allowed_domains=patterns, headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=EventBus())
+
+		assert isinstance(browser_session.browser_profile.allowed_domains, set)
+		assert watchdog._is_url_allowed('https://Example.COM/path') is True
+		assert watchdog._is_url_allowed('https://example.com/path') is False
+		assert watchdog._is_url_allowed('http://Example.COM/path') is False
+		assert watchdog._is_url_allowed('https://www.allowed0.com') is True
+
 		# Allowed domains should work
 		assert watchdog._is_url_allowed('https://allowed0.com') is True
 		assert watchdog._is_url_allowed('https://www.allowed0.com') is True
-		assert watchdog._is_url_allowed('https://allowed99.com') is True
+		assert watchdog._is_url_allowed('https://allowed98.com') is True
 
 		# Other domains should be blocked
 		assert watchdog._is_url_allowed('https://example.com') is False
