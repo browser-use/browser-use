@@ -594,16 +594,22 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to go back: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('Wait for x seconds.')
+		@self.registry.action(
+			'Wait for x seconds. Maximum wait is 30 seconds; longer requests are capped and the response reports the actual wait.'
+		)
 		async def wait(seconds: int = 3):
-			# Cap wait time at maximum 30 seconds
-			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
-			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
-			# Note by Mert: the above doesnt make sense because we do the LLM call right after this or this could be followed by another action after which we would like to wait
-			# so I revert this.
-			actual_seconds = min(max(seconds - 1, 0), 30)
-			memory = f'Waited for {seconds} seconds'
-			logger.info(f'🕒 waited for {seconds} second{"" if seconds == 1 else "s"}')
+			# Cap at 30s and report *what we actually slept*, not the requested value.
+			# Do not subtract a guessed LLM latency — wait can be mid-multi_act and the
+			# next model call may be many steps later (Mert's note was correct).
+			max_wait = 30
+			requested = max(int(seconds), 0)
+			actual_seconds = min(requested, max_wait)
+			unit = 'second' if actual_seconds == 1 else 'seconds'
+			if requested > max_wait:
+				memory = f'Waited for {actual_seconds} {unit} (capped from requested {requested}s; max wait is {max_wait}s)'
+			else:
+				memory = f'Waited for {actual_seconds} {unit}'
+			logger.info(f'🕒 {memory}')
 			await asyncio.sleep(actual_seconds)
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
