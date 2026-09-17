@@ -160,6 +160,8 @@ def _patch_browser_harness_cli_text() -> None:
 	from browser_harness import auth, run, telemetry
 
 	run.HELP = _as_browser_use_cli_text(run.HELP)
+	if 'browser-use orcarouter login' not in run.HELP:
+		run.HELP = f'{run.HELP.rstrip()}\n  browser-use orcarouter login   connect an OrcaRouter account with PKCE\n'
 	run.USAGE = _as_browser_use_cli_text(run.USAGE)
 
 	original_auth_cli = auth.run_auth_cli
@@ -348,6 +350,8 @@ def _command_name(args: list[str]) -> str:
 		return 'init'
 	if args and args[0] == 'skill':
 		return 'skill'
+	if args and args[0] == 'orcarouter':
+		return 'orcarouter'
 	legacy = _legacy_command(args)
 	if legacy is not None:
 		return f'legacy:{legacy}'
@@ -371,6 +375,10 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		from browser_use.skills.install import handle as handle_skill_command
 
 		return handle_skill_command(args[1:]), 'skill'
+	if args and args[0] == 'orcarouter':
+		from browser_use.llm.orcarouter.cli import handle as handle_orcarouter_command
+
+		return handle_orcarouter_command(args[1:]), 'orcarouter'
 
 	legacy = _legacy_command(args)
 	if legacy is not None:
