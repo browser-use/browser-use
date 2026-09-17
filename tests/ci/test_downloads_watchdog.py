@@ -1,4 +1,6 @@
-from browser_use.browser.watchdogs.downloads_watchdog import _should_auto_download_network_response
+from browser_use.browser.events import FileDownloadedEvent
+from browser_use.browser.session import BrowserSession
+from browser_use.browser.watchdogs.downloads_watchdog import DownloadsWatchdog, _should_auto_download_network_response
 
 
 def test_downloads_watchdog_skips_generic_text_attachment_without_file_url():
@@ -49,3 +51,46 @@ def test_downloads_watchdog_keeps_attachment_without_known_extension():
 		is_download_attachment=True,
 		suggested_filename='statement',
 	)
+
+
+async def test_remote_cdp_download_completion_notifies_direct_callback(tmp_path):
+	browser_session = BrowserSession(downloads_path=tmp_path)
+	watchdog = DownloadsWatchdog(event_bus=browser_session.event_bus, browser_session=browser_session)
+	watchdog._cdp_downloads_info = {
+		'guid-123': {
+			'url': 'https://example.test/report.csv',
+			'suggested_filename': 'report.csv',
+		}
+	}
+
+	try:
+		completed = []
+		watchdog.register_download_callbacks(on_complete=completed.append)
+
+		watchdog._handle_remote_cdp_download_completed(guid='guid-123', file_path=None)
+
+		assert completed == [
+			{
+				'guid': 'guid-123',
+				'url': 'https://example.test/report.csv',
+				'path': str(tmp_path / 'report.csv'),
+				'file_name': 'report.csv',
+				'file_size': 0,
+				'file_type': 'csv',
+				'auto_download': False,
+			}
+		]
+		assert watchdog._cdp_downloads_info == {}
+		file_downloaded_events = [
+			event for event in browser_session.event_bus.event_history.values() if isinstance(event, FileDownloadedEvent)
+		]
+		assert len(file_downloaded_events) == 1
+		file_downloaded_event = file_downloaded_events[0]
+		assert file_downloaded_event.guid == 'guid-123'
+		assert file_downloaded_event.url == 'https://example.test/report.csv'
+		assert file_downloaded_event.path == str(tmp_path / 'report.csv')
+		assert file_downloaded_event.file_name == 'report.csv'
+		assert file_downloaded_event.file_size == 0
+		assert file_downloaded_event.file_type == 'csv'
+	finally:
+		await browser_session.event_bus.stop(clear=True, timeout=1)
