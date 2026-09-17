@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable
 from inspect import Parameter, iscoroutinefunction, signature
 from types import UnionType
-from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
+from typing import Any, Optional, Union, get_args, get_origin
 
 import pyotp
 from pydantic import BaseModel, Field, RootModel, create_model
@@ -25,12 +25,10 @@ from browser_use.tools.registry.views import (
 )
 from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern, time_execution_async
 
-Context = TypeVar('Context')
-
 logger = logging.getLogger(__name__)
 
 
-class Registry(Generic[Context]):
+class Registry:
 	"""Service for registering and managing actions"""
 
 	def __init__(self, exclude_actions: list[str] | None = None):
@@ -61,7 +59,6 @@ class Registry(Generic[Context]):
 		# but each driver should decide what is relevant to expose the action methods,
 		# e.g. CDP client, 2fa code getters, sensitive_data wrappers, other context, etc.
 		return {
-			'context': None,  # Context is a TypeVar, so we can't validate type
 			'browser_session': BrowserSession,
 			'page_url': str,
 			'cdp_client': None,  # CDPClient type from cdp_use, but we don't import it here

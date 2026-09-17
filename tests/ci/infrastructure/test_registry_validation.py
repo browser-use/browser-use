@@ -391,10 +391,6 @@ class TestParamsModelArgsAndKwargs:
 		from browser_use.tools.registry.service import Registry
 		from browser_use.tools.registry.views import ActionModel
 
-		# Simple context for testing
-		class TestContext:
-			pass
-
 		class MockBrowserSession:
 			async def get_current_page(self):
 				return None
@@ -402,7 +398,7 @@ class TestParamsModelArgsAndKwargs:
 		browser_session = MockBrowserSession()
 
 		# Create registry
-		registry = Registry[TestContext]()
+		registry = Registry()
 
 		# Model that doesn't include browser_session (renamed to avoid pytest collecting it)
 		class CellActionParams(ActionModel):
