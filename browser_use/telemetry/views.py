@@ -23,6 +23,17 @@ class BaseTelemetryEvent(ABC):
 
 @dataclass
 class AgentTelemetryEvent(BaseTelemetryEvent):
+	"""Telemetry event sent for each agent run when ANONYMIZED_TELEMETRY is enabled (the default).
+
+	The *identifier* PostHog associates with events is anonymous, but the *content* of this
+	event is a fairly complete transcript of the run: the full task prompt (``task``), every
+	URL visited (``urls_visited``), the actions taken including any text typed into pages
+	(``action_history``), and the data the agent read off the page (``final_result_response``).
+	If you run this against internal tools, authenticated dashboards, or with sensitive
+	business context in the prompt, that content leaves your machine by default. Disable with
+	``ANONYMIZED_TELEMETRY=false`` if that's not acceptable for your use case.
+	"""
+
 	# start details
 	task: str
 	model: str
