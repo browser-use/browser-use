@@ -61,3 +61,30 @@ def test_chrome_profile_copy_lock_error_is_actionable(tmp_path: Path, monkeypatc
 		)
 
 	assert not temp_user_data_dir.exists()
+
+
+def test_user_data_dir_default_validation_when_omitted() -> None:
+	"""user_data_dir field_validator should execute when field is omitted or explicitly None."""
+	profile_explicit_none = BrowserProfile(user_data_dir=None)
+	profile_omitted = BrowserProfile(headless=True)
+	profile_empty = BrowserProfile()
+
+	dir_explicit_none = profile_explicit_none.user_data_dir
+	dir_omitted = profile_omitted.user_data_dir
+	dir_empty = profile_empty.user_data_dir
+
+	try:
+		assert dir_explicit_none is not None
+		assert dir_omitted is not None
+		assert dir_empty is not None
+
+		assert 'browser-use-user-data-dir-' in str(dir_explicit_none)
+		assert 'browser-use-user-data-dir-' in str(dir_omitted)
+		assert 'browser-use-user-data-dir-' in str(dir_empty)
+	finally:
+		if dir_explicit_none is not None:
+			shutil.rmtree(dir_explicit_none, ignore_errors=True)
+		if dir_omitted is not None:
+			shutil.rmtree(dir_omitted, ignore_errors=True)
+		if dir_empty is not None:
+			shutil.rmtree(dir_empty, ignore_errors=True)
