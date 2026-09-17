@@ -144,8 +144,10 @@ async def stealth_task(browser: Browser):
 
 1. Sync local cookies:
 ```bash
-export BROWSER_USE_API_KEY=your_key && curl -fsSL https://browser-use.com/profile.sh | sh
+export BROWSER_USE_API_KEY=your_key
 ```
+
+Then [install profile-use](https://github.com/browser-use/profile-use-releases/releases/latest) for your platform and follow the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md).
 
 2. Use the returned profile_id:
 ```python
