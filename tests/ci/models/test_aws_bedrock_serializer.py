@@ -116,7 +116,8 @@ def test_all_system_messages_are_preserved_in_order() -> None:
 
 	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
 
-	assert system == [{'text': 'First rule.'}, {'text': 'Second rule.'}, {'text': 'Third rule.'}]
+	# Separated by a blank line, so one instruction does not run into the next.
+	assert system == [{'text': 'First rule.\n\n'}, {'text': 'Second rule.\n\n'}, {'text': 'Third rule.'}]
 
 
 def test_multi_part_system_messages_keep_every_text_block() -> None:
@@ -129,7 +130,7 @@ def test_multi_part_system_messages_keep_every_text_block() -> None:
 
 	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
 
-	assert system == [{'text': 'Part one.'}, {'text': 'Part two.'}, {'text': 'Part three.'}]
+	assert system == [{'text': 'Part one.\n\n'}, {'text': 'Part two.\n\n'}, {'text': 'Part three.'}]
 
 
 def test_system_messages_do_not_reach_the_conversation() -> None:
@@ -142,8 +143,31 @@ def test_system_messages_do_not_reach_the_conversation() -> None:
 
 	bedrock_messages, system = AWSBedrockMessageSerializer.serialize_messages(messages)
 
-	assert system == [{'text': 'First rule.'}, {'text': 'Late rule.'}]
+	assert system == [{'text': 'First rule.\n\n'}, {'text': 'Late rule.'}]
 	assert [message['role'] for message in bedrock_messages] == ['user']
+
+
+def test_empty_system_messages_are_dropped_rather_than_sent_as_empty_blocks() -> None:
+	"""Converse rejects an empty text block, so an empty extend_system_message must not turn a
+	working request into a validation error."""
+	messages: list[BaseMessage] = [
+		SystemMessage(content=''),
+		SystemMessage(content='Only rule.'),
+		UserMessage(content='Go.'),
+	]
+
+	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system == [{'text': 'Only rule.'}]
+
+
+def test_system_messages_that_are_all_empty_leave_no_system_field() -> None:
+	"""Nothing to say means no `system` field at all, rather than a list of empty blocks."""
+	messages: list[BaseMessage] = [SystemMessage(content=''), SystemMessage(content=''), UserMessage(content='Go.')]
+
+	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system is None
 
 
 def test_conversation_without_system_messages_has_no_system_field() -> None:

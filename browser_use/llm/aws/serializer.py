@@ -274,4 +274,16 @@ class AWSBedrockMessageSerializer:
 				serialized = AWSBedrockMessageSerializer.serialize(message)
 				bedrock_messages.append(serialized)
 
+		# Converse rejects an empty text block, so an empty system message (an empty
+		# extend_system_message, say) must not become one now that every system message is
+		# kept rather than only the last.
+		system_blocks = [block for block in system_blocks if block.get('text')]
+
+		# The blocks are read as one instruction with nothing between them, so without a
+		# separator the end of one runs into the start of the next. The Google serializer
+		# joins system messages with a blank line; this keeps the two in step.
+		for block in system_blocks[:-1]:
+			if not block['text'].endswith('\n\n'):
+				block['text'] += '\n\n'
+
 		return bedrock_messages, system_blocks or None
