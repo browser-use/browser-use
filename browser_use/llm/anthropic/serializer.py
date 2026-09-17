@@ -367,11 +367,11 @@ class AnthropicMessageSerializer:
 					system_blocks.extend(serialized)
 
 			# The blocks are read as one instruction with nothing between them, so without a
-			# separator the end of one runs into the start of the next. The Google serializer
-			# joins system messages with a blank line; this keeps the two in step.
+			# separator the end of one runs into the start of the next. Every block but the last
+			# ends with exactly one blank line, whatever trailing newlines it arrived with, so the
+			# spacing does not depend on how the caller wrote its message.
 			for block in system_blocks[:-1]:
-				if not block['text'].endswith('\n\n'):
-					block['text'] += '\n\n'
+				block['text'] = block['text'].rstrip('\n') + '\n\n'
 
 			serialized_system_message = system_blocks
 

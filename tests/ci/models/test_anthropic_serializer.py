@@ -32,6 +32,23 @@ def test_all_system_messages_are_preserved_in_order():
 	assert len(messages) == 1
 
 
+def test_a_block_that_already_ends_in_a_newline_is_still_separated_by_one_blank_line():
+	"""Trailing newlines in the message must not make the gap between blocks wider."""
+	_, system = AnthropicMessageSerializer.serialize_messages(
+		[
+			SystemMessage(content='Follow the base system rule.\n'),
+			SystemMessage(content='Also follow the additional system rule.'),
+			UserMessage(content='Continue the task.'),
+		]
+	)
+
+	assert isinstance(system, list)
+	assert [block['text'] for block in system] == [
+		'Follow the base system rule.\n\n',
+		'Also follow the additional system rule.',
+	]
+
+
 def test_empty_system_message_is_dropped_rather_than_sent_as_an_empty_block():
 	"""Anthropic rejects an empty text block, so an empty extend_system_message must not
 	turn a working request into a 400."""
