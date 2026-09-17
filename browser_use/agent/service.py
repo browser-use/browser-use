@@ -1690,15 +1690,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
 				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
-				action_instance = self.ActionModel()
-				setattr(
-					action_instance,
-					'done',
-					{
-						'success': False,
-						'text': 'No next action returned by LLM!',
-					},
-				)
+				# ActionModel is a RootModel union of single-action models (no all-optional
+				# flat shape). ActionModel() therefore raises ValidationError — construct a
+				# proper done action instead (prefer DoneActionModel, one-field schema).
+				fallback_done = {'success': False, 'text': 'No next action returned by LLM!'}
+				try:
+					# model_validate keeps dynamic create_model types pyright-safe
+					action_instance = self.DoneActionModel.model_validate({'done': fallback_done})
+				except Exception:
+					# Full ActionModel union still accepts done={...} via validation
+					action_instance = self.ActionModel.model_validate({'done': fallback_done})
 				model_output.action = [action_instance]
 
 		return model_output
