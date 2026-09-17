@@ -147,6 +147,19 @@ def test_system_messages_do_not_reach_the_conversation() -> None:
 	assert [message['role'] for message in bedrock_messages] == ['user']
 
 
+def test_a_block_that_already_ends_in_a_newline_is_still_separated_by_one_blank_line() -> None:
+	"""Trailing newlines in the message must not make the gap between blocks wider."""
+	messages: list[BaseMessage] = [
+		SystemMessage(content='First rule.\n'),
+		SystemMessage(content='Second rule.'),
+		UserMessage(content='Go.'),
+	]
+
+	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system == [{'text': 'First rule.\n\n'}, {'text': 'Second rule.'}]
+
+
 def test_empty_system_messages_are_dropped_rather_than_sent_as_empty_blocks() -> None:
 	"""Converse rejects an empty text block, so an empty extend_system_message must not turn a
 	working request into a validation error."""
