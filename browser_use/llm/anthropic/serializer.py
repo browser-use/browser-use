@@ -268,7 +268,7 @@ class AnthropicMessageSerializer:
 			raise ValueError(f'Unknown message type: {type(message)}')
 
 	@staticmethod
-	def _has_text(message: BaseMessage) -> bool:
+	def _has_text(message: SystemMessage) -> bool:
 		"""Whether the message carries any text to send."""
 		if isinstance(message.content, str):
 			return bool(message.content)
