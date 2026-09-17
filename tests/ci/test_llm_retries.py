@@ -299,6 +299,85 @@ class TestChatGoogleRetries:
 		assert attempt_count == 2
 		assert result.completion == 'Success after rate limit!'
 
+	@pytest.mark.asyncio
+	async def test_retries_on_sdk_error_with_retryable_status(self, mock_env):
+		"""Test that SDK-raised ClientError with a retryable status code is retried."""
+		from types import SimpleNamespace
+
+		from google.genai.errors import ClientError
+
+		from browser_use.llm.google.chat import ChatGoogle
+		from browser_use.llm.messages import UserMessage
+
+		attempt_count = 0
+
+		with patch('browser_use.llm.google.chat.genai') as mock_genai:
+			mock_client = MagicMock()
+			mock_genai.Client.return_value = mock_client
+
+			async def mock_generate(*args, **kwargs):
+				nonlocal attempt_count
+				attempt_count += 1
+
+				if attempt_count < 3:
+					raise ClientError(
+						code=429,
+						response_json={'error': {'message': 'RESOURCE_EXHAUSTED: quota exceeded'}},
+						response=SimpleNamespace(status_code=429),
+					)
+				else:
+					mock_response = MagicMock()
+					mock_response.text = 'Success after SDK error!'
+					mock_response.usage_metadata = MagicMock(
+						prompt_token_count=10, candidates_token_count=5, total_token_count=15, cached_content_token_count=0
+					)
+					mock_response.candidates = [MagicMock(content=MagicMock(parts=[MagicMock(text='Success after SDK error!')]))]
+					return mock_response
+
+			mock_client.aio.models.generate_content = mock_generate
+
+			client = ChatGoogle(model='gemini-2.0-flash', api_key='test', retry_base_delay=0.01)
+			result = await client.ainvoke([UserMessage(content='test')])
+
+		assert attempt_count == 3
+		assert result.completion == 'Success after SDK error!'
+
+	@pytest.mark.asyncio
+	async def test_no_retry_on_sdk_error_with_non_retryable_status(self, mock_env):
+		"""Test that SDK-raised ClientError with a non-retryable status code fails without retry."""
+		from types import SimpleNamespace
+
+		from google.genai.errors import ClientError
+
+		from browser_use.llm.exceptions import ModelProviderError
+		from browser_use.llm.google.chat import ChatGoogle
+		from browser_use.llm.messages import UserMessage
+
+		attempt_count = 0
+
+		with patch('browser_use.llm.google.chat.genai') as mock_genai:
+			mock_client = MagicMock()
+			mock_genai.Client.return_value = mock_client
+
+			async def mock_generate(*args, **kwargs):
+				nonlocal attempt_count
+				attempt_count += 1
+				raise ClientError(
+					code=400,
+					response_json={'error': {'message': 'API key not valid'}},
+					response=SimpleNamespace(status_code=400),
+				)
+
+			mock_client.aio.models.generate_content = mock_generate
+
+			client = ChatGoogle(model='gemini-2.0-flash', api_key='test', retry_base_delay=0.01)
+
+			with pytest.raises(ModelProviderError) as exc_info:
+				await client.ainvoke([UserMessage(content='test')])
+
+		assert attempt_count == 1
+		assert exc_info.value.status_code == 400
+
 
 if __name__ == '__main__':
 	pytest.main([__file__, '-v'])
