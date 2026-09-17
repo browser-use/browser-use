@@ -33,9 +33,13 @@ os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
 import asyncio
 import json
 import logging
+import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
+
+from uuid_extensions import uuid7str
 
 from browser_use.llm import ChatAWSBedrock
 
@@ -200,6 +204,10 @@ class BrowserUseServer:
 		self._telemetry = ProductTelemetry()
 		self._start_time = time.time()
 
+		# Screenshot management
+		self.screenshot_dir = Path(tempfile.mkdtemp(prefix='browser_use_screenshots_'))
+		self.screenshot_files: list[Path] = []
+
 		# Session management
 		self.active_sessions: dict[str, dict[str, Any]] = {}  # session_id -> session info
 		self.session_timeout_minutes = session_timeout_minutes
@@ -207,6 +215,15 @@ class BrowserUseServer:
 
 		# Setup handlers
 		self._setup_handlers()
+
+	
+	def _save_screenshot(self, screenshot_data: bytes) -> str:
+		"""Save screenshot data to a temporary file and return the path."""
+		filename = f"screenshot_{uuid7str()}.png"
+		file_path = self.screenshot_dir / filename
+		file_path.write_bytes(screenshot_data)
+		self.screenshot_files.append(file_path)
+		return str(file_path.absolute())
 
 	def _setup_handlers(self):
 		"""Setup MCP server handlers."""
@@ -320,7 +337,7 @@ class BrowserUseServer:
 					),
 					types.Tool(
 						name='browser_screenshot',
-						description='Take a screenshot of the current page. Returns viewport metadata as text and the screenshot as an image.',
+						description='Take a screenshot of the current page. Returns viewport metadata as text and the path to the screenshot image file.',
 						input_schema={
 							'type': 'object',
 							'properties': {
@@ -543,21 +560,23 @@ class BrowserUseServer:
 				return await self._type_text(arguments['index'], arguments['text'])
 
 			elif tool_name == 'browser_get_state':
-				state_json, screenshot_b64 = await self._get_browser_state(arguments.get('include_screenshot', False))
-				content: list[types.ContentBlock] = [types.TextContent(type='text', text=state_json)]
-				if screenshot_b64:
-					content.append(types.ImageContent(type='image', data=screenshot_b64, mime_type='image/png'))
-				return content
+				state_json, screenshot_path = await self._get_browser_state(arguments.get('include_screenshot', False))
+				if screenshot_path:
+					state_dict = json.loads(state_json)
+					state_dict['screenshot_path'] = screenshot_path
+					state_json = json.dumps(state_dict, indent=2)
+				return state_json
 
 			elif tool_name == 'browser_get_html':
 				return await self._get_html(arguments.get('selector'))
 
 			elif tool_name == 'browser_screenshot':
-				meta_json, screenshot_b64 = await self._screenshot(arguments.get('full_page', False))
-				content: list[types.ContentBlock] = [types.TextContent(type='text', text=meta_json)]
-				if screenshot_b64:
-					content.append(types.ImageContent(type='image', data=screenshot_b64, mime_type='image/png'))
-				return content
+				meta_json, screenshot_path = await self._screenshot(arguments.get('full_page', False))
+				if screenshot_path:
+					meta_dict = json.loads(meta_json)
+					meta_dict['screenshot_path'] = screenshot_path
+					meta_json = json.dumps(meta_dict, indent=2)
+				return meta_json
 
 			elif tool_name == 'browser_extract_content':
 				return await self._extract_content(arguments['query'], arguments.get('extract_links', False))
@@ -888,6 +907,7 @@ class BrowserUseServer:
 			return f"Typed '{text}' into element {index}"
 
 	async def _get_browser_state(self, include_screenshot: bool = False) -> tuple[str, str | None]:
+		"""Get current browser state. Returns (state_json, screenshot_path | None)."""
 		"""Get current browser state. Returns (state_json, screenshot_b64 | None)."""
 		if not self.browser_session:
 			return 'Error: No browser session active', None
@@ -930,10 +950,13 @@ class BrowserUseServer:
 				elem_info['href'] = element.attributes['href']
 			result['interactive_elements'].append(elem_info)
 
-		# Return screenshot separately as ImageContent instead of embedding base64 in JSON
-		screenshot_b64 = None
+		# Return screenshot path instead of inlining base64
+		screenshot_path = None
 		if include_screenshot and state.screenshot:
-			screenshot_b64 = state.screenshot
+			import base64
+			screenshot_data = base64.b64decode(state.screenshot)
+			screenshot_path = self._save_screenshot(screenshot_data)
+			
 			# Include viewport dimensions in JSON so LLM can map pixels to coordinates
 			if state.page_info:
 				result['screenshot_dimensions'] = {
@@ -941,7 +964,7 @@ class BrowserUseServer:
 					'height': state.page_info.viewport_height,
 				}
 
-		return json.dumps(result, indent=2), screenshot_b64
+		return json.dumps(result, indent=2), screenshot_path
 
 	async def _get_html(self, selector: str | None = None) -> str:
 		"""Get raw HTML of the page or a specific element."""
@@ -971,18 +994,18 @@ class BrowserUseServer:
 		return html
 
 	async def _screenshot(self, full_page: bool = False) -> tuple[str, str | None]:
+		"""Take a screenshot. Returns (metadata_json, screenshot_path | None)."""
 		"""Take a screenshot. Returns (metadata_json, screenshot_b64 | None)."""
 		if not self.browser_session:
 			return 'Error: No browser session active', None
 
-		import base64
 
 		self._update_session_activity(self.browser_session.id)
 
 		data = await self.browser_session.take_screenshot(full_page=full_page)
-		b64 = base64.b64encode(data).decode()
+		screenshot_path = self._save_screenshot(data)
 
-		# Return screenshot separately as ImageContent instead of embedding base64 in JSON
+		# Return screenshot path instead of inlining base64
 		state = await self.browser_session.get_browser_state_summary()
 		result: dict[str, Any] = {
 			'size_bytes': len(data),
@@ -992,7 +1015,7 @@ class BrowserUseServer:
 				'width': state.page_info.viewport_width,
 				'height': state.page_info.viewport_height,
 			}
-		return json.dumps(result), b64
+		return json.dumps(result), screenshot_path
 
 	async def _extract_content(self, query: str, extract_links: bool = False) -> str:
 		"""Extract content from current page."""
@@ -1176,6 +1199,12 @@ class BrowserUseServer:
 			if self.browser_session and self.browser_session.id == session_id:
 				self.browser_session = None
 				self.tools = None
+			
+			# Cleanup screenshot directory
+			if self.screenshot_dir.exists():
+				shutil.rmtree(self.screenshot_dir)
+				self.screenshot_dir.mkdir(parents=True, exist_ok=True)
+				self.screenshot_files = []
 
 			return f'Successfully closed session {session_id}'
 		except Exception as e:
