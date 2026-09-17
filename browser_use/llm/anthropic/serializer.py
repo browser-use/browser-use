@@ -268,6 +268,13 @@ class AnthropicMessageSerializer:
 			raise ValueError(f'Unknown message type: {type(message)}')
 
 	@staticmethod
+	def _has_text(message: BaseMessage) -> bool:
+		"""Whether the message carries any text to send."""
+		if isinstance(message.content, str):
+			return bool(message.content)
+		return any(part.type == 'text' and part.text for part in message.content)
+
+	@staticmethod
 	def _clean_cache_messages(messages: list[CacheableMessage]) -> list[CacheableMessage]:
 		"""Clean cache settings so only the last cache=True message remains cached.
 
@@ -324,6 +331,13 @@ class AnthropicMessageSerializer:
 			else:
 				normal_messages.append(message)
 
+		# Anthropic rejects an empty text block, so an empty system message (an empty
+		# extend_system_message, say) must not become one. Dropping it here, before the cache
+		# breakpoints are normalized, also keeps the breakpoint on a message that still has
+		# text. A lone system message is left alone, empty or not, as it was before.
+		if len(system_messages) > 1:
+			system_messages = [message for message in system_messages if AnthropicMessageSerializer._has_text(message)]
+
 		# Clean cache messages so only the last cache=True message remains cached. System messages
 		# are normalized separately so the two groups contribute one breakpoint each at most.
 		normal_messages = AnthropicMessageSerializer._clean_cache_messages(normal_messages)
@@ -351,6 +365,14 @@ class AnthropicMessageSerializer:
 					system_blocks.append(TextBlockParam(text=serialized, type='text', cache_control=None))
 				else:
 					system_blocks.extend(serialized)
+
+			# The blocks are read as one instruction with nothing between them, so without a
+			# separator the end of one runs into the start of the next. The Google serializer
+			# joins system messages with a blank line; this keeps the two in step.
+			for block in system_blocks[:-1]:
+				if not block['text'].endswith('\n\n'):
+					block['text'] += '\n\n'
+
 			serialized_system_message = system_blocks
 
 		return serialized_messages, serialized_system_message
