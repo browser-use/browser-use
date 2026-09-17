@@ -3,7 +3,14 @@ from pytest_httpserver import HTTPServer
 from werkzeug import Response
 
 from browser_use.llm.aws.serializer import AWSBedrockMessageSerializer
-from browser_use.llm.messages import ContentPartImageParam, ImageURL
+from browser_use.llm.messages import (
+	BaseMessage,
+	ContentPartImageParam,
+	ContentPartTextParam,
+	ImageURL,
+	SystemMessage,
+	UserMessage,
+)
 
 
 @pytest.mark.parametrize(
@@ -83,3 +90,104 @@ def test_serialize_content_part_uses_url_path_when_content_type_is_unavailable(
 			},
 		}
 	}
+
+
+def test_single_system_message_is_serialized_as_one_block() -> None:
+	"""A lone system message must still produce the single-block list the Converse API expects."""
+	messages: list[BaseMessage] = [SystemMessage(content='Only rule.'), UserMessage(content='Go.')]
+
+	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system == [{'text': 'Only rule.'}]
+
+
+def test_all_system_messages_are_preserved_in_order() -> None:
+	"""Bedrock takes `system` as a list of content blocks, so every system message must survive.
+
+	The agent builds its prompt from several system messages, and dropping all but the last one
+	silently discards instructions the caller supplied.
+	"""
+	messages: list[BaseMessage] = [
+		SystemMessage(content='First rule.'),
+		SystemMessage(content='Second rule.'),
+		SystemMessage(content='Third rule.'),
+		UserMessage(content='Go.'),
+	]
+
+	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	# Separated by a blank line, so one instruction does not run into the next.
+	assert system == [{'text': 'First rule.\n\n'}, {'text': 'Second rule.\n\n'}, {'text': 'Third rule.'}]
+
+
+def test_multi_part_system_messages_keep_every_text_block() -> None:
+	"""A system message carrying several text parts contributes all of them, still in order."""
+	messages: list[BaseMessage] = [
+		SystemMessage(content=[ContentPartTextParam(text='Part one.'), ContentPartTextParam(text='Part two.')]),
+		SystemMessage(content='Part three.'),
+		UserMessage(content='Go.'),
+	]
+
+	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system == [{'text': 'Part one.\n\n'}, {'text': 'Part two.\n\n'}, {'text': 'Part three.'}]
+
+
+def test_system_messages_do_not_reach_the_conversation() -> None:
+	"""System text belongs in the `system` field only; it must not leak into the message list."""
+	messages: list[BaseMessage] = [
+		SystemMessage(content='First rule.'),
+		UserMessage(content='Go.'),
+		SystemMessage(content='Late rule.'),
+	]
+
+	bedrock_messages, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system == [{'text': 'First rule.\n\n'}, {'text': 'Late rule.'}]
+	assert [message['role'] for message in bedrock_messages] == ['user']
+
+
+def test_a_block_that_already_ends_in_a_newline_is_still_separated_by_one_blank_line() -> None:
+	"""Trailing newlines in the message must not make the gap between blocks wider."""
+	messages: list[BaseMessage] = [
+		SystemMessage(content='First rule.\n'),
+		SystemMessage(content='Second rule.'),
+		UserMessage(content='Go.'),
+	]
+
+	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system == [{'text': 'First rule.\n\n'}, {'text': 'Second rule.'}]
+
+
+def test_empty_system_messages_are_dropped_rather_than_sent_as_empty_blocks() -> None:
+	"""Converse rejects an empty text block, so an empty extend_system_message must not turn a
+	working request into a validation error."""
+	messages: list[BaseMessage] = [
+		SystemMessage(content=''),
+		SystemMessage(content='Only rule.'),
+		UserMessage(content='Go.'),
+	]
+
+	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system == [{'text': 'Only rule.'}]
+
+
+def test_system_messages_that_are_all_empty_leave_no_system_field() -> None:
+	"""Nothing to say means no `system` field at all, rather than a list of empty blocks."""
+	messages: list[BaseMessage] = [SystemMessage(content=''), SystemMessage(content=''), UserMessage(content='Go.')]
+
+	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system is None
+
+
+def test_conversation_without_system_messages_has_no_system_field() -> None:
+	"""Without any system message the serializer returns None so the request omits `system`."""
+	messages: list[BaseMessage] = [UserMessage(content='Go.')]
+
+	bedrock_messages, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system is None
+	assert len(bedrock_messages) == 1
