@@ -26,6 +26,17 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
+def test_modern_special_parameter_annotations_are_resolved():
+	"""Postponed and PEP 604 annotations should validate like concrete types."""
+	registry = Registry()
+
+	@registry.action('Use browser session')
+	async def use_browser_session(browser_session: 'BrowserSession | None' = None):
+		return ActionResult(extracted_content='ok')
+
+	assert 'use_browser_session' in registry.registry.actions
+
+
 class TestType1Pattern:
 	"""Test Type 1 Pattern: Pydantic model first (from normalization tests)"""
 
