@@ -83,6 +83,8 @@ class MCPClient:
 			logger.debug(f'Already connected to {self.server_name}')
 			return
 
+		self._disconnect_event.clear()
+
 		start_time = time.time()
 		error_msg = None
 
