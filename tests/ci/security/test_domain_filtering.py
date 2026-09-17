@@ -254,6 +254,23 @@ class TestUrlAllowlistSecurity:
 		assert watchdog._is_url_allowed('https://www.example.com') is False
 		assert watchdog._is_url_allowed('http://www.test.org') is False
 
+	def test_scheme_qualified_patterns_do_not_match_host_suffixes(self):
+		"""A scheme-qualified allowlist entry must not allow a suffix-controlled host."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['https://good.test'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=EventBus())
+
+		assert watchdog._is_url_allowed('https://good.test/path') is True
+		assert watchdog._is_url_allowed('https://good.test.evil.test/path') is False
+
+	def test_default_permissions_do_not_grant_clipboard_access(self):
+		"""Clipboard permission must be explicitly enabled by callers."""
+		assert BrowserProfile().permissions == ['notifications']
+
 	def test_is_root_domain_helper(self):
 		"""Test the _is_root_domain helper method logic."""
 		from bubus import EventBus
