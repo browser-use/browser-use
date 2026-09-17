@@ -13,9 +13,63 @@ from unittest.mock import AsyncMock
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, RerunSummaryAction, StepMetadata
-from browser_use.browser.views import BrowserStateHistory
-from browser_use.dom.views import DOMInteractedElement, DOMRect, MatchLevel, NodeType
+from browser_use.browser.views import BrowserStateHistory, BrowserStateSummary
+from browser_use.dom.views import (
+	DOMInteractedElement,
+	DOMRect,
+	EnhancedAXNode,
+	EnhancedDOMTreeNode,
+	MatchLevel,
+	NodeType,
+	SerializedDOMState,
+)
 from tests.ci.conftest import create_mock_llm
+
+
+def create_test_dom_node(ax_name: str | None = None) -> EnhancedDOMTreeNode:
+	"""Create a minimal DOM node for ax_name matching tests."""
+	return EnhancedDOMTreeNode(
+		node_id=1,
+		backend_node_id=1,
+		node_type=NodeType.ELEMENT_NODE,
+		node_name='BUTTON',
+		node_value='',
+		attributes={'class': 'dynamic-class-current'},
+		is_scrollable=False,
+		is_visible=True,
+		absolute_position=None,
+		target_id='target',
+		frame_id=None,
+		session_id=None,
+		content_document=None,
+		shadow_root_type=None,
+		shadow_roots=None,
+		parent_node=None,
+		children_nodes=[],
+		ax_node=EnhancedAXNode(
+			ax_node_id='ax-1',
+			ignored=False,
+			role='button',
+			name=ax_name,
+			description=None,
+			properties=None,
+			child_ids=None,
+		)
+		if ax_name is not None
+		else None,
+		snapshot_node=None,
+	)
+
+
+class DummyIndexAction:
+	def __init__(self, index: int):
+		self.index = index
+
+	def get_index(self) -> int:
+		return self.index
+
+	def set_index(self, index: int) -> None:
+		self.index = index
 
 
 async def test_ax_name_matching_succeeds_when_hash_fails(httpserver):
@@ -246,6 +300,52 @@ def test_match_level_enum_includes_ax_name():
 	assert hasattr(MatchLevel, 'AX_NAME')
 	assert MatchLevel.AX_NAME.value == 4
 	assert MatchLevel.ATTRIBUTE.value == 5  # AX_NAME comes before ATTRIBUTE
+
+
+def test_load_from_enhanced_dom_tree_preserves_empty_ax_name():
+	"""Test that an empty accessibility name is preserved instead of treated as missing."""
+	node = create_test_dom_node(ax_name='')
+
+	interacted_element = DOMInteractedElement.load_from_enhanced_dom_tree(node)
+
+	assert interacted_element.ax_name == ''
+
+
+async def test_empty_ax_name_matching_succeeds_when_hash_fails():
+	"""Test that AX_NAME matching uses empty accessibility names when present."""
+	llm = create_mock_llm(actions=None)
+	agent = Agent(task='Test task', llm=llm)
+
+	historical_element = DOMInteractedElement(
+		node_id=9999,
+		backend_node_id=9999,
+		frame_id=None,
+		node_type=NodeType.ELEMENT_NODE,
+		node_value='',
+		node_name='BUTTON',
+		attributes={'class': 'dynamic-class-previous'},
+		x_path='html/body/div/button',
+		element_hash=111,
+		stable_hash=222,
+		bounds=DOMRect(x=0, y=0, width=100, height=50),
+		ax_name='',
+	)
+	current_node = create_test_dom_node(ax_name='')
+	browser_state = BrowserStateSummary(
+		dom_state=SerializedDOMState(_root=None, selector_map={7: current_node}),
+		url='http://test.com',
+		title='Test',
+		tabs=[],
+	)
+	action = DummyIndexAction(index=100)
+
+	try:
+		updated_action = await agent._update_action_indices(historical_element, action, browser_state)  # type: ignore[arg-type]
+
+		assert updated_action is action
+		assert action.index == 7
+	finally:
+		await agent.close()
 
 
 async def test_ax_name_matching_before_attribute_matching(httpserver):
