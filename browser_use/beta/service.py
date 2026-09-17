@@ -11,6 +11,7 @@ import logging
 import mimetypes
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -21,7 +22,7 @@ from contextlib import nullcontext, suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, Literal
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from bubus import EventBus
 from pydantic import BaseModel, ValidationError, create_model
@@ -530,7 +531,112 @@ def _sdk_preview(value: Any, limit: int = 180) -> str | None:
 	return text[:limit] + f'...[{len(text) - limit} more chars]'
 
 
+def _curl_tokens(command: str) -> list[str] | None:
+	try:
+		tokens = shlex.split(command)
+	except ValueError:
+		return None
+	for index, token in enumerate(tokens):
+		if Path(token).name == 'curl':
+			return tokens[index:]
+	return None
+
+
+def _curl_data_query_params(tokens: list[str]) -> dict[str, str]:
+	params: dict[str, str] = {}
+	for index, token in enumerate(tokens):
+		value: str | None = None
+		if token in {'--data-urlencode', '--data', '--data-raw', '--data-binary', '-d'}:
+			next_index = index + 1
+			if next_index < len(tokens):
+				value = tokens[next_index]
+		elif token.startswith('--data-urlencode='):
+			value = token.split('=', 1)[1]
+		elif token.startswith('--data=') or token.startswith('--data-raw=') or token.startswith('--data-binary='):
+			value = token.split('=', 1)[1]
+		elif token.startswith('-d') and len(token) > 2:
+			value = token[2:]
+		if not value:
+			continue
+		if value.startswith('?'):
+			value = value[1:]
+		for key, parsed_value in parse_qsl(value, keep_blank_values=True):
+			if key in {'q', 'query'} and parsed_value:
+				params[key] = parsed_value
+	return params
+
+
+def _curl_urls(tokens: list[str]) -> list[str]:
+	urls: list[str] = []
+	for index, token in enumerate(tokens):
+		value: str | None = None
+		if token == '--url':
+			next_index = index + 1
+			if next_index < len(tokens):
+				value = tokens[next_index]
+		elif token.startswith('--url='):
+			value = token.split('=', 1)[1]
+		elif token.startswith(('http://', 'https://')):
+			value = token
+		if value and value.startswith(('http://', 'https://')):
+			urls.append(value)
+	return urls
+
+
+def _search_engine_from_url(raw_url: str) -> str | None:
+	parsed = urlparse(raw_url)
+	host = (parsed.hostname or '').lower()
+	path = parsed.path.rstrip('/') or '/'
+	if host in {'duckduckgo.com', 'www.duckduckgo.com', 'html.duckduckgo.com'}:
+		return 'duckduckgo'
+	if host in {'google.com', 'www.google.com'} and path == '/search':
+		return 'google'
+	if host in {'bing.com', 'www.bing.com'} and path == '/search':
+		return 'bing'
+	return None
+
+
+def _search_action_from_curl_command(command: str) -> dict[str, str] | None:
+	tokens = _curl_tokens(command)
+	if not tokens:
+		return None
+	extra_params = _curl_data_query_params(tokens)
+	for raw_url in _curl_urls(tokens):
+		engine = _search_engine_from_url(raw_url)
+		if engine is None:
+			continue
+		query_params = dict(parse_qsl(urlparse(raw_url).query, keep_blank_values=True))
+		query = query_params.get('q') or query_params.get('query') or extra_params.get('q') or extra_params.get('query')
+		if not isinstance(query, str) or not query.strip():
+			continue
+		return {'query': ' '.join(query.split()), 'engine': engine}
+	return None
+
+
+def _search_action_from_exec_command_args(arguments: dict[str, Any]) -> dict[str, str] | None:
+	command = arguments.get('cmd') or arguments.get('command')
+	if not isinstance(command, str):
+		return None
+	return _search_action_from_curl_command(command)
+
+
+def _search_label_from_payload(payload: dict[str, Any]) -> str | None:
+	if payload.get('name') != 'exec_command':
+		return None
+	arguments = payload.get('arguments')
+	if not isinstance(arguments, dict):
+		return None
+	search_action = _search_action_from_exec_command_args(arguments)
+	if search_action is None:
+		return None
+	query = json.dumps(search_action['query'], ensure_ascii=False)
+	return f'web_search engine={search_action["engine"]} query={query}'
+
+
 def _sdk_payload_label(payload: dict[str, Any]) -> str | None:
+	search_label = _search_label_from_payload(payload)
+	if search_label:
+		return search_label
 	for key in ('name', 'tool_name', 'tool', 'task', 'command', 'url', 'title', 'result', 'error', 'message'):
 		value = _sdk_preview(payload.get(key))
 		if value:
@@ -2021,11 +2127,17 @@ def _tool_call_from_payload(payload: dict[str, Any], fallback_id: str) -> dict[s
 	arguments = payload.get('arguments')
 	if arguments is None:
 		arguments = function.get('arguments')
+	parsed_arguments = _tool_arguments(arguments)
+	if name == 'exec_command':
+		search_action = _search_action_from_exec_command_args(parsed_arguments)
+		if search_action is not None:
+			name = 'search'
+			parsed_arguments = search_action
 	return {
 		'name': name,
 		'tool_call_id': str(call_id),
 		'_has_explicit_tool_call_id': raw_call_id is not None,
-		'arguments': _tool_arguments(arguments),
+		'arguments': parsed_arguments,
 	}
 
 
