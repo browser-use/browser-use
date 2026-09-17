@@ -60,7 +60,8 @@ jobs:
         with:
           # Force fresh checkout to avoid any caching issues
           fetch-depth: 1
-      - id: lsgrep
+      - name: Discover CI test files for matrix
+        id: lsgrep
         run: |
           echo "🔍 Discovering test files at $(date)"
           echo "Git commit: $(git rev-parse HEAD)"
