@@ -685,7 +685,7 @@ class FileSystem:
 				if extension in text_extensions:
 					import anyio
 
-					async with await anyio.open_file(full_filename, 'r') as f:
+					async with await anyio.open_file(full_filename, 'r', encoding='utf-8') as f:
 						content = await f.read()
 						result['message'] = f'Read from file {full_filename}.\n<content>\n{content}\n</content>'
 						return result
