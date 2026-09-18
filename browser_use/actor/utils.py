@@ -147,8 +147,8 @@ class Utils:
 		if key in key_map:
 			return key_map[key]
 
-		# Handle alphanumeric keys dynamically
-		if len(key) == 1:
+		# Only ASCII letters and digits have the layout-independent VK codes below.
+		if len(key) == 1 and key.isascii():
 			if key.isalpha():
 				# Letter keys: A-Z have VK codes 65-90
 				return (f'Key{key.upper()}', ord(key.upper()))
