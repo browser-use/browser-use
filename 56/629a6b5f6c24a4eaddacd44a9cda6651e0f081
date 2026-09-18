@@ -1,0 +1,37 @@
+tests/ci/test_jev_actions.py
+  s_0ea552c519f69f::t_068612d52e5be3 1-69,71-112,133-156,160-166,170-233,242-267
+  s_0ea552c519f69f::t_4d1ef858b2ada8 70,113-132,157-159,167-169,234-241
+browser_use/agent/jev_actions.py
+  s_0ea552c519f69f::t_4d1ef858b2ada8 86-87,96-101,117,136-137,161-164,193-198,205-207,210-213
+  s_0ea552c519f69f::t_971f1d76955b84 1-85,88-95,102-116,118-135,138-160,165-192,199-204,208-209,214-218
+browser_use/agent/jev.py
+  s_0ea552c519f69f::t_fb65449b3e7bce 1-62
+  s_0ea552c519f69f::t_6c5d1b495c80aa 63-106
+browser_use/agent/jev_client.py
+  s_0ea552c519f69f::t_a404ee0f981216 1-117
+  s_0ea552c519f69f::t_ae10420f85da0f 118-124
+browser_use/agent/jev_observation.py
+  s_0ea552c519f69f::t_71b643d0d4c64f 1-245
+browser_use/agent/service.py
+  s_0ea552c519f69f::t_6105c68160521c 213-214,217-222,1073-1076,1960-1963,1971-1977
+tests/ci/test_jev_client.py
+  s_0ea552c519f69f::t_9b83f93cec5331 1-76
+tests/ci/test_jev_observation.py
+  s_0ea552c519f69f::t_431056de73e557 1-226
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "56629a6b5f6c24a4eaddacd44a9cda6651e0f081",
+  "prompts": {},
+  "sessions": {
+    "s_0ea552c519f69f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ac09-948b-7802-983a-311e52c6ad99",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
