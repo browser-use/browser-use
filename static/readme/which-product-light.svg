@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="690" viewBox="0 0 1440 690" role="img" aria-labelledby="title desc">
+  <title id="title">Three ways to use Browser Use</title>
+  <desc id="desc">Path 1: fully hosted cloud runs our agent, Browser Use CLI, and a cloud browser through the V4 API. Path 2: the CLI connects your agent, including Claude Code, Codex, Hermes, OpenClaw, or Pi, to a local or cloud browser. Path 3: the open source Browser Use agent is a Python library that can run fully locally or connect to a cloud browser.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#8B8B94"/></marker>
+    <marker id="cloud-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#C94D00"/></marker>
+  </defs>
+  <rect width="1440" height="690" fill="#FFFFFF"/>
+  <g font-family="Inter, ui-sans-serif, system-ui, sans-serif">
+    <rect x="16" y="16" width="448" height="658" rx="22" fill="#FFF4E8" stroke="#EDC5A1" stroke-width="2"/>
+    <rect x="488" y="16" width="936" height="658" rx="22" fill="#FAFAFA" stroke="#8B8B94" stroke-width="2"/>
+    <text x="240" y="55" text-anchor="middle" fill="#C94D00" font-size="18" font-weight="700">RUN BY BROWSER USE</text>
+    <text x="956" y="55" text-anchor="middle" fill="#606068" font-size="18" font-weight="700">ON YOUR COMPUTER</text>
+    <path d="M956 85V650" stroke="#8B8B94" stroke-opacity="0.35"/>
+    <text x="240" y="109" text-anchor="middle" fill="#242428" font-size="30" font-weight="750">1. Fully hosted cloud</text>
+    <text x="720" y="109" text-anchor="middle" fill="#242428" font-size="30" font-weight="750">2. CLI</text>
+    <text x="1192" y="109" text-anchor="middle" fill="#242428" font-size="30" font-weight="750">3. Python library</text>
+    <text x="240" y="140" text-anchor="middle" fill="#606068" font-size="20" font-weight="450">Easiest way to scale up</text>
+    <text x="720" y="140" text-anchor="middle" fill="#606068" font-size="20" font-weight="450">Automate your own browser tasks</text>
+    <text x="1192" y="140" text-anchor="middle" fill="#606068" font-size="20" font-weight="450">Run fully local</text>
+    <rect x="64" y="184" width="352" height="112" rx="16" fill="#F4F4F5" stroke="#8B8B94" stroke-width="2"/>
+    <text x="240" y="219" text-anchor="middle" fill="#606068" font-size="18" font-weight="700">OUR AGENT</text>
+    <text x="240" y="260" text-anchor="middle" fill="#242428" font-size="29" font-weight="750">Browser Use Agent</text>
+    <rect x="520" y="184" width="400" height="112" rx="16" fill="#F4F4F5" stroke="#8B8B94" stroke-width="2"/>
+    <text x="720" y="214" text-anchor="middle" fill="#606068" font-size="18" font-weight="700">YOUR AGENT</text>
+    <text x="720" y="247" text-anchor="middle" fill="#242428" font-size="22" font-weight="600">Claude Code · Codex · Pi</text>
+    <text x="720" y="278" text-anchor="middle" fill="#242428" font-size="22" font-weight="600">Hermes · OpenClaw</text>
+    <rect x="992" y="184" width="400" height="244" rx="16" fill="#FFF4E8" stroke="#C94D00" stroke-width="2"/>
+    <text x="1192" y="262" text-anchor="middle" fill="#C94D00" font-size="20" font-weight="700">OPEN SOURCE</text>
+    <text x="1192" y="313" text-anchor="middle" fill="#242428" font-size="31" font-weight="750">Browser Use Agent</text>
+    <text x="1192" y="355" text-anchor="middle" fill="#606068" font-size="24" font-weight="450">Python library</text>
+    <path d="M240 296V336" fill="none" stroke="#8B8B94" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <path d="M720 296V336" fill="none" stroke="#8B8B94" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <rect x="64" y="350" width="352" height="78" rx="16" fill="#FFF4E8" stroke="#C94D00" stroke-width="2"/>
+    <text x="240.0" y="397" text-anchor="middle" fill="#242428" font-size="28" font-weight="750">Browser Use CLI</text>
+    <rect x="520" y="350" width="400" height="78" rx="16" fill="#FFF4E8" stroke="#C94D00" stroke-width="2"/>
+    <text x="720.0" y="397" text-anchor="middle" fill="#242428" font-size="28" font-weight="750">Browser Use CLI</text>
+    <path d="M240 428V498" fill="none" stroke="#C94D00" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#cloud-arrow)"/>
+    <rect x="64" y="512" width="352" height="112" rx="16" fill="#FFF4E8" stroke="#C94D00" stroke-width="2"/>
+    <path d="M64 538H416" stroke="#C94D00" stroke-width="2"/>
+    <circle cx="78" cy="525" r="2.5" fill="#C94D00"/>
+    <circle cx="88" cy="525" r="2.5" fill="#C94D00"/>
+    <circle cx="98" cy="525" r="2.5" fill="#C94D00"/>
+    <text x="240.0" y="575" text-anchor="middle" fill="#242428" font-size="23" font-weight="600">Cloud browser</text>
+    <text x="240.0" y="602" text-anchor="middle" fill="#606068" font-size="18" font-weight="450">stealth · profiles</text>
+    <text x="240" y="653" text-anchor="middle" fill="#C94D00" font-size="20" font-weight="600">Hosted V4 API</text>
+    <path d="M720 428V458H615V498" fill="none" stroke="#8B8B94" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <path d="M720 458H825V498" fill="none" stroke="#C94D00" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#cloud-arrow)"/>
+    <text x="615" y="653" text-anchor="middle" fill="#606068" font-size="16" font-weight="700">LOCAL</text>
+    <text x="825" y="653" text-anchor="middle" fill="#C94D00" font-size="16" font-weight="700">CLOUD</text>
+    <rect x="520" y="512" width="190" height="112" rx="16" fill="#F4F4F5" stroke="#8B8B94" stroke-width="2"/>
+    <path d="M520 538H710" stroke="#8B8B94" stroke-width="2"/>
+    <circle cx="534" cy="525" r="2.5" fill="#8B8B94"/>
+    <circle cx="544" cy="525" r="2.5" fill="#8B8B94"/>
+    <circle cx="554" cy="525" r="2.5" fill="#8B8B94"/>
+    <text x="615.0" y="575" text-anchor="middle" fill="#242428" font-size="23" font-weight="600">Real Chrome</text>
+    <text x="615.0" y="602" text-anchor="middle" fill="#606068" font-size="18" font-weight="450">tabs · logins</text>
+    <rect x="730" y="512" width="190" height="112" rx="16" fill="#FFF4E8" stroke="#C94D00" stroke-width="2"/>
+    <path d="M730 538H920" stroke="#C94D00" stroke-width="2"/>
+    <circle cx="744" cy="525" r="2.5" fill="#C94D00"/>
+    <circle cx="754" cy="525" r="2.5" fill="#C94D00"/>
+    <circle cx="764" cy="525" r="2.5" fill="#C94D00"/>
+    <text x="825.0" y="575" text-anchor="middle" fill="#242428" font-size="23" font-weight="600">Cloud browser</text>
+    <text x="825.0" y="602" text-anchor="middle" fill="#606068" font-size="18" font-weight="450">stealth · profiles</text>
+    <path d="M1192 428V458H1087V498" fill="none" stroke="#8B8B94" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <path d="M1192 458H1297V498" fill="none" stroke="#C94D00" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#cloud-arrow)"/>
+    <text x="1087" y="653" text-anchor="middle" fill="#606068" font-size="16" font-weight="700">LOCAL</text>
+    <text x="1297" y="653" text-anchor="middle" fill="#C94D00" font-size="16" font-weight="700">CLOUD</text>
+    <rect x="992" y="512" width="190" height="112" rx="16" fill="#F4F4F5" stroke="#8B8B94" stroke-width="2"/>
+    <path d="M992 538H1182" stroke="#8B8B94" stroke-width="2"/>
+    <circle cx="1006" cy="525" r="2.5" fill="#8B8B94"/>
+    <circle cx="1016" cy="525" r="2.5" fill="#8B8B94"/>
+    <circle cx="1026" cy="525" r="2.5" fill="#8B8B94"/>
+    <text x="1087.0" y="575" text-anchor="middle" fill="#242428" font-size="23" font-weight="600">Real Chrome</text>
+    <text x="1087.0" y="602" text-anchor="middle" fill="#606068" font-size="18" font-weight="450">tabs · logins</text>
+    <rect x="1202" y="512" width="190" height="112" rx="16" fill="#FFF4E8" stroke="#C94D00" stroke-width="2"/>
+    <path d="M1202 538H1392" stroke="#C94D00" stroke-width="2"/>
+    <circle cx="1216" cy="525" r="2.5" fill="#C94D00"/>
+    <circle cx="1226" cy="525" r="2.5" fill="#C94D00"/>
+    <circle cx="1236" cy="525" r="2.5" fill="#C94D00"/>
+    <text x="1297.0" y="575" text-anchor="middle" fill="#242428" font-size="23" font-weight="600">Cloud browser</text>
+    <text x="1297.0" y="602" text-anchor="middle" fill="#606068" font-size="18" font-weight="450">stealth · profiles</text>
+  </g>
+</svg>
