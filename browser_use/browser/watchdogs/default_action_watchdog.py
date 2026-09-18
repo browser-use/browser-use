@@ -22,6 +22,7 @@ from browser_use.browser.events import (
 	UploadFileEvent,
 	WaitEvent,
 )
+from browser_use.browser.native_listbox import NativeListboxSelection, get_readonly_dropdown_options, select_native_listbox
 from browser_use.browser.views import BrowserError, URLNotAllowedError
 from browser_use.browser.watchdog_base import BaseWatchdog
 from browser_use.dom.service import EnhancedDOMTreeNode
@@ -2837,6 +2838,33 @@ class DefaultActionWatchdog(BaseWatchdog):
 			except Exception as e:
 				raise ValueError(f'Failed to resolve node to object: {e}') from e
 
+			# Inspect associated read-only pickers without opening or changing focus.
+			readonly_options = await get_readonly_dropdown_options(cdp_session, object_id)
+			if readonly_options is not None:
+				formatted = '\n'.join(
+					f'{option.index}: text={json.dumps(option.text)}, value={json.dumps(option.value)}'
+					+ (' (selected)' if option.selected else '')
+					for option in readonly_options.options
+				)
+				msg = (
+					f'Found native listbox associated with a read-only input ({readonly_options.source}):\n{formatted}\n\n'
+					f'Use the exact text or value in select_dropdown(index={index_for_logging}, text=...). '
+					'The tool will click the option and open its picker first if needed. Verify the read-only field after selection.'
+				)
+				await cdp_session.cdp_client.send.Runtime.releaseObject(
+					params={'objectId': object_id}, session_id=cdp_session.session_id
+				)
+				return {
+					'type': 'readonly-native-listbox',
+					'options': json.dumps([option.model_dump() for option in readonly_options.options]),
+					'selection_method': readonly_options.selection_method,
+					'source': readonly_options.source,
+					'short_term_memory': msg,
+					'long_term_memory': f'Got options for read-only picker at index {index_for_logging}; selection uses an option click.',
+					'backend_node_id': str(element_node.backend_node_id),
+					'selector_index': str(index_for_logging),
+				}
+
 			# Check if this is an ARIA combobox that needs expansion
 			# ARIA comboboxes have options in a separate element referenced by aria-controls
 			check_combobox_script = """
@@ -3291,7 +3319,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			'selector_index': str(index_for_logging),
 		}
 
-	async def on_SelectDropdownOptionEvent(self, event: SelectDropdownOptionEvent) -> dict[str, str]:
+	async def on_SelectDropdownOptionEvent(self, event: SelectDropdownOptionEvent) -> dict[str, str] | NativeListboxSelection:
 		"""Handle select dropdown option request with CDP."""
 		try:
 			# Use the provided node
@@ -3315,6 +3343,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 				raise ValueError(f'Failed to resolve node to object: {e}') from e
 
 			try:
+				listbox_result = await select_native_listbox(self.browser_session, cdp_session, object_id, target_text)
+				if listbox_result is not None:
+					return listbox_result
+
+				# Other dropdown types retain their existing selection behavior.
 				# Use JavaScript to select the option
 				selection_script = """
 				function(targetText) {
