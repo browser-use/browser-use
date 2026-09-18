@@ -408,3 +408,120 @@ async def test_picker_that_does_not_open_is_not_clicked_repeatedly(listbox_brows
 	assert result.metadata and result.metadata['opener_click_dispatched'] is True and result.metadata['click_dispatched'] is False
 	assert await _evaluate(listbox_browser, 'window.openerClicks') == 1
 	assert (await _read(listbox_browser))['code'] == ''
+
+
+async def _use_active_descendant(browser: BrowserSession, frame_id: str | None = None) -> None:
+	"""Model a picker opened by a listener, with only its active option as a relationship."""
+	await _evaluate(
+		browser,
+		"""(() => {
+			const input = document.querySelector('#lookup-code');
+			const select = document.querySelector('#picker');
+			input.removeAttribute('onclick');
+			select.options[0].id = 'active-choice';
+			input.setAttribute('aria-activedescendant', 'active-choice');
+			input.dataset.openerClicks = '0';
+			input.addEventListener('click', () => {
+				input.dataset.openerClicks = String(Number(input.dataset.openerClicks) + 1);
+				select.style.display = 'block';
+				select.focus();
+			});
+			select.style.display = 'none';
+		})()""",
+		frame_id,
+	)
+
+
+@pytest.mark.parametrize('path', ['/form', '/frame', '/remote'])
+@pytest.mark.parametrize('listbox_has_id', [True, False])
+async def test_active_descendant_discovers_and_clicks_hidden_picker(listbox_browser, listbox_server, path, listbox_has_id):
+	_, frame_id = await _open(listbox_browser, listbox_server, path)
+	await _use_active_descendant(listbox_browser, frame_id)
+	if not listbox_has_id:
+		await _evaluate(listbox_browser, "document.querySelector('#picker').removeAttribute('id')", frame_id)
+	index = await _index(listbox_browser, 'lookup-code')
+	before = await _read(listbox_browser, frame_id)
+	discovery = await _options(listbox_browser, index)
+	assert discovery.error is None and 'aria-activedescendant' in (discovery.extracted_content or '')
+	assert 'Choice 240' in (discovery.extracted_content or '')
+	assert await _read(listbox_browser, frame_id) == before
+	assert await _evaluate(listbox_browser, "document.querySelector('select').style.display", frame_id) == 'none'
+	assert await _evaluate(listbox_browser, "document.querySelector('#lookup-code').dataset.openerClicks", frame_id) == '0'
+	result = await _select(listbox_browser, index, 'v240')
+	assert result.error is None, result
+	assert result.metadata and result.metadata['picker_source'] == 'aria-activedescendant'
+	assert result.metadata['opener_click_dispatched'] is True
+	assert result.metadata['readonly_input_value'] == 'v240'
+	assert await _evaluate(listbox_browser, "document.querySelector('#lookup-code').dataset.openerClicks", frame_id) == '1'
+	actual = await _read(listbox_browser, frame_id)
+	assert actual['code'] == 'v240'
+	assert actual['events'][len(before['events']) :].count({'type': 'click', 'trusted': True}) == 1
+
+
+@pytest.mark.parametrize(
+	'mutation',
+	[
+		"document.querySelector('#active-choice').remove()",
+		"document.querySelector('#picker').insertAdjacentHTML('beforeend', '<option id=active-choice>Duplicate</option>')",
+		"document.body.append(document.querySelector('#active-choice'))",
+		"document.querySelector('#active-choice').removeAttribute('id'); "
+		"document.body.insertAdjacentHTML('beforeend', '<div role=listbox><div role=option id=active-choice>Other</div></div>')",
+		"document.querySelector('#lookup-code').setAttribute('aria-activedescendant', 'picker')",
+		"document.querySelector('#lookup-code').setAttribute('aria-activedescendant', 'active-choice another-option')",
+		"document.querySelector('#picker').multiple = true",
+		"document.querySelector('#picker').size = 1",
+		"const host = document.createElement('div'); document.body.append(host); "
+		"host.attachShadow({mode: 'open'}).append(document.querySelector('#active-choice'))",
+	],
+	ids=[
+		'stale',
+		'duplicate-option-id',
+		'orphan-option',
+		'custom-aria-option',
+		'select-id',
+		'multiple-ids',
+		'multiselect',
+		'combobox',
+		'other-root',
+	],
+)
+async def test_invalid_active_descendant_never_opens_or_writes(listbox_browser, listbox_server, mutation):
+	await listbox_browser.navigate_to(listbox_server.url_for('/form'))
+	await _use_active_descendant(listbox_browser)
+	await _evaluate(listbox_browser, f'(() => {{ {mutation}; }})()')
+	index = await _index(listbox_browser, 'lookup-code')
+	before = await _read(listbox_browser)
+	with pytest.raises(Exception, match='not recognizable dropdown|no listbox relationship'):
+		await _options(listbox_browser, index)
+	result = await _select(listbox_browser, index, 'v240')
+	assert result.error
+	assert await _read(listbox_browser) == before
+	assert await _evaluate(listbox_browser, "document.querySelector('#lookup-code').dataset.openerClicks") == '0'
+
+
+async def test_active_descendant_is_resolved_again_before_selection(listbox_browser, listbox_server):
+	await listbox_browser.navigate_to(listbox_server.url_for('/form'))
+	await _use_active_descendant(listbox_browser)
+	index = await _index(listbox_browser, 'lookup-code')
+	assert 'aria-activedescendant' in ((await _options(listbox_browser, index)).extracted_content or '')
+	await _evaluate(listbox_browser, "document.querySelector('#lookup-code').setAttribute('aria-activedescendant', 'missing')")
+	result = await _select(listbox_browser, index, 'v240')
+	assert result.error
+	assert await _evaluate(listbox_browser, "document.querySelector('#lookup-code').dataset.openerClicks") == '0'
+	assert (await _read(listbox_browser))['code'] == ''
+
+
+async def test_conflicting_active_descendant_never_opens_either_picker(listbox_browser, listbox_server):
+	await listbox_browser.navigate_to(listbox_server.url_for('/form'))
+	await _use_active_descendant(listbox_browser)
+	await _evaluate(
+		listbox_browser,
+		"""document.body.insertAdjacentHTML('beforeend', '<select id=other-picker size=4><option>Other</option></select>');
+		document.querySelector('#lookup-code').setAttribute('aria-controls', 'other-picker');""",
+	)
+	index = await _index(listbox_browser, 'lookup-code')
+	result = await _select(listbox_browser, index, 'v240')
+	assert result.error and 'unambiguous picker' in result.error
+	assert result.metadata and result.metadata['click_dispatched'] is False
+	assert await _evaluate(listbox_browser, "document.querySelector('#lookup-code').dataset.openerClicks") == '0'
+	assert (await _read(listbox_browser))['code'] == ''

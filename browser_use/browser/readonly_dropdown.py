@@ -18,14 +18,14 @@ class ReadonlyDropdownTarget(BaseModel):
 	input_object_id: str
 	select_object_id: str
 	select_backend_node_id: int
-	source: Literal['aria-controls', 'aria-owns', 'inline-opener']
+	source: Literal['aria-controls', 'aria-owns', 'inline-opener', 'aria-activedescendant']
 	input_is_target: bool
 
 
 class _RelationProbe(BaseModel):
 	model_config = ConfigDict(extra='forbid')
 
-	source: Literal['aria-controls', 'aria-owns', 'inline-opener'] | None = None
+	source: Literal['aria-controls', 'aria-owns', 'inline-opener', 'aria-activedescendant'] | None = None
 	input_is_target: bool = False
 	error: str | None = None
 
@@ -74,20 +74,27 @@ _RESOLVE = r"""function() {
 		return false;
 	}
 	function relation(input, select) {
-		if (!select.id) return null;
-		for (const attribute of ['aria-controls', 'aria-owns']) {
-			if ((input.getAttribute(attribute) || '').split(/\s+/).includes(select.id)) return attribute;
+		if (select.id) {
+			for (const attribute of ['aria-controls', 'aria-owns']) {
+				if ((input.getAttribute(attribute) || '').split(/\s+/).includes(select.id)) return attribute;
+			}
+			// Legacy pickers commonly show/focus a named select in the input's inline click handler.
+			// Recognize only explicit DOM access, never execute or try to interpret a business callback.
+			if (openerReferences(input, select)) return 'inline-opener';
 		}
-		// Legacy pickers commonly show/focus a named select in the input's inline click handler.
-		// Recognize only explicit DOM access, never execute or try to interpret a business callback.
-		if (openerReferences(input, select)) return 'inline-opener';
+		// aria-activedescendant identifies an option, not the listbox itself. Only follow
+		// a unique native option in this DOM root; its owning select need not have an ID.
+		const activeId = (input.getAttribute('aria-activedescendant') || '').trim();
+		if (!activeId || /\s/.test(activeId) || idCounts.get(activeId) !== 1) return null;
+		const active = Array.from(root.querySelectorAll('[id]')).find(element => element.id === activeId);
+		if (active?.tagName === 'OPTION' && active.closest('select') === select) return 'aria-activedescendant';
 		return null;
 	}
 	const matches = [];
 	for (const select of selects) for (const input of inputs) {
 		const source = relation(input, select);
 		if (source) {
-			if (idCounts.get(select.id) !== 1) return {error: 'The associated listbox ID is duplicated. Use an unambiguous picker.'};
+			if (select.id && idCounts.get(select.id) !== 1) return {error: 'The associated listbox ID is duplicated. Use an unambiguous picker.'};
 			matches.push({input, select, source, input_is_target: start === input});
 		}
 	}
