@@ -1969,7 +1969,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		try:
 			if jev_output is None:
-				response = await self.llm.ainvoke(input_messages, **kwargs)
+				response = (
+					await self.jev_policy.invoke(self, input_messages, kwargs)
+					if self.jev_policy is not None and self.jev_policy.mode in {'model', 'model_static'}
+					else await self.llm.ainvoke(input_messages, **kwargs)
+				)
 				parsed: AgentOutput = response.completion  # type: ignore[assignment]
 				if self.jev_policy is not None:
 					self.jev_policy.remember(parsed)
