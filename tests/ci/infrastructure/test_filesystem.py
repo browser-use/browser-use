@@ -559,11 +559,12 @@ class TestFileSystem:
 		assert 'invalidname.md' in result
 		assert 'auto-corrected' in result
 
-	def test_read_external_utf8_text(self, tmp_path: Path):
+	@pytest.mark.parametrize('encoding', ['utf-8', 'utf-8-sig'])
+	def test_read_external_utf8_text(self, tmp_path: Path, encoding: str):
 		"""External UTF-8 text must survive reads with a non-UTF-8 default locale."""
 		content = 'café 北京 😀\nSecond line'
 		file_path = tmp_path / 'external.txt'
-		file_path.write_text(content, encoding='utf-8')
+		file_path.write_text(content, encoding=encoding)
 		script = textwrap.dedent(
 			r"""
 			import asyncio
