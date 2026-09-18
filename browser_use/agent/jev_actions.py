@@ -11,7 +11,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from browser_use.agent.views import ActionResult, AgentOutput
 from browser_use.browser.views import BrowserStateSummary
@@ -183,7 +183,7 @@ class JevActionRouter:
 		"""Construct only native click/scroll actions using actual selector-map IDs."""
 		actions: dict[str, ActionModel] = {}
 		criteria = {'fallback': 'Return control to the main model without interacting.'}
-		if 'click' in action_model.model_fields:
+		if _supports(action_model, {'click': {'index': 1}}):
 			for index, node in browser_state.dom_state.selector_map.items():
 				attrs = node.attributes
 				if index < 1 or not node.is_visible or 'disabled' in attrs or attrs.get('aria-disabled') == 'true':
@@ -205,7 +205,7 @@ class JevActionRouter:
 				criteria[key] = (
 					f'Click [{index}] <{node.tag_name}> {label[:250]} (frame={node.frame_id}, target={node.target_id})'
 				)
-		if 'scroll' in action_model.model_fields:
+		if _supports(action_model, {'scroll': {'down': True, 'pages': 0.8}}):
 			info = browser_state.page_info
 			for down, pixels in [
 				(True, info.pixels_below if info else browser_state.pixels_below),
@@ -216,3 +216,12 @@ class JevActionRouter:
 					actions[key] = action_model.model_validate({'scroll': {'down': down, 'pages': 0.8}})
 					criteria[key] = 'Scroll the page ' + ('down' if down else 'up') + ' by 0.8 viewport heights.'
 		return actions, criteria
+
+
+def _supports(action_model: type[ActionModel], action: dict[str, Any]) -> bool:
+	# Native registries return a RootModel union, whose only model_field is root.
+	try:
+		action_model.model_validate(action)
+		return True
+	except ValidationError:
+		return False

@@ -224,3 +224,18 @@ async def test_empty_browser_section_fails_open(filterer):
 	mock = client()
 	assert await filterer(original, mock) == original
 	mock.ask.assert_not_called()
+
+
+def test_asset_identifiers_are_not_visible_numeric_facts():
+	from browser_use.agent.jev_observation import _protected
+
+	assert not _protected('[45]<img image_src=https://example.com/logo-48-12345.png />\nHelp and support')
+	assert _protected('[45]<a href=https://example.com/product-123 />\nCosts $19.95')
+	assert _protected('[45]<input value=42 />')
+
+
+async def test_vision_uses_choice_probability_not_confidence_margin():
+	from browser_use.agent.jev_observation import _confident
+
+	assert _confident({'choice': 'DOM_ONLY', 'confidence': 0.61, 'probabilities': {'DOM_ONLY': 0.8, 'KEEP': 0.2}}, 'DOM_ONLY')
+	assert not _confident({'choice': 'DOM_ONLY', 'confidence': 0.99, 'probabilities': {'DOM_ONLY': 0.6, 'KEEP': 0.4}}, 'DOM_ONLY')

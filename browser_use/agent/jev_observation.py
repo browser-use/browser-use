@@ -60,10 +60,10 @@ def _needs_full(text: str) -> bool:
 	)
 
 
-def _confident(answer: Any, choice: str, threshold: float = 0.95) -> bool:
+def _confident(answer: Any, choice: str, threshold: float = 0.80) -> bool:
 	if not isinstance(answer, dict) or answer.get('choice') != choice:
 		return False
-	confidence = answer.get('confidence')
+	confidence = answer.get('probabilities', {}).get(choice, answer.get('confidence'))
 	return (
 		isinstance(confidence, (int, float))
 		and not isinstance(confidence, bool)
@@ -167,7 +167,7 @@ def _chunks(dom: str, target_chars: int = 1800) -> list[str]:
 def _protected(chunk: str) -> bool:
 	# Preserve input values, form controls, validation errors and numeric facts.
 	# Strip only native selector indices before testing numbers (prices/dates/etc).
-	without_indexes = re.sub(r'\[\d+\]', '', chunk)
+	without_indexes = re.sub(r'\[\d+\]', '', re.sub(r'<[^>]*>', '', chunk))
 	return bool(
 		re.search(r'<(?:input|textarea|select|option)\b|\b(?:value|checked|selected)=', chunk, re.I)
 		or re.search(r'\d|\b(?:error|required|invalid|warning|confirmation|receipt)\b', without_indexes, re.I)

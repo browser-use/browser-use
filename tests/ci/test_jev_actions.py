@@ -265,3 +265,23 @@ async def test_excluded_native_action_does_not_reappear_in_menu():
 	agent.ActionModel = create_model('NoClicks', __base__=ActionModel, done=(DoneAction | None, None))
 	assert await choose(router, agent) is None
 	client.ask.assert_not_awaited()
+
+
+def test_real_native_registry_union_offers_clicks():
+	from browser_use.tools.registry.service import Registry
+
+	registry = Registry()
+
+	@registry.action('Click', param_model=ClickElementActionIndexOnly)
+	async def click(params: ClickElementActionIndexOnly):
+		pass
+
+	@registry.action('Scroll', param_model=ScrollAction)
+	async def scroll(params: ScrollAction):
+		pass
+
+	model = registry.create_action_model()
+	assert list(model.model_fields) == ['root']
+	actions, criteria = JevActionRouter._menu(model, browser_state())
+	assert 'click_7' in criteria
+	assert actions['click_7'].model_dump(exclude_none=True) == {'click': {'index': 7}}
