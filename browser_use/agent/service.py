@@ -210,8 +210,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
+		jev_mode: str | None = None,
+		jev_log_path: str | None = None,
 		**kwargs,
 	):
+		self.jev_policy = None
+		if jev_mode is not None:
+			from browser_use.agent.jev import JevPolicy
+
+			self.jev_policy = JevPolicy(jev_mode, jev_log_path)
+
 		# Validate llm_screenshot_size
 		if llm_screenshot_size is not None:
 			if not isinstance(llm_screenshot_size, tuple) or len(llm_screenshot_size) != 2:
@@ -1062,6 +1070,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Phase 1: Prepare context and timing
 			browser_state_summary = await self._prepare_context(step_info)
+			if self.jev_policy is not None:
+				self.jev_policy.browser_state = browser_state_summary
+				self.jev_policy.previous_results = self.state.last_result
+				self.jev_policy.previous_output = self.state.last_model_output
 
 			# Clear previous step state after context preparation (which needs
 			# them for the "previous action result" prompt) but before the LLM
@@ -1945,6 +1957,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def get_model_output(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
 
+		jev_output = None
+		if self.jev_policy is not None:
+			jev_output, input_messages = await self.jev_policy.prepare(self, input_messages)
+
 		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
 
 		# Build kwargs for ainvoke
@@ -1952,8 +1968,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		kwargs: dict = {'output_format': self.AgentOutput, 'session_id': self.session_id}
 
 		try:
-			response = await self.llm.ainvoke(input_messages, **kwargs)
-			parsed: AgentOutput = response.completion  # type: ignore[assignment]
+			if jev_output is None:
+				response = await self.llm.ainvoke(input_messages, **kwargs)
+				parsed: AgentOutput = response.completion  # type: ignore[assignment]
+				if self.jev_policy is not None:
+					self.jev_policy.remember(parsed)
+			else:
+				parsed = jev_output
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
