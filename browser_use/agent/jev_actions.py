@@ -29,8 +29,8 @@ class JevActionSettings(BaseModel):
 	model_config = ConfigDict(extra='forbid')
 	max_consecutive_steps: int = Field(default=2, ge=1, le=2)
 	min_confidence: float = Field(default=0.85, ge=0, le=1)
-	max_choices: int = Field(default=80, ge=2, le=200)
-	max_dom_chars: int = Field(default=18000, ge=100, le=50000)
+	max_choices: int = Field(default=200, ge=2, le=200)
+	max_dom_chars: int = Field(default=40000, ge=100, le=50000)
 
 
 class JevActionRouter:
