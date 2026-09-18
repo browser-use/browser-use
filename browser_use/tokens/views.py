@@ -78,6 +78,9 @@ class ModelUsageStats(BaseModel):
 	completion_tokens: int = 0
 	total_tokens: int = 0
 	cost: float = 0.0
+	# None means the input/output cost breakdown is unavailable.
+	prompt_cost: float | None = None
+	completion_cost: float | None = None
 	invocations: int = 0
 	average_tokens_per_invocation: float = 0.0
 
