@@ -1927,7 +1927,7 @@ Validated Code (after quote fixing):
 					)
 
 				# Apply length limit with better truncation (after image extraction)
-				if len(result_text) > _EVALUATE_MAX_RESULT_CHARS:
+				if len(result_text) + len(omission_report) > _EVALUATE_MAX_RESULT_CHARS:
 					truncation_marker = f'\n... [Truncated after {_EVALUATE_MAX_RESULT_CHARS} characters]'
 					suffix = omission_report + truncation_marker
 					result_text = result_text[: max(0, _EVALUATE_MAX_RESULT_CHARS - len(suffix))] + suffix

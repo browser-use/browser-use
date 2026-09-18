@@ -170,6 +170,23 @@ class TestToolsIntegration:
 		assert '[1 image(s) omitted' in result.extracted_content
 		assert '[Truncated after 1000 characters]' in result.extracted_content
 
+	async def test_evaluate_counts_omission_report_toward_result_limit(self, tools, browser_session, monkeypatch):
+		"""Test that an omission report cannot push a near-limit result over the bound."""
+		from browser_use.tools import service as tools_service
+
+		monkeypatch.setattr(tools_service, '_EVALUATE_MAX_RESULT_CHARS', 300)
+		result = await tools.evaluate(
+			code="""(() => {
+				const largeImage = 'data:image/png;base64,' + 'A'.repeat(256001);
+				return 'x'.repeat(290) + largeImage;
+			})()""",
+			browser_session=browser_session,
+		)
+
+		assert len(result.extracted_content) <= 300
+		assert '[1 image(s) omitted' in result.extracted_content
+		assert '[Truncated after 300 characters]' in result.extracted_content
+
 	async def test_evaluate_uses_configured_result_limit(self, tools, browser_session, monkeypatch):
 		"""Test that both truncation and its marker use the configured result limit."""
 		from browser_use.tools import service as tools_service
