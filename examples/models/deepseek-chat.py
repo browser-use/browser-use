@@ -20,7 +20,7 @@ if deepseek_api_key is None:
 async def main():
 	llm = ChatDeepSeek(
 		base_url='https://api.deepseek.com/v1',
-		model='deepseek-chat',
+		model='deepseek-v4-flash',
 		api_key=deepseek_api_key,
 	)
 

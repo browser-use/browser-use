@@ -77,6 +77,7 @@ from browser_use.utils import (
 	_log_pretty_path,
 	check_latest_browser_use_version,
 	get_browser_use_version,
+	has_url_negation,
 	is_placeholder_url,
 	sanitize_url_candidate,
 	time_execution_async,
@@ -676,11 +677,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if not self.has_downloads_path:
 			return
 
-		current_files = set(self.available_file_paths or [])
-		new_files = set(downloads) - current_files
+		available_files = self.available_file_paths or []
+		seen_files = set(available_files)
+		new_files = []
+		for download in downloads:
+			if download not in seen_files:
+				seen_files.add(download)
+				new_files.append(download)
 
 		if new_files:
-			self.available_file_paths = list(current_files | new_files)
+			self.available_file_paths = [*available_files, *new_files]
 
 			self.logger.info(
 				f'📁 Added {len(new_files)} downloaded files to available_file_paths (total: {len(self.available_file_paths)} files)'
@@ -688,7 +694,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			for file_path in new_files:
 				self.logger.info(f'📄 New file available: {file_path}')
 		else:
-			self.logger.debug(f'📁 No new downloads detected (tracking {len(current_files)} files)')
+			self.logger.debug(f'📁 No new downloads detected (tracking {len(available_files)} files)')
 
 	def _set_file_system(self, file_system_path: str | None = None) -> None:
 		# Check for conflicting parameters
@@ -2367,13 +2373,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			'polynomial',
 		}
 
-		excluded_words = {
-			'never',
-			'dont',
-			'not',
-			"don't",
-		}
-
 		found_urls = []
 		matched_spans: list[tuple[int, int]] = []
 		for pattern in patterns:
@@ -2411,16 +2410,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					self.logger.debug(f'Excluding URL with file extension from auto-navigation: {url}')
 					continue
 
-				# If in the 20 characters before the url position is a word in excluded_words skip to avoid "Never go to this url"
+				# Skip URLs explicitly negated by nearby prose, such as "Never go to this URL".
 				context_start = max(0, original_position - 20)
 				context_text = task_without_emails[context_start:original_position]
-				if any(word.lower() in context_text.lower() for word in excluded_words):
-					self.logger.debug(
-						f'Excluding URL with word in excluded words from auto-navigation: {url} (context: "{context_text.strip()}")'
-					)
+				if has_url_negation(context_text):
+					self.logger.debug(f'Excluding negated URL from auto-navigation: {url} (context: "{context_text.strip()}")')
 					continue
 
-				# Add https:// if missing (after excluded words check to avoid position calculation issues)
+				# Add https:// after the negation check to preserve source positions.
 				if not has_scheme:
 					url = 'https://' + url
 

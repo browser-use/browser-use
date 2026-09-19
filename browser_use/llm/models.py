@@ -8,7 +8,7 @@ Usage:
     model = llm.azure_gpt_4_1_mini
     model = llm.openai_gpt_4o
     model = llm.google_gemini_2_5_pro
-    model = llm.bu_latest  # or bu_1_0, bu_2_0
+    model = llm.bu_latest  # or bu_2_0_mini_preview, bu_2_0, bu_1_0
 """
 
 import os
@@ -89,6 +89,7 @@ cerebras_gemma_4_31b: 'BaseChatModel'
 bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
 bu_2_0: 'BaseChatModel'
+bu_2_0_mini_preview: 'BaseChatModel'
 
 
 def get_llm_by_name(model_name: str):
@@ -113,7 +114,8 @@ def get_llm_by_name(model_name: str):
 		'mistral_medium': 'mistral-medium-latest',
 		'mistral_small': 'mistral-small-latest',
 		'codestral': 'codestral-latest',
-		'pixtral_large': 'pixtral-large-latest',
+		# Pixtral Large was retired; Mistral names Mistral Medium 3.5 as the replacement
+		'pixtral_large': 'mistral-medium-latest',
 	}
 	if model_name in mistral_aliases:
 		api_key = os.getenv('MISTRAL_API_KEY')
@@ -213,7 +215,7 @@ def get_llm_by_name(model_name: str):
 			'medium': 'mistral-medium-latest',
 			'small': 'mistral-small-latest',
 			'codestral': 'codestral-latest',
-			'pixtral-large': 'pixtral-large-latest',
+			'pixtral-large': 'mistral-medium-latest',
 		}
 		normalized_model_part = model_part.replace('_', '-')
 		resolved_model = mistral_map.get(normalized_model_part, model.replace('_', '-'))
@@ -346,6 +348,7 @@ __all__ += [
 	'bu_latest',
 	'bu_1_0',
 	'bu_2_0',
+	'bu_2_0_mini_preview',
 ]
 
 # NOTE: OCI backend is optional. The try/except ImportError and conditional __all__ are required
