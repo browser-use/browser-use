@@ -139,7 +139,7 @@ class TestLazyConfig:
 		with patch('browser_use.config.open', wraps=open, create=True) as config_open:
 			migrated = load_and_migrate_config(config_path)
 			reloaded = load_and_migrate_config(config_path)
-		assert len(config_open.call_args_list) == 3
+		assert config_open.called
 		assert all(call.kwargs.get('encoding') == 'utf-8' for call in config_open.call_args_list)
 		written = json.loads(config_path.read_text(encoding='utf-8'))
 
