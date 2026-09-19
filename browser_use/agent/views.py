@@ -680,8 +680,10 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 					h['model_output'] = None
 			state = h.get('state') or {}
 			if 'interacted_element' not in state:
-				# The field is a required list, so a legacy entry needs a list here, not None.
-				state['interacted_element'] = []
+				# The field is a required list, so a legacy entry needs a list here, not None — and one slot
+				# per action, because replay indexes `interacted_element[i]` by action position.
+				actions = getattr(h.get('model_output'), 'action', None) or []
+				state['interacted_element'] = [None] * len(actions)
 				h['state'] = state
 
 		history = cls.model_validate(data)
