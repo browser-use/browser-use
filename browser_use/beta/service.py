@@ -4004,6 +4004,11 @@ def _history_from_events(
 		failure = _recoverable_failure_from_events(events)
 	if final_result is None and failure is None:
 		failure = 'Rust terminal session did not produce a final result.'
+	if final_result is not None and output_model_schema is not None and failure is None:
+		try:
+			output_model_schema.model_validate_json(final_result)
+		except (ValidationError, ValueError):
+			failure = 'Final result does not match output_model_schema.'
 	is_done = final_result is not None and failure is None
 	attachments = _attachments_from_events(events)
 	history_items = _history_items_from_terminal_turns(

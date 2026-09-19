@@ -2363,6 +2363,8 @@ def test_rust_history_supports_structured_output():
 
 	assert isinstance(history.structured_output, Answer)
 	assert history.structured_output.answer == 'ok'
+	assert history.is_successful() is True
+	assert history.has_errors() is False
 
 
 def test_rust_history_extracts_fenced_structured_output():
@@ -2383,6 +2385,63 @@ def test_rust_history_extracts_fenced_structured_output():
 	assert history.final_result() == '{"answer": "ok"}'
 	assert isinstance(history.structured_output, Answer)
 	assert history.structured_output.answer == 'ok'
+	assert history.is_successful() is True
+	assert history.has_errors() is False
+
+
+@pytest.mark.parametrize('result', ['Result files: final_answer.json', '{"wrong": "field"}', '{"answer": 42}'])
+@pytest.mark.parametrize('multi_turn', [False, True])
+def test_rust_history_rejects_invalid_structured_output(result, multi_turn):
+	from browser_use.beta.service import _history_from_events
+
+	class Answer(BaseModel):
+		answer: str
+
+	events = [{'event_type': 'session.done', 'payload': {'result': result}}]
+	if multi_turn:
+		events[:0] = [
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+		]
+
+	history = _history_from_events(
+		events,
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=Answer,
+		process_error=None,
+	)
+
+	assert history.is_done() is False
+	assert history.is_successful() is None
+	assert history.errors() == ['Final result does not match output_model_schema.']
+	assert history.final_result() == result
+
+
+@pytest.mark.parametrize('failure_source', ['process', 'session.failed'])
+def test_rust_history_preserves_failure_with_invalid_structured_output(failure_source):
+	from browser_use.beta.service import _history_from_events
+
+	class Answer(BaseModel):
+		answer: str
+
+	events = [{'event_type': 'session.done', 'payload': {'result': 'Partial result'}}]
+	if failure_source == 'session.failed':
+		events.append({'event_type': 'session.failed', 'payload': {'error': 'Model request failed'}})
+
+	history = _history_from_events(
+		events,
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=Answer,
+		process_error='Model request failed' if failure_source == 'process' else None,
+	)
+
+	assert history.is_done() is False
+	assert history.errors() == ['Model request failed']
+	assert history.final_result() == 'Partial result'
 
 
 def test_rust_history_reconstructs_terminal_agent_completed_result():
