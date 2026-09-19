@@ -481,9 +481,15 @@ Available tabs:
 				if not img_base64:
 					continue
 
-				# Detect image format from name
-				if img_name.lower().endswith('.png'):
+				# Detect image format from name: read_file returns the bytes unconverted, so a GIF or
+				# WEBP declared image/jpeg reaches the provider with a mismatched format.
+				lower_name = img_name.lower()
+				if lower_name.endswith('.png'):
 					media_type = 'image/png'
+				elif lower_name.endswith('.gif'):
+					media_type = 'image/gif'
+				elif lower_name.endswith('.webp'):
+					media_type = 'image/webp'
 				else:
 					media_type = 'image/jpeg'
 
