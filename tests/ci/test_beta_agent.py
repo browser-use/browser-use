@@ -2389,9 +2389,17 @@ def test_rust_history_extracts_fenced_structured_output():
 	assert history.has_errors() is False
 
 
-@pytest.mark.parametrize('result', ['Result files: final_answer.json', '{"wrong": "field"}', '{"answer": 42}'])
+@pytest.mark.parametrize(
+	('result', 'error_detail'),
+	[
+		('Result files: final_answer.json', 'Invalid JSON'),
+		('{"wrong": "field"}', 'Field required'),
+		('{"answer": 42}', 'Input should be a valid string'),
+	],
+)
 @pytest.mark.parametrize('multi_turn', [False, True])
-def test_rust_history_rejects_invalid_structured_output(result, multi_turn):
+def test_rust_history_rejects_invalid_structured_output(result, error_detail, multi_turn):
+	from browser_use.beta import Agent
 	from browser_use.beta.service import _history_from_events
 
 	class Answer(BaseModel):
@@ -2415,8 +2423,24 @@ def test_rust_history_rejects_invalid_structured_output(result, multi_turn):
 
 	assert history.is_done() is False
 	assert history.is_successful() is None
-	assert history.errors() == ['Final result does not match output_model_schema.']
+	error = history.errors()[0]
+	assert error is not None
+	assert error.startswith('Final result does not match output_model_schema:')
+	assert error_detail in error
 	assert history.final_result() == result
+	assert history.structured_output is None
+
+	agent = Agent(
+		task='Return a structured answer.',
+		llm=type('LLM', (), {'model': 'gpt-test'})(),
+		output_model_schema=Answer,
+		directly_open_url=False,
+	)
+	agent.history = history
+	trace = agent.get_trace_object()
+	assert trace['trace']['structured_output_truncated'] is None
+	assert trace['trace']['final_result_response_truncated'] == result
+	assert trace['trace']['self_report_success'] == 0
 
 
 @pytest.mark.parametrize('failure_source', ['process', 'session.failed'])

@@ -4007,8 +4007,9 @@ def _history_from_events(
 	if final_result is not None and output_model_schema is not None and failure is None:
 		try:
 			output_model_schema.model_validate_json(final_result)
-		except (ValidationError, ValueError):
-			failure = 'Final result does not match output_model_schema.'
+		except (ValidationError, ValueError) as exc:
+			failure = f'Final result does not match output_model_schema: {exc}'
+			output_model_schema = None
 	is_done = final_result is not None and failure is None
 	attachments = _attachments_from_events(events)
 	history_items = _history_items_from_terminal_turns(
