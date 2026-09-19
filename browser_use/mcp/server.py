@@ -195,6 +195,7 @@ class BrowserUseServer:
 		self.config = load_browser_use_config()
 		self.agent: Agent | None = None
 		self.browser_session: BrowserSession | None = None
+		self._browser_session_lock = asyncio.Lock()
 		self.tools: Tools | None = None
 		self.llm: ChatOpenAI | None = None
 		self.file_system: FileSystem | None = None
@@ -526,8 +527,9 @@ class BrowserUseServer:
 		# Direct browser control tools (require active session)
 		elif tool_name.startswith('browser_'):
 			# Ensure browser session exists
-			if not self.browser_session:
-				await self._init_browser_session()
+			async with self._browser_session_lock:
+				if not self.browser_session:
+					await self._init_browser_session()
 
 			if tool_name == 'browser_navigate':
 				return await self._navigate(arguments['url'], arguments.get('new_tab', False))
@@ -627,7 +629,10 @@ class BrowserUseServer:
 		except (Exception, asyncio.CancelledError):
 			self.browser_session = None
 			with suppress(Exception):
-				await session.stop()
+				if session._cloud_browser_client.current_session_id:
+					await session.kill()
+				else:
+					await session.stop()
 			raise
 
 		# Track the session for management
