@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from typing import cast
 
 import httpx
 import mcp.types as types
@@ -81,13 +82,14 @@ async def test_tools_retry_failed_browser_start(httpserver: HTTPServer, browser_
 
 
 @pytest.mark.parametrize('owned', [True, False], ids=['created-cloud-browser', 'external-cloud-browser'])
-async def test_failed_start_cleans_up_only_owned_cloud_browser(monkeypatch, tmp_path, owned):
+async def test_failed_start_retries_cloud_browser(monkeypatch, tmp_path, browser_session: BrowserSession, owned):
 	browser_id = '11111111-1111-1111-1111-111111111111'
 	cdp_url = f'https://{browser_id}.cdp1.browser-use.com'
 	active_browsers = set() if owned else {browser_id}
 	created = []
 	stopped = []
 	discovery_requests = []
+	ready = False
 
 	async def create_browser(client, params):
 		created.append(browser_id)
@@ -102,16 +104,18 @@ async def test_failed_start_cleans_up_only_owned_cloud_browser(monkeypatch, tmp_
 		if client.current_session_id == session_id:
 			client.current_session_id = None
 
-	async def unavailable_cdp(client, url, **kwargs):
+	async def discover_cdp(client, url, **kwargs):
 		assert url == f'{cdp_url}/json/version'
 		discovery_requests.append(url)
+		if ready:
+			return httpx.Response(200, json={'webSocketDebuggerUrl': browser_session.cdp_url}, request=httpx.Request('GET', url))
 		raise httpx.ConnectError('CDP unavailable after cloud creation', request=httpx.Request('GET', url))
 
 	# Keep the real BrowserSession startup, CDP discovery, stop/kill, and stop handler.
 	# Replace only cloud API operations and the HTTP boundary of CDP discovery.
 	monkeypatch.setattr(CloudBrowserClient, 'create_browser', create_browser)
 	monkeypatch.setattr(CloudBrowserClient, 'stop_browser', stop_browser)
-	monkeypatch.setattr(httpx.AsyncClient, 'get', unavailable_cdp)
+	monkeypatch.setattr(httpx.AsyncClient, 'get', discover_cdp)
 	server = BrowserUseServer()
 	server.config = {
 		'browser_profile': {
@@ -141,3 +145,26 @@ async def test_failed_start_cleans_up_only_owned_cloud_browser(monkeypatch, tmp_
 	assert created == ([browser_id] if owned else [])
 	assert stopped == ([browser_id] if owned else [])
 	assert active_browsers == (set() if owned else {browser_id})
+
+	ready = True
+	try:
+		retried = await handler.handler(
+			None,  # type: ignore[arg-type]
+			types.CallToolRequestParams(name='browser_list_tabs', arguments={}),
+		)
+		assert isinstance(retried, types.CallToolResult)
+		assert not retried.is_error
+		assert isinstance(retried.content[0], types.TextContent)
+		assert json.loads(retried.content[0].text), 'The cloud retry must connect to Chromium and list real tabs'
+		assert discovery_requests == [f'{cdp_url}/json/version'] * 2
+		assert created == ([browser_id, browser_id] if owned else [])
+		assert stopped == ([browser_id] if owned else [])
+		assert active_browsers == {browser_id}
+		assert len(server.active_sessions) == 1
+	finally:
+		session = cast(BrowserSession | None, server.browser_session)
+		if session is not None:
+			if owned:
+				await session.kill()
+			else:
+				await session.stop()
