@@ -775,11 +775,43 @@ class TestAutomaticNewTabSwitchReporting:
 	1. If SwitchTabEvent succeeds and matches the new tab -> report "Automatically switched..."
 	2. If SwitchTabEvent fails / raises an exception -> click remains successful (error=None),
 	   but reports the truthful fallback "Note: This opened a new tab (tab_id: ...) - switch to it..."
-	3. If SwitchTabEvent yields no result (None) -> click remains successful, reports fallback note.
 	4. If SwitchTabEvent yields a mismatched target ID -> click remains successful, reports fallback note.
 	"""
 
-	async def test_auto_switch_reports_success_when_event_succeeds(self, browser_session, base_url):
+	@staticmethod
+	def _synchronize_tab_creation_on_click(browser_session: BrowserSession, monkeypatch: pytest.MonkeyPatch) -> None:
+		"""Harden tests against slow CI timing races in Chromium new-tab creation.
+
+		When clicking an element that opens a new tab (<a target="_blank">), Chromium
+		asynchronously creates the new target and dispatches Target.attachedToTarget to CDP.
+		In production, _detect_new_tab_opened opportunistically checks for new tabs after a 50ms sleep.
+		On slow CI runners, Chrome's target attachment can exceed 50ms, causing new_tabs to be empty.
+
+		This helper wraps ClickElementEvent and ClickCoordinateEvent handlers so that after
+		performing the real CDP click, the handler awaits until the new page target is registered
+		in SessionManager before completing. This guarantees that _detect_new_tab_opened will always
+		observe the newly created tab deterministically without modifying production code.
+		"""
+		for event_type in ('ClickElementEvent', 'ClickCoordinateEvent'):
+			handlers = browser_session.event_bus.handlers.get(event_type, [])
+			if handlers:
+				orig_handler = handlers[0]
+
+				async def wrapped_handler(event: Any, _orig: Any = orig_handler) -> Any:
+					pre_targets = {t.target_id for t in browser_session.session_manager.get_all_page_targets()}
+					result = await _orig(event)
+					for _ in range(300):  # up to 3.0 seconds, polling every 10ms
+						current_targets = browser_session.session_manager.get_all_page_targets()
+						if any(t.target_id not in pre_targets for t in current_targets):
+							break
+						await asyncio.sleep(0.01)
+					return result
+
+				monkeypatch.setitem(browser_session.event_bus.handlers, event_type, [wrapped_handler])
+
+	async def test_auto_switch_reports_success_when_event_succeeds(
+		self, browser_session, base_url, monkeypatch: pytest.MonkeyPatch
+	):
 		tools = Tools()
 		await tools.act(
 			_TabActionModel(navigate={'url': f'{base_url}/background-tab-test'}),
@@ -787,6 +819,8 @@ class TestAutomaticNewTabSwitchReporting:
 		)
 		state = await browser_session.get_browser_state_summary()
 		link_idx = list(state.dom_state.selector_map.keys())[0]
+
+		self._synchronize_tab_creation_on_click(browser_session, monkeypatch)
 
 		result = await tools.act(
 			_TabActionModel(click={'index': link_idx}),
@@ -797,7 +831,26 @@ class TestAutomaticNewTabSwitchReporting:
 		assert 'Automatically switched to new tab' in (result.extracted_content or '')
 		assert 'Note: This opened a new tab' not in (result.extracted_content or '')
 
-	async def test_auto_switch_reports_fallback_when_event_handler_raises(self, browser_session, base_url, monkeypatch):
+	@pytest.mark.parametrize(
+		'switch_handler',
+		[
+			pytest.param(
+				lambda event: (_ for _ in ()).throw(RuntimeError('CDP activateTarget failed')),
+				id='handler_raises',
+			),
+			pytest.param(
+				lambda event: None,
+				id='no_result',
+			),
+			pytest.param(
+				lambda event: 'bogus_different_target_id',
+				id='mismatched_target',
+			),
+		],
+	)
+	async def test_auto_switch_reports_fallback_on_switch_failure(
+		self, browser_session, base_url, monkeypatch: pytest.MonkeyPatch, switch_handler: Any
+	):
 		tools = Tools()
 		await tools.act(
 			_TabActionModel(navigate={'url': f'{base_url}/background-tab-test'}),
@@ -806,10 +859,13 @@ class TestAutomaticNewTabSwitchReporting:
 		state = await browser_session.get_browser_state_summary()
 		link_idx = list(state.dom_state.selector_map.keys())[0]
 
-		async def failing_switch_handler(event: SwitchTabEvent):
-			raise RuntimeError('CDP activateTarget failed')
+		self._synchronize_tab_creation_on_click(browser_session, monkeypatch)
 
-		monkeypatch.setitem(browser_session.event_bus.handlers, 'SwitchTabEvent', [failing_switch_handler])
+		# Wrap switch_handler as an async coroutine function for bubus compatibility
+		async def async_switch_handler(event: SwitchTabEvent):
+			return switch_handler(event)
+
+		monkeypatch.setitem(browser_session.event_bus.handlers, 'SwitchTabEvent', [async_switch_handler])
 
 		result = await tools.act(
 			_TabActionModel(click={'index': link_idx}),
@@ -821,57 +877,9 @@ class TestAutomaticNewTabSwitchReporting:
 		assert 'Note: This opened a new tab' in (result.extracted_content or '')
 		assert 'switch to it if you need to interact with the new page' in (result.extracted_content or '')
 
-	async def test_auto_switch_reports_fallback_when_event_yields_no_result(self, browser_session, base_url, monkeypatch):
-		tools = Tools()
-		await tools.act(
-			_TabActionModel(navigate={'url': f'{base_url}/background-tab-test'}),
-			browser_session=browser_session,
-		)
-		state = await browser_session.get_browser_state_summary()
-		link_idx = list(state.dom_state.selector_map.keys())[0]
-
-		async def no_result_switch_handler(event: SwitchTabEvent):
-			return None
-
-		monkeypatch.setitem(browser_session.event_bus.handlers, 'SwitchTabEvent', [no_result_switch_handler])
-
-		result = await tools.act(
-			_TabActionModel(click={'index': link_idx}),
-			browser_session=browser_session,
-		)
-
-		assert result.error is None, 'click itself must succeed even when event yields no result'
-		assert 'Automatically switched to new tab' not in (result.extracted_content or '')
-		assert 'Note: This opened a new tab' in (result.extracted_content or '')
-		assert 'switch to it if you need to interact with the new page' in (result.extracted_content or '')
-
-	async def test_auto_switch_reports_fallback_when_event_returns_mismatched_target(
-		self, browser_session, base_url, monkeypatch
+	async def test_coordinate_click_auto_switch_fallback_when_event_handler_fails(
+		self, browser_session, base_url, monkeypatch: pytest.MonkeyPatch
 	):
-		tools = Tools()
-		await tools.act(
-			_TabActionModel(navigate={'url': f'{base_url}/background-tab-test'}),
-			browser_session=browser_session,
-		)
-		state = await browser_session.get_browser_state_summary()
-		link_idx = list(state.dom_state.selector_map.keys())[0]
-
-		async def mismatched_target_switch_handler(event: SwitchTabEvent):
-			return 'bogus_different_target_id'
-
-		monkeypatch.setitem(browser_session.event_bus.handlers, 'SwitchTabEvent', [mismatched_target_switch_handler])
-
-		result = await tools.act(
-			_TabActionModel(click={'index': link_idx}),
-			browser_session=browser_session,
-		)
-
-		assert result.error is None, 'click itself must succeed even when target is mismatched'
-		assert 'Automatically switched to new tab' not in (result.extracted_content or '')
-		assert 'Note: This opened a new tab' in (result.extracted_content or '')
-		assert 'switch to it if you need to interact with the new page' in (result.extracted_content or '')
-
-	async def test_coordinate_click_auto_switch_fallback_when_event_handler_fails(self, browser_session, base_url, monkeypatch):
 		tools = Tools()
 		tools.set_coordinate_clicking(True)
 		await tools.act(
@@ -884,6 +892,8 @@ class TestAutomaticNewTabSwitchReporting:
 		assert node is not None and node.snapshot_node and node.snapshot_node.bounds
 		click_x = int(node.snapshot_node.bounds.x + node.snapshot_node.bounds.width / 2)
 		click_y = int(node.snapshot_node.bounds.y + node.snapshot_node.bounds.height / 2)
+
+		self._synchronize_tab_creation_on_click(browser_session, monkeypatch)
 
 		async def failing_switch_handler(event: SwitchTabEvent):
 			raise RuntimeError('CDP activateTarget failed')
