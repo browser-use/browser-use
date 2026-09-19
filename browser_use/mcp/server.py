@@ -34,6 +34,7 @@ import asyncio
 import json
 import logging
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -619,8 +620,15 @@ class BrowserUseServer:
 		profile = BrowserProfile(**profile_data)
 
 		# Create browser session
-		self.browser_session = BrowserSession(browser_profile=profile)
-		await self.browser_session.start()
+		session = BrowserSession(browser_profile=profile)
+		self.browser_session = session
+		try:
+			await session.start()
+		except (Exception, asyncio.CancelledError):
+			self.browser_session = None
+			with suppress(Exception):
+				await session.stop()
+			raise
 
 		# Track the session for management
 		self._track_session(self.browser_session)
