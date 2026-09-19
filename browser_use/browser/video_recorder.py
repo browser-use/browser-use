@@ -4,6 +4,7 @@ import base64
 import io
 import logging
 import math
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -52,6 +53,9 @@ class VideoRecorderService:
 		self.framerate = framerate
 		self._writer: Optional['Format.Writer'] = None
 		self._is_active = False
+		self._started_at = 0.0
+		self._last_frame: 'np.ndarray | None' = None
+		self._frames_written = 0
 		self.padded_size = _get_padded_size(self.size)
 
 	def start(self) -> None:
@@ -79,6 +83,9 @@ class VideoRecorderService:
 				macro_block_size=None,
 			)
 			self._is_active = True
+			self._started_at = time.monotonic()
+			self._last_frame = None
+			self._frames_written = 0
 			logger.debug(f'Video recorder started. Output will be saved to {self.output_path}')
 		except Exception as e:
 			logger.error(f'Failed to initialize video writer: {e}')
@@ -95,6 +102,7 @@ class VideoRecorderService:
 		if not self._is_active or not self._writer:
 			return
 
+		received_at = time.monotonic()
 		try:
 			frame_bytes = base64.b64decode(frame_data_b64)
 
@@ -118,9 +126,23 @@ class VideoRecorderService:
 				# 3. Convert to numpy array for imageio
 				img_array = np.array(img)
 
-			self._writer.append_data(img_array)
+			if self._last_frame is None:
+				self._last_frame = img_array
+			# CDP sends frames on visual changes, not at the output framerate.
+			# Hold the previous image for the elapsed time before this change.
+			self._write_frames_until(received_at)
+			self._last_frame = img_array
 		except Exception as e:
 			logger.warning(f'Could not process and add video frame: {e}')
+
+	def _write_frames_until(self, timestamp: float) -> None:
+		"""Resample the last image onto the recording's fixed-framerate timeline."""
+		if self._last_frame is None or self._writer is None:
+			return
+		target_frames = max(1, round((timestamp - self._started_at) * self.framerate))
+		while self._frames_written < target_frames:
+			self._writer.append_data(self._last_frame)
+			self._frames_written += 1
 
 	def stop_and_save(self) -> None:
 		"""
@@ -132,10 +154,14 @@ class VideoRecorderService:
 			return
 
 		try:
-			self._writer.close()
+			try:
+				self._write_frames_until(time.monotonic())
+			finally:
+				self._writer.close()
 			logger.info(f'📹 Video recording saved successfully to: {self.output_path}')
 		except Exception as e:
 			logger.error(f'Failed to finalize and save video: {e}')
 		finally:
 			self._is_active = False
 			self._writer = None
+			self._last_frame = None
