@@ -697,10 +697,14 @@ class Element:
 		# Create viewport clip for the element
 		viewport: 'Viewport' = {'x': box['x'], 'y': box['y'], 'width': box['width'], 'height': box['height'], 'scale': 1.0}
 
+		from browser_use.utils import normalize_screenshot_format
+
+		format = normalize_screenshot_format(format)
+
 		# Prepare screenshot parameters
 		params: 'CaptureScreenshotParameters' = {'format': format, 'clip': viewport}
 
-		if quality is not None and format.lower() == 'jpeg':
+		if quality is not None and format == 'jpeg':
 			params['quality'] = quality
 
 		# Take screenshot

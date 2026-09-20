@@ -201,9 +201,12 @@ class Page:
 		"""
 		session_id = await self._ensure_session()
 
+		from browser_use.utils import normalize_screenshot_format
+
+		format = normalize_screenshot_format(format)
 		params: 'CaptureScreenshotParameters' = {'format': format}
 
-		if quality is not None and format.lower() == 'jpeg':
+		if quality is not None and format == 'jpeg':
 			params['quality'] = quality
 
 		result = await self._client.send.Page.captureScreenshot(params, session_id=session_id)
