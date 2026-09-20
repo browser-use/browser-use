@@ -56,5 +56,6 @@ def test_load_from_dict_pads_a_legacy_entry_with_actions_one_slot_per_action():
 	history = AgentHistoryList.load_from_dict({'history': [entry]}, output_model)
 	loaded = history.history[0]
 
+	assert loaded.model_output is not None
 	assert len(loaded.model_output.action) == 1
 	assert loaded.state.interacted_element == [None]
