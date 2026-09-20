@@ -8,7 +8,14 @@ import asyncio
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
-from cdp_use.cdp.target import AttachedToTargetEvent, DetachedFromTargetEvent, SessionID, TargetID
+from cdp_use.cdp.fetch import EnableParameters as FetchEnableParameters
+from cdp_use.cdp.target import (
+	AttachedToTargetEvent,
+	DetachedFromTargetEvent,
+	SessionID,
+	SetAutoAttachParameters,
+	TargetID,
+)
 
 from browser_use.utils import create_task_with_error_handling
 
@@ -59,6 +66,55 @@ class SessionManager:
 		self._recovery_in_progress: bool = False
 		self._recovery_complete_event: asyncio.Event | None = None
 		self._recovery_task: asyncio.Task | None = None
+
+	@property
+	def url_policy_enabled(self) -> bool:
+		"""True when the profile restricts which URLs the browser may load."""
+		profile = self.browser_session.browser_profile
+		return bool(profile.allowed_domains or profile.prohibited_domains or profile.block_ip_addresses)
+
+	def auto_attach_params(self) -> SetAutoAttachParameters:
+		"""Params for Target.setAutoAttach.
+
+		When a URL policy is active, new targets are held at start (waitForDebuggerOnStart) so that
+		request interception is in place before they can issue their first request. _handle_target_attached
+		resumes them once that is done.
+		"""
+		return {'autoAttach': True, 'waitForDebuggerOnStart': self.url_policy_enabled, 'flatten': True}
+
+	def on_request_paused(self, event: Any, session_id: SessionID | None = None) -> None:
+		"""Single Fetch.requestPaused handler (cdp-use keeps one handler per method).
+
+		Documents (top-level pages and iframes, including every redirect hop) whose URL the policy
+		disallows are failed before any request is sent. Everything else is continued untouched.
+		"""
+		request_id = event.get('requestId') or event.get('request_id')
+		if not request_id:
+			return
+
+		async def _respond() -> None:
+			client = self.browser_session._cdp_client_root
+			if client is None:
+				return
+			url = (event.get('request') or {}).get('url', '')
+			block = False
+			if event.get('resourceType') == 'Document' and url:
+				watchdog = self.browser_session._security_watchdog
+				block = (
+					watchdog is not None and not url.startswith(('about:', 'chrome-error:')) and not watchdog._is_url_allowed(url)
+				)
+			try:
+				if block:
+					self.logger.warning(f'⛔️ Blocked request to non-allowed URL before it was sent: {url}')
+					await client.send.Fetch.failRequest(
+						params={'requestId': request_id, 'errorReason': 'BlockedByClient'}, session_id=session_id
+					)
+				else:
+					await client.send.Fetch.continueRequest(params={'requestId': request_id}, session_id=session_id)
+			except Exception as e:
+				self.logger.debug(f'[SessionManager] Fetch response failed: {type(e).__name__}: {e}')
+
+		create_task_with_error_handling(_respond(), name='request_paused', logger_instance=self.logger, suppress_exceptions=True)
 
 	async def start_monitoring(self) -> None:
 		"""Start monitoring Target attach/detach events.
@@ -130,6 +186,8 @@ class SessionManager:
 		cdp_client.register.Target.detachedFromTarget(on_detached)
 		cdp_client.register.Target.targetInfoChanged(on_target_info_changed)
 		cdp_client.register.Page.lifecycleEvent(on_lifecycle_event)
+		if self.url_policy_enabled:
+			cdp_client.register.Fetch.requestPaused(self.on_request_paused)
 
 		self.logger.debug('[SessionManager] Event monitoring started')
 
@@ -426,7 +484,7 @@ class SessionManager:
 		# Enable auto-attach for this session's children (do this FIRST, outside lock)
 		try:
 			await self.browser_session._cdp_client_root.send.Target.setAutoAttach(
-				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}, session_id=session_id
+				params=self.auto_attach_params(), session_id=session_id
 			)
 		except Exception as e:
 			error_str = str(e)
@@ -479,18 +537,20 @@ class SessionManager:
 		# Add to sessions dict
 		self._sessions[session_id] = cdp_session
 
-		# If proxy auth is configured, enable Fetch auth handling on this session
-		# Avoids overwriting Target.attachedToTarget handlers elsewhere
+		# Enable Fetch on this session for proxy auth and/or the URL policy.
+		# Avoids overwriting Target.attachedToTarget handlers elsewhere.
+		# This must happen before the target is resumed (below) so its first request is already covered.
 		try:
+			fetch_params: FetchEnableParameters = {}
 			proxy_cfg = self.browser_session.browser_profile.proxy
-			username = proxy_cfg.username if proxy_cfg else None
-			password = proxy_cfg.password if proxy_cfg else None
-			if username and password:
-				await cdp_session.cdp_client.send.Fetch.enable(
-					params={'handleAuthRequests': True},
-					session_id=cdp_session.session_id,
-				)
-				self.logger.debug(f'[SessionManager] Fetch.enable(handleAuthRequests=True) on session {session_id[:8]}...')
+			if proxy_cfg and proxy_cfg.username and proxy_cfg.password:
+				fetch_params['handleAuthRequests'] = True
+			if self.url_policy_enabled and target_type in ('page', 'tab', 'iframe'):
+				# Only documents (pages and iframes, incl. redirects) are pausable; other requests are not intercepted
+				fetch_params['patterns'] = [{'resourceType': 'Document'}]
+			if fetch_params:
+				await cdp_session.cdp_client.send.Fetch.enable(params=fetch_params, session_id=cdp_session.session_id)
+				self.logger.debug(f'[SessionManager] Fetch.enable({fetch_params}) on session {session_id[:8]}...')
 		except Exception as e:
 			self.logger.debug(f'[SessionManager] Fetch.enable on attached session failed: {type(e).__name__}: {e}')
 

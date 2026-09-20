@@ -1928,9 +1928,7 @@ class BrowserSession(BaseModel):
 
 			# Enable auto-attach so Chrome automatically notifies us when NEW targets attach/detach
 			# This is the foundation of event-driven session management
-			await self._cdp_client_root.send.Target.setAutoAttach(
-				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
-			)
+			await self._cdp_client_root.send.Target.setAutoAttach(params=self.session_manager.auto_attach_params())
 			self.logger.debug('CDP client connected with auto-attach enabled')
 
 			# Get browser targets from SessionManager (source of truth)
@@ -2120,24 +2118,10 @@ class BrowserSession(BaseModel):
 						)
 
 			def _on_request_paused(event: RequestPausedEvent, session_id: SessionID | None = None):
-				# Continue all paused requests to avoid stalling the network
-				request_id = event.get('requestId') or event.get('request_id')
-				if not request_id:
-					return
-
-				async def _continue():
-					assert self._cdp_client_root
-					try:
-						await self._cdp_client_root.send.Fetch.continueRequest(
-							params={'requestId': request_id},
-							session_id=session_id,
-						)
-					except Exception:
-						pass
-
-				create_task_with_error_handling(
-					_continue(), name='request_continue', logger_instance=self.logger, suppress_exceptions=True
-				)
+				# Delegate so URL policy enforcement and proxy auth share one requestPaused handler
+				# (cdp-use keeps a single handler per method); it also continues all other requests.
+				assert self.session_manager is not None
+				self.session_manager.on_request_paused(event, session_id)
 
 			# Register event handler on root client
 			try:
@@ -2218,9 +2202,7 @@ class BrowserSession(BaseModel):
 		await self.session_manager.start_monitoring()
 
 		# 5. Re-enable autoAttach
-		await self._cdp_client_root.send.Target.setAutoAttach(
-			params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
-		)
+		await self._cdp_client_root.send.Target.setAutoAttach(params=self.session_manager.auto_attach_params())
 
 		# 6. Re-discover page targets and restore focus
 		page_targets = self.session_manager.get_all_page_targets()
