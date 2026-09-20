@@ -23,6 +23,12 @@ if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession, CDPSession, Target
 
 
+def _is_target_gone_error(error: Exception) -> bool:
+	"""True for CDP errors meaning the target/session detached before the command ran (short-lived targets)."""
+	error_str = str(error)
+	return '-32001' in error_str or 'Session with given id not found' in error_str
+
+
 class SessionManager:
 	"""Event-driven CDP session manager.
 
@@ -106,6 +112,7 @@ class SessionManager:
 			try:
 				if block:
 					self.logger.warning(f'⛔️ Blocked request to non-allowed URL before it was sent: {url}')
+					self._dispatch_navigation_blocked(url, session_id)
 					await client.send.Fetch.failRequest(
 						params={'requestId': request_id, 'errorReason': 'BlockedByClient'}, session_id=session_id
 					)
@@ -115,6 +122,25 @@ class SessionManager:
 				self.logger.debug(f'[SessionManager] Fetch response failed: {type(e).__name__}: {e}')
 
 		create_task_with_error_handling(_respond(), name='request_paused', logger_instance=self.logger, suppress_exceptions=True)
+
+	def _dispatch_navigation_blocked(self, url: str, session_id: SessionID | None) -> None:
+		"""Report a request blocked by the URL policy so the agent learns the navigation did not happen."""
+		from browser_use.browser.events import BrowserErrorEvent
+
+		try:
+			self.browser_session.event_bus.dispatch(
+				BrowserErrorEvent(
+					error_type='NavigationBlocked',
+					message=f'Navigation blocked to non-allowed URL: {url}',
+					details={
+						'url': url,
+						'target_id': self.get_target_id_from_session_id(session_id) if session_id else None,
+						'reason': 'blocked_before_request',
+					},
+				)
+			)
+		except Exception as e:
+			self.logger.debug(f'[SessionManager] Failed to dispatch BrowserErrorEvent: {type(e).__name__}: {e}')
 
 	async def start_monitoring(self) -> None:
 		"""Start monitoring Target attach/detach events.
@@ -540,6 +566,7 @@ class SessionManager:
 		# Enable Fetch on this session for proxy auth and/or the URL policy.
 		# Avoids overwriting Target.attachedToTarget handlers elsewhere.
 		# This must happen before the target is resumed (below) so its first request is already covered.
+		interception_failed = False
 		try:
 			fetch_params: FetchEnableParameters = {}
 			proxy_cfg = self.browser_session.browser_profile.proxy
@@ -553,6 +580,9 @@ class SessionManager:
 				self.logger.debug(f'[SessionManager] Fetch.enable({fetch_params}) on session {session_id[:8]}...')
 		except Exception as e:
 			self.logger.debug(f'[SessionManager] Fetch.enable on attached session failed: {type(e).__name__}: {e}')
+			# A target that vanished mid-attach needs no interception; anything else must not run unprotected
+			if self.url_policy_enabled and target_type in ('page', 'tab', 'iframe') and not _is_target_gone_error(e):
+				interception_failed = True
 
 		self.logger.debug(
 			f'[SessionManager] Created session {session_id[:8]}... for target {target_id[:8]}... '
@@ -562,6 +592,21 @@ class SessionManager:
 		# Enable lifecycle events and network monitoring for page targets
 		if target_type in ('page', 'tab'):
 			await self._enable_page_monitoring(cdp_session)
+
+		# Fail closed: a target held at start whose interception could not be enabled is never resumed,
+		# because it would be free to request disallowed URLs. Pages are closed; iframes stay paused.
+		if interception_failed:
+			self.logger.error(
+				f'[SessionManager] ⛔️ Could not enable URL policy interception for {target_type} {target_id[:8]}...; '
+				f'{"closing it" if target_type in ("page", "tab") else "leaving it paused"} instead of resuming'
+			)
+			if target_type in ('page', 'tab'):
+				try:
+					assert self.browser_session._cdp_client_root is not None
+					await self.browser_session._cdp_client_root.send.Target.closeTarget(params={'targetId': target_id})
+				except Exception as e:
+					self.logger.warning(f'[SessionManager] Failed to close unprotected target: {type(e).__name__}: {e}')
+			return
 
 		# Resume execution if waiting for debugger
 		if waiting_for_debugger:

@@ -983,8 +983,16 @@ class BrowserSession(BaseModel):
 
 			# Report the URL the tab actually landed on: redirects can leave it on a different
 			# origin than requested, and security checks on NavigationCompleteEvent must see that one.
-			landed_target = self.session_manager.get_target(target_id)
-			final_url = landed_target.url if landed_target and landed_target.url else event.url
+			# Ask the browser: the cached target URL is updated asynchronously by targetInfoChanged and can lag.
+			final_url = event.url
+			try:
+				assert self._cdp_client_root is not None
+				target_info = await self._cdp_client_root.send.Target.getTargetInfo(params={'targetId': target_id})
+				final_url = target_info['targetInfo']['url'] or event.url
+			except Exception as e:
+				self.logger.debug(f'[on_NavigateToUrlEvent] getTargetInfo failed, falling back to cached URL: {e}')
+				landed_target = self.session_manager.get_target(target_id)
+				final_url = landed_target.url if landed_target and landed_target.url else event.url
 
 			# Dispatch navigation complete
 			self.logger.debug(f'Dispatching NavigationCompleteEvent for {final_url} (tab #{target_id[-4:]})')
@@ -1178,7 +1186,7 @@ class BrowserSession(BaseModel):
 		target = self.session_manager.get_target(event.target_id)
 
 		# The tab may already be on a URL the security policy disallows (opened before it was enforced)
-		self.event_bus.dispatch(TargetUrlChangedEvent(target_id=target.target_id, url=target.url))
+		await self.event_bus.dispatch(TargetUrlChangedEvent(target_id=target.target_id, url=target.url))
 
 		# dispatch focus changed event
 		await self.event_bus.dispatch(
@@ -2141,7 +2149,14 @@ class BrowserSession(BaseModel):
 					# Use safe API with focus=False to avoid changing focus
 					cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
 					await cdp_session.cdp_client.send.Fetch.enable(
-						params={'handleAuthRequests': True, 'patterns': [{'urlPattern': '*'}]},
+						params={
+							'handleAuthRequests': True,
+							'patterns': (
+								[{'resourceType': 'Document'}]
+								if self.session_manager and self.session_manager.url_policy_enabled
+								else [{'urlPattern': '*'}]
+							),
+						},
 						session_id=cdp_session.session_id,
 					)
 			except Exception as e:

@@ -94,6 +94,13 @@ class SecurityWatchdog(BaseWatchdog):
 		)
 		try:
 			session = await self.browser_session.get_or_create_cdp_session(target_id=event.target_id, focus=False)
+			# The tab may have navigated again while we awaited the session; never blank a newer, possibly allowed page
+			target = (
+				self.browser_session.session_manager.get_target(event.target_id) if self.browser_session.session_manager else None
+			)
+			if target is None or target.url != event.url:
+				self.logger.debug(f'Ignoring stale URL change for {event.url}: tab is now on {target.url if target else None}')
+				return
 			await session.cdp_client.send.Page.navigate(params={'url': 'about:blank'}, session_id=session.session_id)
 			self.logger.info(f'⛔️ Navigated to about:blank after blocked URL: {event.url}')
 		except Exception as e:

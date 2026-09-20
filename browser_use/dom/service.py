@@ -1048,16 +1048,21 @@ class DomService:
 									'type': iframe_target.target_type if iframe_target else 'iframe',
 								}
 
-						# Don't pull content from cross-origin iframes the security policy disallows
-						if iframe_document_target:
+						# Don't pull content from cross-origin iframes the security policy disallows. The target URL can be
+						# empty or stale while the iframe is still attaching, so also check the frame-tree URL and fail
+						# closed when neither is known.
+						if iframe_document_target and self.browser_session.session_manager.url_policy_enabled:
 							security_watchdog = self.browser_session._security_watchdog
-							iframe_url = iframe_document_target['url']
+							frame_tree_url = (all_frames.get(frame_id) or {}).get('url', '') if frame_id else ''
+							iframe_urls = [u for u in (iframe_document_target['url'], frame_tree_url) if u]
 							if (
-								security_watchdog is not None
-								and iframe_url.startswith(('http://', 'https://'))
-								and not security_watchdog._is_url_allowed(iframe_url)
+								security_watchdog is None
+								or not iframe_urls
+								or not all(security_watchdog._is_url_allowed(u) for u in iframe_urls)
 							):
-								self.logger.warning(f'⛔️ Skipping cross-origin iframe with non-allowed URL: {iframe_url}')
+								self.logger.warning(
+									f'⛔️ Skipping cross-origin iframe with non-allowed or unknown URL: {iframe_urls}'
+								)
 								iframe_document_target = None
 
 						# if target actually exists in one of the frames, just recursively build the dom tree for it
