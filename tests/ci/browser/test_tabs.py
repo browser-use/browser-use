@@ -19,7 +19,8 @@ Usage:
 
 import asyncio
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 from pytest_httpserver import HTTPServer
