@@ -980,17 +980,22 @@ class BrowserSession(BaseModel):
 			# Close any extension options pages that might have opened
 			await self._close_extension_options_pages()
 
+			# Report the URL the tab actually landed on: redirects can leave it on a different
+			# origin than requested, and security checks on NavigationCompleteEvent must see that one.
+			landed_target = self.session_manager.get_target(target_id)
+			final_url = landed_target.url if landed_target and landed_target.url else event.url
+
 			# Dispatch navigation complete
-			self.logger.debug(f'Dispatching NavigationCompleteEvent for {event.url} (tab #{target_id[-4:]})')
+			self.logger.debug(f'Dispatching NavigationCompleteEvent for {final_url} (tab #{target_id[-4:]})')
 			await self.event_bus.dispatch(
 				NavigationCompleteEvent(
 					target_id=target_id,
-					url=event.url,
+					url=final_url,
 					status=None,  # CDP doesn't provide status directly
 					loading_status=loading_status,  # non-None when readiness timed out
 				)
 			)
-			await self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=event.url))
+			await self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=final_url))
 
 			# Note: These should be handled by dedicated watchdogs:
 			# - Security checks (security_watchdog)
