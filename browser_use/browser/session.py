@@ -51,6 +51,7 @@ from browser_use.browser.events import (
 	SwitchTabEvent,
 	TabClosedEvent,
 	TabCreatedEvent,
+	TargetUrlChangedEvent,
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
 from browser_use.browser.views import BrowserStateSummary, TabInfo
@@ -1175,6 +1176,9 @@ class BrowserSession(BaseModel):
 
 		# Get target to access url
 		target = self.session_manager.get_target(event.target_id)
+
+		# The tab may already be on a URL the security policy disallows (opened before it was enforced)
+		self.event_bus.dispatch(TargetUrlChangedEvent(target_id=target.target_id, url=target.url))
 
 		# dispatch focus changed event
 		await self.event_bus.dispatch(

@@ -461,6 +461,10 @@ class SessionManager:
 				existing_target.url = target_info.get('url', existing_target.url)
 				existing_target.title = target_info.get('title', existing_target.title)
 
+		# Tabs opened by the page itself (window.open, target=_blank) never pass through NavigateToUrlEvent
+		if target_type in ('page', 'tab'):
+			self._dispatch_target_url_changed(target_id, target_info.get('url', 'about:blank'))
+
 		# Create CDPSession (communication channel)
 		from browser_use.browser.session import CDPSession
 
@@ -519,13 +523,30 @@ class SessionManager:
 		if not target_id:
 			return
 
+		changed_url: str | None = None
 		async with self._lock:
 			# Update target if it exists (source of truth for url/title)
 			if target_id in self._targets:
 				target = self._targets[target_id]
 
+				old_url = target.url
 				target.title = target_info.get('title', target.title)
 				target.url = target_info.get('url', target.url)
+				if target.url != old_url and target.target_type in ('page', 'tab'):
+					changed_url = target.url
+
+		# Let the security watchdog vet navigations the agent did not initiate (outside the lock)
+		if changed_url is not None:
+			self._dispatch_target_url_changed(target_id, changed_url)
+
+	def _dispatch_target_url_changed(self, target_id: TargetID, url: str) -> None:
+		"""Notify watchdogs that a page target's URL changed (not awaited: handlers may navigate)."""
+		from browser_use.browser.events import TargetUrlChangedEvent
+
+		try:
+			self.browser_session.event_bus.dispatch(TargetUrlChangedEvent(target_id=target_id, url=url))
+		except Exception as e:
+			self.logger.debug(f'[SessionManager] Failed to dispatch TargetUrlChangedEvent: {type(e).__name__}: {e}')
 
 	async def _handle_target_detached(self, event: DetachedFromTargetEvent) -> None:
 		"""Handle Target.detachedFromTarget event.

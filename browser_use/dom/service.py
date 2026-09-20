@@ -1048,6 +1048,18 @@ class DomService:
 									'type': iframe_target.target_type if iframe_target else 'iframe',
 								}
 
+						# Don't pull content from cross-origin iframes the security policy disallows
+						if iframe_document_target:
+							security_watchdog = self.browser_session._security_watchdog
+							iframe_url = iframe_document_target['url']
+							if (
+								security_watchdog is not None
+								and iframe_url.startswith(('http://', 'https://'))
+								and not security_watchdog._is_url_allowed(iframe_url)
+							):
+								self.logger.warning(f'⛔️ Skipping cross-origin iframe with non-allowed URL: {iframe_url}')
+								iframe_document_target = None
+
 						# if target actually exists in one of the frames, just recursively build the dom tree for it
 						if iframe_document_target:
 							child_target_id = iframe_document_target['targetId']
