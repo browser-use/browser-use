@@ -271,6 +271,10 @@ class Page:
 				key_down_params['windowsVirtualKeyCode'] = vk_code
 			await self._client.send.Input.dispatchKeyEvent(key_down_params, session_id=session_id)
 
+			if vk_code is None and len(key) == 1 and key.isprintable():
+				char_params: 'DispatchKeyEventParameters' = {'type': 'char', 'text': key, 'key': key}
+				await self._client.send.Input.dispatchKeyEvent(char_params, session_id=session_id)
+
 			key_up_params: 'DispatchKeyEventParameters' = {'type': 'keyUp', 'key': key, 'code': code}
 			if vk_code is not None:
 				key_up_params['windowsVirtualKeyCode'] = vk_code
