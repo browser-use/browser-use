@@ -81,7 +81,7 @@ class ClickElementActionIndexOnly(BaseModel):
 
 
 class InputTextAction(BaseModel):
-	index: int = Field(ge=0, description='from browser_state')
+	index: int = Field(ge=1, description='from browser_state')
 	text: str = Field(description='Text to enter. With clear=True, text="" clears the field without typing.')
 	clear: bool = Field(default=True, description='Clear existing text before typing. Set to False to append instead.')
 
@@ -138,7 +138,7 @@ class SendKeysAction(BaseModel):
 
 
 class UploadFileAction(BaseModel):
-	index: int
+	index: int = Field(ge=1, description='Element index from browser_state')
 	path: str
 
 
@@ -197,9 +197,9 @@ class SaveAsPdfAction(BaseModel):
 
 
 class GetDropdownOptionsAction(BaseModel):
-	index: int
+	index: int = Field(ge=1, description='Element index from browser_state')
 
 
 class SelectDropdownOptionAction(BaseModel):
-	index: int
+	index: int = Field(ge=1, description='Element index from browser_state')
 	text: str = Field(description='exact text/value')
