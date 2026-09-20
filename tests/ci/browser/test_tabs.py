@@ -19,7 +19,7 @@ Usage:
 
 import asyncio
 import time
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 from pytest_httpserver import HTTPServer
@@ -779,7 +779,7 @@ class TestAutomaticNewTabSwitchReporting:
 	"""
 
 	@staticmethod
-	def _synchronize_tab_creation_on_click(browser_session: BrowserSession, monkeypatch: pytest.MonkeyPatch) -> None:
+	def _synchronize_tab_creation_on_click(browser_session: BrowserSession, request: pytest.FixtureRequest) -> None:
 		"""Harden tests against slow CI timing races in Chromium new-tab creation.
 
 		When clicking an element that opens a new tab (<a target="_blank">), Chromium
@@ -787,30 +787,43 @@ class TestAutomaticNewTabSwitchReporting:
 		In production, _detect_new_tab_opened opportunistically checks for new tabs after a 50ms sleep.
 		On slow CI runners, Chrome's target attachment can exceed 50ms, causing new_tabs to be empty.
 
-		This helper wraps ClickElementEvent and ClickCoordinateEvent handlers so that after
-		performing the real CDP click, the handler awaits until the new page target is registered
-		in SessionManager before completing. This guarantees that _detect_new_tab_opened will always
-		observe the newly created tab deterministically without modifying production code.
+		This helper wraps each existing ClickElementEvent and ClickCoordinateEvent handler in place,
+		preserving the existing handler collection and ordering. After the click executes, the wrapper
+		awaits until the new page target is registered in SessionManager before completing. This guarantees
+		that _detect_new_tab_opened will always observe the newly created tab deterministically without
+		modifying production code.
 		"""
+		initial_targets = {t.target_id for t in browser_session.session_manager.get_all_page_targets()}
+
 		for event_type in ('ClickElementEvent', 'ClickCoordinateEvent'):
-			handlers = browser_session.event_bus.handlers.get(event_type, [])
-			if handlers:
-				orig_handler = handlers[0]
+			handlers = browser_session.event_bus.handlers.get(event_type)
+			if not handlers:
+				continue
+
+			for idx, orig_handler in enumerate(handlers):
 
 				async def wrapped_handler(event: Any, _orig: Any = orig_handler) -> Any:
-					pre_targets = {t.target_id for t in browser_session.session_manager.get_all_page_targets()}
 					result = await _orig(event)
 					for _ in range(300):  # up to 3.0 seconds, polling every 10ms
 						current_targets = browser_session.session_manager.get_all_page_targets()
-						if any(t.target_id not in pre_targets for t in current_targets):
+						if any(t.target_id not in initial_targets for t in current_targets):
 							break
 						await asyncio.sleep(0.01)
 					return result
 
-				monkeypatch.setitem(browser_session.event_bus.handlers, event_type, [wrapped_handler])
+				# Register teardown finalizer using pytest's public FixtureRequest API
+				# to restore the original handler slot without replacing the handler list container.
+				def make_restore_callback(_handlers: list[Any], _idx: int, _orig: Any) -> Callable[[], None]:
+					def restore() -> None:
+						_handlers[_idx] = _orig
+
+					return restore
+
+				request.addfinalizer(make_restore_callback(handlers, idx, orig_handler))
+				handlers[idx] = wrapped_handler
 
 	async def test_auto_switch_reports_success_when_event_succeeds(
-		self, browser_session, base_url, monkeypatch: pytest.MonkeyPatch
+		self, browser_session, base_url, request: pytest.FixtureRequest
 	):
 		tools = Tools()
 		await tools.act(
@@ -820,7 +833,7 @@ class TestAutomaticNewTabSwitchReporting:
 		state = await browser_session.get_browser_state_summary()
 		link_idx = list(state.dom_state.selector_map.keys())[0]
 
-		self._synchronize_tab_creation_on_click(browser_session, monkeypatch)
+		self._synchronize_tab_creation_on_click(browser_session, request)
 
 		result = await tools.act(
 			_TabActionModel(click={'index': link_idx}),
@@ -849,7 +862,7 @@ class TestAutomaticNewTabSwitchReporting:
 		],
 	)
 	async def test_auto_switch_reports_fallback_on_switch_failure(
-		self, browser_session, base_url, monkeypatch: pytest.MonkeyPatch, switch_handler: Any
+		self, browser_session, base_url, monkeypatch: pytest.MonkeyPatch, switch_handler: Any, request: pytest.FixtureRequest
 	):
 		tools = Tools()
 		await tools.act(
@@ -859,7 +872,7 @@ class TestAutomaticNewTabSwitchReporting:
 		state = await browser_session.get_browser_state_summary()
 		link_idx = list(state.dom_state.selector_map.keys())[0]
 
-		self._synchronize_tab_creation_on_click(browser_session, monkeypatch)
+		self._synchronize_tab_creation_on_click(browser_session, request)
 
 		# Wrap switch_handler as an async coroutine function for bubus compatibility
 		async def async_switch_handler(event: SwitchTabEvent):
@@ -878,7 +891,7 @@ class TestAutomaticNewTabSwitchReporting:
 		assert 'switch to it if you need to interact with the new page' in (result.extracted_content or '')
 
 	async def test_coordinate_click_auto_switch_fallback_when_event_handler_fails(
-		self, browser_session, base_url, monkeypatch: pytest.MonkeyPatch
+		self, browser_session, base_url, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
 	):
 		tools = Tools()
 		tools.set_coordinate_clicking(True)
@@ -893,7 +906,7 @@ class TestAutomaticNewTabSwitchReporting:
 		click_x = int(node.snapshot_node.bounds.x + node.snapshot_node.bounds.width / 2)
 		click_y = int(node.snapshot_node.bounds.y + node.snapshot_node.bounds.height / 2)
 
-		self._synchronize_tab_creation_on_click(browser_session, monkeypatch)
+		self._synchronize_tab_creation_on_click(browser_session, request)
 
 		async def failing_switch_handler(event: SwitchTabEvent):
 			raise RuntimeError('CDP activateTarget failed')
