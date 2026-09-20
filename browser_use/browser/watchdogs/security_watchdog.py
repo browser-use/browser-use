@@ -184,7 +184,9 @@ class SecurityWatchdog(BaseWatchdog):
 		"""
 
 		# Always allow internal browser targets (before any other checks)
-		if url in ['about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/']:
+		from browser_use.utils import is_new_tab_page
+
+		if is_new_tab_page(url):
 			return True
 
 		# Parse the URL to extract components
