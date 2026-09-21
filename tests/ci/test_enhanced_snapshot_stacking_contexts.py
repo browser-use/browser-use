@@ -18,10 +18,15 @@ from browser_use.dom.enhanced_snapshot import build_snapshot_lookup
 BACKEND_NODE_IDS = [100, 101, 102]
 
 
-def _snapshot(stacking_context_indices: list[int] | None) -> CaptureSnapshotReturns:
-	"""Three laid-out nodes (backend ids 100/101/102 at layout indices 0/1/2)."""
+def _snapshot(stacking_context_indices: list[int] | None, node_index: list[int] | None = None) -> CaptureSnapshotReturns:
+	"""Three laid-out nodes (backend ids 100/101/102 at snapshot indices 0/1/2).
+
+	`node_index` is `LayoutTreeSnapshot.nodeIndex`: entry `i` names the snapshot
+	node drawn at layout position `i`. It defaults to identity; pass a permutation
+	to drive the two index spaces apart.
+	"""
 	layout_fields: dict = {
-		'nodeIndex': [0, 1, 2],
+		'nodeIndex': list(node_index) if node_index is not None else [0, 1, 2],
 		'styles': [[], [], []],
 		'bounds': [[0, 0, 10, 10], [0, 0, 10, 10], [0, 0, 10, 10]],
 		'text': [],
@@ -48,8 +53,8 @@ def _snapshot(stacking_context_indices: list[int] | None) -> CaptureSnapshotRetu
 	return CaptureSnapshotReturns(documents=[document], strings=[''])
 
 
-def _flags(stacking_context_indices: list[int] | None) -> list[bool | None]:
-	lookup = build_snapshot_lookup(_snapshot(stacking_context_indices))
+def _flags(stacking_context_indices: list[int] | None, node_index: list[int] | None = None) -> list[bool | None]:
+	lookup = build_snapshot_lookup(_snapshot(stacking_context_indices, node_index))
 	return [lookup[backend_node_id].stacking_contexts for backend_node_id in BACKEND_NODE_IDS]
 
 
@@ -71,3 +76,19 @@ def test_every_layout_index_can_be_a_stacking_context():
 def test_absent_stacking_contexts_stays_none():
 	"""Without the field there is no information, which is distinct from False."""
 	assert _flags(None) == [None, None, None]
+
+
+def test_membership_is_read_in_layout_index_space():
+	"""`index` holds layout positions, so a non-identity `nodeIndex` must be honoured.
+
+	Layout position 0 draws snapshot node 2 here, so `index: [0]` flags backend id
+	102 and nothing else. Every other scenario uses an identity `nodeIndex`, where
+	layout position and snapshot index coincide and a decoder reading the wrong one
+	still looks correct; this permutation is what separates them. Reading the flag
+	as `_parse_rare_boolean_data(stacking_context_set, snapshot_index)` would return
+	`[True, False, False]` and fail.
+	"""
+	assert _flags([0], node_index=[2, 0, 1]) == [False, False, True]
+
+	# The other direction: flag the layout position that draws snapshot node 0.
+	assert _flags([1], node_index=[2, 0, 1]) == [True, False, False]
