@@ -638,6 +638,11 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='Block navigation to URLs containing IP addresses (both IPv4 and IPv6). When True, blocks all IP-based URLs including localhost and private networks.',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
+	max_tabs: int | None = Field(
+		ge=1,
+		default=None,
+		description='Maximum number of tabs to keep open. When exceeded, the oldest non-focused tab is closed. None (default) means unlimited.',
+	)
 
 	# --- Proxy settings ---
 	# New consolidated proxy config (typed)
