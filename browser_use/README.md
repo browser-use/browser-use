@@ -1,6 +1,6 @@
 # Codebase Structure
 
-> The code structure inspired by https://github.com/Netflix/dispatch.
+> The code structure is inspired by https://github.com/Netflix/dispatch.
 
 Very good structure on how to make a scalable codebase is also in [this repo](https://github.com/zhanymkanov/fastapi-best-practices).
 
