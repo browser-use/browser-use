@@ -478,7 +478,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# provider decides (ChatDeepSeek.supports_vision), not a name match here.
 		from browser_use.llm.deepseek.chat import ChatDeepSeek
 
-		if isinstance(self.llm, ChatDeepSeek) and not self.llm.supports_vision():
+		if (
+			(isinstance(self.llm, ChatDeepSeek) and not self.llm.supports_vision())
+			or ('deepseek' in self.llm.model.lower() and 'flash' not in self.llm.model.lower())
+		):
 			self.logger.warning('⚠️ This DeepSeek model does not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 
