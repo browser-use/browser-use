@@ -472,9 +472,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._verify_and_setup_llm()
 
 		# TODO: move this logic to the LLMs
-		# Handle users trying to use use_vision=True with DeepSeek models
-		if 'deepseek' in self.llm.model.lower():
-			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
+		# Handle users trying to use use_vision=True with DeepSeek models. The family is
+		# mixed — deepseek-flash accepts images (https://api-docs.deepseek.com/guides/vision)
+		# while deepseek-v4-pro silently replaces them with '[Unsupported Image]' — so the
+		# provider decides (ChatDeepSeek.supports_vision), not a name match here.
+		from browser_use.llm.deepseek.chat import ChatDeepSeek
+
+		if isinstance(self.llm, ChatDeepSeek) and not self.llm.supports_vision():
+			self.logger.warning('⚠️ This DeepSeek model does not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 
 		# Handle users trying to use use_vision=True with XAI models that don't support it

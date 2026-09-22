@@ -73,6 +73,15 @@ class ChatDeepSeek(BaseChatModel):
 	def _supports_thinking(self) -> bool:
 		return 'deepseek-v4' in self.model.lower()
 
+	def supports_vision(self) -> bool:
+		"""Whether this model accepts image parts.
+
+		deepseek-flash and its aliases do (https://api-docs.deepseek.com/guides/vision);
+		the rest of the family does not — deepseek-v4-pro silently replaces every image
+		part with '[Unsupported Image]' and then reports that it cannot see the page.
+		"""
+		return 'flash' in self.model.lower()
+
 	def _request_kwargs(self) -> dict[str, Any]:
 		common: dict[str, Any] = {}
 
