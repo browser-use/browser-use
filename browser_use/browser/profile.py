@@ -635,7 +635,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	)
 	block_ip_addresses: bool = Field(
 		default=True,
-		description='Block navigation to URLs containing IP addresses (both IPv4 and IPv6). Blocks all IP-based URLs including localhost and private networks by default; set to False to allow direct IP navigation.',
+		description='Block navigation to direct IPv4 and IPv6 address URLs by default; set to False to allow direct IP navigation.',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
 
