@@ -235,6 +235,23 @@ def test_detect_company_from_name_suffixed_attributes(field_name: str):
 
 
 @pytest.mark.parametrize(
+	('field_name', 'expected_result'),
+	[
+		('company_city', ('city', None)),
+		('company_state', ('state', None)),
+		('company_country', ('country', None)),
+		('company_zip', ('zip_code', 'postal_code')),
+		('organization_postal_code', ('zip_code', 'postal_code')),
+	],
+)
+def test_company_fields_keep_more_specific_semantic_classification(field_name: str, expected_result: tuple[str, str | None]):
+	"""Company context must not override city, state, country, or postal fields."""
+	result = _detect_from_attributes({'name': field_name})
+
+	assert result == expected_result
+
+
+@pytest.mark.parametrize(
 	('field_name', 'expected_variable'),
 	[
 		('first_name', 'first_name'),
