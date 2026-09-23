@@ -93,7 +93,10 @@ class CLIMCPServer:
 						is_error=True,
 					)
 				async with self._exec_lock:
-					output = await asyncio.to_thread(self._execute, code)
+					try:
+						output = await asyncio.to_thread(self._execute, code, raise_errors=True)
+					except RuntimeError as exc:
+						return types.CallToolResult(content=[types.TextContent(type='text', text=str(exc))], is_error=True)
 				return types.CallToolResult(content=[types.TextContent(type='text', text=output or '(no output)')])
 			if name == 'browser_screenshot':
 				max_dim = arguments.get('max_dim')
@@ -128,7 +131,7 @@ class CLIMCPServer:
 			return
 		ns['ensure_daemon']()
 
-	def _execute(self, code: str, connect: bool = True) -> str:
+	def _execute(self, code: str, connect: bool = True, *, raise_errors: bool = False) -> str:
 		"""Run code in the persistent namespace, capturing stdout/stderr.
 
 		Runs in a worker thread: harness helpers are synchronous socket IPC. Output is
@@ -141,8 +144,10 @@ class CLIMCPServer:
 				if connect:
 					self._ensure_daemon(code)
 				exec(code, ns)
-			except BaseException:
+			except BaseException as exc:
 				traceback.print_exc(file=buffer)
+				if raise_errors:
+					raise RuntimeError(buffer.getvalue()) from exc
 		return buffer.getvalue()
 
 	def _screenshot(self, full: bool, max_dim: int | None) -> str:
