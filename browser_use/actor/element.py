@@ -351,160 +351,58 @@ class Element:
 			raise RuntimeError(f'Failed to click element: {e}')
 
 	async def fill(self, value: str, clear: bool = True) -> None:
-		"""Fill the input element using proper CDP methods with improved focus handling."""
-		try:
-			# Use the existing CDP client and session
-			cdp_client = self._client
-			session_id = self._session_id
-			backend_node_id = self._backend_node_id
+		"""Fill through the normal text action, including native date/time inputs."""
+		from browser_use.browser.events import TypeTextEvent
+		from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
 
-			# Track coordinates for metadata
-			input_coordinates = None
+		description = await self._client.send.DOM.describeNode(
+			params={'backendNodeId': self._backend_node_id},
+			session_id=self._session_id,
+		)
+		node = description['node']
+		info = await self._client.send.Target.getTargetInfo(session_id=self._session_id)
+		attributes = node.get('attributes', [])
+		element = EnhancedDOMTreeNode(
+			node_id=node['nodeId'],
+			backend_node_id=self._backend_node_id,
+			node_type=NodeType(node['nodeType']),
+			node_name=node['nodeName'],
+			node_value=node['nodeValue'],
+			attributes=dict(zip(attributes[::2], attributes[1::2])),
+			is_scrollable=None,
+			is_visible=None,
+			absolute_position=None,
+			target_id=info['targetInfo']['targetId'],
+			frame_id=node.get('frameId'),
+			session_id=self._session_id,
+			content_document=None,
+			shadow_root_type=None,
+			shadow_roots=None,
+			parent_node=None,
+			children_nodes=None,
+			ax_node=None,
+			snapshot_node=None,
+		)
+		event = self._browser_session.event_bus.dispatch(TypeTextEvent(node=element, text=value, clear=clear, is_sensitive=True))
+		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
 
-			# Scroll element into view
-			try:
-				await cdp_client.send.DOM.scrollIntoViewIfNeeded(params={'backendNodeId': backend_node_id}, session_id=session_id)
-				await asyncio.sleep(0.01)
-			except Exception as e:
-				logger.warning(f'Failed to scroll element into view: {e}')
+	async def scroll_into_view(self) -> None:
+		"""Scroll the element into the viewport using its backend node ID."""
+		await self._client.send.DOM.scrollIntoViewIfNeeded(
+			params={'backendNodeId': self._backend_node_id},
+			session_id=self._session_id,
+		)
 
-			# Get object ID for the element
-			result = await cdp_client.send.DOM.resolveNode(
-				params={'backendNodeId': backend_node_id},
-				session_id=session_id,
-			)
-			if 'object' not in result or 'objectId' not in result['object']:
-				raise RuntimeError('Failed to get object ID for element')
-			object_id = result['object']['objectId']
+	async def set_input_files(self, paths: list[str]) -> None:
+		"""Set a file input to paths on the browser host; an empty list clears it.
 
-			# Get element coordinates for focus
-			try:
-				bounds_result = await cdp_client.send.Runtime.callFunctionOn(
-					params={
-						'functionDeclaration': 'function() { return this.getBoundingClientRect(); }',
-						'objectId': object_id,
-						'returnByValue': True,
-					},
-					session_id=session_id,
-				)
-				if bounds_result.get('result', {}).get('value'):
-					bounds = bounds_result['result']['value']  # type: ignore
-					center_x = bounds['x'] + bounds['width'] / 2
-					center_y = bounds['y'] + bounds['height'] / 2
-					input_coordinates = {'input_x': center_x, 'input_y': center_y}
-					logger.debug(f'Using element coordinates: x={center_x:.1f}, y={center_y:.1f}')
-			except Exception as e:
-				logger.debug(f'Could not get element coordinates: {e}')
-
-			# Ensure session_id is not None
-			if session_id is None:
-				raise RuntimeError('Session ID is required for fill operation')
-
-			# Step 1: Focus the element
-			focused_successfully = await self._focus_element_simple(
-				backend_node_id=backend_node_id,
-				object_id=object_id,
-				cdp_client=cdp_client,
-				session_id=session_id,
-				input_coordinates=input_coordinates,
-			)
-
-			# Step 2: Clear existing text if requested
-			if clear:
-				cleared_successfully = await self._clear_text_field(
-					object_id=object_id, cdp_client=cdp_client, session_id=session_id
-				)
-				if not cleared_successfully:
-					logger.warning('Text field clearing failed, typing may append to existing text')
-
-			# Step 3: Type the text character by character using proper human-like key events
-			logger.debug(f'Typing text character by character: "[REDACTED {len(value)} chars]"')
-
-			for i, char in enumerate(value):
-				# Handle newline characters as Enter key
-				if char == '\n':
-					# Send proper Enter key sequence
-					await cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyDown',
-							'key': 'Enter',
-							'code': 'Enter',
-							'windowsVirtualKeyCode': 13,
-						},
-						session_id=session_id,
-					)
-
-					# Small delay to emulate human typing speed
-					await asyncio.sleep(0.001)
-
-					# Send char event with carriage return
-					await cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'char',
-							'text': '\r',
-							'key': 'Enter',
-						},
-						session_id=session_id,
-					)
-
-					# Send keyUp event
-					await cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyUp',
-							'key': 'Enter',
-							'code': 'Enter',
-							'windowsVirtualKeyCode': 13,
-						},
-						session_id=session_id,
-					)
-				else:
-					# Handle regular characters
-					# Get proper modifiers, VK code, and base key for the character
-					modifiers, vk_code, base_key = self._get_char_modifiers_and_vk(char)
-					key_code = self._get_key_code_for_char(base_key)
-
-					# Step 1: Send keyDown event (NO text parameter)
-					await cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyDown',
-							'key': base_key,
-							'code': key_code,
-							'modifiers': modifiers,
-							'windowsVirtualKeyCode': vk_code,
-						},
-						session_id=session_id,
-					)
-
-					# Small delay to emulate human typing speed
-					await asyncio.sleep(0.001)
-
-					# Step 2: Send char event (WITH text parameter) - this is crucial for text input
-					await cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'char',
-							'text': char,
-							'key': char,
-						},
-						session_id=session_id,
-					)
-
-					# Step 3: Send keyUp event (NO text parameter)
-					await cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyUp',
-							'key': base_key,
-							'code': key_code,
-							'modifiers': modifiers,
-							'windowsVirtualKeyCode': vk_code,
-						},
-						session_id=session_id,
-					)
-
-				# Add 18ms delay between keystrokes
-				await asyncio.sleep(0.018)
-
-		except Exception as e:
-			raise Exception(f'Failed to fill element: {str(e)}')
+		Remote browsers require files to be staged on that host first.
+		"""
+		await self._client.send.DOM.setFileInputFiles(
+			params={'files': paths, 'backendNodeId': self._backend_node_id},
+			session_id=self._session_id,
+		)
 
 	async def hover(self) -> None:
 		"""Hover over the element."""
@@ -621,21 +519,16 @@ class Element:
 				target_x = target_box['x'] + target_box['width'] / 2
 				target_y = target_box['y'] + target_box['height'] / 2
 
-		# Perform drag operation
-		await self._client.send.Input.dispatchMouseEvent(
-			{'type': 'mousePressed', 'x': source_x, 'y': source_y, 'button': 'left'},
-			session_id=self._session_id,
-		)
+		# Reuse one Mouse instance so movement carries the held-button mask.
+		from browser_use.actor.mouse import Mouse
 
-		await self._client.send.Input.dispatchMouseEvent(
-			{'type': 'mouseMoved', 'x': target_x, 'y': target_y},
-			session_id=self._session_id,
-		)
-
-		await self._client.send.Input.dispatchMouseEvent(
-			{'type': 'mouseReleased', 'x': target_x, 'y': target_y, 'button': 'left'},
-			session_id=self._session_id,
-		)
+		mouse = Mouse(self._browser_session, self._session_id)
+		await mouse.move(source_x, source_y)
+		try:
+			await mouse.down()
+			await mouse.move(target_x, target_y, steps=10)
+		finally:
+			await mouse.up()
 
 	# Element properties and queries
 	async def get_attribute(self, name: str) -> str | None:
