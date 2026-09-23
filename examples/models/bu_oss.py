@@ -1,12 +1,23 @@
-"""
+"""Run the open-weights Browser Use model on your own GPU.
+
+`browser-use/bu-30b-a3b-preview` is published under
+https://huggingface.co/browser-use/bu-30b-a3b-preview. It is open weights you host
+yourself, not a model Browser Use Cloud serves for you, so it needs no
+BROWSER_USE_API_KEY and has no per-token price.
+
 Setup:
-1. Get your API key from https://cloud.browser-use.com/new-api-key
-2. Set environment variable: export BROWSER_USE_API_KEY="your-key"
+1. pip install vllm
+2. vllm serve browser-use/bu-30b-a3b-preview --max-model-len 65536 --host 0.0.0.0 --port 8000
+3. python examples/models/bu_oss.py
+
+Point BU_OSS_BASE_URL at the server if it is not on localhost.
 """
+
+import os
 
 from dotenv import load_dotenv
 
-from browser_use import Agent, ChatBrowserUse
+from browser_use import Agent, ChatOpenAI
 
 load_dotenv()
 
@@ -17,9 +28,11 @@ try:
 except ImportError:
 	pass
 
-# Point to local llm-use server for testing
-llm = ChatBrowserUse(
-	model='browser-use/bu-30b-a3b-preview',  # BU Open Source Model!!
+# Any OpenAI-compatible server works; vLLM is what the model card recommends.
+llm = ChatOpenAI(
+	model='browser-use/bu-30b-a3b-preview',
+	base_url=os.getenv('BU_OSS_BASE_URL', 'http://localhost:8000/v1'),
+	api_key=os.getenv('BU_OSS_API_KEY', 'not-needed'),
 )
 
 agent = Agent(
