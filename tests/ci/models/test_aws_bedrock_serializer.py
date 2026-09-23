@@ -130,7 +130,9 @@ def test_multi_part_system_messages_keep_every_text_block() -> None:
 
 	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
 
-	assert system == [{'text': 'Part one.\n\n'}, {'text': 'Part two.\n\n'}, {'text': 'Part three.'}]
+	# Parts one and two belong to the same message, so nothing separates them; only the
+	# boundary to the next message earns a blank line.
+	assert system == [{'text': 'Part one.'}, {'text': 'Part two.\n\n'}, {'text': 'Part three.'}]
 
 
 def test_system_messages_do_not_reach_the_conversation() -> None:
@@ -151,6 +153,32 @@ def test_a_block_that_already_ends_in_a_newline_is_still_separated_by_one_blank_
 	"""Trailing newlines in the message must not make the gap between blocks wider."""
 	messages: list[BaseMessage] = [
 		SystemMessage(content='First rule.\n'),
+		SystemMessage(content='Second rule.'),
+		UserMessage(content='Go.'),
+	]
+
+	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system == [{'text': 'First rule.\n\n'}, {'text': 'Second rule.'}]
+
+
+def test_an_empty_text_part_inside_a_system_message_is_dropped() -> None:
+	"""A message can carry real text and an empty part; Converse rejects the empty block."""
+	messages: list[BaseMessage] = [
+		SystemMessage(content=[ContentPartTextParam(text='First rule.'), ContentPartTextParam(text='')]),
+		SystemMessage(content='Second rule.'),
+		UserMessage(content='Go.'),
+	]
+
+	_, system = AWSBedrockMessageSerializer.serialize_messages(messages)
+
+	assert system == [{'text': 'First rule.\n\n'}, {'text': 'Second rule.'}]
+
+
+def test_a_block_ending_in_crlf_is_separated_by_one_blank_line() -> None:
+	"""A prompt written with Windows line endings gets the same single blank line."""
+	messages: list[BaseMessage] = [
+		SystemMessage(content='First rule.\r\n'),
 		SystemMessage(content='Second rule.'),
 		UserMessage(content='Go.'),
 	]
