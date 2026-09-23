@@ -99,7 +99,7 @@ def test_dropping_an_empty_part_keeps_the_cache_marker_on_real_text():
 	)
 
 	assert isinstance(system, list)
-	assert system[0]['cache_control'] == {'type': 'ephemeral'}
+	assert system[0].get('cache_control') == {'type': 'ephemeral'}
 	assert system[0]['text'] == 'Follow the rule.\n\n'
 
 
