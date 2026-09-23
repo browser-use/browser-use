@@ -355,24 +355,33 @@ class AnthropicMessageSerializer:
 				system_messages[0].content, use_cache=system_messages[0].cache
 			)
 		elif system_messages:
-			# Multiple system messages become separate text blocks so each keeps its own cache control
-			system_blocks: list[TextBlockParam] = []
+			# Multiple system messages become separate text blocks so each keeps its own cache
+			# control. Blocks are grouped by the message they came from: one message can carry
+			# several text parts, and those parts are its own content, not separate instructions.
+			groups: list[list[TextBlockParam]] = []
 			for system_message in system_messages:
-				serialized = AnthropicMessageSerializer._serialize_content_to_str(
-					system_message.content, use_cache=system_message.cache
-				)
+				content = system_message.content
+				if not isinstance(content, str):
+					# An empty part would serialize to an empty text block, which Anthropic
+					# rejects. Dropped before serializing, so the cache marker still lands on
+					# the last part that has text rather than on a block about to disappear.
+					content = [part for part in content if part.type != 'text' or part.text]
+				serialized = AnthropicMessageSerializer._serialize_content_to_str(content, use_cache=system_message.cache)
 				if isinstance(serialized, str):
-					system_blocks.append(TextBlockParam(text=serialized, type='text', cache_control=None))
+					blocks = [TextBlockParam(text=serialized, type='text', cache_control=None)]
 				else:
-					system_blocks.extend(serialized)
+					blocks = list(serialized)
+				if blocks:
+					groups.append(blocks)
 
 			# The blocks are read as one instruction with nothing between them, so without a
-			# separator the end of one runs into the start of the next. Every block but the last
-			# ends with exactly one blank line, whatever trailing newlines it arrived with, so the
-			# spacing does not depend on how the caller wrote its message.
-			for block in system_blocks[:-1]:
-				block['text'] = block['text'].rstrip('\n') + '\n\n'
+			# separator the end of one message runs into the start of the next. The separator
+			# goes on the last block of each message, never between the parts of one message,
+			# and trailing newlines are normalized first so the gap is exactly one blank line
+			# whatever line endings the caller wrote.
+			for group in groups[:-1]:
+				group[-1]['text'] = group[-1]['text'].rstrip('\r\n') + '\n\n'
 
-			serialized_system_message = system_blocks
+			serialized_system_message = [block for group in groups for block in group]
 
 		return serialized_messages, serialized_system_message

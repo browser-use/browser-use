@@ -1,7 +1,7 @@
 """Regression tests for AnthropicMessageSerializer's handling of system messages."""
 
 from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
-from browser_use.llm.messages import BaseMessage, SystemMessage, UserMessage
+from browser_use.llm.messages import BaseMessage, ContentPartTextParam, SystemMessage, UserMessage
 
 
 def test_single_system_message_is_returned_as_plain_string():
@@ -37,6 +37,77 @@ def test_a_block_that_already_ends_in_a_newline_is_still_separated_by_one_blank_
 	_, system = AnthropicMessageSerializer.serialize_messages(
 		[
 			SystemMessage(content='Follow the base system rule.\n'),
+			SystemMessage(content='Also follow the additional system rule.'),
+			UserMessage(content='Continue the task.'),
+		]
+	)
+
+	assert isinstance(system, list)
+	assert [block['text'] for block in system] == [
+		'Follow the base system rule.\n\n',
+		'Also follow the additional system rule.',
+	]
+
+
+def test_a_multi_part_system_message_is_not_split_into_separate_instructions():
+	"""One message's own text parts are its content, so no separator goes between them.
+
+	Only the boundary between two system messages earns a blank line; inserting one
+	inside a message rewrites the prompt the caller actually wrote.
+	"""
+	_, system = AnthropicMessageSerializer.serialize_messages(
+		[
+			SystemMessage(content=[ContentPartTextParam(text='Part one.'), ContentPartTextParam(text='Part two.')]),
+			SystemMessage(content='A separate rule.'),
+			UserMessage(content='Continue the task.'),
+		]
+	)
+
+	assert isinstance(system, list)
+	assert [block['text'] for block in system] == [
+		'Part one.',
+		'Part two.\n\n',
+		'A separate rule.',
+	]
+
+
+def test_an_empty_text_part_inside_a_system_message_is_dropped():
+	"""A message can carry real text and an empty part; the empty one must not reach the wire."""
+	_, system = AnthropicMessageSerializer.serialize_messages(
+		[
+			SystemMessage(content=[ContentPartTextParam(text='Follow the rule.'), ContentPartTextParam(text='')]),
+			SystemMessage(content='A separate rule.'),
+			UserMessage(content='Continue the task.'),
+		]
+	)
+
+	assert isinstance(system, list)
+	assert [block['text'] for block in system] == ['Follow the rule.\n\n', 'A separate rule.']
+
+
+def test_dropping_an_empty_part_keeps_the_cache_marker_on_real_text():
+	"""The breakpoint must land on the last part that survives, not vanish with an empty one."""
+	_, system = AnthropicMessageSerializer.serialize_messages(
+		[
+			SystemMessage(
+				content=[ContentPartTextParam(text='Follow the rule.'), ContentPartTextParam(text='')],
+				cache=True,
+			),
+			SystemMessage(content='A separate rule.'),
+			UserMessage(content='Continue the task.'),
+		]
+	)
+
+	assert isinstance(system, list)
+	assert system[0]['cache_control'] == {'type': 'ephemeral'}
+	assert system[0]['text'] == 'Follow the rule.\n\n'
+
+
+def test_a_block_ending_in_crlf_is_separated_by_one_blank_line():
+	"""A prompt written with Windows line endings gets the same single blank line."""
+	_, system = AnthropicMessageSerializer.serialize_messages(
+		[
+			SystemMessage(content='Follow the base system rule.\r\n'),
 			SystemMessage(content='Also follow the additional system rule.'),
 			UserMessage(content='Continue the task.'),
 		]
