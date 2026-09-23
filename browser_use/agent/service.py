@@ -1166,10 +1166,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return
 
 		compaction_llm = settings.compaction_llm or self.settings.page_extraction_llm or self.llm
+		# Compaction cadence persists across runs; the run-relative step_info does not.
+		compaction_step_info = (
+			AgentStepInfo(step_number=self.state.n_steps - 1, max_steps=step_info.max_steps) if step_info is not None else None
+		)
 		await self._message_manager.maybe_compact_messages(
 			llm=compaction_llm,
 			settings=settings,
-			step_info=step_info,
+			step_info=compaction_step_info,
 		)
 
 	@observe_debug(ignore_input=True, name='get_next_action')
