@@ -221,6 +221,35 @@ class TestConfigMigration:
 		assert list(first.llm) == list(second.llm)
 		assert list(first.browser_profile) == list(second.browser_profile)
 
+	def test_migration_keeps_the_file_mode(self, tmp_path: Path):
+		"""config.json holds an api_key: a 0600 file must not come back 0644."""
+		import os
+
+		config_path = tmp_path / 'config.json'
+		self._write(config_path, json.dumps({'browser_profile': {'headless': False}, 'llm': {}, 'agent': {}}))
+		os.chmod(config_path, 0o600)
+
+		load_and_migrate_config(config_path)
+
+		assert config_path.stat().st_mode & 0o777 == 0o600
+		assert not list(tmp_path.glob('*.tmp'))
+
+	def test_migration_drops_a_stale_fallback(self, tmp_path: Path):
+		"""Once the file reads again, this run must stop serving the cached defaults."""
+		config_path = tmp_path / 'config.json'
+		self._write(config_path, '{"llm": {"abc": ')
+		fallback = load_and_migrate_config(config_path)
+
+		# The user repairs the file, in the old format, so the migration path runs.
+		self._write(config_path, json.dumps({'browser_profile': {'headless': False}, 'llm': {}, 'agent': {}}))
+		migrated = load_and_migrate_config(config_path)
+		assert list(migrated.llm) != list(fallback.llm)
+
+		# A later failure gets its own fresh defaults, not the pre-migration ones.
+		self._write(config_path, '{"llm": {"abc": ')
+		later = load_and_migrate_config(config_path)
+		assert list(later.llm) != list(fallback.llm)
+
 	def test_old_format_is_still_migrated(self, tmp_path: Path):
 		"""The migration path itself must keep working."""
 		config_path = tmp_path / 'config.json'

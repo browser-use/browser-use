@@ -316,12 +316,21 @@ _fallback_configs: dict[str, DBStyleConfigJSON] = {}
 
 
 def _write_config(config_path: Path, config: DBStyleConfigJSON) -> None:
-	"""Write config.json atomically, so a failed write cannot truncate the old file."""
+	"""Write config.json atomically, so a failed write cannot truncate the old file.
+
+	The temp name carries the pid, matching `telemetry/service.py`: two processes writing this
+	config at once must not share a scratch file. And os.replace swaps in a new inode, so the
+	old file's mode is carried over - this file holds an api_key, and a 0600 config must not
+	come back 0644.
+	"""
 	config_path.parent.mkdir(parents=True, exist_ok=True)
-	tmp_path = config_path.with_name(config_path.name + '.tmp')
+	tmp_path = config_path.with_name(f'{config_path.name}.{os.getpid()}.tmp')
 	try:
+		existing_mode = config_path.stat().st_mode & 0o777 if config_path.exists() else None
 		with open(tmp_path, 'w') as f:
 			json.dump(config.model_dump(), f, indent=2)
+		if existing_mode is not None:
+			os.chmod(tmp_path, existing_mode)
 		os.replace(tmp_path, config_path)
 	finally:
 		tmp_path.unlink(missing_ok=True)
@@ -389,6 +398,7 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 	new_config = create_default_config()
 	try:
 		_write_config(config_path, new_config)
+		_fallback_configs.pop(str(config_path), None)
 		logger.debug(f'Created fresh config.json at {config_path}')
 	except Exception as e:
 		logger.error(f'Failed to write fresh config to {config_path}: {e}')
