@@ -222,6 +222,17 @@ class Page:
 		"""Press a key/chord or type literal text using the normal keyboard action."""
 		from browser_use.browser.events import SendKeysEvent
 
+		# Preserve named CDP keys that the text-oriented SendKeys action does not recognize.
+		code, vk_code = get_key_info(key)
+		if len(key) > 1 and vk_code is not None and key not in ('Enter', 'Tab', 'Space'):
+			session_id = await self._ensure_session()
+			for event_type in ('keyDown', 'keyUp'):
+				await self._client.send.Input.dispatchKeyEvent(
+					{'type': event_type, 'key': key, 'code': code, 'windowsVirtualKeyCode': vk_code},
+					session_id=session_id,
+				)
+			return
+
 		event = self._browser_session.event_bus.dispatch(SendKeysEvent(keys=key, target_id=self._target_id))
 		await event
 		await event.event_result(raise_if_any=True, raise_if_none=False)
@@ -260,19 +271,23 @@ class Page:
 				params: 'DispatchKeyEventParameters' = {'type': 'keyDown', 'key': part, 'code': code, 'modifiers': modifiers}
 				if vk_code is not None:
 					params['windowsVirtualKeyCode'] = vk_code
-				if len(part) == 1 and not modifiers & 7:
-					params['text'] = part
 				held.append(part)
 				await self._client.send.Input.dispatchKeyEvent(params, session_id=session_id)
 			await asyncio.sleep(duration)
 		finally:
+			release_error: Exception | None = None
 			for part in reversed(held):
 				modifiers &= ~modifier_bits.get(part, 0)
 				code, vk_code = get_key_info(part)
 				params = {'type': 'keyUp', 'key': part, 'code': code, 'modifiers': modifiers}
 				if vk_code is not None:
 					params['windowsVirtualKeyCode'] = vk_code
-				await self._client.send.Input.dispatchKeyEvent(params, session_id=session_id)
+				try:
+					await self._client.send.Input.dispatchKeyEvent(params, session_id=session_id)
+				except Exception as exc:
+					release_error = release_error or exc
+			if release_error is not None:
+				raise release_error
 
 	async def set_viewport_size(self, width: int, height: int) -> None:
 		"""Set the viewport size."""
