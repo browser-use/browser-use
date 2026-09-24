@@ -1,8 +1,10 @@
 """Tests for lazy loading configuration system."""
 
+import json
 import os
+from pathlib import Path
 
-from browser_use.config import CONFIG
+from browser_use.config import CONFIG, load_and_migrate_config
 
 
 class TestLazyConfig:
@@ -118,3 +120,65 @@ class TestLazyConfig:
 				os.environ['BROWSER_USE_CLOUD_SYNC'] = sync_original
 			else:
 				os.environ.pop('BROWSER_USE_CLOUD_SYNC', None)
+
+
+class TestConfigMigration:
+	"""A config that cannot be read must not be replaced by defaults on disk."""
+
+	@staticmethod
+	def _write(config_path: Path, text: str) -> bytes:
+		config_path.write_text(text)
+		return config_path.read_bytes()
+
+	def test_unparseable_config_is_left_on_disk(self, tmp_path: Path):
+		"""A truncated file (killed mid-write) must survive the failed load."""
+		config_path = tmp_path / 'config.json'
+		original = self._write(config_path, '{"llm": {"abc": {"id": "abc", "api_key": "sk-real-key"')
+
+		config = load_and_migrate_config(config_path)
+
+		assert config_path.read_bytes() == original
+		assert 'sk-real-key' in config_path.read_text()
+		# The caller still gets a usable config for this run.
+		assert config.llm
+
+	def test_invalid_field_does_not_overwrite_config(self, tmp_path: Path):
+		"""One mistyped field raises ValidationError; the file must be kept."""
+		config_path = tmp_path / 'config.json'
+		payload = {
+			'browser_profile': {'p1': {'id': 'p1', 'default': True, 'headless': 'not-a-bool'}},
+			'llm': {'l1': {'id': 'l1', 'default': True, 'api_key': 'sk-real-key'}},
+			'agent': {},
+		}
+		original = self._write(config_path, json.dumps(payload))
+
+		load_and_migrate_config(config_path)
+
+		assert config_path.read_bytes() == original
+
+	def test_config_without_browser_profiles_is_not_migrated(self, tmp_path: Path):
+		"""An empty browser_profile is still the new format, not the old one."""
+		config_path = tmp_path / 'config.json'
+		payload = {
+			'browser_profile': {},
+			'llm': {'l1': {'id': 'l1', 'default': True, 'api_key': 'sk-real-key'}},
+			'agent': {},
+		}
+		original = self._write(config_path, json.dumps(payload))
+
+		config = load_and_migrate_config(config_path)
+
+		assert config_path.read_bytes() == original
+		assert config.llm['l1'].api_key == 'sk-real-key'
+
+	def test_old_format_is_still_migrated(self, tmp_path: Path):
+		"""The migration path itself must keep working."""
+		config_path = tmp_path / 'config.json'
+		self._write(config_path, json.dumps({'browser_profile': {'headless': False}, 'llm': {}, 'agent': {}}))
+
+		config = load_and_migrate_config(config_path)
+
+		written = json.loads(config_path.read_text())
+		assert set(written) == {'browser_profile', 'llm', 'agent'}
+		assert written['browser_profile']
+		assert config.browser_profile

@@ -330,8 +330,10 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 		if all(key in data for key in ['browser_profile', 'llm', 'agent']) and all(
 			isinstance(data.get(key, {}), dict) for key in ['browser_profile', 'llm', 'agent']
 		):
-			# Check if the values are DB-style entries (have UUIDs as keys)
-			if data.get('browser_profile') and all(isinstance(v, dict) and 'id' in v for v in data['browser_profile'].values()):
+			# Check if the values are DB-style entries (have UUIDs as keys).
+			# An empty browser_profile is still the new format - it must not be
+			# treated as the old one and overwritten.
+			if all(isinstance(v, dict) and 'id' in v for v in data['browser_profile'].values()):
 				# Already in new format
 				return DBStyleConfigJSON(**data)
 
@@ -347,15 +349,11 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 		return new_config
 
 	except Exception as e:
-		logger.error(f'Failed to load config from {config_path}: {e}, creating fresh config')
-		# On any error, create fresh config
-		new_config = create_default_config()
-		try:
-			with open(config_path, 'w') as f:
-				json.dump(new_config.model_dump(), f, indent=2)
-		except Exception as write_error:
-			logger.error(f'Failed to write fresh config: {write_error}')
-		return new_config
+		# A config we failed to read is not a config we know to be obsolete, so
+		# it is left on disk untouched - overwriting it would discard the stored
+		# api_key and browser profiles. Fall back to defaults for this run only.
+		logger.error(f'Failed to load config from {config_path}: {e}, using in-memory defaults and leaving the file unchanged')
+		return create_default_config()
 
 
 class Config:
