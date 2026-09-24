@@ -312,14 +312,45 @@ def create_default_config() -> DBStyleConfigJSON:
 	return new_config
 
 
+_fallback_configs: dict[str, DBStyleConfigJSON] = {}
+
+
+def _write_config(config_path: Path, config: DBStyleConfigJSON) -> None:
+	"""Write config.json atomically, so a failed write cannot truncate the old file."""
+	config_path.parent.mkdir(parents=True, exist_ok=True)
+	tmp_path = config_path.with_name(config_path.name + '.tmp')
+	try:
+		with open(tmp_path, 'w') as f:
+			json.dump(config.model_dump(), f, indent=2)
+		os.replace(tmp_path, config_path)
+	finally:
+		tmp_path.unlink(missing_ok=True)
+
+
+def _defaults_for_unreadable(config_path: Path, reason: str) -> DBStyleConfigJSON:
+	"""In-memory defaults for a config that could not be read.
+
+	Kept per path, because the file is no longer repaired on the first failure:
+	one load_browser_use_config() reads it three times, and without this that is
+	three error lines and three configs with different ids for the same run.
+	"""
+	cached = _fallback_configs.get(str(config_path))
+	if cached is not None:
+		logger.debug(f"Still cannot read config from {config_path}: {reason}, reusing this run's defaults")
+		return cached
+
+	logger.error(f'Failed to load config from {config_path}: {reason}, using in-memory defaults and leaving the file unchanged')
+	config = create_default_config()
+	_fallback_configs[str(config_path)] = config
+	return config
+
+
 def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 	"""Load config.json or create fresh one if old format detected."""
 	if not config_path.exists():
 		# Create fresh config with defaults
-		config_path.parent.mkdir(parents=True, exist_ok=True)
 		new_config = create_default_config()
-		with open(config_path, 'w') as f:
-			json.dump(new_config.model_dump(), f, indent=2)
+		_write_config(config_path, new_config)
 		return new_config
 
 	try:
@@ -330,30 +361,38 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 		if all(key in data for key in ['browser_profile', 'llm', 'agent']) and all(
 			isinstance(data.get(key, {}), dict) for key in ['browser_profile', 'llm', 'agent']
 		):
+			if not any(data[key] for key in ['browser_profile', 'llm', 'agent']):
+				# Nothing stored to keep and nothing to migrate. Defaults for this run
+				# so the caller has a usable profile and llm, and the file is still
+				# left alone - there is nothing in it worth overwriting either way.
+				_fallback_configs.pop(str(config_path), None)
+				return create_default_config()
+
 			# Check if the values are DB-style entries (have UUIDs as keys).
 			# An empty browser_profile is still the new format - it must not be
 			# treated as the old one and overwritten.
 			if all(isinstance(v, dict) and 'id' in v for v in data['browser_profile'].values()):
 				# Already in new format
+				_fallback_configs.pop(str(config_path), None)
 				return DBStyleConfigJSON(**data)
-
-		# Old format detected - delete it and create fresh config
-		logger.debug(f'Old config format detected at {config_path}, creating fresh config')
-		new_config = create_default_config()
-
-		# Overwrite with new config
-		with open(config_path, 'w') as f:
-			json.dump(new_config.model_dump(), f, indent=2)
-
-		logger.debug(f'Created fresh config.json at {config_path}')
-		return new_config
 
 	except Exception as e:
 		# A config we failed to read is not a config we know to be obsolete, so
 		# it is left on disk untouched - overwriting it would discard the stored
 		# api_key and browser profiles. Fall back to defaults for this run only.
-		logger.error(f'Failed to load config from {config_path}: {e}, using in-memory defaults and leaving the file unchanged')
-		return create_default_config()
+		return _defaults_for_unreadable(config_path, str(e))
+
+	# Old format detected - replace it with a fresh config. The write is outside
+	# the block above on purpose: a failure here is a write failure, not a failed
+	# read, and it must not be reported as one.
+	logger.debug(f'Old config format detected at {config_path}, creating fresh config')
+	new_config = create_default_config()
+	try:
+		_write_config(config_path, new_config)
+		logger.debug(f'Created fresh config.json at {config_path}')
+	except Exception as e:
+		logger.error(f'Failed to write fresh config to {config_path}: {e}')
+	return new_config
 
 
 class Config:

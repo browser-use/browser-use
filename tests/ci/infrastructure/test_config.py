@@ -171,6 +171,56 @@ class TestConfigMigration:
 		assert config_path.read_bytes() == original
 		assert config.llm['l1'].api_key == 'sk-real-key'
 
+	def test_non_utf8_config_is_left_on_disk(self, tmp_path: Path):
+		"""Bytes that are not valid UTF-8 fail the read; the file must survive it."""
+		config_path = tmp_path / 'config.json'
+		config_path.write_bytes(
+			b'{"browser_profile": {}, "llm": {"l1": {"id": "l1", "api_key": "sk-real-\xff\xfe"}}, "agent": {}}'
+		)
+		original = config_path.read_bytes()
+
+		config = load_and_migrate_config(config_path)
+
+		assert config_path.read_bytes() == original
+		# The caller still gets a usable config for this run.
+		assert config.llm
+
+	def test_empty_config_is_kept_but_still_usable(self, tmp_path: Path):
+		"""An entirely empty config is not overwritten, and still yields defaults."""
+		config_path = tmp_path / 'config.json'
+		original = self._write(config_path, json.dumps({'browser_profile': {}, 'llm': {}, 'agent': {}}))
+
+		config = load_and_migrate_config(config_path)
+
+		assert config_path.read_bytes() == original
+		assert config.browser_profile and config.llm and config.agent
+
+	def test_failed_migration_write_does_not_truncate(self, tmp_path: Path, monkeypatch):
+		"""A write that fails mid-migration must not leave an empty file behind."""
+		config_path = tmp_path / 'config.json'
+		original = self._write(config_path, json.dumps({'browser_profile': {'headless': False}, 'llm': {}, 'agent': {}}))
+
+		def no_space(*args, **kwargs):
+			raise OSError(28, 'No space left on device')
+
+		monkeypatch.setattr(json, 'dump', no_space)
+		config = load_and_migrate_config(config_path)
+
+		assert config_path.read_bytes() == original
+		assert not (tmp_path / 'config.json.tmp').exists()
+		assert config.llm
+
+	def test_repeated_failed_loads_reuse_one_fallback(self, tmp_path: Path):
+		"""One bad file read three times is one fallback config, not three."""
+		config_path = tmp_path / 'config.json'
+		self._write(config_path, '{"llm": {"abc": ')
+
+		first = load_and_migrate_config(config_path)
+		second = load_and_migrate_config(config_path)
+
+		assert list(first.llm) == list(second.llm)
+		assert list(first.browser_profile) == list(second.browser_profile)
+
 	def test_old_format_is_still_migrated(self, tmp_path: Path):
 		"""The migration path itself must keep working."""
 		config_path = tmp_path / 'config.json'
