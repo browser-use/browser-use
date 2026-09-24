@@ -326,7 +326,9 @@ class Page:
 		session_id = await self._ensure_session()
 
 		params: 'NavigateParameters' = {'url': url}
-		await self._client.send.Page.navigate(params, session_id=session_id)
+		result = await self._client.send.Page.navigate(params, session_id=session_id)
+		if result.get('errorText'):
+			raise RuntimeError(f'Navigation failed: {result["errorText"]}')
 
 	async def navigate(self, url: str) -> None:
 		"""Alias for goto."""

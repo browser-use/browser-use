@@ -8,12 +8,10 @@ from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
 	from cdp_use.cdp.dom.commands import (
-		DescribeNodeParameters,
 		FocusParameters,
 		GetAttributesParameters,
 		GetBoxModelParameters,
 		PushNodesByBackendIdsToFrontendParameters,
-		RequestChildNodesParameters,
 		ResolveNodeParameters,
 	)
 	from cdp_use.cdp.input.commands import (
@@ -25,6 +23,7 @@ if TYPE_CHECKING:
 	from cdp_use.cdp.runtime.commands import CallFunctionOnParameters
 
 	from browser_use.browser.session import BrowserSession
+	from browser_use.dom.views import EnhancedDOMTreeNode
 
 # Type definitions for element operations
 ModifierType = Literal['Alt', 'Control', 'Meta', 'Shift']
@@ -99,6 +98,13 @@ class Element:
 		"""Click the element using the advanced watchdog implementation."""
 
 		try:
+			# Scrolling changes viewport coordinates, so do it before measuring geometry.
+			try:
+				await self.scroll_into_view()
+				await asyncio.sleep(0.05)
+			except Exception:
+				pass
+
 			# Get viewport dimensions for visibility checks
 			layout_metrics = await self._client.send.Page.getLayoutMetrics(session_id=self._session_id)
 			viewport_width = layout_metrics['layoutViewport']['clientWidth']
@@ -192,6 +198,8 @@ class Element:
 
 			# If we still don't have quads, fall back to JS click
 			if not quads:
+				if button != 'left' or click_count != 1 or modifiers:
+					raise RuntimeError('Cannot preserve button, click count or modifiers without element coordinates')
 				try:
 					result = await self._client.send.DOM.resolveNode(
 						params={'backendNodeId': self._backend_node_id}, session_id=self._session_id
@@ -256,15 +264,6 @@ class Element:
 			center_x = max(0, min(viewport_width - 1, center_x))
 			center_y = max(0, min(viewport_height - 1, center_y))
 
-			# Scroll element into view
-			try:
-				await self._client.send.DOM.scrollIntoViewIfNeeded(
-					params={'backendNodeId': self._backend_node_id}, session_id=self._session_id
-				)
-				await asyncio.sleep(0.05)  # Wait for scroll to complete
-			except Exception:
-				pass
-
 			# Calculate modifier bitmask for CDP
 			modifier_value = 0
 			if modifiers:
@@ -273,6 +272,7 @@ class Element:
 					modifier_value |= modifier_map.get(mod, 0)
 
 			# Perform the click using CDP
+			press_attempted = False
 			try:
 				# Move mouse to element
 				await self._client.send.Input.dispatchMouseEvent(
@@ -287,6 +287,7 @@ class Element:
 
 				# Mouse down
 				try:
+					press_attempted = True
 					await asyncio.wait_for(
 						self._client.send.Input.dispatchMouseEvent(
 							params={
@@ -302,11 +303,9 @@ class Element:
 						timeout=1.0,  # 1 second timeout for mousePressed
 					)
 					await asyncio.sleep(0.08)
-				except TimeoutError:
-					pass  # Don't sleep if we timed out
-
-				# Mouse up
-				try:
+				finally:
+					# A cancelled or timed-out press may already have reached Chrome.
+					# Always attempt release, then propagate the failure to the caller.
 					await asyncio.wait_for(
 						self._client.send.Input.dispatchMouseEvent(
 							params={
@@ -321,11 +320,11 @@ class Element:
 						),
 						timeout=3.0,  # 3 second timeout for mouseReleased
 					)
-				except TimeoutError:
-					pass
 
 			except Exception as e:
 				# Fall back to JavaScript click via CDP
+				if press_attempted or button != 'left' or click_count != 1 or modifiers:
+					raise
 				try:
 					result = await self._client.send.DOM.resolveNode(
 						params={'backendNodeId': self._backend_node_id}, session_id=self._session_id
@@ -348,11 +347,21 @@ class Element:
 
 		except Exception as e:
 			# Extract key element info for error message
-			raise RuntimeError(f'Failed to click element: {e}')
+			raise RuntimeError(f'Failed to click element: {type(e).__name__}: {e}') from e
 
 	async def fill(self, value: str, clear: bool = True) -> None:
 		"""Fill through the normal text action, including native date/time inputs."""
 		from browser_use.browser.events import TypeTextEvent
+
+		if not value and not clear:
+			return
+		element = await self._as_dom_node()
+		event = self._browser_session.event_bus.dispatch(TypeTextEvent(node=element, text=value, clear=clear, is_sensitive=True))
+		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
+
+	async def _as_dom_node(self) -> 'EnhancedDOMTreeNode':
+		"""Describe this element for shared browser action handlers."""
 		from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
 
 		description = await self._client.send.DOM.describeNode(
@@ -362,7 +371,7 @@ class Element:
 		node = description['node']
 		info = await self._client.send.Target.getTargetInfo(session_id=self._session_id)
 		attributes = node.get('attributes', [])
-		element = EnhancedDOMTreeNode(
+		return EnhancedDOMTreeNode(
 			node_id=node['nodeId'],
 			backend_node_id=self._backend_node_id,
 			node_type=NodeType(node['nodeType']),
@@ -383,9 +392,6 @@ class Element:
 			ax_node=None,
 			snapshot_node=None,
 		)
-		event = self._browser_session.event_bus.dispatch(TypeTextEvent(node=element, text=value, clear=clear, is_sensitive=True))
-		await event
-		await event.event_result(raise_if_any=True, raise_if_none=False)
 
 	async def scroll_into_view(self) -> None:
 		"""Scroll the element into the viewport using its backend node ID."""
@@ -406,6 +412,8 @@ class Element:
 
 	async def hover(self) -> None:
 		"""Hover over the element."""
+		await self.scroll_into_view()
+		await asyncio.sleep(0.05)
 		box = await self.get_bounding_box()
 		if not box:
 			raise RuntimeError('Element is not visible or has no bounding box')
@@ -423,65 +431,79 @@ class Element:
 		await self._client.send.DOM.focus(params, session_id=self._session_id)
 
 	async def check(self) -> None:
-		"""Check or uncheck a checkbox/radio button."""
+		"""Ensure a checkbox or radio button is checked, without toggling it off."""
+		checked_script = """() => {
+			if (this.tagName !== 'INPUT' || !['checkbox', 'radio'].includes(this.type))
+				throw new Error('Element is not a checkbox or radio button');
+			return this.checked;
+		}"""
+		if await self.evaluate(checked_script) == 'True':
+			return
 		await self.click()
+		if await self.evaluate(checked_script) != 'True':
+			raise RuntimeError('Checkbox or radio button did not become checked')
 
 	async def select_option(self, values: str | list[str]) -> None:
-		"""Select option(s) in a select element."""
+		"""Select options by visible label or value, including native optgroups."""
+		from browser_use.browser.events import SelectDropdownOptionEvent
+
 		if isinstance(values, str):
 			values = [values]
-
-		# Focus the element first
-		try:
-			await self.focus()
-		except Exception:
-			logger.warning('Failed to focus element')
-
-		# For select elements, we need to find option elements and click them
-		# This is a simplified approach - in practice, you might need to handle
-		# different select types (single vs multi-select) differently
-		node_id = await self._get_node_id()
-
-		# Request child nodes to get the options
-		params: 'RequestChildNodesParameters' = {'nodeId': node_id, 'depth': 1}
-		await self._client.send.DOM.requestChildNodes(params, session_id=self._session_id)
-
-		# Get the updated node description with children
-		describe_params: 'DescribeNodeParameters' = {'nodeId': node_id, 'depth': 1}
-		describe_result = await self._client.send.DOM.describeNode(describe_params, session_id=self._session_id)
-
-		select_node = describe_result['node']
-
-		# Find and select matching options
-		for child in select_node.get('children', []):
-			if child.get('nodeName', '').lower() == 'option':
-				# Get option attributes
-				attrs = child.get('attributes', [])
-				option_attrs = {}
-				for i in range(0, len(attrs), 2):
-					if i + 1 < len(attrs):
-						option_attrs[attrs[i]] = attrs[i + 1]
-
-				option_value = option_attrs.get('value', '')
-				option_text = child.get('nodeValue', '')
-
-				# Check if this option should be selected
-				should_select = option_value in values or option_text in values
-
-				if should_select:
-					# Click the option to select it
-					option_node_id = child.get('nodeId')
-					if option_node_id:
-						# Get backend node ID for the option
-						option_describe_params: 'DescribeNodeParameters' = {'nodeId': option_node_id}
-						option_backend_result = await self._client.send.DOM.describeNode(
-							option_describe_params, session_id=self._session_id
-						)
-						option_backend_id = option_backend_result['node']['backendNodeId']
-
-						# Create an Element for the option and click it
-						option_element = Element(self._browser_session, option_backend_id, self._session_id)
-						await option_element.click()
+		element = await self._as_dom_node()
+		if element.node_name == 'SELECT' and ('multiple' in element.attributes or not values):
+			# The shared dropdown action selects one option; native multi-selects need
+			# all selected flags updated together before notifying the page framework.
+			await self.evaluate(
+				"""(values) => {
+					if (this.disabled) throw new Error('Select element is disabled');
+					const options = Array.from(this.options);
+					const selected = values.map(value => {
+						const match = options.find(option =>
+							option.value.toLowerCase() === value.toLowerCase() ||
+							option.text.trim().toLowerCase() === value.toLowerCase());
+						if (!match) throw new Error('Option not found: ' + value);
+						if (match.disabled || match.parentElement.disabled)
+							throw new Error('Option is disabled: ' + value);
+						return match;
+					});
+					this.focus();
+					for (const option of options) option.selected = selected.includes(option);
+					if (!selected.length) this.selectedIndex = -1;
+					this.dispatchEvent(new Event('input', {bubbles: true}));
+					this.dispatchEvent(new Event('change', {bubbles: true}));
+					this.blur();
+					if (options.some(option => option.selected !== selected.includes(option)))
+						throw new Error('Selection was reverted by the page');
+				}""",
+				values,
+			)
+			return
+		if len(values) != 1:
+			raise ValueError('This dropdown requires exactly one option')
+		expected_value: str | None = None
+		if element.node_name == 'SELECT':
+			expected_value = await self.evaluate(
+				"""(value) => {
+					if (this.disabled) throw new Error('Select element is disabled');
+					const match = Array.from(this.options).find(option =>
+						option.value.toLowerCase() === value.toLowerCase() ||
+						option.text.trim().toLowerCase() === value.toLowerCase());
+					if (!match) throw new Error('Option not found: ' + value);
+					if (match.disabled || match.parentElement.disabled)
+						throw new Error('Option is disabled: ' + value);
+					return match.value;
+				}""",
+				values[0],
+			)
+		event = self._browser_session.event_bus.dispatch(SelectDropdownOptionEvent(node=element, text=values[0]))
+		await event
+		result = await event.event_result(raise_if_any=True, raise_if_none=True)
+		if result is None:
+			raise RuntimeError('Dropdown selection returned no result')
+		if result['success'] != 'true':
+			raise ValueError(result.get('error', 'Failed to select dropdown option'))
+		if expected_value is not None and await self.evaluate('() => this.value') != expected_value:
+			raise RuntimeError('Selection was reverted by the page')
 
 	async def drag_to(
 		self,
