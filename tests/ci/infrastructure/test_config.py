@@ -223,15 +223,16 @@ class TestConfigMigration:
 
 	def test_migration_keeps_the_file_mode(self, tmp_path: Path):
 		"""config.json holds an api_key: a 0600 file must not come back 0644."""
-		import os
-
 		config_path = tmp_path / 'config.json'
 		self._write(config_path, json.dumps({'browser_profile': {'headless': False}, 'llm': {}, 'agent': {}}))
 		os.chmod(config_path, 0o600)
 
 		load_and_migrate_config(config_path)
 
-		assert config_path.stat().st_mode & 0o777 == 0o600
+		if os.name == 'posix':
+			# Windows os.chmod only toggles the read-only attribute, so a writable file always
+			# reports 0o666 and there is no 0o600 to preserve in the first place.
+			assert config_path.stat().st_mode & 0o777 == 0o600
 		assert not list(tmp_path.glob('*.tmp'))
 
 	def test_migration_drops_a_stale_fallback(self, tmp_path: Path):

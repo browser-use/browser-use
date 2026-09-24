@@ -321,7 +321,8 @@ def _write_config(config_path: Path, config: DBStyleConfigJSON) -> None:
 	The temp name carries the pid, matching `telemetry/service.py`: two processes writing this
 	config at once must not share a scratch file. And os.replace swaps in a new inode, so the
 	old file's mode is carried over - this file holds an api_key, and a 0600 config must not
-	come back 0644.
+	come back 0644. That carry-over is POSIX semantics; on Windows os.chmod only toggles the
+	read-only attribute, so there is no owner-only mode to keep.
 	"""
 	config_path.parent.mkdir(parents=True, exist_ok=True)
 	tmp_path = config_path.with_name(f'{config_path.name}.{os.getpid()}.tmp')
