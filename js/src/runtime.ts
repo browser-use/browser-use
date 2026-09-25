@@ -239,7 +239,8 @@ export class BrowserRuntime {
     }
   }
 
-  async close() {
+  /** keepTabs leaves the tabs this session opened for a later session to continue in. */
+  async close({ keepTabs = false }: { keepTabs?: boolean } = {}) {
     if (this.closed) return;
     this.closed = true;
     if (this.busy) {
@@ -255,7 +256,7 @@ export class BrowserRuntime {
       await response.catch(() => {});
     }
     await this.terminate();
-    if (this.owned.size) {
+    if (this.owned.size && !keepTabs) {
       const cdp = await CDP.connect(
         this.config.endpoint,
         this.config.operationTimeoutMs,

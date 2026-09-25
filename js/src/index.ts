@@ -465,14 +465,19 @@ export class BrowserUse {
   }
 
   /** Idempotent. Cancels execution, closes our tab, and shuts down only browsers we launched. */
-  close(): Promise<void> {
+  /** The tab the agent is working in, for a host that resumes it in a later session. */
+  get currentTarget(): string | undefined {
+    return this.runtime.currentTarget;
+  }
+
+  close(options: { keepTabs?: boolean } = {}): Promise<void> {
     if (this.closing) return this.closing;
     this.closed = true;
     this.cancel();
     this.closing = (async () => {
       try {
         await this.activeRun?.catch(() => {});
-        await this.runtime.close();
+        await this.runtime.close(options);
       } finally {
         try {
           await this.browser.close();

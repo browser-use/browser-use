@@ -276,6 +276,24 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         replayed = [i for i in self.requests[1]["input"] if i.get("type") == "reasoning"]
         self.assertEqual(replayed, [{k: v for k, v in reasoning.items() if v is not None}])
 
+    async def test_stream_deltas_false_keeps_only_settled_events(self):
+        self.responses = [("finish", {"result": "done"})]
+        agent = await self.create(streamDeltas=False)
+        seen = []
+
+        async def collect():
+            async for event in agent.events():
+                if event.get("type") == "agent_event":
+                    seen.append(event["event"]["type"])
+
+        task = asyncio.create_task(collect())
+        await asyncio.sleep(0)
+        await agent.run("finish")
+        await asyncio.sleep(0.2)
+        task.cancel()
+        self.assertNotIn("message_update", seen)
+        self.assertIn("message_end", seen)
+
     async def test_unknown_options_and_missing_runtime_fail_explicitly(self):
         with self.assertRaisesRegex(BrowserUseError, "Unsupported create option"):
             await BrowserUse.create(model="openai/gpt-5.5", imaginaryOption=True)

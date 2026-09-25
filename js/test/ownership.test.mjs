@@ -58,6 +58,31 @@ test('external tabs/cookies survive normal cleanup and timeout; SDK tabs are rem
   }
 });
 
+test('keepTabs leaves the session tabs, and currentTarget names the one in use', async () => {
+  const external = await openBrowser();
+  const workspace = await mkdtemp(join(tmpdir(), 'bu-keep-tabs-'));
+  const cdp = await CDP.connect(external.endpoint);
+  try {
+    const agent = await BrowserUse.create({
+      model: 'openai/gpt-5.4',
+      browser: { cdpUrl: external.endpoint },
+      workspace,
+    });
+    await agent.execute("page = await tabs.open('data:text/html,<title>kept</title>')");
+    const current = agent.currentTarget;
+    await agent.close({ keepTabs: true });
+    const pages = (await cdp.send('Target.getTargets')).targetInfos.filter(
+      (t) => t.type === 'page',
+    );
+    assert.equal(pages.length, 2);
+    assert.equal(pages.find((t) => t.targetId === current)?.title, 'kept');
+  } finally {
+    cdp.close();
+    await external.close();
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test('provider environment and host preload flags are not inherited; dynamic imports work', async () => {
   process.env.BU_TEST_FAKE_SECRET = 'test-only-not-a-credential';
   const agent = await BrowserUse.create({ model: 'openai/gpt-5.4' });

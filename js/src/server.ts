@@ -115,6 +115,7 @@ const CREATE_KEYS = new Set([
   'apiKey',
   'baseUrl',
   'modelId',
+  'streamDeltas',
 ]);
 async function dispatch(method: string, params: Record<string, unknown>): Promise<unknown> {
   if (method === 'ping') return { protocol: 1, node: process.versions.node };
@@ -144,7 +145,7 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
     creating = true;
     try {
       if (typeof params.model !== 'string') throw new Error('model must be provider/model.');
-      const { apiKey, baseUrl, modelId, tools: rawTools, ...options } = params;
+      const { apiKey, baseUrl, modelId, streamDeltas, tools: rawTools, ...options } = params;
       if (apiKey !== undefined && typeof apiKey !== 'string')
         throw new Error('apiKey must be a string.');
       if (baseUrl !== undefined && typeof baseUrl !== 'string')
@@ -193,7 +194,16 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
       });
       const current = agent;
       void (async () => {
-        for await (const event of current.events()) await send({ method: 'event', params: event });
+        for await (const event of current.events()) {
+          // Token deltas can outrun a host's bounded event queue; opt out with streamDeltas: false.
+          if (
+            streamDeltas === false &&
+            event.type === 'agent_event' &&
+            event.event.type === 'message_update'
+          )
+            continue;
+          await send({ method: 'event', params: event });
+        }
       })().catch((error) => {
         current.cancel();
         void send({ method: 'stream_error', params: { message: String(error) } }).catch(() => {});
@@ -252,9 +262,11 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
         String(params.path),
         params.options as Parameters<typeof exportRecording>[1],
       );
+    case 'currentTarget':
+      return agent.currentTarget ?? null;
     case 'close':
       closing = true;
-      await agent.close();
+      await agent.close({ keepTabs: params.keepTabs === true });
       return null;
     default:
       throw new Error(`Unknown bridge method: ${method}`);

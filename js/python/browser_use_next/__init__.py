@@ -381,18 +381,24 @@ class BrowserUse:
     async def export_recording(self, path: str, **options: Any) -> str:
         return await self._call("exportRecording", {"path": path, "options": options})
 
-    async def close(self) -> None:
+    async def current_target(self) -> str | None:
+        return await self._call("currentTarget")
+
+    async def close(self, *, keep_tabs: bool = False) -> None:
+        """keep_tabs leaves the tabs this session opened for a later session."""
         if self._closing is None:
-            self._closing = asyncio.create_task(self._close())
+            self._closing = asyncio.create_task(self._close(keep_tabs))
         await asyncio.shield(self._closing)
 
-    async def _close(self) -> None:
+    async def _close(self, keep_tabs: bool = False) -> None:
         if self._closed:
             return
         try:
             if self._process and self._process.returncode is None:
                 try:
-                    await asyncio.wait_for(self._call("close"), 10)
+                    await asyncio.wait_for(
+                        self._call("close", {"keepTabs": True} if keep_tabs else None), 10
+                    )
                 except (BrowserUseError, ConnectionError, asyncio.TimeoutError) as exc:
                     self._stderr = (self._stderr + f"\nGraceful close failed: {exc}")[
                         -16000:
