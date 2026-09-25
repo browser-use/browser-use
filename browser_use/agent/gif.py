@@ -17,19 +17,67 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def decode_unicode_escapes_to_utf8(text: str) -> str:
-	"""Handle decoding any unicode escape sequences embedded in a string (needed to render non-ASCII languages like chinese or arabic in the GIF overlay text)"""
+def _decode_latin1_run(text: str) -> str:
+	"""Decode a Latin-1 string while preserving malformed escape sequences."""
+	result: list[str] = []
+	position = 0
 
-	if r'\u' not in text:
-		# doesn't have any escape sequences that need to be decoded
+	while position < len(text):
+		remaining = text[position:]
+
+		try:
+			result.append(remaining.encode('latin1').decode('unicode_escape'))
+			break
+		except UnicodeDecodeError as error:
+			error_start = position + error.start
+			error_end = position + error.end
+
+			escape_start = text.rfind('\\', position, error_start + 1)
+
+			if escape_start == -1:
+				result.append(text[position:error_start])
+				position = error_start
+				continue
+
+			if escape_start > position:
+				result.append(text[position:escape_start].encode('latin1').decode('unicode_escape'))
+
+			if error_end <= escape_start:
+				error_end = escape_start + 1
+
+			result.append(text[escape_start:error_end])
+			position = error_end
+
+	return ''.join(result)
+
+
+def decode_unicode_escapes_to_utf8(text: str) -> str:
+	"""Decode Unicode escapes while preserving existing non-Latin-1 text."""
+	if r'\u' not in text and r'\U' not in text:
 		return text
 
 	try:
-		# Try to decode Unicode escape sequences
 		return text.encode('latin1').decode('unicode_escape')
-	except (UnicodeEncodeError, UnicodeDecodeError):
-		# logger.debug(f"Failed to decode unicode escape sequences while generating gif text: {text}")
-		return text
+	except UnicodeEncodeError:
+		result: list[str] = []
+		latin1_run: list[str] = []
+
+		def flush_run() -> None:
+			if latin1_run:
+				result.append(_decode_latin1_run(''.join(latin1_run)))
+				latin1_run.clear()
+
+		for character in text:
+			if ord(character) <= 0xFF:
+				latin1_run.append(character)
+			else:
+				flush_run()
+				result.append(character)
+
+		flush_run()
+		return ''.join(result)
+	except UnicodeDecodeError:
+		return _decode_latin1_run(text)
 
 
 def create_history_gif(
@@ -310,7 +358,6 @@ def _add_overlay_to_image(
 
 	from PIL import Image, ImageDraw
 
-	goal_text = decode_unicode_escapes_to_utf8(goal_text)
 	image = image.convert('RGBA')
 	txt_layer = Image.new('RGBA', image.size, (0, 0, 0, 0))
 	draw = ImageDraw.Draw(txt_layer)
