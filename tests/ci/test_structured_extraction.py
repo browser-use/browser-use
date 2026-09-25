@@ -3,6 +3,7 @@
 import asyncio
 import json
 import tempfile
+from typing import get_args
 from unittest.mock import AsyncMock
 
 import pytest
@@ -282,6 +283,50 @@ class TestSchemaDictToPydanticModel:
 		assert instance.nickname is None  # type: ignore[attr-defined]
 		instance2 = Model(nickname='Ada')
 		assert instance2.nickname == 'Ada'  # type: ignore[attr-defined]
+
+	def test_json_schema_type_array_multi_primitive_union(self):
+		schema = {
+			'type': 'object',
+			'properties': {
+				'value': {'type': ['string', 'integer']},
+			},
+			'required': [],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model.model_fields['value'].annotation == str | int
+		assert Model(value='x').value == 'x'  # type: ignore[attr-defined]
+		assert Model(value=7).value == 7  # type: ignore[attr-defined]
+
+	def test_json_schema_type_array_structured_members_not_coerced_to_str(self):
+		schema = {
+			'type': 'object',
+			'properties': {
+				'payload': {
+					'type': ['string', 'object'],
+					'properties': {'id': {'type': 'integer'}},
+					'required': ['id'],
+				},
+				'tags': {
+					'type': ['string', 'array'],
+					'items': {'type': 'integer'},
+				},
+			},
+			'required': [],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		payload_ann = Model.model_fields['payload'].annotation
+		tags_ann = Model.model_fields['tags'].annotation
+		payload_args = get_args(payload_ann)
+		tags_args = get_args(tags_ann)
+		assert str in payload_args
+		assert any(issubclass(arg, BaseModel) for arg in payload_args if arg is not str)
+		assert str in tags_args
+		assert list[int] in tags_args
+		nested_model = next(arg for arg in payload_args if arg is not str)
+		instance = Model(payload=nested_model(id=1), tags=[1, 2])
+		assert instance.payload.id == 1  # type: ignore[attr-defined]
+		assert instance.tags == [1, 2]  # type: ignore[attr-defined]
+		assert Model(payload='plain', tags='x').payload == 'plain'  # type: ignore[attr-defined]
 
 	def test_field_descriptions_preserved(self):
 		schema = {

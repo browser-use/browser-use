@@ -92,8 +92,15 @@ def _resolve_type(schema: dict, name: str) -> Any:
 	json_type, type_array_null = _split_json_type(schema)
 
 	if isinstance(json_type, list):
-		primitives = tuple(_PRIMITIVE_MAP.get(t, str) for t in json_type)
-		base: Any = primitives[0] if len(primitives) == 1 else Union[primitives]
+		resolved_members: list[Any] = []
+		for member in json_type:
+			if member in _PRIMITIVE_MAP:
+				resolved_members.append(_PRIMITIVE_MAP[member])
+			elif member in ('object', 'array'):
+				resolved_members.append(_resolve_type({**schema, 'type': member}, name))
+			else:
+				resolved_members.append(str)
+		base: Any = resolved_members[0] if len(resolved_members) == 1 else Union[tuple(resolved_members)]
 		return _apply_nullable(base, schema, type_array_null)
 
 	# Enums — constrain to str (Literal would be stricter but LLMs are flaky)
