@@ -149,12 +149,11 @@ The agent gets individual browser tools:
 - `browser_go_back()` — browser back
 - `browser_list_tabs()`, `browser_switch_tab(id)`, `browser_close_tab(id)` — tab management
 
-
 ### Tab selection and recording behavior
 
-`browser_list_tabs()` returns the current tab IDs and URLs. The `id` is a four-character suffix of the browser target ID; it is only valid while that tab is open. Refresh the list before switching after a tab opens or closes, and pass the returned `id` unchanged to `browser_switch_tab(id)`. A failed switch is an action error; do not continue assuming that the old tab is active.
+`browser_list_tabs()` returns the current tab IDs and URLs. The returned `tab_id` is a four-character suffix of the browser target ID; it is only valid while that tab is open. Refresh the list before switching after a tab opens or closes, and pass the returned tab ID unchanged to `browser_switch_tab(id)`. After a failed switch, refresh browser state and confirm the focused tab before acting.
 
-When using the local SDK's video recorder, the recording follows the agent-focused tab. Opening a new tab does not move recording to it until the agent switches focus. The recorder uses the configured video size (or the detected CSS viewport) and pads dimensions to a codec-compatible multiple of 16, which can add black bars. If recording is configured but no file is produced, check the `[video]` optional dependencies and the session logs for the recording-start warning.
+When using the open-source Python library's local video recorder, the recording follows the agent-focused tab. A background tab is not recorded until the agent focuses it. The recorder uses the configured video size (or the detected CSS viewport) and pads dimensions to a codec-compatible multiple of 16, which can add black bars. If recording is configured but no file is produced, check the `[video]` optional dependencies and the session logs for recording startup or screencast errors. This describes the local recorder. Hosted Cloud recording uses a separate pipeline: see [Cloud recording behavior](../sessions.md#cloud-recording-behavior).
 
 The agent calls these one at a time, using its own reasoning to decide the next action.
 

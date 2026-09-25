@@ -11,9 +11,22 @@ is the persistent filesystem that can be reused across sessions.
 
 ## Choosing the product surface and model
 
-Choose the API surface before choosing a model. V4 runs are the current hosted-agent path for new integrations; V2 and V3 examples are retained for existing integrations and are not interchangeable with V4 sessions, status values, or model names. A model alias shown in the Cloud UI, a `ChatBrowserUse` model, and a provider model passed through the SDK can refer to different routing layers. Copy the exact model identifier from the selected surface rather than guessing between aliases such as fast, ultra, or preview.
+Choose the execution model first; an API version and an LLM model are separate choices.
 
-For a first V4 run, keep the documented default (`gpt-5.6-luna`) and change one variable at a time. Record the SDK version, API surface, model identifier, browser/profile mode, and terminal run status when comparing results. This makes a slow or failed run diagnosable instead of attributing it to the model alone.
+| What you need | Start here |
+| --- | --- |
+| Send a task and receive a result; Browser Use runs the agent | V4 hosted runs in this guide |
+| Keep your existing agent and model provider; rent the browser | V4 `browsers` or [direct CDP access](browser-api.md) |
+| Write and run a Python agent yourself | The open-source `browser-use` library, optionally with `Browser(use_cloud=True)` |
+| Maintain an existing V2 or V3 integration | Its versioned reference until you have checked feature parity and tested migration |
+
+**BYOK and custom endpoints are different capabilities.** BYOK supplies credentials for a supported provider. It does not by itself mean that a hosted run supports an arbitrary base URL, Azure deployment, or OpenAI-compatible endpoint. When your own agent controls model calls, configure the provider in that agent's model client; Browser Use supplies the remote browser. Check the hosted API's documented options before promising the same configuration for a V4 run.
+
+Copy the exact model identifier from the selected surface. Cloud UI aliases, `ChatBrowserUse` model names, and provider model identifiers are not interchangeable. For a first V4 run, use the documented default (`gpt-5.6-luna`).
+
+**Before migrating:** check structured-output requirements, custom tools/provider options, profiles, session reuse, downloads, and terminal status handling against the destination API. V4 returns a result string: a prompt requesting JSON does not enforce a JSON schema. Parse and validate the result in your application, and decide how validation failure should be handled before replacing an integration that relies on server-enforced schemas.
+
+Compare a small representative task set using the same inputs and success criteria. Record the SDK version, API surface, exact model, browser/profile mode, elapsed time, cost, and terminal result. Changing API versions alone does not establish that a blocked site will become reachable.
 
 ## Before the first run
 

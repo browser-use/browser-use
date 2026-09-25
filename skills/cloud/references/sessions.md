@@ -176,14 +176,23 @@ await client.run("Post update to Twitter", session_id=session.id)
 await client.sessions.stop(session.id)
 ```
 
+## Cloud recording behavior
+
+The Cloud recorder uses a video canvas separate from the browser viewport. The driver defaults to 1920×1080 and scales frames to fit while preserving aspect ratio, adding black bars when needed. Setting the browser viewport does not by itself set the recording resolution.
+
+The recorder selects an initial page and follows explicit CDP tab activation (`Target.activateTarget` or `Page.bringToFront`). Sending automation commands to another tab does not necessarily make that tab the recording target. Activate the tab you want captured; do not infer recording focus from the tab your code last addressed.
+
+A downloadable recording depends on successful video encoding and upload finalization. If it remains unavailable after the session ends, report the session ID and UTC stop time so support can distinguish processing from encoder/upload failure or an interrupted session. Repeatedly polling for a file cannot recover a recording that was never finalized.
 
 ## CAPTCHA and anti-bot troubleshooting
 
-A CAPTCHA result does not necessarily mean the solver failed. Treat the failure class separately:
+A site block, a solver failure, and an expired browser session need different recovery actions. The CAPTCHA vendor or an HTTP 403 alone does not identify the cause.
 
-- **IP or reputation block:** DataDome, Google unusual-traffic pages, and some Cloudflare responses reject the proxy before a challenge can be solved. Rotate to a different residential exit and keep the profile and proxy country consistent.
-- **Challenge integration failure:** A checkbox or challenge iframe may not be ready or may be outside the viewport. Retry after the page settles and capture the URL, vendor, and screenshot when reporting it.
-- **Timeout or cancellation:** A solver can be cancelled when the browser session or task ends. Check the session lifecycle and retry policy before changing proxies.
-- **Fingerprint or profile mismatch:** Reusing a profile with a different proxy country, timezone, or viewport can increase detection. Keep these stable for a profile and avoid mixing local and cloud sessions for the same login.
+- **Explicit IP/reputation block:** collect the actual block reason. If the driver reports an IP hard block, retrying the same challenge on the same exit is unlikely to help. Test a different exit separately; keep the profile and proxy location consistent during a login transaction.
+- **Challenge integration/readiness failure:** invalid solver input, a missing checkbox, an iframe without layout, or a challenge outside the viewport require investigating page state or the solver integration. A waiting room is a queue, not a CAPTCHA to solve.
+- **Cancellation or timeout:** correlate the solver timestamp with navigation, tab closure, browser disconnect, and task cancellation before changing proxies. A cancelled attempt does not prove that the challenge was unsolvable.
+- **Possible fingerprint mismatch:** capture the browser version, profile, viewport, timezone, and fingerprint-selection warning. A warning or a failed challenge alone does not prove a fingerprint leak; compare one variable at a time.
 
-A hard IP ban cannot be fixed by retrying the same session. Include the domain, CAPTCHA vendor, proxy country, profile ID, and terminal task result in a support report so the failure can be reproduced.
+After solver success, verify that the challenge disappeared and the intended page or form submission actually succeeded. Avoid unlimited retries: use a bounded retry/cost policy and surface the failure reason to the caller.
+
+For support, include the domain, UTC timestamp, run/session ID, SDK/browser version, CAPTCHA vendor, relevant error, profile/proxy configuration, and terminal task result. Include a screenshot with sensitive information removed; do not include credentials, cookies, or API keys.
