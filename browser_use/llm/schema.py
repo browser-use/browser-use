@@ -166,7 +166,7 @@ class SchemaOptimizer:
 		# Final pass to remove minItems/min_items and default values if requested
 		if remove_min_items or remove_defaults:
 
-			def remove_forbidden_fields(obj: Any, *, in_properties_map: bool = False) -> None:
+			def remove_forbidden_fields(obj: Any) -> None:
 				"""Recursively remove minItems/min_items and default values.
 
 				The `properties` mapping itself is name -> schema, where names are
@@ -175,12 +175,11 @@ class SchemaOptimizer:
 				`additionalProperties: false` forbids ever providing it (#5829).
 				"""
 				if isinstance(obj, dict):
-					if not in_properties_map:
-						if remove_min_items:
-							obj.pop('minItems', None)
-							obj.pop('min_items', None)
-						if remove_defaults:
-							obj.pop('default', None)
+					if remove_min_items:
+						obj.pop('minItems', None)
+						obj.pop('min_items', None)
+					if remove_defaults:
+						obj.pop('default', None)
 					for key, value in obj.items():
 						if key == 'properties' and isinstance(value, dict):
 							# names in here are data, not schema keywords
