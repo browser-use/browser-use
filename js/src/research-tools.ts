@@ -46,7 +46,11 @@ async function writeWithLocation(
 }
 
 /** Pi's file and shell tools work independently of the browser/REPL process. */
-export function researchTools(workspace: string, timeoutMs: number): AgentTool[] {
+export function researchTools(
+  workspace: string,
+  timeoutMs: number,
+  shellEnv: Record<string, string> = {},
+): AgentTool[] {
   return createCodingTools(workspace, {
     bash: {
       exposeSessionEnvironment: false,
@@ -57,6 +61,7 @@ export function researchTools(workspace: string, timeoutMs: number): AgentTool[]
           LANG: 'en_US.UTF-8',
           HOME: workspace,
           TMPDIR: workspace,
+          ...shellEnv,
         },
       }),
     },

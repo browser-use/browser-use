@@ -195,6 +195,7 @@ const CREATE_KEYS = new Set([
   'sensitiveData',
   'telemetry',
   'researchTools',
+  'shellEnv',
   'tools',
   'apiKey',
   'baseUrl',

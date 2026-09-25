@@ -339,6 +339,12 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         await agent.run("say done")
         self.assertEqual(self.requests[0]["thinking"], {"type": "disabled"})
 
+    async def test_shell_env_reaches_the_bash_tool(self):
+        self.responses = [("bash", {"command": "echo token=$CLOUD_TOKEN"}), ("finish", {"result": "done"})]
+        agent = await self.create(researchTools=True, shellEnv={"CLOUD_TOKEN": "fixture-run-token"})
+        self.assertEqual((await agent.run("check")).output, "done")
+        self.assertIn("token=fixture-run-token", json.dumps(self.requests[1]["input"]))
+
     async def test_model_info_compat_overrides_the_catalog(self):
         # A gateway that does not forward Anthropic betas needs the beta-only effort
         # messages off; the fixture cannot answer in Anthropic's format, so only the

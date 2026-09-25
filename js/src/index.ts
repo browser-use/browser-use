@@ -82,6 +82,13 @@ export class BrowserUse {
       throw new Error('highlightActions must be boolean.');
     if (options.researchTools !== undefined && typeof options.researchTools !== 'boolean')
       throw new Error('researchTools must be boolean.');
+    if (
+      options.shellEnv !== undefined &&
+      (typeof options.shellEnv !== 'object' ||
+        options.shellEnv === null ||
+        Object.values(options.shellEnv).some((value) => typeof value !== 'string'))
+    )
+      throw new Error('shellEnv must map names to strings.');
     if (options.recording && typeof options.recording === 'object') {
       positiveInteger('recording.intervalMs', options.recording.intervalMs ?? 750);
       positiveInteger('recording.maxFrames', options.recording.maxFrames ?? 400);

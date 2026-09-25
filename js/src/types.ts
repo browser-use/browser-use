@@ -27,6 +27,8 @@ export interface BrowserUseOptions extends DomainOptions {
   reasoning?: ThinkingLevel;
   /** Opt-in Pi read/write/edit/bash tools. Not a filesystem sandbox. */
   researchTools?: boolean;
+  /** Extra environment for the research bash tool, e.g. a host's API credentials. */
+  shellEnv?: Record<string, string>;
   tools?: AgentState['tools'];
   instructions?: string;
   operationTimeoutMs?: number;
