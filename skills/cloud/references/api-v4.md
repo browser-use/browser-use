@@ -9,6 +9,12 @@ is the persistent filesystem that can be reused across sessions.
 - Python: `from browser_use_sdk.v4 import BrowserUse`
 - TypeScript: `import { BrowserUse } from "browser-use-sdk/v4"`
 
+## Choosing the product surface and model
+
+Choose the API surface before choosing a model. V4 runs are the current hosted-agent path for new integrations; V2 and V3 examples are retained for existing integrations and are not interchangeable with V4 sessions, status values, or model names. A model alias shown in the Cloud UI, a `ChatBrowserUse` model, and a provider model passed through the SDK can refer to different routing layers. Copy the exact model identifier from the selected surface rather than guessing between aliases such as fast, ultra, or preview.
+
+For a first V4 run, keep the documented default (`gpt-5.6-luna`) and change one variable at a time. Record the SDK version, API surface, model identifier, browser/profile mode, and terminal run status when comparing results. This makes a slow or failed run diagnosable instead of attributing it to the model alone.
+
 ## Before the first run
 
 Eligible new Google, GitHub, or Microsoft signups receive a one-time $15 Cloud credit. No credit card is required. Email/password signups are not eligible; the credit does not renew. Start with the default V4 model (`gpt-5.6-luna`); paid-only models require a top-up. See [pricing](https://browser-use.com/pricing.md) for current eligibility and rates.
