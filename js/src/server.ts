@@ -56,6 +56,19 @@ function withStandardSignatures(context: Context): Context {
   };
 }
 
+// A history is bound to one model, but a gateway may answer under another name for it
+// (an alias, or Bedrock's id); Pi then treats its own thinking as foreign on replay.
+function withModelId(context: Context, provider: string, id: string): Context {
+  return {
+    ...context,
+    messages: context.messages.map((message) =>
+      message.role === 'assistant' && message.provider === provider
+        ? { ...message, model: id }
+        : message,
+    ),
+  };
+}
+
 let agent: BrowserUse | undefined;
 let creating = false;
 let closing = false;
@@ -66,11 +79,12 @@ type ModelInfo = {
   contextWindow?: number;
   maxTokens?: number;
   compat?: Record<string, unknown>;
+  thinkingLevelMap?: Record<string, string | null>;
 };
 
 // A gateway may serve models newer than Pi's catalog: they borrow a catalog entry's
-// capabilities, and the host's limits and compat overrides (e.g. provider betas the
-// gateway does not forward) apply either way.
+// capabilities, and the host's limits, supported thinking levels, and compat overrides
+// (e.g. provider betas the gateway does not forward) apply either way.
 function withHostModel(models: Models, name: string, info: ModelInfo): Models {
   const split = (ref: string): [string, string] => [
     ref.slice(0, ref.indexOf('/')),
@@ -84,8 +98,9 @@ function withHostModel(models: Models, name: string, info: ModelInfo): Models {
   for (const key of ['contextWindow', 'maxTokens'] as const)
     if (info[key] !== undefined && !(Number.isSafeInteger(info[key]) && info[key] > 0))
       throw new Error(`modelInfo.${key} must be a positive integer.`);
-  if (info.compat !== undefined && (typeof info.compat !== 'object' || info.compat === null))
-    throw new Error('modelInfo.compat must be an object.');
+  for (const key of ['compat', 'thinkingLevelMap'] as const)
+    if (info[key] !== undefined && (typeof info[key] !== 'object' || info[key] === null))
+      throw new Error(`modelInfo.${key} must be an object.`);
   const [provider, id] = split(name);
   const template = info.template ? split(info.template) : undefined;
   const base = models.getModel(provider, id) ?? (template && models.getModel(...template));
@@ -97,6 +112,7 @@ function withHostModel(models: Models, name: string, info: ModelInfo): Models {
     ...(info.contextWindow ? { contextWindow: info.contextWindow } : {}),
     ...(info.maxTokens ? { maxTokens: info.maxTokens } : {}),
     ...(info.compat ? { compat: { ...base.compat, ...info.compat } } : {}),
+    ...(info.thinkingLevelMap ? { thinkingLevelMap: info.thinkingLevelMap } : {}),
   };
   const getModel = models.getModel.bind(models);
   models.getModel = (p, i) => (p === provider && i === id ? model : getModel(p, i));
@@ -263,20 +279,24 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
           execute: async (_id: string, args: unknown, signal?: AbortSignal) =>
             invokePython(tool.name, args, signal),
         })),
-        streamFn: (model, context, settings) =>
-          models.streamSimple(
-            {
-              ...model,
-              ...(typeof baseUrl === 'string' ? { baseUrl } : {}),
-              ...(typeof modelId === 'string' ? { id: modelId } : {}),
-            },
-            model.api === 'openai-responses'
-              ? withoutNullReasoningFields(context)
-              : model.api === 'google-generative-ai'
-                ? withStandardSignatures(context)
-                : context,
+        streamFn: (model, context, settings) => {
+          const sent = {
+            ...model,
+            ...(typeof baseUrl === 'string' ? { baseUrl } : {}),
+            ...(typeof modelId === 'string' ? { id: modelId } : {}),
+          };
+          const replay =
+            typeof modelId === 'string' ? withModelId(context, sent.provider, sent.id) : context;
+          return models.streamSimple(
+            sent,
+            sent.api === 'openai-responses'
+              ? withoutNullReasoningFields(replay)
+              : sent.api === 'google-generative-ai'
+                ? withStandardSignatures(replay)
+                : replay,
             { ...settings, ...(typeof apiKey === 'string' ? { apiKey } : {}) },
-          ),
+          );
+        },
       });
       const current = agent;
       void (async () => {

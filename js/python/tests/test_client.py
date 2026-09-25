@@ -62,6 +62,30 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 )
                 await writer.drain()
                 return
+            if "max_tokens" in request and "messages" in request:
+                # Anthropic, answering under the gateway's upstream name for the model.
+                name, args = self.responses.pop(0)[:2]
+                events = [
+                    ("message_start", {"message": {"id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-4-7", "content": [], "stop_reason": None, "usage": {"input_tokens": 10, "output_tokens": 1}}}),
+                    ("content_block_start", {"index": 0, "content_block": {"type": "thinking", "thinking": ""}}),
+                    ("content_block_delta", {"index": 0, "delta": {"type": "thinking_delta", "thinking": "plan"}}),
+                    ("content_block_delta", {"index": 0, "delta": {"type": "signature_delta", "signature": "sig-1"}}),
+                    ("content_block_stop", {"index": 0}),
+                    ("content_block_start", {"index": 1, "content_block": {"type": "tool_use", "id": f"toolu_{len(self.requests)}", "name": name, "input": {}}}),
+                    ("content_block_delta", {"index": 1, "delta": {"type": "input_json_delta", "partial_json": json.dumps(args)}}),
+                    ("content_block_stop", {"index": 1}),
+                    ("message_delta", {"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 5}}),
+                    ("message_stop", {}),
+                ]
+                payload = "".join(
+                    f"event: {kind}\ndata: {json.dumps({'type': kind, **body})}\n\n" for kind, body in events
+                ).encode()
+                writer.write(
+                    f"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {len(payload)}\r\nConnection: close\r\n\r\n".encode()
+                    + payload
+                )
+                await writer.drain()
+                return
             name, args, *reasoning = self.responses.pop(0)
             index = len(self.requests)
             item = {
@@ -295,6 +319,25 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             for part in content["parts"]
         ]
         self.assertEqual(replayed[0]["thoughtSignature"], "+/+/Pj8=")
+
+    async def test_thinking_survives_a_gateway_answering_under_another_model_name(self):
+        self.responses = [("javascript", {"code": "1 + 1"}), ("finish", {"result": "done"})]
+        agent = await self.create(model="anthropic/claude-opus-4-7", modelId="claude-opus-4.7")
+        self.assertEqual((await agent.run("add")).output, "done")
+        replayed = [
+            block
+            for message in self.requests[1]["messages"]
+            if message["role"] == "assistant"
+            for block in message["content"]
+        ]
+        self.assertIn({"type": "thinking", "thinking": "plan", "signature": "sig-1"}, replayed)
+
+    async def test_model_info_thinking_levels_override_the_catalog(self):
+        self.responses = [("finish", {"result": "done"})]
+        info = {"thinkingLevelMap": {"off": "disabled"}, "compat": {"supportsMidConvoEffort": False}}
+        agent = await self.create(model="anthropic/claude-opus-5", modelInfo=info, reasoning="off")
+        await agent.run("say done")
+        self.assertEqual(self.requests[0]["thinking"], {"type": "disabled"})
 
     async def test_model_info_compat_overrides_the_catalog(self):
         # A gateway that does not forward Anthropic betas needs the beta-only effort
