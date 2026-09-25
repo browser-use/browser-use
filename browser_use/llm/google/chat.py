@@ -236,18 +236,20 @@ class ChatGoogle(BaseChatModel):
 		return usage
 
 	def _validate_output(self, output_format: type[T], data: Any) -> T:
-		"""Validate structured output, decoding fields the model double-serialized as JSON strings.
+		"""Validate structured output, decoding failed fields the model double-serialized as JSON strings.
 
 		Gemini sometimes returns a list or object field (the AgentOutput `action` list, typically) JSON-encoded
-		as a string. Same repair as ChatAnthropic applies to tool input.
+		as a string. Same repair as ChatAnthropic applies to tool input, limited to the top-level fields the
+		first validation rejected, so a valid string field that happens to look like JSON is left alone.
 		"""
 		try:
 			return output_format.model_validate(data)
-		except ValidationError:
+		except ValidationError as e:
 			if not isinstance(data, dict):
 				raise
 			repaired = dict(data)
-			for key, value in repaired.items():
+			for key in {error['loc'][0] for error in e.errors() if error['loc']}:
+				value = repaired.get(key)
 				if isinstance(value, str) and value.startswith(('[', '{')):
 					try:
 						repaired[key] = json.loads(value)
