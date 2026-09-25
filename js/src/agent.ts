@@ -9,7 +9,7 @@ import { Type, type TSchema } from 'typebox';
 import { Check, Errors } from 'typebox/value';
 import { CellError, type BrowserRuntime } from './runtime.js';
 import { Observer } from './observer.js';
-import { RunContext } from './context.js';
+import { RunContext, conversation } from './context.js';
 import { deadlineStream } from './model-stream.js';
 import { researchTools } from './research-tools.js';
 import type { BrowserUseOptions, RunOptions, RunResult, StopReason } from './types.js';
@@ -66,7 +66,7 @@ export async function runAgent(
     throw new Error('compaction must be boolean.');
   runtime.beginRun();
   const start = Date.now();
-  const previousMessages = session?.messages.length ?? 0;
+  let previousMessages = session?.messages.length ?? 0;
   const hookTimeout = config.hookTimeoutMs ?? 30_000;
   let steps = 0;
   let finishRepairs = 0;
@@ -300,11 +300,17 @@ export async function runAgent(
       );
       return { ...evidence, ...override };
     },
-    shouldStopAfterTurn: ({ context }) => {
-      if (completion || stopped) return true;
-      return checkBudgets(context.messages, context.systemPrompt) || finishRepairs > 0;
+    finishTurn: ({ message, context }): { action: 'end' } | undefined => {
+      // Error and aborted responses are hard exits; the old shouldStopAfterTurn never saw them.
+      if (message.stopReason === 'error' || message.stopReason === 'aborted') return undefined;
+      if (completion || stopped) return { action: 'end' };
+      return checkBudgets(context.messages, agent.state.systemPrompt) || finishRepairs > 0
+        ? { action: 'end' }
+        : undefined;
     },
   });
+  // Pi prepends the prompt as a system message; this run's messages start after it and the history.
+  previousMessages = agent.state.messages.length;
   if (session)
     session.control.steer = (text) =>
       agent.steer({ role: 'user', content: text, timestamp: Date.now() });
@@ -335,7 +341,7 @@ export async function runAgent(
         [...agent.state.messages, { role: 'user', content: task, timestamp: Date.now() }],
         agent.state.systemPrompt,
       ) &&
-      agent.state.messages.length === 0
+      conversation(agent.state.messages).length === 0
     )
       stopped = 'context_limit';
     else if (
@@ -397,7 +403,8 @@ export async function runAgent(
     await observer?.close(stopped === 'cancelled' || stopped === 'timeout');
     warnings.push(...(observer?.warnings ?? []));
     options.signal?.removeEventListener('abort', cancel);
-    session?.save(context.project(agent.state.messages));
+    // Saved history excludes the system message so a restored run gets the current prompt.
+    session?.save(conversation(context.project(agent.state.messages)));
     session?.control.finish();
   }
   const last = agent.state.messages.slice(previousMessages).findLast((m) => m.role === 'assistant');
