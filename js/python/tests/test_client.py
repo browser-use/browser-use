@@ -45,7 +45,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             )
             request = json.loads(await reader.readexactly(length))
             self.requests.append(request)
-            name, args = self.responses.pop(0)
+            name, args, *reasoning = self.responses.pop(0)
             index = len(self.requests)
             item = {
                 "id": f"fc_{index}",
@@ -55,7 +55,13 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 "arguments": json.dumps(args),
                 "status": "completed",
             }
+            before = [
+                ("response.output_item.done", {"output_index": 0, "item": item})
+                for item in reasoning
+            ]
+            offset = len(reasoning)
             events = [
+                *before,
                 (
                     "response.created",
                     {
@@ -69,7 +75,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 (
                     "response.output_item.added",
                     {
-                        "output_index": 0,
+                        "output_index": offset,
                         "item": {**item, "arguments": "", "status": "in_progress"},
                     },
                 ),
@@ -77,7 +83,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                     "response.function_call_arguments.delta",
                     {
                         "item_id": item["id"],
-                        "output_index": 0,
+                        "output_index": offset,
                         "delta": item["arguments"],
                     },
                 ),
@@ -85,18 +91,18 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                     "response.function_call_arguments.done",
                     {
                         "item_id": item["id"],
-                        "output_index": 0,
+                        "output_index": offset,
                         "arguments": item["arguments"],
                     },
                 ),
-                ("response.output_item.done", {"output_index": 0, "item": item}),
+                ("response.output_item.done", {"output_index": offset, "item": item}),
                 (
                     "response.completed",
                     {
                         "response": {
                             "id": f"resp_{index}",
                             "status": "completed",
-                            "output": [item],
+                            "output": [*reasoning, item],
                             "usage": {
                                 "input_tokens": 10,
                                 "output_tokens": 5,
@@ -250,6 +256,25 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         agent = await self.create(modelId="gpt-6-luna")
         self.assertEqual((await agent.run("say done")).output, "done")
         self.assertEqual(self.requests[0]["model"], "gpt-6-luna")
+
+    async def test_gateway_null_fields_are_not_replayed_on_reasoning_items(self):
+        # Gateways that re-serialize Responses events add nulls such as "status": null,
+        # which OpenAI rejects when the item comes back as input on the next turn.
+        reasoning = {
+            "id": "rs_1",
+            "type": "reasoning",
+            "summary": [],
+            "encrypted_content": "gAAAA-opaque",
+            "status": None,
+        }
+        self.responses = [
+            ("javascript", {"code": "1 + 1"}, reasoning),
+            ("finish", {"result": "done"}),
+        ]
+        agent = await self.create()
+        self.assertEqual((await agent.run("add")).output, "done")
+        replayed = [i for i in self.requests[1]["input"] if i.get("type") == "reasoning"]
+        self.assertEqual(replayed, [{k: v for k, v in reasoning.items() if v is not None}])
 
     async def test_unknown_options_and_missing_runtime_fail_explicitly(self):
         with self.assertRaisesRegex(BrowserUseError, "Unsupported create option"):

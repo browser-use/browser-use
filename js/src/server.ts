@@ -4,6 +4,31 @@ import { BrowserUse, exportRecording, type BrowserUseOptions } from './index.js'
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { Type, type TSchema } from 'typebox';
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
+import type { Context } from '@earendil-works/pi-ai';
+
+// A gateway that re-serializes Responses events can add null fields such as
+// `"status": null` to reasoning items; Pi replays them verbatim and OpenAI rejects them.
+function withoutNullReasoningFields(context: Context): Context {
+  return {
+    ...context,
+    messages: context.messages.map((message) => {
+      if (message.role !== 'assistant') return message;
+      return {
+        ...message,
+        content: message.content.map((block) => {
+          if (block.type !== 'thinking' || !block.thinkingSignature?.startsWith('{')) return block;
+          try {
+            const item = JSON.parse(block.thinkingSignature) as Record<string, unknown>;
+            const kept = Object.entries(item).filter(([, value]) => value !== null);
+            return { ...block, thinkingSignature: JSON.stringify(Object.fromEntries(kept)) };
+          } catch {
+            return block;
+          }
+        }),
+      };
+    }),
+  };
+}
 
 let agent: BrowserUse | undefined;
 let creating = false;
@@ -162,7 +187,7 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
               ...(typeof baseUrl === 'string' ? { baseUrl } : {}),
               ...(typeof modelId === 'string' ? { id: modelId } : {}),
             },
-            context,
+            model.api === 'openai-responses' ? withoutNullReasoningFields(context) : context,
             { ...settings, ...(typeof apiKey === 'string' ? { apiKey } : {}) },
           ),
       });
