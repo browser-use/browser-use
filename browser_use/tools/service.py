@@ -521,19 +521,17 @@ class Tools(Generic[Context]):
 
 				event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
 				await event
-				new_target_id = await event.event_result(raise_if_any=False, raise_if_none=False)  # Don't raise on errors
+				# A tab switch must report its handler result. Swallowing event errors
+				# makes the agent continue on the old tab as if the switch succeeded.
+				new_target_id = await event.event_result(raise_if_any=True, raise_if_none=True)
 
-				if new_target_id:
-					memory = f'Switched to tab #{new_target_id[-4:]}'
-				else:
-					memory = f'Switched to tab #{params.tab_id}'
-
+				memory = f'Switched to tab #{new_target_id[-4:]}'
 				logger.info(f'🔄  {memory}')
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 			except Exception as e:
-				logger.warning(f'Tab switch may have failed: {e}')
-				memory = f'Attempted to switch to tab #{params.tab_id}'
-				return ActionResult(extracted_content=memory, long_term_memory=memory)
+				logger.warning(f'Failed to switch to tab #{params.tab_id}: {e}')
+				memory = f'Failed to switch to tab #{params.tab_id}: {e}'
+				return ActionResult(error=str(e), extracted_content=memory, long_term_memory=memory, success=False)
 
 		@self.registry.action(
 			'Close a tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use to clean up tabs you no longer need.',
