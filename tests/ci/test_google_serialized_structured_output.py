@@ -25,6 +25,12 @@ class StateOutput(BaseModel):
 	state: dict[str, Any]
 
 
+class ActionStateOutput(BaseModel):
+	thinking: str
+	action: list[dict]
+	state: dict[str, Any]
+
+
 M = TypeVar('M', bound=BaseModel)
 
 ACTIONS = [{'done': {'text': '## Status\nShipment delivered.', 'success': True}}]
@@ -94,6 +100,15 @@ async def test_stringified_object_field_is_decoded():
 	completion = await _invoke(_response(payload, parsed=True), StateOutput)
 
 	assert completion.state == state
+
+
+async def test_two_stringified_fields_are_decoded_in_one_call():
+	state = {'url': 'https://example.com', 'tabs': 2}
+	payload = {'thinking': 'done', 'action': json.dumps(ACTIONS), 'state': json.dumps(state)}
+
+	completion = await _invoke(_response(payload, parsed=True), ActionStateOutput)
+
+	assert (completion.action, completion.state) == (ACTIONS, state)
 
 
 async def test_valid_string_field_that_looks_like_json_is_not_decoded():
