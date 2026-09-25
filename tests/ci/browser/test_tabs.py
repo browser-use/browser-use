@@ -684,6 +684,7 @@ class _TabActionModel(ActionModel):
 	"""
 
 	switch: dict[str, Any] | None = None
+	close: dict[str, Any] | None = None
 	navigate: dict[str, Any] | None = None
 
 
@@ -763,3 +764,62 @@ class TestSwitchTabFailureReporting:
 		assert 'produced no result' in result.error
 		assert 'Switched to tab' not in (result.extracted_content or '')
 		assert 'Switched to tab' not in (result.long_term_memory or '')
+
+
+class TestCloseTabFailureReporting:
+	"""Tab closure must report the real outcome to the agent."""
+
+	async def test_close_nonexistent_tab_reports_error(self, browser_session):
+		tools = Tools()
+		tabs_before = {tab.target_id for tab in await browser_session.get_tabs()}
+
+		result = await tools.act(_TabActionModel(close={'tab_id': 'zzzz'}), browser_session=browser_session)
+
+		assert result.error is not None
+		assert 'zzzz' in result.error
+		assert 'closed' not in (result.extracted_content or '').lower()
+		assert {tab.target_id for tab in await browser_session.get_tabs()} == tabs_before
+
+	@pytest.mark.parametrize('rejected', [False, True])
+	async def test_close_cdp_failure_reports_error_and_keeps_tab(self, browser_session, monkeypatch, rejected):
+		tools = Tools()
+		target_id = (await browser_session.get_tabs())[0].target_id
+		cdp_session = await browser_session.get_or_create_cdp_session(target_id=None, focus=False)
+
+		async def fail_close(*args, **kwargs):
+			if rejected:
+				return {'success': False}
+			raise RuntimeError('simulated closeTarget connection failure')
+
+		monkeypatch.setattr(cdp_session.cdp_client.send.Target, 'closeTarget', fail_close)
+		result = await tools.act(_TabActionModel(close={'tab_id': target_id[-4:]}), browser_session=browser_session)
+
+		assert result.error is not None
+		assert ('did not confirm closure' if rejected else 'simulated closeTarget connection failure') in result.error
+		assert 'Closed tab' not in (result.extracted_content or '')
+		assert target_id in {tab.target_id for tab in await browser_session.get_tabs()}
+
+	@pytest.mark.parametrize('close_focused', [False, True])
+	async def test_close_open_tab_removes_target(self, browser_session, close_focused):
+		tools = Tools()
+		original_id = (await browser_session.get_tabs())[0].target_id
+		created = await browser_session.cdp_client.send.Target.createTarget(params={'url': 'about:blank'})
+		target_id = original_id if close_focused else created['targetId']
+		# Target attachment is asynchronous; wait until the action can resolve it.
+		async with asyncio.timeout(3):
+			while True:
+				if target_id in {tab.target_id for tab in await browser_session.get_tabs()}:
+					break
+				await asyncio.sleep(0.05)
+
+		result = await tools.act(_TabActionModel(close={'tab_id': target_id[-4:]}), browser_session=browser_session)
+
+		assert result.error is None
+		assert result.extracted_content == f'Closed tab #{target_id[-4:]}'
+		# Read Chrome directly rather than the asynchronously updated session cache.
+		async with asyncio.timeout(3):
+			while True:
+				targets = await browser_session.cdp_client.send.Target.getTargets()
+				if target_id not in {target['targetId'] for target in targets['targetInfos']}:
+					break
+				await asyncio.sleep(0.05)
