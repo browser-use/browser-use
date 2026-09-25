@@ -189,10 +189,13 @@ class TestChunkMarkdownTable:
 		second = '| Product | Price |\n| --- | --- |\n' + '\n'.join(f'| item{i} | {i}.00 |' for i in range(5))
 		content = first + '\n\nSome text between tables.\n\n' + second
 
-		chunks = chunk_markdown_by_structure(content, max_chunk_chars=content.index('| Product') + 5, overlap_lines=0)
-		assert len(chunks) == 2
-		assert chunks[1].content.startswith('| Product | Price |')
-		assert '| Name | Age |' not in chunks[1].overlap_prefix
+		for overlap_lines in (0, 5):
+			chunks = chunk_markdown_by_structure(
+				content, max_chunk_chars=content.index('| Product') + 5, overlap_lines=overlap_lines
+			)
+			assert len(chunks) == 2
+			assert chunks[1].content.startswith('| Product | Price |')
+			assert '| Name | Age |' not in chunks[1].overlap_prefix
 
 
 class TestChunkMarkdownListItems:
