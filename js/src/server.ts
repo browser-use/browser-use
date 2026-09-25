@@ -89,6 +89,7 @@ const CREATE_KEYS = new Set([
   'tools',
   'apiKey',
   'baseUrl',
+  'modelId',
 ]);
 async function dispatch(method: string, params: Record<string, unknown>): Promise<unknown> {
   if (method === 'ping') return { protocol: 1, node: process.versions.node };
@@ -118,11 +119,15 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
     creating = true;
     try {
       if (typeof params.model !== 'string') throw new Error('model must be provider/model.');
-      const { apiKey, baseUrl, tools: rawTools, ...options } = params;
+      const { apiKey, baseUrl, modelId, tools: rawTools, ...options } = params;
       if (apiKey !== undefined && typeof apiKey !== 'string')
         throw new Error('apiKey must be a string.');
       if (baseUrl !== undefined && typeof baseUrl !== 'string')
         throw new Error('baseUrl must be a string.');
+      // A gateway may serve a model under another name than the catalog entry that
+      // supplies its capabilities; only the id sent upstream changes.
+      if (modelId !== undefined && (typeof modelId !== 'string' || !modelId))
+        throw new Error('modelId must be a non-empty string.');
       const models = builtinModels();
       const toolSpecs = (rawTools ?? []) as {
         name: string;
@@ -152,7 +157,11 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
         })),
         streamFn: (model, context, settings) =>
           models.streamSimple(
-            typeof baseUrl === 'string' ? { ...model, baseUrl } : model,
+            {
+              ...model,
+              ...(typeof baseUrl === 'string' ? { baseUrl } : {}),
+              ...(typeof modelId === 'string' ? { id: modelId } : {}),
+            },
             context,
             { ...settings, ...(typeof apiKey === 'string' ? { apiKey } : {}) },
           ),

@@ -245,6 +245,12 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             await task
         await asyncio.wait_for(cancelled.wait(), 5)
 
+    async def test_model_id_renames_only_the_upstream_model(self):
+        self.responses = [("finish", {"result": "done"})]
+        agent = await self.create(modelId="gpt-6-luna")
+        self.assertEqual((await agent.run("say done")).output, "done")
+        self.assertEqual(self.requests[0]["model"], "gpt-6-luna")
+
     async def test_unknown_options_and_missing_runtime_fail_explicitly(self):
         with self.assertRaisesRegex(BrowserUseError, "Unsupported create option"):
             await BrowserUse.create(model="openai/gpt-5.5", imaginaryOption=True)
