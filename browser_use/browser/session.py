@@ -646,6 +646,10 @@ class BrowserSession(BaseModel):
 			f'focus: {self.agent_focus_target_id[-4:] if self.agent_focus_target_id else "None"})'
 		)
 
+		# Stop the storage state auto-save loop, which keeps running if BrowserStopEvent never reached it
+		if self._storage_state_watchdog:
+			await self._storage_state_watchdog._stop_monitoring()
+
 		# Clear session manager (which owns _targets, _sessions, _target_sessions)
 		if self.session_manager:
 			await self.session_manager.clear()

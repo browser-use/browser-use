@@ -1,10 +1,13 @@
+import asyncio
 import json
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import anyio
 import pytest
 
+from browser_use.browser.session import BrowserSession
 from browser_use.browser.watchdogs.storage_state_watchdog import StorageStateWatchdog
 
 
@@ -105,3 +108,47 @@ async def test_save_storage_state_reads_existing_file_as_utf8(tmp_path: Path, mo
 	saved_state = json.loads(original_read_text(storage_path, encoding='utf-8'))
 	saved_cookies = {cookie['name']: cookie['value'] for cookie in saved_state['cookies']}
 	assert saved_cookies == {'greeting': unicode_value, 'current': 'new-value'}
+
+
+def _make_unconnected_watchdog() -> tuple[StorageStateWatchdog, BrowserSession]:
+	browser_session = BrowserSession(headless=True)
+	watchdog = StorageStateWatchdog.model_construct(
+		event_bus=browser_session.event_bus, browser_session=browser_session, auto_save_interval=0.01
+	)
+	return watchdog, browser_session
+
+
+async def test_cookie_checks_without_a_cdp_client_do_not_raise():
+	watchdog, _ = _make_unconnected_watchdog()
+
+	assert await watchdog._have_cookies_changed() is False
+	assert await watchdog.get_current_cookies() == []
+
+
+async def test_monitoring_loop_logs_no_error_once_the_cdp_client_is_gone(caplog: pytest.LogCaptureFixture):
+	watchdog, browser_session = _make_unconnected_watchdog()
+	browser_session._cdp_client_root = MagicMock()  # connected when monitoring starts
+	await watchdog._start_monitoring()
+	browser_session._cdp_client_root = None
+
+	browser_use_logger = logging.getLogger('browser_use')
+	browser_use_logger.addHandler(caplog.handler)
+	try:
+		await asyncio.sleep(0.1)
+	finally:
+		browser_use_logger.removeHandler(caplog.handler)
+		await watchdog._stop_monitoring()
+
+	assert [record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR] == []
+
+
+async def test_reset_stops_the_storage_state_monitoring_loop():
+	watchdog, browser_session = _make_unconnected_watchdog()
+	browser_session._cdp_client_root = AsyncMock()
+	browser_session._storage_state_watchdog = watchdog
+	await watchdog._start_monitoring()
+
+	await browser_session.reset()
+
+	assert watchdog._monitoring_task is not None
+	assert watchdog._monitoring_task.done()
