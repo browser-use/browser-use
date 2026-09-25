@@ -128,12 +128,11 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 
     async def create(self, **options):
         self.agent = await BrowserUse.create(
-            model="openai/gpt-5.5",
             workspace=self.directory.name,
             baseUrl=self.base_url,
             apiKey="local-fixture-key",
             telemetry=False,
-            **options,
+            **{"model": "openai/gpt-5.5", **options},
         )
         return self.agent
 
@@ -256,6 +255,21 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         agent = await self.create(modelId="gpt-6-luna")
         self.assertEqual((await agent.run("say done")).output, "done")
         self.assertEqual(self.requests[0]["model"], "gpt-6-luna")
+
+    async def test_model_info_serves_a_model_newer_than_the_catalog(self):
+        self.responses = [("finish", {"result": "done"})]
+        info = {"template": "openai/gpt-5.5", "contextWindow": 250_000, "maxTokens": 32_000}
+        agent = await self.create(model="openai/gpt-7-fixture", modelInfo=info)
+        self.assertEqual((await agent.run("say done")).output, "done")
+        self.assertEqual(self.requests[0]["model"], "gpt-7-fixture")
+        self.assertEqual(self.requests[0]["max_output_tokens"], 32_000)
+        path = Path(self.directory.name) / "history.json"
+        await agent.save_history(str(path))
+        self.assertEqual(json.loads(path.read_text())["model"], "openai/gpt-7-fixture")
+
+    async def test_unknown_model_without_a_template_is_refused(self):
+        with self.assertRaisesRegex(BrowserUseError, "Unknown model"):
+            await self.create(model="openai/gpt-7-fixture", modelInfo={"maxTokens": 32_000})
 
     async def test_gateway_null_fields_are_not_replayed_on_reasoning_items(self):
         # Gateways that re-serialize Responses events add nulls such as "status": null,

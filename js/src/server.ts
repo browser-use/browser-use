@@ -5,7 +5,7 @@ import type { SessionEvent } from './events.js';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { Type, type TSchema } from 'typebox';
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
-import type { Context } from '@earendil-works/pi-ai';
+import type { Context, Models } from '@earendil-works/pi-ai';
 
 // A gateway that re-serializes Responses events can add null fields such as
 // `"status": null` to reasoning items; Pi replays them verbatim and OpenAI rejects them.
@@ -36,6 +36,39 @@ let creating = false;
 let closing = false;
 let nextTool = 0;
 let queuedBytes = 0;
+type ModelInfo = { template?: string; contextWindow?: number; maxTokens?: number };
+
+// A gateway may serve models newer than Pi's catalog: they borrow a catalog entry's
+// capabilities, and the host's context and output limits apply either way.
+function withHostModel(models: Models, name: string, info: ModelInfo): Models {
+  const split = (ref: string): [string, string] => [
+    ref.slice(0, ref.indexOf('/')),
+    ref.slice(ref.indexOf('/') + 1),
+  ];
+  if (
+    info.template !== undefined &&
+    (typeof info.template !== 'string' || !split(info.template)[0])
+  )
+    throw new Error('modelInfo.template must be provider/model.');
+  for (const key of ['contextWindow', 'maxTokens'] as const)
+    if (info[key] !== undefined && !(Number.isSafeInteger(info[key]) && info[key] > 0))
+      throw new Error(`modelInfo.${key} must be a positive integer.`);
+  const [provider, id] = split(name);
+  const template = info.template ? split(info.template) : undefined;
+  const base = models.getModel(provider, id) ?? (template && models.getModel(...template));
+  if (!base) return models;
+  const model = {
+    ...base,
+    id,
+    name: base.id === id ? base.name : id,
+    ...(info.contextWindow ? { contextWindow: info.contextWindow } : {}),
+    ...(info.maxTokens ? { maxTokens: info.maxTokens } : {}),
+  };
+  const getModel = models.getModel.bind(models);
+  models.getModel = (p, i) => (p === provider && i === id ? model : getModel(p, i));
+  return models;
+}
+
 const toolCalls = new Map<
   string,
   { resolve: (value: AgentToolResult<unknown>) => void; reject: (error: Error) => void }
@@ -116,6 +149,7 @@ const CREATE_KEYS = new Set([
   'apiKey',
   'baseUrl',
   'modelId',
+  'modelInfo',
   'streamDeltas',
 ]);
 async function dispatch(method: string, params: Record<string, unknown>): Promise<unknown> {
@@ -146,7 +180,15 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
     creating = true;
     try {
       if (typeof params.model !== 'string') throw new Error('model must be provider/model.');
-      const { apiKey, baseUrl, modelId, streamDeltas, tools: rawTools, ...options } = params;
+      const {
+        apiKey,
+        baseUrl,
+        modelId,
+        modelInfo,
+        streamDeltas,
+        tools: rawTools,
+        ...options
+      } = params;
       if (apiKey !== undefined && typeof apiKey !== 'string')
         throw new Error('apiKey must be a string.');
       if (baseUrl !== undefined && typeof baseUrl !== 'string')
@@ -155,7 +197,11 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
       // supplies its capabilities; only the id sent upstream changes.
       if (modelId !== undefined && (typeof modelId !== 'string' || !modelId))
         throw new Error('modelId must be a non-empty string.');
-      const models = builtinModels();
+      if (modelInfo !== undefined && (typeof modelInfo !== 'object' || modelInfo === null))
+        throw new Error('modelInfo must be an object.');
+      const models = modelInfo
+        ? withHostModel(builtinModels(), params.model as string, modelInfo as ModelInfo)
+        : builtinModels();
       const toolSpecs = (rawTools ?? []) as {
         name: string;
         description: string;
@@ -174,6 +220,7 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
         throw new Error('Invalid Python tool specifications.');
       agent = await BrowserUse.create({
         ...(options as unknown as BrowserUseOptions),
+        ...(modelInfo ? { models } : {}),
         tools: toolSpecs.map((tool) => ({
           ...tool,
           label: tool.name,
