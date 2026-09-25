@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import anyio
 import pytest
+from websockets.protocol import State
 
 from browser_use.browser.session import BrowserSession
 from browser_use.browser.watchdogs.storage_state_watchdog import StorageStateWatchdog
@@ -123,17 +124,27 @@ async def test_cookie_checks_without_a_cdp_client_do_not_raise():
 
 	assert await watchdog._have_cookies_changed() is False
 	assert await watchdog.get_current_cookies() == []
+	await watchdog.add_cookies([])
 
 
-async def test_monitoring_loop_logs_no_error_once_the_cdp_client_is_gone(caplog: pytest.LogCaptureFixture):
+async def test_monitoring_loop_logs_no_error_once_the_cdp_client_is_gone(
+	caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+):
 	watchdog, browser_session = _make_unconnected_watchdog()
-	browser_session._cdp_client_root = MagicMock()  # connected when monitoring starts
+	get_cookies = AsyncMock(return_value=[])
+	monkeypatch.setattr(BrowserSession, '_cdp_get_cookies', get_cookies)
+	browser_session._cdp_client_root = MagicMock()
+	browser_session._cdp_client_root.ws.state = State.OPEN
+	assert browser_session.is_cdp_connected
 	await watchdog._start_monitoring()
-	browser_session._cdp_client_root = None
 
 	browser_use_logger = logging.getLogger('browser_use')
 	browser_use_logger.addHandler(caplog.handler)
 	try:
+		async with asyncio.timeout(1):
+			while not get_cookies.await_count:
+				await asyncio.sleep(0.01)
+		browser_session._cdp_client_root = None
 		await asyncio.sleep(0.1)
 	finally:
 		browser_use_logger.removeHandler(caplog.handler)
