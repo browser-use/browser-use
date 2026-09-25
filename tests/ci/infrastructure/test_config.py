@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 
-from browser_use.config import CONFIG, load_and_migrate_config
+from browser_use.config import CONFIG, load_and_migrate_config, logger
 
 
 class TestLazyConfig:
@@ -234,6 +234,64 @@ class TestConfigMigration:
 			# reports 0o666 and there is no 0o600 to preserve in the first place.
 			assert config_path.stat().st_mode & 0o777 == 0o600
 		assert not list(tmp_path.glob('*.tmp'))
+
+	def test_concurrent_migrations_do_not_corrupt_the_file(self, tmp_path: Path, monkeypatch):
+		"""Two threads migrating at once must not share a scratch path.
+
+		Raised by @kokokoXUY on the pull request. A pid suffix stops two PROCESSES colliding, and this
+		function is reached on every attribute access, so two threads in one process still shared
+		`config.json.<pid>.tmp` - one could unlink it between the other's write and its os.replace.
+
+		The barrier is what makes this a test rather than a coin flip: both threads are held inside
+		their write until the other has also opened its scratch file, so the overlap is guaranteed
+		instead of hoped for.
+		"""
+		import threading
+
+		config_path = tmp_path / 'config.json'
+		self._write(config_path, json.dumps({'headless': False, 'old_format_key': 'x'}))
+
+		barrier = threading.Barrier(2, timeout=5)
+		real_dump = json.dump
+		write_failures: list[str] = []
+		real_error = logger.error
+
+		def record_error(msg, *a, **kw):
+			if 'Failed to write' in str(msg):
+				write_failures.append(str(msg))
+			return real_error(msg, *a, **kw)
+
+		monkeypatch.setattr(logger, 'error', record_error)
+
+		def dump_in_lockstep(*args, **kwargs):
+			barrier.wait()
+			return real_dump(*args, **kwargs)
+
+		monkeypatch.setattr(json, 'dump', dump_in_lockstep)
+		errors: list[str] = []
+
+		def migrate():
+			try:
+				load_and_migrate_config(config_path)
+			except Exception as e:  # noqa: BLE001 - what the test is about is that nothing escapes
+				errors.append(f'{type(e).__name__}: {e}')
+
+		threads = [threading.Thread(target=migrate) for _ in range(2)]
+		for t in threads:
+			t.start()
+		for t in threads:
+			t.join()
+
+		assert errors == []
+		monkeypatch.setattr(json, 'dump', real_dump)
+		# The promoted file must be one whole document, not two interleaved.
+		json.loads(config_path.read_text())
+		assert not list(tmp_path.glob('*.tmp'))
+		# And the assertion that actually catches the bug. Neither write may be LOST: with a shared
+		# scratch path one thread's os.replace fails because the other already promoted and unlinked it,
+		# and that failure is caught and logged rather than raised - so "nothing escaped" and "the file
+		# parses" are both true while a write has silently vanished.
+		assert write_failures == [], write_failures
 
 	def test_migration_drops_a_stale_fallback(self, tmp_path: Path):
 		"""Once the file reads again, this run must stop serving the cached defaults."""

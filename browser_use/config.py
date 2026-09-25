@@ -325,7 +325,12 @@ def _write_config(config_path: Path, config: DBStyleConfigJSON) -> None:
 	read-only attribute, so there is no owner-only mode to keep.
 	"""
 	config_path.parent.mkdir(parents=True, exist_ok=True)
-	tmp_path = config_path.with_name(f'{config_path.name}.{os.getpid()}.tmp')
+	# Unique per CALL, not per process. A pid suffix alone is what telemetry/service.py uses, but that
+	# writes a device id once at startup; this file is rewritten from a function reached on every
+	# attribute access, so two threads in one process shared the scratch path - one could unlink it
+	# between the other's write and its os.replace, losing that write, or their flushes could
+	# interleave and promote a half-and-half document.
+	tmp_path = config_path.with_name(f'{config_path.name}.{os.getpid()}.{uuid4().hex[:8]}.tmp')
 	try:
 		existing_mode = config_path.stat().st_mode & 0o777 if config_path.exists() else None
 		with open(tmp_path, 'w') as f:
