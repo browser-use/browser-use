@@ -45,6 +45,23 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             )
             request = json.loads(await reader.readexactly(length))
             self.requests.append(request)
+            if "contents" in request:
+                # Gemini, with the URL-safe signature a re-serializing gateway returns.
+                name, args = self.responses.pop(0)[:2]
+                part = {"functionCall": {"name": name, "args": args}, "thoughtSignature": "-_-_Pj8="}
+                chunk = {
+                    "candidates": [
+                        {"index": 0, "finishReason": "STOP", "content": {"role": "model", "parts": [part]}}
+                    ],
+                    "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5, "totalTokenCount": 15},
+                }
+                payload = f"data: {json.dumps(chunk)}\n\n".encode()
+                writer.write(
+                    f"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {len(payload)}\r\nConnection: close\r\n\r\n".encode()
+                    + payload
+                )
+                await writer.drain()
+                return
             name, args, *reasoning = self.responses.pop(0)
             index = len(self.requests)
             item = {
@@ -266,6 +283,36 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         path = Path(self.directory.name) / "history.json"
         await agent.save_history(str(path))
         self.assertEqual(json.loads(path.read_text())["model"], "openai/gpt-7-fixture")
+
+    async def test_gemini_signatures_are_replayed_as_standard_base64(self):
+        self.responses = [("javascript", {"code": "1 + 1"}), ("finish", {"result": "done"})]
+        agent = await self.create(model="google/gemini-3.6-flash")
+        self.assertEqual((await agent.run("add")).output, "done")
+        replayed = [
+            part
+            for content in self.requests[1]["contents"]
+            if content["role"] == "model"
+            for part in content["parts"]
+        ]
+        self.assertEqual(replayed[0]["thoughtSignature"], "+/+/Pj8=")
+
+    async def test_model_info_compat_overrides_the_catalog(self):
+        # A gateway that does not forward Anthropic betas needs the beta-only effort
+        # messages off; the fixture cannot answer in Anthropic's format, so only the
+        # request matters.
+        for info in (None, {"compat": {"supportsMidConvoEffort": False}}):
+            self.responses = [("finish", {"result": "done"})]
+            await self.create(model="anthropic/claude-opus-5", **({"modelInfo": info} if info else {}))
+            try:
+                await self.agent.run("say done")
+            except BrowserUseError:
+                pass
+            await self.agent.close()
+        beta_messages = [
+            [m for m in request["messages"] if "output_config" in m] for request in self.requests
+        ]
+        self.assertTrue(beta_messages[0])
+        self.assertEqual(beta_messages[-1], [])
 
     async def test_unknown_model_without_a_template_is_refused(self):
         with self.assertRaisesRegex(BrowserUseError, "Unknown model"):

@@ -31,15 +31,46 @@ function withoutNullReasoningFields(context: Context): Context {
   };
 }
 
+// Such a gateway also re-encodes Gemini thought signatures as URL-safe base64, which
+// Pi drops as invalid on replay, and Gemini then refuses the call.
+function withStandardSignatures(context: Context): Context {
+  const standard = (value: unknown) =>
+    typeof value === 'string' ? value.replace(/-/g, '+').replace(/_/g, '/') : value;
+  return {
+    ...context,
+    messages: context.messages.map((message) => {
+      if (message.role !== 'assistant') return message;
+      return {
+        ...message,
+        content: message.content.map((block) => {
+          if (block.type === 'thinking')
+            return { ...block, thinkingSignature: standard(block.thinkingSignature) as string };
+          if (block.type === 'text')
+            return { ...block, textSignature: standard(block.textSignature) as string };
+          if (block.type === 'toolCall')
+            return { ...block, thoughtSignature: standard(block.thoughtSignature) as string };
+          return block;
+        }),
+      };
+    }),
+  };
+}
+
 let agent: BrowserUse | undefined;
 let creating = false;
 let closing = false;
 let nextTool = 0;
 let queuedBytes = 0;
-type ModelInfo = { template?: string; contextWindow?: number; maxTokens?: number };
+type ModelInfo = {
+  template?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  compat?: Record<string, unknown>;
+};
 
 // A gateway may serve models newer than Pi's catalog: they borrow a catalog entry's
-// capabilities, and the host's context and output limits apply either way.
+// capabilities, and the host's limits and compat overrides (e.g. provider betas the
+// gateway does not forward) apply either way.
 function withHostModel(models: Models, name: string, info: ModelInfo): Models {
   const split = (ref: string): [string, string] => [
     ref.slice(0, ref.indexOf('/')),
@@ -53,6 +84,8 @@ function withHostModel(models: Models, name: string, info: ModelInfo): Models {
   for (const key of ['contextWindow', 'maxTokens'] as const)
     if (info[key] !== undefined && !(Number.isSafeInteger(info[key]) && info[key] > 0))
       throw new Error(`modelInfo.${key} must be a positive integer.`);
+  if (info.compat !== undefined && (typeof info.compat !== 'object' || info.compat === null))
+    throw new Error('modelInfo.compat must be an object.');
   const [provider, id] = split(name);
   const template = info.template ? split(info.template) : undefined;
   const base = models.getModel(provider, id) ?? (template && models.getModel(...template));
@@ -63,6 +96,7 @@ function withHostModel(models: Models, name: string, info: ModelInfo): Models {
     name: base.id === id ? base.name : id,
     ...(info.contextWindow ? { contextWindow: info.contextWindow } : {}),
     ...(info.maxTokens ? { maxTokens: info.maxTokens } : {}),
+    ...(info.compat ? { compat: { ...base.compat, ...info.compat } } : {}),
   };
   const getModel = models.getModel.bind(models);
   models.getModel = (p, i) => (p === provider && i === id ? model : getModel(p, i));
@@ -236,7 +270,11 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
               ...(typeof baseUrl === 'string' ? { baseUrl } : {}),
               ...(typeof modelId === 'string' ? { id: modelId } : {}),
             },
-            model.api === 'openai-responses' ? withoutNullReasoningFields(context) : context,
+            model.api === 'openai-responses'
+              ? withoutNullReasoningFields(context)
+              : model.api === 'google-generative-ai'
+                ? withStandardSignatures(context)
+                : context,
             { ...settings, ...(typeof apiKey === 'string' ? { apiKey } : {}) },
           ),
       });
