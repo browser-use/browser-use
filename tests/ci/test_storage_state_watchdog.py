@@ -131,7 +131,12 @@ async def test_monitoring_loop_logs_no_error_once_the_cdp_client_is_gone(
 	caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ):
 	watchdog, browser_session = _make_unconnected_watchdog()
-	get_cookies = AsyncMock(return_value=[])
+	cookie_checked = asyncio.Event()
+
+	async def get_cookies(_session: BrowserSession) -> list:
+		cookie_checked.set()
+		return []
+
 	monkeypatch.setattr(BrowserSession, '_cdp_get_cookies', get_cookies)
 	browser_session._cdp_client_root = MagicMock()
 	browser_session._cdp_client_root.ws.state = State.OPEN
@@ -142,8 +147,7 @@ async def test_monitoring_loop_logs_no_error_once_the_cdp_client_is_gone(
 	browser_use_logger.addHandler(caplog.handler)
 	try:
 		async with asyncio.timeout(1):
-			while not get_cookies.await_count:
-				await asyncio.sleep(0.01)
+			await cookie_checked.wait()
 		browser_session._cdp_client_root = None
 		await asyncio.sleep(0.1)
 	finally:
