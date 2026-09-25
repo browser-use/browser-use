@@ -273,7 +273,7 @@ class TestConfigMigration:
 		def migrate():
 			try:
 				load_and_migrate_config(config_path)
-			except Exception as e:  # noqa: BLE001 - what the test is about is that nothing escapes
+			except Exception as e:  # what the test is about is that nothing escapes
 				errors.append(f'{type(e).__name__}: {e}')
 
 		threads = [threading.Thread(target=migrate) for _ in range(2)]
