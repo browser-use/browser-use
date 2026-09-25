@@ -484,6 +484,10 @@ Available tabs:
 				# Detect image format from name
 				if img_name.lower().endswith('.png'):
 					media_type = 'image/png'
+				elif img_name.lower().endswith('.gif'):
+					media_type = 'image/gif'
+				elif img_name.lower().endswith('.webp'):
+					media_type = 'image/webp'
 				else:
 					media_type = 'image/jpeg'
 
