@@ -149,6 +149,13 @@ The agent gets individual browser tools:
 - `browser_go_back()` — browser back
 - `browser_list_tabs()`, `browser_switch_tab(id)`, `browser_close_tab(id)` — tab management
 
+
+### Tab selection and recording behavior
+
+`browser_list_tabs()` returns the current tab IDs and URLs. The `id` is a four-character suffix of the browser target ID; it is only valid while that tab is open. Refresh the list before switching after a tab opens or closes, and pass the returned `id` unchanged to `browser_switch_tab(id)`. A failed switch is an action error; do not continue assuming that the old tab is active.
+
+When using the local SDK's video recorder, the recording follows the agent-focused tab. Opening a new tab does not move recording to it until the agent switches focus. The recorder uses the configured video size (or the detected CSS viewport) and pads dimensions to a codec-compatible multiple of 16, which can add black bars. If recording is configured but no file is produced, check the `[video]` optional dependencies and the session logs for the recording-start warning.
+
 The agent calls these one at a time, using its own reasoning to decide the next action.
 
 ---

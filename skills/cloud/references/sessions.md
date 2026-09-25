@@ -175,3 +175,15 @@ session = await client.sessions.create(
 await client.run("Post update to Twitter", session_id=session.id)
 await client.sessions.stop(session.id)
 ```
+
+
+## CAPTCHA and anti-bot troubleshooting
+
+A CAPTCHA result does not necessarily mean the solver failed. Treat the failure class separately:
+
+- **IP or reputation block:** DataDome, Google unusual-traffic pages, and some Cloudflare responses reject the proxy before a challenge can be solved. Rotate to a different residential exit and keep the profile and proxy country consistent.
+- **Challenge integration failure:** A checkbox or challenge iframe may not be ready or may be outside the viewport. Retry after the page settles and capture the URL, vendor, and screenshot when reporting it.
+- **Timeout or cancellation:** A solver can be cancelled when the browser session or task ends. Check the session lifecycle and retry policy before changing proxies.
+- **Fingerprint or profile mismatch:** Reusing a profile with a different proxy country, timezone, or viewport can increase detection. Keep these stable for a profile and avoid mixing local and cloud sessions for the same login.
+
+A hard IP ban cannot be fixed by retrying the same session. Include the domain, CAPTCHA vendor, proxy country, profile ID, and terminal task result in a support report so the failure can be reproduced.
