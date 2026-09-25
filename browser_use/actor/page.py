@@ -79,8 +79,8 @@ class Page:
 	@property
 	async def mouse(self) -> 'Mouse':
 		"""Get the mouse interface for this target."""
+		session_id = await self._ensure_session()
 		if not self._mouse:
-			session_id = await self._ensure_session()
 			from .mouse import Mouse
 
 			self._mouse = Mouse(self._browser_session, session_id, self._target_id)
