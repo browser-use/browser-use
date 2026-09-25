@@ -375,10 +375,11 @@ export class BrowserUse {
     return event;
   }
 
-  /** Subscribe before starting work. Iterators finish when the session closes. */
-  events(): EventStream {
+  /** Subscribe before starting work. Iterators finish when the session closes.
+   * `accept` drops events before they count against the stream's bounds. */
+  events(accept?: (event: SessionEvent) => boolean): EventStream {
     if (this.closed) throw new Error('BrowserUse is closed.');
-    const stream = new EventStream(() => this.streams.delete(stream));
+    const stream = new EventStream(() => this.streams.delete(stream), 256, accept);
     this.streams.add(stream);
     return stream;
   }

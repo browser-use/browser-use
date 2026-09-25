@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** Private versioned stdio bridge. stdout is protocol-only; no shell or HTTP server. */
 import { BrowserUse, exportRecording, type BrowserUseOptions } from './index.js';
+import type { SessionEvent } from './events.js';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { Type, type TSchema } from 'typebox';
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
@@ -194,16 +195,15 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
       });
       const current = agent;
       void (async () => {
-        for await (const event of current.events()) {
-          // Token deltas can outrun a host's bounded event queue; opt out with streamDeltas: false.
-          if (
-            streamDeltas === false &&
+        // streamDeltas: false drops per-token updates and agent_end's full transcript,
+        // which can exceed the stream bounds on image-heavy runs; the run result carries it.
+        const settled = (event: SessionEvent) =>
+          !(
             event.type === 'agent_event' &&
-            event.event.type === 'message_update'
-          )
-            continue;
+            (event.event.type === 'message_update' || event.event.type === 'agent_end')
+          );
+        for await (const event of current.events(streamDeltas === false ? settled : undefined))
           await send({ method: 'event', params: event });
-        }
       })().catch((error) => {
         current.cancel();
         void send({ method: 'stream_error', params: { message: String(error) } }).catch(() => {});
