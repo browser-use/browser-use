@@ -267,6 +267,22 @@ class TestSchemaDictToPydanticModel:
 		instance = Model(value=None)
 		assert instance.value is None  # type: ignore[attr-defined]
 
+	def test_json_schema_type_array_nullable_union(self):
+		"""OpenAPI-style ``type: [\"string\", \"null\"]`` should match ``nullable: true``."""
+		schema = {
+			'type': 'object',
+			'properties': {
+				'nickname': {'type': ['string', 'null']},
+			},
+			'required': [],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model.model_fields['nickname'].annotation == str | None
+		instance = Model(nickname=None)
+		assert instance.nickname is None  # type: ignore[attr-defined]
+		instance2 = Model(nickname='Ada')
+		assert instance2.nickname == 'Ada'  # type: ignore[attr-defined]
+
 	def test_field_descriptions_preserved(self):
 		schema = {
 			'type': 'object',
