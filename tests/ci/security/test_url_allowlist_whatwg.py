@@ -28,6 +28,15 @@ class TestUrlAllowlistWhatwg(unittest.TestCase):
 			'Crafted URL with backslash bypass was incorrectly allowed',
 		)
 
+	def test_whitespace_prefixed_crafted_url_rejected(self):
+		# Leading space, tab, or newline before scheme should not evade normalization
+		for prefix in [' ', '   ', '\t', '\n', ' \t ']:
+			crafted_url = f'{prefix}http://evil-domain.example\\@allowed-domain.example/'
+			self.assertFalse(
+				self.watchdog._is_url_allowed(crafted_url),
+				f'Whitespace-prefixed crafted URL ({prefix!r}) was incorrectly allowed',
+			)
+
 	def test_legitimate_allowed_domain_accepted(self):
 		normal_url = 'https://allowed-domain.example/some/path?param=value'
 		self.assertTrue(
