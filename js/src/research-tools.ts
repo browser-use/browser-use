@@ -50,6 +50,7 @@ export function researchTools(
   workspace: string,
   timeoutMs: number,
   shellEnv: Record<string, string> = {},
+  defaultTimeoutMs = timeoutMs,
 ): AgentTool[] {
   return createCodingTools(workspace, {
     bash: {
@@ -76,7 +77,10 @@ export function researchTools(
       return tool.execute(
         id,
         tool.name === 'bash'
-          ? { ...input, timeout: Math.min(input.timeout ?? timeoutMs / 1000, timeoutMs / 1000) }
+          ? {
+              ...input,
+              timeout: Math.min(input.timeout ?? defaultTimeoutMs / 1000, timeoutMs / 1000),
+            }
           : args,
         signal,
         update,

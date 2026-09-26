@@ -197,6 +197,7 @@ const CREATE_KEYS = new Set([
   'researchTools',
   'shellEnv',
   'focusTab',
+  'shellTimeoutMs',
   'tools',
   'apiKey',
   'baseUrl',

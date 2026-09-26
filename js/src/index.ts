@@ -82,6 +82,8 @@ export class BrowserUse {
       throw new Error('highlightActions must be boolean.');
     if (options.researchTools !== undefined && typeof options.researchTools !== 'boolean')
       throw new Error('researchTools must be boolean.');
+    if (options.shellTimeoutMs !== undefined)
+      positiveInteger('shellTimeoutMs', options.shellTimeoutMs);
     if (options.focusTab !== undefined && typeof options.focusTab !== 'boolean')
       throw new Error('focusTab must be boolean.');
     if (

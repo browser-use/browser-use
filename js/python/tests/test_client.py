@@ -345,6 +345,14 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await agent.run("check")).output, "done")
         self.assertIn("token=fixture-run-token", json.dumps(self.requests[1]["input"]))
 
+    async def test_shell_timeout_outlasts_the_cell_timeout(self):
+        # Installs and deploys outlast a browser cell; the host sets the shell's own limit.
+        self.responses = [("bash", {"command": "sleep 3 && echo slept"}), ("finish", {"result": "done"})]
+        agent = await self.create(researchTools=True, cellTimeoutMs=2000, shellTimeoutMs=10000)
+        self.assertEqual((await agent.run("wait")).output, "done")
+        outputs = [i for i in self.requests[1]["input"] if i.get("type") == "function_call_output"]
+        self.assertTrue(any("slept" in json.dumps(i["output"]) for i in outputs), outputs)
+
     async def test_model_info_compat_overrides_the_catalog(self):
         # A gateway that does not forward Anthropic betas needs the beta-only effort
         # messages off; the fixture cannot answer in Anthropic's format, so only the
