@@ -310,5 +310,19 @@ llm = ChatOpenAI(
 
 Use the `/v1` base URL (not `/v1/chat/completions`). Pass catalog model ids as-is (no `openai/` prefix). The default `deepseek-v4-flash` model is text-only — set `use_vision=False` on the agent unless you pick a vision-capable model. List available models with `GET https://api.pzero.studio/v1/models` (no auth required).
 
+### Cheaper Inference
+```python
+import os
+
+llm = ChatOpenAI(
+    model="gpt-5.4-mini",
+    base_url="https://api.cheaperinference.com/v1",
+    api_key=os.environ["CHEAPER_INFERENCE_API_KEY"],
+)
+```
+**Env:** `CHEAPER_INFERENCE_API_KEY` — get a key at https://cheaperinference.com/signup
+
+Cheaper Inference is an OpenAI-compatible gateway to models from several labs. Each model costs 15–60% less than the list price of its lab. Use the `/v1` base URL (not `/v1/chat/completions`). Pass model ids as-is (no provider prefix), for example `gpt-5.4`, `claude-sonnet-5` or `gemini-3.1-pro`. The default `gpt-5.4-mini` model supports vision, tool calls and structured output. List available models with `GET https://api.cheaperinference.com/v1/models` (requires the API key).
+
 ### LangChain
 See example at [examples/models/langchain](https://github.com/browser-use/browser-use/tree/main/examples/models/langchain).
