@@ -31,6 +31,7 @@ class CloudBrowserClient:
 
 		Args:
 			request: CreateBrowserRequest object containing browser creation parameters
+			extra_headers: Optional additional HTTP headers to include in the API request
 
 		Returns:
 			CloudBrowserResponse: Contains CDP URL and other browser info
@@ -110,6 +111,7 @@ class CloudBrowserClient:
 
 		Args:
 			session_id: Session ID to stop. If None, uses current session.
+			extra_headers: Optional additional HTTP headers to include in the API request
 
 		Returns:
 			CloudBrowserResponse: Updated browser info with stopped status
