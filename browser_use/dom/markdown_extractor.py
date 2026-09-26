@@ -500,9 +500,13 @@ def chunk_markdown_by_structure(
 			prev_text = '\n'.join(_block_text(b) for b in prev_blocks)
 			prev_lines = prev_text.split('\n')
 
-			# Check if current chunk starts with a table continuation
+			# Check if current chunk starts with a table continuation (not a new table)
 			first_block = chunk_blocks[0]
-			if first_block.block_type == _BlockType.TABLE and prev_chunk_last_table_header:
+			if (
+				first_block.block_type == _BlockType.TABLE
+				and prev_chunk_last_table_header
+				and _get_table_header(first_block) is None
+			):
 				# Always prepend table header for continuation
 				trailing = prev_lines[-(overlap_lines):] if overlap_lines > 0 else []
 				header_lines = prev_chunk_last_table_header.split('\n')
