@@ -187,11 +187,28 @@ class SecurityWatchdog(BaseWatchdog):
 		if url in ['about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/']:
 			return True
 
+		# Normalize backslashes for WHATWG compatibility (special schemes treat \ as / before query/fragment)
+		normalized_url = url
+		if '\\' in url:
+			scheme_end = url.find('://')
+			if scheme_end != -1:
+				scheme = url[:scheme_end].lower()
+				if scheme in {'http', 'https', 'ws', 'wss', 'ftp', 'file'}:
+					rest = url[scheme_end + 3 :]
+					query_start = len(rest)
+					for sep in ['?', '#']:
+						pos = rest.find(sep)
+						if pos != -1 and pos < query_start:
+							query_start = pos
+					normalized_url = url[: scheme_end + 3] + rest[:query_start].replace('\\', '/') + rest[query_start:]
+			else:
+				normalized_url = url.replace('\\', '/')
+
 		# Parse the URL to extract components
 		from urllib.parse import urlparse
 
 		try:
-			parsed = urlparse(url)
+			parsed = urlparse(normalized_url)
 		except Exception:
 			# Invalid URL
 			return False
@@ -202,7 +219,7 @@ class SecurityWatchdog(BaseWatchdog):
 
 		# Get the actual host (domain)
 		host = parsed.hostname
-		if not host:
+		if not host or '\\' in host or '@' in host:
 			return False
 
 		# Check if IP addresses should be blocked (before domain checks)
@@ -228,7 +245,7 @@ class SecurityWatchdog(BaseWatchdog):
 			else:
 				# Slow path: O(n) pattern matching for lists
 				for pattern in allowed_domains:
-					if self._is_url_match(url, host, parsed.scheme, pattern):
+					if self._is_url_match(normalized_url, host, parsed.scheme, pattern):
 						return True
 				return False
 
@@ -243,7 +260,7 @@ class SecurityWatchdog(BaseWatchdog):
 			else:
 				# Slow path: O(n) pattern matching for lists
 				for pattern in prohibited_domains:
-					if self._is_url_match(url, host, parsed.scheme, pattern):
+					if self._is_url_match(normalized_url, host, parsed.scheme, pattern):
 						return False
 				return True
 
