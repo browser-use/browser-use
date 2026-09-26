@@ -1181,19 +1181,19 @@ class BrowserSession(BaseModel):
 		return target.target_id
 
 	async def on_CloseTabEvent(self, event: CloseTabEvent) -> None:
-		"""Handle tab closure - update focus if needed."""
+		"""Handle tab closure and propagate CDP failures to the caller."""
 		try:
-			# Dispatch tab closed event
+			# Preserve the pre-close notification used by focus and cleanup watchdogs.
 			await self.event_bus.dispatch(TabClosedEvent(target_id=event.target_id))
-
-			# Try to close the target, but don't fail if it's already closed
-			try:
-				cdp_session = await self.get_or_create_cdp_session(target_id=None, focus=False)
-				await cdp_session.cdp_client.send.Target.closeTarget(params={'targetId': event.target_id})
-			except Exception as e:
-				self.logger.debug(f'Target may already be closed: {e}')
 		except Exception as e:
 			self.logger.warning(f'Error during tab close cleanup: {e}')
+
+		# A failed CDP call must not become a successful CloseTabEvent. In
+		# particular, a broken connection is not evidence that a tab is closed.
+		cdp_session = await self.get_or_create_cdp_session(target_id=None, focus=False)
+		result = await cdp_session.cdp_client.send.Target.closeTarget(params={'targetId': event.target_id})
+		if not result.get('success'):
+			raise RuntimeError(f'Browser did not confirm closure of target {event.target_id}')
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Handle tab creation - apply viewport settings to new tab."""
