@@ -103,6 +103,7 @@ def observe(
 	    ignore_input: Whether to ignore function input parameters in tracing
 	    ignore_output: Whether to ignore function output in tracing
 	    metadata: Additional metadata to attach to the span
+	    span_type: Type of span to create ('DEFAULT', 'LLM', or 'TOOL')
 	    **kwargs: Additional parameters passed to lmnr observe
 
 	Returns:
@@ -155,6 +156,7 @@ def observe_debug(
 	    ignore_input: Whether to ignore function input parameters in tracing
 	    ignore_output: Whether to ignore function output in tracing
 	    metadata: Additional metadata to attach to the span
+	    span_type: Type of span to create ('DEFAULT', 'LLM', or 'TOOL')
 	    **kwargs: Additional parameters passed to lmnr observe
 
 	Returns:
