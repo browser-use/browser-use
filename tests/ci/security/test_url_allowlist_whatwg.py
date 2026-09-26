@@ -1,7 +1,7 @@
 """Regression test for GHSA-wcqc-h395-9rpp: WHATWG backslash normalization in URL allowlist."""
 
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
 
 from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
 

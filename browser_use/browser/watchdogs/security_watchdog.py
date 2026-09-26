@@ -184,7 +184,9 @@ class SecurityWatchdog(BaseWatchdog):
 		"""
 
 		# Strip leading and trailing C0 control characters and ASCII whitespace (WHATWG URL input preprocessing)
-		clean_url = url.strip(' \t\r\n\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f')
+		clean_url = url.strip(
+			' \t\r\n\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f'
+		)
 
 		# Always allow internal browser targets (before any other checks)
 		if clean_url in ['about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/']:
