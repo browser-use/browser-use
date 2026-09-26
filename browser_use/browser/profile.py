@@ -634,8 +634,8 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='List of prohibited domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Allowed domains take precedence over prohibited domains. Lists with 100+ items are auto-optimized to sets (no pattern matching).',
 	)
 	block_ip_addresses: bool = Field(
-		default=False,
-		description='Block navigation to URLs containing IP addresses (both IPv4 and IPv6). When True, blocks all IP-based URLs including localhost and private networks.',
+		default=True,
+		description='Block navigation to direct IPv4 and IPv6 address URLs by default; set to False to allow direct IP navigation.',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
 
