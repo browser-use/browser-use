@@ -1,6 +1,7 @@
 """Security watchdog for enforcing URL access policies."""
 
 from typing import TYPE_CHECKING, ClassVar
+from urllib.parse import urlparse
 
 from bubus import BaseEvent
 
@@ -282,9 +283,19 @@ class SecurityWatchdog(BaseWatchdog):
 		else:
 			# Exact match
 			if '://' in pattern:
-				# Full URL pattern
-				if url.startswith(pattern):
+				# Full URL patterns must match the parsed origin, not a raw string prefix.
+				parsed_url = urlparse(url)
+				parsed_pattern = urlparse(pattern)
+				if parsed_url.scheme.lower() != parsed_pattern.scheme.lower():
+					return False
+				if parsed_url.netloc.lower() != parsed_pattern.netloc.lower():
+					return False
+
+				pattern_path = parsed_pattern.path.rstrip('/')
+				if not pattern_path:
 					return True
+				url_path = parsed_url.path.rstrip('/')
+				return url_path == pattern_path or url_path.startswith(f'{pattern_path}/')
 			else:
 				# Domain-only pattern (case-insensitive comparison)
 				if host.lower() == pattern.lower():
