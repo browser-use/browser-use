@@ -196,6 +196,7 @@ const CREATE_KEYS = new Set([
   'telemetry',
   'researchTools',
   'shellEnv',
+  'focusTab',
   'tools',
   'apiKey',
   'baseUrl',

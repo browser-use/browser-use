@@ -29,6 +29,8 @@ export interface BrowserUseOptions extends DomainOptions {
   researchTools?: boolean;
   /** Extra environment for the research bash tool, e.g. a host's API credentials. */
   shellEnv?: Record<string, string>;
+  /** Activate the tab the agent drives after each cell, for hosts that act on the focused tab. */
+  focusTab?: boolean;
   tools?: AgentState['tools'];
   instructions?: string;
   operationTimeoutMs?: number;

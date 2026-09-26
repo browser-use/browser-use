@@ -31,6 +31,7 @@ export interface WorkerConfig extends importPolicy {
   approveConnection?: boolean;
   workspace: string;
   targetId?: string;
+  focusTab?: boolean;
   operationTimeoutMs: number;
   maxOutputChars: number;
 }

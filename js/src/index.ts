@@ -82,6 +82,8 @@ export class BrowserUse {
       throw new Error('highlightActions must be boolean.');
     if (options.researchTools !== undefined && typeof options.researchTools !== 'boolean')
       throw new Error('researchTools must be boolean.');
+    if (options.focusTab !== undefined && typeof options.focusTab !== 'boolean')
+      throw new Error('focusTab must be boolean.');
     if (
       options.shellEnv !== undefined &&
       (typeof options.shellEnv !== 'object' ||
@@ -161,6 +163,7 @@ export class BrowserUse {
         ...(options.browser && 'targetId' in options.browser && options.browser.targetId
           ? { targetId: options.browser.targetId }
           : {}),
+        ...(options.focusTab ? { focusTab: true } : {}),
         workspace,
         operationTimeoutMs,
         maxOutputChars,
