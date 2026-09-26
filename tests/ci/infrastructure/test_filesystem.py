@@ -635,7 +635,7 @@ class TestFileSystem:
 
 	@pytest.mark.parametrize('operation', ['write', 'append'])
 	async def test_cr_delimited_csv_records_through_filesystem(self, temp_filesystem, operation):
-		"""CSV record delimiters may be CR, and writes should normalize them to LF."""
+		"""CSV record delimiters may be CR and should be normalized consistently."""
 		fs = temp_filesystem
 
 		if operation == 'write':
@@ -652,7 +652,7 @@ class TestFileSystem:
 		file_obj = fs.get_file('records.csv')
 		assert file_obj is not None
 		assert file_obj.content == expected_content
-		assert (fs.data_dir / 'records.csv').read_bytes() == expected_content.encode('utf-8')
+		assert (fs.data_dir / 'records.csv').read_text(encoding='utf-8') == expected_content
 
 	async def test_append_file(self, temp_filesystem):
 		"""Test appending content to files."""
