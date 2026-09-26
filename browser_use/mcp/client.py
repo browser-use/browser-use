@@ -85,6 +85,7 @@ class MCPClient:
 
 		start_time = time.time()
 		error_msg = None
+		connection_task: asyncio.Task[None] | None = None
 
 		try:
 			logger.info(f"🔌 Connecting to MCP server '{self.server_name}': {self.command} {' '.join(self.args)}")
@@ -93,14 +94,18 @@ class MCPClient:
 			server_params = StdioServerParameters(command=self.command, args=self.args, env=self.env)
 
 			# Start stdio client in background task
-			self._stdio_task = create_task_with_error_handling(
+			connection_task = create_task_with_error_handling(
 				self._run_stdio_client(server_params), name='mcp_stdio_client', suppress_exceptions=True
 			)
+			self._stdio_task = connection_task
 
 			# Wait for connection to be established
 			retries = 0
 			max_retries = 100  # 10 second timeout (increased for parallel test execution)
 			while not self._connected and retries < max_retries:
+				if connection_task.done():
+					await connection_task
+					break
 				await asyncio.sleep(0.1)
 				retries += 1
 
@@ -110,8 +115,11 @@ class MCPClient:
 
 			logger.info(f"📦 Discovered {len(self._tools)} tools from '{self.server_name}': {list(self._tools.keys())}")
 
-		except Exception as e:
+		except (Exception, asyncio.CancelledError) as e:
 			error_msg = str(e)
+			if connection_task is not None:
+				connection_task.cancel()
+				await asyncio.gather(connection_task, return_exceptions=True)
 			raise
 		finally:
 			# Capture telemetry for connect action
@@ -142,9 +150,21 @@ class MCPClient:
 					# Initialize the connection
 					await session.initialize()
 
-					# Discover available tools
-					tools_response = await session.list_tools()
-					self._tools = {tool.name: tool for tool in tools_response.tools}
+					# Discover the complete catalog before exposing any tools.
+					discovered_tools: dict[str, types.Tool] = {}
+					cursor: str | None = None
+					seen_cursors: set[str] = set()
+					while True:
+						params = types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None
+						tools_response = await session.list_tools(params=params)
+						discovered_tools.update((tool.name, tool) for tool in tools_response.tools)
+						cursor = tools_response.next_cursor
+						if cursor is None:
+							break
+						if cursor in seen_cursors:
+							raise RuntimeError(f"MCP server '{self.server_name}' returned a repeated tools/list cursor")
+						seen_cursors.add(cursor)
+					self._tools = discovered_tools
 
 					# Mark as connected
 					self._connected = True
