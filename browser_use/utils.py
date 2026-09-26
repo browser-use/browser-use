@@ -76,6 +76,11 @@ def sanitize_url_candidate(url: str) -> str:
 	return candidate[:end]
 
 
+def normalize_screenshot_format(image_format: str) -> str:
+	"""Return the CDP screenshot format name (png, jpeg, or webp)."""
+	return image_format.lower()
+
+
 def has_url_negation(context: str) -> bool:
 	"""Return whether nearby prose explicitly negates navigation to a URL."""
 	return URL_NEGATION_PATTERN.search(context) is not None
