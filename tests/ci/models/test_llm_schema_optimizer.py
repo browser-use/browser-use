@@ -107,9 +107,7 @@ def test_remove_flags_keep_fields_named_after_removed_keywords():
 		min_items: str
 		other: str = Field(default='x')
 
-	schema = SchemaOptimizer.create_optimized_json_schema(
-		Model, remove_defaults=True, remove_min_items=True
-	)
+	schema = SchemaOptimizer.create_optimized_json_schema(Model, remove_defaults=True, remove_min_items=True)
 
 	props = schema['properties']
 	for field_name in ('default', 'minItems', 'min_items'):
