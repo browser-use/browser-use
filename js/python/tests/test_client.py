@@ -353,6 +353,11 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         outputs = [i for i in self.requests[1]["input"] if i.get("type") == "function_call_output"]
         self.assertTrue(any("slept" in json.dumps(i["output"]) for i in outputs), outputs)
 
+    async def test_moving_to_another_browser_needs_the_host_option(self):
+        agent = await self.create(browser={"kind": "chromium"})
+        with self.assertRaisesRegex(BrowserUseError, "not enabled"):
+            await agent.execute("await reconnect('ws://127.0.0.1:9/devtools/browser/x')")
+
     async def test_model_info_compat_overrides_the_catalog(self):
         # A gateway that does not forward Anthropic betas needs the beta-only effort
         # messages off; the fixture cannot answer in Anthropic's format, so only the

@@ -197,6 +197,7 @@ const CREATE_KEYS = new Set([
   'researchTools',
   'shellEnv',
   'focusTab',
+  'browserSwitching',
   'shellTimeoutMs',
   'tools',
   'apiKey',
@@ -374,7 +375,9 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
       return agent.currentTarget ?? null;
     case 'close':
       closing = true;
-      await agent.close({ keepTabs: params.keepTabs === true });
+      await agent.close({
+        keepTabs: params.keepTabs === 'current' ? 'current' : params.keepTabs === true,
+      });
       return null;
     default:
       throw new Error(`Unknown bridge method: ${method}`);

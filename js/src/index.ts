@@ -84,6 +84,8 @@ export class BrowserUse {
       throw new Error('researchTools must be boolean.');
     if (options.shellTimeoutMs !== undefined)
       positiveInteger('shellTimeoutMs', options.shellTimeoutMs);
+    if (options.browserSwitching !== undefined && typeof options.browserSwitching !== 'boolean')
+      throw new Error('browserSwitching must be boolean.');
     if (options.focusTab !== undefined && typeof options.focusTab !== 'boolean')
       throw new Error('focusTab must be boolean.');
     if (
@@ -166,6 +168,7 @@ export class BrowserUse {
           ? { targetId: options.browser.targetId }
           : {}),
         ...(options.focusTab ? { focusTab: true } : {}),
+        ...(options.browserSwitching ? { browserSwitching: true } : {}),
         workspace,
         operationTimeoutMs,
         maxOutputChars,
@@ -483,7 +486,7 @@ export class BrowserUse {
     return this.runtime.currentTarget;
   }
 
-  close(options: { keepTabs?: boolean } = {}): Promise<void> {
+  close(options: { keepTabs?: boolean | 'current' } = {}): Promise<void> {
     if (this.closing) return this.closing;
     this.closed = true;
     this.cancel();

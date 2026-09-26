@@ -31,6 +31,8 @@ export interface BrowserUseOptions extends DomainOptions {
   shellEnv?: Record<string, string>;
   /** Longest a research bash command may run; commands default to two minutes within it. */
   shellTimeoutMs?: number;
+  /** Let the agent move to another browser with reconnect(cdpUrl), e.g. one the host provisioned. */
+  browserSwitching?: boolean;
   /** Activate the tab the agent drives after each cell, for hosts that act on the focused tab. */
   focusTab?: boolean;
   tools?: AgentState['tools'];

@@ -129,8 +129,17 @@ Object.assign(realm, {
   tabs,
   page,
   workspace: config.workspace,
-  async reconnect() {
-    const targetId = (Reflect.get(realm, 'page') as Page)?.targetId;
+  async reconnect(endpoint?: string) {
+    let targetId: string | undefined = (Reflect.get(realm, 'page') as Page)?.targetId;
+    if (endpoint !== undefined) {
+      // A host that provisions replacement browsers lets the agent move to one.
+      if (!config.browserSwitching) throw new Error('Switching browsers is not enabled.');
+      if (!['http:', 'https:', 'ws:', 'wss:'].includes(new URL(endpoint).protocol))
+        throw new Error('reconnect(endpoint) needs an HTTP(S) or WebSocket CDP endpoint.');
+      config.endpoint = endpoint;
+      targetId = undefined;
+      send({ type: 'endpoint', endpoint });
+    }
     browser.close();
     browser = CDP.lazy(config.endpoint, config.operationTimeoutMs, config.approveConnection);
     installDomainPolicy(browser, config, (id) => send({ type: 'owned', targetId: id }));
