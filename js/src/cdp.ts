@@ -116,10 +116,12 @@ export class CDP {
     if (approveConnection && process.platform !== 'darwin')
       throw new Error('Chrome approval is macOS only.');
     positiveInteger('timeoutMs', timeoutMs);
+    // A cold cloud browser can take seconds to answer; that must not fail a short operation timeout.
+    const connectMs = Math.max(timeoutMs, 15_000);
     const url = new URL(endpoint);
     if (url.protocol === 'http:' || url.protocol === 'https:') {
       url.pathname = `${url.pathname.replace(/\/$/, '')}/json/version`;
-      const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+      const response = await fetch(url, { signal: AbortSignal.timeout(connectMs) });
       if (!response.ok) throw new Error(`CDP discovery failed (${response.status}).`);
       endpoint = ((await response.json()) as { webSocketDebuggerUrl: string }).webSocketDebuggerUrl;
     } else if (!['ws:', 'wss:'].includes(url.protocol))
@@ -141,7 +143,7 @@ export class CDP {
       };
       const open = () => finish();
       const failed = () => finish(new Error('Could not connect to CDP endpoint.'));
-      const timer = setTimeout(() => finish(new Error('CDP connection timed out.')), timeoutMs);
+      const timer = setTimeout(() => finish(new Error('CDP connection timed out.')), connectMs);
       socket.addEventListener('open', open, { once: true });
       socket.addEventListener('error', failed, { once: true });
       socket.addEventListener('close', failed, { once: true });
