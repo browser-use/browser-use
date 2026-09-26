@@ -1192,7 +1192,6 @@ async function initialize(checkInitialized, magic) {{
 
 	def _extract_extension(self, crx_path: Path, extract_dir: Path) -> None:
 		"""Extract .crx file to directory."""
-		import os
 		import zipfile
 
 		# Remove existing directory
@@ -1233,16 +1232,30 @@ async function initialize(checkInitialized, magic) {{
 				# Extract ZIP data
 				zip_data = f.read()
 
-			# Write ZIP data to temp file and extract
+			# Write ZIP data to temp file and extract.
+			# The temp file is created with delete=False, so cleanup is ours on every
+			# path — a corrupt or truncated payload makes extractall() raise, and the
+			# .zip would otherwise survive in the system temp dir indefinitely.
+			# The handle is also closed before the file is reopened and removed, since
+			# Windows refuses to unlink a file that still has an open handle.
+			temp_zip_path = None
+			try:
+				with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
+					temp_zip_path = Path(temp_zip.name)
+					temp_zip.write(zip_data)
 
-			with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
-				temp_zip.write(zip_data)
-				temp_zip.flush()
-
-				with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
+				with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
 					zip_ref.extractall(extract_dir)
-
-				os.unlink(temp_zip.name)
+			finally:
+				if temp_zip_path is not None:
+					try:
+						temp_zip_path.unlink(missing_ok=True)
+					except OSError as cleanup_error:
+						# Never let a cleanup failure replace the extraction error that
+						# is already propagating — the original exception is the useful
+						# one. Windows can still refuse the unlink if another process
+						# holds the file, so this is not merely theoretical.
+						logger.warning(f'Failed to remove temp file {_log_pretty_path(temp_zip_path)}: {cleanup_error}')
 
 	def detect_display_configuration(self) -> None:
 		"""
