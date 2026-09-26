@@ -121,7 +121,6 @@ class SessionManager:
 					self.get_lifecycle_events(target_id).append(
 						{
 							'name': event.get('name', 'unknown'),
-							'frameId': event.get('frameId'),
 							'loaderId': event.get('loaderId'),
 							'timestamp': asyncio.get_event_loop().time(),
 						}

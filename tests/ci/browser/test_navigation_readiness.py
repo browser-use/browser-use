@@ -11,11 +11,14 @@ handler registered once on the root CDP client.
 """
 
 import asyncio
+import json
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from pytest_httpserver import HTTPServer
+from werkzeug.serving import generate_adhoc_ssl_context
 
 from browser_use.browser.events import BrowserConnectedEvent, BrowserStopEvent, NavigateToUrlEvent
 from browser_use.browser.profile import BrowserProfile
@@ -51,54 +54,42 @@ async def test_navigation_detects_readiness_without_burning_timeout(httpserver, 
 	)
 
 
-async def test_har_recording_does_not_clobber_navigation_readiness(httpserver, tmp_path):
-	"""HAR recording must consume lifecycle events without replacing SessionManager's readiness handler."""
-	session = BrowserSession(
-		browser_profile=BrowserProfile(
-			headless=True,
-			user_data_dir=None,
-			keep_alive=True,
-			record_har_path=tmp_path / 'session.har',
+async def test_har_recording_does_not_clobber_navigation_readiness(tmp_path):
+	"""A real HTTPS navigation must reach both readiness detection and the saved HAR."""
+	# HAR deliberately records HTTPS only; plain HTTP cannot verify its timing path.
+	with HTTPServer(ssl_context=generate_adhoc_ssl_context()) as server:
+		server.expect_request('/fast-har').respond_with_data(SIMPLE_HTML, content_type='text/html')
+		url = server.url_for('/fast-har')
+		har_path = tmp_path / 'session.har'
+		session = BrowserSession(
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+				keep_alive=True,
+				record_har_path=har_path,
+				args=['--ignore-certificate-errors'],
+			)
 		)
-	)
-	await session.start()
-	manager = session.session_manager
-	har_watchdog = None
-	try:
-		httpserver.expect_request('/fast-har').respond_with_data(SIMPLE_HTML, content_type='text/html')
-
-		start = time.monotonic()
-		await session.navigate_to(httpserver.url_for('/fast-har'))
-		elapsed = time.monotonic() - start
-
-		har_watchdog = getattr(session, '_har_recording_watchdog', None)
-		assert har_watchdog is not None
-		target_id = session.agent_focus_target_id
-		assert target_id is not None
-		lifecycle_event = next(
-			event
-			for event in reversed(session.session_manager.get_lifecycle_events(target_id))
-			if event.get('frameId') and event.get('name') in {'DOMContentLoaded', 'load'}
-		)
-		frame_id = lifecycle_event['frameId']
-		har_watchdog._top_level_pages[frame_id] = {
-			'url': httpserver.url_for('/fast-har'),
-			'title': 'fast page',
-			'startedDateTime': None,
-			'monotonic_start': 10.0,
-			'onContentLoad': -1,
-			'onLoad': -1,
-		}
-		session.session_manager._notify_lifecycle_event_listeners({**lifecycle_event, 'timestamp': 10.125})
-		timing_key = 'onContentLoad' if lifecycle_event['name'] == 'DOMContentLoaded' else 'onLoad'
-		assert har_watchdog._top_level_pages[frame_id][timing_key] == 125
-	finally:
-		await session.kill()
+		try:
+			await session.start()
+			manager = session.session_manager
+			start = time.monotonic()
+			await session.navigate_to(url)
+			elapsed = time.monotonic() - start
+			har_watchdog = getattr(session, '_har_recording_watchdog', None)
+			assert har_watchdog is not None
+		finally:
+			await session.kill()
 
 	assert elapsed < FAST_NAVIGATION_BOUND_S, (
 		f'HAR-enabled navigation took {elapsed:.2f}s — HAR clobbered lifecycle readiness monitoring'
 	)
 	assert har_watchdog._lifecycle_event_listener not in manager._lifecycle_event_listeners
+	log = json.loads(har_path.read_text())['log']
+	entry = next(entry for entry in log['entries'] if entry['request']['url'] == url)
+	page = next(page for page in log['pages'] if page['id'] == entry['pageref'])
+	assert page['pageTimings']['onContentLoad'] >= 0
+	assert page['pageTimings']['onLoad'] >= page['pageTimings']['onContentLoad']
 
 
 async def test_first_tab_navigation_still_works_after_second_tab_opens(httpserver, browser_session: BrowserSession):
