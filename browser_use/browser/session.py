@@ -51,6 +51,7 @@ from browser_use.browser.events import (
 	SwitchTabEvent,
 	TabClosedEvent,
 	TabCreatedEvent,
+	TargetUrlChangedEvent,
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
 from browser_use.browser.views import BrowserStateSummary, TabInfo
@@ -980,17 +981,30 @@ class BrowserSession(BaseModel):
 			# Close any extension options pages that might have opened
 			await self._close_extension_options_pages()
 
+			# Report the URL the tab actually landed on: redirects can leave it on a different
+			# origin than requested, and security checks on NavigationCompleteEvent must see that one.
+			# Ask the browser: the cached target URL is updated asynchronously by targetInfoChanged and can lag.
+			final_url = event.url
+			try:
+				assert self._cdp_client_root is not None
+				target_info = await self._cdp_client_root.send.Target.getTargetInfo(params={'targetId': target_id})
+				final_url = target_info['targetInfo']['url'] or event.url
+			except Exception as e:
+				self.logger.debug(f'[on_NavigateToUrlEvent] getTargetInfo failed, falling back to cached URL: {e}')
+				landed_target = self.session_manager.get_target(target_id)
+				final_url = landed_target.url if landed_target and landed_target.url else event.url
+
 			# Dispatch navigation complete
-			self.logger.debug(f'Dispatching NavigationCompleteEvent for {event.url} (tab #{target_id[-4:]})')
+			self.logger.debug(f'Dispatching NavigationCompleteEvent for {final_url} (tab #{target_id[-4:]})')
 			await self.event_bus.dispatch(
 				NavigationCompleteEvent(
 					target_id=target_id,
-					url=event.url,
+					url=final_url,
 					status=None,  # CDP doesn't provide status directly
 					loading_status=loading_status,  # non-None when readiness timed out
 				)
 			)
-			await self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=event.url))
+			await self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=final_url))
 
 			# Note: These should be handled by dedicated watchdogs:
 			# - Security checks (security_watchdog)
@@ -1170,6 +1184,9 @@ class BrowserSession(BaseModel):
 
 		# Get target to access url
 		target = self.session_manager.get_target(event.target_id)
+
+		# The tab may already be on a URL the security policy disallows (opened before it was enforced)
+		await self.event_bus.dispatch(TargetUrlChangedEvent(target_id=target.target_id, url=target.url))
 
 		# dispatch focus changed event
 		await self.event_bus.dispatch(
@@ -1919,9 +1936,7 @@ class BrowserSession(BaseModel):
 
 			# Enable auto-attach so Chrome automatically notifies us when NEW targets attach/detach
 			# This is the foundation of event-driven session management
-			await self._cdp_client_root.send.Target.setAutoAttach(
-				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
-			)
+			await self._cdp_client_root.send.Target.setAutoAttach(params=self.session_manager.auto_attach_params())
 			self.logger.debug('CDP client connected with auto-attach enabled')
 
 			# Get browser targets from SessionManager (source of truth)
@@ -2111,24 +2126,10 @@ class BrowserSession(BaseModel):
 						)
 
 			def _on_request_paused(event: RequestPausedEvent, session_id: SessionID | None = None):
-				# Continue all paused requests to avoid stalling the network
-				request_id = event.get('requestId') or event.get('request_id')
-				if not request_id:
-					return
-
-				async def _continue():
-					assert self._cdp_client_root
-					try:
-						await self._cdp_client_root.send.Fetch.continueRequest(
-							params={'requestId': request_id},
-							session_id=session_id,
-						)
-					except Exception:
-						pass
-
-				create_task_with_error_handling(
-					_continue(), name='request_continue', logger_instance=self.logger, suppress_exceptions=True
-				)
+				# Delegate so URL policy enforcement and proxy auth share one requestPaused handler
+				# (cdp-use keeps a single handler per method); it also continues all other requests.
+				assert self.session_manager is not None
+				self.session_manager.on_request_paused(event, session_id)
 
 			# Register event handler on root client
 			try:
@@ -2148,7 +2149,14 @@ class BrowserSession(BaseModel):
 					# Use safe API with focus=False to avoid changing focus
 					cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
 					await cdp_session.cdp_client.send.Fetch.enable(
-						params={'handleAuthRequests': True, 'patterns': [{'urlPattern': '*'}]},
+						params={
+							'handleAuthRequests': True,
+							'patterns': (
+								[{'resourceType': 'Document'}]
+								if self.session_manager and self.session_manager.url_policy_enabled
+								else [{'urlPattern': '*'}]
+							),
+						},
 						session_id=cdp_session.session_id,
 					)
 			except Exception as e:
@@ -2209,9 +2217,7 @@ class BrowserSession(BaseModel):
 		await self.session_manager.start_monitoring()
 
 		# 5. Re-enable autoAttach
-		await self._cdp_client_root.send.Target.setAutoAttach(
-			params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
-		)
+		await self._cdp_client_root.send.Target.setAutoAttach(params=self.session_manager.auto_attach_params())
 
 		# 6. Re-discover page targets and restore focus
 		page_targets = self.session_manager.get_all_page_targets()
