@@ -1,5 +1,7 @@
 """Unit tests for variable detection in agent history"""
 
+import pytest
+
 from browser_use.agent.variable_detector import (
 	_detect_from_attributes,
 	_detect_from_value_pattern,
@@ -224,6 +226,46 @@ def test_detect_company_from_attributes():
 	assert var_format is None
 
 
+@pytest.mark.parametrize('field_name', ['company_name', 'organization_name'])
+def test_detect_company_from_name_suffixed_attributes(field_name: str):
+	"""Company fields with a name suffix should not fall back to a generic name."""
+	result = _detect_from_attributes({'name': field_name})
+
+	assert result == ('company', None)
+
+
+@pytest.mark.parametrize(
+	('field_name', 'expected_result'),
+	[
+		('company_city', ('city', None)),
+		('company_state', ('state', None)),
+		('company_country', ('country', None)),
+		('company_zip', ('zip_code', 'postal_code')),
+		('organization_postal_code', ('zip_code', 'postal_code')),
+	],
+)
+def test_company_fields_keep_more_specific_semantic_classification(field_name: str, expected_result: tuple[str, str | None]):
+	"""Company context must not override city, state, country, or postal fields."""
+	result = _detect_from_attributes({'name': field_name})
+
+	assert result == expected_result
+
+
+@pytest.mark.parametrize(
+	('field_name', 'expected_variable'),
+	[
+		('first_name', 'first_name'),
+		('last_name', 'last_name'),
+		('full_name', 'full_name'),
+	],
+)
+def test_detect_person_name_attributes_keep_specific_classification(field_name: str, expected_variable: str):
+	"""Prioritizing company fields must not change specific personal-name fields."""
+	result = _detect_from_attributes({'name': field_name})
+
+	assert result == (expected_variable, None)
+
+
 def test_detect_number_from_pattern():
 	"""Test number detection from pattern (pure digits)"""
 	result = _detect_from_value_pattern('12345')
@@ -332,6 +374,22 @@ def test_detect_variables_in_history_with_input_action():
 	assert 'email' in result
 	assert result['email'].original_value == 'test@example.com'
 	assert result['email'].format == 'email'
+
+
+def test_detect_company_name_in_history():
+	"""Company-name fields should expose the company variable for history replay."""
+	history = create_mock_history(
+		[
+			(
+				{'input': {'index': 1, 'text': 'OpenAI'}},
+				create_test_element(attributes={'name': 'company_name'}),
+			),
+		]
+	)
+
+	result = detect_variables_in_history(history)  # type: ignore[arg-type]
+
+	assert result['company'].original_value == 'OpenAI'
 
 
 def test_detect_variables_skips_duplicate_values():
