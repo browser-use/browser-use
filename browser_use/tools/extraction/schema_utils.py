@@ -46,6 +46,26 @@ def _check_unsupported(schema: dict) -> None:
 			raise ValueError(f'Unsupported JSON Schema keyword: {kw}')
 
 
+def _normalize_type(schema: dict) -> tuple[str, bool]:
+	"""Return ``(json_type, nullable)`` for a schema node.
+
+	JSON Schema allows ``"type"`` to be a list such as ``["string", "null"]``. A ``null``
+	member means the field is nullable; exactly one concrete type must remain, otherwise
+	the union is unsupported. The OpenAPI-style ``nullable: true`` keyword is honored too.
+	"""
+	json_type = schema.get('type', 'string')
+	nullable = bool(schema.get('nullable', False))
+
+	if isinstance(json_type, list):
+		concrete = [t for t in json_type if t != 'null']
+		if len(concrete) != 1:
+			raise ValueError(f'Unsupported JSON Schema type union: {json_type}')
+		nullable = nullable or len(concrete) != len(json_type)
+		json_type = concrete[0]
+
+	return json_type, nullable
+
+
 def _resolve_type(schema: dict, name: str) -> Any:
 	"""Recursively resolve a JSON Schema node to a Python type.
 
@@ -53,35 +73,36 @@ def _resolve_type(schema: dict, name: str) -> Any:
 	"""
 	_check_unsupported(schema)
 
-	json_type = schema.get('type', 'string')
+	json_type, nullable = _normalize_type(schema)
 
+	resolved: Any
 	# Enums — constrain to str (Literal would be stricter but LLMs are flaky)
 	if 'enum' in schema:
-		return str
+		resolved = str
 
 	# Object with properties → nested pydantic model
-	if json_type == 'object':
+	elif json_type == 'object':
 		properties = schema.get('properties', {})
-		if properties:
-			return _build_model(schema, name)
-		return dict
+		resolved = _build_model(schema, name) if properties else dict
 
 	# Array
-	if json_type == 'array':
+	elif json_type == 'array':
 		items_schema = schema.get('items')
 		if items_schema:
 			item_type = _resolve_type(items_schema, f'{name}_item')
-			return list[item_type]
-		return list
+			resolved = list[item_type]
+		else:
+			resolved = list
 
 	# Primitive
-	base = _PRIMITIVE_MAP.get(json_type, str)
+	else:
+		resolved = _PRIMITIVE_MAP.get(json_type, str)
 
 	# Nullable
-	if schema.get('nullable', False):
-		return base | None
+	if nullable:
+		return resolved | None
 
-	return base
+	return resolved
 
 
 _PRIMITIVE_DEFAULTS: dict[str, Any] = {
@@ -102,12 +123,13 @@ def _build_model(schema: dict, name: str) -> type[BaseModel]:
 
 	for prop_name, prop_schema in properties.items():
 		prop_type = _resolve_type(prop_schema, f'{name}_{prop_name}')
+		json_type, nullable = _normalize_type(prop_schema)
 
 		if prop_name in required_fields:
 			default = ...
 		elif 'default' in prop_schema:
 			default = prop_schema['default']
-		elif prop_schema.get('nullable', False):
+		elif nullable:
 			# _resolve_type already made the type include None
 			default = None
 		else:
@@ -115,7 +137,6 @@ def _build_model(schema: dict, name: str) -> type[BaseModel]:
 			# Use a type-appropriate zero value for primitives/arrays;
 			# fall back to None (with | None) for enums and nested objects
 			# where no in-set or constructible default exists.
-			json_type = prop_schema.get('type', 'string')
 			if 'enum' in prop_schema:
 				# Can't pick an arbitrary enum member as default — use None
 				# so absent fields serialize as null, not an out-of-set value.
