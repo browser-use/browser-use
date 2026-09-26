@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Literal, Union
 from cdp_use.client import logger
 from typing_extensions import TypedDict
 
+from browser_use.browser.views import BrowserError
+
 if TYPE_CHECKING:
 	from cdp_use.cdp.dom.commands import (
 		FocusParameters,
@@ -726,8 +728,25 @@ class Element:
 		if 'exceptionDetails' in result:
 			raise RuntimeError(f'JavaScript evaluation failed: {result["exceptionDetails"]}')
 
+		# CDP always answers a successful evaluation with a RemoteObject, and a
+		# RemoteObject always carries a `type` -- `{"type": "undefined"}` for a
+		# call that genuinely returned nothing. A reply with no usable RemoteObject
+		# therefore means the call did not run at all: the execution context it was
+		# addressed to is gone. Reading `.get('value')` off that collapses the two
+		# into the same empty string, so a session whose js lane is dead answers
+		# every call with `''` and no exception (#5803).
+		remote_object = result.get('result')
+		if not isinstance(remote_object, dict) or 'type' not in remote_object:
+			raise BrowserError(
+				f'JavaScript evaluation returned no result object, so the call never ran: '
+				f'the execution context for this target is gone. session_id={self._session_id!r}, '
+				f'reply keys={sorted(result)!r}'
+			)
+
+		logger.debug(f'Runtime.callFunctionOn returned {remote_object.get("type")!r} on session {self._session_id!r}')
+
 		# Extract and return value
-		value = result.get('result', {}).get('value')
+		value = remote_object.get('value')
 
 		# Return string representation (matching Page.evaluate behavior)
 		if value is None:
