@@ -231,6 +231,29 @@ class SimplifiedNode:
 	is_shadow_host: bool = False  # New field for shadow DOM hosts
 	is_compound_component: bool = False  # True for virtual components of compound controls
 
+	@property
+	def shadow_root_type(self) -> ShadowRootType | None:
+		"""Return this fragment's type, or the type of a directly hosted shadow root."""
+		if self.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
+			return self.original_node.shadow_root_type
+
+		shadow_root_types: list[ShadowRootType] = []
+		for child in self.children:
+			if child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE and child.original_node.shadow_root_type:
+				shadow_root_types.append(child.original_node.shadow_root_type)
+
+		# Optimization can remove an empty fragment while retaining its visible host.
+		for shadow_root in self.original_node.shadow_roots or []:
+			if shadow_root.shadow_root_type:
+				shadow_root_types.append(shadow_root.shadow_root_type)
+
+		shadow_root_type_priority: tuple[ShadowRootType, ...] = ('closed', 'open', 'user-agent')
+		for shadow_root_type in shadow_root_type_priority:
+			if shadow_root_type in shadow_root_types:
+				return shadow_root_type
+
+		return None
+
 	def _clean_original_node_json(self, node_json: dict) -> dict:
 		"""Recursively remove children_nodes and shadow_roots from original_node JSON."""
 		# Remove the fields we don't want in SimplifiedNode serialization
