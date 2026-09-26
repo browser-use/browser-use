@@ -135,8 +135,8 @@ export class BrowserRuntime {
         else resolve(value);
       };
       const message = (value: WorkerResponse) => {
-        if (value.type !== 'owned' && value.type !== 'action' && value.type !== 'partial')
-          finish(value);
+        // Side messages a cell sends while running; only its result or error ends it.
+        if (!['owned', 'action', 'partial', 'endpoint'].includes(value.type)) finish(value);
       };
       const abort = () =>
         finish(

@@ -109,6 +109,37 @@ test("keepTabs 'current' keeps only the tab in use and closes scratch tabs", asy
   }
 });
 
+test('browserSwitching moves the agent to another browser and a restarted worker stays there', async () => {
+  const first = await openBrowser();
+  const second = await openBrowser();
+  const workspace = await mkdtemp(join(tmpdir(), 'bu-switch-'));
+  const cdp = await CDP.connect(second.endpoint);
+  try {
+    const agent = await BrowserUse.create({
+      model: 'openai/gpt-5.4',
+      browser: { cdpUrl: first.endpoint },
+      workspace,
+      browserSwitching: true,
+    });
+    try {
+      const moved = await agent.execute(`await reconnect(${JSON.stringify(second.endpoint)})`);
+      assert.match(moved.text, /Connection reset/);
+      await agent.execute("page = await tabs.open('data:text/html,<title>moved</title>')");
+      await assert.rejects(agent.execute('while(true){}', { timeoutMs: 50 }), /exceeded/);
+      await agent.execute("await tabs.open('data:text/html,<title>after-restart</title>')");
+      const titles = (await cdp.send('Target.getTargets')).targetInfos.map((t) => t.title);
+      assert.ok(titles.includes('moved') && titles.includes('after-restart'), titles.join(', '));
+    } finally {
+      await agent.close({ keepTabs: true });
+    }
+  } finally {
+    cdp.close();
+    await first.close();
+    await second.close();
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test('provider environment and host preload flags are not inherited; dynamic imports work', async () => {
   process.env.BU_TEST_FAKE_SECRET = 'test-only-not-a-credential';
   const agent = await BrowserUse.create({ model: 'openai/gpt-5.4' });
