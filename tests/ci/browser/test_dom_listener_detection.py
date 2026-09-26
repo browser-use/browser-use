@@ -1,6 +1,7 @@
 """Regression tests for bounded JavaScript click-listener detection."""
 
 import asyncio
+import logging
 from collections import Counter
 
 import pytest
@@ -113,6 +114,45 @@ async def test_screenshot_timeout_preserves_structural_dom(httpserver, browser_s
 	assert state.screenshot is None
 	assert state.dom_state is not None
 	assert any(node.attributes.get('id') == 'continue' for node in state.dom_state.selector_map.values())
+
+
+@pytest.mark.parametrize(
+	('failing_task', 'recovery_message'),
+	[
+		('_capture_clean_screenshot', 'Clean screenshot failed'),
+		('_build_dom_tree_without_highlights', 'DOM build failed'),
+	],
+)
+async def test_recovered_state_task_failure_is_not_logged_as_error(
+	httpserver,
+	browser_session: BrowserSession,
+	monkeypatch,
+	caplog: pytest.LogCaptureFixture,
+	failing_task: str,
+	recovery_message: str,
+):
+	"""A failed screenshot or DOM build that the handler recovers from is a WARNING, not an ERROR."""
+	httpserver.expect_request('/state-task-fails').respond_with_data(
+		'<html><body><button id="continue">Continue</button></body></html>',
+		content_type='text/html',
+	)
+
+	async def fail(_watchdog: DOMWatchdog, *_args):
+		raise TimeoutError('timed out')
+
+	monkeypatch.setattr(DOMWatchdog, failing_task, fail)
+	await browser_session.navigate_to(httpserver.url_for('/state-task-fails'))
+
+	browser_use_logger = logging.getLogger('browser_use')
+	browser_use_logger.addHandler(caplog.handler)
+	try:
+		state = await browser_session.get_browser_state_summary(include_screenshot=True)
+	finally:
+		browser_use_logger.removeHandler(caplog.handler)
+
+	assert state.dom_state is not None
+	assert any(record.levelno == logging.WARNING and recovery_message in record.getMessage() for record in caplog.records)
+	assert [record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR] == []
 
 
 async def test_whole_state_timeout_returns_model_visible_non_actionable_state(
