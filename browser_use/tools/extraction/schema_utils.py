@@ -59,6 +59,21 @@ def _resolve_type(schema: dict, name: str) -> Any:
 	if 'enum' in schema:
 		return str
 
+	# JSON Schema type arrays (e.g. ["string", "null"]) — standard nullable-union form.
+	# Resolve each member type, then join them into a union ("null" contributes NoneType).
+	if isinstance(json_type, list):
+		non_null = [t for t in json_type if t != 'null']
+		nullable = 'null' in json_type or bool(schema.get('nullable', False))
+		if not non_null:
+			return type(None)
+		members = [_resolve_type({**schema, 'type': t, 'nullable': False}, name) for t in non_null]
+		if nullable:
+			members.append(type(None))
+		resolved = members[0]
+		for member in members[1:]:
+			resolved = resolved | member
+		return resolved
+
 	# Object with properties → nested pydantic model
 	if json_type == 'object':
 		properties = schema.get('properties', {})
@@ -103,11 +118,18 @@ def _build_model(schema: dict, name: str) -> type[BaseModel]:
 	for prop_name, prop_schema in properties.items():
 		prop_type = _resolve_type(prop_schema, f'{name}_{prop_name}')
 
+		# Normalize JSON Schema type arrays (e.g. ["string", "null"]) so the
+		# default-selection logic below can treat them like the proprietary
+		# nullable flag instead of choking on the list.
+		raw_type = prop_schema.get('type', 'string')
+		nullable = bool(prop_schema.get('nullable', False)) or (isinstance(raw_type, list) and 'null' in raw_type)
+		json_type = next((t for t in raw_type if t != 'null'), 'string') if isinstance(raw_type, list) else raw_type
+
 		if prop_name in required_fields:
 			default = ...
 		elif 'default' in prop_schema:
 			default = prop_schema['default']
-		elif prop_schema.get('nullable', False):
+		elif nullable:
 			# _resolve_type already made the type include None
 			default = None
 		else:
@@ -115,7 +137,6 @@ def _build_model(schema: dict, name: str) -> type[BaseModel]:
 			# Use a type-appropriate zero value for primitives/arrays;
 			# fall back to None (with | None) for enums and nested objects
 			# where no in-set or constructible default exists.
-			json_type = prop_schema.get('type', 'string')
 			if 'enum' in prop_schema:
 				# Can't pick an arbitrary enum member as default — use None
 				# so absent fields serialize as null, not an out-of-set value.

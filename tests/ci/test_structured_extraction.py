@@ -267,6 +267,60 @@ class TestSchemaDictToPydanticModel:
 		instance = Model(value=None)
 		assert instance.value is None  # type: ignore[attr-defined]
 
+	def test_type_array_nullable_string(self):
+		"""JSON Schema type arrays with "null" must behave like the nullable flag (#5904)."""
+		schema = {
+			'type': 'object',
+			'properties': {
+				'nickname': {'type': ['string', 'null']},
+			},
+			'required': [],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model.model_fields['nickname'].annotation == str | None  # type: ignore[attr-defined]
+		assert Model(nickname=None).nickname is None  # type: ignore[attr-defined]
+		assert Model(nickname='x').nickname == 'x'  # type: ignore[attr-defined]
+
+	def test_type_array_single_element(self):
+		schema = {
+			'type': 'object',
+			'properties': {
+				'name': {'type': ['string']},
+			},
+			'required': ['name'],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model.model_fields['name'].annotation is str
+		assert Model(name='Alice').name == 'Alice'  # type: ignore[attr-defined]
+
+	def test_type_array_nullable_object(self):
+		schema = {
+			'type': 'object',
+			'properties': {
+				'person': {
+					'type': ['object', 'null'],
+					'properties': {'first': {'type': 'string'}},
+					'required': ['first'],
+				},
+			},
+			'required': [],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model(person={'first': 'Bob'}).person.first == 'Bob'  # type: ignore[attr-defined]
+		assert Model(person=None).person is None  # type: ignore[attr-defined]
+
+	def test_type_array_multi_type_union(self):
+		schema = {
+			'type': 'object',
+			'properties': {
+				'value': {'type': ['string', 'integer']},
+			},
+			'required': [],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model(value='x').value == 'x'  # type: ignore[attr-defined]
+		assert Model(value=3).value == 3  # type: ignore[attr-defined]
+
 	def test_field_descriptions_preserved(self):
 		schema = {
 			'type': 'object',
