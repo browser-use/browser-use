@@ -40,7 +40,6 @@ function deferredPage(targetId?: string) {
   );
 }
 const page = deferredPage(config.targetId);
-let focusedTarget: string | undefined;
 let outputFile: string | undefined;
 let runId: string | undefined;
 let output = '';
@@ -338,12 +337,10 @@ process.on('message', async (message: WorkerRequest) => {
     output = `${output.slice(0, config.maxOutputChars)}\n[Truncated. Full captured output: ${outputFile}]`;
   const previews = await prepareModelImages(images);
   const targetId = (Reflect.get(realm, 'page') as Page)?.targetId;
-  if (config.focusTab && targetId && targetId !== focusedTarget) {
+  if (config.focusTab && targetId) {
+    // Every cell: a new tab or a click elsewhere can take focus without changing \`page\`.
     // Hosts that act on "the tab the user sees" (typing a secret, a live view) follow the agent.
-    await browser
-      .send('Target.activateTarget', { targetId })
-      .then(() => (focusedTarget = targetId))
-      .catch(() => {});
+    await browser.send('Target.activateTarget', { targetId }).catch(() => {});
   }
   const result = {
     text: [output, ...previews.notes].filter(Boolean).join('\n') || '(no output)',
