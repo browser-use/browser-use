@@ -11,7 +11,7 @@ from functools import cache, wraps
 from pathlib import Path
 from sys import stderr
 from typing import Any, ParamSpec, TypeVar
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from dotenv import load_dotenv
@@ -74,6 +74,11 @@ def sanitize_url_candidate(url: str) -> str:
 		break
 
 	return candidate[:end]
+
+
+def resolve_link_href(current_url: str, href: str) -> str:
+	"""Resolve a link href against the current page URL for new-tab navigation."""
+	return urljoin(current_url, href)
 
 
 def has_url_negation(context: str) -> bool:
