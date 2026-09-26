@@ -1,3 +1,4 @@
+import contextlib
 import os
 import sys
 import tempfile
@@ -1237,12 +1238,14 @@ async function initialize(checkInitialized, magic) {{
 
 			with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
 				temp_zip.write(zip_data)
-				temp_zip.flush()
+				temp_zip_path = temp_zip.name
 
-				with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
+			try:
+				with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
 					zip_ref.extractall(extract_dir)
-
-				os.unlink(temp_zip.name)
+			finally:
+				with contextlib.suppress(OSError):
+					os.unlink(temp_zip_path)
 
 	def detect_display_configuration(self) -> None:
 		"""
