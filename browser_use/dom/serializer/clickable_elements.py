@@ -1,3 +1,5 @@
+import re
+
 from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
 
 
@@ -87,19 +89,27 @@ class ClickableElementDetector:
 				'searchbox',
 			}
 
-			# Check class names for search indicators
+			# Check class names for search indicators. Indicators must match a
+			# whole class token: the old ' 'join' + substring check turned
+			# 'research' into a hit for 'search', flagging static containers
+			# as interactive.
 			class_list = node.attributes.get('class', '').lower().split()
-			if any(indicator in ' '.join(class_list) for indicator in search_indicators):
+			if any(indicator in class_list for indicator in search_indicators):
 				return True
 
-			# Check id for search indicators
+			# Check id for search indicators (word-bounded so 'research' does
+			# not match 'search' inside an id).
 			element_id = node.attributes.get('id', '').lower()
-			if any(indicator in element_id for indicator in search_indicators):
+			if any(re.search(rf'\b{re.escape(indicator)}\b', element_id) for indicator in search_indicators):
 				return True
 
-			# Check data attributes for search functionality
+			# Check data attributes for search functionality (word-bounded as
+			# above; hyphens count as boundaries so 'search-btn' matches).
 			for attr_name, attr_value in node.attributes.items():
-				if attr_name.startswith('data-') and any(indicator in attr_value.lower() for indicator in search_indicators):
+				if attr_name.startswith('data-') and any(
+					re.search(rf'\b{re.escape(indicator)}\b', attr_value.lower())
+					for indicator in search_indicators
+				):
 					return True
 
 		# Enhanced accessibility property checks - direct clear indicators only
