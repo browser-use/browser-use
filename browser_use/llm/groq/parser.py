@@ -31,11 +31,12 @@ def try_parse_groq_failed_generation(
 			if '\n' in content:
 				content = content.split('\n', 1)[1]
 
-		# remove html-like tags before the first { and after the last }
+		# remove html-like tags before the first { or [ and after the last }
 		# This handles cases like <|header_start|>assistant<|header_end|> and <function=AgentOutput>
-		# Only remove content before { if content doesn't already start with {
-		if not content.strip().startswith('{'):
-			content = re.sub(r'^.*?(?=\{)', '', content, flags=re.DOTALL)
+		# Only remove content before the root if content doesn't already start with it,
+		# so array roots (issue #1458) survive instead of collapsing to their first item
+		if not content.strip().startswith(('{', '[')):
+			content = re.sub(r'^[^{\[]*?(?=[{\[])', '', content, flags=re.DOTALL)
 
 		# Remove common HTML-like tags and patterns at the end, but be more conservative
 		# Look for patterns like </function>, <|header_start|>, etc. after the JSON

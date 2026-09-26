@@ -5,7 +5,7 @@ import pytest
 from groq import APIStatusError
 from pydantic import BaseModel
 
-from browser_use.llm.groq.parser import try_parse_groq_failed_generation
+from browser_use.llm.groq.parser import ParseFailedGenerationError, try_parse_groq_failed_generation
 
 
 class Action(BaseModel):
@@ -76,6 +76,27 @@ def test_single_element_list_flattened():
 	content = '[{"selector": "div.item"}] trailing note'
 	result = try_parse_groq_failed_generation(_failed_generation_error(content), Action)
 	assert result.selector == 'div.item'
+
+
+def test_brackets_inside_string_value():
+	"""'[' and ']' inside a JSON string value must not break the balance scan."""
+	content = '{"selector": "div[data-id=1]"} trailing'
+	result = try_parse_groq_failed_generation(_failed_generation_error(content), Action)
+	assert result.selector == 'div[data-id=1]'
+
+
+def test_escaped_quote_before_closing_brace():
+	"""Escape sequences inside strings must not flip the in-string state."""
+	content = '{"selector": "a \\"}text\\""} done'
+	result = try_parse_groq_failed_generation(_failed_generation_error(content), Action)
+	assert result.selector == 'a "}text"'
+
+
+def test_multi_item_list_is_not_silently_truncated():
+	"""A multi-item array root must not collapse to its first object (silent data loss)."""
+	content = '[{"selector": "a"}, {"selector": "b"}] trailing note'
+	with pytest.raises(ParseFailedGenerationError):
+		try_parse_groq_failed_generation(_failed_generation_error(content), Action)
 
 
 def test_no_json_raises():
