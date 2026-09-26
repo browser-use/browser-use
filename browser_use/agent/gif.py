@@ -314,6 +314,8 @@ def _add_overlay_to_image(
 	image = image.convert('RGBA')
 	txt_layer = Image.new('RGBA', image.size, (0, 0, 0, 0))
 	draw = ImageDraw.Draw(txt_layer)
+	padding = 20
+	y_step = image.height - margin - 10
 	if display_step:
 		# Add step number (bottom left)
 		step_text = str(step_number)
