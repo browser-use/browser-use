@@ -56,7 +56,7 @@ from browser_use.browser.profile import BrowserProfile, ProxySettings
 from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, SerializedDOMState, TargetInfo
 from browser_use.observability import observe_debug
-from browser_use.utils import _log_pretty_url, create_task_with_error_handling, is_new_tab_page
+from browser_use.utils import _log_pretty_url, create_task_with_error_handling, http_hosts_match, is_new_tab_page
 
 if TYPE_CHECKING:
 	from browser_use.actor.page import Page
@@ -1038,12 +1038,7 @@ class BrowserSession(BaseModel):
 		if timeout is None:
 			target = self.session_manager.get_target(target_id)
 			current_url = target.url
-			same_domain = (
-				url.split('/')[2] == current_url.split('/')[2]
-				if url.startswith('http') and current_url.startswith('http')
-				else False
-			)
-			timeout = 3.0 if same_domain else 8.0
+			timeout = 3.0 if http_hosts_match(url, current_url) else 8.0
 
 		nav_start_time = asyncio.get_event_loop().time()
 
