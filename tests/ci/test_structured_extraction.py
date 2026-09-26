@@ -267,6 +267,101 @@ class TestSchemaDictToPydanticModel:
 		instance = Model(value=None)
 		assert instance.value is None  # type: ignore[attr-defined]
 
+	def test_type_array_nullable_string(self):
+		"""JSON Schema type arrays with "null" must behave like the nullable flag (#5904)."""
+		schema = {
+			'type': 'object',
+			'properties': {
+				'nickname': {'type': ['string', 'null']},
+			},
+			'required': [],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model.model_fields['nickname'].annotation == str | None  # type: ignore[attr-defined]
+		assert Model(nickname=None).nickname is None  # type: ignore[attr-defined]
+		assert Model(nickname='x').nickname == 'x'  # type: ignore[attr-defined]
+		# Omitted field falls back to the nullable default, not a primitive zero value.
+		assert Model().nickname is None  # type: ignore[attr-defined]
+
+	def test_type_array_null_only(self):
+		schema = {
+			'type': 'object',
+			'properties': {
+				'nothing': {'type': ['null']},
+			},
+			'required': [],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model.model_fields['nothing'].annotation is type(None)  # type: ignore[attr-defined]
+		assert Model().nothing is None  # type: ignore[attr-defined]
+
+	def test_type_array_with_enum_stays_nullable(self):
+		"""A nullable type array combined with an enum must not lose nullability."""
+		schema = {
+			'type': 'object',
+			'properties': {
+				'level': {'type': ['string', 'null'], 'enum': ['low', 'high']},
+			},
+			'required': [],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model.model_fields['level'].annotation == str | None  # type: ignore[attr-defined]
+		assert Model().level is None  # type: ignore[attr-defined]
+		assert Model(level=None).level is None  # type: ignore[attr-defined]
+
+	def test_type_array_single_element(self):
+		schema = {
+			'type': 'object',
+			'properties': {
+				'name': {'type': ['string']},
+			},
+			'required': ['name'],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model.model_fields['name'].annotation is str
+		assert Model(name='Alice').name == 'Alice'  # type: ignore[attr-defined]
+
+	def test_type_array_nullable_object(self):
+		schema = {
+			'type': 'object',
+			'properties': {
+				'person': {
+					'type': ['object', 'null'],
+					'properties': {'first': {'type': 'string'}},
+					'required': ['first'],
+				},
+			},
+			'required': [],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model(person={'first': 'Bob'}).person.first == 'Bob'  # type: ignore[attr-defined]
+		assert Model(person=None).person is None  # type: ignore[attr-defined]
+
+	def test_type_array_multi_type_union(self):
+		schema = {
+			'type': 'object',
+			'properties': {
+				'value': {'type': ['string', 'integer']},
+			},
+			'required': [],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model(value='x').value == 'x'  # type: ignore[attr-defined]
+		assert Model(value=3).value == 3  # type: ignore[attr-defined]
+		# Member order is not semantic: the absent-field default must not depend
+		# on which primitive happens to be listed first.
+		reversed_schema = {
+			'type': 'object',
+			'properties': {
+				'value': {'type': ['integer', 'string']},
+			},
+			'required': [],
+		}
+		Reversed = schema_dict_to_pydantic_model(reversed_schema)
+		assert Model.model_fields['value'].annotation == Reversed.model_fields['value'].annotation  # type: ignore[attr-defined]
+		assert Model().value is None  # type: ignore[attr-defined]
+		assert Reversed().value is None  # type: ignore[attr-defined]
+
 	def test_field_descriptions_preserved(self):
 		schema = {
 			'type': 'object',
