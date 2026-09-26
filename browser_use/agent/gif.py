@@ -346,6 +346,11 @@ def _add_overlay_to_image(
 			font=title_font,
 			fill=text_color,
 		)
+	else:
+		# No step badge: anchor the goal text the same way with zero step height
+		step_height = 0
+		padding = 20
+		y_step = image.height - margin - step_height - 10
 
 	# Draw goal text (centered, bottom)
 	max_width = image.width - (4 * margin)
