@@ -89,6 +89,22 @@ def tools():
 class TestToolsIntegration:
 	"""Integration tests for Tools using actual browser instances."""
 
+	@pytest.mark.parametrize(
+		('action_name', 'action_kwargs'),
+		[
+			('click', {'index': 999_999}),
+			('dropdown_options', {'index': 999_999}),
+			('select_dropdown', {'index': 999_999, 'text': 'Missing option'}),
+		],
+	)
+	async def test_missing_element_is_reported_as_error(self, tools, browser_session, action_name, action_kwargs):
+		"""Stale selector indexes must stop an action sequence instead of looking successful."""
+		result = await getattr(tools, action_name)(browser_session=browser_session, **action_kwargs)
+
+		expected_error = 'Element index 999999 not available - page may have changed. Try refreshing browser state.'
+		assert result.error == expected_error
+		assert result.extracted_content is None
+
 	async def test_registry_actions(self, tools, browser_session):
 		"""Test that the registry contains the expected default actions."""
 		# Check that common actions are registered
@@ -494,6 +510,20 @@ class TestToolsIntegration:
 		)
 		selected_value = selected_value_result.get('result', {}).get('value')
 		assert selected_value == 'option2'  # Second Option has value "option2"
+
+		# A structured selection failure should preserve the helpful options while
+		# still being marked as an error so multi-action execution stops.
+		failed_result = await tools.select_dropdown(
+			index=dropdown_index,
+			text='Missing Option',
+			browser_session=browser_session,
+		)
+		assert (
+			failed_result.error == "Couldn't select the dropdown option as 'Missing Option' is not one of the available options."
+		)
+		assert failed_result.extracted_content is not None
+		assert 'Available dropdown options' in failed_result.extracted_content
+		assert '- Second Option' in failed_result.extracted_content
 
 
 class TestStructuredOutputDoneWithFiles:
