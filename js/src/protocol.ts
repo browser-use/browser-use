@@ -33,6 +33,7 @@ export interface WorkerConfig extends importPolicy {
   targetId?: string;
   focusTab?: boolean;
   browserSwitching?: boolean;
+  dedicatedBrowser?: boolean;
   operationTimeoutMs: number;
   maxOutputChars: number;
 }

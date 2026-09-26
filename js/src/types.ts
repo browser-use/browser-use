@@ -33,6 +33,8 @@ export interface BrowserUseOptions extends DomainOptions {
   shellTimeoutMs?: number;
   /** Let the agent move to another browser with reconnect(cdpUrl), e.g. one the host provisioned. */
   browserSwitching?: boolean;
+  /** The browser is the agent's alone (e.g. a host-provisioned cloud browser): its empty tab is taken over instead of opening another. */
+  dedicatedBrowser?: boolean;
   /** Activate the tab the agent drives after each cell, for hosts that act on the focused tab. */
   focusTab?: boolean;
   tools?: AgentState['tools'];

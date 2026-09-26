@@ -211,3 +211,26 @@ for (const delayed of [true, false]) {
     }
   });
 }
+
+test('a dedicated browser has its empty tab taken over instead of a second one opened', async () => {
+  const external = await openBrowser();
+  const cdp = await CDP.connect(external.endpoint);
+  const pages = async () =>
+    (await cdp.send('Target.getTargets')).targetInfos.filter((t) => t.type === 'page');
+  const agent = await BrowserUse.create({
+    model: 'openai/gpt-5.4',
+    browser: { cdpUrl: external.endpoint },
+    dedicatedBrowser: true,
+  });
+  try {
+    const [blank] = await pages();
+    const result = await agent.execute('await page.info()');
+    assert.equal(result.targetId, blank.targetId);
+    assert.equal((await pages()).length, 1);
+  } finally {
+    await agent.close();
+    await rm(agent.workspace, { recursive: true, force: true });
+    cdp.close();
+    await external.close();
+  }
+});

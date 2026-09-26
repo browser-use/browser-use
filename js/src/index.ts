@@ -86,6 +86,8 @@ export class BrowserUse {
       positiveInteger('shellTimeoutMs', options.shellTimeoutMs);
     if (options.browserSwitching !== undefined && typeof options.browserSwitching !== 'boolean')
       throw new Error('browserSwitching must be boolean.');
+    if (options.dedicatedBrowser !== undefined && typeof options.dedicatedBrowser !== 'boolean')
+      throw new Error('dedicatedBrowser must be boolean.');
     if (options.focusTab !== undefined && typeof options.focusTab !== 'boolean')
       throw new Error('focusTab must be boolean.');
     if (
@@ -169,6 +171,7 @@ export class BrowserUse {
           : {}),
         ...(options.focusTab ? { focusTab: true } : {}),
         ...(options.browserSwitching ? { browserSwitching: true } : {}),
+        ...(options.dedicatedBrowser ? { dedicatedBrowser: true } : {}),
         workspace,
         operationTimeoutMs,
         maxOutputChars,

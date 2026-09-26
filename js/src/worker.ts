@@ -29,12 +29,12 @@ function deferredPage(targetId?: string) {
   return Page.deferred(
     browser,
     async () => {
-      if (targetId) {
-        // Only create a replacement when the target is actually absent, not on an attach timeout.
-        const existing = await tabs.list();
-        if (existing.some((t) => t.targetId === targetId)) return tabs.get(targetId);
-      }
-      return tabs.open();
+      const existing = await tabs.list();
+      // Only create a replacement when the target is actually absent, not on an attach timeout.
+      if (targetId && existing.some((t) => t.targetId === targetId)) return tabs.get(targetId);
+      // The agent's own browser: take its empty tab rather than open a second one beside it.
+      const blank = config.dedicatedBrowser && existing.find((t) => t.url === 'about:blank');
+      return blank ? tabs.get(blank.targetId) : tabs.open();
     },
     targetId,
   );

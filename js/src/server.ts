@@ -203,6 +203,7 @@ const CREATE_KEYS = new Set([
   'shellEnv',
   'focusTab',
   'browserSwitching',
+  'dedicatedBrowser',
   'shellTimeoutMs',
   'tools',
   'apiKey',
