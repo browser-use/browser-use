@@ -339,6 +339,16 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         await agent.run("say done")
         self.assertEqual(self.requests[0]["thinking"], {"type": "disabled"})
 
+    async def test_model_info_can_turn_thinking_off_entirely(self):
+        self.responses = [("finish", {"result": "done"})]
+        agent = await self.create(model="anthropic/claude-opus-5", modelInfo={"reasoning": False, "compat": {"supportsMidConvoEffort": False}})
+        try:
+            await agent.run("say done")
+        except BrowserUseError:
+            pass  # the fixture cannot answer in Anthropic's format; only the request matters
+        self.assertNotIn("thinking", self.requests[0])
+        self.assertNotIn("output_config", self.requests[0])
+
     async def test_shell_env_reaches_the_bash_tool(self):
         self.responses = [("bash", {"command": "echo token=$CLOUD_TOKEN"}), ("finish", {"result": "done"})]
         agent = await self.create(researchTools=True, shellEnv={"CLOUD_TOKEN": "fixture-run-token"})

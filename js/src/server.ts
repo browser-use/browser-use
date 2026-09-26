@@ -80,6 +80,7 @@ type ModelInfo = {
   maxTokens?: number;
   compat?: Record<string, unknown>;
   thinkingLevelMap?: Record<string, string | null>;
+  reasoning?: boolean;
 };
 
 // A gateway may serve models newer than Pi's catalog: they borrow a catalog entry's
@@ -101,6 +102,8 @@ function withHostModel(models: Models, name: string, info: ModelInfo): Models {
   for (const key of ['compat', 'thinkingLevelMap'] as const)
     if (info[key] !== undefined && (typeof info[key] !== 'object' || info[key] === null))
       throw new Error(`modelInfo.${key} must be an object.`);
+  if (info.reasoning !== undefined && typeof info.reasoning !== 'boolean')
+    throw new Error('modelInfo.reasoning must be boolean.');
   const [provider, id] = split(name);
   const template = info.template ? split(info.template) : undefined;
   const base = models.getModel(provider, id) ?? (template && models.getModel(...template));
@@ -113,6 +116,8 @@ function withHostModel(models: Models, name: string, info: ModelInfo): Models {
     ...(info.maxTokens ? { maxTokens: info.maxTokens } : {}),
     ...(info.compat ? { compat: { ...base.compat, ...info.compat } } : {}),
     ...(info.thinkingLevelMap ? { thinkingLevelMap: info.thinkingLevelMap } : {}),
+    // false: the gateway serves this model without thinking, so no thinking fields are sent.
+    ...(info.reasoning !== undefined ? { reasoning: info.reasoning } : {}),
   };
   const getModel = models.getModel.bind(models);
   models.getModel = (p, i) => (p === provider && i === id ? model : getModel(p, i));
