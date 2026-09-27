@@ -180,23 +180,29 @@ export class AxHelpers {
     let limit = cap;
     let pending = 0;
     let probe: Awaited<ReturnType<AxHelpers['probe']>> | undefined;
+    const netBusy = () => {
+      const now = Date.now();
+      pending = session
+        ? [...(this.inflight.get(session)?.values() ?? [])].filter((t) => now - t < 1500).length
+        : 0;
+      return pending > 0 || (session ? now - (this.lastNet.get(session) ?? 0) : quiet) < quiet;
+    };
     while (Date.now() - start < limit) {
       try {
         probe = await this.probe(page);
-        const now = Date.now();
         if (probe.ready === 'loading') limit = Math.max(cap, 3000); // navigations need longer than in-page updates
-        probe.idle = Math.min(probe.idle, now - start); // quiet must be observed after this action began
-        pending = session
-          ? [...(this.inflight.get(session)?.values() ?? [])].filter((t) => now - t < 1500).length
-          : 0;
-        const netIdle = session ? now - (this.lastNet.get(session) ?? 0) : quiet;
-        if (probe.ready !== 'loading' && probe.idle >= quiet && pending === 0 && netIdle >= quiet)
-          return { why: 'quiet', pending, ms: now - start, probe };
+        probe.idle = Math.min(probe.idle, Date.now() - start); // quiet must be observed after this action began
+        if (probe.ready !== 'loading' && probe.idle >= quiet && !netBusy())
+          return { why: 'quiet', pending, ms: Date.now() - start, probe };
       } catch (error) {
         // Navigation in progress: wait for the new document. Anything else ends the wait, never the action.
         if (!isContextLoss(error)) return { why: 'error', pending, ms: Date.now() - start };
+        probe = undefined;
       }
-      await delay(40);
+      // Probe again once the DOM can have been quiet for quietMs; wait out in-flight requests here, not in the page.
+      await delay(probe && probe.ready !== 'loading' ? Math.max(20, quiet - probe.idle) : 40);
+      while (probe && probe.idle >= quiet && netBusy() && Date.now() - start < limit)
+        await delay(20);
     }
     return { why: 'cap', pending, ms: Date.now() - start };
   }
@@ -510,14 +516,17 @@ export class AxHelpers {
         `${op} ${this.describe(id)} failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    await this.settle();
-    const line = `[ok] ${op} ${this.describe(id)}${detail} -> ${await this.change(before)}${this.flushDialogs()}`;
+    const settled = await this.settle();
+    const line = `[ok] ${op} ${this.describe(id)}${detail} -> ${await this.change(before, settled.probe)}${this.flushDialogs()}`;
     this.log(line);
     return printed(line);
   }
 
-  private async change(before: Awaited<ReturnType<AxHelpers['probe']>> | undefined) {
-    const after = await this.probe(this.page()).catch(() => undefined);
+  private async change(
+    before: Awaited<ReturnType<AxHelpers['probe']>> | undefined,
+    after?: Awaited<ReturnType<AxHelpers['probe']>>,
+  ) {
+    after ??= await this.probe(this.page()).catch(() => undefined);
     if (!before || !after) return 'page changed';
     if (after.doc !== before.doc || after.url !== before.url) return `navigated to ${after.url}`;
     return after.n !== before.n ? 'page changed' : 'no change';
