@@ -57,6 +57,8 @@ export class AxHelpers {
   private last = new Map<number, { role: string; name: string }>();
   /** Set by every action; the worker prints the state after that cell. */
   acted = false;
+  /** When the last action's settle began, 0 after a failed action. */
+  private actedAt = 0;
 
   /** Track in-flight requests per page session from CDP Network events (no page patching). */
   private async trackNetwork(page: Page) {
@@ -178,7 +180,7 @@ export class AxHelpers {
    * Event-based wait, never a fixed sleep: document parsed, no fresh in-flight requests
    * (older than 1.5 s are treated as long-poll/analytics), and no DOM mutation for quietMs. Bounded by capMs.
    */
-  async settle(options: { capMs?: number; quietMs?: number; page?: Page } = {}) {
+  async settle(options: { capMs?: number; quietMs?: number; page?: Page; since?: number } = {}) {
     const page = options.page ?? this.page();
     const cap = options.capMs ?? 800;
     const quiet = options.quietMs ?? 80;
@@ -198,7 +200,7 @@ export class AxHelpers {
       try {
         probe = await this.probe(page);
         if (probe.ready === 'loading') limit = Math.max(cap, 3000); // navigations need longer than in-page updates
-        probe.idle = Math.min(probe.idle, Date.now() - start); // quiet must be observed after this action began
+        probe.idle = Math.min(probe.idle, Date.now() - (options.since || start)); // quiet must be observed after this action began
         if (probe.ready !== 'loading' && probe.idle >= quiet && !netBusy())
           return { why: 'quiet', pending, ms: Date.now() - start, probe };
       } catch (error) {
@@ -286,8 +288,10 @@ export class AxHelpers {
   /** The page as one list in page order. */
   async state(options: { max?: number } = {}) {
     const page = this.page();
+    // A look right after an action continues that action's quiet window instead of starting a new one.
+    const since = this.acted ? this.actedAt : 0;
     this.acted = false; // a look after the last action replaces the automatic print
-    const settled = await this.settle({ capMs: 3000 });
+    const settled = await this.settle({ capMs: 3000, since });
     // The settle probe already has URL and title, and says whether a file input needs looking up.
     const [frames, info, visible, files] = await Promise.all([
       this.capture(page),
@@ -512,6 +516,7 @@ export class AxHelpers {
   private async act(op: string, id: number, body: (page: Page) => Promise<string>) {
     // Set before awaiting: an un-awaited or failed action still gets the state printed after its cell.
     this.acted = true;
+    this.actedAt = 0;
     const page = this.page();
     await this.trackNetwork(page).catch(() => {});
     const before = await this.probe(page).catch(() => undefined);
@@ -523,6 +528,7 @@ export class AxHelpers {
         `${op} ${this.describe(id)} failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+    this.actedAt = Date.now();
     const settled = await this.settle();
     const line = `[ok] ${op} ${this.describe(id)}${detail} -> ${await this.change(before, settled.probe)}${this.flushDialogs()}`;
     this.log(line);
