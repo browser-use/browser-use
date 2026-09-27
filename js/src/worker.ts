@@ -102,7 +102,7 @@ const bu =
     : undefined;
 // The search endpoint under the cloud worker's names, for the prompt's fetch example.
 if (config.webSearch) {
-  process.env.V4_GATEWAY_URL = config.webSearch.url.replace(/\/api\/v4\/search$/, '');
+  process.env.V4_GATEWAY_URL = config.webSearch.url.replace(/\/api\/v4\/search\/?$/, '');
   process.env.V4_RUN_TOKEN = config.webSearch.token;
 }
 Object.assign(realm, {

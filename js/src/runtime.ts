@@ -199,7 +199,12 @@ export class BrowserRuntime {
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const outputFile = join(directory, `${randomUUID()}.txt`);
       await writeFile(outputFile, '', { flag: 'wx', mode: 0o600 });
-      const response = this.receive(worker, timeoutMs, signal);
+      // Ultrafast prints the page state after the cell's code; that print gets its own time on top of the cell's.
+      const response = this.receive(
+        worker,
+        timeoutMs + (this.config.mode === 'ultrafast' ? 10_000 : 0),
+        signal,
+      );
       worker.send(
         { type: 'execute', code, captureJson, outputFile, runId: this.runId },
         (error) => {

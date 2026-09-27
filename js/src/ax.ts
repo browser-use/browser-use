@@ -37,7 +37,8 @@ Ultrafast: the global \`bu\` in the javascript REPL. Each model call costs ~1 s,
 - Act: await bu.click(1400); await bu.type(812, 'Zurich'); await bu.type(830, 'Oct 14', {enter: true}). type replaces the field's text. bu.type(id, 'Canada') also picks a native select option; don't click it first.
   Each action prints one line: navigated to <url> / page changed / no change. Autocomplete: type, look, then click the suggestion.
 - Raw: upload to a file line with await page.cdp('DOM.setFileInputFiles', {backendNodeId: id, files: [await artifact('cv.txt', 'text')]}); keys await page.cdp('Input.dispatchKeyEvent', {type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27}) then the same with type 'keyUp'; drag with Input.dispatchMouseEvent mousePressed, mouseMoved, mouseReleased.
-- If a helper fails once, do it raw. Read data with page.evaluate(() => ...), but confirm an outcome with bu.state() (visible text only), not innerText. Never add blind sleeps (setTimeout): actions and bu.state() wait for the page.
+- If a helper fails once, do it raw. Read data with page.evaluate(() => ...), but confirm an outcome with bu.state() (visible text only), not innerText. Never add blind sleeps (setTimeout): actions and bu.state() wait for the page; for a specific condition use await page.waitFor(() => ...).
+- alert/confirm/prompt dialogs are accepted automatically; their text is printed as [dialog ...].
 `;
 
 /** State print and id-based actions on Chrome's accessibility tree. Raw page/CDP stays available. */
@@ -52,9 +53,9 @@ export class AxHelpers {
   private lastNet = new Map<string, number>();
   private tracked = new Set<string>();
   private dialogs: string[] = [];
-  /** Role and name of every id in the last print: marks new ids and re-finds re-rendered ones. */
+  /** Role and name of every id in the last print: marks new ids and names targets in action lines. */
   private last = new Map<number, { role: string; name: string }>();
-  /** Set once an action reached the page; the worker prints the state after that cell. */
+  /** Set by every action; the worker prints the state after that cell. */
   acted = false;
 
   /** Track in-flight requests per page session from CDP Network events (no page patching). */
@@ -123,9 +124,20 @@ export class AxHelpers {
         w.__buLast = performance.now();
         w.__buN = 0;
         w.__buDoc = Math.random();
+        // Style-only records (animations) and the action highlight's own overlay are not the page reacting.
+        const own = (n: Node) =>
+          (n as Element).hasAttribute?.('data-browser-use-interaction-highlight');
         w.__buObs = new MutationObserver((records) => {
-          w.__buLast = performance.now();
-          if (records.some((r) => r.attributeName !== 'style')) w.__buN++;
+          if (
+            records.some(
+              (r) =>
+                r.attributeName !== 'style' &&
+                !Array.from(r.addedNodes).concat(Array.from(r.removedNodes)).some(own),
+            )
+          ) {
+            w.__buLast = performance.now();
+            w.__buN++;
+          }
         });
         w.__buObs.observe(document, {
           subtree: true,
@@ -203,8 +215,10 @@ export class AxHelpers {
             if (el.contentDocument) roots.push(el.contentDocument); // same-origin iframe
             continue;
           }
-          const e = n.parentElement;
+          let e = n.parentElement;
           if (!e || !n.textContent?.trim()) continue;
+          // display:contents has no box, so checkVisibility is false; its text shows through the nearest boxed ancestor.
+          while (e.parentElement && getComputedStyle(e).display === 'contents') e = e.parentElement;
           if (!shown.has(e))
             shown.set(e, e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }));
           if (shown.get(e)) out.push(n.textContent);
@@ -250,11 +264,10 @@ export class AxHelpers {
     const page = this.page();
     this.acted = false; // a look after the last action replaces the automatic print
     const settled = await this.settle({ capMs: 3000 });
-    const [frames, info, visible, targets, files] = await Promise.all([
+    const [frames, info, visible, files] = await Promise.all([
       this.capture(page),
       page.info(),
       this.visibleText(page).catch(() => undefined),
-      this.browser().send('Target.getTargets'),
       this.fileInputs(page).catch(() => []),
     ]);
     const previous = this.last;
@@ -284,7 +297,12 @@ export class AxHelpers {
           return kids();
         }
         const id = n.backendDOMNodeId;
-        if (!id || !(CONTROLS.has(role) || (prop(n, 'focusable') && role !== 'RootWebArea'))) {
+        // Focusable wrappers (tabindex=-1 dialogs, <main>) are only controls if they carry a name, value or editing.
+        const focusable =
+          prop(n, 'focusable') &&
+          role !== 'RootWebArea' &&
+          (role !== 'generic' || name || n.value?.value || prop(n, 'editable'));
+        if (!id || !(CONTROLS.has(role) || focusable)) {
           if (!BLOCKS.has(role)) return kids();
           flush();
           kids();
@@ -324,7 +342,8 @@ export class AxHelpers {
           `${previous.size && !previous.has(id) ? '*' : ''}[${id}] ${shown}${name ? ` "${clip(name, 150)}"` : ''}${value ? ` = ${JSON.stringify(clip(value, 100))}` : ''}${states.length ? ` ${states.join(' ')}` : ''}${options.length ? `  options: ${options.slice(0, 5).join(' | ')}${options.length > 5 ? ` | … ${options.length - 5} more` : ''}` : ''}`,
         );
         if (popup || NATIVE_INPUTS.has(role)) return; // their children are the browser's own widget parts
-        inside = `${inside} ${name} ${value}`.toLowerCase();
+        // Only what the line showed counts as said: a card link's text past the clipped name still prints.
+        inside = `${inside} ${clip(name, 150)} ${value}`.toLowerCase();
         kids();
         flush();
       };
@@ -342,10 +361,7 @@ export class AxHelpers {
         return `[${f.backendNodeId}] file "${name}" (hidden)`;
       });
     lines.unshift(...hidden);
-    const tabs = targets.targetInfos.filter(
-      (t) => t.type === 'page' && t.url !== 'about:blank',
-    ).length;
-    const header = `[state] ${info.title} | ${info.url}${tabs > 1 ? ` | ${tabs} tabs` : ''}${settled.pending ? ` | loading: ${settled.pending}` : ''}${this.flushDialogs()}`;
+    const header = `[state] ${info.title} | ${info.url}${settled.pending ? ` | loading: ${settled.pending}` : ''}${this.flushDialogs()}`;
     const max = options.max ?? 3000;
     const fit = (from: string[], budget: number) => {
       let size = 0;
@@ -417,6 +433,7 @@ export class AxHelpers {
         const e = this.nodeType === Node.ELEMENT_NODE ? this : this.parentElement;
         if (!e || !e.isConnected) throw Error('Target detached');
         if (e.matches(':disabled') || e.closest('[inert],[aria-disabled="true"]')) throw Error('Target disabled');
+        if (e.matches('input[type=file]')) throw Error("File input: clicking opens the OS file chooser; upload with DOM.setFileInputFiles instead");
         if (!e.checkVisibility({checkOpacity:true, checkVisibilityCSS:true})) throw Error('Target hidden');
         const r = e.getBoundingClientRect(), x = r.x + r.width/2, y = r.y + r.height/2;
         if (!r.width || !r.height || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) throw Error('Target outside viewport');
@@ -455,6 +472,8 @@ export class AxHelpers {
 
   /** Runs one action on id and prints one line: navigated to <url> / page changed / no change. */
   private async act(op: string, id: number, body: (page: Page) => Promise<string>) {
+    // Set before awaiting: an un-awaited or failed action still gets the state printed after its cell.
+    this.acted = true;
     const page = this.page();
     await this.trackNetwork(page).catch(() => {});
     const before = await this.probe(page).catch(() => undefined);
@@ -466,7 +485,6 @@ export class AxHelpers {
         `${op} ${this.describe(id)} failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    this.acted = true;
     await this.settle();
     const line = `[ok] ${op} ${this.describe(id)}${detail} -> ${await this.change(before)}${this.flushDialogs()}`;
     this.log(line);
@@ -502,8 +520,9 @@ export class AxHelpers {
           id,
           `function(want){
             const n = s => String(s).replace(/\\s+/g,' ').trim().toLowerCase(), opts = [...this.options].filter(o => !o.disabled);
-            const o = opts.find(o => n(o.label) === n(want) || n(o.value) === n(want)) ?? opts.find(o => n(o.label).startsWith(n(want)));
-            if (!o) throw Error('no option ' + JSON.stringify(want) + '. Options: ' + opts.slice(0, 40).map(o => o.label).join(' | '));
+            const pre = opts.filter(o => n(o.label).startsWith(n(want)));
+            const o = opts.find(o => n(o.label) === n(want) || n(o.value) === n(want)) ?? (pre.length === 1 ? pre[0] : undefined);
+            if (!o) throw Error((pre.length > 1 ? 'several options start with ' : 'no option ') + JSON.stringify(want) + '. Options: ' + (pre.length > 1 ? pre : opts).slice(0, 40).map(o => o.label).join(' | '));
             this.value = o.value;
             this.dispatchEvent(new Event('input',{bubbles:true})); this.dispatchEvent(new Event('change',{bubbles:true}));
             return o.label;
@@ -519,7 +538,7 @@ export class AxHelpers {
         await this.onNode(
           page,
           id,
-          `function(v){const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;s.call(this,v);this.dispatchEvent(new Event('input',{bubbles:true}));this.dispatchEvent(new Event('change',{bubbles:true}));if(this.value!==v)throw Error('Invalid native date/time value; use its ISO format');}`,
+          `function(v){const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set,old=this.value;s.call(this,v);if(this.value!==v){s.call(this,old);throw Error('Invalid native date/time value; use its ISO format');}this.dispatchEvent(new Event('input',{bubbles:true}));this.dispatchEvent(new Event('change',{bubbles:true}));}`,
           text,
         );
         return ` = ${JSON.stringify(text)}`;
