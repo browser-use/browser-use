@@ -16,6 +16,9 @@ export type AXNode = {
   disabled?: boolean;
 };
 
+const contextLost =
+  /Execution context was destroyed|Cannot find context|Cannot find default execution context/;
+
 function controlState(node: Protocol.Accessibility.AXNode) {
   const state: Pick<AXNode, 'checked' | 'pressed' | 'selected' | 'expanded' | 'disabled'> = {};
   for (const { name, value } of node.properties ?? []) {
@@ -129,13 +132,7 @@ export class Page {
       try {
         if (await this.evaluate(fn, argument)) return;
       } catch (error) {
-        if (
-          !(error instanceof Error) ||
-          !/Execution context was destroyed|Cannot find context|Cannot find default execution context/.test(
-            error.message,
-          )
-        )
-          throw error;
+        if (!(error instanceof Error) || !contextLost.test(error.message)) throw error;
       }
       await delay(Math.min(100, Math.max(0, deadline - Date.now())));
     }
@@ -178,16 +175,18 @@ export class Page {
   }
   async screenshot(options: { quality?: number } = {}) {
     // The page's own devicePixelRatio (emulation changes it) makes image pixels page.clickAt coordinates.
-    const clip = await this.evaluate(() => {
-      const v = visualViewport!;
-      return {
-        x: v.pageLeft,
-        y: v.pageTop,
-        width: v.width,
-        height: v.height,
-        scale: 1 / devicePixelRatio,
-      };
-    }).catch(() => undefined);
+    // Raw evaluate: page.evaluate's userGesture would grant the page a user activation per capture.
+    const clip = await this.cdp('Runtime.evaluate', {
+      expression:
+        '({ x: visualViewport.pageLeft, y: visualViewport.pageTop, width: visualViewport.width, height: visualViewport.height, scale: 1 / devicePixelRatio })',
+      returnByValue: true,
+    }).then(
+      ({ result }) => result.value,
+      (error) => {
+        // Mid-navigation there is no context to ask; capture unclipped. Anything else (an open dialog) fails as before.
+        if (!(error instanceof Error) || !contextLost.test(error.message)) throw error;
+      },
+    );
     const { data } = await this.cdp('Page.captureScreenshot', {
       format: 'jpeg',
       quality: options.quality ?? 70,
