@@ -8,6 +8,8 @@ import {
   fauxProvider,
   fauxAssistantMessage,
   fauxToolCall,
+  getCurrentSystemPrompt,
+  getCurrentTools,
 } from '@earendil-works/pi-ai';
 import { BrowserUse, Type } from '../dist/index.js';
 import { startFixture } from './fixture.mjs';
@@ -54,7 +56,7 @@ test('Pi loop reads a real browser and returns schema-validated data with events
     }),
     (context) => {
       assert.ok(
-        context.systemPrompt.includes(
+        getCurrentSystemPrompt(context.messages).includes(
           `Workspace directory (JSON string): ${JSON.stringify(s.agent.workspace)}`,
         ),
       );
@@ -344,7 +346,7 @@ test('one empty-ending repair delivers existing records with the same transcript
     (context) => {
       assert.match(context.messages.at(-1).content[0].text, /single delivery repair/);
       assert.deepEqual(
-        context.tools.map((t) => t.name),
+        getCurrentTools(context.messages).map((t) => t.name),
         ['finish', 'finish_from_js'],
       );
       return call('finish_from_js', { expression: 'JSON.stringify(records)' });
@@ -443,7 +445,7 @@ test('automatic Pi compaction resumes the same run, preserves constraints and ac
   let work = 0,
     summaries = 0;
   const response = (context) => {
-    if (!context.tools?.length) {
+    if (!getCurrentTools(context.messages).length) {
       summaries++;
       return fauxAssistantMessage(
         'Task: inspect only; never purchase. Progress in memory and notes.json. Continue remaining observations.',
@@ -479,7 +481,7 @@ test('agent retrieves an observation omitted by compaction without repeating its
   let sourceActions = 0;
   const sourceCode = "console.log('inventory_units=73')";
   const response = (context) => {
-    if (!context.tools?.length)
+    if (!getCurrentTools(context.messages).length)
       return fauxAssistantMessage('Continue the task; the exact count was omitted.');
     if (retrieving) return call('finish_from_js', { expression: 'String(recoveredUnits)' });
     const checkpoint = context.messages.find(
@@ -552,7 +554,9 @@ test('the agent can recover a prior observation window from its live redacted jo
         code: `await page.goto(${JSON.stringify(fixture.url)}); console.log(JSON.stringify(await page.evaluate(() => { globalThis.journalReads = (globalThis.journalReads ?? 0) + 1; return {value:'journal-sample', separator:'line\u2028separator', secret:'journal-secret', observedAt:Date.now()}; })));`,
       }),
       (context) => {
-        const match = context.systemPrompt.match(/^Run journal \(JSON path\): (.+)$/m);
+        const match = getCurrentSystemPrompt(context.messages).match(
+          /^Run journal \(JSON path\): (.+)$/m,
+        );
         assert.ok(match, 'The live journal must be discoverable before delivery.');
         journalPath = JSON.parse(match[1]);
         return call('javascript', {
@@ -590,7 +594,7 @@ var journalRecovered = {observation:JSON.parse(observedEnd.event.result.content.
     s.faux.setResponses([
       (context) => {
         followUpPath = JSON.parse(
-          context.systemPrompt.match(/^Run journal \(JSON path\): (.+)$/m)[1],
+          getCurrentSystemPrompt(context.messages).match(/^Run journal \(JSON path\): (.+)$/m)[1],
         );
         return call('finish', { result: 'continued' });
       },
@@ -937,7 +941,7 @@ test('final allowed step is delivery-only and remains inside the turn cap', asyn
     call('javascript', { code: "const findings='one verified finding'" }),
     (context) => {
       assert.deepEqual(
-        context.tools.map((t) => t.name),
+        getCurrentTools(context.messages).map((t) => t.name),
         ['finish', 'finish_from_js'],
       );
       return call('finish_from_js', { expression: 'findings' });

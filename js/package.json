@@ -36,9 +36,9 @@
     "test:bun": "npm run build && DO_NOT_TRACK=1 bun test --timeout 60000 test/compatibility.test.mjs test/runtime.test.mjs test/agent.test.mjs test/sessions.test.mjs test/recovery.test.mjs test/recording.test.mjs test/policy.test.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.85.1",
-    "@earendil-works/pi-ai": "0.85.1",
-    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-agent-core": "0.87.1",
+    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-coding-agent": "0.87.1",
     "devtools-protocol": "0.0.1692173",
     "typebox": "1.3.7"
   },
