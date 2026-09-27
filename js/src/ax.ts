@@ -111,7 +111,7 @@ export class AxHelpers {
     return session;
   }
 
-  /** URL, document identity and a counter of DOM mutations (style aside) and form input/change events. */
+  /** URL, title, document identity, a counter of DOM mutations (style aside) and form input/change events. */
   private probe(page: Page) {
     return page.evaluate(() => {
       const w = window as unknown as {
@@ -159,8 +159,10 @@ export class AxHelpers {
         idle: performance.now() - w.__buLast,
         ready: document.readyState,
         url: location.href,
+        title: document.title,
         n: w.__buN,
         doc: w.__buDoc,
+        files: !!document.querySelector('input[type=file]'),
       };
     });
   }
@@ -177,9 +179,10 @@ export class AxHelpers {
     const session = await this.trackNetwork(page).catch(() => undefined);
     let limit = cap;
     let pending = 0;
+    let probe: Awaited<ReturnType<AxHelpers['probe']>> | undefined;
     while (Date.now() - start < limit) {
       try {
-        const probe = await this.probe(page);
+        probe = await this.probe(page);
         const now = Date.now();
         if (probe.ready === 'loading') limit = Math.max(cap, 3000); // navigations need longer than in-page updates
         probe.idle = Math.min(probe.idle, now - start); // quiet must be observed after this action began
@@ -188,7 +191,7 @@ export class AxHelpers {
           : 0;
         const netIdle = session ? now - (this.lastNet.get(session) ?? 0) : quiet;
         if (probe.ready !== 'loading' && probe.idle >= quiet && pending === 0 && netIdle >= quiet)
-          return { why: 'quiet', pending, ms: now - start };
+          return { why: 'quiet', pending, ms: now - start, probe };
       } catch (error) {
         // Navigation in progress: wait for the new document. Anything else ends the wait, never the action.
         if (!isContextLoss(error)) return { why: 'error', pending, ms: Date.now() - start };
@@ -272,11 +275,12 @@ export class AxHelpers {
     const page = this.page();
     this.acted = false; // a look after the last action replaces the automatic print
     const settled = await this.settle({ capMs: 3000 });
+    // The settle probe already has URL and title, and says whether a file input needs looking up.
     const [frames, info, visible, files] = await Promise.all([
       this.capture(page),
-      page.info(),
+      settled.probe ?? page.info(),
       this.visibleText(page).catch(() => undefined),
-      this.fileInputs(page).catch(() => []),
+      settled.probe?.files === false ? [] : this.fileInputs(page).catch(() => []),
     ]);
     const previous = this.last;
     this.last = new Map();
