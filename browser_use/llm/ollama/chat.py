@@ -68,7 +68,13 @@ class ChatOllama(BaseChatModel):
 		"""
 		Returns an OllamaAsyncClient client.
 		"""
-		return OllamaAsyncClient(host=self.host, timeout=self.timeout, **self.client_params or {})
+		# Merge client_params over the explicit host/timeout instead of passing both,
+		# so SDK-explicit keys (timeout, headers, follow_redirects, ...) sent through
+		# client_params act as overrides instead of crashing with
+		# "got multiple values for keyword argument" at the call site.
+		params: dict[str, Any] = {'host': self.host, 'timeout': self.timeout}
+		params.update(self.client_params or {})
+		return OllamaAsyncClient(**params)
 
 	@property
 	def name(self) -> str:
