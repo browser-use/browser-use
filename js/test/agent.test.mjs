@@ -24,8 +24,8 @@ after(async () => {
   await fixture?.close();
 });
 
-async function session(responses, config = {}) {
-  const faux = fauxProvider({ tokensPerSecond: 1_000_000 });
+async function session(responses, config = {}, api) {
+  const faux = fauxProvider({ tokensPerSecond: 1_000_000, ...(api && { api }) });
   const models = createModels();
   models.setProvider(faux.provider);
   faux.setResponses(responses);
@@ -347,15 +347,9 @@ test('one empty-ending repair delivers existing records with the same transcript
       assert.match(context.messages.at(-1).content[0].text, /single delivery repair/);
       assert.deepEqual(
         getCurrentTools(context.messages).map((t) => t.name),
-        ['javascript', 'finish', 'finish_from_js'],
+        ['finish', 'finish_from_js'],
       );
-      return fauxAssistantMessage(
-        [
-          fauxToolCall('javascript', { code: 'mutations++' }),
-          fauxToolCall('finish_from_js', { expression: 'JSON.stringify(records)' }),
-        ],
-        { stopReason: 'toolUse' },
-      );
+      return call('finish_from_js', { expression: 'JSON.stringify(records)' });
     },
   ]);
   try {
@@ -944,21 +938,50 @@ for (const limit of ['max_steps', 'cost_limit', 'timeout', 'cancelled']) {
 
 test('final allowed step is delivery-only and remains inside the turn cap', async () => {
   const s = await session([
-    call('javascript', { code: "let findings='one verified finding'" }),
+    call('javascript', { code: "const findings='one verified finding'" }),
     (context) => {
       assert.deepEqual(
         getCurrentTools(context.messages).map((t) => t.name),
-        ['javascript', 'finish', 'finish_from_js'],
+        ['finish', 'finish_from_js'],
       );
-      return fauxAssistantMessage(
-        [
-          fauxToolCall('javascript', { code: "findings='overwritten'" }),
-          fauxToolCall('finish_from_js', { expression: 'findings' }),
-        ],
-        { stopReason: 'toolUse' },
-      );
+      return call('finish_from_js', { expression: 'findings' });
     },
   ]);
+  try {
+    const result = await s.agent.run('Audit', { maxSteps: 2 });
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 'one verified finding');
+    assert.equal(s.faux.state.callCount, 2);
+  } finally {
+    await s.close();
+  }
+});
+
+test('OpenAI delivery turns keep the tool list and restrict calls with allowed_tools', async () => {
+  const s = await session(
+    [
+      call('javascript', { code: "let findings='one verified finding'" }),
+      (context, options) => {
+        assert.deepEqual(
+          getCurrentTools(context.messages).map((t) => t.name),
+          ['javascript', 'finish', 'finish_from_js'],
+        );
+        assert.deepEqual(
+          options.toolChoice.tools.map((t) => t.name),
+          ['finish', 'finish_from_js'],
+        );
+        return fauxAssistantMessage(
+          [
+            fauxToolCall('javascript', { code: "findings='overwritten'" }),
+            fauxToolCall('finish_from_js', { expression: 'findings' }),
+          ],
+          { stopReason: 'toolUse' },
+        );
+      },
+    ],
+    {},
+    'openai-responses',
+  );
   try {
     const result = await s.agent.run('Audit', { maxSteps: 2 });
     assert.equal(result.status, 'completed');

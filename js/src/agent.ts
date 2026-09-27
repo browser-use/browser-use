@@ -171,10 +171,11 @@ export async function runAgent(
         signal,
       ),
   };
-  // Delivery turns keep the full tool list: it is part of the provider's cached prompt prefix.
+  // OpenAI restricts delivery turns with allowed_tools, so the tool list (part of the cached prompt prefix) stays.
+  const keepTools = model.api === 'openai-responses';
   const delivering = () => finalizing || finishRepairs > 0;
   const deliveryTools = ['finish', 'finish_from_js'];
-  // OpenAI restricts calls without changing that list; pi-ai forwards toolChoice verbatim.
+  // pi-ai forwards toolChoice verbatim.
   const deliveryChoice = {
     type: 'allowed_tools',
     mode: 'auto',
@@ -209,9 +210,7 @@ export async function runAgent(
         config.streamFn(selected, redact(request, config.redact ?? []), {
           ...settings,
           maxTokens: Math.min(selected.maxTokens, 32768, Math.floor(selected.contextWindow * 0.15)),
-          ...(delivering() && selected.api === 'openai-responses'
-            ? { toolChoice: deliveryChoice }
-            : {}),
+          ...(delivering() && keepTools ? { toolChoice: deliveryChoice } : {}),
         }),
       config.modelTimeoutMs ?? 300_000,
     ),
@@ -279,6 +278,10 @@ export async function runAgent(
             'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_js. Reference saved files; explicitly list missing evidence. Do not perform more browser actions.',
           timestamp: Date.now(),
         });
+        if (!keepTools) {
+          agent.state.tools = [finish, finishFromJs];
+          return { context: { ...current, tools: [finish, finishFromJs] } };
+        }
       }
       return undefined;
     },
@@ -411,6 +414,7 @@ export async function runAgent(
         };
         if (!checkBudgets([...agent.state.messages, repair], agent.state.systemPrompt)) {
           finishRepairs = 1;
+          if (!keepTools) agent.state.tools = [finish, finishFromJs];
           await agent.prompt(repair);
         }
       }
