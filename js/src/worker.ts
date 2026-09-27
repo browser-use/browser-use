@@ -29,12 +29,12 @@ function deferredPage(targetId?: string) {
   return Page.deferred(
     browser,
     async () => {
-      if (targetId) {
-        // Only create a replacement when the target is actually absent, not on an attach timeout.
-        const existing = await tabs.list();
-        if (existing.some((t) => t.targetId === targetId)) return tabs.get(targetId);
-      }
-      return tabs.open();
+      const existing = await tabs.list();
+      // Only create a replacement when the target is actually absent, not on an attach timeout.
+      if (targetId && existing.some((t) => t.targetId === targetId)) return tabs.get(targetId);
+      // The agent's own browser: take its empty tab rather than open a second one beside it.
+      const blank = config.dedicatedBrowser && existing.find((t) => t.url === 'about:blank');
+      return blank ? tabs.get(blank.targetId) : tabs.open();
     },
     targetId,
   );
@@ -129,8 +129,17 @@ Object.assign(realm, {
   tabs,
   page,
   workspace: config.workspace,
-  async reconnect() {
-    const targetId = (Reflect.get(realm, 'page') as Page)?.targetId;
+  async reconnect(endpoint?: string) {
+    let targetId: string | undefined = (Reflect.get(realm, 'page') as Page)?.targetId;
+    if (endpoint !== undefined) {
+      // A host that provisions replacement browsers lets the agent move to one.
+      if (!config.browserSwitching) throw new Error('Switching browsers is not enabled.');
+      if (!['http:', 'https:', 'ws:', 'wss:'].includes(new URL(endpoint).protocol))
+        throw new Error('reconnect(endpoint) needs an HTTP(S) or WebSocket CDP endpoint.');
+      config.endpoint = endpoint;
+      targetId = undefined;
+      send({ type: 'endpoint', endpoint });
+    }
     browser.close();
     browser = CDP.lazy(config.endpoint, config.operationTimeoutMs, config.approveConnection);
     installDomainPolicy(browser, config, (id) => send({ type: 'owned', targetId: id }));
@@ -336,10 +345,16 @@ process.on('message', async (message: WorkerRequest) => {
   if (output.length > config.maxOutputChars)
     output = `${output.slice(0, config.maxOutputChars)}\n[Truncated. Full captured output: ${outputFile}]`;
   const previews = await prepareModelImages(images);
+  const targetId = (Reflect.get(realm, 'page') as Page)?.targetId;
+  if (config.focusTab && targetId) {
+    // Every cell: a new tab or a click elsewhere can take focus without changing \`page\`.
+    // Hosts that act on "the tab the user sees" (typing a secret, a live view) follow the agent.
+    await browser.send('Target.activateTarget', { targetId }).catch(() => {});
+  }
   const result = {
     text: [output, ...previews.notes].filter(Boolean).join('\n') || '(no output)',
     images: previews.images,
-    targetId: (Reflect.get(realm, 'page') as Page)?.targetId,
+    targetId,
     ...(browser.observationTargetId ? { observationTargetId: browser.observationTargetId } : {}),
     ...(valueJson !== undefined ? { valueJson } : {}),
     ...(outputFile ? { outputFile } : {}),

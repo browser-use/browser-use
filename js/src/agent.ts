@@ -211,7 +211,15 @@ export async function runAgent(
         javascript,
         finish,
         finishFromJs,
-        ...(config.researchTools ? researchTools(workspace, config.cellTimeoutMs ?? 30_000) : []),
+        ...(config.researchTools
+          ? researchTools(
+              workspace,
+              config.shellTimeoutMs ?? config.cellTimeoutMs ?? 30_000,
+              config.shellEnv,
+              // Like common coding agents: two minutes unless the command asks for longer.
+              config.shellTimeoutMs ? Math.min(config.shellTimeoutMs, 120_000) : undefined,
+            )
+          : []),
         ...(config.tools ?? []),
       ],
     },

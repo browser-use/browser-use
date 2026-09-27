@@ -45,7 +45,48 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             )
             request = json.loads(await reader.readexactly(length))
             self.requests.append(request)
-            name, args = self.responses.pop(0)
+            if "contents" in request:
+                # Gemini, with the URL-safe signature a re-serializing gateway returns.
+                name, args = self.responses.pop(0)[:2]
+                part = {"functionCall": {"name": name, "args": args}, "thoughtSignature": "-_-_Pj8="}
+                chunk = {
+                    "candidates": [
+                        {"index": 0, "finishReason": "STOP", "content": {"role": "model", "parts": [part]}}
+                    ],
+                    "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5, "totalTokenCount": 15},
+                }
+                payload = f"data: {json.dumps(chunk)}\n\n".encode()
+                writer.write(
+                    f"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {len(payload)}\r\nConnection: close\r\n\r\n".encode()
+                    + payload
+                )
+                await writer.drain()
+                return
+            if "max_tokens" in request and "messages" in request:
+                # Anthropic, answering under the gateway's upstream name for the model.
+                name, args = self.responses.pop(0)[:2]
+                events = [
+                    ("message_start", {"message": {"id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-4-7", "content": [], "stop_reason": None, "usage": {"input_tokens": 10, "output_tokens": 1}}}),
+                    ("content_block_start", {"index": 0, "content_block": {"type": "thinking", "thinking": ""}}),
+                    ("content_block_delta", {"index": 0, "delta": {"type": "thinking_delta", "thinking": "plan"}}),
+                    ("content_block_delta", {"index": 0, "delta": {"type": "signature_delta", "signature": "sig-1"}}),
+                    ("content_block_stop", {"index": 0}),
+                    ("content_block_start", {"index": 1, "content_block": {"type": "tool_use", "id": f"toolu_{len(self.requests)}", "name": name, "input": {}}}),
+                    ("content_block_delta", {"index": 1, "delta": {"type": "input_json_delta", "partial_json": json.dumps(args)}}),
+                    ("content_block_stop", {"index": 1}),
+                    ("message_delta", {"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 5}}),
+                    ("message_stop", {}),
+                ]
+                payload = "".join(
+                    f"event: {kind}\ndata: {json.dumps({'type': kind, **body})}\n\n" for kind, body in events
+                ).encode()
+                writer.write(
+                    f"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {len(payload)}\r\nConnection: close\r\n\r\n".encode()
+                    + payload
+                )
+                await writer.drain()
+                return
+            name, args, *reasoning = self.responses.pop(0)
             index = len(self.requests)
             item = {
                 "id": f"fc_{index}",
@@ -55,7 +96,13 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 "arguments": json.dumps(args),
                 "status": "completed",
             }
+            before = [
+                ("response.output_item.done", {"output_index": 0, "item": item})
+                for item in reasoning
+            ]
+            offset = len(reasoning)
             events = [
+                *before,
                 (
                     "response.created",
                     {
@@ -69,7 +116,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 (
                     "response.output_item.added",
                     {
-                        "output_index": 0,
+                        "output_index": offset,
                         "item": {**item, "arguments": "", "status": "in_progress"},
                     },
                 ),
@@ -77,7 +124,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                     "response.function_call_arguments.delta",
                     {
                         "item_id": item["id"],
-                        "output_index": 0,
+                        "output_index": offset,
                         "delta": item["arguments"],
                     },
                 ),
@@ -85,18 +132,18 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                     "response.function_call_arguments.done",
                     {
                         "item_id": item["id"],
-                        "output_index": 0,
+                        "output_index": offset,
                         "arguments": item["arguments"],
                     },
                 ),
-                ("response.output_item.done", {"output_index": 0, "item": item}),
+                ("response.output_item.done", {"output_index": offset, "item": item}),
                 (
                     "response.completed",
                     {
                         "response": {
                             "id": f"resp_{index}",
                             "status": "completed",
-                            "output": [item],
+                            "output": [*reasoning, item],
                             "usage": {
                                 "input_tokens": 10,
                                 "output_tokens": 5,
@@ -122,12 +169,11 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 
     async def create(self, **options):
         self.agent = await BrowserUse.create(
-            model="openai/gpt-5.5",
             workspace=self.directory.name,
             baseUrl=self.base_url,
             apiKey="local-fixture-key",
             telemetry=False,
-            **options,
+            **{"model": "openai/gpt-5.5", **options},
         )
         return self.agent
 
@@ -244,6 +290,142 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await task
         await asyncio.wait_for(cancelled.wait(), 5)
+
+    async def test_model_id_renames_only_the_upstream_model(self):
+        self.responses = [("finish", {"result": "done"})]
+        agent = await self.create(modelId="gpt-6-luna")
+        self.assertEqual((await agent.run("say done")).output, "done")
+        self.assertEqual(self.requests[0]["model"], "gpt-6-luna")
+
+    async def test_model_info_serves_a_model_newer_than_the_catalog(self):
+        self.responses = [("finish", {"result": "done"})]
+        info = {"template": "openai/gpt-5.5", "contextWindow": 250_000, "maxTokens": 32_000}
+        agent = await self.create(model="openai/gpt-7-fixture", modelInfo=info)
+        self.assertEqual((await agent.run("say done")).output, "done")
+        self.assertEqual(self.requests[0]["model"], "gpt-7-fixture")
+        self.assertEqual(self.requests[0]["max_output_tokens"], 32_000)
+        path = Path(self.directory.name) / "history.json"
+        await agent.save_history(str(path))
+        self.assertEqual(json.loads(path.read_text())["model"], "openai/gpt-7-fixture")
+
+    async def test_gemini_signatures_are_replayed_as_standard_base64(self):
+        self.responses = [("javascript", {"code": "1 + 1"}), ("finish", {"result": "done"})]
+        agent = await self.create(model="google/gemini-3.6-flash")
+        self.assertEqual((await agent.run("add")).output, "done")
+        replayed = [
+            part
+            for content in self.requests[1]["contents"]
+            if content["role"] == "model"
+            for part in content["parts"]
+        ]
+        self.assertEqual(replayed[0]["thoughtSignature"], "+/+/Pj8=")
+
+    async def test_thinking_survives_a_gateway_answering_under_another_model_name(self):
+        self.responses = [("javascript", {"code": "1 + 1"}), ("finish", {"result": "done"})]
+        agent = await self.create(model="anthropic/claude-opus-4-7", modelId="claude-opus-4.7")
+        self.assertEqual((await agent.run("add")).output, "done")
+        replayed = [
+            block
+            for message in self.requests[1]["messages"]
+            if message["role"] == "assistant"
+            for block in message["content"]
+        ]
+        self.assertIn({"type": "thinking", "thinking": "plan", "signature": "sig-1"}, replayed)
+
+    async def test_model_info_thinking_levels_override_the_catalog(self):
+        self.responses = [("finish", {"result": "done"})]
+        info = {"thinkingLevelMap": {"off": "disabled"}, "compat": {"supportsMidConvoEffort": False}}
+        agent = await self.create(model="anthropic/claude-opus-5", modelInfo=info, reasoning="off")
+        await agent.run("say done")
+        self.assertEqual(self.requests[0]["thinking"], {"type": "disabled"})
+
+    async def test_model_info_can_turn_thinking_off_entirely(self):
+        self.responses = [("finish", {"result": "done"})]
+        agent = await self.create(model="anthropic/claude-opus-5", modelInfo={"reasoning": False, "compat": {"supportsMidConvoEffort": False}})
+        try:
+            await agent.run("say done")
+        except BrowserUseError:
+            pass  # the fixture cannot answer in Anthropic's format; only the request matters
+        self.assertNotIn("thinking", self.requests[0])
+        self.assertNotIn("output_config", self.requests[0])
+
+    async def test_shell_env_reaches_the_bash_tool(self):
+        self.responses = [("bash", {"command": "echo token=$CLOUD_TOKEN"}), ("finish", {"result": "done"})]
+        agent = await self.create(researchTools=True, shellEnv={"CLOUD_TOKEN": "fixture-run-token"})
+        self.assertEqual((await agent.run("check")).output, "done")
+        self.assertIn("token=fixture-run-token", json.dumps(self.requests[1]["input"]))
+
+    async def test_shell_timeout_outlasts_the_cell_timeout(self):
+        # Installs and deploys outlast a browser cell; the host sets the shell's own limit.
+        self.responses = [("bash", {"command": "sleep 3 && echo slept"}), ("finish", {"result": "done"})]
+        agent = await self.create(researchTools=True, cellTimeoutMs=2000, shellTimeoutMs=10000)
+        self.assertEqual((await agent.run("wait")).output, "done")
+        outputs = [i for i in self.requests[1]["input"] if i.get("type") == "function_call_output"]
+        self.assertTrue(any("slept" in json.dumps(i["output"]) for i in outputs), outputs)
+
+    async def test_moving_to_another_browser_needs_the_host_option(self):
+        agent = await self.create(browser={"kind": "chromium"})
+        with self.assertRaisesRegex(BrowserUseError, "not enabled"):
+            await agent.execute("await reconnect('ws://127.0.0.1:9/devtools/browser/x')")
+
+    async def test_model_info_compat_overrides_the_catalog(self):
+        # A gateway that does not forward Anthropic betas needs the beta-only effort
+        # messages off; the fixture cannot answer in Anthropic's format, so only the
+        # request matters.
+        for info in (None, {"compat": {"supportsMidConvoEffort": False}}):
+            self.responses = [("finish", {"result": "done"})]
+            await self.create(model="anthropic/claude-opus-5", **({"modelInfo": info} if info else {}))
+            try:
+                await self.agent.run("say done")
+            except BrowserUseError:
+                pass
+            await self.agent.close()
+        beta_messages = [
+            [m for m in request["messages"] if "output_config" in m] for request in self.requests
+        ]
+        self.assertTrue(beta_messages[0])
+        self.assertEqual(beta_messages[-1], [])
+
+    async def test_unknown_model_without_a_template_is_refused(self):
+        with self.assertRaisesRegex(BrowserUseError, "Unknown model"):
+            await self.create(model="openai/gpt-7-fixture", modelInfo={"maxTokens": 32_000})
+
+    async def test_gateway_null_fields_are_not_replayed_on_reasoning_items(self):
+        # Gateways that re-serialize Responses events add nulls such as "status": null,
+        # which OpenAI rejects when the item comes back as input on the next turn.
+        reasoning = {
+            "id": "rs_1",
+            "type": "reasoning",
+            "summary": [],
+            "encrypted_content": "gAAAA-opaque",
+            "status": None,
+        }
+        self.responses = [
+            ("javascript", {"code": "1 + 1"}, reasoning),
+            ("finish", {"result": "done"}),
+        ]
+        agent = await self.create()
+        self.assertEqual((await agent.run("add")).output, "done")
+        replayed = [i for i in self.requests[1]["input"] if i.get("type") == "reasoning"]
+        self.assertEqual(replayed, [{k: v for k, v in reasoning.items() if v is not None}])
+
+    async def test_stream_deltas_false_keeps_only_settled_events(self):
+        self.responses = [("finish", {"result": "done"})]
+        agent = await self.create(streamDeltas=False)
+        seen = []
+
+        async def collect():
+            async for event in agent.events():
+                if event.get("type") == "agent_event":
+                    seen.append(event["event"]["type"])
+
+        task = asyncio.create_task(collect())
+        await asyncio.sleep(0)
+        await agent.run("finish")
+        await asyncio.sleep(0.2)
+        task.cancel()
+        self.assertNotIn("message_update", seen)
+        self.assertIn("message_end", seen)
 
     async def test_unknown_options_and_missing_runtime_fail_explicitly(self):
         with self.assertRaisesRegex(BrowserUseError, "Unsupported create option"):

@@ -82,6 +82,21 @@ export class BrowserUse {
       throw new Error('highlightActions must be boolean.');
     if (options.researchTools !== undefined && typeof options.researchTools !== 'boolean')
       throw new Error('researchTools must be boolean.');
+    if (options.shellTimeoutMs !== undefined)
+      positiveInteger('shellTimeoutMs', options.shellTimeoutMs);
+    if (options.browserSwitching !== undefined && typeof options.browserSwitching !== 'boolean')
+      throw new Error('browserSwitching must be boolean.');
+    if (options.dedicatedBrowser !== undefined && typeof options.dedicatedBrowser !== 'boolean')
+      throw new Error('dedicatedBrowser must be boolean.');
+    if (options.focusTab !== undefined && typeof options.focusTab !== 'boolean')
+      throw new Error('focusTab must be boolean.');
+    if (
+      options.shellEnv !== undefined &&
+      (typeof options.shellEnv !== 'object' ||
+        options.shellEnv === null ||
+        Object.values(options.shellEnv).some((value) => typeof value !== 'string'))
+    )
+      throw new Error('shellEnv must map names to strings.');
     if (options.recording && typeof options.recording === 'object') {
       positiveInteger('recording.intervalMs', options.recording.intervalMs ?? 750);
       positiveInteger('recording.maxFrames', options.recording.maxFrames ?? 400);
@@ -154,6 +169,9 @@ export class BrowserUse {
         ...(options.browser && 'targetId' in options.browser && options.browser.targetId
           ? { targetId: options.browser.targetId }
           : {}),
+        ...(options.focusTab ? { focusTab: true } : {}),
+        ...(options.browserSwitching ? { browserSwitching: true } : {}),
+        ...(options.dedicatedBrowser ? { dedicatedBrowser: true } : {}),
         workspace,
         operationTimeoutMs,
         maxOutputChars,
@@ -375,10 +393,11 @@ export class BrowserUse {
     return event;
   }
 
-  /** Subscribe before starting work. Iterators finish when the session closes. */
-  events(): EventStream {
+  /** Subscribe before starting work. Iterators finish when the session closes.
+   * `accept` drops events before they count against the stream's bounds. */
+  events(accept?: (event: SessionEvent) => boolean): EventStream {
     if (this.closed) throw new Error('BrowserUse is closed.');
-    const stream = new EventStream(() => this.streams.delete(stream));
+    const stream = new EventStream(() => this.streams.delete(stream), 256, accept);
     this.streams.add(stream);
     return stream;
   }
@@ -465,14 +484,19 @@ export class BrowserUse {
   }
 
   /** Idempotent. Cancels execution, closes our tab, and shuts down only browsers we launched. */
-  close(): Promise<void> {
+  /** The tab the agent is working in, for a host that resumes it in a later session. */
+  get currentTarget(): string | undefined {
+    return this.runtime.currentTarget;
+  }
+
+  close(options: { keepTabs?: boolean | 'current' } = {}): Promise<void> {
     if (this.closing) return this.closing;
     this.closed = true;
     this.cancel();
     this.closing = (async () => {
       try {
         await this.activeRun?.catch(() => {});
-        await this.runtime.close();
+        await this.runtime.close(options);
       } finally {
         try {
           await this.browser.close();

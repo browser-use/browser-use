@@ -23,9 +23,10 @@ export class EventStream implements AsyncIterableIterator<SessionEvent> {
   constructor(
     private readonly dispose: () => void,
     private readonly capacity = 256,
+    private readonly accept: (event: SessionEvent) => boolean = () => true,
   ) {}
   push(event: SessionEvent) {
-    if (this.ended) return;
+    if (this.ended || !this.accept(event)) return;
     const size = JSON.stringify(event).length;
     if (this.queue.length >= this.capacity || this.bytes + size > 8_000_000) {
       this.error = new Error(

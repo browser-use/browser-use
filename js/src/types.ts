@@ -27,6 +27,16 @@ export interface BrowserUseOptions extends DomainOptions {
   reasoning?: ThinkingLevel;
   /** Opt-in Pi read/write/edit/bash tools. Not a filesystem sandbox. */
   researchTools?: boolean;
+  /** Extra environment for the research bash tool, e.g. a host's API credentials. */
+  shellEnv?: Record<string, string>;
+  /** Longest a research bash command may run; commands default to two minutes within it. */
+  shellTimeoutMs?: number;
+  /** Let the agent move to another browser with reconnect(cdpUrl), e.g. one the host provisioned. */
+  browserSwitching?: boolean;
+  /** The browser is the agent's alone (e.g. a host-provisioned cloud browser): its empty tab is taken over instead of opening another. */
+  dedicatedBrowser?: boolean;
+  /** Activate the tab the agent drives after each cell, for hosts that act on the focused tab. */
+  focusTab?: boolean;
   tools?: AgentState['tools'];
   instructions?: string;
   operationTimeoutMs?: number;

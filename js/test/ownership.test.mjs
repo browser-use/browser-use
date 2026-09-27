@@ -58,6 +58,88 @@ test('external tabs/cookies survive normal cleanup and timeout; SDK tabs are rem
   }
 });
 
+test('keepTabs leaves the session tabs, and currentTarget names the one in use', async () => {
+  const external = await openBrowser();
+  const workspace = await mkdtemp(join(tmpdir(), 'bu-keep-tabs-'));
+  const cdp = await CDP.connect(external.endpoint);
+  try {
+    const agent = await BrowserUse.create({
+      model: 'openai/gpt-5.4',
+      browser: { cdpUrl: external.endpoint },
+      workspace,
+    });
+    await agent.execute("page = await tabs.open('data:text/html,<title>kept</title>')");
+    const current = agent.currentTarget;
+    await agent.close({ keepTabs: true });
+    const pages = (await cdp.send('Target.getTargets')).targetInfos.filter(
+      (t) => t.type === 'page',
+    );
+    assert.equal(pages.length, 2);
+    assert.equal(pages.find((t) => t.targetId === current)?.title, 'kept');
+  } finally {
+    cdp.close();
+    await external.close();
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("keepTabs 'current' keeps only the tab in use and closes scratch tabs", async () => {
+  const external = await openBrowser();
+  const workspace = await mkdtemp(join(tmpdir(), 'bu-keep-current-'));
+  const cdp = await CDP.connect(external.endpoint);
+  try {
+    const agent = await BrowserUse.create({
+      model: 'openai/gpt-5.4',
+      browser: { cdpUrl: external.endpoint },
+      workspace,
+    });
+    await agent.execute("await tabs.open('data:text/html,<title>scratch</title>')");
+    await agent.execute("page = await tabs.open('data:text/html,<title>kept</title>')");
+    const current = agent.currentTarget;
+    await agent.close({ keepTabs: 'current' });
+    const pages = (await cdp.send('Target.getTargets')).targetInfos.filter(
+      (t) => t.type === 'page',
+    );
+    assert.deepEqual(pages.map((t) => t.title).sort(), ['about:blank', 'kept'].sort());
+    assert.equal(pages.find((t) => t.targetId === current)?.title, 'kept');
+  } finally {
+    cdp.close();
+    await external.close();
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('browserSwitching moves the agent to another browser and a restarted worker stays there', async () => {
+  const first = await openBrowser();
+  const second = await openBrowser();
+  const workspace = await mkdtemp(join(tmpdir(), 'bu-switch-'));
+  const cdp = await CDP.connect(second.endpoint);
+  try {
+    const agent = await BrowserUse.create({
+      model: 'openai/gpt-5.4',
+      browser: { cdpUrl: first.endpoint },
+      workspace,
+      browserSwitching: true,
+    });
+    try {
+      const moved = await agent.execute(`await reconnect(${JSON.stringify(second.endpoint)})`);
+      assert.match(moved.text, /Connection reset/);
+      await agent.execute("page = await tabs.open('data:text/html,<title>moved</title>')");
+      await assert.rejects(agent.execute('while(true){}', { timeoutMs: 50 }), /exceeded/);
+      await agent.execute("await tabs.open('data:text/html,<title>after-restart</title>')");
+      const titles = (await cdp.send('Target.getTargets')).targetInfos.map((t) => t.title);
+      assert.ok(titles.includes('moved') && titles.includes('after-restart'), titles.join(', '));
+    } finally {
+      await agent.close({ keepTabs: true });
+    }
+  } finally {
+    cdp.close();
+    await first.close();
+    await second.close();
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test('provider environment and host preload flags are not inherited; dynamic imports work', async () => {
   process.env.BU_TEST_FAKE_SECRET = 'test-only-not-a-credential';
   const agent = await BrowserUse.create({ model: 'openai/gpt-5.4' });
@@ -129,3 +211,26 @@ for (const delayed of [true, false]) {
     }
   });
 }
+
+test('a dedicated browser has its empty tab taken over instead of a second one opened', async () => {
+  const external = await openBrowser();
+  const cdp = await CDP.connect(external.endpoint);
+  const pages = async () =>
+    (await cdp.send('Target.getTargets')).targetInfos.filter((t) => t.type === 'page');
+  const agent = await BrowserUse.create({
+    model: 'openai/gpt-5.4',
+    browser: { cdpUrl: external.endpoint },
+    dedicatedBrowser: true,
+  });
+  try {
+    const [blank] = await pages();
+    const result = await agent.execute('await page.info()');
+    assert.equal(result.targetId, blank.targetId);
+    assert.equal((await pages()).length, 1);
+  } finally {
+    await agent.close();
+    await rm(agent.workspace, { recursive: true, force: true });
+    cdp.close();
+    await external.close();
+  }
+});
