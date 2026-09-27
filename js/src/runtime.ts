@@ -227,8 +227,9 @@ export class BrowserRuntime {
       }
       if ((message.type === 'result' || message.type === 'error') && message.result?.targetId)
         this.targetId = message.result.targetId;
+      // Unset once the worker reports none, e.g. after that tab closed: never a dead target.
       if (message.type === 'result' || message.type === 'error')
-        this.activeTarget = message.result?.activeTargetId ?? this.activeTarget;
+        this.activeTarget = message.result?.activeTargetId;
       if (message.type === 'error')
         throw new CellError(message.message, message.result ?? { text: '', images: [] }, false);
       if (message.type !== 'result') throw new Error('Unexpected browser worker response.');

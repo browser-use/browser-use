@@ -260,3 +260,26 @@ test("a tab code works in through `const page` is current, and keepTabs 'current
     await external.close();
   }
 });
+
+test('closing the tab the code worked in hands current back to the page global', async () => {
+  const external = await openBrowser();
+  const agent = await BrowserUse.create({
+    model: 'openai/gpt-5.4',
+    browser: { cdpUrl: external.endpoint },
+    dedicatedBrowser: true,
+  });
+  try {
+    await agent.execute('await page.info()');
+    const main = agent.currentTarget;
+    await agent.execute(
+      "const t = await tabs.open('data:text/html,<title>side</title>'); await t.info()",
+    );
+    assert.notEqual(agent.currentTarget, main);
+    await agent.execute('await t.close()');
+    assert.equal(agent.currentTarget, main);
+  } finally {
+    await agent.close();
+    await rm(agent.workspace, { recursive: true, force: true });
+    await external.close();
+  }
+});
