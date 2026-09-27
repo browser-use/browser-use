@@ -38,7 +38,7 @@ Ultrafast: the global \`bu\` in the javascript REPL. Each model call costs ~1 s,
   Each action prints one line: navigated to <url> / page changed / no change. Autocomplete: type, look, then click the suggestion.
 - Raw: upload to a file line with await page.cdp('DOM.setFileInputFiles', {backendNodeId: id, files: [await artifact('cv.txt', 'text')]}); keys await page.cdp('Input.dispatchKeyEvent', {type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27}) then the same with type 'keyUp'; drag with Input.dispatchMouseEvent mousePressed, mouseMoved, mouseReleased.
 - If a helper fails once, do it raw. Read data with page.evaluate(() => ...), but confirm an outcome with bu.state() (visible text only), not innerText. Never add blind sleeps (setTimeout): actions and bu.state() wait for the page; for a specific condition use await page.waitFor(() => ...).
-- alert/confirm/prompt dialogs are accepted automatically; their text is printed as [dialog ...].
+- alert/confirm/prompt/beforeunload dialogs are accepted automatically; their text is printed as [dialog ...].
 `;
 
 /** State print and id-based actions on Chrome's accessibility tree. Raw page/CDP stays available. */
@@ -124,18 +124,26 @@ export class AxHelpers {
         w.__buLast = performance.now();
         w.__buN = 0;
         w.__buDoc = Math.random();
-        // Style-only records (animations) and the action highlight's own overlay are not the page reacting.
+        // The action highlight's own overlay is not the page reacting. A style change counts only as the first
+        // on its element in 200 ms: a menu shown via style.display is a change, an animation loop goes quiet.
         const own = (n: Node) =>
           (n as Element).hasAttribute?.('data-browser-use-interaction-highlight');
+        const styled = new WeakMap<Node, number>();
         w.__buObs = new MutationObserver((records) => {
-          if (
-            records.some(
-              (r) =>
-                r.attributeName !== 'style' &&
-                !Array.from(r.addedNodes).concat(Array.from(r.removedNodes)).some(own),
+          const now = performance.now();
+          let real = false;
+          for (const r of records) {
+            if (
+              own(r.target) ||
+              Array.from(r.addedNodes).concat(Array.from(r.removedNodes)).some(own)
             )
-          ) {
-            w.__buLast = performance.now();
+              continue;
+            if (r.attributeName !== 'style') real = true;
+            else if (now - (styled.get(r.target) ?? -1e9) > 200) real = true;
+            if (r.attributeName === 'style') styled.set(r.target, now);
+          }
+          if (real) {
+            w.__buLast = now;
             w.__buN++;
           }
         });
@@ -301,7 +309,7 @@ export class AxHelpers {
         const focusable =
           prop(n, 'focusable') &&
           role !== 'RootWebArea' &&
-          (role !== 'generic' || name || n.value?.value || prop(n, 'editable'));
+          (name || n.value?.value || prop(n, 'editable'));
         if (!id || !(CONTROLS.has(role) || focusable)) {
           if (!BLOCKS.has(role)) return kids();
           flush();
@@ -462,11 +470,24 @@ export class AxHelpers {
       : undefined;
     // The node under the point and its ancestors: name the nearest one with a name or a dialog role.
     const byId = new Map(tree?.nodes.map((n) => [n.nodeId, n]));
-    let n = tree?.nodes.find((a) => a.backendDOMNodeId === hit?.backendNodeId);
-    while (n && (n.ignored || !(norm(n.name?.value) || /dialog/.test(String(n.role?.value)))))
+    const top = tree?.nodes.find((a) => a.backendDOMNodeId === hit?.backendNodeId);
+    let n = top;
+    while (
+      n &&
+      n.role?.value !== 'RootWebArea' &&
+      (n.ignored || !(norm(n.name?.value) || /dialog/.test(String(n.role?.value))))
+    )
       n = n.parentId ? byId.get(n.parentId) : undefined;
+    // A nameless overlay: name it by its own text instead of the page it sits on.
+    const text = (x?: AX) =>
+      norm(x?.name?.value) ||
+      norm(
+        x?.childIds?.map((c) => byId.get(c)).find((c) => c?.role?.value === 'StaticText')?.name
+          ?.value,
+      );
+    if (!n || n.role?.value === 'RootWebArea') n = top;
     throw new Error(
-      `Target covered by ${n ? `[${n.backendDOMNodeId}] ${n.role?.value} "${clip(norm(n.name?.value), 60)}"` : hit ? `[${hit.backendNodeId}]` : 'another element'}; nothing was clicked`,
+      `Target covered by ${n ? `[${n.backendDOMNodeId}] ${n.role?.value} "${clip(text(n), 60)}"` : hit ? `[${hit.backendNodeId}]` : 'another element'}; nothing was clicked`,
     );
   }
 

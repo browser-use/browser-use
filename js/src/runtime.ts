@@ -199,7 +199,7 @@ export class BrowserRuntime {
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const outputFile = join(directory, `${randomUUID()}.txt`);
       await writeFile(outputFile, '', { flag: 'wx', mode: 0o600 });
-      // Ultrafast prints the page state after the cell's code; that print gets its own time on top of the cell's.
+      // Ultrafast prints the page state after the cell's code, so its cells may run up to 10 s past timeoutMs.
       const response = this.receive(
         worker,
         timeoutMs + (this.config.mode === 'ultrafast' ? 10_000 : 0),
