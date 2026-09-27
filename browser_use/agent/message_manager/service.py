@@ -9,6 +9,7 @@ from browser_use.agent.message_manager.views import (
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import (
 	ActionResult,
+	AgentError,
 	AgentOutput,
 	AgentStepInfo,
 	MessageCompactionSettings,
@@ -375,8 +376,9 @@ class MessageManager:
 					history_item = HistoryItem(step_number=step_number, action_results=action_results)
 					self.state.agent_history_items.append(history_item)
 				elif step_number > 0:
-					# Error case for steps > 0
-					history_item = HistoryItem(step_number=step_number, error='Agent failed to output in the right format.')
+					# Error case for steps > 0: report the real cause — `model_output is None` also
+					# covers dropped connections and timeouts, not just malformed output.
+					history_item = HistoryItem(step_number=step_number, error=action_results or AgentError.VALIDATION_ERROR)
 					self.state.agent_history_items.append(history_item)
 		else:
 			history_item = HistoryItem(
