@@ -32,6 +32,10 @@ class SecurityWatchdog(BaseWatchdog):
 		BrowserErrorEvent,
 	]
 
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self._dns_cache: dict[str, bool] = {}
+
 	async def on_NavigateToUrlEvent(self, event: NavigateToUrlEvent) -> None:
 		"""Check if navigation URL is allowed before navigation starts."""
 		# Security check BEFORE navigation
@@ -200,10 +204,15 @@ class SecurityWatchdog(BaseWatchdog):
 		if clean_host in ('localhost', 'localhost.localdomain') or clean_host.endswith('.localhost'):
 			return True
 
+		if hasattr(self, '_dns_cache') and clean_host in self._dns_cache:
+			return self._dns_cache[clean_host]
+
 		try:
 			addr_infos = socket.getaddrinfo(clean_host, None)
 		except Exception:
-			return False
+			if hasattr(self, '_dns_cache'):
+				self._dns_cache[clean_host] = True
+			return True
 
 		cgnat = ipaddress.ip_network('100.64.0.0/10')
 		for addr in addr_infos:
@@ -218,10 +227,14 @@ class SecurityWatchdog(BaseWatchdog):
 					or str(ip_obj) == '169.254.169.254'
 					or ip_obj in cgnat
 				):
+					if hasattr(self, '_dns_cache'):
+						self._dns_cache[clean_host] = True
 					return True
 			except Exception:
 				continue
 
+		if hasattr(self, '_dns_cache'):
+			self._dns_cache[clean_host] = False
 		return False
 
 	def _is_url_allowed(self, url: str) -> bool:
