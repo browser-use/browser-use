@@ -32,6 +32,7 @@ The default output is a string. Schema validation checks shape; `validateResult(
 | `instructions`, `tools`, `researchTools`                 | Extra instructions and Pi tools                     |
 | `beforeToolCall`, `afterToolCall`, `validateResult`      | Blocking hooks and validation                       |
 | `log`, `redact`, `recording`, `highlightActions`         | Output and recording                                |
+| `mode`, `webSearch`                                      | `'ultrafast'` adds the `bu` helpers; host search    |
 | `operationTimeoutMs`, `cellTimeoutMs`                    | CDP / JS deadlines; 15s / 30s                       |
 | `modelTimeoutMs`, `compactionTimeoutMs`, `hookTimeoutMs` | Model / summary / hook deadlines; 300s / 120s / 30s |
 | `allowedDomains`, `prohibitedDomains`, `sensitiveData`   | Navigation rules and named credentials              |

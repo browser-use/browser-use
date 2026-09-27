@@ -14,6 +14,13 @@ import type { DomainOptions, SensitiveData } from './policy.js';
 import type { BrowserOptions } from './browser.js';
 
 export interface BrowserUseOptions extends DomainOptions {
+  /** 'ultrafast' adds the `bu` helpers (page state and actions by accessibility-tree id, short page-settle waits) to the REPL. */
+  mode?: 'default' | 'ultrafast';
+  /**
+   * A search endpoint with Browser Use Cloud's /api/v4/search contract; the prompt teaches the model to fetch it.
+   * The model's code can read the token (as the cloud agent's shell can), so pass a run-scoped one.
+   */
+  webSearch?: { url: string; token: string };
   sensitiveData?: SensitiveData;
   /** Anonymous run counters. Disable with false, DO_NOT_TRACK=1 or ANONYMIZED_TELEMETRY=false. */
   telemetry?: boolean;

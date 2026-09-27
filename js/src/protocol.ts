@@ -23,6 +23,8 @@ export interface CellResult {
   outputFile?: string;
 }
 export interface WorkerConfig extends importPolicy {
+  mode?: 'default' | 'ultrafast';
+  webSearch?: { url: string; token: string };
   sensitiveData?: import('./policy.js').SensitiveData;
   redact?: string[];
   endpoint: string;
