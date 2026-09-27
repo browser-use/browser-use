@@ -590,6 +590,7 @@ class BrowserSession(BaseModel):
 	_reconnect_event: asyncio.Event = PrivateAttr(default_factory=asyncio.Event)
 	_reconnect_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 	_reconnect_task: asyncio.Task | None = PrivateAttr(default=None)
+	_reconnect_pending: bool = PrivateAttr(default=False)
 	_intentional_stop: bool = PrivateAttr(default=False)
 
 	_logger: Any = PrivateAttr(default=None)
@@ -634,6 +635,7 @@ class BrowserSession(BaseModel):
 		if self._reconnect_task and not self._reconnect_task.done():
 			self._reconnect_task.cancel()
 			self._reconnect_task = None
+		self._reconnect_pending = False
 		self._reconnecting = False
 		self._reconnect_event.set()  # unblock any waiters
 
@@ -688,11 +690,15 @@ class BrowserSession(BaseModel):
 		self.logger.info('✅ Browser session reset complete')
 
 	def model_post_init(self, __context) -> None:
-		"""Register event handlers after model initialization."""
+		"""Initialize runtime state and register event handlers."""
 		self._connection_lock = asyncio.Lock()
 		# Initialize reconnect event as set (no reconnection pending)
 		self._reconnect_event = asyncio.Event()
 		self._reconnect_event.set()
+		self._register_session_event_handlers()
+
+	def _register_session_event_handlers(self) -> None:
+		"""Register BrowserSession handlers on the current event bus."""
 
 		# Check if handlers are already registered to prevent duplicates
 		from browser_use.browser.watchdog_base import BaseWatchdog
@@ -744,6 +750,7 @@ class BrowserSession(BaseModel):
 		await self.reset()
 		# Create fresh event bus
 		self.event_bus = ResilientEventBus()
+		self._register_session_event_handlers()
 
 	async def stop(self) -> None:
 		"""Stop the browser session without killing the browser process.
@@ -769,6 +776,7 @@ class BrowserSession(BaseModel):
 		await self.reset()
 		# Create fresh event bus
 		self.event_bus = ResilientEventBus()
+		self._register_session_event_handlers()
 
 	async def close(self) -> None:
 		"""Alias for stop()."""
@@ -1422,7 +1430,7 @@ class BrowserSession(BaseModel):
 
 	async def clear_cookies(self) -> None:
 		"""Clear all cookies."""
-		await self.cdp_client.send.Network.clearBrowserCookies()
+		await self.cdp_client.send.Storage.clearCookies()
 
 	async def export_storage_state(self, output_path: str | Path | None = None) -> dict[str, Any]:
 		"""Export all browser cookies and storage to storage_state format.
@@ -2291,8 +2299,17 @@ class BrowserSession(BaseModel):
 				)
 			)
 		finally:
+			reconnect_pending = self._reconnect_pending
+			self._reconnect_pending = False
 			self._reconnecting = False
 			self._reconnect_event.set()  # wake up all waiters regardless of outcome
+
+			if reconnect_pending and not self._intentional_stop and self.cdp_url:
+				try:
+					loop = asyncio.get_running_loop()
+					self._reconnect_task = loop.create_task(self._auto_reconnect())
+				except RuntimeError:
+					self.logger.error('🔌 No event loop available for pending auto-reconnect')
 
 	def _attach_ws_drop_callback(self) -> None:
 		"""Attach a done callback to the CDPClient's message handler task to detect WS drops."""
@@ -2304,8 +2321,11 @@ class BrowserSession(BaseModel):
 			return
 
 		def _on_message_handler_done(fut: asyncio.Future) -> None:
-			# Guard: skip if intentionally stopped, already reconnecting, or no cdp_url
-			if self._intentional_stop or self._reconnecting or not self.cdp_url:
+			# Guard: skip if intentionally stopped or no cdp_url
+			if self._intentional_stop or not self.cdp_url:
+				return
+			if self._reconnecting:
+				self._reconnect_pending = True
 				return
 
 			# The message handler task exiting means the WS connection dropped

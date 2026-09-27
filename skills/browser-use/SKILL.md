@@ -43,11 +43,24 @@ PY
 
 - Invoke as `browser-use`. Use heredocs for multi-line commands.
 - Helpers are pre-imported. `run.py` calls `ensure_daemon()` before `exec`.
-- First navigation is `new_tab(url)`, not `goto_url(url)`.
+- First navigation for a task is `new_tab(url)`, not `goto_url(url)`. The daemon
+  preserves the attached tab across separate CLI invocations, so do not call
+  `new_tab()` again in every script.
+- Keep one working tab per task/site. Before opening another, inspect
+  `current_tab()` and `list_tabs()` and use `switch_tab()` to reuse a matching
+  tab. Do not leave duplicate tabs on the same URL or close tabs you did not
+  create.
 - `new_tab()` and `switch_tab()` attach and move the horse marker without
   changing Chrome's visible tab. Screenshots and normal CDP input work in the
   background; call `activate_tab(target)` only when the user explicitly asks
   or a page demonstrably pauses rendering while hidden.
+- Set `BH_TAB_MARKER=0` before starting the daemon to leave page titles unchanged.
+  The horse marker remains enabled by default.
+- A timed-out `scroll(...)` on an attached background tab is evidence that the
+  page needs to be visible. Call `activate_tab(current_tab())`, retry the same
+  scroll once, then re-read the scroll position. This visibly switches tabs,
+  so do not use it when the user has forbidden foreground changes. Do not
+  invent a `Runtime.evaluate` scroll replacement or a cross-frame JS walker.
 - The normal local flow attaches to the running Chrome/Chromium CDP endpoint. No browser ids or local profile selection.
 
 ## Local Chrome
@@ -66,14 +79,22 @@ If Chrome is running but remote debugging is not enabled, the harness opens:
 chrome://inspect/#remote-debugging
 ```
 
-On macOS, when Chrome asks for remote-debugging permission, run:
+On macOS, when local Chrome asks for remote-debugging permission, keep the
+original browser command running and call `mac-approve` in another shell/tool
+call. Preserve the exact daemon name: if the waiting command used
+`BU_NAME=r7k2`, run:
 
 ```text
-browser-use mac-approve
+BU_NAME=r7k2 browser-use mac-approve
 ```
 
-Continue browser work when it returns `ready`; otherwise follow its printed
-instruction.
+For the default daemon, omit the `BU_NAME` prefix. The original command resumes
+when the helper returns `ready`; do not rerun it. If the helper reports
+`accessibility-required`, ask the user once to grant the app launching
+browser-use (for example Terminal, iTerm, or Codex) access in System
+Settings > Privacy & Security > Accessibility, then call `mac-approve` once
+again. This is only for local Chrome; do not call it for `BU_CDP_URL`,
+`BU_CDP_WS`, or Browser Use Cloud.
 
 ## Remote Browsers
 
@@ -125,6 +146,7 @@ Cloud profile cookie sync reference: https://github.com/browser-use/browser-harn
 - After navigation, call `wait_for_load()`.
 - If the current tab is stale or internal, call `ensure_real_tab()`.
 - Use `js(...)` for DOM inspection or extraction when coordinates are the wrong tool.
+- When entering unusually long text, avoid slow per-character typing: find a faster page-appropriate input method, then verify the page kept the exact value.
 - Login walls: stop and ask. Exception: use available SSO automatically when Chrome is already signed in; still stop for passwords, MFA, consent, or ambiguous account choice.
 - Raw CDP is available with `cdp("Domain.method", ...)`.
 
@@ -184,12 +206,19 @@ If you get stuck on a browser mechanic, check https://github.com/browser-use/bro
 
 - Coordinate clicks default. CDP mouse events pass through iframes/shadow/cross-origin at the compositor level.
 - Keep the connection model simple: use the default daemon, `BU_NAME`, `BU_CDP_URL`, `BU_CDP_WS`, or `start_remote_daemon(...)`.
+- Trusted orchestrators can set `BH_OPEN_LIVE_URL=0` while provisioning a Cloud
+  daemon to keep its interactive live-view URL from being printed or opened.
+  The URL is still created and returned by `start_remote_daemon()`; callers must
+  avoid logging or serializing that returned field.
+- Trusted orchestrators that already provisioned an exact named daemon can set
+  `BH_REQUIRE_EXISTING_DAEMON=1`. Each CLI call then health-checks and reuses
+  that daemon or fails closed; it never auto-starts or discovers another Chrome.
 - Core helpers stay short. Put task-specific helper additions in `$BH_AGENT_WORKSPACE/agent_helpers.py`.
 
 ## Gotchas
 
 - `chrome://inspect/#remote-debugging` must be enabled for local Chrome control.
-- On macOS, if Chrome shows an "Allow remote debugging?" popup, run `browser-use mac-approve`. Do not poll in a loop — the daemon holds one connection.
+- On macOS, if local Chrome shows an "Allow remote debugging?" popup, call `mac-approve` once with the same `BU_NAME` while the original browser command waits. Do not poll or rerun the browser command; remote and cloud browsers do not use this helper.
 - Omnibox popups are not real work tabs.
 - CDP target order is not Chrome's visible tab-strip order.
 - `BU_CDP_URL` is an HTTP DevTools endpoint; the daemon resolves it to WebSocket.

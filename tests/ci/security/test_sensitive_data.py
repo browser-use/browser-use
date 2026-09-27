@@ -18,6 +18,18 @@ class SensitiveParams(BaseModel):
 	text: str = Field(description='Text with sensitive data placeholders')
 
 
+class TupleSensitiveParams(BaseModel):
+	"""Test parameter model for tuple-based sensitive data placeholders."""
+
+	items: tuple[str, ...] = Field(description='Tuple with sensitive data placeholders')
+
+
+class NestedTupleSensitiveParams(BaseModel):
+	"""Test parameter model for nested tuple-based sensitive data placeholders."""
+
+	payload: tuple[dict[str, tuple[str, list[str]]], ...] = Field(description='Nested tuple with sensitive data placeholders')
+
+
 @pytest.fixture
 def registry():
 	return Registry()
@@ -70,6 +82,29 @@ def test_replace_sensitive_data_with_missing_keys(registry, caplog):
 	assert result.text == 'Please enter user123 and <secret>password</secret>'
 	assert 'user123' in result.text
 	assert '<secret>password</secret>' in result.text  # Empty value's tag remains
+
+
+def test_replace_sensitive_data_inside_tuple(registry):
+	"""Test that _replace_sensitive_data replaces placeholders inside tuple fields."""
+	params = TupleSensitiveParams(items=('<secret>api_key</secret>', 'username', 'unchanged'))
+	sensitive_data = {'api_key': 'sk-replaced', 'username': 'admin_user'}
+
+	result = registry._replace_sensitive_data(params, sensitive_data)
+
+	assert result.items == ('sk-replaced', 'admin_user', 'unchanged')
+	assert isinstance(result.items, tuple)
+
+
+def test_replace_sensitive_data_inside_nested_tuple(registry):
+	"""Test that _replace_sensitive_data replaces placeholders inside nested tuples."""
+	params = NestedTupleSensitiveParams(payload=({'credentials': ('<secret>token</secret>', ['<secret>username</secret>'])},))
+	sensitive_data = {'token': 'token-replaced', 'username': 'admin_user'}
+
+	result = registry._replace_sensitive_data(params, sensitive_data)
+
+	assert result.payload == ({'credentials': ('token-replaced', ['admin_user'])},)
+	assert isinstance(result.payload, tuple)
+	assert isinstance(result.payload[0]['credentials'], tuple)
 
 
 def test_simple_domain_specific_sensitive_data(registry, caplog):
@@ -588,3 +623,50 @@ def test_password_field_without_type_attribute():
 	attrs_str = DOMTreeSerializer._build_attributes_string(node, list(DEFAULT_INCLUDE_ATTRIBUTES), '')
 
 	assert value in attrs_str, 'Input without type attribute should preserve its value'
+
+
+def test_history_filters_sensitive_data_inside_nested_lists(tmp_path):
+	"""
+	Saved history must not leak sensitive values that sit below a nested-list
+	boundary in an action parameter (e.g. a list of rows, each row a list).
+	"""
+	from typing import Any
+
+	from pydantic import create_model
+
+	from browser_use.agent.views import AgentHistory, AgentHistoryList, AgentOutput
+	from browser_use.browser.views import BrowserStateHistory
+	from browser_use.tools.registry.views import ActionModel
+
+	class NestedInputAction(BaseModel):
+		rows: list[list[str]]
+		lookup: dict[str, list[dict[str, str]]]
+
+	InputActionModel = create_model('InputActionModel', __base__=ActionModel, input=(NestedInputAction | None, None))
+	OutputModel = AgentOutput.type_with_custom_actions(InputActionModel)
+
+	# built via model_validate because create_model's field is invisible to static analysis
+	action = InputActionModel.model_validate(
+		{
+			'input': {
+				'rows': [['token-123']],
+				'lookup': {'headers': [{'authorization': 'token-123'}]},
+			}
+		}
+	)
+	history = AgentHistoryList[Any](
+		history=[
+			AgentHistory(
+				model_output=OutputModel(memory='', action=[action]),
+				result=[],
+				state=BrowserStateHistory(url='https://example.test', title='t', tabs=[], interacted_element=[None]),
+			)
+		]
+	)
+
+	filepath = tmp_path / 'history.json'
+	history.save_to_file(filepath, sensitive_data={'api_key': 'token-123'})
+	saved = filepath.read_text(encoding='utf-8')
+
+	assert 'token-123' not in saved, 'Sensitive value leaked into the saved history file'
+	assert saved.count('<secret>api_key</secret>') == 2
