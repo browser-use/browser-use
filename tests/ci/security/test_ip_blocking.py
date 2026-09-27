@@ -395,23 +395,23 @@ class TestIsIPAddressHelper:
 
 
 class TestDefaultBehavior:
-	"""Test default security behavior (fail-closed IP blocking by default)."""
+	"""Test default security behavior (backwards compatibility and explicit opt-in)."""
 
-	def test_default_block_ip_addresses_is_true(self):
-		"""Test that block_ip_addresses defaults to True."""
+	def test_default_block_ip_addresses_is_false(self):
+		"""Test that block_ip_addresses defaults to False for backwards compatibility."""
 		browser_profile = BrowserProfile(headless=True, user_data_dir=None)
 
-		# Default should be True for fail-closed security
-		assert browser_profile.block_ip_addresses is True
+		# Default is False to prevent breaking upstream local server test suites
+		assert browser_profile.block_ip_addresses is False
 
-	def test_blocking_by_default(self):
-		"""Test that IPs and loopback are blocked by default."""
-		browser_profile = BrowserProfile(headless=True, user_data_dir=None)
+	def test_blocking_when_enabled(self):
+		"""Test that IPs and loopback are blocked when block_ip_addresses=True."""
+		browser_profile = BrowserProfile(block_ip_addresses=True, headless=True, user_data_dir=None)
 		browser_session = BrowserSession(browser_profile=browser_profile)
 		event_bus = EventBus()
 		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
 
-		# All IPs, loopback, and metadata should be blocked by default
+		# All IPs, loopback, and metadata should be blocked when enabled
 		assert watchdog._is_url_allowed('http://180.1.1.1/supersafe.txt') is False
 		assert watchdog._is_url_allowed('http://192.168.1.1/') is False
 		assert watchdog._is_url_allowed('http://127.0.0.1:8080/') is False
