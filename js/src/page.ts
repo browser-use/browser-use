@@ -177,9 +177,19 @@ export class Page {
     });
   }
   async screenshot(options: { quality?: number } = {}) {
+    // CSS pixels, so image coordinates are page.clickAt coordinates at any devicePixelRatio.
+    const { cssVisualViewport: css, visualViewport: device } =
+      await this.cdp('Page.getLayoutMetrics');
     const { data } = await this.cdp('Page.captureScreenshot', {
       format: 'jpeg',
       quality: options.quality ?? 70,
+      clip: {
+        x: css.pageX,
+        y: css.pageY,
+        width: css.clientWidth,
+        height: css.clientHeight,
+        scale: device?.clientWidth ? css.clientWidth / device.clientWidth : 1, // visualViewport is deprecated in CDP
+      },
     });
     return Buffer.from(data, 'base64');
   }
