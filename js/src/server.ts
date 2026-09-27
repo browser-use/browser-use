@@ -211,6 +211,9 @@ const CREATE_KEYS = new Set([
   'modelId',
   'modelInfo',
   'streamDeltas',
+  // Ultrafast mode (#15); passed through untouched until it lands.
+  'mode',
+  'webSearch',
 ]);
 async function dispatch(method: string, params: Record<string, unknown>): Promise<unknown> {
   if (method === 'ping') return { protocol: 1, node: process.versions.node };
