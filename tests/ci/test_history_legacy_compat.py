@@ -1,9 +1,9 @@
-import pytest
-from browser_use.agent.views import AgentHistoryList, AgentOutput
-from browser_use.beta.service import _load_rust_history
 import json
 import tempfile
 from pathlib import Path
+
+from browser_use.agent.views import AgentHistoryList, AgentOutput
+from browser_use.beta.service import _load_rust_history
 
 
 def test_legacy_history_entry_without_interacted_element():
