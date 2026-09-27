@@ -143,7 +143,8 @@ export class AxHelpers {
             // Writing an attribute's current value changes nothing (Google Flights rewrites a class every frame).
             if (
               r.attributeName &&
-              r.oldValue === (r.target as Element).getAttribute(r.attributeName)
+              r.oldValue ===
+                (r.target as Element).getAttributeNS(r.attributeNamespace, r.attributeName)
             )
               continue;
             if (r.attributeName !== 'style') real = true;
@@ -189,13 +190,14 @@ export class AxHelpers {
     let limit = cap;
     let pending = 0;
     let probe: Awaited<ReturnType<AxHelpers['probe']>> | undefined;
-    const netBusy = () => {
-      const now = Date.now();
-      pending = session
-        ? [...(this.inflight.get(session)?.values() ?? [])].filter((t) => now - t < 1500).length
+    const inflight = () =>
+      session
+        ? [...(this.inflight.get(session)?.values() ?? [])].filter((t) => Date.now() - t < 1500)
+            .length
         : 0;
-      return pending > 0 || (session ? now - (this.lastNet.get(session) ?? 0) : quiet) < quiet;
-    };
+    const netBusy = () =>
+      (pending = inflight()) > 0 ||
+      (session ? Date.now() - (this.lastNet.get(session) ?? 0) : quiet) < quiet;
     while (Date.now() - start < limit) {
       try {
         probe = await this.probe(page);
@@ -213,7 +215,7 @@ export class AxHelpers {
       while (probe && probe.idle >= quiet && netBusy() && Date.now() - start < limit)
         await delay(20);
     }
-    return { why: 'cap', pending, ms: Date.now() - start };
+    return { why: 'cap', pending: inflight(), ms: Date.now() - start };
   }
 
   private flushDialogs() {
