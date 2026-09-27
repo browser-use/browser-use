@@ -347,9 +347,15 @@ test('one empty-ending repair delivers existing records with the same transcript
       assert.match(context.messages.at(-1).content[0].text, /single delivery repair/);
       assert.deepEqual(
         getCurrentTools(context.messages).map((t) => t.name),
-        ['finish', 'finish_from_js'],
+        ['javascript', 'finish', 'finish_from_js'],
       );
-      return call('finish_from_js', { expression: 'JSON.stringify(records)' });
+      return fauxAssistantMessage(
+        [
+          fauxToolCall('javascript', { code: 'mutations++' }),
+          fauxToolCall('finish_from_js', { expression: 'JSON.stringify(records)' }),
+        ],
+        { stopReason: 'toolUse' },
+      );
     },
   ]);
   try {
@@ -938,13 +944,19 @@ for (const limit of ['max_steps', 'cost_limit', 'timeout', 'cancelled']) {
 
 test('final allowed step is delivery-only and remains inside the turn cap', async () => {
   const s = await session([
-    call('javascript', { code: "const findings='one verified finding'" }),
+    call('javascript', { code: "let findings='one verified finding'" }),
     (context) => {
       assert.deepEqual(
         getCurrentTools(context.messages).map((t) => t.name),
-        ['finish', 'finish_from_js'],
+        ['javascript', 'finish', 'finish_from_js'],
       );
-      return call('finish_from_js', { expression: 'findings' });
+      return fauxAssistantMessage(
+        [
+          fauxToolCall('javascript', { code: "findings='overwritten'" }),
+          fauxToolCall('finish_from_js', { expression: 'findings' }),
+        ],
+        { stopReason: 'toolUse' },
+      );
     },
   ]);
   try {

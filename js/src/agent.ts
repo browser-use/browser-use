@@ -4,7 +4,7 @@ import {
   type AgentTool,
   type StreamFn,
 } from '@earendil-works/pi-agent-core';
-import type { Model, Api, Usage } from '@earendil-works/pi-ai';
+import type { Model, Api, ToolChoice, Usage } from '@earendil-works/pi-ai';
 import { Type, type TSchema } from 'typebox';
 import { Check, Errors } from 'typebox/value';
 import { CellError, type BrowserRuntime } from './runtime.js';
@@ -171,6 +171,15 @@ export async function runAgent(
         signal,
       ),
   };
+  // Delivery turns keep the full tool list: it is part of the provider's cached prompt prefix.
+  const delivering = () => finalizing || finishRepairs > 0;
+  const deliveryTools = ['finish', 'finish_from_js'];
+  // OpenAI restricts calls without changing that list; pi-ai forwards toolChoice verbatim.
+  const deliveryChoice = {
+    type: 'allowed_tools',
+    mode: 'auto',
+    tools: deliveryTools.map((name) => ({ type: 'function', name })),
+  } as unknown as ToolChoice;
   const checkBudgets = (messages: AgentMessage[], systemPrompt: string) => {
     if (steps >= maxSteps) stopped = 'max_steps';
     if (
@@ -200,6 +209,9 @@ export async function runAgent(
         config.streamFn(selected, redact(request, config.redact ?? []), {
           ...settings,
           maxTokens: Math.min(selected.maxTokens, 32768, Math.floor(selected.contextWindow * 0.15)),
+          ...(delivering() && selected.api === 'openai-responses'
+            ? { toolChoice: deliveryChoice }
+            : {}),
         }),
       config.modelTimeoutMs ?? 300_000,
     ),
@@ -267,8 +279,6 @@ export async function runAgent(
             'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_js. Reference saved files; explicitly list missing evidence. Do not perform more browser actions.',
           timestamp: Date.now(),
         });
-        agent.state.tools = [finish, finishFromJs];
-        return { context: { ...current, tools: [finish, finishFromJs] } };
       }
       return undefined;
     },
@@ -276,6 +286,8 @@ export async function runAgent(
       await session?.control.checkpoint(signal);
       if (completion || stopped || signal?.aborted)
         return { block: true, reason: 'The run has ended.', terminate: true };
+      if (delivering() && !deliveryTools.includes(call.toolCall.name))
+        return { block: true, reason: 'Only finish or finish_from_js can run now.' };
       return config.beforeToolCall
         ? bounded(() => config.beforeToolCall!(call, signal), hookTimeout, signal)
         : undefined;
@@ -399,7 +411,6 @@ export async function runAgent(
         };
         if (!checkBudgets([...agent.state.messages, repair], agent.state.systemPrompt)) {
           finishRepairs = 1;
-          agent.state.tools = [finish, finishFromJs];
           await agent.prompt(repair);
         }
       }
