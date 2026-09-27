@@ -173,6 +173,57 @@ class SecurityWatchdog(BaseWatchdog):
 		except Exception:
 			return False
 
+	def _resolves_to_blocked_ip(self, host: str) -> bool:
+		"""Check if a hostname resolves to loopback, RFC 1918, or cloud metadata.
+
+		Performs pre-flight DNS hostname resolution via `socket.getaddrinfo` to
+		block access to internal and cloud metadata endpoints even when accessed via
+		hostnames (e.g. `localhost`, `*.localtest.me`, `*.nip.io`).
+		"""
+		import ipaddress
+		import socket
+		import unicodedata
+		from urllib.parse import unquote
+
+		bare = host.strip('[]')
+		try:
+			bare = unquote(bare)
+		except Exception:
+			pass
+		try:
+			bare = unicodedata.normalize('NFKC', bare)
+		except Exception:
+			pass
+		bare = bare.replace('。', '.').replace('｡', '.')
+		clean_host = bare.lower().rstrip('.')
+
+		if clean_host in ('localhost', 'localhost.localdomain') or clean_host.endswith('.localhost'):
+			return True
+
+		try:
+			addr_infos = socket.getaddrinfo(clean_host, None)
+		except Exception:
+			return False
+
+		cgnat = ipaddress.ip_network('100.64.0.0/10')
+		for addr in addr_infos:
+			ip_str = addr[4][0]
+			try:
+				ip_obj = ipaddress.ip_address(ip_str)
+				if (
+					ip_obj.is_loopback
+					or ip_obj.is_private
+					or ip_obj.is_link_local
+					or ip_obj.is_unspecified
+					or str(ip_obj) == '169.254.169.254'
+					or ip_obj in cgnat
+				):
+					return True
+			except Exception:
+				continue
+
+		return False
+
 	def _is_url_allowed(self, url: str) -> bool:
 		"""Check if a URL is allowed based on the allowed_domains configuration.
 
@@ -205,9 +256,11 @@ class SecurityWatchdog(BaseWatchdog):
 		if not host:
 			return False
 
-		# Check if IP addresses should be blocked (before domain checks)
+		# Check if IP addresses or private/loopback/metadata destinations should be blocked (before domain checks)
 		if self.browser_session.browser_profile.block_ip_addresses:
 			if self._is_ip_address(host):
+				return False
+			if self._resolves_to_blocked_ip(host):
 				return False
 
 		# If no allowed_domains specified, allow all URLs
