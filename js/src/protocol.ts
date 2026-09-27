@@ -17,6 +17,8 @@ export interface CellResult {
   targetId?: string;
   /** Most recently used protocol target, independent of the primary page binding. */
   observationTargetId?: string;
+  /** The tab this cell's own code last sent a command to, e.g. a `const page = await tabs.open()`. */
+  activeTargetId?: string;
   /** JSON delivery channel; never clipped to the observation budget. */
   valueJson?: string;
   /** Full output is written to the workspace when the model-facing output is truncated. */

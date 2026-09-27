@@ -51,8 +51,9 @@ export class BrowserRuntime {
     this.runId = randomUUID();
     this.partial = undefined;
   }
+  /** The tab the agent last worked in: resumed next session, kept by keepTabs 'current'. */
   get currentTarget() {
-    return this.targetId;
+    return this.activeTarget ?? this.targetId;
   }
   async initialize(signal?: AbortSignal) {
     await this.execute('await page.info()', 4 * this.config.operationTimeoutMs, signal);
@@ -60,6 +61,7 @@ export class BrowserRuntime {
   }
   private worker: ChildProcess | undefined;
   private owned = new Set<string>();
+  private activeTarget: string | undefined;
   private targetId: string | undefined;
   private busy = false;
   private workerLoss: Error | undefined;
@@ -225,6 +227,8 @@ export class BrowserRuntime {
       }
       if ((message.type === 'result' || message.type === 'error') && message.result?.targetId)
         this.targetId = message.result.targetId;
+      if (message.type === 'result' || message.type === 'error')
+        this.activeTarget = message.result?.activeTargetId ?? this.activeTarget;
       if (message.type === 'error')
         throw new CellError(message.message, message.result ?? { text: '', images: [] }, false);
       if (message.type !== 'result') throw new Error('Unexpected browser worker response.');
@@ -264,8 +268,9 @@ export class BrowserRuntime {
       await response.catch(() => {});
     }
     await this.terminate();
-    const keep = keepTabs === 'current' ? this.targetId : undefined;
-    if (keep) this.owned.delete(keep);
+    // The primary page too: code can keep `page` as its main tab while working in another.
+    const kept = new Set(keepTabs === 'current' ? [this.targetId, this.activeTarget] : []);
+    for (const targetId of kept) if (targetId) this.owned.delete(targetId);
     if (this.owned.size && keepTabs !== true) {
       const cdp = await CDP.connect(
         this.config.endpoint,
@@ -279,7 +284,7 @@ export class BrowserRuntime {
         while (previous !== this.owned.size) {
           previous = this.owned.size;
           for (const target of targetInfos)
-            if (target.openerId && this.owned.has(target.openerId) && target.targetId !== keep)
+            if (target.openerId && this.owned.has(target.openerId) && !kept.has(target.targetId))
               this.owned.add(target.targetId);
         }
         for (const targetId of this.owned) {
