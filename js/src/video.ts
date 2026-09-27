@@ -21,7 +21,7 @@ export interface VideoOptions {
   output: string;
   title?: string;
   maxFrames?: number;
-  /** Opaque rectangles in original screenshot pixels, applied to every exported frame. Raw capture is retained. */
+  /** Opaque rectangles in recorded screenshot pixels (page CSS pixels), applied to every exported frame. Raw capture is retained. */
   redact?: { x: number; y: number; width: number; height: number }[];
   ffmpegPath?: string;
   executablePath?: string;
