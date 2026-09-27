@@ -211,8 +211,8 @@ class SecurityWatchdog(BaseWatchdog):
 			addr_infos = socket.getaddrinfo(clean_host, None)
 		except Exception:
 			if hasattr(self, '_dns_cache'):
-				self._dns_cache[clean_host] = True
-			return True
+				self._dns_cache[clean_host] = False
+			return False
 
 		cgnat = ipaddress.ip_network('100.64.0.0/10')
 		for addr in addr_infos:

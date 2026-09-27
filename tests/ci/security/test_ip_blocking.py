@@ -785,8 +785,8 @@ class TestPreFlightDnsResolution:
 			raise socket.gaierror(-2, 'Name or service not known')
 
 		monkeypatch.setattr(socket, 'getaddrinfo', fail_getaddrinfo)
-		# Non-IP unresolvable domain is blocked under fail-closed security policy
-		assert watchdog._is_url_allowed('http://nonexistent-domain-test-xyz.com/') is False
+		# Non-IP unresolvable domain proceeds to domain checks and is allowed when no domain restrictions exist
+		assert watchdog._is_url_allowed('http://nonexistent-domain-test-xyz.com/') is True
 
 	def test_allow_private_resolution_when_block_ip_addresses_false(self, monkeypatch):
 		"""Test that when block_ip_addresses=False, private IP resolution is not blocked."""
