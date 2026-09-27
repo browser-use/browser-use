@@ -960,7 +960,10 @@ test('final allowed step is delivery-only and remains inside the turn cap', asyn
 test('OpenAI delivery turns keep the tool list and restrict calls with allowed_tools', async () => {
   const s = await session(
     [
-      call('javascript', { code: "let findings='one verified finding'" }),
+      (_context, options) => {
+        assert.equal(options.toolChoice, undefined);
+        return call('javascript', { code: "let findings='one verified finding'" });
+      },
       (context, options) => {
         assert.deepEqual(
           getCurrentTools(context.messages).map((t) => t.name),
