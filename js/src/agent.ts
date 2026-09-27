@@ -172,7 +172,8 @@ export async function runAgent(
       ),
   };
   // OpenAI restricts delivery turns with allowed_tools, so the tool list (part of the cached prompt prefix) stays.
-  const keepTools = model.api === 'openai-responses';
+  // Other backends on the same api (xAI, gateways) do not accept allowed_tools.
+  const keepTools = model.provider === 'openai' && model.api === 'openai-responses';
   const delivering = () => finalizing || finishRepairs > 0;
   const deliveryTools = ['finish', 'finish_from_js'];
   // pi-ai forwards toolChoice verbatim.

@@ -24,8 +24,8 @@ after(async () => {
   await fixture?.close();
 });
 
-async function session(responses, config = {}, api) {
-  const faux = fauxProvider({ tokensPerSecond: 1_000_000, ...(api && { api }) });
+async function session(responses, config = {}, fauxOptions = {}) {
+  const faux = fauxProvider({ tokensPerSecond: 1_000_000, ...fauxOptions });
   const models = createModels();
   models.setProvider(faux.provider);
   faux.setResponses(responses);
@@ -980,7 +980,7 @@ test('OpenAI delivery turns keep the tool list and restrict calls with allowed_t
       },
     ],
     {},
-    'openai-responses',
+    { api: 'openai-responses', provider: 'openai' },
   );
   try {
     const result = await s.agent.run('Audit', { maxSteps: 2 });
