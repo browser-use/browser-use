@@ -14,6 +14,7 @@ import { installDomainPolicy, fillSecret } from './policy.js';
 import { redact } from './history.js';
 import { actionHighlighter } from './highlight.js';
 import { prepareModelImages } from './images.js';
+import { AxHelpers } from './ax.js';
 
 // IPC initialization keeps connection details out of argv and environment.
 process.on('disconnect', () => process.exit(0));
@@ -91,6 +92,19 @@ const realm = createContext(
 );
 if (executionContextId === undefined)
   throw new Error('Could not initialize the JavaScript context.');
+const bu =
+  config.mode === 'ultrafast'
+    ? new AxHelpers(
+        () => Reflect.get(realm, 'page') as Page,
+        () => browser,
+        (text) => (Reflect.get(realm, 'console') as Console).log(text),
+      )
+    : undefined;
+// The search endpoint under the cloud worker's names, for the prompt's fetch example.
+if (config.webSearch) {
+  process.env.V4_GATEWAY_URL = config.webSearch.url.replace(/\/api\/v4\/search$/, '');
+  process.env.V4_RUN_TOKEN = config.webSearch.token;
+}
 Object.assign(realm, {
   global: realm, // Node's global alias refers to this REPL realm, not the worker host.
   // Reject values JSON would silently drop or change. Dates/toJSON use normal JSON semantics.
@@ -128,6 +142,7 @@ Object.assign(realm, {
   browser,
   tabs,
   page,
+  ...(bu ? { bu } : {}),
   workspace: config.workspace,
   async reconnect(endpoint?: string) {
     let targetId: string | undefined = (Reflect.get(realm, 'page') as Page)?.targetId;
@@ -335,6 +350,11 @@ process.on('message', async (message: WorkerRequest) => {
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
   } finally {
+    // After a cell whose bu actions reached the page, show the resulting state without another model turn.
+    if (bu?.acted)
+      await bu
+        .state()
+        .catch((error: unknown) => sink.write(`[state unavailable: ${String(error)}]\n`));
     active = false;
     browser.observeResponse = undefined;
     captureResponse = undefined;

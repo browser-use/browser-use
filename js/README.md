@@ -51,6 +51,7 @@ Save as `agent.ts`. Run with `node agent.ts` or `bun agent.ts`. Uses [Browser Us
 
 - **Models:** upstream Pi's model catalog and transports, with custom providers supported. Model capabilities and provider access vary. [Models](docs/models.md)
 - **Sessions:** follow-ups, saved logins, persistent workspaces, cloud browsers or your own Chrome. [Sessions](docs/sessions.md)
+- **Ultrafast:** `mode: 'ultrafast'` prints a compact accessibility-tree state and acts on its ids, waiting only briefly after each action, for interaction-heavy tasks.
 - **Control:** streaming, hooks, typed results and compaction. Cap steps, time or cost and keep partial work. [API](docs/api.md)
 - **Show the work:** interaction highlights, recordings and GIF exports. [Examples](examples/README.md)
 
