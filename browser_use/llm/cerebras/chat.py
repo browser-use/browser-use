@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
@@ -47,8 +48,16 @@ class ChatCerebras(BaseChatModel):
 		return 'cerebras'
 
 	def _client(self) -> AsyncOpenAI:
+		api_key = self.api_key or os.getenv('CEREBRAS_API_KEY')
+		if not api_key:
+			raise ModelProviderError(
+				message='Missing Cerebras API key. Set CEREBRAS_API_KEY or pass api_key.',
+				status_code=401,
+				model=self.name,
+			)
+
 		return AsyncOpenAI(
-			api_key=self.api_key,
+			api_key=api_key,
 			base_url=self.base_url,
 			timeout=self.timeout,
 			**(self.client_params or {}),
