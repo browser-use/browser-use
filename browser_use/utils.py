@@ -76,9 +76,14 @@ def sanitize_url_candidate(url: str) -> str:
 	return candidate[:end]
 
 
-def resolve_link_href(current_url: str, href: str) -> str:
-	"""Resolve a link href against the current page URL for new-tab navigation."""
-	return urljoin(current_url, href)
+def resolve_link_href(current_url: str, href: str) -> str | None:
+	"""Resolve a link href against the current page URL for new-tab navigation.
+
+	Returns None when the href stays relative, because the page URL (empty or about:blank)
+	has no base to resolve it against.
+	"""
+	resolved = urljoin(current_url, href)
+	return resolved if urlparse(resolved).scheme else None
 
 
 def has_url_negation(context: str) -> bool:

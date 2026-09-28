@@ -813,6 +813,8 @@ class BrowserUseServer:
 
 				state = await self.browser_session.get_browser_state_summary()
 				full_url = resolve_link_href(state.url, href)
+				if full_url is None:
+					return f'Error: element {index} links to {href!r}, which cannot be resolved without a page URL'
 
 				# Open link in new tab
 				from browser_use.browser.events import NavigateToUrlEvent
