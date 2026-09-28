@@ -24,8 +24,8 @@ after(async () => {
   await fixture?.close();
 });
 
-async function session(responses, config = {}) {
-  const faux = fauxProvider({ tokensPerSecond: 1_000_000 });
+async function session(responses, config = {}, fauxOptions = {}) {
+  const faux = fauxProvider({ tokensPerSecond: 1_000_000, ...fauxOptions });
   const models = createModels();
   models.setProvider(faux.provider);
   faux.setResponses(responses);
@@ -947,6 +947,44 @@ test('final allowed step is delivery-only and remains inside the turn cap', asyn
       return call('finish_from_js', { expression: 'findings' });
     },
   ]);
+  try {
+    const result = await s.agent.run('Audit', { maxSteps: 2 });
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 'one verified finding');
+    assert.equal(s.faux.state.callCount, 2);
+  } finally {
+    await s.close();
+  }
+});
+
+test('OpenAI delivery turns keep the tool list and restrict calls with allowed_tools', async () => {
+  const s = await session(
+    [
+      (_context, options) => {
+        assert.equal(options.toolChoice, undefined);
+        return call('javascript', { code: "let findings='one verified finding'" });
+      },
+      (context, options) => {
+        assert.deepEqual(
+          getCurrentTools(context.messages).map((t) => t.name),
+          ['javascript', 'finish', 'finish_from_js'],
+        );
+        assert.deepEqual(
+          options.toolChoice.tools.map((t) => t.name),
+          ['finish', 'finish_from_js'],
+        );
+        return fauxAssistantMessage(
+          [
+            fauxToolCall('javascript', { code: "findings='overwritten'" }),
+            fauxToolCall('finish_from_js', { expression: 'findings' }),
+          ],
+          { stopReason: 'toolUse' },
+        );
+      },
+    ],
+    {},
+    { api: 'openai-responses', provider: 'openai' },
+  );
   try {
     const result = await s.agent.run('Audit', { maxSteps: 2 });
     assert.equal(result.status, 'completed');
