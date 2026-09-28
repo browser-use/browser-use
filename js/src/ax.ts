@@ -57,6 +57,8 @@ export class AxHelpers {
   private last = new Map<number, { role: string; name: string }>();
   /** Set by every action; the worker prints the state after that cell. */
   acted = false;
+  /** When the last action's settle began, 0 after a failed action. */
+  private actedAt = 0;
 
   /** Track in-flight requests per page session from CDP Network events (no page patching). */
   private async trackNetwork(page: Page) {
@@ -111,7 +113,7 @@ export class AxHelpers {
     return session;
   }
 
-  /** URL, document identity and a counter of DOM mutations (style aside) and form input/change events. */
+  /** URL, title, document identity, a counter of DOM mutations (style aside) and form input/change events. */
   private probe(page: Page) {
     return page.evaluate(() => {
       const w = window as unknown as {
@@ -138,6 +140,13 @@ export class AxHelpers {
               Array.from(r.addedNodes).concat(Array.from(r.removedNodes)).some(own)
             )
               continue;
+            // Writing an attribute's current value changes nothing (Google Flights rewrites a class every frame).
+            if (
+              r.attributeName &&
+              r.oldValue ===
+                (r.target as Element).getAttributeNS(r.attributeNamespace, r.attributeName)
+            )
+              continue;
             if (r.attributeName !== 'style') real = true;
             else if (now - (styled.get(r.target) ?? -1e9) > 200) real = true;
             if (r.attributeName === 'style') styled.set(r.target, now);
@@ -151,6 +160,7 @@ export class AxHelpers {
           subtree: true,
           childList: true,
           attributes: true,
+          attributeOldValue: true,
           characterData: true,
         });
         for (const type of ['input', 'change']) addEventListener(type, () => w.__buN++, true);
@@ -159,8 +169,10 @@ export class AxHelpers {
         idle: performance.now() - w.__buLast,
         ready: document.readyState,
         url: location.href,
+        title: document.title,
         n: w.__buN,
         doc: w.__buDoc,
+        files: !!document.querySelector('input[type=file]'),
       };
     });
   }
@@ -169,7 +181,7 @@ export class AxHelpers {
    * Event-based wait, never a fixed sleep: document parsed, no fresh in-flight requests
    * (older than 1.5 s are treated as long-poll/analytics), and no DOM mutation for quietMs. Bounded by capMs.
    */
-  async settle(options: { capMs?: number; quietMs?: number; page?: Page } = {}) {
+  async settle(options: { capMs?: number; quietMs?: number; page?: Page; since?: number } = {}) {
     const page = options.page ?? this.page();
     const cap = options.capMs ?? 800;
     const quiet = options.quietMs ?? 80;
@@ -177,25 +189,33 @@ export class AxHelpers {
     const session = await this.trackNetwork(page).catch(() => undefined);
     let limit = cap;
     let pending = 0;
+    let probe: Awaited<ReturnType<AxHelpers['probe']>> | undefined;
+    const inflight = () =>
+      session
+        ? [...(this.inflight.get(session)?.values() ?? [])].filter((t) => Date.now() - t < 1500)
+            .length
+        : 0;
+    const netBusy = () =>
+      (pending = inflight()) > 0 ||
+      (session ? Date.now() - (this.lastNet.get(session) ?? 0) : quiet) < quiet;
     while (Date.now() - start < limit) {
       try {
-        const probe = await this.probe(page);
-        const now = Date.now();
+        probe = await this.probe(page);
         if (probe.ready === 'loading') limit = Math.max(cap, 3000); // navigations need longer than in-page updates
-        probe.idle = Math.min(probe.idle, now - start); // quiet must be observed after this action began
-        pending = session
-          ? [...(this.inflight.get(session)?.values() ?? [])].filter((t) => now - t < 1500).length
-          : 0;
-        const netIdle = session ? now - (this.lastNet.get(session) ?? 0) : quiet;
-        if (probe.ready !== 'loading' && probe.idle >= quiet && pending === 0 && netIdle >= quiet)
-          return { why: 'quiet', pending, ms: now - start };
+        probe.idle = Math.min(probe.idle, Date.now() - (options.since || start)); // quiet must be observed after this action began
+        if (probe.ready !== 'loading' && probe.idle >= quiet && !netBusy())
+          return { why: 'quiet', pending, ms: Date.now() - start, probe };
       } catch (error) {
         // Navigation in progress: wait for the new document. Anything else ends the wait, never the action.
         if (!isContextLoss(error)) return { why: 'error', pending, ms: Date.now() - start };
+        probe = undefined;
       }
-      await delay(40);
+      // Probe again once the DOM can have been quiet for quietMs; wait out in-flight requests here, not in the page.
+      await delay(probe && probe.ready !== 'loading' ? Math.max(20, quiet - probe.idle) : 40);
+      while (probe && probe.idle >= quiet && netBusy() && Date.now() - start < limit)
+        await delay(20);
     }
-    return { why: 'cap', pending, ms: Date.now() - start };
+    return { why: 'cap', pending: inflight(), ms: Date.now() - start };
   }
 
   private flushDialogs() {
@@ -270,13 +290,16 @@ export class AxHelpers {
   /** The page as one list in page order. */
   async state(options: { max?: number } = {}) {
     const page = this.page();
+    // A look right after an action continues that action's quiet window instead of starting a new one.
+    const since = this.acted ? this.actedAt : 0;
     this.acted = false; // a look after the last action replaces the automatic print
-    const settled = await this.settle({ capMs: 3000 });
+    const settled = await this.settle({ capMs: 3000, since });
+    // The settle probe already has URL and title, and says whether a file input needs looking up.
     const [frames, info, visible, files] = await Promise.all([
       this.capture(page),
-      page.info(),
+      settled.probe ?? page.info(),
       this.visibleText(page).catch(() => undefined),
-      this.fileInputs(page).catch(() => []),
+      settled.probe?.files === false ? [] : this.fileInputs(page).catch(() => []),
     ]);
     const previous = this.last;
     this.last = new Map();
@@ -495,6 +518,7 @@ export class AxHelpers {
   private async act(op: string, id: number, body: (page: Page) => Promise<string>) {
     // Set before awaiting: an un-awaited or failed action still gets the state printed after its cell.
     this.acted = true;
+    this.actedAt = 0;
     const page = this.page();
     await this.trackNetwork(page).catch(() => {});
     const before = await this.probe(page).catch(() => undefined);
@@ -506,14 +530,18 @@ export class AxHelpers {
         `${op} ${this.describe(id)} failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    await this.settle();
-    const line = `[ok] ${op} ${this.describe(id)}${detail} -> ${await this.change(before)}${this.flushDialogs()}`;
+    this.actedAt = Date.now();
+    const settled = await this.settle();
+    const line = `[ok] ${op} ${this.describe(id)}${detail} -> ${await this.change(before, settled.probe)}${this.flushDialogs()}`;
     this.log(line);
     return printed(line);
   }
 
-  private async change(before: Awaited<ReturnType<AxHelpers['probe']>> | undefined) {
-    const after = await this.probe(this.page()).catch(() => undefined);
+  private async change(
+    before: Awaited<ReturnType<AxHelpers['probe']>> | undefined,
+    after?: Awaited<ReturnType<AxHelpers['probe']>>,
+  ) {
+    after ??= await this.probe(this.page()).catch(() => undefined);
     if (!before || !after) return 'page changed';
     if (after.doc !== before.doc || after.url !== before.url) return `navigated to ${after.url}`;
     return after.n !== before.n ? 'page changed' : 'no change';
