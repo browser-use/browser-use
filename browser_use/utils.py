@@ -77,8 +77,11 @@ def sanitize_url_candidate(url: str) -> str:
 
 
 def normalize_screenshot_format(image_format: str) -> str:
-	"""Return the CDP screenshot format name (png, jpeg, or webp)."""
-	return image_format.lower()
+	"""Return the CDP screenshot format name (png, jpeg, or webp) for a name in any case."""
+	normalized = image_format.lower()
+	if normalized not in ('png', 'jpeg', 'webp'):
+		raise ValueError(f'Unsupported screenshot format {image_format!r}; use png, jpeg or webp')
+	return normalized
 
 
 def has_url_negation(context: str) -> bool:
