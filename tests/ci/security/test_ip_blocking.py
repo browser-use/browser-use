@@ -800,3 +800,50 @@ class TestPreFlightDnsResolution:
 			lambda host, port, *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('192.168.1.1', 0))],
 		)
 		assert watchdog._is_url_allowed('http://internal-router.local/') is True
+
+	def test_ipv4_mapped_ipv6_and_cgnat_blocked(self, monkeypatch):
+		"""Test that IPv4-mapped IPv6 addresses for loopback, metadata, CGNAT, and private ranges are blocked."""
+		import socket
+
+		watchdog = self._watchdog(block_ip=True)
+		blocked_ips = [
+			'::ffff:127.0.0.1',
+			'::ffff:169.254.169.254',
+			'::ffff:100.100.100.200',  # Alibaba Cloud ECS metadata
+			'::ffff:100.64.0.1',        # Carrier-grade NAT
+			'::ffff:10.0.0.1',          # RFC 1918 private
+			'::ffff:172.16.0.1',        # RFC 1918 private
+			'::ffff:192.168.1.1',       # RFC 1918 private
+			'::127.0.0.1',              # Deprecated IPv4-compatible
+		]
+		for ip in blocked_ips:
+			monkeypatch.setattr(
+				socket,
+				'getaddrinfo',
+				lambda host, port, *args, ip_val=ip, **kwargs: [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', (ip_val, 0))],
+			)
+			assert watchdog._is_url_allowed('http://mapped-test.example.org/') is False
+
+	def test_dns_cache_ttl_and_no_caching_on_failure(self, monkeypatch):
+		"""Test that DNS cache has a TTL and failures are not cached permanently."""
+		import socket
+		import time
+
+		watchdog = self._watchdog(block_ip=True)
+		watchdog._dns_cache_ttl = 0.1
+
+		current_ip = '93.184.216.34'
+		monkeypatch.setattr(
+			socket,
+			'getaddrinfo',
+			lambda host, port, *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (current_ip, 0))],
+		)
+
+		assert watchdog._is_url_allowed('http://dynamic.example.com/') is True
+		assert watchdog._dns_cache['dynamic.example.com'][0] is False
+
+		# Now simulate DNS rebinding after TTL expiration
+		time.sleep(0.15)
+		current_ip = '10.0.0.1'
+		assert watchdog._is_url_allowed('http://dynamic.example.com/') is False
+		assert watchdog._dns_cache['dynamic.example.com'][0] is True

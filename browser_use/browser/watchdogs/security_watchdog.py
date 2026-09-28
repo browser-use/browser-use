@@ -34,7 +34,8 @@ class SecurityWatchdog(BaseWatchdog):
 
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
-		self._dns_cache: dict[str, bool] = {}
+		self._dns_cache: dict[str, tuple[bool, float]] = {}
+		self._dns_cache_ttl: float = 60.0
 
 	async def on_NavigateToUrlEvent(self, event: NavigateToUrlEvent) -> None:
 		"""Check if navigation URL is allowed before navigation starts."""
@@ -204,37 +205,46 @@ class SecurityWatchdog(BaseWatchdog):
 		if clean_host in ('localhost', 'localhost.localdomain') or clean_host.endswith('.localhost'):
 			return True
 
+		import time
+
 		if hasattr(self, '_dns_cache') and clean_host in self._dns_cache:
-			return self._dns_cache[clean_host]
+			is_blocked, timestamp = self._dns_cache[clean_host]
+			if time.monotonic() - timestamp < getattr(self, '_dns_cache_ttl', 60.0):
+				return is_blocked
 
 		try:
 			addr_infos = socket.getaddrinfo(clean_host, None)
 		except Exception:
-			if hasattr(self, '_dns_cache'):
-				self._dns_cache[clean_host] = False
+			# Do not cache resolver exceptions as permanently allowed
 			return False
 
 		cgnat = ipaddress.ip_network('100.64.0.0/10')
+		now = time.monotonic()
 		for addr in addr_infos:
 			ip_str = addr[4][0]
 			try:
 				ip_obj = ipaddress.ip_address(ip_str)
+				if getattr(ip_obj, 'ipv4_mapped', None) is not None:
+					ip_obj = ip_obj.ipv4_mapped
+				elif ip_obj.version == 6 and int(ip_obj) <= 0xFFFFFFFF:
+					ip_obj = ipaddress.IPv4Address(int(ip_obj))
+
 				if (
 					ip_obj.is_loopback
 					or ip_obj.is_private
 					or ip_obj.is_link_local
 					or ip_obj.is_unspecified
 					or str(ip_obj) == '169.254.169.254'
-					or ip_obj in cgnat
+					or (ip_obj.version == 4 and ip_obj in cgnat)
 				):
 					if hasattr(self, '_dns_cache'):
-						self._dns_cache[clean_host] = True
+						self._dns_cache[clean_host] = (True, now)
 					return True
 			except Exception:
 				continue
 
 		if hasattr(self, '_dns_cache'):
-			self._dns_cache[clean_host] = False
+			self._dns_cache[clean_host] = (False, now)
 		return False
 
 	def _is_url_allowed(self, url: str) -> bool:
