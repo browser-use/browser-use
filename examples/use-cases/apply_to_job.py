@@ -6,7 +6,6 @@ import os
 from dotenv import load_dotenv
 
 from browser_use import Agent, Browser, ChatOpenAI, Tools
-from browser_use.tools.views import UploadFileAction
 
 load_dotenv()
 
@@ -42,7 +41,6 @@ async def apply_to_rochester_regional_health(info: dict, resume_path: str):
 
 	@tools.action(description='Upload resume file')
 	async def upload_resume(browser_session):
-		params = UploadFileAction(path=resume_path, index=1)
 		return 'Ready to upload resume'
 
 	browser = Browser(cross_origin_iframes=True)

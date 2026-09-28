@@ -31,5 +31,15 @@ def test_upload_file_rejects_index_zero():
 		UploadFileAction(index=0, path='resume.pdf')
 
 
-def test_input_accepts_index_one():
-	assert InputTextAction(index=1, text='x').index == 1
+@pytest.mark.parametrize(
+	'action',
+	[
+		lambda: InputTextAction(index=1, text='x'),
+		lambda: GetDropdownOptionsAction(index=1),
+		lambda: SelectDropdownOptionAction(index=1, text='A'),
+		lambda: UploadFileAction(index=1, path='resume.pdf'),
+	],
+	ids=['input', 'dropdown_options', 'select_dropdown', 'upload_file'],
+)
+def test_actions_accept_index_one(action):
+	assert action().index == 1
