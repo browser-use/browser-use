@@ -692,7 +692,7 @@ class BrowserUseServer:
 		model: str | None = None,
 		allowed_domains: list[str] | None = None,
 		use_vision: bool = True,
-	) -> str:
+	) -> str | ToolFailure:
 		"""Run an autonomous agent task."""
 		logger.debug(f'Running agent task: {task}')
 
@@ -814,7 +814,7 @@ class BrowserUseServer:
 		coordinate_x: int | None = None,
 		coordinate_y: int | None = None,
 		new_tab: bool = False,
-	) -> str:
+	) -> str | ToolFailure:
 		"""Click an element by index or at viewport coordinates."""
 		if not self.browser_session:
 			return ToolFailure('No browser session active')
@@ -1218,7 +1218,7 @@ class BrowserUseServer:
 		except Exception as e:
 			return ToolFailure(f'Error closing session {session_id}: {str(e)}')
 
-	async def _close_all_sessions(self) -> str:
+	async def _close_all_sessions(self) -> str | ToolFailure:
 		"""Close all active browser sessions."""
 		if not self.active_sessions:
 			return 'No active sessions to close'
@@ -1229,10 +1229,10 @@ class BrowserUseServer:
 		for session_id in list(self.active_sessions.keys()):
 			try:
 				result = await self._close_session(session_id)
-				if 'Successfully closed' in result:
-					closed_count += 1
+				if isinstance(result, ToolFailure):
+					errors.append(f'{session_id}: {result.message}')
 				else:
-					errors.append(f'{session_id}: {result}')
+					closed_count += 1
 			except Exception as e:
 				errors.append(f'{session_id}: {str(e)}')
 
@@ -1242,7 +1242,7 @@ class BrowserUseServer:
 
 		result = f'Closed {closed_count} sessions'
 		if errors:
-			result += f'. Errors: {"; ".join(errors)}'
+			return ToolFailure(f'{result}. Errors: {"; ".join(errors)}')
 
 		return result
 

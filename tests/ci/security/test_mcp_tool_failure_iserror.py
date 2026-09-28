@@ -75,6 +75,25 @@ async def test_missing_close_session_is_reported_as_error(server: BrowserUseServ
 	assert_error_result(result, 'Session abc123 not found')
 
 
+async def test_close_all_reports_partial_failure(server: BrowserUseServer) -> None:
+	class _ClosingSession:
+		def __init__(self, fails: bool):
+			self.fails = fails
+
+		async def close(self):
+			if self.fails:
+				raise RuntimeError('close failed')
+
+	server.active_sessions = {
+		'broken': {'session': _ClosingSession(True)},
+		'healthy': {'session': _ClosingSession(False)},
+	}
+	result = await call_handler(server, 'browser_close_all', {})
+	assert_error_result(result, 'broken: Error closing session broken: close failed')
+	assert 'healthy' not in server.active_sessions
+	assert 'broken' in server.active_sessions
+
+
 async def test_raised_exception_is_reported_as_error(server: BrowserUseServer) -> None:
 	async def _no_session(*args, **kwargs):
 		return None
