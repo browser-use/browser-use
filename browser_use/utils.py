@@ -77,17 +77,19 @@ def sanitize_url_candidate(url: str) -> str:
 
 
 def http_hosts_match(url: str, current_url: str) -> bool:
-	"""Return True when both URLs are http(s) and share a hostname."""
+	"""Return True when both URLs are http(s) and share a host and port."""
 	try:
 		left = urlparse(url)
 		right = urlparse(current_url)
-	except Exception:
+		# .port raises ValueError for a port outside 0-65535 or one that is not a number
+		ports_match = left.port == right.port
+	except ValueError:
 		return False
 	if left.scheme.lower() not in ('http', 'https') or right.scheme.lower() not in ('http', 'https'):
 		return False
 	if not left.hostname or not right.hostname:
 		return False
-	return left.hostname.lower() == right.hostname.lower()
+	return left.hostname.lower() == right.hostname.lower() and ports_match
 
 
 def has_url_negation(context: str) -> bool:
