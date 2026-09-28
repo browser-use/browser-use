@@ -435,6 +435,41 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 model="openai/gpt-5.5", server_path="/nonexistent/server.mjs"
             )
 
+    async def test_start_then_configure_matches_create(self):
+        async def quote(args):
+            return Quote(total=args.quantity * 7)
+
+        self.responses = [("quote", {"quantity": 3}), ("finish", {"result": {"total": 21}})]
+        self.agent = await BrowserUse.start(tools=[Tool("quote", "Price the quantity", Quantity, quote)])
+        agent = await self.agent.configure(
+            model="openai/gpt-5.5",
+            workspace=self.directory.name,
+            baseUrl=self.base_url,
+            apiKey="local-fixture-key",
+            telemetry=False,
+        )
+        self.assertIs(agent, self.agent)
+        self.assertEqual(Path(agent.workspace).resolve(), Path(self.directory.name).resolve())
+        result = await agent.run("Calculate quote", schema=Quote)
+        self.assertEqual(result.output, Quote(total=21))
+        with self.assertRaisesRegex(BrowserUseError, "already configured"):
+            await agent.configure(model="openai/gpt-5.5")
+
+    async def test_close_after_start_stops_the_runtime(self):
+        agent = await BrowserUse.start()
+        process = agent._process
+        await asyncio.wait_for(agent.close(), 5)
+        self.assertIsNotNone(process.returncode)
+        self.assertNotIn("Graceful close failed", agent._stderr)
+        with self.assertRaisesRegex(BrowserUseError, "closed"):
+            await agent.configure(model="openai/gpt-5.5")
+
+    async def test_failed_configure_stops_the_runtime(self):
+        agent = await BrowserUse.start()
+        with self.assertRaisesRegex(BrowserUseError, "Unsupported create option"):
+            await agent.configure(model="openai/gpt-5.5", imaginaryOption=True)
+        self.assertIsNotNone(agent._process.returncode)
+
     async def test_nested_pydantic_schema_round_trip(self):
         class Invoice(BaseModel):
             quote: Quote
