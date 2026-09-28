@@ -405,6 +405,9 @@ class TokenCost:
 		if llm.provider == 'openrouter' or base_url == 'https://openrouter.ai/api/v1':
 			if not is_openrouter_pricing_model(model):
 				return f'openrouter/{model}'
+		# OrcaRouter is a gateway with its own pricing; never attribute upstream prices to it.
+		if llm.provider == 'orcarouter' or base_url == 'https://api.orcarouter.ai/v1':
+			return f'orcarouter/{model}'
 
 		return model
 
