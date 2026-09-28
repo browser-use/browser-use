@@ -43,7 +43,7 @@ async def test_css_selector_reacquires_document_after_stale_root() -> None:
 				raise RuntimeError(STALE_NODE_ERROR)
 
 			# The retry must reacquire the document,
-            # so this lookup should use the new root nodeId=2.
+			# so this lookup should use the new root nodeId=2.
 			assert params['nodeId'] == 2
 
 			return {'nodeIds': []}
