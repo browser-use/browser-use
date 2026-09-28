@@ -234,3 +234,52 @@ test('a dedicated browser has its empty tab taken over instead of a second one o
     await external.close();
   }
 });
+
+test("a tab code works in through `const page` is current, and keepTabs 'current' keeps it", async () => {
+  // `const page = await tabs.open(url)` shadows the global, which stays on the empty tab.
+  const external = await openBrowser();
+  const cdp = await CDP.connect(external.endpoint);
+  const pages = async () =>
+    (await cdp.send('Target.getTargets')).targetInfos.filter((t) => t.type === 'page');
+  const agent = await BrowserUse.create({
+    model: 'openai/gpt-5.4',
+    browser: { cdpUrl: external.endpoint },
+    dedicatedBrowser: true,
+  });
+  try {
+    await agent.execute("const page = await tabs.open('data:text/html,<title>work</title>')");
+    await agent.execute('await page.info()');
+    const current = agent.currentTarget;
+    await agent.close({ keepTabs: 'current' });
+    const left = await pages();
+    assert.equal(left.find((t) => t.targetId === current)?.title, 'work');
+    assert.deepEqual(left.map((t) => t.title).sort(), ['about:blank', 'work']);
+  } finally {
+    await rm(agent.workspace, { recursive: true, force: true });
+    cdp.close();
+    await external.close();
+  }
+});
+
+test('closing the tab the code worked in hands current back to the page global', async () => {
+  const external = await openBrowser();
+  const agent = await BrowserUse.create({
+    model: 'openai/gpt-5.4',
+    browser: { cdpUrl: external.endpoint },
+    dedicatedBrowser: true,
+  });
+  try {
+    await agent.execute('await page.info()');
+    const main = agent.currentTarget;
+    await agent.execute(
+      "const t = await tabs.open('data:text/html,<title>side</title>'); await t.info()",
+    );
+    assert.notEqual(agent.currentTarget, main);
+    await agent.execute('await t.close()');
+    assert.equal(agent.currentTarget, main);
+  } finally {
+    await agent.close();
+    await rm(agent.workspace, { recursive: true, force: true });
+    await external.close();
+  }
+});

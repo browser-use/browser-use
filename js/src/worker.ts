@@ -345,11 +345,14 @@ process.on('message', async (message: WorkerRequest) => {
   outputFile = message.outputFile;
   let valueJson: string | undefined;
   let failure: string | undefined;
+  let activeTargetId: string | undefined;
   try {
     valueJson = await evaluate(message.code, message.captureJson);
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
   } finally {
+    // Before bu.state(), which reads the primary page, not necessarily the tab the code used.
+    activeTargetId = browser.observationTargetId;
     // After a cell whose bu actions reached the page, show the resulting state without another model turn.
     if (bu?.acted)
       await bu
@@ -366,16 +369,18 @@ process.on('message', async (message: WorkerRequest) => {
     output = `${output.slice(0, config.maxOutputChars)}\n[Truncated. Full captured output: ${outputFile}]`;
   const previews = await prepareModelImages(images);
   const targetId = (Reflect.get(realm, 'page') as Page)?.targetId;
-  if (config.focusTab && targetId) {
+  const focused = activeTargetId ?? targetId;
+  if (config.focusTab && focused) {
     // Every cell: a new tab or a click elsewhere can take focus without changing \`page\`.
     // Hosts that act on "the tab the user sees" (typing a secret, a live view) follow the agent.
-    await browser.send('Target.activateTarget', { targetId }).catch(() => {});
+    await browser.send('Target.activateTarget', { targetId: focused }).catch(() => {});
   }
   const result = {
     text: [output, ...previews.notes].filter(Boolean).join('\n') || '(no output)',
     images: previews.images,
     targetId,
     ...(browser.observationTargetId ? { observationTargetId: browser.observationTargetId } : {}),
+    ...(activeTargetId ? { activeTargetId } : {}),
     ...(valueJson !== undefined ? { valueJson } : {}),
     ...(outputFile ? { outputFile } : {}),
   };
