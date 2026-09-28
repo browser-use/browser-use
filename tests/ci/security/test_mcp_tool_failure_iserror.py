@@ -130,6 +130,35 @@ async def test_successful_text_starting_with_error_is_not_flagged(server: Browse
 	assert content.text.startswith('Error: the page returned a validation notice')
 
 
+async def test_missing_html_selector_is_reported_as_error(server: BrowserUseServer) -> None:
+	class _CDPClient:
+		class _Send:
+			class Runtime:
+				@staticmethod
+				async def evaluate(**kwargs):
+					return {'result': {'value': None}}
+
+		send = _Send()
+
+	class _CDPSession:
+		cdp_client = _CDPClient()
+		session_id = 'cdp-session-id'
+
+	class _HTMLSession:
+		id = 'html-session-id'
+
+		async def get_or_create_cdp_session(self, **kwargs):
+			return _CDPSession()
+
+	server.browser_session = _HTMLSession()  # type: ignore[assignment]
+	for arguments, expected in (
+		({'selector': '#missing'}, 'No element found for selector: #missing'),
+		({}, 'Could not get page HTML'),
+	):
+		result = await call_handler(server, 'browser_get_html', arguments)
+		assert_error_result(result, expected)
+
+
 async def test_tool_failure_type_reaches_handler_boundary(server: BrowserUseServer) -> None:
 	"""_execute_tool itself returns the typed failure, not a sniffed string."""
 	result = await server._execute_tool('does_not_exist', {})

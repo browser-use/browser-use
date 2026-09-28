@@ -1004,7 +1004,7 @@ class BrowserUseServer:
 		)
 		html = result.get('result', {}).get('value')
 		if html is None:
-			return f'No element found for selector: {selector}' if selector else 'Error: Could not get page HTML'
+			return ToolFailure(f'No element found for selector: {selector}' if selector else 'Could not get page HTML')
 		return html
 
 	async def _screenshot(self, full_page: bool = False) -> tuple[str | ToolFailure, str | None]:
