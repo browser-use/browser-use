@@ -6,8 +6,9 @@ import pytest
 from pydantic import BaseModel
 
 from browser_use.llm.exceptions import ModelProviderError
-from browser_use.llm.messages import UserMessage
+from browser_use.llm.messages import ContentPartImageParam, ImageURL, UserMessage
 from browser_use.llm.ollama.chat import ChatOllama
+from browser_use.llm.ollama.serializer import OllamaMessageSerializer
 
 
 class Answer(BaseModel):
@@ -18,6 +19,23 @@ def _client_returning(content: str) -> MagicMock:
 	client = MagicMock()
 	client.chat = AsyncMock(return_value=MagicMock(message=MagicMock(content=content)))
 	return client
+
+
+def test_serializes_data_image_urls_case_insensitively():
+	message = UserMessage(content=[ContentPartImageParam(image_url=ImageURL(url='DATA:image/png;base64,aGVsbG8='))])
+
+	serialized = OllamaMessageSerializer.serialize(message)
+
+	assert serialized.model_dump(mode='json')['images'] == ['aGVsbG8=']
+
+
+def test_downloads_remote_images_before_ollama_serialization(httpserver):
+	httpserver.expect_request('/image.png').respond_with_data(b'png-bytes', content_type='image/png')
+	message = UserMessage(content=[ContentPartImageParam(image_url=ImageURL(url=httpserver.url_for('/image.png')))])
+
+	serialized = OllamaMessageSerializer.serialize(message)
+
+	assert serialized.model_dump(mode='json')['images'] == ['cG5nLWJ5dGVz']
 
 
 async def test_splits_top_level_chat_parameters_from_ollama_options():

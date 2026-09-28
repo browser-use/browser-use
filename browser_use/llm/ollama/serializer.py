@@ -45,15 +45,22 @@ class OllamaMessageSerializer:
 		for part in content:
 			if hasattr(part, 'type') and part.type == 'image_url':
 				url = part.image_url.url
-				if url.startswith('data:'):
-					# Handle base64 encoded images
-					# Format: data:image/jpeg;base64,<data>
+				if url.lower().startswith('data:'):
+					# Ollama accepts bytes, paths, or raw base64 rather than data URLs.
 					_, data = url.split(',', 1)
-					# Decode base64 to bytes
-					image_bytes = base64.b64decode(data)
-					images.append(Image(value=image_bytes))
+					images.append(Image(value=base64.b64decode(data)))
+				elif url.lower().startswith(('http://', 'https://')):
+					# The Ollama SDK treats string URLs as local paths or raw base64, so
+					# browser-use must fetch remote images before handing them to Ollama.
+					import httpx
+
+					try:
+						response = httpx.get(url, timeout=30)
+						response.raise_for_status()
+					except Exception as exc:
+						raise ValueError(f'Failed to download image from {url}: {exc}') from exc
+					images.append(Image(value=response.content))
 				else:
-					# Handle URL images (Ollama will download them)
 					images.append(Image(value=url))
 
 		return images
