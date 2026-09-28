@@ -30,7 +30,7 @@ Your agent already has tools (search, code execution, file I/O, etc.) and its ow
 
 | Your agent type | Best approach | Control level |
 |----------------|---------------|--------------|
-| CLI coding agent in sandbox | [CLI commands](#shell-command-agents-cli) | Per-command |
+| CLI coding agent in sandbox | [CLI 3.0 Python](#shell-command-agents-cli) | Per-call |
 | TypeScript/JS | [CDP + Playwright](#typescriptjs-cdp--playwright) | Playwright API |
 | MCP client (Claude Desktop, Cursor) | [Local MCP server](#mcp-native-agents) | MCP tools |
 | Existing Playwright/Puppeteer/Selenium | [CDP WebSocket (stealth)](#existing-playwrightpuppeteerselenium) | Your existing API |
@@ -42,54 +42,54 @@ Your agent already has tools (search, code execution, file I/O, etc.) and its ow
 
 **For:** Claude Code, Codex, OpenCode, Cline, Windsurf, Cursor background agents, Hermes, OpenClaw — any coding agent running in a VM/container with terminal access.
 
-**Setup:** Install the CLI and load the browser-use SKILL.md into the agent's context. The agent calls browser commands as shell tool invocations.
+**Setup:** Install the CLI and load the browser-use SKILL.md into the agent's context. CLI 3.0 runs Python from stdin. Browser helpers are already imported, and the browser stays alive between calls.
 
 ```bash
 uv pip install 'browser-use[cli]'
 ```
 
-**Core workflow** — the agent calls these commands one at a time, reading output between each:
+For Browser Use Cloud, authenticate once and start a named remote browser:
 
 ```bash
-# 1. Navigate
-browser-use open https://example.com
+browser-use auth login
 
-# 2. Observe — ALWAYS run state first to get element indices
-browser-use state
-# Output: URL, title, list of clickable elements with indices
-# e.g. [0] <input type="search" placeholder="Search...">
-#      [1] <button>Submit</button>
-#      [2] <a href="/about">About</a>
+browser-use <<'PY'
+start_remote_daemon("agent-1")
+PY
+```
 
-# 3. Interact — use indices from state
-browser-use input 0 "search query"    # Type into element 0
-browser-use click 1                   # Click element 1
+Use the same `BU_NAME` for every later call so the agent stays on that cloud browser:
 
-# 4. Verify — re-run state to see result
-browser-use state
+```bash
+# 1. Navigate and observe
+BU_NAME=agent-1 browser-use <<'PY'
+new_tab("https://html.duckduckgo.com/html/")
+wait_for_load()
+print(page_info())
+PY
 
-# 5. Extract data
-browser-use get text 3               # Get element text
-browser-use get html --selector "h1" # Get scoped HTML
-browser-use eval "document.title"    # Execute JavaScript
-browser-use screenshot result.png    # Capture visual state
+# 2. Interact, then verify the result
+BU_NAME=agent-1 browser-use <<'PY'
+fill_input('input[name="q"]', "search query")
+press_key("ENTER")
+wait_for_load()
+print(js("document.title"))
+print(capture_screenshot())
+PY
 
-# 6. Wait for dynamic content
-browser-use wait selector ".results" # Wait for element
-browser-use wait text "Success"      # Wait for text
-
-# 7. Cleanup
-browser-use close
+# 3. Stop the cloud browser when the job is done
+browser-use <<'PY'
+stop_remote_daemon("agent-1")
+PY
 ```
 
 **Key details:**
-- Background daemon keeps browser alive between commands (~50ms latency per call)
-- Agent's reasoning loop decides which command to call next
-- `state` output is the agent's "eyes" — it reads element indices and decides what to click
-- Commands can be chained with `&&` when intermediate output isn't needed
-- `--json` flag for machine-readable output
-- `--headed` for visible browser (debugging)
-- `--profile "Default"` for authenticated browsing with saved Chrome logins
+- CLI 3.0 removed the old `open`, `state`, `click`, `eval`, `--json`, `--headed`, and `--profile` command surface.
+- The agent writes Python with helpers such as `new_tab`, `page_info`, `fill_input`, `click_at_xy`, `js`, and `cdp`.
+- The background daemon keeps the browser alive between calls. Printed Python values are the tool output.
+- `BU_NAME` selects the named cloud browser. Without it, the CLI uses the default local browser.
+- The first navigation is `new_tab(url)`. Use `goto_url(url)` only after a real tab exists.
+- Remote browsers keep billing until they stop or time out. Always call `stop_remote_daemon(name)` after the job.
 
 ---
 
