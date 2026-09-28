@@ -810,11 +810,11 @@ class TestPreFlightDnsResolution:
 			'::ffff:127.0.0.1',
 			'::ffff:169.254.169.254',
 			'::ffff:100.100.100.200',  # Alibaba Cloud ECS metadata
-			'::ffff:100.64.0.1',        # Carrier-grade NAT
-			'::ffff:10.0.0.1',          # RFC 1918 private
-			'::ffff:172.16.0.1',        # RFC 1918 private
-			'::ffff:192.168.1.1',       # RFC 1918 private
-			'::127.0.0.1',              # Deprecated IPv4-compatible
+			'::ffff:100.64.0.1',  # Carrier-grade NAT
+			'::ffff:10.0.0.1',  # RFC 1918 private
+			'::ffff:172.16.0.1',  # RFC 1918 private
+			'::ffff:192.168.1.1',  # RFC 1918 private
+			'::127.0.0.1',  # Deprecated IPv4-compatible
 		]
 		for ip in blocked_ips:
 			monkeypatch.setattr(

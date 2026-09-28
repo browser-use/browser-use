@@ -223,19 +223,22 @@ class SecurityWatchdog(BaseWatchdog):
 		for addr in addr_infos:
 			ip_str = addr[4][0]
 			try:
-				ip_obj = ipaddress.ip_address(ip_str)
-				if getattr(ip_obj, 'ipv4_mapped', None) is not None:
-					ip_obj = ip_obj.ipv4_mapped
-				elif ip_obj.version == 6 and int(ip_obj) <= 0xFFFFFFFF:
-					ip_obj = ipaddress.IPv4Address(int(ip_obj))
+				parsed_ip = ipaddress.ip_address(ip_str)
+				target_ip: ipaddress.IPv4Address | ipaddress.IPv6Address = parsed_ip
+				if isinstance(parsed_ip, ipaddress.IPv6Address):
+					mapped = parsed_ip.ipv4_mapped
+					if mapped is not None:
+						target_ip = mapped
+					elif int(parsed_ip) <= 0xFFFFFFFF:
+						target_ip = ipaddress.IPv4Address(int(parsed_ip))
 
 				if (
-					ip_obj.is_loopback
-					or ip_obj.is_private
-					or ip_obj.is_link_local
-					or ip_obj.is_unspecified
-					or str(ip_obj) == '169.254.169.254'
-					or (ip_obj.version == 4 and ip_obj in cgnat)
+					target_ip.is_loopback
+					or target_ip.is_private
+					or target_ip.is_link_local
+					or target_ip.is_unspecified
+					or str(target_ip) == '169.254.169.254'
+					or (isinstance(target_ip, ipaddress.IPv4Address) and target_ip in cgnat)
 				):
 					if hasattr(self, '_dns_cache'):
 						self._dns_cache[clean_host] = (True, now)
