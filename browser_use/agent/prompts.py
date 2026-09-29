@@ -192,17 +192,18 @@ class AgentMessagePrompt:
 					stats['interactive_elements'] += 1
 
 				# Check if this element hosts shadow DOM
+				# NB: user-agent roots (native <select>/<input> internals) are excluded —
+				# they are browser internals, not author shadow DOM. See #5817.
 				if node.is_shadow_host:
-					# Check if any shadow children are closed
-					has_closed_shadow = any(
-						child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
-						and child.original_node.shadow_root_type
-						and child.original_node.shadow_root_type.lower() == 'closed'
+					shadow_types = {
+						child.original_node.shadow_root_type.lower()
 						for child in node.children
-					)
-					if has_closed_shadow:
+						if child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
+						and child.original_node.shadow_root_type
+					}
+					if 'closed' in shadow_types:
 						stats['shadow_closed'] += 1
-					else:
+					elif 'open' in shadow_types:
 						stats['shadow_open'] += 1
 
 			elif original.node_type == NodeType.TEXT_NODE:
