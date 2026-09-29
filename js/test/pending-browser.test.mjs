@@ -132,3 +132,18 @@ test('connectBrowser needs a pending session, a valid endpoint, and runs once', 
     await rm(workspace, { recursive: true, force: true });
   }
 });
+
+test('close() ends a cell waiting for a pending browser at once, and connecting after close fails', async () => {
+  const s = await pendingSession([]);
+  const waiting = s.agent.execute('console.log(1)', { timeoutMs: 60_000 });
+  const outcome = waiting.then(
+    () => null,
+    (error) => error,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const started = Date.now();
+  await s.close();
+  assert.match(String(await outcome), /closed before a browser was connected/);
+  assert.ok(Date.now() - started < 5_000);
+  assert.throws(() => s.agent.connectBrowser(chrome.endpoint), /closed/);
+});

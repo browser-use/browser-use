@@ -72,13 +72,20 @@ export class BrowserRuntime {
 
   private connected: Promise<void> | undefined;
   private markConnected: (() => void) | undefined;
+  private abandonConnect: ((error: Error) => void) | undefined;
 
   constructor(
     private readonly config: WorkerConfig,
     private readonly executable?: string,
   ) {
     // An empty endpoint is a pending browser: cells wait for connect().
-    if (!config.endpoint) this.connected = new Promise((resolve) => (this.markConnected = resolve));
+    if (!config.endpoint) {
+      this.connected = new Promise((resolve, reject) => {
+        this.markConnected = resolve;
+        this.abandonConnect = reject;
+      });
+      this.connected.catch(() => {}); // rejected only by close(); a waiter reports it
+    }
   }
 
   get endpoint() {
@@ -87,6 +94,7 @@ export class BrowserRuntime {
 
   /** Attach the browser a pending runtime was created without; once only. */
   connect(endpoint: string, targetId?: string) {
+    if (this.closed) throw new Error('BrowserUse is closed.');
     if (this.config.endpoint) throw new Error('This session already has a browser.');
     this.config.endpoint = endpoint;
     if (targetId) this.config.targetId = targetId;
@@ -115,7 +123,7 @@ export class BrowserRuntime {
     }
   }
 
-  private async start(signal?: AbortSignal, waitMs = 30_000): Promise<ChildProcess> {
+  private async start(signal: AbortSignal | undefined, waitMs: number): Promise<ChildProcess> {
     if (this.worker) return this.worker;
     await this.waitForBrowser(waitMs, signal);
     if (this.worker) return this.worker;
@@ -298,6 +306,8 @@ export class BrowserRuntime {
   async close({ keepTabs = false }: { keepTabs?: boolean | 'current' } = {}) {
     if (this.closed) return;
     this.closed = true;
+    // A cell still waiting for a pending browser ends now, not at its deadline.
+    this.abandonConnect?.(new Error('BrowserUse closed before a browser was connected.'));
     if (this.busy) {
       this.pending?.(new Error('BrowserUse closed during execution.'));
       await this.terminate();

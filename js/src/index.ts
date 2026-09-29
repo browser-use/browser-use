@@ -493,8 +493,6 @@ export class BrowserUse {
       );
   }
 
-  /** Idempotent. Cancels execution, closes our tab, and shuts down only browsers we launched. */
-  /** The tab the agent is working in, for a host that resumes it in a later session. */
   /** Attach the browser of a session created with Browser.pending(). The model may already
    * be running; its first browser cell waits for this. */
   connectBrowser(cdpUrl: string, options: { targetId?: string } = {}) {
@@ -505,10 +503,12 @@ export class BrowserUse {
     this.runtime.connect(validCdpUrl(cdpUrl), options.targetId);
   }
 
+  /** The tab the agent is working in, for a host that resumes it in a later session. */
   get currentTarget(): string | undefined {
     return this.runtime.currentTarget;
   }
 
+  /** Idempotent. Cancels execution, closes our tab, and shuts down only browsers we launched. */
   close(options: { keepTabs?: boolean | 'current' } = {}): Promise<void> {
     if (this.closing) return this.closing;
     this.closed = true;
