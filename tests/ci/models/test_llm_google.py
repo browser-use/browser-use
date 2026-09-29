@@ -243,3 +243,44 @@ def test_include_system_in_user_keeps_the_agent_state_message(tmp_path):
 	text, images = _describe(contents)
 	assert 'Buy a red stapler' in text, 'the task never reached the model'
 	assert images == 1, 'the screenshot never reached the model'
+
+
+@pytest.mark.asyncio
+async def test_chat_google_fallback_json_mode_adds_schema_for_list_content():
+	"""Prompt-based JSON mode must tell the model the schema when the last message is a list of parts."""
+	from unittest.mock import AsyncMock, MagicMock, patch
+
+	from pydantic import BaseModel
+
+	from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, UserMessage
+
+	class Answer(BaseModel):
+		value: int
+
+	mock_client = MagicMock()
+	mock_models = AsyncMock()
+	mock_client.aio.models = mock_models
+	mock_response = MagicMock()
+	mock_response.text = '{"value": 1}'
+	mock_response.usage = None
+	mock_response.candidates = []
+	mock_models.generate_content.return_value = mock_response
+
+	message = UserMessage(
+		content=[
+			ContentPartTextParam(text='What is the value?'),
+			ContentPartImageParam(image_url=ImageURL(url=f'data:image/png;base64,{_PNG_1PX}')),
+		]
+	)
+
+	with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+		chat = ChatGoogle(model='gemma-3-27b-it', api_key='fake', supports_structured_output=False)
+		result = await chat.ainvoke([message], output_format=Answer)
+
+	assert result.completion == Answer(value=1)
+	text, images = _describe(mock_models.generate_content.call_args.kwargs['contents'])
+	assert 'valid JSON object that matches this schema' in text
+	assert "'value'" in text
+	assert images == 1
+	# The caller's message is not modified
+	assert len(message.content) == 2
