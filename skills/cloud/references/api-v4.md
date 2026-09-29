@@ -13,7 +13,7 @@ is the persistent filesystem that can be reused across sessions.
 
 BU Ultrafast (`bu-ultrafast`) and BU Fast (`bu-fast`) are hosted V4 modes in early access, enabled per project. BU Ultrafast targets quick browser interactions; BU Fast adds more reasoning at low token prices. [Request access](https://browser-use.com/ultrafast).
 
-BU Ultrafast measured **$0.00214 median per URL check**, with **8/8 correct** in a small staging test. This includes recorded LLM + stopped-browser usage, with browsers explicitly stopped after each run. Actual cost varies; network traffic is billed separately. [Methodology](https://browser-use.com/pricing#task-cost-methodology).
+BU Ultrafast recorded **$0.00214 median per URL check**, with **8/8 correct** in a small staging test. This includes recorded LLM + stopped-browser usage, with browsers explicitly stopped after each run. Actual cost varies; network traffic is billed separately. [Methodology](https://browser-use.com/pricing#task-cost-methodology).
 
 Customer rates in USD per 1M tokens, including the service fee:
 

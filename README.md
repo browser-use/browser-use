@@ -76,7 +76,7 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 
 Scale browser automation with our hosted agent, stealth browsers, and infrastructure for profiles, recordings, and data policies.
 
-**Browser tasks for a fraction of a cent.** BU Ultrafast measured **$0.00214 median per URL check**, with **8/8 correct** in a small staging test. LLM + browser included; browsers stopped after each run. Actual cost varies; network traffic is billed separately. [Methodology and pricing ↗](https://browser-use.com/pricing#task-cost-methodology)
+**Browser tasks for a fraction of a cent.** BU Ultrafast recorded **$0.00214 median per URL check**, with **8/8 correct** in a small staging test. LLM + browser included; browsers stopped after each run. Actual cost varies; network traffic is billed separately. [Methodology and pricing ↗](https://browser-use.com/pricing#task-cost-methodology)
 
 Choose **BU Ultrafast** for quick browser interactions or **BU Fast** for more reasoning at low token prices. Both are API V4 modes in early access, enabled per project. [Join early access ↗](https://browser-use.com/ultrafast) · [Modes and token rates ↗](https://docs.browser-use.com/cloud/agent/models)
 

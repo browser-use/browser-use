@@ -17,7 +17,7 @@ Create an API key at [cloud.browser-use.com/new-api-key](https://cloud.browser-u
 
 ## Low-cost Cloud modes
 
-**BU Ultrafast** measured **$0.00214 median per URL check**, with **8/8 correct** in a small staging test, including recorded LLM + stopped-browser usage. Browsers were stopped after each run. Actual cost varies; network traffic is billed separately. **BU Fast** adds more reasoning at low token prices. See [pricing and methodology](https://browser-use.com/pricing#task-cost-methodology).
+**BU Ultrafast** recorded **$0.00214 median per URL check**, with **8/8 correct** in a small staging test, including recorded LLM + stopped-browser usage. Browsers were stopped after each run. Actual cost varies; network traffic is billed separately. **BU Fast** adds more reasoning at low token prices. See [pricing and methodology](https://browser-use.com/pricing#task-cost-methodology).
 
 Both modes are in early access, enabled per project. [Join early access](https://browser-use.com/ultrafast). Once enabled, select one through REST:
 
