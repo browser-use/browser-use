@@ -616,6 +616,21 @@ for (const errorMessage of [
   'server_error: Sorry, something went wrong.',
   'Unable to verify model access right now. Please retry.',
   'An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists. Please include the request ID req_fixture in your message.',
+  // A proxy relaying a mid-stream upstream failure names the exception class first.
+  'APIError: An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists. Please include the request ID req_fixture in your message.',
+  'APIConnectionError: Connection error.',
+  'APIError: Sorry, something went wrong.',
+  'APIError: The server had an error while processing your request. Sorry about that!',
+  'APIError: The service is temporarily unavailable.',
+  'APIError: Rate limit reached for gpt-6-luna in organization org-fixture on tokens per min (TPM): Limit 180000000, Used 179783172, Requested 7048. Please try again in 81ms. Visit https://platform.openai.com/account/rate-limits to learn more.',
+  'APIError: Rate limit reached for gpt-6-luna in organization org-fixture on tokens per min (TPM): Limit 180000000, Used 179998000, Requested 243289. Please try again in 1.638s. Visit https://platform.openai.com/account/rate-limits to learn more.',
+  'RemoteProtocolError: peer closed connection without sending complete message body (incomplete chunked read)',
+  'RemoteProtocolError: Server disconnected without sending a response.',
+  'ReadError',
+  'ReadError: [Errno 104] Connection reset by peer',
+  'ReadTimeout: The read operation timed out',
+  'APITimeoutError: Request timed out.',
+  'stream inactive >300s',
 ]) {
   test(`explicit temporary provider failure preserves prior work: ${errorMessage.split('.')[0]}`, async () => {
     const s = await session([
@@ -659,6 +674,9 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
     'http-auth-denied',
     'http-access-denied',
     'connection-with-denial',
+    'proxy-processing-repeated',
+    'proxy-connection-with-denial',
+    'proxy-request-too-large',
   ]) {
     const retryAllowed = [
       'repeated',
@@ -667,6 +685,7 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
       'generic-repeated',
       'http-repeated',
       'connection-repeated',
+      'proxy-processing-repeated',
     ].includes(scenario);
     const controller = new AbortController();
     const failure = () =>
@@ -690,6 +709,12 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
               'generic-repeated': 'Sorry, something went wrong.',
               'generic-with-denial':
                 'Sorry, something went wrong. You do not have access to this model.',
+              'proxy-processing-repeated':
+                'APIError: An error occurred while processing your request. You can retry your request, or contact support.',
+              'proxy-connection-with-denial':
+                'APIConnectionError: Connection error. You do not have access to this model.',
+              'proxy-request-too-large':
+                'APIError: Request too large for gpt-6-luna in organization org-fixture on tokens per min (TPM): Limit 180000000, Requested 171421. The input or output tokens must be reduced in order to run successfully.',
             }[scenario] ?? 'socket hang up',
         },
       );
@@ -727,6 +752,9 @@ test('provider recovery keeps original budgets and never becomes a repeated retr
           'generic-repeated': 'error',
           'access-denied': 'error',
           'generic-with-denial': 'error',
+          'proxy-processing-repeated': 'error',
+          'proxy-connection-with-denial': 'error',
+          'proxy-request-too-large': 'error',
         }[scenario],
         scenario,
       );

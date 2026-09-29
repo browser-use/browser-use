@@ -27,6 +27,36 @@ export const zeroUsage = (): Usage => ({
   totalTokens: 0,
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 });
+// Failures worth one more inference call. Anchored where a trailing access denial must not retry.
+const TRANSIENT_MODEL_ERRORS = [
+  /^OpenAI API error \(5\d{2}\): /,
+  /^Connection error\.$/,
+  /stream ended before a terminal|Model stream exceeded|terminated|ECONNRESET|socket hang up|Unable to verify model access right now\. Please retry\./i,
+  /^(?:(?:server_error|unknown): )?Sorry, something went wrong\.$/,
+  /^An error occurred while processing your request\. You can retry your request,/,
+  /^The server had an error while processing your request\./,
+  /^The service is temporarily unavailable\.$/,
+  /^Rate limit reached for .* Please try again in [\d.]+m?s\./,
+  /^peer closed connection without sending complete message body/,
+  /^Server disconnected without sending a response\.$/,
+  /^(?:\[Errno \d+\] )?Connection reset by peer$/,
+  /^Request timed out\.$/,
+  /^stream inactive >\d+s$/,
+];
+// httpx and openai transport failures, relayed bare ("ReadError") or with their message.
+const TRANSIENT_TRANSPORT_ERRORS =
+  /^(?:ReadError|ReadTimeout|RemoteProtocolError|APITimeoutError)(?::|$)/;
+/** A proxy that relays a mid-stream upstream failure prefixes it with the exception class
+ * ("APIError: ..."); the message after that prefix decides. */
+export function transientModelError(message: string | undefined): boolean {
+  const text = message ?? '';
+  const detail = text.replace(/^[A-Za-z]+(?:Error|Exception|Timeout): /, '');
+  return (
+    TRANSIENT_TRANSPORT_ERRORS.test(text) ||
+    TRANSIENT_MODEL_ERRORS.some((pattern) => pattern.test(detail))
+  );
+}
+
 function sumUsage(messages: AgentMessage[]): Usage {
   const result = zeroUsage();
   for (const message of messages) {
@@ -380,17 +410,7 @@ export async function runAgent(
       if (
         failed?.role === 'assistant' &&
         failed.stopReason === 'error' &&
-        (/^OpenAI API error \(5\d{2}\): /.test(failed.errorMessage ?? '') ||
-          failed.errorMessage === 'Connection error.' ||
-          /stream ended before a terminal|Model stream exceeded|terminated|ECONNRESET|socket hang up|Unable to verify model access right now\. Please retry\./i.test(
-            failed.errorMessage ?? '',
-          ) ||
-          /^(?:(?:server_error|unknown): )?Sorry, something went wrong\.$/.test(
-            failed.errorMessage ?? '',
-          ) ||
-          failed.errorMessage?.startsWith(
-            'An error occurred while processing your request. You can retry your request,',
-          )) &&
+        transientModelError(failed.errorMessage) &&
         !checkBudgets(agent.state.messages, agent.state.systemPrompt) &&
         !options.signal?.aborted
       ) {
