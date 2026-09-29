@@ -176,10 +176,10 @@ export async function runAgent(
   const keepTools = model.provider === 'openai' && model.api === 'openai-responses';
   const delivering = () => finalizing || finishRepairs > 0;
   const deliveryTools = ['finish', 'finish_from_js'];
-  // pi-ai forwards toolChoice verbatim.
+  // pi-ai forwards toolChoice verbatim. 'required': under 'auto' a model can answer with text again and end incomplete.
   const deliveryChoice = {
     type: 'allowed_tools',
-    mode: 'auto',
+    mode: 'required',
     tools: deliveryTools.map((name) => ({ type: 'function', name })),
   } as unknown as ToolChoice;
   const checkBudgets = (messages: AgentMessage[], systemPrompt: string) => {
