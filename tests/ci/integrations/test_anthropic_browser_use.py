@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import importlib.util
 import json
 import os
@@ -119,6 +120,7 @@ def test_tab_result_and_browser_state_share_a_stable_snapshot() -> None:
 
 async def test_bash_strips_environment_and_writes_in_output_dir(tmp_path: Path, monkeypatch) -> None:
 	monkeypatch.setenv('ANTHROPIC_API_KEY', 'must-not-leak')
+	resolved_tmp_path = await asyncio.to_thread(tmp_path.resolve)
 	result = json.loads(
 		await run_bash(
 			'printf "%s\\n%s\\n" "$HOME" "${ANTHROPIC_API_KEY-unset}"; pwd; printf ok > result.txt',
@@ -126,8 +128,8 @@ async def test_bash_strips_environment_and_writes_in_output_dir(tmp_path: Path, 
 		)
 	)
 	lines = result['output'].splitlines()
-	assert lines == [str(tmp_path.resolve()), 'unset', str(tmp_path.resolve())]
-	assert (tmp_path / 'result.txt').read_text() == 'ok'
+	assert lines == [str(resolved_tmp_path), 'unset', str(resolved_tmp_path)]
+	assert await asyncio.to_thread((tmp_path / 'result.txt').read_text) == 'ok'
 	assert result['exit_code'] == 0
 	assert result['timed_out'] is False
 

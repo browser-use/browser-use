@@ -23,20 +23,75 @@ from anthropic import AsyncAnthropic
 from browser_use.integrations.anthropic import Bash, BrowserUse
 
 browser = BrowserUse()
-bash = Bash(output_dir="outputs")
+bash = Bash(output_dir='outputs')
 
 async with browser, AsyncAnthropic() as client:
-    runner = client.beta.messages.tool_runner(
-        model=model,
-        tools=[browser, bash],
-        messages=[{"role": "user", "content": task}],
-    )
-    result = await runner.until_done()
+	runner = client.beta.messages.tool_runner(
+		model=model,
+		tools=[browser, bash],
+		messages=[{'role': 'user', 'content': task}],
+	)
+	result = await runner.until_done()
 ```
 
 `BrowserUse()` creates, starts, and stops its own `BrowserSession`. To use an
 existing session, pass it as `BrowserUse(session)`; the application keeps
 responsibility for starting and stopping that session.
+
+## Existing, remote, or Cloud browser
+
+Pass any started `BrowserSession` to the driver. This is the same shape for an
+existing local browser, a remote CDP endpoint, and Browser Use Cloud:
+
+```python
+import os
+
+from anthropic import AsyncAnthropic
+from browser_use import BrowserSession
+from browser_use.integrations.anthropic import Bash, BrowserUse
+
+session = BrowserSession(cdp_url=os.environ['BROWSER_USE_CDP_URL'])
+await session.start()
+browser = BrowserUse(session)
+bash = Bash(output_dir='outputs')
+
+try:
+	async with browser, AsyncAnthropic() as client:
+		runner = client.beta.messages.tool_runner(
+			model=model,
+			tools=[browser, bash],
+			messages=[{'role': 'user', 'content': task}],
+		)
+		result = await runner.until_done()
+finally:
+	await session.kill()
+```
+
+For Browser Use Cloud, construct the session with `BrowserSession(use_cloud=True)`
+instead. Set `BROWSER_USE_API_KEY` before starting it. Bash still runs beside
+the SDK process, so files it creates are local to that process. Remote uploads
+need a browser-host path or an application `document_resolver`.
+
+## Approval callback
+
+The Anthropic SDK calls `confirm` before configured actions run. Keep
+`javascript_exec` and `file_upload` disabled unless the application needs
+them:
+
+```python
+async def confirm(context):
+	return await app.approve(
+		action=context.member,
+		tab_id=context.tab_id,
+		tab_url=context.tab_url,
+	)
+
+
+browser = BrowserUse(
+	confirm=confirm,
+	configs={'javascript_exec': {'enabled': True}},
+)
+```
 
 ## Browser actions
 

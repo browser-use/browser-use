@@ -28,6 +28,14 @@ async def _drain_bounded(stream: asyncio.StreamReader, limit: int) -> tuple[byte
 	return b''.join(chunks), truncated
 
 
+def _prepare_output_dir(output_dir: str | Path) -> tuple[Path, Path]:
+	root = Path(output_dir).expanduser().resolve()
+	tmp = root / '.tmp'
+	root.mkdir(parents=True, exist_ok=True)
+	tmp.mkdir(exist_ok=True)
+	return root, tmp
+
+
 async def run_bash(
 	command: str,
 	*,
@@ -43,10 +51,7 @@ async def run_bash(
 	if max_output_bytes <= 0:
 		raise ValueError('max_output_bytes must be positive')
 
-	root = Path(output_dir).expanduser().resolve()
-	tmp = root / '.tmp'
-	root.mkdir(parents=True, exist_ok=True)
-	tmp.mkdir(exist_ok=True)
+	root, tmp = await asyncio.to_thread(_prepare_output_dir, output_dir)
 	process = await asyncio.create_subprocess_exec(
 		'/bin/bash',
 		'--noprofile',
