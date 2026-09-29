@@ -262,7 +262,7 @@ async def test_chat_google_fallback_json_mode_adds_schema_for_list_content():
 	mock_client.aio.models = mock_models
 	mock_response = MagicMock()
 	mock_response.text = '{"value": 1}'
-	mock_response.usage = None
+	mock_response.usage_metadata = None
 	mock_response.candidates = []
 	mock_models.generate_content.return_value = mock_response
 
