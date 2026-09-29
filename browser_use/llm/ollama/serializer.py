@@ -17,6 +17,9 @@ from browser_use.llm.messages import (
 	UserMessage,
 )
 
+# Remote images arrive through untrusted message content, so downloads are bounded.
+_MAX_IMAGE_BYTES = 20 * 1024 * 1024
+
 
 class OllamaMessageSerializer:
 	"""Serializer for converting between custom message types and Ollama message types."""
@@ -67,21 +70,32 @@ class OllamaMessageSerializer:
 				raise ValueError(f'Refusing to download image from non-public host: {parsed.hostname}')
 
 			try:
-				response = await client.get(url)
+				async with client.stream('GET', url) as response:
+					if response.is_redirect:
+						location = response.headers.get('location')
+						if not location:
+							raise ValueError(f'Image redirect missing location: {url}')
+						url = str(response.url.join(location))
+					else:
+						response.raise_for_status()
+						return await OllamaMessageSerializer._read_image_body(response, url)
 			except httpx.HTTPError as exc:
+				# HTTP-level failures must surface like every other download failure.
 				raise ValueError(f'Failed to download image from {url}: {exc}') from exc
 
-			if response.is_redirect:
-				location = response.headers.get('location')
-				if not location:
-					raise ValueError(f'Image redirect missing location: {url}')
-				url = str(response.url.join(location))
-				continue
-
-			response.raise_for_status()
-			return response.content
-
 		raise ValueError(f'Too many redirects while downloading image from {url}')
+
+	@staticmethod
+	async def _read_image_body(response: httpx.Response, url: str) -> bytes:
+		"""Stream a bounded body so a remote host cannot exhaust process memory."""
+		chunks: list[bytes] = []
+		total = 0
+		async for chunk in response.aiter_bytes():
+			total += len(chunk)
+			if total > _MAX_IMAGE_BYTES:
+				raise ValueError(f'Image from {url} exceeds the {_MAX_IMAGE_BYTES} byte download limit')
+			chunks.append(chunk)
+		return b''.join(chunks)
 
 	@staticmethod
 	async def _extract_images(content: Any) -> list[Image]:

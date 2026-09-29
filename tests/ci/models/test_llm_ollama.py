@@ -82,12 +82,36 @@ async def test_rejects_redirects_to_non_public_hosts():
 		requests.append(str(request.url))
 		return httpx.Response(302, headers={'location': 'http://127.0.0.1/private.png'})
 
+	async def allow_only_public(host: str) -> bool:
+		return host == 'images.example'
+
 	async with httpx.AsyncClient(transport=httpx.MockTransport(handle_request), follow_redirects=False) as client:
-		with patch.object(OllamaMessageSerializer, '_is_public_host', new=AsyncMock(side_effect=[True, False])):
-			with pytest.raises(ValueError, match='non-public host'):
+		with patch.object(OllamaMessageSerializer, '_is_public_host', new=allow_only_public):
+			with pytest.raises(ValueError, match=r'non-public host: 127\.0\.0\.1'):
 				await OllamaMessageSerializer._download_image_with_client('https://images.example/redirect', client)
 
 	assert requests == ['https://images.example/redirect']
+
+
+async def test_wraps_http_error_responses_as_value_errors():
+	def handle_request(request: httpx.Request) -> httpx.Response:
+		return httpx.Response(404)
+
+	async with httpx.AsyncClient(transport=httpx.MockTransport(handle_request), follow_redirects=False) as client:
+		with patch.object(OllamaMessageSerializer, '_is_public_host', new=AsyncMock(return_value=True)):
+			with pytest.raises(ValueError, match='Failed to download image'):
+				await OllamaMessageSerializer._download_image_with_client('https://images.example/missing.png', client)
+
+
+async def test_rejects_images_larger_than_the_download_limit():
+	def handle_request(request: httpx.Request) -> httpx.Response:
+		return httpx.Response(200, content=b'x' * 64)
+
+	async with httpx.AsyncClient(transport=httpx.MockTransport(handle_request), follow_redirects=False) as client:
+		with patch.object(OllamaMessageSerializer, '_is_public_host', new=AsyncMock(return_value=True)):
+			with patch('browser_use.llm.ollama.serializer._MAX_IMAGE_BYTES', 16):
+				with pytest.raises(ValueError, match='exceeds the 16 byte download limit'):
+					await OllamaMessageSerializer._download_image_with_client('https://images.example/big.png', client)
 
 
 async def test_splits_top_level_chat_parameters_from_ollama_options():
