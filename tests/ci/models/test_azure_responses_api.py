@@ -1,6 +1,7 @@
 """Tests for Azure OpenAI Responses API support."""
 
 import os
+from typing import Any, cast
 
 import pytest
 
@@ -143,7 +144,9 @@ class TestResponsesAPIMessageSerializer:
 		result = ResponsesAPIMessageSerializer.serialize(message)
 
 		assert result['role'] == 'assistant'
-		assert [part['text'] for part in result['content']] == [
+		content = result['content']
+		assert isinstance(content, list)
+		assert [cast(dict[str, Any], part)['text'] for part in content] == [
 			'Let me search.',
 			'[Tool call: search({"query": "test"})]',
 		]
