@@ -108,7 +108,7 @@ class ChatOllama(BaseChatModel):
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
-		ollama_messages = OllamaMessageSerializer.serialize_messages(messages)
+		ollama_messages = await OllamaMessageSerializer.serialize_messages(messages)
 
 		try:
 			options, top_level = self._split_chat_options()

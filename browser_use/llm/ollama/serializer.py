@@ -1,7 +1,12 @@
+import asyncio
 import base64
+import ipaddress
 import json
+import socket
 from typing import Any, overload
+from urllib.parse import urlsplit
 
+import httpx
 from ollama._types import Image, Message
 
 from browser_use.llm.messages import (
@@ -36,8 +41,51 @@ class OllamaMessageSerializer:
 		return '\n'.join(text_parts)
 
 	@staticmethod
-	def _extract_images(content: Any) -> list[Image]:
-		"""Extract images from message content."""
+	async def _is_public_host(host: str) -> bool:
+		"""Return whether ``host`` resolves exclusively to public IP addresses."""
+		try:
+			addresses = await asyncio.to_thread(socket.getaddrinfo, host, None, type=socket.SOCK_STREAM)
+		except socket.gaierror as exc:
+			raise ValueError(f'Could not resolve image host {host}: {exc}') from exc
+
+		return bool(addresses) and all(ipaddress.ip_address(address[4][0]).is_global for address in addresses)
+
+	@staticmethod
+	async def _download_image(url: str) -> bytes:
+		"""Download a remote image after rejecting redirects to non-public hosts."""
+		async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
+			return await OllamaMessageSerializer._download_image_with_client(url, client)
+
+	@staticmethod
+	async def _download_image_with_client(url: str, client: httpx.AsyncClient) -> bytes:
+		"""Download one image through an already-created client."""
+		for _ in range(5):
+			parsed = urlsplit(url)
+			if parsed.scheme.lower() not in {'http', 'https'} or not parsed.hostname:
+				raise ValueError(f'Unsupported image URL format: {url}')
+			if not await OllamaMessageSerializer._is_public_host(parsed.hostname):
+				raise ValueError(f'Refusing to download image from non-public host: {parsed.hostname}')
+
+			try:
+				response = await client.get(url)
+			except httpx.HTTPError as exc:
+				raise ValueError(f'Failed to download image from {url}: {exc}') from exc
+
+			if response.is_redirect:
+				location = response.headers.get('location')
+				if not location:
+					raise ValueError(f'Image redirect missing location: {url}')
+				url = str(response.url.join(location))
+				continue
+
+			response.raise_for_status()
+			return response.content
+
+		raise ValueError(f'Too many redirects while downloading image from {url}')
+
+	@staticmethod
+	async def _extract_images(content: Any) -> list[Image]:
+		"""Extract images from message content without blocking the event loop."""
 		if content is None or isinstance(content, str):
 			return []
 
@@ -50,16 +98,7 @@ class OllamaMessageSerializer:
 					_, data = url.split(',', 1)
 					images.append(Image(value=base64.b64decode(data)))
 				elif url.lower().startswith(('http://', 'https://')):
-					# The Ollama SDK treats string URLs as local paths or raw base64, so
-					# browser-use must fetch remote images before handing them to Ollama.
-					import httpx
-
-					try:
-						response = httpx.get(url, timeout=30)
-						response.raise_for_status()
-					except Exception as exc:
-						raise ValueError(f'Failed to download image from {url}: {exc}') from exc
-					images.append(Image(value=response.content))
+					images.append(Image(value=await OllamaMessageSerializer._download_image(url)))
 				else:
 					images.append(Image(value=url))
 
@@ -88,23 +127,23 @@ class OllamaMessageSerializer:
 	# region - Serialize overloads
 	@overload
 	@staticmethod
-	def serialize(message: UserMessage) -> Message: ...
+	async def serialize(message: UserMessage) -> Message: ...
 
 	@overload
 	@staticmethod
-	def serialize(message: SystemMessage) -> Message: ...
+	async def serialize(message: SystemMessage) -> Message: ...
 
 	@overload
 	@staticmethod
-	def serialize(message: AssistantMessage) -> Message: ...
+	async def serialize(message: AssistantMessage) -> Message: ...
 
 	@staticmethod
-	def serialize(message: BaseMessage) -> Message:
+	async def serialize(message: BaseMessage) -> Message:
 		"""Serialize a custom message to an Ollama Message."""
 
 		if isinstance(message, UserMessage):
 			text_content = OllamaMessageSerializer._extract_text_content(message.content)
-			images = OllamaMessageSerializer._extract_images(message.content)
+			images = await OllamaMessageSerializer._extract_images(message.content)
 
 			ollama_message = Message(
 				role='user',
@@ -145,6 +184,6 @@ class OllamaMessageSerializer:
 			raise ValueError(f'Unknown message type: {type(message)}')
 
 	@staticmethod
-	def serialize_messages(messages: list[BaseMessage]) -> list[Message]:
+	async def serialize_messages(messages: list[BaseMessage]) -> list[Message]:
 		"""Serialize a list of browser_use messages to Ollama Messages."""
-		return [OllamaMessageSerializer.serialize(m) for m in messages]
+		return [await OllamaMessageSerializer.serialize(message) for message in messages]
