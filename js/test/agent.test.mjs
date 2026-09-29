@@ -969,6 +969,7 @@ test('OpenAI delivery turns keep the tool list and restrict calls with allowed_t
           getCurrentTools(context.messages).map((t) => t.name),
           ['javascript', 'finish', 'finish_from_js'],
         );
+        assert.equal(options.toolChoice.mode, 'required');
         assert.deepEqual(
           options.toolChoice.tools.map((t) => t.name),
           ['finish', 'finish_from_js'],
@@ -990,6 +991,33 @@ test('OpenAI delivery turns keep the tool list and restrict calls with allowed_t
     assert.equal(result.status, 'completed');
     assert.equal(result.output, 'one verified finding');
     assert.equal(s.faux.state.callCount, 2);
+  } finally {
+    await s.close();
+  }
+});
+
+test('OpenAI text-ending repair turn requires a delivery tool call', async () => {
+  const s = await session(
+    [
+      (_context, options) => {
+        assert.equal(options.toolChoice, undefined);
+        return fauxAssistantMessage('The answer is 42.');
+      },
+      (context, options) => {
+        assert.match(context.messages.at(-1).content[0].text, /single delivery repair/);
+        assert.equal(options.toolChoice.type, 'allowed_tools');
+        assert.equal(options.toolChoice.mode, 'required');
+        return call('finish', { result: 'The answer is 42.' });
+      },
+    ],
+    {},
+    { api: 'openai-responses', provider: 'openai' },
+  );
+  try {
+    const result = await s.agent.run('Answer', { maxSteps: 5 });
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 'The answer is 42.');
+    assert.equal(result.finishRepairs, 1);
   } finally {
     await s.close();
   }
