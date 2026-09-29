@@ -70,12 +70,54 @@ export class BrowserRuntime {
   private release: (() => void) | undefined;
   private pending: ((error: Error) => void) | undefined;
 
+  private connected: Promise<void> | undefined;
+  private markConnected: (() => void) | undefined;
+
   constructor(
     private readonly config: WorkerConfig,
     private readonly executable?: string,
-  ) {}
+  ) {
+    // An empty endpoint is a pending browser: cells wait for connect().
+    if (!config.endpoint) this.connected = new Promise((resolve) => (this.markConnected = resolve));
+  }
 
-  private async start(signal?: AbortSignal): Promise<ChildProcess> {
+  get endpoint() {
+    return this.config.endpoint;
+  }
+
+  /** Attach the browser a pending runtime was created without; once only. */
+  connect(endpoint: string, targetId?: string) {
+    if (this.config.endpoint) throw new Error('This session already has a browser.');
+    this.config.endpoint = endpoint;
+    if (targetId) this.config.targetId = targetId;
+    this.markConnected?.();
+  }
+
+  private async waitForBrowser(timeoutMs: number, signal?: AbortSignal) {
+    if (this.config.endpoint || !this.connected) return;
+    let timer: NodeJS.Timeout | undefined;
+    let abort: (() => void) | undefined;
+    try {
+      await Promise.race([
+        this.connected,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`No browser was connected within ${timeoutMs} ms.`)),
+            timeoutMs,
+          );
+          abort = () => reject(new Error('Execution cancelled.'));
+          signal?.addEventListener('abort', abort, { once: true });
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+      if (abort) signal?.removeEventListener('abort', abort);
+    }
+  }
+
+  private async start(signal?: AbortSignal, waitMs = 30_000): Promise<ChildProcess> {
+    if (this.worker) return this.worker;
+    await this.waitForBrowser(waitMs, signal);
     if (this.worker) return this.worker;
     const execPath = this.executable ?? (await workerExecutable());
     const worker = fork(new URL('./worker.js', import.meta.url), [], {
@@ -195,7 +237,7 @@ export class BrowserRuntime {
       this.release = resolve;
     });
     try {
-      const worker = await this.start(signal);
+      const worker = await this.start(signal, timeoutMs);
       if (signal?.aborted) throw new Error('Execution cancelled.');
       const directory = join(this.config.workspace, '.browser-use', 'cells');
       await mkdir(directory, { recursive: true, mode: 0o700 });

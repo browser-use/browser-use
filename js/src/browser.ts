@@ -25,6 +25,7 @@ export interface ChromeBrowserOptions {
   approveConnection?: boolean;
 }
 export type BrowserOptions =
+  | { kind: 'pending' }
   | ({ kind: 'cloud' } & CloudBrowserOptions)
   | ({ kind: 'chromium' } & LocalBrowserOptions)
   | ({ kind: 'chrome' } & ChromeBrowserOptions)
@@ -41,6 +42,8 @@ export const Browser = {
     kind: 'chromium',
   }),
   chrome: (options: ChromeBrowserOptions = {}): BrowserOptions => ({ ...options, kind: 'chrome' }),
+  /** No browser yet: the model starts at once; the first browser cell waits for connectBrowser(). */
+  pending: (): BrowserOptions => ({ kind: 'pending' }),
 };
 
 /** Same profile discovery convention as Browser Harness on macOS, Linux and Windows. */
@@ -177,9 +180,24 @@ async function executable(options: LocalBrowserOptions) {
 }
 
 /** Local Chrome has an isolated temporary profile; external Chrome always belongs to the caller. */
+export function validCdpUrl(cdpUrl: string): string {
+  if (
+    typeof cdpUrl !== 'string' ||
+    !['http:', 'https:', 'ws:', 'wss:'].includes(new URL(cdpUrl).protocol)
+  )
+    throw new Error('cdpUrl must be an HTTP(S) or WebSocket endpoint.');
+  return cdpUrl;
+}
+
 export async function openBrowser(options: BrowserOptions = {}) {
-  if (options.kind !== undefined && !['cloud', 'chrome', 'chromium'].includes(options.kind))
-    throw new Error('Unknown browser kind. Use Browser.cloud, Browser.chromium or Browser.chrome.');
+  if (
+    options.kind !== undefined &&
+    !['cloud', 'chrome', 'chromium', 'pending'].includes(options.kind)
+  )
+    throw new Error(
+      'Unknown browser kind. Use Browser.cloud, Browser.chromium, Browser.chrome or Browser.pending.',
+    );
+  if (options.kind === 'pending') return { endpoint: '', close: async () => {} };
   if (options.kind === 'cloud') return openCloud(options);
   if (options.kind === 'chrome') {
     if (options.approveConnection !== undefined && typeof options.approveConnection !== 'boolean')
@@ -194,9 +212,7 @@ export async function openBrowser(options: BrowserOptions = {}) {
   if ('cdpUrl' in options && options.cdpUrl) {
     if (['headless', 'channel', 'executablePath', 'profileDir'].some((key) => key in options))
       throw new Error('cdpUrl cannot be combined with local browser options.');
-    if (!['http:', 'https:', 'ws:', 'wss:'].includes(new URL(options.cdpUrl).protocol))
-      throw new Error('cdpUrl must be an HTTP(S) or WebSocket endpoint.');
-    return { endpoint: options.cdpUrl, close: async () => {} };
+    return { endpoint: validCdpUrl(options.cdpUrl), close: async () => {} };
   }
   const path = await executable(options as LocalBrowserOptions);
   const persistent = !!options.profileDir;

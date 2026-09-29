@@ -455,6 +455,18 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(BrowserUseError, "already configured"):
             await agent.configure(model="openai/gpt-5.5")
 
+    async def test_a_pending_browser_session_runs_the_model_and_connects_once(self):
+        # The browser behaviour itself is covered in test/pending-browser.test.mjs.
+        self.responses = [("finish", {"result": "no browser needed"})]
+        agent = await self.create(browser={"kind": "pending"}, dedicatedBrowser=True)
+        result = await asyncio.wait_for(agent.run("Answer without the browser."), 30)
+        self.assertEqual(result.status, "completed")
+        with self.assertRaisesRegex(BrowserUseError, "WebSocket endpoint"):
+            await agent.connect_browser("file:///tmp/not-a-browser")
+        await agent.connect_browser("ws://127.0.0.1:9/devtools/browser/x", target_id="T1")
+        with self.assertRaisesRegex(BrowserUseError, "already has a browser"):
+            await agent.connect_browser("ws://127.0.0.1:9/devtools/browser/x")
+
     async def test_close_after_start_stops_the_runtime(self):
         agent = await BrowserUse.start()
         process = agent._process

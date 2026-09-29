@@ -382,6 +382,13 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
       );
     case 'currentTarget':
       return agent.currentTarget ?? null;
+    case 'connectBrowser':
+      if (typeof params.cdpUrl !== 'string') throw new Error('cdpUrl must be a string.');
+      agent.connectBrowser(
+        params.cdpUrl,
+        typeof params.targetId === 'string' ? { targetId: params.targetId } : {},
+      );
+      return null;
     case 'close':
       closing = true;
       await agent.close({

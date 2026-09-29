@@ -409,6 +409,14 @@ class BrowserUse:
     async def current_target(self) -> str | None:
         return await self._call("currentTarget")
 
+    async def connect_browser(self, cdp_url: str, *, target_id: str | None = None) -> None:
+        """Attach the browser of a session configured with browser={"kind": "pending"}.
+        The model may already be running; its first browser cell waits for this."""
+        params: dict[str, Any] = {"cdpUrl": cdp_url}
+        if target_id:
+            params["targetId"] = target_id
+        await self._call("connectBrowser", params)
+
     async def close(self, *, keep_tabs: bool | str = False) -> None:
         """keep_tabs leaves the tabs this session opened for a later session;
         "current" keeps only the tab the agent is on."""
