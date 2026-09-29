@@ -30,6 +30,8 @@ export interface WorkerConfig extends importPolicy {
   sensitiveData?: import('./policy.js').SensitiveData;
   redact?: string[];
   endpoint: string;
+  /** Pending browser only: how long a cell waits for it, apart from the cell's own deadline. */
+  browserWaitMs?: number;
   recording?: boolean;
   highlightActions?: boolean;
   approveConnection?: boolean;

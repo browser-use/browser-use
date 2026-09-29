@@ -8,7 +8,7 @@ import type { Api, Model, Usage } from '@earendil-works/pi-ai';
 import { Type, type Static, type TSchema } from 'typebox';
 import { navigationPolicy, validateSensitiveData } from './policy.js';
 import { telemetry } from './telemetry.js';
-import { openBrowser } from './browser.js';
+import { openBrowser, validCdpUrl } from './browser.js';
 import { BrowserRuntime, workerExecutable } from './runtime.js';
 import { runAgent, zeroUsage } from './agent.js';
 import { Recorder } from './recording.js';
@@ -166,6 +166,14 @@ export class BrowserUse {
         mode: options.mode ?? 'default',
         ...(options.webSearch ? { webSearch: options.webSearch } : {}),
         endpoint: browser.endpoint,
+        ...(options.browser?.kind === 'pending'
+          ? {
+              browserWaitMs: positiveInteger(
+                'browser.timeoutMs',
+                options.browser.timeoutMs ?? 60_000,
+              ),
+            }
+          : {}),
         ...(options.allowedDomains !== undefined ? { allowedDomains: options.allowedDomains } : {}),
         ...(options.prohibitedDomains !== undefined
           ? { prohibitedDomains: options.prohibitedDomains }
@@ -299,7 +307,7 @@ export class BrowserUse {
         try {
           const targetId = await this.runtime.initialize(signal);
           await recorder.start(
-            this.browser.endpoint,
+            this.runtime.endpoint,
             targetId,
             this.config.browser?.kind === 'chrome' && !!this.config.browser.approveConnection,
           );
@@ -493,12 +501,22 @@ export class BrowserUse {
       );
   }
 
-  /** Idempotent. Cancels execution, closes our tab, and shuts down only browsers we launched. */
+  /** Attach the browser of a session created with Browser.pending(). The model may already
+   * be running; its first browser cell waits for this. */
+  connectBrowser(cdpUrl: string, options: { targetId?: string } = {}) {
+    if (this.config.browser?.kind !== 'pending')
+      throw new Error('connectBrowser() needs a session created with Browser.pending().');
+    if (options.targetId !== undefined && typeof options.targetId !== 'string')
+      throw new Error('targetId must be a string.');
+    this.runtime.connect(validCdpUrl(cdpUrl), options.targetId);
+  }
+
   /** The tab the agent is working in, for a host that resumes it in a later session. */
   get currentTarget(): string | undefined {
     return this.runtime.currentTarget;
   }
 
+  /** Idempotent. Cancels execution, closes our tab, and shuts down only browsers we launched. */
   close(options: { keepTabs?: boolean | 'current' } = {}): Promise<void> {
     if (this.closing) return this.closing;
     this.closed = true;

@@ -36,4 +36,4 @@ Use `node='/path/to/node'` to choose the runtime. `create` is `await BrowserUse.
 
 For limited runs, `result.partial` exposes the latest published checkpoint as a dictionary with `path` and `value`. It is unvalidated partial data; `result.output` remains reserved for completed results. Enable interaction highlights with `highlightActions=True` on creation.
 
-Browser options are plain dictionaries: `browser={"kind": "cloud", "apiKey": "..."}`, `{"kind": "chromium", "profileDir": "./profile"}`, or `{"kind": "chrome"}`. `allowedDomains`, `prohibitedDomains`, `sensitiveData`, and `telemetry=False` use the same contract as JavaScript. See [sessions](./sessions.md).
+Browser options are plain dictionaries: `browser={"kind": "cloud", "apiKey": "..."}`, `{"kind": "chromium", "profileDir": "./profile"}`, `{"kind": "chrome"}`, or `{"kind": "pending"}` to start the model first and attach a host-provisioned browser later with `await agent.connect_browser(cdp_url, target_id=...)`. `allowedDomains`, `prohibitedDomains`, `sensitiveData`, and `telemetry=False` use the same contract as JavaScript. See [sessions](./sessions.md).

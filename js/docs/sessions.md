@@ -58,6 +58,8 @@ try {
 
 Real Chrome must expose CDP. Enable `chrome://inspect/#remote-debugging`; Browser Use Pi discovers `DevToolsActivePort` on macOS, Linux and Windows. It never copies your profile, relaunches your browser, or grants OS permissions. Pass `Browser.chrome({ cdpUrl })` for an explicit endpoint. `profileDir` in this mode selects the existing user-data root for discovery. The legacy `{cdpUrl}` and local browser options still work.
 
+When your app provisions the browser itself, it can start the model first: create the session with `Browser.pending()` (Python: `browser={"kind": "pending"}`) and call `agent.connectBrowser(cdpUrl, { targetId })` (Python: `await agent.connect_browser(cdp_url, target_id=...)`) once the browser is up. The first model call runs meanwhile; the first browser cell waits for the browser, up to `Browser.pending({ timeoutMs })` (default 60 s) and apart from its own cell deadline. With `recording` on, recording starts with the browser, so the run waits for it before its first model call.
+
 A local `profileDir` stores cookies, local storage and IndexedDB on disk. First run: use `headless: false`, sign in, then close normally. Next run: reuse that directory. Without it, the local profile is temporary and deleted at close. Profile locks reject concurrent SDK owners; after a crash, verify Chrome and the SDK have exited before removing `.bu-pi.lock`. A Chrome profile is sensitive data, not a portable login export.
 
 Cloud uses a provider-managed `profileId`, not a local directory. Its save/sync behavior follows Browser Use Cloud. Real Chrome retains its own profile normally. Workspace and conversation history never restore login. Remote downloads stay on the remote browser host; retrieve them through the provider API.
