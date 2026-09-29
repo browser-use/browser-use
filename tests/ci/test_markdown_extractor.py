@@ -91,6 +91,19 @@ class TestPreprocessMarkdownContent:
 		assert 'Before' in filtered
 		assert 'after' in filtered
 
+	def test_inline_json_code_span_length_boundary(self):
+		"""A code span is removed at exactly 100 chars between the braces and kept at 99."""
+		removed = '`{"key": "' + 'x' * 91 + '"}`'
+		kept = '`{"key": "' + 'x' * 90 + '"}`'
+		assert len(removed) - 4 == 100 and len(kept) - 4 == 99
+
+		filtered, _ = _preprocess_markdown_content(f'Before {removed} after')
+		assert removed not in filtered
+		assert filtered == 'Before  after'
+
+		filtered, _ = _preprocess_markdown_content(f'Before {kept} after')
+		assert filtered == f'Before {kept} after'
+
 	def test_preserves_small_json(self):
 		"""Small JSON objects (<100 chars) should be preserved."""
 		small_json = '{"key": "value"}'
