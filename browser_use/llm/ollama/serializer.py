@@ -45,7 +45,15 @@ class OllamaMessageSerializer:
 
 	@staticmethod
 	async def _is_public_host(host: str) -> bool:
-		"""Return whether ``host`` resolves exclusively to public IP addresses."""
+		"""Return whether ``host`` resolves exclusively to public IP addresses.
+
+		This is a best-effort filter rather than an authoritative SSRF boundary.
+		The lookup here and the client's own connect-time lookup resolve the
+		name independently, so a name whose answers change between the two
+		(DNS rebinding) could still reach a non-public address. Binding the
+		connection to the address validated here would take a custom transport
+		and is out of scope for this serializer.
+		"""
 		try:
 			addresses = await asyncio.to_thread(socket.getaddrinfo, host, None, type=socket.SOCK_STREAM)
 		except socket.gaierror as exc:
