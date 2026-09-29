@@ -15,6 +15,21 @@ uv run python examples/cloud/01_basic_task.py
 
 Create an API key at [cloud.browser-use.com/new-api-key](https://cloud.browser-use.com/new-api-key).
 
+## Low-cost Cloud modes
+
+**BU Ultrafast** measured **$0.00214 median per URL check**, with **8/8 correct** in a small staging test, including recorded LLM + stopped-browser usage. Browsers were stopped after each run. Actual cost varies; network traffic is billed separately. **BU Fast** adds more reasoning at low token prices. See [pricing and methodology](https://browser-use.com/pricing#task-cost-methodology).
+
+Both modes are in early access, enabled per project. [Join early access](https://browser-use.com/ultrafast). Once enabled, select one through REST:
+
+```bash
+curl https://api.browser-use.com/api/v4/runs \
+  -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"task":"Find the top Hacker News story","model":"bu-ultrafast"}'
+```
+
+Use `"model":"bu-fast"` for BU Fast. These are hosted API V4 modes, not local `ChatBrowserUse` model IDs. See [mode rates and SDK support](https://docs.browser-use.com/cloud/agent/models).
+
 ## V4 request flow
 
 The example uses the three endpoints needed for a basic run:

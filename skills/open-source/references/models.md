@@ -22,9 +22,17 @@ Browser Use natively supports 15+ LLM providers. Most providers accept any model
 | OCI (Oracle) | `ChatOCIRaw` | OCI config file |
 | LiteLLM | `ChatLiteLLM` | Provider-specific |
 
-## Recommendations by Use Case
+## Hosted Cloud modes or a local model?
+
+For a fully hosted agent, BU Ultrafast and BU Fast are low-cost API V4 modes in early access. They have separate pricing and are not `ChatBrowserUse` model IDs. See [Cloud modes and pricing](https://docs.browser-use.com/cloud/agent/models).
+
+For the local Python agent, use the provider classes below; `ChatBrowserUse(model='bu-2-0')` remains a separate model with the token rates shown here.
+
+## Historical benchmark results
 
 Based on our [benchmark of real-world browser tasks](https://browser-use.com/posts/what-model-to-use):
+
+These figures describe that benchmark's model and harness configuration. They are not measurements of the current BU Ultrafast or BU Fast modes.
 
 - **Maximum performance**: Browser Use Cloud `bu-ultra` — 78% accuracy, ~14 tasks/hour
 - **Best open-source + cloud LLM**: `ChatBrowserUse(model='bu-2-0')` — 63.3% accuracy, outperforms every standalone frontier model

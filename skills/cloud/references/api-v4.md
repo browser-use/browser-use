@@ -9,9 +9,37 @@ is the persistent filesystem that can be reused across sessions.
 - Python: `from browser_use_sdk.v4 import BrowserUse`
 - TypeScript: `import { BrowserUse } from "browser-use-sdk/v4"`
 
+## Low-cost modes
+
+BU Ultrafast (`bu-ultrafast`) and BU Fast (`bu-fast`) are hosted V4 modes in early access, enabled per project. BU Ultrafast targets quick browser interactions; BU Fast adds more reasoning at low token prices. [Request access](https://browser-use.com/ultrafast).
+
+BU Ultrafast measured **$0.00214 median per URL check**, with **8/8 correct** in a small staging test. This includes recorded LLM + stopped-browser usage, with browsers explicitly stopped after each run. Actual cost varies; network traffic is billed separately. [Methodology](https://browser-use.com/pricing#task-cost-methodology).
+
+Customer rates in USD per 1M tokens, including the service fee:
+
+| Mode | Fresh input | Cached input | Cache write | Output |
+| --- | ---: | ---: | ---: | ---: |
+| BU Ultrafast | $0.24 | $0.024 | $0.30 | $1.20 |
+| BU Fast | $0.12 | $0.012 | $0.15 | $0.60 |
+
+Calls exceeding 272,000 prompt + cache-write tokens cost 2× input/cache and 1.5× output.
+
+Browser and network usage and optional services add separate charges. These are token rates, not fixed task prices. A run's `totalCostUsd` is not an all-in bill: browser and proxy charges are recorded separately. Stop the owned browser when finished and check recorded session usage; late metering can change it.
+
+Use REST while your installed SDK types lack these aliases. They are not V2/V3 aliases or `ChatBrowserUse` model IDs:
+
+```bash
+curl https://api.browser-use.com/api/v4/runs \
+  -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"task":"Find the top Hacker News story","model":"bu-ultrafast"}'
+```
+
+Replace `bu-ultrafast` with `bu-fast` for more reasoning. Account access still applies; the modes are unavailable on EU and Bedrock-only routes. See [current rates and availability](https://docs.browser-use.com/cloud/agent/models).
+
 ## Before the first run
 
-Eligible new Google, GitHub, or Microsoft signups receive a one-time $15 Cloud credit. No credit card is required. Email/password signups are not eligible; the credit does not renew. Start with the default V4 model (`gpt-5.6-luna`); paid-only models require a top-up. See [pricing](https://browser-use.com/pricing.md) for current eligibility and rates.
+Eligible new Google, GitHub, or Microsoft signups receive a one-time $15 Cloud credit. No credit card is required. Email/password signups are not eligible; the credit does not renew. Omit `model` for the API's default, or select an eligible model offered to the project. BU modes require early access; paid-only models require a top-up. See [pricing](https://browser-use.com/pricing.md) for current eligibility and rates.
 
 Install or upgrade `browser-use-sdk` to 3.11.3 or newer. Read `BROWSER_USE_API_KEY` from the environment; do not embed it in source or a prompt.
 
