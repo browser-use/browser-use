@@ -35,7 +35,7 @@ curl https://api.browser-use.com/api/v4/runs \
   -d '{"task":"Find the top Hacker News story","model":"bu-ultrafast"}'
 ```
 
-Replace `bu-ultrafast` with `bu-fast` for more reasoning. Account access still applies; the modes are unavailable on EU and Bedrock-only routes. See [current rates and availability](https://docs.browser-use.com/cloud/agent/models).
+Replace `bu-ultrafast` with `bu-fast` for more reasoning. The presets do not accept `modelParams`. Account access still applies; projects without access receive 422, and the modes are unavailable on EU and Bedrock-only routes. See [current rates and availability](https://docs.browser-use.com/cloud/agent/models).
 
 ## Before the first run
 
