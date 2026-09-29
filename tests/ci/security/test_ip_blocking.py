@@ -817,6 +817,7 @@ class TestPreFlightDnsResolution:
 			'::127.0.0.1',  # Deprecated IPv4-compatible
 		]
 		for ip in blocked_ips:
+			watchdog._dns_cache.clear()
 			monkeypatch.setattr(
 				socket,
 				'getaddrinfo',
