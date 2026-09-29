@@ -125,7 +125,7 @@ export class BrowserRuntime {
 
   private async start(signal: AbortSignal | undefined, waitMs: number): Promise<ChildProcess> {
     if (this.worker) return this.worker;
-    await this.waitForBrowser(waitMs, signal);
+    await this.waitForBrowser(this.config.browserWaitMs ?? waitMs, signal);
     if (this.worker) return this.worker;
     const execPath = this.executable ?? (await workerExecutable());
     const worker = fork(new URL('./worker.js', import.meta.url), [], {

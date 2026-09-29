@@ -25,7 +25,10 @@ export interface ChromeBrowserOptions {
   approveConnection?: boolean;
 }
 export type BrowserOptions =
-  | { kind: 'pending' }
+  | {
+      kind: 'pending';
+      /** How long a browser cell waits for connectBrowser(). Default 60 s. */ timeoutMs?: number;
+    }
   | ({ kind: 'cloud' } & CloudBrowserOptions)
   | ({ kind: 'chromium' } & LocalBrowserOptions)
   | ({ kind: 'chrome' } & ChromeBrowserOptions)
@@ -43,7 +46,10 @@ export const Browser = {
   }),
   chrome: (options: ChromeBrowserOptions = {}): BrowserOptions => ({ ...options, kind: 'chrome' }),
   /** No browser yet: the model starts at once; the first browser cell waits for connectBrowser(). */
-  pending: (): BrowserOptions => ({ kind: 'pending' }),
+  pending: (options: { timeoutMs?: number } = {}): BrowserOptions => ({
+    ...options,
+    kind: 'pending',
+  }),
 };
 
 /** Same profile discovery convention as Browser Harness on macOS, Linux and Windows. */

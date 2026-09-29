@@ -166,6 +166,14 @@ export class BrowserUse {
         mode: options.mode ?? 'default',
         ...(options.webSearch ? { webSearch: options.webSearch } : {}),
         endpoint: browser.endpoint,
+        ...(options.browser?.kind === 'pending'
+          ? {
+              browserWaitMs: positiveInteger(
+                'browser.timeoutMs',
+                options.browser.timeoutMs ?? 60_000,
+              ),
+            }
+          : {}),
         ...(options.allowedDomains !== undefined ? { allowedDomains: options.allowedDomains } : {}),
         ...(options.prohibitedDomains !== undefined
           ? { prohibitedDomains: options.prohibitedDomains }

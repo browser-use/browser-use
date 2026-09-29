@@ -93,10 +93,11 @@ test('a cell fails cleanly when no browser arrives within its deadline', async (
         const result = context.messages.findLast((m) => m.role === 'toolResult');
         assert.equal(result.isError, true);
         assert.match(result.content[0].text, /No browser was connected within 300 ms/);
+        // The wait has its own deadline, apart from the cell's.
         return call('finish', { result: 'gave up' });
       },
     ],
-    { cellTimeoutMs: 300 },
+    { browser: Browser.pending({ timeoutMs: 300 }), cellTimeoutMs: 30_000 },
   );
   try {
     const result = await s.agent.run('Try.');

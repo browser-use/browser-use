@@ -410,7 +410,8 @@ class BrowserUse:
         return await self._call("currentTarget")
 
     async def connect_browser(self, cdp_url: str, *, target_id: str | None = None) -> None:
-        """Attach the browser of a session configured with browser={"kind": "pending"}.
+        """Attach the browser of a session configured with browser={"kind": "pending"}
+        (optionally with "timeoutMs", how long a browser cell waits for it; default 60 s).
         The model may already be running; its first browser cell waits for this."""
         params: dict[str, Any] = {"cdpUrl": cdp_url}
         if target_id:
