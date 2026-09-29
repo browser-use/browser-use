@@ -28,12 +28,13 @@ def server(monkeypatch: pytest.MonkeyPatch) -> BrowserUseServer:
 
 async def call_handler(server: BrowserUseServer, name: str, arguments: dict | None = None):
 	"""Invoke the registered call-tool handler the way the MCP SDK would."""
-	return await server._handle_call_tool(name, arguments or {})
+	handler = server.server._request_handlers['tools/call'].handler
+	return await handler(None, types.CallToolRequestParams(name=name, arguments=arguments or {}))
 
 
 def assert_error_result(result, needle: str) -> None:
 	assert isinstance(result, types.CallToolResult), f'expected CallToolResult, got {type(result)}'
-	assert result.isError is True, f'expected isError=True, got {result.isError}'
+	assert result.is_error is True, f'expected isError=True, got {result.is_error}'
 	content = result.content[0]
 	assert isinstance(content, types.TextContent)
 	assert needle in content.text, f'{needle!r} not in {content.text!r}'
@@ -123,9 +124,9 @@ async def test_successful_text_starting_with_error_is_not_flagged(server: Browse
 	server._extract_content = _fake_extract  # type: ignore[method-assign]
 	result = await call_handler(server, 'browser_extract_content', {'query': 'summary'})
 
-	# Success path returns a plain content list; the SDK wraps it with isError=False.
-	assert isinstance(result, list), f'expected content list, got {type(result)}'
-	content = result[0]
+	assert isinstance(result, types.CallToolResult)
+	assert result.is_error is False
+	content = result.content[0]
 	assert isinstance(content, types.TextContent)
 	assert content.text.startswith('Error: the page returned a validation notice')
 

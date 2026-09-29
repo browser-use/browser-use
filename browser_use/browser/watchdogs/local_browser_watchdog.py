@@ -157,7 +157,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				process = psutil.Process(subprocess.pid)
 
 				# Wait for CDP to be ready and get the URL
-				cdp_url = await self._wait_for_cdp_url(debug_port)
+				cdp_url = await self._wait_for_cdp_url(debug_port, process=process)
 
 				# Success! Clean up only the temp dirs we created but didn't use
 				currently_used_dir = str(profile.user_data_dir)
@@ -405,13 +405,42 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		return port
 
 	@staticmethod
-	async def _wait_for_cdp_url(port: int, timeout: float = 30) -> str:
-		"""Wait for the browser to start and return the CDP URL."""
+	async def _wait_for_cdp_url(port: int, timeout: float = 30, process: psutil.Process | None = None) -> str:
+		"""Wait for the browser to start and return the CDP URL.
+
+		Args:
+			port: The local port Chrome is listening on for CDP.
+			timeout: Maximum seconds to wait before raising TimeoutError.
+			process: Optional psutil.Process for the browser subprocess. If provided,
+			         the loop will fail fast with a descriptive error if the process
+			         exits before CDP becomes available (e.g. due to missing sandbox
+			         capabilities or a missing display on headless Linux).
+		"""
 		import aiohttp
 
-		start_time = asyncio.get_event_loop().time()
+		start_time = asyncio.get_running_loop().time()
 
-		while asyncio.get_event_loop().time() - start_time < timeout:
+		while asyncio.get_running_loop().time() - start_time < timeout:
+			# Fail fast if the browser process has already exited
+			if process is not None:
+				try:
+					if not process.is_running():
+						raise RuntimeError(
+							f'Browser process (PID {process.pid}) exited before CDP became available on port {port}. '
+							'This usually means Chrome failed to start — check that it is properly installed and '
+							'all required system dependencies are present (e.g. --no-sandbox may be needed in '
+							'Docker/headless environments, or a virtual display such as Xvfb on headless Linux).'
+						)
+				except psutil.NoSuchProcess:
+					raise RuntimeError(
+						f'Browser process (PID {process.pid}) exited before CDP became available on port {port}. '
+						'This usually means Chrome failed to start — check that it is properly installed and '
+						'all required system dependencies are present (e.g. --no-sandbox may be needed in '
+						'Docker/headless environments, or a virtual display such as Xvfb on headless Linux).'
+					)
+				except psutil.AccessDenied:
+					pass  # Cannot check process status; continue polling CDP
+
 			try:
 				async with aiohttp.ClientSession() as session:
 					async with session.get(f'http://127.0.0.1:{port}/json/version') as resp:

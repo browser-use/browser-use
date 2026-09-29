@@ -9,6 +9,7 @@ from openai.types.responses import Response
 from openai.types.shared import ChatModel
 from pydantic import BaseModel
 
+from browser_use.llm.base import is_reasoning_model
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.like import ChatOpenAILike
@@ -179,7 +180,7 @@ class ChatAzureOpenAI(ChatOpenAILike):
 				model_params['service_tier'] = self.service_tier
 
 			# Handle reasoning models
-			if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
+			if is_reasoning_model(self.model, self.reasoning_models):
 				# For reasoning models, use reasoning parameter instead of reasoning_effort
 				model_params['reasoning'] = {'effort': self.reasoning_effort}
 				model_params.pop('temperature', None)
