@@ -38,10 +38,30 @@ async with browser, AsyncAnthropic() as client:
 existing session, pass it as `BrowserUse(session)`; the application keeps
 responsibility for starting and stopping that session.
 
-## Existing, remote, or Cloud browser
+## Browser Use Cloud
+
+Set `BROWSER_USE_API_KEY` and select Cloud directly on the driver:
+
+```python
+browser = BrowserUse(use_cloud=True)
+bash = Bash(output_dir='outputs')
+
+async with browser, AsyncAnthropic() as client:
+	runner = client.beta.messages.tool_runner(
+		model=model,
+		tools=[browser, bash],
+		messages=[{'role': 'user', 'content': task}],
+	)
+	result = await runner.until_done()
+```
+
+The driver creates the Cloud browser, connects over CDP, and stops the Cloud
+browser when the context exits.
+
+## Existing or remote browser
 
 Pass any started `BrowserSession` to the driver. This is the same shape for an
-existing local browser, a remote CDP endpoint, and Browser Use Cloud:
+existing local browser or a remote CDP endpoint:
 
 ```python
 import os
@@ -67,10 +87,9 @@ finally:
 	await session.kill()
 ```
 
-For Browser Use Cloud, construct the session with `BrowserSession(use_cloud=True)`
-instead. Set `BROWSER_USE_API_KEY` before starting it. Bash still runs beside
-the SDK process, so files it creates are local to that process. Remote uploads
-need a browser-host path or an application `document_resolver`.
+Bash still runs beside the SDK process, so files it creates are local to that
+process. Remote uploads need a browser-host path or an application
+`document_resolver`.
 
 ## Approval callback
 

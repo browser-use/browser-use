@@ -35,7 +35,7 @@ class CloudBrowserClient:
 		Returns:
 			CloudBrowserResponse: Contains CDP URL and other browser info
 		"""
-		url = f'{self.api_base_url}/api/v2/browsers'
+		url = f'{self.api_base_url}/api/v3/browsers'
 
 		# Try to get API key from environment variable first, then auth config
 		api_token = os.getenv('BROWSER_USE_API_KEY')
@@ -124,7 +124,7 @@ class CloudBrowserClient:
 		if not session_id:
 			raise CloudBrowserError('No session ID provided and no current session available')
 
-		url = f'{self.api_base_url}/api/v2/browsers/{session_id}'
+		url = f'{self.api_base_url}/api/v3/browsers/{session_id}'
 
 		# Try to get API key from environment variable first, then auth config
 		api_token = os.getenv('BROWSER_USE_API_KEY')

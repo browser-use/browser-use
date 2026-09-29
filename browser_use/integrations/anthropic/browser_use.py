@@ -51,15 +51,18 @@ class Reference:
 class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 	"""Expose Browser Use as the Anthropic 31-member browser toolset.
 
-	With no argument, Browser Use creates and manages a BrowserSession. A supplied
-	BrowserSession is borrowed and must already be running. ``document_resolver``
-	maps policy-approved document IDs to files visible on the browser host.
+	With no argument, Browser Use creates and manages a local BrowserSession. Pass
+	``use_cloud=True`` to create and manage a Browser Use Cloud session instead. A
+	supplied BrowserSession is borrowed and must already be running.
+	``document_resolver`` maps policy-approved document IDs to files visible on the
+	browser host.
 	"""
 
 	def __init__(
 		self,
 		browser: BrowserSession | None = None,
 		*,
+		use_cloud: bool = False,
 		document_resolver: Callable[[str], str] | None = None,
 		max_log_entries: int = 1000,
 		**options: Any,
@@ -72,8 +75,10 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		file_upload_config = configs.setdefault('file_upload', {})
 		file_upload_config.setdefault('enabled', False)
 		super().__init__(configs=configs, **options)
+		if browser is not None and use_cloud:
+			raise ValueError('Pass either a BrowserSession or use_cloud=True, not both.')
 		self._manages_browser = browser is None
-		self.browser = browser or BrowserSession()
+		self.browser = browser or BrowserSession(use_cloud=use_cloud)
 		self._document_resolver = document_resolver
 		self._released = False
 		self._closing = False

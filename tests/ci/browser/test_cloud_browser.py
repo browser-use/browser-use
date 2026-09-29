@@ -81,6 +81,7 @@ class TestCloudBrowserClient:
 			# Verify auth headers were included
 			mock_client.post.assert_called_once()
 			call_args = mock_client.post.call_args
+			assert call_args.args[0] == 'https://api.browser-use.com/api/v3/browsers'
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
 			assert call_args.kwargs['headers']['X-Browser-Use-API-Key'] == 'test-token'
 
@@ -172,8 +173,8 @@ class TestCloudBrowserClient:
 		mock_response_data = {
 			'id': 'test-browser-id',
 			'status': 'stopped',
-			'liveUrl': 'https://live.browser-use.com?wss=test',
-			'cdpUrl': 'wss://test.proxy.daytona.works',
+			'liveUrl': None,
+			'cdpUrl': None,
 			'timeoutAt': '2025-09-17T04:35:36.049892',
 			'startedAt': '2025-09-17T03:35:36.049974',
 			'finishedAt': '2025-09-17T04:35:36.049892',
@@ -197,12 +198,14 @@ class TestCloudBrowserClient:
 
 			assert result.id == 'test-browser-id'
 			assert result.status == 'stopped'
+			assert result.liveUrl is None
+			assert result.cdpUrl is None
 			assert result.finishedAt is not None
 
 			# Verify correct API call
 			mock_client.patch.assert_called_once()
 			call_args = mock_client.patch.call_args
-			assert 'test-browser-id' in call_args.args[0]  # URL contains session ID
+			assert call_args.args[0] == 'https://api.browser-use.com/api/v3/browsers/test-browser-id'
 			assert call_args.kwargs['json'] == {'action': 'stop'}
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
 

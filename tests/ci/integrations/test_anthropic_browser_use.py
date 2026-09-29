@@ -100,6 +100,24 @@ def test_browser_use_and_bash_construct_with_a_compatible_sdk() -> None:
 	assert bash.to_dict()['name'] == 'bash'
 
 
+def test_browser_use_can_own_a_cloud_browser() -> None:
+	pytest.importorskip('anthropic.tools.browser')
+	from browser_use.integrations.anthropic import BrowserUse
+
+	browser = BrowserUse(use_cloud=True)
+	assert browser._manages_browser is True
+	assert browser.browser.browser_profile.use_cloud is True
+
+
+def test_browser_use_rejects_a_borrowed_browser_with_cloud_selection() -> None:
+	pytest.importorskip('anthropic.tools.browser')
+	from browser_use import BrowserSession
+	from browser_use.integrations.anthropic import BrowserUse
+
+	with pytest.raises(ValueError, match='either a BrowserSession or use_cloud=True'):
+		BrowserUse(BrowserSession(), use_cloud=True)
+
+
 def _tabs(active: str) -> list[dict]:
 	return [
 		{'tab_id': 'tab-a', 'url': 'https://a.example', 'title': 'A', 'active': active == 'tab-a'},
