@@ -12,6 +12,8 @@ handler maps it to `CallToolResult(isError=True)` at a single boundary, so
 protocol status is independent of user- or page-supplied text.
 """
 
+from typing import Any, cast
+
 import pytest
 from mcp import types
 
@@ -29,7 +31,7 @@ def server(monkeypatch: pytest.MonkeyPatch) -> BrowserUseServer:
 async def call_handler(server: BrowserUseServer, name: str, arguments: dict | None = None):
 	"""Invoke the registered call-tool handler the way the MCP SDK would."""
 	handler = server.server._request_handlers['tools/call'].handler
-	return await handler(None, types.CallToolRequestParams(name=name, arguments=arguments or {}))
+	return await handler(cast(Any, None), types.CallToolRequestParams(name=name, arguments=arguments or {}))
 
 
 def assert_error_result(result, needle: str) -> None:

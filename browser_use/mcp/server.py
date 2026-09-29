@@ -486,14 +486,14 @@ class BrowserUseServer:
 					return types.CallToolResult(content=result)
 				if isinstance(result, ToolFailure):
 					error_msg = result.message
-					return types.CallToolResult(content=[types.TextContent(type='text', text=result.message)], isError=True)
+					return types.CallToolResult(content=[types.TextContent(type='text', text=result.message)], is_error=True)
 				return types.CallToolResult(content=[types.TextContent(type='text', text=result)])
 			except Exception as e:
 				error_msg = str(e)
 				logger.error(f'Tool execution failed: {e}', exc_info=True)
 				return types.CallToolResult(
 					content=[types.TextContent(type='text', text=f'Error: {str(e)}')],
-					isError=True,
+					is_error=True,
 				)
 			finally:
 				# Capture telemetry for tool calls
