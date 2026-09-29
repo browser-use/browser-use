@@ -68,6 +68,29 @@ class TestPreprocessMarkdownContent:
 		assert 'Header' in filtered
 		assert 'Footer' in filtered
 
+	def test_preserves_short_inline_code_in_braces(self):
+		"""Short inline code such as template placeholders should be preserved."""
+		content = 'Use the `{id}` placeholder and `{user_name}` in the URL.'
+		filtered, _ = _preprocess_markdown_content(content)
+
+		assert filtered == content
+
+	def test_inline_code_removal_does_not_span_code_spans(self):
+		"""Text between two separate code spans should not be removed."""
+		content = 'Set `{x` then later `y}` end'
+		filtered, _ = _preprocess_markdown_content(content)
+
+		assert filtered == content
+
+	def test_removes_large_inline_json_code_span(self):
+		"""Large inline JSON in a code span should still be removed."""
+		blob = '`{"key": "' + 'x' * 100 + '"}`'
+		filtered, _ = _preprocess_markdown_content(f'Before {blob} after')
+
+		assert blob not in filtered
+		assert 'Before' in filtered
+		assert 'after' in filtered
+
 	def test_preserves_small_json(self):
 		"""Small JSON objects (<100 chars) should be preserved."""
 		small_json = '{"key": "value"}'

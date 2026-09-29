@@ -160,7 +160,7 @@ def _preprocess_markdown_content(content: str, max_newlines: int = 3) -> tuple[s
 	# These are often embedded as `{"key":"value",...}` and can be massive
 	# Match JSON objects/arrays that are at least 100 chars long
 	# This catches SPA state/config data without removing small inline JSON
-	content = re.sub(r'`\{["\w].*?\}`', '', content, flags=re.DOTALL)  # Remove JSON in code blocks
+	content = re.sub(r'`\{["\w][^`]{99,}\}`', '', content)  # Remove JSON in code spans
 	content = re.sub(r'\{"\$type":[^}]{100,}\}', '', content)  # Remove JSON with $type fields (common pattern)
 	content = re.sub(r'\{"[^"]{5,}":\{[^}]{100,}\}', '', content)  # Remove nested JSON objects
 
