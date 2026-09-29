@@ -7,7 +7,7 @@ import re
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import anyio
 from bubus import BaseEvent
@@ -62,9 +62,20 @@ _GENERIC_TEXT_ATTACHMENT_NAMES = {'f', 'download', 'response', 'data', 'callback
 
 
 def _filename_from_content_disposition(content_disposition: str) -> str | None:
-	filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
+	"""Extract the filename from a Content-Disposition header, preferring the RFC 5987 `filename*` parameter."""
+	extended_match = re.search(r"filename\*\s*=\s*([\w.-]+)'[^']*'([^;\n]*)", content_disposition, re.IGNORECASE)
+	if extended_match:
+		charset, encoded_value = extended_match.groups()
+		try:
+			decoded = unquote(encoded_value.strip(), encoding=charset, errors='strict')
+		except (LookupError, UnicodeDecodeError):
+			decoded = ''
+		if decoded:
+			return decoded
+
+	filename_match = re.search(r'filename\s*=\s*(([\'"]).*?\2|[^;\n]*)', content_disposition, re.IGNORECASE)
 	if filename_match:
-		return filename_match.group(1).strip('\'"')
+		return filename_match.group(1).strip().strip('\'"') or None
 	return None
 
 
@@ -595,8 +606,8 @@ class DownloadsWatchdog(BaseWatchdog):
 						is_pdf = 'application/pdf' in content_type
 
 						# Check if it's marked as download via Content-Disposition header
-						content_disposition = str(headers.get('content-disposition', '')).lower()
-						is_download_attachment = 'attachment' in content_disposition
+						content_disposition = str(headers.get('content-disposition', ''))
+						is_download_attachment = 'attachment' in content_disposition.lower()
 
 						# Filter out image/video/audio files even if marked as attachment
 						# These are likely resources, not intentional downloads
