@@ -56,9 +56,15 @@ async def test_written_about_blank_page_without_text_is_read(browser_session):
 
 async def test_plain_about_blank_is_still_an_empty_tab(browser_session):
 	await _blank_tab(browser_session, None)
-	# Blank tabs normally carry the loading animation; that alone is not content.
-	assert browser_session._aboutblank_watchdog is not None
-	await browser_session._aboutblank_watchdog._show_dvd_screensaver_on_about_blank_tabs()
+	# Blank tabs normally carry AboutBlankWatchdog's loading animation; that alone is not content.
+	# (Its element is added directly, without the animation's remote image.)
+	cdp_session = await browser_session.get_or_create_cdp_session(focus=False)
+	await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={
+			'expression': "const d = document.createElement('div'); d.id = 'pretty-loading-animation'; document.body.appendChild(d); 1",
+		},
+		session_id=cdp_session.session_id,
+	)
 
 	state = await browser_session.get_browser_state_summary(include_screenshot=False)
 
