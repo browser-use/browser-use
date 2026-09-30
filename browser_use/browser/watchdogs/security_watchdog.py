@@ -18,6 +18,15 @@ if TYPE_CHECKING:
 # Track if we've shown the glob warning
 _GLOB_WARNING_SHOWN = False
 
+# Schemes the WHATWG URL parser handles as "special". For these, a backslash is
+# treated as a slash and ASCII tab / line feed / carriage return are stripped
+# from the input before parsing.
+_SPECIAL_SCHEMES = frozenset({'http', 'https', 'ws', 'wss', 'ftp'})
+
+# Default port per scheme. An explicitly written default port addresses the same
+# endpoint as an omitted one, so both spellings have to compare equal.
+_DEFAULT_PORTS = {'http': 80, 'https': 443, 'ws': 80, 'wss': 443, 'ftp': 21}
+
 
 class SecurityWatchdog(BaseWatchdog):
 	"""Monitors and enforces security policies for URL access."""
@@ -173,6 +182,24 @@ class SecurityWatchdog(BaseWatchdog):
 		except Exception:
 			return False
 
+	@staticmethod
+	def _canonicalize_url(url: str) -> str:
+		"""Spell a URL the way the browser will parse it.
+
+		Chromium runs the WHATWG URL parser, which for http(s) converts a
+		backslash to a slash and drops tab / line feed / carriage return
+		characters.  `urllib.parse` does neither, so
+		`https://attacker.com\\@example.com/` is read here as host `example.com`
+		while the browser navigates to `attacker.com`.  Matching against the raw
+		string therefore compares a different endpoint than the one that gets
+		visited.
+		"""
+		scheme, separator, _ = url.partition(':')
+		if not separator or scheme.lower() not in _SPECIAL_SCHEMES:
+			return url
+
+		return url.replace('\\', '/').replace('	', '').replace('\n', '').replace('\r', '')
+
 	def _is_url_allowed(self, url: str) -> bool:
 		"""Check if a URL is allowed based on the allowed_domains configuration.
 
@@ -186,6 +213,12 @@ class SecurityWatchdog(BaseWatchdog):
 		# Always allow internal browser targets (before any other checks)
 		if url in ['about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/']:
 			return True
+
+		# Parse the URL the way the browser will. Chromium normalizes a
+		# backslash to a slash and drops tab / line feed / carriage return, so
+		# reading the raw string can describe a different endpoint than the one
+		# that gets visited.
+		url = self._canonicalize_url(url)
 
 		# Parse the URL to extract components
 		from urllib.parse import urlparse
@@ -299,20 +332,25 @@ class SecurityWatchdog(BaseWatchdog):
 
 				if scheme != pat_scheme or host.lower() != pat_host:
 					return False
-				# Port must also match — an explicit port in the URL that
-				# differs from the pattern's (implicit or explicit) port
-				# means the request targets a different service.
-				pat_port = pat_parsed.port  # None when not explicitly specified
-				url_parsed = _urlparse(url)
-				url_port = url_parsed.port
-				# If the pattern omits the port, the URL must also use the
-				# default port (i.e. have no explicit port).  If the pattern
-				# specifies a port, the URL must match exactly.
-				if pat_port is not None:
-					if url_port != pat_port:
-						return False
-				elif url_port is not None:
-					# Pattern has no explicit port but URL does — reject.
+				# Compare effective ports, not whether a port was written out.
+				# `https://example.com:443` and `https://example.com` are the
+				# same endpoint, so the two spellings must compare equal —
+				# otherwise a prohibited pattern is sidestepped by spelling out
+				# its default port.  A different port is a different service
+				# and still does not match.
+				try:
+					pat_port = pat_parsed.port  # None when not explicitly specified
+					url_port = _urlparse(url).port
+				except ValueError:
+					# urllib raises on non-numeric (`:abc`) and out-of-range
+					# (`:99999`) ports instead of returning None.  Returning no
+					# match keeps that URL out of the allowlist; letting the
+					# error escape would abort the navigation handler before it
+					# emits `BrowserErrorEvent`.
+					return False
+				pat_port = pat_port if pat_port is not None else _DEFAULT_PORTS.get(pat_scheme)
+				url_port = url_port if url_port is not None else _DEFAULT_PORTS.get(pat_scheme)
+				if pat_port != url_port:
 					return False
 				# If the pattern specifies a path prefix, enforce it.
 				# Use boundary-aware comparison: the URL path must either
