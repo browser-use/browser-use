@@ -249,24 +249,24 @@ class DOMWatchdog(BaseWatchdog):
 		if scheme.startswith('chrome') or scheme == 'devtools':
 			return False
 
-		async def check() -> dict:
+		async def check() -> bool:
 			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=False)
-			return await cdp_session.cdp_client.send.Runtime.evaluate(
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
 				params={
 					'expression': '!!(document.body && document.body.innerText.trim().length)',
 					'returnByValue': True,
 				},
 				session_id=cdp_session.session_id,
 			)
+			return result.get('result', {}).get('value') is True
 
 		try:
 			# The whole check is bounded, session lookup included, so a stale target cannot hold up
 			# every state request for a non-http(s) page.
-			result = await asyncio.wait_for(check(), timeout=2.0)
+			return await asyncio.wait_for(check(), timeout=2.0)
 		except Exception as e:
 			self.logger.debug(f'Could not check non-http(s) page for content: {type(e).__name__}: {e}')
 			return False
-		return result.get('result', {}).get('value') is True
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_state_request_event')
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> 'BrowserStateSummary':
