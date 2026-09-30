@@ -45,8 +45,20 @@ async def test_written_about_blank_page_is_read(browser_session):
 	assert len(state.dom_state.selector_map) >= 1
 
 
+async def test_written_about_blank_page_without_text_is_read(browser_session):
+	await _blank_tab(browser_session, '<form><input name="q" placeholder="Search"></form>')
+
+	state = await browser_session.get_browser_state_summary(include_screenshot=False)
+
+	assert state.title != 'Empty Tab'
+	assert len(state.dom_state.selector_map) >= 1
+
+
 async def test_plain_about_blank_is_still_an_empty_tab(browser_session):
 	await _blank_tab(browser_session, None)
+	# Blank tabs normally carry the loading animation; that alone is not content.
+	assert browser_session._aboutblank_watchdog is not None
+	await browser_session._aboutblank_watchdog._show_dvd_screensaver_on_about_blank_tabs()
 
 	state = await browser_session.get_browser_state_summary(include_screenshot=False)
 

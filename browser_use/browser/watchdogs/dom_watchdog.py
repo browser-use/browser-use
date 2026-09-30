@@ -241,21 +241,30 @@ class DOMWatchdog(BaseWatchdog):
 		return []
 
 	async def _non_http_page_has_content(self, page_url: str) -> bool:
-		"""Whether a page without an http(s) URL (about:blank, data:, ...) shows any text.
+		"""Whether a page without an http(s) URL (about:blank, data:, ...) has content.
 
+		Content is any text, or any element other than the loading animation AboutBlankWatchdog
+		draws into blank tabs (#pretty-loading-animation): a page may write only a form or an image.
 		Browser pages (chrome://, chrome-extension://, devtools://) are never treated as content.
 		"""
 		scheme = page_url.lower().split(':', 1)[0]
 		if scheme.startswith('chrome') or scheme == 'devtools':
 			return False
 
+		expression = """(() => {
+			const body = document.body;
+			if (!body) return false;
+			if (body.innerText.trim().length) return true;
+			for (const child of body.children) {
+				if (child.id !== 'pretty-loading-animation') return true;
+			}
+			return false;
+		})()"""
+
 		async def check() -> bool:
 			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=False)
 			result = await cdp_session.cdp_client.send.Runtime.evaluate(
-				params={
-					'expression': '!!(document.body && document.body.innerText.trim().length)',
-					'returnByValue': True,
-				},
+				params={'expression': expression, 'returnByValue': True},
 				session_id=cdp_session.session_id,
 			)
 			return result.get('result', {}).get('value') is True
