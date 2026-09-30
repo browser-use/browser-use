@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { closeSync, fstatSync, openSync, statSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +10,7 @@ import {
   fauxProvider,
   fauxAssistantMessage,
   fauxToolCall,
+  getCurrentSystemPrompt,
 } from '@earendil-works/pi-ai';
 import { BrowserUse, Type } from '../dist/index.js';
 import { EventStream } from '../dist/events.js';
@@ -287,6 +289,141 @@ test('history persistence failure preserves delivered output and reports an expl
     assert.match(result.warnings.join(' '), /History could not be saved/);
     await stream.return();
     await read;
+  } finally {
+    await f.close();
+  }
+});
+
+// Close the descriptor behind the journal handle (found by inode): the next write fails with
+// EBADF, as it does when a handle goes stale on a network mount. /dev/null takes the freed
+// number at once, so the bridge's close of the stale handle cannot hit an unrelated resource.
+function closeJournalDescriptor(path) {
+  const { ino, dev } = statSync(path);
+  for (let fd = 3; fd < 4096; fd++) {
+    let stat;
+    try {
+      stat = fstatSync(fd);
+    } catch {
+      continue;
+    }
+    if (stat.ino !== ino || stat.dev !== dev) continue;
+    closeSync(fd);
+    assert.equal(openSync('/dev/null', 'r'), fd);
+    return;
+  }
+  throw new Error('journal descriptor not found');
+}
+const journalLog = async (path) =>
+  (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
+
+test('a stale journal handle is reopened once and the run journals on', async () => {
+  const f = await fixture([
+    call('javascript', { code: 'const rows = [1, 2];' }),
+    call('finish_from_js', { expression: 'rows.length' }),
+  ]);
+  try {
+    let journalPath;
+    const stream = f.agent.events();
+    const running = f.agent.run('deliver despite a stale journal handle', {
+      schema: Type.Number(),
+      onEvent: (e) => {
+        if (e.type === 'tool_execution_end' && e.toolName === 'javascript')
+          closeJournalDescriptor(journalPath);
+      },
+    });
+    const first = await stream.next();
+    assert.equal(first.value.type, 'run_start');
+    journalPath = join(f.agent.workspace, '.browser-use', 'runs', `${first.value.runId}.jsonl`);
+    const result = await running;
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 2);
+    assert.equal(result.warnings, undefined);
+    const log = await journalLog(journalPath);
+    assert.equal(log.at(-1).type, 'run_end');
+    assert.ok(log.some((e) => e.event?.type === 'tool_execution_end'));
+    assert.ok(
+      log.some((e) => e.event?.type === 'turn_end'),
+      'events after the failed write',
+    );
+    const sequences = log.map((e) => e.sequence);
+    assert.deepEqual(
+      sequences,
+      [...new Set(sequences)].sort((a, b) => a - b),
+    );
+    await stream.return();
+  } finally {
+    await f.close();
+  }
+});
+
+test('journal write failures never fail a run or erase its result', async () => {
+  const { mkdir, rm: remove } = await import('node:fs/promises');
+  const f = await fixture([
+    call('javascript', { code: 'const rows = [1, 2];' }),
+    call('finish_from_js', { expression: 'rows.length' }),
+  ]);
+  try {
+    const warnings = [];
+    let runId;
+    let runEnd;
+    const stream = f.agent.events();
+    const read = (async () => {
+      for await (const e of stream) {
+        if (e.type === 'run_start') runId = e.runId;
+        if (e.type === 'warning') warnings.push(e.message);
+        if (e.type === 'run_end') runEnd = e.result;
+      }
+    })();
+    let journalPath;
+    const result = await f.agent.run('deliver despite journal IO failure', {
+      schema: Type.Number(),
+      onEvent: async (e) => {
+        if (e.type === 'tool_execution_end' && e.toolName === 'javascript') {
+          journalPath = join(f.agent.workspace, '.browser-use', 'runs', `${runId}.jsonl`);
+          // The stale handle fails (EBADF) and so does reopening the path (EISDIR).
+          closeJournalDescriptor(journalPath);
+          await remove(journalPath);
+          await mkdir(journalPath);
+        }
+      },
+    });
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 2);
+    assert.equal(result.eventsPath, journalPath);
+    assert.match(result.warnings.join(' '), /Event log stopped: .*EISDIR/);
+    assert.deepEqual(warnings, result.warnings);
+    assert.deepEqual(runEnd.warnings, result.warnings, 'the live run_end carries the warning');
+    await stream.return();
+    await read;
+  } finally {
+    await f.close();
+  }
+});
+
+test('a journal that cannot be created leaves no journal path and the run completes', async () => {
+  let prompt;
+  const f = await fixture([
+    (context) => {
+      prompt = getCurrentSystemPrompt(context.messages);
+      return call('finish', { result: 'done' });
+    },
+    call('finish', { result: 'again' }),
+  ]);
+  try {
+    const runs = join(f.agent.workspace, '.browser-use', 'runs');
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(f.agent.workspace, '.browser-use'));
+    await writeFile(runs, 'not a directory'); // mkdir and open both fail under it.
+    const result = await f.agent.run('deliver without a journal');
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 'done');
+    assert.equal(result.eventsPath, undefined);
+    assert.match(result.warnings.join(' '), /Event log stopped: /);
+    assert.doesNotMatch(prompt, /Run journal/);
+    await rm(runs);
+    const next = await f.agent.followUp('journals again');
+    assert.equal(next.status, 'completed');
+    assert.equal((await journalLog(next.eventsPath)).at(-1).type, 'run_end');
   } finally {
     await f.close();
   }

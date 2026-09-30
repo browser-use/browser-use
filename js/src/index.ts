@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, open } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
@@ -268,10 +268,44 @@ export class BrowserUse {
     const historyPath = join(directory, `${this.runId}.json`);
     const eventsPath = join(directory, `${this.runId}.jsonl`);
     let recorder: Recorder | undefined;
-    let journal: Awaited<ReturnType<typeof open>> | undefined;
+    let journal: FileHandle | undefined;
+    let journalFailure: string | undefined;
+    let journalQueue = Promise.resolve();
+    // The journal is diagnostics, never a run's outcome. A handle held open across a long model
+    // call goes stale on some network mounts (EBADF on write, EIO on close): reopen it once for
+    // the failed write; after a second failure stop journaling with one warning.
+    const stopJournal = async (error: unknown) => {
+      await journal?.close().catch(() => {});
+      journal = undefined;
+      journalFailure = `Event log stopped: ${String(error)}`;
+      this.emit({ type: 'warning', message: journalFailure });
+    };
+    const journalWrite = (line: string) =>
+      (journalQueue = journalQueue
+        .then(async () => {
+          if (!journal) return;
+          try {
+            await journal.writeFile(line);
+          } catch {
+            try {
+              await journal.close().catch(() => {});
+              journal = await open(eventsPath, 'a', 0o600);
+              await journal.writeFile(line);
+            } catch (error) {
+              await stopJournal(error);
+            }
+          }
+        })
+        .catch(() => {}));
     try {
-      await mkdir(directory, { recursive: true, mode: 0o700 });
-      journal = await open(eventsPath, 'wx', 0o600);
+      let unopened: unknown;
+      try {
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        journal = await open(eventsPath, 'wx', 0o600);
+      } catch (error) {
+        unopened = error;
+      }
+      const journaled = journal !== undefined;
       const record = async (data: SessionEventData) => {
         const event = this.emit(data);
         // Deltas stream live. Persist finalized messages, not a full transcript for every token.
@@ -285,7 +319,7 @@ export class BrowserUse {
             ? '[image omitted from event log]'
             : value,
         );
-        await journal!.writeFile(
+        const line =
           serialized.length > 256000
             ? JSON.stringify({
                 sequence: event.sequence,
@@ -294,10 +328,11 @@ export class BrowserUse {
                 type: event.type,
                 truncated: true,
               }) + '\n'
-            : serialized + '\n',
-        );
+            : serialized + '\n';
+        await journalWrite(line);
       };
       await record({ type: 'run_start', task, followUp });
+      if (unopened !== undefined) await stopJournal(unopened); // After run_start, so it stays first.
       if (this.config.recording && !signal.aborted) {
         recorder = new Recorder(
           join(this.workspace, '.browser-use', 'recordings', this.runId),
@@ -334,7 +369,7 @@ export class BrowserUse {
         {
           messages: this.messages,
           control,
-          eventsPath,
+          ...(journaled ? { eventsPath } : {}),
           save: (messages) => {
             this.messages = messages;
             this.hasConversation = true;
@@ -347,7 +382,10 @@ export class BrowserUse {
       for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
         this.totalUsage.cost[key] += result.usage.cost[key];
       this.runtime.onAction = undefined;
-      const warnings: string[] = [...(result.warnings ?? [])];
+      const warnings: string[] = [
+        ...(result.warnings ?? []),
+        ...(journalFailure ? [journalFailure] : []),
+      ];
       let recordingPath: string | undefined;
       if (recorder) {
         try {
@@ -361,7 +399,7 @@ export class BrowserUse {
         ...result,
         ...(recordingPath ? { recordingPath } : {}),
         runId: this.runId,
-        eventsPath,
+        ...(journaled ? { eventsPath } : {}),
       };
       try {
         await saveHistory(historyPath, this.history, this.config.redact);
@@ -370,28 +408,22 @@ export class BrowserUse {
         warnings.push(`History could not be saved: ${String(error)}`);
       }
       if (warnings.length) delivered.warnings = warnings;
-      try {
-        await record({ type: 'run_end', result: delivered });
-      } catch (error) {
-        delivered.warnings = [
-          ...(delivered.warnings ?? []),
-          `Event log could not be finalized: ${String(error)}`,
-        ];
-      }
+      await record({ type: 'run_end', result: delivered });
+      // A journal that failed on run_end itself is reported here; earlier failures are in warnings.
+      if (journalFailure && !delivered.warnings?.includes(journalFailure))
+        delivered.warnings = [...(delivered.warnings ?? []), journalFailure];
       this.reportRun(delivered);
       return redact(delivered, this.config.redact ?? []);
     } finally {
       this.runtime.onAction = undefined;
       await this.manualCell?.catch(() => {});
       if (recorder) await recorder.stop('error', this.runtime.currentTarget).catch(() => {});
-      try {
-        await journal?.close();
-      } finally {
-        control.finish();
-        this.active = false;
-        this.controller = undefined;
-        this.control = undefined;
-      }
+      await journalQueue.catch(() => {});
+      await journal?.close().catch(() => {});
+      control.finish();
+      this.active = false;
+      this.controller = undefined;
+      this.control = undefined;
     }
   }
 
