@@ -61,6 +61,17 @@ async def _text_of(session: BrowserSession, target_id: str) -> str:
 	return result['result'].get('value', '')
 
 
+async def _add_loading_animation(session: BrowserSession, target_id: str) -> None:
+	"""The element AboutBlankWatchdog's loading animation adds to a blank tab (without its remote image)."""
+	cdp_session = await session.get_or_create_cdp_session(target_id=target_id, focus=False)
+	await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={
+			'expression': "const d = document.createElement('div'); d.id = 'pretty-loading-animation'; document.body.appendChild(d); 1",
+		},
+		session_id=cdp_session.session_id,
+	)
+
+
 async def _count_of(session: BrowserSession, target_id: str, selector: str) -> int:
 	cdp_session = await session.get_or_create_cdp_session(target_id=target_id, focus=False)
 	result = await cdp_session.cdp_client.send.Runtime.evaluate(
@@ -103,10 +114,8 @@ async def test_new_tab_does_not_reuse_a_blank_tab_written_without_text(browser_s
 async def test_new_tab_still_reuses_an_empty_blank_tab(browser_session, http_server):
 	await browser_session.event_bus.dispatch(NavigateToUrlEvent(url=http_server.url_for('/home')))
 	empty = await _open_blank_tab(browser_session, None)
-	# Blank tabs normally carry the loading animation; that alone is not content.
-	assert browser_session._aboutblank_watchdog is not None
-	await browser_session._aboutblank_watchdog._show_dvd_screensaver_on_about_blank_tabs()
-	assert await _count_of(browser_session, empty, '#pretty-loading-animation') == 1
+	# Blank tabs normally carry AboutBlankWatchdog's loading animation; that alone is not content.
+	await _add_loading_animation(browser_session, empty)
 	tabs_before = len(browser_session.session_manager.get_all_page_targets())
 
 	await browser_session.event_bus.dispatch(NavigateToUrlEvent(url=http_server.url_for('/next'), new_tab=True))

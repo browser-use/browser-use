@@ -953,15 +953,15 @@ class BrowserSession(BaseModel):
 		current_target_id = self.agent_focus_target_id
 
 		# If new_tab=True but we're already in a new tab, set new_tab=False
-		# (unless a page wrote into it: that tab is not free to reuse)
+		# (unless a page wrote into it: that tab is not free to reuse, nor to fall back to below)
 		current_target = self.session_manager.get_target(current_target_id)
-		if (
-			event.new_tab
-			and is_new_tab_page(current_target.url)
-			and not await self._blank_tab_has_content(current_target_id, current_target.url)
-		):
-			self.logger.debug(f'[on_NavigateToUrlEvent] Already on blank tab ({current_target.url}), reusing')
-			event.new_tab = False
+		current_tab_is_written_blank = False
+		if event.new_tab and is_new_tab_page(current_target.url):
+			if await self._blank_tab_has_content(current_target_id, current_target.url):
+				current_tab_is_written_blank = True
+			else:
+				self.logger.debug(f'[on_NavigateToUrlEvent] Already on blank tab ({current_target.url}), reusing')
+				event.new_tab = False
 
 		try:
 			# Find or create target for navigation
@@ -992,6 +992,9 @@ class BrowserSession(BaseModel):
 						await self.event_bus.dispatch(TabCreatedEvent(target_id=target_id, url='about:blank'))
 					except Exception as e:
 						self.logger.error(f'[on_NavigateToUrlEvent] Failed to create new tab: {type(e).__name__}: {e}')
+						if current_tab_is_written_blank:
+							# Falling back would navigate away the content a page wrote into the current tab
+							raise
 						# Fall back to using current tab
 						target_id = current_target_id
 						self.logger.warning(f'[on_NavigateToUrlEvent] Falling back to current tab #{target_id[-4:]}')
