@@ -105,7 +105,7 @@ Open the `liveUrl` to watch the agent work in real-time.
 
 ## Pricing
 
-The figures below describe legacy V2/V3 billing and are not the rates for BU Ultrafast or BU Fast. For current V4 modes, use [API v4](api-v4.md) and [current pricing](https://browser-use.com/pricing).
+Legacy V2/V3 rates below. For BU Ultrafast / BU Fast, see [current V4 pricing](https://docs.browser-use.com/cloud/agent/models).
 
 ### AI Agent Tasks
 $0.01 init + per-step (varies by model):

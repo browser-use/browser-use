@@ -11,31 +11,9 @@ is the persistent filesystem that can be reused across sessions.
 
 ## Low-cost modes
 
-BU Ultrafast (`bu-ultrafast`) and BU Fast (`bu-fast`) are hosted V4 modes in early access, enabled per project. BU Ultrafast targets quick browser interactions; BU Fast adds more reasoning at low token prices. [Request access](https://browser-use.com/ultrafast).
+**BU Ultrafast** (`bu-ultrafast`) handles quick interactions; **BU Fast** (`bu-fast`) adds reasoning. Both are V4 early-access presets. Send the alias in REST `model`; use REST while SDK types lag. Presets reject `modelParams` and require project access; EU/Bedrock-only routes are unsupported.
 
-BU Ultrafast recorded **$0.00214 median per URL check**, with **8/8 correct** in a small staging test. This includes recorded LLM + stopped-browser usage, with browsers explicitly stopped after each run. Actual cost varies; network traffic is billed separately. [Methodology](https://browser-use.com/pricing#task-cost-methodology).
-
-Customer rates in USD per 1M tokens, including the service fee:
-
-| Mode | Fresh input | Cached input | Cache write | Output |
-| --- | ---: | ---: | ---: | ---: |
-| BU Ultrafast | $0.24 | $0.024 | $0.30 | $1.20 |
-| BU Fast | $0.12 | $0.012 | $0.15 | $0.60 |
-
-Calls exceeding 272,000 prompt + cache-write tokens cost 2× input/cache and 1.5× output.
-
-Browser and network usage and optional services add separate charges. These are token rates, not fixed task prices. A run's `totalCostUsd` is not an all-in bill: browser and proxy charges are recorded separately. Stop the owned browser when finished and check recorded session usage; late metering can change it.
-
-Use REST while your installed SDK types lack these aliases. They are not V2/V3 aliases or `ChatBrowserUse` model IDs:
-
-```bash
-curl https://api.browser-use.com/api/v4/runs \
-  -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"task":"Find the top Hacker News story","model":"bu-ultrafast"}'
-```
-
-Replace `bu-ultrafast` with `bu-fast` for more reasoning. The presets do not accept `modelParams`. Account access still applies; projects without access receive 422, and the modes are unavailable on EU and Bedrock-only routes. See [current rates and availability](https://docs.browser-use.com/cloud/agent/models).
+[Rates, access, and examples](https://docs.browser-use.com/cloud/agent/models) · [Recorded task costs](https://browser-use.com/pricing#task-cost-methodology)
 
 ## Before the first run
 
