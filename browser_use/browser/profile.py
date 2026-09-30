@@ -653,6 +653,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=True,
 		description='Enable the captcha solver watchdog that listens for captcha events from the browser proxy. Automatically pauses agent steps while a CAPTCHA is being solved. Only active when the browser emits BrowserUse CDP events (e.g. Browser Use cloud browsers). Harmless when disabled or when events are not emitted.',
 	)
+	confirm_dialog_action: Literal['accept', 'dismiss'] = Field(
+		default='accept',
+		description="How to answer JavaScript confirm() dialogs. 'accept' clicks OK (the default). 'dismiss' clicks Cancel, for when a confirm() may guard an irreversible action (e.g. 'Delete your account?'). Either way the dialog's message and the answer are reported to the agent.",
+	)
 	demo_mode: bool = Field(
 		default=False,
 		description='Enable demo mode side panel that streams agent logs directly inside the browser window (requires headless=False).',
