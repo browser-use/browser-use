@@ -80,8 +80,9 @@ class PopupsWatchdog(BaseWatchdog):
 					if message:
 						formatted_message = f'[{dialog_type}] {message}'
 						if dismissed_confirm:
-							# Tell the agent the page's action was cancelled, so it does not assume it happened
-							formatted_message += ' (dismissed: Cancel was clicked)'
+							# Tell the agent which answer was sent, so it does not assume the page's action happened.
+							# (This states the answer requested below, not a confirmed result.)
+							formatted_message += ' (answered with Cancel)'
 						self.browser_session._closed_popup_messages.append(formatted_message)
 						self.logger.debug(f'📝 Stored popup message: {formatted_message[:100]}')
 

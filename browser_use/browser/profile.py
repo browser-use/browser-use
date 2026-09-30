@@ -655,7 +655,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	)
 	confirm_dialog_action: Literal['accept', 'dismiss'] = Field(
 		default='accept',
-		description="How to answer JavaScript confirm() dialogs. 'accept' clicks OK (the default). 'dismiss' clicks Cancel, for when a confirm() may guard an irreversible action (e.g. 'Delete your account?'). Either way the dialog's message and the answer are reported to the agent.",
+		description="How to answer JavaScript confirm() dialogs. 'accept' clicks OK (the default). 'dismiss' clicks Cancel, for when a confirm() may guard an irreversible action (e.g. 'Delete your account?'). The dialog's message is reported to the agent in both cases; with 'dismiss' it is marked as answered with Cancel.",
 	)
 	demo_mode: bool = Field(
 		default=False,

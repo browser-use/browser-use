@@ -80,8 +80,8 @@ async def test_confirm_dismissed_when_configured(http_server):
 	try:
 		answer = await _answer_to_confirm(session, http_server.url_for('/confirm'))
 		assert answer == 'dismissed'
-		# The agent is told the dialog was cancelled.
-		assert '[confirm] Delete this item? (dismissed: Cancel was clicked)' in session._closed_popup_messages
+		# The agent is told the dialog was answered with Cancel.
+		assert '[confirm] Delete this item? (answered with Cancel)' in session._closed_popup_messages
 	finally:
 		await session.kill()
 
