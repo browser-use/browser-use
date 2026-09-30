@@ -111,9 +111,7 @@ def test_gemini_schema_keeps_optional_fields_optional():
 
 	schema = SchemaOptimizer.create_gemini_optimized_schema(ProductInfoWithOptional)
 
-	assert schema['required'] == ['price', 'title'], (
-		'Optional fields with defaults must not be forced required for Gemini.'
-	)
+	assert schema['required'] == ['price', 'title'], 'Optional fields with defaults must not be forced required for Gemini.'
 
 
 def test_openai_strict_schema_keeps_all_fields_required():
