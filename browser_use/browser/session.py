@@ -545,6 +545,24 @@ class BrowserSession(BaseModel):
 			self._demo_mode = DemoMode(self)
 		return self._demo_mode
 
+	@property
+	def recording_path(self) -> Path | None:
+		"""Get the active or finalized recording path from the attached recording watchdog."""
+		watchdog = getattr(self, '_recording_watchdog', None)
+		if watchdog and watchdog.recording_path:
+			return watchdog.recording_path
+		return getattr(self, '_last_recording_path', None)
+
+	async def stop_recording(self) -> Path | None:
+		"""Stop any active video recording and finalize the output file."""
+		watchdog = getattr(self, '_recording_watchdog', None)
+		if watchdog is not None:
+			path = await watchdog.stop_recording()
+			if path is not None:
+				self._last_recording_path = path
+			return path
+		return None
+
 	# Main shared event bus for all browser session + all watchdogs
 	event_bus: EventBus = Field(default_factory=ResilientEventBus)
 
@@ -576,6 +594,7 @@ class BrowserSession(BaseModel):
 	_screenshot_watchdog: Any | None = PrivateAttr(default=None)
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
+	_last_recording_path: Path | None = PrivateAttr(default=None)
 	_captcha_watchdog: Any | None = PrivateAttr(default=None)
 	_watchdogs_attached: bool = PrivateAttr(default=False)
 
@@ -628,9 +647,27 @@ class BrowserSession(BaseModel):
 
 	async def reset(self) -> None:
 		"""Clear all cached CDP sessions with proper cleanup."""
-
-		# Suppress auto-reconnect callback during teardown
+		# Suppress auto-reconnect callbacks before any asynchronous recording cleanup.
 		self._intentional_stop = True
+		if self._recording_watchdog is not None:
+			recording_watchdog = self._recording_watchdog
+			if self._recording_watchdog.is_recording:
+				# A new active recording supersedes any previously finalized session path.
+				self._last_recording_path = None
+				# Finalize while the CDP client is still available to stop screencasting.
+				try:
+					recording_path = await recording_watchdog.stop_recording()
+				except Exception as e:
+					self.logger.debug(f'Error finalizing recording during reset: {e}')
+					recording_path = None
+			else:
+				# The watchdog is inactive, so this path is already finalized.
+				recording_path = recording_watchdog.recording_path
+			# Preserve only a completed recording before discarding its watchdog.
+			if recording_path is not None:
+				self._last_recording_path = recording_path
+			self._recording_watchdog = None
+
 		# Cancel any in-flight reconnection task
 		if self._reconnect_task and not self._reconnect_task.done():
 			self._reconnect_task.cancel()
@@ -679,7 +716,6 @@ class BrowserSession(BaseModel):
 		self._dom_watchdog = None
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
-		self._recording_watchdog = None
 		self._captcha_watchdog = None
 		self._watchdogs_attached = False
 		if self._demo_mode:
@@ -726,10 +762,27 @@ class BrowserSession(BaseModel):
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_session_start')
 	async def start(self) -> None:
 		"""Start the browser session."""
+		was_connected = self._cdp_client_root is not None
+		recording_watchdog = self._recording_watchdog
+		new_recording_lifecycle = not was_connected or recording_watchdog is None or not recording_watchdog.is_recording
+		if new_recording_lifecycle:
+			# Invalidate the previous run's result before BrowserStartEvent can fail.
+			self._last_recording_path = None
+			if recording_watchdog is not None and not recording_watchdog.is_recording:
+				recording_watchdog._last_recording_path = None
+
 		start_event = self.event_bus.dispatch(BrowserStartEvent())
 		await start_event
 		# Ensure any exceptions from the event handler are propagated
 		await start_event.event_result(raise_if_any=True, raise_if_none=False)
+
+		# A connected session does not emit BrowserConnectedEvent on subsequent start()
+		# calls. Restart recording for a new lifecycle when the prior run stopped it.
+		if was_connected and recording_watchdog is not None and not recording_watchdog.is_recording:
+			try:
+				await recording_watchdog.on_BrowserConnectedEvent(BrowserConnectedEvent(cdp_url=self.cdp_url or ''))
+			except Exception as e:
+				self.logger.debug(f'Failed to start recording for this browser session run: {e}')
 
 	async def kill(self) -> None:
 		"""Kill the browser session and reset all state."""

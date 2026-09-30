@@ -3978,13 +3978,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def close(self):
 		"""Close all resources"""
 		try:
-			# Only close browser if keep_alive is False (or not set)
 			if self.browser_session is not None:
 				if not self.browser_session.browser_profile.keep_alive:
 					# Kill the browser session - this dispatches BrowserStopEvent,
 					# stops the EventBus with clear=True, and recreates a fresh EventBus
 					await self.browser_session.kill()
 				else:
+					# Explicitly stop recording since BrowserStopEvent is not dispatched when keep_alive=True
+					try:
+						await self.browser_session.stop_recording()
+					except Exception as e:
+						self.logger.debug(f'Error stopping recording watchdog during close: {e}')
+
 					# keep_alive=True sessions shouldn't keep the event loop alive after agent.run()
 					await self.browser_session.event_bus.stop(
 						clear=False,
@@ -3995,6 +4000,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						self.browser_session.event_bus._on_idle = None
 					except Exception:
 						pass
+
+				# If video was recorded and finalized, populate history.video_path
+				if self.browser_session.recording_path:
+					final_path = self.browser_session.recording_path
+					if final_path.exists() and final_path.stat().st_size > 0:
+						self.history.video_path = str(final_path)
 
 			# Close skill service if configured
 			if self.skill_service is not None:
