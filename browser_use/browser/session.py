@@ -902,6 +902,33 @@ class BrowserSession(BaseModel):
 				)
 			raise
 
+	async def _blank_tab_has_content(self, target_id: TargetID, url: str) -> bool:
+		"""Whether an about:blank tab holds a page's content, so it must not be reused for navigation.
+
+		A window opened with window.open('') and filled by its opener (document.write) keeps the URL
+		about:blank. Navigating it to another URL would throw away what the page wrote.
+		"""
+		if url != 'about:blank':
+			return False
+
+		async def check() -> bool:
+			cdp_session = await self.get_or_create_cdp_session(target_id=target_id, focus=False)
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={
+					'expression': '!!(document.body && document.body.innerText.trim().length)',
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+			return result.get('result', {}).get('value') is True
+
+		try:
+			return await asyncio.wait_for(check(), timeout=2.0)
+		except Exception as e:
+			# Unknown: treat it as holding content, so a new tab is opened rather than this one overwritten.
+			self.logger.debug(f'Could not check about:blank tab #{target_id[-4:]} for content: {type(e).__name__}: {e}')
+			return True
+
 	async def on_NavigateToUrlEvent(self, event: NavigateToUrlEvent) -> None:
 		"""Handle navigation requests - core browser functionality."""
 		self.logger.debug(f'[on_NavigateToUrlEvent] Received NavigateToUrlEvent: url={event.url}, new_tab={event.new_tab}')
@@ -913,8 +940,13 @@ class BrowserSession(BaseModel):
 		current_target_id = self.agent_focus_target_id
 
 		# If new_tab=True but we're already in a new tab, set new_tab=False
+		# (unless a page wrote into it: that tab is not free to reuse)
 		current_target = self.session_manager.get_target(current_target_id)
-		if event.new_tab and is_new_tab_page(current_target.url):
+		if (
+			event.new_tab
+			and is_new_tab_page(current_target.url)
+			and not await self._blank_tab_has_content(current_target_id, current_target.url)
+		):
 			self.logger.debug(f'[on_NavigateToUrlEvent] Already on blank tab ({current_target.url}), reusing')
 			event.new_tab = False
 
@@ -930,6 +962,9 @@ class BrowserSession(BaseModel):
 				for idx, target in enumerate(page_targets):
 					self.logger.debug(f'[on_NavigateToUrlEvent] Tab {idx}: url={target.url}, targetId={target.target_id}')
 					if target.url == 'about:blank' and target.target_id != current_target_id:
+						if await self._blank_tab_has_content(target.target_id, target.url):
+							self.logger.debug(f'Not reusing about:blank tab #{target.target_id[-4:]}: a page wrote into it')
+							continue
 						target_id = target.target_id
 						self.logger.debug(f'Reusing existing about:blank tab #{target_id[-4:]}')
 						break
