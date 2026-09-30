@@ -4,6 +4,9 @@ This is what a window opened with window.open('') and filled by its opener looks
 content, so it must be read like any other page, not reported as an empty tab.
 """
 
+import asyncio
+import time
+
 import pytest
 
 from browser_use.browser import BrowserProfile, BrowserSession
@@ -52,3 +55,20 @@ async def test_plain_about_blank_is_still_an_empty_tab(browser_session):
 
 	assert state.title == 'Empty Tab'
 	assert state.dom_state.selector_map == {}
+
+
+async def test_content_check_is_bounded_when_the_session_lookup_hangs(browser_session, monkeypatch):
+	await _blank_tab(browser_session, None)
+	dom_watchdog = browser_session._dom_watchdog
+	assert dom_watchdog is not None
+
+	async def hang(*args, **kwargs):
+		await asyncio.sleep(30)
+
+	monkeypatch.setattr(BrowserSession, 'get_or_create_cdp_session', hang)
+	started = time.monotonic()
+
+	has_content = await dom_watchdog._non_http_page_has_content('about:blank')
+
+	assert has_content is False
+	assert time.monotonic() - started < 5

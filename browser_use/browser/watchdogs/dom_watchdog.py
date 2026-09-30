@@ -248,18 +248,21 @@ class DOMWatchdog(BaseWatchdog):
 		scheme = page_url.lower().split(':', 1)[0]
 		if scheme.startswith('chrome') or scheme == 'devtools':
 			return False
-		try:
+
+		async def check() -> dict:
 			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=False)
-			result = await asyncio.wait_for(
-				cdp_session.cdp_client.send.Runtime.evaluate(
-					params={
-						'expression': '!!(document.body && document.body.innerText.trim().length)',
-						'returnByValue': True,
-					},
-					session_id=cdp_session.session_id,
-				),
-				timeout=2.0,
+			return await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={
+					'expression': '!!(document.body && document.body.innerText.trim().length)',
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
 			)
+
+		try:
+			# The whole check is bounded, session lookup included, so a stale target cannot hold up
+			# every state request for a non-http(s) page.
+			result = await asyncio.wait_for(check(), timeout=2.0)
 		except Exception as e:
 			self.logger.debug(f'Could not check non-http(s) page for content: {type(e).__name__}: {e}')
 			return False
