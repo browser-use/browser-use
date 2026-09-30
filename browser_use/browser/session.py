@@ -647,8 +647,26 @@ class BrowserSession(BaseModel):
 
 	async def reset(self) -> None:
 		"""Clear all cached CDP sessions with proper cleanup."""
-		# Suppress auto-reconnect callbacks before any asynchronous recording cleanup.
+		# Suppress auto-reconnect callbacks while stopping an in-flight reconnect task.
 		self._intentional_stop = True
+		reconnect_task = self._reconnect_task
+		self._reconnect_task = None
+		if reconnect_task is not None and reconnect_task is not asyncio.current_task():
+			if not reconnect_task.done():
+				reconnect_task.cancel()
+			try:
+				await reconnect_task
+			except asyncio.CancelledError:
+				pass
+			except Exception as e:
+				self.logger.debug(f'Error stopping reconnection task during reset: {e}')
+
+		# A task cancelled while waiting for the reconnect lock may not reach its own
+		# finally block, so normalize the reconnect state after awaiting it.
+		self._reconnect_pending = False
+		self._reconnecting = False
+		self._reconnect_event.set()  # unblock any waiters
+
 		if self._recording_watchdog is not None:
 			recording_watchdog = self._recording_watchdog
 			if self._recording_watchdog.is_recording:
@@ -667,14 +685,6 @@ class BrowserSession(BaseModel):
 			if recording_path is not None:
 				self._last_recording_path = recording_path
 			self._recording_watchdog = None
-
-		# Cancel any in-flight reconnection task
-		if self._reconnect_task and not self._reconnect_task.done():
-			self._reconnect_task.cancel()
-			self._reconnect_task = None
-		self._reconnect_pending = False
-		self._reconnecting = False
-		self._reconnect_event.set()  # unblock any waiters
 
 		cdp_status = 'connected' if self._cdp_client_root else 'not connected'
 		session_mgr_status = 'exists' if self.session_manager else 'None'
