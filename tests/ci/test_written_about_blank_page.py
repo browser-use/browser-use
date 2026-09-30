@@ -59,12 +59,19 @@ async def test_plain_about_blank_is_still_an_empty_tab(browser_session):
 	# Blank tabs normally carry AboutBlankWatchdog's loading animation; that alone is not content.
 	# (Its element is added directly, without the animation's remote image.)
 	cdp_session = await browser_session.get_or_create_cdp_session(focus=False)
-	await cdp_session.cdp_client.send.Runtime.evaluate(
+	added = await cdp_session.cdp_client.send.Runtime.evaluate(
 		params={
-			'expression': "const d = document.createElement('div'); d.id = 'pretty-loading-animation'; document.body.appendChild(d); 1",
+			# Wait for the blank document's body, as the watchdog's own script does.
+			'expression': "new Promise((resolve) => { const add = () => { const d = document.createElement('div'); "
+			"d.id = 'pretty-loading-animation'; document.body.appendChild(d); "
+			"resolve(document.querySelectorAll('#pretty-loading-animation').length); }; "
+			"document.body ? add() : document.addEventListener('DOMContentLoaded', add); })",
+			'awaitPromise': True,
+			'returnByValue': True,
 		},
 		session_id=cdp_session.session_id,
 	)
+	assert added['result'].get('value') == 1
 
 	state = await browser_session.get_browser_state_summary(include_screenshot=False)
 
