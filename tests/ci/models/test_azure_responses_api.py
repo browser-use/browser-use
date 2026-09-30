@@ -274,31 +274,36 @@ class _Answer(BaseModel):
 	answer: str
 
 
-def _response_with_messages(*texts: str) -> Response:
-	"""A Responses API response whose output is one message per text."""
-	output = []
-	for number, text in enumerate(texts):
-		output.append(
-			{
-				'type': 'message',
-				'id': f'msg_{number}',
-				'role': 'assistant',
-				'status': 'completed',
-				'content': [{'type': 'output_text', 'text': text, 'annotations': []}],
-			}
-		)
+def _message(number: int, *parts: str) -> dict[str, Any]:
+	"""One output message whose content is one output_text part per text."""
+	content = []
+	for text in parts:
+		content.append({'type': 'output_text', 'text': text, 'annotations': []})
+	return {'type': 'message', 'id': f'msg_{number}', 'role': 'assistant', 'status': 'completed', 'content': content}
+
+
+def _response(*output: dict[str, Any]) -> Response:
+	"""A Responses API response with the given output items."""
 	return Response.model_validate(
 		{
 			'id': 'resp_1',
 			'created_at': 0,
 			'model': 'test-model',
 			'object': 'response',
-			'output': output,
+			'output': list(output),
 			'parallel_tool_calls': False,
 			'tool_choice': 'auto',
 			'tools': [],
 		}
 	)
+
+
+def _response_with_messages(*texts: str) -> Response:
+	"""A Responses API response whose output is one message per text."""
+	output = []
+	for number, text in enumerate(texts):
+		output.append(_message(number, text))
+	return _response(*output)
 
 
 class _FakeResponses:
@@ -348,6 +353,40 @@ class TestResponsesAPIStructuredOutput:
 		result = await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
 
 		assert result.completion == _Answer(answer='first')
+
+	async def test_text_after_the_json_message(self):
+		llm = _llm_returning(_response_with_messages('{"answer": "42"}', 'I will now click the button.'))
+
+		result = await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
+
+		assert result.completion == _Answer(answer='42')
+
+	async def test_parts_of_one_message_are_joined(self):
+		# One message whose JSON is split across two output_text parts.
+		response = _response(_message(0, '{"answer": ', '"42"}'))
+		llm = _llm_returning(response)
+
+		result = await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
+
+		assert ChatAzureOpenAI._output_message_texts(response) == ['{"answer": "42"}']
+		assert result.completion == _Answer(answer='42')
+
+	async def test_non_message_items_are_skipped(self):
+		function_call = {
+			'type': 'function_call',
+			'id': 'fc_1',
+			'call_id': 'call_1',
+			'name': 'lookup',
+			'arguments': '{"answer": "not this"}',
+			'status': 'completed',
+		}
+		response = _response(function_call, _message(1, '{"answer": "42"}'))
+		llm = _llm_returning(response)
+
+		result = await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
+
+		assert ChatAzureOpenAI._output_message_texts(response) == ['{"answer": "42"}']
+		assert result.completion == _Answer(answer='42')
 
 	async def test_no_valid_message_still_raises(self):
 		llm = _llm_returning(_response_with_messages('not json', 'still not json'))
