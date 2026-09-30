@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from browser_use import Agent
 from browser_use.agent.views import AgentStepInfo
+from browser_use.beta import Agent as BetaAgent
 from tests.ci.conftest import create_mock_llm
 
 
@@ -17,9 +18,10 @@ class OutputWithStatus(BaseModel):
 
 @pytest.mark.parametrize('structured', [False, True])
 @pytest.mark.parametrize('limit', ['steps', 'failures'])
-async def test_forced_completion_uses_available_status_field(tmp_path: Path, structured: bool, limit: str):
+@pytest.mark.parametrize('agent_class', [Agent, BetaAgent], ids=['native', 'beta'])
+async def test_forced_completion_uses_available_status_field(tmp_path: Path, structured: bool, limit: str, agent_class):
 	"""Both stopping paths preserve failure reporting for structured and ordinary output."""
-	agent = Agent(
+	agent = agent_class(
 		task='Collect two records',
 		llm=create_mock_llm(),
 		output_model_schema=OutputWithStatus if structured else None,
@@ -38,6 +40,8 @@ async def test_forced_completion_uses_available_status_field(tmp_path: Path, str
 	assert agent.AgentOutput is agent.DoneAgentOutput
 	params = agent.tools.registry.registry.actions['done'].param_model
 	assert status_field in params.model_json_schema()['properties']
+	if structured:
+		assert status_field in params.model_json_schema()['required']
 	payload = (
 		{'task_success': False, 'data': {'success': False, 'rows': []}}
 		if structured

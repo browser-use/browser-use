@@ -109,18 +109,12 @@ def _hide_internal_fields_from_schema(schema: dict) -> None:
 	props = schema.get('properties', {})
 	props.pop('success', None)
 	props.pop('files_to_display', None)
-	if 'task_success' in props:
-		# Require an explicit model verdict, but retain the Python default for existing callers.
-		required = schema.setdefault('required', [])
-		if 'task_success' not in required:
-			required.append('task_success')
 
 
 class StructuredOutputAction(BaseModel, Generic[T]):
 	model_config = ConfigDict(json_schema_extra=_hide_internal_fields_from_schema)
 
 	success: bool = Field(
-		default=True,
 		validation_alias=AliasChoices('task_success', 'success'),
 		description='Whether the entire user request was completed. Set task_success=false for incomplete tasks, independently of any fields in data.',
 	)

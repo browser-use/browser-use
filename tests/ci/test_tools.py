@@ -6,7 +6,7 @@ import time
 
 import anyio
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from pytest_httpserver import HTTPServer
 
 from browser_use.agent.views import ActionResult
@@ -670,6 +670,17 @@ class TestStructuredOutputDoneWithFiles:
 		assert 'task_success' in top_level_props
 		assert 'task_success' in schema['required']
 		assert 'success' in schema['$defs']['MyOutput']['properties']
+
+	def test_structured_done_rejects_missing_status(self):
+		from browser_use.tools.views import StructuredOutputAction
+
+		class MyOutput(BaseModel):
+			success: bool
+			rows: list[str]
+
+		with pytest.raises(ValidationError) as exc_info:
+			StructuredOutputAction[MyOutput].model_validate({'data': {'success': False, 'rows': []}})
+		assert any(error['loc'] == ('task_success',) and error['type'] == 'missing' for error in exc_info.value.errors())
 
 	@pytest.mark.parametrize('task_success', [False, True])
 	@pytest.mark.parametrize('data_success', [False, True])
