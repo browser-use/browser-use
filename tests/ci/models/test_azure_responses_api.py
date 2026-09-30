@@ -388,6 +388,16 @@ class TestResponsesAPIStructuredOutput:
 		assert ChatAzureOpenAI._output_message_texts(response) == ['{"answer": "42"}']
 		assert result.completion == _Answer(answer='42')
 
+	async def test_joined_text_is_parsed_when_no_single_message_validates(self):
+		# Neither message is valid JSON on its own, but response.output_text (all of them joined) is.
+		response = _response_with_messages('{"answer": ', '"42"}')
+		llm = _llm_returning(response)
+
+		result = await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
+
+		assert response.output_text == '{"answer": "42"}'
+		assert result.completion == _Answer(answer='42')
+
 	async def test_no_valid_message_still_raises(self):
 		llm = _llm_returning(_response_with_messages('not json', 'still not json'))
 
