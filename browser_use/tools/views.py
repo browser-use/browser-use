@@ -1,6 +1,6 @@
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
 
@@ -105,16 +105,25 @@ T = TypeVar('T', bound=BaseModel)
 
 
 def _hide_internal_fields_from_schema(schema: dict) -> None:
-	"""Remove internal fields from the JSON schema to avoid collisions with user models."""
+	"""Expose task status separately from user data while keeping internal fields hidden."""
 	props = schema.get('properties', {})
 	props.pop('success', None)
 	props.pop('files_to_display', None)
+	if 'task_success' in props:
+		# Require an explicit model verdict, but retain the Python default for existing callers.
+		required = schema.setdefault('required', [])
+		if 'task_success' not in required:
+			required.append('task_success')
 
 
 class StructuredOutputAction(BaseModel, Generic[T]):
 	model_config = ConfigDict(json_schema_extra=_hide_internal_fields_from_schema)
 
-	success: bool = Field(default=True, description='True if user_request completed successfully')
+	success: bool = Field(
+		default=True,
+		validation_alias=AliasChoices('task_success', 'success'),
+		description='Whether the entire user request was completed. Set task_success=false for incomplete tasks, independently of any fields in data.',
+	)
 	data: T = Field(description='The actual output data matching the requested schema')
 	files_to_display: list[str] | None = Field(default=[])
 

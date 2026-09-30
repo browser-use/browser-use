@@ -654,11 +654,12 @@ class TestStructuredOutputDoneWithFiles:
 			assert result.attachments == []
 
 	async def test_structured_output_schema_hides_internal_fields(self):
-		"""The JSON schema for StructuredOutputAction hides success and files_to_display."""
+		"""Expose task status without duplicating a user's success field."""
 		from browser_use.tools.views import StructuredOutputAction
 
 		class MyOutput(BaseModel):
 			name: str
+			success: bool
 
 		schema = StructuredOutputAction[MyOutput].model_json_schema()
 		top_level_props = schema.get('properties', {})
@@ -666,3 +667,37 @@ class TestStructuredOutputDoneWithFiles:
 		assert 'files_to_display' not in top_level_props
 		# data should still be present
 		assert 'data' in top_level_props
+		assert 'task_success' in top_level_props
+		assert 'task_success' in schema['required']
+		assert 'success' in schema['$defs']['MyOutput']['properties']
+
+	@pytest.mark.parametrize('task_success', [False, True])
+	@pytest.mark.parametrize('data_success', [False, True])
+	async def test_structured_done_status_is_independent_of_user_data(self, tmp_path, task_success, data_success):
+		"""The actual done handler preserves both verdicts without changing the output shape."""
+
+		class MyOutput(BaseModel):
+			success: bool
+			rows: list[str]
+
+		tools = Tools(output_model=MyOutput)
+		action = tools.registry.registry.actions['done']
+		params = action.param_model.model_validate({'task_success': task_success, 'data': {'success': data_success, 'rows': []}})
+		browser = BrowserSession(user_data_dir=str(tmp_path / 'profile'), enable_default_extensions=False)
+		result = await action.function(params=params, file_system=FileSystem(str(tmp_path / 'files')), browser_session=browser)
+		assert result.is_done is True
+		assert result.success is task_success
+		assert json.loads(result.extracted_content) == {'success': data_success, 'rows': []}
+
+	@pytest.mark.parametrize('success', [False, True])
+	async def test_structured_done_accepts_legacy_status_and_round_trips(self, success):
+		"""Existing Python callers and stored action histories still use success."""
+		from browser_use.tools.views import StructuredOutputAction
+
+		class MyOutput(BaseModel):
+			rows: list[str]
+
+		params = StructuredOutputAction[MyOutput](success=success, data=MyOutput(rows=[]))
+		assert params.success is success
+		assert params.model_dump() == {'success': success, 'data': {'rows': []}, 'files_to_display': []}
+		assert StructuredOutputAction[MyOutput].model_validate(params.model_dump()).success is success
