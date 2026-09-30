@@ -35,9 +35,9 @@ async def browser_session():
 
 
 async def _open_blank_tab(session: BrowserSession, html: str | None) -> str:
-	"""Open an about:blank tab without focusing it and, if html is given, write it in like an opener would."""
+	"""Open an about:blank tab in the background and, if html is given, write it in like an opener would."""
 	assert session._cdp_client_root is not None
-	created = await session._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
+	created = await session._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank', 'background': True})
 	target_id = created['targetId']
 	for _ in range(50):
 		if any(target.target_id == target_id for target in session.session_manager.get_all_page_targets()):
@@ -61,6 +61,15 @@ async def _text_of(session: BrowserSession, target_id: str) -> str:
 	return result['result'].get('value', '')
 
 
+async def _count_of(session: BrowserSession, target_id: str, selector: str) -> int:
+	cdp_session = await session.get_or_create_cdp_session(target_id=target_id, focus=False)
+	result = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': f'document.querySelectorAll({selector!r}).length', 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	return result['result'].get('value', 0)
+
+
 async def test_new_tab_does_not_reuse_a_written_blank_tab(browser_session, http_server):
 	await browser_session.event_bus.dispatch(NavigateToUrlEvent(url=http_server.url_for('/home')))
 	written = await _open_blank_tab(browser_session, WRITTEN)
@@ -81,9 +90,23 @@ async def test_new_tab_from_a_written_blank_tab_opens_another_tab(browser_sessio
 	assert 'Help text' in await _text_of(browser_session, written)
 
 
+async def test_new_tab_does_not_reuse_a_blank_tab_written_without_text(browser_session, http_server):
+	await browser_session.event_bus.dispatch(NavigateToUrlEvent(url=http_server.url_for('/home')))
+	written = await _open_blank_tab(browser_session, '<form><input name="q"></form>')
+
+	await browser_session.event_bus.dispatch(NavigateToUrlEvent(url=http_server.url_for('/next'), new_tab=True))
+
+	assert browser_session.agent_focus_target_id != written
+	assert await _count_of(browser_session, written, 'input') == 1
+
+
 async def test_new_tab_still_reuses_an_empty_blank_tab(browser_session, http_server):
 	await browser_session.event_bus.dispatch(NavigateToUrlEvent(url=http_server.url_for('/home')))
 	empty = await _open_blank_tab(browser_session, None)
+	# Blank tabs normally carry the loading animation; that alone is not content.
+	assert browser_session._aboutblank_watchdog is not None
+	await browser_session._aboutblank_watchdog._show_dvd_screensaver_on_about_blank_tabs()
+	assert await _count_of(browser_session, empty, '#pretty-loading-animation') == 1
 	tabs_before = len(browser_session.session_manager.get_all_page_targets())
 
 	await browser_session.event_bus.dispatch(NavigateToUrlEvent(url=http_server.url_for('/next'), new_tab=True))
