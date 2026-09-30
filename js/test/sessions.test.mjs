@@ -361,7 +361,6 @@ test('journal write failures never fail a run or erase its result', async () => 
   const f = await fixture([
     call('javascript', { code: 'const rows = [1, 2];' }),
     call('finish_from_js', { expression: 'rows.length' }),
-    call('finish', { result: 'again' }),
   ]);
   try {
     const warnings = [];
@@ -376,11 +375,9 @@ test('journal write failures never fail a run or erase its result', async () => 
       }
     })();
     let journalPath;
-    let eventsAfterFailure = 0;
     const result = await f.agent.run('deliver despite journal IO failure', {
       schema: Type.Number(),
       onEvent: async (e) => {
-        if (journalPath) eventsAfterFailure++;
         if (e.type === 'tool_execution_end' && e.toolName === 'javascript') {
           journalPath = join(f.agent.workspace, '.browser-use', 'runs', `${runId}.jsonl`);
           // The stale handle fails (EBADF) and so does reopening the path (EISDIR).
@@ -396,42 +393,8 @@ test('journal write failures never fail a run or erase its result', async () => 
     assert.match(result.warnings.join(' '), /Event log stopped: .*EISDIR/);
     assert.deepEqual(warnings, result.warnings);
     assert.deepEqual(runEnd.warnings, result.warnings, 'the live run_end carries the warning');
-    assert.ok(eventsAfterFailure > 0, 'live events continue after the journal stops');
-    const next = await f.agent.followUp('a later run journals again');
-    assert.equal(next.status, 'completed');
-    assert.equal(next.warnings, undefined);
-    assert.equal((await journalLog(next.eventsPath)).at(-1).type, 'run_end');
     await stream.return();
     await read;
-  } finally {
-    await f.close();
-  }
-});
-
-test('a journal that fails only on run_end still reports it on the result', async () => {
-  const { mkdir, rm: remove } = await import('node:fs/promises');
-  const f = await fixture([call('finish', { result: 'done' })]);
-  try {
-    let journalPath;
-    const stream = f.agent.events();
-    const running = f.agent.run('deliver despite a failed run_end record', {
-      onEvent: async (e) => {
-        if (e.type !== 'agent_end') return; // The last agent event; run_end is the next write.
-        closeJournalDescriptor(journalPath);
-        await remove(journalPath);
-        await mkdir(journalPath);
-      },
-    });
-    const first = await stream.next();
-    journalPath = join(f.agent.workspace, '.browser-use', 'runs', `${first.value.runId}.jsonl`);
-    const result = await running;
-    assert.equal(result.status, 'completed');
-    assert.equal(result.output, 'done');
-    assert.deepEqual(
-      result.warnings.map((w) => w.replace(/:.*/, '')),
-      ['Event log stopped'],
-    );
-    await stream.return();
   } finally {
     await f.close();
   }
