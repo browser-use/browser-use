@@ -10,16 +10,16 @@ from browser_use.integrations.anthropic import Bash, BrowserUse
 
 
 async def main() -> None:
-	browser = BrowserUse()
+	driver = BrowserUse()
 	bash = Bash(output_dir=Path('outputs'))
 
-	async with browser:
+	async with driver:
 		async with AsyncAnthropic() as client:
 			runner = client.beta.messages.tool_runner(
 				model=os.environ['ANTHROPIC_MODEL'],
 				max_tokens=32_768,
 				max_iterations=1_000,
-				tools=[browser, bash],
+				tools=[driver, bash],
 				system=(
 					'Complete the task autonomously. Use Browser Use for browser actions. '
 					'Use Bash for local computation and files in outputs/.'

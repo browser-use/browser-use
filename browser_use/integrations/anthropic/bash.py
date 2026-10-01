@@ -99,7 +99,7 @@ async def run_bash(
 	)
 
 
-def Bash(  # noqa: N802 - public tool factories mirror their exported tool names
+def Bash(
 	*,
 	output_dir: str | Path = 'outputs',
 	timeout_seconds: float = 120,

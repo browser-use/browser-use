@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="660" viewBox="0 0 1200 660" role="img" aria-labelledby="title desc">
+  <title id="title">Anthropic SDK and Browser Use integration architecture</title>
+  <desc id="desc">A task enters the Anthropic SDK tool runner. Browser actions flow to the Browser Use driver and its 31 actions, then to local Chromium, Browser Use Cloud, or an existing remote CDP browser. Bash handles local computation and files in the output directory.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#181c33"/>
+    </linearGradient>
+    <linearGradient id="anthropic" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f3d5bd"/>
+      <stop offset="1" stop-color="#d7a77f"/>
+    </linearGradient>
+    <linearGradient id="browseruse" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4ff80"/>
+      <stop offset="1" stop-color="#a8ff60"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000" flood-opacity=".28"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b9c2e4"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="660" rx="28" fill="url(#background)"/>
+  <circle cx="1120" cy="70" r="160" fill="#92ff64" opacity=".05"/>
+  <circle cx="90" cy="620" r="210" fill="#d7a77f" opacity=".06"/>
+
+  <text x="64" y="68" fill="#f8f9ff" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="30" font-weight="750">Anthropic SDK × Browser Use</text>
+  <text x="64" y="100" fill="#9da8ce" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="17">One tool runner. A complete browser driver. Any browser runtime.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="64" y="154" width="210" height="112" rx="22" fill="#242941" stroke="#3a4265"/>
+    <circle cx="112" cy="210" r="23" fill="#4a537c"/>
+    <path d="M103 210h18M115 204l6 6-6 6" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="148" y="203" fill="#fff" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="700">User task</text>
+    <text x="148" y="229" fill="#abb4d4" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14">Plain-language goal</text>
+
+    <rect x="350" y="140" width="300" height="140" rx="24" fill="url(#anthropic)"/>
+    <text x="382" y="187" fill="#261d18" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="800" letter-spacing="1.5">ANTHROPIC SDK</text>
+    <text x="382" y="221" fill="#261d18" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="24" font-weight="800">tool_runner</text>
+    <text x="382" y="250" fill="#594236" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="15">Plans, dispatches, and compacts</text>
+
+    <rect x="746" y="128" width="390" height="170" rx="26" fill="url(#browseruse)"/>
+    <text x="780" y="174" fill="#14200c" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="850" letter-spacing="1.5">BROWSER USE DRIVER</text>
+    <text x="780" y="211" fill="#14200c" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="25" font-weight="850">31 browser actions</text>
+    <text x="780" y="242" fill="#314d20" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="15">Navigation · page state · pointer</text>
+    <text x="780" y="267" fill="#314d20" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="15">Input · tabs · diagnostics</text>
+  </g>
+
+  <path d="M274 210 H338" stroke="#b9c2e4" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M650 194 H732" stroke="#b9c2e4" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="661" y="179" fill="#9da8ce" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13">browser calls</text>
+
+  <path d="M500 280 V392" stroke="#b9c2e4" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="516" y="344" fill="#9da8ce" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13">local work</text>
+
+  <g filter="url(#shadow)">
+    <rect x="350" y="410" width="300" height="156" rx="24" fill="#242941" stroke="#3a4265"/>
+    <rect x="382" y="444" width="54" height="40" rx="10" fill="#4a537c"/>
+    <text x="396" y="470" fill="#fff" font-family="ui-monospace, SFMono-Regular, monospace" font-size="17" font-weight="700">&gt;_</text>
+    <text x="455" y="465" fill="#fff" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="23" font-weight="800">Bash</text>
+    <text x="382" y="511" fill="#abb4d4" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="15">Local computation</text>
+    <text x="382" y="537" fill="#abb4d4" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="15">Files in outputs/</text>
+  </g>
+
+  <path d="M940 298 V352" stroke="#b9c2e4" stroke-width="3"/>
+  <path d="M775 352 H1105" stroke="#b9c2e4" stroke-width="3"/>
+  <path d="M775 352 V408" stroke="#b9c2e4" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M940 352 V408" stroke="#b9c2e4" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M1105 352 V408" stroke="#b9c2e4" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)" font-family="Inter, ui-sans-serif, system-ui, sans-serif">
+    <rect x="690" y="426" width="170" height="140" rx="20" fill="#242941" stroke="#3a4265"/>
+    <circle cx="775" cy="463" r="18" fill="#4a537c"/>
+    <rect x="765" y="454" width="20" height="17" rx="2" fill="none" stroke="#fff" stroke-width="2"/>
+    <text x="775" y="510" text-anchor="middle" fill="#fff" font-size="17" font-weight="750">Local</text>
+    <text x="775" y="535" text-anchor="middle" fill="#abb4d4" font-size="14">Chromium</text>
+
+    <rect x="855" y="426" width="170" height="140" rx="20" fill="#242941" stroke="#3a4265"/>
+    <circle cx="940" cy="463" r="18" fill="#4a537c"/>
+    <path d="M928 468h24M931 462a9 9 0 0118 0" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+    <text x="940" y="510" text-anchor="middle" fill="#fff" font-size="17" font-weight="750">Browser Use</text>
+    <text x="940" y="535" text-anchor="middle" fill="#abb4d4" font-size="14">Cloud</text>
+
+    <rect x="1020" y="426" width="116" height="140" rx="20" fill="#242941" stroke="#3a4265"/>
+    <circle cx="1078" cy="463" r="18" fill="#4a537c"/>
+    <path d="M1067 463h22M1084 457l6 6-6 6" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1078" y="510" text-anchor="middle" fill="#fff" font-size="17" font-weight="750">Remote</text>
+    <text x="1078" y="535" text-anchor="middle" fill="#abb4d4" font-size="14">CDP</text>
+  </g>
+
+  <rect x="64" y="610" width="1072" height="1" fill="#313854"/>
+  <text x="64" y="637" fill="#7f89ad" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13">Browser Use supplies the runtime and driver. Anthropic supplies the SDK, model loop, and browser-tool contract.</text>
+</svg>

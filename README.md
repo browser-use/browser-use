@@ -153,6 +153,35 @@ The agent opens a browser, looks up the repository, and prints its answer.
 
 <br/>
 
+# Anthropic SDK × Browser Use
+
+Use Claude's browser toolset with Browser Use as the driver. Browser Use
+implements all 31 browser actions and can control a local browser, a Browser
+Use Cloud browser, or an existing remote browser over CDP.
+
+```python
+import os
+
+from anthropic import AsyncAnthropic
+from browser_use.integrations.anthropic import Bash, BrowserUse
+
+task = 'Open example.com and report its page title.'
+driver = BrowserUse()  # Or BrowserUse(use_cloud=True)
+bash = Bash(output_dir='outputs')
+
+async with driver, AsyncAnthropic() as client:
+    runner = client.beta.messages.tool_runner(
+        model=os.environ['ANTHROPIC_MODEL'],
+        tools=[driver, bash],
+        messages=[{'role': 'user', 'content': task}],
+    )
+    result = await runner.until_done()
+```
+
+[Anthropic SDK + Browser Use quickstart ↗](examples/integrations/anthropic)
+
+<br/>
+
 # Browser Use Benchmark v2
 
 <img alt="Browser Use Benchmark v2 - Mean rubric score by model and cost per task" src="static/hard_benchmark_v2.jpg" width="100%">

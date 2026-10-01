@@ -1,67 +1,113 @@
-# Browser Use with the Anthropic SDK
+# Anthropic SDK × Browser Use
 
-Browser Use implements Anthropic's complete 31-action browser toolset. `Bash`
-is a separate, bounded tool for local computation and deliverables. Both ship
-from the main `browser-use` package.
+Browser Use and Anthropic collaborated on this integration so Claude can use
+Browser Use as its browser driver. The integration keeps Anthropic's tool
+runner and browser-tool contract while Browser Use provides the browser
+runtime, all 31 actions, and local or remote execution.
+
+<img
+  src="./architecture.svg"
+  alt="A task enters the Anthropic SDK tool runner, which sends browser actions to the Browser Use driver and local computation to Bash. The Browser Use driver controls local Chromium, Browser Use Cloud, or an existing remote browser over CDP."
+  width="100%"
+>
+
+The same program works with three browser runtimes:
+
+| Runtime | Driver | Who starts and stops it? |
+| --- | --- | --- |
+| Local Chromium | `BrowserUse()` | The driver |
+| Browser Use Cloud | `BrowserUse(use_cloud=True)` | The driver |
+| Existing local or remote CDP browser | `BrowserUse(session)` | Your application |
 
 ## Quickstart
 
-Install releases that include Browser Use's Anthropic integration and
-Anthropic's browser toolset API:
+Browser Use requires Python 3.11 or newer. Anthropic's browser toolset requires
+the Anthropic SDK release that includes `anthropic.tools.browser` and
+`client.beta.messages.tool_runner`.
+
+Create a project and install both packages:
 
 ```bash
-pip install -U browser-use anthropic
-export ANTHROPIC_API_KEY=...
-export ANTHROPIC_MODEL=...
-python examples/integrations/anthropic/quickstart.py
+uv init --python 3.12
+uv add browser-use anthropic
+uvx browser-use install
 ```
 
-The integration composes as two peer tools:
+Set the API key and the model Anthropic documents for the browser toolset:
+
+```bash
+export ANTHROPIC_API_KEY=your-key
+export ANTHROPIC_MODEL=your-model
+# Optional: show Anthropic SDK logs
+export ANTHROPIC_LOG=info
+```
+
+Save this as `run_browser.py`:
 
 ```python
+import asyncio
+import os
+from pathlib import Path
+
 from anthropic import AsyncAnthropic
+
 from browser_use.integrations.anthropic import Bash, BrowserUse
 
-browser = BrowserUse()
-bash = Bash(output_dir='outputs')
 
-async with browser, AsyncAnthropic() as client:
-	runner = client.beta.messages.tool_runner(
-		model=model,
-		tools=[browser, bash],
-		messages=[{'role': 'user', 'content': task}],
-	)
-	result = await runner.until_done()
+async def main() -> None:
+    task = 'Open example.com and save its page title to title.txt.'
+    driver = BrowserUse()
+    bash = Bash(output_dir=Path('outputs'))
+
+    async with driver, AsyncAnthropic() as client:
+        runner = client.beta.messages.tool_runner(
+            model=os.environ['ANTHROPIC_MODEL'],
+            max_tokens=32_768,
+            max_iterations=1_000,
+            tools=[driver, bash],
+            system=(
+                'Complete the task autonomously. Use the browser tools for web '
+                'interaction. Use Bash for local computation and files in outputs/.'
+            ),
+            messages=[{'role': 'user', 'content': task}],
+        )
+        final = await runner.until_done()
+
+    print('\n'.join(block.text for block in final.content if block.type == 'text'))
+
+
+if __name__ == '__main__':
+    asyncio.run(main())
 ```
 
-`BrowserUse()` creates, starts, and stops its own `BrowserSession`. To use an
-existing session, pass it as `BrowserUse(session)`; the application keeps
-responsibility for starting and stopping that session.
+Run it:
+
+```bash
+uv run run_browser.py
+```
+
+The application owns the driver lifecycle. The `async with driver` block
+starts the browser and always closes it when the run ends.
+
+See Anthropic's
+[browser-toolset quickstarts](https://github.com/anthropics/claude-quickstarts/tree/main/browser-toolset)
+for the SDK concepts and runner behavior.
 
 ## Browser Use Cloud
 
-Set `BROWSER_USE_API_KEY` and select Cloud directly on the driver:
+Set `BROWSER_USE_API_KEY`, then change one line:
 
 ```python
-browser = BrowserUse(use_cloud=True)
-bash = Bash(output_dir='outputs')
-
-async with browser, AsyncAnthropic() as client:
-	runner = client.beta.messages.tool_runner(
-		model=model,
-		tools=[browser, bash],
-		messages=[{'role': 'user', 'content': task}],
-	)
-	result = await runner.until_done()
+driver = BrowserUse(use_cloud=True)
 ```
 
-The driver creates the Cloud browser, connects over CDP, and stops the Cloud
-browser when the context exits.
+The driver creates a Browser Use Cloud browser, connects to it over CDP, and
+stops it when the context exits.
 
 ## Existing or remote browser
 
-Pass any started `BrowserSession` to the driver. This is the same shape for an
-existing local browser or a remote CDP endpoint:
+Pass an already started `BrowserSession` to the driver. Your application keeps
+responsibility for that session's lifecycle:
 
 ```python
 import os
@@ -70,91 +116,109 @@ from anthropic import AsyncAnthropic
 from browser_use import BrowserSession
 from browser_use.integrations.anthropic import Bash, BrowserUse
 
+task = 'Open example.com and report its page title.'
 session = BrowserSession(cdp_url=os.environ['BROWSER_USE_CDP_URL'])
 await session.start()
-browser = BrowserUse(session)
+driver = BrowserUse(session)
 bash = Bash(output_dir='outputs')
 
 try:
-	async with browser, AsyncAnthropic() as client:
-		runner = client.beta.messages.tool_runner(
-			model=model,
-			tools=[browser, bash],
-			messages=[{'role': 'user', 'content': task}],
-		)
-		result = await runner.until_done()
+    async with driver, AsyncAnthropic() as client:
+        runner = client.beta.messages.tool_runner(
+            model=os.environ['ANTHROPIC_MODEL'],
+            max_tokens=32_768,
+            max_iterations=1_000,
+            tools=[driver, bash],
+            messages=[{'role': 'user', 'content': task}],
+        )
+        final = await runner.until_done()
 finally:
-	await session.kill()
+    await session.kill()
 ```
 
-Bash still runs beside the SDK process, so files it creates are local to that
-process. Remote uploads need a browser-host path or an application
-`document_resolver`.
+## What ships in Browser Use
 
-## Approval callback
+`BrowserUse` implements every member of Anthropic's 31-action browser
+toolset:
 
-The Anthropic SDK calls `confirm` before configured actions run. Keep
-`javascript_exec` and `file_upload` disabled unless the application needs
+| Group | Actions |
+| --- | --- |
+| Navigation and tabs | `navigate`, `new_tab`, `list_tabs`, `switch_tab`, `close_tab` |
+| Page state | `screenshot`, `zoom`, `read_page`, `find`, `get_page_text`, `wait` |
+| Pointer | `left_click`, `right_click`, `middle_click`, `double_click`, `triple_click`, `hover`, `mouse_move`, `left_mouse_down`, `left_mouse_up`, `left_click_drag`, `scroll`, `scroll_to` |
+| Input | `type`, `key`, `hold_key`, `form_input`, `file_upload` |
+| Diagnostics | `read_console`, `read_network`, `javascript_exec` |
+
+`Bash` is a separate custom tool for local computation and deliverables. It
+runs commands from the configured output directory, strips ambient credentials
+from the child environment, caps returned output, applies a timeout, and kills
+the process group on timeout:
+
+```python
+bash = Bash(
+    output_dir='outputs',
+    timeout_seconds=120,
+    max_output_bytes=50_000,
+)
+```
+
+The working directory is a boundary for generated files, not an operating
+system sandbox. Run the SDK process inside your normal container or sandbox
+when tasks may contain untrusted instructions.
+
+## Approvals and high-risk actions
+
+Anthropic's SDK calls `confirm` for actions that require approval. Keep
+`javascript_exec` and `file_upload` disabled unless your application needs
 them:
 
 ```python
 async def confirm(context):
-	return await app.approve(
-		action=context.member,
-		tab_id=context.tab_id,
-		tab_url=context.tab_url,
-	)
+    return await app.approve(
+        action=context.member,
+        tab_id=context.tab_id,
+        tab_url=context.tab_url,
+    )
 
 
-browser = BrowserUse(
-	confirm=confirm,
-	configs={'javascript_exec': {'enabled': True}},
+driver = BrowserUse(
+    confirm=confirm,
+    configs={'javascript_exec': {'enabled': True}},
 )
 ```
 
-## Browser actions
+The SDK's URL and file policies remain available through the driver's base
+class. Use them to constrain navigation and approved documents.
 
-`BrowserUse` implements all browser-toolset members:
+## Files with remote browsers
 
-- Navigation and tabs: `navigate`, `new_tab`, `list_tabs`, `switch_tab`, `close_tab`
-- Page state: `screenshot`, `zoom`, `read_page`, `find`, `get_page_text`, `wait`
-- Pointer: `left_click`, `right_click`, `middle_click`, `double_click`,
-  `triple_click`, `hover`, `mouse_move`, `left_mouse_down`, `left_mouse_up`,
-  `left_click_drag`, `scroll`, `scroll_to`
-- Input: `type`, `key`, `hold_key`, `form_input`, `file_upload`
-- Diagnostics: `read_console`, `read_network`, `javascript_exec`
+`file_upload` works when the resolved file path exists on the browser host.
+For a remote browser, provide a `document_resolver` that maps an approved
+document ID to a browser-host path:
 
-`file_upload` is disabled by default. Enable it only when upload paths are
-already present on the browser host, or provide a `document_resolver` that maps
-approved document IDs to browser-host paths. The adapter does not copy files
-between the SDK host and a remote browser host.
+```python
+driver = BrowserUse(
+    session,
+    document_resolver=lambda document_id: remote_paths[document_id],
+    configs={'file_upload': {'enabled': True}},
+    confirm=confirm,
+)
+```
 
-`javascript_exec`, `read_console`, and `read_network` follow the Anthropic SDK's
-tool configuration and confirmation policies. Enable only the members your
-application needs, and pass the SDK's required `confirm` callback when enabling
-members that can execute page code or expose diagnostic data.
+`Bash` runs beside the SDK process, so files it creates are local to that
+process. The adapter does not transfer files between the SDK host and a remote
+browser host.
 
-## Bash behavior
+## Integration contract
 
-`Bash(output_dir="outputs")` starts `/bin/bash` in the configured directory,
-removes ambient credentials from the child environment, caps returned output,
-enforces a timeout, and kills the entire process group on timeout. Configure
-those bounds with `timeout_seconds` and `max_output_bytes`.
+The public integration contains Browser Use code only. It expects Anthropic's
+SDK to provide:
 
-The working directory is not an operating-system sandbox. Bash still has the
-permissions of the SDK process. Run the SDK process in your normal container or
-sandbox when tasks may contain untrusted instructions.
-
-## Anthropic SDK contract
-
-Browser Use requires an Anthropic SDK release that publicly exports:
-
-- `anthropic.tools.browser.BetaAsyncAbstractBrowserToolset20260801` and its
-  result, state, error, policy, and input types
+- `BetaAsyncAbstractBrowserToolset20260801` and the browser action types
 - `client.beta.messages.tool_runner(...)`
-- mixed toolset and custom-tool execution, as used by `tools=[browser, bash]`
+- mixed browser-toolset and custom-tool execution through
+  `tools=[driver, bash]`
+- browser state serialization and the required browser-tool beta header
 
-The SDK must also send the browser-tool beta header, serialize `browser_state`
-for every member result, and preserve tool-result and compaction blocks across
-long runs. Image size limits, context compaction, and cache reporting belong at
-the SDK or API boundary because the adapter only returns individual screenshots.
+Browser Use accepts any compatible Anthropic 1.x release. The final launch SDK
+version should follow Anthropic's release notes.

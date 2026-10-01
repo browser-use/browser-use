@@ -13,9 +13,10 @@ import json
 import re
 import time
 from collections import defaultdict, deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import urlsplit
 
 from cdp_use import CDPClient
