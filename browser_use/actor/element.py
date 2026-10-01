@@ -419,11 +419,17 @@ class Element:
 			raise RuntimeError('Element is not visible or has no bounding box')
 
 		layout_metrics = await self._client.send.Page.getLayoutMetrics(session_id=self._session_id)
-		viewport = layout_metrics['layoutViewport']
-		visible_left = max(0, box['x'])
-		visible_top = max(0, box['y'])
-		visible_right = min(viewport['clientWidth'], box['x'] + box['width'])
-		visible_bottom = min(viewport['clientHeight'], box['y'] + box['height'])
+		viewport = (
+			layout_metrics.get('cssVisualViewport') or layout_metrics.get('cssLayoutViewport') or layout_metrics['layoutViewport']
+		)
+		viewport_left = viewport.get('offsetX', 0)
+		viewport_top = viewport.get('offsetY', 0)
+		viewport_right = viewport_left + viewport['clientWidth']
+		viewport_bottom = viewport_top + viewport['clientHeight']
+		visible_left = max(viewport_left, box['x'])
+		visible_top = max(viewport_top, box['y'])
+		visible_right = min(viewport_right, box['x'] + box['width'])
+		visible_bottom = min(viewport_bottom, box['y'] + box['height'])
 		if visible_left >= visible_right or visible_top >= visible_bottom:
 			raise RuntimeError('Element is outside the viewport')
 
