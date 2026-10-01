@@ -88,6 +88,7 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		self._ref_names: dict[Reference, str] = {}
 		self._next_ref = 1
 		self._documents: dict[str, str] = {}
+		self._next_document = 1
 		self._reported_tabs: set[str] = set()
 		self._last_tabs: list[dict] = []
 		self._observer: CDPClient | None = None
@@ -160,7 +161,8 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 			active = self.browser.agent_focus_target_id
 			if targets and active not in {t.target_id for t in targets}:
 				active = targets[0].target_id
-			self._last_tabs = [
+			previous_urls = {tab['tab_id']: tab['url'] for tab in self._last_tabs}
+			tabs = [
 				dict(
 					tab_id=t.target_id,
 					url=t.url,
@@ -169,6 +171,11 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 				)
 				for t in targets
 			]
+			for tab in tabs:
+				previous = previous_urls.get(tab['tab_id'])
+				if previous is not None and previous != tab['url']:
+					self._invalidate_refs(tab['tab_id'])
+			self._last_tabs = tabs
 		except Exception:
 			pass  # State reporting must still work after a CDP action fails.
 		return self._last_tabs.copy()
@@ -412,24 +419,16 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		self._documents.pop(tab, None)
 
 	async def _document(self, page):
-		# Backend node IDs for the document root can differ across attached CDP
-		# sessions even when the page has not navigated. Cloud browsers may rotate
-		# those sessions between calls, so use the main frame and loader as the
-		# stable document identity. The loader changes on navigation; detached
-		# elements inside one document are still rejected by _resolve.
+		# Prime DOM.resolveNode for this attached session. Do not derive document
+		# identity from CDP node, frame, loader, or session IDs: Cloud transports
+		# may remap each of those between calls while the page is unchanged.
 		session_id = await page.session_id
-		result, _ = await asyncio.gather(
-			self._cdp.send.Page.getFrameTree(session_id=session_id),
-			# Prime the DOM domain for resolveNode on a newly attached session.
-			self._cdp.send.DOM.getDocument(params={'depth': 0}, session_id=session_id),
-		)
-		frame = result['frameTree']['frame']
-		document = f'{frame["id"]}:{frame.get("loaderId", "")}'
+		await self._cdp.send.DOM.getDocument(params={'depth': 0}, session_id=session_id)
 		tab = page._target_id
-		if self._documents.get(tab) != document:
-			self._invalidate_refs(tab)
-			self._documents[tab] = document
-		return document
+		if tab not in self._documents:
+			self._documents[tab] = f'{tab}:{self._next_document}'
+			self._next_document += 1
+		return self._documents[tab]
 
 	def _reference(self, page, document: str, backend: int):
 		reference = Reference(page._target_id, document, backend)

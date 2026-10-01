@@ -125,14 +125,7 @@ async def test_reference_document_identity_survives_cdp_session_rotation() -> No
 
 	class FakeCDP:
 		def __init__(self):
-			self.loader_id = 'loader-a'
-			self.send = SimpleNamespace(
-				Page=SimpleNamespace(getFrameTree=self.get_frame_tree),
-				DOM=SimpleNamespace(getDocument=self.get_document),
-			)
-
-		async def get_frame_tree(self, **kwargs):
-			return {'frameTree': {'frame': {'id': 'frame-a', 'loaderId': self.loader_id}}}
+			self.send = SimpleNamespace(DOM=SimpleNamespace(getDocument=self.get_document))
 
 		async def get_document(self, **kwargs):
 			return {'root': {'backendNodeId': 999}}
@@ -154,7 +147,7 @@ async def test_reference_document_identity_survives_cdp_session_rotation() -> No
 	assert await driver._document(page) == document
 	assert ref in driver._refs
 
-	driver.browser.cdp_client.loader_id = 'loader-b'
+	driver._invalidate_refs('tab-a')
 	assert await driver._document(page) != document
 	assert ref not in driver._refs
 
