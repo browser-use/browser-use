@@ -336,6 +336,7 @@ class Registry(Generic[Context]):
 		page_extraction_llm: BaseChatModel | None = None,
 		file_system: FileSystem | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		value_bindings: dict[str, str] | None = None,
 		available_file_paths: list[str] | None = None,
 		extraction_schema: dict | None = None,
 	) -> Any:
@@ -362,8 +363,11 @@ class Registry(Generic[Context]):
 							current_url = target.url
 					except Exception:
 						pass
+
 				validated_params = self._replace_sensitive_data(validated_params, sensitive_data, current_url)
 
+			if value_bindings:
+				validated_params = self._replace_value_bindings(validated_params, value_bindings)
 			# Build special context dict
 			special_context = {
 				'browser_session': browser_session,
@@ -514,6 +518,48 @@ class Registry(Generic[Context]):
 			logger.warning(f'Missing or empty keys in sensitive_data dictionary: {", ".join(all_missing_placeholders)}')
 
 		return type(params).model_validate(processed_params)
+
+	def _replace_value_bindings(
+		self,
+		params: BaseModel,
+		value_bindings: dict[str, str],
+	) -> BaseModel:
+		"""
+		Replace non-secret value binding placeholders with their exact values.
+
+		Value bindings are intentionally separate from sensitive data. They do not
+		use domain restrictions or secret-specific handling.
+		"""
+		if not value_bindings:
+			return params
+
+		def recursively_replace_values(value: str | dict | list | tuple) -> str | dict | list | tuple:
+			if isinstance(value, str):
+				for alias, replacement in value_bindings.items():
+					value = value.replace(f'<value>{alias}</value>', replacement)
+				return value
+
+			if isinstance(value, dict):
+				return {
+					key: recursively_replace_values(item) if isinstance(item, (str, dict, list, tuple)) else item
+					for key, item in value.items()
+				}
+
+			if isinstance(value, list):
+				return [
+					recursively_replace_values(item) if isinstance(item, (str, dict, list, tuple)) else item for item in value
+				]
+
+			if isinstance(value, tuple):
+				return tuple(
+					recursively_replace_values(item) if isinstance(item, (str, dict, list, tuple)) else item for item in value
+				)
+
+			return value
+
+		updated_data = recursively_replace_values(params.model_dump())
+
+		return params.__class__.model_validate(updated_data)
 
 	# @time_execution_sync('--create_action_model')
 	def create_action_model(self, include_actions: list[str] | None = None, page_url: str | None = None) -> type[ActionModel]:
