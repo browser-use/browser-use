@@ -8,6 +8,7 @@ We officially support the following LLMs:
 - Groq
 - Ollama
 - DeepSeek
+- OrcaRouter
 
 - Mistral
 
@@ -16,6 +17,17 @@ We officially support the following LLMs:
 Use `ChatMistral` with `MISTRAL_API_KEY` (and optional `MISTRAL_BASE_URL`). Structured outputs automatically strip unsupported JSON schema keywords (`minLength`, `maxLength`, `pattern`, `format`), and generation uses `max_tokens` plus the optional `safe_prompt` flag.
 
 - Cerebras
+
+## OrcaRouter authentication
+
+OrcaRouter supports an existing API key and account login. Set `ORCAROUTER_API_KEY`, pass `api_key` to `ChatOrcaRouter`, or run:
+
+```bash
+browser-use orcarouter login
+browser-use orcarouter status
+```
+
+PKCE login stores the resulting durable API key in Browser Use's existing local LLM configuration. Run `browser-use orcarouter logout` to remove only that stored PKCE credential. An explicit `api_key` takes priority over the environment variable, which takes priority over the PKCE credential.
 
 
 ## Migrating from LangChain

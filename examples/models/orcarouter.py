@@ -1,7 +1,9 @@
 """
 Simple try of the agent with OrcaRouter.
 
-@dev You need to add ORCAROUTER_API_KEY to your environment variables.
+Authenticate first with either `browser-use orcarouter login` (PKCE) or the
+ORCAROUTER_API_KEY environment variable. An explicitly passed `api_key` takes
+priority over both.
 """
 
 import asyncio

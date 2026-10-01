@@ -44,6 +44,7 @@ dependencies = [
     "pyotp==2.9.0",
     "pillow==12.3.0",
     "cloudpickle==3.1.2",
+    "filelock==3.32.5",
     "markdownify==1.2.2",
     "python-docx==1.2.0",
     "browser-use-sdk==3.4.2",

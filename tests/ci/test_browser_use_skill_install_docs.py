@@ -4,6 +4,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+from browser_use.skills.browser_use import as_browser_use_skill
+
 ROOT = Path(__file__).resolve().parents[2]
 BROWSER_USE_REPO_SKILL_URL = 'https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md'
 EXPECTED_SKILL_INSTALL_PATHS = (
@@ -155,6 +159,45 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 	)
 	for installed in (home / path for path in EXPECTED_SKILL_INSTALL_PATHS):
 		assert installed.read_text(encoding='utf-8') == expected
+
+
+def test_browser_use_skill_allows_an_explicitly_requested_visible_tab_switch():
+	source = (
+		'---\nname: browser-harness\n---\n\n# Browser Harness\n\n'
+		'Call `activate_tab(target)` only when the user explicitly asks to see or visibly switch to that tab. '
+		'Do not pair `switch_tab()` with `activate_tab()`.\n'
+	)
+
+	converted = as_browser_use_skill(source)
+
+	assert (
+		'Never add `activate_tab()` after `switch_tab()` unless the user explicitly asked to see or visibly switch to the tab.'
+		in converted
+	)
+	assert 'Do not pair `switch_tab()` with `activate_tab()`.' not in converted
+
+
+def test_browser_use_skill_accepts_pinned_browser_harness_activation_policy():
+	source = (
+		'---\nname: browser-harness\n---\n\n# Browser Harness\n\n'
+		"`new_tab()` and `switch_tab()` attach without changing Chrome's visible tab. "
+		'Call `activate_tab(target)` only when the user explicitly asks or a page pauses while hidden.\n'
+	)
+
+	converted = as_browser_use_skill(source)
+
+	assert 'Call `activate_tab(target)` only when the user explicitly asks or a page pauses while hidden.' in converted
+
+
+def test_browser_use_skill_rejects_unreviewed_activate_tab_guidance_drift():
+	source = (
+		'---\nname: browser-harness\n---\n\n# Browser Harness\n\n'
+		'Never call `activate_tab(target)` automatically: it brings Chrome to the foreground. '
+		'Call it only when foreground interaction is useful. Avoid pairing `switch_tab()` with `activate_tab()`.\n'
+	)
+
+	with pytest.raises(ValueError, match='activate_tab guidance changed'):
+		as_browser_use_skill(source)
 
 
 def test_browser_use_cli_validates_destination_before_installing_harness(tmp_path):
