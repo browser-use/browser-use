@@ -571,6 +571,31 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 	# ========== Implementation Methods ==========
 
+	async def _is_element_disabled(self, backend_node_id: int, cdp_session) -> bool:
+		"""Whether the element is a currently disabled form control (:disabled, including via a disabled fieldset).
+
+		aria-disabled is deliberately not included: the browser still delivers clicks to such elements.
+		"""
+		try:
+			resolved = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': backend_node_id}, session_id=cdp_session.session_id
+			)
+			object_id = resolved.get('object', {}).get('objectId')
+			if not object_id:
+				return False
+			result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': "function() { return this.matches(':disabled'); }",
+					'objectId': object_id,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+			return result.get('result', {}).get('value') is True
+		except Exception as e:
+			self.logger.debug(f'Could not read disabled state, assuming enabled: {e}')
+			return False
+
 	async def _check_element_occlusion(self, backend_node_id: int, x: float, y: float, cdp_session) -> bool:
 		"""Check if an element is occluded by other elements at the given coordinates.
 
@@ -732,6 +757,15 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Get element bounds
 			backend_node_id = element_node.backend_node_id
+
+			# The browser never dispatches clicks to a disabled form control, so report it instead of claiming success.
+			# Read the live state: the control may have been enabled after the DOM snapshot was taken.
+			if backend_node_id and await self._is_element_disabled(backend_node_id, cdp_session):
+				msg = (
+					f'Cannot click element (index={selector_index}): it is disabled. '
+					'Complete whatever enables it first (for example required fields or checkboxes).'
+				)
+				return {'validation_error': msg}
 
 			# For checkbox/radio: capture pre-click state to verify toggle worked
 			is_toggle_element = tag_name == 'input' and element_type in ('checkbox', 'radio')
