@@ -13,6 +13,7 @@ import pytest
 from pytest_httpserver import HTTPServer
 
 from browser_use.browser import BrowserSession
+from browser_use.browser.events import ClickCoordinateEvent
 from browser_use.browser.profile import BrowserProfile
 from browser_use.tools.service import Tools
 
@@ -99,3 +100,33 @@ async def test_control_enabled_after_snapshot_is_clicked(browser_session, http_s
 
 	assert result.error is None
 	assert await _clicked(browser_session)
+
+
+async def _center(session: BrowserSession, element_id: str) -> tuple[int, int]:
+	cdp_session = await session.get_or_create_cdp_session()
+	result = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={
+			'expression': f"(() => {{ const r = document.getElementById('{element_id}').getBoundingClientRect();"
+			' return [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)]; })()',
+			'returnByValue': True,
+		},
+		session_id=cdp_session.session_id,
+	)
+	value = result.get('result', {}).get('value') or [0, 0]
+	return int(value[0]), int(value[1])
+
+
+@pytest.mark.parametrize(('path', 'clickable'), [('/disabled', False), ('/enabled', True)])
+async def test_coordinate_click_on_disabled_control(browser_session, http_server, path, clickable):
+	"""The coordinate path runs the same check among its safety checks (skipped when force=True, like the others)."""
+	tools = Tools()
+	await _open(browser_session, tools, http_server.url_for(path))
+	x, y = await _center(browser_session, 'target')
+
+	event = browser_session.event_bus.dispatch(ClickCoordinateEvent(coordinate_x=x, coordinate_y=y, force=False))
+	await event
+	click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+
+	is_error = isinstance(click_metadata, dict) and 'disabled' in click_metadata.get('validation_error', '')
+	assert is_error is not clickable
+	assert await _clicked(browser_session) is clickable
