@@ -23,6 +23,7 @@ PAGES = {
 	'/disabled': '<button id="target" disabled>Place order</button>' + LISTENER,
 	'/aria-disabled': '<div id="target" role="button" tabindex="0" aria-disabled="true">Place order</div>' + LISTENER,
 	'/fieldset': '<fieldset disabled><button id="target" type="button">Place order</button></fieldset>' + LISTENER,
+	'/disabled-print': '<button id="target" disabled onclick="window.print()">Print</button>' + LISTENER,
 	'/enabled': '<button id="target">Place order</button>' + LISTENER,
 	'/enabled-later': (
 		'<input id="name"><button id="target" disabled>Place order</button>'
@@ -66,7 +67,7 @@ async def _clicked(session: BrowserSession) -> bool:
 	return result.get('result', {}).get('value') is True
 
 
-@pytest.mark.parametrize('path', ['/disabled', '/fieldset'])
+@pytest.mark.parametrize('path', ['/disabled', '/fieldset', '/disabled-print'])
 async def test_click_on_disabled_control_reports_error(browser_session, http_server, path):
 	tools = Tools()
 	indexes = await _open(browser_session, tools, http_server.url_for(path))
@@ -112,7 +113,9 @@ async def _center(session: BrowserSession, element_id: str) -> tuple[int, int]:
 		},
 		session_id=cdp_session.session_id,
 	)
-	value = result.get('result', {}).get('value') or [0, 0]
+	value = result.get('result', {}).get('value')
+	if not value or len(value) < 2:
+		raise AssertionError(f'Could not read center of #{element_id}: {result.get("exceptionDetails")}')
 	return int(value[0]), int(value[1])
 
 
