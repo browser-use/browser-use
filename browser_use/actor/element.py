@@ -418,8 +418,17 @@ class Element:
 		if not box:
 			raise RuntimeError('Element is not visible or has no bounding box')
 
-		x = box['x'] + box['width'] / 2
-		y = box['y'] + box['height'] / 2
+		layout_metrics = await self._client.send.Page.getLayoutMetrics(session_id=self._session_id)
+		viewport = layout_metrics['layoutViewport']
+		visible_left = max(0, box['x'])
+		visible_top = max(0, box['y'])
+		visible_right = min(viewport['clientWidth'], box['x'] + box['width'])
+		visible_bottom = min(viewport['clientHeight'], box['y'] + box['height'])
+		if visible_left >= visible_right or visible_top >= visible_bottom:
+			raise RuntimeError('Element is outside the viewport')
+
+		x = (visible_left + visible_right) / 2
+		y = (visible_top + visible_bottom) / 2
 
 		params: 'DispatchMouseEventParameters' = {'type': 'mouseMoved', 'x': x, 'y': y}
 		await self._client.send.Input.dispatchMouseEvent(params, session_id=self._session_id)
