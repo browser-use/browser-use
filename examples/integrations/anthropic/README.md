@@ -101,6 +101,8 @@ Set `BROWSER_USE_API_KEY`, then change one line:
 driver = BrowserUse(use_cloud=True)
 ```
 
+Create a key at
+[cloud.browser-use.com/new-api-key](https://cloud.browser-use.com/new-api-key).
 The driver creates a Browser Use Cloud browser, connects to it over CDP, and
 stops it when the context exits.
 
@@ -166,24 +168,33 @@ The working directory is a boundary for generated files, not an operating
 system sandbox. Run the SDK process inside your normal container or sandbox
 when tasks may contain untrusted instructions.
 
-## Approvals and high-risk actions
+## Optional actions and approvals
 
-Anthropic's SDK calls `confirm` for actions that require approval. Keep
-`javascript_exec` and `file_upload` disabled unless your application needs
-them:
+Anthropic leaves `javascript_exec`, `file_upload`, `read_console`, and
+`read_network` disabled by default. Enabling JavaScript or file upload
+requires a `confirm` callback. When a callback is present, the SDK calls it
+before every browser action, so approve routine actions in code and prompt a
+person only for the actions your application treats as sensitive:
 
 ```python
 async def confirm(context):
-    return await app.approve(
-        action=context.member,
-        tab_id=context.tab_id,
+	if context.member not in {'javascript_exec', 'file_upload'}:
+		return True
+	return await app.approve(
+		action=context.member,
+		tab_id=context.tab_id,
         tab_url=context.tab_url,
     )
 
 
 driver = BrowserUse(
-    confirm=confirm,
-    configs={'javascript_exec': {'enabled': True}},
+	confirm=confirm,
+	configs={
+		'javascript_exec': {'enabled': True},
+		'file_upload': {'enabled': True},
+		'read_console': {'enabled': True},
+		'read_network': {'enabled': True},
+	},
 )
 ```
 

@@ -45,7 +45,7 @@ from .tab_state import PinnedTabSnapshot, consume_pinned_tabs, converged_active_
 @dataclass(frozen=True)
 class Reference:
 	tab: str
-	document: int
+	document: str
 	backend: int
 
 
@@ -87,7 +87,7 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		self._refs: dict[str, Reference] = {}
 		self._ref_names: dict[Reference, str] = {}
 		self._next_ref = 1
-		self._documents: dict[str, int] = {}
+		self._documents: dict[str, str] = {}
 		self._reported_tabs: set[str] = set()
 		self._last_tabs: list[dict] = []
 		self._observer: CDPClient | None = None
@@ -412,15 +412,26 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		self._documents.pop(tab, None)
 
 	async def _document(self, page):
-		result = await self._cdp.send.DOM.getDocument(params={'depth': 0}, session_id=await page.session_id)
-		document = result['root']['backendNodeId']
+		# Backend node IDs for the document root can differ across attached CDP
+		# sessions even when the page has not navigated. Cloud browsers may rotate
+		# those sessions between calls, so use the main frame and loader as the
+		# stable document identity. The loader changes on navigation; detached
+		# elements inside one document are still rejected by _resolve.
+		session_id = await page.session_id
+		result, _ = await asyncio.gather(
+			self._cdp.send.Page.getFrameTree(session_id=session_id),
+			# Prime the DOM domain for resolveNode on a newly attached session.
+			self._cdp.send.DOM.getDocument(params={'depth': 0}, session_id=session_id),
+		)
+		frame = result['frameTree']['frame']
+		document = f'{frame["id"]}:{frame.get("loaderId", "")}'
 		tab = page._target_id
 		if self._documents.get(tab) != document:
 			self._invalidate_refs(tab)
 			self._documents[tab] = document
 		return document
 
-	def _reference(self, page, document, backend):
+	def _reference(self, page, document: str, backend: int):
 		reference = Reference(page._target_id, document, backend)
 		if reference not in self._ref_names:
 			name = f'ref_{self._next_ref}'

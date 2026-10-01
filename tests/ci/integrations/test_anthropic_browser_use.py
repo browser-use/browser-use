@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -116,6 +117,46 @@ def test_browser_use_rejects_a_borrowed_browser_with_cloud_selection() -> None:
 
 	with pytest.raises(ValueError, match='either a BrowserSession or use_cloud=True'):
 		BrowserUse(BrowserSession(), use_cloud=True)
+
+
+async def test_reference_document_identity_survives_cdp_session_rotation() -> None:
+	pytest.importorskip('anthropic.tools.browser')
+	from browser_use.integrations.anthropic import BrowserUse
+
+	class FakeCDP:
+		def __init__(self):
+			self.loader_id = 'loader-a'
+			self.send = SimpleNamespace(
+				Page=SimpleNamespace(getFrameTree=self.get_frame_tree),
+				DOM=SimpleNamespace(getDocument=self.get_document),
+			)
+
+		async def get_frame_tree(self, **kwargs):
+			return {'frameTree': {'frame': {'id': 'frame-a', 'loaderId': self.loader_id}}}
+
+		async def get_document(self, **kwargs):
+			return {'root': {'backendNodeId': 999}}
+
+	class FakePage:
+		_target_id = 'tab-a'
+
+		@property
+		async def session_id(self):
+			return 'rotating-session'
+
+	driver = BrowserUse()
+	driver.browser = SimpleNamespace(cdp_client=FakeCDP())
+	page = FakePage()
+	document = await driver._document(page)
+	ref = driver._reference(page, document, 42)
+	assert ref in driver._refs
+
+	assert await driver._document(page) == document
+	assert ref in driver._refs
+
+	driver.browser.cdp_client.loader_id = 'loader-b'
+	assert await driver._document(page) != document
+	assert ref not in driver._refs
 
 
 def _tabs(active: str) -> list[dict]:
