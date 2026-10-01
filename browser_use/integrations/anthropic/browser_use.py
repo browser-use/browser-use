@@ -88,6 +88,7 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		self._ref_names: dict[Reference, str] = {}
 		self._next_ref = 1
 		self._documents: dict[str, str] = {}
+		self._next_document = 1
 		self._reported_tabs: set[str] = set()
 		self._last_tabs: list[dict] = []
 		self._observer: CDPClient | None = None
@@ -413,21 +414,19 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		self._documents.pop(tab, None)
 
 	async def _document(self, page):
-		# Prime DOM.resolveNode for this attached session. Cloud transports may
-		# remap CDP document, frame, loader, and session IDs between calls while the
-		# page is unchanged. The navigation time origin belongs to the document,
-		# stays stable across execution contexts, and changes on a real navigation.
+		# Prime DOM.resolveNode for this attached session. Do not derive identity
+		# from CDP session, frame, loader, JavaScript-global, or timing values:
+		# Cloud transports can remap all of them between calls on one document.
+		# Driver navigation explicitly invalidates this generation. Page-driven
+		# navigation is caught when DOM.resolveNode or isConnected rejects the old
+		# backend node in _resolve.
 		session_id = await page.session_id
 		await self._cdp.send.DOM.getDocument(params={'depth': 0}, session_id=session_id)
 		tab = page._target_id
-		time_origin = await self._eval(page, 'performance.timeOrigin')
-		if not isinstance(time_origin, (int, float)):
-			raise ToolError('Unable to identify the current browser document.')
-		document = f'{tab}:{time_origin}'
-		if self._documents.get(tab) != document:
-			self._invalidate_refs(tab)
-			self._documents[tab] = document
-		return document
+		if tab not in self._documents:
+			self._documents[tab] = f'{tab}:{self._next_document}'
+			self._next_document += 1
+		return self._documents[tab]
 
 	def _reference(self, page, document: str, backend: int):
 		reference = Reference(page._target_id, document, backend)
