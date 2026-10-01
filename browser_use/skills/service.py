@@ -212,7 +212,8 @@ class SkillService:
 		# Extract cookie parameters from the skill
 		cookie_params = [p for p in skill.parameters if enum_value(p.type) == 'cookie']
 
-		# Map each cookie param to the browser cookie with that name, scoped to the param's domain if it has one
+		# Map each cookie param to the browser cookie with that name, scoped to the param's domain if it has one.
+		# If several cookies match, the last one wins, as it did when cookies were keyed by name only.
 		cookie_dict: dict[str, str] = {}
 		for cookie_param in cookie_params:
 			for cookie in cookies:
@@ -220,7 +221,6 @@ class SkillService:
 					cookie.get('domain'), cookie_param.cookie_domain
 				):
 					cookie_dict[cookie_param.name] = cookie['value']
-					break
 
 		# Check for missing required cookies and fill cookie values
 		if cookie_params:

@@ -40,6 +40,7 @@ PARAMETERS = [
 	{'name': 'tags', 'type': 'array', 'required': False},
 	{'name': 'filters', 'type': 'object', 'required': False},
 	{'name': 'session', 'type': 'cookie', 'required': True, 'cookieDomain': 'shop.test'},
+	{'name': 'locale', 'type': 'cookie', 'required': False},
 ]
 
 
@@ -112,3 +113,17 @@ async def test_cookie_from_other_domain_is_not_used(skill_service: SkillService,
 			FINISHED_SKILL_ID, {'query': 'shoes', 'limit': 5}, [_cookie('bank.test', 'bank-session')]
 		)
 	assert executed_bodies == []
+
+
+async def test_cookie_param_without_domain_uses_last_matching_cookie(
+	skill_service: SkillService, executed_bodies: list[dict[str, Any]]
+):
+	cookies = [
+		_cookie('shop.test', 'shop-session'),
+		_cookie('a.test', 'en', name='locale'),
+		_cookie('b.test', 'fr', name='locale'),
+	]
+
+	await skill_service.execute_skill(FINISHED_SKILL_ID, {'query': 'shoes', 'limit': 5}, cookies)
+
+	assert executed_bodies[0]['parameters']['locale'] == 'fr'
