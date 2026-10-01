@@ -139,6 +139,12 @@ async def test_reference_document_identity_survives_cdp_session_rotation() -> No
 
 	driver = BrowserUse()
 	driver.browser = SimpleNamespace(cdp_client=FakeCDP())
+	current_document = 'document-a'
+
+	async def fake_eval(page, expression):
+		return current_document
+
+	driver._eval = fake_eval
 	page = FakePage()
 	document = await driver._document(page)
 	ref = driver._reference(page, document, 42)
@@ -147,7 +153,7 @@ async def test_reference_document_identity_survives_cdp_session_rotation() -> No
 	assert await driver._document(page) == document
 	assert ref in driver._refs
 
-	driver._invalidate_refs('tab-a')
+	current_document = 'document-b'
 	assert await driver._document(page) != document
 	assert ref not in driver._refs
 
