@@ -57,6 +57,8 @@ from browser_use.integrations.anthropic import Bash, BrowserUse
 async def main() -> None:
     task = 'Open example.com and save its page title to title.txt.'
     driver = BrowserUse()
+    # To use a managed remote browser instead, set BROWSER_USE_API_KEY and use:
+    # driver = BrowserUse(use_cloud=True)
     bash = Bash(output_dir=Path('outputs'))
 
     async with driver, AsyncAnthropic() as client:
@@ -85,6 +87,18 @@ Run it:
 ```bash
 uv run run_browser.py
 ```
+
+### What the run looks like
+
+<img
+  src="./quickstart-cloud.png"
+  alt="A real Browser Use Cloud quickstart capture. The terminal shows five successful Anthropic API responses, the saved Example Domain title, and confirmed Cloud cleanup. Beside it, the remote browser shows the final example.com page."
+  width="100%"
+>
+
+This capture comes from the same quickstart shape above running against a real
+Browser Use Cloud browser. The model loop completed, wrote `title.txt`, captured
+the remote browser, and stopped the owned Cloud session when the context exited.
 
 The application owns the driver lifecycle. The `async with driver` block
 starts the browser and always closes it when the run ends.
@@ -178,23 +192,23 @@ person only for the actions your application treats as sensitive:
 
 ```python
 async def confirm(context):
-	if context.member not in {'javascript_exec', 'file_upload'}:
-		return True
-	return await app.approve(
-		action=context.member,
-		tab_id=context.tab_id,
+    if context.member not in {'javascript_exec', 'file_upload'}:
+        return True
+    return await app.approve(
+        action=context.member,
+        tab_id=context.tab_id,
         tab_url=context.tab_url,
     )
 
 
 driver = BrowserUse(
-	confirm=confirm,
-	configs={
-		'javascript_exec': {'enabled': True},
-		'file_upload': {'enabled': True},
-		'read_console': {'enabled': True},
-		'read_network': {'enabled': True},
-	},
+    confirm=confirm,
+    configs={
+        'javascript_exec': {'enabled': True},
+        'file_upload': {'enabled': True},
+        'read_console': {'enabled': True},
+        'read_network': {'enabled': True},
+    },
 )
 ```
 
@@ -218,7 +232,10 @@ driver = BrowserUse(
 
 `Bash` runs beside the SDK process, so files it creates are local to that
 process. The adapter does not transfer files between the SDK host and a remote
-browser host.
+browser host. Browser-side downloads are reported by filename but stay on the
+browser host unless your application explicitly transfers them. In the same
+way, a path created by `Bash` cannot be uploaded into Browser Use Cloud until
+your application stages that file on the browser host.
 
 ## Integration contract
 

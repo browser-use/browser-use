@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -74,7 +75,7 @@ def test_missing_browser_toolset_sdk_has_an_actionable_error() -> None:
 	if sdk_available:
 		pytest.skip('The installed Anthropic SDK already includes browser tools.')
 	env = os.environ.copy()
-	env['PYTHONPATH'] = str(ROOT)
+	env['PYTHONPATH'] = os.pathsep.join(filter(None, (str(ROOT), env.get('PYTHONPATH'))))
 	result = subprocess.run(
 		[
 			sys.executable,
@@ -138,7 +139,7 @@ async def test_reference_document_identity_survives_cdp_session_rotation() -> No
 			return 'rotating-session'
 
 	driver = BrowserUse()
-	driver.browser = SimpleNamespace(cdp_client=FakeCDP())
+	driver.browser = cast(Any, SimpleNamespace(cdp_client=FakeCDP()))
 	page = FakePage()
 	document = await driver._document(page)
 	ref = driver._reference(page, document, 42)
