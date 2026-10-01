@@ -1,141 +1,119 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" width="100%" role="img" aria-labelledby="title desc" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
-<title id="title">Browser Use and Anthropic: tool_runner drives one browser runtime through the Browser Use driver</title>
-<desc id="desc">Architecture diagram. Inside your application process, a user task enters the Anthropic Python SDK tool_runner. The runner sends browser tool calls to the Browser Use driver, which implements 31 browser actions, and receives page state back. The driver controls exactly one runtime, chosen from local Chromium, Browser Use Cloud, or an existing local or remote browser over CDP. A separate bounded Bash tool runs beside the SDK process for local computation and files under outputs/. Bash does not copy files to a remote browser host. Your application owns lifecycle: the driver closes a local or Cloud browser it launched, and the application closes a borrowed CDP session.</desc>
-<defs>
-<pattern id="g" width="24" height="24" patternUnits="userSpaceOnUse"><rect width="24" height="24" fill="#f5f8fb"/><path d="M24 0H0V24" fill="none" stroke="#e1e8f0" stroke-width="0.6"/></pattern>
-<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#13253d"/></marker>
-<marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#a8461f"/></marker>
-<marker id="l" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#13253d"/></marker>
-</defs>
-<rect width="1440" height="900" fill="url(#g)"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">A browser inside your agent loop</title>
+  <desc id="desc">Editorial systems illustration. A user task enters an agent loop formed by the Anthropic Python SDK tool_runner and the BrowserUse driver. The runner sends structured browser actions to the driver, which implements 31 structured browser actions and is not a code interpreter. Browser state and results return to the runner. The driver connects to one runtime: Local Chromium, Browser Use Cloud, or an existing CDP browser. Below, an optional Bash tool runs beside the SDK process and can write local files on the SDK host. Footnote: browsers launched by the driver close on exit, while an existing CDP browser is borrowed and not shut down by the driver.</desc>
+  <defs>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+      .kicker { font-size: 18px; font-weight: 600; letter-spacing: 3px; }
+      .cap { font-size: 18px; fill: #6E6A5C; }
+      .core { font-size: 24px; font-weight: 600; fill: #1E3B2C; }
+    </style>
+    <marker id="arrowForest" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="15" markerHeight="15" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1.5 L11 6 L1 10.5 Z" fill="#1E3B2C"/>
+    </marker>
+    <marker id="arrowClay" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="15" markerHeight="15" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1.5 L11 6 L1 10.5 Z" fill="#B95A38"/>
+    </marker>
+    <marker id="arrowSmall" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1.5 L11 6 L1 10.5 Z" fill="#1E3B2C"/>
+    </marker>
+  </defs>
 
-<text x="60" y="72" font-size="13" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" letter-spacing="2.5" fill="#4a5c73">BROWSER USE × ANTHROPIC · PYTHON SDK</text>
-<text x="60" y="114" font-size="36" font-weight="700" fill="#13253d">Claude drives a real browser through one driver</text>
-<text x="60" y="146" font-size="17" fill="#33465e">Calls flow right. Page state flows back. Exactly one runtime is attached. Your application owns lifecycle.</text>
+  <!-- Ground -->
+  <rect width="1440" height="900" fill="#F4EDE0"/>
 
-<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#13253d">
-<line x1="1150" y1="68" x2="1196" y2="68" stroke="#13253d" stroke-width="2.5" marker-end="url(#a)"/><text x="1208" y="72">tool call</text>
-<line x1="1150" y1="94" x2="1196" y2="94" stroke="#a8461f" stroke-width="2.5" stroke-dasharray="6 4" marker-end="url(#r)"/><text x="1208" y="98" fill="#8a3a18">state returned</text>
-<line x1="1150" y1="120" x2="1196" y2="120" stroke="#13253d" stroke-width="2" stroke-dasharray="3 4"/><text x="1208" y="124">process boundary</text>
-</g>
+  <!-- Masthead -->
+  <rect x="80" y="74" width="28" height="4" fill="#B95A38"/>
+  <text x="120" y="82" class="sans kicker" fill="#1E3B2C">BROWSER USE <tspan fill="#B95A38">+</tspan> ANTHROPIC</text>
+  <text x="1360" y="82" class="sans cap" text-anchor="end" font-style="italic">Fig. 1</text>
 
-<rect x="60" y="196" width="760" height="560" fill="#ffffff" fill-opacity="0.55" stroke="#13253d" stroke-width="1.5" stroke-dasharray="3 4"/>
-<rect x="72" y="186" width="318" height="22" fill="#f5f8fb"/>
-<text x="80" y="202" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" letter-spacing="1.5" fill="#13253d">YOUR APPLICATION PROCESS</text>
+  <text x="80" y="160" class="sans" font-size="60" font-weight="650" letter-spacing="-1.2" fill="#1E3B2C">A browser inside your agent loop</text>
+  <text x="80" y="204" class="sans" font-size="22" fill="#6E6A5C">Structured browser actions, driven from the SDK tool runner.</text>
 
-<g>
-<rect x="90" y="250" width="160" height="110" fill="#fff" stroke="#13253d" stroke-width="2"/>
-<text x="106" y="276" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" letter-spacing="1.5" fill="#4a5c73">01 INPUT</text>
-<text x="106" y="306" font-size="20" font-weight="700" fill="#13253d">User task</text>
-<text x="106" y="330" font-size="14" fill="#33465e">natural language</text>
-</g>
-<path d="M250 305 H294" stroke="#13253d" stroke-width="2.5" marker-end="url(#a)"/>
+  <!-- Soft plate behind the loop -->
+  <ellipse cx="660" cy="470" rx="272" ry="214" fill="#ECE2CF"/>
 
-<g>
-<rect x="300" y="230" width="220" height="150" fill="#fff" stroke="#13253d" stroke-width="2"/>
-<rect x="300" y="230" width="220" height="8" fill="#c96442"/>
-<text x="318" y="264" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" letter-spacing="1.5" fill="#8a3a18">02 ANTHROPIC SDK</text>
-<text x="318" y="298" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="700" fill="#13253d">tool_runner</text>
-<text x="318" y="326" font-size="14" fill="#33465e">Claude requests a tool,</text>
-<text x="318" y="346" font-size="14" fill="#33465e">reads the result, and</text>
-<text x="318" y="366" font-size="14" fill="#33465e">loops until done.</text>
-</g>
+  <!-- Task ribbon -->
+  <text x="80" y="420" class="sans kicker" fill="#B95A38">START</text>
+  <path d="M80 440 L380 440 L408 470 L380 500 L80 500 L100 470 Z" fill="#E0CFB2"/>
+  <text x="118" y="479" class="sans core">User task</text>
+  <text x="80" y="536" class="sans cap" font-style="italic">“Read the top three posts”</text>
 
-<path d="M520 282 H584" stroke="#13253d" stroke-width="2.5" marker-end="url(#a)"/>
-<text x="555" y="270" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="#13253d">call</text>
-<path d="M590 334 H526" stroke="#a8461f" stroke-width="2.5" stroke-dasharray="6 4" marker-end="url(#r)"/>
-<text x="555" y="358" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="#8a3a18">state</text>
+  <!-- Agent loop arcs -->
+  <path d="M512.3 375.6 A190 150 0 0 1 807.6 375.6" fill="none" stroke="#1E3B2C" stroke-width="3" stroke-linecap="round" marker-end="url(#arrowForest)"/>
+  <path d="M807.6 564.4 A190 150 0 0 1 512.3 564.4" fill="none" stroke="#B95A38" stroke-width="3" stroke-linecap="round" marker-end="url(#arrowClay)"/>
 
-<g>
-<rect x="590" y="210" width="210" height="190" fill="#13253d"/>
-<rect x="590" y="210" width="210" height="8" fill="#ECFF4D"/>
-<text x="608" y="244" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" letter-spacing="1.5" fill="#ECFF4D">03 BROWSER USE DRIVER</text>
-<text x="608" y="302" font-size="54" font-weight="800" fill="#ffffff">31</text>
-<text x="682" y="282" font-size="16" font-weight="700" fill="#ffffff">browser</text>
-<text x="682" y="302" font-size="16" font-weight="700" fill="#ffffff">actions</text>
-<g font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13" fill="#c9d6e4">
-<text x="608" y="340">navigate · click · type</text>
-<text x="608" y="360">scroll · extract · tabs</text>
-<text x="608" y="380" fill="#ECFF4D">one runtime attached</text>
-</g>
-</g>
+  <text x="660" y="298" class="sans" font-size="20" text-anchor="middle" fill="#1E3B2C">31 structured browser actions</text>
+  <text x="660" y="658" class="sans" font-size="20" text-anchor="middle" fill="#B95A38">browser state + results</text>
+  <text x="660" y="476" class="sans kicker" text-anchor="middle" fill="#1E3B2C" opacity="0.55" letter-spacing="4">AGENT LOOP</text>
 
-<path d="M380 380 V464" stroke="#13253d" stroke-width="2.5" marker-end="url(#a)"/>
-<path d="M440 470 V386" stroke="#a8461f" stroke-width="2.5" stroke-dasharray="6 4" marker-end="url(#r)"/>
-<text x="370" y="430" text-anchor="end" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="#13253d">bash</text>
-<text x="450" y="430" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="#8a3a18">result</text>
+  <!-- Runner node -->
+  <circle cx="470" cy="470" r="100" fill="#1E3B2C"/>
+  <text x="470" y="440" class="sans" font-size="18" text-anchor="middle" fill="#F4EDE0" opacity="0.8">Anthropic</text>
+  <text x="470" y="479" class="mono" font-size="26" font-weight="600" text-anchor="middle" fill="#F4EDE0">tool_runner</text>
+  <text x="470" y="512" class="sans" font-size="18" text-anchor="middle" fill="#F4EDE0" opacity="0.8">Python SDK</text>
 
-<g>
-<rect x="300" y="470" width="220" height="160" fill="#fff" stroke="#13253d" stroke-width="2"/>
-<text x="318" y="500" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" letter-spacing="1.5" fill="#4a5c73">04 BOUNDED BASH</text>
-<text x="318" y="528" font-size="15" fill="#13253d">Separate tool beside</text>
-<text x="318" y="548" font-size="15" fill="#13253d">the SDK process.</text>
-<text x="318" y="568" font-size="14" fill="#33465e">Local compute and files.</text>
-<rect x="318" y="584" width="100" height="28" fill="#13253d"/>
-<text x="368" y="603" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="14" fill="#ECFF4D">outputs/</text>
-</g>
+  <!-- Driver node -->
+  <circle cx="850" cy="470" r="100" fill="#B95A38"/>
+  <text x="850" y="472" class="mono" font-size="26" font-weight="600" text-anchor="middle" fill="#FBF6EC">BrowserUse</text>
+  <text x="850" y="504" class="sans" font-size="18" text-anchor="middle" fill="#FBF6EC" opacity="0.85">driver</text>
 
-<g>
-<rect x="560" y="470" width="240" height="160" fill="#fdf3ee" stroke="#a8461f" stroke-width="2" stroke-dasharray="6 4"/>
-<path d="M580 490 L596 506 M596 490 L580 506" stroke="#a8461f" stroke-width="3"/>
-<text x="606" y="504" font-size="13" font-weight="700" letter-spacing="1" fill="#8a3a18">HOST FILE BOUNDARY</text>
-<text x="580" y="534" font-size="14" fill="#13253d">Files in outputs/ stay on</text>
-<text x="580" y="554" font-size="14" fill="#13253d">the SDK host. Bash does</text>
-<text x="580" y="574" font-size="14" fill="#13253d">not copy files to a</text>
-<text x="580" y="594" font-size="14" fill="#13253d">remote browser host.</text>
-</g>
+  <!-- Runtime fan -->
+  <text x="1074" y="318" class="sans kicker" fill="#B95A38">ONE RUNTIME</text>
+  <path d="M937 420 C990 392 1010 370 1062 370" fill="none" stroke="#1E3B2C" stroke-width="2" marker-end="url(#arrowSmall)"/>
+  <path d="M952 470 L1062 470" fill="none" stroke="#1E3B2C" stroke-width="2" marker-end="url(#arrowSmall)"/>
+  <path d="M937 520 C990 548 1010 570 1062 570" fill="none" stroke="#1E3B2C" stroke-width="2" marker-end="url(#arrowSmall)"/>
 
-<text x="90" y="690" font-size="14" fill="#33465e">The runner, the driver, and Bash live in your process.</text>
-<text x="90" y="712" font-size="14" fill="#33465e">The browser runtime is attached on the right.</text>
+  <!-- Local Chromium -->
+  <g>
+    <rect x="1074" y="350" width="56" height="40" rx="5" fill="#FBF6EC" stroke="#1E3B2C" stroke-width="2"/>
+    <line x1="1074" y1="361" x2="1130" y2="361" stroke="#1E3B2C" stroke-width="2"/>
+    <circle cx="1082" cy="355.5" r="1.8" fill="#B95A38"/>
+    <circle cx="1088" cy="355.5" r="1.8" fill="#1E3B2C"/>
+    <circle cx="1094" cy="355.5" r="1.8" fill="#1E3B2C"/>
+    <text x="1150" y="378" class="sans core">Local Chromium</text>
+  </g>
+  <!-- Browser Use Cloud -->
+  <g>
+    <rect x="1074" y="450" width="56" height="40" rx="5" fill="#FBF6EC" stroke="#1E3B2C" stroke-width="2"/>
+    <line x1="1074" y1="461" x2="1130" y2="461" stroke="#1E3B2C" stroke-width="2"/>
+    <circle cx="1082" cy="455.5" r="1.8" fill="#B95A38"/>
+    <circle cx="1088" cy="455.5" r="1.8" fill="#1E3B2C"/>
+    <circle cx="1094" cy="455.5" r="1.8" fill="#1E3B2C"/>
+    <text x="1150" y="478" class="sans core">Browser Use Cloud</text>
+  </g>
+  <!-- Existing CDP (borrowed, dashed) -->
+  <g>
+    <rect x="1074" y="550" width="56" height="40" rx="5" fill="none" stroke="#1E3B2C" stroke-width="2" stroke-dasharray="5 4"/>
+    <line x1="1074" y1="561" x2="1130" y2="561" stroke="#1E3B2C" stroke-width="2" stroke-dasharray="5 4"/>
+    <circle cx="1082" cy="555.5" r="1.8" fill="#B95A38"/>
+    <circle cx="1088" cy="555.5" r="1.8" fill="#1E3B2C"/>
+    <circle cx="1094" cy="555.5" r="1.8" fill="#1E3B2C"/>
+    <text x="1150" y="578" class="sans core">Existing CDP</text>
+  </g>
 
-<path d="M800 305 H846" stroke="#13253d" stroke-width="3"/>
-<circle cx="850" cy="305" r="6" fill="#fff" stroke="#13253d" stroke-width="2.5"/>
-<path d="M855 301 L894 262" stroke="#13253d" stroke-width="3" marker-end="url(#l)"/>
-<path d="M856 307 C 872 315 878 376 896 376" stroke="#8b9bb0" stroke-width="2" stroke-dasharray="3 4" fill="none"/>
-<path d="M856 309 C 868 330 872 492 896 492" stroke="#8b9bb0" stroke-width="2" stroke-dasharray="3 4" fill="none"/>
-<text x="900" y="196" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13" font-weight="700" letter-spacing="1.5" fill="#13253d">05 RUNTIME · CHOOSE EXACTLY ONE</text>
+  <!-- Optional Bash branch -->
+  <path d="M470 574 L470 720" fill="none" stroke="#1E3B2C" stroke-width="2" stroke-linecap="round" stroke-dasharray="2 8" marker-end="url(#arrowSmall)"/>
+  <rect x="440" y="728" width="60" height="44" rx="6" fill="#FBF6EC" stroke="#1E3B2C" stroke-width="2"/>
+  <text x="470" y="757" class="mono" font-size="20" font-weight="600" text-anchor="middle" fill="#1E3B2C">&gt;_</text>
+  <text x="524" y="758" class="sans core" font-size="26">Bash</text>
+  <text x="600" y="757" class="sans kicker" fill="#B95A38" font-size="18">OPTIONAL</text>
+  <text x="524" y="788" class="sans cap">runs beside the SDK process</text>
 
-<g>
-<rect x="900" y="210" width="480" height="100" fill="#fff" stroke="#13253d" stroke-width="2.5"/>
-<rect x="900" y="210" width="10" height="100" fill="#ECFF4D" stroke="#13253d"/>
-<text x="930" y="244" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#13253d">A</text>
-<text x="954" y="245" font-size="19" font-weight="700" fill="#13253d">Local Chromium</text>
-<text x="930" y="274" font-size="14" fill="#33465e">Launched by the driver on this machine.</text>
-<text x="1362" y="245" text-anchor="end" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#13253d">DRIVER CLOSES</text>
-<text x="930" y="296" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="#4a5c73">shown as the active example</text>
-</g>
-<g>
-<rect x="900" y="326" width="480" height="100" fill="#fff" stroke="#13253d" stroke-width="1.5"/>
-<rect x="900" y="326" width="10" height="100" fill="#ECFF4D" stroke="#13253d"/>
-<text x="930" y="360" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#13253d">B</text>
-<text x="954" y="361" font-size="19" font-weight="700" fill="#13253d">Browser Use Cloud</text>
-<text x="930" y="390" font-size="14" fill="#33465e">Remote session created by the driver.</text>
-<text x="1362" y="361" text-anchor="end" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#13253d">DRIVER CLOSES</text>
-</g>
-<g>
-<rect x="900" y="442" width="480" height="100" fill="#fff" stroke="#a8461f" stroke-width="1.5" stroke-dasharray="8 4"/>
-<rect x="900" y="442" width="10" height="100" fill="#c96442"/>
-<text x="930" y="476" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#8a3a18">C</text>
-<text x="954" y="477" font-size="19" font-weight="700" fill="#13253d">Existing browser over CDP</text>
-<text x="930" y="506" font-size="14" fill="#33465e">Already running, local or remote. Borrowed.</text>
-<text x="1362" y="477" text-anchor="end" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#8a3a18">APP CLOSES</text>
-</g>
+  <path d="M800 750 L860 750" fill="none" stroke="#1E3B2C" stroke-width="2" marker-end="url(#arrowSmall)"/>
+  <g fill="#FBF6EC" stroke="#1E3B2C" stroke-width="2" stroke-linejoin="round">
+    <path d="M882 726 L904 726 L914 736 L914 768 L882 768 Z"/>
+    <path d="M872 734 L894 734 L904 744 L904 776 L872 776 Z"/>
+    <path d="M894 734 L894 744 L904 744" fill="none"/>
+  </g>
+  <text x="934" y="758" class="sans core">local files</text>
+  <text x="934" y="788" class="sans cap">on the SDK host</text>
 
-<g>
-<rect x="900" y="586" width="480" height="170" fill="#13253d"/>
-<text x="924" y="620" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13" font-weight="700" letter-spacing="1.5" fill="#ECFF4D">06 LIFECYCLE · OWNER AND CLEANUP</text>
-<rect x="924" y="644" width="44" height="24" fill="#ECFF4D"/>
-<text x="946" y="661" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#13253d">A B</text>
-<text x="984" y="661" font-size="15" fill="#ffffff">Driver launched it. The driver closes it.</text>
-<rect x="924" y="690" width="44" height="24" fill="none" stroke="#f0b79c" stroke-width="1.5" stroke-dasharray="4 3"/>
-<text x="946" y="707" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#f0b79c">C</text>
-<text x="984" y="707" font-size="15" fill="#ffffff">Borrowed over CDP. Your app closes it.</text>
-<text x="924" y="738" font-size="13" fill="#c9d6e4">Wrap each run so teardown always happens.</text>
-</g>
-
-<line x1="60" y1="800" x2="1380" y2="800" stroke="#13253d" stroke-width="1"/>
-<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#33465e">
-<text x="60" y="834">1 task → tool_runner → Browser Use driver (31 actions) → 1 runtime</text>
-<text x="1380" y="834" text-anchor="end">Architecture diagram · not to scale</text>
-</g>
+  <!-- Lifecycle footnote -->
+  <line x1="80" y1="826" x2="1360" y2="826" stroke="#D9CAB0" stroke-width="1"/>
+  <rect x="80" y="848" width="24" height="17" rx="3" fill="#FBF6EC" stroke="#1E3B2C" stroke-width="1.6"/>
+  <text x="114" y="862" class="sans cap">Driver-launched browsers close on exit.</text>
+  <rect x="490" y="848" width="24" height="17" rx="3" fill="none" stroke="#1E3B2C" stroke-width="1.6" stroke-dasharray="3 3"/>
+  <text x="524" y="862" class="sans cap">An existing CDP browser is borrowed, never shut down by the driver.</text>
 </svg>

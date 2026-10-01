@@ -131,8 +131,8 @@ CDP is the connection used underneath. Optional `javascript_exec` evaluates Java
 inside the page; it cannot import host libraries or execute arbitrary CDP commands.
 `Bash` is a separate host tool. Its approvals are separate from browser approvals.
 
-The application owns the driver lifecycle. The `async with driver` block
-starts the browser and always closes it when the run ends.
+The `async with driver` block closes browsers that the driver launches. When
+you pass an existing session, your application keeps responsibility for closing it.
 
 See Anthropic's
 [browser-toolset quickstarts](https://github.com/anthropics/claude-quickstarts/tree/main/browser-toolset)
