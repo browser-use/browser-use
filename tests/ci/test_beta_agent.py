@@ -7053,6 +7053,7 @@ async def test_beta_agent_exposes_prepare_context_helper_method(monkeypatch):
 			'page_filtered_actions': 'filtered action prompt',
 			'sensitive_data': {'api_key': 'secret-value'},
 			'available_file_paths': ['/tmp/input.txt'],
+			'value_bindings': None,
 		}
 	]
 	assert agent.AgentOutput is agent.DoneAgentOutput
