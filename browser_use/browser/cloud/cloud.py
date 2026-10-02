@@ -52,7 +52,8 @@ class CloudBrowserClient:
 		for existing keys and only fall through on the backend's explicit
 		missing-version-scope response.
 		"""
-		versions = (self.current_api_version,) if self.current_api_version else _BROWSER_API_VERSIONS
+		# A new session may use a different scoped key. Only cleanup is pinned.
+		versions = (self.current_api_version,) if method != 'POST' and self.current_api_version else _BROWSER_API_VERSIONS
 		last_response = None
 		last_version = versions[-1]
 		for version in versions:

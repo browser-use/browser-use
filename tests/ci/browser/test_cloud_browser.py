@@ -121,6 +121,46 @@ class TestCloudBrowserClient:
 			]
 			assert client.current_api_version == 'v3'
 
+			stopped = AsyncMock()
+			stopped.status_code = 200
+			stopped.is_success = True
+			stopped.json = lambda: {**created.json(), 'status': 'stopped', 'liveUrl': None, 'cdpUrl': None}
+			mock_client.request.side_effect = [stopped]
+			await client.stop_browser()
+			assert mock_client.request.call_args.args[:2] == (
+				'PATCH',
+				'https://api.browser-use.com/api/v3/browsers/test-browser-id',
+			)
+			assert client.current_session_id is None
+			assert client.current_api_version is None
+
+	async def test_create_browser_renegotiates_for_a_new_scoped_key(self, mock_auth_config, monkeypatch):
+		monkeypatch.setenv('BROWSER_USE_API_KEY', 'new-v2-key')
+		with patch('httpx.AsyncClient') as mock_client_class:
+			response = AsyncMock()
+			response.status_code = 201
+			response.is_success = True
+			response.json = lambda: {
+				'id': 'new-browser',
+				'status': 'active',
+				'liveUrl': None,
+				'cdpUrl': 'wss://example.invalid',
+				'timeoutAt': '2025-09-17T04:35:36',
+				'startedAt': '2025-09-17T03:35:36',
+				'finishedAt': None,
+			}
+			mock_client_class.return_value = AsyncMock()
+			mock_client_class.return_value.request.return_value = response
+			client = CloudBrowserClient()
+			client.current_api_version = 'v3'
+			await client.create_browser(CreateBrowserRequest())
+			assert mock_client_class.return_value.request.call_args.args[:2] == (
+				'POST',
+				'https://api.browser-use.com/api/v2/browsers',
+			)
+			assert mock_client_class.return_value.request.call_args.kwargs['headers']['X-Browser-Use-API-Key'] == 'new-v2-key'
+			assert client.current_api_version == 'v2'
+
 	async def test_create_browser_auth_error(self, temp_config_dir, monkeypatch):
 		"""Test cloud browser creation with auth error."""
 

@@ -21,7 +21,8 @@ The same program works with three browser runtimes:
 
 ## Quickstart
 
-Browser Use requires Python 3.11 or newer. Anthropic's browser toolset requires
+This example requires Python 3.11 or newer and Linux or macOS with `/bin/bash`.
+On Windows, run it inside WSL. Anthropic's browser toolset requires
 the Anthropic SDK release that includes `anthropic.tools.browser` and
 `client.beta.messages.tool_runner`.
 
@@ -169,7 +170,8 @@ stops it when the context exits.
 ## Existing or remote browser
 
 Pass an already started `BrowserSession` to the driver. Your application keeps
-responsibility for that session's lifecycle:
+responsibility for that session's lifecycle. Run this excerpt inside an async
+function (or a notebook that supports top-level await):
 
 ```python
 import os

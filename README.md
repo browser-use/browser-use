@@ -163,6 +163,8 @@ Bash is included in the Browser Use integration for processing data and writing 
 <img src="examples/integrations/anthropic/architecture.svg" alt="Claude uses Browser Use browser actions and Bash through the Anthropic SDK. The browser can be local or remote; Bash runs on the SDK host." width="100%">
 
 Requires an Anthropic SDK version that includes `anthropic.tools.browser`.
+Bash requires a Linux or macOS host with `/bin/bash`; use WSL on Windows.
+The snippet below runs inside an async function; see the quickstart for a complete script.
 
 ```python
 import os

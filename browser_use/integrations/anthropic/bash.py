@@ -13,19 +13,29 @@ from pathlib import Path
 from typing import Any
 
 
-async def _drain_bounded(stream: asyncio.StreamReader, limit: int) -> tuple[bytes, bool]:
-	chunks: list[bytes] = []
-	retained = 0
-	truncated = False
-	while chunk := await stream.read(64 * 1024):
-		remaining = limit - retained
-		if remaining > 0:
-			kept = chunk[:remaining]
-			chunks.append(kept)
-			retained += len(kept)
-		if len(chunk) > max(remaining, 0):
-			truncated = True
-	return b''.join(chunks), truncated
+class _BashOutput(asyncio.SubprocessProtocol):
+	"""Collect bounded output until both the process and its pipes have closed."""
+
+	def __init__(self, limit: int) -> None:
+		self.limit = limit
+		self.output = bytearray()
+		self.truncated = False
+		loop = asyncio.get_running_loop()
+		self.closed = loop.create_future()
+		self.exited = loop.create_future()
+
+	def pipe_data_received(self, fd: int, data: bytes) -> None:
+		remaining = self.limit - len(self.output)
+		self.output.extend(data[:remaining])
+		self.truncated |= len(data) > remaining
+
+	def process_exited(self) -> None:
+		if not self.exited.done():
+			self.exited.set_result(None)
+
+	def connection_lost(self, exc: Exception | None) -> None:
+		if not self.closed.done():
+			self.closed.set_result(None)
 
 
 def _prepare_output_dir(output_dir: str | Path) -> tuple[Path, Path]:
@@ -52,7 +62,9 @@ async def run_bash(
 		raise ValueError('max_output_bytes must be positive')
 
 	root, tmp = await asyncio.to_thread(_prepare_output_dir, output_dir)
-	process = await asyncio.create_subprocess_exec(
+	protocol = _BashOutput(max_output_bytes)
+	transport, _ = await asyncio.get_running_loop().subprocess_exec(
+		lambda: protocol,
 		'/bin/bash',
 		'--noprofile',
 		'--norc',
@@ -67,33 +79,35 @@ async def run_bash(
 			'PYTHONNOUSERSITE': '1',
 			'TMPDIR': str(tmp),
 		},
+		stdin=asyncio.subprocess.DEVNULL,
 		stdout=asyncio.subprocess.PIPE,
 		stderr=asyncio.subprocess.STDOUT,
 		start_new_session=True,
 	)
-	assert process.stdout is not None
-	drain = asyncio.create_task(_drain_bounded(process.stdout, max_output_bytes))
 	timed_out = False
 	try:
-		await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
+		# connection_lost covers the shell AND inherited output pipes.
+		await asyncio.wait_for(asyncio.shield(protocol.closed), timeout=timeout_seconds)
 	except TimeoutError:
 		timed_out = True
-		with contextlib.suppress(ProcessLookupError):
-			os.killpg(process.pid, signal.SIGKILL)
-		await process.wait()
 	except asyncio.CancelledError:
 		with contextlib.suppress(ProcessLookupError):
-			os.killpg(process.pid, signal.SIGKILL)
-		await process.wait()
-		await drain
+			os.killpg(transport.get_pid(), signal.SIGKILL)
 		raise
-	output, truncated = await drain
+	finally:
+		if timed_out:
+			with contextlib.suppress(ProcessLookupError):
+				os.killpg(transport.get_pid(), signal.SIGKILL)
+		# Close pipes even if a detached descendant still holds their write end.
+		transport.close()
+		with contextlib.suppress(TimeoutError):
+			await asyncio.wait_for(asyncio.shield(protocol.exited), timeout=1)
 	return json.dumps(
 		{
-			'exit_code': process.returncode,
+			'exit_code': transport.get_returncode(),
 			'timed_out': timed_out,
-			'truncated': truncated,
-			'output': output.decode('utf-8', errors='replace'),
+			'truncated': protocol.truncated,
+			'output': protocol.output.decode('utf-8', errors='replace'),
 		},
 		ensure_ascii=False,
 	)

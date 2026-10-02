@@ -1,4 +1,7 @@
-"""Build a Hacker News reading list with Anthropic and Browser Use."""
+"""Build a Hacker News reading list with Anthropic and Browser Use.
+
+Requires Linux/macOS with /bin/bash, or WSL on Windows.
+"""
 
 import asyncio
 import os

@@ -197,6 +197,59 @@ async def test_bash_bounds_output_and_kills_on_timeout(tmp_path: Path) -> None:
 	assert timed_out['exit_code'] < 0
 
 
+async def test_bash_deadline_closes_inherited_output_pipes(tmp_path: Path) -> None:
+	# setsid escapes the shell's process group while retaining stdout.
+	import shlex
+	import signal
+
+	pid_path = tmp_path / 'descendant.pid'
+	child = "import os,time; os.setsid(); open('descendant.pid','w').write(str(os.getpid())); print('started',flush=True); time.sleep(10)"
+	command = f'{shlex.quote(sys.executable)} -c {shlex.quote(child)} & wait'
+	try:
+		result = json.loads(await asyncio.wait_for(run_bash(command, output_dir=tmp_path, timeout_seconds=0.3), timeout=2))
+		assert result['timed_out'] is True
+		assert 'started' in result['output']
+	finally:
+		if pid_path.exists():
+			try:
+				os.kill(int(pid_path.read_text()), signal.SIGKILL)
+			except ProcessLookupError:
+				pass
+
+
+async def test_bash_cancellation_closes_inherited_output_pipes(tmp_path: Path, monkeypatch) -> None:
+	import shlex
+	import signal
+
+	import browser_use.integrations.anthropic.bash as bash_module
+
+	started = asyncio.Event()
+	original = bash_module._BashOutput.pipe_data_received
+
+	def observe_output(protocol, fd, data):
+		original(protocol, fd, data)
+		if b'started' in protocol.output:
+			started.set()
+
+	monkeypatch.setattr(bash_module._BashOutput, 'pipe_data_received', observe_output)
+	pid_path = tmp_path / 'descendant.pid'
+	child = "import os,time; os.setsid(); open('descendant.pid','w').write(str(os.getpid())); print('started',flush=True); time.sleep(10)"
+	task = asyncio.create_task(run_bash(f'{shlex.quote(sys.executable)} -c {shlex.quote(child)} & wait', output_dir=tmp_path))
+	try:
+		await asyncio.wait_for(started.wait(), timeout=2)
+		task.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await asyncio.wait_for(task, timeout=2)
+	finally:
+		if pid_path.exists():
+			try:
+				os.kill(int(pid_path.read_text()), signal.SIGKILL)
+			except ProcessLookupError:
+				pass
+		if not task.done():
+			task.cancel()
+
+
 def test_quickstart_uses_peer_browser_use_and_bash_tools() -> None:
 	source = QUICKSTART_PATH.read_text()
 	tree = ast.parse(source)
