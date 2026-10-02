@@ -254,7 +254,16 @@ def test_quickstart_uses_peer_browser_use_and_bash_tools() -> None:
 	source = QUICKSTART_PATH.read_text()
 	tree = ast.parse(source)
 	assert tree is not None
-	assert 'driver = BrowserUse()' in source
+	driver = next(
+		node
+		for node in ast.walk(tree)
+		if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'BrowserUse'
+	)
+	configs = ast.literal_eval(next(option.value for option in driver.keywords if option.arg == 'configs'))
+	for action in ('javascript_exec', 'file_upload', 'read_console', 'read_network'):
+		assert configs[action]['enabled'] is True
+	confirmation = next(option.value for option in driver.keywords if option.arg == 'confirm')
+	assert isinstance(confirmation, ast.Name) and confirmation.id == 'confirm'
 	assert "bash = Bash(output_dir=Path('outputs'))" in source
 	assert 'tools=[driver, bash]' in source
 	assert 'ActorUse' not in source

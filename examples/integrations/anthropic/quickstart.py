@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 from anthropic import AsyncAnthropic
+from anthropic.tools.browser import ConfirmContext, LocalFilePolicy  # pyright: ignore[reportMissingImports]
 
 from browser_use.integrations.anthropic import Bash, BrowserUse
 
@@ -26,11 +27,29 @@ configured output directory; write deliverables there. Remote browser paths are 
 Verify outputs and report blocked work honestly."""
 
 
+async def confirm(context: ConfirmContext) -> bool:
+	if context.member not in {'file_upload', 'javascript_exec'}:
+		return True
+	details = context.input.model_dump_json(exclude_none=True)
+	answer = await asyncio.to_thread(
+		input,
+		f'Action: {context.member}\nPage: {context.tab_url}\n{details}\nAllow this action? [y/N] ',
+	)
+	return answer.strip().lower() == 'y'
+
+
 async def main() -> None:
-	driver = BrowserUse()
-	# Remote option: get a key at https://cloud.browser-use.com/new-api-key
-	# Set BROWSER_USE_API_KEY, then replace the line above with:
-	# driver = BrowserUse(use_cloud=True)
+	# Set BROWSER_USE_API_KEY and add use_cloud=True below for a Cloud browser.
+	driver = BrowserUse(
+		configs={
+			'javascript_exec': {'enabled': True},
+			'file_upload': {'enabled': True},
+			'read_console': {'enabled': True},
+			'read_network': {'enabled': True},
+		},
+		confirm=confirm,
+		file_policy=LocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
+	)
 	bash = Bash(output_dir=Path('outputs'))
 
 	async with driver, AsyncAnthropic() as client:
