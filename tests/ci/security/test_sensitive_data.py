@@ -30,6 +30,18 @@ class NestedTupleSensitiveParams(BaseModel):
 	payload: tuple[dict[str, tuple[str, list[str]]], ...] = Field(description='Nested tuple with sensitive data placeholders')
 
 
+class ValueBindingParams(BaseModel):
+	"""Test parameter model for non-secret value bindings."""
+
+	text: str = Field(description='Text with value binding placeholders')
+
+
+class NestedValueBindingParams(BaseModel):
+	"""Test parameter model for nested value binding placeholders."""
+
+	payload: tuple[dict[str, tuple[str, list[str]]], ...] = Field(description='Nested tuple with value binding placeholders')
+
+
 @pytest.fixture
 def registry():
 	return Registry()
@@ -82,6 +94,140 @@ def test_replace_sensitive_data_with_missing_keys(registry, caplog):
 	assert result.text == 'Please enter user123 and <secret>password</secret>'
 	assert 'user123' in result.text
 	assert '<secret>password</secret>' in result.text  # Empty value's tag remains
+
+
+def test_replace_value_bindings(registry):
+	"""Test that non-secret value bindings replace tagged placeholders."""
+	params = ValueBindingParams(text='Name: <value>name</value>, Address: <value>address</value>')
+	value_bindings = {
+		'name': 'John Doe',
+		'address': '123 Main Street, Example City',
+	}
+
+	result = registry._replace_value_bindings(params, value_bindings)
+
+	assert result.text == 'Name: John Doe, Address: 123 Main Street, Example City'
+	assert '<value>' not in result.text
+
+
+def test_replace_value_bindings_inside_nested_values(registry):
+	"""Test value bindings inside nested dict, tuple, and list values."""
+	params = NestedValueBindingParams(
+		payload=(
+			{
+				'credentials': (
+					'<value>token</value>',
+					['<value>username</value>'],
+				)
+			},
+		)
+	)
+	value_bindings = {
+		'token': 'a' * 5000,
+		'username': 'admin_user',
+	}
+
+	result = registry._replace_value_bindings(params, value_bindings)
+
+	assert result.payload == (
+		{
+			'credentials': (
+				'a' * 5000,
+				['admin_user'],
+			)
+		},
+	)
+
+
+def test_replace_value_bindings_with_multiple_occurrences(registry):
+	"""Test that the same value binding can be used multiple times."""
+	params = ValueBindingParams(text='<value>code</value> / <value>code</value>')
+	value_bindings = {'code': 'LONG-NON-SECRET-VALUE'}
+
+	result = registry._replace_value_bindings(params, value_bindings)
+
+	assert result.text == 'LONG-NON-SECRET-VALUE / LONG-NON-SECRET-VALUE'
+
+
+def test_replace_value_bindings_with_missing_alias_and_empty_value(registry):
+	"""Test that missing aliases remain unchanged and empty values are replaced."""
+
+	params = ValueBindingParams(text='<value>missing</value> <value>empty</value>')
+
+	result = registry._replace_value_bindings(
+		params,
+		{'empty': ''},
+	)
+
+	assert result.text == '<value>missing</value> '
+
+
+def test_replace_value_bindings_does_not_cascade(registry):
+	"""Test that replacement values are not processed as additional placeholders."""
+
+	params = ValueBindingParams(text='<value>first</value>')
+
+	result = registry._replace_value_bindings(
+		params,
+		{
+			'first': '<value>second</value>',
+			'second': 'replacement',
+		},
+	)
+
+	assert result.text == '<value>second</value>'
+
+
+def test_replace_value_bindings_in_dict_keys(registry):
+	"""Test that value binding placeholders are replaced in dictionary keys."""
+
+	params = NestedValueBindingParams(
+		payload=(
+			{
+				'<value>key</value>': (
+					'value',
+					['<value>item</value>'],
+				)
+			},
+		)
+	)
+
+	result = registry._replace_value_bindings(
+		params,
+		{
+			'key': 'resolved_key',
+			'item': 'resolved_item',
+		},
+	)
+
+	assert result.payload == (
+		{
+			'resolved_key': (
+				'value',
+				['resolved_item'],
+			)
+		},
+	)
+
+
+def test_replace_value_bindings_rejects_dict_key_collisions():
+	"""Test that value binding replacement rejects duplicate dictionary keys."""
+	params = NestedValueBindingParams(
+		payload=(
+			{
+				'<value>first</value>': ('value1', ['item1']),
+				'first': ('value2', ['item2']),
+			},
+		)
+	)
+
+	registry = Registry()
+
+	with pytest.raises(ValueError, match='duplicate dictionary key'):
+		registry._replace_value_bindings(
+			params,
+			{'first': 'first'},
+		)
 
 
 def test_replace_sensitive_data_inside_tuple(registry):

@@ -210,6 +210,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
+		value_bindings: dict[str, str] | None = None,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -384,6 +385,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._url_shortening_limit = _url_shortening_limit
 
 		self.sensitive_data = sensitive_data
+		self.value_bindings = value_bindings
 
 		self.sample_images = sample_images
 
@@ -2785,6 +2787,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					file_system=self.file_system,
 					page_extraction_llm=self.settings.page_extraction_llm,
 					sensitive_data=self.sensitive_data,
+					value_bindings=self.value_bindings,
 					available_file_paths=self.available_file_paths,
 					extraction_schema=self.extraction_schema,
 				)

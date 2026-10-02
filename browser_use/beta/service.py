@@ -4248,6 +4248,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		skills: list[str | Literal['*']] | None = None,
 		skill_service: Any | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		value_bindings: dict[str, str] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
 		register_new_step_callback: AgentNewStepCallback | None = None,
 		register_done_callback: AgentDoneCallback | None = None,
@@ -4372,6 +4373,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._using_fallback_llm = False
 		self._original_llm = llm
 		self.sensitive_data = sensitive_data
+		self.value_bindings = value_bindings
 		self.register_new_step_callback = register_new_step_callback
 		self.register_done_callback = register_done_callback
 		self.register_external_agent_status_raise_error_callback = register_external_agent_status_raise_error_callback
@@ -5687,6 +5689,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			use_vision=self.settings.use_vision,
 			page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
 			sensitive_data=self.sensitive_data,
+			value_bindings=self.value_bindings,
 			available_file_paths=self.available_file_paths,
 		)
 
@@ -6548,6 +6551,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			params['followups'] = list(followups)
 		if self.extraction_schema:
 			params['output_schema'] = self.extraction_schema
+		if self.value_bindings:
+			params['value_bindings'] = self.value_bindings
+
 		return params
 
 	async def _cancel_active_sdk_run(self) -> None:

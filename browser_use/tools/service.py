@@ -2185,6 +2185,7 @@ Validated Code (after quote fixing):
 		file_system: FileSystem | None = None,
 		extraction_schema: dict | None = None,
 		action_timeout: float | None = None,
+		value_bindings: dict[str, str] | None = None,
 	) -> ActionResult:
 		"""Execute an action.
 
@@ -2225,6 +2226,7 @@ Validated Code (after quote fixing):
 								page_extraction_llm=page_extraction_llm,
 								file_system=file_system,
 								sensitive_data=sensitive_data,
+								value_bindings=value_bindings,
 								available_file_paths=available_file_paths,
 								extraction_schema=extraction_schema,
 							),
@@ -2291,6 +2293,7 @@ Validated Code (after quote fixing):
 					'available_file_paths',
 					'sensitive_data',
 					'extraction_schema',
+					'value_bindings',
 				}
 
 				# Extract action params (params for the action itself)
