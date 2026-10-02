@@ -3326,6 +3326,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 				function(targetText) {
 					const startElement = this;
 
+					// Disabled per native :disabled, aria-disabled, or the common .disabled class
+					function isDisabled(el) {
+						return el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled');
+					}
+
 					// Function to attempt selection on a dropdown element
 					function attemptSelection(element) {
 						// Handle native select elements
@@ -3405,6 +3410,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 						// Handle ARIA dropdowns/menus
 						const role = element.getAttribute('role');
 						if (role === 'menu' || role === 'listbox' || role === 'combobox') {
+							if (isDisabled(element)) {
+								return { success: false, error: 'Dropdown is disabled and cannot be changed' };
+							}
+
 							const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
 							const targetTextLower = targetText.toLowerCase();
 
@@ -3415,7 +3424,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 									// Match against both text and data-value (case-insensitive)
 									if (itemTextLower === targetTextLower || itemValueLower === targetTextLower) {
-										if (item.matches(':disabled') || item.getAttribute('aria-disabled') === 'true') {
+										if (isDisabled(item)) {
 											return {
 												success: false,
 												error: `Menu item '${item.textContent.trim()}' is disabled and cannot be selected`
@@ -3449,6 +3458,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 						// Handle Semantic UI or custom dropdowns
 						if (element.classList.contains('dropdown') || element.classList.contains('ui')) {
+							if (isDisabled(element)) {
+								return { success: false, error: 'Dropdown is disabled and cannot be changed' };
+							}
+
 							const menuItems = element.querySelectorAll('.item, .option, [data-value]');
 							const targetTextLower = targetText.toLowerCase();
 
@@ -3459,11 +3472,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 									// Match against both text and data-value (case-insensitive)
 									if (itemTextLower === targetTextLower || itemValueLower === targetTextLower) {
-										if (
-											item.matches(':disabled') ||
-											item.getAttribute('aria-disabled') === 'true' ||
-											item.classList.contains('disabled')
-										) {
+										if (isDisabled(item)) {
 											return {
 												success: false,
 												error: `Custom dropdown item '${item.textContent.trim()}' is disabled and cannot be selected`

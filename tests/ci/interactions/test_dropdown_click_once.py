@@ -98,6 +98,39 @@ PAGES = {
 			document.querySelectorAll('[role=option]').forEach(item => item.addEventListener('click', () => { window.clicks++; }));
 		</script>
 	""",
+	'/aria-disabled-class': """
+		<div id="dropdown" role="listbox" tabindex="0">
+			<div role="option" id="remote" class="disabled" aria-selected="false">Remote</div>
+			<div role="option" id="hybrid" aria-selected="false">Hybrid</div>
+		</div>
+		<script>
+			document.querySelectorAll('[role=option]').forEach(item => item.addEventListener('click', () => { window.clicks++; }));
+		</script>
+	""",
+	'/custom-disabled-item': """
+		<div id="dropdown" class="ui dropdown" tabindex="0">
+			<div class="text">Choose</div>
+			<div class="menu">
+				<div class="item disabled" id="remote" aria-selected="false" data-value="remote">Remote</div>
+				<div class="item" id="hybrid" data-value="hybrid">Hybrid</div>
+			</div>
+		</div>
+		<script>
+			document.querySelectorAll('.item').forEach(item => item.addEventListener('click', () => { window.clicks++; }));
+		</script>
+	""",
+	'/custom-disabled-dropdown': """
+		<div id="dropdown" class="ui disabled dropdown" tabindex="0">
+			<div class="text">Choose</div>
+			<div class="menu">
+				<div class="item" id="remote" aria-selected="false" data-value="remote">Remote</div>
+				<div class="item" id="hybrid" data-value="hybrid">Hybrid</div>
+			</div>
+		</div>
+		<script>
+			document.querySelectorAll('.item').forEach(item => item.addEventListener('click', () => { window.clicks++; }));
+		</script>
+	""",
 }
 
 
@@ -189,9 +222,12 @@ class TestDropdownClickOnce:
 		assert state['clicks'] == 1, f'Expected the option click handler to run once, ran {state["clicks"]} times'
 		assert 'selected' in state['classes'].split(), f'Expected Remote to keep class "selected", got {state["classes"]!r}'
 
-	async def test_disabled_option_is_refused(self, tools: Tools, browser_session: BrowserSession, base_url: str):
-		"""A disabled option is not activated and not reported as selected."""
-		result, state = await _select_remote(tools, browser_session, f'{base_url}/aria-disabled')
+	@pytest.mark.parametrize(
+		'path', ['/aria-disabled', '/aria-disabled-class', '/custom-disabled-item', '/custom-disabled-dropdown']
+	)
+	async def test_disabled_option_is_refused(self, tools: Tools, browser_session: BrowserSession, base_url: str, path: str):
+		"""A disabled option, or an option in a disabled dropdown, is not activated and not reported as selected."""
+		result, state = await _select_remote(tools, browser_session, f'{base_url}{path}')
 
 		assert result.error is not None or 'disabled' in (result.extracted_content or '').lower(), (
 			f'Expected select_dropdown to refuse a disabled option, got: {result.extracted_content!r}'
