@@ -170,7 +170,7 @@ SDK host respectively.
 
 ## Browser Use Cloud
 
-Set `BROWSER_USE_API_KEY`, then add `use_cloud=True` to the existing `BrowserUse(...)` call. Keep its `configs`, `confirm`, and `file_policy` arguments to preserve the quickstart tool selection and approvals.
+Set `BROWSER_USE_API_KEY`, then add `use_cloud=True` to the existing `BrowserUse(...)` call. Keep its `configs` and `confirm` arguments to preserve the quickstart tool selection and approvals. For remote uploads, replace the local `file_policy` with the staged-document policy and resolver in [Files with remote browsers](#files-with-remote-browsers).
 
 Create a key at
 [cloud.browser-use.com/new-api-key](https://cloud.browser-use.com/new-api-key).
