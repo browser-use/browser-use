@@ -210,6 +210,26 @@ def test_replace_value_bindings_in_dict_keys(registry):
 	)
 
 
+def test_replace_value_bindings_rejects_dict_key_collisions():
+	"""Test that value binding replacement rejects duplicate dictionary keys."""
+	params = NestedValueBindingParams(
+		payload=(
+			{
+				'<value>first</value>': ('value1', ['item1']),
+				'first': ('value2', ['item2']),
+			},
+		)
+	)
+
+	registry = Registry()
+
+	with pytest.raises(ValueError, match='duplicate dictionary key'):
+		registry._replace_value_bindings(
+			params,
+			{'first': 'first'},
+		)
+
+
 def test_replace_sensitive_data_inside_tuple(registry):
 	"""Test that _replace_sensitive_data replaces placeholders inside tuple fields."""
 	params = TupleSensitiveParams(items=('<secret>api_key</secret>', 'username', 'unchanged'))

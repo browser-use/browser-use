@@ -543,12 +543,19 @@ class Registry(Generic[Context]):
 				)
 
 			if isinstance(value, dict):
-				return {
-					recursively_replace_values(key)
-					if isinstance(key, (str, dict, list, tuple))
-					else key: recursively_replace_values(item) if isinstance(item, (str, dict, list, tuple)) else item
-					for key, item in value.items()
-				}
+				updated_dict = {}
+
+				for key, item in value.items():
+					updated_key = recursively_replace_values(key) if isinstance(key, (str, dict, list, tuple)) else key
+
+					if updated_key in updated_dict:
+						raise ValueError(f'Value binding replacement caused duplicate dictionary key: {updated_key!r}')
+
+					updated_dict[updated_key] = (
+						recursively_replace_values(item) if isinstance(item, (str, dict, list, tuple)) else item
+					)
+
+				return updated_dict
 
 			if isinstance(value, list):
 				return [
