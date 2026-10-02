@@ -117,6 +117,13 @@ jobs:
 
       - run: uv run --no-sync ruff check --no-fix --select PLE # quick check for syntax errors to avoid waiting time doing the rest of the build
       - run: uv build
+      
+      # 🛡️ ProofCore: Cryptographic provenance for PyPI distribution packages (.whl / .tar.gz)
+      - name: Notarize Package Artifacts via ProofCore
+        uses: ProofCore-Protocol/proofcore-action@bbc4e5b0a2cd1e9bcb08eac5b78d1a09e01d4805
+        continue-on-error: true
+        with:
+          files: "dist/*"  
 
       # - name: Detect installed Playwright version
       #   run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_ENV
