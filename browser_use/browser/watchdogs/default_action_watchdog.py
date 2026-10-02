@@ -3415,20 +3415,16 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 									// Match against both text and data-value (case-insensitive)
 									if (itemTextLower === targetTextLower || itemValueLower === targetTextLower) {
-										// Clear previous selections
-										menuItems.forEach(mi => {
-											mi.setAttribute('aria-selected', 'false');
-											mi.classList.remove('selected');
-										});
+										if (item.matches(':disabled') || item.getAttribute('aria-disabled') === 'true') {
+											return {
+												success: false,
+												error: `Menu item '${item.textContent.trim()}' is disabled and cannot be selected`
+											};
+										}
 
-										// Select this item
-										item.setAttribute('aria-selected', 'true');
-										item.classList.add('selected');
-
-										// Trigger click and change events
+										// Click exactly once and let the page own the selected state: pre-setting
+										// aria-selected/classes or clicking twice makes toggling options deselect themselves
 										item.click();
-										const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
-										item.dispatchEvent(clickEvent);
 
 										return {
 											success: true,
@@ -3463,24 +3459,20 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 									// Match against both text and data-value (case-insensitive)
 									if (itemTextLower === targetTextLower || itemValueLower === targetTextLower) {
-										// Clear previous selections
-										menuItems.forEach(mi => {
-											mi.classList.remove('selected', 'active');
-										});
-
-										// Select this item
-										item.classList.add('selected', 'active');
-
-										// Update dropdown text if there's a text element
-										const textElement = element.querySelector('.text');
-										if (textElement) {
-											textElement.textContent = item.textContent.trim();
+										if (
+											item.matches(':disabled') ||
+											item.getAttribute('aria-disabled') === 'true' ||
+											item.classList.contains('disabled')
+										) {
+											return {
+												success: false,
+												error: `Custom dropdown item '${item.textContent.trim()}' is disabled and cannot be selected`
+											};
 										}
 
-										// Trigger click and change events
+										// Click exactly once and let the dropdown's own handler update its classes and text:
+										// pre-setting them or clicking twice makes toggling items deselect themselves
 										item.click();
-										const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
-										item.dispatchEvent(clickEvent);
 
 										// Also dispatch on the main dropdown element
 										const dropdownChangeEvent = new Event('change', { bubbles: true });
