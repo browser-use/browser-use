@@ -1,10 +1,14 @@
 """Tests for Azure OpenAI Responses API support."""
 
 import os
+from typing import Any
 
 import pytest
+from openai.types.responses import Response
+from pydantic import BaseModel
 
 from browser_use.llm.azure.chat import RESPONSES_API_ONLY_MODELS, ChatAzureOpenAI
+from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.messages import (
 	AssistantMessage,
 	ContentPartImageParam,
@@ -264,3 +268,138 @@ class TestChatAzureOpenAIIntegration:
 			if 'Responses API' in str(e) or '404' in str(e):
 				pytest.skip('Responses API not supported by this Azure deployment')
 			raise
+
+
+class _Answer(BaseModel):
+	answer: str
+
+
+def _message(number: int, *parts: str) -> dict[str, Any]:
+	"""One output message whose content is one output_text part per text."""
+	content = []
+	for text in parts:
+		content.append({'type': 'output_text', 'text': text, 'annotations': []})
+	return {'type': 'message', 'id': f'msg_{number}', 'role': 'assistant', 'status': 'completed', 'content': content}
+
+
+def _response(*output: dict[str, Any]) -> Response:
+	"""A Responses API response with the given output items."""
+	return Response.model_validate(
+		{
+			'id': 'resp_1',
+			'created_at': 0,
+			'model': 'test-model',
+			'object': 'response',
+			'output': list(output),
+			'parallel_tool_calls': False,
+			'tool_choice': 'auto',
+			'tools': [],
+		}
+	)
+
+
+def _response_with_messages(*texts: str) -> Response:
+	"""A Responses API response whose output is one message per text."""
+	output = []
+	for number, text in enumerate(texts):
+		output.append(_message(number, text))
+	return _response(*output)
+
+
+class _FakeResponses:
+	def __init__(self, response: Response):
+		self.response = response
+
+	async def create(self, **params: Any) -> Response:
+		return self.response
+
+
+class _FakeClient:
+	def __init__(self, response: Response):
+		self.responses = _FakeResponses(response)
+
+
+def _llm_returning(response: Response) -> ChatAzureOpenAI:
+	llm = ChatAzureOpenAI(
+		model='test-model',
+		api_key='test',
+		azure_endpoint='https://test.openai.azure.com',
+		use_responses_api=True,
+	)
+	llm.client = _FakeClient(response)  # type: ignore[assignment]
+	return llm
+
+
+class TestResponsesAPIStructuredOutput:
+	"""Structured output when the model returns more than one output message."""
+
+	async def test_single_message(self):
+		llm = _llm_returning(_response_with_messages('{"answer": "42"}'))
+
+		result = await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
+
+		assert result.completion == _Answer(answer='42')
+
+	async def test_text_before_the_json_message(self):
+		llm = _llm_returning(_response_with_messages('Let me check that.', '{"answer": "42"}'))
+
+		result = await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
+
+		assert result.completion == _Answer(answer='42')
+
+	async def test_first_valid_message_wins(self):
+		llm = _llm_returning(_response_with_messages('{"answer": "first"}', '{"answer": "second"}'))
+
+		result = await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
+
+		assert result.completion == _Answer(answer='first')
+
+	async def test_text_after_the_json_message(self):
+		llm = _llm_returning(_response_with_messages('{"answer": "42"}', 'I will now click the button.'))
+
+		result = await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
+
+		assert result.completion == _Answer(answer='42')
+
+	async def test_parts_of_one_message_are_joined(self):
+		# One message whose JSON is split across two output_text parts.
+		response = _response(_message(0, '{"answer": ', '"42"}'))
+		llm = _llm_returning(response)
+
+		result = await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
+
+		assert ChatAzureOpenAI._output_message_texts(response) == ['{"answer": "42"}']
+		assert result.completion == _Answer(answer='42')
+
+	async def test_non_message_items_are_skipped(self):
+		function_call = {
+			'type': 'function_call',
+			'id': 'fc_1',
+			'call_id': 'call_1',
+			'name': 'lookup',
+			'arguments': '{"answer": "not this"}',
+			'status': 'completed',
+		}
+		response = _response(function_call, _message(1, '{"answer": "42"}'))
+		llm = _llm_returning(response)
+
+		result = await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
+
+		assert ChatAzureOpenAI._output_message_texts(response) == ['{"answer": "42"}']
+		assert result.completion == _Answer(answer='42')
+
+	async def test_joined_text_is_parsed_when_no_single_message_validates(self):
+		# Neither message is valid JSON on its own, but response.output_text (all of them joined) is.
+		response = _response_with_messages('{"answer": ', '"42"}')
+		llm = _llm_returning(response)
+
+		result = await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
+
+		assert response.output_text == '{"answer": "42"}'
+		assert result.completion == _Answer(answer='42')
+
+	async def test_no_valid_message_still_raises(self):
+		llm = _llm_returning(_response_with_messages('not json', 'still not json'))
+
+		with pytest.raises(ModelProviderError):
+			await llm.ainvoke([UserMessage(content='q')], output_format=_Answer)
