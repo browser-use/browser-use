@@ -76,6 +76,10 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 
 Scale browser automation with our hosted agent, stealth browsers, and infrastructure for profiles, recordings, and data policies.
 
+**Browser tasks for a fraction of a cent.** BU Ultrafast: **$0.00214 median recorded cost per URL check**, **8/8 correct on staging**. [Pricing and methodology ↗](https://browser-use.com/pricing#task-cost-methodology)
+
+BU Fast adds more reasoning. [API V4 modes ↗](https://docs.browser-use.com/cloud/agent/models) · [Request early access ↗](https://browser-use.com/ultrafast)
+
 [Get started with the API ↗](https://docs.browser-use.com/cloud/agent/quickstart)
 
 New Google, GitHub, or Microsoft signups get **$15 cloud credit**.
@@ -217,6 +221,8 @@ The CLI and Python library can each connect to a local or cloud browser. A cloud
 <summary><b>What's the best model to use?</b></summary>
 
 We recommend **BU2**, our model optimized for browser automation: `ChatBrowserUse(model='bu-2-0')`. It uses `BROWSER_USE_API_KEY`; `ChatBrowserUse()` currently selects the same model.
+
+**Hosted Cloud:** [BU Ultrafast and BU Fast](https://docs.browser-use.com/cloud/agent/models) are V4 modes, separate from `ChatBrowserUse`.
 
 The best choice depends on your tasks, latency, and budget. See the [BU2 model card](https://docs.browser-use.com/open-source/bu-2-0-model-card), [benchmark](https://github.com/browser-use/benchmark), and [supported models and pricing](https://docs.browser-use.com/open-source/supported-models) to compare options.
 </details>

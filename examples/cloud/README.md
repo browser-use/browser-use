@@ -15,6 +15,10 @@ uv run python examples/cloud/01_basic_task.py
 
 Create an API key at [cloud.browser-use.com/new-api-key](https://cloud.browser-use.com/new-api-key).
 
+## Low-cost Cloud modes
+
+Pass `model: "bu-ultrafast"` or `"bu-fast"` through REST once your project has early access. See [rates, evidence, and examples](https://docs.browser-use.com/cloud/agent/models).
+
 ## V4 request flow
 
 The example uses the three endpoints needed for a basic run:

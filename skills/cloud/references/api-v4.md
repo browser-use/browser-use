@@ -9,9 +9,15 @@ is the persistent filesystem that can be reused across sessions.
 - Python: `from browser_use_sdk.v4 import BrowserUse`
 - TypeScript: `import { BrowserUse } from "browser-use-sdk/v4"`
 
+## Low-cost modes
+
+**BU Ultrafast** (`bu-ultrafast`) handles quick interactions; **BU Fast** (`bu-fast`) adds reasoning. Both are V4 early-access presets. Send the alias in REST `model`; use REST while SDK types lag. Presets reject `modelParams` and require project access; EU/Bedrock-only routes are unsupported.
+
+[Rates, access, and examples](https://docs.browser-use.com/cloud/agent/models) · [Recorded task costs](https://browser-use.com/pricing#task-cost-methodology)
+
 ## Before the first run
 
-Eligible new Google, GitHub, or Microsoft signups receive a one-time $15 Cloud credit. No credit card is required. Email/password signups are not eligible; the credit does not renew. Start with the default V4 model (`gpt-5.6-luna`); paid-only models require a top-up. See [pricing](https://browser-use.com/pricing.md) for current eligibility and rates.
+Eligible new Google, GitHub, or Microsoft signups receive a one-time $15 Cloud credit. No credit card is required. Email/password signups are not eligible; the credit does not renew. Omit `model` for the API's default, or select an eligible model offered to the project. BU modes require early access; paid-only models require a top-up. See [pricing](https://browser-use.com/pricing.md) for current eligibility and rates.
 
 Install or upgrade `browser-use-sdk` to 3.11.3 or newer. Read `BROWSER_USE_API_KEY` from the environment; do not embed it in source or a prompt.
 
