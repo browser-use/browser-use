@@ -40,6 +40,8 @@ export ANTHROPIC_MODEL=your-model
 export ANTHROPIC_LOG=info
 ```
 
+The quickstart enables all 31 browser actions plus Bash, including page JavaScript, file uploads, console logs, and network logs. JavaScript and uploads ask for approval before each call.
+
 Save this as `run_browser.py`:
 
 ```python
@@ -53,6 +55,7 @@ import os
 from pathlib import Path
 
 from anthropic import AsyncAnthropic
+from anthropic.tools.browser import ConfirmContext, LocalFilePolicy
 
 from browser_use.integrations.anthropic import Bash, BrowserUse
 
@@ -71,11 +74,29 @@ configured output directory; write deliverables there. Remote browser paths are 
 Verify outputs and report blocked work honestly."""
 
 
+async def confirm(context: ConfirmContext) -> bool:
+	if context.member not in {'file_upload', 'javascript_exec'}:
+		return True
+	details = context.input.model_dump_json(exclude_none=True)
+	answer = await asyncio.to_thread(
+		input,
+		f'Action: {context.member}\nPage: {context.tab_url}\n{details}\nAllow this action? [y/N] ',
+	)
+	return answer.strip().lower() == 'y'
+
+
 async def main() -> None:
-	driver = BrowserUse()
-	# Remote option: get a key at https://cloud.browser-use.com/new-api-key
-	# Set BROWSER_USE_API_KEY, then replace the line above with:
-	# driver = BrowserUse(use_cloud=True)
+	# Set BROWSER_USE_API_KEY and add use_cloud=True below for a Cloud browser.
+	driver = BrowserUse(
+		configs={
+			'javascript_exec': {'enabled': True},
+			'file_upload': {'enabled': True},
+			'read_console': {'enabled': True},
+			'read_network': {'enabled': True},
+		},
+		confirm=confirm,
+		file_policy=LocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
+	)
 	bash = Bash(output_dir=Path('outputs'))
 
 	async with driver, AsyncAnthropic() as client:
@@ -121,7 +142,7 @@ or opening external articles. Bash writes both files to `outputs/`.
 The `SYSTEM_PROMPT` above is application guidance you can adapt. Anthropic supplies
 the tool schemas and runner; this integration does not install a hidden agent prompt.
 `BrowserUse` exposes structured browser actions, not a default CDP code interpreter.
-CDP is the connection used underneath. Optional `javascript_exec` evaluates JavaScript
+CDP is the connection used underneath. `javascript_exec` evaluates JavaScript
 inside the page; it cannot import host libraries or execute arbitrary CDP commands.
 `Bash` comes from the same Browser Use integration and runs on the SDK host.
 Register both with `tools=[driver, bash]`. Browser approval callbacks do not cover Bash.
@@ -149,11 +170,7 @@ SDK host respectively.
 
 ## Browser Use Cloud
 
-Set `BROWSER_USE_API_KEY`, then change one line:
-
-```python
-driver = BrowserUse(use_cloud=True)
-```
+Set `BROWSER_USE_API_KEY`, then add `use_cloud=True` to the existing `BrowserUse(...)` call. Keep its `configs`, `confirm`, and `file_policy` arguments to preserve the quickstart tool selection and approvals.
 
 Create a key at
 [cloud.browser-use.com/new-api-key](https://cloud.browser-use.com/new-api-key).
@@ -225,13 +242,19 @@ when tasks may contain untrusted instructions.
 
 ## Optional actions and approvals
 
-Anthropic leaves `javascript_exec`, `file_upload`, `read_console`, and
-`read_network` disabled by default. Enabling JavaScript or file upload
-requires a `confirm` callback. When a callback is present, the SDK calls it
-before every browser action, so approve routine actions in code and prompt a
-person only for the actions your application treats as sensitive:
+The quickstart above enables all 31 browser actions plus Bash. A bare `BrowserUse()` follows Anthropic's defaults: 27 browser actions enabled, with `javascript_exec`, `file_upload`, `read_console`, and `read_network` off. Set `{'enabled': True}` for those four actions in `configs`, as the quickstart does, to enable the full browser toolset.
 
-<img src="./confirmation-callback.svg" alt="A file upload passes enabled-action and file-policy checks, then reaches the application confirmation callback. Approval executes this action. A declined answer or callback error prevents execution. Browser confirmation does not cover Bash." width="100%">
+Your application supplies `tools=[driver, bash]` to the runner. The SDK sends the browser toolset and its `configs` to Anthropic, and Claude chooses calls from the enabled actions. Disabled browser actions are withheld from Claude and rejected by the SDK if requested. `Bash` is a separate custom tool; registering `driver` alone does not include it.
+
+To opt out, set an action's `enabled` value to `False` in the `configs` passed to `BrowserUse(...)`. To remove Bash, use `tools=[driver]` and update the task and system prompt so they do not request shell commands.
+
+Enabling JavaScript or file upload requires a `confirm` callback. The SDK calls it before every browser action after input and policy checks. The quickstart approves routine actions automatically and prompts for JavaScript and uploads. Local uploads are restricted to `uploads/` and `outputs/`; remote uploads still need staging on the browser host.
+
+The callback flow is:
+
+<img src="./approval-gate.svg" alt="Claude requests an action. The confirmation callback either allows the driver to execute it or declines it. A callback error also prevents execution. The action output, refusal, or error returns to Claude; approval covers one action." width="100%">
+
+[See the detailed file-upload sequence](./confirmation-callback.svg)
 
 ```python
 import asyncio
@@ -258,7 +281,7 @@ driver = BrowserUse(
         'javascript_exec': {'enabled': True},
     },
     confirm=confirm,
-    file_policy=LocalFilePolicy(upload_roots=[Path('uploads')]),
+    file_policy=LocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
 )
 ```
 

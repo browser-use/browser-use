@@ -254,7 +254,7 @@ def test_quickstart_uses_peer_browser_use_and_bash_tools() -> None:
 	source = QUICKSTART_PATH.read_text()
 	tree = ast.parse(source)
 	assert tree is not None
-	assert 'driver = BrowserUse()' in source
+	assert 'driver = BrowserUse(' in source
 	assert "bash = Bash(output_dir=Path('outputs'))" in source
 	assert 'tools=[driver, bash]' in source
 	assert 'ActorUse' not in source
