@@ -86,7 +86,7 @@ async def test_traversal_in_agent_path_does_not_escape_filesystem_dir(
 	tools = Tools()
 	result = await tools.registry.execute_action(
 		'upload_file',
-		{'index': 0, 'path': '../note.md'},
+		{'index': 1, 'path': '../note.md'},
 		browser_session=stub_session,  # type: ignore[arg-type]
 		file_system=fs,
 		available_file_paths=[],
@@ -123,7 +123,7 @@ async def test_traversal_with_no_basename_match_still_fails_safely(
 	tools = Tools()
 	result = await tools.registry.execute_action(
 		'upload_file',
-		{'index': 0, 'path': '../note.md'},
+		{'index': 1, 'path': '../note.md'},
 		browser_session=stub_session,  # type: ignore[arg-type]
 		file_system=fs,
 		available_file_paths=[],
@@ -180,7 +180,7 @@ async def test_remote_session_does_not_rewrite_to_local_filesystem_on_basename_c
 	tools = Tools()
 	await tools.registry.execute_action(
 		'upload_file',
-		{'index': 0, 'path': remote_path},
+		{'index': 1, 'path': remote_path},
 		browser_session=_StubRemoteBrowserSession(),  # type: ignore[arg-type]
 		file_system=fs,
 		available_file_paths=[],
