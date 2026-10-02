@@ -65,6 +65,7 @@ SYSTEM_PROMPT = 'Complete the task with the browser tools and Bash.'
 async def main() -> None:
 	driver = BrowserUse(
 		# use_cloud=True,  # Uncomment and set BROWSER_USE_API_KEY to use Cloud.
+		# These tools are disabled by default.
 		configs={
 			'javascript_exec': {'enabled': True},
 			'file_upload': {'enabled': True},
