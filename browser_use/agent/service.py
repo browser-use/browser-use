@@ -149,7 +149,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		skill_service: Any | None = None,
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
-		value_bindings: dict[str, str] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
 		# Cloud Callbacks
 		register_new_step_callback: (
@@ -211,6 +210,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
+		value_bindings: dict[str, str] | None = None,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -1146,7 +1146,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			use_vision=self.settings.use_vision,
 			page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
 			sensitive_data=self.sensitive_data,
-			value_bindings=self.value_bindings,
 			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
 			unavailable_skills_info=unavailable_skills_info,
 			plan_description=plan_description,
@@ -2788,6 +2787,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					file_system=self.file_system,
 					page_extraction_llm=self.settings.page_extraction_llm,
 					sensitive_data=self.sensitive_data,
+					value_bindings=self.value_bindings,
 					available_file_paths=self.available_file_paths,
 					extraction_schema=self.extraction_schema,
 				)

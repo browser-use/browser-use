@@ -2181,11 +2181,11 @@ Validated Code (after quote fixing):
 		browser_session: BrowserSession,
 		page_extraction_llm: BaseChatModel | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
-		value_bindings: dict[str, str] | None = None,
 		available_file_paths: list[str] | None = None,
 		file_system: FileSystem | None = None,
 		extraction_schema: dict | None = None,
 		action_timeout: float | None = None,
+		value_bindings: dict[str, str] | None = None,
 	) -> ActionResult:
 		"""Execute an action.
 
@@ -2293,6 +2293,7 @@ Validated Code (after quote fixing):
 					'available_file_paths',
 					'sensitive_data',
 					'extraction_schema',
+					'value_bindings',
 				}
 
 				# Extract action params (params for the action itself)

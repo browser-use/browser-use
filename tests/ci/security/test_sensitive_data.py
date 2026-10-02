@@ -148,6 +148,63 @@ def test_replace_value_bindings_with_multiple_occurrences(registry):
 
 	assert result.text == 'LONG-NON-SECRET-VALUE / LONG-NON-SECRET-VALUE'
 
+def test_replace_value_bindings_with_missing_alias_and_empty_value(registry):
+    """Test that missing aliases remain unchanged and empty values are replaced."""
+
+    params = ValueBindingParams(text='<value>missing</value> <value>empty</value>')
+
+    result = registry._replace_value_bindings(
+        params,
+        {'empty': ''},
+    )
+
+    assert result.text == '<value>missing</value> '
+
+def test_replace_value_bindings_does_not_cascade(registry):
+    """Test that replacement values are not processed as additional placeholders."""
+
+    params = ValueBindingParams(text='<value>first</value>')
+
+    result = registry._replace_value_bindings(
+        params,
+        {
+            'first': '<value>second</value>',
+            'second': 'replacement',
+        },
+    )
+
+    assert result.text == '<value>second</value>'
+
+def test_replace_value_bindings_in_dict_keys(registry):
+    """Test that value binding placeholders are replaced in dictionary keys."""
+
+    params = NestedValueBindingParams(
+        payload=(
+            {
+                '<value>key</value>': (
+                    'value',
+                    ['<value>item</value>'],
+                )
+            },
+        )
+    )
+
+    result = registry._replace_value_bindings(
+        params,
+        {
+            'key': 'resolved_key',
+            'item': 'resolved_item',
+        },
+    )
+
+    assert result.payload == (
+        {
+            'resolved_key': (
+                'value',
+                ['resolved_item'],
+            )
+        },
+    )
 
 def test_replace_sensitive_data_inside_tuple(registry):
 	"""Test that _replace_sensitive_data replaces placeholders inside tuple fields."""

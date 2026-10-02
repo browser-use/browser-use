@@ -336,9 +336,9 @@ class Registry(Generic[Context]):
 		page_extraction_llm: BaseChatModel | None = None,
 		file_system: FileSystem | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
-		value_bindings: dict[str, str] | None = None,
 		available_file_paths: list[str] | None = None,
 		extraction_schema: dict | None = None,
+		value_bindings: dict[str, str] | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
 		if action_name not in self.registry.actions:
@@ -351,6 +351,9 @@ class Registry(Generic[Context]):
 				validated_params = action.param_model(**params)
 			except Exception as e:
 				raise ValueError(f'Invalid parameters {params} for action {action_name}: {type(e)}: {e}') from e
+
+			if value_bindings:
+				validated_params = self._replace_value_bindings(validated_params, value_bindings)
 
 			if sensitive_data:
 				# Get current URL if browser_session is provided
@@ -366,8 +369,6 @@ class Registry(Generic[Context]):
 
 				validated_params = self._replace_sensitive_data(validated_params, sensitive_data, current_url)
 
-			if value_bindings:
-				validated_params = self._replace_value_bindings(validated_params, value_bindings)
 			# Build special context dict
 			special_context = {
 				'browser_session': browser_session,
@@ -535,13 +536,17 @@ class Registry(Generic[Context]):
 
 		def recursively_replace_values(value: str | dict | list | tuple) -> str | dict | list | tuple:
 			if isinstance(value, str):
-				for alias, replacement in value_bindings.items():
-					value = value.replace(f'<value>{alias}</value>', replacement)
-				return value
+				return re.sub(
+					r'<value>([^<]*)</value>',
+					lambda match: value_bindings.get(match.group(1), match.group(0)),
+					value,
+				)
 
 			if isinstance(value, dict):
 				return {
-					key: recursively_replace_values(item) if isinstance(item, (str, dict, list, tuple)) else item
+					recursively_replace_values(key)
+					if isinstance(key, (str, dict, list, tuple))
+					else key: recursively_replace_values(item) if isinstance(item, (str, dict, list, tuple)) else item
 					for key, item in value.items()
 				}
 

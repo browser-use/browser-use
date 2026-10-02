@@ -6551,6 +6551,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			params['followups'] = list(followups)
 		if self.extraction_schema:
 			params['output_schema'] = self.extraction_schema
+		if self.value_bindings:
+			params['value_bindings'] = self.value_bindings
 		return params
 
 	async def _cancel_active_sdk_run(self) -> None:
