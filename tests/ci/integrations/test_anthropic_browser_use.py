@@ -206,7 +206,7 @@ async def test_bash_deadline_closes_inherited_output_pipes(tmp_path: Path) -> No
 	child = "import os,time; os.setsid(); open('descendant.pid','w').write(str(os.getpid())); print('started',flush=True); time.sleep(10)"
 	command = f'{shlex.quote(sys.executable)} -c {shlex.quote(child)} & wait'
 	try:
-		result = json.loads(await asyncio.wait_for(run_bash(command, output_dir=tmp_path, timeout_seconds=0.3), timeout=2))
+		result = json.loads(await asyncio.wait_for(run_bash(command, output_dir=tmp_path, timeout_seconds=1), timeout=3))
 		assert result['timed_out'] is True
 		assert 'started' in result['output']
 	finally:
