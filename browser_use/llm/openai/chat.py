@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -11,7 +12,7 @@ from openai.types.shared_params.reasoning_effort import ReasoningEffort
 from openai.types.shared_params.response_format_json_schema import JSONSchema, ResponseFormatJSONSchema
 from pydantic import BaseModel
 
-from browser_use.llm.base import BaseChatModel, is_reasoning_model
+from browser_use.llm.base import BaseChatModel, get_running_loop_or_none, is_reasoning_model
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
@@ -61,6 +62,12 @@ class ChatOpenAI(BaseChatModel):
 	default_query: Mapping[str, object] | None = None
 	http_client: httpx.AsyncClient | None = None
 	_strict_response_validation: bool = False
+	# Internal client cache: SDK clients own an httpx connection pool, so share
+	# one client per chat instance instead of allocating a pool on every call.
+	_client: AsyncOpenAI | None = field(default=None, init=False, repr=False, compare=False)
+	# A pooled keep-alive connection belongs to the loop that opened it, so the cached
+	# client is only reusable while that loop is still the running one.
+	_client_loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False, compare=False)
 	max_completion_tokens: int | None = 4096
 	reasoning_models: list[ChatModel | str] | None = field(
 		default_factory=lambda: [
@@ -108,13 +115,18 @@ class ChatOpenAI(BaseChatModel):
 
 	def get_client(self) -> AsyncOpenAI:
 		"""
-		Returns an AsyncOpenAI client.
+		Returns a cached AsyncOpenAI client.
 
 		Returns:
-			AsyncOpenAI: An instance of the AsyncOpenAI client.
+			AsyncOpenAI: The shared AsyncOpenAI client for this chat instance.
 		"""
-		client_params = self._get_client_params()
-		return AsyncOpenAI(**client_params)
+		loop = get_running_loop_or_none()
+		if self._client is None or self._client_loop is not loop:
+			# The old client's loop is already closed, so it cannot be awaited closed here.
+			client_params = self._get_client_params()
+			self._client = AsyncOpenAI(**client_params)
+			self._client_loop = loop
+		return self._client
 
 	@property
 	def name(self) -> str:
