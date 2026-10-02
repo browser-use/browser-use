@@ -4859,7 +4859,8 @@ def test_beta_agent_initializes_runtime_metadata_and_observability(monkeypatch):
 
 	assert agent.version
 	assert agent.source == 'ci'
-	assert agent.logger.name.endswith('1234 ⇢ 🅑 1234 🅣 --')
+	assert agent.logger.name == 'browser_use.Agent'
+	assert agent.logger.extra == {'browser_use_instance': 'Agent🅰 1234 ⇢ 🅑 1234 🅣 --'}
 	assert agent.eventbus is not None
 	assert callable(agent.telemetry.capture)
 	assert callable(agent.telemetry.flush)
@@ -4910,7 +4911,7 @@ async def test_beta_agent_logger_name_matches_browser_use(monkeypatch):
 		task_id='task-1234',
 		directly_open_url=False,
 	)
-	browser_use_logger_name = browser_use_agent.logger.name
+	browser_use_logger = browser_use_agent.logger
 	await stop_eventbus(browser_use_agent.eventbus)
 
 	beta_agent = BetaAgent(
@@ -4921,8 +4922,9 @@ async def test_beta_agent_logger_name_matches_browser_use(monkeypatch):
 		directly_open_url=False,
 	)
 
-	assert beta_agent.logger.name == browser_use_logger_name
-	assert beta_agent.logger.name == 'browser_use.Agent🅰 1234 ⇢ 🅑 abcd 🅣 --'
+	assert (beta_agent.logger.name, beta_agent.logger.extra) == (browser_use_logger.name, browser_use_logger.extra)
+	assert beta_agent.logger.name == 'browser_use.Agent'
+	assert beta_agent.logger.extra == {'browser_use_instance': 'Agent🅰 1234 ⇢ 🅑 abcd 🅣 --'}
 	await stop_eventbus(beta_agent.eventbus)
 
 
