@@ -362,7 +362,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			if await self._is_element_disabled(element_node):
 				msg = (
 					f'Cannot click element (index={index_for_logging}): it is disabled. '
-					'Complete whatever enables it first (for example required fields or checkboxes).'
+					'Complete whatever enables it first (a required field, a checkbox or a pending check), or wait a moment and try again.'
 				)
 				self.logger.info(f'{msg}')
 				return {'validation_error': msg}
@@ -444,7 +444,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			if await self._is_element_disabled(element_node):
 				msg = (
 					f'Cannot click at ({event.coordinate_x}, {event.coordinate_y}) - element is disabled. '
-					'Complete whatever enables it first (for example required fields or checkboxes).'
+					'Complete whatever enables it first (a required field, a checkbox or a pending check), or wait a moment and try again.'
 				)
 				self.logger.info(f'{msg}')
 				return {'validation_error': msg}
