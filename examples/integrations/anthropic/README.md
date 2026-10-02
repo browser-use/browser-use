@@ -7,7 +7,7 @@ runtime, all 31 actions, and local or remote execution.
 
 <img
   src="./architecture.svg"
-  alt="A task enters the Anthropic SDK tool runner, which sends browser actions to the Browser Use driver and local computation to Bash. The Browser Use driver controls local Chromium, Browser Use Cloud, or an existing remote browser over CDP."
+  alt="Claude sends tool calls through the Anthropic SDK to Browser Use. Browser Use provides browser actions and Bash; results return to Claude. The browser can run locally or remotely, while Bash runs beside the SDK."
   width="100%"
 >
 
@@ -129,7 +129,8 @@ the tool schemas and runner; this integration does not install a hidden agent pr
 `BrowserUse` exposes structured browser actions, not a default CDP code interpreter.
 CDP is the connection used underneath. Optional `javascript_exec` evaluates JavaScript
 inside the page; it cannot import host libraries or execute arbitrary CDP commands.
-`Bash` is a separate host tool. Its approvals are separate from browser approvals.
+`Bash` comes from the same Browser Use integration and runs on the SDK host.
+Register both with `tools=[driver, bash]`. Browser approval callbacks do not cover Bash.
 
 The `async with driver` block closes browsers that the driver launches. When
 you pass an existing session, your application keeps responsibility for closing it.
@@ -137,6 +138,20 @@ you pass an existing session, your application keeps responsibility for closing 
 See Anthropic's
 [browser-toolset quickstarts](https://github.com/anthropics/claude-quickstarts/tree/main/browser-toolset)
 for the SDK concepts and runner behavior.
+
+## From a page to a saved file
+
+After opening Hacker News, Claude can call `read_page` to inspect the page,
+then call `bash` to write the reading list. Anthropic's runner passes each
+call to Browser Use and returns the result to Claude. Browser actions and
+Bash are part of the same integration; they run on the browser host and
+SDK host respectively.
+
+<img
+  src="./tool-sequence.svg"
+  alt="Two calls after opening Hacker News: Claude asks Browser Use to read the page, receives the result, then uses Bash to save Markdown and JSON on the SDK host. Anthropic's tool runner connects each request and response."
+  width="100%"
+>
 
 ## Browser Use Cloud
 
