@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, create_model
 
-from browser_use.skills.views import ParameterSchema
+from browser_use.skills.views import ParameterSchema, enum_value
 
 
 def convert_parameters_to_pydantic(parameters: list[ParameterSchema], model_name: str = 'SkillParameters') -> type[BaseModel]:
@@ -27,7 +27,7 @@ def convert_parameters_to_pydantic(parameters: list[ParameterSchema], model_name
 		# Map parameter type string to Python types
 		python_type: Any = str  # default
 
-		param_type = param.type
+		param_type = enum_value(param.type)
 
 		if param_type == 'string':
 			python_type = str
