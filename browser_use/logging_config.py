@@ -109,6 +109,9 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 					parts = record.name.split('.')
 					if len(parts) >= 2:
 						record.name = parts[-1]
+			elif self.log_level <= logging.DEBUG and (instance := getattr(record, 'browser_use_instance', None)):
+				# Agent and BrowserSession log under fixed logger names, show which instance logged
+				record.name = f'browser_use.{instance}'
 			return super().format(record)
 
 	# Setup single handler for all loggers
