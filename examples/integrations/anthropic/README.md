@@ -231,28 +231,34 @@ requires a `confirm` callback. When a callback is present, the SDK calls it
 before every browser action, so approve routine actions in code and prompt a
 person only for the actions your application treats as sensitive:
 
+<img src="./confirmation-callback.svg" alt="A file upload passes enabled-action and file-policy checks, then reaches the application confirmation callback. Approval executes this action. A declined answer or callback error prevents execution. Browser confirmation does not cover Bash." width="100%">
+
 ```python
 import asyncio
+from pathlib import Path
+
+from anthropic.tools.browser import ConfirmContext, LocalFilePolicy
+from browser_use.integrations.anthropic import BrowserUse
 
 
-async def confirm(context):
-    if context.member not in {'javascript_exec', 'file_upload'}:
+async def confirm(context: ConfirmContext) -> bool:
+    if context.member not in {'file_upload', 'javascript_exec'}:
         return True
-    details = context.input.model_dump_json()
+    details = context.input.model_dump_json(exclude_none=True)
     answer = await asyncio.to_thread(
-        input, f"{context.member} on {context.tab_url}\n{details}\nAllow? [y/N] "
+        input,
+        f"Action: {context.member}\nPage: {context.tab_url}\n{details}\nAllow this action? [y/N] ",
     )
     return answer.strip().lower() == 'y'
 
 
 driver = BrowserUse(
-    confirm=confirm,
     configs={
-        'javascript_exec': {'enabled': True},
         'file_upload': {'enabled': True},
-        'read_console': {'enabled': True},
-        'read_network': {'enabled': True},
+        'javascript_exec': {'enabled': True},
     },
+    confirm=confirm,
+    file_policy=LocalFilePolicy(upload_roots=[Path('uploads')]),
 )
 ```
 
@@ -267,6 +273,8 @@ messages, or deletion should also gate those actions. Browser `confirm` does not
 The SDK's URL and file policies remain available through the driver's base class.
 
 ## Files with remote browsers
+
+<img src="./files-between-hosts.svg" alt="A report starts on the SDK host. The application copies bytes to the remote browser host before file_upload can select the staged file. Download notifications return metadata; the application must retrieve the bytes before Bash can read a local copy. These transfers are not built into the driver." width="100%">
 
 `file_upload` works when the resolved file path exists on the browser host.
 For a remote browser, provide a `document_resolver` that maps an approved
