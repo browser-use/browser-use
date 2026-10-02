@@ -496,8 +496,9 @@ class Tools(Generic[Context]):
 				logger.info(msg)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 			except Exception as e:
-				logger.error(f'Failed to search {params.engine}: {e}')
-				return ActionResult(error=f'Failed to search {params.engine} for "{params.query}": {str(e)}')
+				error_msg = str(e) or type(e).__name__
+				logger.error(f'Failed to search {params.engine}: {error_msg}')
+				return ActionResult(error=f'Failed to search {params.engine} for "{params.query}": {error_msg}')
 
 		@self.registry.action(
 			'',
@@ -553,7 +554,7 @@ class Tools(Generic[Context]):
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, long_term_memory=memory)
 			except Exception as e:
-				error_msg = str(e)
+				error_msg = str(e) or type(e).__name__
 				# Always log the actual error first for debugging
 				browser_session.logger.error(f'❌ Navigation failed: {error_msg}')
 
@@ -578,7 +579,7 @@ class Tools(Generic[Context]):
 					return ActionResult(error=site_unavailable_msg)
 				else:
 					# Return error in ActionResult instead of re-raising
-					return ActionResult(error=f'Navigation failed: {str(e)}')
+					return ActionResult(error=f'Navigation failed: {error_msg}')
 
 		@self.registry.action('Go back', param_model=NoParamsAction, terminates_sequence=True)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
