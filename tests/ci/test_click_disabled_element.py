@@ -12,10 +12,12 @@ import asyncio
 import pytest
 from pytest_httpserver import HTTPServer
 
+from browser_use.agent.service import Agent
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import ClickCoordinateEvent
 from browser_use.browser.profile import BrowserProfile
 from browser_use.tools.service import Tools
+from tests.ci.conftest import create_mock_llm
 
 LISTENER = "<script>document.getElementById('target').addEventListener('click', () => { window.clicked = true })</script>"
 
@@ -25,6 +27,7 @@ PAGES = {
 	'/fieldset': '<fieldset disabled><button id="target" type="button">Place order</button></fieldset>' + LISTENER,
 	'/disabled-print': '<button id="target" disabled onclick="window.print()">Print</button>' + LISTENER,
 	'/enabled': '<button id="target">Place order</button>' + LISTENER,
+	'/multi-act': '<input id="name"><button id="target" disabled>Place order</button><input id="note">' + LISTENER,
 	'/enabled-later': (
 		'<input id="name"><button id="target" disabled>Place order</button>'
 		+ LISTENER
@@ -133,3 +136,28 @@ async def test_coordinate_click_on_disabled_control(browser_session, http_server
 	is_error = isinstance(click_metadata, dict) and 'disabled' in click_metadata.get('validation_error', '')
 	assert is_error is not clickable
 	assert await _clicked(browser_session) is clickable
+
+
+async def test_click_on_disabled_control_stops_multi_act(browser_session, http_server):
+	"""Typing then clicking in one step: the click on the still-disabled button must stop the queued actions."""
+	tools = Tools()
+	indexes = await _open(browser_session, tools, http_server.url_for('/multi-act'))
+	ActionModel = tools.registry.create_action_model()
+	actions = [
+		ActionModel.model_validate({'input': {'index': indexes['name'], 'text': 'Ada'}}),
+		ActionModel.model_validate({'click': {'index': indexes['target']}}),
+		ActionModel.model_validate({'input': {'index': indexes['note'], 'text': 'should not be typed'}}),
+	]
+	agent = Agent(task='test', llm=create_mock_llm(), browser_session=browser_session, tools=tools)
+
+	results = await agent.multi_act(actions)
+
+	assert len(results) == 2
+	assert results[-1].error is not None and 'disabled' in results[-1].error
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	note = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': "document.getElementById('note').value", 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	assert note.get('result', {}).get('value') == ''
+	assert not await _clicked(browser_session)
