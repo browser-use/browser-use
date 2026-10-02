@@ -3331,6 +3331,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 						return el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled');
 					}
 
+					// Options the agent can pick instead, reported with a disabled-option refusal
+					function enabledOptions(items) {
+						return Array.from(items)
+							.filter(item => !isDisabled(item))
+							.map(item => ({ text: item.textContent ? item.textContent.trim() : '', value: item.getAttribute('data-value') || '' }))
+							.filter(opt => opt.text || opt.value);
+					}
+
 					// Function to attempt selection on a dropdown element
 					function attemptSelection(element) {
 						// Handle native select elements
@@ -3427,7 +3435,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 										if (isDisabled(item)) {
 											return {
 												success: false,
-												error: `Menu item '${item.textContent.trim()}' is disabled and cannot be selected`
+												error: `Menu item '${item.textContent.trim()}' is disabled and cannot be selected`,
+												optionDisabled: true,
+												availableOptions: enabledOptions(menuItems)
 											};
 										}
 
@@ -3475,7 +3485,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 										if (isDisabled(item)) {
 											return {
 												success: false,
-												error: `Custom dropdown item '${item.textContent.trim()}' is disabled and cannot be selected`
+												error: `Custom dropdown item '${item.textContent.trim()}' is disabled and cannot be selected`,
+												optionDisabled: true,
+												availableOptions: enabledOptions(menuItems)
 											};
 										}
 
@@ -3725,10 +3737,15 @@ class DefaultActionWatchdog(BaseWatchdog):
 								short_term_options.append(f'- {opt}')
 
 						if short_term_options:
-							short_term_memory = 'Available dropdown options  are:\n' + '\n'.join(short_term_options)
-							long_term_memory = (
-								f"Couldn't select the dropdown option as '{target_text}' is not one of the available options."
-							)
+							if selection_result.get('optionDisabled'):
+								# Keep the refusal reason; the list only offers the enabled alternatives
+								short_term_memory = f'{error_msg}. Enabled options are:\n' + '\n'.join(short_term_options)
+								long_term_memory = error_msg
+							else:
+								short_term_memory = 'Available dropdown options  are:\n' + '\n'.join(short_term_options)
+								long_term_memory = (
+									f"Couldn't select the dropdown option as '{target_text}' is not one of the available options."
+								)
 
 							# Return error result with structured memory instead of raising exception
 							return {

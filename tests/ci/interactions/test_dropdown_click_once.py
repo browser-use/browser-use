@@ -223,14 +223,23 @@ class TestDropdownClickOnce:
 		assert 'selected' in state['classes'].split(), f'Expected Remote to keep class "selected", got {state["classes"]!r}'
 
 	@pytest.mark.parametrize(
-		'path', ['/aria-disabled', '/aria-disabled-class', '/custom-disabled-item', '/custom-disabled-dropdown']
+		'path,offers_alternatives',
+		[
+			('/aria-disabled', True),
+			('/aria-disabled-class', True),
+			('/custom-disabled-item', True),
+			('/custom-disabled-dropdown', False),
+		],
 	)
-	async def test_disabled_option_is_refused(self, tools: Tools, browser_session: BrowserSession, base_url: str, path: str):
+	async def test_disabled_option_is_refused(
+		self, tools: Tools, browser_session: BrowserSession, base_url: str, path: str, offers_alternatives: bool
+	):
 		"""A disabled option, or an option in a disabled dropdown, is not activated and not reported as selected."""
 		result, state = await _select_remote(tools, browser_session, f'{base_url}{path}')
 
-		assert result.error is not None or 'disabled' in (result.extracted_content or '').lower(), (
-			f'Expected select_dropdown to refuse a disabled option, got: {result.extracted_content!r}'
-		)
+		message = result.error or result.extracted_content or ''
+		assert 'disabled' in message.lower(), f'Expected select_dropdown to refuse a disabled option, got: {message!r}'
+		if offers_alternatives:
+			assert '- Hybrid' in message and '- Remote' not in message, f'Expected only enabled alternatives, got: {message!r}'
 		assert state['clicks'] == 0, f'Disabled option handler ran {state["clicks"]} times'
 		assert state['selected'] == 'false', f'Disabled option was marked selected: {state["selected"]!r}'
