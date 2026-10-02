@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 from anthropic import AsyncAnthropic
-from anthropic.tools.browser import ConfirmContext, LocalFilePolicy
+from anthropic.tools.browser import ConfirmContext, LocalFilePolicy  # pyright: ignore[reportMissingImports]
 
 from browser_use.integrations.anthropic import Bash, BrowserUse
 
