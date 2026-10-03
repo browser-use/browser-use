@@ -44,6 +44,16 @@ def is_running_in_docker() -> bool:
 	return False
 
 
+def _env_bool(name: str, default: str = 'false') -> bool:
+	"""Read a boolean environment variable, treating an unset or empty value as False.
+
+	`os.getenv(name).lower()[:1] in 'ty1'` answers True for an empty value, because
+	substring containment makes '' a match for any string. Membership is therefore
+	tested against an explicit tuple of true-ish first characters.
+	"""
+	return os.getenv(name, default).lower()[:1] in ('t', 'y', '1')
+
+
 class OldConfig:
 	"""Original lazy-loading configuration class for environment variables."""
 
@@ -56,11 +66,11 @@ class OldConfig:
 
 	@property
 	def ANONYMIZED_TELEMETRY(self) -> bool:
-		return os.getenv('ANONYMIZED_TELEMETRY', 'true').lower()[:1] in 'ty1'
+		return _env_bool('ANONYMIZED_TELEMETRY', 'true')
 
 	@property
 	def BROWSER_USE_CLOUD_SYNC(self) -> bool:
-		return os.getenv('BROWSER_USE_CLOUD_SYNC', str(self.ANONYMIZED_TELEMETRY)).lower()[:1] in 'ty1'
+		return _env_bool('BROWSER_USE_CLOUD_SYNC', str(self.ANONYMIZED_TELEMETRY))
 
 	@property
 	def BROWSER_USE_CLOUD_API_URL(self) -> str:
@@ -164,7 +174,7 @@ class OldConfig:
 
 	@property
 	def SKIP_LLM_API_KEY_VERIFICATION(self) -> bool:
-		return os.getenv('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[:1] in 'ty1'
+		return _env_bool('SKIP_LLM_API_KEY_VERIFICATION')
 
 	@property
 	def DEFAULT_LLM(self) -> str:
@@ -173,15 +183,15 @@ class OldConfig:
 	# Runtime hints
 	@property
 	def IN_DOCKER(self) -> bool:
-		return os.getenv('IN_DOCKER', 'false').lower()[:1] in 'ty1' or is_running_in_docker()
+		return _env_bool('IN_DOCKER') or is_running_in_docker()
 
 	@property
 	def IS_IN_EVALS(self) -> bool:
-		return os.getenv('IS_IN_EVALS', 'false').lower()[:1] in 'ty1'
+		return _env_bool('IS_IN_EVALS')
 
 	@property
 	def BROWSER_USE_VERSION_CHECK(self) -> bool:
-		return os.getenv('BROWSER_USE_VERSION_CHECK', 'true').lower()[:1] in 'ty1'
+		return _env_bool('BROWSER_USE_VERSION_CHECK', 'true')
 
 	@property
 	def WIN_FONT_DIR(self) -> str:
