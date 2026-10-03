@@ -596,15 +596,22 @@ class Tools(Generic[Context]):
 
 		@self.registry.action('Wait for x seconds.')
 		async def wait(seconds: int = 3):
+			import time
+
 			# Cap wait time at maximum 30 seconds
-			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
-			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
-			# Note by Mert: the above doesnt make sense because we do the LLM call right after this or this could be followed by another action after which we would like to wait
-			# so I revert this.
-			actual_seconds = min(max(seconds - 1, 0), 30)
-			memory = f'Waited for {seconds} seconds'
-			logger.info(f'🕒 waited for {seconds} second{"" if seconds == 1 else "s"}')
+			actual_seconds = min(max(seconds, 0), 30)
+			capped = seconds > 30
+
+			t0 = time.monotonic()
 			await asyncio.sleep(actual_seconds)
+			elapsed = round(time.monotonic() - t0, 2)
+
+			if capped:
+				memory = f'Waited for {elapsed} seconds (capped from the requested {seconds})'
+			else:
+				memory = f'Waited for {elapsed} seconds'
+
+			logger.info(f'🕒 {memory}')
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
 		# Helper function for coordinate conversion
