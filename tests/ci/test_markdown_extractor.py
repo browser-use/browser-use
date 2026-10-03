@@ -68,6 +68,42 @@ class TestPreprocessMarkdownContent:
 		assert 'Header' in filtered
 		assert 'Footer' in filtered
 
+	def test_preserves_short_inline_code_in_braces(self):
+		"""Short inline code such as template placeholders should be preserved."""
+		content = 'Use the `{id}` placeholder and `{user_name}` in the URL.'
+		filtered, _ = _preprocess_markdown_content(content)
+
+		assert filtered == content
+
+	def test_inline_code_removal_does_not_span_code_spans(self):
+		"""Text between two separate code spans should not be removed."""
+		content = 'Set `{x` then later `y}` end'
+		filtered, _ = _preprocess_markdown_content(content)
+
+		assert filtered == content
+
+	def test_removes_large_inline_json_code_span(self):
+		"""Large inline JSON in a code span should still be removed."""
+		blob = '`{"key": "' + 'x' * 100 + '"}`'
+		filtered, _ = _preprocess_markdown_content(f'Before {blob} after')
+
+		assert blob not in filtered
+		assert 'Before' in filtered
+		assert 'after' in filtered
+
+	def test_inline_json_code_span_length_boundary(self):
+		"""A code span is removed at exactly 100 chars between the braces and kept at 99."""
+		removed = '`{"key": "' + 'x' * 91 + '"}`'
+		kept = '`{"key": "' + 'x' * 90 + '"}`'
+		assert len(removed) - 4 == 100 and len(kept) - 4 == 99
+
+		filtered, _ = _preprocess_markdown_content(f'Before {removed} after')
+		assert removed not in filtered
+		assert filtered == 'Before  after'
+
+		filtered, _ = _preprocess_markdown_content(f'Before {kept} after')
+		assert filtered == f'Before {kept} after'
+
 	def test_preserves_small_json(self):
 		"""Small JSON objects (<100 chars) should be preserved."""
 		small_json = '{"key": "value"}'
