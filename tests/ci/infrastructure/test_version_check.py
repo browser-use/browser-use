@@ -1,4 +1,34 @@
+import builtins
+
+import pytest
+
 from browser_use.utils import _browser_use_version_key, _is_newer_browser_use_version
+
+
+@pytest.mark.parametrize(
+	('latest', 'current', 'expected'),
+	[
+		('1.0.0', '1.0.0.dev1', True),
+		('1.0.0rc1', '1.0.0.dev1', True),
+		('1.0.0a1', '1.0.0.dev1', True),
+		('1.0.0.dev2', '1.0.0.dev1', True),
+		('1.0.0.dev1', '1.0.0.dev2', False),
+		('1.0.0.dev1', '1.0.0', False),
+		('1.0.0.post1', '1.0.0', True),
+		('1.0.0', '1.0.0.post1', False),
+		('1.0.0.dev1', '1.0.0.dev1', False),
+	],
+)
+def test_version_comparison_without_packaging(monkeypatch: pytest.MonkeyPatch, latest: str, current: str, expected: bool):
+	original_import = builtins.__import__
+
+	def without_packaging(name, *args, **kwargs):
+		if name == 'packaging.version':
+			raise ImportError('packaging unavailable in this test')
+		return original_import(name, *args, **kwargs)
+
+	monkeypatch.setattr(builtins, '__import__', without_packaging)
+	assert _is_newer_browser_use_version(latest, current) is expected
 
 
 def test_prerelease_is_newer_than_previous_stable():
