@@ -90,3 +90,43 @@ class TestPaintOrderTextExclusion:
 
 		with pytest.raises(ValueError, match='Invalid rectangle coordinates'):
 			Rect(x1=0.0, y1=100.0, x2=50.0, y2=50.0)
+
+	def test_non_positive_bounds_skipped_in_calculate_paint_order(self):
+		"""Nodes with zero or negative width or height must be skipped in calculate_paint_order
+		without crashing with ValueError from Rect validation or polluting occlusion checks."""
+		zero_width = _make_node(
+			NodeType.TEXT_NODE, 'ZERO WIDTH', _make_snapshot(paint_order=1, bounds=DOMRect(x=0, y=0, width=0, height=20))
+		)
+		zero_height = _make_node(
+			NodeType.TEXT_NODE, 'ZERO HEIGHT', _make_snapshot(paint_order=2, bounds=DOMRect(x=0, y=0, width=100, height=0))
+		)
+		negative_width = _make_node(
+			NodeType.TEXT_NODE, 'NEGATIVE WIDTH', _make_snapshot(paint_order=3, bounds=DOMRect(x=10, y=10, width=-50, height=20))
+		)
+		negative_height = _make_node(
+			NodeType.TEXT_NODE,
+			'NEGATIVE HEIGHT',
+			_make_snapshot(paint_order=4, bounds=DOMRect(x=10, y=10, width=100, height=-20)),
+		)
+		valid_node = _make_node(
+			NodeType.TEXT_NODE, 'VALID NODE', _make_snapshot(paint_order=5, bounds=DOMRect(x=0, y=0, width=100, height=20))
+		)
+
+		children = [
+			SimplifiedNode(original_node=zero_width, children=[]),
+			SimplifiedNode(original_node=zero_height, children=[]),
+			SimplifiedNode(original_node=negative_width, children=[]),
+			SimplifiedNode(original_node=negative_height, children=[]),
+			SimplifiedNode(original_node=valid_node, children=[]),
+		]
+
+		wrapper = SimplifiedNode(
+			original_node=_make_node(NodeType.ELEMENT_NODE, '', None),
+			children=children,
+			should_display=False,
+		)
+
+		# Must complete without raising ValueError from invalid Rect bounds
+		PaintOrderRemover(wrapper).calculate_paint_order()
+
+		assert children[4].ignored_by_paint_order is False
