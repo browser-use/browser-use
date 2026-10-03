@@ -487,7 +487,10 @@ class BrowserLaunchArgs(BaseModel):
 				downloads_path = Path(tempfile.gettempdir()) / f'browser-use-downloads-{unique_id}'
 
 			self.downloads_path = downloads_path
-			self.downloads_path.mkdir(parents=True, exist_ok=True)
+			# NOTE: Do not mkdir here. The DownloadsWatchdog creates the
+			# directory when a browser actually launches, avoiding leaked
+			# temp dirs when BrowserProfile is constructed but never used
+			# (e.g. the module-level DEFAULT_BROWSER_PROFILE).
 		return self
 
 	@staticmethod
