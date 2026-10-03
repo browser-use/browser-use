@@ -117,6 +117,24 @@ def test_scroll_different_elements_different_hash():
 	assert h1 != h2
 
 
+def test_click_coordinates_hash_by_position():
+	"""Coordinate clicks (no index) are identified by position, not all collapsed into one hash."""
+	h1 = compute_action_hash('click', {'coordinate_x': 100, 'coordinate_y': 200})
+	h2 = compute_action_hash('click', {'coordinate_x': 100, 'coordinate_y': 200})
+	h3 = compute_action_hash('click', {'coordinate_x': 640, 'coordinate_y': 360})
+	assert h1 == h2
+	assert h1 != h3
+
+
+def test_detector_no_nudge_for_clicks_at_different_coordinates():
+	"""Clicking different positions by coordinate is not a repeated action."""
+	detector = ActionLoopDetector(window_size=20)
+	for i in range(5):
+		detector.record_action('click', {'coordinate_x': 100 + i * 50, 'coordinate_y': 200})
+	assert detector.max_repetition_count == 1
+	assert detector.get_nudge_message() is None
+
+
 def test_scroll_same_element_same_hash():
 	"""Scrolling the same element in the same direction produces the same hash."""
 	h1 = compute_action_hash('scroll', {'down': True, 'index': 5})
