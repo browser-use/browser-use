@@ -238,7 +238,7 @@ class CsvFile(BaseFile):
 			stripped = stripped.replace('\\"', '"')
 			stripped = stripped.replace('\\n', '\n')
 
-		reader = csv.reader(io.StringIO(stripped))
+		reader = csv.reader(io.StringIO(stripped, newline=''))
 		rows: list[list[str]] = []
 		for row in reader:
 			# Skip completely empty rows (artifacts of blank lines)
