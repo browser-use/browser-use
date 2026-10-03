@@ -1852,7 +1852,18 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				# Check for JavaScript execution errors
 				if result.get('exceptionDetails'):
 					exception = result['exceptionDetails']
-					error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
+					remote_exception = exception.get('exception') or {}
+					# CDP's text is often only "Uncaught"; the thrown object carries the actual error.
+					description = remote_exception.get('description')
+					if not description and 'value' in remote_exception:
+						description = json.dumps(remote_exception['value'], ensure_ascii=False)
+					if not description:
+						description = remote_exception.get('unserializableValue') or exception.get('text') or 'Unknown error'
+					if len(description) > 4000:
+						description = description[:4000] + '\n... [Truncated exception]'
+					error_msg = f'JavaScript execution error: {description}'
+					if 'lineNumber' in exception and 'columnNumber' in exception:
+						error_msg += f'\nLocation: line {exception["lineNumber"] + 1}, column {exception["columnNumber"] + 1}'
 
 					# Enhanced error message with debugging info
 					enhanced_msg = f"""JavaScript Execution Failed:
@@ -1862,6 +1873,7 @@ Validated Code (after quote fixing):
 {validated_code[:500]}{'...' if len(validated_code) > 500 else ''}
 """
 
+					enhanced_msg = sanitize_surrogates(enhanced_msg)
 					logger.debug(enhanced_msg)
 					return ActionResult(error=enhanced_msg)
 
