@@ -174,7 +174,7 @@ jobs:
 
       - name: Run test with retry
         if: steps.check-file.outputs.exists == 'true'
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
         with:
           timeout_minutes: 4
           max_attempts: 1
@@ -244,7 +244,7 @@ jobs:
 
       - name: Run agent tasks evaluation and capture score
         id: eval
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
         with:
           timeout_minutes: 4
           max_attempts: 1
