@@ -1630,13 +1630,17 @@ class BrowserSession(BaseModel):
 		# The handler returns the BrowserStateSummary directly. If the complete state
 		# request times out, return a non-actionable state so the model can recover
 		# without exposing selectors from an earlier page.
+		current_task = asyncio.current_task()
+		initial_cancellation_count = current_task.cancelling() if current_task is not None else 0
 		try:
 			result = await event.event_result(raise_if_none=True, raise_if_any=True)
 		except (TimeoutError, asyncio.CancelledError) as error:
-			if isinstance(error, asyncio.CancelledError):
-				current_task = asyncio.current_task()
-				if current_task is not None and current_task.cancelling():
-					raise
+			if (
+				isinstance(error, asyncio.CancelledError)
+				and current_task is not None
+				and current_task.cancelling() > initial_cancellation_count
+			):
+				raise
 
 			state_error = (
 				'Browser state capture timed out or was interrupted by another event timeout. '
