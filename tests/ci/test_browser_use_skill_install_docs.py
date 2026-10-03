@@ -131,7 +131,7 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 	expected = (
 		'---\n'
 		'name: browser-use\n'
-		'description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."\n'
+		'description: "Direct browser control over CDP. Use when a task needs interaction such as clicking, typing or navigating, a logged-in session, JavaScript rendering, or a bot-protected page, or when a direct HTTP fetch has already failed. A plain public page, API or docs needs no browser."\n'
 		'homepage: https://browser-use.com\n'
 		'metadata:\n'
 		'  {\n'
