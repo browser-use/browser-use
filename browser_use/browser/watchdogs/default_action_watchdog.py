@@ -1376,9 +1376,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 								selection.removeAllRanges();
 								selection.addRange(range);
 
-								// Dispatch events
+								// Dispatch input event to notify listeners of text change
+								// Note: do not dispatch 'change' here as clearing is an intermediate step
+								// before replacement text is entered; 'change' is for value commit.
 								this.dispatchEvent(new Event("input", { bubbles: true }));
-								this.dispatchEvent(new Event("change", { bubbles: true }));
 
 								return {cleared: true, method: 'contenteditable', finalText: this.textContent};
 							} else if (this.value !== undefined) {
@@ -1409,7 +1410,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 									this.value = "";
 								}
 								this.dispatchEvent(new Event("input", { bubbles: true }));
-								this.dispatchEvent(new Event("change", { bubbles: true }));
 								return {cleared: true, method: 'value', finalText: this.value};
 							} else {
 								return {cleared: false, method: 'none', error: 'Not a supported input type'};
