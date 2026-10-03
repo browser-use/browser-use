@@ -23,8 +23,8 @@ def test_build_snapshot_lookup_dpi_scaling_and_stacking_contexts():
 						[100.0, 120.0, 140.0, 160.0],
 					],
 					'scrollRects': [
-						[0.0, 0.0, 1000.0, 2000.0],
-						[0.0, 0.0, 500.0, 600.0],
+						[10.0, 20.0, 1000.0, 2000.0],
+						[30.0, 40.0, 500.0, 600.0],
 					],
 					# In CDP, stackingContexts.index lists layout indices that have stacking contexts.
 					# Here only layout_idx 1 has a stacking context.
@@ -60,6 +60,8 @@ def test_build_snapshot_lookup_dpi_scaling_and_stacking_contexts():
 	assert node_101.clientRects.height == 400.0
 
 	assert node_101.scrollRects is not None
+	assert node_101.scrollRects.x == 5.0
+	assert node_101.scrollRects.y == 10.0
 	assert node_101.scrollRects.width == 500.0
 	assert node_101.scrollRects.height == 1000.0
 
@@ -79,6 +81,12 @@ def test_build_snapshot_lookup_dpi_scaling_and_stacking_contexts():
 	assert node_102.clientRects.y == 60.0
 	assert node_102.clientRects.width == 70.0
 	assert node_102.clientRects.height == 80.0
+
+	assert node_102.scrollRects is not None
+	assert node_102.scrollRects.x == 15.0
+	assert node_102.scrollRects.y == 20.0
+	assert node_102.scrollRects.width == 250.0
+	assert node_102.scrollRects.height == 300.0
 
 	# Stacking context: layout_idx 1 IS in stackingContexts.index
 	assert node_102.stacking_contexts is True
