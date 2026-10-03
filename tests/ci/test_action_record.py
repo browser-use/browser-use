@@ -8,10 +8,14 @@ the full stack against a real headless browser.
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
+from PIL import Image
 
 try:
 	import imageio.v2 as iio  # type: ignore[import-not-found]
@@ -21,13 +25,48 @@ except ImportError:
 	IMAGEIO_AVAILABLE = False
 
 from browser_use.browser.events import NavigateToUrlEvent
-from browser_use.browser.profile import BrowserProfile
+from browser_use.browser.profile import BrowserProfile, ViewportSize
 from browser_use.browser.session import BrowserSession
+from browser_use.browser.video_recorder import VideoRecorderService
 
 pytestmark = pytest.mark.skipif(
 	not IMAGEIO_AVAILABLE,
 	reason='Recording requires the [video] extra: pip install "browser-use[video]"',
 )
+
+
+@pytest.mark.parametrize('initial_frames', [1, 40])
+def test_recording_preserves_elapsed_time(tmp_path: Path, initial_frames: int):
+	"""Sparse frames, bursts, and trailing idle time should keep real playback timing."""
+	frames = []
+	for color in ('red', 'lime'):
+		with Image.new('RGB', (32, 32), color) as image, io.BytesIO() as buffer:
+			image.save(buffer, format='PNG')
+			frames.append(base64.b64encode(buffer.getvalue()).decode())
+
+	path = tmp_path / 'timing.mp4'
+	recorder = VideoRecorderService(path, ViewportSize(width=32, height=32), framerate=10)
+	# Reusing the service must start a fresh timeline each time.
+	for _ in range(2):
+		recorder.start()
+		started_at = time.monotonic()
+		try:
+			for _ in range(initial_frames):
+				recorder.add_frame(frames[0])
+			time.sleep(0.35)
+			recorder.add_frame(frames[1])
+			time.sleep(0.35)
+			elapsed = time.monotonic() - started_at
+		finally:
+			recorder.stop_and_save()
+
+		reader: Any = iio.get_reader(str(path))
+		try:
+			assert reader.get_meta_data()['duration'] == pytest.approx(elapsed, abs=0.15)
+			assert reader.get_data(1)[16, 16].tolist() == pytest.approx([255, 0, 0], abs=5)
+			assert reader.get_data(reader.count_frames() - 1)[16, 16].tolist() == pytest.approx([0, 255, 0], abs=5)
+		finally:
+			reader.close()
 
 
 @pytest.fixture
@@ -73,8 +112,10 @@ async def test_start_stop_recording_produces_video(browser_session: BrowserSessi
 	saved = await watchdog.start_recording(out_path)
 	assert saved == out_path
 	assert watchdog.is_recording
+	started_at = time.monotonic()
 
 	await _drive_browser_briefly(browser_session, page_url)
+	elapsed = time.monotonic() - started_at
 
 	final = await watchdog.stop_recording()
 	assert final == out_path
@@ -85,6 +126,7 @@ async def test_start_stop_recording_produces_video(browser_session: BrowserSessi
 	# Confirm the file is actually a decodable video with at least one frame.
 	reader: Any = iio.get_reader(str(out_path))
 	try:
+		assert reader.get_meta_data()['duration'] >= elapsed - 0.2, 'recording should preserve time spent on a static page'
 		frame: Any = reader.get_next_data()
 		assert frame is not None and frame.size > 0
 	finally:
