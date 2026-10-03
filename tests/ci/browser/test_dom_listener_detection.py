@@ -168,6 +168,38 @@ async def test_parent_timeout_cancellation_returns_non_actionable_state(browser_
 	assert 'interrupted by another event timeout' in state.state_error
 
 
+async def test_stored_cancellation_is_recovered_after_an_earlier_cancellation_was_suppressed(
+	browser_session: BrowserSession, monkeypatch
+):
+	"""An old cancellation count must not make a stored event error look like a new caller cancellation."""
+
+	class InterruptedStateEvent:
+		async def event_result(self, **_kwargs):
+			raise asyncio.CancelledError('interrupted because of a parent timeout')
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', lambda _event: InterruptedStateEvent())
+
+	async def capture_after_suppressing_cancellation():
+		try:
+			await asyncio.Future()
+		except asyncio.CancelledError:
+			pass
+
+		current_task = asyncio.current_task()
+		assert current_task is not None
+		assert current_task.cancelling() == 1
+		return await browser_session.get_browser_state_summary(include_screenshot=False)
+
+	task = asyncio.create_task(capture_after_suppressing_cancellation())
+	await asyncio.sleep(0)
+	task.cancel()
+	state = await task
+
+	assert state.dom_state.selector_map == {}
+	assert state.state_error is not None
+	assert 'interrupted by another event timeout' in state.state_error
+
+
 async def test_caller_cancellation_during_state_capture_is_propagated(browser_session: BrowserSession, monkeypatch):
 	"""A real cancellation of the state-capture caller must still propagate."""
 
