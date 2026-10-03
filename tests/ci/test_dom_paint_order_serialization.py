@@ -92,7 +92,7 @@ class TestPaintOrderTextExclusion:
 			Rect(x1=0.0, y1=100.0, x2=50.0, y2=50.0)
 
 	def test_non_positive_bounds_skipped_in_calculate_paint_order(self):
-		"""Nodes with zero or negative width or height must be skipped in calculate_paint_order
+		"""Nodes with zero, negative, or NaN width or height must be skipped in calculate_paint_order
 		without crashing with ValueError from Rect validation or polluting occlusion checks."""
 		zero_width = _make_node(
 			NodeType.TEXT_NODE, 'ZERO WIDTH', _make_snapshot(paint_order=1, bounds=DOMRect(x=0, y=0, width=0, height=20))
@@ -108,8 +108,18 @@ class TestPaintOrderTextExclusion:
 			'NEGATIVE HEIGHT',
 			_make_snapshot(paint_order=4, bounds=DOMRect(x=10, y=10, width=100, height=-20)),
 		)
+		nan_width = _make_node(
+			NodeType.TEXT_NODE,
+			'NAN WIDTH',
+			_make_snapshot(paint_order=5, bounds=DOMRect(x=10, y=10, width=float('nan'), height=20)),
+		)
+		nan_height = _make_node(
+			NodeType.TEXT_NODE,
+			'NAN HEIGHT',
+			_make_snapshot(paint_order=6, bounds=DOMRect(x=10, y=10, width=100, height=float('nan'))),
+		)
 		valid_node = _make_node(
-			NodeType.TEXT_NODE, 'VALID NODE', _make_snapshot(paint_order=5, bounds=DOMRect(x=0, y=0, width=100, height=20))
+			NodeType.TEXT_NODE, 'VALID NODE', _make_snapshot(paint_order=7, bounds=DOMRect(x=0, y=0, width=100, height=20))
 		)
 
 		children = [
@@ -117,6 +127,8 @@ class TestPaintOrderTextExclusion:
 			SimplifiedNode(original_node=zero_height, children=[]),
 			SimplifiedNode(original_node=negative_width, children=[]),
 			SimplifiedNode(original_node=negative_height, children=[]),
+			SimplifiedNode(original_node=nan_width, children=[]),
+			SimplifiedNode(original_node=nan_height, children=[]),
 			SimplifiedNode(original_node=valid_node, children=[]),
 		]
 
@@ -126,7 +138,7 @@ class TestPaintOrderTextExclusion:
 			should_display=False,
 		)
 
-		# Must complete without raising ValueError from invalid Rect bounds
+		# Must complete without raising ValueError from invalid or NaN Rect bounds
 		PaintOrderRemover(wrapper).calculate_paint_order()
 
-		assert children[4].ignored_by_paint_order is False
+		assert children[6].ignored_by_paint_order is False

@@ -196,7 +196,7 @@ class PaintOrderRemover:
 					continue  # shouldn't happen by how we filter them out in the first place
 
 				bounds = node.original_node.snapshot_node.bounds
-				if bounds.width <= 0 or bounds.height <= 0:
+				if not (bounds.width > 0 and bounds.height > 0):
 					continue
 
 				rect = Rect(
