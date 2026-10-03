@@ -18,7 +18,6 @@ _DEMO_PANEL_SCRIPT = r"""(function () {
   const PANEL_ID = 'browser-use-demo-panel';
   const STYLE_ID = 'browser-use-demo-panel-style';
   const STORAGE_KEY = '__browserUseDemoLogs__';
-  const STORAGE_HTML_KEY = '__browserUseDemoLogsHTML__';
   const PANEL_STATE_KEY = '__browserUseDemoPanelState__';
   const TOGGLE_BUTTON_ID = 'browser-use-demo-toggle';
   const MAX_MESSAGES = 100;
@@ -72,9 +71,7 @@ _DEMO_PANEL_SCRIPT = r"""(function () {
       document.documentElement.style.setProperty('--browser-use-demo-panel-width', `${savedWidth}px`);
     }
 
-    if (!hydrateFromStoredMarkup()) {
-      state.messages.forEach((entry) => appendEntry(entry, false));
-    }
+    state.messages.forEach((entry) => appendEntry(entry, false));
     attachCloseHandler();
     if (state.isOpen) {
       openPanel(false);
@@ -457,7 +454,7 @@ _DEMO_PANEL_SCRIPT = r"""(function () {
     closeBtn.setAttribute(EXCLUDE_ATTR, 'true');
     closeBtn.setAttribute('aria-label', 'Hide demo panel');
     closeBtn.dataset.role = 'close-toggle';
-    closeBtn.innerHTML = '&times;';
+    closeBtn.textContent = '×';
     actions.appendChild(closeBtn);
     header.appendChild(title);
     header.appendChild(actions);
@@ -594,36 +591,9 @@ _DEMO_PANEL_SCRIPT = r"""(function () {
   function persistMessages() {
     try {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state.messages.slice(-MAX_MESSAGES)));
-      if (state.list) {
-        sessionStorage.setItem(STORAGE_HTML_KEY, state.list.innerHTML);
-      }
     } catch (err) {
       // Ignore sessionStorage errors (private mode, etc.)
     }
-  }
-
-  function hydrateFromStoredMarkup() {
-    if (!state.list) return false;
-    try {
-      const html = sessionStorage.getItem(STORAGE_HTML_KEY);
-      if (html) {
-        state.list.innerHTML = html;
-        for (const entryNode of state.list.querySelectorAll('.browser-use-demo-entry')) {
-          const toggle = entryNode.querySelector('.browser-use-entry-toggle');
-          if (toggle) {
-            toggle.addEventListener('click', () =>
-              toggleEntryExpansion(entryNode, toggle, entryNode.getAttribute('data-id'))
-            );
-          }
-          applyPersistedExpansion(entryNode);
-        }
-        state.list.scrollTop = state.list.scrollHeight;
-        return true;
-      }
-    } catch (err) {
-      // ignore hydration failures
-    }
-    return false;
   }
 
   function normalizeEntry(detail) {
@@ -679,7 +649,13 @@ _DEMO_PANEL_SCRIPT = r"""(function () {
     meta.className = 'browser-use-entry-meta';
     const time = formatTime(entry.timestamp);
     const label = LEVEL_LABELS[entry.level] || entry.level;
-    meta.innerHTML = `<span>${time}</span><span>${label}</span>`;
+    const timeSpan = document.createElement('span');
+    timeSpan.textContent = time;
+
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+
+    meta.replaceChildren(timeSpan, labelSpan);
 
     const messageWrapper = document.createElement('div');
     messageWrapper.className = 'browser-use-entry-message';
