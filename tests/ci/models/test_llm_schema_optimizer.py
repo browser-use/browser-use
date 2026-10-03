@@ -143,11 +143,13 @@ def test_optimizer_handles_self_referencing_model():
 def test_optimizer_handles_mutually_recursive_models():
 	schema = SchemaOptimizer.create_optimized_json_schema(Company)
 
-	# Person is inlined at the first level, the cycle back to Company stays a $ref
-	person_schema = schema['properties']['employees']['items']
+	# Every model on the cycle is emitted once under $defs and referenced, not re-inlined
+	assert schema['properties']['employees']['items'] == {'$ref': '#/$defs/Person'}
+	assert set(schema['$defs']) == {'Company', 'Person'}
+	person_schema = schema['$defs']['Person']
 	assert person_schema['properties']['name'] == {'type': 'string'}
 	assert {'$ref': '#/$defs/Company'} in person_schema['properties']['employer']['anyOf']
-	assert set(schema['$defs']) == {'Company'}
+	assert schema['$defs']['Company']['properties']['employees']['items'] == {'$ref': '#/$defs/Person'}
 	_assert_refs_resolve(schema)
 
 
@@ -157,5 +159,11 @@ def test_optimizer_handles_recursive_structured_done_action():
 
 	schema = SchemaOptimizer.create_optimized_json_schema(agent_output_model)
 
-	assert 'Category' in schema['$defs']
+	assert set(schema['$defs']) == {'Category'}
+	# The recursive model is referenced from the done action, not inlined a second time
+	done_schemas = [
+		item['properties']['done'] for item in schema['properties']['action']['items']['anyOf'] if 'done' in item['properties']
+	]
+	assert len(done_schemas) == 1
+	assert done_schemas[0]['properties']['data']['$ref'] == '#/$defs/Category'
 	_assert_refs_resolve(schema)
