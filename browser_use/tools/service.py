@@ -786,7 +786,7 @@ class Tools(Generic[Context]):
 			if node is None:
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(error=msg)
 
 			# Highlight the element being typed into (truly non-blocking)
 			create_task_with_error_handling(
@@ -1459,6 +1459,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 						except Exception as e:
 							logger.warning(f'Fractional scroll failed: {e}')
 
+					if completed_scrolls == 0:
+						return ActionResult(error='Failed to execute scroll action: all scroll attempts failed')
+
 					if params.pages == 1.0:
 						long_term_memory = f'Scrolled {direction} {target} {viewport_height}px'.replace('  ', ' ')
 					else:
@@ -1512,14 +1515,17 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				msg = f'🔍  {memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
+			except BrowserError as e:
+				if e.details and 'text' in e.details:
+					msg = f"Text '{text}' not found or not visible on page"
+					logger.info(msg)
+					return ActionResult(
+						extracted_content=msg,
+						long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
+					)
+				return handle_browser_error(e)
 			except Exception as e:
-				# Text not found
-				msg = f"Text '{text}' not found or not visible on page"
-				logger.info(msg)
-				return ActionResult(
-					extracted_content=msg,
-					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
-				)
+				return ActionResult(error=f'Failed to execute scroll_to_text action: {e}')
 
 		@self.registry.action(
 			'Take a screenshot of the current viewport. If file_name is provided, saves to that file and returns the path. '
