@@ -84,6 +84,8 @@ class ChatAzureOpenAI(ChatOpenAILike):
 			'azure_ad_token': self.azure_ad_token,
 			'azure_ad_token_provider': self.azure_ad_token_provider,
 			'http_client': self.http_client,
+			'timeout': self.timeout,
+			'max_retries': self.max_retries,
 		}
 		if self.default_headers is not None:
 			_client_params['default_headers'] = self.default_headers
