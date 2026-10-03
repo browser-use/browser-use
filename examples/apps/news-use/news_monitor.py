@@ -11,7 +11,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from dateutil import parser as dtparser
@@ -219,7 +219,7 @@ def _fmt(ts_raw: str) -> str:
 	try:
 		return dtparser.parse(ts_raw).strftime('%Y-%m-%d %H:%M:%S')
 	except Exception:
-		return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+		return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
 
 async def run_once(url: str, output_path: str, debug: bool):
