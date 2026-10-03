@@ -1855,6 +1855,8 @@ def test_rust_history_reconstructs_terminal_nested_model_usage():
 	assert history.usage.by_model['gpt-test'].prompt_tokens == 17
 	assert history.usage.by_model['gpt-test'].completion_tokens == 11
 	assert history.usage.by_model['gpt-test'].cost == 0.0123
+	assert history.usage.by_model['gpt-test'].prompt_cost is None
+	assert history.usage.by_model['gpt-test'].completion_cost is None
 
 
 def test_rust_history_token_count_does_not_shrink_model_usage_totals():
@@ -1973,6 +1975,64 @@ async def test_rust_terminal_usage_prices_token_count_events(monkeypatch):
 	assert summary.total_completion_cost == pytest.approx(0.00045)
 	assert summary.total_cost == pytest.approx(0.001296)
 	assert summary.by_model['claude-sonnet-4-6'].cost == pytest.approx(0.001296)
+	assert summary.by_model['claude-sonnet-4-6'].prompt_cost == pytest.approx(0.000846)
+	assert summary.by_model['claude-sonnet-4-6'].completion_cost == pytest.approx(0.00045)
+
+
+@pytest.mark.parametrize('pricing_case', ['disabled', 'unavailable', 'zero'])
+async def test_rust_terminal_usage_distinguishes_unknown_and_zero_cost_breakdowns(monkeypatch, pricing_case):
+	from browser_use.beta.service import _usage_from_events_with_costs
+	from browser_use.tokens.service import TokenCost
+	from browser_use.tokens.views import ModelPricing
+
+	monkeypatch.delenv('BROWSER_USE_CALCULATE_COST', raising=False)
+	token_cost = TokenCost(include_cost=pricing_case != 'disabled')
+	pricing_calls: list[str] = []
+
+	async def get_pricing(model_name: str) -> ModelPricing | None:
+		pricing_calls.append(model_name)
+		if pricing_case == 'unavailable':
+			return None
+		return ModelPricing(
+			model=model_name,
+			input_cost_per_token=0.0,
+			output_cost_per_token=0.0,
+			cache_read_input_token_cost=None,
+			cache_creation_input_token_cost=None,
+			max_tokens=None,
+			max_input_tokens=None,
+			max_output_tokens=None,
+		)
+
+	monkeypatch.setattr(token_cost, 'get_model_pricing', get_pricing)
+	events = [
+		{
+			'event_type': 'model.usage',
+			'payload': {
+				'usage': {'input_tokens': 17, 'cached_input_tokens': 5, 'output_tokens': 11},
+				'cost_usd': 0.0123,
+			},
+		}
+	]
+
+	summary = await _usage_from_events_with_costs(events, 'gpt-test', token_cost)
+	stats = summary.by_model['gpt-test']
+
+	assert summary.total_tokens == 28
+	assert summary.entry_count == 1
+	assert stats.prompt_tokens == 17
+	assert stats.completion_tokens == 11
+	assert pricing_calls == ([] if pricing_case == 'disabled' else ['gpt-test'])
+	if pricing_case == 'zero':
+		assert summary.total_cost == 0.0
+		assert stats.cost == 0.0
+		assert stats.prompt_cost == 0.0
+		assert stats.completion_cost == 0.0
+	else:
+		assert summary.total_cost == 0.0123
+		assert stats.cost == 0.0123
+		assert stats.prompt_cost is None
+		assert stats.completion_cost is None
 
 
 async def test_rust_terminal_usage_prices_anthropic_raw_cache_reads(monkeypatch):
