@@ -7,7 +7,7 @@ import re
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import anyio
 from bubus import BaseEvent
@@ -62,10 +62,36 @@ _GENERIC_TEXT_ATTACHMENT_NAMES = {'f', 'download', 'response', 'data', 'callback
 
 
 def _filename_from_content_disposition(content_disposition: str) -> str | None:
-	filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
+	"""Extract the filename from a Content-Disposition header, preferring the RFC 5987 `filename*` parameter."""
+	extended_match = re.search(r"filename\*\s*=\s*\"?([\w.-]+)'[^']*'([^;\n\"]*)\"?", content_disposition, re.IGNORECASE)
+	if extended_match:
+		charset, encoded_value = extended_match.groups()
+		encoded_value = encoded_value.strip()
+		decoded = ''
+		# `unquote` passes malformed escapes such as `%zz` through unchanged, so reject them first.
+		if not re.search(r'%(?![0-9A-Fa-f]{2})', encoded_value):
+			try:
+				decoded = unquote(encoded_value, encoding=charset, errors='strict')
+			except (LookupError, UnicodeDecodeError):
+				decoded = ''
+		# Drop control characters (for example a decoded %0A) so the name cannot inject log lines.
+		decoded = re.sub(r'[\x00-\x1f\x7f]', '', decoded)
+		if decoded:
+			return decoded
+
+	filename_match = re.search(r'filename\s*=\s*(([\'"]).*?\2|[^;\n]*)', content_disposition, re.IGNORECASE)
 	if filename_match:
-		return filename_match.group(1).strip('\'"')
+		return filename_match.group(1).strip().strip('\'"') or None
 	return None
+
+
+def _download_info_from_headers(headers: dict[str, Any]) -> tuple[bool, str | None]:
+	"""Return `(is_download_attachment, suggested_filename)` from response headers with lowercase keys.
+
+	The attachment check is case-insensitive, but the filename keeps the case sent by the server.
+	"""
+	content_disposition = str(headers.get('content-disposition', ''))
+	return 'attachment' in content_disposition.lower(), _filename_from_content_disposition(content_disposition)
 
 
 def _has_file_extension(value: str | None) -> bool:
@@ -595,8 +621,7 @@ class DownloadsWatchdog(BaseWatchdog):
 						is_pdf = 'application/pdf' in content_type
 
 						# Check if it's marked as download via Content-Disposition header
-						content_disposition = str(headers.get('content-disposition', '')).lower()
-						is_download_attachment = 'attachment' in content_disposition
+						is_download_attachment, suggested_filename = _download_info_from_headers(headers)
 
 						# Filter out image/video/audio files even if marked as attachment
 						# These are likely resources, not intentional downloads
@@ -646,9 +671,6 @@ class DownloadsWatchdog(BaseWatchdog):
 						# Only process if it's a PDF or download
 						if not (is_pdf or is_download_attachment):
 							return
-
-						# Extract filename from Content-Disposition if available
-						suggested_filename = _filename_from_content_disposition(content_disposition)
 
 						if not _should_auto_download_network_response(
 							url=url,
