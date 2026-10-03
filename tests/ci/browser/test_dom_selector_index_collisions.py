@@ -229,9 +229,15 @@ async def test_actor_prompt_element_uses_the_selected_nodes_session(monkeypatch)
 		assert node is iframe_input
 		return SimpleNamespace(session_id='iframe')
 
+	async def get_active_page_session(_session, target_id, *, focus):
+		assert target_id == 'target-main'
+		assert focus is False
+		return SimpleNamespace(session_id='main')
+
 	monkeypatch.setattr('browser_use.actor.page.DOMTreeSerializer', FakeSerializer)
 	monkeypatch.setattr(DomService, 'get_dom_tree', get_dom_tree)
 	monkeypatch.setattr(BrowserSession, 'cdp_client_for_node', resolve_node_session)
+	monkeypatch.setattr(BrowserSession, 'get_or_create_cdp_session', get_active_page_session)
 
 	page = Page(session, target_id='target-main', session_id='main', llm=cast(Any, FakeLLM()))
 	element = await page.get_element_by_prompt('card number')
