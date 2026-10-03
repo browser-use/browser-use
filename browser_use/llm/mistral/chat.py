@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import random
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, TypeVar, cast, overload
@@ -19,6 +21,15 @@ from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 logger = logging.getLogger(__name__)
 T = TypeVar('T', bound=BaseModel)
+
+# Matches the default used by the OpenAI and Anthropic SDKs, which back the other
+# provider adapters. httpx's own default is 5s, which is shorter than a typical
+# agent step.
+_DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=600.0, write=600.0, pool=600.0)
+# Matches ChatBrowserUse, the other adapter that talks to its API over raw httpx.
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_RETRY_BASE_DELAY = 1.0
+_RETRY_MAX_DELAY = 60.0
 
 
 @dataclass
@@ -74,11 +85,8 @@ class ChatMistral(BaseChatModel):
 			return self.http_client
 
 		if not hasattr(self, '_cached_client'):
-			transport = httpx.AsyncHTTPTransport(retries=self.max_retries)
-			client_args: dict[str, Any] = {'transport': transport}
-			if self.timeout is not None:
-				client_args['timeout'] = self.timeout
-			self._cached_client = httpx.AsyncClient(**client_args)
+			timeout = self.timeout if self.timeout is not None else _DEFAULT_TIMEOUT
+			self._cached_client = httpx.AsyncClient(timeout=timeout)
 		return self._cached_client
 
 	def _serialize_messages(self, messages: list[BaseMessage]) -> list[dict[str, Any]]:
@@ -142,21 +150,47 @@ class ChatMistral(BaseChatModel):
 			pass
 		return response.text
 
+	def _retry_delay(self, attempt: int) -> float:
+		delay = min(_RETRY_BASE_DELAY * (2**attempt), _RETRY_MAX_DELAY)
+		return delay + random.uniform(0, delay * 0.1)
+
 	async def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
 		url = f'{self._get_base_url()}/chat/completions'
 		client = self._client()
-		response = await client.post(url, headers=self._auth_headers(), json=payload, params=self._query_params())
 
-		if response.status_code >= 400:
-			message = self._parse_error(response)
-			if response.status_code == 429:
-				raise ModelRateLimitError(message=message, status_code=response.status_code, model=self.name)
-			raise ModelProviderError(message=message, status_code=response.status_code, model=self.name)
+		attempts = max(1, self.max_retries)
+		for attempt in range(attempts):
+			try:
+				response = await client.post(url, headers=self._auth_headers(), json=payload, params=self._query_params())
+			except (httpx.TimeoutException, httpx.ConnectError) as e:
+				if attempt < attempts - 1:
+					total_delay = self._retry_delay(attempt)
+					error_type = 'timeout' if isinstance(e, httpx.TimeoutException) else 'connection error'
+					logger.warning(f'⚠️ Got {error_type}, retrying in {total_delay:.1f}s... (attempt {attempt + 1}/{attempts})')
+					await asyncio.sleep(total_delay)
+					continue
+				raise ModelProviderError(message=f'Mistral request failed after {attempts} attempts: {e}', model=self.name) from e
 
-		try:
-			return response.json()
-		except Exception as e:
-			raise ModelProviderError(message=f'Failed to parse Mistral response: {e}', model=self.name) from e
+			if response.status_code in _RETRYABLE_STATUS_CODES and attempt < attempts - 1:
+				total_delay = self._retry_delay(attempt)
+				logger.warning(
+					f'⚠️ Got {response.status_code} error, retrying in {total_delay:.1f}s... (attempt {attempt + 1}/{attempts})'
+				)
+				await asyncio.sleep(total_delay)
+				continue
+
+			if response.status_code >= 400:
+				message = self._parse_error(response)
+				if response.status_code == 429:
+					raise ModelRateLimitError(message=message, status_code=response.status_code, model=self.name)
+				raise ModelProviderError(message=message, status_code=response.status_code, model=self.name)
+
+			try:
+				return response.json()
+			except Exception as e:
+				raise ModelProviderError(message=f'Failed to parse Mistral response: {e}', model=self.name) from e
+
+		raise ModelProviderError(message=f'Mistral request failed after {attempts} attempts', model=self.name)
 
 	@overload
 	async def ainvoke(
