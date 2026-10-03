@@ -166,19 +166,20 @@ class SchemaOptimizer:
 		# Final pass to remove minItems/min_items and default values if requested
 		if remove_min_items or remove_defaults:
 
-			def remove_forbidden_fields(obj: Any) -> None:
+			def remove_forbidden_fields(obj: Any, in_properties: bool = False) -> None:
 				"""Recursively remove minItems/min_items and default values"""
 				if isinstance(obj, dict):
-					# Remove forbidden keys
-					if remove_min_items:
-						obj.pop('minItems', None)
-						obj.pop('min_items', None)
-					if remove_defaults:
-						obj.pop('default', None)
+					# Remove forbidden keys if we are not looking at the keys of a 'properties' dictionary
+					if not in_properties:
+						if remove_min_items:
+							obj.pop('minItems', None)
+							obj.pop('min_items', None)
+						if remove_defaults:
+							obj.pop('default', None)
 					# Recursively process all values
-					for value in obj.values():
+					for key, value in obj.items():
 						if isinstance(value, (dict, list)):
-							remove_forbidden_fields(value)
+							remove_forbidden_fields(value, in_properties=(key == 'properties'))
 				elif isinstance(obj, list):
 					for item in obj:
 						if isinstance(item, (dict, list)):
