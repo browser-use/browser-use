@@ -1,0 +1,19 @@
+skills/cloud/references/api-v4.md
+  s_f9462fb1fa2e77::t_b3e3a6daf3bcfe 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "49795ba9aa9bbc4209782e9dcbc4b7ecf1abddba",
+  "prompts": {},
+  "sessions": {
+    "s_f9462fb1fa2e77": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ff0f-138d-7301-b3f8-5e73f8a7a477",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
