@@ -89,8 +89,9 @@ Upload local browser cookies to cloud profiles:
 
 ```bash
 export BROWSER_USE_API_KEY=your_key
-curl -fsSL https://browser-use.com/profile.sh | sh
 ```
+
+Then [install profile-use](https://github.com/browser-use/profile-use-releases/releases/latest) for your platform and follow the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md).
 
 Opens a browser where you log into sites. Returns a `profile_id` to use in tasks.
 
@@ -99,9 +100,7 @@ Opens a browser where you log into sites. Returns a `profile_id` to use in tasks
 ### 1. Profile Sync (Easiest)
 
 Log in locally, sync cookies to cloud:
-```bash
-curl -fsSL https://browser-use.com/profile.sh | sh
-```
+[Install profile-use](https://github.com/browser-use/profile-use-releases/releases/latest) for your platform, then follow the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md).
 
 ### 2. Secrets (Domain-Scoped)
 
