@@ -3,6 +3,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from ollama import ChatResponse
+from ollama._types import Message
 from pydantic import BaseModel
 
 from browser_use.llm.exceptions import ModelProviderError
@@ -14,9 +16,18 @@ class Answer(BaseModel):
 	answer: str
 
 
-def _client_returning(content: str) -> MagicMock:
+def _client_returning(content: str, **counts) -> MagicMock:
+	# A real ChatResponse, not a bare MagicMock: a Mock exposes truthy attributes
+	# for prompt_eval_count and eval_count, which pydantic then coerces to 1 and
+	# the fixture silently reports usage the server never sent.
+	response = ChatResponse(
+		model='test-model',
+		done=True,
+		message=Message(role='assistant', content=content),
+		**counts,
+	)
 	client = MagicMock()
-	client.chat = AsyncMock(return_value=MagicMock(message=MagicMock(content=content)))
+	client.chat = AsyncMock(return_value=response)
 	return client
 
 
@@ -69,3 +80,58 @@ async def test_truncated_json_raises_model_provider_error():
 		await llm.ainvoke([UserMessage(content='hi')], output_format=Answer)
 
 	assert 'Invalid JSON' in exc_info.value.message or 'invalid JSON' in exc_info.value.message.lower()
+
+
+def test_usage_is_reported_from_eval_counts():
+	"""Ollama returns the counts as prompt_eval_count / eval_count."""
+	response = ChatResponse(
+		model='qwen3',
+		done=True,
+		message=Message(role='assistant', content='hi'),
+		prompt_eval_count=350,
+		eval_count=120,
+	)
+
+	usage = ChatOllama(model='qwen3')._get_usage(response)
+
+	assert usage is not None
+	assert usage.prompt_tokens == 350
+	assert usage.completion_tokens == 120
+	assert usage.total_tokens == 470
+
+
+def test_usage_is_none_when_the_response_carries_no_counts():
+	"""Both fields are Optional; reporting nothing beats reporting zero."""
+	response = ChatResponse(model='qwen3', done=True, message=Message(role='assistant', content='hi'))
+
+	assert ChatOllama(model='qwen3')._get_usage(response) is None
+
+
+def test_a_fully_cached_prompt_still_reports_its_completion():
+	"""prompt_eval_count is 0 when the whole prompt was already in cache."""
+	response = ChatResponse(
+		model='qwen3',
+		done=True,
+		message=Message(role='assistant', content='hi'),
+		prompt_eval_count=0,
+		eval_count=120,
+	)
+
+	usage = ChatOllama(model='qwen3')._get_usage(response)
+
+	assert usage is not None
+	assert usage.prompt_tokens == 0
+	assert usage.completion_tokens == 120
+	assert usage.total_tokens == 120
+
+
+def test_usage_is_none_when_only_one_count_is_present():
+	"""A missing count must not be reported as zero; zero is a real value here."""
+	model = ChatOllama(model='qwen3')
+	message = Message(role='assistant', content='hi')
+
+	prompt_only = ChatResponse(model='qwen3', done=True, message=message, prompt_eval_count=350)
+	completion_only = ChatResponse(model='qwen3', done=True, message=message, eval_count=120)
+
+	assert model._get_usage(prompt_only) is None
+	assert model._get_usage(completion_only) is None
