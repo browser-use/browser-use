@@ -116,17 +116,20 @@ class ResponsesAPIMessageSerializer:
 
 		elif isinstance(message, AssistantMessage):
 			content = ResponsesAPIMessageSerializer._serialize_assistant_content(message.content)
-			# For assistant messages, we need to provide content
-			# If content is None but there are tool calls, we represent them as text
-			if content is None:
-				if message.tool_calls:
-					# Convert tool calls to a text representation for context
-					tool_call_text = '\n'.join(
-						f'[Tool call: {tc.function.name}({tc.function.arguments})]' for tc in message.tool_calls
-					)
+			# EasyInputMessageParam has no tool call field, so tool calls are represented as text
+			# alongside any existing content
+			if message.tool_calls:
+				tool_call_text = '\n'.join(
+					f'[Tool call: {tc.function.name}({tc.function.arguments})]' for tc in message.tool_calls
+				)
+				if content is None or content == '' or content == []:
 					content = tool_call_text
+				elif isinstance(content, str):
+					content = f'{content}\n{tool_call_text}'
 				else:
-					content = ''
+					content = [*content, ResponseInputTextParam(text=tool_call_text, type='input_text')]
+			elif content is None:
+				content = ''
 
 			return EasyInputMessageParam(
 				role='assistant',
