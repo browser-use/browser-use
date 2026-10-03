@@ -670,3 +670,36 @@ def test_history_filters_sensitive_data_inside_nested_lists(tmp_path):
 
 	assert 'token-123' not in saved, 'Sensitive value leaked into the saved history file'
 	assert saved.count('<secret>api_key</secret>') == 2
+
+
+def test_history_filters_sensitive_data_from_input_text_action(tmp_path):
+	"""Saved history must redact sensitive values typed by the built-in input_text action."""
+	from pathlib import Path
+	from typing import Any
+
+	from pydantic import create_model
+
+	from browser_use.agent.views import AgentHistory, AgentHistoryList, AgentOutput
+	from browser_use.browser.views import BrowserStateHistory
+	from browser_use.tools.registry.views import ActionModel
+	from browser_use.tools.views import InputTextAction
+
+	InputTextActionModel = create_model('InputTextActionModel', __base__=ActionModel, input_text=(InputTextAction | None, None))
+	OutputModel = AgentOutput.type_with_custom_actions(InputTextActionModel)
+	action = InputTextActionModel.model_validate({'input_text': {'index': 1, 'text': 'token-123'}})
+	history = AgentHistoryList[Any](
+		history=[
+			AgentHistory(
+				model_output=OutputModel(memory='', action=[action]),
+				result=[],
+				state=BrowserStateHistory(url='https://example.test', title='t', tabs=[], interacted_element=[None]),
+			)
+		]
+	)
+
+	filepath = Path(tmp_path) / 'history.json'
+	history.save_to_file(filepath, sensitive_data={'api_key': 'token-123'})
+	saved = filepath.read_text(encoding='utf-8')
+
+	assert 'token-123' not in saved, 'input_text leaked sensitive value into saved history'
+	assert '<secret>api_key</secret>' in saved
