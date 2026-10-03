@@ -215,13 +215,50 @@ def test_detect_zip_code_from_attributes():
 
 def test_detect_company_from_attributes():
 	"""Test company detection from element attributes"""
-	attributes = {'name': 'company', 'id': 'company-input'}
+	attributes = {'name': 'company_name', 'id': 'company-input'}
 	result = _detect_from_attributes(attributes)
 
 	assert result is not None
 	var_name, var_format = result
 	assert var_name == 'company'
 	assert var_format is None
+
+
+def test_detect_organization_name_from_attributes():
+	"""Test organization_name is detected as a company variable"""
+	result = _detect_from_attributes({'name': 'organization_name'})
+
+	assert result == ('company', None)
+
+
+def test_company_fields_preserve_more_specific_semantics():
+	"""Test company keywords do not override more specific field types"""
+	expected_by_name = {
+		'company_city': ('city', None),
+		'company_state': ('state', None),
+		'company_date': ('date', 'date'),
+		'organization_country': ('country', None),
+		'organization_zip': ('zip_code', 'postal_code'),
+	}
+
+	for field_name, expected in expected_by_name.items():
+		assert _detect_from_attributes({'name': field_name}) == expected
+
+
+def test_detect_company_name_in_history():
+	"""Test company_name stays reusable as the company variable in history"""
+	history = create_mock_history(
+		[
+			(
+				{'input': {'index': 1, 'text': 'Acme Corp'}},
+				create_test_element(attributes={'name': 'company_name'}),
+			)
+		]
+	)
+
+	result = detect_variables_in_history(history)  # type: ignore[arg-type]
+
+	assert result['company'].original_value == 'Acme Corp'
 
 
 def test_detect_number_from_pattern():
