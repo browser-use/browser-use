@@ -370,8 +370,8 @@ IMPORTANT:
 - Use proper JSON syntax with double quotes
 """
 
-				# Clone messages and add system instruction
-				modified_messages = messages.copy()
+				# Deep copy so the schema instruction does not leak into the caller's messages
+				modified_messages = [message.model_copy(deep=True) for message in messages]
 
 				# Add or modify system message
 				from browser_use.llm.messages import SystemMessage
