@@ -32,6 +32,11 @@ class SecurityWatchdog(BaseWatchdog):
 		BrowserErrorEvent,
 	]
 
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self._dns_cache: dict[str, tuple[bool, float]] = {}
+		self._dns_cache_ttl: float = 60.0
+
 	async def on_NavigateToUrlEvent(self, event: NavigateToUrlEvent) -> None:
 		"""Check if navigation URL is allowed before navigation starts."""
 		# Security check BEFORE navigation
@@ -173,6 +178,78 @@ class SecurityWatchdog(BaseWatchdog):
 		except Exception:
 			return False
 
+	def _resolves_to_blocked_ip(self, host: str) -> bool:
+		"""Check if a hostname resolves to loopback, RFC 1918, or cloud metadata.
+
+		Performs pre-flight DNS hostname resolution via `socket.getaddrinfo` to
+		block access to internal and cloud metadata endpoints even when accessed via
+		hostnames (e.g. `localhost`, `*.localtest.me`, `*.nip.io`).
+		"""
+		import ipaddress
+		import socket
+		import unicodedata
+		from urllib.parse import unquote
+
+		bare = host.strip('[]')
+		try:
+			bare = unquote(bare)
+		except Exception:
+			pass
+		try:
+			bare = unicodedata.normalize('NFKC', bare)
+		except Exception:
+			pass
+		bare = bare.replace('。', '.').replace('｡', '.')
+		clean_host = bare.lower().rstrip('.')
+
+		if clean_host in ('localhost', 'localhost.localdomain') or clean_host.endswith('.localhost'):
+			return True
+
+		import time
+
+		if hasattr(self, '_dns_cache') and clean_host in self._dns_cache:
+			is_blocked, timestamp = self._dns_cache[clean_host]
+			if time.monotonic() - timestamp < getattr(self, '_dns_cache_ttl', 60.0):
+				return is_blocked
+
+		try:
+			addr_infos = socket.getaddrinfo(clean_host, None)
+		except Exception:
+			# Do not cache resolver exceptions as permanently allowed
+			return False
+
+		cgnat = ipaddress.ip_network('100.64.0.0/10')
+		now = time.monotonic()
+		for addr in addr_infos:
+			ip_str = addr[4][0]
+			try:
+				parsed_ip = ipaddress.ip_address(ip_str)
+				target_ip: ipaddress.IPv4Address | ipaddress.IPv6Address = parsed_ip
+				if isinstance(parsed_ip, ipaddress.IPv6Address):
+					mapped = parsed_ip.ipv4_mapped
+					if mapped is not None:
+						target_ip = mapped
+					elif int(parsed_ip) <= 0xFFFFFFFF:
+						target_ip = ipaddress.IPv4Address(int(parsed_ip))
+
+				if (
+					target_ip.is_loopback
+					or target_ip.is_private
+					or target_ip.is_link_local
+					or target_ip.is_unspecified
+					or str(target_ip) == '169.254.169.254'
+					or (isinstance(target_ip, ipaddress.IPv4Address) and target_ip in cgnat)
+				):
+					if hasattr(self, '_dns_cache'):
+						self._dns_cache[clean_host] = (True, now)
+					return True
+			except Exception:
+				continue
+
+		if hasattr(self, '_dns_cache'):
+			self._dns_cache[clean_host] = (False, now)
+		return False
+
 	def _is_url_allowed(self, url: str) -> bool:
 		"""Check if a URL is allowed based on the allowed_domains configuration.
 
@@ -205,9 +282,11 @@ class SecurityWatchdog(BaseWatchdog):
 		if not host:
 			return False
 
-		# Check if IP addresses should be blocked (before domain checks)
+		# Check if IP addresses or private/loopback/metadata destinations should be blocked (before domain checks)
 		if self.browser_session.browser_profile.block_ip_addresses:
 			if self._is_ip_address(host):
+				return False
+			if self._resolves_to_blocked_ip(host):
 				return False
 
 		# If no allowed_domains specified, allow all URLs
