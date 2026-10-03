@@ -227,7 +227,8 @@ class AgentMessagePrompt:
 
 		# Format statistics
 		stats_text = '<page_stats>'
-		if page_stats['total_elements'] < 10:
+		# A page with interactive elements isn't empty, however few nodes it has.
+		if page_stats['total_elements'] < 10 and page_stats['interactive_elements'] == 0:
 			stats_text += 'Page appears empty - consider waiting - '
 		# Skeleton screen: low text density only means "loading" while requests are actually in flight
 		elif (
