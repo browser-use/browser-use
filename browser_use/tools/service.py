@@ -786,7 +786,8 @@ class Tools(Generic[Context]):
 			if node is None:
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				# Must set error= so multi_act aborts remaining actions and consecutive_failures increments
+				return ActionResult(error=msg)
 
 			# Highlight the element being typed into (truly non-blocking)
 			create_task_with_error_handling(
@@ -1419,7 +1420,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					num_full_pages = int(params.pages)
 					remaining_fraction = params.pages - num_full_pages
 
-					completed_scrolls = 0
+					completed_scrolls = 0.0
+					last_scroll_error: Exception | None = None
 
 					# Scroll one page at a time
 					for i in range(num_full_pages):
@@ -1439,6 +1441,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 							await asyncio.sleep(0.15)
 
 						except Exception as e:
+							last_scroll_error = e
 							logger.warning(f'Scroll {i + 1}/{num_full_pages} failed: {e}')
 							# Continue with remaining scrolls even if one fails
 
@@ -1457,7 +1460,16 @@ You will be given a query and the markdown of a webpage that has been filtered t
 							completed_scrolls += remaining_fraction
 
 						except Exception as e:
+							last_scroll_error = e
 							logger.warning(f'Fractional scroll failed: {e}')
+
+					# Zero completed scrolls is a total failure — report error so multi_act / consecutive_failures react.
+					# Default pages=1.0 used to always claim success even when every attempt failed.
+					if completed_scrolls == 0:
+						detail = f': {last_scroll_error}' if last_scroll_error else ''
+						error_msg = f'Failed to scroll {direction}{(" " + target) if target else ""}{detail}'.strip()
+						logger.error(error_msg)
+						return ActionResult(error=error_msg)
 
 					if params.pages == 1.0:
 						long_term_memory = f'Scrolled {direction} {target} {viewport_height}px'.replace('  ', ' ')
@@ -1478,7 +1490,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				return ActionResult(extracted_content=msg, long_term_memory=long_term_memory)
 			except Exception as e:
 				logger.error(f'Failed to dispatch ScrollEvent: {type(e).__name__}: {e}')
-				error_msg = 'Failed to execute scroll action.'
+				error_msg = f'Failed to execute scroll action: {e}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
@@ -1506,20 +1518,30 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			event = browser_session.event_bus.dispatch(ScrollToTextEvent(text=text))
 
 			try:
-				# The handler returns None on success or raises an exception if text not found
+				# The handler returns None on success or raises BrowserError if text not found
 				await event.event_result(raise_if_any=True, raise_if_none=False)
 				memory = f'Scrolled to text: {text}'
 				msg = f'🔍  {memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
+			except BrowserError as e:
+				# Legitimate negative result: text is simply not on the page (non-error for LLM planning)
+				if e.message.startswith('Text not found'):
+					msg = f"Text '{text}' not found or not visible on page"
+					logger.info(msg)
+					return ActionResult(
+						extracted_content=msg,
+						long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
+					)
+				# Other BrowserErrors (stale node, CDP policy, etc.) are real failures
+				error_msg = f"Failed to scroll to text '{text}': {e.message}"
+				logger.error(error_msg)
+				return ActionResult(error=error_msg)
 			except Exception as e:
-				# Text not found
-				msg = f"Text '{text}' not found or not visible on page"
-				logger.info(msg)
-				return ActionResult(
-					extracted_content=msg,
-					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
-				)
+				# CDP/transport/unexpected failures must set error= so the agent loop reacts
+				error_msg = f"Failed to scroll to text '{text}': {type(e).__name__}: {e}"
+				logger.error(error_msg)
+				return ActionResult(error=error_msg)
 
 		@self.registry.action(
 			'Take a screenshot of the current viewport. If file_name is provided, saves to that file and returns the path. '
