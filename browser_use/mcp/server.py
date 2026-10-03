@@ -809,16 +809,12 @@ class BrowserUseServer:
 			href = element.attributes.get('href')
 			if href:
 				# Convert relative href to absolute URL
-				state = await self.browser_session.get_browser_state_summary()
-				current_url = state.url
-				if href.startswith('/'):
-					# Relative URL - construct full URL
-					from urllib.parse import urlparse
+				from browser_use.utils import resolve_link_href
 
-					parsed = urlparse(current_url)
-					full_url = f'{parsed.scheme}://{parsed.netloc}{href}'
-				else:
-					full_url = href
+				state = await self.browser_session.get_browser_state_summary()
+				full_url = resolve_link_href(state.url, href)
+				if full_url is None:
+					return f'Error: element {index} links to {href!r}, which cannot be resolved without a page URL'
 
 				# Open link in new tab
 				from browser_use.browser.events import NavigateToUrlEvent
