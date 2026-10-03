@@ -806,6 +806,8 @@ class BrowserSession(BaseModel):
 						# Use cloud_browser_params if provided, otherwise create empty request
 						cloud_params = self.browser_profile.cloud_browser_params or CreateBrowserRequest()
 						cloud_browser_response = await self._cloud_browser_client.create_browser(cloud_params)
+						if not cloud_browser_response.cdpUrl:
+							raise CloudBrowserError('Cloud browser response did not include a CDP URL')
 						self.browser_profile.cdp_url = cloud_browser_response.cdpUrl
 						self.browser_profile.is_local = False
 						self.logger.info('🌤️ Successfully connected to cloud browser service')

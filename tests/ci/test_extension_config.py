@@ -1,5 +1,8 @@
 """Tests for browser configuration environment variables."""
 
+import json
+from pathlib import Path
+
 import pytest
 
 from browser_use.browser import BrowserSession
@@ -8,6 +11,7 @@ from browser_use.browser.profile import (
 	_get_enable_default_extensions_default,
 	_get_headless_default,
 )
+from browser_use.config import load_browser_use_config
 
 TRUTHY_STRINGS = ['true', 'True', 'TRUE', '1', 'yes', 'on']
 FALSY_STRINGS = ['false', 'False', 'FALSE', '0', 'no', 'off', '']
@@ -114,3 +118,41 @@ class TestConfigEnvVars:
 		monkeypatch.setenv(env_var, env_val)
 		profile = BrowserProfile(**explicit_arg)
 		assert getattr(profile, attr_name) is expected
+
+	@pytest.mark.parametrize('value,expected', [('true', True), ('false', False)])
+	def test_mcp_disable_security_env_var(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, value: str, expected: bool):
+		"""The documented MCP env var must reach the resolved browser profile."""
+		monkeypatch.setenv('BROWSER_USE_CONFIG_PATH', str(tmp_path / 'config.json'))
+		monkeypatch.setenv('BROWSER_USE_DISABLE_SECURITY', value)
+
+		config = load_browser_use_config()
+
+		assert config['browser_profile']['disable_security'] is expected
+		assert BrowserProfile(**config['browser_profile']).disable_security is expected
+
+	@pytest.mark.parametrize(
+		'env_value,persisted,expected',
+		[(None, None, False), (None, True, True), (None, False, False), ('false', True, False), ('true', False, True)],
+	)
+	def test_mcp_disable_security_precedence(
+		self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, env_value: str | None, persisted: bool | None, expected: bool
+	):
+		"""Unset preserves stored policy; an explicit env value overrides it."""
+		config_path = tmp_path / 'config.json'
+		monkeypatch.setenv('BROWSER_USE_CONFIG_PATH', str(config_path))
+		monkeypatch.delenv('BROWSER_USE_DISABLE_SECURITY', raising=False)
+		load_browser_use_config()
+		stored = json.loads(config_path.read_text())
+		if persisted is not None:
+			default_profile = next(profile for profile in stored['browser_profile'].values() if profile.get('default'))
+			default_profile['disable_security'] = persisted
+			config_path.write_text(json.dumps(stored))
+		if env_value is not None:
+			monkeypatch.setenv('BROWSER_USE_DISABLE_SECURITY', env_value)
+
+		resolved = load_browser_use_config()['browser_profile']
+
+		assert BrowserProfile(**resolved).disable_security is expected
+		if env_value is None and persisted is None:
+			assert 'disable_security' not in resolved
+		assert json.loads(config_path.read_text()) == stored

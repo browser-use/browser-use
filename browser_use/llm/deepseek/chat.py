@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
@@ -50,8 +51,16 @@ class ChatDeepSeek(BaseChatModel):
 		return 'deepseek'
 
 	def _client(self) -> AsyncOpenAI:
+		api_key = self.api_key or os.getenv('DEEPSEEK_API_KEY')
+		if not api_key:
+			raise ModelProviderError(
+				message='Missing DeepSeek API key. Set DEEPSEEK_API_KEY or pass api_key.',
+				status_code=401,
+				model=self.name,
+			)
+
 		return AsyncOpenAI(
-			api_key=self.api_key,
+			api_key=api_key,
 			base_url=self.base_url,
 			timeout=self.timeout,
 			**(self.client_params or {}),
