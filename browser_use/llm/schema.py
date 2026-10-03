@@ -33,6 +33,12 @@ class SchemaOptimizer:
 		# Extract $defs for reference resolution, then flatten everything
 		defs_lookup = original_schema.get('$defs', {})
 
+		# Self-referencing models (e.g. a tree node with `children: list[Node]`) cannot be
+		# fully inlined. Track the $defs being inlined so a reference back to one of them is
+		# kept as a $ref, and emit those definitions under $defs at the end.
+		resolving: list[str] = []
+		recursive_defs: set[str] = set()
+
 		# Create optimized schema with flattening
 		# Pass flags to optimize_schema via closure
 		def optimize_schema(obj: Any, defs_lookup: dict[str, Any] | None = None, *, in_properties: bool = False) -> Any:
@@ -69,10 +75,18 @@ class SchemaOptimizer:
 					# FLATTEN: Resolve $ref by inlining the actual definition
 					elif key == '$ref' and defs_lookup:
 						ref_path = value.split('/')[-1]  # Get the definition name from "#/$defs/SomeName"
-						if ref_path in defs_lookup:
+						if ref_path in resolving:
+							# Recursive reference: inlining it again would never terminate
+							recursive_defs.add(ref_path)
+							optimized[key] = value
+						elif ref_path in defs_lookup:
 							# Get the referenced definition and flatten it
 							referenced_def = defs_lookup[ref_path]
-							flattened_ref = optimize_schema(referenced_def, defs_lookup)
+							resolving.append(ref_path)
+							try:
+								flattened_ref = optimize_schema(referenced_def, defs_lookup)
+							finally:
+								resolving.pop()
 
 					# Skip minItems/min_items and default if requested (check BEFORE processing)
 					elif key in ('minItems', 'min_items') and remove_min_items:
@@ -142,6 +156,18 @@ class SchemaOptimizer:
 			raise ValueError('Optimized schema result is not a dictionary')
 
 		optimized_schema: dict[str, Any] = optimized_result
+
+		# Emit the definitions that recursive $refs point to (optimizing one may reveal more)
+		recursive_def_schemas: dict[str, Any] = {}
+		while pending := sorted(recursive_defs - recursive_def_schemas.keys()):
+			for name in pending:
+				resolving.append(name)
+				try:
+					recursive_def_schemas[name] = optimize_schema(defs_lookup[name], defs_lookup)
+				finally:
+					resolving.pop()
+		if recursive_def_schemas:
+			optimized_schema['$defs'] = recursive_def_schemas
 
 		# Additional pass to ensure ALL objects have additionalProperties: false
 		def ensure_additional_properties_false(obj: Any) -> None:

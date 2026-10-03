@@ -95,3 +95,67 @@ def test_optimizer_treats_property_names_as_data_not_schema_keywords():
 		field_schema = schema['properties'][field_name]
 		assert '$ref' not in field_schema
 		assert field_schema['properties']['summary']['type'] == 'string'
+
+
+class Category(BaseModel):
+	"""A self-referencing model, e.g. a site's navigation tree."""
+
+	name: str
+	subcategories: list['Category']
+	parent: 'Category | None' = None
+
+
+class Person(BaseModel):
+	name: str
+	employer: 'Company | None' = None
+
+
+class Company(BaseModel):
+	name: str
+	employees: list[Person]
+
+
+def _assert_refs_resolve(schema: dict) -> None:
+	def walk(obj):
+		if isinstance(obj, dict):
+			if isinstance(obj.get('$ref'), str):
+				assert obj['$ref'].removeprefix('#/$defs/') in schema.get('$defs', {}), obj['$ref']
+			for value in obj.values():
+				walk(value)
+		elif isinstance(obj, list):
+			for item in obj:
+				walk(item)
+
+	walk(schema)
+
+
+def test_optimizer_handles_self_referencing_model():
+	"""Recursive models must keep a $ref to a $defs entry instead of inlining forever."""
+	schema = SchemaOptimizer.create_optimized_json_schema(Category)
+
+	assert schema['properties']['subcategories']['items'] == {'$ref': '#/$defs/Category'}
+	assert set(schema['$defs']) == {'Category'}
+	assert schema['$defs']['Category']['additionalProperties'] is False
+	assert schema['$defs']['Category']['required'] == ['name', 'subcategories', 'parent']
+	_assert_refs_resolve(schema)
+
+
+def test_optimizer_handles_mutually_recursive_models():
+	schema = SchemaOptimizer.create_optimized_json_schema(Company)
+
+	# Person is inlined at the first level, the cycle back to Company stays a $ref
+	person_schema = schema['properties']['employees']['items']
+	assert person_schema['properties']['name'] == {'type': 'string'}
+	assert {'$ref': '#/$defs/Company'} in person_schema['properties']['employer']['anyOf']
+	assert set(schema['$defs']) == {'Company'}
+	_assert_refs_resolve(schema)
+
+
+def test_optimizer_handles_recursive_structured_done_action():
+	tools = Tools(output_model=Category)
+	agent_output_model = AgentOutput.type_with_custom_actions(tools.registry.create_action_model())
+
+	schema = SchemaOptimizer.create_optimized_json_schema(agent_output_model)
+
+	assert 'Category' in schema['$defs']
+	_assert_refs_resolve(schema)
