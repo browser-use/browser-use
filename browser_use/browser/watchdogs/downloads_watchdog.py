@@ -301,8 +301,9 @@ class DownloadsWatchdog(BaseWatchdog):
 				self.logger.warning(f'[DownloadsWatchdog] ⚠️ PDF download failed for {event.url}')
 
 	def _is_auto_download_enabled(self) -> bool:
-		"""Check if auto-download PDFs is enabled in browser profile."""
-		return self.browser_session.browser_profile.auto_download_pdfs
+		"""Only auto-download PDFs when downloads are accepted."""
+		profile = self.browser_session.browser_profile
+		return profile.accept_downloads and profile.auto_download_pdfs
 
 	async def attach_to_target(self, target_id: TargetID) -> None:
 		"""Set up download monitoring for a specific target."""
@@ -497,20 +498,23 @@ class DownloadsWatchdog(BaseWatchdog):
 				# Set up CDP session for downloads (only once per browser session)
 				cdp_client = self.browser_session.cdp_client
 
-				# Set download behavior to allow downloads and enable events
+				# Apply download acceptance at the browser level, including local CDP browsers.
 				downloads_path = self.browser_session.browser_profile.downloads_path
 				if not downloads_path:
 					self.logger.warning('[DownloadsWatchdog] No downloads path configured, skipping CDP download setup')
 					return
 				# Ensure path is properly expanded (~ -> absolute path)
 				expanded_downloads_path = Path(downloads_path).expanduser().resolve()
-				await cdp_client.send.Browser.setDownloadBehavior(
-					params={
-						'behavior': 'allow',
-						'downloadPath': str(expanded_downloads_path),  # Use expanded absolute path
-						'eventsEnabled': True,
-					}
-				)
+				if self.browser_session.browser_profile.accept_downloads:
+					await cdp_client.send.Browser.setDownloadBehavior(
+						params={
+							'behavior': 'allow',
+							'downloadPath': str(expanded_downloads_path),
+							'eventsEnabled': True,
+						}
+					)
+				else:
+					await cdp_client.send.Browser.setDownloadBehavior(params={'behavior': 'deny', 'eventsEnabled': True})
 
 				# Register the handlers with CDP
 				cdp_client.register.Browser.downloadWillBegin(download_will_begin_handler)  # type: ignore[arg-type]
