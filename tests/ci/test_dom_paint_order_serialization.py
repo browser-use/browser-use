@@ -79,3 +79,14 @@ class TestPaintOrderTextExclusion:
 
 		assert 'TOP LAYER TEXT' in output
 		assert 'HIDDEN BEHIND MODAL' not in output
+
+	def test_rect_inverted_bounds_raises_value_error(self):
+		import pytest
+
+		from browser_use.dom.serializer.paint_order import Rect
+
+		with pytest.raises(ValueError, match='Invalid rectangle coordinates'):
+			Rect(x1=100.0, y1=0.0, x2=50.0, y2=10.0)
+
+		with pytest.raises(ValueError, match='Invalid rectangle coordinates'):
+			Rect(x1=0.0, y1=100.0, x2=50.0, y2=50.0)

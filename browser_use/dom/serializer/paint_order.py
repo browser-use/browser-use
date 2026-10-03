@@ -19,7 +19,9 @@ class Rect:
 
 	def __post_init__(self):
 		if not (self.x1 <= self.x2 and self.y1 <= self.y2):
-			return False
+			raise ValueError(
+				f'Invalid rectangle coordinates: x1 ({self.x1}) <= x2 ({self.x2}) and y1 ({self.y1}) <= y2 ({self.y2}) required.'
+			)
 
 	# --- fast relations ----------------------------------------------------
 	def area(self) -> float:
@@ -193,11 +195,15 @@ class PaintOrderRemover:
 				if not node.original_node.snapshot_node or not node.original_node.snapshot_node.bounds:
 					continue  # shouldn't happen by how we filter them out in the first place
 
+				bounds = node.original_node.snapshot_node.bounds
+				if bounds.width <= 0 or bounds.height <= 0:
+					continue
+
 				rect = Rect(
-					x1=node.original_node.snapshot_node.bounds.x,
-					y1=node.original_node.snapshot_node.bounds.y,
-					x2=node.original_node.snapshot_node.bounds.x + node.original_node.snapshot_node.bounds.width,
-					y2=node.original_node.snapshot_node.bounds.y + node.original_node.snapshot_node.bounds.height,
+					x1=bounds.x,
+					y1=bounds.y,
+					x2=bounds.x + bounds.width,
+					y2=bounds.y + bounds.height,
 				)
 				context = self._document_context(node)
 
