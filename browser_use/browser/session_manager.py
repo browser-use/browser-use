@@ -8,12 +8,25 @@ import asyncio
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
-from cdp_use.cdp.target import AttachedToTargetEvent, DetachedFromTargetEvent, SessionID, TargetID
+from cdp_use.cdp.fetch import EnableParameters as FetchEnableParameters
+from cdp_use.cdp.target import (
+	AttachedToTargetEvent,
+	DetachedFromTargetEvent,
+	SessionID,
+	SetAutoAttachParameters,
+	TargetID,
+)
 
 from browser_use.utils import create_task_with_error_handling
 
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession, CDPSession, Target
+
+
+def _is_target_gone_error(error: Exception) -> bool:
+	"""True for CDP errors meaning the target/session detached before the command ran (short-lived targets)."""
+	error_str = str(error)
+	return '-32001' in error_str or 'Session with given id not found' in error_str
 
 
 class SessionManager:
@@ -59,6 +72,75 @@ class SessionManager:
 		self._recovery_in_progress: bool = False
 		self._recovery_complete_event: asyncio.Event | None = None
 		self._recovery_task: asyncio.Task | None = None
+
+	@property
+	def url_policy_enabled(self) -> bool:
+		"""True when the profile restricts which URLs the browser may load."""
+		profile = self.browser_session.browser_profile
+		return bool(profile.allowed_domains or profile.prohibited_domains or profile.block_ip_addresses)
+
+	def auto_attach_params(self) -> SetAutoAttachParameters:
+		"""Params for Target.setAutoAttach.
+
+		When a URL policy is active, new targets are held at start (waitForDebuggerOnStart) so that
+		request interception is in place before they can issue their first request. _handle_target_attached
+		resumes them once that is done.
+		"""
+		return {'autoAttach': True, 'waitForDebuggerOnStart': self.url_policy_enabled, 'flatten': True}
+
+	def on_request_paused(self, event: Any, session_id: SessionID | None = None) -> None:
+		"""Single Fetch.requestPaused handler (cdp-use keeps one handler per method).
+
+		Documents (top-level pages and iframes, including every redirect hop) whose URL the policy
+		disallows are failed before any request is sent. Everything else is continued untouched.
+		"""
+		request_id = event.get('requestId') or event.get('request_id')
+		if not request_id:
+			return
+
+		async def _respond() -> None:
+			client = self.browser_session._cdp_client_root
+			if client is None:
+				return
+			url = (event.get('request') or {}).get('url', '')
+			block = False
+			if event.get('resourceType') == 'Document' and url:
+				watchdog = self.browser_session._security_watchdog
+				block = (
+					watchdog is not None and not url.startswith(('about:', 'chrome-error:')) and not watchdog._is_url_allowed(url)
+				)
+			try:
+				if block:
+					self.logger.warning(f'⛔️ Blocked request to non-allowed URL before it was sent: {url}')
+					self._dispatch_navigation_blocked(url, session_id)
+					await client.send.Fetch.failRequest(
+						params={'requestId': request_id, 'errorReason': 'BlockedByClient'}, session_id=session_id
+					)
+				else:
+					await client.send.Fetch.continueRequest(params={'requestId': request_id}, session_id=session_id)
+			except Exception as e:
+				self.logger.debug(f'[SessionManager] Fetch response failed: {type(e).__name__}: {e}')
+
+		create_task_with_error_handling(_respond(), name='request_paused', logger_instance=self.logger, suppress_exceptions=True)
+
+	def _dispatch_navigation_blocked(self, url: str, session_id: SessionID | None) -> None:
+		"""Report a request blocked by the URL policy so the agent learns the navigation did not happen."""
+		from browser_use.browser.events import BrowserErrorEvent
+
+		try:
+			self.browser_session.event_bus.dispatch(
+				BrowserErrorEvent(
+					error_type='NavigationBlocked',
+					message=f'Navigation blocked to non-allowed URL: {url}',
+					details={
+						'url': url,
+						'target_id': self.get_target_id_from_session_id(session_id) if session_id else None,
+						'reason': 'blocked_before_request',
+					},
+				)
+			)
+		except Exception as e:
+			self.logger.debug(f'[SessionManager] Failed to dispatch BrowserErrorEvent: {type(e).__name__}: {e}')
 
 	async def start_monitoring(self) -> None:
 		"""Start monitoring Target attach/detach events.
@@ -130,6 +212,8 @@ class SessionManager:
 		cdp_client.register.Target.detachedFromTarget(on_detached)
 		cdp_client.register.Target.targetInfoChanged(on_target_info_changed)
 		cdp_client.register.Page.lifecycleEvent(on_lifecycle_event)
+		if self.url_policy_enabled:
+			cdp_client.register.Fetch.requestPaused(self.on_request_paused)
 
 		self.logger.debug('[SessionManager] Event monitoring started')
 
@@ -426,7 +510,7 @@ class SessionManager:
 		# Enable auto-attach for this session's children (do this FIRST, outside lock)
 		try:
 			await self.browser_session._cdp_client_root.send.Target.setAutoAttach(
-				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}, session_id=session_id
+				params=self.auto_attach_params(), session_id=session_id
 			)
 		except Exception as e:
 			error_str = str(e)
@@ -461,6 +545,10 @@ class SessionManager:
 				existing_target.url = target_info.get('url', existing_target.url)
 				existing_target.title = target_info.get('title', existing_target.title)
 
+		# Tabs opened by the page itself (window.open, target=_blank) never pass through NavigateToUrlEvent
+		if target_type in ('page', 'tab'):
+			self._dispatch_target_url_changed(target_id, target_info.get('url', 'about:blank'))
+
 		# Create CDPSession (communication channel)
 		from browser_use.browser.session import CDPSession
 
@@ -475,20 +563,26 @@ class SessionManager:
 		# Add to sessions dict
 		self._sessions[session_id] = cdp_session
 
-		# If proxy auth is configured, enable Fetch auth handling on this session
-		# Avoids overwriting Target.attachedToTarget handlers elsewhere
+		# Enable Fetch on this session for proxy auth and/or the URL policy.
+		# Avoids overwriting Target.attachedToTarget handlers elsewhere.
+		# This must happen before the target is resumed (below) so its first request is already covered.
+		interception_failed = False
 		try:
+			fetch_params: FetchEnableParameters = {}
 			proxy_cfg = self.browser_session.browser_profile.proxy
-			username = proxy_cfg.username if proxy_cfg else None
-			password = proxy_cfg.password if proxy_cfg else None
-			if username and password:
-				await cdp_session.cdp_client.send.Fetch.enable(
-					params={'handleAuthRequests': True},
-					session_id=cdp_session.session_id,
-				)
-				self.logger.debug(f'[SessionManager] Fetch.enable(handleAuthRequests=True) on session {session_id[:8]}...')
+			if proxy_cfg and proxy_cfg.username and proxy_cfg.password:
+				fetch_params['handleAuthRequests'] = True
+			if self.url_policy_enabled and target_type in ('page', 'tab', 'iframe'):
+				# Only documents (pages and iframes, incl. redirects) are pausable; other requests are not intercepted
+				fetch_params['patterns'] = [{'resourceType': 'Document'}]
+			if fetch_params:
+				await cdp_session.cdp_client.send.Fetch.enable(params=fetch_params, session_id=cdp_session.session_id)
+				self.logger.debug(f'[SessionManager] Fetch.enable({fetch_params}) on session {session_id[:8]}...')
 		except Exception as e:
 			self.logger.debug(f'[SessionManager] Fetch.enable on attached session failed: {type(e).__name__}: {e}')
+			# A target that vanished mid-attach needs no interception; anything else must not run unprotected
+			if self.url_policy_enabled and target_type in ('page', 'tab', 'iframe') and not _is_target_gone_error(e):
+				interception_failed = True
 
 		self.logger.debug(
 			f'[SessionManager] Created session {session_id[:8]}... for target {target_id[:8]}... '
@@ -498,6 +592,21 @@ class SessionManager:
 		# Enable lifecycle events and network monitoring for page targets
 		if target_type in ('page', 'tab'):
 			await self._enable_page_monitoring(cdp_session)
+
+		# Fail closed: a target held at start whose interception could not be enabled is never resumed,
+		# because it would be free to request disallowed URLs. Pages are closed; iframes stay paused.
+		if interception_failed:
+			self.logger.error(
+				f'[SessionManager] ⛔️ Could not enable URL policy interception for {target_type} {target_id[:8]}...; '
+				f'{"closing it" if target_type in ("page", "tab") else "leaving it paused"} instead of resuming'
+			)
+			if target_type in ('page', 'tab'):
+				try:
+					assert self.browser_session._cdp_client_root is not None
+					await self.browser_session._cdp_client_root.send.Target.closeTarget(params={'targetId': target_id})
+				except Exception as e:
+					self.logger.warning(f'[SessionManager] Failed to close unprotected target: {type(e).__name__}: {e}')
+			return
 
 		# Resume execution if waiting for debugger
 		if waiting_for_debugger:
@@ -519,13 +628,30 @@ class SessionManager:
 		if not target_id:
 			return
 
+		changed_url: str | None = None
 		async with self._lock:
 			# Update target if it exists (source of truth for url/title)
 			if target_id in self._targets:
 				target = self._targets[target_id]
 
+				old_url = target.url
 				target.title = target_info.get('title', target.title)
 				target.url = target_info.get('url', target.url)
+				if target.url != old_url and target.target_type in ('page', 'tab'):
+					changed_url = target.url
+
+		# Let the security watchdog vet navigations the agent did not initiate (outside the lock)
+		if changed_url is not None:
+			self._dispatch_target_url_changed(target_id, changed_url)
+
+	def _dispatch_target_url_changed(self, target_id: TargetID, url: str) -> None:
+		"""Notify watchdogs that a page target's URL changed (not awaited: handlers may navigate)."""
+		from browser_use.browser.events import TargetUrlChangedEvent
+
+		try:
+			self.browser_session.event_bus.dispatch(TargetUrlChangedEvent(target_id=target_id, url=url))
+		except Exception as e:
+			self.logger.debug(f'[SessionManager] Failed to dispatch TargetUrlChangedEvent: {type(e).__name__}: {e}')
 
 	async def _handle_target_detached(self, event: DetachedFromTargetEvent) -> None:
 		"""Handle Target.detachedFromTarget event.

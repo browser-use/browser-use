@@ -398,6 +398,15 @@ class TabCreatedEvent(BaseEvent):
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_TabCreatedEvent', 30.0))  # seconds
 
 
+class TargetUrlChangedEvent(BaseEvent):
+	"""A page target's URL changed without the agent navigating it (page-initiated navigation, window.open, history, tab switch)."""
+
+	target_id: TargetID
+	url: str
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_TargetUrlChangedEvent', 30.0))  # seconds
+
+
 class TabClosedEvent(BaseEvent):
 	"""A tab was closed."""
 
