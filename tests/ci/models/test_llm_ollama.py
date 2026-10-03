@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from pydantic import BaseModel
 
@@ -69,3 +70,24 @@ async def test_truncated_json_raises_model_provider_error():
 		await llm.ainvoke([UserMessage(content='hi')], output_format=Answer)
 
 	assert 'Invalid JSON' in exc_info.value.message or 'invalid JSON' in exc_info.value.message.lower()
+
+
+def test_client_params_timeout_override_does_not_crash():
+	"""client_params is the user override channel; SDK-explicit keys like timeout
+	must not raise 'got multiple values for keyword argument' at the call site."""
+	llm = ChatOllama(model='test-model', client_params={'timeout': 30})
+	client = llm.get_client()
+	assert isinstance(client._client, httpx.AsyncClient)
+	assert client._client.timeout == httpx.Timeout(30.0)
+
+
+def test_client_params_headers_passthrough():
+	llm = ChatOllama(model='test-model', client_params={'headers': {'X-Custom': '1'}})
+	client = llm.get_client()
+	assert client._client.headers.get('x-custom') == '1'
+
+
+def test_default_client_construction_unchanged():
+	llm = ChatOllama(model='test-model')
+	client = llm.get_client()
+	assert isinstance(client._client, httpx.AsyncClient)
