@@ -77,9 +77,12 @@ class HTMLSerializer:
 				normalized_style = ''.join(style.lower().split())
 				if 'display:none' in normalized_style:
 					return ''
-				# Also check for bpr-guid IDs (LinkedIn's JSON data pattern)
+				# Preserve visible code examples, but filter hidden application state.
 				element_id = node.attributes.get('id', '')
-				if 'bpr-guid' in element_id or 'data' in element_id or 'state' in element_id:
+				element_id_lower = element_id.lower()
+				if 'bpr-guid' in element_id or (
+					node.is_visible is False and ('data' in element_id_lower or 'state' in element_id_lower)
+				):
 					return ''
 
 			# Skip base64 inline images - these are usually placeholders or tracking pixels
