@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -1164,6 +1165,74 @@ class DomService:
 
 		return serialized_dom_state, enhanced_dom_tree, timing_info
 
+	# Decorative glyphs often wrap pagination labels ("Next >", "‹ Previous").
+	_PAGINATION_DECORATION_RE = re.compile(r'^[\s<>«»←→⇤⇥›‹.]+|[\s<>«»←→⇤⇥›‹.]+$')
+	_PAGINATION_GO_PREFIX = r'(?:go to|ir a|aller(?:\s+à)?|zur|naar)\s+'
+	_PAGINATION_PAGE_WORD = r'(?:page|página|pagina|seite)'
+
+	@staticmethod
+	def _normalized_pagination_label(value: str) -> str:
+		return DomService._PAGINATION_DECORATION_RE.sub('', value).strip()
+
+	@staticmethod
+	def _matches_word_pagination_pattern(normalized: str, pattern: str) -> bool:
+		"""Accept bare/localized page labels without matching 'Next steps'."""
+		return bool(
+			re.fullmatch(
+				rf'(?:{DomService._PAGINATION_GO_PREFIX})?{re.escape(pattern)}(?:\s+{DomService._PAGINATION_PAGE_WORD})?',
+				normalized,
+			)
+		)
+
+	@staticmethod
+	def _matches_symbol_pagination_pattern(value: str, normalized: str, pattern: str) -> bool:
+		compact = ''.join(value.split())
+		return value == pattern or normalized == pattern or bool(pattern) and bool(compact) and set(compact) == {pattern}
+
+	@staticmethod
+	def _matches_pagination_pattern(sources: tuple[str, ...], patterns: list[str]) -> bool:
+		"""Match user-facing labels, not CSS class substrings or incidental words.
+
+		Alphabetic patterns must be the whole label, optionally with a go-to prefix
+		and a page word (including localized forms), after stripping decorative
+		arrows. Symbol patterns must be the entire label or a repeated copy of it.
+		"""
+		for raw in sources:
+			value = raw.strip()
+			if not value:
+				continue
+			normalized = DomService._normalized_pagination_label(value)
+			for pattern in patterns:
+				if any(ch.isalpha() for ch in pattern):
+					if DomService._matches_word_pagination_pattern(normalized, pattern):
+						return True
+				elif DomService._matches_symbol_pagination_pattern(value, normalized, pattern):
+					return True
+		return False
+
+	# Single-item wrappers around page links (li/td/th) are not pager peers themselves.
+	_PAGINATION_PEER_WRAPPER_TAGS = frozenset({'li', 'td', 'th'})
+
+	@staticmethod
+	def _pagination_peer_key(node: EnhancedDOMTreeNode) -> object:
+		"""Group numbered controls that share a pager container or list/table row."""
+		current = node.parent_node
+		while current is not None:
+			attributes = current.attributes or {}
+			role = attributes.get('role', '').lower()
+			class_name = attributes.get('class', '').lower()
+			element_id = attributes.get('id', '').lower()
+			if current.tag_name == 'nav' or role == 'navigation' or 'paginat' in class_name or 'paginat' in element_id:
+				return current
+			current = current.parent_node
+
+		# Plain <ul><li><a>1</a></li><li><a>2</a></li></ul> has no nav marker; peer by
+		# the shared list/table ancestor instead of each lone wrapper element.
+		fallback = node.parent_node
+		while fallback is not None and fallback.tag_name in DomService._PAGINATION_PEER_WRAPPER_TAGS:
+			fallback = fallback.parent_node
+		return fallback if fallback is not None else node
+
 	@staticmethod
 	def detect_pagination_buttons(selector_map: dict[int, EnhancedDOMTreeNode]) -> list[dict[str, str | int | bool]]:
 		"""Detect pagination buttons from the selector map.
@@ -1181,6 +1250,7 @@ class DomService:
 			- is_disabled: Whether the button appears disabled
 		"""
 		pagination_buttons: list[dict[str, str | int | bool]] = []
+		page_number_nodes: list[tuple[dict[str, str | int | bool], EnhancedDOMTreeNode]] = []
 
 		# Common pagination patterns to look for
 		# `«` and `»` are ambiguous across sites, so treat them only as prev/next
@@ -1201,9 +1271,7 @@ class DomService:
 			title = node.attributes.get('title', '').lower()
 			class_name = node.attributes.get('class', '').lower()
 			role = node.attributes.get('role', '').lower()
-
-			# Combine all text sources for pattern matching
-			all_text = f'{text} {aria_label} {title} {class_name}'.strip()
+			label_sources = (text, aria_label, title)
 
 			# Check if it's disabled
 			is_disabled = (
@@ -1215,31 +1283,38 @@ class DomService:
 			button_type: str | None = None
 
 			# Match specific first/last semantics before generic prev/next fallbacks.
-			if any(pattern in all_text for pattern in first_patterns):
+			if DomService._matches_pagination_pattern(label_sources, first_patterns):
 				button_type = 'first'
-			# Check for last button
-			elif any(pattern in all_text for pattern in last_patterns):
+			elif DomService._matches_pagination_pattern(label_sources, last_patterns):
 				button_type = 'last'
-			# Check for next button
-			elif any(pattern in all_text for pattern in next_patterns):
+			elif DomService._matches_pagination_pattern(label_sources, next_patterns):
 				button_type = 'next'
-			# Check for previous button
-			elif any(pattern in all_text for pattern in prev_patterns):
+			elif DomService._matches_pagination_pattern(label_sources, prev_patterns):
 				button_type = 'prev'
-			# Check for numeric page buttons (single or double digit)
-			elif text.isdigit() and len(text) <= 2 and role in ['button', 'link', '']:
+			elif text.isdigit() and len(text) <= 2 and (role in {'button', 'link'} or node.tag_name in {'a', 'button'}):
+				# Lone numeric widgets (ratings, qty steppers) are not pagination.
+				# A real pager almost always exposes 2+ numbered controls together.
 				button_type = 'page_number'
 
 			if button_type:
-				pagination_buttons.append(
-					{
-						'button_type': button_type,
-						'backend_node_id': node.backend_node_id,
-						'selector_index': index,
-						'text': node.get_all_children_text().strip() or aria_label or title,
-						'selector': node.xpath,
-						'is_disabled': is_disabled,
-					}
-				)
+				button = {
+					'button_type': button_type,
+					'backend_node_id': node.backend_node_id,
+					'selector_index': index,
+					'text': node.get_all_children_text().strip() or aria_label or title,
+					'selector': node.xpath,
+					'is_disabled': is_disabled,
+				}
+				pagination_buttons.append(button)
+				if button_type == 'page_number':
+					page_number_nodes.append((button, node))
+
+		peer_groups: dict[object, list[dict[str, str | int | bool]]] = {}
+		for button, page_node in page_number_nodes:
+			peer_groups.setdefault(DomService._pagination_peer_key(page_node), []).append(button)
+		keep_page_numbers = {id(button) for members in peer_groups.values() if len(members) >= 2 for button in members}
+		pagination_buttons = [
+			button for button in pagination_buttons if button['button_type'] != 'page_number' or id(button) in keep_page_numbers
+		]
 
 		return pagination_buttons
