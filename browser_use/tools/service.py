@@ -1044,10 +1044,10 @@ class Tools(Generic[Context]):
 			try:
 				target_id = await browser_session.get_target_id_from_tab_id(params.tab_id)
 
-				# Dispatch close tab event - handle stale target IDs gracefully
+				# Propagate handler failures instead of reporting an unconfirmed closure.
 				event = browser_session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
 				await event
-				await event.event_result(raise_if_any=False, raise_if_none=False)  # Don't raise on errors
+				await event.event_result(raise_if_any=True, raise_if_none=False)
 
 				memory = f'Closed tab #{params.tab_id}'
 				logger.info(f'🗑️  {memory}')
@@ -1056,13 +1056,9 @@ class Tools(Generic[Context]):
 					long_term_memory=memory,
 				)
 			except Exception as e:
-				# Handle stale target IDs gracefully
-				logger.warning(f'Tab {params.tab_id} may already be closed: {e}')
-				memory = f'Tab #{params.tab_id} closed (was already closed or invalid)'
-				return ActionResult(
-					extracted_content=memory,
-					long_term_memory=memory,
-				)
+				logger.warning(f'Failed to close tab {params.tab_id}: {e}')
+				memory = f'Failed to close tab #{params.tab_id}: {e}'
+				raise BrowserError(memory, short_term_memory=memory, long_term_memory=memory)
 
 		@self.registry.action(
 			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Set extract_images=True for image src URLs. Use start_from_char if previous extraction was truncated to extract data further down the page. When paginating across pages, pass already_collected with item identifiers (names/URLs) from prior pages to avoid duplicates.""",
