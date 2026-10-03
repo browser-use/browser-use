@@ -179,6 +179,7 @@ class SpecialActionParameters(BaseModel):
 	file_system: FileSystem | None = None
 	available_file_paths: list[str] | None = None
 	has_sensitive_data: bool = False
+	sensitive_data: dict[str, str | dict[str, str]] | None = None
 	extraction_schema: dict | None = None
 
 	@classmethod
