@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserUse } from '../dist/index.js';
@@ -269,6 +269,21 @@ test('oversized JPEG, PNG and WebP captures keep original artifacts and attach b
     '1',
   );
   await agent.execute(`await page.goto(${JSON.stringify(fixture.url)})`);
+});
+
+test('showImage attaches a workspace image file to the cell result as a native image', async () => {
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZWQAAAAASUVORK5CYII=',
+    'base64',
+  );
+  await mkdir(join(workspace, 'uploads'), { recursive: true });
+  await writeFile(join(workspace, 'uploads', 'dot.png'), png);
+  const result = await agent.execute("await showImage('uploads/dot.png')");
+  assert.match(result.text, /Image shown: uploads\/dot.png \(1x1\)/);
+  assert.equal(result.images.length, 1);
+  assert.equal(result.images[0].mimeType, 'image/png');
+  assert.deepEqual(Buffer.from(result.images[0].data, 'base64'), png);
+  await assert.rejects(agent.execute("await showImage('uploads/missing.png')"), /No file at/);
 });
 
 test('screenshot bounds preserve command results and failed-cell images stay in their own cell', async () => {

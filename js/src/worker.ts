@@ -3,9 +3,9 @@ import { Session, type Runtime } from 'node:inspector';
 import { createRequire } from 'node:module';
 import { createContext, constants } from 'node:vm';
 import { inspect } from 'node:util';
-import { writeFile, rename } from 'node:fs/promises';
+import { readFile, writeFile, rename, stat } from 'node:fs/promises';
 import { appendFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { extname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { CDP } from './cdp.js';
 import { Page, Tabs } from './page.js';
@@ -13,7 +13,7 @@ import type { Image, WorkerConfig, WorkerRequest, WorkerResponse } from './proto
 import { installDomainPolicy, fillSecret } from './policy.js';
 import { redact } from './history.js';
 import { actionHighlighter } from './highlight.js';
-import { prepareModelImages } from './images.js';
+import { imageDimensions, imageMimeType, prepareModelImages } from './images.js';
 import { AxHelpers } from './ax.js';
 
 // IPC initialization keeps connection details out of argv and environment.
@@ -46,6 +46,7 @@ let runId: string | undefined;
 let output = '';
 let images: Image[] = [];
 let captureResponse: CDP['observeResponse'];
+let attachImage: ((image: Image) => boolean) | undefined;
 let overflow = false;
 // Bound memory even when generated code writes an unbounded amount of output.
 const hardLimit = 1_000_000;
@@ -217,6 +218,35 @@ Object.assign(realm, {
     await current.screenshot({ quality: 70 });
     return images.length > count ? 'Screenshot captured.' : 'Screenshot omitted; see warning.';
   },
+  async showImage(path: string) {
+    if (typeof path !== 'string' || !path) throw new Error('showImage(path) needs a file path.');
+    const missing = (error: NodeJS.ErrnoException) => {
+      throw new Error(
+        error.code === 'ENOENT'
+          ? `No file at ${path} (relative to ${process.cwd()}).`
+          : error.message,
+      );
+    };
+    // Check size before reading so a huge file never lands in memory.
+    if ((await stat(resolve(path)).catch(missing)).size > 8_000_000)
+      throw new Error(`${path} not shown: images are limited to 8 MB.`);
+    const bytes = await readFile(resolve(path)).catch(missing);
+    const byExtension: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+      '.gif': 'image/gif',
+    };
+    const mimeType = imageMimeType(bytes) ?? byExtension[extname(path).toLowerCase()];
+    if (!mimeType) throw new Error(`${path} is not a png, jpeg, webp or gif image.`);
+    const size = imageDimensions(bytes);
+    if (!size || size.width * size.height > 50_000_000)
+      throw new Error(`${path}: unreadable image or over 50 megapixels.`);
+    if (!attachImage?.({ type: 'image', data: bytes.toString('base64'), mimeType }))
+      throw new Error(`${path} not shown: at most four images per cell, 8 MB each.`);
+    return `Image shown: ${path} (${size.width}x${size.height})`;
+  },
   async snapshot() {
     const current = Reflect.get(realm, 'page') as Page;
     return current.snapshot();
@@ -325,20 +355,23 @@ process.on('message', async (message: WorkerRequest) => {
   const cellImages = images;
   let active = true;
   let warned = false;
+  // One sink for screenshots and showImage(): the same per-cell count and size limits.
+  attachImage = (image) => {
+    if (cellImages.length >= 4 || Buffer.byteLength(image.data, 'base64') > 8_000_000) return false;
+    cellImages.push(image);
+    return true;
+  };
   captureResponse = (method, params, result, sessionId) => {
     if (active) void highlight?.(method, params, sessionId);
     if (!active || method !== 'Page.captureScreenshot') return;
     const data = (result as { data?: unknown })?.data;
     if (typeof data !== 'string') return;
-    if (cellImages.length >= 4 || Buffer.byteLength(data, 'base64') > 8_000_000) {
-      if (!warned) sink.write('[Screenshot omitted from model vision: four-image/8 MB limit.]\n');
-      warned = true;
-      return;
-    }
     const format = (params as { format?: string })?.format ?? 'png';
     const mimeType =
       format === 'jpeg' ? 'image/jpeg' : format === 'webp' ? 'image/webp' : 'image/png';
-    cellImages.push({ type: 'image', data, mimeType });
+    if (attachImage!({ type: 'image', data, mimeType })) return;
+    if (!warned) sink.write('[Screenshot omitted from model vision: four-image/8 MB limit.]\n');
+    warned = true;
   };
   browser.observeResponse = captureResponse;
   overflow = false;
@@ -361,6 +394,7 @@ process.on('message', async (message: WorkerRequest) => {
     active = false;
     browser.observeResponse = undefined;
     captureResponse = undefined;
+    attachImage = undefined;
   }
   captureText(clean(pendingText));
   pendingText = '';

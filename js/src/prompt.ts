@@ -28,6 +28,7 @@ Uploads: DOM.setFileInputFiles({backendNodeId,files}). Downloads: Browser.setDow
 Workspace helpers:
 - await artifact(filename, textOrBytes) creates an exclusive file and returns its path.
 - await checkpoint(filename, value, {partial:true}) atomically saves JSON and publishes your latest partial result to the caller. Update it after useful progress, especially QA findings and extracted records. Partial values need not satisfy the final schema. They survive timeout or worker loss. Omit the option for ordinary scratch checkpoints. Save small successful batches, not only the final output.
+- await showImage(path) sends an image file (png, jpeg, webp, gif), e.g. an attachment in uploads/, to the model as a native image. Do not open file:// URLs.
 - await reconnect() resets CDP while preserving Node bindings/files. Reacquire tab handles and inspect before acting.
 Large output is truncated with a path to the captured text. Full model observations are journalled to workspace; read files instead of repeating completed actions. Optional read/write/edit/bash tools are upstream Pi tools.
 
