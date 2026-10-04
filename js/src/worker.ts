@@ -100,10 +100,44 @@ const bu =
         (text) => (Reflect.get(realm, 'console') as Console).log(text),
       )
     : undefined;
-// The search endpoint under the cloud worker's names, for the prompt's fetch example.
+// The search endpoint under the cloud worker's names; transcripts restored from before search() used them.
 if (config.webSearch) {
   process.env.V4_GATEWAY_URL = config.webSearch.url.replace(/\/api\/v4\/search\/?$/, '');
   process.env.V4_RUN_TOKEN = config.webSearch.token;
+}
+const webSearch = config.webSearch;
+/** One POST to the host's search endpoint; the body is read once, so a failure can quote it. */
+async function search(query: string, options: { num_results?: number; category?: string } = {}) {
+  if (!webSearch) throw new Error('Web search is not enabled.');
+  if (typeof query !== 'string' || !query.trim()) throw new Error('search(query) needs text.');
+  const { num_results, category } = options;
+  const response = await fetch(webSearch.url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${webSearch.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query,
+      ...(num_results !== undefined ? { num_results } : {}),
+      ...(category !== undefined ? { category } : {}),
+    }),
+  });
+  const body = await response.text();
+  if (!response.ok)
+    throw new Error(
+      `Search failed: HTTP ${response.status}${response.status === 402 ? ' (run out of budget)' : ''}: ${body.slice(0, 300)}`,
+    );
+  let parsed: { results?: unknown };
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new Error(`Search returned non-JSON: ${body.slice(0, 300)}`);
+  }
+  // The endpoint renders hits as one text, separated by ---; the model gets one entry per hit.
+  const results = Array.isArray(parsed.results)
+    ? parsed.results
+    : typeof parsed.results === 'string' && parsed.results.trim()
+      ? parsed.results.split(/\n\n---\n\n/)
+      : [];
+  return { ...parsed, results };
 }
 Object.assign(realm, {
   global: realm, // Node's global alias refers to this REPL realm, not the worker host.
@@ -143,6 +177,7 @@ Object.assign(realm, {
   tabs,
   page,
   ...(bu ? { bu } : {}),
+  ...(webSearch ? { search } : {}),
   workspace: config.workspace,
   async reconnect(endpoint?: string) {
     let targetId: string | undefined = (Reflect.get(realm, 'page') as Page)?.targetId;
