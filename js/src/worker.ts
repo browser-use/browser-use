@@ -111,7 +111,9 @@ async function search(query: string, options: { num_results?: number; category?:
   if (!webSearch) throw new Error('Web search is not enabled.');
   if (typeof query !== 'string' || !query.trim()) throw new Error('search(query) needs text.');
   const { num_results, category } = options;
+  // Under the 30 s cell deadline, so a hung endpoint fails the call instead of killing the worker.
   const response = await fetch(webSearch.url, {
+    signal: AbortSignal.timeout(25_000),
     method: 'POST',
     headers: { Authorization: `Bearer ${webSearch.token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -119,6 +121,8 @@ async function search(query: string, options: { num_results?: number; category?:
       ...(num_results !== undefined ? { num_results } : {}),
       ...(category !== undefined ? { category } : {}),
     }),
+  }).catch((error: Error) => {
+    throw error.name === 'TimeoutError' ? new Error('Search failed: timed out after 25 s.') : error;
   });
   const body = await response.text();
   if (!response.ok)
@@ -131,6 +135,7 @@ async function search(query: string, options: { num_results?: number; category?:
   } catch {
     throw new Error(`Search returned non-JSON: ${body.slice(0, 300)}`);
   }
+  if (!parsed || typeof parsed !== 'object') throw new Error('Search returned no result object.');
   // The endpoint renders hits as one text, separated by ---; the model gets one entry per hit.
   const results = Array.isArray(parsed.results)
     ? parsed.results
