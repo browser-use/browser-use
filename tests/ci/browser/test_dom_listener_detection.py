@@ -148,6 +148,25 @@ async def test_whole_state_timeout_returns_model_visible_non_actionable_state(
 	assert browser_session._cached_browser_state_summary is state
 
 
+async def test_pending_caller_cancellation_is_propagated_before_state_capture(
+	browser_session: BrowserSession, monkeypatch
+):
+	"""A cancellation queued before state capture must not be swallowed by recovery handling."""
+
+	class BlockingStateEvent:
+		async def event_result(self, **_kwargs):
+			await asyncio.Future()
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', lambda _event: BlockingStateEvent())
+
+	async def capture():
+		asyncio.current_task().cancel()
+		return await browser_session.get_browser_state_summary(include_screenshot=False)
+
+	with pytest.raises(asyncio.CancelledError):
+		await capture()
+
+
 async def test_parent_timeout_cancellation_returns_non_actionable_state(browser_session: BrowserSession, monkeypatch):
 	"""A stored cancellation from another handler timeout must not cancel the caller."""
 
