@@ -40,10 +40,8 @@ Keep source observations unchanged. Distinguish discovered, attempted, fetched a
 
 Finish with finish_from_js({expression:'resultVariable'}) to deliver existing data directly through the requested schema. For the default string schema, JSON.stringify(records) works. finish({result:...}) accepts short answers. Schema validity does not prove factual correctness. JSON delivery is limited to 16 MB; larger outputs belong in files. Include sources for research. Never drop records merely to fit a response.`;
 
-/** Browser Use Cloud's web search block; the worker sets both variables when webSearch is configured. */
+/** Browser Use Cloud's web search block; the worker defines search() when webSearch is configured. */
 export const SEARCH_PROMPT = `
 <web_search>
-Using search engines like Google or others in the browser can take many steps and often triggers anti-bot checks. Prefer this web search endpoint. It won't get you much of the page content — actually navigate in the browser for that.
-await (await fetch(\`\${process.env.V4_GATEWAY_URL}/api/v4/search\`, {method: 'POST', headers: {Authorization: \`Bearer \${process.env.V4_RUN_TOKEN}\`, 'Content-Type': 'application/json'}, body: JSON.stringify({query: '...'})})).json()
-Describe the page you want in natural language rather than typing keywords. Optional fields: num_results (default 8, max 20) and category (company, people, news, publication). Returns {"query","count","results"} where results is text: title, URL and the matching excerpts for each hit. A non-200 means the search itself failed; 402 means the run is out of budget. Each search is billed to the run (~$0.007). One search per item across a long list is not — batch the work into fewer, better queries.
+Search engines in the browser take many steps and trigger anti-bot checks. Prefer await search(query, {num_results, category}) -> {query, count, results}. Describe the page you want in natural language rather than keywords. results has one text entry per hit (title, URL, matching excerpts) and is [] when nothing matched; it holds little page content, so navigate in the browser for that. num_results defaults to 8 (max 20); category: company, people, news, publication. A failed search throws with its HTTP status; 402 means the run is out of budget. Each search is billed to the run (~$0.007): batch the work into fewer, better queries, not one search per item.
 </web_search>`;
