@@ -160,7 +160,9 @@ async def test_pending_caller_cancellation_is_propagated_before_state_capture(
 	monkeypatch.setattr(browser_session.event_bus, 'dispatch', lambda _event: BlockingStateEvent())
 
 	async def capture():
-		asyncio.current_task().cancel()
+		current_task = asyncio.current_task()
+		assert current_task is not None
+		current_task.cancel()
 		return await browser_session.get_browser_state_summary(include_screenshot=False)
 
 	with pytest.raises(asyncio.CancelledError):
