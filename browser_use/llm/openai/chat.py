@@ -196,7 +196,9 @@ class ChatOpenAI(BaseChatModel):
 				extra_headers.update(kwargs['extra_headers'])
 			session_id = kwargs.get('session_id')
 			if isinstance(session_id, str) and session_id.strip():
-				extra_headers.setdefault('x-episod-session', session_id.strip())
+				existing_keys = (*extra_headers, *(self.default_headers or ()))
+				if not any(isinstance(k, str) and k.casefold() == 'x-episod-session' for k in existing_keys):
+					extra_headers['x-episod-session'] = session_id.strip()
 			if extra_headers:
 				model_params['extra_headers'] = extra_headers
 

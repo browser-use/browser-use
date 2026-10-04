@@ -89,7 +89,7 @@ async def test_openai_ainvoke_forwards_session_id_header(monkeypatch):
 
 
 async def test_openai_ainvoke_preserves_caller_extra_headers(monkeypatch):
-	"""Explicit extra_headers in kwargs must take precedence over session_id."""
+	"""Explicit extra_headers (including case variants) and default_headers must take precedence over session_id."""
 	captured: dict[str, object] = {}
 
 	class FakeCompletions:
@@ -107,7 +107,19 @@ async def test_openai_ainvoke_preserves_caller_extra_headers(monkeypatch):
 	await llm.ainvoke(
 		[UserMessage(content='step 1')],
 		session_id='agent-session-42',
-		extra_headers={'x-episod-session': 'custom-pin', 'x-trace': '1'},
+		extra_headers={'X-Episod-Session': 'custom-pin', 'x-trace': '1'},
 	)
 
-	assert captured['extra_headers'] == {'x-episod-session': 'custom-pin', 'x-trace': '1'}
+	assert captured['extra_headers'] == {'X-Episod-Session': 'custom-pin', 'x-trace': '1'}
+
+	captured.clear()
+	llm_with_default = ChatOpenAI(
+		model='gpt-4.1',
+		api_key='test-key',
+		default_headers={'X-Episod-Session': 'client-pin'},
+	)
+	monkeypatch.setattr(llm_with_default, 'get_client', lambda: fake_client)
+
+	await llm_with_default.ainvoke([UserMessage(content='step 1')], session_id='agent-session-42')
+
+	assert 'extra_headers' not in captured
