@@ -10,7 +10,10 @@ Setup:
 2. vllm serve browser-use/bu-30b-a3b-preview --max-model-len 65536 --host 0.0.0.0 --port 8000
 3. python examples/models/bu_oss.py
 
-Point BU_OSS_BASE_URL at the server if it is not on localhost.
+Point BU_OSS_BASE_URL at the server if it is not on localhost. For multi-replica
+vLLM deployments behind a KV-cache affinity gateway like Episod
+(http://localhost:8080/v1), ChatOpenAI forwards the agent's session_id as
+`x-episod-session` so every step of a run lands on the replica with the warm cache.
 """
 
 import os

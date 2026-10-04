@@ -191,6 +191,15 @@ class ChatOpenAI(BaseChatModel):
 				model_params.pop('temperature', None)
 				model_params.pop('frequency_penalty', None)
 
+			extra_headers: dict[str, str] = {}
+			if isinstance(kwargs.get('extra_headers'), Mapping):
+				extra_headers.update(kwargs['extra_headers'])
+			session_id = kwargs.get('session_id')
+			if isinstance(session_id, str) and session_id.strip():
+				extra_headers.setdefault('x-episod-session', session_id.strip())
+			if extra_headers:
+				model_params['extra_headers'] = extra_headers
+
 			if output_format is None:
 				# Return string response
 				response = await self.get_client().chat.completions.create(
