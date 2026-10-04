@@ -1,11 +1,27 @@
 import type { ResizedImage } from '@earendil-works/pi-coding-agent';
 import type { Image } from './protocol.js';
 
-/** Read the dimensions of the three formats emitted by CDP, without decoding pixels. */
+/** The model-visible formats, by magic bytes rather than file extension. */
+export function imageMimeType(bytes: Buffer): string | undefined {
+  if (bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))) return 'image/png';
+  if (bytes.length >= 3 && bytes.readUIntBE(0, 3) === 0xffd8ff) return 'image/jpeg';
+  if (bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP')
+    return 'image/webp';
+  if (['GIF87a', 'GIF89a'].includes(bytes.toString('ascii', 0, 6))) return 'image/gif';
+  return undefined;
+}
+
+/** Read the dimensions of the CDP capture formats and GIF, without decoding pixels. */
 export function imageDimensions(bytes: Buffer): { width: number; height: number } | undefined {
   let width = 0;
   let height = 0;
-  if (bytes.length >= 24 && bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))) {
+  if (bytes.length >= 10 && ['GIF87a', 'GIF89a'].includes(bytes.toString('ascii', 0, 6))) {
+    width = bytes.readUInt16LE(6);
+    height = bytes.readUInt16LE(8);
+  } else if (
+    bytes.length >= 24 &&
+    bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
+  ) {
     if (bytes.toString('ascii', 12, 16) !== 'IHDR') return;
     width = bytes.readUInt32BE(16);
     height = bytes.readUInt32BE(20);
