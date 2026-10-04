@@ -1630,6 +1630,10 @@ class BrowserSession(BaseModel):
 		# The handler returns the BrowserStateSummary directly. If the complete state
 		# request times out, return a non-actionable state so the model can recover
 		# without exposing selectors from an earlier page.
+		# Deliver cancellations that were queued before the recovery baseline was captured.
+		# This keeps the cancellation-count comparison focused on cancellations raised during
+		# the event result await, while preserving previously suppressed cancellation counts.
+		await asyncio.sleep(0)
 		current_task = asyncio.current_task()
 		initial_cancellation_count = current_task.cancelling() if current_task is not None else 0
 		try:
