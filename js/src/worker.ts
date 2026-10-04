@@ -3,7 +3,7 @@ import { Session, type Runtime } from 'node:inspector';
 import { createRequire } from 'node:module';
 import { createContext, constants } from 'node:vm';
 import { inspect } from 'node:util';
-import { readFile, writeFile, rename } from 'node:fs/promises';
+import { readFile, writeFile, rename, stat } from 'node:fs/promises';
 import { appendFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -220,13 +220,17 @@ Object.assign(realm, {
   },
   async showImage(path: string) {
     if (typeof path !== 'string' || !path) throw new Error('showImage(path) needs a file path.');
-    const bytes = await readFile(resolve(path)).catch((error: NodeJS.ErrnoException) => {
+    const missing = (error: NodeJS.ErrnoException) => {
       throw new Error(
         error.code === 'ENOENT'
           ? `No file at ${path} (relative to ${process.cwd()}).`
           : error.message,
       );
-    });
+    };
+    // Check size before reading so a huge file never lands in memory.
+    if ((await stat(resolve(path)).catch(missing)).size > 8_000_000)
+      throw new Error(`${path} not shown: images are limited to 8 MB.`);
+    const bytes = await readFile(resolve(path)).catch(missing);
     const byExtension: Record<string, string> = {
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
@@ -236,10 +240,12 @@ Object.assign(realm, {
     };
     const mimeType = imageMimeType(bytes) ?? byExtension[extname(path).toLowerCase()];
     if (!mimeType) throw new Error(`${path} is not a png, jpeg, webp or gif image.`);
+    const size = imageDimensions(bytes);
+    if (!size || size.width * size.height > 50_000_000)
+      throw new Error(`${path}: unreadable image or over 50 megapixels.`);
     if (!attachImage?.({ type: 'image', data: bytes.toString('base64'), mimeType }))
       throw new Error(`${path} not shown: at most four images per cell, 8 MB each.`);
-    const size = imageDimensions(bytes);
-    return `Image shown: ${path}${size ? ` (${size.width}x${size.height})` : ''}`;
+    return `Image shown: ${path} (${size.width}x${size.height})`;
   },
   async snapshot() {
     const current = Reflect.get(realm, 'page') as Page;
