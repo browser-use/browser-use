@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import threading
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -315,15 +316,28 @@ def create_default_config() -> DBStyleConfigJSON:
 _fallback_configs: dict[str, DBStyleConfigJSON] = {}
 
 
+# Serialises config writes within this process. Distinct scratch names stop two threads from
+# sharing a temp file, but on Windows two os.replace calls onto the same destination at the same
+# moment can still fail with PermissionError (WinError 5). Holding a lock makes the replaces
+# sequential; it does not change what each write does.
+_config_write_lock = threading.Lock()
+
+
 def _write_config(config_path: Path, config: DBStyleConfigJSON) -> None:
 	"""Write config.json atomically, so a failed write cannot truncate the old file.
 
-	The temp name carries the pid, matching `telemetry/service.py`: two processes writing this
-	config at once must not share a scratch file. And os.replace swaps in a new inode, so the
-	old file's mode is carried over - this file holds an api_key, and a 0600 config must not
-	come back 0644. That carry-over is POSIX semantics; on Windows os.chmod only toggles the
-	read-only attribute, so there is no owner-only mode to keep.
+	The temp name carries the pid and a per-call random suffix, so two processes, or two threads
+	in one process, never share a scratch file; writes in one process are also serialised by
+	_config_write_lock. And os.replace swaps in a new inode, so the old file's mode is carried
+	over - this file holds an api_key, and a 0600 config must not come back 0644. That carry-over
+	is POSIX semantics; on Windows os.chmod only toggles the read-only attribute, so there is no
+	owner-only mode to keep.
 	"""
+	with _config_write_lock:
+		_write_config_locked(config_path, config)
+
+
+def _write_config_locked(config_path: Path, config: DBStyleConfigJSON) -> None:
 	config_path.parent.mkdir(parents=True, exist_ok=True)
 	# Unique per CALL, not per process. A pid suffix alone is what telemetry/service.py uses, but that
 	# writes a device id once at startup; this file is rewritten from a function reached on every

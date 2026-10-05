@@ -244,9 +244,16 @@ class TestConfigMigration:
 
 		The barrier is what makes this a test rather than a coin flip: both threads are held inside
 		their write until the other has also opened its scratch file, so the overlap is guaranteed
-		instead of hoped for.
+		instead of hoped for. Writes within one process are now also serialised by a lock, which would
+		make that overlap impossible here, so the lock is replaced with a no-op: this stands in for two
+		PROCESSES, which share the file but not the lock and still rely on distinct scratch names.
 		"""
+		import contextlib
 		import threading
+
+		import browser_use.config as config_module
+
+		monkeypatch.setattr(config_module, '_config_write_lock', contextlib.nullcontext())
 
 		config_path = tmp_path / 'config.json'
 		self._write(config_path, json.dumps({'headless': False, 'old_format_key': 'x'}))
@@ -292,6 +299,52 @@ class TestConfigMigration:
 		# and that failure is caught and logged rather than raised - so "nothing escaped" and "the file
 		# parses" are both true while a write has silently vanished.
 		assert write_failures == [], write_failures
+
+	def test_concurrent_writes_never_replace_at_the_same_time(self, tmp_path: Path, monkeypatch):
+		"""Two threads in one process must not run os.replace onto config.json simultaneously.
+
+		With distinct scratch names the files no longer collide, but the destination still does: on
+		Windows two simultaneous os.replace calls onto one path can fail with PermissionError
+		(WinError 5), and the migration path logs that and moves on. POSIX does not fail there, so
+		this counts how many replaces are in flight at once instead of waiting for the error.
+		"""
+		import threading
+		import time
+
+		config_path = tmp_path / 'config.json'
+		old_format = json.dumps({'browser_profile': {'headless': False}, 'llm': {}, 'agent': {}})
+		self._write(config_path, old_format)
+
+		real_replace = os.replace
+		state = {'active': 0, 'max_active': 0}
+		guard = threading.Lock()
+
+		def counting_replace(src, dst):
+			with guard:
+				state['active'] += 1
+				state['max_active'] = max(state['max_active'], state['active'])
+			try:
+				time.sleep(0.05)  # widen the window two unserialised writers would share
+				return real_replace(src, dst)
+			finally:
+				with guard:
+					state['active'] -= 1
+
+		monkeypatch.setattr(os, 'replace', counting_replace)
+		barrier = threading.Barrier(2, timeout=5)
+
+		def migrate():
+			barrier.wait()
+			load_and_migrate_config(config_path)
+
+		threads = [threading.Thread(target=migrate) for _ in range(2)]
+		for t in threads:
+			t.start()
+		for t in threads:
+			t.join()
+
+		assert state['max_active'] == 1
+		json.loads(config_path.read_text())
 
 	def test_migration_drops_a_stale_fallback(self, tmp_path: Path):
 		"""Once the file reads again, this run must stop serving the cached defaults."""
