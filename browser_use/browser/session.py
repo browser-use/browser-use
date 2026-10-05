@@ -1387,6 +1387,23 @@ class BrowserSession(BaseModel):
 			if redirected_targets:
 				self.logger.debug(f'Redirected {len(redirected_targets)} chrome://newtab pages to about:blank')
 
+			# A fresh Chrome can briefly expose both its default new-tab target and
+			# the explicit about:blank target created by the launcher. They are
+			# interchangeable before navigation, so keep one and preserve real tabs.
+			if len(page_targets) > 1 and all(is_new_tab_page(target.get("url", "")) for target in page_targets):
+				primary_target, *duplicate_targets = page_targets
+				for duplicate_target in duplicate_targets:
+					duplicate_id = duplicate_target["targetId"]
+					try:
+						await self._cdp_client_root.send.Target.closeTarget(
+							params={"targetId": duplicate_id}
+						)
+					except Exception as e:
+						self.logger.warning(
+							f"Failed to remove duplicate initial tab {duplicate_id[:8]}...: {e}"
+						)
+				page_targets = [primary_target]
+
 			if not page_targets:
 				# No pages found, create a new one
 				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})

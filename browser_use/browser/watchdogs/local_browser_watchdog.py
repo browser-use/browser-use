@@ -105,6 +105,12 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			try:
 				# Get launch args from profile
 				launch_args = profile.get_args()
+				# Give Chrome one deterministic initial page. Without an explicit URL,
+				# Chrome can expose its default new-tab target after CDP connects while
+				# BrowserSession.connect() is concurrently creating its fallback
+				# about:blank target. That race leaves a fresh session with two tabs.
+				if not any(not arg.startswith("-") for arg in launch_args):
+					launch_args.append("about:blank")
 
 				# Add debugging port
 				debug_port = self._find_free_port()
