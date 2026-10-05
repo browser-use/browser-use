@@ -692,9 +692,16 @@ class FileSystem:
 
 				elif extension == 'docx':
 					from docx import Document
+					from docx.text.paragraph import Paragraph
 
 					doc = Document(full_filename)
-					content = '\n'.join([para.text for para in doc.paragraphs])
+					lines: list[str] = []
+					for block in doc.iter_inner_content():
+						if isinstance(block, Paragraph):
+							lines.append(block.text)
+						else:
+							lines.extend('\t'.join(cell.text for cell in row.cells) for row in block.rows)
+					content = '\n'.join(lines)
 					result['message'] = f'Read from file {full_filename}.\n<content>\n{content}\n</content>'
 					return result
 

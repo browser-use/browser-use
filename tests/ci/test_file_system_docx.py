@@ -60,6 +60,37 @@ Some content here."""
 		assert 'Test Heading' in structured_result['message']
 		assert 'Test paragraph content' in structured_result['message']
 
+	@pytest.mark.asyncio
+	@pytest.mark.parametrize('include_paragraphs', [False, True])
+	async def test_read_external_docx_tables(self, tmp_path: Path, include_paragraphs: bool) -> None:
+		"""Table data must reach the reader in document order, even without paragraphs."""
+		from docx import Document
+
+		external_file = tmp_path / 'invoice.docx'
+		doc = Document()
+		if include_paragraphs:
+			doc.add_paragraph('Invoice items')
+		table = doc.add_table(rows=2, cols=2)
+		table.cell(0, 0).text = 'Item'
+		table.cell(0, 1).text = 'Amount'
+		table.cell(1, 0).text = 'Consulting'
+		table.cell(1, 1).text = '125.00'
+		if include_paragraphs:
+			doc.add_paragraph('Payment details')
+		details = doc.add_table(rows=1, cols=2)
+		details.cell(0, 0).text = 'Due date'
+		details.cell(0, 1).text = '2026-10-05'
+		doc.save(str(external_file))
+
+		fs = FileSystem(tmp_path / 'workspace')
+		message = await fs.read_file(str(external_file), external_file=True)
+		lines = ['Item\tAmount', 'Consulting\t125.00', 'Due date\t2026-10-05']
+		if include_paragraphs:
+			lines.insert(0, 'Invoice items')
+			lines.insert(3, 'Payment details')
+		expected_content = '\n'.join(lines)
+		assert f'<content>\n{expected_content}\n</content>' in message
+
 	def test_docx_file_extension(self):
 		"""Test DOCX file extension property."""
 		docx_file = DocxFile(name='test')
