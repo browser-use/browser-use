@@ -639,7 +639,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		return logging.LoggerAdapter(
 			logging.getLogger('browser_use.Agent'),
-			{'browser_use_instance': f'Agent🅰 {_task_id} ⇢ 🅑 {_browser_session_id} 🅣 {_current_target_id}'},
+			{'browser_use_instance': f'🅰 {_task_id} ⇢ 🅑 {_browser_session_id} 🅣 {_current_target_id}'},
 		)
 
 	@property

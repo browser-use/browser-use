@@ -5423,7 +5423,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			target_id = focus_target_id[-2:]
 		return logging.LoggerAdapter(
 			logging.getLogger('browser_use.Agent'),
-			{'browser_use_instance': f'Agent🅰 {self.task_id[-4:]} ⇢ 🅑 {str(browser_session_id)[-4:]} 🅣 {target_id}'},
+			{'browser_use_instance': f'🅰 {self.task_id[-4:]} ⇢ 🅑 {str(browser_session_id)[-4:]} 🅣 {target_id}'},
 		)
 
 	@property
