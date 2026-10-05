@@ -14,6 +14,7 @@ class SchemaOptimizer:
 		*,
 		remove_min_items: bool = False,
 		remove_defaults: bool = False,
+		make_strict: bool = True,
 	) -> dict[str, Any]:
 		"""
 		Create the most optimized schema by flattening all $ref/$defs while preserving
@@ -23,6 +24,7 @@ class SchemaOptimizer:
 			model: The Pydantic model to optimize
 			remove_min_items: If True, remove minItems from the schema
 			remove_defaults: If True, remove default values from the schema
+			make_strict: If True, require all object properties for OpenAI strict mode
 
 		Returns:
 			Optimized schema with all $refs resolved and strict mode compatibility
@@ -161,7 +163,8 @@ class SchemaOptimizer:
 						ensure_additional_properties_false(item)
 
 		ensure_additional_properties_false(optimized_schema)
-		SchemaOptimizer._make_strict_compatible(optimized_schema)
+		if make_strict:
+			SchemaOptimizer._make_strict_compatible(optimized_schema)
 
 		# Final pass to remove minItems/min_items and default values if requested
 		if remove_min_items or remove_defaults:
@@ -219,4 +222,4 @@ class SchemaOptimizer:
 		Returns:
 			Optimized schema suitable for Gemini structured output
 		"""
-		return SchemaOptimizer.create_optimized_json_schema(model)
+		return SchemaOptimizer.create_optimized_json_schema(model, make_strict=False)
