@@ -91,6 +91,57 @@ Some content here."""
 		expected_content = '\n'.join(lines)
 		assert f'<content>\n{expected_content}\n</content>' in message
 
+	@pytest.mark.asyncio
+	@pytest.mark.parametrize('nested_again', [False, True])
+	async def test_read_external_docx_nested_tables(self, tmp_path: Path, nested_again: bool) -> None:
+		"""Keep paragraphs and nested tables in the order they appear inside a cell."""
+		from docx import Document
+
+		external_file = tmp_path / 'nested.docx'
+		doc = Document()
+		table = doc.add_table(rows=1, cols=2)
+		table.cell(0, 0).text = 'Outer'
+		cell = table.cell(0, 1)
+		cell.text = 'Before'
+		nested = cell.add_table(rows=1, cols=2)
+		nested.cell(0, 0).text = 'Nested'
+		nested.cell(0, 1).text = '42'
+		if nested_again:
+			inner_cell = nested.cell(0, 1)
+			inner_table = inner_cell.add_table(rows=1, cols=1)
+			inner_table.cell(0, 0).text = 'Deep value'
+			inner_cell.paragraphs[-1].text = 'Inner end'
+		cell.paragraphs[-1].text = 'After'
+		doc.save(str(external_file))
+
+		fs = FileSystem(tmp_path / 'workspace')
+		message = await fs.read_file(str(external_file), external_file=True)
+		lines = ['Outer\tBefore', 'Nested\t42']
+		if nested_again:
+			lines.extend(['Deep value', 'Inner end'])
+		lines.append('After')
+		expected_content = '\n'.join(lines)
+		assert f'<content>\n{expected_content}\n</content>' in message
+
+	@pytest.mark.asyncio
+	async def test_read_external_docx_merged_cells(self, tmp_path: Path) -> None:
+		"""Read a merged cell once without dropping separate cells with identical text."""
+		from docx import Document
+
+		external_file = tmp_path / 'merged.docx'
+		doc = Document()
+		table = doc.add_table(rows=2, cols=3)
+		table.cell(0, 0).merge(table.cell(0, 1)).text = 'Total'
+		table.cell(0, 2).text = '125.00'
+		table.cell(1, 0).text = 'Item'
+		table.cell(1, 1).text = 'Item'
+		table.cell(1, 2).text = 'Details'
+		doc.save(str(external_file))
+
+		fs = FileSystem(tmp_path / 'workspace')
+		message = await fs.read_file(str(external_file), external_file=True)
+		assert '<content>\nTotal\t125.00\nItem\tItem\tDetails\n</content>' in message
+
 	def test_docx_file_extension(self):
 		"""Test DOCX file extension property."""
 		docx_file = DocxFile(name='test')
