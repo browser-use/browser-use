@@ -18,7 +18,8 @@ class SchemaOptimizer:
 	) -> dict[str, Any]:
 		"""
 		Create the most optimized schema by flattening all $ref/$defs while preserving
-		FULL descriptions and ALL action definitions. Also ensures OpenAI strict mode compatibility.
+		FULL descriptions and ALL action definitions. When make_strict=True, also ensures
+		OpenAI strict mode compatibility.
 
 		Args:
 			model: The Pydantic model to optimize
@@ -27,7 +28,8 @@ class SchemaOptimizer:
 			make_strict: If True, require all object properties for OpenAI strict mode
 
 		Returns:
-			Optimized schema with all $refs resolved and strict mode compatibility
+			Optimized schema with all $refs resolved. OpenAI strict-mode compatibility
+			is applied when make_strict=True.
 		"""
 		# Generate original schema
 		original_schema = model.model_json_schema()
