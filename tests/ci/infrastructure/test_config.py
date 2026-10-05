@@ -307,21 +307,28 @@ class TestConfigMigration:
 		Windows two simultaneous os.replace calls onto one path can fail with PermissionError
 		(WinError 5), and the migration path logs that and moves on. POSIX does not fail there, so
 		this counts how many replaces are in flight at once instead of waiting for the error.
+
+		Both threads are held after they have read the old format and before either writes, so both
+		are guaranteed to reach the write; otherwise the first could finish before the second reads,
+		and a single replace would pass this test without exercising the lock.
 		"""
 		import threading
 		import time
+
+		import browser_use.config as config_module
 
 		config_path = tmp_path / 'config.json'
 		old_format = json.dumps({'browser_profile': {'headless': False}, 'llm': {}, 'agent': {}})
 		self._write(config_path, old_format)
 
 		real_replace = os.replace
-		state = {'active': 0, 'max_active': 0}
+		state = {'active': 0, 'max_active': 0, 'total': 0}
 		guard = threading.Lock()
 
 		def counting_replace(src, dst):
 			with guard:
 				state['active'] += 1
+				state['total'] += 1
 				state['max_active'] = max(state['max_active'], state['active'])
 			try:
 				time.sleep(0.05)  # widen the window two unserialised writers would share
@@ -331,10 +338,18 @@ class TestConfigMigration:
 					state['active'] -= 1
 
 		monkeypatch.setattr(os, 'replace', counting_replace)
-		barrier = threading.Barrier(2, timeout=5)
+
+		# Both threads must have detected the old format before either writes.
+		both_detected = threading.Barrier(2, timeout=5)
+		real_defaults = config_module.create_default_config
+
+		def defaults_after_both_detected():
+			both_detected.wait()
+			return real_defaults()
+
+		monkeypatch.setattr(config_module, 'create_default_config', defaults_after_both_detected)
 
 		def migrate():
-			barrier.wait()
 			load_and_migrate_config(config_path)
 
 		threads = [threading.Thread(target=migrate) for _ in range(2)]
@@ -343,7 +358,8 @@ class TestConfigMigration:
 		for t in threads:
 			t.join()
 
-		assert state['max_active'] == 1
+		assert state['total'] == 2  # both writes really happened
+		assert state['max_active'] == 1  # and never at the same time
 		json.loads(config_path.read_text())
 
 	def test_migration_drops_a_stale_fallback(self, tmp_path: Path):
