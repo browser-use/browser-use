@@ -19,6 +19,7 @@ them to local Chromium, Browser Use Cloud, or an existing browser over CDP.
 Requirements:
 
 - Python 3.11 or newer
+- Linux or macOS with `/bin/bash`, or WSL on Windows
 - An Anthropic SDK release with `anthropic.tools.browser` and
   `client.beta.messages.tool_runner`
 - `ANTHROPIC_API_KEY` and the model ID Anthropic documents for the browser
@@ -109,10 +110,12 @@ driver = BrowserUse(
 bash = Bash(output_dir='outputs', timeout_seconds=120, max_output_bytes=50_000)
 ```
 
-Bash strips ambient credentials from child commands and limits execution time
-and returned output. Its working directory is the default location for commands, which can access
-other files available to the process; it is not an operating-system sandbox. Run the SDK process in your normal container or sandbox for
-untrusted tasks.
+Bash requires Linux or macOS with `/bin/bash`, or WSL on Windows. It strips
+ambient credentials from child commands and limits execution time and returned
+output. Its working directory is the default location for commands, which can
+access other files available to the process; it is not an operating-system
+sandbox. Run the SDK process in your normal container or sandbox for untrusted
+tasks.
 
 For a remote browser, upload paths must already exist on the browser host.
 Local files created by Bash are not copied to that host automatically. Use the
