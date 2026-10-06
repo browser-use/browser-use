@@ -9,7 +9,7 @@
 
 ---
 
-## Anthropic browser toolset
+## Browser Use toolsets for Claude browser toolset
 
 Browser Use and Anthropic collaborated so Claude can use Browser Use as the
 driver behind Anthropic's browser toolset. Anthropic's SDK owns the model loop
@@ -43,7 +43,7 @@ from pathlib import Path
 
 from anthropic import AsyncAnthropic
 
-from browser_use.integrations.anthropic import Bash, BrowserUse
+from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse
 
 
 async def main() -> None:
@@ -122,7 +122,7 @@ SDK's file policy and a `document_resolver` that maps approved document IDs to
 browser-host paths.
 
 See the complete
-[quickstart, runtime examples, action list, and file guidance](../../../examples/integrations/anthropic/README.md).
+[quickstart, runtime examples, action list, and file guidance](../../../examples/integrations/toolsets-for-claude/README.md).
 
 ---
 
