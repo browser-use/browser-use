@@ -26,6 +26,13 @@ let browser = CDP.lazy(config.endpoint, config.operationTimeoutMs, config.approv
 installDomainPolicy(browser, config, (id) => send({ type: 'owned', targetId: id }));
 let highlight = config.highlightActions ? actionHighlighter(browser) : undefined;
 let tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
+const chromiumEmptyPageUrls = new Set([
+  'about:blank',
+  'chrome://newtab',
+  'chrome://newtab/',
+  'chrome://new-tab-page',
+  'chrome://new-tab-page/',
+]);
 function deferredPage(targetId?: string) {
   return Page.deferred(
     browser,
@@ -34,7 +41,8 @@ function deferredPage(targetId?: string) {
       // Only create a replacement when the target is actually absent, not on an attach timeout.
       if (targetId && existing.some((t) => t.targetId === targetId)) return tabs.get(targetId);
       // The agent's own browser: take its empty tab rather than open a second one beside it.
-      const blank = config.dedicatedBrowser && existing.find((t) => t.url === 'about:blank');
+      const blank =
+        config.dedicatedBrowser && existing.find((t) => chromiumEmptyPageUrls.has(t.url));
       return blank ? tabs.get(blank.targetId) : tabs.open();
     },
     targetId,
