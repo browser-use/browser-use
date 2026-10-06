@@ -1,7 +1,7 @@
 # Integrations
 
 ## Table of Contents
-- [Anthropic browser toolset](#anthropic-browser-toolset)
+- [Browser Use toolsets for Claude](#browser-use-toolsets-for-claude)
 - [MCP Server (Cloud)](#mcp-server-cloud)
 - [MCP Server (Local)](#mcp-server-local)
 - [Skills](#skills)
@@ -9,16 +9,17 @@
 
 ---
 
-## Anthropic browser toolset
+## Browser Use toolsets for Claude
 
-Browser Use and Anthropic collaborated so Claude can use Browser Use as the
-driver behind Anthropic's browser toolset. Anthropic's SDK owns the model loop
+Browser Use toolsets for Claude is maintained by Browser Use and is compatible
+with Claude. Anthropic's SDK owns the model loop
 and tool runner. Browser Use implements the 31 browser actions and connects
 them to local Chromium, Browser Use Cloud, or an existing browser over CDP.
 
 Requirements:
 
 - Python 3.11 or newer
+- Linux or macOS with `/bin/bash`, or WSL on Windows
 - An Anthropic SDK release with `anthropic.tools.browser` and
   `client.beta.messages.tool_runner`
 - `ANTHROPIC_API_KEY` and the model ID Anthropic documents for the browser
@@ -38,12 +39,11 @@ Create `run_browser.py`:
 
 ```python
 import asyncio
-import os
 from pathlib import Path
 
 from anthropic import AsyncAnthropic
 
-from browser_use.integrations.anthropic import Bash, BrowserUse
+from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse
 
 
 async def main() -> None:
@@ -54,7 +54,7 @@ async def main() -> None:
 
     async with driver, AsyncAnthropic() as client:
         runner = client.beta.messages.tool_runner(
-            model=os.environ['ANTHROPIC_MODEL'],
+            model='claude-opus-5-5',
             max_tokens=32_768,
             max_iterations=1_000,
             tools=[driver, bash],
@@ -72,7 +72,6 @@ Set the Anthropic variables and run it:
 
 ```bash
 export ANTHROPIC_API_KEY=your-key
-export ANTHROPIC_MODEL=your-model
 # Optional SDK request and tool-runner logs
 export ANTHROPIC_LOG=info
 
@@ -111,10 +110,12 @@ driver = BrowserUse(
 bash = Bash(output_dir='outputs', timeout_seconds=120, max_output_bytes=50_000)
 ```
 
-Bash strips ambient credentials from child commands and limits execution time
-and returned output. Its working directory is a file boundary, not an operating
-system sandbox. Run the SDK process in your normal container or sandbox for
-untrusted tasks.
+Bash requires Linux or macOS with `/bin/bash`, or WSL on Windows. It strips
+ambient credentials from child commands and limits execution time and returned
+output. Its working directory is the default location for commands, which can
+access other files available to the process; it is not an operating-system
+sandbox. Run the SDK process in your normal container or sandbox for untrusted
+tasks.
 
 For a remote browser, upload paths must already exist on the browser host.
 Local files created by Bash are not copied to that host automatically. Use the
@@ -122,7 +123,7 @@ SDK's file policy and a `document_resolver` that maps approved document IDs to
 browser-host paths.
 
 See the complete
-[quickstart, runtime examples, action list, and file guidance](../../../examples/integrations/anthropic/README.md).
+[quickstart, runtime examples, action list, and file guidance](../../../examples/integrations/toolsets-for-claude/README.md).
 
 ---
 
