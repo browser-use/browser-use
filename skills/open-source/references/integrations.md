@@ -112,8 +112,8 @@ bash = Bash(output_dir='outputs', timeout_seconds=120, max_output_bytes=50_000)
 ```
 
 Bash strips ambient credentials from child commands and limits execution time
-and returned output. Its working directory is a file boundary, not an operating
-system sandbox. Run the SDK process in your normal container or sandbox for
+and returned output. Its working directory is the default location for commands, which can access
+other files available to the process; it is not an operating-system sandbox. Run the SDK process in your normal container or sandbox for
 untrusted tasks.
 
 For a remote browser, upload paths must already exist on the browser host.

@@ -213,9 +213,10 @@ bash = Bash(
 )
 ```
 
-The working directory is a boundary for generated files, not an operating
-system sandbox. Run the SDK process inside your normal container or sandbox
-when tasks may contain untrusted instructions.
+`output_dir` sets the default working directory. Commands can access other files
+available to the process; this is not an operating-system sandbox. Run the SDK
+process inside your normal container or sandbox when tasks may contain untrusted
+instructions.
 
 ## Choosing tools
 
