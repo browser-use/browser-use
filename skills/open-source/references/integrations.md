@@ -1,7 +1,7 @@
 # Integrations
 
 ## Table of Contents
-- [Anthropic browser toolset](#anthropic-browser-toolset)
+- [Browser Use toolsets for Claude](#browser-use-toolsets-for-claude)
 - [MCP Server (Cloud)](#mcp-server-cloud)
 - [MCP Server (Local)](#mcp-server-local)
 - [Skills](#skills)
@@ -9,10 +9,10 @@
 
 ---
 
-## Browser Use toolsets for Claude browser toolset
+## Browser Use toolsets for Claude
 
-Browser Use and Anthropic collaborated so Claude can use Browser Use as the
-driver behind Anthropic's browser toolset. Anthropic's SDK owns the model loop
+Browser Use toolsets for Claude is maintained by Browser Use and is compatible
+with Claude. Anthropic's SDK owns the model loop
 and tool runner. Browser Use implements the 31 browser actions and connects
 them to local Chromium, Browser Use Cloud, or an existing browser over CDP.
 
@@ -38,7 +38,6 @@ Create `run_browser.py`:
 
 ```python
 import asyncio
-import os
 from pathlib import Path
 
 from anthropic import AsyncAnthropic
@@ -54,7 +53,7 @@ async def main() -> None:
 
     async with driver, AsyncAnthropic() as client:
         runner = client.beta.messages.tool_runner(
-            model=os.environ['ANTHROPIC_MODEL'],
+            model='claude-opus-5-5',
             max_tokens=32_768,
             max_iterations=1_000,
             tools=[driver, bash],
@@ -72,7 +71,6 @@ Set the Anthropic variables and run it:
 
 ```bash
 export ANTHROPIC_API_KEY=your-key
-export ANTHROPIC_MODEL=your-model
 # Optional SDK request and tool-runner logs
 export ANTHROPIC_LOG=info
 
