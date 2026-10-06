@@ -229,6 +229,67 @@ class TestChunkMarkdownStartFromChar:
 		assert len(chunks) == 1
 
 
+class TestChunkMarkdownTrailingNewline:
+	"""A page that ends in a newline must not produce an empty trailing chunk.
+
+	The extract tool paginates by feeding ``char_offset_end`` back in as
+	``start_from_char``, and rejects any offset at or past the content length. A
+	zero-width final chunk therefore makes the tool report more content, hand the
+	caller an offset equal to the content length, and then fail on the next call.
+	"""
+
+	def test_trailing_newline_does_not_create_empty_chunk(self):
+		content = '# Report\n\n' + 'Revenue grew across every region. ' * 900 + '\n'
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=25_000)
+
+		# a trailing newline used to become a chunk of its own, at [len, len)
+		assert len(chunks) == 2, f'expected 2 chunks, got {len(chunks)}'
+		for chunk in chunks:
+			assert chunk.char_offset_end > chunk.char_offset_start, (
+				f'chunk {chunk.chunk_index} is zero-width at [{chunk.char_offset_start},{chunk.char_offset_end})'
+			)
+
+	def test_last_chunk_reports_no_more_content(self):
+		"""The final page must be terminal, otherwise the tool loops on a bad offset."""
+		content = '# Report\n\n' + 'Revenue grew across every region. ' * 900 + '\n'
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=25_000)
+
+		assert chunks[-1].has_more is False
+		assert chunks[-1].char_offset_end == len(content)
+
+	def test_pagination_reaches_the_end_without_erroring(self):
+		"""Walk the offsets the way the tool does; the last page must terminate."""
+		content = '# Report\n\n' + 'Revenue grew across every region. ' * 900 + '\n'
+		start_from_char = 0
+
+		for _ in range(10):
+			chunks = chunk_markdown_by_structure(content, max_chunk_chars=25_000, start_from_char=start_from_char)
+			assert chunks, f'no chunk at offset {start_from_char}'
+			chunk = chunks[0]
+			if not chunk.has_more:
+				break
+			start_from_char = chunk.char_offset_end
+		else:
+			raise AssertionError('pagination never terminated')
+
+	def test_content_without_trailing_newline_is_unchanged(self):
+		"""Content that does not end in a newline keeps behaving exactly as before."""
+		content = '# Report\n\nRevenue grew this quarter.'
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=100_000)
+
+		assert len(chunks) == 1
+		assert chunks[0].content == content
+		assert chunks[0].has_more is False
+
+	def test_trailing_blank_lines_still_produce_real_chunks(self):
+		"""Blank lines are real characters, so they stay; only the phantom one goes."""
+		content = 'First paragraph.\n\n\n'
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=100_000)
+
+		assert len(chunks) == 1
+		assert chunks[-1].has_more is False
+
+
 class TestChunkMarkdownOverlap:
 	"""Overlap lines carry context."""
 
