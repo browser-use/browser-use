@@ -48,7 +48,7 @@ def as_browser_use_skill(text: str) -> str:
 			saw_name = True
 		elif line.startswith('description:'):
 			lines.append(
-				'description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."'
+				'description: "Direct browser control over CDP. Use when a task needs interaction such as clicking, typing or navigating, a logged-in session, JavaScript rendering, or a bot-protected page, or when a direct HTTP fetch has already failed. A plain public page, API or docs needs no browser."'
 			)
 			saw_description = True
 		else:
@@ -59,7 +59,7 @@ def as_browser_use_skill(text: str) -> str:
 	if not saw_description:
 		lines.insert(
 			1,
-			'description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."',
+			'description: "Direct browser control over CDP. Use when a task needs interaction such as clicking, typing or navigating, a logged-in session, JavaScript rendering, or a bot-protected page, or when a direct HTTP fetch has already failed. A plain public page, API or docs needs no browser."',
 		)
 	if not any(line.startswith('homepage:') for line in lines):
 		lines.append('homepage: https://browser-use.com')
