@@ -19,21 +19,32 @@ On Windows, run it inside WSL. Anthropic's browser toolset requires
 the Anthropic SDK release that includes `anthropic.tools.browser` and
 `client.beta.messages.tool_runner`.
 
-Create a project and install both packages:
+Create a project and install both packages. The Chromium installation is only needed for a local browser:
 
 ```bash
 uv init --python 3.12
-uv add browser-use anthropic
+uv add "browser-use>=0.13.11" "anthropic>=1,<2"
 uvx browser-use install
 ```
 
-Set your Anthropic API key:
+Create an Anthropic API key in the [Claude Console](https://platform.claude.com/settings/keys), then export it in the terminal where you run the script. This key is required for every browser mode:
 
 ```bash
 export ANTHROPIC_API_KEY=your-key
 # Optional: show Anthropic SDK logs
 export ANTHROPIC_LOG=info
 ```
+
+
+Before running the example, check that the installed SDK exposes the browser toolset:
+
+```bash
+uv run python -c "from anthropic.tools.browser import LocalFilePolicy; from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse; print('Browser toolset imports OK')"
+```
+
+Browser Use 0.13.11 or newer includes this integration. The Anthropic 1.x version range alone does not guarantee browser-toolset support: you need the compatible release from Anthropic. If the check reports that `anthropic.tools.browser` is missing, follow Anthropic's browser-toolset release instructions before continuing. Reinstalling Browser Use or adding a Cloud key cannot supply that SDK module.
+
+A local browser only needs `ANTHROPIC_API_KEY`; it does not require a Browser Use Cloud key. Keep both keys exported when using Cloud: Anthropic runs Claude, while Browser Use provisions the browser. The shell `export` commands above apply to the current terminal; this script does not load a `.env` file automatically.
 
 The quickstart reads three Hacker News posts and saves their titles and URLs as Markdown and JSON. It enables all 31 browser actions plus Bash, without approval prompts.
 
@@ -135,7 +146,13 @@ SDK host respectively.
 
 ## Browser Use Cloud
 
-Set `BROWSER_USE_API_KEY`, then uncomment `use_cloud=True` in the existing `BrowserUse(...)` call. Keep its `configs` and `confirm` arguments to preserve the quickstart tool selection and approvals. For remote uploads, replace the local `file_policy` with the staged-document policy and resolver in [Files with remote browsers](#files-with-remote-browsers).
+Keep `ANTHROPIC_API_KEY` set and also export your Cloud key:
+
+```bash
+export BROWSER_USE_API_KEY=your-cloud-key
+```
+
+Then uncomment `use_cloud=True` in the existing `BrowserUse(...)` call. Keep its `configs` and `confirm` arguments to preserve the quickstart tool selection and approvals. For remote uploads, replace the local `file_policy` with the staged-document policy and resolver in [Files with remote browsers](#files-with-remote-browsers).
 
 Create a key at
 [cloud.browser-use.com/new-api-key](https://cloud.browser-use.com/new-api-key).
