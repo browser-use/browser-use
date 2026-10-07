@@ -2,11 +2,7 @@
 
 Browser Use toolsets for Claude is maintained by Browser Use and is compatible with Claude. It provides browser actions and a Bash tool through the Anthropic Python SDK. The SDK's tool runner sends each of Claude's tool calls to Browser Use, returns the result to Claude, and repeats until Claude finishes.
 
-<img
-  src="./architecture.svg"
-  alt="Claude sends tool calls through the Anthropic SDK to Browser Use. Browser Use provides browser actions and Bash; results return to Claude. The browser can run locally or remotely, while Bash runs beside the SDK."
-  width="100%"
->
+![Claude sends tool calls through the Anthropic SDK to Browser Use. Browser Use provides browser actions and Bash; results return to Claude. The browser can run locally or remotely, while Bash runs beside the SDK.](./architecture.svg)
 
 The same program works with three browser runtimes:
 
@@ -102,11 +98,7 @@ uv run run_browser.py
 
 ### What the run looks like
 
-<img
-  src="./quickstart-cloud.png"
-  alt="A real Browser Use Cloud quickstart capture. The terminal shows five successful Anthropic API responses, the saved Example Domain title, and confirmed Cloud cleanup. Beside it, the remote browser shows the final example.com page."
-  width="100%"
->
+![A real Browser Use Cloud quickstart capture. The terminal shows five successful Anthropic API responses, the saved Example Domain title, and confirmed Cloud cleanup. Beside it, the remote browser shows the final example.com page.](./quickstart-cloud.png)
 
 This is a retained capture of the earlier `example.com` smoke, not the Hacker News
 task above. The model loop wrote `title.txt`, captured the remote browser, and
@@ -139,11 +131,7 @@ call to Browser Use and returns the result to Claude. Browser actions and
 Bash are part of the same integration; they run on the browser host and
 SDK host respectively.
 
-<img
-  src="./tool-sequence.svg"
-  alt="Two calls after opening Hacker News: Claude asks Browser Use to read the page, receives the result, then uses Bash to save Markdown and JSON on the SDK host. Anthropic's tool runner connects each request and response."
-  width="100%"
->
+![Two calls after opening Hacker News: Claude asks Browser Use to read the page, receives the result, then uses Bash to save Markdown and JSON on the SDK host. Anthropic's tool runner connects each request and response.](./tool-sequence.svg)
 
 ## Browser Use Cloud
 
@@ -228,7 +216,7 @@ To opt out, set an action's `enabled` value to `False` in the `configs` passed t
 
 ## Files with remote browsers
 
-<img src="./files-between-hosts.svg" alt="A report starts on the SDK host. The application copies bytes to the remote browser host before file_upload can select the staged file. Download notifications return metadata; the application must retrieve the bytes before Bash can read a local copy. These transfers are not built into the driver." width="100%">
+![A report starts on the SDK host. The application copies bytes to the remote browser host before file_upload can select the staged file. Download notifications return metadata; the application must retrieve the bytes before Bash can read a local copy. These transfers are not built into the driver.](./files-between-hosts.svg)
 
 `file_upload` works when the resolved file path exists on the browser host.
 For a remote browser, provide a `document_resolver` that maps an approved
@@ -292,7 +280,7 @@ Enabling JavaScript or file upload requires a `confirm` callback. The SDK calls 
 
 The callback flow is:
 
-<img src="./approval-gate.svg" alt="Claude requests an action. The confirmation callback either allows the driver to execute it or declines it. A callback error also prevents execution. The action output, refusal, or error returns to Claude; approval covers one action." width="100%">
+![Claude requests an action. The confirmation callback either allows the driver to execute it or declines it. A callback error also prevents execution. The action output, refusal, or error returns to Claude; approval covers one action.](./approval-gate.svg)
 
 [See the detailed file-upload sequence](./confirmation-callback.svg)
 
