@@ -277,3 +277,53 @@ def test_quickstart_uses_peer_browser_use_and_bash_tools() -> None:
 	assert 'ActorUse' not in source
 	assert 'owns_browser' not in source
 	assert 'until_done()' in source
+
+
+@pytest.mark.parametrize('decision', [True, False, 'error'])
+async def test_public_sdk_dispatch_preserves_confirmation(decision) -> None:
+	pytest.importorskip('anthropic.tools.browser')
+	from anthropic.tools import ToolError
+	from anthropic.tools.browser import BetaToolsetCallContext
+
+	from browser_use.integrations.toolsets_for_claude import BrowserUse
+
+	calls = []
+
+	def confirm(context):
+		if decision == 'error':
+			raise RuntimeError('approval unavailable')
+		return decision
+
+	class Driver(BrowserUse):
+		async def javascript_exec(self, context, input):
+			calls.append(input)
+			return 'verified'
+
+	driver = Driver(configs={'javascript_exec': {'enabled': True}}, confirm=confirm)
+	try:
+		if decision is True:
+			result = await driver.call(BetaToolsetCallContext(), 'javascript_exec', {'text': '1+1'})
+			assert calls
+			assert any(block.get('text') == 'verified' for block in result)
+		else:
+			with pytest.raises(ToolError):
+				await driver.call(BetaToolsetCallContext(), 'javascript_exec', {'text': '1+1'})
+			assert not calls
+	finally:
+		await driver.close()
+
+
+@pytest.mark.parametrize('action', ['javascript_exec', 'read_console', 'read_network', 'file_upload'])
+async def test_public_sdk_dispatch_refuses_disabled_defaults(action) -> None:
+	pytest.importorskip('anthropic.tools.browser')
+	from anthropic.tools import ToolError
+	from anthropic.tools.browser import BetaToolsetCallContext
+
+	from browser_use.integrations.toolsets_for_claude import BrowserUse
+
+	driver = BrowserUse(confirm=lambda _: True)
+	try:
+		with pytest.raises(ToolError, match='not permitted'):
+			await driver.call(BetaToolsetCallContext(), action, {})
+	finally:
+		await driver.close()
