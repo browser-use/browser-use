@@ -133,7 +133,10 @@ def filter_sensitive_data(value: Any, sensitive_data: dict[str, str | dict[str, 
 		if isinstance(item, str):
 			return redact_sensitive_string(item, sensitive_values)
 		if isinstance(item, dict):
-			return {key: redact(child) for key, child in item.items()}
+			return {
+				redact_sensitive_string(key, sensitive_values) if isinstance(key, str) else key: redact(child)
+				for key, child in item.items()
+			}
 		if isinstance(item, list):
 			return [redact(child) for child in item]
 		if isinstance(item, tuple):
