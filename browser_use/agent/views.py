@@ -27,7 +27,7 @@ from browser_use.filesystem.file_system import FileSystemState
 from browser_use.llm.base import BaseChatModel
 from browser_use.tokens.views import UsageSummary
 from browser_use.tools.registry.views import ActionModel
-from browser_use.utils import collect_sensitive_data_values, redact_sensitive_string
+from browser_use.utils import filter_sensitive_data
 
 logger = logging.getLogger(__name__)
 
@@ -510,37 +510,17 @@ class AgentHistory(BaseModel):
 
 	def _filter_sensitive_data_from_string(self, value: str, sensitive_data: dict[str, str | dict[str, str]] | None) -> str:
 		"""Filter out sensitive data from a string value"""
-		if not sensitive_data:
-			return value
-
-		sensitive_values = collect_sensitive_data_values(sensitive_data)
-
-		# If there are no valid sensitive data entries, just return the original value
-		if not sensitive_values:
-			return value
-
-		return redact_sensitive_string(value, sensitive_values)
+		return filter_sensitive_data(value, sensitive_data)
 
 	def _filter_sensitive_data_from_value(self, value: Any, sensitive_data: dict[str, str | dict[str, str]] | None) -> Any:
 		"""Recursively filter sensitive data from any supported container or string value"""
-		if isinstance(value, str):
-			return self._filter_sensitive_data_from_string(value, sensitive_data)
-		if isinstance(value, dict):
-			return {key: self._filter_sensitive_data_from_value(item, sensitive_data) for key, item in value.items()}
-		if isinstance(value, list):
-			return [self._filter_sensitive_data_from_value(item, sensitive_data) for item in value]
-		if isinstance(value, tuple):
-			return tuple(self._filter_sensitive_data_from_value(item, sensitive_data) for item in value)
-		return value
+		return filter_sensitive_data(value, sensitive_data)
 
 	def _filter_sensitive_data_from_dict(
 		self, data: dict[str, Any], sensitive_data: dict[str, str | dict[str, str]] | None
 	) -> dict[str, Any]:
 		"""Recursively filter sensitive data from a dictionary"""
-		if not sensitive_data:
-			return data
-
-		return {key: self._filter_sensitive_data_from_value(value, sensitive_data) for key, value in data.items()}
+		return filter_sensitive_data(data, sensitive_data)
 
 	def model_dump(self, sensitive_data: dict[str, str | dict[str, str]] | None = None, **kwargs) -> dict[str, Any]:
 		"""Custom serialization handling circular references and filtering sensitive data"""

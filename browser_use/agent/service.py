@@ -77,6 +77,7 @@ from browser_use.utils import (
 	URL_PATTERN,
 	_log_pretty_path,
 	check_latest_browser_use_version,
+	filter_sensitive_data,
 	get_browser_use_version,
 	has_url_negation,
 	is_placeholder_url,
@@ -3936,13 +3937,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		checkpoint_state = self.state.model_copy(deep=True)
 		checkpoint_state.last_model_output = None
 		checkpoint_state.last_result = None
+		state_data = checkpoint_state.model_dump(mode='json')
+		if self.sensitive_data:
+			state_data = filter_sensitive_data(state_data, self.sensitive_data)
 
 		history_data = self.history.model_dump(sensitive_data=self.sensitive_data)
 		if self.history.usage is not None:
 			history_data['usage'] = self.history.usage.model_dump(mode='json')
 
 		checkpoint = {
-			'state': checkpoint_state.model_dump(mode='json'),
+			'state': state_data,
 			'history': history_data,
 		}
 
@@ -3995,6 +3999,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		history = AgentHistoryList.load_from_dict(data['history'], self.AgentOutput)
 
 		self.state = state
+		# Stopped agents must wake up even if the saved state is also paused.
+		if self.state.stopped:
+			self._external_pause_event.set()
+		elif self.state.paused:
+			self._external_pause_event.clear()
+		else:
+			self._external_pause_event.set()
 		self.history = history
 		if self.state.file_system_state is not None:
 			self.file_system = FileSystem.from_state(self.state.file_system_state)
