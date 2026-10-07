@@ -22,6 +22,33 @@ from browser_use.config import CONFIG
 logger = logging.getLogger(__name__)
 
 
+async def _write_secret_file(path: Path, content: str) -> None:
+	"""Write a credential file readable only by the current user.
+
+	`gmail_token.json` holds a long-lived OAuth ``refresh_token`` and the OAuth
+	client's ``client_secret``, so it must never be left at the process umask
+	(0644 on a default Linux install). The file is created with 0600 *before*
+	any content is written, so the secret is never briefly present in a
+	world-readable file, and an existing file from an earlier version has its
+	mode corrected too (the mode argument to os.open is ignored when the file
+	already exists).
+
+	Mirrors the protection `browser_use/sync/auth.py` already applies to
+	`cloud_auth.json`.
+	"""
+	# O_CREAT|O_TRUNC with an explicit mode, then an unconditional chmod for
+	# the pre-existing-file case.
+	fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+	os.close(fd)
+	try:
+		os.chmod(path, 0o600)
+	except OSError:
+		# Some filesystems and platforms (notably Windows) do not support
+		# POSIX modes; the write below still needs to happen.
+		pass
+	await anyio.Path(path).write_text(content)
+
+
 class GmailService:
 	"""
 	Gmail API service for email reading.
@@ -123,7 +150,7 @@ class GmailService:
 					self.creds = flow.run_local_server(port=8080, open_browser=True)
 
 				# Save tokens for next time
-				await anyio.Path(self.token_file).write_text(self.creds.to_json())
+				await _write_secret_file(Path(self.token_file), self.creds.to_json())
 				logger.info(f'💾 Tokens saved to {self.token_file}')
 
 			# Build Gmail service
