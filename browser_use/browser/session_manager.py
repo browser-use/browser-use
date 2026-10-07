@@ -499,8 +499,8 @@ class SessionManager:
 		if target_type in ('page', 'tab'):
 			await self._enable_page_monitoring(cdp_session)
 
-		# Resume execution if waiting for debugger
-		if waiting_for_debugger:
+		# Auto-attached popups can be paused even when waitingForDebugger is false.
+		if waiting_for_debugger or target_type in ('page', 'tab'):
 			try:
 				assert self.browser_session._cdp_client_root is not None
 				await self.browser_session._cdp_client_root.send.Runtime.runIfWaitingForDebugger(session_id=session_id)

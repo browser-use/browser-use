@@ -112,6 +112,35 @@ async def browser_session():
 class TestMultiTabOperations:
 	"""Test multi-tab creation, switching, and closing."""
 
+	@pytest.mark.parametrize('features', ['', 'noopener', 'popup=true'])
+	async def test_window_open_does_not_block_opener(self, browser_session: BrowserSession, base_url: str, features: str):
+		"""Auto-attached popups must navigate without leaving the opener paused."""
+		wait_for_load = """() => document.readyState === 'complete' ? true : new Promise(resolve => {
+			window.addEventListener('load', () => resolve(true), {once: true});
+		})"""
+		opener = await browser_session.new_page(f'{base_url}/home')
+		async with asyncio.timeout(10):
+			await opener.evaluate(wait_for_load)
+
+			await opener.evaluate("(url, features) => { window.open(url, '_blank', features); }", f'{base_url}/page3', features)
+			assert await opener.evaluate('() => document.title') == 'Home Page'
+
+			popup = None
+			while popup is None:
+				for page in await browser_session.get_pages():
+					if await page.get_url() == f'{base_url}/page3':
+						popup = page
+						break
+				if popup is None:
+					await asyncio.sleep(0.05)
+
+			await popup.evaluate(wait_for_load)
+			assert await popup.evaluate('() => document.querySelector("h1").textContent') == 'Page 3'
+			assert (
+				await opener.evaluate('() => { document.title = "Still responsive"; return document.title; }')
+				== 'Still responsive'
+			)
+
 	async def test_create_and_switch_three_tabs(self, browser_session, base_url):
 		"""Test that agent can create 3 tabs, switch between them, and call done().
 
