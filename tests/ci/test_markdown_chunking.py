@@ -57,6 +57,48 @@ class TestChunkMarkdownBasic:
 				f'Expected last chunk to end at {len(content)}, got {chunks[-1].char_offset_end} for content {content!r}'
 			)
 
+	def test_trailing_newline_exceeding_max_chunk_does_not_emit_zero_width_chunk(self):
+		"""Issue #6003: Content ending in a newline exceeding max_chunk_chars must not emit a zero-width chunk."""
+		content = '# Report\n\n' + 'Revenue grew across every region. ' * 900 + '\n'
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=25_000)
+
+		# Must not produce a phantom 3rd chunk with width 0
+		assert len(chunks) == 2
+		for i, chunk in enumerate(chunks):
+			assert chunk.char_offset_end > chunk.char_offset_start, (
+				f'Chunk {i} has zero width ({chunk.char_offset_start} == {chunk.char_offset_end})'
+			)
+		assert chunks[-1].has_more is False
+		assert chunks[-1].char_offset_end == len(content)
+
+	def test_pagination_with_trailing_newline_terminates_cleanly(self):
+		"""Issue #6003: Client pagination using chunk.char_offset_end must terminate cleanly."""
+		content = '# Report\n\n' + 'Revenue grew across every region. ' * 900 + '\n'
+		start_from_char = 0
+		paged_chunks = []
+
+		while True:
+			chunks = chunk_markdown_by_structure(content, max_chunk_chars=25_000, start_from_char=start_from_char)
+			assert chunks, f'start_from_char ({start_from_char}) exceeds content length {len(content)}'
+			chunk = chunks[0]
+			paged_chunks.append(chunk)
+			if not chunk.has_more:
+				break
+			start_from_char = chunk.char_offset_end
+
+		assert len(paged_chunks) == 2
+		assert paged_chunks[-1].char_offset_end == len(content)
+
+	def test_multiple_trailing_newlines_no_zero_width_chunk(self):
+		"""Issue #6003: Multiple trailing newlines must not produce zero-width chunks."""
+		for suffix in ['\n', '\n\n', '\n\n\n']:
+			content = '# Report\n\n' + 'Revenue grew across every region. ' * 900 + suffix
+			chunks = chunk_markdown_by_structure(content, max_chunk_chars=25_000)
+			for i, chunk in enumerate(chunks):
+				assert chunk.char_offset_end > chunk.char_offset_start, f'Chunk {i} with suffix {suffix!r} has zero width'
+			assert chunks[-1].has_more is False
+			assert chunks[-1].char_offset_end == len(content)
+
 
 class TestChunkMarkdownHeaders:
 	"""Header boundary splitting."""

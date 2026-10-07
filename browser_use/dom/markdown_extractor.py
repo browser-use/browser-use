@@ -225,7 +225,7 @@ def _parse_atomic_blocks(content: str) -> list[_AtomicBlock]:
 	i = 0
 	offset = 0  # char offset tracking
 
-	while i < len(lines):
+	while i < len(lines) and offset < len(content):
 		line = lines[i]
 		line_len = len(line) + 1  # +1 for the newline we split on
 
@@ -388,6 +388,9 @@ def _parse_atomic_blocks(content: str) -> list[_AtomicBlock]:
 			char_end=len(content),
 		)
 
+	# Filter out any zero-width blocks (e.g. char_start == char_end)
+	blocks = [b for b in blocks if b.char_end > b.char_start]
+
 	return blocks
 
 
@@ -458,6 +461,8 @@ def chunk_markdown_by_structure(
 
 	for block in blocks:
 		block_size = block.char_end - block.char_start
+		if block_size <= 0:
+			continue
 		# If adding this block would exceed limit AND we already have content, emit chunk
 		if current_size + block_size > max_chunk_chars and current_chunk:
 			# Prefer splitting at a header boundary within the current chunk.
