@@ -38,6 +38,9 @@ TypeTextEvent.model_rebuild()
 ScrollEvent.model_rebuild()
 UploadFileEvent.model_rebuild()
 
+# Elements that can match :disabled (form-associated custom elements are recognised by the dash in their tag name)
+_DISABLEABLE_TAGS = frozenset({'button', 'fieldset', 'input', 'optgroup', 'option', 'select', 'textarea'})
+
 
 class DefaultActionWatchdog(BaseWatchdog):
 	"""Handles default browser actions like click, type, and scroll using CDP."""
@@ -354,6 +357,16 @@ class DefaultActionWatchdog(BaseWatchdog):
 				self.logger.info(f'{msg}')
 				return {'validation_error': msg}
 
+			# The browser never dispatches clicks to a disabled form control, so report it instead of claiming success.
+			# Checked before the print special case, and live: the control may have been enabled after the DOM snapshot.
+			if await self._is_element_disabled(element_node):
+				msg = (
+					f'Cannot click element (index={index_for_logging}): it is disabled. '
+					'Complete whatever enables it first (a required field, a checkbox or a pending check), or wait a moment and try again.'
+				)
+				self.logger.info(f'{msg}')
+				return {'validation_error': msg}
+
 			# Detect print-related elements and handle them specially
 			is_print_element = self._is_print_related_element(element_node)
 			if is_print_element:
@@ -424,6 +437,15 @@ class DefaultActionWatchdog(BaseWatchdog):
 			tag_name = element_node.tag_name.lower() if element_node.tag_name else ''
 			if tag_name == 'select':
 				msg = f'Cannot click at ({event.coordinate_x}, {event.coordinate_y}) - element is a <select>. Use dropdown_options action instead.'
+				self.logger.info(f'{msg}')
+				return {'validation_error': msg}
+
+			# Safety check: disabled form control (the browser never dispatches the click)
+			if await self._is_element_disabled(element_node):
+				msg = (
+					f'Cannot click at ({event.coordinate_x}, {event.coordinate_y}) - element is disabled. '
+					'Complete whatever enables it first (a required field, a checkbox or a pending check), or wait a moment and try again.'
+				)
 				self.logger.info(f'{msg}')
 				return {'validation_error': msg}
 
@@ -570,6 +592,37 @@ class DefaultActionWatchdog(BaseWatchdog):
 			raise
 
 	# ========== Implementation Methods ==========
+
+	async def _is_element_disabled(self, element_node: EnhancedDOMTreeNode) -> bool:
+		"""Whether the element is a currently disabled form control (:disabled, including via a disabled fieldset).
+
+		Only form controls and form-associated custom elements can match :disabled, so other elements skip the
+		CDP lookup. aria-disabled is deliberately not included: the browser still delivers clicks to such elements.
+		"""
+		tag_name = (element_node.tag_name or '').lower()
+		backend_node_id = element_node.backend_node_id
+		if not backend_node_id or (tag_name not in _DISABLEABLE_TAGS and '-' not in tag_name):
+			return False
+		try:
+			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
+			resolved = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': backend_node_id}, session_id=cdp_session.session_id
+			)
+			object_id = resolved.get('object', {}).get('objectId')
+			if not object_id:
+				return False
+			result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': "function() { return this.matches(':disabled'); }",
+					'objectId': object_id,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+			return result.get('result', {}).get('value') is True
+		except Exception as e:
+			self.logger.debug(f'Could not read disabled state, assuming enabled: {e}')
+			return False
 
 	async def _check_element_occlusion(self, backend_node_id: int, x: float, y: float, cdp_session) -> bool:
 		"""Check if an element is occluded by other elements at the given coordinates.
