@@ -498,6 +498,13 @@ def chunk_markdown_by_structure(
 		char_start = chunk_blocks[0].char_start
 		char_end = chunk_blocks[-1].char_end
 
+		# Preserve trailing newlines on the final chunk if present in source content
+		if idx == total_chunks - 1 and content.endswith('\n'):
+			content_trailing = len(content) - len(content.rstrip('\n'))
+			chunk_trailing = len(chunk_text) - len(chunk_text.rstrip('\n'))
+			if chunk_trailing < content_trailing:
+				chunk_text += '\n' * (content_trailing - chunk_trailing)
+
 		# Build overlap prefix
 		overlap = ''
 		if idx > 0:

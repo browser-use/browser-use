@@ -99,6 +99,14 @@ class TestChunkMarkdownBasic:
 			assert chunks[-1].has_more is False
 			assert chunks[-1].char_offset_end == len(content)
 
+	def test_trailing_newline_preserved_in_chunk_content(self):
+		"""Cubic review: Content with trailing newlines must preserve them in emitted chunk content."""
+		for content in ['Hello\n', 'Hello\n\n', 'Hello\n\n\n', '# Header\n\nSome paragraph.\n']:
+			chunks = chunk_markdown_by_structure(content)
+			assert len(chunks) == 1
+			assert chunks[0].content == content
+			assert chunks[0].char_offset_end == len(content)
+
 
 class TestChunkMarkdownHeaders:
 	"""Header boundary splitting."""
