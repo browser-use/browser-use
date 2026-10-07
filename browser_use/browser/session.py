@@ -35,6 +35,7 @@ from browser_use.browser.events import (
 	AgentFocusChangedEvent,
 	BrowserConnectedEvent,
 	BrowserErrorEvent,
+	BrowserKillEvent,
 	BrowserLaunchEvent,
 	BrowserLaunchResult,
 	BrowserReconnectedEvent,
@@ -743,7 +744,14 @@ class BrowserSession(BaseModel):
 		await save_event
 
 		# Dispatch stop event to kill the browser
-		await self.event_bus.dispatch(BrowserStopEvent(force=True))
+		stop_event = self.event_bus.dispatch(BrowserStopEvent(force=True))
+		await stop_event
+		await stop_event.event_result(raise_if_any=True, raise_if_none=False)
+		# Awaiting a parent waits for its children, but does not raise their errors.
+		# Do not report a successful kill or discard the watchdog on cleanup failure.
+		for child_event in stop_event.event_children:
+			if isinstance(child_event, BrowserKillEvent):
+				await child_event.event_result(raise_if_any=True, raise_if_none=False)
 		# Stop the event bus
 		await self.event_bus.stop(clear=True, timeout=5)
 		# Reset all state
