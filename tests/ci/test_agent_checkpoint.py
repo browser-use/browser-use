@@ -13,10 +13,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from browser_use import Agent
 from browser_use.agent.message_manager.views import HistoryItem
 from browser_use.agent.views import AgentHistory, AgentOutput, PlanItem
 from browser_use.browser.views import BrowserStateHistory
+from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.tokens.views import UsageSummary
 from tests.ci.conftest import create_mock_llm
 
@@ -37,7 +40,8 @@ def test_save_checkpoint_creates_atomic_file():
 		assert returned == path
 		assert path.exists()
 		# Atomic write: the .tmp sibling must be gone after the rename.
-		assert not path.with_name(path.name + '.tmp').exists()
+		leftover = list(path.parent.glob(f'.{path.name}.*.tmp'))
+		assert not leftover, f'Leaked temp files: {leftover}'
 
 		# The file must be valid JSON with the expected top-level shape.
 		data = json.loads(path.read_text(encoding='utf-8'))
@@ -70,6 +74,25 @@ def test_checkpoint_round_trips_agent_state():
 		assert state.paused is True
 		# The in-memory agent must reflect the loaded state.
 		assert restored_agent.state.n_steps == 42
+
+
+@pytest.mark.parametrize('paused,stopped', [(False, False), (True, False), (False, True), (True, True)])
+@pytest.mark.parametrize('initial_event_set', [False, True])
+def test_checkpoint_restores_pause_event(tmp_path: Path, paused: bool, stopped: bool, initial_event_set: bool):
+	"""Restored control flags must override the event, with stop taking priority."""
+	agent = _make_agent()
+	agent.state.paused = paused
+	agent.state.stopped = stopped
+	path = agent.save_checkpoint(tmp_path / 'checkpoint.json')
+	restored_agent = _make_agent()
+	if initial_event_set:
+		restored_agent._external_pause_event.set()
+	else:
+		restored_agent._external_pause_event.clear()
+
+	restored_agent.load_checkpoint(path)
+
+	assert restored_agent._external_pause_event.is_set() is (stopped or not paused)
 
 
 def test_checkpoint_excludes_transient_step_state():
@@ -175,6 +198,10 @@ def test_checkpoint_round_trips_message_manager_state():
 	agent.state.message_manager_state.tool_id = 7
 	agent.state.message_manager_state.read_state_description = 'page loaded'
 	agent.state.message_manager_state.agent_history_items.append(HistoryItem(step_number=1, system_message='follow up on this'))
+	message_history = agent.state.message_manager_state.history
+	message_history.system_message = SystemMessage(content='Checkpoint system instructions')
+	message_history.state_message = UserMessage(content='Checkpoint page state')
+	message_history.context_messages = [UserMessage(content='Checkpoint context')]
 
 	with tempfile.TemporaryDirectory() as tmpdir:
 		path = Path(tmpdir) / 'checkpoint.json'
@@ -186,6 +213,14 @@ def test_checkpoint_round_trips_message_manager_state():
 		assert restored_agent.state.message_manager_state.tool_id == 7
 		assert restored_agent.state.message_manager_state.read_state_description == 'page loaded'
 		assert restored_agent.state.message_manager_state.agent_history_items[-1].system_message == 'follow up on this'
+		restored_history = restored_agent.state.message_manager_state.history
+		assert isinstance(restored_history.system_message, SystemMessage)
+		assert restored_history.system_message.content == 'Checkpoint system instructions'
+		assert isinstance(restored_history.state_message, UserMessage)
+		assert restored_history.state_message.content == 'Checkpoint page state'
+		assert len(restored_history.context_messages) == 1
+		assert isinstance(restored_history.context_messages[0], UserMessage)
+		assert restored_history.context_messages[0].content == 'Checkpoint context'
 		# The follow-up task marker should survive.
 		assert restored_agent.state.follow_up_task is True
 
@@ -207,10 +242,14 @@ def test_checkpoint_survives_json_round_trip():
 		assert data['state']['plan'][0]['status'] == 'current'
 
 
-def test_checkpoint_preserves_usage_and_redacts_sensitive_data():
-	"""Checkpoint history keeps usage totals without writing credential values."""
+@pytest.mark.parametrize('sensitive_data', [{'value': 'super-secret'}, {'example.com': {'value': 'super-secret'}}])
+def test_checkpoint_preserves_usage_and_redacts_sensitive_data(sensitive_data):
+	"""Checkpoint state and history redact secrets without changing live state or usage."""
 	agent = _make_agent()
-	agent.sensitive_data = cast(dict[str, str | dict[str, str]], {'password': {'value': 'super-secret'}})
+	agent.sensitive_data = cast(dict[str, str | dict[str, str]], sensitive_data)
+	agent.state.plan = [PlanItem(text='Use super-secret', status='current')]
+	agent.state.message_manager_state.history.system_message = SystemMessage(content='Password: super-secret')
+	agent.state.message_manager_state.history.context_messages = [UserMessage(content='Use super-secret here')]
 	agent.history.usage = UsageSummary(
 		total_prompt_tokens=1,
 		total_prompt_cost=0.1,
@@ -241,11 +280,19 @@ def test_checkpoint_preserves_usage_and_redacts_sensitive_data():
 		agent.save_checkpoint(path)
 		serialized = path.read_text(encoding='utf-8')
 		assert 'super-secret' not in serialized
+		assert agent.state.plan[0].text == 'Use super-secret'
+		assert agent.state.message_manager_state.history.system_message.content == 'Password: super-secret'
 
 		restored_agent = _make_agent()
 		restored_agent.load_checkpoint(path)
 		assert restored_agent.history.usage is not None
 		assert restored_agent.history.usage.total_cost == 0.6
+		assert restored_agent.state.plan is not None
+		assert restored_agent.state.plan[0].text == 'Use <secret>value</secret>'
+		message_history = restored_agent.state.message_manager_state.history
+		assert message_history.system_message is not None
+		assert message_history.system_message.content == 'Password: <secret>value</secret>'
+		assert message_history.context_messages[0].content == 'Use <secret>value</secret> here'
 
 
 def test_checkpoint_saves_to_same_path_concurrently():
