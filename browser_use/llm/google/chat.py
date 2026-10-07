@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError
 from browser_use.llm.google.serializer import GoogleMessageSerializer
-from browser_use.llm.messages import BaseMessage
+from browser_use.llm.messages import BaseMessage, ContentPartTextParam
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
@@ -454,9 +454,14 @@ class ChatGoogle(BaseChatModel):
 						modified_messages = [m.model_copy(deep=True) for m in messages]
 
 						# Add JSON instruction to the last message
-						if modified_messages and isinstance(modified_messages[-1].content, str):
+						if modified_messages:
 							json_instruction = f'\n\nPlease respond with a valid JSON object that matches this schema: {SchemaOptimizer.create_optimized_json_schema(output_format)}'
-							modified_messages[-1].content += json_instruction
+							last_message = modified_messages[-1]
+							if isinstance(last_message.content, str):
+								last_message.content += json_instruction
+							elif isinstance(last_message.content, list):
+								# Vision messages are lists of parts, so the instruction goes in as its own text part
+								last_message.content.append(ContentPartTextParam(text=json_instruction))
 
 						# Re-serialize with modified messages
 						fallback_contents, fallback_system = GoogleMessageSerializer.serialize_messages(
