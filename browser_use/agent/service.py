@@ -3,6 +3,7 @@ import gc
 import inspect
 import json
 import logging
+import os
 import re
 import tempfile
 import time
@@ -76,6 +77,7 @@ from browser_use.utils import (
 	URL_PATTERN,
 	_log_pretty_path,
 	check_latest_browser_use_version,
+	filter_sensitive_data,
 	get_browser_use_version,
 	has_url_negation,
 	is_placeholder_url,
@@ -3913,6 +3915,106 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if not file_path:
 			file_path = 'AgentHistory.json'
 		self.history.save_to_file(file_path, sensitive_data=self.sensitive_data)
+
+	def save_checkpoint(self, path: str | Path | None = None) -> Path:
+		"""Save the agent's full state (AgentState + history) to a JSON checkpoint file atomically.
+
+		Persists a serializable boundary of the agent's state so it can be restored
+		after a crash via load_checkpoint(). Transient per-step state (last_model_output,
+		last_result) is omitted from the serialized copy: it is recreated every step,
+		is already captured in AgentHistory, and holds dynamically-created ActionModel
+		subclasses that cannot be safely round-tripped through JSON.
+		"""
+		if path is None:
+			path = f'agent_checkpoint_{self.id}.json'
+		path = Path(path)
+		path.parent.mkdir(parents=True, exist_ok=True)
+
+		# Clear transient per-step state on a copy before serializing. These fields
+		# are recreated each step and are already captured in AgentHistory; they
+		# hold dynamically-created ActionModel subclasses that cannot be safely
+		# deserialized. Do not mutate the live state while taking a checkpoint.
+		checkpoint_state = self.state.model_copy(deep=True)
+		checkpoint_state.last_model_output = None
+		checkpoint_state.last_result = None
+		state_data = checkpoint_state.model_dump(mode='json')
+		if self.sensitive_data:
+			state_data = filter_sensitive_data(state_data, self.sensitive_data)
+
+		history_data = self.history.model_dump(sensitive_data=self.sensitive_data)
+		if self.history.usage is not None:
+			history_data['usage'] = self.history.usage.model_dump(mode='json')
+
+		checkpoint = {
+			'state': state_data,
+			'history': history_data,
+		}
+
+		# Atomic write: write to a unique temp file in the same directory, then rename.
+		# This prevents a partially-written checkpoint from being read after a crash.
+		tmp_path = None
+		try:
+			with tempfile.NamedTemporaryFile(
+				mode='w',
+				encoding='utf-8',
+				dir=path.parent,
+				prefix=f'.{path.name}.',
+				suffix='.tmp',
+				delete=False,
+			) as f:
+				tmp_path = Path(f.name)
+				json.dump(checkpoint, f, indent=2, ensure_ascii=False)
+				f.flush()
+				os.fsync(f.fileno())
+			for attempt in range(5):
+				try:
+					tmp_path.replace(path)
+					break
+				except PermissionError:
+					if attempt == 4:
+						raise
+					time.sleep(0.01)
+		except Exception:
+			if tmp_path is not None:
+				tmp_path.unlink(missing_ok=True)
+			raise
+
+		self.logger.info(f'💾 Checkpoint saved to {_log_pretty_path(path)}')
+		return path
+
+	def load_checkpoint(self, path: str | Path) -> tuple[AgentState, AgentHistoryList]:
+		"""Load a checkpoint file and restore the agent's state and history.
+
+		Args:
+			path: Path to the checkpoint file created by save_checkpoint().
+
+		Returns:
+			The restored (AgentState, AgentHistoryList).
+		"""
+		path = Path(path)
+		with open(path, encoding='utf-8') as f:
+			data = json.load(f)
+
+		state = AgentState.model_validate(data['state'])
+		history = AgentHistoryList.load_from_dict(data['history'], self.AgentOutput)
+
+		self.state = state
+		# Stopped agents must wake up even if the saved state is also paused.
+		if self.state.stopped:
+			self._external_pause_event.set()
+		elif self.state.paused:
+			self._external_pause_event.clear()
+		else:
+			self._external_pause_event.set()
+		self.history = history
+		if self.state.file_system_state is not None:
+			self.file_system = FileSystem.from_state(self.state.file_system_state)
+			self.file_system_path = str(self.file_system.base_dir)
+		self._message_manager.state = self.state.message_manager_state
+		self._message_manager.file_system = self.file_system
+
+		self.logger.info(f'💾 Checkpoint loaded from {_log_pretty_path(path)}')
+		return state, history
 
 	def pause(self) -> None:
 		"""Pause the agent before the next step"""
