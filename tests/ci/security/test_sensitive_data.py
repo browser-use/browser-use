@@ -292,10 +292,9 @@ def test_filter_sensitive_data(message_manager):
 	assert '<secret>email</secret>' in result.content
 
 
-
 def test_filter_sensitive_data_redacts_string_keys():
 	"""Secrets must be redacted from dictionary keys too, not only values."""
-	sensitive = {'api_key': 'super-secret'}
+	sensitive: dict[str, str | dict[str, str]] = {'api_key': 'super-secret'}
 	data = {'files': {'report_super-secret.json': 'contents'}, 'count': 2, 'nested': {'super-secret.txt': 'x'}}
 
 	result = filter_sensitive_data(data, sensitive)
@@ -305,6 +304,7 @@ def test_filter_sensitive_data_redacts_string_keys():
 	assert 'super-secret.txt' not in result['nested']
 	assert result['count'] == 2
 	assert data['files'] == {'report_super-secret.json': 'contents'}  # input not mutated
+
 
 def test_is_new_tab_page():
 	"""Test is_new_tab_page function"""
