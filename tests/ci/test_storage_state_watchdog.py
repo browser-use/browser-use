@@ -105,3 +105,26 @@ async def test_save_storage_state_reads_existing_file_as_utf8(tmp_path: Path, mo
 	saved_state = json.loads(original_read_text(storage_path, encoding='utf-8'))
 	saved_cookies = {cookie['name']: cookie['value'] for cookie in saved_state['cookies']}
 	assert saved_cookies == {'greeting': unicode_value, 'current': 'new-value'}
+
+
+@pytest.mark.parametrize('storage_state', [None, {'cookies': [], 'origins': []}])
+async def test_save_storage_state_without_file_path_does_not_create_cdp_session(storage_state: object):
+	watchdog, browser_session = _make_watchdog()
+	browser_session.browser_profile.storage_state = storage_state
+
+	await watchdog._save_storage_state()
+
+	browser_session.get_or_create_cdp_session.assert_not_awaited()
+	browser_session._cdp_get_storage_state.assert_not_awaited()
+
+
+async def test_save_storage_state_without_cdp_client_skips_save(tmp_path: Path):
+	watchdog, browser_session = _make_watchdog()
+	browser_session.cdp_client = None
+	storage_path = tmp_path / 'storage-state.json'
+
+	await watchdog._save_storage_state(str(storage_path))
+
+	browser_session.get_or_create_cdp_session.assert_not_awaited()
+	browser_session._cdp_get_storage_state.assert_not_awaited()
+	assert not storage_path.exists()

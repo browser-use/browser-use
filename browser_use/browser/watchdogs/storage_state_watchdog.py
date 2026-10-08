@@ -158,9 +158,6 @@ class StorageStateWatchdog(BaseWatchdog):
 	async def _save_storage_state(self, path: str | dict[str, Any] | None = None) -> None:
 		"""Save browser storage state to file."""
 		async with self._save_lock:
-			# Check if CDP client is available
-			assert await self.browser_session.get_or_create_cdp_session(target_id=None)
-
 			save_path = path or self.browser_session.browser_profile.storage_state
 			if not save_path:
 				return
@@ -171,7 +168,12 @@ class StorageStateWatchdog(BaseWatchdog):
 				self.logger.debug('[StorageStateWatchdog] Storage state is already a dict, skipping file save')
 				return
 
+			if not self.browser_session.cdp_client:
+				self.logger.warning('[StorageStateWatchdog] No CDP client available for saving')
+				return
+
 			try:
+				await self.browser_session.get_or_create_cdp_session(target_id=None)
 				# Get current storage state using CDP
 				storage_state = await self.browser_session._cdp_get_storage_state()
 
