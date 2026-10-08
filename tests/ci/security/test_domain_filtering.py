@@ -567,3 +567,53 @@ class TestDomainListOptimization:
 		# Should work correctly
 		assert watchdog._is_url_allowed('https://blocked0.com') is False
 		assert watchdog._is_url_allowed('https://example.com') is True
+
+
+class TestHostnameNormalization:
+	"""Pattern case and trailing root-label dots must not change what a domain list matches."""
+
+	@staticmethod
+	def _watchdog(**profile_kwargs):
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(headless=True, user_data_dir=None, **profile_kwargs)
+		return SecurityWatchdog(browser_session=BrowserSession(browser_profile=browser_profile), event_bus=EventBus())
+
+	def test_glob_patterns_are_case_insensitive(self):
+		prohibited = self._watchdog(prohibited_domains=['*.Example.COM'])
+		assert prohibited._is_url_allowed('https://example.com') is False
+		assert prohibited._is_url_allowed('https://mail.example.com') is False
+		assert prohibited._is_url_allowed('https://other.com') is True
+
+		allowed = self._watchdog(allowed_domains=['*.Example.com', 'HTTP*://Docs.Example.org'])
+		assert allowed._is_url_allowed('https://mail.example.com') is True
+		assert allowed._is_url_allowed('https://docs.example.org') is True
+		assert allowed._is_url_allowed('https://evil.com') is False
+
+	def test_trailing_dot_hostname_cannot_bypass_prohibited_domains(self):
+		for prohibited_domains in (['example.com'], ['*.example.com'], {'example.com'}):
+			watchdog = self._watchdog(prohibited_domains=prohibited_domains)
+			assert watchdog._is_url_allowed('http://example.com/x') is False
+			assert watchdog._is_url_allowed('http://example.com./x') is False, prohibited_domains
+		assert self._watchdog(prohibited_domains=['*.example.com'])._is_url_allowed('http://sub.example.com./x') is False
+
+	def test_trailing_dot_hostname_matches_allowed_domains(self):
+		watchdog = self._watchdog(allowed_domains=['example.com', 'docs.example.org.'])
+		assert watchdog._is_url_allowed('http://example.com./x') is True
+		assert watchdog._is_url_allowed('http://www.example.com./x') is True
+		assert watchdog._is_url_allowed('http://docs.example.org/x') is True
+		assert watchdog._is_url_allowed('http://evil.com./x') is False
+
+	def test_set_entries_are_normalised(self):
+		watchdog = self._watchdog(prohibited_domains={'Example.COM.', 'other.org'})
+		assert watchdog._is_url_allowed('http://example.com/x') is False
+		assert watchdog._is_url_allowed('http://example.com./x') is False
+		assert watchdog._is_url_allowed('http://safe.com/x') is True
+
+		# Lists at the optimisation threshold are converted to sets and must be normalised on the way in
+		watchdog = self._watchdog(prohibited_domains=[f'blocked{i}.com' for i in range(99)] + ['Example.COM.'])
+		assert isinstance(watchdog.browser_session.browser_profile.prohibited_domains, set)
+		assert watchdog._is_url_allowed('http://example.com/x') is False
+		assert watchdog._is_url_allowed('http://blocked0.com/x') is False
