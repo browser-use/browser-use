@@ -5924,7 +5924,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		from browser_use.llm.messages import UserMessage
 
 		msg = 'You reached max_steps - this is your last step. Your only tool available is the "done" tool. No other tool is available. All other tools which you see in history or examples are not available.'
-		msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed. Else success to true.'
+		status_field = 'task_success' if self.output_model_schema is not None else 'success'
+		msg += f'\nIf the task is not yet fully finished as requested by the user, set {status_field} in "done" to false! E.g. if not all steps are fully completed. Else {status_field} to true.'
 		msg += '\nInclude everything you found out for the ultimate task in the done text.'
 		self.logger.debug('Last step finishing up')
 		self._message_manager._add_context_message(UserMessage(content=msg))
@@ -5938,7 +5939,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		msg = f'You failed {self.settings.max_failures} times. Therefore we terminate the agent.'
 		msg += '\nYour only tool available is the "done" tool. No other tool is available. All other tools which you see in history or examples are not available.'
-		msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed. Else success to true.'
+		status_field = 'task_success' if self.output_model_schema is not None else 'success'
+		msg += f'\nIf the task is not yet fully finished as requested by the user, set {status_field} in "done" to false! E.g. if not all steps are fully completed. Else {status_field} to true.'
 		msg += '\nInclude everything you found out for the ultimate task in the done text.'
 		self.logger.debug('Force done action, because we reached max_failures.')
 		self._message_manager._add_context_message(UserMessage(content=msg))

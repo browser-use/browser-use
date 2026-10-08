@@ -18,6 +18,27 @@ class ProductInfo(BaseModel):
 	rating: float | None = None
 
 
+def test_structured_done_requires_separate_task_status():
+	"""The strict provider schema can express failure without a nested success collision."""
+
+	class OutputWithStatus(BaseModel):
+		success: bool
+		rows: list[str]
+
+	model = Tools(output_model=OutputWithStatus).registry.create_action_model(include_actions=['done'])
+	schema = SchemaOptimizer.create_optimized_json_schema(model)
+	done = schema['properties']['done']
+	assert 'task_success' in done['properties']
+	assert 'task_success' in done['required']
+	assert 'success' not in done['properties']
+	assert done['additionalProperties'] is False
+	assert 'success' in done['properties']['data']['properties']
+	parsed = model.model_validate({'done': {'task_success': False, 'data': {'success': True, 'rows': []}}})
+	parsed_done = parsed.model_dump()['done']
+	assert parsed_done['success'] is False
+	assert parsed_done['data']['success'] is True
+
+
 def test_optimizer_preserves_all_fields_in_structured_done_action():
 	"""
 	Ensures the SchemaOptimizer does not drop fields from a custom structured
