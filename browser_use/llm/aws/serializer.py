@@ -255,22 +255,40 @@ class AWSBedrockMessageSerializer:
 	@staticmethod
 	def serialize_messages(messages: list[BaseMessage]) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
 		"""
-		Serialize a list of messages, extracting any system message.
+		Serialize a list of messages, extracting the system messages.
 
 		Returns:
-			Tuple of (bedrock_messages, system_message) where system_message is extracted
-			from any SystemMessage in the list.
+			Tuple of (bedrock_messages, system_blocks) where system_blocks holds the content
+			blocks of every SystemMessage in the list, in order, or None if there were none.
 		"""
 		bedrock_messages: list[dict[str, Any]] = []
-		system_message: list[dict[str, Any]] | None = None
+		# Grouped by the message each block came from: one message can carry several text
+		# parts, and those parts are its own content rather than separate instructions.
+		system_groups: list[list[dict[str, Any]]] = []
 
 		for message in messages:
 			if isinstance(message, SystemMessage):
-				# Extract system message content
-				system_message = AWSBedrockMessageSerializer._serialize_system_content(message.content)
+				# Converse takes `system` as a list of content blocks, so collect every system
+				# message instead of letting the last one replace the ones before it. Converse
+				# rejects an empty text block, so empty parts are dropped here.
+				blocks = [
+					block for block in AWSBedrockMessageSerializer._serialize_system_content(message.content) if block.get('text')
+				]
+				if blocks:
+					system_groups.append(blocks)
 			else:
 				# Serialize and add to regular messages
 				serialized = AWSBedrockMessageSerializer.serialize(message)
 				bedrock_messages.append(serialized)
 
-		return bedrock_messages, system_message
+		# The blocks are read as one instruction with nothing between them, so without a
+		# separator the end of one message runs into the start of the next. The separator goes
+		# on the last block of each message, never between the parts of one message, and
+		# trailing newlines are normalized first so the gap is exactly one blank line whatever
+		# line endings the caller wrote.
+		for group in system_groups[:-1]:
+			group[-1]['text'] = group[-1]['text'].rstrip('\r\n') + '\n\n'
+
+		system_blocks = [block for group in system_groups for block in group]
+
+		return bedrock_messages, system_blocks or None
