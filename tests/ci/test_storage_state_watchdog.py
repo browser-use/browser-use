@@ -5,7 +5,21 @@ from unittest.mock import AsyncMock, MagicMock
 import anyio
 import pytest
 
+from browser_use.browser.events import SaveStorageStateEvent
+from browser_use.browser.session import BrowserSession
 from browser_use.browser.watchdogs.storage_state_watchdog import StorageStateWatchdog
+
+
+@pytest.mark.parametrize('storage_state', [None, {}, {'cookies': [], 'origins': []}])
+async def test_save_without_a_file_destination_does_not_connect(storage_state, monkeypatch: pytest.MonkeyPatch):
+	browser_session = BrowserSession(storage_state=storage_state)
+	connect = AsyncMock(side_effect=AssertionError('Root CDP client not initialized'))
+	monkeypatch.setattr(BrowserSession, 'get_or_create_cdp_session', connect)
+	watchdog = StorageStateWatchdog.model_construct(event_bus=browser_session.event_bus, browser_session=browser_session)
+
+	await watchdog.on_SaveStorageStateEvent(SaveStorageStateEvent())
+
+	connect.assert_not_awaited()
 
 
 def _make_watchdog() -> tuple[StorageStateWatchdog, MagicMock]:
