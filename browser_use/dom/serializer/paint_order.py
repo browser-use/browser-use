@@ -19,7 +19,7 @@ class Rect:
 
 	def __post_init__(self):
 		if not (self.x1 <= self.x2 and self.y1 <= self.y2):
-			return False
+			raise ValueError(f'Invalid Rect coordinates: x1 ({self.x1}) > x2 ({self.x2}) or y1 ({self.y1}) > y2 ({self.y2})')
 
 	# --- fast relations ----------------------------------------------------
 	def area(self) -> float:
