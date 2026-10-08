@@ -4,9 +4,10 @@ import asyncio
 from typing import ClassVar
 
 from bubus import BaseEvent
+from cdp_use.cdp.target import TargetID
 from pydantic import PrivateAttr
 
-from browser_use.browser.events import TabCreatedEvent
+from browser_use.browser.events import BrowserReconnectedEvent, TabCreatedEvent
 from browser_use.browser.watchdog_base import BaseWatchdog
 from browser_use.utils import create_task_with_error_handling
 
@@ -15,7 +16,7 @@ class PopupsWatchdog(BaseWatchdog):
 	"""Handles JavaScript dialogs (alert, confirm, prompt) by automatically accepting them immediately."""
 
 	# Events this watchdog listens to and emits
-	LISTENS_TO: ClassVar[list[type[BaseEvent]]] = [TabCreatedEvent]
+	LISTENS_TO: ClassVar[list[type[BaseEvent]]] = [TabCreatedEvent, BrowserReconnectedEvent]
 	EMITS: ClassVar[list[type[BaseEvent]]] = []
 
 	# Track which targets have dialog handlers registered
@@ -27,9 +28,23 @@ class PopupsWatchdog(BaseWatchdog):
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Set up JavaScript dialog handling when a new tab is created."""
-		target_id = event.target_id
-		self.logger.debug(f'🎯 PopupsWatchdog received TabCreatedEvent for target {target_id}')
+		self.logger.debug(f'🎯 PopupsWatchdog received TabCreatedEvent for target {event.target_id}')
+		await self._setup_dialog_handling(event.target_id)
 
+	async def on_BrowserReconnectedEvent(self, event: BrowserReconnectedEvent) -> None:
+		"""Set up dialog handling again on the CDP client created by reconnect().
+
+		The handlers registered on the old client went away with it, and reconnect()
+		dispatches no TabCreatedEvent for the tabs that were already open.
+		"""
+		self._dialog_listeners_registered.clear()
+		if not self.browser_session.session_manager:
+			return
+		for target in self.browser_session.session_manager.get_all_page_targets():
+			await self._setup_dialog_handling(target.target_id)
+
+	async def _setup_dialog_handling(self, target_id: TargetID) -> None:
+		"""Enable dialog events for a tab and register the dialog handler."""
 		# Skip if we've already registered for this target
 		if target_id in self._dialog_listeners_registered:
 			self.logger.debug(f'Already registered dialog handlers for target {target_id}')

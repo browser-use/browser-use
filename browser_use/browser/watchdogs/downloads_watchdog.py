@@ -19,6 +19,7 @@ from pydantic import PrivateAttr
 
 from browser_use.browser.events import (
 	BrowserLaunchEvent,
+	BrowserReconnectedEvent,
 	BrowserStateRequestEvent,
 	BrowserStoppedEvent,
 	DownloadProgressEvent,
@@ -110,6 +111,7 @@ class DownloadsWatchdog(BaseWatchdog):
 	# Events this watchdog listens to (for documentation)
 	LISTENS_TO: ClassVar[list[type[BaseEvent[Any]]]] = [
 		BrowserLaunchEvent,
+		BrowserReconnectedEvent,
 		BrowserStateRequestEvent,
 		BrowserStoppedEvent,
 		TabCreatedEvent,
@@ -215,6 +217,20 @@ class DownloadsWatchdog(BaseWatchdog):
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Stop monitoring closed tabs."""
 		pass  # No cleanup needed, browser context handles target lifecycle
+
+	async def on_BrowserReconnectedEvent(self, event: BrowserReconnectedEvent) -> None:
+		"""Set up download monitoring again on the CDP client created by reconnect().
+
+		The download and network handlers registered on the old client went away with it,
+		and reconnect() dispatches no TabCreatedEvent for the tabs that were already open.
+		"""
+		self._download_cdp_session_setup = False
+		self._network_callback_registered = False
+		self._network_monitored_targets.clear()
+		if not self.browser_session.session_manager:
+			return
+		for target in self.browser_session.session_manager.get_all_page_targets():
+			await self.attach_to_target(target.target_id)
 
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> None:
 		"""Handle browser state request events."""
