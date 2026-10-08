@@ -116,3 +116,15 @@ async def test_save_storage_state_without_file_path_does_not_create_cdp_session(
 
 	browser_session.get_or_create_cdp_session.assert_not_awaited()
 	browser_session._cdp_get_storage_state.assert_not_awaited()
+
+
+async def test_save_storage_state_without_cdp_client_skips_save(tmp_path: Path):
+	watchdog, browser_session = _make_watchdog()
+	browser_session.cdp_client = None
+	storage_path = tmp_path / 'storage-state.json'
+
+	await watchdog._save_storage_state(str(storage_path))
+
+	browser_session.get_or_create_cdp_session.assert_not_awaited()
+	browser_session._cdp_get_storage_state.assert_not_awaited()
+	assert not storage_path.exists()
