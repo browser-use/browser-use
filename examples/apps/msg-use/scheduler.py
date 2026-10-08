@@ -50,7 +50,7 @@ async def parse_messages():
 
 	import aiofiles
 
-	async with aiofiles.open(messages_file) as f:
+	async with aiofiles.open(messages_file, encoding='utf-8') as f:
 		content = await f.read()
 
 	llm = ChatGoogle(model='gemini-2.0-flash-exp', temperature=0.1, api_key=GOOGLE_API_KEY)
