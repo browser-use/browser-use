@@ -40,6 +40,45 @@ class TestSchemaDictToPydanticModel:
 		assert instance.name == 'Alice'  # type: ignore[attr-defined]
 		assert instance.age == 30  # type: ignore[attr-defined]
 
+	@pytest.mark.parametrize('field_name', ['_id', '_', '__dunder__'])
+	def test_underscore_fields_preserve_json_names(self, field_name: str):
+		"""JSON keys remain intact through model schemas, validation, and serialization."""
+		neighbor = f'field{field_name}'
+		second_neighbor = f'{neighbor}_'
+		schema = {
+			'type': 'object',
+			'properties': {
+				field_name: {'type': 'string'},
+				neighbor: {'type': 'string'},
+				second_neighbor: {'type': 'string'},
+				'children': {
+					'type': 'array',
+					'items': {
+						'type': 'object',
+						'properties': {field_name: {'type': 'integer'}},
+						'required': [field_name],
+					},
+				},
+			},
+			'required': [field_name, neighbor, second_neighbor, 'children'],
+		}
+		payload = {
+			field_name: 'parent',
+			neighbor: 'separate value',
+			second_neighbor: 'another value',
+			'children': [{field_name: 7}],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+
+		assert Model.model_json_schema()['properties'].keys() == schema['properties'].keys()
+		assert Model.model_validate(payload).model_dump(mode='json') == payload
+		assert json.loads(Model.model_validate_json(json.dumps(payload)).model_dump_json()) == payload
+		internal_name = next(name for name, field in Model.model_fields.items() if field.alias == field_name)
+		invalid_payload = {key: value for key, value in payload.items() if key != field_name}
+		invalid_payload[internal_name] = 'parent'
+		with pytest.raises(ValidationError):
+			Model.model_validate(invalid_payload)
+
 	def test_nested_object(self):
 		schema = {
 			'type': 'object',
@@ -368,6 +407,44 @@ def base_url(http_server):
 
 class TestExtractStructured:
 	"""Integration tests for the extract action's structured extraction path."""
+
+	async def test_underscore_field_in_extraction_result(self, monkeypatch: pytest.MonkeyPatch):
+		"""The public extract action returns the original JSON key, not its internal field name."""
+		content = 'Product ID: widget-1'
+		monkeypatch.setattr(
+			'browser_use.dom.markdown_extractor.extract_clean_markdown',
+			AsyncMock(
+				return_value=(
+					content,
+					{
+						'original_html_chars': len(content),
+						'initial_markdown_chars': len(content),
+						'final_filtered_chars': len(content),
+						'filtered_chars_removed': 0,
+					},
+				)
+			),
+		)
+		session = AsyncMock(spec=BrowserSession)
+		session.get_current_page_url.return_value = 'https://example.com/product'
+		schema = {'type': 'object', 'properties': {'_id': {'type': 'string'}}, 'required': ['_id']}
+		payload = {'_id': 'widget-1'}
+		with tempfile.TemporaryDirectory() as tmp:
+			result = await Tools().extract(
+				query='Extract the product ID',
+				output_schema=schema,
+				browser_session=session,
+				page_extraction_llm=_make_extraction_llm(structured_response=payload),
+				file_system=FileSystem(tmp),
+			)
+
+		assert result.error is None
+		assert result.metadata is not None
+		assert result.metadata['extraction_result']['data'] == payload
+		assert result.metadata['extraction_result']['schema_used'] == schema
+		assert result.extracted_content is not None
+		text = result.extracted_content.split('<structured_result>')[1].split('</structured_result>')[0]
+		assert json.loads(text) == payload
 
 	async def test_structured_extraction_returns_json(self, browser_session, base_url):
 		"""When output_schema is provided, extract returns structured JSON in <structured_result> tags."""
