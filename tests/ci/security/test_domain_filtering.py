@@ -373,6 +373,24 @@ class TestUrlProhibitlistSecurity:
 		assert watchdog._is_url_allowed('chrome://new-tab-page/') is True
 		assert watchdog._is_url_allowed('chrome://new-tab-page') is True
 		assert watchdog._is_url_allowed('chrome://newtab/') is True
+		# Chrome also reports the new-tab URL without a trailing slash.
+		assert watchdog._is_url_allowed('chrome://newtab') is True
+
+	def test_slashless_newtab_url_is_allowed_with_allowlist(self):
+		"""chrome://newtab (no trailing slash) must stay allowed when allowed_domains is set."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.crash_watchdog import CrashWatchdog
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('chrome://newtab') is True
+		assert CrashWatchdog._is_new_tab_page('chrome://newtab') is True
+		assert CrashWatchdog._is_new_tab_page('chrome://new-tab-page') is True
 
 	def test_prohibited_ignored_when_allowlist_present(self):
 		"""When allowlist is set, prohibited list is ignored by design."""
