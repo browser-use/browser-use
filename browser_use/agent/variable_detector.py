@@ -173,13 +173,15 @@ def _detect_from_attributes(attributes: dict[str, str]) -> tuple[str, str | None
 	if any(keyword in combined_text for keyword in ['phone', 'tel', 'mobile', 'cell']):
 		return ('phone', 'phone')
 
-	# Name detection (order matters - check specific before general)
+	# Name and company detection (order matters - check specific before general)
 	if 'first' in combined_text and 'name' in combined_text:
 		return ('first_name', None)
 	elif 'last' in combined_text and 'name' in combined_text:
 		return ('last_name', None)
 	elif 'full' in combined_text and 'name' in combined_text:
 		return ('full_name', None)
+	elif 'name' in combined_text and ('company' in combined_text or 'organization' in combined_text):
+		return ('company', None)
 	elif 'name' in combined_text:
 		return ('name', None)
 
@@ -203,7 +205,7 @@ def _detect_from_attributes(attributes: dict[str, str]) -> tuple[str, str | None
 	if any(keyword in combined_text for keyword in ['zip', 'postal', 'postcode']):
 		return ('zip_code', 'postal_code')
 
-	# Company detection
+	# Company detection after more specific semantic fields such as city and zip
 	if 'company' in combined_text or 'organization' in combined_text:
 		return ('company', None)
 
