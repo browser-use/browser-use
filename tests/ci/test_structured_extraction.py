@@ -279,6 +279,62 @@ class TestSchemaDictToPydanticModel:
 		field_info = Model.model_fields['price']
 		assert field_info.description == 'The price in USD'
 
+	def test_type_list_with_null_is_nullable(self):
+		"""JSON Schema spells a nullable field as `"type": ["string", "null"]`."""
+		schema = {
+			'type': 'object',
+			'properties': {
+				'value': {'type': ['string', 'null']},
+			},
+			'required': ['value'],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model(value=None).value is None  # type: ignore[attr-defined]
+		assert Model(value='x').value == 'x'  # type: ignore[attr-defined]
+
+	def test_optional_type_list_field_defaults_to_none(self):
+		schema = {
+			'type': 'object',
+			'properties': {
+				'name': {'type': 'string'},
+				'price': {'type': ['number', 'null']},
+			},
+			'required': ['name'],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model(name='Widget').price is None  # type: ignore[attr-defined]
+		assert Model(name='Widget', price=9.99).price == 9.99  # type: ignore[attr-defined]
+
+	def test_single_element_type_list_is_not_nullable(self):
+		schema = {
+			'type': 'object',
+			'properties': {'count': {'type': ['integer']}},
+			'required': ['count'],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model(count=3).count == 3  # type: ignore[attr-defined]
+		with pytest.raises(ValidationError):
+			Model(count=None)
+
+	def test_type_list_inside_array_items(self):
+		schema = {
+			'type': 'object',
+			'properties': {
+				'tags': {'type': 'array', 'items': {'type': ['string', 'null']}},
+			},
+			'required': ['tags'],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		assert Model(tags=['a', None]).tags == ['a', None]  # type: ignore[attr-defined]
+
+	def test_rejects_multi_type_union(self):
+		schema = {
+			'type': 'object',
+			'properties': {'x': {'type': ['string', 'integer']}},
+		}
+		with pytest.raises(ValueError, match='Unsupported JSON Schema type union'):
+			schema_dict_to_pydantic_model(schema)
+
 
 # ---------------------------------------------------------------------------
 # Unit tests: ExtractionResult
