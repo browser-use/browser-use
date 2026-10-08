@@ -36,7 +36,7 @@ _PRIMITIVE_MAP: dict[str, type] = {
 
 
 class _StrictBase(BaseModel):
-	model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
+	model_config = ConfigDict(extra='forbid', validate_by_name=False, validate_by_alias=True, serialize_by_alias=True)
 
 
 def _check_unsupported(schema: dict) -> None:
@@ -133,11 +133,18 @@ def _build_model(schema: dict, name: str) -> type[BaseModel]:
 		field_kwargs: dict[str, Any] = {}
 		if 'description' in prop_schema:
 			field_kwargs['description'] = prop_schema['description']
+		field_name = prop_name
+		if prop_name.startswith('_'):
+			# Pydantic reserves leading underscores for private attributes.
+			field_name = f'field{prop_name}'
+			while field_name in properties or field_name in fields:
+				field_name += '_'
+			field_kwargs['alias'] = prop_name
 
 		if isinstance(default, list) and not default:
-			fields[prop_name] = (prop_type, Field(default_factory=list, **field_kwargs))
+			fields[field_name] = (prop_type, Field(default_factory=list, **field_kwargs))
 		else:
-			fields[prop_name] = (prop_type, Field(default, **field_kwargs))
+			fields[field_name] = (prop_type, Field(default, **field_kwargs))
 
 	return create_model(name, __base__=_StrictBase, **fields)
 
