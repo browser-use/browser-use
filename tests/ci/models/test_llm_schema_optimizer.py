@@ -67,13 +67,20 @@ def test_optimizer_preserves_all_fields_in_structured_done_action():
 
 
 def test_gemini_schema_retains_required_fields():
-	"""Gemini schema should keep explicit required arrays for mandatory fields."""
+	"""Gemini schema should preserve the model's required fields without making optional fields required."""
+	original_schema = ProductInfo.model_json_schema()
 	schema = SchemaOptimizer.create_gemini_optimized_schema(ProductInfo)
 
-	assert 'required' in schema, 'Gemini schema removed required fields.'
+	assert original_schema['required'] == ['price', 'title']
+	assert schema['required'] == original_schema['required']
+	assert 'rating' not in schema['required']
 
-	required_fields = set(schema['required'])
-	assert {'price', 'title'}.issubset(required_fields), 'Mandatory fields must stay required for Gemini.'
+
+def test_default_optimizer_keeps_openai_strict_required_fields():
+	"""Default optimizer must keep OpenAI strict-mode all-fields-required behavior."""
+	schema = SchemaOptimizer.create_optimized_json_schema(ProductInfo)
+
+	assert schema['required'] == ['price', 'title', 'rating']
 
 
 def test_optimizer_treats_property_names_as_data_not_schema_keywords():
