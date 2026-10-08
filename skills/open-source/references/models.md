@@ -94,6 +94,8 @@ llm = ChatOpenAI(
 
 Weights: https://huggingface.co/browser-use/bu-30b-a3b-preview
 
+For multi-replica vLLM or SGLang clusters behind a KV-cache affinity gateway like [Episod](https://github.com/hemanth/episod) (`base_url='http://localhost:8080/v1'`), `ChatOpenAI` forwards the agent's `session_id` via the `x-episod-session` header so all steps in a browser session hit the same worker replica.
+
 ## OpenAI
 
 ```python
