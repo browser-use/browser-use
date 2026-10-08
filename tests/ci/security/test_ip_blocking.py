@@ -161,8 +161,10 @@ class TestDomainNamesStillAllowed:
 		assert watchdog._is_url_allowed('https://www.google.com') is True
 		assert watchdog._is_url_allowed('http://subdomain.example.org/path') is True
 		assert watchdog._is_url_allowed('https://api.github.com/repos') is True
-		assert watchdog._is_url_allowed('http://localhost/') is True  # "localhost" is a domain name, not IP
-		assert watchdog._is_url_allowed('http://localhost:8080/api') is True
+
+		# Localhost and loopback domains should be blocked by pre-flight DNS resolution
+		assert watchdog._is_url_allowed('http://localhost/') is False
+		assert watchdog._is_url_allowed('http://localhost:8080/api') is False
 
 	def test_domains_with_numbers_allowed(self):
 		"""Test that domain names containing numbers are still allowed."""
@@ -393,28 +395,44 @@ class TestIsIPAddressHelper:
 
 
 class TestDefaultBehavior:
-	"""Test that default behavior (no IP blocking) is maintained."""
+	"""Test default security behavior (backwards compatibility and explicit opt-in)."""
 
 	def test_default_block_ip_addresses_is_false(self):
-		"""Test that block_ip_addresses defaults to False."""
+		"""Test that block_ip_addresses defaults to False for backwards compatibility."""
 		browser_profile = BrowserProfile(headless=True, user_data_dir=None)
 
-		# Default should be False
+		# Default is False to prevent breaking upstream local server test suites
 		assert browser_profile.block_ip_addresses is False
 
-	def test_no_blocking_by_default(self):
-		"""Test that IPs are not blocked by default."""
-		browser_profile = BrowserProfile(headless=True, user_data_dir=None)
+	def test_blocking_when_enabled(self):
+		"""Test that IPs and loopback are blocked when block_ip_addresses=True."""
+		browser_profile = BrowserProfile(block_ip_addresses=True, headless=True, user_data_dir=None)
 		browser_session = BrowserSession(browser_profile=browser_profile)
 		event_bus = EventBus()
 		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
 
-		# All IPs should be allowed by default
+		# All IPs, loopback, and metadata should be blocked when enabled
+		assert watchdog._is_url_allowed('http://180.1.1.1/supersafe.txt') is False
+		assert watchdog._is_url_allowed('http://192.168.1.1/') is False
+		assert watchdog._is_url_allowed('http://127.0.0.1:8080/') is False
+		assert watchdog._is_url_allowed('http://[::1]/') is False
+		assert watchdog._is_url_allowed('https://8.8.8.8/') is False
+		assert watchdog._is_url_allowed('http://localhost/') is False
+		assert watchdog._is_url_allowed('http://169.254.169.254/latest/meta-data/') is False
+
+	def test_explicit_opt_out_allows_ips(self):
+		"""Test that setting block_ip_addresses=False allows IP addresses and localhost."""
+		browser_profile = BrowserProfile(block_ip_addresses=False, headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
 		assert watchdog._is_url_allowed('http://180.1.1.1/supersafe.txt') is True
 		assert watchdog._is_url_allowed('http://192.168.1.1/') is True
 		assert watchdog._is_url_allowed('http://127.0.0.1:8080/') is True
 		assert watchdog._is_url_allowed('http://[::1]/') is True
 		assert watchdog._is_url_allowed('https://8.8.8.8/') is True
+		assert watchdog._is_url_allowed('http://localhost:8080/') is True
 
 
 class TestComplexScenarios:
@@ -447,7 +465,7 @@ class TestComplexScenarios:
 
 	def test_localhost_development_scenario(self):
 		"""Test typical local development scenario."""
-		# Developer wants to block external IPs but allow domain names
+		# Default / hardened profile blocks localhost and IP literals to prevent SSRF
 		browser_profile = BrowserProfile(
 			block_ip_addresses=True,
 			headless=True,
@@ -457,18 +475,22 @@ class TestComplexScenarios:
 		event_bus = EventBus()
 		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
 
-		# Domain names should work (including localhost as a name)
-		assert watchdog._is_url_allowed('http://localhost:3000/') is True
-		assert watchdog._is_url_allowed('http://localhost:8080/api') is True
-
-		# But localhost IP should be blocked
+		# Localhost and loopback IPs are blocked fail-closed
+		assert watchdog._is_url_allowed('http://localhost:3000/') is False
+		assert watchdog._is_url_allowed('http://localhost:8080/api') is False
 		assert watchdog._is_url_allowed('http://127.0.0.1:3000/') is False
 
-		# External domains should work
+		# External domains work
 		assert watchdog._is_url_allowed('https://api.example.com') is True
 
-		# External IPs should be blocked
+		# External IPs are blocked
 		assert watchdog._is_url_allowed('http://8.8.8.8/') is False
+
+		# When developer explicitly opts out via block_ip_addresses=False, local services are accessible
+		dev_profile = BrowserProfile(block_ip_addresses=False, headless=True, user_data_dir=None)
+		dev_watchdog = SecurityWatchdog(browser_session=BrowserSession(browser_profile=dev_profile), event_bus=event_bus)
+		assert dev_watchdog._is_url_allowed('http://localhost:3000/') is True
+		assert dev_watchdog._is_url_allowed('http://127.0.0.1:3000/') is True
 
 	def test_security_hardening_scenario(self):
 		"""Test maximum security scenario with IP blocking and domain restrictions."""
@@ -673,3 +695,156 @@ class TestNonStandardIPv4Representations:
 		assert watchdog._is_ip_address('127。0。0。1') is True
 		assert watchdog._is_ip_address('127｡0｡0｡1') is True
 		assert watchdog._is_ip_address('127．0．0．1') is True
+
+
+class TestPreFlightDnsResolution:
+	"""Tests for pre-flight DNS hostname resolution and private/loopback/metadata protection."""
+
+	def _watchdog(self, block_ip: bool = True) -> SecurityWatchdog:
+		profile = BrowserProfile(block_ip_addresses=block_ip, headless=True, user_data_dir=None)
+		session = BrowserSession(browser_profile=profile)
+		return SecurityWatchdog(browser_session=session, event_bus=EventBus())
+
+	def test_block_localhost_hostnames(self):
+		"""Test that localhost and .localhost hostnames are blocked by default."""
+		watchdog = self._watchdog(block_ip=True)
+		assert watchdog._is_url_allowed('http://localhost/') is False
+		assert watchdog._is_url_allowed('http://localhost:3000/api') is False
+		assert watchdog._is_url_allowed('http://subdomain.localhost:8080/') is False
+		assert watchdog._is_url_allowed('http://nested.service.localhost/') is False
+
+	def test_block_cloud_metadata_ip_literal(self):
+		"""Test that cloud instance metadata IP 169.254.169.254 is blocked."""
+		watchdog = self._watchdog(block_ip=True)
+		assert watchdog._is_url_allowed('http://169.254.169.254/latest/meta-data/') is False
+		assert watchdog._is_url_allowed('http://169.254.169.254:80/latest/user-data') is False
+		assert watchdog._is_url_allowed('http://[fe80::1]/') is False
+
+	def test_block_dns_resolving_to_rfc1918(self, monkeypatch):
+		"""Test that hostnames resolving to RFC 1918 private IPs are blocked."""
+		import socket
+
+		watchdog = self._watchdog(block_ip=True)
+
+		for private_ip in ['10.0.0.1', '172.16.0.1', '192.168.1.1']:
+			monkeypatch.setattr(
+				socket,
+				'getaddrinfo',
+				lambda host, port, *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (private_ip, 0))],
+			)
+			assert watchdog._is_url_allowed('http://internal-service.example.org/') is False
+			assert watchdog._is_url_allowed('https://intranet.company.net:8443/') is False
+
+	def test_block_dns_resolving_to_cloud_metadata(self, monkeypatch):
+		"""Test that hostnames resolving to cloud metadata IP are blocked."""
+		import socket
+
+		watchdog = self._watchdog(block_ip=True)
+
+		monkeypatch.setattr(
+			socket,
+			'getaddrinfo',
+			lambda host, port, *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('169.254.169.254', 0))],
+		)
+		assert watchdog._is_url_allowed('http://instance-data.corp.internal/') is False
+		assert watchdog._is_url_allowed('http://metadata.google.internal/') is False
+
+	def test_block_dns_resolving_to_loopback_ipv6(self, monkeypatch):
+		"""Test that hostnames resolving to IPv6 loopback are blocked."""
+		import socket
+
+		watchdog = self._watchdog(block_ip=True)
+
+		monkeypatch.setattr(
+			socket,
+			'getaddrinfo',
+			lambda host, port, *args, **kwargs: [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', ('::1', 0, 0, 0))],
+		)
+		assert watchdog._is_url_allowed('http://ipv6-loopback.example.org/') is False
+
+	def test_allow_dns_resolving_to_public_ip(self, monkeypatch):
+		"""Test that hostnames resolving to public IPs remain allowed."""
+		import socket
+
+		watchdog = self._watchdog(block_ip=True)
+
+		monkeypatch.setattr(
+			socket,
+			'getaddrinfo',
+			lambda host, port, *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('93.184.216.34', 0))],
+		)
+		assert watchdog._is_url_allowed('https://safe-domain.example.com/') is True
+
+	def test_dns_resolution_failure_handled_gracefully(self, monkeypatch):
+		"""Test that unresolvable domains do not crash and are handled without false blocking."""
+		import socket
+
+		watchdog = self._watchdog(block_ip=True)
+
+		def fail_getaddrinfo(host, port, *args, **kwargs):
+			raise socket.gaierror(-2, 'Name or service not known')
+
+		monkeypatch.setattr(socket, 'getaddrinfo', fail_getaddrinfo)
+		# Non-IP unresolvable domain proceeds to domain checks and is allowed when no domain restrictions exist
+		assert watchdog._is_url_allowed('http://nonexistent-domain-test-xyz.com/') is True
+
+	def test_allow_private_resolution_when_block_ip_addresses_false(self, monkeypatch):
+		"""Test that when block_ip_addresses=False, private IP resolution is not blocked."""
+		import socket
+
+		watchdog = self._watchdog(block_ip=False)
+
+		monkeypatch.setattr(
+			socket,
+			'getaddrinfo',
+			lambda host, port, *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('192.168.1.1', 0))],
+		)
+		assert watchdog._is_url_allowed('http://internal-router.local/') is True
+
+	def test_ipv4_mapped_ipv6_and_cgnat_blocked(self, monkeypatch):
+		"""Test that IPv4-mapped IPv6 addresses for loopback, metadata, CGNAT, and private ranges are blocked."""
+		import socket
+
+		watchdog = self._watchdog(block_ip=True)
+		blocked_ips = [
+			'::ffff:127.0.0.1',
+			'::ffff:169.254.169.254',
+			'::ffff:100.100.100.200',  # Alibaba Cloud ECS metadata
+			'::ffff:100.64.0.1',  # Carrier-grade NAT
+			'::ffff:10.0.0.1',  # RFC 1918 private
+			'::ffff:172.16.0.1',  # RFC 1918 private
+			'::ffff:192.168.1.1',  # RFC 1918 private
+			'::127.0.0.1',  # Deprecated IPv4-compatible
+		]
+		for ip in blocked_ips:
+			watchdog._dns_cache.clear()
+			monkeypatch.setattr(
+				socket,
+				'getaddrinfo',
+				lambda host, port, *args, ip_val=ip, **kwargs: [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', (ip_val, 0))],
+			)
+			assert watchdog._is_url_allowed('http://mapped-test.example.org/') is False
+
+	def test_dns_cache_ttl_and_no_caching_on_failure(self, monkeypatch):
+		"""Test that DNS cache has a TTL and failures are not cached permanently."""
+		import socket
+		import time
+
+		watchdog = self._watchdog(block_ip=True)
+		watchdog._dns_cache_ttl = 0.1
+
+		current_ip = '93.184.216.34'
+		monkeypatch.setattr(
+			socket,
+			'getaddrinfo',
+			lambda host, port, *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (current_ip, 0))],
+		)
+
+		assert watchdog._is_url_allowed('http://dynamic.example.com/') is True
+		assert watchdog._dns_cache['dynamic.example.com'][0] is False
+
+		# Now simulate DNS rebinding after TTL expiration
+		time.sleep(0.15)
+		current_ip = '10.0.0.1'
+		assert watchdog._is_url_allowed('http://dynamic.example.com/') is False
+		assert watchdog._dns_cache['dynamic.example.com'][0] is True
