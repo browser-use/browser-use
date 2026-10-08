@@ -21,7 +21,7 @@ from browser_use.integrations.anthropic.tab_state import (
 
 ROOT = Path(__file__).parents[3]
 DRIVER_PATH = ROOT / 'browser_use/integrations/anthropic/browser_use.py'
-QUICKSTART_PATH = ROOT / 'examples/integrations/anthropic/quickstart.py'
+QUICKSTART_PATH = ROOT / 'examples/integrations/toolsets-for-claude/quickstart.py'
 
 
 def test_browser_use_implements_all_31_browser_actions() -> None:
@@ -93,7 +93,11 @@ def test_missing_browser_toolset_sdk_has_an_actionable_error() -> None:
 def test_browser_use_and_bash_construct_with_a_compatible_sdk() -> None:
 	pytest.importorskip('anthropic.tools.browser')
 	from browser_use.integrations.anthropic import Bash, BrowserUse
+	from browser_use.integrations.toolsets_for_claude import Bash as ClaudeBash
+	from browser_use.integrations.toolsets_for_claude import BrowserUse as ClaudeBrowserUse
 
+	assert ClaudeBash is Bash
+	assert ClaudeBrowserUse is BrowserUse
 	browser = BrowserUse()
 	bash = Bash(output_dir='outputs')
 	configs = browser.to_dict().get('configs') or {}
