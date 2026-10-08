@@ -11,7 +11,7 @@ from google import genai
 from google.auth.credentials import Credentials
 from google.genai import types
 from google.genai.types import MediaModality
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError
@@ -235,6 +235,32 @@ class ChatGoogle(BaseChatModel):
 
 		return usage
 
+	def _validate_output(self, output_format: type[T], data: Any) -> T:
+		"""Validate structured output, decoding failed fields the model double-serialized as JSON strings.
+
+		Gemini sometimes returns a list or object field (the AgentOutput `action` list, typically) JSON-encoded
+		as a string. Same repair as ChatAnthropic applies to tool input, limited to the top-level fields the
+		first validation rejected, so a valid string field that happens to look like JSON is left alone.
+		"""
+		try:
+			return output_format.model_validate(data)
+		except ValidationError as e:
+			if not isinstance(data, dict):
+				raise
+			repaired = dict(data)
+			for key in {error['loc'][0] for error in e.errors() if error['loc']}:
+				value = repaired.get(key)
+				if isinstance(value, str) and value.startswith(('[', '{')):
+					try:
+						repaired[key] = json.loads(value)
+					except json.JSONDecodeError:
+						cleaned = value.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+						try:
+							repaired[key] = json.loads(cleaned)
+						except json.JSONDecodeError:
+							pass
+			return output_format.model_validate(repaired)
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
@@ -413,7 +439,7 @@ class ChatGoogle(BaseChatModel):
 									# Parse the JSON text and validate with the Pydantic model
 									parsed_data = json.loads(text)
 									return ChatInvokeCompletion(
-										completion=output_format.model_validate(parsed_data),
+										completion=self._validate_output(output_format, parsed_data),
 										usage=usage,
 										stop_reason=self._get_stop_reason(response),
 									)
@@ -443,7 +469,7 @@ class ChatGoogle(BaseChatModel):
 						else:
 							# If it's not the expected type, try to validate it
 							return ChatInvokeCompletion(
-								completion=output_format.model_validate(response.parsed),
+								completion=self._validate_output(output_format, response.parsed),
 								usage=usage,
 								stop_reason=self._get_stop_reason(response),
 							)
@@ -495,7 +521,7 @@ class ChatGoogle(BaseChatModel):
 								# Parse and validate
 								parsed_data = json.loads(text)
 								return ChatInvokeCompletion(
-									completion=output_format.model_validate(parsed_data),
+									completion=self._validate_output(output_format, parsed_data),
 									usage=usage,
 									stop_reason=self._get_stop_reason(response),
 								)
