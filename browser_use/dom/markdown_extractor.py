@@ -225,6 +225,13 @@ def _parse_atomic_blocks(content: str) -> list[_AtomicBlock]:
 	i = 0
 	offset = 0  # char offset tracking
 
+	# A trailing newline makes split() yield a final empty element that has no
+	# character behind it in the source. Counting its length would push offsets
+	# past the end of the content and leave a zero-width block behind, which then
+	# becomes its own chunk and advertises has_more for content already returned.
+	if lines and not lines[-1]:
+		lines.pop()
+
 	while i < len(lines):
 		line = lines[i]
 		line_len = len(line) + 1  # +1 for the newline we split on
