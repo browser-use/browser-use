@@ -325,14 +325,9 @@ class StorageStateWatchdog(BaseWatchdog):
 		"""Merge two storage states, with new values taking precedence."""
 		merged = existing.copy()
 
-		# Merge cookies
-		existing_cookies = {(c['name'], c['domain'], c['path']): c for c in existing.get('cookies', [])}
-
-		for cookie in new.get('cookies', []):
-			key = (cookie['name'], cookie['domain'], cookie['path'])
-			existing_cookies[key] = cookie
-
-		merged['cookies'] = list(existing_cookies.values())
+		# Storage.getCookies returns the browser's complete cookie snapshot. Treat it
+		# as authoritative so deleted cookies are not resurrected from the old file.
+		merged['cookies'] = list(new.get('cookies', []))
 
 		# Merge origins
 		existing_origins = {origin['origin']: origin for origin in existing.get('origins', [])}
