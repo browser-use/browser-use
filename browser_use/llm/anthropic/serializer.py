@@ -75,9 +75,10 @@ class AnthropicMessageSerializer:
 		)
 
 	@staticmethod
-	def _serialize_content_part_image(part: ContentPartImageParam) -> ImageBlockParam:
+	def _serialize_content_part_image(part: ContentPartImageParam, use_cache: bool = False) -> ImageBlockParam:
 		"""Convert an image content part to Anthropic's ImageBlockParam."""
 		url = part.image_url.url
+		cache_control = AnthropicMessageSerializer._serialize_cache_control(use_cache)
 
 		if AnthropicMessageSerializer._is_base64_image(url):
 			# Handle base64 encoded images
@@ -89,10 +90,15 @@ class AnthropicMessageSerializer:
 					type='base64',
 				),
 				type='image',
+				cache_control=cache_control,
 			)
 		else:
 			# Handle URL images
-			return ImageBlockParam(source=URLImageSourceParam(url=url, type='url'), type='image')
+			return ImageBlockParam(
+				source=URLImageSourceParam(url=url, type='url'),
+				type='image',
+				cache_control=cache_control,
+			)
 
 	@staticmethod
 	def _serialize_content_to_str(
@@ -137,7 +143,9 @@ class AnthropicMessageSerializer:
 					AnthropicMessageSerializer._serialize_content_part_text(part, use_cache=use_cache and is_last)
 				)
 			elif part.type == 'image_url':
-				serialized_blocks.append(AnthropicMessageSerializer._serialize_content_part_image(part))
+				serialized_blocks.append(
+					AnthropicMessageSerializer._serialize_content_part_image(part, use_cache=use_cache and is_last)
+				)
 
 		return serialized_blocks
 
