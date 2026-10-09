@@ -1,4 +1,4 @@
-"""Build a Hacker News reading list with Anthropic and Browser Use.
+"""Build a Hacker News reading list with Browser Use and Claude.
 
 Requires Linux/macOS with /bin/bash, or WSL on Windows.
 """
@@ -9,7 +9,7 @@ from pathlib import Path
 from anthropic import AsyncAnthropic
 from anthropic.tools.browser import LocalFilePolicy  # pyright: ignore[reportMissingImports]
 
-from browser_use.integrations.anthropic import Bash, BrowserUse
+from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse
 
 TASK = 'Read the first three Hacker News posts and save their titles and URLs to hacker-news.md and hacker-news.json.'
 
