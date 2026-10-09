@@ -58,6 +58,7 @@ from browser_use.agent.views import (
 	DetectedVariable,
 	JudgementResult,
 	MessageCompactionSettings,
+	PageFingerprint,
 	PlanItem,
 	StepMetadata,
 )
@@ -1174,7 +1175,48 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	@observe_debug(ignore_input=True, name='get_next_action')
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
-		"""Execute LLM interaction with retry logic and handle callbacks"""
+		"""Execute LLM interaction with retry logic, with replay cache as a fast-path fallback."""
+
+		# --- Replay cache fast-path ---
+		# Before paying for an LLM call, check whether the current page fingerprint
+		# matches a step we already handled successfully earlier in this session.
+		if browser_state_summary.dom_state and self.settings.enable_planning is not False:
+			dom_state = browser_state_summary.dom_state
+			dom_text = dom_state.llm_representation() if hasattr(dom_state, 'llm_representation') else ''
+			element_count = len(dom_state.selector_map) if dom_state.selector_map else 0
+			current_fp = PageFingerprint.from_browser_state(
+				url=browser_state_summary.url or '',
+				dom_text=dom_text,
+				element_count=element_count,
+			)
+			candidate = self.state.replay_cache.lookup(current_fp)
+			if candidate and candidate.actions:
+				self.logger.info(
+					f'🗂️  Replay cache HIT for {browser_state_summary.url} — '
+					f'replaying {len(candidate.actions)} action(s) without LLM call'
+				)
+				try:
+					# Reconstruct a minimal AgentOutput from the cached action dicts.
+					# We validate through the concrete AgentOutput subclass so that
+					# custom action types are handled correctly.
+					replayed_output = self.AgentOutput.model_validate(
+						{
+							'evaluation_previous_goal': 'Replayed from history cache',
+							'memory': candidate.memory or 'Replaying known action sequence for this page.',
+							'next_goal': 'Continue task after replayed actions',
+							'action': candidate.actions,
+						}
+					)
+					self.state.last_model_output = replayed_output
+					self.logger.debug(
+						f'🗂️  Replay cache: reconstructed output: {[list(a.model_dump(exclude_none=True).keys()) for a in replayed_output.action]}'
+					)
+					return
+				except Exception as replay_err:
+					# Reconstruction failed (e.g. action schema changed) — fall through to LLM.
+					self.logger.debug(f'🗂️  Replay cache: replay validation failed ({replay_err}), falling back to LLM')
+
+		# --- Normal LLM path ---
 		input_messages = self._message_manager.get_messages()
 		self.logger.debug(
 			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
@@ -1413,6 +1455,36 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Increment step counter after step is fully completed
 		self.state.n_steps += 1
+
+		# --- Replay cache: record successful steps ---
+		# Only record when the step had a real LLM decision, no errors, and the
+		# page was actually observed (browser_state_summary exists).
+		if (
+			browser_state_summary
+			and self.state.last_model_output
+			and self.state.last_result
+			and not any(r.error for r in self.state.last_result)
+		):
+			dom_state = browser_state_summary.dom_state
+			if dom_state:
+				dom_text = dom_state.llm_representation() if hasattr(dom_state, 'llm_representation') else ''
+				element_count = len(dom_state.selector_map) if dom_state.selector_map else 0
+				fp = PageFingerprint.from_browser_state(
+					url=browser_state_summary.url or '',
+					dom_text=dom_text,
+					element_count=element_count,
+				)
+				actions_data = [
+					action.model_dump(exclude_none=True, mode='json') for action in self.state.last_model_output.action
+				]
+				self.state.replay_cache.record(
+					fp=fp,
+					actions=actions_data,
+					memory=self.state.last_model_output.memory,
+				)
+				self.logger.debug(
+					f'🗂️  Replay cache: recorded fingerprint for {browser_state_summary.url} ({len(self.state.replay_cache.entries)} total entries)'
+				)
 
 	def _update_plan_from_model_output(self, model_output: AgentOutput) -> None:
 		"""Update the plan state from model output fields (current_plan_item, plan_update)."""
