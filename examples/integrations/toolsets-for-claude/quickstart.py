@@ -7,7 +7,7 @@ import asyncio
 from pathlib import Path
 
 from anthropic import AsyncAnthropic
-from anthropic.tools.browser import LocalFilePolicy  # pyright: ignore[reportMissingImports]
+from anthropic.tools.browser import BetaLocalFilePolicy  # pyright: ignore[reportMissingImports]
 
 from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse
 
@@ -27,7 +27,7 @@ async def main() -> None:
 			'read_network': {'enabled': True},
 		},
 		confirm=lambda _: True,  # Run without approval prompts.
-		file_policy=LocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
+		file_policy=BetaLocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
 	)
 	bash = Bash(output_dir=Path('outputs'))
 
