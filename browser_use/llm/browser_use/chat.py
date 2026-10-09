@@ -224,6 +224,13 @@ class ChatBrowserUse(BaseChatModel):
 				raise ValueError(f'Request failed after {self.max_retries} attempts: {last_error}')
 			raise RuntimeError('Retry loop completed without return or exception')
 
+		# Parse usage first: the gateway billed this call even if the completion fails validation below
+		usage = None
+		if 'usage' in result and result['usage'] is not None:
+			usage = ChatInvokeUsage(**result['usage'])
+
+		set_span_attributes(self._llm_span_attributes(usage, result.get('cost')))
+
 		# Parse response - server returns structured data as dict
 		if output_format is not None:
 			# Server returns structured data as a dict, validate it
@@ -248,13 +255,6 @@ class ChatBrowserUse(BaseChatModel):
 			completion = output_format.model_validate(completion_data)
 		else:
 			completion = result['completion']
-
-		# Parse usage info
-		usage = None
-		if 'usage' in result and result['usage'] is not None:
-			usage = ChatInvokeUsage(**result['usage'])
-
-		set_span_attributes(self._llm_span_attributes(usage, result.get('cost')))
 
 		return ChatInvokeCompletion(
 			completion=completion,

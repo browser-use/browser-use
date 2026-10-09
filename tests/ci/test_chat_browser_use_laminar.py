@@ -5,6 +5,7 @@ from lmnr import Laminar
 from lmnr.opentelemetry_lib.tracing import TracerWrapper
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from pydantic import BaseModel, ValidationError
 from pytest_httpserver import HTTPServer
 
 from browser_use.llm.browser_use.chat import ChatBrowserUse
@@ -68,6 +69,26 @@ async def test_invoke_span_is_llm_span_with_usage_and_cost(httpserver: HTTPServe
 	assert attrs['llm.usage.total_tokens'] == 1250
 	assert attrs['gen_ai.usage.cache_read_input_tokens'] == 800
 	assert attrs['gen_ai.usage.cache_creation_input_tokens'] == 100
+	assert attrs['gen_ai.usage.cost'] == 0.0123
+
+
+class _Answer(BaseModel):
+	answer: int
+
+
+async def test_invoke_span_keeps_billed_usage_when_completion_fails_validation(
+	httpserver: HTTPServer, laminar_spans: InMemorySpanExporter
+):
+	httpserver.expect_request('/v1/chat/completions', method='POST').respond_with_json(
+		{**GATEWAY_RESPONSE, 'completion': {'answer': 'not a number'}}
+	)
+	llm = ChatBrowserUse(api_key='test-key', base_url=httpserver.url_for('').rstrip('/'))
+
+	with pytest.raises(ValidationError):
+		await llm.ainvoke([UserMessage(content='hi')], output_format=_Answer)
+
+	attrs = _invoke_span(laminar_spans)
+	assert attrs['gen_ai.usage.input_tokens'] == 1200
 	assert attrs['gen_ai.usage.cost'] == 0.0123
 
 
