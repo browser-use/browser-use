@@ -444,6 +444,8 @@ class DOMWatchdog(BaseWatchdog):
 				title = 'Page'
 
 			# Get comprehensive page info from CDP with timeout
+			# Only dimensions measured for this request may survive the fallback below.
+			self.browser_session._original_viewport_size = None
 			try:
 				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Getting page info from CDP...')
 				page_info = await asyncio.wait_for(
@@ -471,7 +473,8 @@ class DOMWatchdog(BaseWatchdog):
 					pixels_left=0,
 					pixels_right=0,
 				)
-				self.browser_session._original_viewport_size = (page_info.viewport_width, page_info.viewport_height)
+				if self.browser_session._original_viewport_size is None:
+					self.browser_session._original_viewport_size = (page_info.viewport_width, page_info.viewport_height)
 
 			# Check for PDF viewer
 			is_pdf_viewer = page_url.endswith('.pdf') or '/pdf/' in page_url
@@ -787,7 +790,10 @@ class DOMWatchdog(BaseWatchdog):
 				)
 				viewport_size = viewport_result['result'].get('value')
 				if viewport_size and len(viewport_size) == 2 and all(dimension > 0 for dimension in viewport_size):
-					return int(viewport_size[0]), int(viewport_size[1])
+					screenshot_viewport = int(viewport_size[0]), int(viewport_size[1])
+					# Keep this measurement even if layout metrics fail or the caller times out.
+					self.browser_session._original_viewport_size = screenshot_viewport
+					return screenshot_viewport
 			except Exception as e:
 				self.logger.debug(f'Failed to get screenshot viewport dimensions, using layout viewport: {e}')
 			return None
@@ -798,7 +804,14 @@ class DOMWatchdog(BaseWatchdog):
 		)
 		screenshot_viewport = None
 		if include_screenshot_viewport:
-			metrics, screenshot_viewport = await asyncio.gather(layout_metrics_task, get_screenshot_viewport())
+			metrics, screenshot_viewport = await asyncio.gather(
+				layout_metrics_task, get_screenshot_viewport(), return_exceptions=True
+			)
+			# Wait for both queries before propagating a failure so the viewport can be retained.
+			if isinstance(metrics, BaseException):
+				raise metrics
+			if isinstance(screenshot_viewport, BaseException):
+				raise screenshot_viewport
 		else:
 			metrics = await layout_metrics_task
 

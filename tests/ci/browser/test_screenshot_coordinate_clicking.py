@@ -1,5 +1,6 @@
 """Verify that coordinates from the model's screenshot hit the real page target."""
 
+import asyncio
 import base64
 from collections.abc import AsyncIterator
 from io import BytesIO
@@ -13,6 +14,7 @@ from pytest_httpserver import HTTPServer
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.browser.profile import BrowserProfile, ViewportSize
 from browser_use.browser.session import BrowserSession
+from browser_use.browser.watchdogs.dom_watchdog import DOMWatchdog
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.messages import ContentPartImageParam
 from browser_use.tools.service import Tools
@@ -157,6 +159,70 @@ async def test_screenshot_coordinates_click_target(
 	assert click['trusted'] is True
 	assert click['x'] == pytest.approx(page_result['centerX'], abs=2)
 	assert click['y'] == pytest.approx(page_result['centerY'], abs=2)
+
+
+@pytest.mark.parametrize('device_scale_factor', [1])
+@pytest.mark.parametrize('layout_failure', ['error-before-viewport', 'error-after-viewport', 'timeout', 'both-queries-fail'])
+async def test_screenshot_coordinates_survive_layout_failure(
+	coordinate_browser_session: BrowserSession,
+	httpserver: HTTPServer,
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+	layout_failure: str,
+) -> None:
+	"""Keep current screenshot dimensions when layout metrics error or exceed the state timeout."""
+	session = coordinate_browser_session
+	# Emulate a profile without an explicit viewport after Chromium has opened at 1200x800.
+	# A stale measurement must not be used for this request either.
+	session.browser_profile.viewport = ViewportSize(width=1200, height=800) if layout_failure == 'both-queries-fail' else None
+	session._original_viewport_size = (640, 480)
+	original_get_page_info = DOMWatchdog._get_page_info
+	viewport_received = asyncio.Event()
+	layout_failed = asyncio.Event()
+	layout_cancelled = asyncio.Event()
+
+	async def get_page_info_with_layout_failure(watchdog: DOMWatchdog, include_screenshot_viewport: bool = False):
+		cdp_session = await session.get_or_create_cdp_session()
+		original_send_raw = cdp_session.cdp_client.send_raw
+
+		async def failing_send_raw(method: str, params: dict[str, Any] | None = None, session_id: str | None = None):
+			if method == 'Page.getLayoutMetrics':
+				if layout_failure != 'error-before-viewport':
+					await viewport_received.wait()
+				if layout_failure == 'timeout':
+					try:
+						await asyncio.Event().wait()
+					finally:
+						layout_cancelled.set()
+				# Use a real CDP protocol error, leaving the viewport query and input unchanged.
+				try:
+					return await original_send_raw(method='Page.invalidLayoutMetrics', params=params, session_id=session_id)
+				finally:
+					layout_failed.set()
+			if method == 'Runtime.evaluate' and params and params.get('expression') == '[window.innerWidth, window.innerHeight]':
+				if layout_failure == 'error-before-viewport':
+					await layout_failed.wait()
+				if layout_failure == 'both-queries-fail':
+					params = {**params, 'expression': "throw new Error('Viewport unavailable')"}
+				result = await original_send_raw(method=method, params=params, session_id=session_id)
+				viewport_received.set()
+				return result
+			return await original_send_raw(method=method, params=params, session_id=session_id)
+
+		with monkeypatch.context() as patch:
+			patch.setattr(cdp_session.cdp_client, 'send_raw', failing_send_raw)
+			return await original_get_page_info(watchdog, include_screenshot_viewport=include_screenshot_viewport)
+
+	with monkeypatch.context() as patch:
+		patch.setattr(DOMWatchdog, '_get_page_info', get_page_info_with_layout_failure)
+		await test_screenshot_coordinates_click_target(session, httpserver, tmp_path, (600, 200), 0, 1)
+
+	assert viewport_received.is_set()
+	assert session._original_viewport_size == (1200, 800)
+	if layout_failure == 'timeout':
+		assert layout_cancelled.is_set(), 'The timed-out layout query must be cancelled'
+	else:
+		assert layout_failed.is_set()
 
 
 @pytest.mark.parametrize('device_scale_factor', [1])
