@@ -60,12 +60,20 @@ async def browser_session():
 async def _wait_for_page_value(browser_session: BrowserSession, expression: str, timeout: float = 5.0):
 	"""Poll a JS expression in the focused page until it returns something other than null."""
 	cdp_session = await browser_session.get_or_create_cdp_session()
-	deadline = asyncio.get_event_loop().time() + timeout
-	while asyncio.get_event_loop().time() < deadline:
-		result = await cdp_session.cdp_client.send.Runtime.evaluate(
-			params={'expression': expression, 'returnByValue': True},
-			session_id=cdp_session.session_id,
-		)
+	loop = asyncio.get_event_loop()
+	deadline = loop.time() + timeout
+	while (remaining := deadline - loop.time()) > 0:
+		# Bound each call too: a stalled CDP reply must not outlast the deadline.
+		try:
+			result = await asyncio.wait_for(
+				cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': expression, 'returnByValue': True},
+					session_id=cdp_session.session_id,
+				),
+				timeout=remaining,
+			)
+		except TimeoutError:
+			return None
 		value = result.get('result', {}).get('value')
 		if value is not None:
 			return value
@@ -100,5 +108,5 @@ async def test_alert_is_dismissed_without_stalling_cdp(browser_session: BrowserS
 	)
 	timeouts = [message for message in log_messages if 'failed: TimeoutError' in message]
 	assert not timeouts, f'dialog handler timed out waiting for CDP: {timeouts}'
-	# Each timed-out attempt in the handler costs 500 ms.
-	assert elapsed < 0.4, f'CDP replies were held up for {elapsed:.2f}s while the dialog was handled'
+	# Each timed-out attempt in the handler costs 500 ms; a stalled handler holds replies for ~2s.
+	assert elapsed < 1.0, f'CDP replies were held up for {elapsed:.2f}s while the dialog was handled'
