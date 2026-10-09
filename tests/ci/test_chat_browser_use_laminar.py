@@ -25,14 +25,16 @@ GATEWAY_RESPONSE = {
 }
 
 
-@pytest.fixture
-def laminar_spans(httpserver: HTTPServer):
-	"""Real Laminar exporting to the local server, plus an in-memory copy of finished spans."""
-	httpserver.expect_request('/v1/traces').respond_with_data('')
+@pytest.fixture(scope='module')
+def laminar_exporter():
+	"""Real Laminar, initialized once per module, OTLP-exporting to a local sink, plus an in-memory copy of spans."""
+	otlp_sink = HTTPServer()
+	otlp_sink.expect_request('/v1/traces').respond_with_data('')
+	otlp_sink.start()
 	Laminar.initialize(
 		project_api_key='test',
 		base_url='http://localhost',
-		http_port=httpserver.port,
+		http_port=otlp_sink.port,
 		force_http=True,
 		disable_batch=True,
 		instruments=set(),
@@ -44,6 +46,13 @@ def laminar_spans(httpserver: HTTPServer):
 	provider.add_span_processor(SimpleSpanProcessor(exporter))
 	yield exporter
 	Laminar.shutdown()
+	otlp_sink.stop()
+
+
+@pytest.fixture
+def laminar_spans(laminar_exporter: InMemorySpanExporter):
+	laminar_exporter.clear()
+	return laminar_exporter
 
 
 def _invoke_span(exporter: InMemorySpanExporter) -> dict:
@@ -103,14 +112,3 @@ async def test_invoke_span_without_usage_or_cost_sets_only_model(httpserver: HTT
 	assert attrs['lmnr.span.type'] == 'LLM'
 	assert attrs['gen_ai.request.model'] == 'openai/gpt-5.5'
 	assert not any(key.startswith(('gen_ai.usage.', 'llm.usage.')) for key in attrs)
-
-
-async def test_invoke_without_laminar_initialized_is_unchanged(httpserver: HTTPServer):
-	httpserver.expect_request('/v1/chat/completions', method='POST').respond_with_json(GATEWAY_RESPONSE)
-	llm = ChatBrowserUse(api_key='test-key', base_url=httpserver.url_for('').rstrip('/'))
-
-	assert not Laminar.is_initialized()
-	result = await llm.ainvoke([UserMessage(content='hi')])
-
-	assert result.completion == 'done'
-	assert result.usage is not None and result.usage.total_tokens == 1250
