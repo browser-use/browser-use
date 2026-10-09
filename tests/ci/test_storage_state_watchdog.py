@@ -114,9 +114,7 @@ async def test_save_storage_state_skips_when_no_cdp_client(tmp_path: Path):
 	watchdog, browser_session = _make_watchdog()
 	browser_session.cdp_client = None
 	browser_session.browser_profile.storage_state = str(tmp_path / 'storage-state.json')
-	browser_session.get_or_create_cdp_session = AsyncMock(
-		side_effect=AssertionError('Root CDP client not initialized')
-	)
+	browser_session.get_or_create_cdp_session = AsyncMock(side_effect=AssertionError('Root CDP client not initialized'))
 
 	# Must not raise
 	await watchdog._save_storage_state()
@@ -130,9 +128,7 @@ async def test_save_storage_state_skips_when_no_save_path():
 	watchdog, browser_session = _make_watchdog()
 	browser_session.cdp_client = None
 	browser_session.browser_profile.storage_state = None
-	browser_session.get_or_create_cdp_session = AsyncMock(
-		side_effect=AssertionError('Root CDP client not initialized')
-	)
+	browser_session.get_or_create_cdp_session = AsyncMock(side_effect=AssertionError('Root CDP client not initialized'))
 
 	# Must not raise even though no CDP client exists and no path is configured
 	await watchdog._save_storage_state()
