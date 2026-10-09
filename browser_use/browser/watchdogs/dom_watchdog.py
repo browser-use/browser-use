@@ -508,6 +508,23 @@ class DOMWatchdog(BaseWatchdog):
 			# Cache viewport size for coordinate conversion (if llm_screenshot_size is enabled)
 			if page_info:
 				self.browser_session._original_viewport_size = (page_info.viewport_width, page_info.viewport_height)
+				if self.browser_session.llm_screenshot_size and screenshot_b64:
+					try:
+						# Layout clientWidth/clientHeight exclude scrollbars, but viewport screenshots include them.
+						# Use CSS dimensions including scrollbars so resized image coordinates match CDP input.
+						cdp_session = await self.browser_session.get_or_create_cdp_session()
+						viewport_result = await asyncio.wait_for(
+							cdp_session.cdp_client.send.Runtime.evaluate(
+								params={'expression': '[window.innerWidth, window.innerHeight]', 'returnByValue': True},
+								session_id=cdp_session.session_id,
+							),
+							timeout=1.0,
+						)
+						viewport_size = viewport_result['result'].get('value')
+						if viewport_size and len(viewport_size) == 2 and all(dimension > 0 for dimension in viewport_size):
+							self.browser_session._original_viewport_size = (int(viewport_size[0]), int(viewport_size[1]))
+					except Exception as e:
+						self.logger.debug(f'Failed to get screenshot viewport dimensions, using layout viewport: {e}')
 
 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ COMPLETED - Returning browser state')
 			return browser_state
