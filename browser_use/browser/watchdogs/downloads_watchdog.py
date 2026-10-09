@@ -485,15 +485,11 @@ class DownloadsWatchdog(BaseWatchdog):
 			# Check if we already have a download listener on this session
 			# to prevent duplicate listeners from being added
 			# Note: Since download listeners are set up once per browser session, not per target,
-			# we just track if we've set up the browser-level listener
+			# we just track if we've set up the browser-level listener.
+			# Per-target network monitoring below must still run for every tab.
 			if self._download_cdp_session_setup:
 				self.logger.debug('[DownloadsWatchdog] Download listener already set up for browser session')
-				return
-
-			# logger.debug(f'[DownloadsWatchdog] Setting up CDP download listener for target: {target_id}')
-
-			# Use CDP session for download events but store reference in watchdog
-			if not self._download_cdp_session_setup:
+			else:
 				# Set up CDP session for downloads (only once per browser session)
 				cdp_client = self.browser_session.cdp_client
 
