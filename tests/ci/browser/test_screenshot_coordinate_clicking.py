@@ -4,6 +4,7 @@ import base64
 from collections.abc import AsyncIterator
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 import pytest
 from PIL import Image, ImageChops
@@ -156,3 +157,46 @@ async def test_screenshot_coordinates_click_target(
 	assert click['trusted'] is True
 	assert click['x'] == pytest.approx(page_result['centerX'], abs=2)
 	assert click['y'] == pytest.approx(page_result['centerY'], abs=2)
+
+
+@pytest.mark.parametrize('device_scale_factor', [1])
+async def test_screenshot_viewport_queries_overlap(
+	coordinate_browser_session: BrowserSession, httpserver: HTTPServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Trace real CDP traffic to ensure layout and screenshot dimensions are queried concurrently."""
+	httpserver.expect_request('/viewport-queries').respond_with_data(
+		'<style>body{width:1600px;height:2000px;margin:0}::-webkit-scrollbar{width:16px;height:16px}</style>',
+		content_type='text/html',
+	)
+	session = coordinate_browser_session
+	await session.navigate_to(httpserver.url_for('/viewport-queries'))
+	cdp_session = await session.get_or_create_cdp_session()
+	watchdog = session._dom_watchdog
+	assert watchdog is not None
+	original_send_raw = cdp_session.cdp_client.send_raw
+	query_events: list[tuple[str, str]] = []
+
+	async def traced_send_raw(method: str, params: dict[str, Any] | None = None, session_id: str | None = None):
+		tracked = method == 'Page.getLayoutMetrics' or (
+			method == 'Runtime.evaluate'
+			and params is not None
+			and params.get('expression') == '[window.innerWidth, window.innerHeight]'
+		)
+		if tracked:
+			query_events.append(('start', method))
+		try:
+			return await original_send_raw(method=method, params=params, session_id=session_id)
+		finally:
+			if tracked:
+				query_events.append(('end', method))
+
+	with monkeypatch.context() as patch:
+		patch.setattr(cdp_session.cdp_client, 'send_raw', traced_send_raw)
+		page_info = await watchdog._get_page_info(include_screenshot_viewport=True)
+
+	assert len(query_events) == 4
+	assert {method for phase, method in query_events[:2] if phase == 'start'} == {'Page.getLayoutMetrics', 'Runtime.evaluate'}
+	assert all(phase == 'end' for phase, _ in query_events[2:])
+	assert session._original_viewport_size == (1200, 800)
+	assert page_info.viewport_width < 1200
+	assert page_info.viewport_height < 800
