@@ -11,12 +11,15 @@ Tests cover:
 
 import asyncio
 import logging
+import typing
 
 import pytest
 from pydantic import Field
 
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
+from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.base import BaseChatModel
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.registry.views import ActionModel as BaseActionModel
 from tests.ci.conftest import create_mock_llm
@@ -177,6 +180,49 @@ class TestValidationRules:
 			return ActionResult()
 
 		assert 'good_action' in registry.registry.actions
+
+	def test_special_params_accept_pep604_optional(self):
+		"""`X | None` is accepted for special params the same way `Optional[X]` is"""
+		registry = Registry()
+
+		@registry.action('Pipe optional action')
+		async def pipe_optional_action(
+			index: int,
+			browser_session: BrowserSession | None = None,
+			file_system: FileSystem | None = None,
+			page_extraction_llm: BaseChatModel | None = None,
+			available_file_paths: list[str] | None = None,
+		):
+			return ActionResult()
+
+		assert 'pipe_optional_action' in registry.registry.actions
+
+	def test_special_params_accept_typing_optional(self):
+		"""`typing.Optional[X]` keeps working for special params"""
+		registry = Registry()
+
+		async def typing_optional_action(index: int, browser_session=None, available_file_paths=None):
+			return ActionResult()
+
+		# Set after definition: pyupgrade rewrites `Optional[X]` written in a signature to `X | None`,
+		# and this test is about the typing.Optional spelling (origin typing.Union before Python 3.14).
+		typing_optional_action.__annotations__.update(
+			browser_session=typing.Optional[BrowserSession],
+			available_file_paths=typing.Optional[list[str]],
+		)
+		registry.action('Typing optional action')(typing_optional_action)
+
+		assert 'typing_optional_action' in registry.registry.actions
+
+	def test_error_on_special_param_with_wrong_pep604_optional_type(self):
+		"""Unwrapping `X | None` still rejects a wrong inner type"""
+		registry = Registry()
+
+		with pytest.raises(ValueError, match='conflicts with special argument.*browser_session: BrowserSession'):
+
+			@registry.action('Bad pipe optional session')
+			async def bad_pipe_optional_session(browser_session: str | None = None):
+				pass
 
 
 class TestDecoratedFunctionBehavior:
