@@ -8,6 +8,7 @@ from pydantic import PrivateAttr
 
 from browser_use.browser.events import TabCreatedEvent
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.utils import create_task_with_error_handling
 
 
 class PopupsWatchdog(BaseWatchdog):
@@ -122,8 +123,19 @@ class PopupsWatchdog(BaseWatchdog):
 				except Exception as e:
 					self.logger.error(f'❌ Critical error in dialog handler: {type(e).__name__}: {e}')
 
+			# cdp-use awaits async handlers inside its WebSocket read loop, so awaiting the
+			# handleJavaScriptDialog reply from handle_dialog itself would block the loop that
+			# delivers it. Register a sync callback that runs handle_dialog as its own task.
+			def on_dialog_opening(event_data, session_id: str | None = None) -> None:
+				create_task_with_error_handling(
+					handle_dialog(event_data, session_id),
+					name='handle_javascript_dialog',
+					logger_instance=self.logger,
+					suppress_exceptions=True,
+				)
+
 			# Register handler on the specific session
-			cdp_session.cdp_client.register.Page.javascriptDialogOpening(handle_dialog)  # type: ignore[arg-type]
+			cdp_session.cdp_client.register.Page.javascriptDialogOpening(on_dialog_opening)
 			self.logger.debug(
 				f'Successfully registered Page.javascriptDialogOpening handler for session {cdp_session.session_id}'
 			)
@@ -131,7 +143,7 @@ class PopupsWatchdog(BaseWatchdog):
 			# Also register on root CDP client to catch dialogs from any frame
 			if hasattr(self.browser_session._cdp_client_root, 'register'):
 				try:
-					self.browser_session._cdp_client_root.register.Page.javascriptDialogOpening(handle_dialog)  # type: ignore[arg-type]
+					self.browser_session._cdp_client_root.register.Page.javascriptDialogOpening(on_dialog_opening)  # type: ignore[arg-type]
 					self.logger.debug('Successfully registered dialog handler on root CDP client for all frames')
 				except Exception as root_error:
 					self.logger.warning(f'Failed to register on root CDP client: {root_error}')
