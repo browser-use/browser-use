@@ -3952,6 +3952,7 @@ def test_beta_agent_translates_browser_profile_storage_state(monkeypatch, tmp_pa
 	from browser_use.beta import Agent
 
 	profile_storage_state_path = tmp_path / 'storage_state.json'
+	unicode_value = 'zażółć gęślą jaźń'
 	storage_state = {
 		'cookies': [
 			{
@@ -3964,11 +3965,21 @@ def test_beta_agent_translates_browser_profile_storage_state(monkeypatch, tmp_pa
 		'origins': [
 			{
 				'origin': 'https://example.com',
-				'localStorage': [{'name': 'theme', 'value': 'dark'}],
+				'localStorage': [{'name': 'theme', 'value': unicode_value}],
 			}
 		],
 	}
-	profile_storage_state_path.write_text(json.dumps(storage_state))
+	profile_storage_state_path.write_text(json.dumps(storage_state, ensure_ascii=False), encoding='utf-8')
+
+	encodings = []
+	original_read_text = Path.read_text
+
+	def track_encoding(path, encoding=None, errors=None):
+		if path == profile_storage_state_path:
+			encodings.append(encoding)
+		return original_read_text(path, encoding=encoding, errors=errors)
+
+	monkeypatch.setattr(Path, 'read_text', track_encoding)
 
 	class BrowserProfile:
 		storage_state = profile_storage_state_path
@@ -3980,8 +3991,28 @@ def test_beta_agent_translates_browser_profile_storage_state(monkeypatch, tmp_pa
 	env = agent._run_env()
 
 	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
+	assert encodings == ['utf-8']
 	assert agent.browser_storage_state == storage_state
 	assert json.loads(env['BU_BROWSER_STORAGE_STATE']) == storage_state
+
+
+@pytest.mark.parametrize('contents', [b'\xff', b'{invalid json', b'[]'])
+def test_beta_agent_ignores_invalid_storage_state_file(monkeypatch, tmp_path, contents):
+	"""Malformed storage state must not prevent agent initialization."""
+	from browser_use.beta import Agent
+
+	storage_state_path = tmp_path / 'invalid_storage_state.json'
+	storage_state_path.write_bytes(contents)
+
+	class BrowserProfile:
+		storage_state = storage_state_path
+		cdp_url = 'http://127.0.0.1:9222'
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+
+	assert agent.browser_storage_state is None
+	assert 'BU_BROWSER_STORAGE_STATE' not in agent._run_env()
 
 
 def test_beta_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_path):
