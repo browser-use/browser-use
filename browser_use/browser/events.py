@@ -9,6 +9,7 @@ from bubus.models import T_EventResultType
 from cdp_use.cdp.target import TargetID
 from pydantic import BaseModel, Field, field_validator
 
+from browser_use.browser.native_listbox import NativeListboxSelection
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.dom.views import EnhancedDOMTreeNode
 
@@ -267,7 +268,7 @@ class GetDropdownOptionsEvent(ElementSelectedEvent[dict[str, str]]):
 	)  # some dropdowns lazy-load the list of options on first interaction, so we need to wait for them to load (e.g. table filter lists can have thousands of options)
 
 
-class SelectDropdownOptionEvent(ElementSelectedEvent[dict[str, str]]):
+class SelectDropdownOptionEvent(ElementSelectedEvent[dict[str, str] | NativeListboxSelection]):
 	"""Select a dropdown option by exact text from any dropdown type.
 
 	Returns a dict containing success status and selection details."""
