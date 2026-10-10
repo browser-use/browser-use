@@ -181,6 +181,49 @@ jobs:
           retry_on: error
           command: pytest "tests/ci/${{ matrix.test_filename }}.py"
 
+  windows-tests:
+    # The suite otherwise only ever runs on Linux, so the Windows branches in
+    # chrome discovery, profile locking, process teardown and path handling are
+    # never exercised. This job covers the platform-sensitive, non-UI tests.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      # IN_DOCKER is intentionally left unset: setting it would turn the Chromium
+      # sandbox off, and a Windows runner is not a container.
+      ANONYMIZED_TELEMETRY: 'false'
+      BROWSER_USE_CLOUD_SYNC: 'false'
+      BROWSER_USE_LOGGING_LEVEL: 'DEBUG'
+      # Redirected stdout defaults to the ANSI code page on Windows, and addopts
+      # carries -s, so non-ASCII test output would depend on the runner locale.
+      PYTHONIOENCODING: 'utf-8'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          activate-environment: true
+
+      - name: Cache uv packages and venv
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/uv/cache
+            .venv
+          key: ${{ runner.os }}-uv-venv-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-venv-
+
+      - run: uv sync --dev --all-extras --refresh-package browser-use-core
+
+      - name: Run platform-sensitive tests
+        # The two registry files drive a real browser, and starting/tearing down
+        # Chrome repeatedly hangs on the Windows runner rather than failing, which
+        # eats the whole job budget. Excluded until that is fixed separately.
+        run: pytest tests/ci/infrastructure tests/ci/models tests/ci/security --ignore=tests/ci/infrastructure/test_registry_core.py --ignore=tests/ci/infrastructure/test_registry_action_parameter_injection.py
+
   evaluate-tasks:
     needs: setup-chromium
     runs-on: ubuntu-latest
