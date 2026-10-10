@@ -16,11 +16,13 @@ never detected. These tests drive ``attach_to_target`` against a mocked CDP
 client and assert the observable CDP calls.
 """
 
+import asyncio
 import logging
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
+import browser_use.browser.watchdogs.downloads_watchdog as downloads_watchdog_module
 from browser_use.browser.watchdogs.downloads_watchdog import (
 	DownloadsWatchdog,
 	_should_auto_download_network_response,
@@ -155,47 +157,43 @@ def test_downloads_watchdog_keeps_pdf_network_response():
 	)
 
 
-def test_downloads_watchdog_leaves_named_file_attachment_to_browser_download_events():
-	assert not _should_auto_download_network_response(
+def test_downloads_watchdog_keeps_named_file_attachment_as_network_fallback_candidate():
+	assert _should_auto_download_network_response(
 		url='https://example.com/download?id=123',
 		content_type='text/csv',
 		is_pdf=False,
 		is_download_attachment=True,
 		suggested_filename='report.csv',
-		browser_downloads_enabled=True,
 	)
 
 
-def test_downloads_watchdog_leaves_text_attachment_with_file_url_to_browser_download_events():
-	assert not _should_auto_download_network_response(
+def test_downloads_watchdog_keeps_text_attachment_with_file_url_as_network_fallback_candidate():
+	assert _should_auto_download_network_response(
 		url='https://example.com/files/summary.txt?download=1',
 		content_type='text/plain',
 		is_pdf=False,
 		is_download_attachment=True,
 		suggested_filename='f.txt',
-		browser_downloads_enabled=True,
 	)
 
 
-def test_downloads_watchdog_leaves_attachment_without_known_extension_to_browser_download_events():
-	assert not _should_auto_download_network_response(
+def test_downloads_watchdog_keeps_attachment_without_known_extension_as_network_fallback_candidate():
+	assert _should_auto_download_network_response(
 		url='https://example.com/download?id=123',
 		content_type='application/vnd.example.custom',
 		is_pdf=False,
 		is_download_attachment=True,
 		suggested_filename='statement',
-		browser_downloads_enabled=True,
 	)
 
 
-def test_downloads_watchdog_leaves_pdf_attachment_to_browser_download_events():
-	assert not _should_auto_download_network_response(
+def test_downloads_watchdog_keeps_pdf_attachment_as_network_fallback_candidate():
+	assert _should_auto_download_network_response(
 		url='https://example.com/document.pdf',
 		content_type='application/pdf',
 		is_pdf=True,
 		is_download_attachment=True,
 		suggested_filename='document.pdf',
-		browser_downloads_enabled=True,
 	)
 
 
@@ -206,5 +204,50 @@ def test_downloads_watchdog_uses_network_for_attachment_if_browser_download_even
 		is_pdf=False,
 		is_download_attachment=True,
 		suggested_filename='archive.zip',
-		browser_downloads_enabled=False,
 	)
+
+
+async def test_network_fallback_stops_when_cdp_completes(tmp_path) -> None:
+	rig = _FakeCdpRig(tmp_path)
+	url = 'https://example.com/archive.zip'
+	rig.watchdog._cdp_downloads_info['guid-1'] = {'url': url, 'handled': False}
+
+	waiter = asyncio.create_task(rig.watchdog._cdp_handled_or_claim_network(url))
+	await asyncio.sleep(0)
+	assert rig.watchdog._claim_cdp_download('guid-1')
+	rig.watchdog._mark_cdp_download_handled('guid-1')
+
+	assert await waiter is False
+	assert rig.watchdog._download_owners[url] == 'cdp'
+
+
+async def test_network_fallback_observes_cdp_completion_before_task_starts(tmp_path) -> None:
+	rig = _FakeCdpRig(tmp_path)
+	url = 'https://example.com/archive.zip'
+	rig.watchdog._download_completion_events[url] = asyncio.Event()
+	rig.watchdog._download_owners[url] = 'waiting'
+	rig.watchdog._cdp_downloads_info['guid-1'] = {'url': url, 'handled': False}
+
+	assert rig.watchdog._claim_cdp_download('guid-1')
+	rig.watchdog._mark_cdp_download_handled('guid-1')
+	del rig.watchdog._cdp_downloads_info['guid-1']  # remote completion cleanup
+
+	assert await rig.watchdog._cdp_handled_or_claim_network(url) is False
+
+
+async def test_network_fallback_runs_after_cdp_timeout(tmp_path, monkeypatch) -> None:
+	rig = _FakeCdpRig(tmp_path)
+	url = 'https://example.com/archive.zip'
+	monkeypatch.setattr(downloads_watchdog_module, '_CDP_DOWNLOAD_FALLBACK_TIMEOUT', 0)
+
+	assert await rig.watchdog._cdp_handled_or_claim_network(url) is True
+	assert rig.watchdog._download_owners[url] == 'network'
+
+
+def test_cdp_does_not_dispatch_after_network_fallback_claims_download(tmp_path) -> None:
+	rig = _FakeCdpRig(tmp_path)
+	url = 'https://example.com/archive.zip'
+	rig.watchdog._cdp_downloads_info['guid-1'] = {'url': url, 'handled': False}
+	rig.watchdog._download_owners[url] = 'network'
+
+	assert not rig.watchdog._claim_cdp_download('guid-1')
