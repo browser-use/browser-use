@@ -1056,13 +1056,12 @@ class Tools(Generic[Context]):
 					long_term_memory=memory,
 				)
 			except Exception as e:
-				# Handle stale target IDs gracefully
-				logger.warning(f'Tab {params.tab_id} may already be closed: {e}')
-				memory = f'Tab #{params.tab_id} closed (was already closed or invalid)'
-				return ActionResult(
-					extracted_content=memory,
-					long_term_memory=memory,
-				)
+				# The tab id resolved to nothing, so nothing was closed. Reporting this as a success
+				# ("closed, was already closed or invalid") hides a wrong tab id behind plausible text:
+				# during a replay the remaining steps then keep acting on whatever page is focused.
+				logger.warning(f'Tab {params.tab_id} not found: {e}')
+				memory = f'Tab #{params.tab_id} was not closed: it no longer exists or was never open ({e})'
+				return ActionResult(error=memory)
 
 		@self.registry.action(
 			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Set extract_images=True for image src URLs. Use start_from_char if previous extraction was truncated to extract data further down the page. When paginating across pages, pass already_collected with item identifiers (names/URLs) from prior pages to avoid duplicates.""",

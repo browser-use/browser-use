@@ -63,7 +63,7 @@ from browser_use.agent.views import (
 )
 from browser_use.browser.events import _get_timeout
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
-from browser_use.browser.views import BrowserStateSummary
+from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.config import CONFIG
 from browser_use.dom.views import DOMInteractedElement, MatchLevel
 from browser_use.filesystem.file_system import FileSystem
@@ -123,6 +123,59 @@ def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 	if next_goal:
 		# Blue color for next goal
 		logger.info(f'  \033[34m🎯 Next goal: {next_goal}\033[0m')
+
+
+class ReplayTabUnavailableError(RuntimeError):
+	"""A replayed tab action cannot address any tab that exists now.
+
+	Raised instead of replaying a `switch`/`close` against a tab id that no longer resolves, so the
+	rerun stops with the real cause rather than running its remaining steps against whatever page
+	happens to be focused.
+	"""
+
+
+def match_replay_tab(recorded_tab: TabInfo | None, live_tabs: list[TabInfo]) -> TabInfo | None:
+	"""Find the live tab a recorded `switch`/`close` step meant, without trusting its tab id.
+
+	A tab id is the last 4 characters of a CDP TargetID, which a new browser assigns afresh, so a
+	recorded one is meaningless after a restart. Match on the recorded tab list instead, most
+	identifying first: exact URL, then URL prefix, then title. The short id is only a last resort,
+	because a relabelled or reordered page keeps its URL while its id changes.
+
+	Args:
+		recorded_tab: The tab entry recorded alongside the action, or None when history predates it.
+		live_tabs: Tabs from the running browser right now.
+
+	Returns:
+		The matching live tab, or None when nothing matches confidently.
+	"""
+	if recorded_tab is None or not live_tabs:
+		return None
+
+	recorded_url = (recorded_tab.url or '').strip()
+	recorded_title = (recorded_tab.title or '').strip()
+
+	if recorded_url:
+		for tab in live_tabs:
+			if (tab.url or '').strip() == recorded_url:
+				return tab
+		for tab in live_tabs:
+			live_url = (tab.url or '').strip()
+			if live_url and (live_url.startswith(recorded_url) or recorded_url.startswith(live_url)):
+				return tab
+
+	if recorded_title and recorded_title != 'Unknown title':
+		for tab in live_tabs:
+			if (tab.title or '').strip() == recorded_title:
+				return tab
+
+	recorded_id = (recorded_tab.target_id or '').strip()
+	if recorded_id:
+		for tab in live_tabs:
+			if (tab.target_id or '').endswith(recorded_id):
+				return tab
+
+	return None
 
 
 Context = TypeVar('Context')
@@ -3226,6 +3279,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						error_str = str(e)
 						retry_count += 1
 
+						# A tab that no longer exists cannot appear by waiting: retrying the same stale
+						# id just burns the backoff budget before the same failure. Fail the step now so
+						# the remaining steps never run against whatever page happens to be focused.
+						if isinstance(e, ReplayTabUnavailableError):
+							self.logger.error(f'{step_name}: {error_str}')
+							results.append(ActionResult(error=error_str))
+							if not skip_failures:
+								raise RuntimeError(error_str) from e
+							break
+
 						# Check if this is a "Could not find matching element" error for a menu item
 						# If so, try to re-open the dropdown from the previous step before retrying
 						if (
@@ -3477,6 +3540,31 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				)
 				results.append(ai_result)
 			else:
+				# A `switch`/`close` carries no element, only a 4-char tab id taken from the recorded
+				# run's TargetID. A new browser assigns TargetIDs afresh, so replaying that id verbatim
+				# can only fail - and, worse, fails into a page the remaining steps will keep acting on.
+				# Re-resolve it against the tabs that exist now before the action is dispatched.
+				if action_name in ('switch', 'close'):
+					recorded_tab_id = action_data[action_name].get('tab_id')
+					if recorded_tab_id:
+						live_tabs = await self.browser_session.get_tabs()
+						live_tab = match_replay_tab(self._recorded_tab(history_item, recorded_tab_id), live_tabs)
+						if live_tab is None:
+							raise ReplayTabUnavailableError(
+								f'Recorded tab #{recorded_tab_id} no longer exists, so this step cannot be replayed. '
+								f'Tabs available now: {self._describe_live_tabs(live_tabs)}. '
+								f'Re-record the case rather than replaying it against the wrong page.'
+							)
+						if live_tab.target_id[-4:] != recorded_tab_id:
+							self.logger.info(
+								f'🔁 Recorded tab #{recorded_tab_id} is gone; re-resolved to '
+								f'#{live_tab.target_id[-4:]} ({live_tab.url}) by URL/title'
+							)
+							action_data[action_name]['tab_id'] = live_tab.target_id[-4:]
+							action = action.__class__.model_validate(
+								{**action.model_dump(), action_name: action_data[action_name]}
+							)
+
 				# For non-extract actions, update indices and collect for batch execution
 				historical_elem = history_item.state.interacted_element[i]
 				updated_action = await self._update_action_indices(
@@ -3685,6 +3773,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.info(f'Element index updated {old_index} → {highlight_index} (matched at {level_name} level)')
 
 		return action
+
+	def _recorded_tab(self, history_item: AgentHistory, tab_id: str) -> TabInfo | None:
+		"""Find the tab entry that a recorded `switch`/`close` referred to by its short id.
+
+		The step's own state lists every tab open at that moment, so the URL and title needed to
+		re-resolve the action after a restart are already in the history file.
+		"""
+		if not history_item.state or not history_item.state.tabs:
+			return None
+		for tab in history_item.state.tabs:
+			if (tab.target_id or '').endswith(tab_id):
+				return tab
+		return None
+
+	def _describe_live_tabs(self, live_tabs: list[TabInfo]) -> str:
+		"""List the tabs that exist now, so a failed re-resolve says what it would have needed."""
+		if not live_tabs:
+			return 'none'
+		return ', '.join(f'#{tab.target_id[-4:]} {tab.url or "about:blank"}' for tab in live_tabs)
 
 	def _format_element_for_error(self, elem: DOMInteractedElement | None) -> str:
 		"""Format element info for error messages during history rerun."""
