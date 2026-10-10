@@ -584,7 +584,9 @@ class Tools(Generic[Context]):
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
 			try:
 				event = browser_session.event_bus.dispatch(GoBackEvent())
-				await event
+				did_navigate = await event.event_result(raise_if_any=True, raise_if_none=True)
+				if not did_navigate:
+					return ActionResult(error='Cannot go back - no previous entry in history')
 				memory = 'Navigated back'
 				msg = f'🔙  {memory}'
 				logger.info(msg)
