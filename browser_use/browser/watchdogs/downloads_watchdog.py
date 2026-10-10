@@ -94,7 +94,13 @@ def _should_auto_download_network_response(
 	is_pdf: bool,
 	is_download_attachment: bool,
 	suggested_filename: str | None,
+	has_cdp_download_listener: bool = False,
 ) -> bool:
+	# Chrome's download events are the source of truth for attachments when the
+	# CDP listener is active. The network response arrives for the same download
+	# and would otherwise emit a second FileDownloadedEvent.
+	if has_cdp_download_listener and is_download_attachment:
+		return False
 	if is_pdf:
 		return True
 	if not is_download_attachment:
@@ -656,6 +662,7 @@ class DownloadsWatchdog(BaseWatchdog):
 							is_pdf=is_pdf,
 							is_download_attachment=is_download_attachment,
 							suggested_filename=suggested_filename,
+							has_cdp_download_listener=self._download_cdp_session_setup,
 						):
 							return
 
