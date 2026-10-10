@@ -49,3 +49,25 @@ def test_downloads_watchdog_keeps_attachment_without_known_extension():
 		is_download_attachment=True,
 		suggested_filename='statement',
 	)
+
+
+def test_downloads_watchdog_skips_attachment_when_cdp_listener_handles_it():
+	assert not _should_auto_download_network_response(
+		url='https://example.com/download?id=123',
+		content_type='application/zip',
+		is_pdf=False,
+		is_download_attachment=True,
+		suggested_filename='report.zip',
+		has_cdp_download_listener=True,
+	)
+
+
+def test_downloads_watchdog_keeps_inline_pdf_with_cdp_listener():
+	assert _should_auto_download_network_response(
+		url='https://example.com/view?id=123',
+		content_type='application/pdf',
+		is_pdf=True,
+		is_download_attachment=False,
+		suggested_filename=None,
+		has_cdp_download_listener=True,
+	)
