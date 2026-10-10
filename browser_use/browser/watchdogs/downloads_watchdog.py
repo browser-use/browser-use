@@ -94,7 +94,12 @@ def _should_auto_download_network_response(
 	is_pdf: bool,
 	is_download_attachment: bool,
 	suggested_filename: str | None,
+	browser_downloads_enabled: bool = False,
 ) -> bool:
+	# Chrome reports attachment downloads through Browser.downloadProgress. Fetching
+	# the same response here would dispatch FileDownloadedEvent a second time.
+	if is_download_attachment and browser_downloads_enabled:
+		return False
 	if is_pdf:
 		return True
 	if not is_download_attachment:
@@ -652,6 +657,7 @@ class DownloadsWatchdog(BaseWatchdog):
 							is_pdf=is_pdf,
 							is_download_attachment=is_download_attachment,
 							suggested_filename=suggested_filename,
+							browser_downloads_enabled=self._download_cdp_session_setup,
 						):
 							return
 

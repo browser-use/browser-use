@@ -155,31 +155,56 @@ def test_downloads_watchdog_keeps_pdf_network_response():
 	)
 
 
-def test_downloads_watchdog_keeps_named_file_attachment():
-	assert _should_auto_download_network_response(
+def test_downloads_watchdog_leaves_named_file_attachment_to_browser_download_events():
+	assert not _should_auto_download_network_response(
 		url='https://example.com/download?id=123',
 		content_type='text/csv',
 		is_pdf=False,
 		is_download_attachment=True,
 		suggested_filename='report.csv',
+		browser_downloads_enabled=True,
 	)
 
 
-def test_downloads_watchdog_keeps_text_attachment_with_file_url():
-	assert _should_auto_download_network_response(
+def test_downloads_watchdog_leaves_text_attachment_with_file_url_to_browser_download_events():
+	assert not _should_auto_download_network_response(
 		url='https://example.com/files/summary.txt?download=1',
 		content_type='text/plain',
 		is_pdf=False,
 		is_download_attachment=True,
 		suggested_filename='f.txt',
+		browser_downloads_enabled=True,
 	)
 
 
-def test_downloads_watchdog_keeps_attachment_without_known_extension():
-	assert _should_auto_download_network_response(
+def test_downloads_watchdog_leaves_attachment_without_known_extension_to_browser_download_events():
+	assert not _should_auto_download_network_response(
 		url='https://example.com/download?id=123',
 		content_type='application/vnd.example.custom',
 		is_pdf=False,
 		is_download_attachment=True,
 		suggested_filename='statement',
+		browser_downloads_enabled=True,
+	)
+
+
+def test_downloads_watchdog_leaves_pdf_attachment_to_browser_download_events():
+	assert not _should_auto_download_network_response(
+		url='https://example.com/document.pdf',
+		content_type='application/pdf',
+		is_pdf=True,
+		is_download_attachment=True,
+		suggested_filename='document.pdf',
+		browser_downloads_enabled=True,
+	)
+
+
+def test_downloads_watchdog_uses_network_for_attachment_if_browser_download_events_unavailable():
+	assert _should_auto_download_network_response(
+		url='https://example.com/download?id=123',
+		content_type='application/zip',
+		is_pdf=False,
+		is_download_attachment=True,
+		suggested_filename='archive.zip',
+		browser_downloads_enabled=False,
 	)
