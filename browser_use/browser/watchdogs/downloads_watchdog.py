@@ -36,6 +36,10 @@ if TYPE_CHECKING:
 	pass
 
 
+# Longest wait for one tab's download setup after a reconnect. A tab whose dialog opened while the
+# WebSocket was down never replies to Network.enable, and it must not hold up the event bus.
+_RECONNECT_TAB_SETUP_TIMEOUT_SECONDS = 3.0
+
 _NETWORK_DOWNLOAD_FILE_EXTENSIONS = {
 	'pdf',
 	'doc',
@@ -230,7 +234,12 @@ class DownloadsWatchdog(BaseWatchdog):
 		if not self.browser_session.session_manager:
 			return
 		for target in self.browser_session.session_manager.get_all_page_targets():
-			await self.attach_to_target(target.target_id)
+			try:
+				await asyncio.wait_for(self.attach_to_target(target.target_id), timeout=_RECONNECT_TAB_SETUP_TIMEOUT_SECONDS)
+			except TimeoutError:
+				self.logger.warning(
+					f'[DownloadsWatchdog] Timed out setting up download monitoring for tab {target.target_id} after reconnect'
+				)
 
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> None:
 		"""Handle browser state request events."""

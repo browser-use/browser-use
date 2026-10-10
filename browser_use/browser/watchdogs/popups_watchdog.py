@@ -11,6 +11,10 @@ from browser_use.browser.events import BrowserReconnectedEvent, TabCreatedEvent
 from browser_use.browser.watchdog_base import BaseWatchdog
 from browser_use.utils import create_task_with_error_handling
 
+# Longest wait for one tab's dialog setup after a reconnect. A tab whose dialog opened while the
+# WebSocket was down never replies to Page.enable, and it must not hold up the event bus.
+_RECONNECT_TAB_SETUP_TIMEOUT_SECONDS = 3.0
+
 
 class PopupsWatchdog(BaseWatchdog):
 	"""Handles JavaScript dialogs (alert, confirm, prompt) by automatically accepting them immediately."""
@@ -41,7 +45,12 @@ class PopupsWatchdog(BaseWatchdog):
 		if not self.browser_session.session_manager:
 			return
 		for target in self.browser_session.session_manager.get_all_page_targets():
-			await self._setup_dialog_handling(target.target_id)
+			try:
+				await asyncio.wait_for(
+					self._setup_dialog_handling(target.target_id), timeout=_RECONNECT_TAB_SETUP_TIMEOUT_SECONDS
+				)
+			except TimeoutError:
+				self.logger.warning(f'Timed out setting up dialog handling for tab {target.target_id} after reconnect')
 
 	async def _setup_dialog_handling(self, target_id: TargetID) -> None:
 		"""Enable dialog events for a tab and register the dialog handler."""
