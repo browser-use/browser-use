@@ -10,7 +10,7 @@ from browser_use.browser.watchdogs.storage_state_watchdog import StorageStateWat
 
 def _make_watchdog() -> tuple[StorageStateWatchdog, MagicMock]:
 	browser_session = MagicMock()
-	browser_session.cdp_client = object()
+	browser_session.is_cdp_connected = True
 	browser_session.get_or_create_cdp_session = AsyncMock(return_value=object())
 	browser_session._cdp_get_storage_state = AsyncMock(return_value={'cookies': [], 'origins': []})
 	browser_session._cdp_set_cookies = AsyncMock()
@@ -112,7 +112,13 @@ async def test_save_storage_state_skips_when_no_cdp_client(tmp_path: Path):
 	root CDP client was never initialized; the save must return quietly instead of raising
 	"AssertionError: Root CDP client not initialized"."""
 	watchdog, browser_session = _make_watchdog()
-	browser_session.cdp_client = None
+	# cubic P1 (PR #6019): the guard must use is_cdp_connected, since the cdp_client
+	# property itself asserts when the root CDP client is unset — i.e. on a REAL
+	# session `cdp_client is None` can never be evaluated. Configure the mock so
+	# is_cdp_connected returns False (no browser connection) and the property path
+	# would still raise if the guard were ever switched back to it.
+	browser_session.cdp_client = property(lambda self: (_ for _ in ()).throw(AssertionError('Root CDP client not initialized')))
+	browser_session.is_cdp_connected = False
 	browser_session.browser_profile.storage_state = str(tmp_path / 'storage-state.json')
 	browser_session.get_or_create_cdp_session = AsyncMock(side_effect=AssertionError('Root CDP client not initialized'))
 
@@ -126,7 +132,8 @@ async def test_save_storage_state_skips_when_no_save_path():
 	"""Regression test for #6005: the save-path check must run before any CDP session
 	creation, so a save with no configured storage state never touches CDP."""
 	watchdog, browser_session = _make_watchdog()
-	browser_session.cdp_client = None
+	browser_session.cdp_client = property(lambda self: (_ for _ in ()).throw(AssertionError('Root CDP client not initialized')))
+	browser_session.is_cdp_connected = False
 	browser_session.browser_profile.storage_state = None
 	browser_session.get_or_create_cdp_session = AsyncMock(side_effect=AssertionError('Root CDP client not initialized'))
 

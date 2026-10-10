@@ -165,9 +165,11 @@ class StorageStateWatchdog(BaseWatchdog):
 			if not save_path:
 				return
 
-			# Check if CDP client is available; without a browser connection there is no
-			# state to save, and get_or_create_cdp_session would assert-fail (#6005).
-			if self.browser_session.cdp_client is None:
+			# Check if a browser connection exists; without one there is no state to save,
+			# and get_or_create_cdp_session would assert-fail (#6005). Use the underlying
+			# attribute / is_cdp_connected, NOT the `cdp_client` property, which itself
+			# raises AssertionError when the root CDP client is unset.
+			if not self.browser_session.is_cdp_connected:
 				self.logger.debug('[StorageStateWatchdog] No CDP client available, skipping storage state save')
 				return
 			assert await self.browser_session.get_or_create_cdp_session(target_id=None)
