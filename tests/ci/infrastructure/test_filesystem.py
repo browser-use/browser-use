@@ -382,6 +382,54 @@ class TestFileSystem:
 		assert 'Run $(cmd) inline.' in blob
 		assert 'echo `$(cmd)`' in blob
 
+	async def test_write_pdf_fenced_code_keeps_indentation(self, empty_filesystem):
+		"""Leading indentation inside fenced code blocks must survive PDF rendering."""
+		source = '\n'.join(
+			[
+				'```',
+				'def add(a, b):',
+				'    return a + b',
+				'\tpass',
+				'```',
+			]
+		)
+		result = await empty_filesystem.write_file('indented.pdf', source)
+		assert result == 'Data written to file indented.pdf successfully.'
+		reader = PdfReader(empty_filesystem.data_dir / 'indented.pdf')
+		text = '\n'.join(page.extract_text() or '' for page in reader.pages).replace('\xa0', ' ')
+		lines = [line.rstrip() for line in text.splitlines()]
+		assert 'def add(a, b):' in lines
+		assert '    return a + b' in lines
+		assert '    pass' in lines
+
+	@pytest.mark.parametrize(
+		('indent', 'expected_indent'),
+		[(' ', ' '), ('        ', '        '), (' \t', '    '), ('\t  ', '      '), ('\t\t', '        ')],
+	)
+	async def test_write_pdf_fenced_indentation_keeps_code_literal(self, empty_filesystem, indent, expected_indent):
+		code = '<tag> & **literal** `code`'
+		source = f'```python\n{indent}{code}\n```\nOutside `inline`'
+		await empty_filesystem.write_file('literal.pdf', source)
+		reader = PdfReader(empty_filesystem.data_dir / 'literal.pdf')
+		text = '\n'.join(page.extract_text() or '' for page in reader.pages).replace('\xa0', ' ')
+		lines = [line.rstrip() for line in text.splitlines()]
+		assert expected_indent + code in lines
+		assert 'Outside inline' in lines
+		file = empty_filesystem.get_file('literal.pdf')
+		assert file is not None
+		assert file.content == source
+
+	async def test_append_pdf_fenced_code_keeps_indentation(self, empty_filesystem):
+		await empty_filesystem.write_file('appended.pdf', 'Introduction')
+		result = await empty_filesystem.append_file('appended.pdf', '\n```\nif ready:\n\treturn True\n```')
+		assert result == 'Data appended to file appended.pdf successfully.'
+		reader = PdfReader(empty_filesystem.data_dir / 'appended.pdf')
+		text = '\n'.join(page.extract_text() or '' for page in reader.pages).replace('\xa0', ' ')
+		lines = [line.rstrip() for line in text.splitlines()]
+		assert 'Introduction' in lines
+		assert any(line.strip() == 'if ready:' for line in lines)
+		assert '    return True' in lines
+
 	async def test_write_pdf_inline_code_protects_emphasis_markers(self, empty_filesystem):
 		"""Stars inside inline code stay literal instead of becoming italic/bold."""
 		source = 'Keep `*literal*` and `**bold**` as code.'
