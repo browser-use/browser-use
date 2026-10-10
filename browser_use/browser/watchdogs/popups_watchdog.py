@@ -4,17 +4,23 @@ import asyncio
 from typing import ClassVar
 
 from bubus import BaseEvent
+from cdp_use.cdp.target import TargetID
 from pydantic import PrivateAttr
 
-from browser_use.browser.events import TabCreatedEvent
+from browser_use.browser.events import BrowserReconnectedEvent, TabCreatedEvent
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.utils import create_task_with_error_handling
+
+# Longest wait for one tab's dialog setup after a reconnect. A tab whose dialog opened while the
+# WebSocket was down never replies to Page.enable, and it must not hold up the event bus.
+_RECONNECT_TAB_SETUP_TIMEOUT_SECONDS = 3.0
 
 
 class PopupsWatchdog(BaseWatchdog):
 	"""Handles JavaScript dialogs (alert, confirm, prompt) by automatically accepting them immediately."""
 
 	# Events this watchdog listens to and emits
-	LISTENS_TO: ClassVar[list[type[BaseEvent]]] = [TabCreatedEvent]
+	LISTENS_TO: ClassVar[list[type[BaseEvent]]] = [TabCreatedEvent, BrowserReconnectedEvent]
 	EMITS: ClassVar[list[type[BaseEvent]]] = []
 
 	# Track which targets have dialog handlers registered
@@ -26,9 +32,28 @@ class PopupsWatchdog(BaseWatchdog):
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Set up JavaScript dialog handling when a new tab is created."""
-		target_id = event.target_id
-		self.logger.debug(f'🎯 PopupsWatchdog received TabCreatedEvent for target {target_id}')
+		self.logger.debug(f'🎯 PopupsWatchdog received TabCreatedEvent for target {event.target_id}')
+		await self._setup_dialog_handling(event.target_id)
 
+	async def on_BrowserReconnectedEvent(self, event: BrowserReconnectedEvent) -> None:
+		"""Set up dialog handling again on the CDP client created by reconnect().
+
+		The handlers registered on the old client went away with it, and reconnect()
+		dispatches no TabCreatedEvent for the tabs that were already open.
+		"""
+		self._dialog_listeners_registered.clear()
+		if not self.browser_session.session_manager:
+			return
+		for target in self.browser_session.session_manager.get_all_page_targets():
+			try:
+				await asyncio.wait_for(
+					self._setup_dialog_handling(target.target_id), timeout=_RECONNECT_TAB_SETUP_TIMEOUT_SECONDS
+				)
+			except TimeoutError:
+				self.logger.warning(f'Timed out setting up dialog handling for tab {target.target_id} after reconnect')
+
+	async def _setup_dialog_handling(self, target_id: TargetID) -> None:
+		"""Enable dialog events for a tab and register the dialog handler."""
 		# Skip if we've already registered for this target
 		if target_id in self._dialog_listeners_registered:
 			self.logger.debug(f'Already registered dialog handlers for target {target_id}')
@@ -122,8 +147,19 @@ class PopupsWatchdog(BaseWatchdog):
 				except Exception as e:
 					self.logger.error(f'❌ Critical error in dialog handler: {type(e).__name__}: {e}')
 
+			# cdp-use awaits async handlers inside its WebSocket read loop, so awaiting the
+			# handleJavaScriptDialog reply from handle_dialog itself would block the loop that
+			# delivers it. Register a sync callback that runs handle_dialog as its own task.
+			def on_dialog_opening(event_data, session_id: str | None = None) -> None:
+				create_task_with_error_handling(
+					handle_dialog(event_data, session_id),
+					name='handle_javascript_dialog',
+					logger_instance=self.logger,
+					suppress_exceptions=True,
+				)
+
 			# Register handler on the specific session
-			cdp_session.cdp_client.register.Page.javascriptDialogOpening(handle_dialog)  # type: ignore[arg-type]
+			cdp_session.cdp_client.register.Page.javascriptDialogOpening(on_dialog_opening)
 			self.logger.debug(
 				f'Successfully registered Page.javascriptDialogOpening handler for session {cdp_session.session_id}'
 			)
@@ -131,7 +167,7 @@ class PopupsWatchdog(BaseWatchdog):
 			# Also register on root CDP client to catch dialogs from any frame
 			if hasattr(self.browser_session._cdp_client_root, 'register'):
 				try:
-					self.browser_session._cdp_client_root.register.Page.javascriptDialogOpening(handle_dialog)  # type: ignore[arg-type]
+					self.browser_session._cdp_client_root.register.Page.javascriptDialogOpening(on_dialog_opening)  # type: ignore[arg-type]
 					self.logger.debug('Successfully registered dialog handler on root CDP client for all frames')
 				except Exception as root_error:
 					self.logger.warning(f'Failed to register on root CDP client: {root_error}')
