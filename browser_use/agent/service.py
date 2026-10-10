@@ -1506,15 +1506,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._message_manager._add_context_message(UserMessage(content=nudge))
 
 	def _update_loop_detector_actions(self) -> None:
-		"""Record the actions from the latest step into the loop detector."""
+		"""Record only dispatched action attempts from the latest step into the loop detector."""
 		if not self.settings.loop_detection_enabled:
 			return
-		if self.state.last_model_output is None:
+		if self.state.last_model_output is None or not self.state.last_result:
 			return
 		# Actions to exclude: wait always hashes identically (instant false positive),
 		# done is terminal, go_back is navigation recovery
 		_LOOP_EXEMPT_ACTIONS = {'wait', 'done', 'go_back'}
-		for action in self.state.last_model_output.action:
+		# multi_act returns only the executed prefix when a guard stops the batch.
+		for action, result in zip(self.state.last_model_output.action, self.state.last_result, strict=False):
+			if (result.metadata or {}).get('action_skipped'):
+				continue
 			action_data = action.model_dump(exclude_unset=True)
 			action_name = next(iter(action_data.keys()), 'unknown')
 			if action_name in _LOOP_EXEMPT_ACTIONS:
@@ -2769,6 +2772,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.debug(f'Waiting {self.browser_profile.wait_between_actions} seconds between actions')
 				await asyncio.sleep(self.browser_profile.wait_between_actions)
 
+			action_dispatched = False
 			try:
 				await self._check_stop_or_pause()
 
@@ -2779,6 +2783,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				pre_action_url = await self.browser_session.get_current_page_url()
 				pre_action_focus = self.browser_session.agent_focus_target_id
 
+				action_dispatched = True
 				result = await self.tools.act(
 					action=action,
 					browser_session=self.browser_session,
@@ -2842,7 +2847,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					{'action': action_name, 'step': self.state.n_steps},
 				)
 				# Preserve partial results so the agent knows which actions succeeded before the failure
-				results.append(ActionResult(error=f'{type(e).__name__}: {e}'))
+				# Errors before dispatch or after an already-recorded result are not another tool attempt.
+				metadata = {'action_skipped': True} if not action_dispatched or len(results) > i else None
+				results.append(ActionResult(error=f'{type(e).__name__}: {e}', metadata=metadata))
 				return results
 
 		return results
