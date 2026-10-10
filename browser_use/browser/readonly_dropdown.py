@@ -94,7 +94,12 @@ _RESOLVE = r"""function() {
 	for (const select of selects) for (const input of inputs) {
 		const source = relation(input, select);
 		if (source) {
-			if (select.id && idCounts.get(select.id) !== 1) return {error: 'The associated listbox ID is duplicated. Use an unambiguous picker.'};
+			// Only the id-addressed relationships are ambiguous: aria-controls, aria-owns and the
+			// inline opener all name the select by its id string, and getElementById returns
+			// whichever duplicate comes first. aria-activedescendant reaches the select through a
+			// unique option's closest() chain, so a duplicated id on the select cannot misdirect it.
+			const namesTheSelectById = ['aria-controls', 'aria-owns', 'inline-opener'].includes(source);
+			if (namesTheSelectById && select.id && idCounts.get(select.id) !== 1) return {error: 'The associated listbox ID is duplicated. Use an unambiguous picker.'};
 			matches.push({input, select, source, input_is_target: start === input});
 		}
 	}

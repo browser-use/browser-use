@@ -525,3 +525,35 @@ async def test_conflicting_active_descendant_never_opens_either_picker(listbox_b
 	assert result.metadata and result.metadata['click_dispatched'] is False
 	assert await _evaluate(listbox_browser, "document.querySelector('#lookup-code').dataset.openerClicks") == '0'
 	assert (await _read(listbox_browser))['code'] == ''
+
+
+@pytest.mark.parametrize('duplicate_has_id', [True, False])
+async def test_duplicated_listbox_id_does_not_veto_active_descendant(listbox_browser, listbox_server, duplicate_has_id):
+	"""A duplicated ID on the listbox must not reject a relationship proven by the active option.
+
+	Only aria-controls, aria-owns and the inline opener address the select by its ID string, where a
+	duplicate would make the reference ambiguous. aria-activedescendant reaches the select through its
+	unique active option, so the select needs no ID at all - and a duplicated one neither helps nor
+	hinders. The False case is the control: it removes the ID instead of duplicating it, and both must
+	behave identically.
+	"""
+	_, frame_id = await _open(listbox_browser, listbox_server, '/form')
+	await _use_active_descendant(listbox_browser, frame_id)
+	extra = '<select id="picker" size="4"><option>Other</option></select>' if duplicate_has_id else '<select size="4"></select>'
+	await _evaluate(listbox_browser, f"document.body.insertAdjacentHTML('beforeend', {json.dumps(extra)})", frame_id)
+	assert await _evaluate(listbox_browser, "document.querySelectorAll('#picker').length", frame_id) == (
+		2 if duplicate_has_id else 1
+	)
+
+	index = await _index(listbox_browser, 'lookup-code')
+	discovery = await _options(listbox_browser, index)
+	assert discovery.error is None, discovery
+	assert 'aria-activedescendant' in (discovery.extracted_content or '')
+	assert 'Choice 240' in (discovery.extracted_content or '')
+
+	result = await _select(listbox_browser, index, 'v240')
+	assert result.error is None, result
+	assert result.metadata and result.metadata['picker_source'] == 'aria-activedescendant'
+	assert result.metadata['readonly_input_value'] == 'v240'
+	actual = await _read(listbox_browser, frame_id)
+	assert actual['code'] == actual['value'] == 'v240'
