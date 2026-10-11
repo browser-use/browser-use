@@ -795,6 +795,109 @@ class TestFileSystem:
 		assert fs.get_file('extracted_content_0.md').content == 'manual'
 		assert (fs.data_dir / 'extracted_content_0.md').read_text(encoding='utf-8') == 'manual'
 
+	@pytest.mark.parametrize(
+		'existing_filename, expected_filename',
+		[(None, 'extracted_content_1.md'), ('extracted_content_1.md', 'extracted_content_2.md')],
+	)
+	async def test_save_extracted_content_preserves_pending_manual_write(
+		self, empty_filesystem, monkeypatch, existing_filename, expected_filename
+	):
+		"""Reallocate after a pending manual write occupies the reserved filename."""
+		fs = empty_filesystem
+		if existing_filename is not None:
+			await fs.write_file(existing_filename, 'existing')
+		manual_sync_started = asyncio.Event()
+		release_manual_write = asyncio.Event()
+		extraction_waiting = asyncio.Event()
+		original_sync = MarkdownFile.sync_to_disk
+		original_get_lock = FileSystem._get_file_write_lock
+
+		async def controlled_sync(staged_file: MarkdownFile, path: Path) -> None:
+			if staged_file.content == 'manual':
+				manual_sync_started.set()
+				await release_manual_write.wait()
+			await original_sync(staged_file, path)
+
+		def observe_lock(filesystem: FileSystem, filename: str) -> asyncio.Lock:
+			if filesystem is fs and filename == 'extracted_content_0.md' and manual_sync_started.is_set():
+				extraction_waiting.set()
+			return original_get_lock(filesystem, filename)
+
+		monkeypatch.setattr(MarkdownFile, 'sync_to_disk', controlled_sync)
+		monkeypatch.setattr(FileSystem, '_get_file_write_lock', observe_lock)
+		manual_task = asyncio.create_task(fs.write_file('extracted_content_0.md', 'manual'))
+		extraction_task = None
+		try:
+			await asyncio.wait_for(manual_sync_started.wait(), timeout=5)
+			extraction_task = asyncio.create_task(fs.save_extracted_content('extracted'))
+			await asyncio.wait_for(extraction_waiting.wait(), timeout=5)
+			release_manual_write.set()
+			manual_result, extracted_filename = await asyncio.wait_for(asyncio.gather(manual_task, extraction_task), timeout=5)
+		finally:
+			release_manual_write.set()
+			tasks = [manual_task] + ([extraction_task] if extraction_task is not None else [])
+			for task in tasks:
+				if not task.done():
+					task.cancel()
+			await asyncio.gather(*tasks, return_exceptions=True)
+
+		assert manual_result == 'Data written to file extracted_content_0.md successfully.'
+		assert fs.get_file('extracted_content_0.md').content == 'manual'
+		assert (fs.data_dir / 'extracted_content_0.md').read_text(encoding='utf-8') == 'manual'
+		assert extracted_filename == expected_filename
+		assert fs.get_file(extracted_filename).content == 'extracted'
+		assert (fs.data_dir / extracted_filename).read_text(encoding='utf-8') == 'extracted'
+		assert fs.extracted_content_count == 1
+		assert not fs._reserved_extracted_content_indices
+		if existing_filename is not None:
+			assert fs.get_file(existing_filename).content == 'existing'
+			assert (fs.data_dir / existing_filename).read_text(encoding='utf-8') == 'existing'
+
+	@pytest.mark.parametrize('cancel_during_write', [False, True])
+	async def test_cancelled_extraction_releases_filename_reservation(self, empty_filesystem, monkeypatch, cancel_during_write):
+		"""Cancellation while waiting or writing must allow the next extraction to reuse the name."""
+		fs = empty_filesystem
+		extraction_started = asyncio.Event()
+		release_write = asyncio.Event()
+		original_sync = MarkdownFile.sync_to_disk
+		original_get_lock = FileSystem._get_file_write_lock
+		lock = original_get_lock(fs, 'extracted_content_0.md')
+
+		async def controlled_sync(staged_file: MarkdownFile, path: Path) -> None:
+			extraction_started.set()
+			await release_write.wait()
+			await original_sync(staged_file, path)
+
+		def observe_lock(filesystem: FileSystem, filename: str) -> asyncio.Lock:
+			if filesystem is fs and not cancel_during_write:
+				extraction_started.set()
+			return original_get_lock(filesystem, filename)
+
+		monkeypatch.setattr(MarkdownFile, 'sync_to_disk', controlled_sync)
+		monkeypatch.setattr(FileSystem, '_get_file_write_lock', observe_lock)
+		if not cancel_during_write:
+			await lock.acquire()
+		extraction_task = asyncio.create_task(fs.save_extracted_content('cancelled'))
+		try:
+			await asyncio.wait_for(extraction_started.wait(), timeout=5)
+			extraction_task.cancel()
+			with pytest.raises(asyncio.CancelledError):
+				await extraction_task
+		finally:
+			release_write.set()
+			if not cancel_during_write:
+				lock.release()
+			if not extraction_task.done():
+				extraction_task.cancel()
+			await asyncio.gather(extraction_task, return_exceptions=True)
+
+		assert fs.extracted_content_count == 0
+		assert not fs.files
+		assert await fs.save_extracted_content('persisted') == 'extracted_content_0.md'
+		assert fs.get_file('extracted_content_0.md').content == 'persisted'
+		assert (fs.data_dir / 'extracted_content_0.md').read_text(encoding='utf-8') == 'persisted'
+		assert fs.extracted_content_count == 1
+
 	async def test_concurrent_extracted_content_uses_unique_filenames(self, empty_filesystem, monkeypatch):
 		"""Concurrent extracted-content saves must reserve distinct numbered filenames."""
 		fs = empty_filesystem
