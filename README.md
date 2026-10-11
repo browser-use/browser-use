@@ -153,14 +153,16 @@ The agent opens a browser, looks up the repository, and prints its answer.
 
 <br/>
 
-# Anthropic SDK × Browser Use
+# Browser Use toolsets for Claude
+
+Maintained by Browser Use. Compatible with Claude.
 
 Use Claude's browser toolset with Browser Use as the driver. Browser Use
 implements all 31 browser actions and can control a local browser, a Browser
 Use Cloud browser, or an existing remote browser over CDP.
 Bash is included in the Browser Use integration for processing data and writing files.
 
-<img src="examples/integrations/anthropic/architecture.svg" alt="Claude uses Browser Use browser actions and Bash through the Anthropic SDK. The browser can be local or remote; Bash runs on the SDK host." width="100%">
+<img src="examples/integrations/toolsets-for-claude/architecture.svg" alt="Claude uses Browser Use browser actions and Bash through the Anthropic SDK. The browser can be local or remote; Bash runs on the SDK host." width="100%">
 
 Requires an Anthropic SDK version that includes `anthropic.tools.browser`.
 Bash requires a Linux or macOS host with `/bin/bash`; use WSL on Windows.
@@ -170,7 +172,7 @@ The snippet below runs inside an async function; see the quickstart for a comple
 import os
 
 from anthropic import AsyncAnthropic
-from browser_use.integrations.anthropic import Bash, BrowserUse
+from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse
 
 task = 'Open example.com and report its page title.'
 driver = BrowserUse()  # Or BrowserUse(use_cloud=True)
@@ -187,7 +189,7 @@ async with driver, AsyncAnthropic() as client:
     result = await runner.until_done()
 ```
 
-[Quickstart ↗](examples/integrations/anthropic) · [Integration docs ↗](https://docs.browser-use.com/open-source/customize/integrations/anthropic)
+[Quickstart ↗](examples/integrations/toolsets-for-claude) · [Integration docs ↗](https://docs.browser-use.com/open-source/customize/integrations/toolsets-for-claude)
 
 <br/>
 
