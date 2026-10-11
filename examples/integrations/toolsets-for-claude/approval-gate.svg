@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="850" height="660" viewBox="560 200 850 660" role="img" aria-labelledby="dgTitle dgDesc">
+  <title id="dgTitle">Confirm before the action: how confirmation gates enabled Browser Use actions</title>
+  <desc id="dgDesc">Claude sends a request to the confirmation callback. Allow runs the driver action and returns its output. Decline or callback error runs no action and returns a refusal or error. Approval covers one action, not the whole task.</desc>
+
+  <defs>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+      .serif { font-family: Georgia, "Times New Roman", Times, serif; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+      .ink { fill: #242424; }
+      .muted { fill: #66625B; }
+    </style>
+    <marker id="ahReq" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,1 L10,5 L0,9 Z" fill="#C96B50"/>
+    </marker>
+    <marker id="ahOk" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,1 L10,5 L0,9 Z" fill="#6F8767"/>
+    </marker>
+    <marker id="ahNo" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,1 L10,5 L0,9 Z" fill="#8E8A82"/>
+    </marker>
+  </defs>
+
+  <rect x="560" y="200" width="850" height="660" fill="#FAF9F5"/>
+  <!-- ============ Gated call sequence ============ -->
+
+  <!-- Claude -->
+  <rect x="590" y="455" width="120" height="80" rx="3" fill="#C96B50" fill-opacity="0.14" stroke="#C96B50" stroke-width="1.5"/>
+  <text x="650" y="504" text-anchor="middle" class="sans ink" font-size="28" font-weight="600">Claude</text>
+
+  <!-- Request -->
+  <line x1="712" y1="495" x2="798" y2="495" stroke="#C96B50" stroke-width="2" marker-end="url(#ahReq)"/>
+  <text x="755" y="481" text-anchor="middle" class="sans ink" font-size="22">request</text>
+
+  <!-- Confirmation callback -->
+  <rect x="800" y="435" width="210" height="120" rx="3" fill="#6E93B4" fill-opacity="0.14" stroke="#6E93B4" stroke-width="1.5"/>
+  <text x="905" y="488" text-anchor="middle" class="sans ink" font-size="26">Confirmation</text>
+  <text x="905" y="520" text-anchor="middle" class="sans ink" font-size="26">callback</text>
+
+  <!-- Fork -->
+  <line x1="1011" y1="495" x2="1048" y2="495" stroke="#5F5B54" stroke-width="2"/>
+  <path d="M1048 495 V345 H1093" fill="none" stroke="#6F8767" stroke-width="2" marker-end="url(#ahOk)"/>
+  <path d="M1048 495 V645 H1093" fill="none" stroke="#8E8A82" stroke-width="2" marker-end="url(#ahNo)"/>
+  <circle cx="1048" cy="495" r="4" fill="#5F5B54"/>
+
+  <text x="1062" y="442" class="sans" font-size="22" font-weight="600" fill="#5E7556">Allow</text>
+  <text x="1062" y="566" class="sans" font-size="22" font-weight="600" fill="#6E6A62">Decline or error</text>
+
+  <!-- Allowed outcome -->
+  <rect x="1095" y="300" width="285" height="90" rx="3" fill="#A4B69D" fill-opacity="0.32" stroke="#8FA387" stroke-width="1.5"/>
+  <text x="1237" y="338" text-anchor="middle" class="sans ink" font-size="26">Driver executes</text>
+  <text x="1237" y="369" text-anchor="middle" class="sans" font-size="20" fill="#4F6448">side effect happens here</text>
+
+  <!-- Denied outcome -->
+  <rect x="1095" y="600" width="285" height="90" rx="3" fill="#ECEAE4" stroke="#B5B1A8" stroke-width="1.5"/>
+  <text x="1237" y="638" text-anchor="middle" class="sans ink" font-size="26">No action runs</text>
+  <text x="1237" y="669" text-anchor="middle" class="sans muted" font-size="20">no side effect</text>
+
+  <!-- Return: allowed -->
+  <path d="M1237 299 V250 H650 V453" fill="none" stroke="#6F8767" stroke-width="1.8" marker-end="url(#ahOk)"/>
+  <text x="770" y="236" class="sans ink" font-size="20"><tspan class="mono" font-size="20">tool_result</tspan>  action output</text>
+
+  <!-- Return: declined or error -->
+  <path d="M1237 691 V770 H650 V537" fill="none" stroke="#8E8A82" stroke-width="1.8" stroke-dasharray="7 5" marker-end="url(#ahNo)"/>
+  <text x="770" y="756" class="sans ink" font-size="20"><tspan class="mono" font-size="20">tool_result</tspan>  refusal or error</text>
+
+  <!-- Scope note -->
+  <text x="590" y="830" class="sans muted" font-size="20">Approval covers one action, not the task.</text>
+</svg>
