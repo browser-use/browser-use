@@ -3,6 +3,7 @@
 import asyncio
 import gc
 import tempfile
+import threading
 from pathlib import Path
 
 import pytest
@@ -897,6 +898,99 @@ class TestFileSystem:
 		assert fs.get_file('extracted_content_0.md').content == 'persisted'
 		assert (fs.data_dir / 'extracted_content_0.md').read_text(encoding='utf-8') == 'persisted'
 		assert fs.extracted_content_count == 1
+
+	@pytest.mark.parametrize('operation', ['overwrite', 'new_file', 'append', 'replace', 'extract'])
+	async def test_cancel_after_executor_starts_keeps_persisted_state_consistent(self, empty_filesystem, monkeypatch, operation):
+		fs = empty_filesystem
+		filename = 'extracted_content_0.md' if operation == 'extract' else 'note.md'
+		if operation in ('overwrite', 'append', 'replace'):
+			await fs.write_file(filename, 'persisted')
+		expected = 'persisted addition' if operation == 'append' else 'updated'
+		started = asyncio.Event()
+		release_worker = threading.Event()
+		loop = asyncio.get_running_loop()
+		original_write_text = Path.write_text
+
+		def controlled_write_text(path, content, *args, **kwargs):
+			if path == fs.data_dir / filename and content == expected:
+				loop.call_soon_threadsafe(started.set)
+				if not release_worker.wait(timeout=5):
+					raise TimeoutError('worker was not released')
+			return original_write_text(path, content, *args, **kwargs)
+
+		monkeypatch.setattr(Path, 'write_text', controlled_write_text)
+		if operation == 'append':
+			pending = fs.append_file(filename, ' addition')
+		elif operation == 'replace':
+			pending = fs.replace_file_str(filename, 'persisted', 'updated')
+		elif operation == 'extract':
+			pending = fs.save_extracted_content('updated')
+		else:
+			pending = fs.write_file(filename, 'updated')
+		task = asyncio.create_task(pending)
+		try:
+			await asyncio.wait_for(started.wait(), timeout=5)
+			task.cancel()
+			if operation == 'new_file':
+				# A second cancellation must not interrupt reconciliation of the running worker.
+				await asyncio.sleep(0)
+				task.cancel()
+			release_worker.set()
+			with pytest.raises(asyncio.CancelledError):
+				await task
+		finally:
+			release_worker.set()
+			if not task.done():
+				task.cancel()
+			await asyncio.gather(task, return_exceptions=True)
+
+		assert (fs.data_dir / filename).read_text(encoding='utf-8') == expected
+		assert filename in fs.files, 'completed disk write is missing from the registry'
+		assert fs.files[filename].content == expected, 'memory remains stale after completed disk write'
+		if operation == 'extract':
+			assert fs.extracted_content_count == 1
+
+	@pytest.mark.parametrize('existing_file', [False, True])
+	async def test_failed_executor_write_after_cancel_does_not_publish_state(self, empty_filesystem, monkeypatch, existing_file):
+		fs = empty_filesystem
+		filename = 'note.md'
+		if existing_file:
+			await fs.write_file(filename, 'persisted')
+		started = asyncio.Event()
+		release_worker = threading.Event()
+		loop = asyncio.get_running_loop()
+		original_write_text = Path.write_text
+
+		def failing_write_text(path, content, *args, **kwargs):
+			if path == fs.data_dir / filename and content == 'updated':
+				loop.call_soon_threadsafe(started.set)
+				if not release_worker.wait(timeout=5):
+					raise TimeoutError('worker was not released')
+				raise OSError('disk unavailable')
+			return original_write_text(path, content, *args, **kwargs)
+
+		monkeypatch.setattr(Path, 'write_text', failing_write_text)
+		task = asyncio.create_task(fs.write_file(filename, 'updated'))
+		try:
+			await asyncio.wait_for(started.wait(), timeout=5)
+			task.cancel()
+			await asyncio.sleep(0)
+			release_worker.set()
+			with pytest.raises(asyncio.CancelledError) as cancelled:
+				await task
+			assert isinstance(cancelled.value.__cause__, OSError)
+		finally:
+			release_worker.set()
+			if not task.done():
+				task.cancel()
+			await asyncio.gather(task, return_exceptions=True)
+
+		if existing_file:
+			assert fs.files[filename].content == 'persisted'
+			assert (fs.data_dir / filename).read_text(encoding='utf-8') == 'persisted'
+		else:
+			assert filename not in fs.files
+			assert not (fs.data_dir / filename).exists()
 
 	async def test_concurrent_extracted_content_uses_unique_filenames(self, empty_filesystem, monkeypatch):
 		"""Concurrent extracted-content saves must reserve distinct numbered filenames."""

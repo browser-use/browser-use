@@ -75,6 +75,10 @@ def _build_filename_error_message(file_name: str, supported_extensions: list[str
 	)
 
 
+class _PersistedWriteCancelled(asyncio.CancelledError):
+	"""Cancellation received after a disk write completed successfully."""
+
+
 DEFAULT_FILE_SYSTEM_PATH = 'browseruse_agent_data'
 
 
@@ -117,18 +121,42 @@ class BaseFile(BaseModel, ABC):
 	async def sync_to_disk(self, path: Path) -> None:
 		file_path = path / self.full_name
 		with ThreadPoolExecutor() as executor:
-			await asyncio.get_event_loop().run_in_executor(executor, lambda: file_path.write_text(self.content, encoding='utf-8'))
+			write_future = asyncio.get_event_loop().run_in_executor(
+				executor, lambda: file_path.write_text(self.content, encoding='utf-8')
+			)
+			try:
+				await asyncio.shield(write_future)
+			except asyncio.CancelledError as cancellation:
+				# Executor writes cannot be stopped: reconcile a completed write before cancelling callers.
+				try:
+					while not write_future.done():
+						try:
+							await asyncio.shield(write_future)
+						except asyncio.CancelledError:
+							continue
+					write_future.result()
+				except Exception as write_error:
+					raise cancellation from write_error
+				raise _PersistedWriteCancelled(*cancellation.args) from cancellation
 
 	async def write(self, content: str, path: Path) -> None:
 		staged_file = self.model_copy(deep=True)
 		staged_file.write_file_content(content)
-		await staged_file.sync_to_disk(path)
+		try:
+			await staged_file.sync_to_disk(path)
+		except _PersistedWriteCancelled:
+			self.content = staged_file.content
+			raise
 		self.content = staged_file.content
 
 	async def append(self, content: str, path: Path) -> None:
 		staged_file = self.model_copy(deep=True)
 		staged_file.append_file_content(content)
-		await staged_file.sync_to_disk(path)
+		try:
+			await staged_file.sync_to_disk(path)
+		except _PersistedWriteCancelled:
+			self.content = staged_file.content
+			raise
 		self.content = staged_file.content
 
 	def read(self) -> str:
@@ -758,7 +786,12 @@ class FileSystem:
 					file_obj = file_class(name=name_without_ext)
 
 				# Use file-specific write method
-				await file_obj.write(content, self.data_dir)
+				try:
+					await file_obj.write(content, self.data_dir)
+				except _PersistedWriteCancelled:
+					if is_new_file:
+						self.files[full_filename] = file_obj
+					raise
 				if is_new_file:
 					self.files[full_filename] = file_obj
 				sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
@@ -842,7 +875,12 @@ class FileSystem:
 					if extracted_filename in self.files:
 						continue
 					file_obj = MarkdownFile(name=initial_filename)
-					await file_obj.write(content, self.data_dir)
+					try:
+						await file_obj.write(content, self.data_dir)
+					except _PersistedWriteCancelled:
+						self.files[extracted_filename] = file_obj
+						self.extracted_content_count += 1
+						raise
 					self.files[extracted_filename] = file_obj
 					self.extracted_content_count += 1
 					return extracted_filename
