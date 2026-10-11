@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import base64
+import builtins
 import importlib.util
 import json
 import os
@@ -93,6 +94,40 @@ def test_missing_browser_toolset_sdk_has_an_actionable_error() -> None:
 	)
 	assert result.returncode != 0
 	assert 'requires an Anthropic Python SDK release' in result.stderr
+
+
+@pytest.mark.parametrize('exception_type', [ModuleNotFoundError, ImportError])
+@pytest.mark.parametrize('missing_name', ['anthropic.tools', 'anthropic.tools.browser'])
+def test_optional_sdk_import_errors_have_an_actionable_message(monkeypatch, exception_type, missing_name) -> None:
+	import browser_use.integrations.anthropic as integration
+
+	original_import = builtins.__import__
+
+	def import_without_sdk(name, globals=None, locals=None, fromlist=(), level=0):
+		if name == 'browser_use' and level == 1 and globals and globals.get('__package__') == integration.__name__:
+			raise exception_type('SDK export unavailable', name=missing_name)
+		return original_import(name, globals, locals, fromlist, level)
+
+	monkeypatch.setattr(builtins, '__import__', import_without_sdk)
+	with pytest.raises(ImportError, match='requires an Anthropic Python SDK release'):
+		integration.__getattr__('BrowserUse')
+
+
+def test_optional_sdk_guard_preserves_unrelated_import_errors(monkeypatch) -> None:
+	import browser_use.integrations.anthropic as integration
+
+	original_import = builtins.__import__
+	failure = ImportError('Dependency export unavailable', name='PIL')
+
+	def import_with_broken_dependency(name, globals=None, locals=None, fromlist=(), level=0):
+		if name == 'browser_use' and level == 1 and globals and globals.get('__package__') == integration.__name__:
+			raise failure
+		return original_import(name, globals, locals, fromlist, level)
+
+	monkeypatch.setattr(builtins, '__import__', import_with_broken_dependency)
+	with pytest.raises(ImportError) as caught:
+		integration.__getattr__('BrowserUse')
+	assert caught.value is failure
 
 
 def test_browser_use_and_bash_construct_with_a_compatible_sdk() -> None:
