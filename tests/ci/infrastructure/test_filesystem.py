@@ -1,7 +1,11 @@
 """Tests for the FileSystem class and related file operations."""
 
 import asyncio
+import os
+import subprocess
+import sys
 import tempfile
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -554,6 +558,52 @@ class TestFileSystem:
 		assert 'not found' in result
 		assert 'invalidname.md' in result
 		assert 'auto-corrected' in result
+
+	@pytest.mark.parametrize('encoding', ['utf-8', 'utf-8-sig'])
+	def test_read_external_utf8_text(self, tmp_path: Path, encoding: str):
+		"""External UTF-8 text must survive reads with a non-UTF-8 default locale."""
+		content = 'café 北京 😀\nSecond line'
+		file_path = tmp_path / 'external.txt'
+		file_path.write_text(content, encoding=encoding)
+		script = textwrap.dedent(
+			r"""
+			import asyncio
+			import sys
+			from pathlib import Path
+
+			from browser_use.filesystem.file_system import FileSystem
+
+			async def main():
+			    file_path = Path(sys.argv[1])
+			    fs = FileSystem(file_path.parent / 'agent', create_default_files=False)
+			    content = 'caf\u00e9 \u5317\u4eac \U0001f600\nSecond line'
+			    result = await fs.read_file_structured(str(file_path), external_file=True)
+			    expected = f'Read from file {file_path}.\n<content>\n{content}\n</content>'
+			    assert result['message'] == expected, ascii(result['message'])
+			    assert result['images'] is None
+
+			asyncio.run(main())
+			"""
+		)
+		# Disable Python's UTF-8 mode and locale coercion so Linux CI uses ASCII
+		# and Windows uses its native code page, reproducing locale-dependent reads.
+		result = subprocess.run(
+			[sys.executable, '-c', script, str(file_path)],
+			env={
+				**os.environ,
+				'LC_ALL': 'C',
+				'PYTHONUTF8': '0',
+				'PYTHONCOERCECLOCALE': '0',
+				'PYTHONIOENCODING': 'utf-8',
+				'BROWSER_USE_SETUP_LOGGING': 'false',
+				'ANONYMIZED_TELEMETRY': 'false',
+			},
+			capture_output=True,
+			text=True,
+			encoding='utf-8',
+			timeout=30,
+		)
+		assert result.returncode == 0, result.stdout + result.stderr
 
 	async def test_write_file(self, temp_filesystem):
 		"""Test writing content to files."""
