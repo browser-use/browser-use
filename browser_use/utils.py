@@ -199,7 +199,9 @@ class SignalHandler:
 		self.resume_callback = resume_callback
 		self.custom_exit_callback = custom_exit_callback
 		self.exit_on_second_int = exit_on_second_int
-		self.interruptible_task_patterns = interruptible_task_patterns or ['step', 'multi_act', 'get_next_action']
+		self.interruptible_task_patterns = (
+			interruptible_task_patterns if interruptible_task_patterns is not None else ['step', 'multi_act', 'get_next_action']
+		)
 		self.is_windows = platform.system() == 'Windows'
 		self.disabled = disabled
 
