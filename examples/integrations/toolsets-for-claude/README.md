@@ -39,7 +39,7 @@ export ANTHROPIC_LOG=info
 Before running the example, check that the installed SDK exposes the browser toolset:
 
 ```bash
-uv run python -c "from anthropic.tools.browser import LocalFilePolicy; from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse; print('Browser toolset imports OK')"
+uv run python -c "from anthropic.tools.browser import BetaLocalFilePolicy; from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse; print('Browser toolset imports OK')"
 ```
 
 Browser Use 0.13.11 or newer includes this integration. The Anthropic 1.x version range alone does not guarantee browser-toolset support: you need the compatible release from Anthropic. If the check reports that `anthropic.tools.browser` is missing, follow Anthropic's browser-toolset release instructions before continuing. Reinstalling Browser Use or adding a Cloud key cannot supply that SDK module.
@@ -60,7 +60,7 @@ import asyncio
 from pathlib import Path
 
 from anthropic import AsyncAnthropic
-from anthropic.tools.browser import LocalFilePolicy  # pyright: ignore[reportMissingImports]
+from anthropic.tools.browser import BetaLocalFilePolicy  # pyright: ignore[reportMissingImports]
 
 from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse
 
@@ -80,7 +80,7 @@ async def main() -> None:
 			'read_network': {'enabled': True},
 		},
 		confirm=lambda _: True,  # Run without approval prompts.
-		file_policy=LocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
+		file_policy=BetaLocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
 	)
 	bash = Bash(output_dir=Path('outputs'))
 
@@ -240,7 +240,7 @@ For a remote browser, provide a `document_resolver` that maps an approved
 document ID to a browser-host path:
 
 ```python
-from anthropic.tools.browser import LocalFilePolicy
+from anthropic.tools.browser import BetaLocalFilePolicy
 
 # These files must already exist on the browser host.
 remote_paths = {'approved-report': '/srv/staged/report.pdf'}
@@ -248,7 +248,7 @@ remote_paths = {'approved-report': '/srv/staged/report.pdf'}
 driver = BrowserUse(
     session,
     document_resolver=lambda document_id: remote_paths[document_id],
-    file_policy=LocalFilePolicy(upload_document_ids=remote_paths.keys()),
+    file_policy=BetaLocalFilePolicy(upload_document_ids=remote_paths.keys()),
     configs={'file_upload': {'enabled': True}},
     confirm=lambda _: True,
 )
@@ -305,11 +305,11 @@ The callback flow is:
 import asyncio
 from pathlib import Path
 
-from anthropic.tools.browser import ConfirmContext, LocalFilePolicy
+from anthropic.tools.browser import BetaConfirmContext, BetaLocalFilePolicy
 from browser_use.integrations.toolsets_for_claude import BrowserUse
 
 
-async def confirm(context: ConfirmContext) -> bool:
+async def confirm(context: BetaConfirmContext) -> bool:
     if context.member not in {'file_upload', 'javascript_exec'}:
         return True
     details = context.input.model_dump_json(exclude_none=True)
@@ -326,13 +326,13 @@ driver = BrowserUse(
         'javascript_exec': {'enabled': True},
     },
     confirm=confirm,
-    file_policy=LocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
+    file_policy=BetaLocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
 )
 ```
 
 A declined approval prevents that browser action from reaching the driver. Enabling
 `file_upload` and approving it does not grant access to every file: configure
-`LocalFilePolicy(upload_roots=[...])` for local files, or allowlisted document IDs
+`BetaLocalFilePolicy(upload_roots=[...])` for local files, or allowlisted document IDs
 as described in [Files with remote browsers](#files-with-remote-browsers). The file policy validates the file selection before the action executes.
 The callback above approves all other browser actions; applications handling purchases,
 messages, or deletion should also gate those actions. Browser `confirm` does not gate
