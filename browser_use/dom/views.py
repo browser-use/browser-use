@@ -351,8 +351,8 @@ class EnhancedSnapshotNode:
 	"""Computed styles from the layout tree"""
 	paint_order: int | None
 	"""Paint order from the layout tree"""
-	stacking_contexts: int | None
-	"""Stacking contexts from the layout tree"""
+	stacking_contexts: bool | None
+	"""Whether this layout node creates a stacking context"""
 	input_value: str | None = None
 	"""Live value of an <input> or <textarea> (DOMSnapshot inputValue/textValue), which the value attribute misses when JS, autofill, or a framework set it."""
 	input_checked: bool | None = None
