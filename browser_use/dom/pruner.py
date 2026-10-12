@@ -8,62 +8,67 @@ if TYPE_CHECKING:
 
 class DOMPruner:
 	@staticmethod
-	async def prune_dom(cdp_session: CDPSession) -> None:
-		"""
-		Prune invisible DOM elements and unnecessary attributes through CDP.
-		"""
+	async def prune_dom(cdp_session: CDPSession) -> str | None:
+		"""Return a pruned HTML snapshot without modifying the live document."""
 		js_code = """
         () => {
             const blacklistTags = ['script', 'style', 'noscript', 'meta', 'link', 'svg', 'path', 'iframe', 'head'];
 
-            function cleanNode(node) {
-                if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
-                const tagName = node.tagName.toLowerCase();
+            function cleanNode(sourceNode, clonedNode) {
+                if (!sourceNode || !clonedNode || sourceNode.nodeType !== Node.ELEMENT_NODE) return;
+                const tagName = sourceNode.tagName.toLowerCase();
 
                 if (blacklistTags.includes(tagName)) {
-                    node.remove();
+                    clonedNode.remove();
                     return;
                 }
 
-                const style = window.getComputedStyle(node);
+                const style = window.getComputedStyle(sourceNode);
                 const isHidden = (
                     style.display === 'none' ||
                     style.visibility === 'hidden' ||
                     style.opacity === '0'
                 );
-
-                const hasNoDimensions = (node.offsetWidth === 0 && node.offsetHeight === 0);
+                const hasNoDimensions = sourceNode.offsetWidth === 0 && sourceNode.offsetHeight === 0;
 
                 if ((isHidden || hasNoDimensions) && tagName !== 'body' && tagName !== 'html') {
-                    node.remove();
+                    clonedNode.remove();
                     return;
                 }
 
                 const allowedAttributes = ['id', 'name', 'value', 'placeholder', 'aria-label', 'role', 'type', 'href'];
-                Array.from(node.attributes).forEach(attr => {
+                Array.from(clonedNode.attributes).forEach(attr => {
                     if (!allowedAttributes.includes(attr.name)) {
-                        node.removeAttribute(attr.name);
+                        clonedNode.removeAttribute(attr.name);
                     }
                 });
 
-                Array.from(node.children).forEach(child => cleanNode(child));
+                for (let index = sourceNode.children.length - 1; index >= 0; index--) {
+                    cleanNode(sourceNode.children[index], clonedNode.children[index]);
+                }
 
                 if (['div', 'span', 'section', 'article'].includes(tagName)) {
-                    const hasText = node.textContent && node.textContent.trim().length > 0;
-                    const hasChildren = node.children && node.children.length > 0;
+                    const hasText = clonedNode.textContent && clonedNode.textContent.trim().length > 0;
+                    const hasChildren = clonedNode.children && clonedNode.children.length > 0;
                     if (!hasText && !hasChildren) {
-                        node.remove();
+                        clonedNode.remove();
                     }
                 }
             }
-            if (document.body) {
-                cleanNode(document.body);
-            }
+
+            if (!document.body) return '';
+
+            const clonedBody = document.body.cloneNode(true);
+            cleanNode(document.body, clonedBody);
+            return clonedBody.outerHTML;
         }
         """
 
-		# Εκτέλεση της JavaScript μέσω CDP Runtime domain
 		try:
-			await cdp_session.cdp_client.send.Runtime.evaluate(params={'expression': f'({js_code})()'})
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': f'({js_code})()', 'returnByValue': True},
+				session_id=cdp_session.session_id,
+			)
+			return result.get('result', {}).get('value')
 		except Exception:
-			pass  # Ασφαλής αποφυγή σφαλμάτων σε edge cases lifecycle του browser
+			return None  # Best effort when the page is closing or the CDP session is unavailable.
