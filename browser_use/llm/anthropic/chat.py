@@ -13,7 +13,7 @@ from anthropic import (
 	RateLimitError,
 	omit,
 )
-from anthropic.types import CacheControlEphemeralParam, Message, ToolParam
+from anthropic.types import Message, ToolParam
 from anthropic.types.model_param import ModelParam
 from anthropic.types.text_block import TextBlock
 from anthropic.types.tool_choice_tool_param import ToolChoiceToolParam
@@ -429,7 +429,7 @@ class ChatAnthropic(BaseChatModel):
 					name=tool_name,
 					description=f'Extract information in the format of {tool_name}',
 					input_schema=schema,
-					cache_control=CacheControlEphemeralParam(type='ephemeral'),
+					cache_control=AnthropicMessageSerializer._serialize_cache_control(True),
 				)
 
 				if self._requires_auto_tool_choice():
