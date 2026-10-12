@@ -36,7 +36,7 @@ Ultrafast: the global \`bu\` in the javascript REPL. Each model call costs ~1 s,
   Ids are Chrome backendNodeIds: they work in bu.* and in every CDP DOM command.
 - Act: await bu.click(1400); await bu.type(812, 'Zurich'); await bu.type(830, 'Oct 14', {enter: true}). type replaces the field's text. bu.type(id, 'Canada') also picks a native select option; don't click it first.
   Each action prints one line: navigated to <url> / page changed / no change. Autocomplete: type, look, then click the suggestion.
-- Raw: upload to a file line with await page.cdp('DOM.setFileInputFiles', {backendNodeId: id, files: [await artifact('cv.txt', 'text')]}); keys await page.cdp('Input.dispatchKeyEvent', {type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27}) then the same with type 'keyUp'; drag with Input.dispatchMouseEvent mousePressed, mouseMoved, mouseReleased.
+- Raw: upload to a file line with const {object} = await page.cdp('DOM.resolveNode', {backendNodeId: id}); await page.cdp('Runtime.callFunctionOn', {objectId: object.objectId, arguments: [{value: require('fs').readFileSync(await artifact('cv.txt', 'text'), 'base64')}], functionDeclaration: "function(b) { const d = new DataTransfer(); d.items.add(new File([Uint8Array.from(atob(b), (c) => c.charCodeAt(0))], 'cv.txt')); this.files = d.files; for (const t of ['input', 'change']) this.dispatchEvent(new Event(t, {bubbles: true})) }"}); keys await page.cdp('Input.dispatchKeyEvent', {type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27}) then the same with type 'keyUp'; drag with Input.dispatchMouseEvent mousePressed, mouseMoved, mouseReleased.
 - If a helper fails once, do it raw. Read data with page.evaluate(() => ...), but confirm an outcome with bu.state() (visible text only), not innerText. Never add blind sleeps (setTimeout): actions and bu.state() wait for the page; for a specific condition use await page.waitFor(() => ...).
 - alert/confirm/prompt/beforeunload dialogs are accepted automatically; their text is printed as [dialog ...].
 `;
@@ -464,7 +464,7 @@ export class AxHelpers {
         const e = this.nodeType === Node.ELEMENT_NODE ? this : this.parentElement;
         if (!e || !e.isConnected) throw Error('Target detached');
         if (e.matches(':disabled') || e.closest('[inert],[aria-disabled="true"]')) throw Error('Target disabled');
-        if (e.matches('input[type=file]')) throw Error("File input: clicking opens the OS file chooser; upload with DOM.setFileInputFiles instead");
+        if (e.matches('input[type=file]')) throw Error("File input: clicking opens the OS file chooser; set its files with the Raw upload recipe instead");
         if (!e.checkVisibility({checkOpacity:true, checkVisibilityCSS:true})) throw Error('Target hidden');
         const r = e.getBoundingClientRect(), x = r.x + r.width/2, y = r.y + r.height/2;
         if (!r.width || !r.height || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) throw Error('Target outside viewport');
