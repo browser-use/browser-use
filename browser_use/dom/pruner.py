@@ -1,9 +1,16 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+	from browser_use.browser.session import CDPSession
+
+
 class DOMPruner:
 	@staticmethod
-	async def prune_dom(cdp_session) -> None:
+	async def prune_dom(cdp_session: CDPSession) -> None:
 		"""
-		Εκτελεί βελτιστοποιημένο JavaScript pruning μέσω CDP Runtime.evaluate
-		για την αφαίρεση αόρατων στοιχείων και περιττών attributes.
+		Prune invisible DOM elements and unnecessary attributes through CDP.
 		"""
 		js_code = """
         () => {
