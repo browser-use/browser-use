@@ -30,12 +30,12 @@ async def test_mcp_tool_isError_true_is_surfaced_as_action_result_error():
 	client.session.call_tool = AsyncMock(  # type: ignore[union-attr]
 		return_value=types.CallToolResult(
 			content=[types.TextContent(type='text', text='File not found: /tmp/does-not-exist.txt')],
-			isError=True,
+			is_error=True,
 		)
 	)
 
 	tools = Tools()
-	tool = types.Tool(name='read_file', description='Read a file', inputSchema={'type': 'object', 'properties': {}})
+	tool = types.Tool(name='read_file', description='Read a file', input_schema={'type': 'object', 'properties': {}})
 	client._register_tool_as_action(tools.registry, 'read_file', tool)
 
 	result = await tools.registry.execute_action('read_file', {})
@@ -52,7 +52,7 @@ async def test_parameterized_mcp_tool_isError_true_is_surfaced_as_action_result_
 	client.session.call_tool = AsyncMock(  # type: ignore[union-attr]
 		return_value=types.CallToolResult(
 			content=[types.TextContent(type='text', text='File not found: /tmp/does-not-exist.txt')],
-			isError=True,
+			is_error=True,
 		)
 	)
 
@@ -60,7 +60,7 @@ async def test_parameterized_mcp_tool_isError_true_is_surfaced_as_action_result_
 	tool = types.Tool(
 		name='read_file',
 		description='Read a file',
-		inputSchema={
+		input_schema={
 			'type': 'object',
 			'properties': {'path': {'type': 'string'}},
 			'required': ['path'],
@@ -83,12 +83,12 @@ async def test_mcp_tool_isError_false_still_succeeds():
 	client.session.call_tool = AsyncMock(  # type: ignore[union-attr]
 		return_value=types.CallToolResult(
 			content=[types.TextContent(type='text', text='ok')],
-			isError=False,
+			is_error=False,
 		)
 	)
 
 	tools = Tools()
-	tool = types.Tool(name='read_file', description='Read a file', inputSchema={'type': 'object', 'properties': {}})
+	tool = types.Tool(name='read_file', description='Read a file', input_schema={'type': 'object', 'properties': {}})
 	client._register_tool_as_action(tools.registry, 'read_file', tool)
 
 	result = await tools.registry.execute_action('read_file', {})

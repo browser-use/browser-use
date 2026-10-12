@@ -15,6 +15,8 @@ from browser_use.sync.auth import CloudAuthConfig
 
 logger = logging.getLogger(__name__)
 
+_BROWSER_API_VERSIONS = ('v2', 'v3', 'v4')
+
 
 class CloudBrowserClient:
 	"""Client for browser-use cloud browser service."""
@@ -23,11 +25,51 @@ class CloudBrowserClient:
 		self.api_base_url = api_base_url
 		self.client = httpx.AsyncClient(timeout=30.0)
 		self.current_session_id: str | None = None
+		self.current_api_version: str | None = None
+
+	@staticmethod
+	def _missing_version_scope(response: httpx.Response) -> bool:
+		if response.status_code != 403:
+			return False
+		try:
+			detail = response.json().get('detail', '')
+		except Exception:
+			return False
+		return isinstance(detail, str) and detail.startswith('API key is missing required scope:')
+
+	async def _request_browser_api(
+		self,
+		method: str,
+		path: str,
+		*,
+		headers: dict[str, str],
+		json: dict,
+	) -> tuple[httpx.Response, str]:
+		"""Use the session's API version, or find the first version granted to this key.
+
+		The Cloud backend mounts the same standalone-browser router under V2, V3,
+		and V4, while scoped keys grant access per version. Preserve V2 behavior
+		for existing keys and only fall through on the backend's explicit
+		missing-version-scope response.
+		"""
+		# A new session may use a different scoped key. Only cleanup is pinned.
+		versions = (self.current_api_version,) if method != 'POST' and self.current_api_version else _BROWSER_API_VERSIONS
+		last_response = None
+		last_version = versions[-1]
+		for version in versions:
+			url = f'{self.api_base_url}/api/{version}/browsers{path}'
+			response = await self.client.request(method, url, headers=headers, json=json)
+			last_response = response
+			last_version = version
+			if not self._missing_version_scope(response):
+				return response, version
+		assert last_response is not None
+		return last_response, last_version
 
 	async def create_browser(
 		self, request: CreateBrowserRequest, extra_headers: dict[str, str] | None = None
 	) -> CloudBrowserResponse:
-		"""Create a new cloud browser instance. For full docs refer to https://docs.cloud.browser-use.com/api-reference/v-2-api-current/browsers/create-browser-session-browsers-post
+		"""Create a new cloud browser instance.
 
 		Args:
 			request: CreateBrowserRequest object containing browser creation parameters
@@ -35,8 +77,6 @@ class CloudBrowserClient:
 		Returns:
 			CloudBrowserResponse: Contains CDP URL and other browser info
 		"""
-		url = f'{self.api_base_url}/api/v2/browsers'
-
 		# Try to get API key from environment variable first, then auth config
 		api_token = os.getenv('BROWSER_USE_API_KEY')
 
@@ -62,7 +102,7 @@ class CloudBrowserClient:
 		try:
 			logger.info('🌤️ Creating cloud browser instance...')
 
-			response = await self.client.post(url, headers=headers, json=request_body)
+			response, api_version = await self._request_browser_api('POST', '', headers=headers, json=request_body)
 
 			if response.status_code == 401:
 				raise CloudBrowserAuthError(
@@ -86,6 +126,7 @@ class CloudBrowserClient:
 
 			# Store session ID for cleanup
 			self.current_session_id = browser_response.id
+			self.current_api_version = api_version
 
 			logger.info(f'🌤️ Cloud browser created successfully: {browser_response.id}')
 			logger.debug(f'🌤️ CDP URL: {browser_response.cdpUrl}')
@@ -124,8 +165,6 @@ class CloudBrowserClient:
 		if not session_id:
 			raise CloudBrowserError('No session ID provided and no current session available')
 
-		url = f'{self.api_base_url}/api/v2/browsers/{session_id}'
-
 		# Try to get API key from environment variable first, then auth config
 		api_token = os.getenv('BROWSER_USE_API_KEY')
 
@@ -150,7 +189,7 @@ class CloudBrowserClient:
 		try:
 			logger.info(f'🌤️ Stopping cloud browser session: {session_id}')
 
-			response = await self.client.patch(url, headers=headers, json=request_body)
+			response, _ = await self._request_browser_api('PATCH', f'/{session_id}', headers=headers, json=request_body)
 
 			if response.status_code == 401:
 				raise CloudBrowserAuthError(
@@ -162,6 +201,7 @@ class CloudBrowserClient:
 				# Clear current session if it was this one
 				if session_id == self.current_session_id:
 					self.current_session_id = None
+					self.current_api_version = None
 				raise CloudBrowserError(f'Cloud browser session {session_id} not found')
 			elif not response.is_success:
 				error_msg = f'Failed to stop cloud browser: HTTP {response.status_code}'
@@ -179,6 +219,7 @@ class CloudBrowserClient:
 			# Clear current session if it was this one
 			if session_id == self.current_session_id:
 				self.current_session_id = None
+				self.current_api_version = None
 
 			logger.info(f'🌤️ Cloud browser session stopped: {browser_response.id}')
 			logger.debug(f'🌤️ Status: {browser_response.status}')

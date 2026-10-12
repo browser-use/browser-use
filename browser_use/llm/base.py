@@ -4,6 +4,7 @@ We have switched all of our code from langchain to openai.types.chat.chat_comple
 For easier transition we have
 """
 
+from collections.abc import Iterable
 from typing import Any, Protocol, TypeVar, overload, runtime_checkable
 
 from pydantic import BaseModel
@@ -12,6 +13,20 @@ from browser_use.llm.messages import BaseMessage
 from browser_use.llm.views import ChatInvokeCompletion
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def is_reasoning_model(model: object, reasoning_models: Iterable[object] | None) -> bool:
+	"""Return whether a model matches a non-empty reasoning-model pattern."""
+	if not reasoning_models:
+		return False
+
+	model_name = str(model).lower()
+	for pattern in reasoning_models:
+		pattern_name = str(pattern).lower()
+		if pattern_name.strip() and pattern_name in model_name:
+			return True
+
+	return False
 
 
 @runtime_checkable
