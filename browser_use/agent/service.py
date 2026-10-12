@@ -134,7 +134,11 @@ class ReplayTabUnavailableError(RuntimeError):
 	"""
 
 
-def match_replay_tab(recorded_tab: TabInfo | None, live_tabs: list[TabInfo]) -> TabInfo | None:
+def match_replay_tab(
+	recorded_tab: TabInfo | None,
+	live_tabs: list[TabInfo],
+	recorded_tab_id: str = '',
+) -> TabInfo | None:
 	"""Find the live tab a recorded `switch`/`close` step meant, without trusting its tab id.
 
 	A tab id is the last 4 characters of a CDP TargetID, which a new browser assigns afresh, so a
@@ -145,34 +149,39 @@ def match_replay_tab(recorded_tab: TabInfo | None, live_tabs: list[TabInfo]) -> 
 	Args:
 		recorded_tab: The tab entry recorded alongside the action, or None when history predates it.
 		live_tabs: Tabs from the running browser right now.
+		recorded_tab_id: The action's own 4-char id, used when there is no recorded tab entry at all
+			- older history files, and reruns against the same browser, where the id still resolves.
 
 	Returns:
 		The matching live tab, or None when nothing matches confidently.
 	"""
-	if recorded_tab is None or not live_tabs:
+	if not live_tabs:
 		return None
 
-	recorded_url = (recorded_tab.url or '').strip()
-	recorded_title = (recorded_tab.title or '').strip()
+	if recorded_tab is not None:
+		recorded_url = (recorded_tab.url or '').strip()
+		recorded_title = (recorded_tab.title or '').strip()
 
-	if recorded_url:
-		for tab in live_tabs:
-			if (tab.url or '').strip() == recorded_url:
-				return tab
-		for tab in live_tabs:
-			live_url = (tab.url or '').strip()
-			if live_url and (live_url.startswith(recorded_url) or recorded_url.startswith(live_url)):
-				return tab
+		if recorded_url:
+			for tab in live_tabs:
+				if (tab.url or '').strip() == recorded_url:
+					return tab
+			for tab in live_tabs:
+				live_url = (tab.url or '').strip()
+				if live_url and (live_url.startswith(recorded_url) or recorded_url.startswith(live_url)):
+					return tab
 
-	if recorded_title and recorded_title != 'Unknown title':
-		for tab in live_tabs:
-			if (tab.title or '').strip() == recorded_title:
-				return tab
+		if recorded_title and recorded_title != 'Unknown title':
+			for tab in live_tabs:
+				if (tab.title or '').strip() == recorded_title:
+					return tab
 
-	recorded_id = (recorded_tab.target_id or '').strip()
-	if recorded_id:
+		if not recorded_tab_id:
+			recorded_tab_id = (recorded_tab.target_id or '').strip()
+
+	if recorded_tab_id:
 		for tab in live_tabs:
-			if (tab.target_id or '').endswith(recorded_id):
+			if (tab.target_id or '').endswith(recorded_tab_id):
 				return tab
 
 	return None
@@ -3280,14 +3289,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						retry_count += 1
 
 						# A tab that no longer exists cannot appear by waiting: retrying the same stale
-						# id just burns the backoff budget before the same failure. Fail the step now so
-						# the remaining steps never run against whatever page happens to be focused.
+						# id just burns the backoff budget before the same failure. Stop the rerun here,
+						# whatever skip_failures says - that flag means "one step may fail and the rest
+						# still make sense", and after this step they do not, because every later action
+						# would run against a page the recorded step never meant to be on.
 						if isinstance(e, ReplayTabUnavailableError):
 							self.logger.error(f'{step_name}: {error_str}')
 							results.append(ActionResult(error=error_str))
-							if not skip_failures:
-								raise RuntimeError(error_str) from e
-							break
+							raise RuntimeError(error_str) from e
 
 						# Check if this is a "Could not find matching element" error for a menu item
 						# If so, try to re-open the dropdown from the previous step before retrying
@@ -3548,7 +3557,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					recorded_tab_id = action_data[action_name].get('tab_id')
 					if recorded_tab_id:
 						live_tabs = await self.browser_session.get_tabs()
-						live_tab = match_replay_tab(self._recorded_tab(history_item, recorded_tab_id), live_tabs)
+						live_tab = match_replay_tab(self._recorded_tab(history_item, recorded_tab_id), live_tabs, recorded_tab_id)
 						if live_tab is None:
 							raise ReplayTabUnavailableError(
 								f'Recorded tab #{recorded_tab_id} no longer exists, so this step cannot be replayed. '

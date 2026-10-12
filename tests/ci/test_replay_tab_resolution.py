@@ -111,6 +111,33 @@ class TestMatchReplayTab:
 
 		assert match_replay_tab(recorded, live) is None
 
+	def test_the_action_short_id_resolves_without_a_recorded_tab(self):
+		"""Older history files carry no tab list, and a same-session rerun still has its TargetID.
+
+		Without this the fallback could only ever run when a recorded entry happened to exist, so a
+		history written before tabs were recorded - and a rerun against the very browser that produced
+		the history - would fail a step that the id alone resolves.
+		"""
+		live = [_tab('91AB', 'https://example.com/', 'Other'), _tab('D338', 'https://app.example/#/', 'Teller console')]
+
+		matched = match_replay_tab(None, live, 'D338')
+
+		assert matched is not None
+		assert matched.target_id == 'D338'
+
+	def test_an_exact_url_still_wins_over_the_action_short_id(self):
+		"""The id is the last resort even when it is all the caller has: suffixes get re-issued."""
+		live = [
+			_tab('D338', 'https://legacy.example/other/', 'Other'),  # recycled the recorded suffix
+			_tab('91AB', 'https://app.example/#/', 'Teller console'),
+		]
+		recorded = _tab('D338', 'https://app.example/#/', 'Teller console')
+
+		matched = match_replay_tab(recorded, live, 'D338')
+
+		assert matched is not None
+		assert matched.target_id == '91AB', 'the recorded URL identifies the tab, not the suffix'
+
 
 class TestRecordedTabLookup:
 	"""The recorded tab entry is found in the step's own tab list, by its short id."""
@@ -263,6 +290,45 @@ class TestReplayStopsOnUnresolvableTab:
 
 		assert attempts == 1, 'a stale tab cannot appear by waiting, so it must not be retried'
 
+	async def test_skip_failures_does_not_continue_past_a_stale_tab(self, monkeypatch):
+		"""`skip_failures` excuses a failing step, not the assumption that steps are on the right page.
+
+		Carrying on here would run every remaining step against whatever tab happens to be focused -
+		exactly the wrong-page replay this change exists to prevent - so the flag must not apply.
+		"""
+		agent = Agent(task='t', llm=create_mock_llm())
+		step = AgentHistory(
+			model_output=agent.AgentOutput(
+				evaluation_previous_goal=None,
+				memory='switch to a tab that is gone',
+				next_goal=None,
+				action=[{'switch': {'tab_id': 'D338'}}],  # type: ignore[arg-type]
+			),
+			result=[ActionResult(long_term_memory='Switched to tab #D338')],
+			state=BrowserStateHistory(
+				url='https://shell.example/html/taskbar.html',
+				title='In-page taskbar',
+				tabs=[_tab('D338', 'https://app.example/#/', 'Teller console')],
+				interacted_element=[None],
+			),
+			metadata=StepMetadata(step_start_time=0, step_end_time=1, step_number=1, step_interval=0.0),
+		)
+		_stub_live_tabs(agent, [_tab('91AB', 'https://elsewhere.example/', 'Other')])
+		object.__setattr__(agent.browser_session, 'start', AsyncMock())
+		executed: list[int] = []
+
+		async def failing_step(*_args, **_kwargs):
+			executed.append(1)
+			raise ReplayTabUnavailableError('Recorded tab #D338 no longer exists')
+
+		monkeypatch.setattr(agent, '_execute_history_step', failing_step)
+
+		# Two steps, so a rerun that swallowed the first could be caught running the second.
+		with pytest.raises(RuntimeError, match='D338'):
+			await agent.rerun_history(AgentHistoryList(history=[step, step]), skip_failures=True, max_retries=3)
+
+		assert len(executed) == 1, 'the second step must never run against the focused tab'
+
 
 class _TabActionModel(ActionModel):
 	"""Explicit slots for the tab actions driven directly through tools.act()."""
@@ -296,3 +362,28 @@ class TestCloseTabReportsFailure:
 		assert result.error is not None, 'closing a tab that does not exist is not a success'
 		assert 'zzzz' in result.error
 		assert result.extracted_content is None
+
+	async def test_a_failure_other_than_a_missing_tab_is_not_relabelled(self):
+		"""Only the tab-id lookup means "no tab matched"; other faults must not be reported as one.
+
+		A "not closed" result counts toward the agent's failure budget, so reporting an uninitialised
+		session or a CDP fault that way would stop a healthy run over a fault that says nothing about
+		the tab. Those exceptions keep propagating instead.
+		"""
+
+		class BrokenSession:
+			"""A session that fails before it can say anything about the requested tab."""
+
+			active_modal_dialog_state = None
+			cdp_client = None
+			agent_focus_target_id = None
+
+			async def get_target_id_from_tab_id(self, tab_id: str) -> str:
+				raise RuntimeError('SessionManager not initialized')
+
+		# Drive the registry rather than act(): act() converts any raised exception into an
+		# ActionResult(error=...), which would make this pass whether or not close() relabelled it.
+		with pytest.raises(RuntimeError, match='SessionManager not initialized'):
+			await Tools().registry.execute_action(
+				'close', {'tab_id': 'zzzz'}, browser_session=cast(BrowserSession, BrokenSession())
+			)
