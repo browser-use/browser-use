@@ -8,6 +8,7 @@ from cdp_use.cdp.accessibility.types import AXNode
 from cdp_use.cdp.dom.types import Node
 from cdp_use.cdp.target import TargetID
 
+import browser_use.dom.pruner
 from browser_use.dom.enhanced_snapshot import (
 	REQUIRED_COMPUTED_STYLES,
 	build_snapshot_lookup,
@@ -586,6 +587,8 @@ class DomService:
 
 		start_cdp_calls = time.time()
 
+		# Εφαρμογή intelligent DOM pruning για μείωση των tokens
+		await browser_use.dom.pruner.DOMPruner.prune_dom(cdp_session)
 		# Create initial tasks
 		tasks = {
 			'snapshot': create_task_with_error_handling(create_snapshot_request(), name='get_snapshot'),
