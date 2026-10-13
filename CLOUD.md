@@ -2376,11 +2376,11 @@ components:
 POST https://api.browser-use.com/api/v2/browsers
 Content-Type: application/json
 Create a new browser session.
-**Pricing:** Browser sessions are charged at $0.05 per hour.
+**Pricing:** Browser sessions are charged at $0.02 per hour.
 The full hourly rate is charged upfront when the session starts.
 When you stop the session, any unused time is automatically refunded proportionally.
 Billing is rounded to the nearest minute (minimum 1 minute).
-For example, if you stop a session after 30 minutes, you'll be refunded $0.025.
+For example, if you stop a session after 30 minutes, you'll be refunded $0.01.
 **Session Limits:**
 - Free users (without active subscription): Maximum 15 minutes per session
 - Paid subscribers: Up to 4 hours per session
@@ -2398,13 +2398,13 @@ paths:
       summary: Create Browser Session
       description: >-
         Create a new browser session.
-        **Pricing:** Browser sessions are charged at $0.05 per hour.
+        **Pricing:** Browser sessions are charged at $0.02 per hour.
         The full hourly rate is charged upfront when the session starts.
         When you stop the session, any unused time is automatically refunded
         proportionally.
         Billing is rounded to the nearest minute (minimum 1 minute).
         For example, if you stop a session after 30 minutes, you'll be refunded
-        $0.025.
+        $0.01.
         **Session Limits:**
         - Free users (without active subscription): Maximum 15 minutes per
         session
