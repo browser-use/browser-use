@@ -78,7 +78,7 @@ Scale browser automation with our hosted agent, stealth browsers, and infrastruc
 
 [Get started with the API ↗](https://docs.browser-use.com/cloud/agent/quickstart)
 
-New Google, GitHub, or Microsoft signups get **$15 cloud credit**.
+New Google, GitHub, or Microsoft signups get **$1 cloud credit**.
 
 <br/>
 
