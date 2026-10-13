@@ -706,7 +706,7 @@ browser = Browser(
 browser = Browser(
     cloud_profile_id='your-profile-id',  # Optional: specific browser profile
     cloud_proxy_country_code='us',  # Optional: proxy location (us, uk, fr, it, jp, au, de, fi, ca, in)
-    cloud_timeout=30,  # Optional: session timeout in minutes (MAX free: 15min, paid: 240min)
+    cloud_timeout=30,  # Optional: session timeout in minutes (max 240 min for all users)
 )
 
 # Or use a CDP URL from any cloud browser provider
@@ -730,7 +730,7 @@ agent = Agent(
 
 * `cloud_profile_id`: UUID of a browser profile (optional, uses default if not specified)
 * `cloud_proxy_country_code`: Country code for proxy location - supports: us, uk, fr, it, jp, au, de, fi, ca, in
-* `cloud_timeout`: Session timeout in minutes (free users: max 15 min, paid users: max 240 min)
+* `cloud_timeout`: Session timeout in minutes (up to 240 minutes / 4 hours for all users)
 
 **Benefits:**
 
