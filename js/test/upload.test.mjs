@@ -138,6 +138,19 @@ test('a failed upload says why and stops the cell, so nothing after it runs with
   assert.match(clicked, /^\[upload\] /m);
 });
 
+test('a page that never goes quiet still gets the recipe once per document', async () => {
+  // An attribute keeps changing, so every look ends on the settle cap, without a settle probe.
+  const BUSY = `${FORM}<script>setInterval(() => (document.body.dataset.tick = Date.now()), 20);</script>`;
+  const id = (state) => state.match(/^\*?\[(\d+)\] file "Attach scan"/m)[1];
+  await look(BUSY);
+  // Loaded again, the file line keeps its id: only the page can say that this is another document.
+  const [second, third] = [await look(BUSY), await look(BUSY)];
+  assert.equal(id(second), id(third));
+  assert.match(third, /^\[upload\] /m);
+  // And it does say so: a busy page does not get the recipe on every look.
+  assert.doesNotMatch(await run('await bu.state()'), /\[upload\]/);
+});
+
 test('the path call of the line uploads the whole file on this machine, also from a relative path', async () => {
   const state = await look(FORM);
   const id = state.match(/^\[(\d+)\] file "Attach scan"/m)[1];

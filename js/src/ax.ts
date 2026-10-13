@@ -420,9 +420,11 @@ export class AxHelpers {
       ];
     }
     // Once per file line, not on every look, and never when the size cut left no file line to use it on.
-    // Ids repeat across documents, so a new document starts over.
-    if (settled.probe?.doc !== this.recipeDoc) this.recipeFor.clear();
-    this.recipeDoc = settled.probe?.doc;
+    // Ids repeat across documents, so a new document starts over. A page that never went quiet has no settle probe:
+    // ask it now, and take a page that cannot say as new, so the recipe prints rather than goes missing.
+    const doc = (settled.probe ?? (await this.probe(page).catch(() => undefined)))?.doc;
+    if (doc === undefined || doc !== this.recipeDoc) this.recipeFor.clear();
+    this.recipeDoc = doc;
     const fileIds = body.flatMap((l) => l.match(/^\*?\[(\d+)\] file\b/)?.[1] ?? []);
     const upload = fileIds.some((id) => !this.recipeFor.has(id)) ? `\n${UPLOAD}` : '';
     this.recipeFor = new Set(fileIds);
