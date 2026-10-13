@@ -24,6 +24,8 @@ afterEach(async () => {
 });
 
 const run = async (code) => (await agent.execute(code)).text;
+/** A string value as printed by console.log: no REPL quoting to undo. */
+const value = async (code) => (await run(`console.log(${code})`)).trim();
 const look = (html) =>
   run(
     `await page.goto(${JSON.stringify(`data:text/html,${encodeURIComponent(html)}`)}); await bu.state()`,
@@ -80,36 +82,41 @@ test('the recipe as printed sets name, type and bytes, fires input and change, a
   const state = await look(FORM);
   const id = state.match(/^\[(\d+)\] file "Attach scan"/m)[1];
   const bytes = [0, 255, 128, 10, 13, 226, 130, 172];
-  const path = (await run(`await artifact('scan.png', Uint8Array.from(${JSON.stringify(bytes)}))`))
-    .trim()
-    .replace(/^'|'$/g, '');
+  const path = await value(`await artifact('scan.png', Uint8Array.from(${JSON.stringify(bytes)}))`);
   const block = recipe(state, id, path, 'image/png');
   // Twice in one cell: every name it declares is its own.
   const out = await run(`${block}; ${block}; await bu.state()`);
   assert.equal(out.match(/^files set: 1$/gm)?.length, 2, out);
   assert.match(out, /^\[\d+\] file "Attach scan" = "scan\.png"$/m);
-  assert.deepEqual(
-    JSON.parse(
-      JSON.parse(
-        `"${(await run(file("document.querySelector('#f')"))).trim().slice(1, -1).replace(/"/g, '\\"')}"`,
-      ),
-    ),
-    {
-      name: 'scan.png',
-      type: 'image/png',
-      bytes,
-    },
-  );
+  assert.deepEqual(JSON.parse(await value(file("document.querySelector('#f')"))), {
+    name: 'scan.png',
+    type: 'image/png',
+    bytes,
+  });
   assert.equal(
     await run("await page.evaluate(() => document.querySelector('#log').textContent)"),
     "'input change input change '",
   );
 });
 
+test('a file name with a quote and a backslash reaches the page unchanged', async () => {
+  const state = await look(FORM);
+  const id = state.match(/^\[(\d+)\] file "Attach scan"/m)[1];
+  const name = 'sc"an\\1\'.txt';
+  const path = join(workspace, name);
+  await run(`require('fs').writeFileSync(${JSON.stringify(path)}, 'text')`);
+  assert.match(await run(recipe(state, id, path, 'text/plain')), /^files set: 1$/m);
+  assert.deepEqual(JSON.parse(await value(file("document.querySelector('#f')"))), {
+    name,
+    type: 'text/plain',
+    bytes: [116, 101, 120, 116],
+  });
+});
+
 test('a failed upload says why and stops the cell, so nothing after it runs without the file', async () => {
   const state = await look(FORM);
   const button = state.match(/^\[(\d+)\] button "Choose file"/m)[1];
-  const path = (await run("await artifact('note.txt', 'text')")).trim().replace(/^'|'$/g, '');
+  const path = await value("await artifact('note.txt', 'text')");
   const failed = await agent
     .execute(`${recipe(state, button, path, 'text/plain')}; console.log('next statement ran')`)
     .then(
@@ -184,7 +191,7 @@ test('hidden file inputs get a line and the recipe, also in a shadow root and a 
   assert.ok(ids.maindoc && ids.inshadow && ids.inframe, state);
   assert.match(state, /^\[upload\] /m);
 
-  const path = (await run("await artifact('cv.txt', 'text')")).trim().replace(/^'|'$/g, '');
+  const path = await value("await artifact('cv.txt', 'text')");
   const out = await run(
     `${recipe(state, ids.inshadow, path, 'text/plain')}; ${recipe(state, ids.inframe, path, 'text/plain')}; await bu.state()`,
   );
