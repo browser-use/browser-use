@@ -58,8 +58,12 @@ test('the upload recipe prints once per file line, and only with a file line to 
   const again = await run('await bu.state()');
   assert.match(again, /^\[\d+\] file "Attach scan"/m);
   assert.doesNotMatch(again, /\[upload\]/);
-  // A file line with another id brings it again.
+  // A file line with another id brings it again, and so does another document whose file line has the same id.
   assert.match(await look(`<button>Before</button>${FORM}`), /^\[upload\] /m);
+  const id = (state) => state.match(/^\*?\[(\d+)\] file "Attach scan"/m)[1];
+  const [one, two] = [await look(FORM), await look(FORM)];
+  assert.equal(id(one), id(two));
+  assert.match(two, /^\[upload\] /m);
 
   // The size cut drops the middle of a long page. With the file line gone there is no id to use the recipe on.
   const long = await run(

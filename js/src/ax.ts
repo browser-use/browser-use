@@ -61,8 +61,9 @@ export class AxHelpers {
   private dialogs: string[] = [];
   /** Role and name of every id in the last print: marks new ids and names targets in action lines. */
   private last = new Map<number, { role: string; name: string }>();
-  /** File lines the last look printed: the upload recipe is not repeated for them. */
+  /** File lines the last look printed, and their document: the upload recipe is not repeated for them. */
   private recipeFor = new Set<string>();
+  private recipeDoc: number | undefined;
   /** Set by every action; the worker prints the state after that cell. */
   acted = false;
   /** When the last action's settle began, 0 after a failed action. */
@@ -418,6 +419,9 @@ export class AxHelpers {
       ];
     }
     // Once per file line, not on every look, and never when the size cut left no file line to use it on.
+    // Ids repeat across documents, so a new document starts over.
+    if (settled.probe?.doc !== this.recipeDoc) this.recipeFor.clear();
+    this.recipeDoc = settled.probe?.doc;
     const fileIds = body.flatMap((l) => l.match(/^\*?\[(\d+)\] file\b/)?.[1] ?? []);
     const upload = fileIds.some((id) => !this.recipeFor.has(id)) ? `\n${UPLOAD}` : '';
     this.recipeFor = new Set(fileIds);
