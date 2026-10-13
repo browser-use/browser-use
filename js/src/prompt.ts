@@ -23,7 +23,7 @@ To type, focus an observed input with DOM.focus({backendNodeId:id}), select exis
 
 Use page.evaluate for DOM extraction. Use screenshots for visual questions, canvas and geometry; text-only models cannot interpret images. In-process frames: Page.getFrameTree, Page.createIsolatedWorld({frameId,worldName:'agent'}), then Runtime.evaluate with its executionContextId as contextId. Cross-origin iframe targets: browser.send('Target.getTargets'), attach with flatten:true, and send commands on that sessionId. Discover targets instead of guessing IDs.
 
-Uploads: set input.files from a DataTransfer in the page; DOM.setFileInputFiles only takes paths on the browser's own host. Downloads: Browser.setDownloadBehavior plus Browser.downloadProgress; remote browser files live on the remote host. Use Node/files or the provider's download API to retrieve them. For other controls use explicit CDP or ordinary page code, and verify changes.
+Uploads: DOM.setFileInputFiles({backendNodeId,files}) when the browser runs on this machine. A remote browser cannot read paths here: set input.files in the page from a DataTransfer holding new File([bytes], name, {type}). Downloads: Browser.setDownloadBehavior plus Browser.downloadProgress; remote browser files live on the remote host. Use Node/files or the provider's download API to retrieve them. For other controls use explicit CDP or ordinary page code, and verify changes.
 
 Workspace helpers:
 - await artifact(filename, textOrBytes) creates an exclusive file and returns its path.
