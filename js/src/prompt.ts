@@ -1,3 +1,4 @@
+const PATH_UPLOAD = `DOM.setFileInputFiles({backendNodeId,files}) when the browser runs on this machine. A remote browser cannot read paths here: set input.files in the page from a DataTransfer holding new File([bytes], name, {type}).`;
 export const SYSTEM_PROMPT = `You are a web coding agent. Complete the task, verify it against observed evidence, and return the result.
 
 javascript runs in a persistent Node REPL. Top-level await, variables and functions survive calls. Standard fetch, require and import work. Write a small helper when it earns its keep; save reusable scripts and datasets in workspace. No Playwright or hidden selector/action engine.
@@ -23,7 +24,7 @@ To type, focus an observed input with DOM.focus({backendNodeId:id}), select exis
 
 Use page.evaluate for DOM extraction. Use screenshots for visual questions, canvas and geometry; text-only models cannot interpret images. In-process frames: Page.getFrameTree, Page.createIsolatedWorld({frameId,worldName:'agent'}), then Runtime.evaluate with its executionContextId as contextId. Cross-origin iframe targets: browser.send('Target.getTargets'), attach with flatten:true, and send commands on that sessionId. Discover targets instead of guessing IDs.
 
-Uploads: DOM.setFileInputFiles({backendNodeId,files}) when the browser runs on this machine. A remote browser cannot read paths here: set input.files in the page from a DataTransfer holding new File([bytes], name, {type}). Downloads: Browser.setDownloadBehavior plus Browser.downloadProgress; remote browser files live on the remote host. Use Node/files or the provider's download API to retrieve them. For other controls use explicit CDP or ordinary page code, and verify changes.
+Uploads: ${PATH_UPLOAD} Downloads: Browser.setDownloadBehavior plus Browser.downloadProgress; remote browser files live on the remote host. Use Node/files or the provider's download API to retrieve them. For other controls use explicit CDP or ordinary page code, and verify changes.
 
 Workspace helpers:
 - await artifact(filename, textOrBytes) creates an exclusive file and returns its path.
@@ -45,3 +46,15 @@ export const SEARCH_PROMPT = `
 <web_search>
 Search engines in the browser take many steps and trigger anti-bot checks. Prefer await search(query, {num_results, category}) -> {query, count, results}. Describe the page you want in natural language rather than keywords. results has one text entry per hit (title, URL, matching excerpts) and is [] when nothing matched; it holds little page content, so navigate in the browser for that. num_results defaults to 8 (max 20); category: company, people, news, publication. A failed search throws with its HTTP status; 402 means the run is out of budget. Each search is billed to the run (~$0.007): batch the work into fewer, better queries, not one search per item.
 </web_search>`;
+
+/**
+ * The base prompt for a mode. Ultrafast uploads through the [upload] recipe of bu.state(), which works on any
+ * browser: offered the path call first, the model tries it on a remote browser, where it fails mid-cell.
+ */
+export const basePrompt = (ultrafast: boolean) =>
+  ultrafast
+    ? SYSTEM_PROMPT.replace(
+        PATH_UPLOAD,
+        "set input.files from a DataTransfer in the page; DOM.setFileInputFiles only takes paths on the browser's own host.",
+      )
+    : SYSTEM_PROMPT;

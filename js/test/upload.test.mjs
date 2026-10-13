@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserUse } from '../dist/index.js';
-import { SYSTEM_PROMPT } from '../dist/prompt.js';
+import { SYSTEM_PROMPT, basePrompt } from '../dist/prompt.js';
 import { AX_PROMPT } from '../dist/ax.js';
 
 // A fresh agent per test: the recipe prints once per file line, and ids repeat across pages.
@@ -171,13 +171,19 @@ test('hidden file inputs get a line and the recipe, also in a shadow root and a 
     );
 });
 
-test('the base prompt keeps the path call for a browser on this machine and names the bytes way for a remote one', () => {
+test('the base prompt keeps the path call on this machine; ultrafast is never offered it first', () => {
+  // Default mode: the path call as before, and the bytes way with the type for a remote browser.
+  assert.equal(basePrompt(false), SYSTEM_PROMPT);
   assert.match(
     SYSTEM_PROMPT,
-    /Uploads: DOM\.setFileInputFiles\(\{backendNodeId,files\}\) when the browser runs on this machine\./,
+    /Uploads: DOM\.setFileInputFiles\(\{backendNodeId,files\}\) when the browser runs on this machine\. A remote browser cannot read paths here: .*new File\(\[bytes\], name, \{type\}\)\. Downloads: /,
   );
+  // Ultrafast: a remote browser refuses a path mid-cell, so its sentence leads with the way the [upload] line spells out.
+  const ultrafast = basePrompt(true);
   assert.match(
-    SYSTEM_PROMPT,
-    /A remote browser cannot read paths here: .*new File\(\[bytes\], name, \{type\}\)/,
+    ultrafast,
+    /Uploads: set input\.files from a DataTransfer in the page; DOM\.setFileInputFiles only takes paths on the browser's own host\. Downloads: /,
   );
+  assert.doesNotMatch(ultrafast, /when the browser runs on this machine/);
+  assert.equal(ultrafast.length, 5896);
 });
