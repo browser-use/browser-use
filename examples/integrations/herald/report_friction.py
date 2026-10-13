@@ -5,14 +5,13 @@ Uses Herald (https://github.com/siddhi-bansal/herald-browser-use), which collect
 from agents so the site's owners can fix what broke, and turns repeated problems into tips.
 
 Setup:
-1. uv pip install herald-browser-use
-2. Get your API key from https://cloud.browser-use.com/new-api-key
-3. Set environment variable: export BROWSER_USE_API_KEY="your-key"
-4. Optional, for tips: run `python -m herald_browser_use signup you@example.com`,
+1. Get your API key from https://cloud.browser-use.com/new-api-key
+2. Set environment variable: export BROWSER_USE_API_KEY="your-key"
+3. Optional, for tips: run `uv run --with herald-browser-use python -m herald_browser_use signup you@example.com`,
    then export HERALD_API_KEY="the key it prints"
 
-Run:
-uv run examples/integrations/herald/report_friction.py
+Run (from the repository root; --with adds herald-browser-use to the environment for this run):
+uv run --with herald-browser-use examples/integrations/herald/report_friction.py
 """
 
 import asyncio
