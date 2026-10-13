@@ -217,7 +217,9 @@ async def test_network_fallback_stops_when_cdp_completes(tmp_path) -> None:
 	assert rig.watchdog._claim_cdp_download('guid-1')
 	rig.watchdog._mark_cdp_download_handled('guid-1')
 
-	assert await waiter is False
+	# A claimed owner alone must not hide a missing completion wake-up: without
+	# the event this would otherwise pass only after the 20-second fallback.
+	assert await asyncio.wait_for(waiter, timeout=1) is False
 	assert rig.watchdog._download_owners[url] == 'cdp'
 
 
@@ -232,7 +234,7 @@ async def test_network_fallback_observes_cdp_completion_before_task_starts(tmp_p
 	rig.watchdog._mark_cdp_download_handled('guid-1')
 	del rig.watchdog._cdp_downloads_info['guid-1']  # remote completion cleanup
 
-	assert await rig.watchdog._cdp_handled_or_claim_network(url) is False
+	assert await asyncio.wait_for(rig.watchdog._cdp_handled_or_claim_network(url), timeout=1) is False
 
 
 async def test_network_fallback_runs_after_cdp_timeout(tmp_path, monkeypatch) -> None:
