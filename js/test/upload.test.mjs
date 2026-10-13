@@ -52,7 +52,7 @@ test('the upload recipe prints once per file line, and only with a file line to 
   assert.match(first, /^\[\d+\] file "Attach scan" = "No file chosen"$/m);
   assert.match(
     first,
-    /^\[upload\] .*50 MB.*DOM\.setFileInputFiles', \{backendNodeId: id, files: \[path\]\}\)$/m,
+    /^\[upload\] .*50 MB.*DOM\.setFileInputFiles', \{backendNodeId: id, files: \[require\('path'\)\.resolve\(path\)\]\}\)$/m,
   );
   // The same file line again: the model has the recipe already.
   const again = await run('await bu.state()');
@@ -106,15 +106,18 @@ test('the recipe as printed sets name, type and bytes, fires input and change, a
   );
 });
 
-test('a failed upload says why, also with code after it', async () => {
+test('a failed upload says why and stops the cell, so nothing after it runs without the file', async () => {
   const state = await look(FORM);
   const button = state.match(/^\[(\d+)\] button "Choose file"/m)[1];
   const path = (await run("await artifact('note.txt', 'text')")).trim().replace(/^'|'$/g, '');
-  const out = await run(
-    `${recipe(state, button, path, 'text/plain')}; console.log('next statement ran')`,
-  );
-  assert.match(out, /^upload failed: Error: not a file input$/m);
-  assert.match(out, /^next statement ran$/m);
+  const failed = await agent
+    .execute(`${recipe(state, button, path, 'text/plain')}; console.log('next statement ran')`)
+    .then(
+      () => assert.fail('the cell went on'),
+      (e) => `${e.message}\n${e.result?.text ?? ''}`,
+    );
+  assert.match(failed, /upload failed: Error: not a file input/);
+  assert.doesNotMatch(failed, /next statement ran/);
   assert.equal(
     await run("await page.evaluate(() => document.querySelector('#f').files.length)"),
     '0',
@@ -133,6 +136,25 @@ test('a failed upload says why, also with code after it', async () => {
     /File input: clicking opens the OS file chooser; set its files with the \[upload\] line of bu\.state\(\) instead/,
   );
   assert.match(clicked, /^\[upload\] /m);
+});
+
+test('the path call of the line uploads the whole file on this machine, also from a relative path', async () => {
+  const state = await look(FORM);
+  const id = state.match(/^\[(\d+)\] file "Attach scan"/m)[1];
+  const call = state.match(
+    /^\[upload\] .*(await page\.cdp\('DOM\.setFileInputFiles', .*\))$/m,
+  )?.[1];
+  assert.ok(call, state);
+  // Chrome resolves a relative path from its own directory and hands the page an empty file: the call makes it absolute.
+  await run(
+    `await artifact('big.bin', new Uint8Array(70_000).fill(7)); const id = ${id}, path = 'big.bin'; ${call}`,
+  );
+  assert.equal(
+    await run(
+      "await page.evaluate(() => { const f = document.querySelector('#f').files[0]; return f.name + ' ' + f.size })",
+    ),
+    "'big.bin 70000'",
+  );
 });
 
 test('hidden file inputs get a line and the recipe, also in a shadow root and a same-origin frame', async () => {
