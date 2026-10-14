@@ -24,6 +24,7 @@ def test_init_returns_failure_when_template_cannot_be_written(template_server: P
 
 	assert result.exit_code == 1
 	assert 'Error writing file' in output
+	assert template_server.name in output.partition('Error writing file:')[2]
 	assert 'Next steps' not in output
 	assert template_server.is_dir()
 
