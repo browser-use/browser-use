@@ -266,6 +266,7 @@ class RecordHarMode(str, Enum):
 
 class BrowserChannel(str, Enum):
 	CHROMIUM = 'chromium'
+	CAMOUFOX = 'camoufox'
 	CHROME = 'chrome'
 	CHROME_BETA = 'chrome-beta'
 	CHROME_DEV = 'chrome-dev'
