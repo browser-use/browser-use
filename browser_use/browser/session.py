@@ -15,6 +15,8 @@ from cdp_use.cdp.target import AttachedToTargetEvent, SessionID, TargetID
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
 
+from browser_use.browser.backends import BrowserBackend, CdpBackend
+
 # CDP logging is now handled by setup_logging() in logging_config.py
 # It automatically sets CDP logs to the same level as browser_use logs
 from browser_use.browser.events import (
@@ -313,6 +315,46 @@ class BrowserSession(BaseModel):
 		"""Whether this is a local browser instance from browser profile."""
 		return self.browser_profile.is_local
 
+	@property
+	def _backend(self) -> BrowserBackend:
+		"""Get the backend selected for this browser profile."""
+		if self._backend_cached is None:
+			if getattr(self.browser_profile, 'channel', 'chromium') == 'camoufox':
+				from browser_use.browser.backends import CamoufoxBackend
+
+				self._backend_cached = CamoufoxBackend(self.browser_profile)
+			else:
+				self._backend_cached = CdpBackend(self.browser_profile)
+		return self._backend_cached
+
+	async def launch(self):
+		return await self._backend.launch()
+
+	async def new_page(self, url: str):
+		return await self._backend.new_page(url)
+
+	async def navigate(self, page_id: str, url: str):
+		return await self._backend.navigate(page_id, url)
+
+	async def get_dom_snapshot(self, page_id: str):
+		return await self._backend.get_dom_snapshot(page_id)
+
+	async def get_ax_tree(self, page_id: str):
+		return await self._backend.get_ax_tree(page_id)
+
+	async def screenshot(self, page_id: str):
+		return await self._backend.screenshot(page_id)
+
+	async def click(self, page_id: str, selector: str | None = None, x: int | None = None, y: int | None = None):
+		if x is not None and y is not None:
+			return await self._backend.click(page_id, selector=selector or '', x=x, y=y)
+		if selector:
+			return await self._backend.click(page_id, selector=selector)
+		raise ValueError('click() requires either a selector or x and y coordinates')
+
+	async def type_text(self, page_id: str, selector: str, text: str):
+		return await self._backend.type_text(page_id, selector, text)
+
 	# Main shared event bus for all browser session + all watchdogs
 	event_bus: EventBus = Field(default_factory=EventBus)
 
@@ -321,6 +363,7 @@ class BrowserSession(BaseModel):
 
 	# Mutable private state shared between watchdogs
 	_cdp_client_root: CDPClient | None = PrivateAttr(default=None)
+	_backend_cached: BrowserBackend | None = PrivateAttr(default=None)
 	_cdp_session_pool: dict[str, CDPSession] = PrivateAttr(default_factory=dict)
 	_cached_browser_state_summary: Any = PrivateAttr(default=None)
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
@@ -386,6 +429,7 @@ class BrowserSession(BaseModel):
 		self._cdp_session_pool.clear()
 
 		self._cdp_client_root = None  # type: ignore
+		self._backend_cached = None
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self._downloaded_files.clear()
