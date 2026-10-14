@@ -478,6 +478,14 @@ class DownloadsWatchdog(BaseWatchdog):
 							del self._cdp_downloads_info[guid]
 
 		try:
+			# Deny downloads before any downloads_path check, so a profile without a path can't fall back to the browser default
+			if not self.browser_session.browser_profile.accept_downloads:
+				if not self._download_cdp_session_setup:
+					await self.browser_session.cdp_client.send.Browser.setDownloadBehavior(params={'behavior': 'deny'})
+					self._download_cdp_session_setup = True
+					self.logger.debug('[DownloadsWatchdog] accept_downloads=False, denying browser downloads')
+				return
+
 			downloads_path_raw = self.browser_session.browser_profile.downloads_path
 			if not downloads_path_raw:
 				# logger.info(f'[DownloadsWatchdog] No downloads path configured, skipping target: {target_id}')
@@ -497,13 +505,6 @@ class DownloadsWatchdog(BaseWatchdog):
 			if not self._download_cdp_session_setup:
 				# Set up CDP session for downloads (only once per browser session)
 				cdp_client = self.browser_session.cdp_client
-
-				if not self.browser_session.browser_profile.accept_downloads:
-					# Downloads are disabled: make the browser refuse them instead of leaving its default behavior
-					await cdp_client.send.Browser.setDownloadBehavior(params={'behavior': 'deny'})
-					self._download_cdp_session_setup = True
-					self.logger.debug('[DownloadsWatchdog] accept_downloads=False, denying browser downloads')
-					return
 
 				# Set download behavior to allow downloads and enable events
 				downloads_path = self.browser_session.browser_profile.downloads_path

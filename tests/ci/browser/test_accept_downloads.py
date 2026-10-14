@@ -44,9 +44,10 @@ async def _visit_and_list_downloads(server: HTTPServer, tmp_path, accept_downloa
 	try:
 		try:
 			await session.navigate_to(server.url_for(path))
-		except Exception:
-			# Navigating to a download aborts the navigation, which is expected
-			pass
+		except RuntimeError as e:
+			# Navigating to a download (allowed or denied) aborts the navigation; anything else is a real failure
+			if 'net::ERR_ABORTED' not in str(e):
+				raise
 		await asyncio.sleep(3)
 	finally:
 		await session.kill()
@@ -62,6 +63,11 @@ async def test_attachment_is_saved_when_downloads_accepted(download_server, tmp_
 async def test_attachment_is_not_saved_when_downloads_disabled(download_server, tmp_path):
 	files = await _visit_and_list_downloads(download_server, tmp_path, accept_downloads=False, path='/report.csv')
 	assert files == []
+
+
+async def test_pdf_is_auto_downloaded_when_downloads_accepted(download_server, tmp_path):
+	files = await _visit_and_list_downloads(download_server, tmp_path, accept_downloads=True, path='/document.pdf')
+	assert 'document.pdf' in files
 
 
 async def test_pdf_is_not_auto_downloaded_when_downloads_disabled(download_server, tmp_path):
