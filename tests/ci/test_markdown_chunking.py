@@ -42,6 +42,7 @@ class TestChunkMarkdownBasic:
 		assert chunks[0].char_offset_start == 0
 		# Last chunk ends at content length
 		assert chunks[-1].char_offset_end == len(content)
+		assert ''.join(chunk.content for chunk in chunks) == content
 
 	def test_last_chunk_offset_equals_len_for_trailing_newline(self):
 		"""Content ending in a newline must report char_offset_end == len(content).
@@ -283,11 +284,12 @@ class TestChunkMarkdownTrailingNewline:
 
 	def test_trailing_blank_lines_still_produce_real_chunks(self):
 		"""Blank lines are real characters, so they stay; only the phantom one goes."""
-		content = 'First paragraph.\n\n\n'
-		chunks = chunk_markdown_by_structure(content, max_chunk_chars=100_000)
+		for content in ['First paragraph.\n', 'First paragraph.\n\n\n', '\n', '\n\n\n']:
+			chunks = chunk_markdown_by_structure(content, max_chunk_chars=100_000)
 
-		assert len(chunks) == 1
-		assert chunks[-1].has_more is False
+			assert len(chunks) == 1
+			assert chunks[0].content == content
+			assert chunks[-1].has_more is False
 
 
 class TestChunkMarkdownOverlap:

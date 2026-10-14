@@ -496,9 +496,9 @@ def chunk_markdown_by_structure(
 	prev_chunk_last_table_header: str | None = None
 
 	for idx, chunk_blocks in enumerate(raw_chunks):
-		chunk_text = '\n'.join(_block_text(b) for b in chunk_blocks)
 		char_start = chunk_blocks[0].char_start
 		char_end = chunk_blocks[-1].char_end
+		chunk_text = content[char_start:char_end]
 
 		# Build overlap prefix
 		overlap = ''
