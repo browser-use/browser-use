@@ -302,7 +302,8 @@ class DownloadsWatchdog(BaseWatchdog):
 
 	def _is_auto_download_enabled(self) -> bool:
 		"""Check if auto-download PDFs is enabled in browser profile."""
-		return self.browser_session.browser_profile.auto_download_pdfs
+		profile = self.browser_session.browser_profile
+		return profile.accept_downloads and profile.auto_download_pdfs
 
 	async def attach_to_target(self, target_id: TargetID) -> None:
 		"""Set up download monitoring for a specific target."""
@@ -496,6 +497,13 @@ class DownloadsWatchdog(BaseWatchdog):
 			if not self._download_cdp_session_setup:
 				# Set up CDP session for downloads (only once per browser session)
 				cdp_client = self.browser_session.cdp_client
+
+				if not self.browser_session.browser_profile.accept_downloads:
+					# Downloads are disabled: make the browser refuse them instead of leaving its default behavior
+					await cdp_client.send.Browser.setDownloadBehavior(params={'behavior': 'deny'})
+					self._download_cdp_session_setup = True
+					self.logger.debug('[DownloadsWatchdog] accept_downloads=False, denying browser downloads')
+					return
 
 				# Set download behavior to allow downloads and enable events
 				downloads_path = self.browser_session.browser_profile.downloads_path
