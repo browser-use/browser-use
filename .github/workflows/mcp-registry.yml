@@ -21,13 +21,16 @@ jobs:
   publish_to_mcp_registry:
     if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'release')
     runs-on: ubuntu-latest
+    # Holds MCP_REGISTRY_PRIVATE_KEY; restrict the environment to main so branch workflows cannot read it.
+    environment: mcp-registry-publish
     env:
       MCP_REGISTRY_PRIVATE_KEY: ${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}
       VERSION: ${{ inputs.version || github.event.workflow_run.head_branch }}
     steps:
+      # The release's own commit; a manual run uses the ref it was dispatched from.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: main
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Check version and key
         id: check
