@@ -549,3 +549,22 @@ class TestExistingToolsActions:
 		assert 'hello-42' in result2.extracted_content
 		assert 'Individual:' in result1.extracted_content
 		assert 'Pydantic:' in result2.extracted_content
+
+	async def test_value_bindings_are_applied_during_execute_action(self, registry, browser_session):
+		"""Test that value bindings are applied when executing an action."""
+
+		@registry.action('Value binding action')
+		async def value_binding_action(text: str, browser_session: BrowserSession):
+			return ActionResult(extracted_content=text)
+
+		result = await registry.execute_action(
+			'value_binding_action',
+			{'text': '<value>form_data</value>'},
+			browser_session=browser_session,
+			value_bindings={
+				'form_data': 'This is a long non-secret form value ' * 200,
+			},
+		)
+
+		assert result.extracted_content is not None
+		assert result.extracted_content == 'This is a long non-secret form value ' * 200

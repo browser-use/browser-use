@@ -338,6 +338,7 @@ class Registry(Generic[Context]):
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
 		extraction_schema: dict | None = None,
+		value_bindings: dict[str, str] | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
 		if action_name not in self.registry.actions:
@@ -351,6 +352,9 @@ class Registry(Generic[Context]):
 			except Exception as e:
 				raise ValueError(f'Invalid parameters {params} for action {action_name}: {type(e)}: {e}') from e
 
+			if value_bindings:
+				validated_params = self._replace_value_bindings(validated_params, value_bindings)
+
 			if sensitive_data:
 				# Get current URL if browser_session is provided
 				current_url = None
@@ -362,6 +366,7 @@ class Registry(Generic[Context]):
 							current_url = target.url
 					except Exception:
 						pass
+
 				validated_params = self._replace_sensitive_data(validated_params, sensitive_data, current_url)
 
 			# Build special context dict
@@ -514,6 +519,59 @@ class Registry(Generic[Context]):
 			logger.warning(f'Missing or empty keys in sensitive_data dictionary: {", ".join(all_missing_placeholders)}')
 
 		return type(params).model_validate(processed_params)
+
+	def _replace_value_bindings(
+		self,
+		params: BaseModel,
+		value_bindings: dict[str, str],
+	) -> BaseModel:
+		"""
+		Replace non-secret value binding placeholders with their exact values.
+
+		Value bindings are intentionally separate from sensitive data. They do not
+		use domain restrictions or secret-specific handling.
+		"""
+		if not value_bindings:
+			return params
+
+		def recursively_replace_values(value: str | dict | list | tuple) -> str | dict | list | tuple:
+			if isinstance(value, str):
+				return re.sub(
+					r'<value>([^<]*)</value>',
+					lambda match: value_bindings.get(match.group(1), match.group(0)),
+					value,
+				)
+
+			if isinstance(value, dict):
+				updated_dict = {}
+
+				for key, item in value.items():
+					updated_key = recursively_replace_values(key) if isinstance(key, (str, dict, list, tuple)) else key
+
+					if updated_key in updated_dict:
+						raise ValueError(f'Value binding replacement caused duplicate dictionary key: {updated_key!r}')
+
+					updated_dict[updated_key] = (
+						recursively_replace_values(item) if isinstance(item, (str, dict, list, tuple)) else item
+					)
+
+				return updated_dict
+
+			if isinstance(value, list):
+				return [
+					recursively_replace_values(item) if isinstance(item, (str, dict, list, tuple)) else item for item in value
+				]
+
+			if isinstance(value, tuple):
+				return tuple(
+					recursively_replace_values(item) if isinstance(item, (str, dict, list, tuple)) else item for item in value
+				)
+
+			return value
+
+		updated_data = recursively_replace_values(params.model_dump())
+
+		return params.__class__.model_validate(updated_data)
 
 	# @time_execution_sync('--create_action_model')
 	def create_action_model(self, include_actions: list[str] | None = None, page_url: str | None = None) -> type[ActionModel]:

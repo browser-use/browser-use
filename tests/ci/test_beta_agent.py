@@ -122,24 +122,24 @@ def test_beta_agent_constructor_signature_matches_browser_use_order(tmp_path):
 
 	assert beta_params == browser_use_params
 
-	values = []
+	values = {}
 	for param in list(inspect.signature(BetaAgent.__init__).parameters.values())[1:]:
 		if param.name == 'task':
-			values.append('Check constructor parity.')
+			values[param.name] = 'Check constructor parity.'
 		elif param.name == 'llm':
-			values.append(type('LLM', (), {'model': 'gpt-test', 'provider': 'test-provider'})())
+			values[param.name] = type('LLM', (), {'model': 'gpt-test', 'provider': 'test-provider'})()
 		elif param.name == 'source':
-			values.append('signature-source')
+			values[param.name] = 'signature-source'
 		elif param.name == 'file_system_path':
-			values.append(str(tmp_path / 'agent-files'))
+			values[param.name] = str(tmp_path / 'agent-files')
 		elif param.name == 'task_id':
-			values.append('signature-task-id')
+			values[param.name] = 'signature-task-id'
 			break
 		else:
 			assert param.default is not inspect.Parameter.empty
-			values.append(param.default)
+			values[param.name] = param.default
 
-	agent = BetaAgent(*values)
+	agent = BetaAgent(**values)
 
 	assert agent.source == 'signature-source'
 	assert agent.file_system_path == str(tmp_path / 'agent-files')
@@ -7053,6 +7053,7 @@ async def test_beta_agent_exposes_prepare_context_helper_method(monkeypatch):
 			'page_filtered_actions': 'filtered action prompt',
 			'sensitive_data': {'api_key': 'secret-value'},
 			'available_file_paths': ['/tmp/input.txt'],
+			'value_bindings': None,
 		}
 	]
 	assert agent.AgentOutput is agent.DoneAgentOutput
