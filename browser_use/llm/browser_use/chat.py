@@ -17,8 +17,8 @@ from pydantic import BaseModel
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
-from browser_use.llm.views import ChatInvokeCompletion
-from browser_use.observability import observe
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
+from browser_use.observability import observe, set_span_attributes
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -124,7 +124,7 @@ class ChatBrowserUse(BaseChatModel):
 		self, messages: list[BaseMessage], output_format: type[T], request_type: str = 'browser_agent', **kwargs: Any
 	) -> ChatInvokeCompletion[T]: ...
 
-	@observe(name='chat_browser_use_ainvoke')
+	@observe(name='chat_browser_use_ainvoke', span_type='LLM')
 	async def ainvoke(
 		self,
 		messages: list[BaseMessage],
@@ -224,6 +224,13 @@ class ChatBrowserUse(BaseChatModel):
 				raise ValueError(f'Request failed after {self.max_retries} attempts: {last_error}')
 			raise RuntimeError('Retry loop completed without return or exception')
 
+		# Parse usage first: the gateway billed this call even if the completion fails validation below
+		usage = None
+		if 'usage' in result and result['usage'] is not None:
+			usage = ChatInvokeUsage(**result['usage'])
+
+		set_span_attributes(self._llm_span_attributes(usage, result.get('cost')))
+
 		# Parse response - server returns structured data as dict
 		if output_format is not None:
 			# Server returns structured data as a dict, validate it
@@ -249,17 +256,29 @@ class ChatBrowserUse(BaseChatModel):
 		else:
 			completion = result['completion']
 
-		# Parse usage info
-		usage = None
-		if 'usage' in result and result['usage'] is not None:
-			from browser_use.llm.views import ChatInvokeUsage
-
-			usage = ChatInvokeUsage(**result['usage'])
-
 		return ChatInvokeCompletion(
 			completion=completion,
 			usage=usage,
 		)
+
+	def _llm_span_attributes(self, usage: ChatInvokeUsage | None, cost: Any) -> dict[str, Any]:
+		"""gen_ai.* attributes Laminar needs to show tokens and cost on the LLM span.
+
+		The gateway returns the billed USD cost; Laminar has no price table for bu-* models.
+		"""
+		attributes: dict[str, Any] = {
+			'gen_ai.system': self.provider,
+			'gen_ai.request.model': self.model,
+		}
+		if usage is not None:
+			attributes['gen_ai.usage.input_tokens'] = usage.prompt_tokens
+			attributes['gen_ai.usage.output_tokens'] = usage.completion_tokens
+			attributes['llm.usage.total_tokens'] = usage.total_tokens
+			attributes['gen_ai.usage.cache_read_input_tokens'] = usage.prompt_cached_tokens
+			attributes['gen_ai.usage.cache_creation_input_tokens'] = usage.prompt_cache_creation_tokens
+		if isinstance(cost, dict) and isinstance(cost.get('total'), (int, float)):
+			attributes['gen_ai.usage.cost'] = float(cost['total'])
+		return attributes
 
 	async def _make_request(self, payload: dict) -> dict:
 		"""Make a single API request."""
