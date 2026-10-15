@@ -5,6 +5,7 @@ This directory is for examples that show Browser Use working with external produ
 ## Shipped integrations
 
 - [Anthropic Browser Use](anthropic/README.md) - Run the Anthropic SDK tool runner with Browser Use and Bash.
+- [ARC precheck](arc/README.md) - Read a saved ARC pre-checkout answer, then try to reach checkout.
 
 ## Where to put integration contributions
 
