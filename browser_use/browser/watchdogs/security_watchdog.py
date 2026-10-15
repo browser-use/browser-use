@@ -9,6 +9,7 @@ from browser_use.browser.events import (
 	NavigateToUrlEvent,
 	NavigationCompleteEvent,
 	TabCreatedEvent,
+	TargetUrlChangedEvent,
 )
 from browser_use.browser.watchdog_base import BaseWatchdog
 
@@ -27,6 +28,7 @@ class SecurityWatchdog(BaseWatchdog):
 		NavigateToUrlEvent,
 		NavigationCompleteEvent,
 		TabCreatedEvent,
+		TargetUrlChangedEvent,
 	]
 	EMITS: ClassVar[list[type[BaseEvent]]] = [
 		BrowserErrorEvent,
@@ -69,6 +71,40 @@ class SecurityWatchdog(BaseWatchdog):
 				self.logger.info(f'⛔️ Navigated to about:blank after blocked URL: {event.url}')
 			except Exception as e:
 				self.logger.error(f'⛔️ Failed to navigate to about:blank: {type(e).__name__} {e}')
+
+	async def on_TargetUrlChangedEvent(self, event: TargetUrlChangedEvent) -> None:
+		"""Block tabs that ended up on a disallowed URL without going through NavigateToUrlEvent.
+
+		Covers page-initiated navigation (location.href, meta refresh), tabs opened by the page
+		(window.open, target=_blank), history navigation and switching to an existing tab.
+		"""
+		# Browser-internal pages (about:blank, chrome-error://...) are not subject to the policy
+		if event.url.startswith(('about:', 'chrome-error:')):
+			return
+		if self._is_url_allowed(event.url):
+			return
+
+		self.logger.warning(f'⛔️ Tab navigated to non-allowed URL: {event.url}')
+		self.event_bus.dispatch(
+			BrowserErrorEvent(
+				error_type='NavigationBlocked',
+				message=f'Navigation blocked to non-allowed URL: {event.url} - redirecting to about:blank',
+				details={'url': event.url, 'target_id': event.target_id},
+			)
+		)
+		try:
+			session = await self.browser_session.get_or_create_cdp_session(target_id=event.target_id, focus=False)
+			# The tab may have navigated again while we awaited the session; never blank a newer, possibly allowed page
+			target = (
+				self.browser_session.session_manager.get_target(event.target_id) if self.browser_session.session_manager else None
+			)
+			if target is None or target.url != event.url:
+				self.logger.debug(f'Ignoring stale URL change for {event.url}: tab is now on {target.url if target else None}')
+				return
+			await session.cdp_client.send.Page.navigate(params={'url': 'about:blank'}, session_id=session.session_id)
+			self.logger.info(f'⛔️ Navigated to about:blank after blocked URL: {event.url}')
+		except Exception as e:
+			self.logger.error(f'⛔️ Failed to navigate to about:blank: {type(e).__name__} {e}')
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Check if new tab URL is allowed."""
