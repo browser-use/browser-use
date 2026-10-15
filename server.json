@@ -7,18 +7,18 @@
 		"source": "github"
 	},
 	"websiteUrl": "https://browser-use.com",
-	"version": "0.13.5",
+	"version": "0.13.10",
 	"packages": [
 		{
 			"registryType": "pypi",
 			"registryBaseUrl": "https://pypi.org",
 			"identifier": "browser-use",
-			"version": "0.13.5",
+			"version": "0.13.10",
 			"runtimeHint": "uvx",
 			"packageArguments": [
 				{
 					"type": "positional",
-					"value": "--cli-mcp"
+					"value": "--mcp"
 				}
 			],
 			"transport": {
