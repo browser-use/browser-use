@@ -1192,6 +1192,7 @@ async function initialize(checkInitialized, magic) {{
 
 	def _extract_extension(self, crx_path: Path, extract_dir: Path) -> None:
 		"""Extract .crx file to directory."""
+		import io
 		import os
 		import zipfile
 
@@ -1233,16 +1234,9 @@ async function initialize(checkInitialized, magic) {{
 				# Extract ZIP data
 				zip_data = f.read()
 
-			# Write ZIP data to temp file and extract
-
-			with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
-				temp_zip.write(zip_data)
-				temp_zip.flush()
-
-				with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
-					zip_ref.extractall(extract_dir)
-
-				os.unlink(temp_zip.name)
+			# Extract ZIP data directly in memory without temporary files
+			with zipfile.ZipFile(io.BytesIO(zip_data)) as zip_ref:
+				zip_ref.extractall(extract_dir)
 
 	def detect_display_configuration(self) -> None:
 		"""
