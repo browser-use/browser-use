@@ -197,3 +197,21 @@ async def test_sdk_accepts_uncommitted_tab_without_url(driver, monkeypatch):
 		assert all(tab['url'] == 'about:blank' for tab in result['state']['tabs'])
 	finally:
 		tools.close()
+
+
+@pytest.mark.asyncio
+async def test_screenshot_and_pointer_share_css_pixels_at_double_scale(driver):
+	page = await fixture_page(
+		driver,
+		"""<button style="position:fixed;left:100px;top:100px;width:100px;height:50px;background:blue" onclick="document.title='Clicked'">Target</button>""",
+	)
+	await driver.browser.cdp_client.send.Emulation.setDeviceMetricsOverride(
+		{'width': 400, 'height': 300, 'deviceScaleFactor': 2, 'mobile': False},
+		session_id=await page.session_id,
+	)
+	screenshot = await driver.screenshot({'tab_id': None})
+	with Image.open(BytesIO(base64.b64decode(screenshot['image_url'].split(',', 1)[1]))) as image:
+		assert image.size == (400, 300)
+		assert image.convert('RGB').getpixel((110, 110)) == (0, 0, 255)
+	await driver.click_at({'tab_id': None, 'x': 150, 'y': 125, 'button': 'left', 'click_count': 1, 'keys': []})
+	assert await page.evaluate('() => document.title') == 'Clicked'

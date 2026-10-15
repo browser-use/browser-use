@@ -231,7 +231,16 @@ class BrowserUse:
 	async def screenshot(self, args: api.TabInput) -> dict[str, str]:
 		"""Capture the selected viewport as a native image input."""
 		page = await self._page(args['tab_id'])
-		return {'type': 'input_image', 'image_url': 'data:image/png;base64,' + await page.screenshot(), 'detail': 'original'}
+		metrics = await self.browser.cdp_client.send.Page.getLayoutMetrics(session_id=await page.session_id)
+		viewport = metrics['cssVisualViewport']
+		size = (round(viewport['clientWidth']), round(viewport['clientHeight']))
+		data = await page.screenshot()
+		with Image.open(BytesIO(base64.b64decode(data))) as image:
+			if image.size != size:
+				output = BytesIO()
+				image.resize(size, Image.Resampling.LANCZOS).save(output, format='PNG')
+				data = base64.b64encode(output.getvalue()).decode()
+		return {'type': 'input_image', 'image_url': 'data:image/png;base64,' + data, 'detail': 'original'}
 
 	async def zoom(self, args: api.ZoomInput) -> dict[str, str]:
 		"""Crop a screenshot without changing the pointer coordinate origin."""
