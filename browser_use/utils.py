@@ -566,7 +566,7 @@ def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: b
 
 	Supports optional glob patterns and schemes:
 	- *.example.com will match sub.example.com and example.com
-	- *google.com will match google.com, agoogle.com, and www.google.com
+	- *google.com is unsupported and will not match google.com, agoogle.com, or www.google.com
 	- http*://example.com will match http://example.com, https://example.com
 	- chrome-extension://* will match chrome-extension://aaaaaaaaaaaa and chrome-extension://bbbbbbbbbbbbb
 
