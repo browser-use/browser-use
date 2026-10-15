@@ -3,6 +3,7 @@ import importlib.metadata
 import json
 import logging
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -22,6 +23,9 @@ from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
 
+# Gemini 3.x model ids, with an optional minor version: gemini-3-flash, gemini-3.1-pro, gemini-3.5-flash, ...
+_GEMINI_3_PRO_RE = re.compile(r'gemini-3(\.\d+)?-pro')
+_GEMINI_3_FLASH_RE = re.compile(r'gemini-3(\.\d+)?-flash')
 
 VerifiedGeminiModels = Literal[
 	'gemini-2.0-flash',
@@ -288,8 +292,8 @@ class ChatGoogle(BaseChatModel):
 		# Gemini 3 Pro: uses thinking_level only
 		# Gemini 3 Flash: supports both, defaults to thinking_budget=-1
 		# Gemini 2.5: uses thinking_budget only
-		is_gemini_3_pro = 'gemini-3-pro' in self.model or 'gemini-3.1-pro' in self.model
-		is_gemini_3_flash = 'gemini-3-flash' in self.model or 'gemini-3.1-flash' in self.model
+		is_gemini_3_pro = _GEMINI_3_PRO_RE.search(self.model) is not None
+		is_gemini_3_flash = _GEMINI_3_FLASH_RE.search(self.model) is not None
 
 		if is_gemini_3_pro:
 			# Validate: thinking_budget should not be set for Gemini 3 Pro
