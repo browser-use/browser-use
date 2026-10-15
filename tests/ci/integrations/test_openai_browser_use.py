@@ -9,7 +9,6 @@ import pytest
 from openai.lib.browser import AsyncBrowserToolset, BrowserError
 from openai.types.responses import ResponseFunctionToolCall
 from PIL import Image
-from playwright.async_api import async_playwright
 
 from browser_use import BrowserSession
 from browser_use.integrations.openai import BrowserUse
@@ -17,20 +16,14 @@ from browser_use.integrations.openai import BrowserUse
 
 @pytest.fixture
 async def driver():
-	async with async_playwright() as playwright:
-		browser = BrowserSession(
-			headless=True,
-			executable_path=playwright.chromium.executable_path,
-			enable_default_extensions=False,
-			user_data_dir=None,
-		)
-		await browser.start()
-		try:
-			async with BrowserUse(browser) as value:
-				yield value
-			assert browser.is_cdp_connected
-		finally:
-			await browser.kill()
+	browser = BrowserSession(headless=True, enable_default_extensions=False, user_data_dir=None)
+	await browser.start()
+	try:
+		async with BrowserUse(browser) as value:
+			yield value
+		assert browser.is_cdp_connected
+	finally:
+		await browser.kill()
 
 
 async def fixture_page(driver, html):
@@ -80,7 +73,7 @@ async def test_driver_rejects_stale_or_cross_tab_reference(driver, change):
 		await driver.new_tab({'url': 'about:blank'})
 	else:
 		await driver.read_page({'tab_id': None, 'filter': 'interactive'})
-	with pytest.raises((BrowserError, RuntimeError)):
+	with pytest.raises(BrowserError):
 		await driver.click({'tab_id': None, 'target': target})
 
 
@@ -136,3 +129,37 @@ async def test_driver_wait_and_pointer_bounds(driver):
 		await driver.click_at({'tab_id': None, 'x': 999999, 'y': 0, 'button': 'left', 'click_count': 1, 'keys': []})
 	with pytest.raises(BrowserError):
 		await driver.zoom({'tab_id': None, 'region': [0, 0, 999999, 100]})
+
+
+@pytest.mark.asyncio
+async def test_sdk_dispatch_changes_form_and_selects_option(driver):
+	page = await fixture_page(
+		driver,
+		"""<label>Name<input id="name"></label><label>Choice<select id="choice"><option value="a">Alpha</option><option value="b">Beta</option></select></label><button onclick="document.title=document.querySelector('#name').value">Save</button>""",
+	)
+
+	async def approve(context):
+		return True
+
+	tools = AsyncBrowserToolset(driver, members=['type', 'select_option', 'click'], confirm=approve)
+	try:
+		text = await driver.read_page({'tab_id': None, 'filter': 'interactive'})
+		for member, arguments in [
+			('type', {'target': reference(text, 'Name'), 'text': 'SDK result'}),
+			('select_option', {'target': reference(text, 'Choice'), 'values': ['b']}),
+			('click', {'target': reference(text, 'Save')}),
+		]:
+			await tools.execute(
+				ResponseFunctionToolCall(
+					id='fc_' + member,
+					call_id='call_' + member,
+					type='function_call',
+					status='completed',
+					name='browser_' + member,
+					arguments=json.dumps({'tab_id': None, **arguments}),
+				)
+			)
+		assert await page.evaluate('() => document.title') == 'SDK result'
+		assert await page.evaluate("() => document.querySelector('#choice').value") == 'b'
+	finally:
+		tools.close()

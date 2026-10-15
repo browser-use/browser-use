@@ -41,7 +41,7 @@ async def main():
 				max_steps=6,
 			)
 			text = await driver.get_page_text({'tab_id': None})
-			if 'Example Domain' not in text:
+			if 'documentation examples' not in text:
 				raise RuntimeError('The browser did not show the expected page.')
 			print(response.output_text)
 		finally:

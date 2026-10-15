@@ -18,7 +18,6 @@ from openai.lib import browser as api
 
 class Reference(BaseModel):
 	tab: str
-	document: int
 	backend: int
 
 
@@ -55,7 +54,14 @@ class BrowserUse:
 		"""Close only the browser that this driver created."""
 		if not self._closed:
 			if self._owns_browser:
-				await self.browser.kill()
+				try:
+					cloud = self.browser._cloud_browser_client
+					if cloud.current_session_id:
+						stopped = await cloud.stop_browser()
+						if stopped.status != 'stopped':
+							raise api.BrowserError('Cloud did not confirm browser cleanup.')
+				finally:
+					await self.browser.kill()
 			self._refs.clear()
 			self._closed = True
 
@@ -85,19 +91,20 @@ class BrowserUse:
 		self._active = target
 		return Page(self.browser, target, session.session_id)
 
-	async def _document(self, page: Page) -> int:
-		result = await self.browser.cdp_client.send.DOM.getDocument({'depth': 0}, session_id=await page.session_id)
-		return result['root']['backendNodeId']
-
 	async def _element(self, page: Page, target: str):
 		ref = self._refs.get(target)
-		if ref is None or ref.tab != page._target_id or ref.document != await self._document(page):
+		if ref is None or ref.tab != page._target_id:
 			raise api.BrowserError('Stale element reference; read the page again.')
-		element = await page.get_element(ref.backend)
-		connected = await element.evaluate('() => this.isConnected')
-		if connected.casefold() != 'true':
-			raise api.BrowserError('Detached element; read the page again.')
-		return element
+		try:
+			await self.browser.cdp_client.send.DOM.getDocument({'depth': 0}, session_id=await page.session_id)
+			element = await page.get_element(ref.backend)
+			connected = await element.evaluate('() => this.isConnected')
+			if connected.casefold() != 'true':
+				raise ValueError('Detached element')
+			return element
+		except Exception as exc:
+			self._refs.pop(target, None)
+			raise api.BrowserError('Stale element reference; read the page again.') from exc
 
 	async def navigate(self, args: api.NavigateInput) -> None:
 		"""Invalidate element references before navigating the selected tab."""
@@ -108,7 +115,7 @@ class BrowserUse:
 	async def read_page(self, args: api.ReadPageInput) -> str:
 		"""Read the accessibility tree and issue tab-bound element references."""
 		page = await self._page(args['tab_id'])
-		document = await self._document(page)
+		await self.browser.cdp_client.send.DOM.getDocument({'depth': 0}, session_id=await page.session_id)
 		self._refs = {name: ref for name, ref in self._refs.items() if ref.tab != page._target_id}
 		result = await self.browser.cdp_client.send.Accessibility.getFullAXTree(session_id=await page.session_id)
 		interactive = {
@@ -140,7 +147,7 @@ class BrowserUse:
 			if backend and role in interactive:
 				self._next_ref += 1
 				ref = f'ref_{self._next_ref}'
-				self._refs[ref] = Reference(tab=page._target_id, document=document, backend=backend)
+				self._refs[ref] = Reference(tab=page._target_id, backend=backend)
 				prefix = f'[{ref}] '
 			lines.append(f'{prefix}{role} {json.dumps(name, ensure_ascii=False)}')
 		return '\n'.join(lines)
@@ -246,6 +253,11 @@ class BrowserUse:
 		"""Close only the selected tab."""
 		page = await self._page(args['tab_id'])
 		await self.browser.close_page(page)
+		for _ in range(500):
+			if not any(tab['id'] == page._target_id for tab in (await self.state())['tabs']):
+				return
+			await asyncio.sleep(0.02)
+		raise api.BrowserError('Tab closure is pending; read the tab list before retrying.')
 
 	async def _bounds(self, page: Page, points: list[tuple[int, int]]) -> None:
 		metrics = await self.browser.cdp_client.send.Page.getLayoutMetrics(session_id=await page.session_id)
