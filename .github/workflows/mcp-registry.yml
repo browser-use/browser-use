@@ -1,0 +1,64 @@
+# Publishes server.json to the official MCP Registry (com.browser-use/browser-use)
+# after each stable PyPI release, so registry consumers stop seeing an old version.
+
+name: mcp-registry
+
+on:
+  workflow_run:
+    workflows: [publish]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Released PyPI version to publish, e.g. 0.13.11"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish_to_mcp_registry:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'release')
+    runs-on: ubuntu-latest
+    env:
+      MCP_REGISTRY_PRIVATE_KEY: ${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}
+      VERSION: ${{ inputs.version || github.event.workflow_run.head_branch }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+
+      - name: Check version and key
+        id: check
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::notice::Skipping $VERSION: only stable releases go to the MCP Registry"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$MCP_REGISTRY_PRIVATE_KEY" ]; then
+            echo "::warning::MCP_REGISTRY_PRIVATE_KEY is not set; skipping the MCP Registry publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wait for the version on PyPI
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          for _ in $(seq 1 30); do
+            curl -sf "https://pypi.org/pypi/browser-use/$VERSION/json" > /dev/null && exit 0
+            sleep 20
+          done
+          echo "browser-use $VERSION is not on PyPI after 10 minutes" >&2
+          exit 1
+
+      - name: Set version in server.json
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          jq --arg v "$VERSION" '.version = $v | .packages[].version = $v' server.json > server.tmp
+          mv server.tmp server.json
+
+      - name: Publish
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          curl -sL https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz | tar xz mcp-publisher
+          ./mcp-publisher login dns --domain browser-use.com --private-key "$MCP_REGISTRY_PRIVATE_KEY"
+          ./mcp-publisher publish
