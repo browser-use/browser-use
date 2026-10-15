@@ -163,3 +163,37 @@ async def test_sdk_dispatch_changes_form_and_selects_option(driver):
 		assert await page.evaluate("() => document.querySelector('#choice').value") == 'b'
 	finally:
 		tools.close()
+
+
+@pytest.mark.asyncio
+async def test_sdk_accepts_uncommitted_tab_without_url(driver, monkeypatch):
+	read_targets = driver.browser.cdp_client.send.Target.getTargets
+
+	async def uncommitted_targets(*args, **kwargs):
+		result = await read_targets(*args, **kwargs)
+		for target in result['targetInfos']:
+			if target['type'] == 'page':
+				target['url'] = ''
+		return result
+
+	monkeypatch.setattr(driver.browser.cdp_client.send.Target, 'getTargets', uncommitted_targets)
+	tools = AsyncBrowserToolset(driver, members=['list_tabs'])
+	try:
+		output = await tools.execute(
+			ResponseFunctionToolCall(
+				id='fc_tabs',
+				call_id='call_tabs',
+				type='function_call',
+				status='completed',
+				name='browser_list_tabs',
+				arguments='{}',
+			)
+		)
+		assert isinstance(output['output'], list)
+		assert output['output'][0]['type'] == 'input_text'
+		result = json.loads(output['output'][0]['text'])
+		assert result['ok'] is True
+		assert result['state']['tabs']
+		assert all(tab['url'] == 'about:blank' for tab in result['state']['tabs'])
+	finally:
+		tools.close()

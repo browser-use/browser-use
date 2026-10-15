@@ -78,7 +78,13 @@ class BrowserUse:
 		self._refs = {name: ref for name, ref in self._refs.items() if ref.tab in ids}
 		return {
 			'tabs': [
-				{'id': t['targetId'], 'url': t['url'], 'title': t['title'], 'active': t['targetId'] == self._active} for t in tabs
+				{
+					'id': t['targetId'],
+					'url': t['url'] or 'about:blank',
+					'title': t['title'],
+					'active': t['targetId'] == self._active,
+				}
+				for t in tabs
 			]
 		}
 
