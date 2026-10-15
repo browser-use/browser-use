@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, field_validator, model_validator
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
@@ -592,8 +592,16 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	history: list[AgentHistory]
 	usage: UsageSummary | None = None
+	video_path: str | None = None
 
 	_output_model_schema: type[AgentStructuredOutput] | None = None
+
+	@field_validator('video_path', mode='before')
+	@classmethod
+	def _validate_video_path(cls, v: Any) -> str | None:
+		if v is not None:
+			return str(v)
+		return None
 
 	def total_duration_seconds(self) -> float:
 		"""Get total duration of all steps in seconds"""
@@ -661,11 +669,18 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 	# 	except Exception as e:
 	# 		raise e
 
-	def model_dump(self, **kwargs) -> dict[str, Any]:
-		"""Custom serialization that properly uses AgentHistory's model_dump"""
-		return {
-			'history': [h.model_dump(**kwargs) for h in self.history],
+	def model_dump(self, sensitive_data: dict[str, str | dict[str, str]] | None = None, **kwargs) -> dict[str, Any]:
+		"""Custom serialization that properly uses AgentHistory's model_dump and includes video_path"""
+		dump: dict[str, Any] = {
+			'history': [h.model_dump(sensitive_data=sensitive_data, **kwargs) for h in self.history],
 		}
+		if not kwargs.get('exclude_none') or self.video_path is not None:
+			video_path = self.video_path
+			if video_path is not None and sensitive_data:
+				sensitive_values = collect_sensitive_data_values(sensitive_data)
+				video_path = redact_sensitive_string(video_path, sensitive_values)
+			dump['video_path'] = video_path
+		return dump
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
