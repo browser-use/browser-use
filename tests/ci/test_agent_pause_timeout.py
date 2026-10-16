@@ -53,3 +53,32 @@ async def test_execute_step_still_times_out_active_work(mock_llm, monkeypatch):
 	assert agent.state.consecutive_failures == 1
 	assert agent.state.last_result is not None
 	assert agent.state.last_result[0].error == 'Step 1 timed out after 1 seconds'
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_a_paused_in_flight_step(mock_llm, monkeypatch):
+	agent = Agent(task='Test stopping a paused step.', llm=mock_llm, directly_open_url=False)
+	agent.settings.step_timeout = 1
+	step_paused = asyncio.Event()
+	step_cancelled = False
+
+	async def paused_step(_step_info):
+		nonlocal step_cancelled
+		agent.pause()
+		step_paused.set()
+		try:
+			await asyncio.Event().wait()
+		except asyncio.CancelledError:
+			step_cancelled = True
+			raise
+
+	monkeypatch.setattr(agent, 'step', paused_step)
+	step_info = AgentStepInfo(step_number=0, max_steps=1)
+	execute_task = asyncio.create_task(agent._execute_step(0, 1, step_info))
+	await step_paused.wait()
+
+	agent.stop()
+	await asyncio.wait_for(execute_task, timeout=1)
+
+	assert step_cancelled
+	assert agent.state.consecutive_failures == 0

@@ -2471,6 +2471,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			paused_at_start = self._total_paused_seconds(step_started_at)
 			try:
 				while not step_task.done():
+					if self.state.stopped:
+						break
+
 					now = time.monotonic()
 					paused_during_step = self._total_paused_seconds(now) - paused_at_start
 					active_elapsed = max(0.0, now - step_started_at - paused_during_step)
@@ -2506,7 +2509,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						break
 					if pause_change_task not in done:
 						raise TimeoutError
-				await step_task
+				if not self.state.stopped:
+					await step_task
 			finally:
 				if not step_task.done():
 					step_task.cancel()
@@ -2514,7 +2518,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						await step_task
 					except asyncio.CancelledError:
 						pass
-			self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
+			if self.state.stopped:
+				self.logger.debug(f'⏹️ Interrupted step {step + 1}/{max_steps}')
+			else:
+				self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
 		except TimeoutError:
 			# Handle step timeout gracefully
 			error_msg = f'Step {step + 1} timed out after {self.settings.step_timeout} seconds'
@@ -4007,6 +4014,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Signal pause event to unblock any waiting code so it can check the stopped state
 		self._external_pause_event.set()
+		self._pause_state_generation += 1
+		self._pause_state_changed_event.set()
 
 		# Task stopped
 
