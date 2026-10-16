@@ -963,7 +963,7 @@ class AgentError:
 			return AgentError.RATE_LIMIT_ERROR
 
 		# Handle LLM response validation errors from llm_use
-		error_str = str(error)
+		error_str = str(error) or type(error).__name__
 		if 'LLM response missing required fields' in error_str or 'Expected format: AgentOutput' in error_str:
 			# Extract the main error message without the huge stacktrace
 			lines = error_str.split('\n')
@@ -978,8 +978,8 @@ class AgentError:
 			return helpful_msg
 
 		if include_trace:
-			return f'{str(error)}\nStacktrace:\n{traceback.format_exc()}'
-		return f'{str(error)}'
+			return f'{error_str}\nStacktrace:\n{traceback.format_exc()}'
+		return error_str
 
 
 class DetectedVariable(BaseModel):
