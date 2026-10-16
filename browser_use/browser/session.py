@@ -597,11 +597,13 @@ class BrowserSession(BaseModel):
 
 	@property
 	def logger(self) -> Any:
-		"""Get instance-specific logger with session ID in the name"""
+		"""Get the BrowserSession logger, with the session and tab ids attached to each record as `browser_use_instance`"""
 		# **regenerate it every time** because our id and str(self) can change as browser connection state changes
-		# if self._logger is None or not self._cdp_client_root:
-		# 	self._logger = logging.getLogger(f'browser_use.{self}')
-		return logging.getLogger(f'browser_use.{self}')
+		# the logger name stays fixed: logging keeps every named logger for the life of the process
+		return logging.LoggerAdapter(
+			logging.getLogger('browser_use.BrowserSession'),
+			{'browser_use_instance': f'🅑 {self._id_for_logs} 🅣 {self._tab_id_for_logs}'},
+		)
 
 	@cached_property
 	def _id_for_logs(self) -> str:

@@ -627,8 +627,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		return task
 
 	@property
-	def logger(self) -> logging.Logger:
-		"""Get instance-specific logger with task ID in the name"""
+	def logger(self) -> logging.LoggerAdapter:
+		"""Get the Agent logger, with the task, session and tab ids attached to each record as `browser_use_instance`"""
 		# logger may be called in __init__ so we don't assume self.* attributes have been initialized
 		_task_id = task_id[-4:] if (task_id := getattr(self, 'task_id', None)) else '----'
 		_browser_session_id = browser_session.id[-4:] if (browser_session := getattr(self, 'browser_session', None)) else '----'
@@ -637,7 +637,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if (browser_session := getattr(self, 'browser_session', None)) and browser_session.agent_focus_target_id
 			else '--'
 		)
-		return logging.getLogger(f'browser_use.Agent🅰 {_task_id} ⇢ 🅑 {_browser_session_id} 🅣 {_current_target_id}')
+		return logging.LoggerAdapter(
+			logging.getLogger('browser_use.Agent'),
+			{'browser_use_instance': f'🅰 {_task_id} ⇢ 🅑 {_browser_session_id} 🅣 {_current_target_id}'},
+		)
 
 	@property
 	def browser_profile(self) -> BrowserProfile:
