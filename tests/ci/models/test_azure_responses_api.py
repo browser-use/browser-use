@@ -1,6 +1,7 @@
 """Tests for Azure OpenAI Responses API support."""
 
 import os
+from typing import Any, cast
 
 import pytest
 
@@ -110,6 +111,45 @@ class TestResponsesAPIMessageSerializer:
 
 		assert result['role'] == 'assistant'
 		assert '[Tool call: search({"query": "test"})]' in result['content']
+
+	def test_serialize_assistant_message_string_content_with_tool_calls(self):
+		"""Test that tool calls are kept when the assistant message also has string content."""
+		message = AssistantMessage(
+			content='Let me search.',
+			tool_calls=[
+				ToolCall(
+					id='call_123',
+					type='function',
+					function=Function(name='search', arguments='{"query": "test"}'),
+				)
+			],
+		)
+		result = ResponsesAPIMessageSerializer.serialize(message)
+
+		assert result['role'] == 'assistant'
+		assert result['content'] == 'Let me search.\n[Tool call: search({"query": "test"})]'
+
+	def test_serialize_assistant_message_text_parts_with_tool_calls(self):
+		"""Test that tool calls are kept when the assistant message has content parts."""
+		message = AssistantMessage(
+			content=[ContentPartTextParam(type='text', text='Let me search.')],
+			tool_calls=[
+				ToolCall(
+					id='call_123',
+					type='function',
+					function=Function(name='search', arguments='{"query": "test"}'),
+				)
+			],
+		)
+		result = ResponsesAPIMessageSerializer.serialize(message)
+
+		assert result['role'] == 'assistant'
+		content = result['content']
+		assert isinstance(content, list)
+		assert [cast(dict[str, Any], part)['text'] for part in content] == [
+			'Let me search.',
+			'[Tool call: search({"query": "test"})]',
+		]
 
 	def test_serialize_assistant_message_none_content_no_tool_calls(self):
 		"""Test serializing an assistant message with None content and no tool calls."""
