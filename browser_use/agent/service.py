@@ -2679,6 +2679,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				step_info = AgentStepInfo(step_number=current_step, max_steps=max_steps)
 				is_done = await self._execute_step(current_step, max_steps, step_info, on_step_start, on_step_end)
 
+				# A stop can arrive while the step is in flight. Check again before the
+				# loop condition can fall through to the max-steps failure branch.
+				if self.state.stopped:
+					self.logger.info('🛑 Agent stopped')
+					agent_run_error = 'Agent stopped programmatically'
+					break
+
 				if is_done:
 					# Agent has marked the task as done
 					if self._demo_mode_enabled and self.history.history:

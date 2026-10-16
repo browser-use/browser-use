@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -75,10 +76,33 @@ async def test_stop_cancels_a_paused_in_flight_step(mock_llm, monkeypatch):
 	monkeypatch.setattr(agent, 'step', paused_step)
 	step_info = AgentStepInfo(step_number=0, max_steps=1)
 	execute_task = asyncio.create_task(agent._execute_step(0, 1, step_info))
-	await step_paused.wait()
+	await asyncio.wait_for(step_paused.wait(), timeout=1)
 
 	agent.stop()
 	await asyncio.wait_for(execute_task, timeout=1)
 
 	assert step_cancelled
 	assert agent.state.consecutive_failures == 0
+
+
+@pytest.mark.asyncio
+async def test_stop_on_last_step_is_not_reported_as_max_steps_failure(mock_llm, monkeypatch):
+	agent = Agent(
+		task='Test stopping on the final allowed step.',
+		llm=mock_llm,
+		directly_open_url=False,
+		enable_signal_handler=False,
+	)
+	monkeypatch.setattr(type(agent.browser_session), 'start', AsyncMock())
+	monkeypatch.setattr(agent, 'close', AsyncMock())
+
+	async def stop_on_last_step(_step, max_steps, _step_info, _on_step_start, _on_step_end):
+		agent.state.n_steps = max_steps + 1
+		agent.stop()
+		return False
+
+	monkeypatch.setattr(agent, '_execute_step', stop_on_last_step)
+
+	history = await agent.run(max_steps=1)
+
+	assert 'Failed to complete task in maximum steps' not in history.errors()
