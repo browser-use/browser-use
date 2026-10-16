@@ -26,10 +26,7 @@ if TYPE_CHECKING:
 	from cdp_use.cdp.page.commands import CaptureScreenshotParameters, NavigateParameters, NavigateToHistoryEntryParameters
 	from cdp_use.cdp.page.types import Viewport
 	from cdp_use.cdp.runtime.commands import EvaluateParameters
-	from cdp_use.cdp.target.commands import (
-		AttachToTargetParameters,
-		GetTargetInfoParameters,
-	)
+	from cdp_use.cdp.target.commands import GetTargetInfoParameters
 	from cdp_use.cdp.target.types import TargetInfo
 
 	from browser_use.browser.session import BrowserSession
@@ -54,23 +51,25 @@ class Page:
 		self._llm = llm
 
 	async def _ensure_session(self) -> str:
-		"""Ensure we have a session ID for this target."""
-		if not self._session_id:
-			params: 'AttachToTargetParameters' = {'targetId': self._target_id, 'flatten': True}
-			result = await self._client.send.Target.attachToTarget(params)
-			self._session_id = result['sessionId']
+		"""Return the active CDP session for this page's target.
 
-			# Enable necessary domains
-			import asyncio
+		Page actors can outlive the CDP session they were created with. Resolve the
+		current session through BrowserSession so detached targets raise and a
+		re-attached target uses its replacement session instead of sending commands
+		to a stale session id.
+		"""
+		try:
+			cdp_session = await self._browser_session.get_or_create_cdp_session(self._target_id, focus=False)
+		except ValueError:
+			self._session_id = None
+			self._mouse = None
+			raise
 
-			await asyncio.gather(
-				self._client.send.Page.enable(session_id=self._session_id),
-				self._client.send.DOM.enable(session_id=self._session_id),
-				self._client.send.Runtime.enable(session_id=self._session_id),
-				self._client.send.Network.enable(session_id=self._session_id),
-			)
+		if self._session_id != cdp_session.session_id:
+			self._session_id = cdp_session.session_id
+			self._mouse = None
 
-		return self._session_id
+		return cdp_session.session_id
 
 	@property
 	async def session_id(self) -> str:
@@ -83,8 +82,8 @@ class Page:
 	@property
 	async def mouse(self) -> 'Mouse':
 		"""Get the mouse interface for this target."""
+		session_id = await self._ensure_session()
 		if not self._mouse:
-			session_id = await self._ensure_session()
 			from .mouse import Mouse
 
 			self._mouse = Mouse(self._browser_session, session_id, self._target_id)
