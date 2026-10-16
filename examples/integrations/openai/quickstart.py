@@ -1,48 +1,47 @@
-"""Read a page through Browser Use actions and the OpenAI tool runner."""
+"""Use OpenAI browser tools and Bash with a Cloud browser."""
 
 import asyncio
 import os
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from openai import AsyncOpenAI
-from openai.lib.browser import AsyncBrowserToolset
+from openai.lib.browser import BROWSER_MEMBERS, AsyncBrowserToolset
 from openai.lib.responses_tool_runner import AsyncResponsesToolRunner
 
-from browser_use.integrations.openai import BrowserUse
+from browser_use.integrations.openai import Bash, BrowserUse
 
 
 async def allow_url(context, url):
 	parsed = urlsplit(url)
-	return parsed.scheme == 'https' and parsed.hostname == 'example.com' and not parsed.username and not parsed.password
+	return parsed.scheme in {'http', 'https'} and not parsed.username and not parsed.password
 
 
 async def confirm(context):
-	return context['member'] in {'navigate', 'new_tab'}
+	return True
 
 
 async def main():
 	model = os.environ['OPENAI_MODEL']
-	async with AsyncOpenAI(max_retries=0, timeout=60) as client, BrowserUse(use_cloud=True) as driver:
+	async with AsyncOpenAI(max_retries=5, timeout=180) as client, BrowserUse(use_cloud=True) as driver:
 		tools = AsyncBrowserToolset(
 			driver,
-			members=['new_tab', 'navigate', 'get_page_text'],
+			members=BROWSER_MEMBERS,
 			confirm=confirm,
 			url_policy=allow_url,
 		)
-		runner = AsyncResponsesToolRunner(browser=tools)
+		runner = AsyncResponsesToolRunner(browser=tools, functions=[Bash(output_dir=Path('outputs'))])
 		try:
 			response = await runner.run(
 				client,
 				{
 					'model': model,
 					'store': False,
-					'input': 'Open https://example.com and read its heading and explanation. Do not follow links.',
+					'input': 'Open https://example.com, follow Learn more, and save a source-backed summary in summary.md using Bash.',
+					'context_management': [{'type': 'compaction', 'compact_threshold': 60000}],
 				},
-				max_steps=6,
+				max_steps=100,
 			)
-			text = await driver.get_page_text({'tab_id': None})
-			if 'documentation examples' not in text:
-				raise RuntimeError('The browser did not show the expected page.')
 			print(response.output_text)
 		finally:
 			runner.close()
