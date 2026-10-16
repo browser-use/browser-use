@@ -240,6 +240,19 @@ class TestDecoratedFunctionBehavior:
 		result = await simple_action(params=ParamsModel(value=42), **special_context)
 		assert result.extracted_content == '42'
 
+	async def test_context_is_an_action_parameter(self):
+		"""Context is a normal model input now that Agent context injection is gone."""
+		registry = Registry()
+
+		@registry.action('Echo context')
+		async def echo_context(context: str):
+			return ActionResult(extracted_content=context)
+
+		action = registry.registry.actions['echo_context']
+		assert 'context' in action.param_model.model_fields
+		result = await registry.execute_action('echo_context', {'context': 'provided by the model'})
+		assert result.extracted_content == 'provided by the model'
+
 
 class TestParamsModelGeneration:
 	"""Test automatic parameter model generation (from normalization tests)"""
@@ -391,10 +404,6 @@ class TestParamsModelArgsAndKwargs:
 		from browser_use.tools.registry.service import Registry
 		from browser_use.tools.registry.views import ActionModel
 
-		# Simple context for testing
-		class TestContext:
-			pass
-
 		class MockBrowserSession:
 			async def get_current_page(self):
 				return None
@@ -402,7 +411,7 @@ class TestParamsModelArgsAndKwargs:
 		browser_session = MockBrowserSession()
 
 		# Create registry
-		registry = Registry[TestContext]()
+		registry = Registry()
 
 		# Model that doesn't include browser_session (renamed to avoid pytest collecting it)
 		class CellActionParams(ActionModel):
