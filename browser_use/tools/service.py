@@ -36,7 +36,7 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
-from browser_use.tools.utils import get_click_description
+from browser_use.tools.utils import format_js_exception, get_click_description
 from browser_use.tools.views import (
 	ClickElementAction,
 	ClickElementActionIndexOnly,
@@ -1325,7 +1325,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 			if result.get('exceptionDetails'):
-				error_text = result['exceptionDetails'].get('text', 'Unknown JS error')
+				error_text = format_js_exception(result['exceptionDetails'])
 				return ActionResult(error=f'search_page failed: {error_text}')
 
 			data = result.get('result', {}).get('value')
@@ -1360,7 +1360,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 			if result.get('exceptionDetails'):
-				error_text = result['exceptionDetails'].get('text', 'Unknown JS error')
+				error_text = format_js_exception(result['exceptionDetails'])
 				return ActionResult(error=f'find_elements failed: {error_text}')
 
 			data = result.get('result', {}).get('value')
@@ -1852,7 +1852,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				# Check for JavaScript execution errors
 				if result.get('exceptionDetails'):
 					exception = result['exceptionDetails']
-					error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
+					error_msg = f'JavaScript execution error: {format_js_exception(exception)}'
 
 					# Enhanced error message with debugging info
 					enhanced_msg = f"""JavaScript Execution Failed:
