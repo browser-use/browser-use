@@ -4058,6 +4058,10 @@ class BrowserSession(BaseModel):
 
 		cdp_session = await self.get_or_create_cdp_session()
 
+		from browser_use.utils import normalize_screenshot_format
+
+		format = normalize_screenshot_format(format)
+
 		# Build parameters dict explicitly to satisfy TypedDict expectations
 		params: CaptureScreenshotParameters = {
 			'format': format,
