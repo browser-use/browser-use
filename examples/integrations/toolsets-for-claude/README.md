@@ -2,7 +2,12 @@
 
 Browser Use toolsets for Claude is maintained by Browser Use and is compatible with Claude. It provides browser actions and a Bash tool through the Anthropic Python SDK. The SDK's tool runner sends each of Claude's tool calls to Browser Use, returns the result to Claude, and repeats until Claude finishes.
 
-![Claude sends tool calls through the Anthropic SDK to Browser Use. Browser Use provides browser actions and Bash; results return to Claude. The browser can run locally or remotely, while Bash runs beside the SDK.](./architecture.svg)
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="./architecture-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="./architecture-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="./architecture-dark.svg">
+  <img alt="Claude sends tool calls through the Anthropic SDK to Browser Use. Browser Use provides browser actions and Bash; results return to Claude. The browser can run locally or remotely, while Bash runs beside the SDK." src="./architecture-light.svg" width="100%">
+</picture>
 
 The same program works with three browser runtimes:
 
@@ -142,7 +147,12 @@ call to Browser Use and returns the result to Claude. Browser actions and
 Bash are part of the same integration; they run on the browser host and
 SDK host respectively.
 
-![Two calls after opening Hacker News: Claude asks Browser Use to read the page, receives the result, then uses Bash to save Markdown and JSON on the SDK host. Anthropic's tool runner connects each request and response.](./tool-sequence.svg)
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="./tool-sequence-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="./tool-sequence-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="./tool-sequence-dark.svg">
+  <img alt="Two calls after opening Hacker News: Claude asks Browser Use to read the page, receives the result, then uses Bash to save Markdown and JSON on the SDK host. Anthropic's tool runner connects each request and response." src="./tool-sequence-light.svg" width="100%">
+</picture>
 
 ## Browser Use Cloud
 
@@ -233,7 +243,12 @@ To opt out, set an action's `enabled` value to `False` in the `configs` passed t
 
 ## Files with remote browsers
 
-![A report starts on the SDK host. The application copies bytes to the remote browser host before file_upload can select the staged file. Download notifications return metadata; the application must retrieve the bytes before Bash can read a local copy. These transfers are not built into the driver.](./files-between-hosts.svg)
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="./files-between-hosts-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="./files-between-hosts-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="./files-between-hosts-dark.svg">
+  <img alt="A report starts on the SDK host. The application copies bytes to the remote browser host before file_upload can select the staged file. Download notifications return metadata; the application must retrieve the bytes before Bash can read a local copy. These transfers are not built into the driver." src="./files-between-hosts-light.svg" width="100%">
+</picture>
 
 `file_upload` works when the resolved file path exists on the browser host.
 For a remote browser, provide a `document_resolver` that maps an approved
@@ -297,9 +312,14 @@ Enabling JavaScript or file upload requires a `confirm` callback. The SDK calls 
 
 The callback flow is:
 
-![Claude requests an action. The confirmation callback either allows the driver to execute it or declines it. A callback error also prevents execution. The action output, refusal, or error returns to Claude; approval covers one action.](./approval-gate.svg)
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="./approval-gate-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="./approval-gate-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="./approval-gate-dark.svg">
+  <img alt="Claude requests an action. The confirmation callback either allows the driver to execute it or declines it. A callback error also prevents execution. The action output, refusal, or error returns to Claude; approval covers one action." src="./approval-gate-light.svg" width="100%">
+</picture>
 
-[See the detailed file-upload sequence](./confirmation-callback.svg)
+See the detailed file-upload sequence ([light](./confirmation-callback-light.svg), [dark](./confirmation-callback-dark.svg)).
 
 ```python
 import asyncio
