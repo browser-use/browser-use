@@ -44,6 +44,22 @@ def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
 		encoding='utf-8',
 	)
 	browser_harness.chmod(0o755)
+
+	if os.name == 'nt':
+		# shutil.which / CreateProcess on Windows only resolve PATHEXT
+		# executables, so the extensionless scripts above are invisible and
+		# the tests would invoke the user's real `uv` (#5236). Add .bat
+		# shims that forward to the sibling extensionless scripts.
+		(bin_dir / 'uv.bat').write_text(
+			'@echo off\n'
+			f'"{sys.executable}" "%~dp0uv" %*\n',
+			encoding='utf-8',
+		)
+		(bin_dir / 'browser-harness.bat').write_text(
+			'@echo off\n'
+			f'"{sys.executable}" "%~dp0browser-harness" %*\n',
+			encoding='utf-8',
+		)
 	return bin_dir
 
 
