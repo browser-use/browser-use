@@ -5,6 +5,7 @@ This directory is for examples that show Browser Use working with external produ
 ## Shipped integrations
 
 - [Anthropic Browser Use](anthropic/README.md) - Run the Anthropic SDK tool runner with Browser Use and Bash.
+- [Baizhi Cloud Browser](capybrowser/README.md) - Run a public reading task in a temporary cloud browser and explicitly check Session release and billing.
 
 ## Where to put integration contributions
 
