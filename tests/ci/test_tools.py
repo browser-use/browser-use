@@ -133,6 +133,74 @@ class TestToolsIntegration:
 		assert 'Custom action executed with: test_value on' in result.extracted_content
 		assert f'{base_url}/page1' in result.extracted_content
 
+	async def test_evaluate_warns_when_it_removes_form_restrictions(self, tools, browser_session, base_url, http_server):
+		"""Surface when evaluate changes a disabled/readonly control into an unrestricted one."""
+		http_server.expect_request('/restricted-form').respond_with_data(
+			'<button id="place" disabled>Place order</button><input id="name" readonly value="locked">'
+			'<div id="not-a-form-control" readonly></div><div id="shadow-host"></div>',
+			content_type='text/html',
+		)
+		await tools.navigate(url=f'{base_url}/restricted-form', new_tab=False, browser_session=browser_session)
+
+		setup = await tools.evaluate(
+			code="""(() => {
+				const shadow = document.querySelector('#shadow-host').attachShadow({mode: 'open'});
+				shadow.innerHTML = '<button id="shadow-place" disabled>Place</button>';
+				const frame = document.createElement('iframe');
+				frame.id = 'same-origin-frame';
+				const frameLoaded = new Promise(resolve => { frame.onload = () => resolve('ready'); });
+				frame.srcdoc = '<input id="frame-name" disabled>';
+				document.body.append(frame);
+				return frameLoaded;
+			})()""",
+			browser_session=browser_session,
+		)
+		assert setup.extracted_content == 'ready'
+
+		result = await tools.evaluate(
+			code="document.querySelector('#place').disabled = false; document.querySelector('#name').readOnly = false; 'controls enabled';",
+			browser_session=browser_session,
+		)
+		assert result.extracted_content is not None
+		assert 'WARNING:' in result.extracted_content
+		assert '2 form control(s)' in result.extracted_content
+		assert 'JavaScript result: controls enabled' in result.extracted_content
+
+		await tools.evaluate(
+			code="document.querySelector('#place').disabled = true; document.querySelector('#name').readOnly = true;",
+			browser_session=browser_session,
+		)
+		result = await tools.evaluate(
+			code="""document.querySelector('#place').disabled = false;
+			document.querySelector('#shadow-host').shadowRoot.querySelector('button').disabled = false;
+			document.querySelector('#same-origin-frame').contentDocument.querySelector('input').disabled = false;
+			throw new Error('script failed after changing controls');""",
+			browser_session=browser_session,
+		)
+
+		assert isinstance(result, ActionResult)
+		assert result.error is not None
+		assert 'WARNING:' in result.error
+		assert '3 form control(s)' in result.error
+		assert 'script failed after changing controls' in result.error
+
+	async def test_evaluate_keeps_result_without_restriction_changes(self, tools, browser_session, base_url, http_server):
+		"""Preserve the evaluate result when the script leaves form restrictions intact."""
+		http_server.expect_request('/unchanged-form').respond_with_data(
+			'<button id="place" disabled>Place order</button><div readonly id="not-a-control"></div>',
+			content_type='text/html',
+		)
+		await tools.navigate(url=f'{base_url}/unchanged-form', new_tab=False, browser_session=browser_session)
+
+		result = await tools.evaluate(code="(() => 'unchanged')()", browser_session=browser_session)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content == 'unchanged'
+		assert 'WARNING:' not in result.extracted_content
+
+		undefined_result = await tools.evaluate(code='(() => undefined)()', browser_session=browser_session)
+		assert undefined_result.extracted_content == 'undefined'
+
 	async def test_wait_action(self, tools, browser_session):
 		"""Test that the wait action correctly waits for the specified duration."""
 

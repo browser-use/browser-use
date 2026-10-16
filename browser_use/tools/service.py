@@ -1843,9 +1843,45 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				# Validate and potentially fix JavaScript code before execution
 				validated_code = self._validate_and_fix_javascript(code)
 
+				# Track form controls that this script changes from disabled/read-only to
+				# enabled/editable so the agent can recognize a site-imposed restriction.
+				monitored_code = f"""(async () => {{
+					const __bu_code = {json.dumps(validated_code)};
+					const __bu_restricted_controls = () => {{
+						const controls = new Set();
+						const roots = [document];
+						while (roots.length) {{
+							const root = roots.pop();
+							for (const element of root.querySelectorAll(':disabled,input[readonly],textarea[readonly]')) controls.add(element);
+							for (const element of root.querySelectorAll('*')) {{
+								if (element.shadowRoot) roots.push(element.shadowRoot);
+								if (element instanceof HTMLIFrameElement) {{
+									try {{ if (element.contentDocument) roots.push(element.contentDocument); }} catch {{}}
+								}}
+							}}
+						}}
+						return controls;
+					}};
+					const __bu_restricted_before = __bu_restricted_controls();
+					let __bu_result;
+					let __bu_error;
+					try {{ __bu_result = await (0, eval)(__bu_code); }} catch (error) {{
+						try {{ __bu_error = String(error); }} catch {{ __bu_error = 'JavaScript threw a value that could not be converted to text'; }}
+					}}
+					const __bu_restrictions_removed = Array.from(__bu_restricted_before).filter(
+						(element) => element.isConnected && !element.matches(':disabled,input[readonly],textarea[readonly]')
+					).length;
+					return {{
+						__browser_use_evaluate_result: __bu_result,
+						__browser_use_evaluate_result_is_undefined: typeof __bu_result === 'undefined',
+						__browser_use_evaluate_error: __bu_error,
+						__browser_use_restrictions_removed: __bu_restrictions_removed,
+					}};
+				}})()"""
+
 				# Always use awaitPromise=True - it's ignored for non-promises
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': validated_code, 'returnByValue': True, 'awaitPromise': True},
+					params={'expression': monitored_code, 'returnByValue': True, 'awaitPromise': True},
 					session_id=cdp_session.session_id,
 				)
 
@@ -1874,13 +1910,35 @@ Validated Code (after quote fixing):
 					logger.debug(msg)
 					return ActionResult(error=msg)
 
-				# Get the actual value
+				# Unwrap the original value and surface newly bypassed form restrictions,
+				# including when the evaluated script itself throws.
 				value = result_data.get('value')
+				restrictions_removed = 0
+				evaluate_result_is_undefined = False
+				evaluate_error = None
+				if isinstance(value, dict) and (
+					'__browser_use_evaluate_result' in value or '__browser_use_evaluate_result_is_undefined' in value
+				):
+					restrictions_removed = value.get('__browser_use_restrictions_removed', 0)
+					evaluate_result_is_undefined = value.get('__browser_use_evaluate_result_is_undefined', False)
+					evaluate_error = value.get('__browser_use_evaluate_error')
+					value = value.get('__browser_use_evaluate_result')
+
+				if evaluate_error:
+					msg = f'JavaScript execution error: {evaluate_error}'
+					if restrictions_removed:
+						msg += (
+							f'\nWARNING: This evaluate call removed disabled/readonly restrictions from '
+							f'{restrictions_removed} form control(s). Treat this as a site-imposed restriction; '
+							'do not continue the blocked action and report that it could not be completed.'
+						)
+					logger.debug(msg)
+					return ActionResult(error=msg)
 
 				# Handle different value types
 				if value is None:
 					# Could be legitimate null/undefined result
-					result_text = str(value) if 'value' in result_data else 'undefined'
+					result_text = str(value) if 'value' in result_data and not evaluate_result_is_undefined else 'undefined'
 				elif isinstance(value, (dict, list)):
 					# Complex objects - should be serialized by returnByValue
 					try:
@@ -1908,6 +1966,14 @@ Validated Code (after quote fixing):
 						placeholder = '[Image]'
 						modified_text = modified_text.replace(img_data, placeholder)
 					result_text = modified_text
+
+				if restrictions_removed:
+					warning = (
+						f'WARNING: This evaluate call removed disabled/readonly restrictions from '
+						f'{restrictions_removed} form control(s). Treat this as a site-imposed restriction; '
+						'do not continue the blocked action and report that it could not be completed.'
+					)
+					result_text = f'{warning}\nJavaScript result: {result_text}'
 
 				# Apply length limit with better truncation (after image extraction)
 				if len(result_text) > 20000:

@@ -52,6 +52,13 @@ class SystemPrompt:
 			self._load_prompt_template()
 			prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
 
+		# Keep this safety instruction present in every model-specific prompt template.
+		prompt += (
+			'\n\nSite-imposed form restrictions: If an evaluate result warns that disabled or readonly '
+			'restrictions were removed, do not continue the blocked action. Report the restriction and '
+			'set success=false for that action.'
+		)
+
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'
 
