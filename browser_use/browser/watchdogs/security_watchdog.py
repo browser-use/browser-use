@@ -200,8 +200,9 @@ class SecurityWatchdog(BaseWatchdog):
 		if parsed.scheme in ['data', 'blob']:
 			return True
 
-		# Get the actual host (domain)
-		host = parsed.hostname
+		# Get the actual host (domain). Drop a trailing root-label dot: browsers treat
+		# example.com. as the same origin as example.com, so the block/allow lists must too.
+		host = (parsed.hostname or '').rstrip('.')
 		if not host:
 			return False
 
@@ -263,7 +264,7 @@ class SecurityWatchdog(BaseWatchdog):
 			# Check if pattern matches the host
 			if pattern.startswith('*.'):
 				# Pattern like *.example.com should match subdomains and main domain
-				domain_part = pattern[2:]  # Remove *.
+				domain_part = pattern[2:].lower().rstrip('.')  # Remove *.
 				if host == domain_part or host.endswith('.' + domain_part):
 					# Only match http/https URLs for domain-only patterns
 					if scheme in ['http', 'https']:
@@ -276,7 +277,7 @@ class SecurityWatchdog(BaseWatchdog):
 				# Use fnmatch for other glob patterns
 				if fnmatch.fnmatch(
 					full_url_pattern if '://' in pattern else host,
-					pattern,
+					pattern.lower(),
 				):
 					return True
 		else:
@@ -287,10 +288,11 @@ class SecurityWatchdog(BaseWatchdog):
 					return True
 			else:
 				# Domain-only pattern (case-insensitive comparison)
-				if host.lower() == pattern.lower():
+				pattern = pattern.lower().rstrip('.')
+				if host == pattern:
 					return True
 				# If pattern is a root domain, also check www subdomain
-				if self._is_root_domain(pattern) and host.lower() == f'www.{pattern.lower()}':
+				if self._is_root_domain(pattern) and host == f'www.{pattern}':
 					return True
 
 		return False
