@@ -358,7 +358,14 @@ async def test_page_read_preserves_structure_and_control_state(driver):
 
 
 async def test_page_read_bounds_large_observations(driver):
-	await fixture_page(driver, '<main><p>' + 'large content ' * 5000 + '</p><button>Last</button></main>')
+	await fixture_page(
+		driver,
+		'<main><p>'
+		+ 'large content ' * 5000
+		+ '</p>'
+		+ ('<button>' + 'filler ' * 100 + '</button>') * 100
+		+ '<button>Last</button></main>',
+	)
 	text = await driver.read_page({'tab_id': None, 'filter': 'all'})
 	assert len(text) <= 50000
 	assert 'truncated' in text.lower()
@@ -369,5 +376,12 @@ async def test_page_read_bounds_large_observations(driver):
 	assert len(script) <= 50000
 	assert 'truncated' in script.lower()
 	assert await driver.run_script({'tab_id': None, 'source': '1 + 2', 'timeout_ms': 1000}) == '3'
-	controls = await driver.read_page({'tab_id': None, 'filter': 'interactive'})
+	controls = await driver.find({'tab_id': None, 'query': 'Last'})
 	await driver.click({'tab_id': None, 'target': reference(controls, 'Last')})
+
+
+async def test_page_read_does_not_expose_password_value(driver):
+	await fixture_page(driver, '<label>Password<input type="password" value="private-password-value"></label>')
+	text = await driver.read_page({'tab_id': None, 'filter': 'all'})
+	assert 'private-password-value' not in text
+	assert 'Password' in text

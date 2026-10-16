@@ -155,6 +155,10 @@ class BrowserUse:
 
 	async def read_page(self, args: api.ReadPageInput) -> str:
 		"""Read the accessibility tree and issue tab-bound element references."""
+		return await self._read_page(args)
+
+	async def _read_page(self, args: api.ReadPageInput, query: str | None = None) -> str:
+		terms = query.casefold().split() if query else []
 		page = await self._page(args['tab_id'])
 		await self.browser.cdp_client.send.DOM.getDocument({'depth': 0}, session_id=await page.session_id)
 		self._refs = {name: ref for name, ref in self._refs.items() if ref.tab != page._target_id}
@@ -216,9 +220,10 @@ class BrowserUse:
 				states.append(f'value={json.dumps(value, ensure_ascii=False)}')
 			suffix = ' ' + ' '.join(states) if states else ''
 			line = f'{"  " * depth}{prefix}{role} {json.dumps(name, ensure_ascii=False)}{suffix}'
+			if not all(term in line.casefold() for term in terms):
+				continue
 			remaining = 50000 - len(notice) - length
 			if len(line) + 1 > remaining:
-				lines.append(line[: max(0, remaining - 1)])
 				return '\n'.join(lines) + notice
 			lines.append(line)
 			length += len(line) + 1
@@ -226,9 +231,7 @@ class BrowserUse:
 
 	async def find(self, args: api.FindInput) -> str:
 		"""Find current interactive elements by visible label text."""
-		text = await self.read_page({'tab_id': args['tab_id'], 'filter': 'interactive'})
-		terms = args['query'].casefold().split()
-		return '\n'.join(line for line in text.splitlines() if all(term in line.casefold() for term in terms))
+		return await self._read_page({'tab_id': args['tab_id'], 'filter': 'interactive'}, query=args['query'])
 
 	async def get_page_text(self, args: api.TabInput) -> str:
 		"""Read the selected page without returning form values."""
