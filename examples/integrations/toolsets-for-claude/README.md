@@ -319,7 +319,7 @@ The callback flow is:
   <img alt="Claude requests an action. The confirmation callback either allows the driver to execute it or declines it. A callback error also prevents execution. The action output, refusal, or error returns to Claude; approval covers one action." src="./approval-gate-light.svg" width="100%">
 </picture>
 
-[See the detailed file-upload sequence](./confirmation-callback-light.svg)
+See the detailed file-upload sequence ([light](./confirmation-callback-light.svg), [dark](./confirmation-callback-dark.svg)).
 
 ```python
 import asyncio

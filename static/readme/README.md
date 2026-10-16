@@ -15,8 +15,9 @@ not download the artwork.
 where `scripts/diagrams/` generates them (`task docs:diagrams`). Regenerate there
 and copy the four files here; phones under 600 px get the mobile variants.
 
-The figure shows the README's three paths: the hosted V4 agent, the Browser Use
-CLI and the Python library, each driving a cloud or local browser.
+The figure shows the README's three paths: the hosted V4 agent drives a cloud
+browser, while the Browser Use CLI and the Python library drive a cloud or local
+browser.
 
 ## Benchmark plot
 
