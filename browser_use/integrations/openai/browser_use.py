@@ -155,7 +155,13 @@ class BrowserUse:
 				ref = f'ref_{self._next_ref}'
 				self._refs[ref] = Reference(tab=page._target_id, backend=backend)
 				prefix = f'[{ref}] '
-			lines.append(f'{prefix}{role} {json.dumps(name, ensure_ascii=False)}')
+			states = [
+				f'{prop["name"]}={json.dumps(prop["value"].get("value"))}'
+				for prop in node.get('properties', [])
+				if prop['name'] in {'checked', 'selected'} and 'value' in prop.get('value', {})
+			]
+			suffix = ' ' + ' '.join(states) if states else ''
+			lines.append(f'{prefix}{role} {json.dumps(name, ensure_ascii=False)}{suffix}')
 		return '\n'.join(lines)
 
 	async def find(self, args: api.FindInput) -> str:

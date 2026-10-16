@@ -48,12 +48,15 @@ async def test_driver_reads_and_changes_real_form(driver):
 		'<label>Name<input id="name"></label><label>Ready<input type="checkbox" id="ready"></label><button onclick="document.querySelector(\'#result\').textContent=document.querySelector(\'#name\').value">Save</button><p id="result"></p>',
 	)
 	text = await driver.read_page({'tab_id': None, 'filter': 'interactive'})
+	assert 'checked="false"' in next(line for line in text.splitlines() if 'Ready' in line)
 	await driver.type({'tab_id': None, 'target': reference(text, 'Name'), 'text': 'OpenAI driver'})
 	await driver.set_checked({'tab_id': None, 'target': reference(text, 'Ready'), 'checked': True})
 	await driver.set_checked({'tab_id': None, 'target': reference(text, 'Ready'), 'checked': True})
 	await driver.click({'tab_id': None, 'target': reference(text, 'Save')})
 	assert await page.evaluate("() => document.querySelector('#result').textContent") == 'OpenAI driver'
 	assert await page.evaluate("() => document.querySelector('#ready').checked") == 'True'
+	updated = await driver.read_page({'tab_id': None, 'filter': 'interactive'})
+	assert 'checked="true"' in next(line for line in updated.splitlines() if 'Ready' in line)
 	image = await driver.zoom({'tab_id': None, 'region': [0, 0, 100, 80]})
 	with Image.open(BytesIO(base64.b64decode(image['image_url'].split(',', 1)[1]))) as crop:
 		assert crop.size == (100, 80)
@@ -161,6 +164,8 @@ async def test_sdk_dispatch_changes_form_and_selects_option(driver):
 			)
 		assert await page.evaluate('() => document.title') == 'SDK result'
 		assert await page.evaluate("() => document.querySelector('#choice').value") == 'b'
+		updated = await driver.read_page({'tab_id': None, 'filter': 'all'})
+		assert 'selected=true' in next(line for line in updated.splitlines() if 'option "Beta"' in line)
 	finally:
 		tools.close()
 
