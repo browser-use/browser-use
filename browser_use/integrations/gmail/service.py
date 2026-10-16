@@ -7,6 +7,7 @@ This service provides a clean interface for agents to interact with Gmail.
 import base64
 import logging
 import os
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
@@ -207,11 +208,14 @@ class GmailService:
 
 	def _extract_body(self, payload: dict[str, Any]) -> str:
 		"""Extract the body from nested MIME parts, preferring plain text over HTML."""
-		bodies: dict[str, list[str]] = {'text/plain': [], 'text/html': []}
+		bodies: dict[str, list[tuple[str, str]]] = {'text/plain': [], 'text/html': []}
 		pending = [payload]
 		while pending:
 			part = pending.pop()
-			if part.get('filename'):
+			headers = Message()
+			for header in part.get('headers', []):
+				headers[header['name']] = header['value']
+			if part.get('filename') or headers.get_content_disposition() == 'attachment':
 				continue
 			if part.get('parts'):
 				pending.extend(reversed(part['parts']))
@@ -220,7 +224,14 @@ class GmailService:
 			mime_type = part.get('mimeType', 'text/plain')
 			data = part.get('body', {}).get('data')
 			if mime_type in bodies and data:
-				bodies[mime_type].append(data)
+				bodies[mime_type].append((data, headers.get_content_charset() or 'utf-8'))
 
 		selected_parts = bodies['text/plain'] or bodies['text/html']
-		return ''.join(base64.urlsafe_b64decode(data).decode('utf-8') for data in selected_parts)
+		body = []
+		for data, charset in selected_parts:
+			raw = base64.urlsafe_b64decode(data)
+			try:
+				body.append(raw.decode(charset, errors='replace'))
+			except LookupError:
+				body.append(raw.decode('utf-8', errors='replace'))
+		return ''.join(body)

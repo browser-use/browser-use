@@ -125,3 +125,102 @@ async def test_get_recent_emails_returns_nested_body(gmail_service: GmailService
 	assert emails[0]['body'] == 'Your code is 123456'
 	assert emails[0]['subject'] == 'Verification code'
 	messages.get.assert_called_once_with(userId='me', id='message-1', format='full')
+
+
+@pytest.mark.parametrize(
+	('header_name', 'disposition'),
+	[
+		('Content-Disposition', 'attachment'),
+		('content-disposition', 'Attachment; filename=""'),
+		('CONTENT-DISPOSITION', ' ATTACHMENT ; size=123'),
+	],
+)
+@pytest.mark.parametrize('multipart_attachment', [False, True])
+def test_extract_body_excludes_unnamed_attachments(
+	gmail_service: GmailService, header_name: str, disposition: str, multipart_attachment: bool
+):
+	attachment = text_part('Attachment content')
+	if multipart_attachment:
+		attachment = {'mimeType': 'multipart/mixed', 'parts': [attachment]}
+	attachment['headers'] = [{'name': header_name, 'value': disposition}]
+	payload = {
+		'mimeType': 'multipart/mixed',
+		'parts': [attachment, text_part('<p>Actual body</p>', 'text/html')],
+	}
+
+	assert gmail_service._extract_body(payload) == '<p>Actual body</p>'
+
+
+def test_extract_body_preserves_inline_text(gmail_service: GmailService):
+	payload = text_part('Inline body')
+	payload['headers'] = [{'name': 'Content-Disposition', 'value': 'inline'}]
+
+	assert gmail_service._extract_body(payload) == 'Inline body'
+
+
+@pytest.mark.parametrize(
+	('mime_type', 'content_type', 'raw', 'expected'),
+	[
+		('text/plain', 'text/plain; charset="ISO-8859-1"', b'caf\xe9', 'café'),
+		('text/html', 'text/html; charset=windows-1252', b'<p>\x93Hello\x94</p>', '<p>“Hello”</p>'),
+		('text/plain', 'text/plain; charset=utf-16', '你好'.encode('utf-16'), '你好'),
+		('text/plain', 'text/plain; charset=shift_jis', '日本語'.encode('shift_jis'), '日本語'),
+		('text/plain', 'text/plain; charset=unknown-charset', 'café'.encode(), 'café'),
+		('text/plain', 'text/plain; charset=unknown-charset', b'caf\xff', 'caf�'),
+		('text/plain', 'text/plain; charset=utf-8', b'caf\xff', 'caf�'),
+		('text/plain', 'text/plain; charset=ascii', b'caf\xff', 'caf�'),
+		('text/plain', 'text/plain', b'caf\xff', 'caf�'),
+	],
+)
+def test_extract_body_decodes_declared_charset(
+	gmail_service: GmailService, mime_type: str, content_type: str, raw: bytes, expected: str
+):
+	payload = {
+		'mimeType': 'multipart/mixed',
+		'parts': [
+			{
+				'mimeType': mime_type,
+				'headers': [{'name': 'content-type', 'value': content_type}],
+				'body': {'data': base64.urlsafe_b64encode(raw).decode('ascii')},
+			}
+		],
+	}
+
+	assert gmail_service._extract_body(payload) == expected
+
+
+def test_extract_body_decodes_each_part_separately(gmail_service: GmailService):
+	latin_part = {
+		'mimeType': 'text/plain',
+		'headers': [{'name': 'Content-Type', 'value': 'text/plain; charset=iso-8859-1'}],
+		'body': {'data': base64.urlsafe_b64encode(b'caf\xe9 ').decode('ascii')},
+	}
+	payload = {'mimeType': 'multipart/mixed', 'parts': [latin_part, text_part('日本語')]}
+
+	assert gmail_service._extract_body(payload) == 'café 日本語'
+
+
+async def test_get_recent_emails_preserves_batch_with_non_utf8_body(gmail_service: GmailService):
+	api = MagicMock()
+	messages = api.users.return_value.messages.return_value
+	messages.list.return_value.execute.return_value = {'messages': [{'id': 'message-1'}, {'id': 'message-2'}]}
+	latin_part = {
+		'mimeType': 'text/plain',
+		'headers': [{'name': 'Content-Type', 'value': 'text/plain; charset=iso-8859-1'}],
+		'body': {'data': base64.urlsafe_b64encode(b'caf\xe9').decode('ascii')},
+	}
+	messages.get.return_value.execute.side_effect = [
+		{
+			'id': message_id,
+			'threadId': message_id,
+			'internalDate': '1700000000000',
+			'payload': {'headers': [], 'mimeType': 'multipart/mixed', 'parts': [body]},
+		}
+		for message_id, body in [('message-1', text_part('Earlier valid body')), ('message-2', latin_part)]
+	]
+	gmail_service.service = api
+	gmail_service._authenticated = True
+
+	emails = await gmail_service.get_recent_emails()
+
+	assert [email['body'] for email in emails] == ['Earlier valid body', 'café']
