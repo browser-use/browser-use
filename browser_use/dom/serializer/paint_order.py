@@ -62,13 +62,18 @@ class RectUnionPure:
 	def __init__(self):
 		self._rects: list[Rect] = []
 		self._bands: dict[int, list[int]] = {}
-		# Indices of rects with non-finite y bounds, which cannot be banded.
+		# Indices of rects with non-finite or very tall y ranges, which are not banded.
 		self._unbanded: list[int] = []
 
 	def _band_range(self, r: Rect) -> range | None:
 		if not (math.isfinite(r.y1) and math.isfinite(r.y2)):
 			return None
-		return range(math.floor(r.y1 / self._BAND_HEIGHT), math.floor(r.y2 / self._BAND_HEIGHT) + 1)
+		start = math.floor(r.y1 / self._BAND_HEIGHT)
+		stop = math.floor(r.y2 / self._BAND_HEIGHT)
+		# Very tall rects would touch too many bands; keep them unbanded so every query scans them.
+		if stop - start + 1 > self._MAX_QUERY_BANDS:
+			return None
+		return range(start, stop + 1)
 
 	def _candidates(self, r: Rect) -> list[Rect]:
 		"""
@@ -79,7 +84,7 @@ class RectUnionPure:
 		would have been no-ops in the scan, so the result is unchanged.
 		"""
 		bands = self._band_range(r)
-		if bands is None or len(bands) > self._MAX_QUERY_BANDS:
+		if bands is None:
 			return self._rects
 		buckets = [bucket for band in bands if (bucket := self._bands.get(band))]
 		# When the bands cover most of the union, a plain scan is cheaper than merging.
