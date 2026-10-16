@@ -454,7 +454,8 @@ async def test_real_cdp_cancellation_removes_pending_request(httpserver, observa
 	await _evaluate_page(httpserver, observation_browser_session, '<button>Ready</button>', 'document.title')
 	cdp_session = await observation_browser_session.get_or_create_cdp_session()
 	cdp_client = cdp_session.cdp_client
-	expression = "new Promise(resolve => setTimeout(() => resolve('late response'), 350))"
+	promise_duration_ms = 5_000
+	expression = f"new Promise(resolve => setTimeout(() => resolve('late response'), {promise_duration_ms}))"
 	request_id = None
 	original_send_raw = cdp_client.send_raw
 
@@ -472,15 +473,20 @@ async def test_real_cdp_cancellation_removes_pending_request(httpserver, observa
 		)
 	)
 	try:
-		await asyncio.sleep(0.05)
-		assert request_id is not None
-		assert request_id in cdp_client.pending_requests
+		loop = asyncio.get_running_loop()
+		pending_request_deadline = loop.time() + 2.0
+		while request_id is None or request_id not in cdp_client.pending_requests:
+			remaining = pending_request_deadline - loop.time()
+			if remaining <= 0:
+				pytest.fail('Timed out waiting for the tracked CDP Runtime.evaluate request to become pending')
+			await asyncio.sleep(min(0.01, remaining))
+
 		assert not task.done()
 		task.cancel()
 		with pytest.raises(asyncio.CancelledError):
 			await task
 		assert request_id not in cdp_client.pending_requests
-		await asyncio.sleep(0.4)
+		await asyncio.sleep(promise_duration_ms / 1_000 + 0.1)
 		assert request_id not in cdp_client.pending_requests
 	finally:
 		if not task.done():
