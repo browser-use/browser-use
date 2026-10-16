@@ -176,7 +176,10 @@ class ChatAnthropic(BaseChatModel):
 			AsyncAnthropic: An instance of the AsyncAnthropic client.
 		"""
 		client_params = self._get_client_params()
-		return AsyncAnthropic(**client_params)
+		if not hasattr(self, '_client') or getattr(self, '_cached_client_params', None) != client_params:
+			self._cached_client_params = dict(client_params)
+			self._client = AsyncAnthropic(**client_params)
+		return self._client
 
 	@property
 	def name(self) -> str:
