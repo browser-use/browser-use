@@ -63,7 +63,8 @@ async def run_single_task(task_file):
 			print('[SKIP] BROWSER_USE_API_KEY is not set - skipping task evaluation', file=sys.stderr)
 			return {
 				'file': os.path.basename(task_file),
-				'success': True,  # Mark as success so it doesn't fail CI
+				'success': False,
+				'status': 'skipped',
 				'explanation': 'Skipped - API key not available (fork PR or missing secret)',
 			}
 
@@ -75,7 +76,8 @@ async def run_single_task(task_file):
 			print('[SKIP] GOOGLE_API_KEY is not set - skipping task evaluation', file=sys.stderr)
 			return {
 				'file': os.path.basename(task_file),
-				'success': True,  # Mark as success so it doesn't fail CI
+				'success': False,
+				'status': 'skipped',
 				'explanation': 'Skipped - Google API key not available (fork PR or missing secret)',
 			}
 
@@ -176,6 +178,7 @@ If the agent provided no output, explain what might have gone wrong.
 		result = {
 			'file': os.path.basename(task_file),
 			'success': judge_response.success,
+			'status': 'passed' if judge_response.success else 'failed',
 			'explanation': judge_response.explanation,
 		}
 
@@ -194,6 +197,7 @@ If the agent provided no output, explain what might have gone wrong.
 		return {
 			'file': os.path.basename(task_file),
 			'success': False,
+			'status': 'failed',
 			'explanation': f'Task failed with error: {str(e)}',
 		}
 
@@ -249,6 +253,7 @@ async def run_task_subprocess(task_file, semaphore):
 					result = {
 						'file': os.path.basename(task_file),
 						'success': False,
+						'status': 'failed',
 						'explanation': f'Failed to parse subprocess result: {str(e)[:100]}',
 					}
 					print(f'[PARENT] Task {os.path.basename(task_file)} failed to parse: {str(e)}')
@@ -258,6 +263,7 @@ async def run_task_subprocess(task_file, semaphore):
 				result = {
 					'file': os.path.basename(task_file),
 					'success': False,
+					'status': 'failed',
 					'explanation': f'Subprocess failed (code {proc.returncode}): {stderr_text[:200]}',
 				}
 				print(f'[PARENT] Task {os.path.basename(task_file)} subprocess failed with code {proc.returncode}')
@@ -270,6 +276,7 @@ async def run_task_subprocess(task_file, semaphore):
 			result = {
 				'file': os.path.basename(task_file),
 				'success': False,
+				'status': 'failed',
 				'explanation': f'Failed to start subprocess: {str(e)}',
 			}
 			print(f'[PARENT] Failed to start subprocess for {os.path.basename(task_file)}: {str(e)}')
@@ -285,23 +292,28 @@ async def main():
 
 	if not TASK_FILES:
 		print('No task files found!')
-		return 0, 0
+		return 0, 0, 0
 
 	# Run all tasks in parallel subprocesses
 	tasks = [run_task_subprocess(task_file, semaphore) for task_file in TASK_FILES]
 	results = await asyncio.gather(*tasks)
 
-	passed = sum(1 for r in results if r['success'])
+	for result in results:
+		if result.get('status') not in {'passed', 'failed', 'skipped'}:
+			result['status'] = 'passed' if result.get('success') else 'failed'
+	passed = sum(1 for r in results if r['status'] == 'passed')
+	skipped = sum(1 for r in results if r['status'] == 'skipped')
 	total = len(results)
 
 	print('\n' + '=' * 60)
 	print(f'{"RESULTS":^60}\n')
 
 	# Prepare table data
-	headers = ['Task', 'Success', 'Reason']
+	headers = ['Task', 'Status', 'Reason']
 	rows = []
 	for r in results:
-		status = '✅' if r['success'] else '❌'
+		status_icons = {'passed': '✅', 'failed': '❌', 'skipped': '⏭️'}
+		status = f'{status_icons[r["status"]]} {r["status"].title()}'
 		rows.append([r['file'], status, r['explanation']])
 
 	# Calculate column widths
@@ -319,12 +331,13 @@ async def main():
 	print('\n' + '=' * 60)
 	print(f'\n{"SCORE":^60}')
 	print(f'\n{"=" * 60}\n')
-	print(f'\n{"*" * 10}  {passed}/{total} PASSED  {"*" * 10}\n')
+	print(f'\n{"*" * 10}  {passed}/{total} PASSED  ({skipped} SKIPPED)  {"*" * 10}\n')
 	print('=' * 60 + '\n')
 
 	# Output results for GitHub Actions
 	print(f'PASSED={passed}')
 	print(f'TOTAL={total}')
+	print(f'SKIPPED={skipped}')
 
 	# Output detailed results as JSON for GitHub Actions
 	detailed_results = []
@@ -333,13 +346,14 @@ async def main():
 			{
 				'task': r['file'].replace('.yaml', ''),
 				'success': r['success'],
+				'status': r['status'],
 				'reason': r['explanation'],
 			}
 		)
 
 	print('DETAILED_RESULTS=' + json.dumps(detailed_results))
 
-	return passed, total
+	return passed, total, skipped
 
 
 if __name__ == '__main__':
@@ -358,15 +372,16 @@ if __name__ == '__main__':
 			error_result = {
 				'file': os.path.basename(args.task),
 				'success': False,
+				'status': 'failed',
 				'explanation': f'Critical subprocess error: {str(e)}',
 			}
 			print(json.dumps(error_result))
 	else:
 		# Parent process mode: run all tasks in parallel subprocesses
-		passed, total = asyncio.run(main())
+		passed, total, skipped = asyncio.run(main())
 		# Results already printed by main() function
 
 		# Fail if 0% pass rate (all tasks failed)
-		if total > 0 and passed == 0:
+		if total > 0 and passed == 0 and passed + skipped < total:
 			print('\n❌ CRITICAL: 0% pass rate - all tasks failed!')
 			sys.exit(1)
