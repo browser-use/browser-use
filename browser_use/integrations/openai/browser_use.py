@@ -5,9 +5,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from collections import deque
 from io import BytesIO
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
+from uuid import uuid4
 
+from cdp_use import CDPClient
 from PIL import Image
 from pydantic import BaseModel
 
@@ -19,6 +24,18 @@ from openai.lib import browser as api
 class Reference(BaseModel):
 	tab: str
 	backend: int
+
+
+class FileGrant(BaseModel):
+	"""Bind one approved transfer to its original browser document."""
+
+	operation: str
+	tab: str
+	document: int
+	path: Path
+	target: int | None = None
+	url: str | None = None
+	content: bytes = b''
 
 
 class BrowserUse:
@@ -33,6 +50,11 @@ class BrowserUse:
 		self._refs: dict[str, Reference] = {}
 		self._next_ref = 0
 		self._active: str | None = None
+		self._scopes: dict[str, Reference] = {}
+		self._grants: dict[str, FileGrant] = {}
+		self._diagnostic_client: CDPClient | None = None
+		self._diagnostic_sessions: dict[str, str] = {}
+		self._diagnostics: dict[str, dict[str, deque[str]]] = {}
 
 	async def __aenter__(self) -> BrowserUse:
 		if self._closed:
@@ -53,6 +75,11 @@ class BrowserUse:
 	async def close(self) -> None:
 		"""Close only the browser that this driver created."""
 		if not self._closed:
+			if self._diagnostic_client:
+				await self._diagnostic_client.stop()
+				self._diagnostic_client = None
+			self._grants.clear()
+			self._scopes.clear()
 			if self._owns_browser:
 				try:
 					cloud = self.browser._cloud_browser_client
@@ -95,6 +122,7 @@ class BrowserUse:
 			raise api.BrowserError('Unknown tab.')
 		session = await self.browser.get_or_create_cdp_session(target, focus=True)
 		self._active = target
+		await self._start_diagnostics(target)
 		return Page(self.browser, target, session.session_id)
 
 	async def _element(self, page: Page, target: str):
@@ -352,3 +380,209 @@ class BrowserUse:
 				raise api.BrowserError('Page script failed.')
 			value = result.get('result', {}).get('value')
 			return value if isinstance(value, str) else json.dumps(value)
+
+	async def _start_diagnostics(self, target: str) -> None:
+		if self._diagnostic_client is None:
+			self._diagnostic_client = CDPClient(
+				self.browser.cdp_client.url, additional_headers=self.browser.cdp_client.additional_headers
+			)
+			await self._diagnostic_client.start()
+			self._diagnostic_client.register.Runtime.consoleAPICalled(self._console_event)
+			self._diagnostic_client.register.Network.responseReceived(self._network_event)
+		if target not in self._diagnostic_sessions:
+			attached = await self._diagnostic_client.send.Target.attachToTarget({'targetId': target, 'flatten': True})
+			session = attached['sessionId']
+			self._diagnostic_sessions[target] = session
+			self._diagnostics[session] = {'console': deque(maxlen=100), 'network': deque(maxlen=100)}
+			await self._diagnostic_client.send.Runtime.enable(session_id=session)
+			await self._diagnostic_client.send.Network.enable(session_id=session)
+
+	def _console_event(self, event: Any, session_id: str | None) -> None:
+		if session_id in self._diagnostics:
+			values = [str(arg.get('value', arg.get('type', '')))[:512] for arg in event.get('args', [])[:10]]
+			self._diagnostics[session_id]['console'].append(event['type'] + ': ' + ' '.join(values))
+
+	def _network_event(self, event: Any, session_id: str | None) -> None:
+		if session_id in self._diagnostics:
+			response = event['response']
+			url = urlsplit(response['url'])
+			self._diagnostics[session_id]['network'].append(
+				f'{response["status"]} {url.scheme}://{url.hostname or ""}{url.path}'[:1024]
+			)
+
+	async def read_diagnostics(self, args: api.ReadDiagnosticsInput) -> api.BrowserReadV1:
+		"""Return bounded diagnostics without network headers or request bodies."""
+		page = await self._page(args['tab_id'])
+		records = self._diagnostics[self._diagnostic_sessions[page._target_id]][args['source']]
+		return {
+			'version': 1,
+			'text': '\n'.join(list(records)[-args['limit'] :]),
+			'elements': [],
+			'omitted': ['report_limit'] if len(records) > args['limit'] else [],
+		}
+
+	async def read_page_scoped(self, args: api.ReadPageScopedInput) -> api.BrowserScopedReadV1:
+		"""Discover semantic regions or read their current accessibility subtree."""
+		page = await self._page(args['tab_id'])
+		result = await self.browser.cdp_client.send.Accessibility.getFullAXTree(session_id=await page.session_id)
+		nodes = {node['nodeId']: node for node in result['nodes']}
+		root = args['root']
+		if root is None:
+			self._scopes = {key: ref for key, ref in self._scopes.items() if ref.tab != page._target_id}
+			scopes = []
+			for node in nodes.values():
+				role = node.get('role', {}).get('value')
+				if role in {'RootWebArea', 'main', 'navigation', 'region', 'complementary', 'contentinfo', 'banner'} and node.get(
+					'backendDOMNodeId'
+				):
+					key = 'scope_' + uuid4().hex
+					self._scopes[key] = Reference(tab=page._target_id, backend=int(node.get('backendDOMNodeId') or 0))
+					scopes.append({'ref': key, 'label': str(node.get('name', {}).get('value') or role)[:200]})
+			return {'version': 1, 'text': '', 'elements': [], 'omitted': [], 'scopes': scopes[:100]}
+		ref = self._scopes.get(root)
+		if ref is None or ref.tab != page._target_id:
+			raise api.BrowserError('Unknown or stale read scope.')
+		node = next((n for n in nodes.values() if n.get('backendDOMNodeId') == ref.backend), None)
+		if node is None:
+			raise api.BrowserError('Unknown or stale read scope.')
+		queue = [(node, 0)]
+		lines, elements = [], []
+		visited = 0
+		while queue and len(lines) < 200 and visited < 2000:
+			node, depth = queue.pop(0)
+			visited += 1
+			role = node.get('role', {}).get('value', '')
+			name = str(node.get('name', {}).get('value', ''))
+			prefix = ''
+			if not node.get('ignored') and role != 'InlineTextBox':
+				if role in {'button', 'textbox', 'combobox', 'checkbox', 'radio', 'slider', 'listbox', 'link'} and node.get(
+					'backendDOMNodeId'
+				):
+					self._next_ref += 1
+					key = f'ref_{self._next_ref}'
+					self._refs[key] = Reference(tab=page._target_id, backend=int(node.get('backendDOMNodeId') or 0))
+					prefix = f'[{key}] '
+					if role != 'link':
+						elements.append({'ref': key, 'role': role, 'label': name[:200]})
+				if args['filter'] == 'all' or role in {
+					'button',
+					'textbox',
+					'combobox',
+					'checkbox',
+					'radio',
+					'slider',
+					'listbox',
+					'link',
+				}:
+					lines.append(f'{prefix}{role} {name[:500]}')
+			if depth < args['depth']:
+				queue.extend((nodes[key], depth + 1) for key in node.get('childIds', []) if key in nodes)
+		return {
+			'version': 1,
+			'text': '\n'.join(lines),
+			'elements': elements,
+			'omitted': ['report_limit'] if queue else [],
+			'scopes': [],
+		}
+
+	async def grant_upload(self, path: str | Path, *, target: str, tab_id: str | None = None) -> str:
+		"""Approve one file snapshot for a specific input and document."""
+		page = await self._page(tab_id)
+		element = await self._element(page, target)
+		if await element.get_attribute('type') != 'file':
+			raise api.BrowserError('Upload target must be a file input.')
+		path = Path(path).resolve()
+		with path.open('rb') as source:
+			content = source.read(10_000_001)
+		if len(content) > 10_000_000:
+			raise api.BrowserError('File exceeds the 10 MB transfer limit.')
+		document = await self.browser.cdp_client.send.DOM.getDocument(session_id=await page.session_id)
+		key = uuid4().hex
+		self._grants[key] = FileGrant(
+			operation='upload',
+			tab=page._target_id,
+			document=document['root']['backendNodeId'],
+			path=path,
+			target=self._refs[target].backend,
+			content=content,
+		)
+		return key
+
+	async def grant_download(self, url: str, path: str | Path, *, tab_id: str | None = None) -> str:
+		"""Approve one browser fetch into a new application-side file."""
+		if urlsplit(url).scheme not in {'http', 'https', 'blob'}:
+			raise api.BrowserError('Download requires an HTTP, HTTPS, or blob URL.')
+		page = await self._page(tab_id)
+		document = await self.browser.cdp_client.send.DOM.getDocument(session_id=await page.session_id)
+		path = Path(path).resolve()
+		if path.exists():
+			raise api.BrowserError('Download destination already exists.')
+		key = uuid4().hex
+		self._grants[key] = FileGrant(
+			operation='download', tab=page._target_id, document=document['root']['backendNodeId'], path=path, url=url
+		)
+		return key
+
+	async def _consume_grant(self, key: str, operation: str) -> tuple[FileGrant, Page]:
+		grant = self._grants.pop(key, None)
+		if grant is None or grant.operation != operation:
+			raise api.BrowserError('Unknown, consumed, or mismatched file grant.')
+		page = await self._page(grant.tab)
+		document = await self.browser.cdp_client.send.DOM.getDocument(session_id=await page.session_id)
+		if document['root']['backendNodeId'] != grant.document:
+			raise api.BrowserError('File grant belongs to an earlier document.')
+		return grant, page
+
+	async def upload_file(self, args: api.BrowserFileInput) -> api.BrowserFileOutcome:
+		"""Transfer approved bytes into the remote browser file input."""
+		grant, page = await self._consume_grant(args['grant_id'], 'upload')
+		if grant.target is None:
+			raise api.BrowserError('Upload grant has no target.')
+		element = await page.get_element(grant.target)
+		await element.evaluate(
+			"""(encoded, name) => {
+            if (!this.isConnected || this.type !== 'file') throw new Error('Invalid upload target');
+            const bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
+            const transfer = new DataTransfer();
+            transfer.items.add(new File([bytes], name));
+            this.files = transfer.files;
+            this.dispatchEvent(new Event('input', {bubbles: true}));
+            this.dispatchEvent(new Event('change', {bubbles: true}));
+        }""",
+			base64.b64encode(grant.content).decode(),
+			grant.path.name,
+		)
+		return {'version': 1, 'status': 'completed', 'effect': 'completed', 'cleanup': 'completed'}
+
+	async def download_file(self, args: api.BrowserFileInput) -> api.BrowserFileOutcome:
+		"""Fetch approved bytes through the browser and create the destination."""
+		grant, page = await self._consume_grant(args['grant_id'], 'download')
+		encoded = await page.evaluate(
+			"""(url) => (async () => {
+            const response = await fetch(url, {redirect: 'error', signal: AbortSignal.timeout(30000)});
+            if (!response.ok) throw new Error('Download request failed');
+            const reader = response.body.getReader();
+            const chunks = [];
+            let size = 0;
+            try {
+                while (true) {
+                    const {done, value} = await reader.read();
+                    if (done) break;
+                    size += value.length;
+                    if (size > 10000000) throw new Error('Download exceeds 10 MB');
+                    chunks.push(value);
+                }
+            } finally { await reader.cancel(); }
+            let binary = '';
+            for (const chunk of chunks) {
+                for (let i = 0; i < chunk.length; i += 8192)
+                    binary += String.fromCharCode(...chunk.subarray(i, i + 8192));
+            }
+            return btoa(binary);
+        })()""",
+			grant.url,
+		)
+		content = base64.b64decode(encoded, validate=True)
+		with grant.path.open('xb') as destination:
+			destination.write(content)
+		return {'version': 1, 'status': 'completed', 'effect': 'completed', 'cleanup': 'completed'}
