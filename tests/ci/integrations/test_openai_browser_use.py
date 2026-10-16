@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import re
@@ -332,23 +331,57 @@ async def test_file_grant_rejects_navigation_and_existing_destination(driver, tm
 
 
 @pytest.mark.asyncio
-async def test_network_diagnostics_strip_query_and_capture_status(driver):
-	async def respond(reader, writer):
-		try:
-			await reader.readuntil(b'\r\n\r\n')
-			writer.write(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nok')
-			await writer.drain()
-		finally:
-			writer.close()
-			await writer.wait_closed()
+async def test_network_diagnostics_strip_query_and_capture_status(driver, httpserver):
+	httpserver.expect_request('/diagnostic', query_string='secret=hidden').respond_with_data('ok')
+	await fixture_page(driver, '<p>Before</p>')
+	await driver.navigate({'tab_id': None, 'url': httpserver.url_for('/diagnostic?secret=hidden')})
+	read = await dispatch(driver, 'read_diagnostics', {'tab_id': None, 'source': 'network', 'limit': 100})
+	assert '200' in read['text']
+	assert '/diagnostic' in read['text']
+	assert 'secret' not in read['text']
+	assert 'hidden' not in read['text']
 
-	server = await asyncio.start_server(respond, '127.0.0.1', 0)
-	async with server:
-		port = server.sockets[0].getsockname()[1]
-		await fixture_page(driver, '<p>Before</p>')
-		await driver.navigate({'tab_id': None, 'url': f'http://127.0.0.1:{port}/diagnostic?secret=hidden'})
-		read = await dispatch(driver, 'read_diagnostics', {'tab_id': None, 'source': 'network', 'limit': 100})
-		assert '200' in read['text']
-		assert '/diagnostic' in read['text']
-		assert 'secret' not in read['text']
-		assert 'hidden' not in read['text']
+
+async def test_page_read_preserves_structure_and_control_state(driver):
+	await fixture_page(
+		driver,
+		'<main><h1>Account</h1><section aria-label="Preferences"><label>Name<input value="Alice"></label><button disabled>Save</button><button aria-expanded="false">Details</button></section></main>',
+	)
+	text = await driver.read_page({'tab_id': None, 'filter': 'all'})
+	lines = text.splitlines()
+	main = next(line for line in lines if 'main ' in line)
+	heading = next(line for line in lines if 'heading "Account"' in line)
+	assert len(heading) - len(heading.lstrip()) > len(main) - len(main.lstrip())
+	assert 'value="Alice"' in next(line for line in lines if 'textbox' in line)
+	assert 'disabled=true' in next(line for line in lines if 'Save' in line)
+	assert 'expanded=false' in next(line for line in lines if 'Details' in line)
+
+
+async def test_page_read_bounds_large_observations(driver):
+	await fixture_page(
+		driver,
+		'<main><p>'
+		+ 'large content ' * 5000
+		+ '</p>'
+		+ ('<button>' + 'filler ' * 100 + '</button>') * 100
+		+ '<button>Last</button></main>',
+	)
+	text = await driver.read_page({'tab_id': None, 'filter': 'all'})
+	assert len(text) <= 50000
+	assert 'truncated' in text.lower()
+	plain = await driver.get_page_text({'tab_id': None})
+	assert len(plain) <= 50000
+	assert 'truncated' in plain.lower()
+	script = await driver.run_script({'tab_id': None, 'source': 'document.body.innerText', 'timeout_ms': 1000})
+	assert len(script) <= 50000
+	assert 'truncated' in script.lower()
+	assert await driver.run_script({'tab_id': None, 'source': '1 + 2', 'timeout_ms': 1000}) == '3'
+	controls = await driver.find({'tab_id': None, 'query': 'Last'})
+	await driver.click({'tab_id': None, 'target': reference(controls, 'Last')})
+
+
+async def test_page_read_does_not_expose_password_value(driver):
+	await fixture_page(driver, '<label>Password<input type="password" value="private-password-value"></label>')
+	text = await driver.read_page({'tab_id': None, 'filter': 'all'})
+	assert 'private-password-value' not in text
+	assert 'Password' in text

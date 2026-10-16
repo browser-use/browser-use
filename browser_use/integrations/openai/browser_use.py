@@ -21,6 +21,13 @@ from browser_use.browser.session import BrowserSession
 from openai.lib import browser as api
 
 
+def _bounded_text(text: str) -> str:
+	if len(text) <= 50000:
+		return text
+	notice = '\n[Output truncated; request a smaller section or return fewer script results.]'
+	return text[: 50000 - len(notice)] + notice
+
+
 class Reference(BaseModel):
 	tab: str
 	backend: int
@@ -148,6 +155,10 @@ class BrowserUse:
 
 	async def read_page(self, args: api.ReadPageInput) -> str:
 		"""Read the accessibility tree and issue tab-bound element references."""
+		return await self._read_page(args)
+
+	async def _read_page(self, args: api.ReadPageInput, query: str | None = None) -> str:
+		terms = query.casefold().split() if query else []
 		page = await self._page(args['tab_id'])
 		await self.browser.cdp_client.send.DOM.getDocument({'depth': 0}, session_id=await page.session_id)
 		self._refs = {name: ref for name, ref in self._refs.items() if ref.tab != page._target_id}
@@ -168,8 +179,22 @@ class BrowserUse:
 			'listbox',
 			'switch',
 		}
-		lines = []
-		for node in result['nodes']:
+		lines: list[str] = []
+		nodes = {node['nodeId']: node for node in result['nodes']}
+		children = {child for node in result['nodes'] for child in node.get('childIds', [])}
+		pending = [(node, 0) for node in reversed(result['nodes']) if node['nodeId'] not in children]
+		seen: set[str] = set()
+		length = 0
+		notice = '\n[Page truncated; use read_page_scoped, find, or interactive reads for specific content.]'
+		while pending:
+			node, depth = pending.pop()
+			if node['nodeId'] in seen:
+				continue
+			seen.add(node['nodeId'])
+			visible = not node.get('ignored') and node.get('role', {}).get('value') != 'InlineTextBox'
+			pending.extend(
+				(nodes[child], min(depth + int(visible), 30)) for child in reversed(node.get('childIds', [])) if child in nodes
+			)
 			role = node.get('role', {}).get('value', '')
 			if node.get('ignored') or role == 'InlineTextBox':
 				continue
@@ -186,22 +211,32 @@ class BrowserUse:
 			states = [
 				f'{prop["name"]}={json.dumps(prop["value"].get("value"))}'
 				for prop in node.get('properties', [])
-				if prop['name'] in {'checked', 'selected'} and 'value' in prop.get('value', {})
+				if prop['name']
+				in {'checked', 'selected', 'expanded', 'disabled', 'required', 'level', 'hasPopup', 'multiselectable'}
+				and 'value' in prop.get('value', {})
 			]
+			value = node.get('value', {}).get('value')
+			if value is not None:
+				states.append(f'value={json.dumps(value, ensure_ascii=False)}')
 			suffix = ' ' + ' '.join(states) if states else ''
-			lines.append(f'{prefix}{role} {json.dumps(name, ensure_ascii=False)}{suffix}')
+			line = f'{"  " * depth}{prefix}{role} {json.dumps(name, ensure_ascii=False)}{suffix}'
+			if not all(term in line.casefold() for term in terms):
+				continue
+			remaining = 50000 - len(notice) - length
+			if len(line) + 1 > remaining:
+				return '\n'.join(lines) + notice
+			lines.append(line)
+			length += len(line) + 1
 		return '\n'.join(lines)
 
 	async def find(self, args: api.FindInput) -> str:
 		"""Find current interactive elements by visible label text."""
-		text = await self.read_page({'tab_id': args['tab_id'], 'filter': 'interactive'})
-		terms = args['query'].casefold().split()
-		return '\n'.join(line for line in text.splitlines() if all(term in line.casefold() for term in terms))
+		return await self._read_page({'tab_id': args['tab_id'], 'filter': 'interactive'}, query=args['query'])
 
 	async def get_page_text(self, args: api.TabInput) -> str:
 		"""Read the selected page without returning form values."""
 		page = await self._page(args['tab_id'])
-		return await page.evaluate("() => document.body?.innerText || ''")
+		return _bounded_text(await page.evaluate("() => document.body?.innerText || ''"))
 
 	async def click(self, args: api.ClickInput) -> None:
 		"""Click an element from the latest page read."""
@@ -379,7 +414,7 @@ class BrowserUse:
 			if result.get('exceptionDetails'):
 				raise api.BrowserError('Page script failed.')
 			value = result.get('result', {}).get('value')
-			return value if isinstance(value, str) else json.dumps(value)
+			return _bounded_text(value if isinstance(value, str) else json.dumps(value))
 
 	async def _start_diagnostics(self, target: str) -> None:
 		if self._diagnostic_client is None:
