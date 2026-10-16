@@ -1924,8 +1924,12 @@ Validated Code (after quote fixing):
 					evaluate_error = value.get('__browser_use_evaluate_error')
 					value = value.get('__browser_use_evaluate_result')
 
-				if evaluate_error:
-					msg = f'JavaScript execution error: {evaluate_error}'
+				if evaluate_error is not None:
+					msg = f"""JavaScript execution error: {evaluate_error}
+
+Validated Code (after quote fixing):
+{validated_code[:500]}{'...' if len(validated_code) > 500 else ''}
+"""
 					if restrictions_removed:
 						msg += (
 							f'\nWARNING: This evaluate call removed disabled/readonly restrictions from '

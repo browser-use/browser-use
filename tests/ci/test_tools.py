@@ -184,6 +184,20 @@ class TestToolsIntegration:
 		assert '3 form control(s)' in result.error
 		assert 'script failed after changing controls' in result.error
 
+		await tools.evaluate(
+			code="document.querySelector('#place').disabled = true;",
+			browser_session=browser_session,
+		)
+		empty_error = await tools.evaluate(
+			code="document.querySelector('#place').disabled = false; throw '';",
+			browser_session=browser_session,
+		)
+		assert empty_error.error is not None
+		assert 'JavaScript execution error:' in empty_error.error
+		assert 'Validated Code (after quote fixing):' in empty_error.error
+		assert "throw '';" in empty_error.error
+		assert 'WARNING:' in empty_error.error
+
 	async def test_evaluate_keeps_result_without_restriction_changes(self, tools, browser_session, base_url, http_server):
 		"""Preserve the evaluate result when the script leaves form restrictions intact."""
 		http_server.expect_request('/unchanged-form').respond_with_data(
