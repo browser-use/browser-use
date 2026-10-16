@@ -1,9 +1,19 @@
 """Skills views - wraps SDK types with helper methods"""
 
+from enum import Enum
 from typing import Any
 
 from browser_use_sdk import ParameterSchema, SkillResponse
 from pydantic import BaseModel, ConfigDict, Field
+
+
+def enum_value(value: Any) -> Any:
+	"""Return the plain value of an SDK enum field.
+
+	browser-use-sdk 3.x models `status` and parameter `type` as plain Enums (2.x used Literals),
+	so comparing them to strings directly is always False.
+	"""
+	return value.value if isinstance(value, Enum) else value
 
 
 class MissingCookieException(Exception):
@@ -56,7 +66,7 @@ class Skill(BaseModel):
 		parameters = list[ParameterSchema](self.parameters)
 
 		if exclude_cookies:
-			parameters = [param for param in parameters if param.type != 'cookie']
+			parameters = [param for param in parameters if enum_value(param.type) != 'cookie']
 
 		return convert_parameters_to_pydantic(parameters, model_name=f'{self.title}Parameters')
 
