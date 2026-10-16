@@ -224,7 +224,12 @@ async def test_observation_survives_done_and_structured_json_remains_parseable(h
 	restored = AgentHistoryList.load_from_dict(history.model_dump(), AgentOutput)
 	assert restored.control_state_change_observations() == history.control_state_change_observations()
 	assert restored.is_successful() is True
-	assert restored.final_result() == history.final_result()
+	assert restored.get_structured_output(_StructuredAnswer) == _StructuredAnswer(answer='complete')
+	assert restored.final_result() == (
+		'{"answer":"complete"}\n\n'
+		'Observed around evaluate: disabled/read-only form-control state changed or a restricted control could not be '
+		'matched between snapshots. This observation does not identify its cause.'
+	)
 
 
 def _snapshot(*controls: dict[str, object], context_id: int = 1) -> dict[str, object]:

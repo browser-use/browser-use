@@ -7,10 +7,10 @@ import re
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Generic, Literal
+from typing import Any, Generic, Literal, TypeGuard
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
-from typing_extensions import TypeGuard, TypeVar
+from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
 from browser_use.agent.message_manager.views import MessageManagerState
