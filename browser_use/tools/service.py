@@ -3,7 +3,8 @@ import json
 import logging
 import math
 import os
-from typing import Generic, TypeVar
+import weakref
+from typing import Any, Generic, TypeVar
 
 import anyio
 
@@ -13,7 +14,7 @@ except ImportError:
 	Laminar = None  # type: ignore
 from pydantic import BaseModel
 
-from browser_use.agent.views import ActionModel, ActionResult
+from browser_use.agent.views import ActionModel, ActionResult, ControlStateChangeObservation
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
 	ClickCoordinateEvent,
@@ -108,6 +109,118 @@ _DEFAULT_PDF_FOOTER_TEMPLATE = (
 # slow-but-valid LLM-backed actions aren't truncated. Override per-call via
 # BROWSER_USE_ACTION_TIMEOUT_S env var or tools.act(action_timeout=...).
 _ACTION_TIMEOUT_FALLBACK_S = 180.0
+
+# Snapshots are best-effort. Two snapshots are taken around evaluate, and the
+# action timeout allows this bounded overhead without reducing evaluate's budget.
+_EVALUATE_CONTROL_STATE_SNAPSHOT_TIMEOUT_SECONDS = 0.1
+_EVALUATE_CONTROL_STATE_TIMEOUT_OVERHEAD_SECONDS = 2 * _EVALUATE_CONTROL_STATE_SNAPSHOT_TIMEOUT_SECONDS
+_EVALUATE_CONTROL_STATE_WORLD_NAME = '__browser_use_control_state_observer__'
+
+_CONTROL_STATE_SNAPSHOT_SCRIPT = r"""(() => {
+	const matches = ':enabled, :disabled, input, textarea';
+	const stateKey = '__browser_use_control_state_ids__';
+	let state = globalThis[stateKey];
+	if (!state) {
+		state = {ids: new WeakMap(), nextId: 0};
+		Object.defineProperty(globalThis, stateKey, {value: state});
+	}
+	const controls = new Set();
+	const roots = [document];
+	while (roots.length) {
+		const root = roots.pop();
+		for (const element of root.querySelectorAll(matches)) controls.add(element);
+		for (const element of root.querySelectorAll('*')) {
+			if (element.shadowRoot) roots.push(element.shadowRoot);
+		}
+	}
+	return {controls: Array.from(controls, (element) => {
+		let id = state.ids.get(element);
+		if (id === undefined) {
+			id = ++state.nextId;
+			state.ids.set(element, id);
+		}
+		return {
+			key: String(id),
+			disabled: element.matches(':disabled'),
+			readonly: ('readOnly' in element) && Boolean(element.readOnly),
+		};
+	})};
+})()"""
+
+
+def _index_unique_control_nodes(controls: list[Any]) -> tuple[dict[str, dict[str, Any]], int]:
+	"""Index uniquely identified controls and count restricted controls with ambiguous identity."""
+	key_counts: dict[str, int] = {}
+	for entry in controls:
+		if isinstance(entry, dict) and isinstance(entry.get('key'), str):
+			key = entry['key']
+			key_counts[key] = key_counts.get(key, 0) + 1
+
+	by_key: dict[str, dict[str, Any]] = {}
+	unmatched_restricted = 0
+	for entry in controls:
+		if not isinstance(entry, dict):
+			continue
+		key = entry.get('key')
+		is_restricted = entry.get('disabled') is True or entry.get('readonly') is True
+		if not isinstance(key, str) or key_counts.get(key, 0) != 1:
+			if is_restricted:
+				unmatched_restricted += 1
+			continue
+		by_key[key] = entry
+	return by_key, unmatched_restricted
+
+
+def _compare_control_state_snapshots(before: dict[str, Any], after: dict[str, Any]) -> ControlStateChangeObservation | None:
+	"""Compare controls only when snapshots share an isolated-world node identity space."""
+	before_controls = before.get('controls', [])
+	after_controls = after.get('controls', [])
+	disabled_to_enabled = 0
+	readonly_to_editable = 0
+	before_by_key, before_unmatched_restricted = _index_unique_control_nodes(before_controls)
+	after_by_key, after_unmatched_restricted = _index_unique_control_nodes(after_controls)
+	before_restricted_keys = {
+		key for key, entry in before_by_key.items() if entry.get('disabled') is True or entry.get('readonly') is True
+	}
+	after_restricted_keys = {
+		key for key, entry in after_by_key.items() if entry.get('disabled') is True or entry.get('readonly') is True
+	}
+	if before.get('context_identity') != after.get('context_identity'):
+		restricted_controls_unmatched = (
+			len(before_restricted_keys) + before_unmatched_restricted + len(after_restricted_keys) + after_unmatched_restricted
+		)
+		if not restricted_controls_unmatched:
+			return None
+		return ControlStateChangeObservation(restricted_controls_unmatched=restricted_controls_unmatched)
+
+	restricted_controls_unmatched = (
+		len(before_restricted_keys - after_by_key.keys())
+		+ len(after_restricted_keys - before_by_key.keys())
+		+ before_unmatched_restricted
+		+ after_unmatched_restricted
+	)
+
+	for key in before_by_key.keys() & after_by_key.keys():
+		previous = before_by_key[key]
+		was_disabled = previous.get('disabled') is True
+		was_readonly = previous.get('readonly') is True
+		if not was_disabled and not was_readonly:
+			continue
+
+		current = after_by_key[key]
+
+		if was_disabled and current.get('disabled') is False:
+			disabled_to_enabled += 1
+		if was_readonly and current.get('readonly') is False:
+			readonly_to_editable += 1
+
+	if not (disabled_to_enabled or readonly_to_editable or restricted_controls_unmatched):
+		return None
+	return ControlStateChangeObservation(
+		disabled_to_enabled=disabled_to_enabled,
+		readonly_to_editable=readonly_to_editable,
+		restricted_controls_unmatched=restricted_controls_unmatched,
+	)
 
 
 def _parse_env_action_timeout(raw: str | None) -> float:
@@ -449,6 +562,9 @@ class Tools(Generic[Context]):
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
+		self._evaluate_control_state_contexts: weakref.WeakKeyDictionary[Any, dict[str, tuple[str, str, int]]] = (
+			weakref.WeakKeyDictionary()
+		)
 
 		"""Register all default browser actions"""
 
@@ -1835,110 +1951,194 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			terminates_sequence=True,
 		)
 		async def evaluate(code: str, browser_session: BrowserSession):
-			# Execute JavaScript with proper error handling and promise support
-
 			cdp_session = await browser_session.get_or_create_cdp_session()
+			before = await self._snapshot_evaluate_control_state(cdp_session)
+			result = await self._execute_evaluate_javascript(code, cdp_session)
+			observation = await self._observe_evaluate_control_state(cdp_session, before)
+			if observation is not None:
+				result.control_state_change_observation = observation
+			return result
 
+	async def _snapshot_evaluate_control_state(self, cdp_session: Any) -> dict[str, Any] | None:
+		"""Read form-control state and node identities from a private isolated world."""
+		try:
+			return await asyncio.wait_for(
+				self._snapshot_evaluate_control_state_in_context(cdp_session),
+				timeout=_EVALUATE_CONTROL_STATE_SNAPSHOT_TIMEOUT_SECONDS,
+			)
+		except Exception as e:
 			try:
-				# Validate and potentially fix JavaScript code before execution
-				validated_code = self._validate_and_fix_javascript(code)
+				contexts = self._evaluate_control_state_contexts.get(cdp_session.cdp_client)
+				if contexts is not None:
+					contexts.pop(cdp_session.session_id, None)
+			except Exception:
+				# Snapshot cache cleanup must not alter evaluate error semantics.
+				pass
+			logger.debug('Could not snapshot form-control state before/after evaluate: %s', e)
+		return None
 
-				# Always use awaitPromise=True - it's ignored for non-promises
-				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': validated_code, 'returnByValue': True, 'awaitPromise': True},
-					session_id=cdp_session.session_id,
-				)
+	async def _snapshot_evaluate_control_state_in_context(self, cdp_session: Any) -> dict[str, Any] | None:
+		"""Capture state in a reusable isolated world so element identity survives DOM movement."""
+		cdp_client = cdp_session.cdp_client
+		session_id = cdp_session.session_id
+		frame_tree = await cdp_client.send.Page.getFrameTree(session_id=session_id)
+		frame = frame_tree.get('frameTree', {}).get('frame', {})
+		frame_id = frame.get('id')
+		loader_id = frame.get('loaderId')
+		if not isinstance(frame_id, str) or not isinstance(loader_id, str):
+			return None
 
-				# Check for JavaScript execution errors
-				if result.get('exceptionDetails'):
-					exception = result['exceptionDetails']
-					error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
+		contexts_by_session = self._evaluate_control_state_contexts.setdefault(cdp_client, {})
+		cached_context = contexts_by_session.get(session_id)
+		if cached_context is not None and cached_context[:2] == (frame_id, loader_id):
+			context_id = cached_context[2]
+		else:
+			world = await cdp_client.send.Page.createIsolatedWorld(
+				params={
+					'frameId': frame_id,
+					'worldName': _EVALUATE_CONTROL_STATE_WORLD_NAME,
+					'grantUniveralAccess': False,
+				},
+				session_id=session_id,
+			)
+			context_id = world.get('executionContextId')
+			if not isinstance(context_id, int):
+				return None
+			contexts_by_session[session_id] = (frame_id, loader_id, context_id)
 
-					# Enhanced error message with debugging info
-					enhanced_msg = f"""JavaScript Execution Failed:
+		result = await cdp_client.send.Runtime.evaluate(
+			params={
+				'expression': _CONTROL_STATE_SNAPSHOT_SCRIPT,
+				'contextId': context_id,
+				'returnByValue': True,
+				'awaitPromise': False,
+				'timeout': int(_EVALUATE_CONTROL_STATE_SNAPSHOT_TIMEOUT_SECONDS * 1000),
+			},
+			session_id=session_id,
+		)
+		if result.get('exceptionDetails'):
+			contexts_by_session.pop(session_id, None)
+			return None
+		value = result.get('result', {}).get('value')
+		controls = value.get('controls') if isinstance(value, dict) else None
+		if isinstance(controls, list) and all(isinstance(entry, dict) for entry in controls):
+			return {'context_identity': (frame_id, loader_id, context_id), 'controls': controls}
+		return None
+
+	async def _observe_evaluate_control_state(
+		self, cdp_session: Any, before: dict[str, Any] | None
+	) -> ControlStateChangeObservation | None:
+		"""Compare immediate snapshots; delayed changes remain outside this observation window."""
+		if before is None:
+			return None
+
+		after = await self._snapshot_evaluate_control_state(cdp_session)
+		if after is None:
+			return None
+		return _compare_control_state_snapshots(before, after)
+
+	async def _execute_evaluate_javascript(self, code: str, cdp_session: Any) -> ActionResult:
+		"""Run evaluate JavaScript and preserve its existing result/error behavior."""
+		try:
+			# Validate and potentially fix JavaScript code before execution
+			validated_code = self._validate_and_fix_javascript(code)
+
+			# Always use awaitPromise=True - it's ignored for non-promises
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': validated_code, 'returnByValue': True, 'awaitPromise': True},
+				session_id=cdp_session.session_id,
+			)
+
+			# Check for JavaScript execution errors
+			if result.get('exceptionDetails'):
+				exception = result['exceptionDetails']
+				error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
+
+				# Enhanced error message with debugging info
+				enhanced_msg = f"""JavaScript Execution Failed:
 {error_msg}
 
 Validated Code (after quote fixing):
 {validated_code[:500]}{'...' if len(validated_code) > 500 else ''}
 """
 
-					logger.debug(enhanced_msg)
-					return ActionResult(error=enhanced_msg)
+				logger.debug(enhanced_msg)
+				return ActionResult(error=enhanced_msg)
 
-				# Get the result data
-				result_data = result.get('result', {})
+			# Get the result data
+			result_data = result.get('result', {})
 
-				# Check for wasThrown flag (backup error detection)
-				if result_data.get('wasThrown'):
-					msg = f'JavaScript code: {code} execution failed (wasThrown=true)'
-					logger.debug(msg)
-					return ActionResult(error=msg)
+			# Check for wasThrown flag (backup error detection)
+			if result_data.get('wasThrown'):
+				msg = f'JavaScript code: {code} execution failed (wasThrown=true)'
+				logger.debug(msg)
+				return ActionResult(error=msg)
 
-				# Get the actual value
-				value = result_data.get('value')
+			# Get the actual value
+			value = result_data.get('value')
 
-				# Handle different value types
-				if value is None:
-					# Could be legitimate null/undefined result
-					result_text = str(value) if 'value' in result_data else 'undefined'
-				elif isinstance(value, (dict, list)):
-					# Complex objects - should be serialized by returnByValue
-					try:
-						result_text = json.dumps(value, ensure_ascii=False)
-					except (TypeError, ValueError):
-						# Fallback for non-serializable objects
-						result_text = str(value)
-				else:
-					# Primitive values (string, number, boolean)
+			# Handle different value types
+			if value is None:
+				# Could be legitimate null/undefined result
+				result_text = str(value) if 'value' in result_data else 'undefined'
+			elif isinstance(value, (dict, list)):
+				# Complex objects - should be serialized by returnByValue
+				try:
+					result_text = json.dumps(value, ensure_ascii=False)
+				except (TypeError, ValueError):
+					# Fallback for non-serializable objects
 					result_text = str(value)
+			else:
+				# Primitive values (string, number, boolean)
+				result_text = str(value)
 
-				import re
+			import re
 
-				image_pattern = r'(data:image/[^;]+;base64,[A-Za-z0-9+/=]+)'
-				found_images = re.findall(image_pattern, result_text)
+			image_pattern = r'(data:image/[^;]+;base64,[A-Za-z0-9+/=]+)'
+			found_images = re.findall(image_pattern, result_text)
 
-				metadata = None
-				if found_images:
-					# Store images in metadata so they can be added as ContentPartImageParam
-					metadata = {'images': found_images}
+			metadata = None
+			if found_images:
+				# Store images in metadata so they can be added as ContentPartImageParam
+				metadata = {'images': found_images}
 
-					# Replace image data in result text with shorter placeholder
-					modified_text = result_text
-					for i, img_data in enumerate(found_images, 1):
-						placeholder = '[Image]'
-						modified_text = modified_text.replace(img_data, placeholder)
-					result_text = modified_text
+				# Replace image data in result text with shorter placeholder
+				modified_text = result_text
+				for i, img_data in enumerate(found_images, 1):
+					placeholder = '[Image]'
+					modified_text = modified_text.replace(img_data, placeholder)
+				result_text = modified_text
 
-				# Apply length limit with better truncation (after image extraction)
-				if len(result_text) > 20000:
-					result_text = result_text[:19950] + '\n... [Truncated after 20000 characters]'
+			# Apply length limit with better truncation (after image extraction)
+			if len(result_text) > 20000:
+				result_text = result_text[:19950] + '\n... [Truncated after 20000 characters]'
 
-				# Don't log the code - it's already visible in the user's cell
-				logger.debug(f'JavaScript executed successfully, result length: {len(result_text)}')
+			# Don't log the code - it's already visible in the user's cell
+			logger.debug(f'JavaScript executed successfully, result length: {len(result_text)}')
 
-				# Memory handling: keep full result in extracted_content for current step,
-				# but use truncated version in long_term_memory if too large
-				MAX_MEMORY_LENGTH = 10000
-				if len(result_text) < MAX_MEMORY_LENGTH:
-					memory = result_text
-					include_extracted_content_only_once = False
-				else:
-					memory = f'JavaScript executed successfully, result length: {len(result_text)} characters.'
-					include_extracted_content_only_once = True
+			# Memory handling: keep full result in extracted_content for current step,
+			# but use truncated version in long_term_memory if too large
+			MAX_MEMORY_LENGTH = 10000
+			if len(result_text) < MAX_MEMORY_LENGTH:
+				memory = result_text
+				include_extracted_content_only_once = False
+			else:
+				memory = f'JavaScript executed successfully, result length: {len(result_text)} characters.'
+				include_extracted_content_only_once = True
 
-				# Return only the result, not the code (code is already in user's cell)
-				return ActionResult(
-					extracted_content=result_text,
-					long_term_memory=memory,
-					include_extracted_content_only_once=include_extracted_content_only_once,
-					metadata=metadata,
-				)
+			# Return only the result, not the code (code is already in user's cell)
+			return ActionResult(
+				extracted_content=result_text,
+				long_term_memory=memory,
+				include_extracted_content_only_once=include_extracted_content_only_once,
+				metadata=metadata,
+			)
 
-			except Exception as e:
-				# CDP communication or other system errors
-				error_msg = f'Failed to execute JavaScript: {type(e).__name__}: {e}'
-				logger.debug(f'JavaScript code that failed: {code[:200]}...')
-				return ActionResult(error=error_msg)
+		except Exception as e:
+			# CDP communication or other system errors
+			error_msg = f'Failed to execute JavaScript: {type(e).__name__}: {e}'
+			logger.debug(f'JavaScript code that failed: {code[:200]}...')
+			return ActionResult(error=error_msg)
 
 	def _validate_and_fix_javascript(self, code: str) -> str:
 		"""Validate and fix common JavaScript issues before execution"""
@@ -2217,6 +2417,11 @@ Validated Code (after quote fixing):
 
 				with span_context:
 					try:
+						# Snapshot work is bounded separately and receives its own timeout
+						# allowance so evaluate retains its existing execution budget.
+						action_timeout_s = timeout_s
+						if action_name == 'evaluate':
+							action_timeout_s += _EVALUATE_CONTROL_STATE_TIMEOUT_OVERHEAD_SECONDS
 						result = await asyncio.wait_for(
 							self.registry.execute_action(
 								action_name=action_name,
@@ -2228,7 +2433,7 @@ Validated Code (after quote fixing):
 								available_file_paths=available_file_paths,
 								extraction_schema=extraction_schema,
 							),
-							timeout=timeout_s,
+							timeout=action_timeout_s,
 						)
 					except BrowserError as e:
 						logger.error(f'❌ Action {action_name} failed with BrowserError: {str(e)}')
