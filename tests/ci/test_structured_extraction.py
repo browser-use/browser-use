@@ -59,6 +59,100 @@ class TestSchemaDictToPydanticModel:
 		instance = Model(person={'first': 'Bob', 'last': 'Smith'})
 		assert instance.person.first == 'Bob'  # type: ignore[attr-defined]
 
+	@pytest.mark.filterwarnings('error::UserWarning')
+	@pytest.mark.parametrize(
+		'field_name',
+		[
+			'model_config',
+			'model_dump',
+			'model_validate',
+			'model_dump_json',
+			'model_fields',
+			'schema',
+			'model_json_schema',
+			'model_dump_extra',
+		],
+	)
+	def test_reserved_field_names_roundtrip(self, field_name):
+		schema = {
+			'type': 'object',
+			'properties': {field_name: {'type': 'string', 'description': 'An extracted value'}},
+			'required': [field_name],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		payload = {field_name: 'extracted value'}
+		instance = Model(**payload)
+		assert instance.model_dump(mode='json') == payload
+		assert json.loads(instance.model_dump_json()) == payload
+		assert Model.model_validate_json(instance.model_dump_json()).model_dump(mode='json') == payload
+		for mode in ('validation', 'serialization'):
+			generated = Model.model_json_schema(mode=mode)
+			assert set(generated['properties']) == {field_name}
+			assert generated['required'] == [field_name]
+			assert generated['properties'][field_name]['description'] == 'An extracted value'
+
+	def test_reserved_fields_in_nested_objects_and_arrays(self):
+		item_schema = {
+			'type': 'object',
+			'properties': {
+				'model_config': {'type': 'string'},
+				'model_validate': {'type': 'string'},
+			},
+			'required': ['model_config', 'model_validate'],
+		}
+		schema = {
+			'type': 'object',
+			'properties': {
+				'model_dump': item_schema,
+				'records': {'type': 'array', 'items': item_schema},
+			},
+			'required': ['model_dump', 'records'],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		item = {'model_config': 'configuration', 'model_validate': 'validation'}
+		payload = {'model_dump': item, 'records': [item]}
+		instance = Model.model_validate(payload)
+		assert instance.model_dump(mode='json') == payload
+		assert json.loads(instance.model_dump_json()) == payload
+		generated = Model.model_json_schema()
+		assert set(generated['properties']) == {'model_dump', 'records'}
+		for nested_schema in generated['$defs'].values():
+			assert set(nested_schema['properties']) == {'model_config', 'model_validate'}
+			assert nested_schema['required'] == ['model_config', 'model_validate']
+
+	def test_reserved_field_aliases_do_not_overwrite_other_properties(self):
+		properties = {
+			'model_dump': {'type': 'string'},
+			'field_model_dump': {'type': 'string'},
+			'field_model_dump_': {'type': 'string'},
+		}
+		Model = schema_dict_to_pydantic_model({'type': 'object', 'properties': properties, 'required': list(properties)})
+		payload = {name: name for name in properties}
+		assert Model.model_validate(payload).model_dump(mode='json') == payload
+		assert set(Model.model_json_schema()['properties']) == set(properties)
+		internal_name = next(name for name, field in Model.model_fields.items() if field.alias == 'model_dump')
+		with pytest.raises(ValidationError):
+			Model.model_validate({**payload, internal_name: 'unexpected'})
+		with pytest.raises(ValidationError):
+			Model.model_validate({internal_name: 'not an external field', 'field_model_dump': 'one', 'field_model_dump_': 'two'})
+
+	def test_optional_reserved_fields_keep_defaults(self):
+		Model = schema_dict_to_pydantic_model(
+			{
+				'type': 'object',
+				'properties': {
+					'model_config': {'type': 'array', 'items': {'type': 'string'}},
+					'model_validate': {'type': 'string', 'default': 'default value'},
+				},
+			}
+		)
+		first = Model()
+		second = Model()
+		assert first.model_dump(mode='json') == {'model_config': [], 'model_validate': 'default value'}
+		array_field = next(name for name, field in Model.model_fields.items() if field.alias == 'model_config')
+		getattr(first, array_field).append('first instance only')
+		assert second.model_dump(mode='json')['model_config'] == []
+
 	def test_array_of_objects(self):
 		schema = {
 			'type': 'object',
