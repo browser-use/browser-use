@@ -168,8 +168,22 @@ class BrowserUse:
 			'listbox',
 			'switch',
 		}
-		lines = []
-		for node in result['nodes']:
+		lines: list[str] = []
+		nodes = {node['nodeId']: node for node in result['nodes']}
+		children = {child for node in result['nodes'] for child in node.get('childIds', [])}
+		pending = [(node, 0) for node in reversed(result['nodes']) if node['nodeId'] not in children]
+		seen: set[str] = set()
+		length = 0
+		notice = '\n[Page truncated; use read_page_scoped, find, or interactive reads for specific content.]'
+		while pending:
+			node, depth = pending.pop()
+			if node['nodeId'] in seen:
+				continue
+			seen.add(node['nodeId'])
+			visible = not node.get('ignored') and node.get('role', {}).get('value') != 'InlineTextBox'
+			pending.extend(
+				(nodes[child], min(depth + int(visible), 30)) for child in reversed(node.get('childIds', [])) if child in nodes
+			)
 			role = node.get('role', {}).get('value', '')
 			if node.get('ignored') or role == 'InlineTextBox':
 				continue
@@ -186,10 +200,21 @@ class BrowserUse:
 			states = [
 				f'{prop["name"]}={json.dumps(prop["value"].get("value"))}'
 				for prop in node.get('properties', [])
-				if prop['name'] in {'checked', 'selected'} and 'value' in prop.get('value', {})
+				if prop['name']
+				in {'checked', 'selected', 'expanded', 'disabled', 'required', 'level', 'hasPopup', 'multiselectable'}
+				and 'value' in prop.get('value', {})
 			]
+			value = node.get('value', {}).get('value')
+			if value is not None:
+				states.append(f'value={json.dumps(value, ensure_ascii=False)}')
 			suffix = ' ' + ' '.join(states) if states else ''
-			lines.append(f'{prefix}{role} {json.dumps(name, ensure_ascii=False)}{suffix}')
+			line = f'{"  " * depth}{prefix}{role} {json.dumps(name, ensure_ascii=False)}{suffix}'
+			remaining = 50000 - len(notice) - length
+			if len(line) + 1 > remaining:
+				lines.append(line[: max(0, remaining - 1)])
+				return '\n'.join(lines) + notice
+			lines.append(line)
+			length += len(line) + 1
 		return '\n'.join(lines)
 
 	async def find(self, args: api.FindInput) -> str:

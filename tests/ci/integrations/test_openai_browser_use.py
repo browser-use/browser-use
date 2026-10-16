@@ -352,3 +352,27 @@ async def test_network_diagnostics_strip_query_and_capture_status(driver):
 		assert '/diagnostic' in read['text']
 		assert 'secret' not in read['text']
 		assert 'hidden' not in read['text']
+
+
+async def test_page_read_preserves_structure_and_control_state(driver):
+	await fixture_page(
+		driver,
+		'<main><h1>Account</h1><section aria-label="Preferences"><label>Name<input value="Alice"></label><button disabled>Save</button><button aria-expanded="false">Details</button></section></main>',
+	)
+	text = await driver.read_page({'tab_id': None, 'filter': 'all'})
+	lines = text.splitlines()
+	main = next(line for line in lines if 'main ' in line)
+	heading = next(line for line in lines if 'heading "Account"' in line)
+	assert len(heading) - len(heading.lstrip()) > len(main) - len(main.lstrip())
+	assert 'value="Alice"' in next(line for line in lines if 'textbox' in line)
+	assert 'disabled=true' in next(line for line in lines if 'Save' in line)
+	assert 'expanded=false' in next(line for line in lines if 'Details' in line)
+
+
+async def test_page_read_bounds_large_observations(driver):
+	await fixture_page(driver, '<main><p>' + 'large content ' * 5000 + '</p><button>Last</button></main>')
+	text = await driver.read_page({'tab_id': None, 'filter': 'all'})
+	assert len(text) <= 50000
+	assert 'truncated' in text.lower()
+	controls = await driver.read_page({'tab_id': None, 'filter': 'interactive'})
+	await driver.click({'tab_id': None, 'target': reference(controls, 'Last')})
