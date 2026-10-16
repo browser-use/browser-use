@@ -85,3 +85,6 @@ product_extraction.py
 plot.py
 
 .claude/
+
+# Antigravity Kit
+.agents/

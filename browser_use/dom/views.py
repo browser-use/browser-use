@@ -234,10 +234,8 @@ class SimplifiedNode:
 	def _clean_original_node_json(self, node_json: dict) -> dict:
 		"""Recursively remove children_nodes and shadow_roots from original_node JSON."""
 		# Remove the fields we don't want in SimplifiedNode serialization
-		if 'children_nodes' in node_json:
-			del node_json['children_nodes']
-		if 'shadow_roots' in node_json:
-			del node_json['shadow_roots']
+		node_json.pop('children_nodes', None)
+		node_json.pop('shadow_roots', None)
 
 		# Clean nested content_document if it exists
 		if node_json.get('content_document'):
@@ -351,8 +349,8 @@ class EnhancedSnapshotNode:
 	"""Computed styles from the layout tree"""
 	paint_order: int | None
 	"""Paint order from the layout tree"""
-	stacking_contexts: int | None
-	"""Stacking contexts from the layout tree"""
+	stacking_contexts: bool | None
+	"""Whether element creates a stacking context from the layout tree"""
 	input_value: str | None = None
 	"""Live value of an <input> or <textarea> (DOMSnapshot inputValue/textValue), which the value attribute misses when JS, autofill, or a framework set it."""
 	input_checked: bool | None = None
@@ -614,7 +612,7 @@ class EnhancedDOMTreeNode:
 		if hasattr(self, 'attributes') and self.attributes:
 			# Priority order: value, aria-label, title, placeholder, alt, text content
 			for attr in ['value', 'aria-label', 'title', 'placeholder', 'alt']:
-				if attr in self.attributes and self.attributes[attr]:
+				if self.attributes.get(attr):
 					meaningful_text = self.attributes[attr]
 					break
 
