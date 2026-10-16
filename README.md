@@ -64,8 +64,10 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 # Which Browser Use do I need?
 
 <picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="static/readme/which-product-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="static/readme/which-product-light-mobile.svg">
   <source media="(prefers-color-scheme: dark)" srcset="static/readme/which-product-dark.svg">
-  <img alt="Three ways to use Browser Use: fully hosted cloud; your existing agent with Browser Use CLI; or the open source Browser Use agent, available as a Python library. The CLI and library each connect to a local or cloud browser." src="static/readme/which-product-light.svg" width="100%">
+  <img alt="Three ways to use Browser Use: the hosted V4 agent, the Browser Use CLI, or the open source Python library. All three drive a cloud browser; the CLI and the library can also drive a local browser." src="static/readme/which-product-light.svg" width="100%">
 </picture>
 
 - **[Path 1: Fully Hosted Cloud](#path-1-fully-hosted-cloud):** Scale up with a fully hosted agent and browser.
@@ -164,7 +166,12 @@ implements all 31 browser actions and can control a local browser, a Browser
 Use Cloud browser, or an existing remote browser over CDP.
 Bash is included in the Browser Use integration for processing data and writing files.
 
-<img src="examples/integrations/toolsets-for-claude/architecture.svg" alt="Claude uses Browser Use browser actions and Bash through the Anthropic SDK. The browser can be local or remote; Bash runs on the SDK host." width="100%">
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="examples/integrations/toolsets-for-claude/architecture-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="examples/integrations/toolsets-for-claude/architecture-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="examples/integrations/toolsets-for-claude/architecture-dark.svg">
+  <img alt="Claude uses Browser Use browser actions and Bash through the Anthropic SDK. The browser can be local or remote; Bash runs on the SDK host." src="examples/integrations/toolsets-for-claude/architecture-light.svg" width="100%">
+</picture>
 
 Requires an Anthropic SDK version that includes `anthropic.tools.browser`.
 Bash requires a Linux or macOS host with `/bin/bash`; use WSL on Windows.
