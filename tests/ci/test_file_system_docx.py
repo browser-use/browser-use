@@ -60,6 +60,88 @@ Some content here."""
 		assert 'Test Heading' in structured_result['message']
 		assert 'Test paragraph content' in structured_result['message']
 
+	@pytest.mark.asyncio
+	@pytest.mark.parametrize('include_paragraphs', [False, True])
+	async def test_read_external_docx_tables(self, tmp_path: Path, include_paragraphs: bool) -> None:
+		"""Table data must reach the reader in document order, even without paragraphs."""
+		from docx import Document
+
+		external_file = tmp_path / 'invoice.docx'
+		doc = Document()
+		if include_paragraphs:
+			doc.add_paragraph('Invoice items')
+		table = doc.add_table(rows=2, cols=2)
+		table.cell(0, 0).text = 'Item'
+		table.cell(0, 1).text = 'Amount'
+		table.cell(1, 0).text = 'Consulting'
+		table.cell(1, 1).text = '125.00'
+		if include_paragraphs:
+			doc.add_paragraph('Payment details')
+		details = doc.add_table(rows=1, cols=2)
+		details.cell(0, 0).text = 'Due date'
+		details.cell(0, 1).text = '2026-10-05'
+		doc.save(str(external_file))
+
+		fs = FileSystem(tmp_path / 'workspace')
+		message = await fs.read_file(str(external_file), external_file=True)
+		lines = ['Item\tAmount', 'Consulting\t125.00', 'Due date\t2026-10-05']
+		if include_paragraphs:
+			lines.insert(0, 'Invoice items')
+			lines.insert(3, 'Payment details')
+		expected_content = '\n'.join(lines)
+		assert f'<content>\n{expected_content}\n</content>' in message
+
+	@pytest.mark.asyncio
+	@pytest.mark.parametrize('nested_again', [False, True])
+	async def test_read_external_docx_nested_tables(self, tmp_path: Path, nested_again: bool) -> None:
+		"""Keep paragraphs and nested tables in the order they appear inside a cell."""
+		from docx import Document
+
+		external_file = tmp_path / 'nested.docx'
+		doc = Document()
+		table = doc.add_table(rows=1, cols=2)
+		table.cell(0, 0).text = 'Outer'
+		cell = table.cell(0, 1)
+		cell.text = 'Before'
+		nested = cell.add_table(rows=1, cols=2)
+		nested.cell(0, 0).text = 'Nested'
+		nested.cell(0, 1).text = '42'
+		if nested_again:
+			inner_cell = nested.cell(0, 1)
+			inner_table = inner_cell.add_table(rows=1, cols=1)
+			inner_table.cell(0, 0).text = 'Deep value'
+			inner_cell.paragraphs[-1].text = 'Inner end'
+		cell.paragraphs[-1].text = 'After'
+		doc.save(str(external_file))
+
+		fs = FileSystem(tmp_path / 'workspace')
+		message = await fs.read_file(str(external_file), external_file=True)
+		lines = ['Outer\tBefore', 'Nested\t42']
+		if nested_again:
+			lines.extend(['Deep value', 'Inner end'])
+		lines.append('After')
+		expected_content = '\n'.join(lines)
+		assert f'<content>\n{expected_content}\n</content>' in message
+
+	@pytest.mark.asyncio
+	async def test_read_external_docx_merged_cells(self, tmp_path: Path) -> None:
+		"""Read a merged cell once without dropping separate cells with identical text."""
+		from docx import Document
+
+		external_file = tmp_path / 'merged.docx'
+		doc = Document()
+		table = doc.add_table(rows=2, cols=3)
+		table.cell(0, 0).merge(table.cell(0, 1)).text = 'Total'
+		table.cell(0, 2).text = '125.00'
+		table.cell(1, 0).text = 'Item'
+		table.cell(1, 1).text = 'Item'
+		table.cell(1, 2).text = 'Details'
+		doc.save(str(external_file))
+
+		fs = FileSystem(tmp_path / 'workspace')
+		message = await fs.read_file(str(external_file), external_file=True)
+		assert '<content>\nTotal\t125.00\nItem\tItem\tDetails\n</content>' in message
+
 	def test_docx_file_extension(self):
 		"""Test DOCX file extension property."""
 		docx_file = DocxFile(name='test')
