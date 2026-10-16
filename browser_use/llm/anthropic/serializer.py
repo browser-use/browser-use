@@ -302,21 +302,21 @@ class AnthropicMessageSerializer:
 
 	@staticmethod
 	def serialize_messages(messages: list[BaseMessage]) -> tuple[list[MessageParam], list[TextBlockParam] | str | None]:
-		"""Serialize a list of messages, extracting any system message.
+		"""Serialize a list of messages, preserving all system instructions in order.
 
 		Returns:
 		    A tuple of (messages, system_message) where system_message is extracted
-		    from any SystemMessage in the list.
+		    from all SystemMessage instances in the list.
 		"""
 		messages = [m.model_copy(deep=True) for m in messages]
 
 		# Separate system messages from normal messages
 		normal_messages: list[NonSystemMessage] = []
-		system_message: SystemMessage | None = None
+		system_messages: list[SystemMessage] = []
 
 		for message in messages:
 			if isinstance(message, SystemMessage):
-				system_message = message
+				system_messages.append(message)
 			else:
 				normal_messages.append(message)
 
@@ -328,11 +328,25 @@ class AnthropicMessageSerializer:
 		for message in normal_messages:
 			serialized_messages.append(AnthropicMessageSerializer.serialize(message))
 
-		# Serialize system message
+		# Preserve the existing representation for a single system message.
 		serialized_system_message: list[TextBlockParam] | str | None = None
-		if system_message:
+		if len(system_messages) == 1:
+			system_message = system_messages[0]
 			serialized_system_message = AnthropicMessageSerializer._serialize_content_to_str(
 				system_message.content, use_cache=system_message.cache
 			)
+		elif system_messages:
+			# As with normal messages, keep only the last requested cache boundary.
+			last_cache_index = next((i for i in range(len(system_messages) - 1, -1, -1) if system_messages[i].cache), -1)
+			system_blocks: list[TextBlockParam] = []
+			for i, system_message in enumerate(system_messages):
+				content = AnthropicMessageSerializer._serialize_content_to_str(
+					system_message.content, use_cache=i == last_cache_index
+				)
+				if isinstance(content, str):
+					system_blocks.append(TextBlockParam(type='text', text=content))
+				else:
+					system_blocks.extend(content)
+			serialized_system_message = system_blocks
 
 		return serialized_messages, serialized_system_message
