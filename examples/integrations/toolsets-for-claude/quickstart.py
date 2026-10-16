@@ -1,3 +1,5 @@
+# pyright: reportAttributeAccessIssue=false
+
 """Build a Hacker News reading list with Browser Use and Claude.
 
 Requires Linux/macOS with /bin/bash, or WSL on Windows.
