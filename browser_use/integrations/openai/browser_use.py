@@ -21,6 +21,13 @@ from browser_use.browser.session import BrowserSession
 from openai.lib import browser as api
 
 
+def _bounded_text(text: str) -> str:
+	if len(text) <= 50000:
+		return text
+	notice = '\n[Output truncated; request a smaller section or return fewer script results.]'
+	return text[: 50000 - len(notice)] + notice
+
+
 class Reference(BaseModel):
 	tab: str
 	backend: int
@@ -226,7 +233,7 @@ class BrowserUse:
 	async def get_page_text(self, args: api.TabInput) -> str:
 		"""Read the selected page without returning form values."""
 		page = await self._page(args['tab_id'])
-		return await page.evaluate("() => document.body?.innerText || ''")
+		return _bounded_text(await page.evaluate("() => document.body?.innerText || ''"))
 
 	async def click(self, args: api.ClickInput) -> None:
 		"""Click an element from the latest page read."""
@@ -404,7 +411,7 @@ class BrowserUse:
 			if result.get('exceptionDetails'):
 				raise api.BrowserError('Page script failed.')
 			value = result.get('result', {}).get('value')
-			return value if isinstance(value, str) else json.dumps(value)
+			return _bounded_text(value if isinstance(value, str) else json.dumps(value))
 
 	async def _start_diagnostics(self, target: str) -> None:
 		if self._diagnostic_client is None:
