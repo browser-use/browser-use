@@ -158,13 +158,11 @@ class TestToolsIntegration:
 		# Record end time
 		end_time = time.time()
 
-		# Verify the result
+		# Verify the result. A 3s request has to actually sleep about 3s (#5362).
 		assert isinstance(result, ActionResult)
-		assert result.extracted_content is not None
-		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
-
-		# Verify that approximately 1 second has passed (allowing some margin)
-		assert end_time - start_time <= 2.5  # We wait 3-1 seconds for LLM call
+		assert result.extracted_content == 'Waited for 3 seconds'
+		assert result.long_term_memory == result.extracted_content
+		assert 2.6 <= end_time - start_time <= 4.5
 
 		# longer wait
 		# Record start time
@@ -176,12 +174,31 @@ class TestToolsIntegration:
 		# Record end time
 		end_time = time.time()
 
-		# Verify the result
 		assert isinstance(result, ActionResult)
-		assert result.extracted_content is not None
-		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
+		assert result.extracted_content == 'Waited for 5 seconds'
+		assert result.long_term_memory == result.extracted_content
+		assert 4.6 <= end_time - start_time <= 6.5
 
-		assert 3.5 <= end_time - start_time <= 4.5  # We wait 5-1 seconds for LLM call
+	async def test_wait_reports_the_sleep_it_actually_did(self, tools, monkeypatch):
+		"""#5362: a 1s wait must not sleep 0, and a 120s wait must not claim it slept 120."""
+		slept: list[float] = []
+
+		async def record_sleep(delay: float):
+			slept.append(delay)
+
+		monkeypatch.setattr(asyncio, 'sleep', record_sleep)
+		wait = tools.registry.registry.actions['wait']
+
+		one = await wait.function(params=wait.param_model(seconds=1))
+		assert slept == [1]
+		assert one.long_term_memory == 'Waited for 1 second'
+		assert one.extracted_content == one.long_term_memory
+
+		capped = await wait.function(params=wait.param_model(seconds=120))
+		assert slept == [1, 30]
+		assert capped.long_term_memory == 'Waited for 30 seconds (requested 120, capped at 30)'
+		assert capped.extracted_content == capped.long_term_memory
+		assert capped.error is None
 
 	async def test_go_back_action(self, tools, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""

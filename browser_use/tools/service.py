@@ -594,16 +594,18 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to go back: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('Wait for x seconds.')
+		@self.registry.action('Wait for x seconds, up to 30.')
 		async def wait(seconds: int = 3):
-			# Cap wait time at maximum 30 seconds
-			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
-			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
-			# Note by Mert: the above doesnt make sense because we do the LLM call right after this or this could be followed by another action after which we would like to wait
-			# so I revert this.
-			actual_seconds = min(max(seconds - 1, 0), 30)
-			memory = f'Waited for {seconds} seconds'
-			logger.info(f'🕒 waited for {seconds} second{"" if seconds == 1 else "s"}')
+			# 30s cap. Tell the model what we slept, not what it asked for.
+			# Don't shave off time for "the LLM call" — wait can be in the middle of a step.
+			actual_seconds = min(max(seconds, 0), 30)
+			if seconds > 30:
+				memory = f'Waited for {actual_seconds} seconds (requested {seconds}, capped at 30)'
+			elif actual_seconds == 1:
+				memory = 'Waited for 1 second'
+			else:
+				memory = f'Waited for {actual_seconds} seconds'
+			logger.info(f'🕒 {memory}')
 			await asyncio.sleep(actual_seconds)
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
