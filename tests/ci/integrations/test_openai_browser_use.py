@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import re
+from collections.abc import Awaitable, Callable
 from io import BytesIO
+from typing import cast
 
 import pytest
 from openai.lib.browser import AsyncBrowserToolset, BrowserError
@@ -48,12 +51,15 @@ async def test_driver_reads_and_changes_real_form(driver):
 		'<label>Name<input id="name"></label><label>Ready<input type="checkbox" id="ready"></label><button onclick="document.querySelector(\'#result\').textContent=document.querySelector(\'#name\').value">Save</button><p id="result"></p>',
 	)
 	text = await driver.read_page({'tab_id': None, 'filter': 'interactive'})
+	assert 'checked="false"' in next(line for line in text.splitlines() if 'Ready' in line)
 	await driver.type({'tab_id': None, 'target': reference(text, 'Name'), 'text': 'OpenAI driver'})
 	await driver.set_checked({'tab_id': None, 'target': reference(text, 'Ready'), 'checked': True})
 	await driver.set_checked({'tab_id': None, 'target': reference(text, 'Ready'), 'checked': True})
 	await driver.click({'tab_id': None, 'target': reference(text, 'Save')})
 	assert await page.evaluate("() => document.querySelector('#result').textContent") == 'OpenAI driver'
 	assert await page.evaluate("() => document.querySelector('#ready').checked") == 'True'
+	updated = await driver.read_page({'tab_id': None, 'filter': 'interactive'})
+	assert 'checked="true"' in next(line for line in updated.splitlines() if 'Ready' in line)
 	image = await driver.zoom({'tab_id': None, 'region': [0, 0, 100, 80]})
 	with Image.open(BytesIO(base64.b64decode(image['image_url'].split(',', 1)[1]))) as crop:
 		assert crop.size == (100, 80)
@@ -161,6 +167,8 @@ async def test_sdk_dispatch_changes_form_and_selects_option(driver):
 			)
 		assert await page.evaluate('() => document.title') == 'SDK result'
 		assert await page.evaluate("() => document.querySelector('#choice').value") == 'b'
+		updated = await driver.read_page({'tab_id': None, 'filter': 'all'})
+		assert 'selected=true' in next(line for line in updated.splitlines() if 'option "Beta"' in line)
 	finally:
 		tools.close()
 
@@ -191,6 +199,8 @@ async def test_sdk_accepts_uncommitted_tab_without_url(driver, monkeypatch):
 		)
 		assert isinstance(output['output'], list)
 		assert output['output'][0]['type'] == 'input_text'
+		assert isinstance(output['output'], list)
+		assert output['output'][0]['type'] == 'input_text'
 		result = json.loads(output['output'][0]['text'])
 		assert result['ok'] is True
 		assert result['state']['tabs']
@@ -215,3 +225,130 @@ async def test_screenshot_and_pointer_share_css_pixels_at_double_scale(driver):
 		assert image.convert('RGB').getpixel((110, 110)) == (0, 0, 255)
 	await driver.click_at({'tab_id': None, 'x': 150, 'y': 125, 'button': 'left', 'click_count': 1, 'keys': []})
 	assert await page.evaluate('() => document.title') == 'Clicked'
+
+
+@pytest.mark.asyncio
+async def test_openai_bash_creates_deliverable_without_inherited_secrets(tmp_path, monkeypatch):
+	from browser_use.integrations.openai import Bash
+	from browser_use.integrations.openai.bash import BashInput
+
+	monkeypatch.setenv('OPENAI_API_KEY', 'private-test-value')
+	tool = Bash(output_dir=tmp_path)
+	execute = cast(Callable[[BashInput], Awaitable[str]], tool.execute)
+	result = json.loads(await execute(BashInput(command='printf result > report.txt; printenv OPENAI_API_KEY || true')))
+	assert result['exit_code'] == 0
+	assert result['output'] == ''
+	assert (tmp_path / 'report.txt').read_text() == 'result'
+
+
+async def dispatch(driver, member, arguments):
+	async def approve(context):
+		return True
+
+	tools = AsyncBrowserToolset(driver, members=[member], confirm=approve)
+	try:
+		output = await tools.execute(
+			ResponseFunctionToolCall(
+				id='fc_' + member,
+				call_id='call_' + member,
+				type='function_call',
+				name='browser_' + member,
+				arguments=json.dumps(arguments),
+			)
+		)
+		assert isinstance(output['output'], list)
+		assert output['output'][0]['type'] == 'input_text'
+		result = json.loads(output['output'][0]['text'])
+		assert result['ok'], result
+		return result['result']
+	finally:
+		tools.close()
+
+
+@pytest.mark.asyncio
+async def test_scoped_read_limits_region_and_rejects_stale_scope(driver):
+	await fixture_page(driver, '<main><button>Inside</button></main><nav><button>Outside</button></nav>')
+	discovered = await dispatch(driver, 'read_page_scoped', {'tab_id': None, 'root': None, 'depth': 8, 'filter': 'all'})
+	root = next(scope['ref'] for scope in discovered['scopes'] if scope['label'] == 'main')
+	read = await dispatch(driver, 'read_page_scoped', {'tab_id': None, 'root': root, 'depth': 8, 'filter': 'all'})
+	assert 'Inside' in read['text']
+	assert 'Outside' not in read['text']
+	await driver.click({'tab_id': None, 'target': read['elements'][0]['ref']})
+	with pytest.raises(BrowserError):
+		await driver.click({'tab_id': None, 'target': root})
+	await driver.navigate({'tab_id': None, 'url': 'about:blank'})
+	with pytest.raises(BrowserError):
+		await driver.read_page_scoped({'tab_id': None, 'root': root, 'depth': 8, 'filter': 'all'})
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_reads_console_and_bounds_output(driver):
+	page = await fixture_page(driver, '<p>Diagnostics</p>')
+	await page.evaluate("() => {console.log('first'); console.warn('second');}")
+	await driver._diagnostic_client.send.Runtime.evaluate(
+		{'expression': '0'}, session_id=driver._diagnostic_sessions[page._target_id]
+	)
+	read = await dispatch(driver, 'read_diagnostics', {'tab_id': None, 'source': 'console', 'limit': 1})
+	assert 'second' in read['text']
+	assert 'first' not in read['text']
+	assert 'report_limit' in read['omitted']
+
+
+@pytest.mark.asyncio
+async def test_file_grants_transfer_real_bytes_and_reject_reuse(driver, tmp_path):
+	page = await fixture_page(driver, '<label>Upload<input type="file" id="file"></label>')
+	source = tmp_path / 'source.txt'
+	source.write_bytes(b'approved bytes\x00')
+	text = await driver.read_page({'tab_id': None, 'filter': 'interactive'})
+	grant = await driver.grant_upload(source, target=reference(text, 'Upload'))
+	source.write_text('changed after approval')
+	await dispatch(driver, 'upload_file', {'grant_id': grant})
+	assert await page.evaluate("() => document.querySelector('#file').files[0].text()") == 'approved bytes\x00'
+	with pytest.raises(BrowserError):
+		await driver.upload_file({'grant_id': grant})
+	url = await page.evaluate("() => URL.createObjectURL(new Blob(['download bytes']))")
+	destination = tmp_path / 'download.txt'
+	grant = await driver.grant_download(url, destination)
+	await dispatch(driver, 'download_file', {'grant_id': grant})
+	assert destination.read_bytes() == b'download bytes'
+	with pytest.raises(BrowserError):
+		await driver.download_file({'grant_id': grant})
+
+
+@pytest.mark.asyncio
+async def test_file_grant_rejects_navigation_and_existing_destination(driver, tmp_path):
+	page = await fixture_page(driver, '<p>Download</p>')
+	url = await page.evaluate("() => URL.createObjectURL(new Blob(['bytes']))")
+	destination = tmp_path / 'download.txt'
+	grant = await driver.grant_download(url, destination)
+	await driver.navigate({'tab_id': None, 'url': 'about:blank'})
+	with pytest.raises(BrowserError):
+		await driver.download_file({'grant_id': grant})
+	assert not destination.exists()
+	destination.write_text('keep')
+	with pytest.raises(BrowserError):
+		await driver.grant_download(url, destination)
+	assert destination.read_text() == 'keep'
+
+
+@pytest.mark.asyncio
+async def test_network_diagnostics_strip_query_and_capture_status(driver):
+	async def respond(reader, writer):
+		try:
+			await reader.readuntil(b'\r\n\r\n')
+			writer.write(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nok')
+			await writer.drain()
+		finally:
+			writer.close()
+			await writer.wait_closed()
+
+	server = await asyncio.start_server(respond, '127.0.0.1', 0)
+	async with server:
+		port = server.sockets[0].getsockname()[1]
+		await fixture_page(driver, '<p>Before</p>')
+		await driver.navigate({'tab_id': None, 'url': f'http://127.0.0.1:{port}/diagnostic?secret=hidden'})
+		read = await dispatch(driver, 'read_diagnostics', {'tab_id': None, 'source': 'network', 'limit': 100})
+		assert '200' in read['text']
+		assert '/diagnostic' in read['text']
+		assert 'secret' not in read['text']
+		assert 'hidden' not in read['text']
