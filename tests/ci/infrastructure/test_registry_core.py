@@ -36,12 +36,6 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
-class TestContext:
-	"""Simple context for testing"""
-
-	pass
-
-
 # Test parameter models
 class SimpleParams(BaseActionModel):
 	"""Simple parameter model"""
@@ -90,7 +84,7 @@ def mock_llm():
 @pytest.fixture(scope='function')
 def registry():
 	"""Create a fresh registry for each test"""
-	return Registry[TestContext]()
+	return Registry()
 
 
 @pytest.fixture(scope='function')
@@ -454,7 +448,7 @@ class TestRegistryEdgeCases:
 	async def test_excluded_actions(self, browser_session):
 		"""Test that excluded actions are not registered"""
 
-		registry_with_exclusions = Registry[TestContext](exclude_actions=['excluded_action'])
+		registry_with_exclusions = Registry(exclude_actions=['excluded_action'])
 
 		@registry_with_exclusions.action('Excluded action')
 		async def excluded_action(text: str):
