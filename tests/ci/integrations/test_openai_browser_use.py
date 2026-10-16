@@ -3,7 +3,9 @@ from __future__ import annotations
 import base64
 import json
 import re
+from collections.abc import Awaitable, Callable
 from io import BytesIO
+from typing import cast
 
 import pytest
 from openai.lib.browser import AsyncBrowserToolset, BrowserError
@@ -220,3 +222,17 @@ async def test_screenshot_and_pointer_share_css_pixels_at_double_scale(driver):
 		assert image.convert('RGB').getpixel((110, 110)) == (0, 0, 255)
 	await driver.click_at({'tab_id': None, 'x': 150, 'y': 125, 'button': 'left', 'click_count': 1, 'keys': []})
 	assert await page.evaluate('() => document.title') == 'Clicked'
+
+
+@pytest.mark.asyncio
+async def test_openai_bash_creates_deliverable_without_inherited_secrets(tmp_path, monkeypatch):
+	from browser_use.integrations.openai import Bash
+	from browser_use.integrations.openai.bash import BashInput
+
+	monkeypatch.setenv('OPENAI_API_KEY', 'private-test-value')
+	tool = Bash(output_dir=tmp_path)
+	execute = cast(Callable[[BashInput], Awaitable[str]], tool.execute)
+	result = json.loads(await execute(BashInput(command='printf result > report.txt; printenv OPENAI_API_KEY || true')))
+	assert result['exit_code'] == 0
+	assert result['output'] == ''
+	assert (tmp_path / 'report.txt').read_text() == 'result'
