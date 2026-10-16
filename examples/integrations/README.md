@@ -32,3 +32,5 @@ Add entries in this format:
 ```markdown
 - [Project name](https://github.com/org/project) - One sentence about what it integrates with. Maintained by @github-handle.
 ```
+
+- [Surface](https://github.com/Surface-ops/surface/tree/main/examples) - Surface: remote MCP URL preflight (preflight_url) to unwrap redirects and get a fetch/skip verdict before the agent navigates. Maintained by @Surface-ops.
