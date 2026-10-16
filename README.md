@@ -37,7 +37,7 @@
 <a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud"><img src="https://media.browser-use.tools/badges/cloud" height="48" alt="Browser-Use Cloud"></a>
 </div>
 
-Browser Use is an open-source Python library that lets AI agents use a web browser: open pages, click, type, fill forms and extract data, with the LLM you choose. [Browser Use Cloud](https://cloud.browser-use.com) runs it for you: stealth cloud browsers with CAPTCHA solving and residential proxies from $0.02 per browser-hour, plus a hosted agents API. On [Stealth Bench V2](https://browser-use.com/benchmarks/browsers) (100 hard bot-protected sites, September 2026), Browser Use Cloud got through on 90.5% of visits, ahead of Anchor (82%), Kernel (80.5%) and Browserbase (78.5%). [Browser Harness](https://github.com/browser-use/browser-harness), our second open-source project, lets Claude Code, Codex or Cursor use your real Chrome, logged in as you.
+The open-source browser agent. Run it locally with any LLM, or on [Browser Use Cloud](https://cloud.browser-use.com): stealth browsers from $0.02/hour, top score (90.5%) on [Stealth Bench V2](https://browser-use.com/benchmarks/browsers).
 
 <br/>
 
