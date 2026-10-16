@@ -579,7 +579,7 @@ class BrowserSession(BaseModel):
 	_captcha_watchdog: Any | None = PrivateAttr(default=None)
 	_watchdogs_attached: bool = PrivateAttr(default=False)
 
-	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
+	_cloud_browser_client_instance: CloudBrowserClient | None = PrivateAttr(default=None)
 	_demo_mode: 'DemoMode | None' = PrivateAttr(default=None)
 
 	# WebSocket reconnection state
@@ -592,6 +592,13 @@ class BrowserSession(BaseModel):
 	_reconnect_task: asyncio.Task | None = PrivateAttr(default=None)
 	_reconnect_pending: bool = PrivateAttr(default=False)
 	_intentional_stop: bool = PrivateAttr(default=False)
+
+	@property
+	def _cloud_browser_client(self) -> CloudBrowserClient:
+		"""Create the cloud client only when a cloud operation needs it."""
+		if self._cloud_browser_client_instance is None:
+			self._cloud_browser_client_instance = CloudBrowserClient()
+		return self._cloud_browser_client_instance
 
 	_logger: Any = PrivateAttr(default=None)
 
