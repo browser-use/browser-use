@@ -2245,16 +2245,31 @@ class BrowserSession(BaseModel):
 			self._cdp_client_root = None
 			self.session_manager = None
 			self.agent_focus_target_id = None
-			if client:
+
+			async def cleanup() -> None:
 				try:
-					await client.stop()
-				except Exception:
-					self.logger.debug('Failed to close the replacement CDP client')
-			if manager:
+					if client:
+						try:
+							await client.stop()
+						except Exception:
+							self.logger.debug('Failed to close the replacement CDP client')
+				finally:
+					if manager:
+						try:
+							await manager.clear()
+						except Exception:
+							self.logger.debug('Failed to clear the replacement session manager')
+
+			cleanup_task = asyncio.create_task(cleanup())
+			cancelled = False
+			while not cleanup_task.done():
 				try:
-					await manager.clear()
-				except Exception:
-					self.logger.debug('Failed to clear the replacement session manager')
+					await asyncio.shield(cleanup_task)
+				except asyncio.CancelledError:
+					cancelled = True
+			cleanup_task.result()
+			if cancelled:
+				raise asyncio.CancelledError
 			raise
 
 	async def _auto_reconnect(self, max_attempts: int = 3) -> None:
