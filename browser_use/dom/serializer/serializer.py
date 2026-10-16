@@ -1324,6 +1324,11 @@ class DOMTreeSerializer:
 		if node.tag_name and node.tag_name.lower() in ['input', 'textarea', 'select']:
 			if is_password_field:
 				attributes_to_include.pop('value', None)
+				attributes_to_include['value-state'] = (
+					node.snapshot_node.input_value_state
+					if node.snapshot_node and node.snapshot_node.input_value_state
+					else 'unknown'
+				)
 			# ALWAYS check AX tree - it reflects actual typed value, DOM attribute may not update
 			elif node.ax_node and node.ax_node.properties:
 				for prop in node.ax_node.properties:
