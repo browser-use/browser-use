@@ -1043,26 +1043,27 @@ class Tools(Generic[Context]):
 			# Simple close tab logic
 			try:
 				target_id = await browser_session.get_target_id_from_tab_id(params.tab_id)
+			except ValueError as e:
+				# Only the tab-id lookup reports "no tab matched". Reporting that as a success
+				# ("closed, was already closed or invalid") hides a wrong tab id behind plausible text:
+				# during a replay the remaining steps then keep acting on whatever page is focused.
+				# Other failures here - an uninitialised session manager, a CDP error - are bugs or
+				# transient faults, and must not be relabelled as a tab that does not exist.
+				logger.warning(f'Tab {params.tab_id} not found: {e}')
+				memory = f'Tab #{params.tab_id} was not closed: it no longer exists or was never open ({e})'
+				return ActionResult(error=memory)
 
-				# Dispatch close tab event - handle stale target IDs gracefully
-				event = browser_session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
-				await event
-				await event.event_result(raise_if_any=False, raise_if_none=False)  # Don't raise on errors
+			# Dispatch close tab event - handle stale target IDs gracefully
+			event = browser_session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
+			await event
+			await event.event_result(raise_if_any=False, raise_if_none=False)  # Don't raise on errors
 
-				memory = f'Closed tab #{params.tab_id}'
-				logger.info(f'🗑️  {memory}')
-				return ActionResult(
-					extracted_content=memory,
-					long_term_memory=memory,
-				)
-			except Exception as e:
-				# Handle stale target IDs gracefully
-				logger.warning(f'Tab {params.tab_id} may already be closed: {e}')
-				memory = f'Tab #{params.tab_id} closed (was already closed or invalid)'
-				return ActionResult(
-					extracted_content=memory,
-					long_term_memory=memory,
-				)
+			memory = f'Closed tab #{params.tab_id}'
+			logger.info(f'🗑️  {memory}')
+			return ActionResult(
+				extracted_content=memory,
+				long_term_memory=memory,
+			)
 
 		@self.registry.action(
 			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Set extract_images=True for image src URLs. Use start_from_char if previous extraction was truncated to extract data further down the page. When paginating across pages, pass already_collected with item identifiers (names/URLs) from prior pages to avoid duplicates.""",
