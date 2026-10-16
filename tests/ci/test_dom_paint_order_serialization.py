@@ -7,7 +7,9 @@ DOMTreeSerializer.serialize_tree() must respect that flag for TEXT_NODEs, or
 covered text still ends up in the DOM string sent to the LLM every step.
 """
 
-from browser_use.dom.serializer.paint_order import PaintOrderRemover
+import pytest
+
+from browser_use.dom.serializer.paint_order import PaintOrderRemover, Rect
 from browser_use.dom.serializer.serializer import DOMTreeSerializer
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, EnhancedSnapshotNode, NodeType, SimplifiedNode
 
@@ -79,3 +81,31 @@ class TestPaintOrderTextExclusion:
 
 		assert 'TOP LAYER TEXT' in output
 		assert 'HIDDEN BEHIND MODAL' not in output
+
+
+class TestRectRejectsInvertedBounds:
+	"""Regression coverage for inverted `Rect` bounds.
+
+	`Rect.__post_init__` used to `return False` when the bounds were inverted. Dataclasses
+	discard the `__post_init__` return value, so the invalid rectangle was constructed
+	anyway and reported a plausible-looking positive area (both deltas flip sign, so the
+	product stays positive). Such a rect then entered `RectUnionPure` and corrupted the
+	occlusion result instead of failing loudly.
+	"""
+
+	def test_inverted_x_and_y_bounds_raise(self):
+		with pytest.raises(ValueError, match='Invalid Rect bounds'):
+			Rect(x1=100.0, y1=50.0, x2=20.0, y2=10.0)
+
+	def test_inverted_y_bounds_raise(self):
+		with pytest.raises(ValueError, match='Invalid Rect bounds'):
+			Rect(x1=0.0, y1=50.0, x2=10.0, y2=10.0)
+
+	def test_inverted_x_bounds_raise(self):
+		with pytest.raises(ValueError, match='Invalid Rect bounds'):
+			Rect(x1=10.0, y1=0.0, x2=0.0, y2=10.0)
+
+	def test_degenerate_and_normal_bounds_stay_valid(self):
+		"""Zero-area rects are legitimate (collapsed/hidden elements) and must not raise."""
+		assert Rect(x1=5.0, y1=5.0, x2=5.0, y2=5.0).area() == 0.0
+		assert Rect(x1=0.0, y1=0.0, x2=10.0, y2=5.0).area() == 50.0
