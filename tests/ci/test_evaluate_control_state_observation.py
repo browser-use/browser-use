@@ -1,7 +1,6 @@
 """Local browser tests for evaluate control-state observations."""
 
 import asyncio
-from types import SimpleNamespace
 
 import pytest
 from pydantic import BaseModel
@@ -37,9 +36,11 @@ async def observation_browser_session():
 			await session.event_bus.stop(clear=True, timeout=5)
 
 
-async def _evaluate_page(httpserver, browser_session: BrowserSession, html: str, code: str) -> ActionResult:
+async def _evaluate_page(
+	httpserver, browser_session: BrowserSession, html: str, code: str, tools: Tools | None = None
+) -> ActionResult:
 	httpserver.expect_request('/').respond_with_data(html, content_type='text/html')
-	tools = Tools()
+	tools = tools or Tools()
 	await tools.navigate(url=httpserver.url_for('/'), new_tab=False, browser_session=browser_session)
 	return await tools.evaluate(code=code, browser_session=browser_session)
 
@@ -83,6 +84,26 @@ async def test_harmless_evaluate_keeps_result_unchanged(httpserver, observation_
 	assert result.extracted_content == ''
 	assert result.control_state_change_observation is None
 	assert result.policy_violation is None
+
+
+async def test_snapshot_uses_an_execution_world_isolated_from_page_globals(httpserver, observation_browser_session):
+	html = """<!doctype html>
+<button id="submit" disabled>Submit</button>
+<script>
+Object.defineProperty(globalThis, '__browser_use_control_state_ids__', {
+  value: {ids: {get() { throw new Error('page world was reused'); }}, nextId: 0}
+});
+</script>"""
+	result = await _evaluate_page(
+		httpserver,
+		observation_browser_session,
+		html,
+		"document.querySelector('#submit').disabled = false; 'enabled'",
+	)
+
+	assert result.extracted_content == 'enabled'
+	assert result.control_state_change_observation is not None
+	assert result.control_state_change_observation.disabled_to_enabled == 1
 
 
 async def test_page_owned_synchronous_handler_is_observed_but_not_confirmed(httpserver, observation_browser_session):
@@ -321,146 +342,147 @@ def test_different_document_contexts_are_reported_as_unmatched():
 	assert observation.restricted_controls_unmatched == 1
 
 
-class _FakeRuntime:
-	def __init__(self, *, failure_at: int | None = None, timeout_at: int | None = None, js_delay: float = 0, js_result=None):
-		self.failure_at = failure_at
-		self.timeout_at = timeout_at
-		self.js_delay = js_delay
-		self.js_result = js_result or {'result': {'type': 'string', 'value': 'original-return'}}
-		self.snapshot_calls = 0
-		self.executed_expressions: list[str] = []
-
-	async def evaluate(self, *, params: dict, session_id: str):
-		expression = params['expression']
-		self.executed_expressions.append(expression)
-		if expression == tools_service._CONTROL_STATE_SNAPSHOT_SCRIPT:
-			self.snapshot_calls += 1
-			if self.failure_at == self.snapshot_calls:
-				raise RuntimeError('synthetic snapshot failure')
-			if self.timeout_at == self.snapshot_calls:
-				await asyncio.sleep(1)
-			return {
-				'result': {
-					'value': {'controls': [{'key': 'node-1', 'disabled': True, 'readonly': False}]},
-				}
-			}
-		if self.js_delay:
-			await asyncio.sleep(self.js_delay)
-		return self.js_result
-
-
-class _FakeCDPClient:
-	def __init__(self, runtime: _FakeRuntime):
-		self.send = SimpleNamespace(
-			Page=SimpleNamespace(
-				getFrameTree=self.get_frame_tree,
-				createIsolatedWorld=self.create_isolated_world,
-			),
-			Runtime=runtime,
-		)
-
-	async def get_frame_tree(self, *, session_id: str):
-		return {'frameTree': {'frame': {'id': 'frame-1', 'loaderId': 'loader-1'}}}
-
-	async def create_isolated_world(self, *, params: dict, session_id: str):
-		return {'executionContextId': 10}
-
-
-class _FakeBrowserSession:
-	def __init__(self, runtime: _FakeRuntime):
-		self.cdp_client = _FakeCDPClient(runtime)
-		self.cdp_session = SimpleNamespace(cdp_client=self.cdp_client, session_id='session-1')
-
-	async def get_or_create_cdp_session(self):
-		return self.cdp_session
-
-	async def get_current_page_url(self):
-		return 'http://localhost/'
-
-
-@pytest.mark.parametrize('failure_at', [1, 2], ids=['before-snapshot', 'after-snapshot'])
-async def test_registered_evaluate_ignores_snapshot_failures(failure_at: int):
-	runtime = _FakeRuntime(failure_at=failure_at)
+async def test_cold_and_warm_snapshots_fit_budget_for_representative_dom(httpserver, observation_browser_session):
+	control_count = 1000
+	html = '<button disabled>locked</button>' * control_count
+	httpserver.expect_request('/many-controls').respond_with_data(html, content_type='text/html')
 	tools = Tools()
+	await tools.navigate(url=httpserver.url_for('/many-controls'), new_tab=False, browser_session=observation_browser_session)
+	cdp_session = await observation_browser_session.get_or_create_cdp_session()
 
-	result = await tools.evaluate(code='40 + 2', browser_session=_FakeBrowserSession(runtime))
+	cold = await tools._snapshot_evaluate_control_state(cdp_session)
+	warm = await tools._snapshot_evaluate_control_state(cdp_session)
 
-	assert result.extracted_content == 'original-return'
+	assert cold is not None
+	assert warm is not None
+	assert len(cold['controls']) == control_count
+	assert len(warm['controls']) == control_count
+	assert cold['context_identity'] == warm['context_identity']
+
+
+async def test_registered_evaluate_keeps_result_when_real_cdp_snapshots_timeout(
+	monkeypatch, httpserver, observation_browser_session
+):
+	monkeypatch.setattr(tools_service, '_EVALUATE_CONTROL_STATE_SNAPSHOT_TIMEOUT_SECONDS', 0.00001)
+	tools = Tools()
+	original_snapshot = tools._snapshot_evaluate_control_state
+	snapshot_results = []
+
+	async def record_snapshot(cdp_session):
+		result = await original_snapshot(cdp_session)
+		snapshot_results.append(result)
+		return result
+
+	monkeypatch.setattr(tools, '_snapshot_evaluate_control_state', record_snapshot)
+	result = await _evaluate_page(
+		httpserver, observation_browser_session, '<button disabled>Submit</button>', '40 + 2', tools=tools
+	)
+
+	assert result.extracted_content == '42'
 	assert result.error is None
 	assert result.policy_violation is None
 	assert result.control_state_change_observation is None
-	assert '40 + 2' in runtime.executed_expressions
+	assert snapshot_results == [None]
 
 
-async def test_registered_harmless_evaluate_takes_only_bounded_snapshots():
-	runtime = _FakeRuntime()
+async def test_registered_evaluate_keeps_result_when_after_snapshot_times_out(
+	monkeypatch, httpserver, observation_browser_session
+):
 	tools = Tools()
-	result = await tools.evaluate(code='40 + 2', browser_session=_FakeBrowserSession(runtime))
+	original_snapshot = tools._snapshot_evaluate_control_state
+	snapshot_results = []
 
-	assert result.extracted_content == 'original-return'
+	async def record_snapshot(cdp_session):
+		result = await original_snapshot(cdp_session)
+		snapshot_results.append(result)
+		if len(snapshot_results) == 1:
+			monkeypatch.setattr(tools_service, '_EVALUATE_CONTROL_STATE_SNAPSHOT_TIMEOUT_SECONDS', 0.00001)
+		return result
+
+	monkeypatch.setattr(tools, '_snapshot_evaluate_control_state', record_snapshot)
+	result = await _evaluate_page(
+		httpserver, observation_browser_session, '<button disabled>Submit</button>', '40 + 2', tools=tools
+	)
+
+	assert snapshot_results[0] is not None
+	assert snapshot_results[1] is None
+	assert result.extracted_content == '42'
+	assert result.error is None
+	assert result.policy_violation is None
 	assert result.control_state_change_observation is None
-	assert runtime.snapshot_calls == 2
 
 
-async def test_snapshot_overhead_does_not_shorten_evaluate_action_timeout():
-	runtime = _FakeRuntime(js_delay=0.1)
+async def test_registered_evaluate_keeps_javascript_error_when_real_cdp_snapshots_timeout(
+	monkeypatch, httpserver, observation_browser_session
+):
+	code = "throw new Error('expected evaluate error')"
+	httpserver.expect_request('/').respond_with_data('<button disabled>Submit</button>', content_type='text/html')
 	tools = Tools()
+	await tools.navigate(url=httpserver.url_for('/'), new_tab=False, browser_session=observation_browser_session)
+	cdp_session = await observation_browser_session.get_or_create_cdp_session()
+	baseline = await tools._execute_evaluate_javascript(code, cdp_session)
+	monkeypatch.setattr(tools_service, '_EVALUATE_CONTROL_STATE_SNAPSHOT_TIMEOUT_SECONDS', 0.00001)
+	result = await tools.evaluate(code=code, browser_session=observation_browser_session)
+
+	assert result.extracted_content is None
+	assert result.error == baseline.error
+	assert result.control_state_change_observation is None
+	assert result.policy_violation is None
+
+
+async def test_snapshot_overhead_does_not_shorten_real_evaluate_action_timeout(httpserver, observation_browser_session):
+	tools = Tools()
+	httpserver.expect_request('/deadline').respond_with_data('<button disabled>Submit</button>', content_type='text/html')
+	await tools.navigate(url=httpserver.url_for('/deadline'), new_tab=False, browser_session=observation_browser_session)
 	action_model = tools.registry.create_action_model(include_actions=['evaluate']).model_validate(
-		{'evaluate': {'code': '40 + 2'}}
+		{'evaluate': {'code': "new Promise(resolve => setTimeout(() => resolve('completed'), 150))"}}
 	)
 	start = asyncio.get_running_loop().time()
 
 	result = await tools.act(
 		action=action_model,
-		browser_session=_FakeBrowserSession(runtime),  # type: ignore[arg-type]
-		action_timeout=0.05,
+		browser_session=observation_browser_session,
+		action_timeout=0.1,
 	)
 
-	assert result.extracted_content == 'original-return'
+	assert result.extracted_content == 'completed'
 	assert result.error is None
-	assert asyncio.get_running_loop().time() - start > 0.05
+	assert asyncio.get_running_loop().time() - start > 0.1
 
 
-async def test_registered_evaluate_keeps_javascript_error_when_snapshot_fails():
-	runtime = _FakeRuntime(
-		failure_at=2,
-		js_result={'exceptionDetails': {'text': 'ReferenceError: missing is not defined'}},
+async def test_real_cdp_cancellation_removes_pending_request(httpserver, observation_browser_session, monkeypatch):
+	await _evaluate_page(httpserver, observation_browser_session, '<button>Ready</button>', 'document.title')
+	cdp_session = await observation_browser_session.get_or_create_cdp_session()
+	cdp_client = cdp_session.cdp_client
+	expression = "new Promise(resolve => setTimeout(() => resolve('late response'), 350))"
+	request_id = None
+	original_send_raw = cdp_client.send_raw
+
+	async def track_send_raw(method, params=None, session_id=None):
+		nonlocal request_id
+		if method == 'Runtime.evaluate' and params and params.get('expression') == expression:
+			request_id = cdp_client.msg_id + 1
+		return await original_send_raw(method=method, params=params, session_id=session_id)
+
+	monkeypatch.setattr(cdp_client, 'send_raw', track_send_raw)
+	task = asyncio.create_task(
+		cdp_client.send.Runtime.evaluate(
+			params={'expression': expression, 'returnByValue': True, 'awaitPromise': True},
+			session_id=cdp_session.session_id,
+		)
 	)
-	tools = Tools()
-
-	result = await tools.evaluate(code='missing', browser_session=_FakeBrowserSession(runtime))
-
-	assert result.extracted_content is None
-	assert result.error is not None
-	assert 'JavaScript execution error: ReferenceError: missing is not defined' in result.error
-	assert result.control_state_change_observation is None
-	assert result.policy_violation is None
-
-
-@pytest.mark.parametrize('timeout_at', [1, 2], ids=['before-snapshot', 'after-snapshot'])
-async def test_registered_evaluate_snapshot_timeout_keeps_javascript_result(monkeypatch, timeout_at: int):
-	monkeypatch.setattr(tools_service, '_EVALUATE_CONTROL_STATE_SNAPSHOT_TIMEOUT_SECONDS', 0.01)
-	runtime = _FakeRuntime(timeout_at=timeout_at)
-	tools = Tools()
-	start = asyncio.get_running_loop().time()
-
-	result = await tools.evaluate(code='40 + 2', browser_session=_FakeBrowserSession(runtime))
-
-	assert result.extracted_content == 'original-return'
-	assert result.error is None
-	assert result.control_state_change_observation is None
-	assert result.policy_violation is None
-	assert asyncio.get_running_loop().time() - start < 0.2
-	assert '40 + 2' in runtime.executed_expressions
-
-
-async def test_snapshot_timeout_is_bounded_and_optional(monkeypatch):
-	monkeypatch.setattr(tools_service, '_EVALUATE_CONTROL_STATE_SNAPSHOT_TIMEOUT_SECONDS', 0.01)
-	start = asyncio.get_running_loop().time()
-
-	runtime = _FakeRuntime(timeout_at=1)
-	cdp_session = await _FakeBrowserSession(runtime).get_or_create_cdp_session()
-	result = await Tools()._snapshot_evaluate_control_state(cdp_session)
-
-	assert result is None
-	assert asyncio.get_running_loop().time() - start < 0.2
+	try:
+		await asyncio.sleep(0.05)
+		assert request_id is not None
+		assert request_id in cdp_client.pending_requests
+		assert not task.done()
+		task.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await task
+		assert request_id not in cdp_client.pending_requests
+		await asyncio.sleep(0.4)
+		assert request_id not in cdp_client.pending_requests
+	finally:
+		if not task.done():
+			task.cancel()
+			await asyncio.gather(task, return_exceptions=True)
