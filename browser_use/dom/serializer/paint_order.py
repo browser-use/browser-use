@@ -23,7 +23,6 @@ class Rect:
 				f'Invalid rectangle bounds: x1 ({self.x1}) <= x2 ({self.x2}) and y1 ({self.y1}) <= y2 ({self.y2}) required'
 			)
 
-
 	# --- fast relations ----------------------------------------------------
 	def area(self) -> float:
 		return (self.x2 - self.x1) * (self.y2 - self.y1)
