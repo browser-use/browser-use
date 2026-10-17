@@ -177,7 +177,7 @@ products = await page.extract_content(
 - `focus()` - Focus the element
 - `check()` - Toggle checkbox/radio button (clicks to change state)
 - `select_option(values: str | list[str])` - Select dropdown options
-- `drag_to(target_element: Element | Position, source_position=None, target_position=None)` - Drag to target element
+- `drag_to(target: Element | Position, source_position=None, target_position=None)` - Drag to target element
 - `evaluate(page_function: str, *args)` → `str` - Execute JavaScript on element (this = element)
 - `get_attribute(name: str)` → `str | None` - Get attribute value
 - `get_bounding_box()` → `BoundingBox | None` - Get element position/size
