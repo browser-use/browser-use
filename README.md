@@ -157,6 +157,16 @@ uv run agent.py
 
 The agent opens a browser, looks up the repository, and prints its answer.
 
+**5. Run the same agent on a cloud browser (no Chrome to install; works in Docker, CI, and serverless):**
+
+Set `BROWSER_USE_API_KEY` ([get a key](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-path3)), then pass a cloud browser:
+
+```python
+agent = Agent(task="...", llm=llm, browser=Browser(use_cloud=True))
+```
+
+Cloud browsers cost $0.02 per browser-hour plus network traffic ([pricing](https://browser-use.com/pricing)), and add stealth, residential proxies, CAPTCHA solving, and a live view URL. Same code, no other changes.
+
 [Python library docs ↗](https://docs.browser-use.com/open-source/introduction)
 
 <br/>
