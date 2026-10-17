@@ -46,7 +46,7 @@ dependencies = [
     "cloudpickle==3.1.2",
     "markdownify==1.2.2",
     "python-docx==1.2.0",
-    "browser-use-sdk==3.4.2",
+    "browser-use-sdk>=3.10.0,<4",
     "browser-harness==0.1.13",
 ]
 # google-api-core: only used for Google LLM APIs
