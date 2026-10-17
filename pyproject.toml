@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.13.11"
+version = "0.13.13"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -30,7 +30,7 @@ dependencies = [
     "typing-extensions==4.15.0",
     "uuid7==0.1.0",
     "google-genai==1.65.0",
-    "openai==2.26.0",
+    "openai>=2.26.0,<4.0.0",
     "anthropic>=0.76.0,<2.0.0",
     "groq==1.0.0",
     "ollama==0.6.1",
@@ -59,6 +59,7 @@ dependencies = [
 # click: used for command-line argument parsing
 
 [project.optional-dependencies]
+openai-tools = ["openai>=3.31.0,<4.0.0"]
 cli = []
 core = [
     "browser-use-core==0.13.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
@@ -77,7 +78,7 @@ examples = [
     "imgcat==0.6.0",
     # "stagehand-py>=0.3.6",
     # "browserbase>=0.4.0",
-    "langchain-openai==1.1.14",
+    "langchain-openai==1.7.2",
 ]
 eval = [
     "lmnr[all]==0.7.42",
