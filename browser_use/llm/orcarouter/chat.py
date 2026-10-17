@@ -151,7 +151,7 @@ class ChatOrcaRouter(BaseChatModel):
 					temperature=self.temperature,
 					top_p=self.top_p,
 					seed=self.seed,
-					**(self.extra_body or {}),
+					extra_body=self.extra_body,
 				)
 
 				choice = response.choices[0] if response.choices else None
@@ -196,7 +196,7 @@ class ChatOrcaRouter(BaseChatModel):
 						json_schema=response_format_schema,
 						type='json_schema',
 					),
-					**(self.extra_body or {}),
+					extra_body=self.extra_body,
 				)
 
 				choice = response.choices[0] if response.choices else None
