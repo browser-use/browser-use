@@ -2202,49 +2202,75 @@ class BrowserSession(BaseModel):
 			additional_headers=headers or None,
 			max_ws_frame_size=200 * 1024 * 1024,
 		)
-		await self._cdp_client_root.start()
+		try:
+			await self._cdp_client_root.start()
 
-		# 4. Re-initialize SessionManager
-		from browser_use.browser.session_manager import SessionManager
+			from browser_use.browser.session_manager import SessionManager
 
-		self.session_manager = SessionManager(self)
-		await self.session_manager.start_monitoring()
+			self.session_manager = SessionManager(self)
+			await self.session_manager.start_monitoring()
 
-		# 5. Re-enable autoAttach
-		await self._cdp_client_root.send.Target.setAutoAttach(
-			params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
-		)
+			await self._cdp_client_root.send.Target.setAutoAttach(
+				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
+			)
 
-		# 6. Re-discover page targets and restore focus
-		page_targets = self.session_manager.get_all_page_targets()
+			page_targets = self.session_manager.get_all_page_targets()
 
-		# Prefer the old focus target if it still exists
-		restored = False
-		if old_focus_target_id:
-			for target in page_targets:
-				if target.target_id == old_focus_target_id:
-					await self.get_or_create_cdp_session(old_focus_target_id, focus=True)
-					restored = True
-					self.logger.debug(f'🔄 Restored agent focus to previous target {old_focus_target_id[:8]}...')
-					break
+			# Prefer the previous focus target when it remains available.
+			restored = False
+			if old_focus_target_id:
+				for target in page_targets:
+					if target.target_id == old_focus_target_id:
+						await self.get_or_create_cdp_session(old_focus_target_id, focus=True)
+						restored = True
+						self.logger.debug(f'🔄 Restored agent focus to previous target {old_focus_target_id[:8]}...')
+						break
 
-		if not restored:
-			if page_targets:
-				fallback_id = page_targets[0].target_id
-				await self.get_or_create_cdp_session(fallback_id, focus=True)
-				self.logger.debug(f'🔄 Agent focus set to fallback target {fallback_id[:8]}...')
-			else:
-				# No pages exist — create one
-				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
-				target_id = new_target['targetId']
-				await self.get_or_create_cdp_session(target_id, focus=True)
-				self.logger.debug(f'🔄 Created new blank page during reconnect: {target_id[:8]}...')
+			if not restored:
+				if page_targets:
+					fallback_id = page_targets[0].target_id
+					await self.get_or_create_cdp_session(fallback_id, focus=True)
+					self.logger.debug(f'🔄 Agent focus set to fallback target {fallback_id[:8]}...')
+				else:
+					new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
+					target_id = new_target['targetId']
+					await self.get_or_create_cdp_session(target_id, focus=True)
+					self.logger.debug(f'🔄 Created new blank page during reconnect: {target_id[:8]}...')
 
-		# 7. Re-enable proxy auth if configured
-		await self._setup_proxy_auth()
+			await self._setup_proxy_auth()
 
-		# 8. Attach the WS drop detection callback to the new client
-		self._attach_ws_drop_callback()
+			self._attach_ws_drop_callback()
+		except BaseException:
+			client, manager = self._cdp_client_root, self.session_manager
+			self._cdp_client_root = None
+			self.session_manager = None
+			self.agent_focus_target_id = None
+
+			async def cleanup() -> None:
+				try:
+					if client:
+						try:
+							await client.stop()
+						except Exception:
+							self.logger.debug('Failed to close the replacement CDP client')
+				finally:
+					if manager:
+						try:
+							await manager.clear()
+						except Exception:
+							self.logger.debug('Failed to clear the replacement session manager')
+
+			cleanup_task = asyncio.create_task(cleanup())
+			cancelled = False
+			while not cleanup_task.done():
+				try:
+					await asyncio.shield(cleanup_task)
+				except asyncio.CancelledError:
+					cancelled = True
+			cleanup_task.result()
+			if cancelled:
+				raise asyncio.CancelledError
+			raise
 
 	async def _auto_reconnect(self, max_attempts: int = 3) -> None:
 		"""Attempt to reconnect with exponential backoff.
