@@ -37,14 +37,18 @@
 <a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud"><img src="https://media.browser-use.tools/badges/cloud" height="48" alt="Browser-Use Cloud"></a>
 </div>
 
-Browser Use is an open-source Python library that lets AI agents use a web browser: open pages, click, type, fill forms and extract data, with the LLM you choose. [Browser Use Cloud](https://cloud.browser-use.com) runs it for you: stealth cloud browsers with CAPTCHA solving and residential proxies from $0.02 per browser-hour, plus a hosted agents API. On [Stealth Bench V2](https://browser-use.com/benchmarks/browsers) (100 hard bot-protected sites, September 2026), Browser Use Cloud got through on 90.5% of visits, ahead of Anchor (82%), Kernel (80.5%) and Browserbase (78.5%). [Browser Harness](https://github.com/browser-use/browser-harness), our second open-source project, lets Claude Code, Codex or Cursor use your real Chrome, logged in as you.
-
 <br/>
 
 <div align="center">
   <a href="https://browser-use.com">
     <img src="https://browser-use.com/lander/plates/browsers-8dd60aa0.jpg" alt="A person crossing an orange canyon on a giant key-shaped bridge, from the Browser Use website." width="720">
   </a>
+</div>
+
+<div align="center">
+
+The open-source browser agent. Run it locally with any LLM, or on [Browser Use Cloud](https://cloud.browser-use.com): stealth browsers from $0.02/hour, top score (90.5%) on [Stealth Bench V2](https://browser-use.com/benchmarks/browsers).
+
 </div>
 
 <br/>
@@ -64,8 +68,10 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 # Which Browser Use do I need?
 
 <picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="static/readme/which-product-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="static/readme/which-product-light-mobile.svg">
   <source media="(prefers-color-scheme: dark)" srcset="static/readme/which-product-dark.svg">
-  <img alt="Three ways to use Browser Use: fully hosted cloud; your existing agent with Browser Use CLI; or the open source Browser Use agent, available as a Python library. The CLI and library each connect to a local or cloud browser." src="static/readme/which-product-light.svg" width="100%">
+  <img alt="Three ways to use Browser Use: the hosted V4 agent, the Browser Use CLI, or the open source Python library. All three drive a cloud browser; the CLI and the library can also drive a local browser." src="static/readme/which-product-light.svg" width="100%">
 </picture>
 
 - **[Path 1: Fully Hosted Cloud](#path-1-fully-hosted-cloud):** Scale up with a fully hosted agent and browser.
@@ -164,7 +170,12 @@ implements all 31 browser actions and can control a local browser, a Browser
 Use Cloud browser, or an existing remote browser over CDP.
 Bash is included in the Browser Use integration for processing data and writing files.
 
-<img src="examples/integrations/toolsets-for-claude/architecture.svg" alt="Claude uses Browser Use browser actions and Bash through the Anthropic SDK. The browser can be local or remote; Bash runs on the SDK host." width="100%">
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="examples/integrations/toolsets-for-claude/architecture-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="examples/integrations/toolsets-for-claude/architecture-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="examples/integrations/toolsets-for-claude/architecture-dark.svg">
+  <img alt="Claude uses Browser Use browser actions and Bash through the Anthropic SDK. The browser can be local or remote; Bash runs on the SDK host." src="examples/integrations/toolsets-for-claude/architecture-light.svg" width="100%">
+</picture>
 
 Requires an Anthropic SDK version that includes `anthropic.tools.browser`.
 Bash requires a Linux or macOS host with `/bin/bash`; use WSL on Windows.

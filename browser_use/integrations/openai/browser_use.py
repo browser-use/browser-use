@@ -17,15 +17,20 @@ from PIL import Image
 from pydantic import BaseModel
 
 from browser_use.actor.page import Page
+from browser_use.browser._cdp_timeout import TimeoutWrappedCDPClient
 from browser_use.browser.session import BrowserSession
 from openai.lib import browser as api
 
+_STATE_TIMEOUT_S = 15.0
+_DIAGNOSTIC_TIMEOUT_S = 5.0
+_OBSERVATION_TIMEOUT_S = 20.0
+
 
 def _bounded_text(text: str) -> str:
-	if len(text) <= 50000:
+	if len(text) <= 10000:
 		return text
 	notice = '\n[Output truncated; request a smaller section or return fewer script results.]'
-	return text[: 50000 - len(notice)] + notice
+	return text[: 10000 - len(notice)] + notice
 
 
 class Reference(BaseModel):
@@ -57,6 +62,7 @@ class BrowserUse:
 		self._refs: dict[str, Reference] = {}
 		self._next_ref = 0
 		self._active: str | None = None
+		self._crashed_targets: set[str] = set()
 		self._scopes: dict[str, Reference] = {}
 		self._grants: dict[str, FileGrant] = {}
 		self._diagnostic_client: CDPClient | None = None
@@ -99,11 +105,32 @@ class BrowserUse:
 			self._refs.clear()
 			self._closed = True
 
+	def _target_crashed(self, event: Any, session_id: str | None = None) -> None:
+		self._crashed_targets.add(event['targetId'])
+
 	async def state(self) -> api.BrowserState:
 		"""Report current browser tabs without retaining stale tab state."""
 		if self._closed:
 			raise api.BrowserError('The driver is closed.')
-		result = await self.browser.cdp_client.send.Target.getTargets()
+		for attempt in range(2):
+			try:
+				async with asyncio.timeout(_STATE_TIMEOUT_S):
+					result = await self.browser.cdp_client.send.Target.getTargets()
+				break
+			except Exception as exc:
+				if attempt:
+					raise api.BrowserError('Browser state is unavailable after reconnecting.') from exc
+				try:
+					async with asyncio.timeout(_STATE_TIMEOUT_S):
+						# Suppress automatic reconnect when this reconnect closes the old socket.
+						stopping = self.browser._intentional_stop
+						self.browser._intentional_stop = True
+						try:
+							await self.browser.reconnect()
+						finally:
+							self.browser._intentional_stop = stopping
+				except Exception as reconnect_error:
+					raise api.BrowserError('Browser reconnection failed.') from reconnect_error
 		tabs = [t for t in result['targetInfos'] if t['type'] == 'page']
 		ids = {t['targetId'] for t in tabs}
 		if self._active not in ids:
@@ -127,9 +154,18 @@ class BrowserUse:
 		target = tab_id or self._active
 		if target is None or target not in {tab['id'] for tab in state['tabs']}:
 			raise api.BrowserError('Unknown tab.')
-		session = await self.browser.get_or_create_cdp_session(target, focus=True)
+		if target in self._crashed_targets:
+			raise api.BrowserError('The page crashed; open the page in a new tab.')
+		try:
+			async with asyncio.timeout(_STATE_TIMEOUT_S):
+				session = await self.browser.get_or_create_cdp_session(target, focus=True)
+		except Exception as exc:
+			raise api.BrowserError('The page is unavailable; select another tab or open it again.') from exc
 		self._active = target
-		await self._start_diagnostics(target)
+		try:
+			await self._start_diagnostics(target)
+		except api.BrowserError:
+			pass
 		return Page(self.browser, target, session.session_id)
 
 	async def _element(self, page: Page, target: str):
@@ -158,10 +194,21 @@ class BrowserUse:
 		return await self._read_page(args)
 
 	async def _read_page(self, args: api.ReadPageInput, query: str | None = None) -> str:
+		attempt = 0
+		while True:
+			try:
+				async with asyncio.timeout(_OBSERVATION_TIMEOUT_S):
+					return await self._read_page_once(args, query)
+			except Exception as exc:
+				if attempt:
+					raise api.BrowserError('Page reading failed; select another tab or try again.') from exc
+				attempt += 1
+
+	async def _read_page_once(self, args: api.ReadPageInput, query: str | None = None) -> str:
 		terms = query.casefold().split() if query else []
 		page = await self._page(args['tab_id'])
 		await self.browser.cdp_client.send.DOM.getDocument({'depth': 0}, session_id=await page.session_id)
-		self._refs = {name: ref for name, ref in self._refs.items() if ref.tab != page._target_id}
+		refs = {ref.backend: name for name, ref in self._refs.items() if ref.tab == page._target_id}
 		result = await self.browser.cdp_client.send.Accessibility.getFullAXTree(session_id=await page.session_id)
 		interactive = {
 			'button',
@@ -179,12 +226,13 @@ class BrowserUse:
 			'listbox',
 			'switch',
 		}
-		lines: list[str] = []
+		identity = json.loads(await page.evaluate('() => ({title: document.title, url: location.href})'))
+		lines = [f'Title: {identity["title"][:2000]}', f'URL: {identity["url"][:2000]}']
 		nodes = {node['nodeId']: node for node in result['nodes']}
 		children = {child for node in result['nodes'] for child in node.get('childIds', [])}
 		pending = [(node, 0) for node in reversed(result['nodes']) if node['nodeId'] not in children]
 		seen: set[str] = set()
-		length = 0
+		length = sum(len(line) + 1 for line in lines)
 		notice = '\n[Page truncated; use read_page_scoped, find, or interactive reads for specific content.]'
 		while pending:
 			node, depth = pending.pop()
@@ -204,9 +252,12 @@ class BrowserUse:
 			prefix = ''
 			backend = node.get('backendDOMNodeId')
 			if backend and role in interactive:
-				self._next_ref += 1
-				ref = f'ref_{self._next_ref}'
-				self._refs[ref] = Reference(tab=page._target_id, backend=backend)
+				ref = refs.get(backend)
+				if ref is None:
+					self._next_ref += 1
+					ref = f'ref_{self._next_ref}'
+					self._refs[ref] = Reference(tab=page._target_id, backend=backend)
+					refs[backend] = ref
 				prefix = f'[{ref}] '
 			states = [
 				f'{prop["name"]}={json.dumps(prop["value"].get("value"))}'
@@ -222,7 +273,7 @@ class BrowserUse:
 			line = f'{"  " * depth}{prefix}{role} {json.dumps(name, ensure_ascii=False)}{suffix}'
 			if not all(term in line.casefold() for term in terms):
 				continue
-			remaining = 50000 - len(notice) - length
+			remaining = 10000 - len(notice) - length
 			if len(line) + 1 > remaining:
 				return '\n'.join(lines) + notice
 			lines.append(line)
@@ -299,17 +350,26 @@ class BrowserUse:
 
 	async def screenshot(self, args: api.TabInput) -> dict[str, str]:
 		"""Capture the selected viewport as a native image input."""
-		page = await self._page(args['tab_id'])
-		metrics = await self.browser.cdp_client.send.Page.getLayoutMetrics(session_id=await page.session_id)
-		viewport = metrics['cssVisualViewport']
-		size = (round(viewport['clientWidth']), round(viewport['clientHeight']))
-		data = await page.screenshot()
-		with Image.open(BytesIO(base64.b64decode(data))) as image:
-			if image.size != size:
-				output = BytesIO()
-				image.resize(size, Image.Resampling.LANCZOS).save(output, format='PNG')
-				data = base64.b64encode(output.getvalue()).decode()
-		return {'type': 'input_image', 'image_url': 'data:image/png;base64,' + data, 'detail': 'original'}
+		attempt = 0
+		while True:
+			try:
+				async with asyncio.timeout(_OBSERVATION_TIMEOUT_S):
+					page = await self._page(args['tab_id'])
+					metrics = await self.browser.cdp_client.send.Page.getLayoutMetrics(session_id=await page.session_id)
+					viewport = metrics['cssVisualViewport']
+					size = (round(viewport['clientWidth']), round(viewport['clientHeight']))
+					data = await page.screenshot()
+					with Image.open(BytesIO(base64.b64decode(data))) as image:
+						image.load()
+						if image.size != size:
+							output = BytesIO()
+							image.resize(size, Image.Resampling.LANCZOS).save(output, format='PNG')
+							data = base64.b64encode(output.getvalue()).decode()
+					return {'type': 'input_image', 'image_url': 'data:image/png;base64,' + data, 'detail': 'original'}
+			except Exception as exc:
+				if attempt:
+					raise api.BrowserError('Screenshot capture failed; select another tab or try again.') from exc
+				attempt += 1
 
 	async def zoom(self, args: api.ZoomInput) -> dict[str, str]:
 		"""Crop a screenshot without changing the pointer coordinate origin."""
@@ -417,20 +477,40 @@ class BrowserUse:
 			return _bounded_text(value if isinstance(value, str) else json.dumps(value))
 
 	async def _start_diagnostics(self, target: str) -> None:
-		if self._diagnostic_client is None:
-			self._diagnostic_client = CDPClient(
-				self.browser.cdp_client.url, additional_headers=self.browser.cdp_client.additional_headers
-			)
-			await self._diagnostic_client.start()
-			self._diagnostic_client.register.Runtime.consoleAPICalled(self._console_event)
-			self._diagnostic_client.register.Network.responseReceived(self._network_event)
-		if target not in self._diagnostic_sessions:
-			attached = await self._diagnostic_client.send.Target.attachToTarget({'targetId': target, 'flatten': True})
-			session = attached['sessionId']
-			self._diagnostic_sessions[target] = session
-			self._diagnostics[session] = {'console': deque(maxlen=100), 'network': deque(maxlen=100)}
-			await self._diagnostic_client.send.Runtime.enable(session_id=session)
-			await self._diagnostic_client.send.Network.enable(session_id=session)
+		if target in self._diagnostic_sessions:
+			return
+		try:
+			async with asyncio.timeout(_DIAGNOSTIC_TIMEOUT_S):
+				if self._diagnostic_client is None:
+					self._diagnostic_client = TimeoutWrappedCDPClient(
+						self.browser.cdp_client.url,
+						additional_headers=self.browser.cdp_client.additional_headers,
+						cdp_request_timeout_s=_DIAGNOSTIC_TIMEOUT_S,
+					)
+					await self._diagnostic_client.start()
+					self._diagnostic_client.register.Target.targetCrashed(self._target_crashed)
+					await self._diagnostic_client.send.Target.setDiscoverTargets({'discover': True})
+					self._diagnostic_client.register.Runtime.consoleAPICalled(self._console_event)
+					self._diagnostic_client.register.Network.responseReceived(self._network_event)
+				attached = await self._diagnostic_client.send.Target.attachToTarget({'targetId': target, 'flatten': True})
+				session = attached['sessionId']
+				self._diagnostics[session] = {'console': deque(maxlen=100), 'network': deque(maxlen=100)}
+				await self._diagnostic_client.send.Runtime.enable(session_id=session)
+				await self._diagnostic_client.send.Network.enable(session_id=session)
+				self._diagnostic_sessions[target] = session
+		except BaseException as exc:
+			client, self._diagnostic_client = self._diagnostic_client, None
+			self._diagnostic_sessions.clear()
+			self._diagnostics.clear()
+			if client is not None:
+				try:
+					async with asyncio.timeout(_DIAGNOSTIC_TIMEOUT_S):
+						await client.stop()
+				except Exception:
+					pass
+			if not isinstance(exc, Exception):
+				raise
+			raise api.BrowserError('Page diagnostics are unavailable.') from exc
 
 	def _console_event(self, event: Any, session_id: str | None) -> None:
 		if session_id in self._diagnostics:
@@ -448,6 +528,8 @@ class BrowserUse:
 	async def read_diagnostics(self, args: api.ReadDiagnosticsInput) -> api.BrowserReadV1:
 		"""Return bounded diagnostics without network headers or request bodies."""
 		page = await self._page(args['tab_id'])
+		if page._target_id not in self._diagnostic_sessions:
+			raise api.BrowserError('Page diagnostics are unavailable; try again after the page responds.')
 		records = self._diagnostics[self._diagnostic_sessions[page._target_id]][args['source']]
 		return {
 			'version': 1,
@@ -472,8 +554,18 @@ class BrowserUse:
 				):
 					key = 'scope_' + uuid4().hex
 					self._scopes[key] = Reference(tab=page._target_id, backend=int(node.get('backendDOMNodeId') or 0))
-					scopes.append({'ref': key, 'label': str(node.get('name', {}).get('value') or role)[:200]})
-			return {'version': 1, 'text': '', 'elements': [], 'omitted': [], 'scopes': scopes[:100]}
+					scopes.append(
+						{
+							'ref': key,
+							'label': str(node.get('name', {}).get('value') or role)
+							.encode('utf-8')[:256]
+							.decode('utf-8', errors='ignore'),
+						}
+					)
+					if len(json.dumps(scopes)) > 9800 or len(scopes) > 100:
+						scopes.pop()
+						return {'version': 1, 'text': '', 'elements': [], 'omitted': ['report_limit'], 'scopes': scopes}
+			return {'version': 1, 'text': '', 'elements': [], 'omitted': [], 'scopes': scopes}
 		ref = self._scopes.get(root)
 		if ref is None or ref.tab != page._target_id:
 			raise api.BrowserError('Unknown or stale read scope.')
@@ -483,12 +575,15 @@ class BrowserUse:
 		queue = [(node, 0)]
 		lines, elements = [], []
 		visited = 0
+		truncated = False
 		while queue and len(lines) < 200 and visited < 2000:
 			node, depth = queue.pop(0)
 			visited += 1
 			role = node.get('role', {}).get('value', '')
 			name = str(node.get('name', {}).get('value', ''))
 			prefix = ''
+			previous_elements = len(elements)
+			previous_lines = len(lines)
 			if not node.get('ignored') and role != 'InlineTextBox':
 				if role in {'button', 'textbox', 'combobox', 'checkbox', 'radio', 'slider', 'listbox', 'link'} and node.get(
 					'backendDOMNodeId'
@@ -498,7 +593,8 @@ class BrowserUse:
 					self._refs[key] = Reference(tab=page._target_id, backend=int(node.get('backendDOMNodeId') or 0))
 					prefix = f'[{key}] '
 					if role != 'link':
-						elements.append({'ref': key, 'role': role, 'label': name[:200]})
+						label = (name.strip() or f'Unnamed {role}').encode('utf-8')[:256].decode('utf-8', errors='ignore')
+						elements.append({'ref': key, 'role': role, 'label': label})
 				if args['filter'] == 'all' or role in {
 					'button',
 					'textbox',
@@ -510,13 +606,25 @@ class BrowserUse:
 					'link',
 				}:
 					lines.append(f'{prefix}{role} {name[:500]}')
+			if (
+				len(
+					json.dumps(
+						{'version': 1, 'text': '\n'.join(lines), 'elements': elements, 'omitted': ['report_limit'], 'scopes': []}
+					)
+				)
+				> 10000
+			):
+				del lines[previous_lines:]
+				del elements[previous_elements:]
+				truncated = True
+				break
 			if depth < args['depth']:
 				queue.extend((nodes[key], depth + 1) for key in node.get('childIds', []) if key in nodes)
 		return {
 			'version': 1,
 			'text': '\n'.join(lines),
 			'elements': elements,
-			'omitted': ['report_limit'] if queue else [],
+			'omitted': ['report_limit'] if queue or truncated else [],
 			'scopes': [],
 		}
 
