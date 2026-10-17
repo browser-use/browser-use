@@ -121,6 +121,31 @@ def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str
 	return pattern.sub(lambda m: f'<secret>{secret_to_key[m.group(0)]}</secret>', value)
 
 
+def filter_sensitive_data(value: Any, sensitive_data: dict[str, str | dict[str, str]] | None) -> Any:
+	"""Redact strings recursively without mutating the input containers."""
+	if not sensitive_data:
+		return value
+	sensitive_values = collect_sensitive_data_values(sensitive_data)
+	if not sensitive_values:
+		return value
+
+	def redact(item: Any) -> Any:
+		if isinstance(item, str):
+			return redact_sensitive_string(item, sensitive_values)
+		if isinstance(item, dict):
+			return {
+				redact_sensitive_string(key, sensitive_values) if isinstance(key, str) else key: redact(child)
+				for key, child in item.items()
+			}
+		if isinstance(item, list):
+			return [redact(child) for child in item]
+		if isinstance(item, tuple):
+			return tuple(redact(child) for child in item)
+		return item
+
+	return redact(value)
+
+
 def _get_openai_bad_request_error() -> type | None:
 	"""Lazy loader for OpenAI BadRequestError."""
 	global _openai_bad_request_error

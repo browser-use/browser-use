@@ -9,7 +9,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm import SystemMessage, UserMessage
 from browser_use.llm.messages import ContentPartTextParam
 from browser_use.tools.registry.service import Registry
-from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern
+from browser_use.utils import filter_sensitive_data, is_new_tab_page, match_url_with_domain_pattern
 
 
 class SensitiveParams(BaseModel):
@@ -290,6 +290,20 @@ def test_filter_sensitive_data(message_manager):
 	assert '<secret>username</secret>' in result.content
 	assert '<secret>password</secret>' in result.content
 	assert '<secret>email</secret>' in result.content
+
+
+def test_filter_sensitive_data_redacts_string_keys():
+	"""Secrets must be redacted from dictionary keys too, not only values."""
+	sensitive: dict[str, str | dict[str, str]] = {'api_key': 'super-secret'}
+	data = {'files': {'report_super-secret.json': 'contents'}, 'count': 2, 'nested': {'super-secret.txt': 'x'}}
+
+	result = filter_sensitive_data(data, sensitive)
+
+	assert 'report_super-secret.json' not in result['files']
+	assert result['files']['report_<secret>api_key</secret>.json'] == 'contents'
+	assert 'super-secret.txt' not in result['nested']
+	assert result['count'] == 2
+	assert data['files'] == {'report_super-secret.json': 'contents'}  # input not mutated
 
 
 def test_is_new_tab_page():
