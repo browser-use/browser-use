@@ -24,6 +24,24 @@ from openai.lib import browser as api
 _STATE_TIMEOUT_S = 15.0
 _DIAGNOSTIC_TIMEOUT_S = 5.0
 _OBSERVATION_TIMEOUT_S = 20.0
+_INTERACTIVE_ROLES: frozenset[str] = frozenset(
+	{
+		'button',
+		'link',
+		'textbox',
+		'searchbox',
+		'combobox',
+		'checkbox',
+		'radio',
+		'slider',
+		'spinbutton',
+		'menuitem',
+		'tab',
+		'option',
+		'listbox',
+		'switch',
+	}
+)
 
 
 def _bounded_text(text: str) -> str:
@@ -210,22 +228,7 @@ class BrowserUse:
 		await self.browser.cdp_client.send.DOM.getDocument({'depth': 0}, session_id=await page.session_id)
 		refs = {ref.backend: name for name, ref in self._refs.items() if ref.tab == page._target_id}
 		result = await self.browser.cdp_client.send.Accessibility.getFullAXTree(session_id=await page.session_id)
-		interactive = {
-			'button',
-			'link',
-			'textbox',
-			'searchbox',
-			'combobox',
-			'checkbox',
-			'radio',
-			'slider',
-			'spinbutton',
-			'menuitem',
-			'tab',
-			'option',
-			'listbox',
-			'switch',
-		}
+		interactive = _INTERACTIVE_ROLES
 		identity = json.loads(await page.evaluate('() => ({title: document.title, url: location.href})'))
 		lines = [f'Title: {identity["title"][:2000]}', f'URL: {identity["url"][:2000]}']
 		nodes = {node['nodeId']: node for node in result['nodes']}
@@ -541,7 +544,12 @@ class BrowserUse:
 	async def read_page_scoped(self, args: api.ReadPageScopedInput) -> api.BrowserScopedReadV1:
 		"""Discover semantic regions or read their current accessibility subtree."""
 		page = await self._page(args['tab_id'])
-		result = await self.browser.cdp_client.send.Accessibility.getFullAXTree(session_id=await page.session_id)
+		try:
+			async with asyncio.timeout(_OBSERVATION_TIMEOUT_S):
+				await self.browser.cdp_client.send.DOM.getDocument({'depth': 0}, session_id=await page.session_id)
+				result = await self.browser.cdp_client.send.Accessibility.getFullAXTree(session_id=await page.session_id)
+		except Exception as exc:
+			raise api.BrowserError('Page reading failed; select another tab or try again.') from exc
 		nodes = {node['nodeId']: node for node in result['nodes']}
 		root = args['root']
 		if root is None:
@@ -572,6 +580,7 @@ class BrowserUse:
 		node = next((n for n in nodes.values() if n.get('backendDOMNodeId') == ref.backend), None)
 		if node is None:
 			raise api.BrowserError('Unknown or stale read scope.')
+		refs = {ref.backend: name for name, ref in self._refs.items() if ref.tab == page._target_id}
 		queue = [(node, 0)]
 		lines, elements = [], []
 		visited = 0
@@ -585,26 +594,19 @@ class BrowserUse:
 			previous_elements = len(elements)
 			previous_lines = len(lines)
 			if not node.get('ignored') and role != 'InlineTextBox':
-				if role in {'button', 'textbox', 'combobox', 'checkbox', 'radio', 'slider', 'listbox', 'link'} and node.get(
-					'backendDOMNodeId'
-				):
-					self._next_ref += 1
-					key = f'ref_{self._next_ref}'
-					self._refs[key] = Reference(tab=page._target_id, backend=int(node.get('backendDOMNodeId') or 0))
+				if role in _INTERACTIVE_ROLES and node.get('backendDOMNodeId'):
+					backend = int(node.get('backendDOMNodeId') or 0)
+					key = refs.get(backend)
+					if key is None:
+						self._next_ref += 1
+						key = f'ref_{self._next_ref}'
+						self._refs[key] = Reference(tab=page._target_id, backend=backend)
+						refs[backend] = key
 					prefix = f'[{key}] '
 					if role != 'link':
 						label = (name.strip() or f'Unnamed {role}').encode('utf-8')[:256].decode('utf-8', errors='ignore')
 						elements.append({'ref': key, 'role': role, 'label': label})
-				if args['filter'] == 'all' or role in {
-					'button',
-					'textbox',
-					'combobox',
-					'checkbox',
-					'radio',
-					'slider',
-					'listbox',
-					'link',
-				}:
+				if args['filter'] == 'all' or role in _INTERACTIVE_ROLES:
 					lines.append(f'{prefix}{role} {name[:500]}')
 			if (
 				len(
@@ -681,9 +683,10 @@ class BrowserUse:
 		grant, page = await self._consume_grant(args['grant_id'], 'upload')
 		if grant.target is None:
 			raise api.BrowserError('Upload grant has no target.')
-		element = await page.get_element(grant.target)
-		await element.evaluate(
-			"""(encoded, name) => {
+		try:
+			element = await page.get_element(grant.target)
+			await element.evaluate(
+				"""(encoded, name) => {
             if (!this.isConnected || this.type !== 'file') throw new Error('Invalid upload target');
             const bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
             const transfer = new DataTransfer();
@@ -692,16 +695,21 @@ class BrowserUse:
             this.dispatchEvent(new Event('input', {bubbles: true}));
             this.dispatchEvent(new Event('change', {bubbles: true}));
         }""",
-			base64.b64encode(grant.content).decode(),
-			grant.path.name,
-		)
-		return {'version': 1, 'status': 'completed', 'effect': 'completed', 'cleanup': 'completed'}
+				base64.b64encode(grant.content).decode(),
+				grant.path.name,
+			)
+			return {'version': 1, 'status': 'completed', 'effect': 'completed', 'cleanup': 'completed'}
+		except api.BrowserError:
+			raise
+		except Exception as exc:
+			raise api.BrowserError('Upload failed.') from exc
 
 	async def download_file(self, args: api.BrowserFileInput) -> api.BrowserFileOutcome:
 		"""Fetch approved bytes through the browser and create the destination."""
 		grant, page = await self._consume_grant(args['grant_id'], 'download')
-		encoded = await page.evaluate(
-			"""(url) => (async () => {
+		try:
+			encoded = await page.evaluate(
+				"""(url) => (async () => {
             const response = await fetch(url, {redirect: 'error', signal: AbortSignal.timeout(30000)});
             if (!response.ok) throw new Error('Download request failed');
             const reader = response.body.getReader();
@@ -723,9 +731,13 @@ class BrowserUse:
             }
             return btoa(binary);
         })()""",
-			grant.url,
-		)
-		content = base64.b64decode(encoded, validate=True)
-		with grant.path.open('xb') as destination:
-			destination.write(content)
-		return {'version': 1, 'status': 'completed', 'effect': 'completed', 'cleanup': 'completed'}
+				grant.url,
+			)
+			content = base64.b64decode(encoded, validate=True)
+			with grant.path.open('xb') as destination:
+				destination.write(content)
+			return {'version': 1, 'status': 'completed', 'effect': 'completed', 'cleanup': 'completed'}
+		except api.BrowserError:
+			raise
+		except Exception as exc:
+			raise api.BrowserError('Download failed.') from exc
