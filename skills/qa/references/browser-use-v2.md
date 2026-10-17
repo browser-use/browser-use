@@ -6,7 +6,7 @@ behavior, and **structured output** forces the 1–5 score. It runs server-side,
 returns step-by-step evidence (screenshots + actions).
 
 **Cost / credits:** the v2 agent spends Browser Use credits — about **$0.01 per task + ~$0.006 per
-step (LLM) + $0.02/hr browser**, drawn from the account's monthly allowance. (The Claude-subagent
+step (LLM) + $0.02/hr browser**, drawn from the project's credit balance. (The Claude-subagent
 backend in `methodology.md` spends no Browser Use *task* credits.) Recommend v2 for real QA; fall
 back to the Claude subagent to avoid credits.
 
@@ -197,7 +197,7 @@ while len(results) < len(ids):
 # Overall = the weakest flow (min of the judge-corrected scores) — never average a failed flow up.
 ```
 
-Watch the **concurrent-session cap** (Free = 3): creating more than the cap at once yields `429` —
+Watch the **concurrent-session cap** (new projects start at 10; read `concurrentSessionLimit` from `GET /api/v2/billing/account`): creating more than the cap at once yields `429` —
 batch the creates to stay under it.
 
 ## Gotchas
@@ -207,7 +207,7 @@ batch the creates to stay under it.
   pass the public `startUrl`; for a free-ngrok host, tell the agent in the `task` to click through
   any "You are about to visit" interstitial.
 - **`429 TooManyConcurrentActiveSessionsError`** — the account hit its concurrent-session cap
-  (Free = 3); wait or stop other sessions.
+  (new projects start at 10); wait or stop other sessions.
 - **`maxSteps` is a safety ceiling, not a cost lever** — the agent stops when the task is complete, so the cap doesn't drive cost (this run capped at 15 but used 5 steps). Keep ~50 for headroom; raise for long flows.
 - **Teardown is a no-op for the v2 path on a public URL** — the one-off session auto-closes and there's no tunnel to kill. (Only the Claude/localhost path needs teardown.)
 - **Verify the key resolves before the billable create** — the snippet's `assert KEY` does this; if it's missing, resolve it per `methodology.md` step 0 *before* calling `POST /tasks`.
