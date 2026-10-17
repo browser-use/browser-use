@@ -27,6 +27,14 @@ class TestImageInLLMMessages:
 		buffer.seek(0)
 		return buffer.read()
 
+	def create_test_image_b64(self, image_format: str) -> str:
+		"""Return base64 of a real image encoded in the requested PIL format."""
+		mode = 'P' if image_format == 'GIF' else 'RGB'
+		img = Image.new(mode, (16, 16), color=0 if mode == 'P' else (20, 150, 60))
+		buffer = io.BytesIO()
+		img.save(buffer, format=image_format)
+		return base64.b64encode(buffer.getvalue()).decode('utf-8')
+
 	@pytest.mark.asyncio
 	async def test_image_stored_in_message_manager(self, tmp_path: Path):
 		"""Test that images are stored in MessageManager state."""
@@ -174,6 +182,45 @@ class TestImageInLLMMessages:
 		message_jpg = prompt_jpg.get_user_message(use_vision=True)
 		image_parts_jpg = [part for part in message_jpg.content if isinstance(part, ContentPartImageParam)]
 		assert 'data:image/jpeg;base64' in image_parts_jpg[0].image_url.url
+
+	def test_agent_message_prompt_gif_webp_media_type(self, tmp_path: Path):
+		"""GIF/WEBP images from read_file must keep their real media type.
+
+		``FileSystem.read_file_structured`` accepts .jpg/.jpeg/.png/.gif/.webp, and the
+		resulting data URL prefix plus ``ImageURL.media_type`` are what the provider
+		serializers forward as the image's declared format (Anthropic/AWS parse the
+		prefix, Google reads ``media_type``). Relabelling a GIF or WEBP payload as
+		``image/jpeg`` hands the provider a mismatched format.
+		"""
+		fs = FileSystem(tmp_path)
+
+		browser_state = BrowserStateSummary(
+			url='https://example.com',
+			title='Test',
+			tabs=[TabInfo(target_id='test-0', url='https://example.com', title='Test')],
+			screenshot=None,
+			dom_state=SerializedDOMState(_root=None, selector_map={}),
+		)
+
+		for file_name, (image_format, media_type, magic) in {
+			'chart.gif': ('GIF', 'image/gif', b'GIF8'),
+			'sticker.webp': ('WEBP', 'image/webp', b'RIFF'),
+		}.items():
+			base64_data = self.create_test_image_b64(image_format)
+			prompt = AgentMessagePrompt(
+				browser_state_summary=browser_state,
+				file_system=fs,
+				read_state_images=[{'name': file_name, 'data': base64_data}],
+			)
+
+			message = prompt.get_user_message(use_vision=True)
+			image_parts = [part for part in message.content if isinstance(part, ContentPartImageParam)]
+
+			assert len(image_parts) == 1, file_name
+			# Sanity check that the payload really is the format under test.
+			assert base64.b64decode(base64_data).startswith(magic), file_name
+			assert image_parts[0].image_url.url.startswith(f'data:{media_type};base64,'), file_name
+			assert image_parts[0].image_url.media_type == media_type, file_name
 
 	def test_agent_message_prompt_no_images(self, tmp_path: Path):
 		"""Test that message works correctly when no images are present."""
