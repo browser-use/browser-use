@@ -39,6 +39,31 @@ SVG_ELEMENTS = {
 }
 
 
+def get_shadow_prefix(children: list) -> str:
+	"""Return |SHADOW(closed)| / |SHADOW(open)| for author shadow DOM, '' for user-agent-only.
+
+	CDP reports three shadow root types: 'user-agent', 'open', 'closed'.
+	User-agent roots are browser internals for native controls (<select>,
+	<input>, ...) — no page author wrote them and the agent can't act on
+	them — so they must not be reported as open shadow DOM.
+	"""
+	types = {
+		child.original_node.shadow_root_type.lower()
+		for child in children
+		if child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE and child.original_node.shadow_root_type
+	}
+	if 'closed' in types:
+		return '|SHADOW(closed)|'
+	if 'open' in types:
+		return '|SHADOW(open)|'
+	return ''
+
+
+def is_user_agent_shadow_root(shadow_root_type: str | None) -> bool:
+	"""Check if a shadow root type is a browser-internal user-agent root."""
+	return bool(shadow_root_type) and shadow_root_type.lower() == 'user-agent'
+
+
 class DOMTreeSerializer:
 	"""Serializes enhanced DOM trees to string format."""
 
@@ -1017,13 +1042,7 @@ class DOMTreeSerializer:
 			if node.original_node.tag_name.lower() == 'svg':
 				shadow_prefix = ''
 				if node.is_shadow_host:
-					has_closed_shadow = any(
-						child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
-						and child.original_node.shadow_root_type
-						and child.original_node.shadow_root_type.lower() == 'closed'
-						for child in node.children
-					)
-					shadow_prefix = '|SHADOW(closed)|' if has_closed_shadow else '|SHADOW(open)|'
+					shadow_prefix = get_shadow_prefix(node.children)
 
 				line = f'{depth_str}{shadow_prefix}'
 				# Add interactive marker if clickable
@@ -1100,16 +1119,10 @@ class DOMTreeSerializer:
 							attributes_html_str = compound_attr
 
 				# Build the line with shadow host indicator
+				# (user-agent-only hosts get no prefix — browser internals, not author DOM)
 				shadow_prefix = ''
 				if node.is_shadow_host:
-					# Check if any shadow children are closed
-					has_closed_shadow = any(
-						child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
-						and child.original_node.shadow_root_type
-						and child.original_node.shadow_root_type.lower() == 'closed'
-						for child in node.children
-					)
-					shadow_prefix = '|SHADOW(closed)|' if has_closed_shadow else '|SHADOW(open)|'
+					shadow_prefix = get_shadow_prefix(node.children)
 
 				if should_show_scroll and not node.is_interactive:
 					# Scrollable container but not clickable
@@ -1142,6 +1155,10 @@ class DOMTreeSerializer:
 				formatted_text.append(line)
 
 		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
+			# Skip user-agent shadow roots entirely — browser internals for native
+			# controls (<select>, <input>, ...) the agent can't act on. See #5817.
+			if is_user_agent_shadow_root(node.original_node.shadow_root_type):
+				return ''
 			# Shadow DOM representation - show clearly to LLM
 			if node.original_node.shadow_root_type and node.original_node.shadow_root_type.lower() == 'closed':
 				formatted_text.append(f'{depth_str}Closed Shadow')
