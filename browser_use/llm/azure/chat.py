@@ -7,7 +7,7 @@ from openai import APIConnectionError, APIStatusError, RateLimitError
 from openai import AsyncAzureOpenAI as AsyncAzureOpenAIClient
 from openai.types.responses import Response
 from openai.types.shared import ChatModel
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import is_reasoning_model
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
@@ -130,6 +130,26 @@ class ChatAzureOpenAI(ChatOpenAILike):
 				return True
 		return False
 
+	@staticmethod
+	def _output_message_texts(response: Response) -> list[str]:
+		"""The text of each output message of a Responses API response, in order.
+
+		`response.output_text` joins all of them into one string. A model can send more than one
+		message in a turn (e.g. a short note before its JSON answer), so structured output is
+		parsed per message instead.
+		"""
+		texts: list[str] = []
+		for item in response.output:
+			if item.type != 'message':
+				continue
+			text = ''
+			for part in item.content:
+				if part.type == 'output_text':
+					text += part.text
+			if text:
+				texts.append(text)
+		return texts
+
 	def _get_usage_from_responses(self, response: Response) -> ChatInvokeUsage | None:
 		"""Extract usage information from a Responses API response."""
 		if response.usage is None:
@@ -237,7 +257,20 @@ class ChatAzureOpenAI(ChatOpenAILike):
 					)
 
 				usage = self._get_usage_from_responses(response)
-				parsed = output_format.model_validate_json(response.output_text)
+
+				# Use the first output message that is a valid answer. With a single message this is the
+				# same as parsing output_text; with several (text before or after the JSON), parsing the
+				# joined text would fail.
+				parsed = None
+				for text in self._output_message_texts(response):
+					try:
+						parsed = output_format.model_validate_json(text)
+						break
+					except ValidationError:
+						continue
+				if parsed is None:
+					# No single message validates: parse the joined text to raise the usual error.
+					parsed = output_format.model_validate_json(response.output_text)
 
 				return ChatInvokeCompletion(
 					completion=parsed,
