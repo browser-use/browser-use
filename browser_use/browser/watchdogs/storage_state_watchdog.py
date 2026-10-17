@@ -134,7 +134,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 	async def _have_cookies_changed(self) -> bool:
 		"""Check if cookies have changed since last save."""
-		if not self.browser_session.cdp_client:
+		if not self.browser_session.is_cdp_connected:
 			return False
 
 		try:
@@ -223,7 +223,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 	async def _load_storage_state(self, path: str | dict[str, Any] | None = None) -> None:
 		"""Load browser storage state from a file path or an in-memory dict."""
-		if not self.browser_session.cdp_client:
+		if not self.browser_session.is_cdp_connected:
 			self.logger.warning('[StorageStateWatchdog] No CDP client available for loading')
 			return
 
@@ -346,7 +346,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 	async def get_current_cookies(self) -> list[dict[str, Any]]:
 		"""Get current cookies using CDP."""
-		if not self.browser_session.cdp_client:
+		if not self.browser_session.is_cdp_connected:
 			return []
 
 		try:
@@ -359,7 +359,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 	async def add_cookies(self, cookies: list[dict[str, Any]]) -> None:
 		"""Add cookies using CDP."""
-		if not self.browser_session.cdp_client:
+		if not self.browser_session.is_cdp_connected:
 			self.logger.warning('[StorageStateWatchdog] No CDP client available for adding cookies')
 			return
 
