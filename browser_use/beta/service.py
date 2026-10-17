@@ -5034,6 +5034,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		self.laminar_trace_id = _laminar_current_trace_id()
+		self._cloud_captcha_hint_logged = False
 		self._register_run_signal_handler(max_steps)
 		try:
 			return await self._run_terminal(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end)

@@ -126,3 +126,22 @@ async def test_local_launch_failure_hint_can_be_silenced(records, monkeypatch, t
 		await session.kill()
 
 	assert not any('Local browser failed to start' in r.getMessage() for r in records)
+
+
+async def test_beta_captcha_hint_resets_each_run(records, monkeypatch):
+	agent = BetaAgent(
+		task='t', llm=create_mock_llm(), browser_session=BrowserSession(browser_profile=BrowserProfile(headless=True))
+	)
+
+	async def fake_run_terminal(**kwargs):
+		agent._log_cloud_captcha_hint()
+		agent._log_cloud_captcha_hint()
+		return agent.history
+
+	monkeypatch.setattr(agent, '_register_run_signal_handler', lambda max_steps: None)
+	monkeypatch.setattr(agent, '_run_terminal', fake_run_terminal)
+
+	await agent.run()
+	await agent.run()
+
+	assert _captcha_hints(records) == 2
