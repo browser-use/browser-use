@@ -16,6 +16,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 logger = logging.getLogger(__name__)
 
 
+def _env_bool(name: str, default: str) -> bool:
+	"""Parse a boolean environment variable properly.
+
+	Empty string values are treated as False (user explicitly set the var but left it empty).
+	Valid truthy values: 'true', 't', 'yes', 'y', '1' (case-insensitive).
+	Everything else is False.
+	"""
+	val = os.getenv(name, default).strip().lower()
+	if not val:
+		return False
+	return val[0] in ('t', 'y', '1')
+
+
 @cache
 def is_running_in_docker() -> bool:
 	"""Detect if we are running in a docker container, for the purpose of optimizing chrome launch flags (dev shm usage, gpu settings, etc.)"""
@@ -56,11 +69,11 @@ class OldConfig:
 
 	@property
 	def ANONYMIZED_TELEMETRY(self) -> bool:
-		return os.getenv('ANONYMIZED_TELEMETRY', 'true').lower()[:1] in 'ty1'
+		return _env_bool('ANONYMIZED_TELEMETRY', 'true')
 
 	@property
 	def BROWSER_USE_CLOUD_SYNC(self) -> bool:
-		return os.getenv('BROWSER_USE_CLOUD_SYNC', str(self.ANONYMIZED_TELEMETRY)).lower()[:1] in 'ty1'
+		return _env_bool('BROWSER_USE_CLOUD_SYNC', str(self.ANONYMIZED_TELEMETRY))
 
 	@property
 	def BROWSER_USE_CLOUD_API_URL(self) -> str:
@@ -164,7 +177,7 @@ class OldConfig:
 
 	@property
 	def SKIP_LLM_API_KEY_VERIFICATION(self) -> bool:
-		return os.getenv('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[:1] in 'ty1'
+		return _env_bool('SKIP_LLM_API_KEY_VERIFICATION', 'false')
 
 	@property
 	def DEFAULT_LLM(self) -> str:
@@ -173,15 +186,15 @@ class OldConfig:
 	# Runtime hints
 	@property
 	def IN_DOCKER(self) -> bool:
-		return os.getenv('IN_DOCKER', 'false').lower()[:1] in 'ty1' or is_running_in_docker()
+		return _env_bool('IN_DOCKER', 'false') or is_running_in_docker()
 
 	@property
 	def IS_IN_EVALS(self) -> bool:
-		return os.getenv('IS_IN_EVALS', 'false').lower()[:1] in 'ty1'
+		return _env_bool('IS_IN_EVALS', 'false')
 
 	@property
 	def BROWSER_USE_VERSION_CHECK(self) -> bool:
-		return os.getenv('BROWSER_USE_VERSION_CHECK', 'true').lower()[:1] in 'ty1'
+		return _env_bool('BROWSER_USE_VERSION_CHECK', 'true')
 
 	@property
 	def WIN_FONT_DIR(self) -> str:
