@@ -1017,13 +1017,8 @@ class DOMTreeSerializer:
 			if node.original_node.tag_name.lower() == 'svg':
 				shadow_prefix = ''
 				if node.is_shadow_host:
-					has_closed_shadow = any(
-						child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
-						and child.original_node.shadow_root_type
-						and child.original_node.shadow_root_type.lower() == 'closed'
-						for child in node.children
-					)
-					shadow_prefix = '|SHADOW(closed)|' if has_closed_shadow else '|SHADOW(open)|'
+					shadow_root_type = node.shadow_root_type
+					shadow_prefix = f'|SHADOW({shadow_root_type})|' if shadow_root_type else '|SHADOW|'
 
 				line = f'{depth_str}{shadow_prefix}'
 				# Add interactive marker if clickable
@@ -1102,14 +1097,8 @@ class DOMTreeSerializer:
 				# Build the line with shadow host indicator
 				shadow_prefix = ''
 				if node.is_shadow_host:
-					# Check if any shadow children are closed
-					has_closed_shadow = any(
-						child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
-						and child.original_node.shadow_root_type
-						and child.original_node.shadow_root_type.lower() == 'closed'
-						for child in node.children
-					)
-					shadow_prefix = '|SHADOW(closed)|' if has_closed_shadow else '|SHADOW(open)|'
+					shadow_root_type = node.shadow_root_type
+					shadow_prefix = f'|SHADOW({shadow_root_type})|' if shadow_root_type else '|SHADOW|'
 
 				if should_show_scroll and not node.is_interactive:
 					# Scrollable container but not clickable
@@ -1143,10 +1132,16 @@ class DOMTreeSerializer:
 
 		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
 			# Shadow DOM representation - show clearly to LLM
-			if node.original_node.shadow_root_type and node.original_node.shadow_root_type.lower() == 'closed':
-				formatted_text.append(f'{depth_str}Closed Shadow')
+			shadow_root_type = node.shadow_root_type
+			if shadow_root_type == 'open':
+				shadow_root_label = 'Open Shadow'
+			elif shadow_root_type == 'closed':
+				shadow_root_label = 'Closed Shadow'
+			elif shadow_root_type == 'user-agent':
+				shadow_root_label = 'User-Agent Shadow'
 			else:
-				formatted_text.append(f'{depth_str}Open Shadow')
+				shadow_root_label = 'Shadow'
+			formatted_text.append(f'{depth_str}{shadow_root_label}')
 
 			next_depth += 1
 
