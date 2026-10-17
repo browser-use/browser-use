@@ -21,7 +21,13 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
 
 from browser_use.browser._cdp_timeout import TimeoutWrappedCDPClient
-from browser_use.browser.cloud.cloud import CloudBrowserAuthError, CloudBrowserClient, CloudBrowserError
+from browser_use.browser.cloud.cloud import (
+	MISSING_API_KEY_MESSAGE,
+	CloudBrowserAuthError,
+	CloudBrowserClient,
+	CloudBrowserError,
+	resolve_api_key,
+)
 
 # CDP logging is now handled by setup_logging() in logging_config.py
 # It automatically sets CDP logs to the same level as browser_use logs
@@ -54,6 +60,7 @@ from browser_use.browser.events import (
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
 from browser_use.browser.views import BrowserStateSummary, TabInfo
+from browser_use.config import CONFIG
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, SerializedDOMState, TargetInfo
 from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_url, create_task_with_error_handling, is_new_tab_page
@@ -726,10 +733,19 @@ class BrowserSession(BaseModel):
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_session_start')
 	async def start(self) -> None:
 		"""Start the browser session."""
+		self._raise_if_cloud_api_key_missing()
 		start_event = self.event_bus.dispatch(BrowserStartEvent())
 		await start_event
 		# Ensure any exceptions from the event handler are propagated
 		await start_event.event_result(raise_if_any=True, raise_if_none=False)
+
+	def _raise_if_cloud_api_key_missing(self) -> None:
+		"""Fail fast with one clear message instead of letting the event bus log the error several times."""
+		profile = self.browser_profile
+		if self.cdp_url or not (profile.use_cloud or profile.cloud_browser_params is not None):
+			return
+		if not resolve_api_key():
+			raise CloudBrowserAuthError(MISSING_API_KEY_MESSAGE)
 
 	async def kill(self) -> None:
 		"""Kill the browser session and reset all state."""
@@ -897,7 +913,7 @@ class BrowserSession(BaseModel):
 					details={'cdp_url': self.cdp_url, 'is_local': self.is_local},
 				)
 			)
-			if self.is_local and not isinstance(e, (CloudBrowserAuthError, CloudBrowserError)):
+			if self.is_local and CONFIG.BROWSER_USE_CLOUD_HINTS and not isinstance(e, (CloudBrowserAuthError, CloudBrowserError)):
 				self.logger.warning(
 					'Local browser failed to start. Cloud browsers require no local install and work out of the box.\n'
 					'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=browser_launch_failure'
