@@ -111,6 +111,35 @@ class TestBaseFile:
 		assert json_file.get_size == len(json_content)
 		assert json_file.get_line_count == 1
 
+	def test_csv_keeps_a_backslash_n_that_is_not_an_escape(self):
+		"""A Windows path and a regex carry the same two characters as an escaped newline.
+
+		The unescape used to fire on any single-line content containing `\\n`, so
+		`C:\\new,ok` came back as `C:` and a second row reading `ew,ok`.
+		"""
+		csv_file = CsvFile(name='paths')
+
+		csv_file.write_file_content(r'C:\new,ok')
+		assert csv_file.content == r'C:\new,ok'
+
+		csv_file.write_file_content(r'pattern,\d+\name')
+		assert csv_file.content == r'pattern,\d+\name'
+
+	def test_csv_still_unescapes_double_escaped_tool_output(self):
+		"""The control: a genuinely double-escaped CSV still comes back as rows."""
+		csv_file = CsvFile(name='rows')
+
+		csv_file.write_file_content(r'name,age\nJohn,30\nJane,25')
+
+		assert csv_file.content == 'name,age\nJohn,30\nJane,25'
+
+	def test_csv_still_unescapes_double_escaped_quotes(self):
+		csv_file = CsvFile(name='quoted')
+
+		csv_file.write_file_content(r'name,note\n\"a,b\",ok')
+
+		assert csv_file.content == 'name,note\n"a,b",ok'
+
 	def test_csv_file_creation(self):
 		"""Test CsvFile creation and basic properties."""
 		csv_content = 'name,age,city\nJohn,30,New York\nJane,25,London'
