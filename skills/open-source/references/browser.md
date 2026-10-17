@@ -210,7 +210,7 @@ browser = Browser(use_cloud=True)
 browser = Browser(
     cloud_profile_id='your-profile-id',
     cloud_proxy_country_code='us',  # us, uk, fr, it, jp, au, de, fi, ca, in
-    cloud_timeout=30,               # minutes (free: 15, paid: 240)
+    cloud_timeout=30,               # minutes (max 240 for all users)
 )
 ```
 
