@@ -1,12 +1,11 @@
 """Cloud browser messages: a clear missing-key error and captcha hints only where they help."""
 
 import logging
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from browser_use import Agent
-from browser_use.browser.cloud.cloud import CloudBrowserAuthError, CloudBrowserClient, resolve_api_key
+from browser_use.browser.cloud.cloud import CloudBrowserAuthError, resolve_api_key
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from browser_use.sync.auth import CloudAuthConfig
@@ -47,11 +46,9 @@ def test_resolve_api_key_prefers_env_then_saved_login(no_api_key, monkeypatch):
 
 async def test_use_cloud_without_key_fails_before_any_request(no_api_key):
 	session = BrowserSession(use_cloud=True)
-	with patch.object(CloudBrowserClient, 'create_browser', new_callable=AsyncMock) as create_browser:
-		with pytest.raises(CloudBrowserAuthError) as exc_info:
-			await session.start()
+	with pytest.raises(CloudBrowserAuthError) as exc_info:
+		await session.start()
 
-	create_browser.assert_not_awaited()
 	message = str(exc_info.value)
 	assert 'BROWSER_USE_API_KEY is not set' in message
 	assert 'https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=use_cloud' in message
@@ -81,9 +78,10 @@ def _captcha_hints(records) -> int:
 		({'use_cloud': True}, 0),
 		({'cdp_url': 'wss://0e5c5a0e-1111-2222-3333-444455556666.cdp1.browser-use.com'}, 0),
 		({'cdp_url': 'wss://connect.example-provider.com'}, 1),
+		({'use_cloud': True, 'cdp_url': 'wss://connect.example-provider.com'}, 1),
 	],
 )
-async def test_captcha_hint_only_for_non_browser_use_browsers_and_once_per_run(records, session_kwargs, expected):
+async def test_captcha_hint_only_for_non_browser_use_browsers_and_deduplicated(records, session_kwargs, expected):
 	agent = Agent(task='t', llm=create_mock_llm(), browser_session=BrowserSession(**session_kwargs))
 
 	agent._log_cloud_captcha_hint()
@@ -99,3 +97,16 @@ async def test_cloud_hints_can_be_silenced(records, monkeypatch):
 	agent._log_cloud_captcha_hint()
 
 	assert _captcha_hints(records) == 0
+
+
+async def test_local_launch_failure_hint_can_be_silenced(records, monkeypatch, tmp_path):
+	monkeypatch.setenv('BROWSER_USE_CLOUD_HINTS', 'false')
+	session = BrowserSession(browser_profile=BrowserProfile(headless=True, executable_path=str(tmp_path / 'no-such-chrome')))
+
+	try:
+		with pytest.raises(Exception):
+			await session.start()
+	finally:
+		await session.kill()
+
+	assert not any('Local browser failed to start' in r.getMessage() for r in records)

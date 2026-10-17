@@ -2166,9 +2166,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		session = self.browser_session
 		if session is not None:
 			profile = session.browser_profile
-			host = urlparse(session.cdp_url or '').hostname or ''
-			if profile.use_cloud or profile.cloud_browser_params is not None or host.endswith('.browser-use.com'):
-				return  # already on a Browser Use cloud browser
+			if session.cdp_url:
+				# start() connects to an explicit cdp_url even when use_cloud=True, so trust the host
+				on_browser_use_cloud = (urlparse(session.cdp_url).hostname or '').endswith('.browser-use.com')
+			else:
+				on_browser_use_cloud = profile.use_cloud or profile.cloud_browser_params is not None
+			if on_browser_use_cloud:
+				return
 		self._cloud_captcha_hint_logged = True
 		self.logger.warning(
 			'Agent was blocked by a captcha. Cloud browsers include stealth fingerprinting and proxy rotation to avoid this.\n'
