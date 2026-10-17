@@ -3,7 +3,7 @@
 from markdownify import markdownify as md
 from pytest_httpserver import HTTPServer
 
-from browser_use.dom.markdown_extractor import chunk_markdown_by_structure
+from browser_use.dom.markdown_extractor import chunk_markdown_by_structure, convert_html_to_markdown
 
 # ---------------------------------------------------------------------------
 # Unit tests — synchronous, no browser needed
@@ -269,6 +269,43 @@ class TestChunkMarkdownMixed:
 		chunks = chunk_markdown_by_structure(content, max_chunk_chars=50)
 		assert len(chunks) == 1
 		assert chunks[0].content == big_para
+
+	def test_oversized_multiline_paragraph_splits_at_line_boundaries(self):
+		"""Extracted paragraph runs must paginate without splitting individual lines."""
+		lines = [f'Line {i} of a long run of text without blank lines' for i in range(40)]
+		content = '\n'.join(lines)
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=200)
+		assert len(chunks) > 1
+		for chunk in chunks:
+			assert len(chunk.content) <= 200
+			assert all(line in lines for line in chunk.content.split('\n'))
+		assert '\n'.join(chunk.content for chunk in chunks) == content
+		assert chunks[-1].char_offset_end == len(content)
+
+	def test_multiline_paragraph_within_limit_stays_atomic(self):
+		"""Paragraphs that fit the limit are still kept whole."""
+		content = 'A' * 30 + '\n\nfirst line\nsecond line'
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=40)
+		assert chunks[-1].content == 'first line\nsecond line'
+
+	def test_extracted_paragraphs_paginate_without_loss(self):
+		"""HTML paragraphs must become bounded, lossless, resumable chunks."""
+		html = ''.join(f'<p>Paragraph {i}: ' + 'lorem ipsum dolor sit amet ' * 3 + '</p>' for i in range(100))
+		content, _, _ = convert_html_to_markdown(html)
+		assert '\n\n' not in content
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=1000)
+		assert len(chunks) > 1
+		assert all(len(chunk.content) <= 1000 for chunk in chunks)
+		assert '\n'.join(chunk.content for chunk in chunks) == content
+		start = 0
+		seen: list[int] = []
+		for _ in range(len(chunks)):
+			chunk = chunk_markdown_by_structure(content, max_chunk_chars=1000, start_from_char=start)[0]
+			seen.append(chunk.chunk_index)
+			if not chunk.has_more:
+				break
+			start = chunk.char_offset_end
+		assert seen == list(range(len(chunks)))
 
 
 # ---------------------------------------------------------------------------
