@@ -841,7 +841,6 @@ class FileSystem:
 				result['message'] = f"Error: Could not read file '{full_filename}'. {str(e)}"
 				return result
 
-		# For internal files, only non-image types are supported
 		resolved, was_sanitized = self._resolve_filename(full_filename)
 		if not self._is_valid_filename(resolved):
 			result['message'] = _build_filename_error_message(full_filename, self.get_allowed_extensions())
@@ -856,8 +855,12 @@ class FileSystem:
 			return result
 
 		try:
-			content = file_obj.read()
 			sanitize_note = f"Note: filename was auto-corrected from '{full_filename}' to '{resolved}'. " if was_sanitized else ''
+			if isinstance(file_obj, Base64BinaryFile):
+				result['message'] = f'{sanitize_note}Read image file {resolved}.'
+				result['images'] = [{'name': file_obj.full_name, 'data': file_obj.content}]
+				return result
+			content = file_obj.read()
 			result['message'] = f'{sanitize_note}Read from file {resolved}.\n<content>\n{content}\n</content>'
 			return result
 		except FileSystemError as e:
@@ -945,6 +948,9 @@ class FileSystem:
 			if was_sanitized:
 				return f"File '{full_filename}' not found. (Filename was auto-corrected from '{original_filename}')"
 			return f"File '{full_filename}' not found."
+
+		if isinstance(file_obj, Base64BinaryFile):
+			return f"Error: Cannot replace text in binary file '{full_filename}'. Overwrite it instead."
 
 		try:
 			content = file_obj.read()
