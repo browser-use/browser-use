@@ -1339,7 +1339,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			total = data.get('total', 0)
 			memory = f'Searched page for "{params.pattern}": {total} match{"es" if total != 1 else ""} found.'
 			logger.info(f'🔎 {memory}')
-			return ActionResult(extracted_content=formatted, long_term_memory=memory)
+			# The matches go to the next step's read_state; only the one-line summary stays in history.
+			# Without include_extracted_content_only_once the LLM would only ever see `memory`.
+			return ActionResult(extracted_content=formatted, long_term_memory=memory, include_extracted_content_only_once=True)
 
 		@self.registry.action(
 			"""Query DOM elements by CSS selector (like find). Zero LLM cost, instant. Returns matching elements with tag, text, and attributes. Use to explore page structure, count items, get links/attributes. Use attributes=["href","src"] to extract specific attributes.""",
@@ -1374,7 +1376,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			total = data.get('total', 0)
 			memory = f'Found {total} element{"s" if total != 1 else ""} matching "{params.selector}".'
 			logger.info(f'🔍 {memory}')
-			return ActionResult(extracted_content=formatted, long_term_memory=memory)
+			# Same as search_page: show the elements once in read_state, keep the summary in history.
+			return ActionResult(extracted_content=formatted, long_term_memory=memory, include_extracted_content_only_once=True)
 
 		@self.registry.action(
 			"""Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll elements (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
