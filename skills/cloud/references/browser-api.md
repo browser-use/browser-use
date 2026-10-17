@@ -118,4 +118,4 @@ await client.browsers.stop(browser_session.id)
 ### Session Limits
 
 - All users: up to 4 hours (240 minutes)
-- Pricing: $0.05/hour, billed upfront, proportional refund on early stop, min 1 minute
+- Pricing: $0.02/hour, billed upfront, proportional refund on early stop, min 1 minute
