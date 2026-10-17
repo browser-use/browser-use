@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 		GetTargetInfoParameters,
 	)
 	from cdp_use.cdp.target.types import TargetInfo
+	from cdp_use import CDPClient
 
 	from browser_use.browser.session import BrowserSession
 	from browser_use.llm.base import BaseChatModel
@@ -46,12 +47,20 @@ class Page:
 		self, browser_session: 'BrowserSession', target_id: str, session_id: str | None = None, llm: 'BaseChatModel | None' = None
 	):
 		self._browser_session = browser_session
-		self._client = browser_session.cdp_client
+		self._client_override: CDPClient | None = None
 		self._target_id = target_id
 		self._session_id: str | None = session_id
 		self._mouse: 'Mouse | None' = None
 
 		self._llm = llm
+
+	@property
+	def _client(self) -> 'CDPClient':
+		return self._client_override or self._browser_session.cdp_client
+
+	@_client.setter
+	def _client(self, client: 'CDPClient | None') -> None:
+		self._client_override = client
 
 	async def _ensure_session(self) -> str:
 		"""Ensure we have a session ID for this target."""
