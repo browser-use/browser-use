@@ -374,7 +374,6 @@ class DOMWatchdog(BaseWatchdog):
 					self._build_dom_tree_without_highlights(previous_state),
 					name='build_dom_tree',
 					logger_instance=self.logger,
-					suppress_exceptions=True,
 				)
 
 			# Start clean screenshot task if requested (without JS highlights)
@@ -384,7 +383,6 @@ class DOMWatchdog(BaseWatchdog):
 					self._capture_clean_screenshot(),
 					name='capture_screenshot',
 					logger_instance=self.logger,
-					suppress_exceptions=True,
 				)
 
 			# Wait for both tasks to complete
