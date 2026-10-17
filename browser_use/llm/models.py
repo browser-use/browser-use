@@ -19,6 +19,7 @@ from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.mistral.chat import ChatMistral
+from browser_use.llm.nvidia.chat import ChatNvidia
 from browser_use.llm.openai.chat import ChatOpenAI
 
 # Optional OCI import
@@ -213,6 +214,12 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('CEREBRAS_API_KEY')
 		return ChatCerebras(model=model, api_key=api_key)
 
+	# NVIDIA Models
+	elif provider == 'nvidia':
+		# NVIDIA model IDs contain '/' and '.', so pass the ID unchanged: 'nvidia_<org>/<model>'
+		api_key = os.getenv('NVIDIA_API_KEY')
+		return ChatNvidia(model=model_part, api_key=api_key)
+
 	# Browser Use Models
 	elif provider == 'bu':
 		# Handle bu_latest -> bu-latest conversion (need to prepend 'bu-' back)
@@ -221,7 +228,7 @@ def get_llm_by_name(model_name: str):
 		return ChatBrowserUse(model=model, api_key=api_key)
 
 	else:
-		available_providers = ['openai', 'azure', 'google', 'anthropic', 'mistral', 'oci', 'cerebras', 'bu']
+		available_providers = ['openai', 'azure', 'google', 'anthropic', 'mistral', 'oci', 'cerebras', 'nvidia', 'bu']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -245,6 +252,8 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatOCIRaw  # type: ignore
 	elif name == 'ChatCerebras':
 		return ChatCerebras  # type: ignore
+	elif name == 'ChatNvidia':
+		return ChatNvidia  # type: ignore
 	elif name == 'ChatBrowserUse':
 		return ChatBrowserUse  # type: ignore
 
@@ -262,6 +271,7 @@ __all__ = [
 	'ChatGoogle',
 	'ChatMistral',
 	'ChatCerebras',
+	'ChatNvidia',
 	'ChatBrowserUse',
 ]
 
