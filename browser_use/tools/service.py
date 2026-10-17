@@ -1844,9 +1844,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				validated_code = self._validate_and_fix_javascript(code)
 
 				# Track form controls that this script changes from disabled/read-only to
-				# enabled/editable so the agent can recognize a site-imposed restriction.
+				# enabled/editable. This observes a state transition; it does not prove what
+				# caused the transition.
 				monitored_code = f"""(async () => {{
 					const __bu_code = {json.dumps(validated_code)};
+					const __bu_array_from = Array.from;
+					const __bu_apply = Reflect.apply;
+					const __bu_matches = Element.prototype.matches;
+					const __bu_is_connected = Object.getOwnPropertyDescriptor(Node.prototype, 'isConnected').get;
 					const __bu_restricted_controls = () => {{
 						const controls = new Set();
 						const roots = [document];
@@ -1862,15 +1867,23 @@ You will be given a query and the markdown of a webpage that has been filtered t
 						}}
 						return controls;
 					}};
-					const __bu_restricted_before = __bu_restricted_controls();
+					const __bu_restricted_before = __bu_array_from(__bu_restricted_controls());
 					let __bu_result;
 					let __bu_error;
 					try {{ __bu_result = await (0, eval)(__bu_code); }} catch (error) {{
 						try {{ __bu_error = String(error); }} catch {{ __bu_error = 'JavaScript threw a value that could not be converted to text'; }}
 					}}
-					const __bu_restrictions_removed = Array.from(__bu_restricted_before).filter(
-						(element) => element.isConnected && !element.matches(':disabled,input[readonly],textarea[readonly]')
-					).length;
+					let __bu_restrictions_removed = 0;
+					for (let i = 0; i < __bu_restricted_before.length; i++) {{
+						const element = __bu_restricted_before[i];
+						const is_connected = __bu_apply(__bu_is_connected, element, []);
+						const remains_restricted = __bu_apply(
+							__bu_matches,
+							element,
+							[':disabled,input[readonly],textarea[readonly]'],
+						);
+						if (is_connected && !remains_restricted) __bu_restrictions_removed++;
+					}}
 					return {{
 						__browser_use_evaluate_result: __bu_result,
 						__browser_use_evaluate_result_is_undefined: typeof __bu_result === 'undefined',
@@ -1932,9 +1945,10 @@ Validated Code (after quote fixing):
 """
 					if restrictions_removed:
 						msg += (
-							f'\nWARNING: This evaluate call removed disabled/readonly restrictions from '
-							f'{restrictions_removed} form control(s). Treat this as a site-imposed restriction; '
-							'do not continue the blocked action and report that it could not be completed.'
+							f'\nWARNING: This evaluate call observed disabled/readonly state changes during its execution '
+							f'on {restrictions_removed} form control(s). This does not establish what caused the changes. '
+							'Do not use evaluate to bypass a restriction. Check whether an expected, user-authorized page '
+							'interaction explains the change; otherwise stop the blocked action and report what was observed.'
 						)
 					logger.debug(msg)
 					return ActionResult(error=msg)
@@ -1973,9 +1987,10 @@ Validated Code (after quote fixing):
 
 				if restrictions_removed:
 					warning = (
-						f'WARNING: This evaluate call removed disabled/readonly restrictions from '
-						f'{restrictions_removed} form control(s). Treat this as a site-imposed restriction; '
-						'do not continue the blocked action and report that it could not be completed.'
+						f'WARNING: This evaluate call observed disabled/readonly state changes during its execution '
+						f'on {restrictions_removed} form control(s). This does not establish what caused the changes. '
+						'Do not use evaluate to bypass a restriction. Check whether an expected, user-authorized page '
+						'interaction explains the change; otherwise stop the blocked action and report what was observed.'
 					)
 					result_text = f'{warning}\nJavaScript result: {result_text}'
 

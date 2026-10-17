@@ -54,9 +54,11 @@ class SystemPrompt:
 
 		# Keep this safety instruction present in every model-specific prompt template.
 		prompt += (
-			'\n\nSite-imposed form restrictions: If an evaluate result warns that disabled or readonly '
-			'restrictions were removed, do not continue the blocked action. Report the restriction and '
-			'set success=false for that action.'
+			'\n\nForm-control state changes: If an evaluate result reports that a disabled or readonly '
+			'control changed state during evaluation, treat it as an observation, not proof of what caused it. '
+			'Do not use evaluate to bypass a restriction. Check whether an expected, user-authorized page '
+			'interaction explains the change. Unless the page independently confirms that the requested action '
+			'completed through its expected workflow, preserve this warning in later turns and set success=false.'
 		)
 
 		if extend_system_message:

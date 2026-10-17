@@ -163,6 +163,8 @@ class TestToolsIntegration:
 		)
 		assert result.extracted_content is not None
 		assert 'WARNING:' in result.extracted_content
+		assert 'observed disabled/readonly state changes' in result.extracted_content
+		assert 'does not establish what caused the changes' in result.extracted_content
 		assert '2 form control(s)' in result.extracted_content
 		assert 'JavaScript result: controls enabled' in result.extracted_content
 
@@ -181,6 +183,7 @@ class TestToolsIntegration:
 		assert isinstance(result, ActionResult)
 		assert result.error is not None
 		assert 'WARNING:' in result.error
+		assert 'does not establish what caused the changes' in result.error
 		assert '3 form control(s)' in result.error
 		assert 'script failed after changing controls' in result.error
 
@@ -197,6 +200,48 @@ class TestToolsIntegration:
 		assert 'Validated Code (after quote fixing):' in empty_error.error
 		assert "throw '';" in empty_error.error
 		assert 'WARNING:' in empty_error.error
+
+	async def test_evaluate_reports_page_handler_state_change_without_assigning_cause(
+		self, tools, browser_session, base_url, http_server
+	):
+		"""A synchronous page handler can change a control during evaluate without proving evaluate caused it."""
+		http_server.expect_request('/page-handler-form').respond_with_data(
+			'<button id="place" disabled>Place order</button><button id="continue">Continue</button>'
+			'<script>document.querySelector("#continue").addEventListener("click", () => {'
+			'document.querySelector("#place").disabled = false;});</script>',
+			content_type='text/html',
+		)
+		await tools.navigate(url=f'{base_url}/page-handler-form', new_tab=False, browser_session=browser_session)
+
+		result = await tools.evaluate(
+			code="document.querySelector('#continue').click(); 'continued';", browser_session=browser_session
+		)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+		assert 'observed disabled/readonly state changes' in result.extracted_content
+		assert 'does not establish what caused the changes' in result.extracted_content
+		assert 'JavaScript result: continued' in result.extracted_content
+
+	async def test_evaluate_monitor_uses_intrinsics_captured_before_user_code(
+		self, tools, browser_session, base_url, http_server
+	):
+		"""Changes to page-world intrinsics cannot disable the restriction observation."""
+		http_server.expect_request('/tampered-intrinsics-form').respond_with_data(
+			'<button id="place" disabled>Place order</button>',
+			content_type='text/html',
+		)
+		await tools.navigate(url=f'{base_url}/tampered-intrinsics-form', new_tab=False, browser_session=browser_session)
+
+		result = await tools.evaluate(
+			code="Array.from = () => []; Element.prototype.matches = () => false; document.querySelector('#place').disabled = false; 'changed';",
+			browser_session=browser_session,
+		)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+		assert 'observed disabled/readonly state changes' in result.extracted_content
+		assert '1 form control(s)' in result.extracted_content
 
 	async def test_evaluate_keeps_result_without_restriction_changes(self, tools, browser_session, base_url, http_server):
 		"""Preserve the evaluate result when the script leaves form restrictions intact."""
