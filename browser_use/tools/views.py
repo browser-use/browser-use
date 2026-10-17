@@ -97,7 +97,14 @@ class DoneAction(BaseModel):
 			'If uncertain whether a prior step completed, say so explicitly.'
 		)
 	)
-	success: bool = Field(default=True, description='True if user_request completed successfully')
+	success: bool = Field(
+		default=True,
+		description=(
+			'True if user_request completed successfully. If tool history reports disabled/readonly controls '
+			'changed during evaluate, preserve that uncertainty across turns and do not report success unless '
+			'the page independently confirms completion through its expected workflow.'
+		),
+	)
 	files_to_display: list[str] | None = Field(default=[])
 
 
