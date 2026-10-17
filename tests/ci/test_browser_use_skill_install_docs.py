@@ -197,6 +197,7 @@ def test_browser_use_skill_shows_cloud_browser_connect_code():
 		'puppeteer.connect({ browserWSEndpoint: session.cdpUrl })',
 		'wss://connect.browser-use.com?apiKey=<BROWSER_USE_API_KEY>',
 		'$0.02 per browser-hour, metered per minute with a\n1-minute minimum',
+		'plus traffic ($5/GB through the default managed proxy, $0.20/GB direct)',
 		'https://docs.browser-use.com/cloud/browser/quickstart',
 	):
 		assert snippet in CLOUD_BROWSER_SECTION

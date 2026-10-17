@@ -193,7 +193,7 @@ Response: 204.
 **Pricing:** $0.02/hour. Credits for the timeout are reserved upfront and the unused part is returned on stop. Rounded up to the minute (min 1 min). All users: up to 240 minutes.
 
 Response (201): BrowserSessionItemView (includes `cdpUrl` and `liveUrl`).
-Errors: 403 (timeout above 240 minutes, or extensions unavailable to the project), 404 (profile or extension not found), 429 (too many concurrent).
+Errors: 402 (insufficient credits or API-key spend cap), 403 (timeout above 240 minutes, or extensions unavailable to the project), 404 (profile or extension not found), 429 (too many concurrent).
 
 **GET /browsers/{id}** — Browser session details.
 
