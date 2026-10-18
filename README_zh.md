@@ -53,7 +53,7 @@
 
 <br/>
 
-> **语言**：本文档为简体中文翻译，[点此查看英文原版 README.md](README.md)。
+> **语言**：本文档为简体中文翻译，[点此查看英文原版 README.md](README.md)。本译文基于提交 `aa093a843da5edbf323c0b4145c9b6a0db3ecde8`；若英文版后续更新，请以英文版为准。
 
 <a name="navigate-the-web-like-a-human-does"></a>
 # 像人一样浏览网页。
@@ -194,7 +194,7 @@ Agent 会打开一个浏览器、查询该仓库，并打印它的答案。
   <img alt="Claude uses Browser Use browser actions and Bash through the Anthropic SDK. The browser can be local or remote; Bash runs on the SDK host." src="examples/integrations/toolsets-for-claude/architecture-light.svg" width="100%">
 </picture>
 
-需要包含 `anthropic.tools.browser` 的 Anthropic SDK 版本。
+此集成需要 Browser Use 0.13.11 或更高版本，以及包含 `anthropic.tools.browser` 的 Anthropic SDK 版本。运行示例前可用 `uv run python -c "from anthropic.tools.browser import BetaLocalFilePolicy; from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse; print('Browser toolset imports OK')"` 检查依赖是否齐全。
 Bash 需要一个带有 `/bin/bash` 的 Linux 或 macOS 主机；在 Windows 上请使用 WSL。
 下面的代码片段运行在一个 async 函数内部；完整脚本请参见快速开始。
 
