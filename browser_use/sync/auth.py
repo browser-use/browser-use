@@ -19,6 +19,43 @@ from browser_use.config import CONFIG
 TEMP_USER_ID = '99999999-9999-9999-9999-999999999999'
 
 
+def _ensure_config_dir() -> Path:
+	"""Ensure config directory exists with 0o700 permissions."""
+	config_dir = CONFIG.BROWSER_USE_CONFIG_DIR
+	config_dir.mkdir(parents=True, exist_ok=True)
+	if os.name != 'nt':
+		try:
+			config_dir.chmod(0o700)
+		except Exception:
+			pass
+	return config_dir
+
+
+def _write_secure_file(file_path: Path, content: str) -> None:
+	"""Write file with 0o600 permissions, ensuring existing permissive files are remediated."""
+	_ensure_config_dir()
+	if os.name != 'nt':
+		temp_path = file_path.with_name(f'{file_path.name}.tmp.{uuid7str()}')
+		try:
+			fd = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+			with os.fdopen(fd, 'w', encoding='utf-8') as f:
+				f.write(content)
+			os.replace(temp_path, file_path)
+			try:
+				os.chmod(file_path, 0o600)
+			except Exception:
+				pass
+		except Exception:
+			if temp_path.exists():
+				try:
+					temp_path.unlink()
+				except Exception:
+					pass
+			raise
+	else:
+		file_path.write_text(content, encoding='utf-8')
+
+
 def get_or_create_device_id() -> str:
 	"""Get or create a persistent device ID for this installation."""
 	device_id_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'device_id'
@@ -26,8 +63,13 @@ def get_or_create_device_id() -> str:
 	# Try to read existing device ID
 	if device_id_path.exists():
 		try:
-			device_id = device_id_path.read_text().strip()
+			device_id = device_id_path.read_text(encoding='utf-8').strip()
 			if device_id:  # Make sure it's not empty
+				if os.name != 'nt':
+					try:
+						os.chmod(device_id_path, 0o600)
+					except Exception:
+						pass
 				return device_id
 		except Exception:
 			# If we can't read it, we'll create a new one
@@ -35,13 +77,7 @@ def get_or_create_device_id() -> str:
 
 	# Create new device ID
 	device_id = uuid7str()
-
-	# Ensure config directory exists
-	CONFIG.BROWSER_USE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
-	# Write device ID to file
-	device_id_path.write_text(device_id)
-
+	_write_secure_file(device_id_path, device_id)
 	return device_id
 
 
@@ -68,20 +104,10 @@ class CloudAuthConfig(BaseModel):
 		return cls()
 
 	def save_to_file(self) -> None:
-		"""Save auth config to local file"""
-
-		CONFIG.BROWSER_USE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
+		"""Save auth config to local file with restrictive permissions (0o600) atomically."""
 		config_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'cloud_auth.json'
-		with open(config_path, 'w') as f:
-			json.dump(self.model_dump(mode='json'), f, indent=2, default=str)
-
-		# Set restrictive permissions (owner read/write only) for security
-		try:
-			os.chmod(config_path, 0o600)
-		except Exception:
-			# Some systems may not support chmod, continue anyway
-			pass
+		payload = json.dumps(self.model_dump(mode='json'), indent=2, default=str)
+		_write_secure_file(config_path, payload)
 
 
 class DeviceAuthClient:
