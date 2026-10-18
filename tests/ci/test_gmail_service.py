@@ -224,3 +224,69 @@ async def test_get_recent_emails_preserves_batch_with_non_utf8_body(gmail_servic
 	emails = await gmail_service.get_recent_emails()
 
 	assert [email['body'] for email in emails] == ['Earlier valid body', 'café']
+
+
+@pytest.mark.parametrize('mime_type', ['text/plain', 'text/html'])
+def test_extract_body_skips_malformed_part_and_preserves_valid_parts(gmail_service: GmailService, mime_type: str):
+	payload = {
+		'mimeType': 'multipart/mixed',
+		'parts': [
+			text_part('First', mime_type),
+			{'mimeType': mime_type, 'body': {'data': 'a'}},
+			text_part(' last', mime_type),
+		],
+	}
+
+	assert gmail_service._extract_body(payload) == 'First last'
+
+
+@pytest.mark.parametrize('data', ['a', 'not-ascii-✓', '%%%%'])
+def test_extract_body_falls_back_to_html_when_plain_body_is_unusable(gmail_service: GmailService, data: str):
+	payload = {
+		'mimeType': 'multipart/alternative',
+		'parts': [
+			{'mimeType': 'text/plain', 'body': {'data': data}},
+			text_part('<p>Valid HTML</p>', 'text/html'),
+		],
+	}
+
+	assert gmail_service._extract_body(payload) == '<p>Valid HTML</p>'
+
+
+def test_extract_body_returns_empty_when_all_parts_are_malformed(gmail_service: GmailService):
+	payload = {
+		'mimeType': 'multipart/alternative',
+		'parts': [{'mimeType': mime_type, 'body': {'data': 'a'}} for mime_type in ('text/plain', 'text/html')],
+	}
+
+	assert gmail_service._extract_body(payload) == ''
+
+
+async def test_get_recent_emails_preserves_batch_with_malformed_body(gmail_service: GmailService):
+	api = MagicMock()
+	messages = api.users.return_value.messages.return_value
+	message_bodies = [
+		('message-1', text_part('Earlier valid body')),
+		('message-2', {'mimeType': 'text/plain', 'body': {'data': 'a'}}),
+		('message-3', text_part('Later valid body')),
+	]
+	messages.list.return_value.execute.return_value = {'messages': [{'id': message_id} for message_id, _ in message_bodies]}
+	messages.get.return_value.execute.side_effect = [
+		{
+			'id': message_id,
+			'threadId': message_id,
+			'internalDate': '1700000000000',
+			'payload': {'headers': [], **body},
+		}
+		for message_id, body in message_bodies
+	]
+	gmail_service.service = api
+	gmail_service._authenticated = True
+
+	emails = await gmail_service.get_recent_emails()
+
+	assert [(email['id'], email['body']) for email in emails] == [
+		('message-1', 'Earlier valid body'),
+		('message-2', ''),
+		('message-3', 'Later valid body'),
+	]

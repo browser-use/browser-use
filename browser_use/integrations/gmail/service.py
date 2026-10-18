@@ -5,6 +5,7 @@ This service provides a clean interface for agents to interact with Gmail.
 """
 
 import base64
+import binascii
 import logging
 import os
 from email.message import Message
@@ -226,12 +227,19 @@ class GmailService:
 			if mime_type in bodies and data:
 				bodies[mime_type].append((data, headers.get_content_charset() or 'utf-8'))
 
-		selected_parts = bodies['text/plain'] or bodies['text/html']
-		body = []
-		for data, charset in selected_parts:
-			raw = base64.urlsafe_b64decode(data)
-			try:
-				body.append(raw.decode(charset, errors='replace'))
-			except LookupError:
-				body.append(raw.decode('utf-8', errors='replace'))
-		return ''.join(body)
+		for mime_type in ('text/plain', 'text/html'):
+			body = []
+			for data, charset in bodies[mime_type]:
+				try:
+					raw = base64.urlsafe_b64decode(data)
+				except (binascii.Error, ValueError):
+					continue
+				if not raw:
+					continue
+				try:
+					body.append(raw.decode(charset, errors='replace'))
+				except LookupError:
+					body.append(raw.decode('utf-8', errors='replace'))
+			if body:
+				return ''.join(body)
+		return ''
