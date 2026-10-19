@@ -212,7 +212,7 @@ Common actions you can use:
 - wait: Wait for the page to load
 - extract: Extract structured information from the page
 - screenshot: Take a screenshot for visual verification
-- switch_tab: Switch between browser tabs
+- switch: Switch between browser tabs
 - go_back: Navigate back in browser history
 - done: Complete the task and report results
 - write_file: Write content to a file
