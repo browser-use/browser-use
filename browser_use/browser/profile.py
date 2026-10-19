@@ -906,13 +906,13 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	def get_args(self) -> list[str]:
 		"""Get the list of all Chrome CLI launch args for this profile (compiled from defaults, user-provided, and system-specific)."""
 
-		if isinstance(self.ignore_default_args, list):
-			ignored_default_args = set(self.ignore_default_args)
-			default_args = [arg for arg in CHROME_DEFAULT_ARGS if arg not in ignored_default_args]
+		if isinstance(self.ignore_default_args, (list, set, tuple)):
+			ignored_set = set(self.ignore_default_args)
+			default_args = [arg for arg in CHROME_DEFAULT_ARGS if arg not in ignored_set]
 		elif self.ignore_default_args is True:
 			default_args = []
-		elif not self.ignore_default_args:
-			default_args = CHROME_DEFAULT_ARGS
+		else:
+			default_args = list(CHROME_DEFAULT_ARGS)
 
 		assert self.user_data_dir is not None, 'user_data_dir must be set to a non-default path'
 
