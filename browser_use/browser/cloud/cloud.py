@@ -115,7 +115,14 @@ class CloudBrowserClient:
 					'https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=use_cloud'
 				)
 			elif response.status_code == 403:
-				raise CloudBrowserAuthError('Access forbidden. Please check your browser-use cloud subscription status.')
+				msg = 'Access forbidden. Please check your browser-use cloud subscription status.'
+				try:
+					detail = response.json().get('detail')
+					if detail:
+						msg += f' - {detail}'
+				except Exception:
+					pass
+				raise CloudBrowserAuthError(msg)
 			elif not response.is_success:
 				error_msg = f'Failed to create cloud browser: HTTP {response.status_code}'
 				try:
