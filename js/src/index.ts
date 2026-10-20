@@ -127,6 +127,7 @@ export class BrowserUse {
     positiveInteger('hookTimeoutMs', options.hookTimeoutMs ?? 30_000);
     positiveInteger('modelTimeoutMs', options.modelTimeoutMs ?? 300_000);
     positiveInteger('compactionTimeoutMs', options.compactionTimeoutMs ?? 120_000);
+    positiveInteger('compactionRetryDelayMs', options.compactionRetryDelayMs ?? 1000);
     const separator = options.model.indexOf('/');
     if (separator < 1) throw new Error('model must be provider/model, for example openai/gpt-5.4.');
     const models = options.models ?? builtinModels();
@@ -377,6 +378,26 @@ export class BrowserUse {
           messages: this.messages,
           control,
           ...(journaled ? { eventsPath } : {}),
+          checkpoint: async (messages, usage) => {
+            this.messages = messages;
+            this.hasConversation = true;
+            const history = this.history;
+            for (const key of [
+              'input',
+              'output',
+              'cacheRead',
+              'cacheWrite',
+              'totalTokens',
+            ] as const)
+              history.usage[key] += usage[key];
+            for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
+              history.usage.cost[key] += usage.cost[key];
+            await saveHistory(
+              join(this.workspace, '.browser-use', 'session.json'),
+              history,
+              this.config.redact,
+            );
+          },
           save: (messages) => {
             this.messages = messages;
             this.hasConversation = true;

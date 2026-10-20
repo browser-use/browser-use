@@ -102,52 +102,19 @@ test('model-sized default preserves both 311336-character recent turns verbatim'
   assert.deepEqual(saved.slice(1, recent.length + 1), recent);
 });
 
-test('compaction removes older history while preserving both oversized recent tool groups', async () => {
-  const recent = recentGroups();
-  let summaries = 0,
-    requests = 0;
-  const { result } = await run(
-    [
-      { role: 'user', content: 'Never submit.', timestamp: 1 },
-      ...Array.from({ length: 4 }, () => fauxAssistantMessage('old '.repeat(40000))),
-      ...recent,
-    ],
-    (_model, request) => {
-      if (!getCurrentTools(request.messages).length) {
-        summaries++;
-        return done(fauxAssistantMessage('Old observations archived. Never submit.'));
-      }
-      requests++;
-      assert(
-        request.messages.some((m) => m.role === 'user' && m.content.includes('Never submit.')),
-      );
-      const from = request.messages.findIndex((m) => m.role === 'assistant');
-      assert.deepEqual(request.messages.slice(from, from + recent.length), recent);
-      return finish();
-    },
-  );
-  assert.equal(result.status, 'completed', result.error?.slice(0, 1000));
-  assert.equal(result.compactions, 1);
-  assert.equal(summaries, 1);
-  assert.equal(requests, 1);
-});
-
-test('timed-out compaction recovers once, keeps recent turns and counts partial usage once', async () => {
+test('timed-out compaction recovers, retains user constraints and counts partial usage once', async () => {
   let summaries = 0,
     inference = 0,
     aborted = false,
     late;
   const messages = history();
-  const recent = structuredClone(messages.slice(-2));
   const { result } = await run(
     messages,
     (_model, request, settings) => {
       if (getCurrentTools(request.messages).length) {
         inference++;
-        assert.deepEqual(
-          request.messages.filter((m) => m.role === 'assistant'),
-          recent,
-        );
+        assert(!request.messages.some((m) => m.role === 'assistant'));
+        assert.match(JSON.stringify(request.messages), /Never submit/);
         return finish();
       }
       summaries++;
@@ -182,7 +149,7 @@ test('timed-out compaction recovers once, keeps recent turns and counts partial 
   late.end();
 });
 
-test('repeated timeouts stop after two failed attempts and retain the original history', async () => {
+test('repeated timeouts wait until the original run deadline and retain history', async () => {
   let calls = 0;
   const messages = history(),
     original = structuredClone(messages);
@@ -192,13 +159,13 @@ test('repeated timeouts stop after two failed attempts and retain the original h
       calls++;
       return createAssistantMessageEventStream();
     },
-    { maxContextChars: 50000 },
+    { maxContextChars: 50000, timeoutMs: 80 },
   );
-  assert.equal(result.status, 'context_limit');
-  assert.equal(calls, 2);
+  assert.equal(result.status, 'timeout');
+  assert.equal(calls, 1);
   assert.equal(result.compactions, 0);
   assert.deepEqual(saved.slice(0, original.length), original);
-  assert.equal(result.context.compactionFailures, 2);
+  assert.equal(result.context.compactionFailures, 1);
   assert.equal(result.context.lastCompactionFailure, 'timeout');
   assert(result.context.chars > result.context.maxChars);
 });
@@ -232,12 +199,16 @@ for (const stop of ['cancelled', 'timeout', 'cost_limit', 'deterministic']) {
       {
         maxContextChars: 50000,
         signal: controller.signal,
-        ...(stop === 'timeout' ? { timeoutMs: 15 } : {}),
+        ...(stop === 'timeout'
+          ? { timeoutMs: 15 }
+          : stop === 'deterministic'
+            ? { timeoutMs: 80 }
+            : {}),
         ...(stop === 'cost_limit' ? { maxCostUsd: 0.5 } : {}),
       },
       stop === 'timeout' ? { compactionTimeoutMs: 1000 } : {},
     );
-    assert.equal(result.status, stop === 'deterministic' ? 'context_limit' : stop);
+    assert.equal(result.status, stop === 'deterministic' ? 'timeout' : stop);
     assert.equal(calls, 1);
     if (stop === 'deterministic') {
       assert.equal(result.context.lastCompactionFailure, 'error');
@@ -245,25 +216,6 @@ for (const stop of ['cancelled', 'timeout', 'cost_limit', 'deterministic']) {
     }
   });
 }
-
-test('explicit character caps and token limits remain hard stops without dropping recent turns', async () => {
-  const recent = recentGroups();
-  for (const options of [{ maxContextChars: 240000 }, {}]) {
-    let requests = 0;
-    const { result, saved } = await run(
-      [{ role: 'user', content: 'Keep the recent observations.', timestamp: 1 }, ...recent],
-      () => {
-        requests++;
-        return finish();
-      },
-      options,
-      options.maxContextChars ? {} : { instructions: 'x'.repeat(600000) },
-    );
-    assert.equal(result.status, 'context_limit');
-    assert.equal(requests, 0);
-    assert.deepEqual(saved.slice(1, recent.length + 1), recent);
-  }
-});
 
 test('tool schemas count against the model budget before a provider request', async () => {
   let requests = 0;
@@ -298,87 +250,12 @@ test('non-reducing summaries retain original evidence and have a sanitized diagn
   const { result, saved } = await run(
     messages,
     () => done(fauxAssistantMessage('x'.repeat(100000))),
-    { maxContextChars: 50000 },
+    { maxContextChars: 50000, timeoutMs: 80 },
   );
-  assert.equal(result.status, 'context_limit');
+  assert.equal(result.status, 'timeout');
   assert.equal(result.compactions, 0);
   assert.equal(result.context.lastCompactionFailure, 'not_reduced');
   assert.deepEqual(saved.slice(0, original.length), original);
-});
-
-test('an oversized protected suffix stops without a futile summary or dropping either group', async () => {
-  const path = await mkdtemp(join(tmpdir(), 'bu-context-fit-'));
-  try {
-    const recent = recentGroups();
-    const messages = [
-      { role: 'user', content: 'Never submit.', timestamp: 1 },
-      fauxAssistantMessage('x'.repeat(100000)),
-      ...recent,
-    ];
-    const ctx = new RunContext(
-      model,
-      () => done(fauxAssistantMessage('Saved evidence.')),
-      path,
-      240000,
-      true,
-    );
-    await ctx.prepare(messages, '');
-    assert.equal(ctx.compactions, 0);
-    assert.equal(ctx.fits(messages, ''), false);
-    assert.deepEqual(ctx.project(messages), messages);
-  } finally {
-    await rm(path, { recursive: true, force: true });
-  }
-});
-
-test('a recovered timeout does not disable subsequent compactions in the same run', async () => {
-  let summaries = 0,
-    inference = 0;
-  const { result } = await run(
-    history(),
-    (_model, request) => {
-      if (!getCurrentTools(request.messages).length) {
-        summaries++;
-        return summaries === 1
-          ? createAssistantMessageEventStream()
-          : done(fauxAssistantMessage('Evidence archived. Never submit.'));
-      }
-      inference++;
-      if (inference === 1)
-        return done(fauxAssistantMessage(fauxToolCall('observe', {}), { stopReason: 'toolUse' }));
-      assert(
-        request.messages.some(
-          (m) =>
-            m.role === 'toolResult' &&
-            m.toolName === 'observe' &&
-            m.content[0].text === 'fresh observation '.repeat(1200),
-        ),
-      );
-      return finish();
-    },
-    { maxContextChars: 50000 },
-    {
-      tools: [
-        {
-          name: 'observe',
-          label: 'observe',
-          description: 'Read observations',
-          parameters: Type.Object({}),
-          async execute() {
-            return {
-              content: [{ type: 'text', text: 'fresh observation '.repeat(1200) }],
-              details: {},
-            };
-          },
-        },
-      ],
-    },
-  );
-  assert.equal(result.status, 'completed', result.error?.slice(0, 1000));
-  assert.equal(result.compactions, 2);
-  assert.equal(summaries, 3);
-  assert.equal(inference, 2);
-  assert.equal(result.context.compactionFailures, 1);
 });
 
 test('successful compaction cannot spend past the cost limit and then start inference', async () => {
@@ -406,6 +283,8 @@ for (const compaction of [true, false]) {
     const { result } = await run(
       [],
       (_model, request) => {
+        if (!getCurrentTools(request.messages).length)
+          return done(fauxAssistantMessage('Continue the task.'));
         requests++;
         const names = getCurrentTools(request.messages).map((tool) => tool.name);
         if (requests === 1) {

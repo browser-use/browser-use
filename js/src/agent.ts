@@ -9,7 +9,7 @@ import { Type, type TSchema } from 'typebox';
 import { Check, Errors } from 'typebox/value';
 import { CellError, type BrowserRuntime } from './runtime.js';
 import { Observer } from './observer.js';
-import { RunContext, conversation } from './context.js';
+import { RunContext, conversation, contextWindowError } from './context.js';
 import { deadlineStream } from './model-stream.js';
 import { researchTools } from './research-tools.js';
 import type {
@@ -24,6 +24,7 @@ import { SEARCH_PROMPT, SYSTEM_PROMPT } from './prompt.js';
 import { AX_PROMPT } from './ax.js';
 import { positiveInteger } from './protocol.js';
 import { bounded, type RunControl } from './control.js';
+import { setTimeout as delay } from 'node:timers/promises';
 
 export const zeroUsage = (): Usage => ({
   input: 0,
@@ -63,15 +64,16 @@ export function transientModelError(message: string | undefined): boolean {
   );
 }
 
+function addUsage(total: Usage, extra: Usage): Usage {
+  for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const)
+    total[key] += extra[key];
+  for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
+    total.cost[key] += extra.cost[key];
+  return total;
+}
 function sumUsage(messages: AgentMessage[]): Usage {
   const result = zeroUsage();
-  for (const message of messages) {
-    if (message.role !== 'assistant') continue;
-    for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const)
-      result[key] += message.usage[key];
-    for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
-      result.cost[key] += message.usage.cost[key];
-  }
+  for (const message of messages) if (message.role === 'assistant') addUsage(result, message.usage);
   return result;
 }
 
@@ -87,6 +89,7 @@ export async function runAgent(
     messages: AgentMessage[];
     control: RunControl;
     save: (messages: AgentMessage[]) => void;
+    checkpoint?: (messages: AgentMessage[], usage: Usage) => Promise<void>;
     eventsPath?: string;
   },
 ): Promise<RunResult<unknown>> {
@@ -114,7 +117,6 @@ export async function runAgent(
   let retriedUsage = zeroUsage();
   let finalizing = false;
   let compactionFailures = 0;
-  let compactionUnavailable = false;
   let lastCompactionFailure: ContextMetrics['lastCompactionFailure'];
   let beforeCompaction: ContextMetrics['beforeCompaction'];
   const warnings: string[] = [];
@@ -291,42 +293,113 @@ export async function runAgent(
     toolExecution: 'sequential',
     transformContext: async (messages, signal) => {
       refreshToolBudget();
-      let prepared = false;
-      while (true) {
+      let failures = 0;
+      let recovering = false;
+      const usage = () =>
+        [retriedUsage, ...context.usage].reduce(
+          addUsage,
+          sumUsage(messages.slice(previousMessages)),
+        );
+      const recovery = async (state: 'waiting' | 'resumed') => {
+        let attempts = 0;
+        while (true) {
+          signal?.throwIfAborted();
+          context.beforeSummary?.();
+          try {
+            await bounded(
+              () => session?.checkpoint?.(conversation(context.project(messages)), usage()),
+              hookTimeout,
+              signal,
+            );
+            await bounded(
+              () =>
+                options.onContextRecovery?.(
+                  {
+                    state,
+                    context: {
+                      ...context.measure(messages, agent.state.systemPrompt),
+                      compactionFailures,
+                      ...(lastCompactionFailure ? { lastCompactionFailure } : {}),
+                    },
+                  },
+                  signal,
+                ),
+              hookTimeout,
+              signal,
+            );
+            return;
+          } catch {
+            signal?.throwIfAborted();
+            if (warnings.length < 32)
+              warnings.push('Context recovery checkpoint unavailable; retrying.');
+            await delay(
+              Math.min(
+                30000,
+                (config.compactionRetryDelayMs ?? 1000) * 2 ** Math.min(attempts++, 5),
+              ),
+              undefined,
+              { signal },
+            );
+          }
+        }
+      };
+      context.beforeSummary = () => {
         signal?.throwIfAborted();
-        if (
-          options.maxCostUsd !== undefined &&
-          sumUsage(messages.slice(previousMessages)).cost.total +
-            retriedUsage.cost.total +
-            context.usage.reduce((sum, u) => sum + u.cost.total, 0) >=
-            options.maxCostUsd
-        ) {
+        if (options.maxCostUsd !== undefined && usage().cost.total >= options.maxCostUsd) {
           stopped = 'cost_limit';
           throw new Error('Cost limit reached during context preparation.');
         }
-        if (prepared || compactionUnavailable || compactionFailures >= 2) break;
+      };
+      while (options.compaction !== false && context.baseFits(agent.state.systemPrompt)) {
+        signal?.throwIfAborted();
+        if (options.maxCostUsd !== undefined && usage().cost.total >= options.maxCostUsd) {
+          stopped = 'cost_limit';
+          throw new Error('Cost limit reached during context preparation.');
+        }
         try {
           if (context.needsCompaction(messages, agent.state.systemPrompt)) {
             const { chars, tokens } = context.measure(messages, agent.state.systemPrompt);
             beforeCompaction = { chars, tokens };
           }
           await context.prepare(messages, agent.state.systemPrompt, signal);
-          prepared = true;
+          if (options.maxCostUsd !== undefined && usage().cost.total >= options.maxCostUsd) {
+            stopped = 'cost_limit';
+            throw new Error('Cost limit reached during context preparation.');
+          }
+          break;
         } catch (error) {
           signal?.throwIfAborted();
+          if (stopped) throw error;
           const message = error instanceof Error ? error.message : String(error);
           compactionFailures++;
+          failures++;
           lastCompactionFailure = /Model stream exceeded/.test(message)
             ? 'timeout'
-            : /Compaction did not reduce/.test(message)
+            : /reduce|fit the context budget/.test(message)
               ? 'not_reduced'
               : 'error';
-          warnings.push(`Compaction unavailable: ${message}`);
-          if (!transientModelError(message.replace(/^Summarization failed: /, ''))) {
-            compactionUnavailable = true;
+          if (warnings.length < 32)
+            warnings.push('Compaction unavailable; original evidence retained.');
+          if (!context.force && context.fits(messages, agent.state.systemPrompt)) break;
+          if (options.maxCostUsd !== undefined && usage().cost.total >= options.maxCostUsd) {
+            stopped = 'cost_limit';
+            throw new Error('Cost limit reached during context preparation.');
           }
+          if (!recovering) {
+            recovering = true;
+            await recovery('waiting');
+          }
+          await delay(
+            Math.min(
+              30000,
+              (config.compactionRetryDelayMs ?? 1000) * 2 ** Math.min(failures - 1, 5),
+            ),
+            undefined,
+            { signal },
+          );
         }
       }
+      if (recovering) await recovery('resumed');
       signal?.throwIfAborted();
       if (!context.fits(messages, agent.state.systemPrompt)) {
         stopped = 'context_limit';
@@ -436,14 +509,7 @@ export async function runAgent(
   let error: string | undefined;
   try {
     if (options.signal?.aborted) stopped = 'cancelled';
-    else if (
-      !context.fits(
-        [...agent.state.messages, { role: 'user', content: task, timestamp: Date.now() }],
-        agent.state.systemPrompt,
-      ) &&
-      conversation(agent.state.messages).length === 0
-    )
-      stopped = 'context_limit';
+    else if (!context.baseFits(agent.state.systemPrompt)) stopped = 'context_limit';
     else if (
       !checkBudgets(
         [...agent.state.messages, { role: 'user', content: task, timestamp: Date.now() }],
@@ -451,6 +517,23 @@ export async function runAgent(
       )
     ) {
       await agent.prompt(task);
+      let overflow = agent.state.messages.at(-1);
+      while (
+        !completion &&
+        !stopped &&
+        options.compaction !== false &&
+        overflow?.role === 'assistant' &&
+        overflow.stopReason === 'error' &&
+        contextWindowError(overflow.errorMessage ?? '') &&
+        !checkBudgets(agent.state.messages, agent.state.systemPrompt)
+      ) {
+        addUsage(retriedUsage, overflow.usage);
+        agent.state.messages = agent.state.messages.slice(0, -1);
+        context.force = true;
+        providerRetries++;
+        await agent.continue();
+        overflow = agent.state.messages.at(-1);
+      }
       const failed = agent.state.messages.at(-1);
       if (
         failed?.role === 'assistant' &&
@@ -460,8 +543,8 @@ export async function runAgent(
         !options.signal?.aborted
       ) {
         // Pi never executes tool calls from an error response. Retry inference once, not actions.
-        providerRetries = 1;
-        retriedUsage = failed.usage;
+        providerRetries++;
+        addUsage(retriedUsage, failed.usage);
         agent.state.messages = agent.state.messages.slice(0, -1);
         await agent.continue();
       }

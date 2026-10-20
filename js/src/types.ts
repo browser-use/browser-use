@@ -52,6 +52,8 @@ export interface BrowserUseOptions extends DomainOptions {
   modelTimeoutMs?: number;
   /** Whole compaction response. Default 120000 ms; original context survives failure. */
   compactionTimeoutMs?: number;
+  /** Initial context-recovery backoff; doubles up to 30 seconds within the run deadline. */
+  compactionRetryDelayMs?: number;
   maxOutputChars?: number;
   /** Before each tool call. Return {block:true, reason} to deny it. */
   beforeToolCall?: (
@@ -85,6 +87,11 @@ export interface RunOptions {
   compaction?: boolean;
   /** Explicit character cap; defaults to four characters per model context token. */
   maxContextChars?: number;
+  /** Called after a recovery checkpoint is saved; does not end the run. */
+  onContextRecovery?: (
+    event: { state: 'waiting' | 'resumed'; context: ContextMetrics },
+    signal?: AbortSignal,
+  ) => void | Promise<void>;
   signal?: AbortSignal;
   /** Best-effort nonblocking observations. Coalesces under load; honor the abort signal. */
   observe?: (event: AgentEvent, signal: AbortSignal) => void | Promise<void>;
