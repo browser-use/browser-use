@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
@@ -12,6 +13,7 @@ from openai import (
 	APITimeoutError,
 	AsyncOpenAI,
 	RateLimitError,
+	Timeout,
 )
 from pydantic import BaseModel
 
@@ -29,7 +31,7 @@ T = TypeVar('T', bound=BaseModel)
 class ChatDeepSeek(BaseChatModel):
 	"""DeepSeek /chat/completions wrapper (OpenAI-compatible)."""
 
-	model: str = 'deepseek-chat'
+	model: str = 'deepseek-v4-flash'
 
 	# Generation parameters
 	max_tokens: int | None = None
@@ -43,21 +45,52 @@ class ChatDeepSeek(BaseChatModel):
 	timeout: float | httpx.Timeout | None = None
 	client_params: dict[str, Any] | None = None
 
+	thinking: bool = False
+
 	@property
 	def provider(self) -> str:
 		return 'deepseek'
 
 	def _client(self) -> AsyncOpenAI:
+		api_key = self.api_key or os.getenv('DEEPSEEK_API_KEY')
+		if not api_key:
+			raise ModelProviderError(
+				message='Missing DeepSeek API key. Set DEEPSEEK_API_KEY or pass api_key.',
+				status_code=401,
+				model=self.name,
+			)
+
 		return AsyncOpenAI(
-			api_key=self.api_key,
-			base_url=self.base_url,
-			timeout=self.timeout,
+			api_key=api_key,
+			base_url=str(self.base_url) if self.base_url is not None else None,
+			timeout=Timeout(**self.timeout.as_dict()) if isinstance(self.timeout, httpx.Timeout) else self.timeout,
 			**(self.client_params or {}),
 		)
 
 	@property
 	def name(self) -> str:
 		return self.model
+
+	def _supports_thinking(self) -> bool:
+		return 'deepseek-v4' in self.model.lower()
+
+	def _request_kwargs(self) -> dict[str, Any]:
+		common: dict[str, Any] = {}
+
+		if self.temperature is not None:
+			common['temperature'] = self.temperature
+		if self.max_tokens is not None:
+			common['max_tokens'] = self.max_tokens
+		if self.top_p is not None:
+			common['top_p'] = self.top_p
+		if self.seed is not None:
+			common['seed'] = self.seed
+
+		if self._supports_thinking():
+			common['extra_body'] = {
+				'thinking': {'type': 'enabled' if self.thinking else 'disabled'},
+			}
+		return common
 
 	@overload
 	async def ainvoke(
@@ -96,16 +129,7 @@ class ChatDeepSeek(BaseChatModel):
 		"""
 		client = self._client()
 		ds_messages = DeepSeekMessageSerializer.serialize_messages(messages)
-		common: dict[str, Any] = {}
-
-		if self.temperature is not None:
-			common['temperature'] = self.temperature
-		if self.max_tokens is not None:
-			common['max_tokens'] = self.max_tokens
-		if self.top_p is not None:
-			common['top_p'] = self.top_p
-		if self.seed is not None:
-			common['seed'] = self.seed
+		common = self._request_kwargs()
 
 		# Beta conversation prefix continuation (see official documentation)
 		if self.base_url and str(self.base_url).endswith('/beta'):

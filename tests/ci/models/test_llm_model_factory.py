@@ -1,3 +1,5 @@
+import pytest
+
 from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.minimax.chat import ChatMiniMax
@@ -66,3 +68,19 @@ def test_minimax_pricing_metadata():
 	assert m2_7['output_cost_per_token'] == 1.2 / 1_000_000
 	assert m2_7['cache_read_input_token_cost'] == 0.06 / 1_000_000
 	assert m2_7['cache_creation_input_token_cost'] == 0.375 / 1_000_000
+
+
+def test_get_llm_by_name_remaps_retired_pixtral_alias(monkeypatch: pytest.MonkeyPatch):
+	monkeypatch.setenv('MISTRAL_API_KEY', 'mistral-key')
+	# 'pixtral_large' has no provider prefix and hits the top-level alias table
+	assert get_llm_by_name('pixtral_large').model == 'mistral-medium-latest'
+	# 'mistral_pixtral-large' is provider-prefixed and hits the mistral_map branch
+	assert get_llm_by_name('mistral_pixtral-large').model == 'mistral-medium-latest'
+
+
+def test_get_llm_by_name_preserves_served_mistral_aliases(monkeypatch: pytest.MonkeyPatch):
+	monkeypatch.setenv('MISTRAL_API_KEY', 'mistral-key')
+	assert get_llm_by_name('mistral_large').model == 'mistral-large-latest'
+	assert get_llm_by_name('mistral_medium').model == 'mistral-medium-latest'
+	assert get_llm_by_name('mistral_small').model == 'mistral-small-latest'
+	assert get_llm_by_name('codestral').model == 'codestral-latest'

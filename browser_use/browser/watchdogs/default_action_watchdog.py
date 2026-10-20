@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+from typing import Literal
 
 from cdp_use.cdp.input.commands import DispatchKeyEventParameters
 
@@ -399,7 +400,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			if event.force:
 				self.logger.debug(f'Force clicking at coordinates ({event.coordinate_x}, {event.coordinate_y})')
 				return await self._execute_click_with_download_detection(
-					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=True)
+					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=True, button=event.button)
 				)
 
 			# Get element at coordinates for safety checks
@@ -410,7 +411,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					f'No element found at coordinates ({event.coordinate_x}, {event.coordinate_y}), proceeding with click anyway'
 				)
 				return await self._execute_click_with_download_detection(
-					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False, button=event.button)
 				)
 
 			# Safety check: file input
@@ -442,7 +443,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# All safety checks passed, click at coordinates (with download detection)
 			return await self._execute_click_with_download_detection(
-				self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+				self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False, button=event.button)
 			)
 
 		except Exception:
@@ -1061,7 +1062,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 				long_term_memory=error_detail,
 			)
 
-	async def _click_on_coordinate(self, coordinate_x: int, coordinate_y: int, force: bool = False) -> dict | None:
+	async def _click_on_coordinate(
+		self, coordinate_x: int, coordinate_y: int, force: bool = False, button: Literal['left', 'right', 'middle'] = 'left'
+	) -> dict | None:
 		"""
 		Click directly at coordinates using CDP Input.dispatchMouseEvent.
 
@@ -1100,7 +1103,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							'type': 'mousePressed',
 							'x': coordinate_x,
 							'y': coordinate_y,
-							'button': 'left',
+							'button': button,
 							'clickCount': 1,
 						},
 						session_id=session_id,
@@ -1119,7 +1122,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							'type': 'mouseReleased',
 							'x': coordinate_x,
 							'y': coordinate_y,
-							'button': 'left',
+							'button': button,
 							'clickCount': 1,
 						},
 						session_id=session_id,
@@ -2474,7 +2477,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 	async def on_SendKeysEvent(self, event: SendKeysEvent) -> None:
 		"""Handle send keys request with CDP."""
-		cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
+		if event.target_id is not None:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=event.target_id, focus=True)
+		else:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
 		try:
 			# Normalize key names from common aliases
 			key_aliases = {
@@ -2504,31 +2510,34 @@ class DefaultActionWatchdog(BaseWatchdog):
 				'end': 'End',
 			}
 
-			# Parse and normalize the key string
 			keys = event.keys
-			if '+' in keys:
-				# Handle key combinations like "ctrl+a"
-				parts = keys.split('+')
-				normalized_parts = []
-				for part in parts:
-					part_lower = part.strip().lower()
-					normalized = key_aliases.get(part_lower, part)
-					normalized_parts.append(normalized)
-				normalized_keys = '+'.join(normalized_parts)
-			else:
-				# Single key
-				keys_lower = keys.strip().lower()
-				normalized_keys = key_aliases.get(keys_lower, keys)
+			modifier_map = {'Alt': 1, 'Control': 2, 'Meta': 4, 'Shift': 8}
+			is_combination = False
+			modifiers = []
+			main_key = None
+			if '+' in keys and keys != '+':
+				if keys.endswith('++'):
+					prefix = keys[:-2]
+					raw_modifiers = prefix.split('+')
+					if all(part.strip() for part in raw_modifiers):
+						normalized_modifiers = [key_aliases.get(part.strip().lower(), part) for part in raw_modifiers]
+						if all(modifier in modifier_map for modifier in normalized_modifiers):
+							is_combination = True
+							modifiers = normalized_modifiers
+							main_key = '+'
+				else:
+					prefix, suffix = keys.rsplit('+', 1)
+					raw_modifiers = prefix.split('+')
+					if suffix.strip() and all(part.strip() for part in raw_modifiers):
+						normalized_modifiers = [key_aliases.get(part.strip().lower(), part) for part in raw_modifiers]
+						if all(modifier in modifier_map for modifier in normalized_modifiers):
+							is_combination = True
+							modifiers = normalized_modifiers
+							main_key = key_aliases.get(suffix.strip().lower(), suffix)
 
-			# Handle key combinations like "Control+A"
-			if '+' in normalized_keys:
-				parts = normalized_keys.split('+')
-				modifiers = parts[:-1]
-				main_key = parts[-1]
-
+			if is_combination and main_key is not None:
 				# Calculate modifier bitmask
 				modifier_value = 0
-				modifier_map = {'Alt': 1, 'Control': 2, 'Meta': 4, 'Shift': 8}
 				for mod in modifiers:
 					modifier_value |= modifier_map.get(mod, 0)
 
@@ -2545,6 +2554,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 				for mod in reversed(modifiers):
 					await self._dispatch_key_event(cdp_session, 'keyUp', mod)
 			else:
+				keys_lower = keys.strip().lower()
+				normalized_keys = key_aliases.get(keys_lower, keys)
+
 				# Check if this is a text string or special key
 				special_keys = {
 					'Enter',
