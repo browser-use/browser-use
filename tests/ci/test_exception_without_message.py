@@ -61,3 +61,41 @@ async def test_navigation_error_without_message_names_the_exception(
 
 	assert result.error == expected_error
 	assert expected_log in [record.getMessage() for record in caplog.records]
+
+
+@pytest.mark.parametrize(
+	'action, params, expected_error',
+	[
+		('go_back', {}, 'Failed to go back: ConnectionError'),
+		('send_keys', {'keys': 'Enter'}, 'Failed to send keys: ConnectionError'),
+	],
+	ids=['go_back', 'send_keys'],
+)
+async def test_browser_event_error_without_message_names_the_exception(
+	browser_session, monkeypatch, action, params, expected_error
+):
+	def dispatch_losing_connection(event):
+		raise ConnectionError()
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', dispatch_losing_connection)
+	tools = Tools()
+	ActionModel = tools.registry.create_action_model()
+
+	result = await tools.act(ActionModel(**{action: params}), browser_session=browser_session)
+
+	assert result.error == expected_error
+
+
+@pytest.mark.parametrize('error_type', [ConnectionError, AssertionError, ValueError])
+async def test_custom_action_error_without_message_names_the_exception(browser_session, error_type):
+	tools = Tools()
+
+	@tools.registry.action(description='Raises an exception without a message')
+	async def fail_without_message():
+		raise error_type()
+
+	ActionModel = tools.registry.create_action_model()
+
+	result = await tools.act(ActionModel(**{'fail_without_message': {}}), browser_session=browser_session)
+
+	assert result.error == f'Error executing action fail_without_message: {error_type.__name__}'
