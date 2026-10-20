@@ -148,6 +148,13 @@ async def test_max_retries_zero_raises_provider_error_without_retrying(httpserve
 	assert len(httpserver.log) == 1
 
 
+async def test_max_retries_zero_connect_error_reports_one_attempt():
+	"""The error message counts the request that was actually made, not max_retries."""
+	chat = ChatBrowserUse(api_key=TEST_API_KEY, base_url='http://127.0.0.1:1', max_retries=0)
+	with pytest.raises(ValueError, match='after 1 attempt:'):
+		await chat.ainvoke([UserMessage(content='hi')])
+
+
 # --- Agent screenshot auto-config -------------------------------------------
 
 
