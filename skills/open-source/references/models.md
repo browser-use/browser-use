@@ -322,7 +322,7 @@ llm = ChatOpenAI(
 ```
 **Env:** `ASL_ROUTER_KEY` — create a router key at https://aistupidlevel.info/router/keys
 
-A router: `auto-tooling` sends each step to the model that currently scores best on its continuously re-run tool-use benchmark (`auto-coding`, `auto-reasoning` and `auto-best` are the other routing modes), called with your own provider keys. It accepts text only, so set `use_vision=False` on the agent.
+A router: `auto-tooling` sends each step to the model that currently scores best on its continuously re-run tool-use benchmark. Other routing modes include `auto-coding`, `auto-reasoning` and `auto-best`; see the [router docs](https://aistupidlevel.info/router/docs#strategies) for the full list. The router calls the chosen model with your own provider API keys (OpenAI, Anthropic, Google, DeepSeek, Kimi or GLM), which you add once at https://aistupidlevel.info/router/providers; browser-use itself only needs `ASL_ROUTER_KEY`. It accepts text only, so set `use_vision=False` on the agent.
 
 ### LangChain
 See example at [examples/models/langchain](https://github.com/browser-use/browser-use/tree/main/examples/models/langchain).
