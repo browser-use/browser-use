@@ -172,8 +172,9 @@ class ChatBrowserUse(BaseChatModel):
 
 		last_error: Exception | None = None
 
-		# Retry loop with exponential backoff
-		for attempt in range(self.max_retries):
+		# Retry loop with exponential backoff. Always make at least one request, so that
+		# max_retries=0 disables retrying instead of skipping the call entirely.
+		for attempt in range(max(1, self.max_retries)):
 			try:
 				result = await self._make_request(payload)
 				break
