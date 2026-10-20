@@ -52,6 +52,8 @@ export interface BrowserUseOptions extends DomainOptions {
   modelTimeoutMs?: number;
   /** Whole compaction response. Default 120000 ms; original context survives failure. */
   compactionTimeoutMs?: number;
+  /** Initial context-recovery backoff; doubles up to 30 seconds within the run deadline. */
+  compactionRetryDelayMs?: number;
   maxOutputChars?: number;
   /** Before each tool call. Return {block:true, reason} to deny it. */
   beforeToolCall?: (
@@ -83,7 +85,13 @@ export interface RunOptions {
   maxCostUsd?: number;
   /** Automatically summarize older context with Pi; false retains hard-stop behavior. */
   compaction?: boolean;
+  /** Explicit character cap; defaults to four characters per model context token. */
   maxContextChars?: number;
+  /** Durability barrier after the local checkpoint; failures retry within run budgets before inference. */
+  onContextRecovery?: (
+    event: { state: 'waiting' | 'resumed'; context: ContextMetrics },
+    signal?: AbortSignal,
+  ) => void | Promise<void>;
   signal?: AbortSignal;
   /** Best-effort nonblocking observations. Coalesces under load; honor the abort signal. */
   observe?: (event: AgentEvent, signal: AbortSignal) => void | Promise<void>;
@@ -93,7 +101,17 @@ export interface RunOptions {
 }
 export type StopReason =
   'max_steps' | 'timeout' | 'cancelled' | 'cost_limit' | 'context_limit' | 'incomplete' | 'error';
+export interface ContextMetrics {
+  chars: number;
+  tokens: number;
+  maxChars: number;
+  maxTokens: number;
+  compactionFailures: number;
+  lastCompactionFailure?: 'timeout' | 'not_reduced' | 'error';
+  beforeCompaction?: { chars: number; tokens: number };
+}
 export interface RunMetrics {
+  context?: ContextMetrics;
   /** Additional delivery-only model turns, within the original budgets (0 or 1). */
   finishRepairs: number;
   compactions?: number;

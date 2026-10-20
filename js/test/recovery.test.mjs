@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile, mkdir, symlink, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { BrowserRuntime, CellError } from '../dist/runtime.js';
 import { Observer } from '../dist/observer.js';
 import { RunContext, contextChars } from '../dist/context.js';
@@ -87,7 +87,7 @@ test('observer timeout aborts observation without blocking work; shutdown cancel
   await observer.close();
 });
 
-test('Pi compaction preserves exact user constraints, recent tool pairs and provider signatures', () =>
+test('Pi compaction retains user constraints without mutating archived tool pairs or signatures', () =>
   workspace(async (path) => {
     const faux = fauxProvider({ tokensPerSecond: 1e6 }),
       models = createModels();
@@ -134,8 +134,9 @@ test('Pi compaction preserves exact user constraints, recent tool pairs and prov
     const projected = ctx.project(messages);
     assert.match(projected[0].content, /Never submit/);
     assert(projected.length < messages.length);
-    assert.equal(projected[1].content[0].thinkingSignature.length, 30000);
-    assert.equal(projected[2].toolCallId, projected[1].content[1].id);
+    assert(!projected.some((m) => m.role === 'assistant' || m.role === 'toolResult'));
+    assert.equal(messages[1].content[0].thinkingSignature.length, 30000);
+    assert.equal(messages[2].toolCallId, messages[1].content[1].id);
     assert.equal(messages.length, 17);
     assert(ctx.fits(messages, 'system'));
   }));
@@ -197,8 +198,17 @@ test('compaction archives omitted observations privately and links earlier archi
     append(0);
     await ctx.prepare(messages, 'system');
     const archivePath = () =>
-      JSON.parse(
-        ctx.project(messages)[0].content.match(/^Evidence archive \(JSON path\): (.+)$/m)[1],
+      join(
+        path,
+        JSON.parse(
+          ctx
+            .project(messages)
+            .find(
+              (m) =>
+                typeof m.content === 'string' && m.content.startsWith('Conversation checkpoint:'),
+            )
+            .content.match(/^Evidence archive \(JSON path\): (.+)$/m)[1],
+        ),
       );
     const firstPath = archivePath();
     const firstText = await readFile(firstPath, 'utf8');
@@ -221,7 +231,9 @@ test('compaction archives omitted observations privately and links earlier archi
     assert.notEqual(secondPath, firstPath);
     const second = JSON.parse(await readFile(secondPath, 'utf8'));
     assert(
-      second.messages.some((m) => typeof m.content === 'string' && m.content.includes(firstPath)),
+      second.messages.some(
+        (m) => typeof m.content === 'string' && m.content.includes(relative(path, firstPath)),
+      ),
     );
     assert.equal(await readFile(firstPath, 'utf8'), firstText);
   }));

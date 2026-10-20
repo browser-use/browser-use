@@ -24,7 +24,14 @@ import { EventStream, formatEvent, type SessionEvent, type SessionEventData } fr
 import { positiveInteger } from './protocol.js';
 import type { BrowserUseOptions, RunOptions, RunResult } from './types.js';
 
-export type { BrowserUseOptions, RunOptions, RunResult, StopReason, RunMetrics } from './types.js';
+export type {
+  BrowserUseOptions,
+  RunOptions,
+  RunResult,
+  StopReason,
+  RunMetrics,
+  ContextMetrics,
+} from './types.js';
 export { Browser } from './browser.js';
 export type {
   BrowserOptions,
@@ -120,6 +127,7 @@ export class BrowserUse {
     positiveInteger('hookTimeoutMs', options.hookTimeoutMs ?? 30_000);
     positiveInteger('modelTimeoutMs', options.modelTimeoutMs ?? 300_000);
     positiveInteger('compactionTimeoutMs', options.compactionTimeoutMs ?? 120_000);
+    positiveInteger('compactionRetryDelayMs', options.compactionRetryDelayMs ?? 1000);
     const separator = options.model.indexOf('/');
     if (separator < 1) throw new Error('model must be provider/model, for example openai/gpt-5.4.');
     const models = options.models ?? builtinModels();
@@ -270,6 +278,7 @@ export class BrowserUse {
     let recorder: Recorder | undefined;
     let journal: FileHandle | undefined;
     let journalFailure: string | undefined;
+    let recoveryCheckpoint = false;
     let journalQueue = Promise.resolve();
     // The journal is diagnostics, never a run's outcome. A handle held open across a long model
     // call goes stale on some network mounts (EBADF on write, EIO on close): reopen it once for
@@ -370,6 +379,27 @@ export class BrowserUse {
           messages: this.messages,
           control,
           ...(journaled ? { eventsPath } : {}),
+          checkpoint: async (messages, usage) => {
+            recoveryCheckpoint = true;
+            this.messages = messages;
+            this.hasConversation = true;
+            const history = this.history;
+            for (const key of [
+              'input',
+              'output',
+              'cacheRead',
+              'cacheWrite',
+              'totalTokens',
+            ] as const)
+              history.usage[key] += usage[key];
+            for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
+              history.usage.cost[key] += usage.cost[key];
+            await saveHistory(
+              join(this.workspace, '.browser-use', 'session.json'),
+              history,
+              this.config.redact,
+            );
+          },
           save: (messages) => {
             this.messages = messages;
             this.hasConversation = true;
@@ -401,6 +431,17 @@ export class BrowserUse {
         runId: this.runId,
         ...(journaled ? { eventsPath } : {}),
       };
+      if (recoveryCheckpoint) {
+        try {
+          await saveHistory(
+            join(this.workspace, '.browser-use', 'session.json'),
+            this.history,
+            this.config.redact,
+          );
+        } catch (error) {
+          warnings.push(`Recovery checkpoint could not be finalized: ${String(error)}`);
+        }
+      }
       try {
         await saveHistory(historyPath, this.history, this.config.redact);
         delivered.historyPath = historyPath;
