@@ -21,7 +21,7 @@ from browser_use.integrations.anthropic.tab_state import (
 
 ROOT = Path(__file__).parents[3]
 DRIVER_PATH = ROOT / 'browser_use/integrations/anthropic/browser_use.py'
-QUICKSTART_PATH = ROOT / 'examples/integrations/anthropic/quickstart.py'
+QUICKSTART_PATH = ROOT / 'examples/integrations/toolsets-for-claude/quickstart.py'
 
 
 def test_browser_use_implements_all_31_browser_actions() -> None:
@@ -93,7 +93,11 @@ def test_missing_browser_toolset_sdk_has_an_actionable_error() -> None:
 def test_browser_use_and_bash_construct_with_a_compatible_sdk() -> None:
 	pytest.importorskip('anthropic.tools.browser')
 	from browser_use.integrations.anthropic import Bash, BrowserUse
+	from browser_use.integrations.toolsets_for_claude import Bash as ClaudeBash
+	from browser_use.integrations.toolsets_for_claude import BrowserUse as ClaudeBrowserUse
 
+	assert ClaudeBash is Bash
+	assert ClaudeBrowserUse is BrowserUse
 	browser = BrowserUse()
 	bash = Bash(output_dir='outputs')
 	configs = browser.to_dict().get('configs') or {}
@@ -254,7 +258,20 @@ def test_quickstart_uses_peer_browser_use_and_bash_tools() -> None:
 	source = QUICKSTART_PATH.read_text()
 	tree = ast.parse(source)
 	assert tree is not None
-	assert 'driver = BrowserUse()' in source
+	driver = next(
+		node
+		for node in ast.walk(tree)
+		if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'BrowserUse'
+	)
+	configs = ast.literal_eval(next(option.value for option in driver.keywords if option.arg == 'configs'))
+	for action in ('javascript_exec', 'file_upload', 'read_console', 'read_network'):
+		assert configs[action]['enabled'] is True
+	confirmation = next(option.value for option in driver.keywords if option.arg == 'confirm')
+	assert isinstance(confirmation, ast.Lambda)
+	assert isinstance(confirmation.body, ast.Constant) and confirmation.body.value is True
+	assert not any(
+		isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'input' for node in ast.walk(tree)
+	)
 	assert "bash = Bash(output_dir=Path('outputs'))" in source
 	assert 'tools=[driver, bash]' in source
 	assert 'ActorUse' not in source
