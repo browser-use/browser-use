@@ -235,7 +235,7 @@ export async function runAgent(
       })),
     ).length;
   };
-  const checkBudgets = (messages: AgentMessage[], systemPrompt: string) => {
+  const checkBudgets = (messages: AgentMessage[], systemPrompt: string, checkContext = true) => {
     refreshToolBudget();
     if (steps >= maxSteps) stopped = 'max_steps';
     if (
@@ -246,7 +246,7 @@ export async function runAgent(
         options.maxCostUsd
     )
       stopped = 'cost_limit';
-    if (options.compaction === false && !context.fits(messages, systemPrompt))
+    if (checkContext && options.compaction === false && !context.fits(messages, systemPrompt))
       stopped = 'context_limit';
     return stopped !== undefined;
   };
@@ -475,8 +475,11 @@ export async function runAgent(
       // Error and aborted responses are hard exits; the old shouldStopAfterTurn never saw them.
       if (message.stopReason === 'error' || message.stopReason === 'aborted') return undefined;
       if (completion || stopped) return { action: 'end' };
-      if (message.stopReason === 'stop' && !keepTools) agent.state.tools = [finish, finishFromJs];
-      return checkBudgets(context.messages, agent.state.systemPrompt) || finishRepairs > 0
+      return checkBudgets(
+        context.messages,
+        agent.state.systemPrompt,
+        message.stopReason !== 'stop',
+      ) || finishRepairs > 0
         ? { action: 'end' }
         : undefined;
     },
@@ -561,9 +564,9 @@ export async function runAgent(
           ],
           timestamp: Date.now(),
         };
+        if (!keepTools) agent.state.tools = [finish, finishFromJs];
         if (!checkBudgets([...agent.state.messages, repair], agent.state.systemPrompt)) {
           finishRepairs = 1;
-          if (!keepTools) agent.state.tools = [finish, finishFromJs];
           await agent.prompt(repair);
         }
       }

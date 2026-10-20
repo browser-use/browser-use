@@ -1,11 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { closeSync, fstatSync, openSync, statSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 import {
+  createAssistantMessageEventStream,
+  getCurrentTools,
   createModels,
   fauxProvider,
   fauxAssistantMessage,
@@ -465,3 +467,89 @@ test('non-JSON custom-tool metadata cannot break event logging or final delivery
     await f.close();
   }
 });
+
+for (const blocked of [false, true]) {
+  test(`completed recovery finalizes history independently of canonical checkpoint failure=${blocked}`, async () => {
+    let summaries = 0,
+      inference = 0;
+    const done = (message) => {
+      const stream = createAssistantMessageEventStream();
+      stream.push(
+        message.stopReason === 'error'
+          ? { type: 'error', reason: 'error', error: message }
+          : { type: 'done', reason: message.stopReason, message },
+      );
+      stream.end();
+      return stream;
+    };
+    const f = await fixture([], {
+      instructions: '',
+      compactionRetryDelayMs: 1,
+      tools: [
+        {
+          name: 'observe',
+          label: 'observe',
+          description: 'Observe once',
+          parameters: Type.Object({}),
+          async execute() {
+            return { content: [{ type: 'text', text: 'observed '.repeat(40000) }], details: {} };
+          },
+        },
+      ],
+      streamFn(_model, request) {
+        if (!getCurrentTools(request.messages).length) {
+          summaries++;
+          return done(
+            summaries === 1
+              ? fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Connection error.' })
+              : fauxAssistantMessage('The observation is complete. Do not repeat it.'),
+          );
+        }
+        inference++;
+        return done(
+          inference === 1 ? call('observe', {}) : call('finish', { result: 'final-result' }),
+        );
+      },
+    });
+    let restored;
+    try {
+      f.models.getModel(f.faux.getModel().provider, f.faux.getModel().id).contextWindow = 50000;
+      const result = await f.agent.run('Inspect once.', {
+        timeoutMs: 10000,
+        async onContextRecovery(event) {
+          if (blocked && event.state === 'resumed') {
+            const path = join(f.agent.workspace, '.browser-use', 'session.json');
+            await rm(path);
+            await mkdir(path);
+          }
+        },
+      });
+      assert.equal(result.status, 'completed', result.error);
+      assert(summaries >= 2);
+      const path = join(f.agent.workspace, '.browser-use', 'session.json');
+      assert(result.historyPath, 'per-run history must survive canonical checkpoint failure');
+      const perRun = JSON.parse(await readFile(result.historyPath, 'utf8'));
+      assert.deepEqual(perRun.messages, f.agent.history.messages);
+      assert.deepEqual(perRun.usage, f.agent.history.usage);
+      if (blocked) {
+        assert(result.warnings?.some((warning) => /checkpoint/.test(warning)));
+        return;
+      }
+      const saved = JSON.parse(await readFile(path, 'utf8'));
+      assert.equal(saved.runs, 1, 'canonical checkpoint must include the completed run');
+      assert.deepEqual(saved.usage, f.agent.history.usage);
+      assert.deepEqual(saved.messages, f.agent.history.messages);
+      restored = await BrowserUse.create({
+        model: f.agent.history.model,
+        models: f.models,
+        workspace: f.agent.workspace,
+        historyFile: path,
+      });
+      assert.match(JSON.stringify(restored.history.messages), /final-result/);
+      assert.equal(restored.history.runs, 1);
+    } finally {
+      await restored?.close();
+      await f.close();
+    }
+  });
+}

@@ -188,6 +188,7 @@ const CREATE_KEYS = new Set([
   'cellTimeoutMs',
   'modelTimeoutMs',
   'compactionTimeoutMs',
+  'compactionRetryDelayMs',
   'maxOutputChars',
   'hookTimeoutMs',
   'redact',

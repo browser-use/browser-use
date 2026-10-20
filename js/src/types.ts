@@ -87,7 +87,7 @@ export interface RunOptions {
   compaction?: boolean;
   /** Explicit character cap; defaults to four characters per model context token. */
   maxContextChars?: number;
-  /** Called after a recovery checkpoint is saved; does not end the run. */
+  /** Durability barrier after the local checkpoint; failures retry within run budgets before inference. */
   onContextRecovery?: (
     event: { state: 'waiting' | 'resumed'; context: ContextMetrics },
     signal?: AbortSignal,

@@ -574,7 +574,7 @@ test('shrinking the final oversized tool group keeps completed-action evidence i
     assert.equal(summaries, 1);
   }));
 
-test('evidence archive references survive a different workspace root', () =>
+test('evidence archive references are workspace-relative', () =>
   workspace(async (path) => {
     const ctx = new RunContext(
       model,

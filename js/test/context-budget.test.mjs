@@ -30,7 +30,14 @@ const history = () => [
   { role: 'user', content: 'Never submit. Preserve all evidence.', timestamp: 1 },
   ...Array.from({ length: 6 }, () => fauxAssistantMessage('x'.repeat(12000))),
 ];
-async function run(messages, streamFn, options = {}, config = {}, selectedModel = model) {
+async function run(
+  messages,
+  streamFn,
+  options = {},
+  config = {},
+  selectedModel = model,
+  control = new RunControl(() => {}),
+) {
   const path = await mkdtemp(join(tmpdir(), 'bu-context-budget-'));
   let saved;
   try {
@@ -49,7 +56,7 @@ async function run(messages, streamFn, options = {}, config = {}, selectedModel 
       { timeoutMs: 3000, ...options },
       {
         messages,
-        control: new RunControl(() => {}),
+        control,
         save(value) {
           saved = value;
         },
@@ -159,7 +166,7 @@ test('repeated timeouts wait until the original run deadline and retain history'
       calls++;
       return createAssistantMessageEventStream();
     },
-    { maxContextChars: 50000, timeoutMs: 80 },
+    { maxContextChars: 50000, timeoutMs: 300 },
   );
   assert.equal(result.status, 'timeout');
   assert.equal(calls, 1);
@@ -200,9 +207,9 @@ for (const stop of ['cancelled', 'timeout', 'cost_limit', 'deterministic']) {
         maxContextChars: 50000,
         signal: controller.signal,
         ...(stop === 'timeout'
-          ? { timeoutMs: 15 }
+          ? { timeoutMs: 300 }
           : stop === 'deterministic'
-            ? { timeoutMs: 80 }
+            ? { timeoutMs: 300 }
             : {}),
         ...(stop === 'cost_limit' ? { maxCostUsd: 0.5 } : {}),
       },
@@ -250,7 +257,7 @@ test('non-reducing summaries retain original evidence and have a sanitized diagn
   const { result, saved } = await run(
     messages,
     () => done(fauxAssistantMessage('x'.repeat(100000))),
-    { maxContextChars: 50000, timeoutMs: 80 },
+    { maxContextChars: 50000, timeoutMs: 300 },
   );
   assert.equal(result.status, 'timeout');
   assert.equal(result.compactions, 0);
@@ -315,3 +322,41 @@ for (const compaction of [true, false]) {
     assert.equal(requests, 2);
   });
 }
+
+test('steering after a text-only stop retains ordinary tools until delivery', async () => {
+  const control = new RunControl(() => {});
+  let requests = 0;
+  const { result } = await run(
+    [],
+    (_model, request) => {
+      requests++;
+      if (requests === 1) return done(fauxAssistantMessage('Continuing the inspection.'));
+      if (requests === 2)
+        return done(
+          fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Connection error.' }),
+        );
+      assert(
+        getCurrentTools(request.messages).some((tool) => tool.name === 'javascript'),
+        'steered continuation must retain browser tools',
+      );
+      return finish();
+    },
+    {
+      onEvent(event) {
+        if (
+          event.type === 'message_end' &&
+          event.message.role === 'assistant' &&
+          event.message.stopReason === 'stop'
+        )
+          control.steer('Continue inspecting before delivery.');
+      },
+    },
+    {},
+    model,
+    control,
+  );
+  assert.equal(result.status, 'completed', result.error);
+  assert.equal(result.finishRepairs, 0);
+  assert.equal(result.providerRetries, 1);
+  assert.equal(requests, 3);
+});

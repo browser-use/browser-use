@@ -278,6 +278,7 @@ export class BrowserUse {
     let recorder: Recorder | undefined;
     let journal: FileHandle | undefined;
     let journalFailure: string | undefined;
+    let recoveryCheckpoint = false;
     let journalQueue = Promise.resolve();
     // The journal is diagnostics, never a run's outcome. A handle held open across a long model
     // call goes stale on some network mounts (EBADF on write, EIO on close): reopen it once for
@@ -379,6 +380,7 @@ export class BrowserUse {
           control,
           ...(journaled ? { eventsPath } : {}),
           checkpoint: async (messages, usage) => {
+            recoveryCheckpoint = true;
             this.messages = messages;
             this.hasConversation = true;
             const history = this.history;
@@ -429,6 +431,17 @@ export class BrowserUse {
         runId: this.runId,
         ...(journaled ? { eventsPath } : {}),
       };
+      if (recoveryCheckpoint) {
+        try {
+          await saveHistory(
+            join(this.workspace, '.browser-use', 'session.json'),
+            this.history,
+            this.config.redact,
+          );
+        } catch (error) {
+          warnings.push(`Recovery checkpoint could not be finalized: ${String(error)}`);
+        }
+      }
       try {
         await saveHistory(historyPath, this.history, this.config.redact);
         delivered.historyPath = historyPath;
