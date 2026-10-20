@@ -30,6 +30,7 @@ export class RunContext {
   private summary: AgentMessage | undefined;
   private usageAfter = 0;
   compactions = 0;
+  toolChars = 0;
   usage: Usage[] = [];
   constructor(
     private model: Model<Api>,
@@ -60,7 +61,7 @@ export class RunContext {
     const projected = conversation(this.project(messages));
     const estimate = projected.reduce(
       (sum, m) => sum + estimateTokens(m),
-      Math.ceil(system.length / 4),
+      Math.ceil((system.length + this.toolChars) / 4),
     );
     for (let i = messages.length - 1; i >= this.usageAfter; i--) {
       const m = messages[i]!;
@@ -89,6 +90,14 @@ export class RunContext {
       this.tokens(messages, system) < this.model.contextWindow * 0.85
     );
   }
+  measure(messages: AgentMessage[], system: string) {
+    return {
+      chars: contextChars(conversation(this.project(messages))) + system.length,
+      tokens: this.tokens(messages, system),
+      maxChars: this.maxChars,
+      maxTokens: this.model.contextWindow * 0.85,
+    };
+  }
   async prepare(messages: AgentMessage[], system: string, signal?: AbortSignal) {
     messages = conversation(messages);
     if (!this.enabled || !this.needsCompaction(messages, system)) return;
@@ -98,6 +107,16 @@ export class RunContext {
     );
     const cut = starts.at(-2);
     if (cut === undefined || cut <= this.covered) return;
+    const recent = conversation(this.project(messages)).slice(-(messages.length - cut));
+    if (
+      contextChars(recent) + system.length > this.maxChars ||
+      recent.reduce(
+        (sum, m) => sum + estimateTokens(m),
+        Math.ceil((system.length + this.toolChars) / 4),
+      ) >=
+        this.model.contextWindow * 0.85
+    )
+      return;
     const prefix = [...(this.summary ? [this.summary] : []), ...messages.slice(this.covered, cut)];
     const summary = await generateSummaryWithUsage(
       prefix,

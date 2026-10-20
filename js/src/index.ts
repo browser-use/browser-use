@@ -24,7 +24,14 @@ import { EventStream, formatEvent, type SessionEvent, type SessionEventData } fr
 import { positiveInteger } from './protocol.js';
 import type { BrowserUseOptions, RunOptions, RunResult } from './types.js';
 
-export type { BrowserUseOptions, RunOptions, RunResult, StopReason, RunMetrics } from './types.js';
+export type {
+  BrowserUseOptions,
+  RunOptions,
+  RunResult,
+  StopReason,
+  RunMetrics,
+  ContextMetrics,
+} from './types.js';
 export { Browser } from './browser.js';
 export type {
   BrowserOptions,

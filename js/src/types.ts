@@ -83,6 +83,7 @@ export interface RunOptions {
   maxCostUsd?: number;
   /** Automatically summarize older context with Pi; false retains hard-stop behavior. */
   compaction?: boolean;
+  /** Explicit character cap; defaults to four characters per model context token. */
   maxContextChars?: number;
   signal?: AbortSignal;
   /** Best-effort nonblocking observations. Coalesces under load; honor the abort signal. */
@@ -93,7 +94,17 @@ export interface RunOptions {
 }
 export type StopReason =
   'max_steps' | 'timeout' | 'cancelled' | 'cost_limit' | 'context_limit' | 'incomplete' | 'error';
+export interface ContextMetrics {
+  chars: number;
+  tokens: number;
+  maxChars: number;
+  maxTokens: number;
+  compactionFailures: number;
+  lastCompactionFailure?: 'timeout' | 'not_reduced' | 'error';
+  beforeCompaction?: { chars: number; tokens: number };
+}
 export interface RunMetrics {
+  context?: ContextMetrics;
   /** Additional delivery-only model turns, within the original budgets (0 or 1). */
   finishRepairs: number;
   compactions?: number;

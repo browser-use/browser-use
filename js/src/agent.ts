@@ -12,7 +12,13 @@ import { Observer } from './observer.js';
 import { RunContext, conversation } from './context.js';
 import { deadlineStream } from './model-stream.js';
 import { researchTools } from './research-tools.js';
-import type { BrowserUseOptions, RunOptions, RunResult, StopReason } from './types.js';
+import type {
+  BrowserUseOptions,
+  RunOptions,
+  RunResult,
+  StopReason,
+  ContextMetrics,
+} from './types.js';
 import { redact } from './history.js';
 import { SEARCH_PROMPT, SYSTEM_PROMPT } from './prompt.js';
 import { AX_PROMPT } from './ax.js';
@@ -86,7 +92,10 @@ export async function runAgent(
 ): Promise<RunResult<unknown>> {
   const maxSteps = positiveInteger('maxSteps', options.maxSteps ?? 40);
   const timeoutMs = positiveInteger('timeoutMs', options.timeoutMs ?? 300_000);
-  const maxContextChars = positiveInteger('maxContextChars', options.maxContextChars ?? 240_000);
+  const maxContextChars = positiveInteger(
+    'maxContextChars',
+    options.maxContextChars ?? model.contextWindow * 4,
+  );
   if (
     options.maxCostUsd !== undefined &&
     (!Number.isFinite(options.maxCostUsd) || options.maxCostUsd <= 0)
@@ -104,7 +113,10 @@ export async function runAgent(
   let providerRetries = 0;
   let retriedUsage = zeroUsage();
   let finalizing = false;
-  let compactionFailed = false;
+  let compactionFailures = 0;
+  let compactionUnavailable = false;
+  let lastCompactionFailure: ContextMetrics['lastCompactionFailure'];
+  let beforeCompaction: ContextMetrics['beforeCompaction'];
   const warnings: string[] = [];
   const context = new RunContext(
     model,
@@ -212,7 +224,17 @@ export async function runAgent(
     mode: 'required',
     tools: deliveryTools.map((name) => ({ type: 'function', name })),
   } as unknown as ToolChoice;
+  const refreshToolBudget = () => {
+    context.toolChars = JSON.stringify(
+      agent.state.tools.map(({ name, description, parameters }) => ({
+        name,
+        description,
+        parameters,
+      })),
+    ).length;
+  };
   const checkBudgets = (messages: AgentMessage[], systemPrompt: string) => {
+    refreshToolBudget();
     if (steps >= maxSteps) stopped = 'max_steps';
     if (
       options.maxCostUsd !== undefined &&
@@ -268,26 +290,47 @@ export async function runAgent(
     },
     toolExecution: 'sequential',
     transformContext: async (messages, signal) => {
-      try {
-        if (!compactionFailed) await context.prepare(messages, agent.state.systemPrompt, signal);
-      } catch (error) {
-        compactionFailed = true;
-        warnings.push(`Compaction unavailable: ${String(error)}`);
+      refreshToolBudget();
+      let prepared = false;
+      while (true) {
+        signal?.throwIfAborted();
+        if (
+          options.maxCostUsd !== undefined &&
+          sumUsage(messages.slice(previousMessages)).cost.total +
+            retriedUsage.cost.total +
+            context.usage.reduce((sum, u) => sum + u.cost.total, 0) >=
+            options.maxCostUsd
+        ) {
+          stopped = 'cost_limit';
+          throw new Error('Cost limit reached during context preparation.');
+        }
+        if (prepared || compactionUnavailable || compactionFailures >= 2) break;
+        try {
+          if (context.needsCompaction(messages, agent.state.systemPrompt)) {
+            const { chars, tokens } = context.measure(messages, agent.state.systemPrompt);
+            beforeCompaction = { chars, tokens };
+          }
+          await context.prepare(messages, agent.state.systemPrompt, signal);
+          prepared = true;
+        } catch (error) {
+          signal?.throwIfAborted();
+          const message = error instanceof Error ? error.message : String(error);
+          compactionFailures++;
+          lastCompactionFailure = /Model stream exceeded/.test(message)
+            ? 'timeout'
+            : /Compaction did not reduce/.test(message)
+              ? 'not_reduced'
+              : 'error';
+          warnings.push(`Compaction unavailable: ${message}`);
+          if (!transientModelError(message.replace(/^Summarization failed: /, ''))) {
+            compactionUnavailable = true;
+          }
+        }
       }
       signal?.throwIfAborted();
       if (!context.fits(messages, agent.state.systemPrompt)) {
         stopped = 'context_limit';
         throw new Error('Context limit reached; checkpoint files and transcript retained.');
-      }
-      if (
-        options.maxCostUsd !== undefined &&
-        sumUsage(messages.slice(previousMessages)).cost.total +
-          retriedUsage.cost.total +
-          context.usage.reduce((sum, u) => sum + u.cost.total, 0) >=
-          options.maxCostUsd
-      ) {
-        stopped = 'cost_limit';
-        throw new Error('Cost limit reached during context preparation.');
       }
       return context.project(messages);
     },
@@ -359,11 +402,13 @@ export async function runAgent(
       // Error and aborted responses are hard exits; the old shouldStopAfterTurn never saw them.
       if (message.stopReason === 'error' || message.stopReason === 'aborted') return undefined;
       if (completion || stopped) return { action: 'end' };
+      if (message.stopReason === 'stop' && !keepTools) agent.state.tools = [finish, finishFromJs];
       return checkBudgets(context.messages, agent.state.systemPrompt) || finishRepairs > 0
         ? { action: 'end' }
         : undefined;
     },
   });
+  refreshToolBudget();
   // Pi prepends the prompt as a system message; this run's messages start after it and the history.
   previousMessages = agent.state.messages.length;
   if (session)
@@ -478,6 +523,12 @@ export async function runAgent(
     durationMs: Date.now() - start,
     usage,
     compactions: context.compactions,
+    context: {
+      ...context.measure(agent.state.messages, agent.state.systemPrompt),
+      compactionFailures,
+      ...(lastCompactionFailure ? { lastCompactionFailure } : {}),
+      ...(beforeCompaction ? { beforeCompaction } : {}),
+    },
     providerRetries,
     ...(warnings.length ? { warnings } : {}),
     workspace,

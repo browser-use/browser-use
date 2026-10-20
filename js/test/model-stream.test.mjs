@@ -136,7 +136,7 @@ test('timed-out compaction retains original context and never commits a late sum
       model,
       deadlineStream(() => upstream, 20),
       path,
-      2000,
+      3000,
       true,
     );
     const messages = [{ role: 'user', content: 'Never submit.', timestamp: 1 }];
