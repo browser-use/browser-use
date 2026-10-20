@@ -18,7 +18,11 @@ import { RunControl } from '../dist/control.js';
 const model = { ...fauxProvider().getModel(), contextWindow: 250000 };
 const done = (message) => {
   const stream = createAssistantMessageEventStream();
-  stream.push({ type: 'done', reason: message.stopReason, message });
+  stream.push(
+    message.stopReason === 'error'
+      ? { type: 'error', reason: 'error', error: message }
+      : { type: 'done', reason: message.stopReason, message },
+  );
   stream.end();
   return stream;
 };
