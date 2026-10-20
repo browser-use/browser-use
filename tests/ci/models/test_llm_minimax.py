@@ -14,13 +14,14 @@ from browser_use.llm.messages import (
 	BaseMessage,
 	ContentPartImageParam,
 	ContentPartTextParam,
+	Function,
 	ImageURL,
 	ToolCall,
 	UserMessage,
 )
 from browser_use.llm.models import get_llm_by_name
 from browser_use.llm.openai.chat import ChatOpenAI
-from browser_use.llm.vercel.chat import ChatVercel, VercelModel
+from browser_use.llm.vercel.chat import ChatVercel, ChatVercelModel
 
 
 class Answer(BaseModel):
@@ -61,7 +62,7 @@ async def test_default_sdk_request_preserves_images_history_and_reasoning(monkey
 		AssistantMessage(
 			content='<think>previous thought</think>previous answer',
 			reasoning_content='previous separate reasoning',
-			tool_calls=[ToolCall(id='call-1', function=ToolCall.Function(name='inspect', arguments='{}'))],
+			tool_calls=[ToolCall(id='call-1', function=Function(name='inspect', arguments='{}'))],
 		),
 		UserMessage(
 			content=[
@@ -185,7 +186,7 @@ def test_current_catalog_excludes_legacy_suggestions_but_keeps_factory_support()
 	from browser_use.llm import models
 
 	assert [name for name in models.__all__ if name.startswith('minimax_')] == ['minimax_m3_1_flash', 'minimax_m3']
-	assert [name for name in get_args(VercelModel) if name.startswith('minimax/')] == ['minimax/minimax-m3']
+	assert [name for name in get_args(ChatVercelModel) if name.startswith('minimax/')] == ['minimax/minimax-m3']
 
 
 @pytest.mark.parametrize('model,reasoning', [('gpt-4.1', False), ('o3-mini', True)])
