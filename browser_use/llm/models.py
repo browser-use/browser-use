@@ -81,8 +81,8 @@ cerebras_gpt_oss_120b: 'BaseChatModel'
 cerebras_zai_glm_4_7: 'BaseChatModel'
 cerebras_gemma_4_31b: 'BaseChatModel'
 
+minimax_m3_1_flash: 'BaseChatModel'
 minimax_m3: 'BaseChatModel'
-minimax_m2_7: 'BaseChatModel'
 
 bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
@@ -221,8 +221,8 @@ def get_llm_by_name(model_name: str):
 	elif provider == 'minimax':
 		api_key = os.getenv('MINIMAX_API_KEY')
 		region = os.getenv('MINIMAX_REGION', 'global').lower()
-		minimax_map = {'m3': 'MiniMax-M3', 'm2-7': 'MiniMax-M2.7'}
-		return ChatMiniMax(model=minimax_map.get(model, model), api_key=api_key, region=region)  # type: ignore[arg-type]
+		minimax_map = {'m3-1-flash': 'MiniMax-M3.1-Flash', 'm3': 'MiniMax-M3', 'm2-7': 'MiniMax-M2.7'}
+		return ChatMiniMax(model=minimax_map.get(model, model_part), api_key=api_key, region=region)  # type: ignore[arg-type]
 
 	# Browser Use Models
 	elif provider == 'bu':
@@ -332,8 +332,8 @@ __all__ += [
 	'cerebras_zai_glm_4_7',
 	'cerebras_gemma_4_31b',
 	# MiniMax instances - created on demand
+	'minimax_m3_1_flash',
 	'minimax_m3',
-	'minimax_m2_7',
 	# Browser Use instances - created on demand
 	'bu_latest',
 	'bu_1_0',

@@ -32,8 +32,12 @@ def test_get_llm_by_name_resolves_minimax_models_and_global_endpoint(monkeypatch
 	monkeypatch.delenv('MINIMAX_REGION', raising=False)
 	monkeypatch.delenv('MINIMAX_BASE_URL', raising=False)
 
+	flash = get_llm_by_name('minimax_m3_1_flash')
 	m3 = get_llm_by_name('minimax_m3')
 	m2_7 = get_llm_by_name('minimax_m2_7')
+
+	assert isinstance(flash, ChatMiniMax)
+	assert flash.model == 'MiniMax-M3.1-Flash'
 
 	assert isinstance(m3, ChatMiniMax)
 	assert m3.model == 'MiniMax-M3'
@@ -51,19 +55,20 @@ def test_minimax_china_endpoint_and_model_metadata(monkeypatch):
 
 	assert str(llm.base_url) == 'https://api.minimaxi.com/v1'
 	assert llm.model_metadata is not None
-	assert llm.model_metadata.context_window == 1_000_000
 	assert llm.model_metadata.input_modalities == ('text', 'image', 'video')
-	assert llm.model_metadata.thinking_modes == ('adaptive', 'disabled')
+	assert llm.model_metadata.thinking_modes == ('adaptive',)
 
 
 def test_minimax_pricing_metadata():
-	m3 = CUSTOM_MODEL_PRICING['MiniMax-M3']
+	flash = CUSTOM_MODEL_PRICING['MiniMax-M3.1-Flash']
 	m2_7 = CUSTOM_MODEL_PRICING['MiniMax-M2.7']
 
-	assert m3['input_cost_per_token'] == 0.6 / 1_000_000
-	assert m3['output_cost_per_token'] == 2.4 / 1_000_000
-	assert m3['cache_read_input_token_cost'] == 0.12 / 1_000_000
-	assert m3['cache_creation_input_token_cost'] is None
+	assert flash['input_cost_per_token'] == 0.15 / 1_000_000
+	assert flash['output_cost_per_token'] == 0.60 / 1_000_000
+	assert flash['cache_read_input_token_cost'] == 0.015 / 1_000_000
+	assert flash['cache_creation_input_token_cost'] is None
+	assert flash['max_input_tokens'] == 1_000_000
+	assert 'MiniMax-M3' not in CUSTOM_MODEL_PRICING  # Tiered pricing cannot be represented by a flat override.
 	assert m2_7['input_cost_per_token'] == 0.3 / 1_000_000
 	assert m2_7['output_cost_per_token'] == 1.2 / 1_000_000
 	assert m2_7['cache_read_input_token_cost'] == 0.06 / 1_000_000

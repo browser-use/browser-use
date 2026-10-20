@@ -9,15 +9,17 @@ from typing import Any
 # Custom model pricing data
 # Format matches LiteLLM's model_prices_and_context_window.json structure
 CUSTOM_MODEL_PRICING: dict[str, dict[str, Any]] = {
-	'MiniMax-M3': {
-		'input_cost_per_token': 0.6 / 1_000_000,
-		'output_cost_per_token': 2.4 / 1_000_000,
-		'cache_read_input_token_cost': 0.12 / 1_000_000,
+	# Native pricing: https://platform.minimax.io/docs/pricing/overview#models/text
+	'MiniMax-M3.1-Flash': {
+		'input_cost_per_token': 0.15 / 1_000_000,
+		'output_cost_per_token': 0.60 / 1_000_000,
+		'cache_read_input_token_cost': 0.015 / 1_000_000,
 		'cache_creation_input_token_cost': None,
 		'max_tokens': 1_000_000,
 		'max_input_tokens': 1_000_000,
-		'max_output_tokens': None,
+		'max_output_tokens': 524_288,
 	},
+	# M3 uses context-length pricing tiers; do not override it with a flat native rate.
 	'MiniMax-M2.7': {
 		'input_cost_per_token': 0.3 / 1_000_000,
 		'output_cost_per_token': 1.2 / 1_000_000,
