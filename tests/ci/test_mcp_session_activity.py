@@ -12,6 +12,7 @@ Activity is now recorded once in the `_execute_tool` dispatch layer for every
 `browser_*` tool.
 """
 
+import asyncio
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -80,6 +81,6 @@ async def test_read_and_input_tools_refresh_session_activity(monkeypatch):
 		('browser_extract_content', {'query': 'q'}),
 	]:
 		before = session_data['last_activity']
-		time.sleep(0.01)
+		await asyncio.sleep(0.01)
 		await server._execute_tool(tool, args)
 		assert session_data['last_activity'] > before, f'{tool} must refresh last_activity'
