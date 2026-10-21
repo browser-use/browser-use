@@ -59,3 +59,11 @@ def test_rust_history_normalizes_none_interacted_element(tmp_path):
 	path = tmp_path / 'rust-history.json'
 	path.write_text(json.dumps({'history': [_legacy_entry(interacted_element=None)]}), encoding='utf-8')
 	_assert_single_legacy_entry(_load_rust_history(path))
+
+
+def test_rust_history_still_rejects_non_list_interacted_element(tmp_path):
+	# Same guard as the dict loader: the rust path must stay narrow too.
+	path = tmp_path / 'rust-history.json'
+	path.write_text(json.dumps({'history': [_legacy_entry(interacted_element={'selector': 'x'})]}), encoding='utf-8')
+	with pytest.raises(ValidationError):
+		_load_rust_history(path)
