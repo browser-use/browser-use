@@ -22,7 +22,7 @@ from browser_use.browser import BrowserSession
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.tools.service import Tools
-from browser_use.utils import collect_sensitive_data_values, redact_sensitive_string
+from browser_use.utils import redact_sensitive_string
 
 logger = logging.getLogger(__name__)
 SensitiveData = dict[str, str | dict[str, str]]
@@ -181,8 +181,15 @@ class MuscleMemory:
 		return self
 
 	@staticmethod
-	def _sanitize(value: Any, sensitive_data: SensitiveData) -> tuple[Any, bool]:
-		secrets = collect_sensitive_data_values(sensitive_data)
+	def _sanitize(value: Any, *sensitive_sources: SensitiveData) -> tuple[Any, bool]:
+		# Preserve every value, including reused names across domains or sources.
+		secrets: dict[str, str] = {}
+		for source in sensitive_sources:
+			for content in source.values():
+				values = content.values() if isinstance(content, dict) else [content]
+				for secret in values:
+					if secret:
+						secrets[f'value_{len(secrets)}'] = secret
 		complete = True
 
 		def clean(item: Any) -> Any:
@@ -212,7 +219,7 @@ class MuscleMemory:
 	) -> None:
 		if name == 'musclememory_inspect':
 			return
-		arguments, complete = self._sanitize(arguments, {**self.sensitive_data, **secrets})
+		arguments, complete = self._sanitize(arguments, self.sensitive_data, secrets)
 		self._healthy = self._healthy and complete
 		succeeded = result.error is None and result.success is not False
 		self._append(

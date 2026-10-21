@@ -154,7 +154,7 @@ import asyncio
 import os
 
 from browser_use import Agent, Browser, ChatBrowserUse
-from browser_use.integrations.musclememory import MuscleMemory
+from browser_use.integrations.musclememory import MuscleMemory, ProcedureVersion
 
 
 async def main():
