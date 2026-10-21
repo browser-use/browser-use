@@ -21,7 +21,8 @@ from browser_use.tools.service import Tools
 
 _MESSAGE = 'First line'
 
-# The composer sends on Enter without Shift, like most chat inputs.
+# The composer sends on Enter without Shift, like most chat inputs. The notes textarea has no
+# handler, so it shows what the browser itself inserts.
 _PAGE = """
 <!DOCTYPE html>
 <html>
@@ -29,11 +30,13 @@ _PAGE = """
 <body>
 	<textarea id="composer" rows="2"></textarea>
 	<form id="search"><input id="query" name="q"></form>
+	<textarea id="notes" rows="2"></textarea>
 	<script>
 		window.keydowns = [];
 		window.submitted = [];
 		window.keypresses = [];
 		window.searches = 0;
+		window.noteKeydowns = [];
 		const composer = document.getElementById('composer');
 		composer.addEventListener('keydown', (e) => {
 			window.keydowns.push({key: e.key, shift: e.shiftKey});
@@ -49,6 +52,10 @@ _PAGE = """
 			e.preventDefault();
 			window.searches += 1;
 		});
+		const notes = document.getElementById('notes');
+		notes.addEventListener('keydown', (e) =>
+			window.noteKeydowns.push({key: e.key, ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey})
+		);
 	</script>
 </body>
 </html>
@@ -57,7 +64,8 @@ _PAGE = """
 _FOCUS_COMPOSER = (
 	f'composer.focus(); composer.value = {_MESSAGE!r}; composer.setSelectionRange(composer.value.length, composer.value.length);'
 )
-_STATE = '({value: composer.value, submitted, keydowns, keypresses, searches})'
+_FOCUS_NOTES = f'notes.focus(); notes.value = {_MESSAGE!r}; notes.setSelectionRange(notes.value.length, notes.value.length);'
+_STATE = '({value: composer.value, submitted, keydowns, keypresses, searches, notes: notes.value, noteKeydowns})'
 
 
 @pytest.fixture(scope='module')
@@ -122,3 +130,12 @@ async def test_enter_fires_keypress_and_submits_a_form(composer_url):
 	state = await _send_keys(composer_url, "query.value = 'docs'; query.focus();", 'Enter')
 	assert state['keypresses'] == ['Enter']
 	assert state['searches'] == 1
+
+
+@pytest.mark.parametrize(('keys', 'modifier'), [('Control+Enter', 'ctrl'), ('Alt+Enter', 'alt'), ('Meta+Enter', 'meta')])
+async def test_enter_with_control_alt_or_meta_types_no_text(composer_url, keys, modifier):
+	"""Chrome drops Enter's text when Control, Alt or Meta is held, so the chord reaches the page and inserts nothing."""
+	state = await _send_keys(composer_url, _FOCUS_NOTES, keys)
+	assert state['noteKeydowns'][-1]['key'] == 'Enter'
+	assert state['noteKeydowns'][-1][modifier] is True
+	assert state['notes'] == _MESSAGE
