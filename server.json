@@ -1,19 +1,19 @@
 {
 	"$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
 	"name": "com.browser-use/browser-use",
-	"description": "Control a real Chrome browser to complete any task: fill forms, extract data, book flights.",
+	"description": "Browser agents and stealth cloud browsers for AI: run web tasks, fill forms, extract data.",
 	"repository": {
 		"url": "https://github.com/browser-use/browser-use",
 		"source": "github"
 	},
 	"websiteUrl": "https://browser-use.com",
-	"version": "0.13.5",
+	"version": "0.13.11",
 	"packages": [
 		{
 			"registryType": "pypi",
 			"registryBaseUrl": "https://pypi.org",
 			"identifier": "browser-use",
-			"version": "0.13.5",
+			"version": "0.13.11",
 			"runtimeHint": "uvx",
 			"packageArguments": [
 				{
@@ -24,6 +24,20 @@
 			"transport": {
 				"type": "stdio"
 			}
+		}
+	],
+	"remotes": [
+		{
+			"type": "streamable-http",
+			"url": "https://api.browser-use.com/v3/mcp",
+			"headers": [
+				{
+					"name": "X-Browser-Use-API-Key",
+					"description": "Browser Use Cloud API key from https://cloud.browser-use.com/settings",
+					"isRequired": true,
+					"isSecret": true
+				}
+			]
 		}
 	]
 }
