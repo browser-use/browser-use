@@ -400,7 +400,7 @@ def test_sensitive_data_filtered_from_action_results():
 	)
 
 
-def test_state_message_history_snapshot_redacted():
+def test_state_message_history_snapshot_redacted(tmp_path):
 	"""
 	The history snapshot (`last_state_message_text`) must be redacted the same way
 	as the message actually sent to the LLM.
@@ -477,6 +477,30 @@ def test_state_message_history_snapshot_redacted():
 	state_message_in_history = message_manager.state.history.state_message
 	assert state_message_in_history is not None
 	assert message_manager.last_state_message_text == state_message_in_history.text
+
+	# End-to-end through the persistence path: the snapshot is what
+	# Agent._make_history_item stores as AgentHistory.state_message, and
+	# save_to_file writes that field verbatim (its sensitive_data filter only
+	# covers action input parameters). The saved history JSON must therefore
+	# not contain the plaintext secret.
+	from browser_use.agent.views import AgentHistory, AgentHistoryList
+	from browser_use.browser.views import BrowserStateHistory
+
+	history_item = AgentHistory(
+		model_output=None,
+		result=[],
+		state=BrowserStateHistory(url='https://example.com/login', title='Login Page', tabs=[], interacted_element=[None]),
+		state_message=message_manager.last_state_message_text,
+	)
+	history = AgentHistoryList(history=[history_item])
+	history.save_to_file(tmp_path / 'history.json', sensitive_data=sensitive_data)
+	saved = (tmp_path / 'history.json').read_text(encoding='utf-8')
+
+	assert 'secret_pass123' not in saved, (
+		'Sensitive data leaked! The plaintext password reached the saved history JSON '
+		'via AgentHistory.state_message, which save_to_file writes without filtering.'
+	)
+	assert '<secret>password</secret>' in saved
 
 
 def test_sensitive_data_filtered_with_domain_specific_format():
