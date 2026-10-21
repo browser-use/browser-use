@@ -8,7 +8,7 @@ even though the field round-trips through pydantic validation.
 
 import json
 
-from browser_use.agent.views import AgentHistory, AgentHistoryList
+from browser_use.agent.views import AgentHistory, AgentHistoryList, AgentOutput
 from browser_use.browser.views import BrowserStateHistory
 from browser_use.tokens.views import UsageSummary
 
@@ -52,7 +52,7 @@ def test_usage_survives_save_and_reload_roundtrip(tmp_path):
 	path = tmp_path / 'history.json'
 	history.save_to_file(path)
 
-	reloaded = AgentHistoryList.load_from_file(path, None)
+	reloaded = AgentHistoryList.load_from_file(path, AgentOutput)
 	assert reloaded.usage is not None, 'usage must survive a save/reload round-trip'
 	assert reloaded.usage.total_tokens == 150
 	assert reloaded.usage.total_cost == 0.3
