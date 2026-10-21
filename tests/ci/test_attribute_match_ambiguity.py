@@ -20,7 +20,7 @@ from browser_use.agent.service import Agent
 from browser_use.dom.views import DOMInteractedElement, NodeType, SerializedDOMState
 
 
-def mk_hist(**attr_overrides: Any) -> DOMInteractedElement:
+def mk_hist(frame_id: str | None = None, **attr_overrides: Any) -> DOMInteractedElement:
 	"""Historical element whose hash/stable_hash/xpath match nothing on the page,
 	forcing the cascade down to the ATTRIBUTE level."""
 	attrs = {'name': 'qty'}
@@ -28,7 +28,7 @@ def mk_hist(**attr_overrides: Any) -> DOMInteractedElement:
 	return DOMInteractedElement(
 		node_id=1,
 		backend_node_id=1,
-		frame_id=None,
+		frame_id=frame_id,
 		node_type=NodeType.ELEMENT_NODE,
 		node_value='',
 		node_name='INPUT',
@@ -44,12 +44,13 @@ def mk_hist(**attr_overrides: Any) -> DOMInteractedElement:
 def mk_node(
 	idx: int,
 	node_name: str = 'INPUT',
+	frame_id: str | None = None,
 	**attrs: str,
 ) -> SimpleNamespace:
 	"""Stub selector-map node with per-index unique hash/xpath so only the
 	ATTRIBUTE level can match."""
 	return SimpleNamespace(
-		frame_id=None,
+		frame_id=frame_id,
 		node_name=node_name,
 		attributes=dict(attrs) or None,
 		element_hash=900000 + idx,
@@ -85,7 +86,7 @@ def run_update(hist: DOMInteractedElement, action: FakeAction, state: Any) -> An
 	return asyncio.run(Agent._update_action_indices(fake_self, hist, action, state))  # type: ignore[arg-type]
 
 
-def test_ambiguous_attribute_match_returns_none_and_keeps_index():
+def test_ambiguous_attribute_match_returns_none_and_keeps_index(caplog):
 	"""Two INPUTs share name='qty' -> the match is ambiguous, must NOT rewrite.
 
 	Bug (RED before fix): the loop breaks on the first hit and silently
@@ -98,11 +99,15 @@ def test_ambiguous_attribute_match_returns_none_and_keeps_index():
 	hist = mk_hist()
 	action = FakeAction(index=9)
 
-	result = run_update(hist, action, mk_state(selector_map))
+	with caplog.at_level(logging.WARNING, logger='test_attribute_match_ambiguity'):
+		result = run_update(hist, action, mk_state(selector_map))
 
 	assert result is None, 'Ambiguous attribute match must be treated as a miss (return None)'
 	assert action.get_index() == 9, 'Action index must be left untouched on ambiguity'
 	assert action.set_index_calls == [], 'set_index must not be called on ambiguity'
+	warning = caplog.text
+	assert 'ambiguous' in warning, 'Ambiguity must be logged as a warning'
+	assert '5' in warning and '9' in warning, f'Warning must name the ambiguous indexes, got: {warning!r}'
 
 
 def test_unique_attribute_match_still_rewrites_index():
@@ -151,4 +156,59 @@ def test_no_attribute_match_returns_none():
 
 	assert result is None
 	assert action.get_index() == 9
+	assert action.set_index_calls == []
+
+
+def test_same_frame_unique_match_wins_over_cross_frame_duplicate():
+	"""A unique match in the recorded frame is accepted even when an unrelated
+	iframe repeats the identifier: frame_id disambiguates the candidates.
+
+	RED before the frame fix: the two cross-frame candidates were counted
+	together as an ambiguous match and the rerun action was aborted.
+	"""
+	selector_map = {
+		5: mk_node(5, frame_id='frameA', name='qty'),
+		9: mk_node(9, frame_id='frameB', name='qty'),
+	}
+	hist = mk_hist(frame_id='frameA')
+	action = FakeAction(index=42)
+
+	result = run_update(hist, action, mk_state(selector_map))
+
+	assert result is action, 'Unique in-frame match must rewrite despite the cross-frame duplicate'
+	assert action.get_index() == 5, 'Must target the element in the recorded frame'
+	assert action.set_index_calls == [5]
+
+
+def test_no_match_in_recorded_frame_keeps_cross_frame_fallback():
+	"""When the recorded frame has no match at all, the full candidate list
+	still applies: a single cross-frame match is accepted (old-history fallback)."""
+	selector_map = {
+		5: mk_node(5, frame_id='frameB', name='qty'),
+		7: mk_node(7, frame_id='frameB', name='other'),
+	}
+	hist = mk_hist(frame_id='frameGone')
+	action = FakeAction(index=42)
+
+	result = run_update(hist, action, mk_state(selector_map))
+
+	assert result is action, 'With no in-frame candidate, the unique cross-frame match stands'
+	assert action.get_index() == 5
+	assert action.set_index_calls == [5]
+
+
+def test_ambiguous_matches_within_one_frame_still_rejected():
+	"""Two candidates inside the recorded frame sharing the identifier stay
+	ambiguous — frame disambiguation must not weaken in-frame ambiguity checks."""
+	selector_map = {
+		5: mk_node(5, frame_id='frameA', name='qty'),
+		9: mk_node(9, frame_id='frameA', name='qty'),
+		11: mk_node(11, frame_id='frameB', name='qty'),
+	}
+	hist = mk_hist(frame_id='frameA')
+	action = FakeAction(index=42)
+
+	result = run_update(hist, action, mk_state(selector_map))
+
+	assert result is None, 'In-frame ambiguity is still a miss even after frame filtering'
 	assert action.set_index_calls == []

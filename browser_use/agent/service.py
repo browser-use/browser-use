@@ -3686,6 +3686,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						and elem.attributes.get(attr_key) == hist_attrs[attr_key]
 					)
 				]
+				# The recorded frame disambiguates duplicates: a match that is unique
+				# inside the historical frame stays acceptable even when an unrelated
+				# iframe repeats the identifier. Only fall back to the full candidate
+				# list when the historical frame has no match at all.
+				if historical_element.frame_id and matches:
+					same_frame_matches = [idx for idx in matches if selector_map[idx].frame_id == historical_element.frame_id]
+					if same_frame_matches:
+						matches = same_frame_matches
 				if len(matches) == 1:
 					highlight_index = matches[0]
 					match_level = MatchLevel.ATTRIBUTE
