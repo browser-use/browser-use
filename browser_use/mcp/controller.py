@@ -4,8 +4,8 @@ This module provides integration between MCP tools and browser-use's action regi
 MCP tools are dynamically discovered and registered as browser-use actions.
 """
 
-import asyncio
 import logging
+from contextlib import AsyncExitStack
 from typing import Any
 
 from pydantic import Field, create_model
@@ -46,10 +46,14 @@ class MCPToolWrapper:
 		self.session: ClientSession | None = None
 		self._tools: dict[str, Tool] = {}
 		self._registered_actions: set[str] = set()
-		self._shutdown_event = asyncio.Event()
+		self._exit_stack: AsyncExitStack | None = None
 
 	async def connect(self):
-		"""Connect to MCP server and discover available tools."""
+		"""Connect to MCP server and discover available tools.
+
+		Returns once the tools are registered; the transport stays open until
+		`disconnect()` is called.
+		"""
 		if self.session:
 			return  # Already connected
 
@@ -58,35 +62,34 @@ class MCPToolWrapper:
 		# Create server parameters
 		server_params = StdioServerParameters(command=self.mcp_command, args=self.mcp_args, env=None)
 
-		# Connect to the MCP server
-		async with stdio_client(server_params) as (read, write):
-			async with ClientSession(read, write) as session:
-				self.session = session
-
-				# Initialize the connection
-				await session.initialize()
-
-				# Discover available tools
-				tools_response = await session.list_tools()
-				self._tools = {tool.name: tool for tool in tools_response.tools}
-
-				logger.info(f'📦 Discovered {len(self._tools)} MCP tools: {list(self._tools.keys())}')
-
-				# Register all discovered tools as actions
-				for tool_name, tool in self._tools.items():
-					self._register_tool_as_action(tool_name, tool)
-
-				# Keep session alive while tools are being used
-				await self._keep_session_alive()
-
-	async def _keep_session_alive(self):
-		"""Keep the MCP session alive."""
-		# This will block until the session is closed
-		# In practice, you'd want to manage this lifecycle better
+		# The stdio transport and the session live in an AsyncExitStack owned by
+		# this wrapper so that connect() can return after tool registration
+		# while the connection stays alive until disconnect().
+		stack = AsyncExitStack()
+		self._exit_stack = stack
 		try:
-			await self._shutdown_event.wait()
-		except asyncio.CancelledError:
-			pass
+			# Connect to the MCP server
+			read, write = await stack.enter_async_context(stdio_client(server_params))
+			session = await stack.enter_async_context(ClientSession(read, write))
+			self.session = session
+
+			# Initialize the connection
+			await session.initialize()
+
+			# Discover available tools
+			tools_response = await session.list_tools()
+			self._tools = {tool.name: tool for tool in tools_response.tools}
+
+			logger.info(f'📦 Discovered {len(self._tools)} MCP tools: {list(self._tools.keys())}')
+
+			# Register all discovered tools as actions
+			for tool_name, tool in self._tools.items():
+				self._register_tool_as_action(tool_name, tool)
+		except BaseException:
+			self.session = None
+			self._exit_stack = None
+			await stack.aclose()
+			raise
 
 	def _register_tool_as_action(self, tool_name: str, tool: Tool):
 		"""Register an MCP tool as a browser-use action.
@@ -200,10 +203,11 @@ class MCPToolWrapper:
 
 	async def disconnect(self):
 		"""Disconnect from the MCP server and clean up resources."""
-		self._shutdown_event.set()
-		if self.session:
-			# Session cleanup will be handled by the context manager
-			self.session = None
+		self.session = None
+		if self._exit_stack is not None:
+			# Closes the ClientSession and terminates the stdio server process
+			await self._exit_stack.aclose()
+			self._exit_stack = None
 
 	def _json_schema_to_python_type(self, schema: dict) -> Any:
 		"""Convert JSON Schema type to Python type.
@@ -249,7 +253,7 @@ async def register_mcp_tools(registry: Registry, mcp_command: str, mcp_args: lis
 	Example:
 		```python
 	        from browser_use import Tools
-	        from browser_use.mcp.tools import register_mcp_tools
+	        from browser_use.mcp.controller import register_mcp_tools
 
 	        tools = Tools()
 
