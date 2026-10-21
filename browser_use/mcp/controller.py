@@ -131,27 +131,11 @@ class MCPToolWrapper:
 		domains = None
 		# Note: page_filter has been removed since we no longer use Page objects
 
-		# Create wrapper function for the MCP tool
-		async def mcp_action_wrapper(**kwargs):
-			"""Wrapper function that calls the MCP tool."""
-			if not self.session:
-				raise RuntimeError(f'MCP session not connected for tool {tool_name}')
-
-			# Extract parameters (excluding special injected params)
-			special_params = {
-				'page',
-				'browser_session',
-				'context',
-				'page_extraction_llm',
-				'file_system',
-				'available_file_paths',
-				'has_sensitive_data',
-				'browser',
-				'browser_context',
-			}
-
-			tool_params = {k: v for k, v in kwargs.items() if k not in special_params}
-
+		# Create wrapper functions for the MCP tool. The registry's action
+		# signature normalization rejects **kwargs, so type the wrapper's
+		# single parameter with the tool's param model (zero-arg form for
+		# parameterless tools) and dump it to the tool call payload.
+		async def _call_mcp_tool(tool_params: dict) -> ActionResult:
 			logger.debug(f'🔧 Calling MCP tool {tool_name} with params: {tool_params}')
 
 			try:
@@ -182,6 +166,22 @@ class MCPToolWrapper:
 			except Exception as e:
 				logger.error(f'❌ MCP tool {tool_name} failed: {e}')
 				return ActionResult(extracted_content=f'MCP tool {tool_name} failed: {str(e)}', error=str(e))
+
+		if param_model is not None:
+
+			async def mcp_action_wrapper(params: param_model):
+				"""Wrapper function that calls the MCP tool."""
+				if not self.session:
+					raise RuntimeError(f'MCP session not connected for tool {tool_name}')
+				return await _call_mcp_tool(params.model_dump(exclude_none=True))
+
+		else:
+
+			async def mcp_action_wrapper():
+				"""Wrapper function that calls the MCP tool (no parameters)."""
+				if not self.session:
+					raise RuntimeError(f'MCP session not connected for tool {tool_name}')
+				return await _call_mcp_tool({})
 
 		# Set function name for better debugging
 		mcp_action_wrapper.__name__ = tool_name
