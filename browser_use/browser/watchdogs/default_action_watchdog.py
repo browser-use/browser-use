@@ -2225,7 +2225,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 		Scroll using CDP Input.synthesizeScrollGesture to simulate realistic scroll gesture.
 
 		Args:
-			pixels: Number of pixels to scroll (positive = down, negative = up)
+			delta_x: Horizontal pixels to scroll (positive = right, negative = left)
+			delta_y: Vertical pixels to scroll (positive = down, negative = up)
 
 		Returns:
 			True if successful, False if failed
@@ -2267,7 +2268,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				session_id=session_id,
 			)
 
-			self.logger.debug(f'📄 Scrolled via CDP gesture: {pixels}px')
+			self.logger.debug(f'📄 Scrolled via CDP gesture: dx={delta_x}px dy={delta_y}px')
 			return True
 
 		except Exception as e:
@@ -2305,14 +2306,18 @@ class DefaultActionWatchdog(BaseWatchdog):
 										if (doc) {{
 											const scrollElement = doc.documentElement || doc.body;
 											if (scrollElement) {{
-												const oldScrollTop = scrollElement.scrollTop;
-												scrollElement.scrollTop += {pixels};
-												const newScrollTop = scrollElement.scrollTop;
-												return {{
-													success: true,
-													oldScrollTop: oldScrollTop,
-													newScrollTop: newScrollTop,
-													scrolled: newScrollTop - oldScrollTop
+											const oldScrollTop = scrollElement.scrollTop;
+											const oldScrollLeft = scrollElement.scrollLeft;
+											scrollElement.scrollTop += {delta_y};
+											scrollElement.scrollLeft += {delta_x};
+											const newScrollTop = scrollElement.scrollTop;
+											const newScrollLeft = scrollElement.scrollLeft;
+											return {
+												success: true,
+												oldScrollTop: oldScrollTop,
+												newScrollTop: newScrollTop,
+												scrolled: (newScrollTop - oldScrollTop) + (newScrollLeft - oldScrollLeft)
+											};
 												}};
 											}}
 										}}
