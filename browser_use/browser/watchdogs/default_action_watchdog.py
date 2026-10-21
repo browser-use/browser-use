@@ -39,7 +39,6 @@ ScrollEvent.model_rebuild()
 UploadFileEvent.model_rebuild()
 
 
-
 def _direction_to_deltas(direction: str, amount: int) -> tuple[int, int]:
 	"""Map a ScrollEvent direction to pixel deltas.
 
@@ -2312,14 +2311,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 											scrollElement.scrollLeft += {delta_x};
 											const newScrollTop = scrollElement.scrollTop;
 											const newScrollLeft = scrollElement.scrollLeft;
-											return {
+											return {{
 												success: true,
 												oldScrollTop: oldScrollTop,
 												newScrollTop: newScrollTop,
 												scrolled: (newScrollTop - oldScrollTop) + (newScrollLeft - oldScrollLeft)
-											};
-												}};
-											}}
+											}};
+										}}
 										}}
 										return {{success: false, error: 'Could not access iframe content'}};
 									}} catch (e) {{
