@@ -11,6 +11,7 @@ session.
 import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock
 
 from mcp.types import Tool
@@ -72,7 +73,7 @@ async def test_reconnect_after_disconnect_stays_alive(monkeypatch):
 
 	await asyncio.wait_for(client.connect(), timeout=5.0)
 	assert client._connected
-	first_session = client.session
+	first_session = cast(FakeClientSession, client.session)
 	assert first_session is not None and not first_session.closed
 
 	await client.disconnect()
@@ -88,8 +89,9 @@ async def test_reconnect_after_disconnect_stays_alive(monkeypatch):
 	await asyncio.sleep(0.3)
 
 	assert client._connected, 'reconnected client must stay connected'
-	assert client.session is not None, 'reconnected client must keep its session'
-	assert not client.session.closed, 'reconnected session was torn down right after connect()'
+	reconnected = cast(FakeClientSession, client.session)
+	assert reconnected is not None, 'reconnected client must keep its session'
+	assert not reconnected.closed, 'reconnected session was torn down right after connect()'
 
 
 async def test_reconnect_rediscovers_tools(monkeypatch):
