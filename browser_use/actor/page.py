@@ -1,5 +1,7 @@
 """Page class for page-level operations."""
 
+import asyncio
+import math
 from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel
@@ -22,6 +24,7 @@ if TYPE_CHECKING:
 		DispatchKeyEventParameters,
 	)
 	from cdp_use.cdp.page.commands import CaptureScreenshotParameters, NavigateParameters, NavigateToHistoryEntryParameters
+	from cdp_use.cdp.page.types import Viewport
 	from cdp_use.cdp.runtime.commands import EvaluateParameters
 	from cdp_use.cdp.target.commands import (
 		AttachToTargetParameters,
@@ -189,12 +192,13 @@ class Page:
 
 		return js_code
 
-	async def screenshot(self, format: str = 'png', quality: int | None = None) -> str:
+	async def screenshot(self, format: str = 'png', quality: int | None = None, *, clip: 'Viewport | None' = None) -> str:
 		"""Take a screenshot and return base64 encoded image.
 
 		Args:
 		    format: Image format ('jpeg', 'png', 'webp')
 		    quality: Quality 0-100 for JPEG format
+		    clip: Optional document-pixel region and output scale for a crop/zoom.
 
 		Returns:
 		    Base64-encoded image data
@@ -202,6 +206,10 @@ class Page:
 		session_id = await self._ensure_session()
 
 		params: 'CaptureScreenshotParameters' = {'format': format}
+		if clip is not None:
+			if clip['width'] <= 0 or clip['height'] <= 0 or clip['scale'] <= 0:
+				raise ValueError('Screenshot clip width, height and scale must be positive')
+			params['clip'] = clip
 
 		if quality is not None and format.lower() == 'jpeg':
 			params['quality'] = quality
@@ -211,70 +219,75 @@ class Page:
 		return result['data']
 
 	async def press(self, key: str) -> None:
-		"""Press a key on the page (sends keyboard input to the focused element or page)."""
+		"""Press a key/chord or type literal text using the normal keyboard action."""
+		from browser_use.browser.events import SendKeysEvent
+
+		# Preserve named CDP keys that the text-oriented SendKeys action does not recognize.
+		code, vk_code = get_key_info(key)
+		if len(key) > 1 and vk_code is not None and key not in ('Enter', 'Tab', 'Space'):
+			session_id = await self._ensure_session()
+			for event_type in ('keyDown', 'keyUp'):
+				await self._client.send.Input.dispatchKeyEvent(
+					{'type': event_type, 'key': key, 'code': code, 'windowsVirtualKeyCode': vk_code},
+					session_id=session_id,
+				)
+			return
+
+		event = self._browser_session.event_bus.dispatch(SendKeysEvent(keys=key, target_id=self._target_id))
+		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
+
+	async def hold_key(self, key: str, duration: float) -> None:
+		"""Hold a key/chord for seconds, releasing every pressed key on exit.
+
+		This emits one key-down per key; it does not synthesize auto-repeat.
+		"""
+		if not math.isfinite(duration) or duration < 0:
+			raise ValueError('duration must be finite and non-negative')
+		aliases = {
+			'ctrl': 'Control',
+			'control': 'Control',
+			'alt': 'Alt',
+			'cmd': 'Meta',
+			'meta': 'Meta',
+			'shift': 'Shift',
+			'enter': 'Enter',
+			'return': 'Enter',
+			'tab': 'Tab',
+			'escape': 'Escape',
+			'space': ' ',
+		}
+		keys = [aliases.get(part.lower(), part) for part in key.split('+')] if key != '+' else ['+']
+		modifier_bits = {'Alt': 1, 'Control': 2, 'Meta': 4, 'Shift': 8}
+		if not keys or any(not part for part in keys) or any(part not in modifier_bits for part in keys[:-1]):
+			raise ValueError('Use one key or a modifier chord, such as Control+a')
 		session_id = await self._ensure_session()
-
-		# Handle key combinations like "Control+A"
-		if '+' in key:
-			parts = key.split('+')
-			modifiers = parts[:-1]
-			main_key = parts[-1]
-
-			# Calculate modifier bitmask
-			modifier_value = 0
-			modifier_map = {'Alt': 1, 'Control': 2, 'Meta': 4, 'Shift': 8}
-			for mod in modifiers:
-				modifier_value |= modifier_map.get(mod, 0)
-
-			# Press modifier keys
-			for mod in modifiers:
-				code, vk_code = get_key_info(mod)
-				params: 'DispatchKeyEventParameters' = {'type': 'keyDown', 'key': mod, 'code': code}
+		held: list[str] = []
+		modifiers = 0
+		try:
+			for part in keys:
+				code, vk_code = get_key_info(part)
+				modifiers |= modifier_bits.get(part, 0)
+				params: 'DispatchKeyEventParameters' = {'type': 'keyDown', 'key': part, 'code': code, 'modifiers': modifiers}
 				if vk_code is not None:
 					params['windowsVirtualKeyCode'] = vk_code
+				held.append(part)
 				await self._client.send.Input.dispatchKeyEvent(params, session_id=session_id)
-
-			# Press main key with modifiers bitmask
-			main_code, main_vk_code = get_key_info(main_key)
-			main_down_params: 'DispatchKeyEventParameters' = {
-				'type': 'keyDown',
-				'key': main_key,
-				'code': main_code,
-				'modifiers': modifier_value,
-			}
-			if main_vk_code is not None:
-				main_down_params['windowsVirtualKeyCode'] = main_vk_code
-			await self._client.send.Input.dispatchKeyEvent(main_down_params, session_id=session_id)
-
-			main_up_params: 'DispatchKeyEventParameters' = {
-				'type': 'keyUp',
-				'key': main_key,
-				'code': main_code,
-				'modifiers': modifier_value,
-			}
-			if main_vk_code is not None:
-				main_up_params['windowsVirtualKeyCode'] = main_vk_code
-			await self._client.send.Input.dispatchKeyEvent(main_up_params, session_id=session_id)
-
-			# Release modifier keys
-			for mod in reversed(modifiers):
-				code, vk_code = get_key_info(mod)
-				release_params: 'DispatchKeyEventParameters' = {'type': 'keyUp', 'key': mod, 'code': code}
+			await asyncio.sleep(duration)
+		finally:
+			release_error: Exception | None = None
+			for part in reversed(held):
+				modifiers &= ~modifier_bits.get(part, 0)
+				code, vk_code = get_key_info(part)
+				params = {'type': 'keyUp', 'key': part, 'code': code, 'modifiers': modifiers}
 				if vk_code is not None:
-					release_params['windowsVirtualKeyCode'] = vk_code
-				await self._client.send.Input.dispatchKeyEvent(release_params, session_id=session_id)
-		else:
-			# Simple key press
-			code, vk_code = get_key_info(key)
-			key_down_params: 'DispatchKeyEventParameters' = {'type': 'keyDown', 'key': key, 'code': code}
-			if vk_code is not None:
-				key_down_params['windowsVirtualKeyCode'] = vk_code
-			await self._client.send.Input.dispatchKeyEvent(key_down_params, session_id=session_id)
-
-			key_up_params: 'DispatchKeyEventParameters' = {'type': 'keyUp', 'key': key, 'code': code}
-			if vk_code is not None:
-				key_up_params['windowsVirtualKeyCode'] = vk_code
-			await self._client.send.Input.dispatchKeyEvent(key_up_params, session_id=session_id)
+					params['windowsVirtualKeyCode'] = vk_code
+				try:
+					await self._client.send.Input.dispatchKeyEvent(params, session_id=session_id)
+				except Exception as exc:
+					release_error = release_error or exc
+			if release_error is not None:
+				raise release_error
 
 	async def set_viewport_size(self, width: int, height: int) -> None:
 		"""Set the viewport size."""
@@ -313,7 +326,9 @@ class Page:
 		session_id = await self._ensure_session()
 
 		params: 'NavigateParameters' = {'url': url}
-		await self._client.send.Page.navigate(params, session_id=session_id)
+		result = await self._client.send.Page.navigate(params, session_id=session_id)
+		if result.get('errorText'):
+			raise RuntimeError(f'Navigation failed: {result["errorText"]}')
 
 	async def navigate(self, url: str) -> None:
 		"""Alias for goto."""
