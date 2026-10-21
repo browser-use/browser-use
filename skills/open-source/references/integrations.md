@@ -139,7 +139,7 @@ MuscleMemory Python package in the Browser Use environment.
 Install the server separately using Python 3.12 or newer:
 
 ```bash
-uv tool install thewariend-musclememory==0.1.6
+uv tool install thewariend-musclememory==0.1.7
 musclememory init
 musclememory start
 musclememory key --label browser-use --permissions read,write
