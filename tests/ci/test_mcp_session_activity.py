@@ -13,18 +13,21 @@ Activity is now recorded once in the `_execute_tool` dispatch layer for every
 """
 
 import time
+from types import SimpleNamespace
+from typing import Any
 
 from browser_use.mcp.server import BrowserUseServer
 
 SESSION_ID = 'sess-1'
 
 
-def _make_server_with_stale_session() -> tuple[BrowserUseServer, dict]:
+def _make_server_with_stale_session(monkeypatch) -> tuple[BrowserUseServer, dict[str, Any]]:
 	server = BrowserUseServer()
-	server.browser_session = type('FakeSession', (), {'id': SESSION_ID})()
+	fake_session = SimpleNamespace(id=SESSION_ID)
+	monkeypatch.setattr(server, 'browser_session', fake_session)
 	stale = time.time() - 9999
 	server.active_sessions[SESSION_ID] = {
-		'session': server.browser_session,
+		'session': fake_session,
 		'created_at': stale,
 		'last_activity': stale,
 		'url': None,
@@ -33,7 +36,7 @@ def _make_server_with_stale_session() -> tuple[BrowserUseServer, dict]:
 
 
 async def test_any_browser_tool_refreshes_session_activity(monkeypatch):
-	server, session_data = _make_server_with_stale_session()
+	server, session_data = _make_server_with_stale_session(monkeypatch)
 
 	async def fake_list_tabs():
 		return '[]'
@@ -52,7 +55,7 @@ async def test_any_browser_tool_refreshes_session_activity(monkeypatch):
 
 async def test_read_and_input_tools_refresh_session_activity(monkeypatch):
 	"""get_state / type / scroll / extract — the typical polling & form workflows."""
-	server, session_data = _make_server_with_stale_session()
+	server, session_data = _make_server_with_stale_session(monkeypatch)
 
 	stubs = {
 		'_get_browser_state': lambda include_screenshot=False: ('{}', None),
