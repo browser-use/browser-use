@@ -1,14 +1,14 @@
 """_optimize_tree must honor the aria-*/pseudo visibility compensation."""
 
 from types import SimpleNamespace
+from typing import Any
 
-from browser_use.dom.views import NodeType
 from browser_use.dom.serializer.serializer import DOMTreeSerializer
-from browser_use.dom.views import SimplifiedNode
+from browser_use.dom.views import NodeType, SimplifiedNode
 
 
 def _leaf(attributes: dict | None) -> SimplifiedNode:
-	original = SimpleNamespace(
+	original: Any = SimpleNamespace(
 		snapshot_node=object(),
 		is_visible=False,
 		is_actually_scrollable=False,
