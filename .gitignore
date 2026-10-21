@@ -27,6 +27,7 @@ dist/
 *.csv
 *.json
 !/server.json
+!/context7.json
 *.jsonl
 *.log
 *.bak
