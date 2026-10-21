@@ -1,4 +1,3 @@
-
 from browser_use.tools.registry.service import Registry
 
 
