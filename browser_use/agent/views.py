@@ -665,6 +665,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Custom serialization that properly uses AgentHistory's model_dump"""
 		return {
 			'history': [h.model_dump(**kwargs) for h in self.history],
+			'usage': self.usage.model_dump() if self.usage else None,
 		}
 
 	@classmethod
