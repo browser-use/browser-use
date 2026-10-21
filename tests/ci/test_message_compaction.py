@@ -54,18 +54,27 @@ async def test_failed_compaction_is_throttled_by_step_interval(tmp_path: Path):
 	settings = MessageCompactionSettings(compact_every_n_steps=5, trigger_char_count=40_000)
 
 	# Step 25: both gates pass -> one attempt is made (and fails)
-	assert await manager.maybe_compact_messages(llm=llm, settings=settings, step_info=AgentStepInfo(step_number=25, max_steps=100)) is False
+	assert (
+		await manager.maybe_compact_messages(llm=llm, settings=settings, step_info=AgentStepInfo(step_number=25, max_steps=100))
+		is False
+	)
 
 	# Steps 26-29: within the interval -> no further attempts
 	for step in (26, 27, 28, 29):
-		assert await manager.maybe_compact_messages(llm=llm, settings=settings, step_info=AgentStepInfo(step_number=step, max_steps=100)) is False
+		assert (
+			await manager.maybe_compact_messages(
+				llm=llm, settings=settings, step_info=AgentStepInfo(step_number=step, max_steps=100)
+			)
+			is False
+		)
 
 	# Step 30: interval elapsed -> exactly one retry
-	assert await manager.maybe_compact_messages(llm=llm, settings=settings, step_info=AgentStepInfo(step_number=30, max_steps=100)) is False
-
-	assert llm.ainvoke.await_count == 2, (
-		f'expected compaction attempts only at the step interval, got {llm.ainvoke.await_count}'
+	assert (
+		await manager.maybe_compact_messages(llm=llm, settings=settings, step_info=AgentStepInfo(step_number=30, max_steps=100))
+		is False
 	)
+
+	assert llm.ainvoke.await_count == 2, f'expected compaction attempts only at the step interval, got {llm.ainvoke.await_count}'
 
 
 @pytest.mark.asyncio
@@ -82,12 +91,18 @@ async def test_successful_compaction_still_updates_state(tmp_path: Path):
 	llm.ainvoke.return_value = ChatInvokeCompletion(completion='Compacted history', usage=None)
 	settings = MessageCompactionSettings(compact_every_n_steps=5, trigger_char_count=40_000)
 
-	assert await manager.maybe_compact_messages(llm=llm, settings=settings, step_info=AgentStepInfo(step_number=5, max_steps=100)) is True
+	assert (
+		await manager.maybe_compact_messages(llm=llm, settings=settings, step_info=AgentStepInfo(step_number=5, max_steps=100))
+		is True
+	)
 	assert manager.state.compacted_memory == 'Compacted history'
 	assert manager.state.compaction_count == 1
 	assert manager.state.last_compaction_step == 5
 
 	# Within the interval, no new attempt even though the history is rebuilt large
 	manager.state.agent_history_items.append(HistoryItem(action_results='y' * 50_000))
-	assert await manager.maybe_compact_messages(llm=llm, settings=settings, step_info=AgentStepInfo(step_number=6, max_steps=100)) is False
+	assert (
+		await manager.maybe_compact_messages(llm=llm, settings=settings, step_info=AgentStepInfo(step_number=6, max_steps=100))
+		is False
+	)
 	assert llm.ainvoke.await_count == 1
