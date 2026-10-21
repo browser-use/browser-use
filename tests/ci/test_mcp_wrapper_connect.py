@@ -17,6 +17,7 @@ session is therefore the discriminating signal for the fix.
 import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from typing import cast
 
 from mcp.types import Tool
 
@@ -77,11 +78,11 @@ async def _connect_promptly(wrapper: MCPToolWrapper) -> None:
 	await asyncio.wait_for(wrapper.connect(), timeout=2.0)
 	elapsed = loop.time() - start
 	assert elapsed < 1.0, (
-		f'connect() blocked for {elapsed:.2f}s — it must return after registering '
-		'tools, not wait on a keep-alive event'
+		f'connect() blocked for {elapsed:.2f}s — it must return after registering tools, not wait on a keep-alive event'
 	)
-	assert wrapper.session is not None
-	assert not wrapper.session.closed, 'session must stay open after connect() returns (until disconnect())'
+	live = cast(FakeClientSession, wrapper.session)
+	assert live is not None
+	assert not live.closed, 'session must stay open after connect() returns (until disconnect())'
 
 
 async def test_connect_returns_after_registering_tools(monkeypatch):
@@ -91,7 +92,7 @@ async def test_connect_returns_after_registering_tools(monkeypatch):
 
 	await _connect_promptly(wrapper)
 
-	assert wrapper.session.initialized
+	assert cast(FakeClientSession, wrapper.session).initialized
 	assert 'echo' in wrapper._tools
 	assert 'echo' in wrapper._registered_actions
 
@@ -101,7 +102,7 @@ async def test_disconnect_closes_transport_and_session(monkeypatch):
 	tools = Tools()
 	wrapper = MCPToolWrapper(tools.registry, 'fake-mcp-server')
 	await _connect_promptly(wrapper)
-	session = wrapper.session
+	session = cast(FakeClientSession, wrapper.session)
 	assert session is not None
 
 	await wrapper.disconnect()

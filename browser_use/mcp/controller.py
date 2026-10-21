@@ -141,9 +141,13 @@ class MCPToolWrapper:
 		async def _call_mcp_tool(tool_params: dict) -> ActionResult:
 			logger.debug(f'🔧 Calling MCP tool {tool_name} with params: {tool_params}')
 
+			session = self.session
+			if session is None:
+				raise RuntimeError(f'MCP session not connected for tool {tool_name}')
+
 			try:
 				# Call the MCP tool
-				result = await self.session.call_tool(tool_name, tool_params)
+				result = await session.call_tool(tool_name, tool_params)
 
 				# Convert MCP result to ActionResult
 				# MCP tools return results in various formats
@@ -172,7 +176,7 @@ class MCPToolWrapper:
 
 		if param_model is not None:
 
-			async def mcp_action_wrapper(params: param_model):
+			async def mcp_action_wrapper(params: param_model) -> ActionResult:  # type: ignore[no-redef]
 				"""Wrapper function that calls the MCP tool."""
 				if not self.session:
 					raise RuntimeError(f'MCP session not connected for tool {tool_name}')
@@ -180,7 +184,7 @@ class MCPToolWrapper:
 
 		else:
 
-			async def mcp_action_wrapper():
+			async def mcp_action_wrapper() -> ActionResult:  # type: ignore[no-redef]
 				"""Wrapper function that calls the MCP tool (no parameters)."""
 				if not self.session:
 					raise RuntimeError(f'MCP session not connected for tool {tool_name}')
