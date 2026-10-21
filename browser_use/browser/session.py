@@ -142,20 +142,23 @@ def _rect_from_positive_quad(quad: list[float]) -> DOMRect | None:
 	"""Axis-aligned bounds of one DOM quad, or None when it has no positive area.
 
 	DOM.getContentQuads can lead with a degenerate fragment (zero width or height),
-	for example an inline element whose first box is a ``<br>``. Callers skip those
-	and keep looking, then fall through to getBoxModel / getBoundingClientRect.
+	for example an inline element whose first box is a ``<br>``. A rotated or
+	otherwise collinear quad can also have a positive bounding box and zero
+	polygon area. Callers skip those and keep looking, then fall through to
+	getBoxModel / getBoundingClientRect.
 	"""
 	if len(quad) < 8:
 		return None
 	x_coords = [quad[i] for i in range(0, 8, 2)]
 	y_coords = [quad[i] for i in range(1, 8, 2)]
+	# Shoelace area. An axis-aligned width/height check accepts collinear points
+	# whose bounding box is still wide and tall (a diagonal line).
+	area = abs(sum(x_coords[i] * y_coords[(i + 1) % 4] - y_coords[i] * x_coords[(i + 1) % 4] for i in range(4))) / 2
+	if area <= 0:
+		return None
 	min_x = min(x_coords)
 	min_y = min(y_coords)
-	width = max(x_coords) - min_x
-	height = max(y_coords) - min_y
-	if width > 0 and height > 0:
-		return DOMRect(x=min_x, y=min_y, width=width, height=height)
-	return None
+	return DOMRect(x=min_x, y=min_y, width=max(x_coords) - min_x, height=max(y_coords) - min_y)
 
 
 class BrowserSession(BaseModel):

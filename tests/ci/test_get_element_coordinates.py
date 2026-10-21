@@ -142,6 +142,65 @@ async def test_positive_first_quad_skips_fallbacks() -> None:
 	assert calls == ['getContentQuads']
 
 
+async def test_collinear_rotated_quad_falls_back_to_box_model() -> None:
+	"""A zero-area quad with a positive bounding box must not count as bounds.
+
+	These four points lie on y=x, so the axis-aligned box is 20x20 while the
+	polygon area is 0. That quad is skipped and DOM.getBoxModel is used.
+	"""
+	calls: list[str] = []
+	dom = _RecordingDOM(
+		quads=[[0, 0, 10, 10, 20, 20, 5, 5]],
+		box_content=[2, 3, 12, 3, 12, 9, 2, 9],
+		calls=calls,
+	)
+	runtime = _RecordingRuntime(rect={'x': 1, 'y': 2, 'width': 3, 'height': 4}, calls=calls)
+
+	rect = await _browser_session().get_element_coordinates(1, _cdp_session(dom, runtime))
+
+	assert rect is not None
+	assert (rect.x, rect.y, rect.width, rect.height) == (2, 3, 10, 6)
+	assert calls == ['getContentQuads', 'getBoxModel']
+
+
+async def test_collinear_quad_and_box_model_fall_back_to_bounding_client_rect() -> None:
+	"""getBoundingClientRect runs when the box model quad is collinear too."""
+	calls: list[str] = []
+	dom = _RecordingDOM(
+		quads=[[0, 0, 10, 10, 20, 20, 5, 5]],
+		box_content=[1, 1, 4, 4, 8, 8, 2, 2],
+		calls=calls,
+	)
+	runtime = _RecordingRuntime(rect={'x': 5, 'y': 6, 'width': 70, 'height': 15}, calls=calls)
+
+	rect = await _browser_session().get_element_coordinates(1, _cdp_session(dom, runtime))
+
+	assert rect is not None
+	assert (rect.x, rect.y, rect.width, rect.height) == (5, 6, 70, 15)
+	assert calls == ['getContentQuads', 'getBoxModel', 'resolveNode', 'callFunctionOn']
+
+
+async def test_rotated_positive_area_quad_is_used() -> None:
+	"""A rotated quad with real area still wins over the box model.
+
+	Diamond (5, 0), (10, 5), (5, 10), (0, 5) has area 50. Its axis-aligned
+	bounds are the 10x10 box at the origin.
+	"""
+	calls: list[str] = []
+	dom = _RecordingDOM(
+		quads=[[5, 0, 10, 5, 5, 10, 0, 5]],
+		box_content=[0, 0, 1, 0, 1, 1, 0, 1],
+		calls=calls,
+	)
+	runtime = _RecordingRuntime(rect={'x': 9, 'y': 9, 'width': 9, 'height': 9}, calls=calls)
+
+	rect = await _browser_session().get_element_coordinates(1, _cdp_session(dom, runtime))
+
+	assert rect is not None
+	assert (rect.x, rect.y, rect.width, rect.height) == (0, 0, 10, 10)
+	assert calls == ['getContentQuads']
+
+
 async def test_empty_quads_fall_back_to_box_model() -> None:
 	"""An empty quad list still falls through to DOM.getBoxModel."""
 	calls: list[str] = []
