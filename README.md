@@ -370,7 +370,7 @@ results = await Agent(task='', llm=llm).load_and_rerun(
 - Use the variable names `detect_variables()` prints. An unknown name is skipped with a warning, and the recorded value is typed instead.
 - Extract steps and the closing summary still call the model.
 - If the page changed, the replay raises `RuntimeError` at the first step it cannot match. The steps before it already ran, so check whether the form was sent before you run the agent again.
-- The saved file holds the values the agent typed. Pass `sensitive_data` to the agent to keep secrets out of it.
+- Keep the saved file private. With `sensitive_data`, typed secrets are saved as `<secret>key</secret>` placeholders, but page snapshots and results are saved as they were and can still contain them. Give the replaying agent the same `sensitive_data`; without it, the placeholder text is typed.
 
 [Example](examples/features/rerun_history.py)
 </details>
