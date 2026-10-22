@@ -303,9 +303,31 @@ class Element:
 						timeout=1.0,  # 1 second timeout for mousePressed
 					)
 					await asyncio.sleep(0.08)
-				finally:
+				except BaseException as press_error:
 					# A cancelled or timed-out press may already have reached Chrome.
-					# Always attempt release, then propagate the failure to the caller.
+					# Always attempt release, but the press error is the one that must
+					# reach the caller: if the release also fails, attach it to the
+					# press error instead of letting it replace it.
+					try:
+						await asyncio.wait_for(
+							self._client.send.Input.dispatchMouseEvent(
+								params={
+									'type': 'mouseReleased',
+									'x': center_x,
+									'y': center_y,
+									'button': button,
+									'clickCount': click_count,
+									'modifiers': modifier_value,
+								},
+								session_id=self._session_id,
+							),
+							timeout=3.0,  # 3 second timeout for mouseReleased
+						)
+					except Exception as release_error:
+						press_error.add_note(f'mouseReleased also failed: {type(release_error).__name__}: {release_error}')
+					raise
+				else:
+					# The press succeeded: release normally, propagating any release failure.
 					await asyncio.wait_for(
 						self._client.send.Input.dispatchMouseEvent(
 							params={
