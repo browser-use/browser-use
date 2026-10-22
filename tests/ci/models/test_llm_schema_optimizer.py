@@ -95,3 +95,23 @@ def test_optimizer_treats_property_names_as_data_not_schema_keywords():
 		field_schema = schema['properties'][field_name]
 		assert '$ref' not in field_schema
 		assert field_schema['properties']['summary']['type'] == 'string'
+
+
+def test_remove_flags_keep_fields_named_after_removed_keywords():
+	"""remove_defaults/remove_min_items must not drop user fields whose names
+	match the keywords being stripped from schema annotations (#5829)."""
+
+	class Model(BaseModel):
+		default: str
+		minItems: str
+		min_items: str
+		other: str = Field(default='x')
+
+	schema = SchemaOptimizer.create_optimized_json_schema(Model, remove_defaults=True, remove_min_items=True)
+
+	props = schema['properties']
+	for field_name in ('default', 'minItems', 'min_items'):
+		assert field_name in props, f'field {field_name!r} was dropped from properties'
+		assert field_name in schema['required'], f'field {field_name!r} lost from required'
+	# default *values* are still stripped from annotations
+	assert 'default' not in props['other']
