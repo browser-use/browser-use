@@ -216,6 +216,25 @@ class _AtomicBlock:
 _TABLE_ROW_RE = re.compile(r'^\s*\|.*\|\s*$')
 _LIST_ITEM_RE = re.compile(r'^(\s*)([-*+]|\d+[.)]) ')
 _LIST_CONTINUATION_RE = re.compile(r'^(\s{2,}|\t)')
+_FENCE_OPEN_RE = re.compile(r'^\s*(`{3,}|~{3,})(.*)$')
+
+
+def _fence_opener(line: str) -> tuple[str, int] | None:
+	"""Return (marker char, marker length) if line opens a fenced code block, else None."""
+	match = _FENCE_OPEN_RE.match(line)
+	if match is None:
+		return None
+	marker, info = match.group(1), match.group(2)
+	# A backtick fence's info string cannot contain backticks.
+	if marker[0] == '`' and '`' in info:
+		return None
+	return marker[0], len(marker)
+
+
+def _is_fence_closer(line: str, marker_char: str, marker_len: int) -> bool:
+	"""A closer repeats the opener's marker char at least as many times, with only whitespace around it."""
+	stripped = line.strip()
+	return len(stripped) >= marker_len and stripped == marker_char * len(stripped)
 
 
 def _parse_atomic_blocks(content: str) -> list[_AtomicBlock]:
@@ -244,7 +263,8 @@ def _parse_atomic_blocks(content: str) -> list[_AtomicBlock]:
 			continue
 
 		# CODE FENCE
-		if line.strip().startswith('```'):
+		fence = _fence_opener(line)
+		if fence is not None:
 			fence_lines = [line]
 			fence_end = offset + line_len
 			i += 1
@@ -255,7 +275,7 @@ def _parse_atomic_blocks(content: str) -> list[_AtomicBlock]:
 				fence_lines.append(fence_line)
 				fence_end += fence_line_len
 				i += 1
-				if fence_line.strip().startswith('```') and len(fence_lines) > 1:
+				if _is_fence_closer(fence_line, *fence):
 					break
 			blocks.append(
 				_AtomicBlock(
@@ -362,7 +382,7 @@ def _parse_atomic_blocks(content: str) -> list[_AtomicBlock]:
 		while i < len(lines) and lines[i].strip():
 			# Stop if next line starts a different block type
 			nl = lines[i]
-			if nl.lstrip().startswith('#') or nl.strip().startswith('```') or _TABLE_ROW_RE.match(nl) or _LIST_ITEM_RE.match(nl):
+			if nl.lstrip().startswith('#') or _fence_opener(nl) is not None or _TABLE_ROW_RE.match(nl) or _LIST_ITEM_RE.match(nl):
 				break
 			nl_len = len(nl) + 1
 			para_lines.append(nl)
