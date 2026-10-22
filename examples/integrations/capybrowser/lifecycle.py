@@ -198,11 +198,12 @@ class Lifecycle:
 						self.state.intent.delete_http_status = None
 						self.state.save()
 						response = await self.request('DELETE', self.path)
-						self.observe(response.data)
+						# Preserve the HTTP fact even if the Session projection is rejected.
 						self.state.intent.delete_http_status = 202 if response.status_code == 202 else 200
 						if response.status_code == 202:
 							self.state.intent.delete_accepted = True
 						self.state.save()
+						self.observe(response.data)
 					except SafeError:
 						pass
 				while not self.complete():

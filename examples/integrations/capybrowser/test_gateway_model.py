@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 import httpx2 as httpx
 from gateway_model import GatewayModel
-from openai import AsyncOpenAI
-from pydantic import BaseModel
+from openai import APIStatusError, AsyncOpenAI
+from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.messages import SystemMessage, UserMessage
 
@@ -68,8 +68,12 @@ class GatewayModelTests(unittest.IsolatedAsyncioTestCase):
 			with patch('gateway_model.DefaultAsyncHttpxClient', side_effect=mock_client):
 				model = GatewayModel(config, Path(directory) / 'usage.json')
 				try:
-					with self.assertRaises(Exception):
+					with self.assertRaises(APIStatusError) as caught:
 						await model.ainvoke([SystemMessage(content='Private schema'), UserMessage(content='Private page')], Reply)
+					self.assertEqual(caught.exception.status_code, 307)
+					self.assertEqual(
+						str(caught.exception.response.request.url), 'https://model.invalid/api/openai/chat/completions'
+					)
 				finally:
 					await model.close()
 			self.assertEqual(seen, ['https://model.invalid/api/openai/chat/completions'])
@@ -122,5 +126,43 @@ class GatewayModelTests(unittest.IsolatedAsyncioTestCase):
 			record = json.loads(usage.read_text())
 			self.assertEqual(record['calls_started'], 2)
 			self.assertEqual([event['total_tokens'] for event in record['events']], [15, 15])
+			self.assertTrue(record['events'][0]['schema_valid'])
+			self.assertNotIn('schema_valid', record['events'][1])
 			self.assertNotIn('request_messages', usage.read_text())
 			self.assertNotIn('plain extraction', usage.read_text())
+
+	async def test_schema_flags_on_invalid_structured_and_truncated_plain_replies(self):
+		with tempfile.TemporaryDirectory() as directory:
+			config = Path(directory) / 'model.json'
+			config.write_text(json.dumps({'base_url': 'https://model.invalid', 'model': 'test', 'api_key': 'test-key'}))
+			config.chmod(0o600)
+			usage = Path(directory) / 'usage.json'
+			model = GatewayModel(config, usage)
+			await model.close()
+			replies = iter([('stop', '{"unexpected":true}'), ('length', 'truncated plain reply')])
+
+			def respond(request):
+				reason, content = next(replies)
+				return httpx.Response(
+					200,
+					json={
+						'id': 'synthetic-completion',
+						'object': 'chat.completion',
+						'created': 1,
+						'model': 'test',
+						'choices': [{'index': 0, 'finish_reason': reason, 'message': {'role': 'assistant', 'content': content}}],
+					},
+				)
+
+			async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+				model._client = AsyncOpenAI(
+					api_key='test-key', base_url='https://model.invalid', max_retries=0, http_client=client
+				)
+				with self.assertRaises(ValidationError):
+					await model.ainvoke([UserMessage(content='Return the required answer.')], Reply)
+				with self.assertRaisesRegex(RuntimeError, '4096-token cap'):
+					await model.ainvoke([UserMessage(content='Extract plain text.')])
+				await model.close()
+			events = json.loads(usage.read_text())['events']
+			self.assertFalse(events[0]['schema_valid'])
+			self.assertNotIn('schema_valid', events[1])

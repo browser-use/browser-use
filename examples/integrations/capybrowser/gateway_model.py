@@ -122,7 +122,8 @@ class GatewayModel:
 			if choice.finish_reason == 'length':
 				raise RuntimeError('Model output hit the 4096-token cap.')
 			parsed = output_format.model_validate_json(content) if output_format is not None else content
-			event['schema_valid'] = True
+			if output_format is not None:
+				event['schema_valid'] = True
 			if output_format is not None and hasattr(parsed, 'action'):
 				actions = [action.model_dump(exclude_none=True) for action in getattr(parsed, 'action')]
 				event['parsed_actions'] = [list(action) for action in actions]
@@ -142,7 +143,7 @@ class GatewayModel:
 			)
 		except Exception as error:
 			event['error_type'] = type(error).__name__
-			if 'finish_reason' in event and 'schema_valid' not in event:
+			if output_format is not None and 'finish_reason' in event and 'schema_valid' not in event:
 				event['schema_valid'] = False
 			raise
 		finally:

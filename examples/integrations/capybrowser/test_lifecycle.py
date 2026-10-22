@@ -8,11 +8,15 @@ import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
+from gateway_model import GatewayModel
 from lifecycle import BASE, Lifecycle, SafeError, State
-from main import execute, run_worker, single_use_browser
+from main import execute, run_worker, save_agent_trace, single_use_browser
+
+from browser_use.llm.messages import UserMessage
 
 
 def projection(status='ready', billing='reserved', session_id='session-owned') -> dict:
@@ -107,14 +111,145 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
 	async def test_private_model_metadata_stays_out_of_default_result(self):
 		usage = self.directory / 'model-usage.json'
 		trace = self.directory / 'agent-trace.json'
-		usage.write_text(json.dumps({'completion_id': 'private-completion-id'}))
-		trace.write_text(json.dumps({'page_url': 'https://private.example/path'}))
-		result, code = await execute(self.life, False, self.good_runner)
-		self.assertEqual(code, 0)
-		self.assertNotIn('model_usage', result)
-		self.assertNotIn('agent_trace', result)
-		self.assertIn('private-completion-id', usage.read_text())
-		self.assertIn('private.example', trace.read_text())
+		config = Path(self.temp.name) / 'model.json'
+		config.write_text(json.dumps({'base_url': 'https://model.invalid', 'model': 'test', 'api_key': 'synthetic-model-key'}))
+		config.chmod(0o600)
+		for error, expected in ((None, 0), (SafeError('Synthetic task failure.'), 1), (asyncio.CancelledError(), 130)):
+			with self.subTest(exit_code=expected):
+				self.stopped = False
+				usage.unlink(missing_ok=True)
+				trace.unlink(missing_ok=True)
+				invocations = []
+
+				async def emit_private_metadata(url, timeout, usage_path=None, trace_path=None):
+					invocations.append(True)
+					self.assertEqual(usage_path, usage)
+					self.assertEqual(trace_path, trace)
+					self.assertFalse(usage.exists())
+					self.assertFalse(trace.exists())
+					model = GatewayModel(config, usage)
+					response = SimpleNamespace(
+						id='private-completion-id',
+						choices=[SimpleNamespace(finish_reason='stop', message=SimpleNamespace(content='private reply'))],
+						usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+					)
+					try:
+						with patch.object(model._client.chat.completions, 'create', AsyncMock(return_value=response)):
+							await model.ainvoke([UserMessage(content='private fixture prompt')])
+					finally:
+						await model.close()
+					history = SimpleNamespace(
+						is_successful=lambda: True,
+						final_result=lambda: 'public answer',
+						history=[
+							SimpleNamespace(
+								state=SimpleNamespace(url='https://private.example/path', title='Private page title'),
+								model_output=None,
+								result=[],
+							)
+						],
+					)
+					save_agent_trace(trace, SimpleNamespace(history=history))
+					if error is not None:
+						raise error
+					return await self.good_runner(url, timeout)
+
+				result, code = await execute(self.life, False, emit_private_metadata)
+				self.assertEqual(code, expected)
+				self.assertEqual(invocations, [True])
+				self.assertNotIn('model_usage', result)
+				self.assertNotIn('agent_trace', result)
+				self.assertEqual(json.loads(usage.read_text())['events'][0]['completion_id'], 'private-completion-id')
+				self.assertEqual(json.loads(trace.read_text())['steps'][0]['page_title'], 'Private page title')
+				for path in (usage, trace):
+					self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+				for private in (
+					'private-completion-id',
+					'private.example',
+					'Private page title',
+					'private fixture prompt',
+					'private reply',
+				):
+					self.assertNotIn(private, json.dumps(result))
+				self.assertTrue(result['cleanup']['complete'])
+
+	async def test_delete_status_survives_rejected_session_projection(self):
+		await self.life.create()
+		original = self.state.intent.last_observation
+		for status_code in (200, 202):
+			for data in (
+				dict(projection('released', 'settled'), status='unsupported'),
+				projection('released', 'settled', session_id='session-other'),
+				dict(projection('released', 'settled'), profile_id='profile-other'),
+				dict(projection('released', 'settled'), purpose='other'),
+			):
+				with self.subTest(status_code=status_code, projection=data):
+					self.state.intent.delete_accepted = False
+					self.state.intent.delete_http_status = None
+					self.state.save()
+
+					def respond(request):
+						if request.method == 'DELETE':
+							return httpx.Response(status_code, json={'code': 'ok', 'data': data})
+						return httpx.Response(503)
+
+					with patch.object(self.client, '_transport', httpx.MockTransport(respond)):
+						facts = await self.life.finish()
+					self.assertEqual(facts['delete_http_status'], status_code)
+					self.assertEqual(facts['delete_accepted'], status_code == 202)
+					self.assertEqual(facts['delete_outcome'], 'accepted' if status_code == 202 else 'already_terminal')
+					self.assertFalse(facts['complete'])
+					self.assertIsNone(facts['released'])
+					self.assertEqual(facts['resource_outcome'], 'unknown')
+					self.assertEqual(facts['billing_status'], 'unknown')
+					self.assertIsNone(facts['actual_charge_centipoints'])
+					self.assertIsNone(facts['charge_stop_at'])
+					self.assertEqual(self.state.intent.session_id, 'session-owned')
+					self.assertEqual(self.state.intent.last_observation, original)
+					self.state.close()
+					self.state = State(self.directory, 'test-key-not-real', True)
+					self.life = FastLifecycle(self.client, self.state, 0.001)
+					for field in ('delete_http_status', 'delete_accepted', 'delete_outcome'):
+						self.assertEqual(self.life.report()[field], facts[field])
+
+	async def test_invalid_delete_envelope_remains_unknown(self):
+		await self.life.create()
+		for response in (
+			httpx.Response(202, text='not JSON'),
+			httpx.Response(202, json={'code': 'error', 'data': projection('released', 'settled')}),
+			httpx.Response(202, json={'code': 'ok', 'data': None}),
+			httpx.Response(503),
+		):
+			with self.subTest(response=response):
+
+				def respond(request):
+					return response if request.method == 'DELETE' else httpx.Response(503)
+
+				with patch.object(self.client, '_transport', httpx.MockTransport(respond)):
+					facts = await self.life.finish()
+				self.assertEqual(facts['delete_outcome'], 'unknown')
+				self.assertIsNone(facts['delete_http_status'])
+				self.assertFalse(facts['delete_accepted'])
+				self.assertFalse(facts['complete'])
+				self.assertIsNone(facts['released'])
+				self.assertIsNone(facts['actual_charge_centipoints'])
+
+	async def test_exit_codes_preserve_failure_and_cancellation_when_cleanup_is_unresolved(self):
+		self.pending = True
+		for error, expected in ((None, 2), (SafeError('Synthetic task failure.'), 1), (asyncio.CancelledError(), 130)):
+			with self.subTest(exit_code=expected):
+				self.stopped = False
+
+				async def runner(url, timeout, usage_path=None, trace_path=None):
+					if error is not None:
+						raise error
+					return await self.good_runner(url, timeout)
+
+				result, code = await execute(self.life, False, runner)
+				self.assertEqual(code, expected)
+				self.assertFalse(result['cleanup']['complete'])
+				self.assertEqual(result['cleanup']['billing_status'], 'settling')
+				self.assertIsNone(result['cleanup']['actual_charge_centipoints'])
 
 	async def test_delete_200_and_202_facts_survive_state_reload(self):
 		await self.life.create()
