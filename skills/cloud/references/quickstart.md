@@ -159,7 +159,7 @@ Current prices: https://browser-use.com/pricing.md
 - Set `start_url`
 
 **Login issues?**
-- Profile sync (easiest): `curl -fsSL https://browser-use.com/profile.sh | sh`
+- Profile sync (easiest): install [`profile-use`](https://github.com/browser-use/profile-use-releases/releases/latest) and follow the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md)
 - Secrets (per-domain credentials)
 - 1Password (most secure, auto 2FA)
 
