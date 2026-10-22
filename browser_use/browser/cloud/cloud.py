@@ -7,10 +7,13 @@ and returns the CDP URL for connection.
 
 import logging
 import os
+from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 from browser_use.browser.cloud.views import CloudBrowserAuthError, CloudBrowserError, CloudBrowserResponse, CreateBrowserRequest
+from browser_use.config import CONFIG
 from browser_use.sync.auth import CloudAuthConfig
 
 logger = logging.getLogger(__name__)
@@ -34,6 +37,37 @@ def resolve_api_key() -> str | None:
 		return CloudAuthConfig.load_from_file().api_token
 	except Exception:
 		return None
+
+
+CLOUD_CAPTCHA_HINT = (
+	'Agent was blocked by a captcha. Cloud browsers include stealth fingerprinting and proxy rotation to avoid this.\n'
+	'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=captcha_nudge\n'
+	'         Silence this hint: BROWSER_USE_CLOUD_HINTS=false'
+)
+
+
+def log_cloud_captcha_hint(agent_logger: logging.Logger, browser_session: Any) -> bool:
+	"""Point users at cloud browsers after a captcha block. Returns True if logged.
+
+	Skipped when BROWSER_USE_CLOUD_HINTS=false or the session already runs on a Browser Use cloud browser.
+	Callers keep their own once-per-run flag.
+	"""
+	if not CONFIG.BROWSER_USE_CLOUD_HINTS:
+		return False
+	if browser_session is not None:
+		cdp_url = getattr(browser_session, 'cdp_url', None)
+		if cdp_url:
+			# start() connects to an explicit cdp_url even when use_cloud=True, so trust the host
+			on_browser_use_cloud = (urlparse(cdp_url).hostname or '').endswith('.browser-use.com')
+		else:
+			profile = getattr(browser_session, 'browser_profile', None)
+			on_browser_use_cloud = bool(getattr(profile, 'use_cloud', False)) or (
+				getattr(profile, 'cloud_browser_params', None) is not None
+			)
+		if on_browser_use_cloud:
+			return False
+	agent_logger.warning(CLOUD_CAPTCHA_HINT)
+	return True
 
 
 class CloudBrowserClient:

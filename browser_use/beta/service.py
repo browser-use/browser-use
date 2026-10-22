@@ -54,6 +54,7 @@ from browser_use.agent.views import (
 	StepMetadata,
 )
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser.cloud.cloud import log_cloud_captcha_hint
 from browser_use.browser.profile import CHROME_DETERMINISTIC_RENDERING_ARGS, CHROME_DISABLE_SECURITY_ARGS, CHROME_DOCKER_ARGS
 from browser_use.browser.views import BrowserStateHistory, BrowserStateSummary, TabInfo
 from browser_use.filesystem.file_system import FileSystem
@@ -4661,6 +4662,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'Step {self.state.n_steps}: Ran {action_count} action{"" if action_count == 1 else "s"} in {step_duration:.2f}s: {status_text}'
 		)
 
+	def _log_cloud_captcha_hint(self) -> None:
+		"""Point local-browser users at cloud browsers after a captcha block, at most once per run."""
+		if getattr(self, '_cloud_captcha_hint_logged', False) or self._browser_mode() == 'cloud':
+			return
+		self._cloud_captcha_hint_logged = log_cloud_captcha_hint(self.logger, self.browser_session)
+
 	def _log_final_outcome_messages(self) -> None:
 		"""Log Browser Use-style guidance for failed runs."""
 		is_successful = self.history.is_successful()
@@ -4670,10 +4677,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		final_result_str = str(final_result).lower() if final_result else ''
 		captcha_keywords = ['captcha', 'cloudflare', 'recaptcha', 'challenge', 'bot detection', 'access denied']
 		if any(keyword in final_result_str for keyword in captcha_keywords):
-			task_preview = self.task[:10] if len(self.task) > 10 else self.task
-			self.logger.info('')
-			self.logger.info('Failed because of CAPTCHA? For better browser stealth, try:')
-			self.logger.info(f'   agent = Agent(task="{task_preview}...", browser=Browser(use_cloud=True))')
+			self._log_cloud_captcha_hint()
 		self.logger.info('')
 		self.logger.info('Did the Agent not work as expected? Let us fix this!')
 		self.logger.info('   Please open a short issue here: https://github.com/browser-use/browser-use/issues')
@@ -4732,10 +4736,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if judgement.failure_reason:
 			judge_log += f'   Failure Reason: {judgement.failure_reason}\n'
 		if judgement.reached_captcha:
-			self.logger.warning(
-				'Agent was blocked by a captcha. Cloud browsers include stealth fingerprinting and proxy rotation to avoid this.\n'
-				'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=captcha_nudge'
-			)
+			self._log_cloud_captcha_hint()
 		judge_log += f'   {judgement.reasoning}\n'
 		self.logger.info(judge_log)
 
@@ -5033,6 +5034,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		self.laminar_trace_id = _laminar_current_trace_id()
+		self._cloud_captcha_hint_logged = False
 		self._register_run_signal_handler(max_steps)
 		try:
 			return await self._run_terminal(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end)

@@ -61,6 +61,7 @@ from browser_use.agent.views import (
 	PlanItem,
 	StepMetadata,
 )
+from browser_use.browser.cloud.cloud import log_cloud_captcha_hint
 from browser_use.browser.cloud.views import CloudBrowserAuthError
 from browser_use.browser.events import _get_timeout
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
@@ -2161,24 +2162,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	def _log_cloud_captcha_hint(self) -> None:
 		"""Point local-browser users at cloud browsers after a captcha block, at most once per run."""
-		if getattr(self, '_cloud_captcha_hint_logged', False) or not CONFIG.BROWSER_USE_CLOUD_HINTS:
-			return
-		session = self.browser_session
-		if session is not None:
-			profile = session.browser_profile
-			if session.cdp_url:
-				# start() connects to an explicit cdp_url even when use_cloud=True, so trust the host
-				on_browser_use_cloud = (urlparse(session.cdp_url).hostname or '').endswith('.browser-use.com')
-			else:
-				on_browser_use_cloud = profile.use_cloud or profile.cloud_browser_params is not None
-			if on_browser_use_cloud:
-				return
-		self._cloud_captcha_hint_logged = True
-		self.logger.warning(
-			'Agent was blocked by a captcha. Cloud browsers include stealth fingerprinting and proxy rotation to avoid this.\n'
-			'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=captcha_nudge\n'
-			'         Silence this hint: BROWSER_USE_CLOUD_HINTS=false'
-		)
+		if not getattr(self, '_cloud_captcha_hint_logged', False):
+			self._cloud_captcha_hint_logged = log_cloud_captcha_hint(self.logger, self.browser_session)
 
 	def _log_final_outcome_messages(self, cloud_auth_failed: bool = False) -> None:
 		"""Log helpful messages to user based on agent run outcome"""
