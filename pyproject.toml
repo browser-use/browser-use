@@ -84,7 +84,7 @@ eval = [
     "lmnr[all]==0.7.42",
     "anyio==4.12.1",
     "psutil==7.2.2",
-    "datamodel-code-generator==0.75.1",
+    "datamodel-code-generator==0.81.0",
 ]
 cli-oci = ["browser-use[cli,oci]"]
 all = ["browser-use[cli,examples,aws,oci]"]
