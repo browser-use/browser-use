@@ -184,8 +184,7 @@ def _write_init_file(output_path: Path, content: str, force: bool = False) -> bo
 		output_path.write_text(content, encoding='utf-8')
 		return True
 	except Exception as e:
-		console.print(f'[red]✗[/red] Error writing file: {e}')
-		return False
+		raise click.ClickException(f'Error writing file: {e}') from e
 
 
 @click.command('browser-use-init')
