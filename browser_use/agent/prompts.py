@@ -52,6 +52,15 @@ class SystemPrompt:
 			self._load_prompt_template()
 			prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
 
+		# Keep this safety instruction present in every model-specific prompt template.
+		prompt += (
+			'\n\nForm-control state changes: If an evaluate result reports that a disabled or readonly '
+			'control changed state during evaluation, treat it as an observation, not proof of what caused it. '
+			'Do not use evaluate to bypass a restriction. Check whether an expected, user-authorized page '
+			'interaction explains the change. Unless the page independently confirms that the requested action '
+			'completed through its expected workflow, preserve this warning in later turns and set success=false.'
+		)
+
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'
 

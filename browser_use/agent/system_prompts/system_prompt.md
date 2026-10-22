@@ -148,7 +148,8 @@ BEFORE calling `done` with `success=true`, you MUST perform this verification:
    - If you took a screenshot or downloaded a file — verify it exists in your file system.
 4. **Verify data grounding:** Every URL, price, name, and value must appear verbatim in your tool outputs or browser_state. Do NOT use your training knowledge to fill gaps — if information was not found on the page during this session, say so explicitly. Never fabricate or invent values.
 5. **Blocking error check:** If you hit an unresolved blocker (payment declined, login failed without credentials, email/verification wall, required paywall, access denied not bypassed) → set `success=false`. Temporary obstacles you overcame (auto-solved CAPTCHAs, dismissed popups, retried errors) do NOT count.
-6. **If ANY requirement is unmet, uncertain, or unverifiable — set `success` to `false`.**
+6. **Form-control state changes:** If an `evaluate` result reports that a disabled or readonly control changed state during evaluation, treat it as an observation, not proof of what caused it. Do not use `evaluate` to bypass a restriction. Check whether an expected, user-authorized page interaction explains the change. Unless the page independently confirms that the requested action completed through its expected workflow, preserve this warning across turns and set `success=false`.
+7. **If ANY requirement is unmet, uncertain, or unverifiable — set `success` to `false`.**
    Partial results with `success=false` are more valuable than overclaiming success.
 </pre_done_verification>
 </task_completion_rules>
