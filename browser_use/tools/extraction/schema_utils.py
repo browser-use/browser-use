@@ -1,7 +1,7 @@
 """Converts a JSON Schema dict to a runtime Pydantic model for structured extraction."""
 
 import logging
-from typing import Any
+from typing import Any, Union
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -46,6 +46,42 @@ def _check_unsupported(schema: dict) -> None:
 			raise ValueError(f'Unsupported JSON Schema keyword: {kw}')
 
 
+def _split_json_type(schema: dict) -> tuple[Any, bool]:
+	"""Return effective JSON Schema type and whether ``null`` appears in a type array."""
+	json_type = schema.get('type', 'string')
+	if isinstance(json_type, list):
+		includes_null = 'null' in json_type
+		members = [t for t in json_type if t != 'null']
+		if len(members) == 1:
+			return members[0], includes_null
+		if not members:
+			return 'null', includes_null
+		return members, includes_null
+	return json_type, False
+
+
+def _apply_nullable(base: Any, schema: dict, type_array_includes_null: bool) -> Any:
+	if schema.get('nullable', False) or type_array_includes_null:
+		return base | None
+	return base
+
+
+def _field_type_includes_null(prop_schema: dict) -> bool:
+	if prop_schema.get('nullable', False):
+		return True
+	json_type = prop_schema.get('type', 'string')
+	return isinstance(json_type, list) and 'null' in json_type
+
+
+def _primary_json_type(prop_schema: dict) -> str:
+	json_type, _ = _split_json_type(prop_schema)
+	if isinstance(json_type, list):
+		return json_type[0] if json_type else 'string'
+	if json_type == 'null':
+		return 'string'
+	return json_type
+
+
 def _resolve_type(schema: dict, name: str) -> Any:
 	"""Recursively resolve a JSON Schema node to a Python type.
 
@@ -53,7 +89,19 @@ def _resolve_type(schema: dict, name: str) -> Any:
 	"""
 	_check_unsupported(schema)
 
-	json_type = schema.get('type', 'string')
+	json_type, type_array_null = _split_json_type(schema)
+
+	if isinstance(json_type, list):
+		resolved_members: list[Any] = []
+		for member in json_type:
+			if member in _PRIMITIVE_MAP:
+				resolved_members.append(_PRIMITIVE_MAP[member])
+			elif member in ('object', 'array'):
+				resolved_members.append(_resolve_type({**schema, 'type': member}, name))
+			else:
+				resolved_members.append(str)
+		base: Any = resolved_members[0] if len(resolved_members) == 1 else Union[tuple(resolved_members)]
+		return _apply_nullable(base, schema, type_array_null)
 
 	# Enums — constrain to str (Literal would be stricter but LLMs are flaky)
 	if 'enum' in schema:
@@ -76,12 +124,7 @@ def _resolve_type(schema: dict, name: str) -> Any:
 
 	# Primitive
 	base = _PRIMITIVE_MAP.get(json_type, str)
-
-	# Nullable
-	if schema.get('nullable', False):
-		return base | None
-
-	return base
+	return _apply_nullable(base, schema, type_array_null)
 
 
 _PRIMITIVE_DEFAULTS: dict[str, Any] = {
@@ -107,7 +150,7 @@ def _build_model(schema: dict, name: str) -> type[BaseModel]:
 			default = ...
 		elif 'default' in prop_schema:
 			default = prop_schema['default']
-		elif prop_schema.get('nullable', False):
+		elif _field_type_includes_null(prop_schema):
 			# _resolve_type already made the type include None
 			default = None
 		else:
@@ -115,7 +158,7 @@ def _build_model(schema: dict, name: str) -> type[BaseModel]:
 			# Use a type-appropriate zero value for primitives/arrays;
 			# fall back to None (with | None) for enums and nested objects
 			# where no in-set or constructible default exists.
-			json_type = prop_schema.get('type', 'string')
+			json_type = _primary_json_type(prop_schema)
 			if 'enum' in prop_schema:
 				# Can't pick an arbitrary enum member as default — use None
 				# so absent fields serialize as null, not an out-of-set value.
