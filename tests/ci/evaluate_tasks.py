@@ -25,12 +25,7 @@ from browser_use.llm.messages import UserMessage
 
 # --- CONFIG ---
 MAX_PARALLEL = 10
-TASK_DIR = (
-	sys.argv[1]
-	if len(sys.argv) > 1 and not sys.argv[1].startswith('--')
-	else os.path.join(os.path.dirname(__file__), '../agent_tasks')
-)
-TASK_FILES = glob.glob(os.path.join(TASK_DIR, '*.yaml'))
+DEFAULT_TASK_DIR = os.path.join(os.path.dirname(__file__), '../agent_tasks')
 
 
 class JudgeResponse(BaseModel):
@@ -277,18 +272,19 @@ async def run_task_subprocess(task_file, semaphore):
 		return result
 
 
-async def main():
+async def main(task_dir: str = DEFAULT_TASK_DIR):
 	"""Run all tasks in parallel using subprocesses"""
 	semaphore = asyncio.Semaphore(MAX_PARALLEL)
+	task_files = glob.glob(os.path.join(task_dir, '*.yaml'))
 
-	print(f'Found task files: {TASK_FILES}')
+	print(f'Found task files: {task_files}')
 
-	if not TASK_FILES:
+	if not task_files:
 		print('No task files found!')
 		return 0, 0
 
 	# Run all tasks in parallel subprocesses
-	tasks = [run_task_subprocess(task_file, semaphore) for task_file in TASK_FILES]
+	tasks = [run_task_subprocess(task_file, semaphore) for task_file in task_files]
 	results = await asyncio.gather(*tasks)
 
 	passed = sum(1 for r in results if r['success'])
@@ -344,8 +340,11 @@ async def main():
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
+	parser.add_argument('task_dir', nargs='?', default=DEFAULT_TASK_DIR, help='Directory containing task YAML files')
 	parser.add_argument('--task', type=str, help='Path to a single task YAML file (for subprocess mode)')
 	args = parser.parse_args()
+	if not args.task and not os.path.isdir(args.task_dir):
+		parser.error(f'Not a task directory: {args.task_dir}')
 
 	if args.task:
 		# Subprocess mode: run a single task and output ONLY JSON
@@ -363,7 +362,7 @@ if __name__ == '__main__':
 			print(json.dumps(error_result))
 	else:
 		# Parent process mode: run all tasks in parallel subprocesses
-		passed, total = asyncio.run(main())
+		passed, total = asyncio.run(main(args.task_dir))
 		# Results already printed by main() function
 
 		# Fail if 0% pass rate (all tasks failed)
