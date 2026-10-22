@@ -335,6 +335,36 @@ _EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Py
   PY"""
 
 
+def _read_piped_stdin() -> str:
+	"""Read piped stdin using an explicit process encoding, with UTF-8 fallback.
+
+	Prefer ``BROWSER_USE_STDIN_ENCODING`` when set (non-empty after strip); otherwise
+	``sys.stdin.encoding``, ``locale.getpreferredencoding(False)``, or ``utf-8``.
+	Decode the raw buffer with that chosen encoding first so legacy code-page pipes
+	(e.g. GBK ``茅`` as ``c3 a9``) keep their intended characters instead of being
+	misread as UTF-8 (``é``). Only if the chosen encoding raises
+	``LookupError`` (unknown name) or ``UnicodeDecodeError``, fall back to UTF-8 —
+	covering bad overrides and UTF-8 pipes that are illegal in the process code page
+	(e.g. UTF-8 ``中文`` under GBK).
+
+	Avoid wrapping ``sys.stdin.buffer`` in a throwaway ``TextIOWrapper`` (its close
+	would close the underlying buffer / stdin).
+	"""
+	import locale
+	import os
+
+	buffer = getattr(sys.stdin, 'buffer', None)
+	if buffer is not None:
+		raw = buffer.read()
+		override = (os.environ.get('BROWSER_USE_STDIN_ENCODING') or '').strip()
+		encoding = override or getattr(sys.stdin, 'encoding', None) or locale.getpreferredencoding(False) or 'utf-8'
+		try:
+			return raw.decode(encoding)
+		except (LookupError, UnicodeDecodeError):
+			return raw.decode('utf-8')
+	return sys.stdin.read()
+
+
 def _command_name(args: list[str]) -> str:
 	if '--cli-mcp' in args:
 		return 'cli-mcp'
@@ -381,7 +411,7 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		if sys.stdin.isatty():
 			print(_QUICKSTART)
 			return 0, 'quickstart'
-		code = sys.stdin.read()
+		code = _read_piped_stdin()
 		if not code.strip():
 			print(_EMPTY_STDIN_MESSAGE, file=sys.stderr)
 			return 1, 'run'
