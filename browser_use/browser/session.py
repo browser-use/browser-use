@@ -2469,16 +2469,20 @@ class BrowserSession(BaseModel):
 
 	async def get_current_page_url(self) -> str:
 		"""Get the URL of the current page."""
-		if self.agent_focus_target_id:
+		# Guard the reset/stop/kill window: session_manager is cleared before
+		# agent_focus_target_id, and get_target() may not (yet) know the id.
+		if self.agent_focus_target_id and self.session_manager:
 			target = self.session_manager.get_target(self.agent_focus_target_id)
-			return target.url
+			if target:
+				return target.url
 		return 'about:blank'
 
 	async def get_current_page_title(self) -> str:
 		"""Get the title of the current page."""
-		if self.agent_focus_target_id:
+		if self.agent_focus_target_id and self.session_manager:
 			target = self.session_manager.get_target(self.agent_focus_target_id)
-			return target.title
+			if target:
+				return target.title
 		return 'Unknown page title'
 
 	async def navigate_to(self, url: str, new_tab: bool = False) -> None:
