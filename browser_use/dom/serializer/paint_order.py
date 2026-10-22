@@ -19,7 +19,7 @@ class Rect:
 
 	def __post_init__(self):
 		if not (self.x1 <= self.x2 and self.y1 <= self.y2):
-			return False
+			raise ValueError(f'Invalid rectangle bounds: x1={self.x1} > x2={self.x2} or y1={self.y1} > y2={self.y2}')
 
 	# --- fast relations ----------------------------------------------------
 	def area(self) -> float:
@@ -192,6 +192,11 @@ class PaintOrderRemover:
 			for node in nodes:
 				if not node.original_node.snapshot_node or not node.original_node.snapshot_node.bounds:
 					continue  # shouldn't happen by how we filter them out in the first place
+
+				if node.original_node.snapshot_node.bounds.width <= 0 or node.original_node.snapshot_node.bounds.height <= 0:
+					# Collapsed or invisible elements have no paint area; letting
+					# them in would hand Rect zero/negative dimensions.
+					continue
 
 				rect = Rect(
 					x1=node.original_node.snapshot_node.bounds.x,
