@@ -39,6 +39,18 @@ if TYPE_CHECKING:
 	from .mouse import Mouse
 
 
+def _is_stale_dom_node_error(exc: RuntimeError) -> bool:
+	"""Return whether a cdp-use RuntimeError represents a stale DOM node."""
+	if len(exc.args) != 1:
+		return False
+
+	error = exc.args[0]
+	if not isinstance(error, dict):
+		return False
+
+	return error.get('code') == -32000 and error.get('message') == 'Could not find node with given id'
+
+
 class Page:
 	"""Page operations (tab or iframe)."""
 
@@ -380,16 +392,24 @@ class Page:
 
 	# Element finding methods (these would need to be implemented based on DOM queries)
 	async def get_elements_by_css_selector(self, selector: str) -> list['Element']:
-		"""Get elements by CSS selector."""
+		"""Get elements by CSS selector, retrying if navigation invalidates the DOM root."""
 		session_id = await self._ensure_session()
 
-		# Get document first
-		doc_result = await self._client.send.DOM.getDocument(session_id=session_id)
-		document_node_id = doc_result['root']['nodeId']
+		for attempt in range(3):
+			# Reacquire the document root on every attempt because navigation can invalidate node IDs.
+			doc_result = await self._client.send.DOM.getDocument(session_id=session_id)
+			query_params: 'QuerySelectorAllParameters' = {
+				'nodeId': doc_result['root']['nodeId'],
+				'selector': selector,
+			}
 
-		# Query selector all
-		query_params: 'QuerySelectorAllParameters' = {'nodeId': document_node_id, 'selector': selector}
-		result = await self._client.send.DOM.querySelectorAll(query_params, session_id=session_id)
+			try:
+				result = await self._client.send.DOM.querySelectorAll(query_params, session_id=session_id)
+				break
+			except RuntimeError as exc:
+				if not _is_stale_dom_node_error(exc) or attempt == 2:
+					raise
+				await asyncio.sleep(0.05 * (attempt + 1))
 
 		elements = []
 		from .element import Element as Element_
