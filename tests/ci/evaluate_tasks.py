@@ -343,6 +343,8 @@ if __name__ == '__main__':
 	parser.add_argument('task_dir', nargs='?', default=DEFAULT_TASK_DIR, help='Directory containing task YAML files')
 	parser.add_argument('--task', type=str, help='Path to a single task YAML file (for subprocess mode)')
 	args = parser.parse_args()
+	if not args.task and not os.path.isdir(args.task_dir):
+		parser.error(f'Not a task directory: {args.task_dir}')
 
 	if args.task:
 		# Subprocess mode: run a single task and output ONLY JSON
