@@ -2010,7 +2010,7 @@ Validated Code (after quote fixing):
 			self.display_files_in_done_text = display_files_in_done_text
 
 			@self.registry.action(
-				'Complete task with structured output.',
+				'Complete task with structured output. Set task_success to false if the user request is incomplete.',
 				param_model=StructuredOutputAction[output_model],
 			)
 			async def done(params: StructuredOutputAction, file_system: FileSystem, browser_session: BrowserSession):
