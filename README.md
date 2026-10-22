@@ -347,6 +347,34 @@ Choose how much you want to manage:
 You can also host the Python library and browsers on your own infrastructure.
 </details>
 
+<details>
+<summary><b>Can I rerun a task without calling the model on every step?</b></summary>
+
+Yes. Save a successful run, then replay its clicks and typing with new values. The snippet below runs inside an async function:
+
+```python
+from browser_use import Agent, ChatBrowserUse
+
+llm = ChatBrowserUse()
+agent = Agent(task='Open https://example.com/billing and request an invoice copy for Ada Lovelace, ada@example.com', llm=llm)
+await agent.run()
+agent.save_history('invoice_run.json')
+print(agent.detect_variables())  # names come from the form's fields, e.g. 'name' and 'email'
+
+# Later: the same clicks and typing with new values, no model call per step
+results = await Agent(task='', llm=llm).load_and_rerun(
+    'invoice_run.json', variables={'name': 'Grace Hopper', 'email': 'grace@example.com'}, skip_failures=False
+)
+```
+
+- Use the variable names `detect_variables()` prints. An unknown name is skipped with a warning, and the recorded value is typed instead.
+- Extract steps and the closing summary still call the model.
+- If the page changed, the replay raises `RuntimeError` at the first step it cannot match. The steps before it already ran, so check whether the form was sent before you run the agent again.
+- The saved file holds the values the agent typed. Pass `sensitive_data` to the agent to keep secrets out of it.
+
+[Example](examples/features/rerun_history.py)
+</details>
+
 <br/>
 
 ## Related Repositories
