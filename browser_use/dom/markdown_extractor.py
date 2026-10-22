@@ -407,6 +407,26 @@ def _get_table_header(block: _AtomicBlock) -> str | None:
 	return None
 
 
+def _split_oversized_paragraph(block: _AtomicBlock, max_chunk_chars: int) -> list[_AtomicBlock]:
+	"""Split an oversized multi-line paragraph at line boundaries.
+
+	Preprocessing strips blank lines, so consecutive page paragraphs otherwise
+	become one atomic block that bypasses the chunk size limit.
+	"""
+	if block.block_type != _BlockType.PARAGRAPH or len(block.lines) < 2:
+		return [block]
+	if block.char_end - block.char_start <= max_chunk_chars:
+		return [block]
+	line_blocks: list[_AtomicBlock] = []
+	offset = block.char_start
+	for line in block.lines:
+		# Preserve the final-block clamp when there is no trailing newline.
+		line_end = min(offset + len(line) + 1, block.char_end)
+		line_blocks.append(_AtomicBlock(block_type=_BlockType.PARAGRAPH, lines=[line], char_start=offset, char_end=line_end))
+		offset = line_end
+	return line_blocks
+
+
 def chunk_markdown_by_structure(
 	content: str,
 	max_chunk_chars: int = 100_000,
@@ -446,8 +466,9 @@ def chunk_markdown_by_structure(
 	if start_from_char >= len(content):
 		return []
 
-	# Phase 1: parse atomic blocks
-	blocks = _parse_atomic_blocks(content)
+	# Phase 1: split oversized paragraph runs into line-sized atomic blocks.
+	parsed_blocks = _parse_atomic_blocks(content)
+	blocks = [block for parsed in parsed_blocks for block in _split_oversized_paragraph(parsed, max_chunk_chars)]
 	if not blocks:
 		return []
 
