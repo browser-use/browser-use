@@ -74,8 +74,8 @@ def get_click_description(node: EnhancedDOMTreeNode) -> str:
 		short_text = text[:30] + ('...' if len(text) > 30 else '')
 		parts.append(f'"{short_text}"')
 
-	# Add key attributes like id, name, aria-label
-	for attr in ['id', 'name', 'aria-label']:
+	# Add key attributes like id, name, aria-label, title
+	for attr in ['id', 'name', 'aria-label', 'title', 'data-tooltip']:
 		if node.attributes.get(attr):
 			parts.append(f'{attr}={node.attributes[attr][:20]}')
 
