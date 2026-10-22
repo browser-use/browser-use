@@ -11,7 +11,7 @@ from browser_use.browser.watchdog_base import BaseWatchdog
 
 
 class PopupsWatchdog(BaseWatchdog):
-	"""Handles JavaScript dialogs (alert, confirm, prompt) by automatically accepting them immediately."""
+	"""Handles JavaScript dialogs (alert, confirm, prompt) immediately; confirm() follows browser_profile.confirm_dialog_action."""
 
 	# Events this watchdog listens to and emits
 	LISTENS_TO: ClassVar[list[type[BaseEvent]]] = [TabCreatedEvent]
@@ -65,18 +65,26 @@ class PopupsWatchdog(BaseWatchdog):
 					dialog_type = event_data.get('type', 'alert')
 					message = event_data.get('message', '')
 
-					# Store the popup message in browser session for inclusion in browser state
-					if message:
-						formatted_message = f'[{dialog_type}] {message}'
-						self.browser_session._closed_popup_messages.append(formatted_message)
-						self.logger.debug(f'📝 Stored popup message: {formatted_message[:100]}')
-
 					# Choose action based on dialog type:
 					# - alert: accept=true (click OK to dismiss)
-					# - confirm: accept=true (click OK to proceed - safer for automation)
+					# - confirm: browser_profile.confirm_dialog_action ('accept' by default: click OK to proceed)
 					# - prompt: accept=false (click Cancel since we can't provide input)
 					# - beforeunload: accept=true (allow navigation)
 					should_accept = dialog_type in ('alert', 'confirm', 'beforeunload')
+					dismissed_confirm = False
+					if dialog_type == 'confirm' and self.browser_session.browser_profile.confirm_dialog_action == 'dismiss':
+						should_accept = False
+						dismissed_confirm = True
+
+					# Store the popup message in browser session for inclusion in browser state
+					if message:
+						formatted_message = f'[{dialog_type}] {message}'
+						if dismissed_confirm:
+							# Tell the agent which answer was sent, so it does not assume the page's action happened.
+							# (This states the answer requested below, not a confirmed result.)
+							formatted_message += ' (answered with Cancel)'
+						self.browser_session._closed_popup_messages.append(formatted_message)
+						self.logger.debug(f'📝 Stored popup message: {formatted_message[:100]}')
 
 					action_str = 'accepting (OK)' if should_accept else 'dismissing (Cancel)'
 					self.logger.info(f"🔔 JavaScript {dialog_type} dialog: '{message[:100]}' - {action_str}...")
