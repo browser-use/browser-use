@@ -134,7 +134,7 @@ await client.workspaces.delete(workspace.id)
 
 ## Skills
 
-Turn website interactions into reusable, deterministic API endpoints.
+Retired: `skills.create` and `skills.refine` return `410 Gone`. Existing skills can still be viewed and run, and Marketplace skills can still be cloned and executed. For new work, use rerunnable scripts.
 
 ### Anatomy
 
@@ -144,16 +144,16 @@ Turn website interactions into reusable, deterministic API endpoints.
 ### Create & Execute
 
 ```python
-# Create (~30s, $2 PAYG)
+# Create (retired: returns 410 Gone)
 skill = await client.skills.create(
     goal="Extract product price from Amazon",
     demonstration="Navigate to product page, find price element..."
 )
 
-# Execute ($0.02 PAYG)
+# Execute an existing skill
 result = await client.skills.execute(skill.id, params={"url": "https://amazon.com/dp/..."})
 
-# Refine (free)
+# Refine (retired: returns 410 Gone)
 await client.skills.refine(skill.id, feedback="Also extract the rating")
 ```
 
