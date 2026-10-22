@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import urlparse
@@ -59,6 +60,9 @@ _NETWORK_DOWNLOAD_FILE_EXTENSIONS = {
 }
 
 _GENERIC_TEXT_ATTACHMENT_NAMES = {'f', 'download', 'response', 'data', 'callback'}
+_PARTIAL_DOWNLOAD_SUFFIXES = {'.crdownload', '.part', '.tmp'}
+_MAX_CDP_DOWNLOAD_INFO_ENTRIES = 1000
+_CDP_DOWNLOAD_INFO_TTL_SECONDS = 60 * 60
 
 
 def _filename_from_content_disposition(content_disposition: str) -> str | None:
@@ -272,6 +276,7 @@ class DownloadsWatchdog(BaseWatchdog):
 		self._network_monitored_targets.clear()
 		self._detected_downloads.clear()
 		self._initial_downloads_snapshot.clear()
+		self._cdp_downloads_info.clear()
 		self._network_callback_registered = False
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
@@ -304,6 +309,137 @@ class DownloadsWatchdog(BaseWatchdog):
 		"""Check if auto-download PDFs is enabled in browser profile."""
 		return self.browser_session.browser_profile.auto_download_pdfs
 
+	def _on_cdp_download_progress(self, event: CDPDownloadProgressEvent, session_id: SessionID | None) -> None:
+		"""Handle a Browser.downloadProgress event from the root CDP client."""
+		guid = event.get('guid', '')
+		state = event.get('state', '')
+		received_bytes = int(event.get('receivedBytes', 0))
+		total_bytes = int(event.get('totalBytes', 0))
+
+		# Call direct callbacks first (for click handlers tracking progress)
+		progress_info = {
+			'guid': guid,
+			'received_bytes': received_bytes,
+			'total_bytes': total_bytes,
+			'state': state,
+		}
+		for callback in self._download_progress_callbacks:
+			try:
+				callback(progress_info)
+			except Exception as e:
+				self.logger.debug(f'[DownloadsWatchdog] Error in download progress callback: {e}')
+
+		# Emit progress event for all states so listeners can track progress
+		from browser_use.browser.events import DownloadProgressEvent as DownloadProgressEventInternal
+
+		self.event_bus.dispatch(
+			DownloadProgressEventInternal(
+				guid=guid,
+				received_bytes=received_bytes,
+				total_bytes=total_bytes,
+				state=state,
+			)
+		)
+
+		now = time.monotonic()
+		info = self._cdp_downloads_info.setdefault(guid, {})
+		info['last_seen_at'] = now
+		if state == 'canceled':
+			# A canceled download is terminal too. Retain a short-lived tombstone so a
+			# stray later completion cannot dispatch, while making the entry prunable.
+			info['handled'] = True
+			info['terminal_at'] = now
+			self._prune_cdp_downloads_info(preserve_guid=guid)
+			return
+		if state != 'completed':
+			self._prune_cdp_downloads_info(preserve_guid=guid)
+			return
+
+		if info.get('handled'):
+			# Refresh a tombstone that just suppressed a duplicate terminal event.
+			info['terminal_at'] = now
+			self._prune_cdp_downloads_info(preserve_guid=guid)
+			return
+		download_url = info.get('url', '')
+
+		file_path = event.get('filePath')
+		if self.browser_session.is_local:
+			if file_path:
+				self.logger.debug(f'[DownloadsWatchdog] Download completed: {file_path}')
+				self._track_download(file_path, guid=guid, url=download_url)
+				return
+
+			# No filePath provided - detect by comparing with initial snapshot
+			self.logger.debug('[DownloadsWatchdog] No filePath in progress event; detecting via filesystem')
+			downloads_path = self.browser_session.browser_profile.downloads_path
+			if not downloads_path:
+				return
+
+			downloads_dir = Path(downloads_path).expanduser().resolve()
+			if not downloads_dir.exists():
+				return
+
+			for candidate in downloads_dir.iterdir():
+				if (
+					candidate.is_file()
+					and not candidate.name.startswith('.')
+					and candidate.suffix.lower() not in _PARTIAL_DOWNLOAD_SUFFIXES
+					and candidate.name not in self._initial_downloads_snapshot
+					and candidate.stat().st_size > 4
+				):
+					# Add to snapshot before dispatch so the filesystem poller cannot select it again.
+					self._initial_downloads_snapshot.add(candidate.name)
+					self.logger.debug(f'[DownloadsWatchdog] Detected new download: {candidate.name}')
+					self._track_download(str(candidate), guid=guid, url=download_url)
+					break
+			return
+
+		# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
+		# Claim before callbacks and retain recent handled entries long enough
+		# for duplicate terminal CDP events to become no-ops.
+		info['handled'] = True
+		info['terminal_at'] = now
+		try:
+			suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
+			downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
+			effective_path = file_path or str(Path(downloads_path) / suggested_filename)
+			file_name = Path(effective_path).name
+			file_ext = Path(file_name).suffix.lower().lstrip('.')
+			# Call direct callbacks first so click handlers waiting on the
+			# download (e.g. _execute_click_with_download_detection) resolve.
+			# The local branch does this inside _track_download(); the remote
+			# branch previously only emitted the event, so the click action
+			# timed out waiting for on_download_complete even though the
+			# download had finished (see issue #5132).
+			complete_info = {
+				'guid': guid,
+				'url': download_url,
+				'path': str(effective_path),
+				'file_name': file_name,
+				'file_size': 0,
+				'file_type': file_ext if file_ext else None,
+				'auto_download': False,
+			}
+			for callback in self._download_complete_callbacks:
+				try:
+					callback(complete_info)
+				except Exception as e:
+					self.logger.debug(f'[DownloadsWatchdog] Error in download complete callback: {e}')
+			self.event_bus.dispatch(
+				FileDownloadedEvent(
+					guid=guid,
+					url=download_url,
+					path=str(effective_path),
+					file_name=file_name,
+					file_size=0,
+					file_type=file_ext if file_ext else None,
+				)
+			)
+			self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
+		finally:
+			# Keep the current GUID while bounding older handled entries.
+			self._prune_cdp_downloads_info(preserve_guid=guid)
+
 	async def attach_to_target(self, target_id: TargetID) -> None:
 		"""Set up download monitoring for a specific target."""
 
@@ -316,12 +452,16 @@ class DownloadsWatchdog(BaseWatchdog):
 			# Sanitize at the ingress so every downstream consumer sees a safe basename.
 			suggested_filename = self._sanitize_download_filename(event.get('suggestedFilename', 'download'))
 			try:
+				now = time.monotonic()
 				assert suggested_filename, 'CDP DownloadWillBegin missing suggestedFilename'
 				self._cdp_downloads_info[guid] = {
 					'url': url,
 					'suggested_filename': suggested_filename,
 					'handled': False,
+					'started_at': now,
+					'last_seen_at': now,
 				}
+				self._prune_cdp_downloads_info(preserve_guid=guid)
 			except (AssertionError, KeyError):
 				pass
 
@@ -361,121 +501,6 @@ class DownloadsWatchdog(BaseWatchdog):
 			# Remove from set when done
 			task.add_done_callback(lambda t: self._cdp_event_tasks.discard(t))
 
-		def download_progress_handler(event: CDPDownloadProgressEvent, session_id: SessionID | None) -> None:
-			guid = event.get('guid', '')
-			state = event.get('state', '')
-			received_bytes = int(event.get('receivedBytes', 0))
-			total_bytes = int(event.get('totalBytes', 0))
-
-			# Call direct callbacks first (for click handlers tracking progress)
-			progress_info = {
-				'guid': guid,
-				'received_bytes': received_bytes,
-				'total_bytes': total_bytes,
-				'state': state,
-			}
-			for callback in self._download_progress_callbacks:
-				try:
-					callback(progress_info)
-				except Exception as e:
-					self.logger.debug(f'[DownloadsWatchdog] Error in download progress callback: {e}')
-
-			# Emit progress event for all states so listeners can track progress
-			from browser_use.browser.events import DownloadProgressEvent as DownloadProgressEventInternal
-
-			self.event_bus.dispatch(
-				DownloadProgressEventInternal(
-					guid=guid,
-					received_bytes=received_bytes,
-					total_bytes=total_bytes,
-					state=state,
-				)
-			)
-
-			# Check if download is complete
-			if state == 'completed':
-				file_path = event.get('filePath')
-				if self.browser_session.is_local:
-					if file_path:
-						self.logger.debug(f'[DownloadsWatchdog] Download completed: {file_path}')
-						# Track the download
-						self._track_download(file_path, guid=guid)
-						# Mark as handled to prevent fallback duplicate dispatch
-						try:
-							if guid in self._cdp_downloads_info:
-								self._cdp_downloads_info[guid]['handled'] = True
-						except (KeyError, AttributeError):
-							pass
-					else:
-						# No filePath provided - detect by comparing with initial snapshot
-						self.logger.debug('[DownloadsWatchdog] No filePath in progress event; detecting via filesystem')
-						downloads_path = self.browser_session.browser_profile.downloads_path
-						if downloads_path:
-							downloads_dir = Path(downloads_path).expanduser().resolve()
-							if downloads_dir.exists():
-								for f in downloads_dir.iterdir():
-									if (
-										f.is_file()
-										and not f.name.startswith('.')
-										and f.name not in self._initial_downloads_snapshot
-									):
-										# Check file has content before processing
-										if f.stat().st_size > 4:
-											# Found a new file! Add to snapshot immediately to prevent duplicate detection
-											self._initial_downloads_snapshot.add(f.name)
-											self.logger.debug(f'[DownloadsWatchdog] Detected new download: {f.name}')
-											self._track_download(str(f))
-											# Mark as handled
-											try:
-												if guid in self._cdp_downloads_info:
-													self._cdp_downloads_info[guid]['handled'] = True
-											except (KeyError, AttributeError):
-												pass
-											break
-				else:
-					# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
-					info = self._cdp_downloads_info.get(guid, {})
-					try:
-						suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
-						downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
-						effective_path = file_path or str(Path(downloads_path) / suggested_filename)
-						file_name = Path(effective_path).name
-						file_ext = Path(file_name).suffix.lower().lstrip('.')
-						# Call direct callbacks first so click handlers waiting on the
-						# download (e.g. _execute_click_with_download_detection) resolve.
-						# The local branch does this inside _track_download(); the remote
-						# branch previously only emitted the event, so the click action
-						# timed out waiting for on_download_complete even though the
-						# download had finished (see issue #5132).
-						complete_info = {
-							'guid': guid,
-							'url': info.get('url', ''),
-							'path': str(effective_path),
-							'file_name': file_name,
-							'file_size': 0,
-							'file_type': file_ext if file_ext else None,
-							'auto_download': False,
-						}
-						for callback in self._download_complete_callbacks:
-							try:
-								callback(complete_info)
-							except Exception as e:
-								self.logger.debug(f'[DownloadsWatchdog] Error in download complete callback: {e}')
-						self.event_bus.dispatch(
-							FileDownloadedEvent(
-								guid=guid,
-								url=info.get('url', ''),
-								path=str(effective_path),
-								file_name=file_name,
-								file_size=0,
-								file_type=file_ext if file_ext else None,
-							)
-						)
-						self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
-					finally:
-						if guid in self._cdp_downloads_info:
-							del self._cdp_downloads_info[guid]
-
 		try:
 			downloads_path_raw = self.browser_session.browser_profile.downloads_path
 			if not downloads_path_raw:
@@ -514,7 +539,7 @@ class DownloadsWatchdog(BaseWatchdog):
 
 				# Register the handlers with CDP
 				cdp_client.register.Browser.downloadWillBegin(download_will_begin_handler)  # type: ignore[arg-type]
-				cdp_client.register.Browser.downloadProgress(download_progress_handler)  # type: ignore[arg-type]
+				cdp_client.register.Browser.downloadProgress(self._on_cdp_download_progress)  # type: ignore[arg-type]
 
 				self._download_cdp_session_setup = True
 				self.logger.debug('[DownloadsWatchdog] Set up CDP download listeners')
@@ -884,55 +909,107 @@ class DownloadsWatchdog(BaseWatchdog):
 			self.logger.warning(f'[DownloadsWatchdog] Download failed: {type(e).__name__}: {e}')
 			return None
 
-	def _track_download(self, file_path: str, guid: str | None = None) -> None:
-		"""Track a completed download and dispatch the appropriate event.
+	def _prune_cdp_downloads_info(self, preserve_guid: str | None = None) -> None:
+		"""Retain recent terminal tombstones while enforcing a hard cache bound."""
+		now = time.monotonic()
+		stale_before = now - _CDP_DOWNLOAD_INFO_TTL_SECONDS
+		cached_entries = list(self._cdp_downloads_info.items())
 
-		Args:
-			file_path: The path to the downloaded file
-			guid: Optional CDP download GUID for correlation with DownloadStartedEvent
-		"""
-		try:
-			# Get file info
-			path = Path(file_path)
-			if path.exists():
-				file_size = path.stat().st_size
-				self.logger.debug(f'[DownloadsWatchdog] Tracked download: {path.name} ({file_size} bytes)')
+		# Drop stale terminal tombstones and inactive downloads. Entries created
+		# before timestamps were added are treated as recent for compatibility.
+		for cached_guid, cached_info in cached_entries:
+			if cached_guid == preserve_guid:
+				continue
+			last_seen_at = cached_info.get('last_seen_at', cached_info.get('started_at', now))
+			retention_at = cached_info.get('terminal_at', last_seen_at) if cached_info.get('handled') else last_seen_at
+			if retention_at < stale_before:
+				del self._cdp_downloads_info[cached_guid]
 
-				# Get file extension for file_type
-				file_ext = path.suffix.lower().lstrip('.')
+		excess = len(self._cdp_downloads_info) - _MAX_CDP_DOWNLOAD_INFO_ENTRIES
+		if excess <= 0:
+			return
 
-				# Call direct callbacks first (for click handlers waiting for downloads)
-				complete_info = {
-					'guid': guid,
-					'url': str(path),
-					'path': str(path),
-					'file_name': path.name,
-					'file_size': file_size,
-					'file_type': file_ext if file_ext else None,
-					'auto_download': False,
-				}
-				for callback in self._download_complete_callbacks:
-					try:
-						callback(complete_info)
-					except Exception as e:
-						self.logger.debug(f'[DownloadsWatchdog] Error in download complete callback: {e}')
-
-				# Dispatch download event
-				from browser_use.browser.events import FileDownloadedEvent
-
-				self.event_bus.dispatch(
-					FileDownloadedEvent(
-						guid=guid,
-						url=str(path),  # Use the file path as URL for local files
-						path=str(path),
-						file_name=path.name,
-						file_size=file_size,
-					)
-				)
+		# Prefer evicting the oldest terminal tombstones, preserving entries that
+		# recently suppressed duplicates. Only evict active downloads if they alone
+		# exceed the hard bound; the currently processed GUID is always protected.
+		eviction_candidates: list[tuple[int, float, int, str]] = []
+		for insertion_order, (cached_guid, cached_info) in enumerate(self._cdp_downloads_info.items()):
+			if cached_guid == preserve_guid:
+				continue
+			last_seen_at = float(cached_info.get('last_seen_at', cached_info.get('started_at', now)))
+			if cached_info.get('handled'):
+				terminal_at = float(cached_info.get('terminal_at', last_seen_at))
+				eviction_candidates.append((0, terminal_at, insertion_order, cached_guid))
 			else:
+				eviction_candidates.append((1, last_seen_at, insertion_order, cached_guid))
+
+		for _, _, _, cached_guid in sorted(eviction_candidates):
+			if excess <= 0:
+				break
+			del self._cdp_downloads_info[cached_guid]
+			excess -= 1
+
+	def _track_download(
+		self,
+		file_path: str,
+		guid: str | None = None,
+		url: str | None = None,
+	) -> bool:
+		"""Dispatch one completed local download and notify direct waiters exactly once."""
+		try:
+			path = Path(file_path)
+			if not path.exists():
 				self.logger.warning(f'[DownloadsWatchdog] Downloaded file not found: {file_path}')
+				return False
+
+			file_size = path.stat().st_size
+			self.logger.debug(f'[DownloadsWatchdog] Tracked download: {path.name} ({file_size} bytes)')
+
+			download_info = self._cdp_downloads_info.get(guid, {}) if guid is not None else {}
+			if download_info.get('handled'):
+				return False
+
+			# Claim the GUID before callbacks/event dispatch so a competing completion path
+			# observes it as handled and cannot notify the same download again.
+			if guid is not None:
+				now = time.monotonic()
+				download_info = self._cdp_downloads_info.setdefault(guid, {})
+				download_info['handled'] = True
+				download_info['terminal_at'] = now
+				download_info['last_seen_at'] = now
+
+			file_ext = path.suffix.lower().lstrip('.')
+			effective_url = url or str(path)
+			complete_info = {
+				'guid': guid,
+				'url': effective_url,
+				'path': str(path),
+				'file_name': path.name,
+				'file_size': file_size,
+				'file_type': file_ext if file_ext else None,
+				'auto_download': False,
+			}
+			for callback in self._download_complete_callbacks:
+				try:
+					callback(complete_info)
+				except Exception as e:
+					self.logger.debug(f'[DownloadsWatchdog] Error in download complete callback: {e}')
+
+			self.event_bus.dispatch(
+				FileDownloadedEvent(
+					guid=guid,
+					url=effective_url,
+					path=str(path),
+					file_name=path.name,
+					file_size=file_size,
+					file_type=file_ext if file_ext else None,
+				)
+			)
+			self._prune_cdp_downloads_info(preserve_guid=guid)
+			return True
 		except Exception as e:
 			self.logger.error(f'[DownloadsWatchdog] Error tracking download: {e}')
+			return False
 
 	async def _handle_cdp_download(
 		self, event: DownloadWillBeginEvent, target_id: TargetID, session_id: SessionID | None
@@ -987,6 +1064,7 @@ class DownloadsWatchdog(BaseWatchdog):
 					if (
 						file_path.is_file()
 						and not file_path.name.startswith('.')
+						and file_path.suffix.lower() not in _PARTIAL_DOWNLOAD_SUFFIXES
 						and file_path.name not in self._initial_downloads_snapshot
 					):
 						# Add to snapshot immediately to prevent duplicate detection
@@ -1000,31 +1078,7 @@ class DownloadsWatchdog(BaseWatchdog):
 									f'[DownloadsWatchdog] ✅ Found downloaded file: {file_path} ({file_size} bytes)'
 								)
 
-								# Determine file type from extension
-								file_ext = file_path.suffix.lower().lstrip('.')
-								file_type = file_ext if file_ext else None
-
-								# Dispatch download event
-								# Skip if already handled by progress/JS fetch
-								info = self._cdp_downloads_info.get(guid, {})
-								if info.get('handled'):
-									return
-								self.event_bus.dispatch(
-									FileDownloadedEvent(
-										guid=guid,
-										url=download_url,
-										path=str(file_path),
-										file_name=file_path.name,
-										file_size=file_size,
-										file_type=file_type,
-									)
-								)
-							# Mark as handled after dispatch
-							try:
-								if guid in self._cdp_downloads_info:
-									self._cdp_downloads_info[guid]['handled'] = True
-							except (KeyError, AttributeError):
-								pass
+								self._track_download(str(file_path), guid=guid, url=download_url)
 							return
 						except Exception as e:
 							self.logger.debug(f'[DownloadsWatchdog] Error checking file {file_path}: {e}')
