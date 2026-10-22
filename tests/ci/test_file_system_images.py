@@ -11,7 +11,7 @@ from browser_use.filesystem.file_system import Base64BinaryFile, FileSystem
 
 
 class TestImageFiles:
-	"""Test image file operations - only external reading supported."""
+	"""Test internal and external image file operations."""
 
 	def create_test_image(self, width: int = 100, height: int = 100, format: str = 'PNG') -> bytes:
 		"""Create a test image and return bytes."""
@@ -20,6 +20,45 @@ class TestImageFiles:
 		img.save(buffer, format=format)
 		buffer.seek(0)
 		return buffer.read()
+
+	@pytest.mark.parametrize(
+		('extension', 'image_format'),
+		[('png', 'PNG'), ('gif', 'GIF'), ('jpg', 'JPEG'), ('jpeg', 'JPEG'), ('webp', 'WEBP')],
+	)
+	async def test_read_internal_image_returns_image_payload(self, tmp_path: Path, extension: str, image_format: str):
+		fs = FileSystem(tmp_path / 'workspace')
+		filename = f'logo.{extension}'
+		image_bytes = self.create_test_image(format=image_format)
+		content = base64.b64encode(image_bytes).decode('utf-8') + '\n'
+		assert 'successfully' in await fs.write_file(filename, content)
+
+		result = await fs.read_file_structured(filename)
+
+		assert result == {'message': f'Read image file {filename}.', 'images': [{'name': filename, 'data': content}]}
+		assert base64.b64decode(result['images'][0]['data']) == image_bytes
+		assert content.strip() not in fs.describe()
+
+	@pytest.mark.parametrize(
+		('extension', 'image_format'),
+		[('png', 'PNG'), ('gif', 'GIF'), ('jpg', 'JPEG'), ('jpeg', 'JPEG'), ('webp', 'WEBP')],
+	)
+	@pytest.mark.parametrize('old_str', ['binary', 'text-not-in-the-file'])
+	async def test_replace_text_in_internal_image_is_rejected_without_changes(
+		self, tmp_path: Path, extension: str, image_format: str, old_str: str
+	):
+		fs = FileSystem(tmp_path / 'workspace')
+		filename = f'logo.{extension}'
+		image_bytes = self.create_test_image(format=image_format)
+		content = base64.b64encode(image_bytes).decode('utf-8')
+		assert 'successfully' in await fs.write_file(filename, content)
+
+		result = await fs.replace_file_str(filename, old_str, 'replacement')
+
+		assert result == f"Error: Cannot replace text in binary file '{filename}'. Overwrite it instead."
+		file_obj = fs.get_file(filename)
+		assert isinstance(file_obj, Base64BinaryFile)
+		assert file_obj.content == content
+		assert (fs.get_dir() / filename).read_bytes() == image_bytes
 
 	@pytest.mark.asyncio
 	async def test_read_external_png_image(self, tmp_path: Path):
@@ -185,6 +224,22 @@ class TestImageFiles:
 class TestActionResultImages:
 	"""Test ActionResult with images field."""
 
+	async def test_read_file_tool_returns_internal_image_payload(self, tmp_path: Path):
+		from browser_use.agent.views import ActionResult
+		from browser_use.tools.service import Tools
+
+		fs = FileSystem(tmp_path / 'workspace')
+		content = TestBinaryFileCreation.PNG_1X1
+		assert 'successfully' in await fs.write_file('logo.png', content)
+
+		result = await Tools().registry.execute_action(
+			'read_file', {'file_name': 'logo.png'}, file_system=fs, available_file_paths=[]
+		)
+
+		assert isinstance(result, ActionResult)
+		assert result.images == [{'name': 'logo.png', 'data': content}]
+		assert result.extracted_content == 'Read image file logo.png.'
+
 	def test_action_result_with_images(self):
 		"""Test creating ActionResult with images."""
 		from browser_use.agent.views import ActionResult
@@ -311,3 +366,16 @@ class TestBinaryFileCreation:
 		# Content integrity, not just existence: decoded bytes must round-trip and be a real PNG
 		assert restored._decoded() == original_bytes
 		assert restored._decoded()[:8] == b'\x89PNG\r\n\x1a\n'
+		result = await fs2.read_file_structured('logo.png')
+		assert result == {'message': 'Read image file logo.png.', 'images': [{'name': 'logo.png', 'data': self.PNG_1X1}]}
+
+	async def test_read_internal_image_preserves_filename_correction_note(self, tmp_path: Path):
+		fs = FileSystem(tmp_path / 'workspace')
+		assert 'successfully' in await fs.write_file('my@logo.png', self.PNG_1X1)
+
+		result = await fs.read_file_structured('my@logo.png')
+
+		assert result['images'] == [{'name': 'mylogo.png', 'data': self.PNG_1X1}]
+		assert result['message'] == (
+			"Note: filename was auto-corrected from 'my@logo.png' to 'mylogo.png'. Read image file mylogo.png."
+		)
