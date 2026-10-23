@@ -410,7 +410,8 @@ class ChatVercel(BaseChatModel):
 		Convert a Pydantic model to a Gemini-compatible schema.
 
 		This function removes unsupported properties like 'additionalProperties' and resolves
-		$ref references that Gemini doesn't support.
+		$ref references that Gemini doesn't support. The metadata 'title' of a schema is removed
+		as well, while a property literally named 'title' is kept.
 		"""
 
 		# Handle $defs and $ref resolution
@@ -441,13 +442,21 @@ class ChatVercel(BaseChatModel):
 			schema = resolve_refs(schema)
 
 		# Remove unsupported properties
-		def clean_schema(obj: Any) -> Any:
+		def clean_schema(obj: Any, *, in_properties_map: bool = False) -> Any:
 			if isinstance(obj, dict):
 				# Remove unsupported properties
 				cleaned = {}
 				for key, value in obj.items():
-					if key not in ['additionalProperties', 'title', 'default']:
-						cleaned_value = clean_schema(value)
+					# 'title' is a JSON Schema metadata field next to 'type', but it is also a legal
+					# property name. Only a properties map holds property names, so context has to be
+					# tracked structurally instead of by comparing the parent key name - a property may
+					# itself be named 'properties'.
+					is_metadata_title = key == 'title' and not in_properties_map
+					# 'properties' is the schema keyword only outside a properties map; inside one it is
+					# just another property name, so its value is a sub-schema and not a properties map.
+					child_is_properties_map = key == 'properties' and not in_properties_map
+					if key not in ['additionalProperties', 'default'] and not is_metadata_title:
+						cleaned_value = clean_schema(value, in_properties_map=child_is_properties_map)
 						# Handle empty object properties - Gemini doesn't allow empty OBJECT types
 						if (
 							key == 'properties'
@@ -471,12 +480,9 @@ class ChatVercel(BaseChatModel):
 				):
 					cleaned['properties'] = {'_placeholder': {'type': 'string'}}
 
-				# Also remove 'title' from the required list if it exists
-				if 'required' in cleaned and isinstance(cleaned.get('required'), list):
-					cleaned['required'] = [p for p in cleaned['required'] if p != 'title']
-
 				return cleaned
 			elif isinstance(obj, list):
+				# List items are sub-schemas or plain values, never properties maps.
 				return [clean_schema(item) for item in obj]
 			return obj
 
@@ -567,7 +573,9 @@ class ChatVercel(BaseChatModel):
 				if is_google_model or is_anthropic_model or is_reasoning:
 					modified_messages = [m.model_copy(deep=True) for m in messages]
 
-					schema = SchemaOptimizer.create_gemini_optimized_schema(output_format)
+					# The prompt carries the schema verbatim, so it has to be Gemini-compatible:
+					# _fix_gemini_schema drops keywords Gemini rejects (additionalProperties, metadata title).
+					schema = self._fix_gemini_schema(SchemaOptimizer.create_gemini_optimized_schema(output_format))
 					json_instruction = f'\n\nIMPORTANT: You must respond with ONLY a valid JSON object (no markdown, no code blocks, no explanations) that exactly matches this schema:\n{json.dumps(schema, indent=2)}'
 
 					instruction_added = False
