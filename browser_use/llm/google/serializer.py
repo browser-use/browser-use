@@ -1,4 +1,5 @@
 import base64
+from urllib.parse import urlsplit
 
 from google.genai.types import Content, ContentListUnion, Part
 
@@ -12,6 +13,35 @@ from browser_use.llm.messages import (
 
 class GoogleMessageSerializer:
 	"""Serializer for converting messages to Google Gemini format."""
+
+	@staticmethod
+	def _download_image(url: str) -> tuple[bytes, str]:
+		"""Download an image from a URL and return its bytes and mime type."""
+		try:
+			import httpx
+		except ImportError:
+			raise ImportError('httpx not available. Please install it to use URL images with Google models.')
+
+		try:
+			response = httpx.get(url, timeout=30)
+			response.raise_for_status()
+
+			content_type = response.headers.get('content-type', '').lower()
+			url_path = urlsplit(url).path.lower()
+			if 'image/jpeg' in content_type or url_path.endswith(('.jpg', '.jpeg')):
+				mime_type = 'image/jpeg'
+			elif 'image/png' in content_type or url_path.endswith('.png'):
+				mime_type = 'image/png'
+			elif 'image/gif' in content_type or url_path.endswith('.gif'):
+				mime_type = 'image/gif'
+			elif 'image/webp' in content_type or url_path.endswith('.webp'):
+				mime_type = 'image/webp'
+			else:
+				mime_type = 'image/png'
+
+			return response.content, mime_type
+		except Exception as e:
+			raise ValueError(f'Failed to download image from {url}: {e}')
 
 	@staticmethod
 	def serialize_messages(
@@ -98,13 +128,17 @@ class GoogleMessageSerializer:
 							# Handle images
 							url = part.image_url.url
 
-							# Format: data:image/jpeg;base64,<data>
-							header, data = url.split(',', 1)
-							# Decode base64 to bytes
-							image_bytes = base64.b64decode(data)
-
 							# Use the media_type from ImageURL, which correctly identifies the image format
 							mime_type = part.image_url.media_type
+
+							if url.lower().startswith('data:'):
+								# Format: data:image/jpeg;base64,<data>
+								header, data = url.split(',', 1)
+								# Decode base64 to bytes
+								image_bytes = base64.b64decode(data)
+							else:
+								# Remote image URL: download and inline the bytes
+								image_bytes, mime_type = GoogleMessageSerializer._download_image(url)
 
 							# Add image part
 							image_part = Part.from_bytes(data=image_bytes, mime_type=mime_type)
