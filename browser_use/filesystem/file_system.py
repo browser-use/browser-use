@@ -6,12 +6,13 @@ import io
 import os
 import re
 import shutil
+import tempfile
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 UNSUPPORTED_BINARY_EXTENSIONS = {
 	'bmp',
@@ -128,6 +129,7 @@ class BaseFile(BaseModel, ABC):
 
 	name: str
 	content: str = ''
+	_write_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 
 	# --- Subclass must define this ---
 	@property
@@ -158,13 +160,35 @@ class BaseFile(BaseModel, ABC):
 		with ThreadPoolExecutor() as executor:
 			await asyncio.get_event_loop().run_in_executor(executor, lambda: file_path.write_text(self.content, encoding='utf-8'))
 
+	async def _update_and_sync(self, content: str, path: Path, *, append: bool) -> None:
+		async with self._write_lock:
+			path.mkdir(parents=True, exist_ok=True)
+			# Follow symlinks and stage beside the target so replacement stays atomic.
+			destination = (path / self.full_name).resolve()
+			staging_path = Path(tempfile.mkdtemp(dir=destination.parent))
+			candidate = self.model_copy()
+			try:
+				if append:
+					candidate.append_file_content(content)
+				else:
+					candidate.write_file_content(content)
+
+				staged_file = staging_path / self.full_name
+				await candidate.sync_to_disk(staging_path)
+				if destination.exists():
+					if destination.stat().st_nlink > 1:
+						raise FileSystemError(f"Error: Cannot atomically update '{self.full_name}': destination has hard links.")
+					shutil.copystat(destination, staged_file)
+				os.replace(staged_file, destination)
+			finally:
+				shutil.rmtree(staging_path, ignore_errors=True)
+			self.content = candidate.content
+
 	async def write(self, content: str, path: Path) -> None:
-		self.write_file_content(content)
-		await self.sync_to_disk(path)
+		await self._update_and_sync(content, path, append=False)
 
 	async def append(self, content: str, path: Path) -> None:
-		self.append_file_content(content)
-		await self.sync_to_disk(path)
+		await self._update_and_sync(content, path, append=True)
 
 	def read(self) -> str:
 		return self.content
