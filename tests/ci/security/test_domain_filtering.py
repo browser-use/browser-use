@@ -567,3 +567,156 @@ class TestDomainListOptimization:
 		# Should work correctly
 		assert watchdog._is_url_allowed('https://blocked0.com') is False
 		assert watchdog._is_url_allowed('https://example.com') is True
+
+
+class TestFullUrlPatternBoundaries:
+	"""Full-URL allowlist patterns (`scheme://host[:port][/path]`) must be matched on parsed
+	components, not on a string prefix.
+
+	A prefix check (`url.startswith(pattern)`) lets three families of host escape an allowlist:
+
+	* subdomain / registrable-suffix bypass — `https://app.example.com.attacker.com`
+	* port bypass — `https://app.example.com:8443` (a different service on the same host)
+	* userinfo bypass — `https://app.example.com@attacker.com` (the attacker hosts the page;
+	  `app.example.com` is only the userinfo)
+
+	Path patterns additionally need a segment boundary, so `/api` does not cover `/apiary`.
+	"""
+
+	@staticmethod
+	def _watchdog(allowed):
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=allowed, headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		return SecurityWatchdog(browser_session=browser_session, event_bus=EventBus())
+
+	def test_subdomain_suffix_bypass_is_rejected(self):
+		"""A pattern for a host must not be satisfied by that host appearing as a label prefix."""
+		watchdog = self._watchdog(['https://app.example.com'])
+
+		assert watchdog._is_url_allowed('https://app.example.com/dashboard') is True
+		assert watchdog._is_url_allowed('https://app.example.com.evil.com/dashboard') is False
+		assert watchdog._is_url_allowed('https://app.example.com.evil.com') is False
+		# A DNS label of the pattern's host is a different host, not an equivalent spelling.
+		assert watchdog._is_url_allowed('https://notapp.example.com/dashboard') is False
+
+	def test_userinfo_and_port_bypasses_are_rejected(self):
+		"""Credentials and ports are parsed, not string-matched."""
+		watchdog = self._watchdog(['https://app.example.com'])
+
+		assert watchdog._is_url_allowed('https://app.example.com@evil.com/') is False
+		assert watchdog._is_url_allowed('https://user:pw@app.example.com/') is True
+		assert watchdog._is_url_allowed('https://app.example.com:8443/api') is False
+		# Same endpoint, different spelling: writing out the scheme's default
+		# port addresses the same service as omitting it.
+		assert watchdog._is_url_allowed('https://app.example.com:443/api') is True
+		assert watchdog._is_url_allowed('http://app.example.com:80/api') is False
+
+	def test_scheme_must_match_the_pattern(self):
+		watchdog = self._watchdog(['https://app.example.com'])
+
+		assert watchdog._is_url_allowed('http://app.example.com/') is False
+		# Host comparison itself stays case-insensitive.
+		assert watchdog._is_url_allowed('https://APP.Example.COM/dashboard') is True
+
+	def test_explicit_port_pattern_requires_that_port(self):
+		watchdog = self._watchdog(['https://app.example.com:8443'])
+
+		assert watchdog._is_url_allowed('https://app.example.com:8443/api') is True
+		assert watchdog._is_url_allowed('https://app.example.com/api') is False
+		assert watchdog._is_url_allowed('https://app.example.com:9443/api') is False
+
+	def test_path_pattern_requires_a_segment_boundary(self):
+		"""`/api` covers `/api` and `/api/x`, never a sibling path like `/apiary`."""
+		watchdog = self._watchdog(['https://app.example.com/api'])
+
+		assert watchdog._is_url_allowed('https://app.example.com/api') is True
+		assert watchdog._is_url_allowed('https://app.example.com/api/v1/users') is True
+		assert watchdog._is_url_allowed('https://app.example.com/apiary') is False
+		assert watchdog._is_url_allowed('https://app.example.com/ap') is False
+
+	def test_query_and_fragment_constraints_are_enforced(self):
+		watchdog = self._watchdog(['https://app.example.com/search?q=1#top'])
+
+		assert watchdog._is_url_allowed('https://app.example.com/search?q=1#top') is True
+		assert watchdog._is_url_allowed('https://app.example.com/search?q=2#top') is False
+		assert watchdog._is_url_allowed('https://app.example.com/search?q=1') is False
+		assert watchdog._is_url_allowed('https://app.example.com/search?q=1#other') is False
+
+	def test_prohibited_full_url_pattern_does_not_block_lookalikes(self):
+		"""The same parsing applies to prohibited patterns: blocking `https://bank.example.com`
+		must not block an unrelated registrable domain that merely embeds the string."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains=['https://bank.example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=EventBus())
+
+		assert watchdog._is_url_allowed('https://bank.example.com/transfer') is False
+		assert watchdog._is_url_allowed('https://bank.example.com.evil.com/transfer') is True
+
+
+class TestBrowserUrlNormalization:
+	"""Match against the endpoint the browser will visit, not the literal string.
+
+	Chromium runs the WHATWG URL parser: for http(s) it converts a backslash to
+	a slash and drops tab / line feed / carriage return before parsing.
+	`urllib.parse` does neither, so `https://attacker.com` + backslash +
+	`@example.com/` is host `example.com` here while the browser visits
+	`attacker.com` — an allowlist lets it through, and a prohibited pattern
+	stops matching the site it was meant to block.
+	"""
+
+	@staticmethod
+	def _watchdog(allowed=None, prohibited=None):
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(
+			allowed_domains=allowed, prohibited_domains=prohibited, headless=True, user_data_dir=None
+		)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		return SecurityWatchdog(browser_session=browser_session, event_bus=EventBus())
+
+	def test_backslash_cannot_hide_the_real_host_from_an_allowlist(self):
+		watchdog = self._watchdog(allowed=['https://example.com'])
+
+		assert watchdog._is_url_allowed('https://attacker.com\\@example.com/') is False
+		assert watchdog._is_url_allowed('https://attacker.com\\@example.com/dashboard') is False
+		# The normalization is a rewrite, not a blanket rejection: `example.com`
+		# followed by a path is the host the browser stays on.
+		assert watchdog._is_url_allowed('https://example.com/@attacker.com/') is True
+
+	def test_backslash_cannot_smuggle_a_request_past_a_prohibited_pattern(self):
+		watchdog = self._watchdog(prohibited=['https://attacker.com'])
+
+		assert watchdog._is_url_allowed('https://attacker.com\\@example.com/') is False
+
+	def test_tab_and_newline_are_not_part_of_the_host(self):
+		allowed_watchdog = self._watchdog(allowed=['https://example.com'])
+		prohibited_watchdog = self._watchdog(prohibited=['https://example.com'])
+
+		assert allowed_watchdog._is_url_allowed('https://exa	mple.com/') is True
+		assert prohibited_watchdog._is_url_allowed('https://exa	mple.com/') is False
+		assert prohibited_watchdog._is_url_allowed('https://example.com\n/') is False
+
+	def test_explicit_default_port_matches_a_prohibited_pattern(self):
+		watchdog = self._watchdog(prohibited=['https://bank.example.com'])
+
+		assert watchdog._is_url_allowed('https://bank.example.com:443/transfer') is False
+		# A non-default port is a different service, so the pattern does not cover it.
+		assert watchdog._is_url_allowed('https://bank.example.com:8443/transfer') is True
+
+	def test_unparsable_port_is_rejected_without_raising(self):
+		watchdog = self._watchdog(allowed=['https://app.example.com'])
+
+		# `.port` raises ValueError for these instead of returning None; the
+		# navigation handler must not see the exception.
+		assert watchdog._is_url_allowed('https://app.example.com:99999/') is False
+		assert watchdog._is_url_allowed('https://app.example.com:abc/') is False
