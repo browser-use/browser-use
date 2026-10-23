@@ -127,6 +127,14 @@ def build_snapshot_lookup(
 		input_checked_set: set[int] = set(nodes['inputChecked']['index']) if 'inputChecked' in nodes else set()
 		has_checked_data = 'inputChecked' in nodes
 
+		# Stacking contexts rare boolean data from layout tree
+		has_stacking_contexts_data = bool(layout and 'stackingContexts' in layout)
+		stacking_contexts_set: set[int] = (
+			set(layout['stackingContexts']['index'])
+			if has_stacking_contexts_data and 'index' in layout['stackingContexts']
+			else set()
+		)
+
 		# Build snapshot lookup for each backend node id
 		for backend_node_id, snapshot_index in backend_node_to_snapshot_index.items():
 			is_clickable = None
@@ -135,7 +143,6 @@ def build_snapshot_lookup(
 
 			# Find corresponding layout node
 			cursor_style = None
-			is_visible = None
 			bounding_box = None
 			computed_styles = {}
 
@@ -178,10 +185,10 @@ def build_snapshot_lookup(
 						client_rect_data = client_rects_data[layout_idx]
 						if client_rect_data and len(client_rect_data) >= 4:
 							client_rects = DOMRect(
-								x=client_rect_data[0],
-								y=client_rect_data[1],
-								width=client_rect_data[2],
-								height=client_rect_data[3],
+								x=client_rect_data[0] / device_pixel_ratio,
+								y=client_rect_data[1] / device_pixel_ratio,
+								width=client_rect_data[2] / device_pixel_ratio,
+								height=client_rect_data[3] / device_pixel_ratio,
 							)
 
 					# Extract scroll rects if available
@@ -190,15 +197,15 @@ def build_snapshot_lookup(
 						scroll_rect_data = scroll_rects_data[layout_idx]
 						if scroll_rect_data and len(scroll_rect_data) >= 4:
 							scroll_rects = DOMRect(
-								x=scroll_rect_data[0],
-								y=scroll_rect_data[1],
-								width=scroll_rect_data[2],
-								height=scroll_rect_data[3],
+								x=scroll_rect_data[0] / device_pixel_ratio,
+								y=scroll_rect_data[1] / device_pixel_ratio,
+								width=scroll_rect_data[2] / device_pixel_ratio,
+								height=scroll_rect_data[3] / device_pixel_ratio,
 							)
 
 					# Extract stacking contexts if available
-					if layout_idx < len(layout.get('stackingContexts', {}).get('index', [])):
-						stacking_contexts = layout.get('stackingContexts', {}).get('index', [])[layout_idx]
+					if has_stacking_contexts_data:
+						stacking_contexts = layout_idx in stacking_contexts_set
 
 			snapshot_lookup[backend_node_id] = EnhancedSnapshotNode(
 				is_clickable=is_clickable,
