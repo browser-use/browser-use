@@ -1,6 +1,7 @@
 """Element class for element operations."""
 
 import asyncio
+import sys
 from typing import TYPE_CHECKING, Literal, Union
 
 from cdp_use.client import logger
@@ -305,21 +306,32 @@ class Element:
 					await asyncio.sleep(0.08)
 				finally:
 					# A cancelled or timed-out press may already have reached Chrome.
-					# Always attempt release, then propagate the failure to the caller.
-					await asyncio.wait_for(
-						self._client.send.Input.dispatchMouseEvent(
-							params={
-								'type': 'mouseReleased',
-								'x': center_x,
-								'y': center_y,
-								'button': button,
-								'clickCount': click_count,
-								'modifiers': modifier_value,
-							},
-							session_id=self._session_id,
-						),
-						timeout=3.0,  # 3 second timeout for mouseReleased
-					)
+					# Always attempt release. Preserve a press failure if the release also fails.
+					try:
+						await asyncio.wait_for(
+							self._client.send.Input.dispatchMouseEvent(
+								params={
+									'type': 'mouseReleased',
+									'x': center_x,
+									'y': center_y,
+									'button': button,
+									'clickCount': click_count,
+									'modifiers': modifier_value,
+								},
+								session_id=self._session_id,
+							),
+							timeout=3.0,  # 3 second timeout for mouseReleased
+						)
+					except Exception as release_exc:
+						# If a press exception is already propagating, log the release
+						# failure and let the original exception continue. Only raise
+						# the release error when the press itself succeeded.
+						if sys.exc_info()[1] is not None:
+							logger.debug(
+								f'Mouse release failed after press error (preserving press failure): {release_exc}'
+							)
+						else:
+							raise
 
 			except Exception as e:
 				# Fall back to JavaScript click via CDP
