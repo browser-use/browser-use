@@ -12,6 +12,7 @@ from browser_use.dom.enhanced_snapshot import (
 	REQUIRED_COMPUTED_STYLES,
 	build_snapshot_lookup,
 )
+from browser_use.dom.pruner import DOMPruner
 from browser_use.dom.serializer.clickable_elements import ClickableElementDetector
 from browser_use.dom.serializer.serializer import DOMTreeSerializer
 from browser_use.dom.views import (
@@ -586,6 +587,8 @@ class DomService:
 
 		start_cdp_calls = time.time()
 
+		# Εφαρμογή intelligent DOM pruning για μείωση των tokens
+		await DOMPruner.prune_dom(cdp_session)
 		# Create initial tasks
 		tasks = {
 			'snapshot': create_task_with_error_handling(create_snapshot_request(), name='get_snapshot'),
