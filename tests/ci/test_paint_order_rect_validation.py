@@ -8,6 +8,7 @@ the value that decides whether a node is hidden from the LLM as paint-order occl
 """
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -29,7 +30,7 @@ def test_rect_accepts_ordered_and_degenerate_coordinates():
 	assert Rect(x1=2, y1=2, x2=4, y2=4).area() == 4
 
 
-def _node(paint_order=None, bounds=None, session_id='sess'):
+def _node(paint_order=None, bounds=None, session_id='sess') -> Any:
 	"""Minimal stand-in for SimplifiedNode covering only what calculate_paint_order touches."""
 	snapshot_node = None
 	if paint_order is not None:
