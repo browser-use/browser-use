@@ -3326,6 +3326,19 @@ class DefaultActionWatchdog(BaseWatchdog):
 				function(targetText) {
 					const startElement = this;
 
+					// Disabled per native :disabled, aria-disabled, or the common .disabled class
+					function isDisabled(el) {
+						return el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled');
+					}
+
+					// Options the agent can pick instead, reported with a disabled-option refusal
+					function enabledOptions(items) {
+						return Array.from(items)
+							.filter(item => !isDisabled(item))
+							.map(item => ({ text: item.textContent ? item.textContent.trim() : '', value: item.getAttribute('data-value') || '' }))
+							.filter(opt => opt.text || opt.value);
+					}
+
 					// Function to attempt selection on a dropdown element
 					function attemptSelection(element) {
 						// Handle native select elements
@@ -3405,6 +3418,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 						// Handle ARIA dropdowns/menus
 						const role = element.getAttribute('role');
 						if (role === 'menu' || role === 'listbox' || role === 'combobox') {
+							if (isDisabled(element)) {
+								return { success: false, error: 'Dropdown is disabled and cannot be changed' };
+							}
+
 							const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
 							const targetTextLower = targetText.toLowerCase();
 
@@ -3415,20 +3432,18 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 									// Match against both text and data-value (case-insensitive)
 									if (itemTextLower === targetTextLower || itemValueLower === targetTextLower) {
-										// Clear previous selections
-										menuItems.forEach(mi => {
-											mi.setAttribute('aria-selected', 'false');
-											mi.classList.remove('selected');
-										});
+										if (isDisabled(item)) {
+											return {
+												success: false,
+												error: `Menu item '${item.textContent.trim()}' is disabled and cannot be selected`,
+												optionDisabled: true,
+												availableOptions: enabledOptions(menuItems)
+											};
+										}
 
-										// Select this item
-										item.setAttribute('aria-selected', 'true');
-										item.classList.add('selected');
-
-										// Trigger click and change events
+										// Click exactly once and let the page own the selected state: pre-setting
+										// aria-selected/classes or clicking twice makes toggling options deselect themselves
 										item.click();
-										const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
-										item.dispatchEvent(clickEvent);
 
 										return {
 											success: true,
@@ -3453,6 +3468,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 						// Handle Semantic UI or custom dropdowns
 						if (element.classList.contains('dropdown') || element.classList.contains('ui')) {
+							if (isDisabled(element)) {
+								return { success: false, error: 'Dropdown is disabled and cannot be changed' };
+							}
+
 							const menuItems = element.querySelectorAll('.item, .option, [data-value]');
 							const targetTextLower = targetText.toLowerCase();
 
@@ -3463,24 +3482,18 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 									// Match against both text and data-value (case-insensitive)
 									if (itemTextLower === targetTextLower || itemValueLower === targetTextLower) {
-										// Clear previous selections
-										menuItems.forEach(mi => {
-											mi.classList.remove('selected', 'active');
-										});
-
-										// Select this item
-										item.classList.add('selected', 'active');
-
-										// Update dropdown text if there's a text element
-										const textElement = element.querySelector('.text');
-										if (textElement) {
-											textElement.textContent = item.textContent.trim();
+										if (isDisabled(item)) {
+											return {
+												success: false,
+												error: `Custom dropdown item '${item.textContent.trim()}' is disabled and cannot be selected`,
+												optionDisabled: true,
+												availableOptions: enabledOptions(menuItems)
+											};
 										}
 
-										// Trigger click and change events
+										// Click exactly once and let the dropdown's own handler update its classes and text:
+										// pre-setting them or clicking twice makes toggling items deselect themselves
 										item.click();
-										const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
-										item.dispatchEvent(clickEvent);
 
 										// Also dispatch on the main dropdown element
 										const dropdownChangeEvent = new Event('change', { bubbles: true });
@@ -3724,10 +3737,15 @@ class DefaultActionWatchdog(BaseWatchdog):
 								short_term_options.append(f'- {opt}')
 
 						if short_term_options:
-							short_term_memory = 'Available dropdown options  are:\n' + '\n'.join(short_term_options)
-							long_term_memory = (
-								f"Couldn't select the dropdown option as '{target_text}' is not one of the available options."
-							)
+							if selection_result.get('optionDisabled'):
+								# Keep the refusal reason; the list only offers the enabled alternatives
+								short_term_memory = f'{error_msg}. Enabled options are:\n' + '\n'.join(short_term_options)
+								long_term_memory = error_msg
+							else:
+								short_term_memory = 'Available dropdown options  are:\n' + '\n'.join(short_term_options)
+								long_term_memory = (
+									f"Couldn't select the dropdown option as '{target_text}' is not one of the available options."
+								)
 
 							# Return error result with structured memory instead of raising exception
 							return {
