@@ -1946,6 +1946,14 @@ class BrowserSession(BaseModel):
 			# SessionManager has already discovered all targets via start_monitoring()
 			page_targets_from_manager = self.session_manager.get_all_page_targets()
 
+			# Electron apps and browsers expose host-UI pages (file://, chrome://)
+			# as page targets; they must not become the agent's initial focus.
+			page_targets_from_manager = [
+				t
+				for t in page_targets_from_manager
+				if urlparse(t.url or '').scheme in ('http', 'https', 'about', 'data', 'blob', 'chrome')
+			]
+
 			# Check for chrome://newtab pages and redirect them to about:blank (in parallel)
 			from browser_use.utils import is_new_tab_page
 

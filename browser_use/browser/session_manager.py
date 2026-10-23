@@ -687,6 +687,13 @@ class SessionManager:
 			# Perform recovery (outside lock to allow concurrent operations)
 			# Try to find another valid page target
 			page_targets = self.get_all_page_targets()
+			# Electron apps and browsers expose host-UI pages (file://, chrome://)
+			# as page targets; they are not valid agent-focus candidates.
+			from urllib.parse import urlparse
+
+			page_targets = [
+				t for t in page_targets if urlparse(t.url or '').scheme in ('http', 'https', 'about', 'data', 'blob', 'chrome')
+			]
 
 			new_target_id = None
 			is_existing_tab = False
