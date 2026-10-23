@@ -333,4 +333,6 @@ class CrashWatchdog(BaseWatchdog):
 	@staticmethod
 	def _is_new_tab_page(url: str) -> bool:
 		"""Check if URL is a new tab page."""
-		return url in ['about:blank', 'chrome://new-tab-page/', 'chrome://newtab/']
+		from browser_use.utils import is_new_tab_page
+
+		return is_new_tab_page(url)

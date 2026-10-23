@@ -297,6 +297,7 @@ class TestEdgeCases:
 		assert watchdog._is_url_allowed('chrome://new-tab-page/') is True
 		assert watchdog._is_url_allowed('chrome://new-tab-page') is True
 		assert watchdog._is_url_allowed('chrome://newtab/') is True
+		assert watchdog._is_url_allowed('chrome://newtab') is True
 
 	def test_ipv4_lookalike_domains_allowed(self):
 		"""Test that strings that look like IPs but cannot be resolved as IPs by
