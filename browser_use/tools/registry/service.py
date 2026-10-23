@@ -202,7 +202,7 @@ class Registry(Generic[Context]):
 			for i, param in enumerate(parameters):
 				# Skip first param for Type 1 pattern (it's the model itself)
 				if param_model_provided and i == 0 and param.name not in special_param_names:
-					call_args.append(params)
+					value = params
 				elif param.name in special_param_names:
 					# This is a special parameter
 					if param.name in kwargs:
@@ -223,9 +223,8 @@ class Registry(Generic[Context]):
 								raise ValueError(f'Action {func.__name__} requires file_system but none provided.')
 							else:
 								raise ValueError(f"{func.__name__}() missing required special parameter '{param.name}'")
-						call_args.append(value)
 					elif param.default != Parameter.empty:
-						call_args.append(param.default)
+						value = param.default
 					else:
 						# Special param is required but not provided
 						if param.name == 'browser_session':
@@ -245,17 +244,22 @@ class Registry(Generic[Context]):
 				else:
 					# This is an action parameter
 					if param.name in params_dict:
-						call_args.append(params_dict[param.name])
+						value = params_dict[param.name]
 					elif param.default != Parameter.empty:
-						call_args.append(param.default)
+						value = param.default
 					else:
 						raise ValueError(f"{func.__name__}() missing required parameter '{param.name}'")
 
-			# Call original function with positional args
+				if param.kind == Parameter.KEYWORD_ONLY:
+					call_kwargs[param.name] = value
+				else:
+					call_args.append(value)
+
+			# Call the original function with its declared parameter kinds
 			if iscoroutinefunction(func):
-				return await func(*call_args)
+				return await func(*call_args, **call_kwargs)
 			else:
-				return await asyncio.to_thread(func, *call_args)
+				return await asyncio.to_thread(func, *call_args, **call_kwargs)
 
 		# Update wrapper signature to be kwargs-only
 		new_params = [Parameter('params', Parameter.KEYWORD_ONLY, default=None, annotation=Optional[param_model])]
