@@ -1,8 +1,11 @@
 """Tests for lazy loading configuration system."""
 
+import json
 import os
+from datetime import datetime, timezone
+from unittest.mock import patch
 
-from browser_use.config import CONFIG
+from browser_use.config import CONFIG, BrowserProfileEntry, load_and_migrate_config
 
 
 class TestLazyConfig:
@@ -118,3 +121,47 @@ class TestLazyConfig:
 				os.environ['BROWSER_USE_CLOUD_SYNC'] = sync_original
 			else:
 				os.environ.pop('BROWSER_USE_CLOUD_SYNC', None)
+
+	def test_default_config_timestamps_are_timezone_aware_utc(self):
+		"""Test generated DB-style entries use explicit UTC timestamps."""
+		entry = BrowserProfileEntry()
+
+		created_at = datetime.fromisoformat(entry.created_at)
+
+		assert created_at.tzinfo == timezone.utc
+
+	def test_config_migration_round_trips_utf8(self, tmp_path):
+		"""Migration replaces legacy data and explicitly opens files as UTF-8."""
+		config_path = tmp_path / 'config.json'
+		config_path.write_text('{"legacy": "café ☕"}', encoding='utf-8')
+		assert 'café ☕'.encode() in config_path.read_bytes()
+
+		with patch('browser_use.config.open', wraps=open, create=True) as config_open:
+			migrated = load_and_migrate_config(config_path)
+			reloaded = load_and_migrate_config(config_path)
+		assert config_open.called
+		assert all(call.kwargs.get('encoding') == 'utf-8' for call in config_open.call_args_list)
+		written = json.loads(config_path.read_text(encoding='utf-8'))
+
+		assert migrated == reloaded
+		assert set(written) == {'browser_profile', 'llm', 'agent'}
+
+	def test_db_style_config_preserves_literal_utf8(self, tmp_path):
+		"""Loading valid multilingual configuration must not replace it with defaults."""
+		config_path = tmp_path / 'config.json'
+		profile = BrowserProfileEntry(id='profile', user_data_dir='profiles/José 東京 ☕')
+		payload = {'browser_profile': {'profile': profile.model_dump()}, 'llm': {}, 'agent': {}}
+		config_path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+		original = config_path.read_bytes()
+		assert 'José 東京 ☕'.encode() in original
+		real_open = open
+
+		def legacy_locale_open(path, mode='r', **kwargs):
+			# Simulate a non-UTF-8 system default even on UTF-8 developer machines.
+			kwargs.setdefault('encoding', 'cp1252')
+			return real_open(path, mode, **kwargs)
+
+		with patch('browser_use.config.open', side_effect=legacy_locale_open, create=True):
+			loaded = load_and_migrate_config(config_path)
+		assert loaded.browser_profile['profile'].user_data_dir == profile.user_data_dir
+		assert config_path.read_bytes() == original
