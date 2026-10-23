@@ -273,11 +273,14 @@ class SecurityWatchdog(BaseWatchdog):
 				if fnmatch.fnmatch(url, pattern):
 					return True
 			else:
-				# Use fnmatch for other glob patterns
-				if fnmatch.fnmatch(
-					full_url_pattern if '://' in pattern else host,
-					pattern,
-				):
+				# Reject bare * globs in host-only patterns (e.g., *google.com).
+				# fnmatch lets * cross DNS label boundaries, so *google.com
+				# would match evilgoogle.com. Only *.domain patterns (handled
+				# above) are safe for host matching.
+				if '://' not in pattern:
+					return False
+				# Use fnmatch for URL patterns with globs in scheme/path
+				if fnmatch.fnmatch(full_url_pattern, pattern):
 					return True
 		else:
 			# Exact match
