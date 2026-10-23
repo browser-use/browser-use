@@ -361,10 +361,10 @@ class BrowserContextArgs(BaseModel):
 	# Security options
 	# proxy: ProxySettings | None = None
 	permissions: list[str] = Field(
-		default_factory=lambda: ['clipboardReadWrite', 'notifications'],
+		default_factory=lambda: ['notifications'],
 		description='Browser permissions to grant (CDP Browser.grantPermissions).',
-		# clipboardReadWrite is for google sheets and pyperclip automations
-		# notifications are to avoid browser fingerprinting
+		# Notifications are to avoid browser fingerprinting. Clipboard access is opt-in because
+		# Browser.grantPermissions without an origin applies to every page in the browser.
 	)
 	# client_certificates: list[ClientCertificate] = Field(default_factory=list)
 	# http_credentials: HttpCredentials | None = None
