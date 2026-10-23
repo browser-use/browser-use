@@ -301,8 +301,13 @@ class DownloadsWatchdog(BaseWatchdog):
 				self.logger.warning(f'[DownloadsWatchdog] ⚠️ PDF download failed for {event.url}')
 
 	def _is_auto_download_enabled(self) -> bool:
-		"""Check if auto-download PDFs is enabled in browser profile."""
-		return self.browser_session.browser_profile.auto_download_pdfs
+		"""Check if auto-download PDFs is enabled in browser profile.
+
+		Also requires ``accept_downloads`` so setting it to False fully disables
+		downloads (CDP Browser.setDownloadBehavior + network auto-fetch).
+		"""
+		profile = self.browser_session.browser_profile
+		return bool(profile.accept_downloads) and bool(profile.auto_download_pdfs)
 
 	async def attach_to_target(self, target_id: TargetID) -> None:
 		"""Set up download monitoring for a specific target."""
@@ -504,9 +509,12 @@ class DownloadsWatchdog(BaseWatchdog):
 					return
 				# Ensure path is properly expanded (~ -> absolute path)
 				expanded_downloads_path = Path(downloads_path).expanduser().resolve()
+				accept_downloads = bool(self.browser_session.browser_profile.accept_downloads)
 				await cdp_client.send.Browser.setDownloadBehavior(
 					params={
-						'behavior': 'allow',
+						# Honor BrowserProfile.accept_downloads (default True). CDP 'deny' rejects
+						# downloads; 'allow' still needs downloadPath for eventsEnabled listeners.
+						'behavior': 'allow' if accept_downloads else 'deny',
 						'downloadPath': str(expanded_downloads_path),  # Use expanded absolute path
 						'eventsEnabled': True,
 					}
@@ -749,6 +757,10 @@ class DownloadsWatchdog(BaseWatchdog):
 		"""
 		if not self.browser_session.browser_profile.downloads_path:
 			self.logger.warning('[DownloadsWatchdog] No downloads path configured')
+			return None
+
+		if not self.browser_session.browser_profile.accept_downloads:
+			self.logger.debug('[DownloadsWatchdog] accept_downloads=False; skipping fetch download')
 			return None
 
 		# Check if already downloaded in this session
