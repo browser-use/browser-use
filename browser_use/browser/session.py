@@ -1949,8 +1949,7 @@ class BrowserSession(BaseModel):
 			# Electron apps and browsers expose host-UI pages (file://, chrome://)
 			# as page targets; they must not become the agent's initial focus.
 			page_targets_from_manager = [
-				t for t in page_targets_from_manager
-				if urlparse(t.url or '').scheme in ('http', 'https', 'about', 'data', 'blob')
+				t for t in page_targets_from_manager if urlparse(t.url or '').scheme in ('http', 'https', 'about', 'data', 'blob')
 			]
 
 			# Check for chrome://newtab pages and redirect them to about:blank (in parallel)

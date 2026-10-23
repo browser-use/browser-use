@@ -24,10 +24,20 @@ _GLOB_WARNING_SHOWN = False
 # targets; browsers expose chrome:// pages. Closing these targets can destroy
 # the host application, so the watchdog must ignore them, never enforce
 # domain policy on them.
-_HOST_APP_SCHEMES = frozenset({
-	'file', 'chrome', 'chrome-extension', 'chrome-untrusted', 'devtools',
-	'moz-extension', 'edge', 'opera', 'vivaldi', 'brave',
-})
+_HOST_APP_SCHEMES = frozenset(
+	{
+		'file',
+		'chrome',
+		'chrome-extension',
+		'chrome-untrusted',
+		'devtools',
+		'moz-extension',
+		'edge',
+		'opera',
+		'vivaldi',
+		'brave',
+	}
+)
 
 
 class SecurityWatchdog(BaseWatchdog):
@@ -86,6 +96,7 @@ class SecurityWatchdog(BaseWatchdog):
 		# Host-application pages (Electron chrome, browser-internal pages) are
 		# not agent content: never close them, never error on them.
 		from urllib.parse import urlparse
+
 		if urlparse(event.url).scheme in _HOST_APP_SCHEMES:
 			self.logger.debug(f'Ignoring host-application page target: {event.url}')
 			return
