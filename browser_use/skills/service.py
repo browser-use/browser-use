@@ -11,9 +11,26 @@ from pydantic import BaseModel, ValidationError
 from browser_use.skills.views import (
 	MissingCookieException,
 	Skill,
+	enum_value,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _cookie_domain_matches(cookie_domain: str | None, wanted_domain: str | None) -> bool:
+	"""Check a browser cookie's domain against a skill cookie param's cookie_domain.
+
+	Skills declare domains as 'example.com', '.example.com' or 'www.example.com', and browser
+	cookies can be scoped to either the bare domain or a subdomain, so a parent/child relation
+	in either direction counts as a match. Params without a cookie_domain match any domain.
+	"""
+	if not wanted_domain:
+		return True
+	if not cookie_domain:
+		return False
+	cookie_host = cookie_domain.lstrip('.').lower()
+	wanted_host = wanted_domain.lstrip('.').lower()
+	return cookie_host == wanted_host or cookie_host.endswith('.' + wanted_host) or wanted_host.endswith('.' + cookie_host)
 
 
 class SkillService:
@@ -47,7 +64,8 @@ class SkillService:
 			return
 
 		# Create the SDK client
-		self._client = AsyncBrowserUse(api_key=self.api_key)
+		if self._client is None:
+			self._client = AsyncBrowserUse(api_key=self.api_key)
 
 		try:
 			# Fetch skills from API
@@ -102,7 +120,7 @@ class SkillService:
 				logger.debug(f'Fetched {len(all_items)} skills across {page} page(s)')
 
 			# Filter to only finished skills (is_enabled already filtered by API)
-			all_available_skills = [skill for skill in all_items if skill.status == 'finished']
+			all_available_skills = [skill for skill in all_items if enum_value(skill.status) == 'finished']
 
 			logger.info(f'Found {len(all_available_skills)} available skills from API')
 
@@ -192,10 +210,17 @@ class SkillService:
 			raise ValueError(f'Skill {skill_id} not found in cache. Available skills: {list(self._skills.keys())}')
 
 		# Extract cookie parameters from the skill
-		cookie_params = [p for p in skill.parameters if p.type == 'cookie']
+		cookie_params = [p for p in skill.parameters if enum_value(p.type) == 'cookie']
 
-		# Build a dict of cookies from the provided cookie list
-		cookie_dict: dict[str, str] = {cookie['name']: cookie['value'] for cookie in cookies}
+		# Map each cookie param to the browser cookie with that name, scoped to the param's domain if it has one.
+		# If several cookies match, the last one wins, as it did when cookies were keyed by name only.
+		cookie_dict: dict[str, str] = {}
+		for cookie_param in cookie_params:
+			for cookie in cookies:
+				if cookie['name'] == cookie_param.name and _cookie_domain_matches(
+					cookie.get('domain'), cookie_param.cookie_domain
+				):
+					cookie_dict[cookie_param.name] = cookie['value']
 
 		# Check for missing required cookies and fill cookie values
 		if cookie_params:
