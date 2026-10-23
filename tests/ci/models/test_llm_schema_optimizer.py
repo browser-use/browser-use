@@ -66,6 +66,32 @@ def test_optimizer_preserves_all_fields_in_structured_done_action():
 	)
 
 
+def test_optimizer_keeps_field_description_when_flattening_ref():
+	"""A Field(description=...) next to a $ref must survive flattening.
+
+	Regression: the merge step preferred the referenced model's docstring over the
+	description written next to the ``$ref``, silently dropping the field-level
+	description that pydantic emits as a sibling of the ref.
+	"""
+
+	class Address(BaseModel):
+		"""Postal address of the store"""
+
+		city: str = Field(description='City name')
+
+	class Product(BaseModel):
+		"""A product listing found on the page"""
+
+		name: str
+		address: Address = Field(description='Where the product is available')
+
+	schema = SchemaOptimizer.create_optimized_json_schema(Product)
+
+	assert schema['properties']['address']['description'] == 'Where the product is available'
+	# nested field descriptions are untouched
+	assert schema['properties']['address']['properties']['city']['description'] == 'City name'
+
+
 def test_gemini_schema_retains_required_fields():
 	"""Gemini schema should keep explicit required arrays for mandatory fields."""
 	schema = SchemaOptimizer.create_gemini_optimized_schema(ProductInfo)
