@@ -193,12 +193,17 @@ class PaintOrderRemover:
 				if not node.original_node.snapshot_node or not node.original_node.snapshot_node.bounds:
 					continue  # shouldn't happen by how we filter them out in the first place
 
-				rect = Rect(
-					x1=node.original_node.snapshot_node.bounds.x,
-					y1=node.original_node.snapshot_node.bounds.y,
-					x2=node.original_node.snapshot_node.bounds.x + node.original_node.snapshot_node.bounds.width,
-					y2=node.original_node.snapshot_node.bounds.y + node.original_node.snapshot_node.bounds.height,
-				)
+				try:
+					rect = Rect(
+						x1=node.original_node.snapshot_node.bounds.x,
+						y1=node.original_node.snapshot_node.bounds.y,
+						x2=node.original_node.snapshot_node.bounds.x + node.original_node.snapshot_node.bounds.width,
+						y2=node.original_node.snapshot_node.bounds.y + node.original_node.snapshot_node.bounds.height,
+					)
+				except ValueError:
+					# CDP snapshots can carry malformed bounds (negative or NaN
+					# width/height); skip the node instead of failing serialization.
+					continue
 				context = self._document_context(node)
 
 				if rect_unions[context].contains(rect):

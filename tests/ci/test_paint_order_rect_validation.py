@@ -7,9 +7,11 @@ rectangles were accepted and silently changed RectUnionPure.contains() verdicts 
 the value that decides whether a node is hidden from the LLM as paint-order occluded.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
-from browser_use.dom.serializer.paint_order import Rect
+from browser_use.dom.serializer.paint_order import PaintOrderRemover, Rect
 
 
 def test_rect_rejects_inverted_x():
@@ -25,3 +27,28 @@ def test_rect_rejects_inverted_y():
 def test_rect_accepts_ordered_and_degenerate_coordinates():
 	assert Rect(x1=0, y1=0, x2=0, y2=0).area() == 0
 	assert Rect(x1=2, y1=2, x2=4, y2=4).area() == 4
+
+
+def _node(paint_order=None, bounds=None, session_id='sess'):
+	"""Minimal stand-in for SimplifiedNode covering only what calculate_paint_order touches."""
+	snapshot_node = None
+	if paint_order is not None:
+		snapshot_node = SimpleNamespace(paint_order=paint_order, bounds=bounds, computed_styles=None)
+	original_node = SimpleNamespace(session_id=session_id, parent_node=None, snapshot_node=snapshot_node)
+	return SimpleNamespace(original_node=original_node, children=[], ignored_by_paint_order=False)
+
+
+def test_calculate_paint_order_skips_malformed_bounds_instead_of_crashing():
+	root = _node()
+	occluder = _node(paint_order=3, bounds=SimpleNamespace(x=0, y=0, width=10, height=10))
+	covered = _node(paint_order=2, bounds=SimpleNamespace(x=1, y=1, width=8, height=8))
+	negative_width = _node(paint_order=3, bounds=SimpleNamespace(x=0, y=0, width=-5, height=10))
+	nan_width = _node(paint_order=3, bounds=SimpleNamespace(x=0, y=0, width=float('nan'), height=10))
+	root.children = [occluder, covered, negative_width, nan_width]
+
+	PaintOrderRemover(root).calculate_paint_order()
+
+	assert covered.ignored_by_paint_order is True
+	assert occluder.ignored_by_paint_order is False
+	assert negative_width.ignored_by_paint_order is False
+	assert nan_width.ignored_by_paint_order is False
