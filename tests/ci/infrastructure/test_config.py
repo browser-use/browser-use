@@ -49,6 +49,32 @@ class TestLazyConfig:
 			else:
 				os.environ.pop('ANONYMIZED_TELEMETRY', None)
 
+	def test_empty_boolean_env_vars_are_false(self):
+		"""A boolean env var that is set but empty must not switch the flag on.
+
+		``ANONYMIZED_TELEMETRY=`` in a .env file, or a docker-compose entry written
+		without a value, arrives as ``''`` - and ``''[:1] in 'ty1'`` is True because
+		substring containment matches the empty string.
+		"""
+		names = [
+			'ANONYMIZED_TELEMETRY',
+			'BROWSER_USE_CLOUD_SYNC',
+			'SKIP_LLM_API_KEY_VERIFICATION',
+			'IS_IN_EVALS',
+			'BROWSER_USE_VERSION_CHECK',
+		]
+		original = {name: os.environ.get(name) for name in names}
+		try:
+			for name in names:
+				os.environ[name] = ''
+				assert getattr(CONFIG, name) is False, f'Switched on by empty value: {name}'
+		finally:
+			for name, value in original.items():
+				if value is None:
+					os.environ.pop(name, None)
+				else:
+					os.environ[name] = value
+
 	def test_api_keys_lazy_loading(self):
 		"""Test API keys are loaded lazily."""
 		original_value = os.environ.get('OPENAI_API_KEY', '')
