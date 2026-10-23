@@ -202,3 +202,17 @@ def get_observability_status() -> dict[str, bool]:
 		'observe_active': _LMNR_AVAILABLE,
 		'observe_debug_active': _LMNR_AVAILABLE and _is_debug_mode(),
 	}
+
+
+def set_span_attributes(attributes: dict[str, Any]) -> None:
+	"""Set attributes on the current Laminar span. No-op without lmnr, init, or an active span."""
+	if not _LMNR_AVAILABLE:
+		return
+	try:
+		from lmnr import Laminar  # type: ignore
+
+		if not Laminar.is_initialized():
+			return
+		Laminar.set_span_attributes({key: value for key, value in attributes.items() if value is not None})
+	except Exception:
+		logger.debug('Failed to set Laminar span attributes', exc_info=True)
