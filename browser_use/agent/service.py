@@ -608,6 +608,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Event-based pause control (kept out of AgentState for serialization)
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
+		self._pause_state_changed_event = asyncio.Event()
+		self._pause_state_generation = 0
+		self._pause_started_at = time.monotonic() if self.state.paused else None
+		self._paused_seconds = 0.0
 
 	def _enhance_task_with_schema(self, task: str, output_model_schema: type[AgentStructuredOutput] | None) -> str:
 		"""Enhance task description with output schema information if provided."""
@@ -1005,7 +1009,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.state.follow_up_task = True
 		# Reset control flags so agent can continue
 		self.state.stopped = False
-		self.state.paused = False
+		self._set_paused(False)
+		self._external_pause_event.set()
 		agent_id_suffix = str(self.id)[-4:].replace('-', '_')
 		if agent_id_suffix and agent_id_suffix[0].isdigit():
 			agent_id_suffix = 'a' + agent_id_suffix
@@ -2479,11 +2484,62 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.logger.debug(f'🚶 Starting step {step + 1}/{max_steps}...')
 
 		try:
-			await asyncio.wait_for(
-				self.step(step_info),
-				timeout=self.settings.step_timeout,
-			)
-			self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
+			step_task = asyncio.create_task(self.step(step_info))
+			step_started_at = time.monotonic()
+			paused_at_start = self._total_paused_seconds(step_started_at)
+			try:
+				while not step_task.done():
+					if self.state.stopped:
+						break
+
+					now = time.monotonic()
+					paused_during_step = self._total_paused_seconds(now) - paused_at_start
+					active_elapsed = max(0.0, now - step_started_at - paused_during_step)
+					remaining = float(self.settings.step_timeout) - active_elapsed
+
+					if not self.state.paused and remaining <= 0:
+						raise TimeoutError
+
+					# Clear only after recording the generation. If pause/resume races with
+					# the clear, the generation check or the newly-set event catches it.
+					generation = self._pause_state_generation
+					self._pause_state_changed_event.clear()
+					if generation != self._pause_state_generation:
+						continue
+
+					pause_change_task = asyncio.create_task(self._pause_state_changed_event.wait())
+					try:
+						done, _ = await asyncio.wait(
+							{step_task, pause_change_task},
+							timeout=None if self.state.paused else remaining,
+							return_when=asyncio.FIRST_COMPLETED,
+						)
+					finally:
+						if not pause_change_task.done():
+							pause_change_task.cancel()
+							try:
+								await pause_change_task
+							except asyncio.CancelledError:
+								pass
+
+					if step_task in done:
+						await step_task
+						break
+					if pause_change_task not in done:
+						raise TimeoutError
+				if not self.state.stopped:
+					await step_task
+			finally:
+				if not step_task.done():
+					step_task.cancel()
+					try:
+						await step_task
+					except asyncio.CancelledError:
+						pass
+			if self.state.stopped:
+				self.logger.debug(f'⏹️ Interrupted step {step + 1}/{max_steps}')
+			else:
+				self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
 		except TimeoutError:
 			# Handle step timeout gracefully
 			error_msg = f'Step {step + 1} timed out after {self.settings.step_timeout} seconds'
@@ -2642,6 +2698,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				step_info = AgentStepInfo(step_number=current_step, max_steps=max_steps)
 				is_done = await self._execute_step(current_step, max_steps, step_info, on_step_start, on_step_end)
+
+				# A stop can arrive while the step is in flight. Check again before the
+				# loop condition can fall through to the max-steps failure branch.
+				if self.state.stopped:
+					self.logger.info('🛑 Agent stopped')
+					agent_run_error = 'Agent stopped programmatically'
+					break
 
 				if is_done:
 					# Agent has marked the task as done
@@ -3942,7 +4005,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	def pause(self) -> None:
 		"""Pause the agent before the next step"""
 		print('\n\n⏸️ Paused the agent and left the browser open.\n\tPress [Enter] to resume or [Ctrl+C] again to quit.')
-		self.state.paused = True
+		self._set_paused(True)
 		self._external_pause_event.clear()
 
 	def resume(self) -> None:
@@ -3950,8 +4013,31 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# TODO: Locally the browser got closed
 		print('----------------------------------------------------------------------')
 		print('▶️  Resuming agent execution where it left off...\n')
-		self.state.paused = False
+		self._set_paused(False)
 		self._external_pause_event.set()
+
+	def _set_paused(self, paused: bool) -> None:
+		"""Update pause accounting and notify in-flight step timers."""
+		if paused == self.state.paused:
+			return
+
+		now = time.monotonic()
+		if paused:
+			self._pause_started_at = now
+		elif self._pause_started_at is not None:
+			self._paused_seconds += max(0.0, now - self._pause_started_at)
+			self._pause_started_at = None
+
+		self.state.paused = paused
+		self._pause_state_generation += 1
+		self._pause_state_changed_event.set()
+
+	def _total_paused_seconds(self, now: float | None = None) -> float:
+		"""Return cumulative paused wall time without mutating pause state."""
+		total = self._paused_seconds
+		if self._pause_started_at is not None:
+			total += max(0.0, (now if now is not None else time.monotonic()) - self._pause_started_at)
+		return total
 
 	def stop(self) -> None:
 		"""Stop the agent"""
@@ -3960,6 +4046,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Signal pause event to unblock any waiting code so it can check the stopped state
 		self._external_pause_event.set()
+		self._pause_state_generation += 1
+		self._pause_state_changed_event.set()
 
 		# Task stopped
 
