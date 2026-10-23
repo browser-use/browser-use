@@ -21,11 +21,12 @@ def __getattr__(name: str):
 		return Bash
 	try:
 		from .browser_use import BrowserUse
-	except ModuleNotFoundError as exc:
+	except ImportError as exc:
+		# Older SDKs can include anthropic.tools without the required exports.
 		if exc.name in {'anthropic', 'anthropic.tools', 'anthropic.tools.browser'}:
 			raise ImportError(
 				'Browser Use requires an Anthropic Python SDK release that includes '
-				'anthropic.tools.browser and client.beta.messages.tool_runner.'
+				'anthropic.tools.browser and client.beta.messages.tool_runner (anthropic>=1.12.0).'
 			) from exc
 		raise
 	globals()[name] = BrowserUse

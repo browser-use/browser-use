@@ -2,16 +2,22 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import base64
+import builtins
 import importlib.util
 import json
 import os
+import runpy
 import subprocess
 import sys
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
 import pytest
+from PIL import Image
 
 from browser_use.integrations.anthropic.bash import run_bash
 from browser_use.integrations.anthropic.tab_state import (
@@ -88,6 +94,40 @@ def test_missing_browser_toolset_sdk_has_an_actionable_error() -> None:
 	)
 	assert result.returncode != 0
 	assert 'requires an Anthropic Python SDK release' in result.stderr
+
+
+@pytest.mark.parametrize('exception_type', [ModuleNotFoundError, ImportError])
+@pytest.mark.parametrize('missing_name', ['anthropic.tools', 'anthropic.tools.browser'])
+def test_optional_sdk_import_errors_have_an_actionable_message(monkeypatch, exception_type, missing_name) -> None:
+	import browser_use.integrations.anthropic as integration
+
+	original_import = builtins.__import__
+
+	def import_without_sdk(name, globals=None, locals=None, fromlist=(), level=0):
+		if name == 'browser_use' and level == 1 and globals and globals.get('__package__') == integration.__name__:
+			raise exception_type('SDK export unavailable', name=missing_name)
+		return original_import(name, globals, locals, fromlist, level)
+
+	monkeypatch.setattr(builtins, '__import__', import_without_sdk)
+	with pytest.raises(ImportError, match='requires an Anthropic Python SDK release'):
+		integration.__getattr__('BrowserUse')
+
+
+def test_optional_sdk_guard_preserves_unrelated_import_errors(monkeypatch) -> None:
+	import browser_use.integrations.anthropic as integration
+
+	original_import = builtins.__import__
+	failure = ImportError('Dependency export unavailable', name='PIL')
+
+	def import_with_broken_dependency(name, globals=None, locals=None, fromlist=(), level=0):
+		if name == 'browser_use' and level == 1 and globals and globals.get('__package__') == integration.__name__:
+			raise failure
+		return original_import(name, globals, locals, fromlist, level)
+
+	monkeypatch.setattr(builtins, '__import__', import_with_broken_dependency)
+	with pytest.raises(ImportError) as caught:
+		integration.__getattr__('BrowserUse')
+	assert caught.value is failure
 
 
 def test_browser_use_and_bash_construct_with_a_compatible_sdk() -> None:
@@ -277,3 +317,105 @@ def test_quickstart_uses_peer_browser_use_and_bash_tools() -> None:
 	assert 'ActorUse' not in source
 	assert 'owns_browser' not in source
 	assert 'until_done()' in source
+
+
+@pytest.mark.parametrize(
+	'size, expected_size', [((32, 16), (32, 16)), ((4000, 2000), (2000, 1000)), ((2000, 4000), (1000, 2000))]
+)
+def test_screenshot_result_contains_a_valid_png(size, expected_size) -> None:
+	pytest.importorskip('anthropic.tools.browser')
+	from anthropic.tools.browser import BetaScreenshotResult
+
+	from browser_use.integrations.anthropic import BrowserUse
+
+	result = BrowserUse._image(Image.new('RGB', size, (12, 34, 56)))
+	assert isinstance(result, BetaScreenshotResult)
+	assert result.media_type == 'image/png'
+	with Image.open(BytesIO(base64.b64decode(result.data, validate=True))) as image:
+		assert image.format == 'PNG'
+		assert image.size == expected_size
+
+
+async def test_screenshot_tool_result_uses_sdk_wire_blocks(monkeypatch) -> None:
+	pytest.importorskip('anthropic.tools.browser')
+	from anthropic.types.beta import BetaToolUseBlock
+
+	from browser_use.integrations.anthropic import BrowserUse
+
+	driver = BrowserUse()
+	tabs = [{'tab_id': 'tab-a', 'url': 'https://example.com/', 'title': 'Example', 'active': True}]
+	get_page = AsyncMock(return_value=object())
+	monkeypatch.setattr(driver, '_page', get_page)
+	monkeypatch.setattr(driver, '_screenshot', AsyncMock(return_value=Image.new('RGB', (32, 16), (12, 34, 56))))
+	monkeypatch.setattr(driver, '_tabs', lambda: tabs)
+	monkeypatch.setattr(driver, '_collect_downloads', lambda: None)
+	try:
+		result = await driver.tool_result(
+			BetaToolUseBlock(type='tool_use', id='shot-1', name='screenshot', toolset_name='browser', input={'tab_id': 'tab-a'})
+		)
+		assert result['type'] == 'tool_result'
+		assert result['tool_use_id'] == 'shot-1'
+		assert result.get('toolset_name') == 'browser'
+		assert result.get('is_error', False) is False
+		content = result.get('content')
+		assert isinstance(content, list)
+		blocks = cast(list[dict[str, Any]], content)
+		assert [block['type'] for block in blocks] == ['image', 'browser_state']
+		assert blocks[0]['source']['type'] == 'base64'
+		assert blocks[0]['source']['media_type'] == 'image/png'
+		with Image.open(BytesIO(base64.b64decode(blocks[0]['source']['data'], validate=True))) as image:
+			assert image.size == (32, 16)
+		assert blocks[1]['tabs'] == tabs
+		get_page.assert_awaited_once_with('tab-a')
+	finally:
+		await driver.close()
+
+
+async def test_browser_state_reports_tabs_and_consumes_changes(monkeypatch) -> None:
+	pytest.importorskip('anthropic.tools.browser')
+	from anthropic.tools.browser import BetaBrowserState, BetaToolsetCallContext
+
+	from browser_use.integrations.anthropic import BrowserUse
+
+	driver = BrowserUse()
+	tabs = [{'tab_id': 'tab-a', 'url': 'https://example.com/', 'title': 'Example', 'active': True}]
+	monkeypatch.setattr(driver, '_tabs', lambda: tabs)
+	monkeypatch.setattr(driver, '_collect_downloads', lambda: None)
+	try:
+		state = await driver._browser_state(BetaToolsetCallContext())
+		assert isinstance(state, BetaBrowserState)
+		assert state.tabs == tabs
+		assert state.state_changes == [{'type': 'tab_opened', 'tab_id': 'tab-a'}]
+		next_state = await driver._browser_state(BetaToolsetCallContext())
+		assert next_state.tabs == tabs
+		assert next_state.state_changes == []
+	finally:
+		await driver.close()
+
+
+@pytest.mark.parametrize(
+	'detail, message',
+	[
+		({'exception': {'description': 'ReferenceError: missing'}}, 'ReferenceError: missing'),
+		({'text': 'Execution failed'}, 'Execution failed'),
+	],
+)
+def test_javascript_errors_use_the_public_sdk_tool_error(detail, message) -> None:
+	pytest.importorskip('anthropic.tools.browser')
+	from anthropic.tools import ToolError
+
+	from browser_use.integrations.anthropic import BrowserUse
+
+	with pytest.raises(ToolError) as caught:
+		BrowserUse._raise_js({'exceptionDetails': detail})
+	assert caught.value.content == message
+
+
+def test_quickstart_imports_the_public_sdk_file_policy() -> None:
+	pytest.importorskip('anthropic.tools.browser')
+	from anthropic.tools.browser import BetaLocalFilePolicy
+
+	namespace = runpy.run_path(str(QUICKSTART_PATH))
+	policy = namespace['BetaLocalFilePolicy'](upload_document_ids=['invoice.pdf'])
+	assert isinstance(policy, BetaLocalFilePolicy)
+	assert policy.upload_document_ids == frozenset({'invoice.pdf'})
