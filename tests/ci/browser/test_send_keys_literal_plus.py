@@ -20,7 +20,7 @@ def make_watchdog(recorded_params, dispatched_keys) -> DefaultActionWatchdog:
 		async def get_or_create_cdp_session(self, focus=False):
 			return cdp_session
 
-	async def dispatch_key_event(_session, event_type, key, modifiers=0):
+	async def dispatch_key_event(_session, event_type, key, modifiers=0, text=None):
 		dispatched_keys.append((event_type, key, modifiers))
 
 	watchdog = SimpleNamespace(
