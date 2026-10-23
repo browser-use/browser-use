@@ -3,6 +3,7 @@ Tests for the SchemaOptimizer to ensure it correctly processes and
 optimizes the schemas for agent actions without losing information.
 """
 
+import pytest
 from pydantic import BaseModel, Field
 
 from browser_use.agent.views import AgentOutput
@@ -95,3 +96,61 @@ def test_optimizer_treats_property_names_as_data_not_schema_keywords():
 		field_schema = schema['properties'][field_name]
 		assert '$ref' not in field_schema
 		assert field_schema['properties']['summary']['type'] == 'string'
+
+
+@pytest.mark.parametrize('remove_defaults', [False, True])
+@pytest.mark.parametrize('remove_min_items', [False, True])
+def test_optimizer_cleanup_flags_preserve_keyword_named_properties(remove_defaults: bool, remove_min_items: bool):
+	"""Cleanup flags must not remove fields whose names match schema keywords."""
+
+	class Nested(BaseModel):
+		default: str
+		minItems: int
+		min_items: int
+		optional_value: str = 'nested fallback'
+		constrained: list[str] = Field(min_length=1)
+
+	class KeywordFields(BaseModel):
+		default: bool
+		minItems: str
+		min_items: str
+		nested: Nested
+		properties: Nested
+		nested_items: list[Nested]
+		optional_value: str = 'fallback'
+		constrained: list[str] = Field(min_length=1)
+
+	schema = SchemaOptimizer.create_optimized_json_schema(
+		KeywordFields,
+		remove_defaults=remove_defaults,
+		remove_min_items=remove_min_items,
+	)
+
+	properties = schema['properties']
+	assert set(properties) == set(KeywordFields.model_fields)
+	for object_schema, model in (
+		(schema, KeywordFields),
+		(properties['nested'], Nested),
+		(properties['properties'], Nested),
+		(properties['nested_items']['items'], Nested),
+	):
+		assert set(object_schema['properties']) == set(model.model_fields)
+		assert set(object_schema['required']) == set(model.model_fields)
+		assert object_schema['additionalProperties'] is False
+		assert ('default' in object_schema['properties']['optional_value']) is not remove_defaults
+		assert ('minItems' in object_schema['properties']['constrained']) is not remove_min_items
+
+
+def test_optimizer_removes_metadata_from_property_named_properties():
+	"""A property named ``properties`` must not change cleanup context."""
+
+	class Output(BaseModel):
+		properties: str = 'fallback'
+
+	schema = SchemaOptimizer.create_optimized_json_schema(
+		Output,
+		remove_defaults=True,
+		remove_min_items=True,
+	)
+
+	assert 'default' not in schema['properties']['properties']
