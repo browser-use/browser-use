@@ -98,3 +98,32 @@ async def test_explicit_empty_list_does_not_override_profile_defaults(server: Br
 
 class _StopAgentSetup(Exception):
 	"""Marker exception used to short-circuit agent construction during testing."""
+
+
+async def test_client_allowed_domains_do_not_persist_into_server_config(server: BrowserUseServer) -> None:
+	"""One client's `allowed_domains` must not replace the admin-configured allowlist for later calls."""
+	from browser_use.mcp import server as server_module
+
+	server.config = {
+		'browser_profile': {'allowed_domains': ['corp.example.com'], 'headless': True, 'user_data_dir': None},
+		'llm': {'api_key': 'test-key', 'model': 'gpt-4o'},
+	}
+	captured: list[Any] = []
+
+	class CapturingBrowserProfile:
+		def __init__(self, **kwargs: Any) -> None:
+			captured.append(kwargs.get('allowed_domains'))
+			raise _StopAgentSetup('captured')
+
+	original_browser_profile = server_module.BrowserProfile
+	server_module.BrowserProfile = CapturingBrowserProfile  # type: ignore[misc]
+	try:
+		with pytest.raises(_StopAgentSetup):
+			await server._retry_with_browser_use_agent(task='noop', allowed_domains=['evil.example.com'])
+		with pytest.raises(_StopAgentSetup):
+			await server._retry_with_browser_use_agent(task='noop')
+	finally:
+		server_module.BrowserProfile = original_browser_profile  # type: ignore[misc]
+
+	assert captured == [['evil.example.com'], ['corp.example.com']]
+	assert server.config['browser_profile']['allowed_domains'] == ['corp.example.com']
