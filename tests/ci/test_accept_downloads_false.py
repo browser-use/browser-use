@@ -46,7 +46,9 @@ async def test_set_download_behavior_denies_when_accept_downloads_false(tmp_path
 	wd, set_download_behavior = _make_watchdog(tmp_path, accept_downloads=False)
 	await wd.attach_to_target('target-1')
 	set_download_behavior.assert_awaited()
-	params = set_download_behavior.await_args.kwargs['params']
+	await_args = set_download_behavior.await_args
+	assert await_args is not None
+	params = await_args.kwargs['params']
 	assert params['behavior'] == 'deny'
 
 
@@ -54,17 +56,21 @@ async def test_set_download_behavior_denies_when_accept_downloads_false(tmp_path
 async def test_set_download_behavior_allows_when_accept_downloads_true(tmp_path: Path):
 	wd, set_download_behavior = _make_watchdog(tmp_path, accept_downloads=True)
 	await wd.attach_to_target('target-1')
-	params = set_download_behavior.await_args.kwargs['params']
+	await_args = set_download_behavior.await_args
+	assert await_args is not None
+	params = await_args.kwargs['params']
 	assert params['behavior'] == 'allow'
 
 
 @pytest.mark.asyncio
 async def test_download_file_from_url_skipped_when_accept_downloads_false(tmp_path: Path):
 	wd, _ = _make_watchdog(tmp_path, accept_downloads=False)
+	get_session = wd.browser_session.get_or_create_cdp_session
+	assert isinstance(get_session, AsyncMock)
 	result = await wd.download_file_from_url('https://example.com/a.pdf', 'target-1')
 	assert result is None
 	# None is also the fetch-failure result. The skip must return before any CDP session.
-	wd.browser_session.get_or_create_cdp_session.assert_not_awaited()
+	get_session.assert_not_awaited()
 
 
 def test_auto_download_requires_accept_downloads(tmp_path: Path):
