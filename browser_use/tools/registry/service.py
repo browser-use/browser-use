@@ -219,8 +219,6 @@ class Registry(Generic[Context]):
 								raise ValueError(f'Action {func.__name__} requires page but none provided.')
 							elif param.name == 'available_file_paths':
 								raise ValueError(f'Action {func.__name__} requires available_file_paths but none provided.')
-							elif param.name == 'file_system':
-								raise ValueError(f'Action {func.__name__} requires file_system but none provided.')
 							else:
 								raise ValueError(f"{func.__name__}() missing required special parameter '{param.name}'")
 						call_args.append(value)
@@ -238,8 +236,6 @@ class Registry(Generic[Context]):
 							raise ValueError(f'Action {func.__name__} requires page but none provided.')
 						elif param.name == 'available_file_paths':
 							raise ValueError(f'Action {func.__name__} requires available_file_paths but none provided.')
-						elif param.name == 'file_system':
-							raise ValueError(f'Action {func.__name__} requires file_system but none provided.')
 						else:
 							raise ValueError(f"{func.__name__}() missing required special parameter '{param.name}'")
 				else:
