@@ -88,7 +88,7 @@ docker run -d -p 3000:3000 -p 4318:4318 openlit/openlit
 
 ## Telemetry
 
-Browser Use collects anonymous usage data via PostHog.
+Browser Use sends telemetry events to PostHog by default. The identifier is a persistent/pseudonymous device id (config-dir id or MAC+hostname hash), not a personal name — but `AgentTelemetryEvent` includes the full `task` prompt, `urls_visited`, `action_history` (including typed text), and `final_result_response` — see [`browser_use/telemetry/views.py`](https://github.com/browser-use/browser-use/blob/main/browser_use/telemetry/views.py).
 
 ### Opt Out
 
