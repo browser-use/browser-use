@@ -95,3 +95,28 @@ def test_optimizer_treats_property_names_as_data_not_schema_keywords():
 		field_schema = schema['properties'][field_name]
 		assert '$ref' not in field_schema
 		assert field_schema['properties']['summary']['type'] == 'string'
+
+
+def test_gemini_schema_keeps_optional_fields_optional():
+	"""create_gemini_optimized_schema must preserve the model's own required array.
+
+	Fields with defaults are optional (absent from pydantic's required list); the
+	Gemini path should let Gemini omit them instead of forcing every property.
+	"""
+
+	class ProductInfoWithOptional(BaseModel):
+		price: str
+		title: str
+		rating: float | None = None
+
+	schema = SchemaOptimizer.create_gemini_optimized_schema(ProductInfoWithOptional)
+
+	assert schema['required'] == ['price', 'title'], 'Optional fields with defaults must not be forced required for Gemini.'
+
+
+def test_openai_strict_schema_keeps_all_fields_required():
+	"""The OpenAI strict-mode path must keep marking every property as required."""
+
+	schema = SchemaOptimizer.create_optimized_json_schema(ProductInfo)
+
+	assert set(schema['required']) == {'price', 'title', 'rating'}
