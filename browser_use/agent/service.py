@@ -3566,7 +3566,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		2. STABLE: Hash with dynamic CSS classes filtered out (focus, hover, animation, etc.)
 		3. XPATH: XPath string match (structural position in DOM)
 		4. AX_NAME: Accessible name match from accessibility tree (robust for dynamic menus)
-		5. ATTRIBUTE: Unique attribute match (name, id, aria-label) for old history files
+		5. ATTRIBUTE: Attribute match (name, id, aria-label) for old history files; only accepted
+		   when exactly one element shares the identifier (ambiguous matches are rejected)
 		"""
 		if not historical_element or not browser_state_summary.dom_state.selector_map:
 			return action
@@ -3669,21 +3670,41 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			hist_attrs = historical_element.attributes
 			hist_name = historical_element.node_name.lower()
 
-			# Try matching by unique identifiers: name, id, or aria-label
+			# Try matching by unique identifiers: name, id, or aria-label.
+			# A match is only accepted when exactly one element shares the identifier;
+			# an ambiguous match is treated like a miss (fall through to the next
+			# identifier) because rewriting to the first hit could target the wrong element.
 			for attr_key in ['name', 'id', 'aria-label']:
-				if attr_key in hist_attrs and hist_attrs[attr_key]:
-					for idx, elem in selector_items:
-						if (
-							elem.node_name.lower() == hist_name
-							and elem.attributes
-							and elem.attributes.get(attr_key) == hist_attrs[attr_key]
-						):
-							highlight_index = idx
-							match_level = MatchLevel.ATTRIBUTE
-							self.logger.info(f'Element matched via {attr_key} attribute: {hist_attrs[attr_key]}')
-							break
-					if highlight_index is not None:
-						break
+				if attr_key not in hist_attrs or not hist_attrs[attr_key]:
+					continue
+				matches = [
+					idx
+					for idx, elem in selector_items
+					if (
+						elem.node_name.lower() == hist_name
+						and elem.attributes
+						and elem.attributes.get(attr_key) == hist_attrs[attr_key]
+					)
+				]
+				# The recorded frame disambiguates duplicates: a match that is unique
+				# inside the historical frame stays acceptable even when an unrelated
+				# iframe repeats the identifier. Only fall back to the full candidate
+				# list when the historical frame has no match at all.
+				if historical_element.frame_id and matches:
+					same_frame_matches = [idx for idx in matches if selector_map[idx].frame_id == historical_element.frame_id]
+					if same_frame_matches:
+						matches = same_frame_matches
+				if len(matches) == 1:
+					highlight_index = matches[0]
+					match_level = MatchLevel.ATTRIBUTE
+					self.logger.info(f'Element matched via unique {attr_key} attribute: {hist_attrs[attr_key]}')
+					break
+				if len(matches) > 1:
+					self.logger.warning(
+						f'ATTRIBUTE match via {attr_key}="{hist_attrs[attr_key]}" is ambiguous: '
+						f'{len(matches)} elements share it (indexes: {matches}). '
+						f'Skipping this identifier to avoid acting on the wrong element.'
+					)
 
 			if highlight_index is None:
 				tried_attrs = [k for k in ['name', 'id', 'aria-label'] if k in hist_attrs and hist_attrs[k]]
