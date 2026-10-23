@@ -550,12 +550,11 @@ class AgentHistory(BaseModel):
 		if self.model_output:
 			action_dump = [action.model_dump(exclude_none=True, mode='json') for action in self.model_output.action]
 
-			# Filter sensitive data only from input action parameters if sensitive_data is provided
+			# Filter sensitive data from every action's parameters if sensitive_data is provided.
+			# Redaction is cheap, and keying it on a hardcoded action name silently skips the
+			# built-in `input_text` action, which is the most common way a secret reaches history.
 			if sensitive_data:
-				action_dump = [
-					self._filter_sensitive_data_from_dict(action, sensitive_data) if 'input' in action else action
-					for action in action_dump
-				]
+				action_dump = [self._filter_sensitive_data_from_dict(action, sensitive_data) for action in action_dump]
 
 			model_output_dump = {
 				'evaluation_previous_goal': self.model_output.evaluation_previous_goal,
