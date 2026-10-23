@@ -41,6 +41,26 @@ def test_is_url_image_rejects_unsupported_urls(url: str) -> None:
 	assert not AWSBedrockMessageSerializer._is_url_image(url)
 
 
+@pytest.mark.parametrize(
+	('url', 'expected_format'),
+	[
+		('DATA:IMAGE/PNG;base64,aGVsbG8=', 'png'),
+		('Data:image/JPEG;base64,aGVsbG8=', 'jpeg'),
+	],
+)
+def test_serialize_content_part_accepts_case_insensitive_data_url_scheme(url: str, expected_format: str) -> None:
+	result = AWSBedrockMessageSerializer._serialize_content_part_image(ContentPartImageParam(image_url=ImageURL(url=url)))
+
+	assert result == {
+		'image': {
+			'format': expected_format,
+			'source': {
+				'bytes': b'hello',
+			},
+		}
+	}
+
+
 def test_serialize_content_part_prefers_response_content_type(httpserver: HTTPServer) -> None:
 	image_bytes = b'image-bytes'
 	httpserver.expect_request('/photo.jpg').respond_with_data(
