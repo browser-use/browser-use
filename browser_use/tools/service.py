@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import weakref
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar, Generic, TypeVar
 
@@ -482,6 +483,8 @@ class Tools(Generic[Context]):
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
 		self._evaluate_policy_guard = EvaluatePolicyGuard()
+		self._trusted_evaluate_action: Callable[..., Any] | None = None
+		self._trusted_done_action: Callable[..., Any] | None = None
 
 		"""Register all default browser actions"""
 
@@ -1984,6 +1987,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					policy_enforcement_unavailable=True,
 				)
 
+		registered_evaluate = self.registry.registry.actions.get('evaluate')
+		self._trusted_evaluate_action = registered_evaluate.function if registered_evaluate is not None else None
+
 	async def _execute_evaluate_javascript(
 		self, validated_code: str, original_code: str, cdp_session: Any, context_id: int
 	) -> ActionResult:
@@ -2144,6 +2150,24 @@ Validated Code (after quote fixing):
 		entry.enforcement_unavailable = True
 		self._session_policy_state[key] = entry
 
+	def _is_trusted_policy_action(self, action_name: str, trusted_handler: Callable[..., Any] | None) -> bool:
+		"""Match the registered handler identity, not a model-controlled action name."""
+		registered = self.registry.registry.actions.get(action_name)
+		return trusted_handler is not None and registered is not None and registered.function is trusted_handler
+
+	@staticmethod
+	def _strip_untrusted_policy_metadata(result: ActionResult) -> ActionResult:
+		"""Prevent custom actions from forging policy provenance in returned history."""
+		return result.model_copy(
+			update={
+				'policy_violations': [],
+				'control_state_change_observation': None,
+				'ambiguous_policy_transitions': [],
+				'policy_enforcement_unavailable': False,
+				'trusted_policy_disclosure': False,
+			}
+		)
+
 	def _policy_state_for(self, browser_session: BrowserSession) -> tuple[int, _SessionPolicyState]:
 		"""Return session state while avoiding stale integer-id reuse and retaining no closed session."""
 		key = id(browser_session)
@@ -2293,6 +2317,9 @@ Validated Code (after quote fixing):
 					trusted_policy_disclosure=disclosure is not None,
 				)
 
+		registered_done = self.registry.registry.actions.get('done')
+		self._trusted_done_action = registered_done.function if registered_done is not None else None
+
 	def use_structured_output_action(self, output_model: type[T]):
 		self._output_model = output_model
 		self._register_done_action(output_model)
@@ -2403,7 +2430,9 @@ Validated Code (after quote fixing):
 
 		for action_name, params in action.model_dump(exclude_unset=True).items():
 			if params is not None:
-				if action_name != 'done' and browser_session is not None:
+				trusted_evaluate_action = self._is_trusted_policy_action(action_name, self._trusted_evaluate_action)
+				trusted_done_action = self._is_trusted_policy_action(action_name, self._trusted_done_action)
+				if not trusted_done_action and browser_session is not None:
 					if self._has_policy_violations(browser_session):
 						return ActionResult(
 							error='Browser action blocked because an earlier evaluate attempt violated the policy guard. '
@@ -2451,13 +2480,13 @@ Validated Code (after quote fixing):
 							timeout=timeout_s,
 						)
 					except asyncio.CancelledError:
-						if action_name == 'evaluate' and browser_session is not None:
+						if trusted_evaluate_action and browser_session is not None:
 							self._mark_policy_enforcement_unavailable(browser_session)
 						raise
 					except BrowserError as e:
 						logger.error(f'❌ Action {action_name} failed with BrowserError: {str(e)}')
 						result = handle_browser_error(e)
-						if action_name == 'evaluate':
+						if trusted_evaluate_action:
 							result.policy_enforcement_unavailable = True
 					except TimeoutError:
 						# Covers both the per-action asyncio.wait_for cap and any inner
@@ -2473,22 +2502,25 @@ Validated Code (after quote fixing):
 								f'Try again or a different approach.'
 							)
 						)
-						if action_name == 'evaluate':
+						if trusted_evaluate_action:
 							result.policy_enforcement_unavailable = True
 							if browser_session is not None:
 								self._mark_policy_enforcement_unavailable(browser_session)
 					except Exception as e:
 						# Log the original exception with traceback for observability
 						logger.error(f"Action '{action_name}' failed with error: {str(e)}")
-						result = ActionResult(error=str(e), policy_enforcement_unavailable=action_name == 'evaluate')
+						result = ActionResult(error=str(e), policy_enforcement_unavailable=trusted_evaluate_action)
 
-					if isinstance(result, ActionResult) and browser_session is not None:
-						if result.policy_violations:
-							self._record_policy_violations(browser_session, result.policy_violations)
-						if result.ambiguous_policy_transitions:
-							self._record_ambiguous_policy_transitions(browser_session, result.ambiguous_policy_transitions)
-						if result.policy_enforcement_unavailable:
-							self._mark_policy_enforcement_unavailable(browser_session)
+					if isinstance(result, ActionResult):
+						if trusted_evaluate_action and browser_session is not None:
+							if result.policy_violations:
+								self._record_policy_violations(browser_session, result.policy_violations)
+							if result.ambiguous_policy_transitions:
+								self._record_ambiguous_policy_transitions(browser_session, result.ambiguous_policy_transitions)
+							if result.policy_enforcement_unavailable:
+								self._mark_policy_enforcement_unavailable(browser_session)
+						elif not trusted_done_action:
+							result = self._strip_untrusted_policy_metadata(result)
 
 					if Laminar is not None:
 						Laminar.set_span_output(result)

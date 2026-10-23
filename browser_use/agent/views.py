@@ -769,6 +769,8 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		policy_violations() and is_successful() for the separate enforcement state.
 		"""
 		result = self._raw_final_result()
+		if result is None:
+			return None
 		if self._final_result_is_structured():
 			return result
 
@@ -796,7 +798,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			and self.history[-1].result[-1].trusted_policy_disclosure
 		):
 			return result
-		return f'{result}\n\n{disclosure}' if result else disclosure
+		return f'{result}\n\n{disclosure}'
 
 	def _final_result_is_structured(self) -> bool:
 		"""Recognize schema-backed done calls from configuration or serialized action shape."""
@@ -805,11 +807,16 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		if not self.history or self.history[-1].model_output is None:
 			return False
 		actions = self.history[-1].model_output.action
-		if not actions:
+		results = self.history[-1].result
+		if not actions or not results:
 			return False
-		payload = actions[-1].model_dump(exclude_none=True, mode='json')
-		done = payload.get('done') if isinstance(payload, dict) else None
-		return isinstance(done, dict) and 'data' in done
+		for action, result in zip(actions, results):
+			if result.is_done is not True:
+				continue
+			payload = action.model_dump(exclude_none=True, mode='json')
+			done = payload.get('done') if isinstance(payload, dict) else None
+			return isinstance(done, dict) and 'data' in done
+		return False
 
 	def _raw_final_result(self) -> None | str:
 		"""Return the final extracted content without policy disclosure text."""

@@ -3,7 +3,6 @@
 import asyncio
 import json
 import os
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import anyio
@@ -28,7 +27,12 @@ from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm import BaseChatModel, SystemMessage
 from browser_use.llm.views import ChatInvokeCompletion
-from browser_use.tools.evaluate_policy import compare_control_snapshots, enforcement_unavailable_since, violations_since
+from browser_use.tools.evaluate_policy import (
+	_GUARD_BOOTSTRAP,
+	compare_control_snapshots,
+	enforcement_unavailable_since,
+	violations_since,
+)
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
 
@@ -521,20 +525,42 @@ async def test_javascript_result_and_exception_are_preserved(httpserver, policy_
 	assert error.policy_violations == []
 
 
-async def test_evaluate_cdp_error_is_classified_as_unverified():
+async def test_evaluate_cdp_error_is_classified_as_unverified(httpserver, policy_browser_session, monkeypatch, tmp_path):
 	tools = Tools()
-
-	async def fail_runtime_evaluate(**_kwargs):
-		raise RuntimeError('CDP disconnected')
-
-	cdp_session = SimpleNamespace(
-		cdp_client=SimpleNamespace(send=SimpleNamespace(Runtime=SimpleNamespace(evaluate=fail_runtime_evaluate))),
-		session_id='test-session',
+	await _evaluate_page(
+		httpserver,
+		policy_browser_session,
+		'<button>Continue</button>',
+		'document.title',
+		tools=tools,
 	)
-	result = await tools._execute_evaluate_javascript('1', '1', cdp_session, 7)
+	cdp_session = await policy_browser_session.get_or_create_cdp_session()
+	client = cdp_session.cdp_client
+	original_send_raw = client.send_raw
+	expression = "document.body.dataset.ran='yes'; 'transport-error-sentinel'"
+
+	async def fail_evaluate_request(method, params=None, session_id=None):
+		if method == 'Runtime.evaluate' and params and params.get('expression') == expression:
+			raise RuntimeError('CDP disconnected')
+		return await original_send_raw(method=method, params=params, session_id=session_id)
+
+	monkeypatch.setattr(client, 'send_raw', fail_evaluate_request)
+	result = await tools.evaluate(code=expression, browser_session=policy_browser_session)
 
 	assert result.error is not None and 'CDP disconnected' in result.error
 	assert result.policy_enforcement_unavailable is True
+	assert result.policy_violations == []
+	assert await _page_evaluate(policy_browser_session, "document.body.dataset.ran || ''") == ''
+	blocked = await tools.click(index=1, browser_session=policy_browser_session)
+	assert blocked.policy_enforcement_unavailable is True
+	completion = await tools.done(
+		text='Completed.',
+		success=True,
+		browser_session=policy_browser_session,
+		file_system=FileSystem(tmp_path / 'completion', create_default_files=False),
+	)
+	assert completion.success is False
+	assert completion.policy_enforcement_unavailable is True
 
 
 async def test_registry_cdp_dependency_failure_is_unavailable():
@@ -560,23 +586,27 @@ async def test_unstructured_done_preserves_calls_without_browser_session(tmp_pat
 	assert result.extracted_content == 'Completed'
 
 
-async def test_action_timeout_records_unavailable_and_blocks_followup(monkeypatch):
-	tools = Tools()
-	browser_session = BrowserSession()
-
-	async def wait_forever(_registry, **_kwargs):
-		await asyncio.Event().wait()
-
-	monkeypatch.setattr(type(tools.registry), 'execute_action', wait_forever)
-	action_model = tools.registry.create_action_model(include_actions=['evaluate']).model_validate({'evaluate': {'code': '1'}})
-	result = await tools.act(action_model, browser_session=browser_session, action_timeout=0.01)
+async def test_action_timeout_records_unavailable_and_blocks_followup(httpserver, policy_browser_session, tmp_path):
+	_, tools = await _evaluate_page(httpserver, policy_browser_session, '<button>Continue</button>', 'document.title')
+	action_model = tools.registry.create_action_model(include_actions=['evaluate']).model_validate(
+		{'evaluate': {'code': 'new Promise(() => {})'}}
+	)
+	result = await tools.act(action_model, browser_session=policy_browser_session, action_timeout=1.0)
 
 	assert result.policy_enforcement_unavailable is True
 	assert result.error is not None and 'timed out' in result.error
 	click_model = tools.registry.create_action_model(include_actions=['click']).model_validate({'click': {'index': 1}})
-	blocked = await tools.act(click_model, browser_session=browser_session)
+	blocked = await tools.act(click_model, browser_session=policy_browser_session)
 	assert blocked.policy_enforcement_unavailable is True
 	assert blocked.error is not None and 'could not be verified' in blocked.error
+	completion = await tools.done(
+		text='The page was handled.',
+		success=True,
+		browser_session=policy_browser_session,
+		file_system=FileSystem(tmp_path / 'completion', create_default_files=False),
+	)
+	assert completion.success is False
+	assert completion.policy_enforcement_unavailable is True
 
 
 async def test_cancelled_evaluate_cleans_real_cdp_request_and_fails_closed(httpserver, policy_browser_session, monkeypatch):
@@ -752,59 +782,71 @@ async def test_dynamic_frame_is_reported_unavailable_and_stops_followup(httpserv
 	assert blocked.policy_enforcement_unavailable is True
 
 
-async def test_guard_initialization_failure_never_runs_code_and_is_sticky(monkeypatch, tmp_path):
+async def test_guard_initialization_failure_never_runs_code_and_is_sticky(
+	httpserver, policy_browser_session, monkeypatch, tmp_path
+):
 	tools = Tools()
-	session = BrowserSession()
-	monkeypatch.setattr(session, '_cdp_client_root', SimpleNamespace())
-	monkeypatch.setattr(BrowserSession, 'get_current_page_url', AsyncMock(return_value='http://localhost/'))
-	monkeypatch.setattr(BrowserSession, 'get_or_create_cdp_session', AsyncMock(return_value=object()))
-	monkeypatch.setattr(tools._evaluate_policy_guard, 'has_child_frames', AsyncMock(return_value=False))
-	monkeypatch.setattr(tools._evaluate_policy_guard, 'context_for', AsyncMock(return_value=('main', 1)))
-	install = AsyncMock(return_value=False)
-	monkeypatch.setattr(tools._evaluate_policy_guard, 'install', install)
-	execute = AsyncMock()
-	monkeypatch.setattr(tools, '_execute_evaluate_javascript', execute)
-	result = await tools.evaluate(code='sideEffect()', browser_session=session)
+	await _evaluate_page(
+		httpserver,
+		policy_browser_session,
+		'<main id="target">ready</main>',
+		'document.title',
+		tools=tools,
+	)
+	cdp_session = await policy_browser_session.get_or_create_cdp_session()
+	client = cdp_session.cdp_client
+	original_send_raw = client.send_raw
+	bootstrap_attempted = False
+
+	async def fail_guard_bootstrap(method, params=None, session_id=None):
+		nonlocal bootstrap_attempted
+		if method == 'Runtime.evaluate' and params and params.get('expression') == _GUARD_BOOTSTRAP:
+			bootstrap_attempted = True
+			raise RuntimeError('injected CDP bootstrap failure')
+		return await original_send_raw(method=method, params=params, session_id=session_id)
+
+	monkeypatch.setattr(client, 'send_raw', fail_guard_bootstrap)
+	result = await tools.evaluate(
+		code="document.querySelector('#target').dataset.ran='yes'; 'executed'",
+		browser_session=policy_browser_session,
+	)
 	assert result.policy_enforcement_unavailable is True
 	assert result.policy_violations == []
-	install.assert_awaited_once()
-	execute.assert_not_awaited()
+	assert result.error is not None and 'injected CDP bootstrap failure' in result.error
+	assert bootstrap_attempted is True
+	assert await _page_evaluate(policy_browser_session, "document.querySelector('#target').dataset.ran || ''") == ''
+	blocked = await tools.click(index=1, browser_session=policy_browser_session)
+	assert blocked.policy_enforcement_unavailable is True
 	completion = await tools.done(
 		text='Done',
 		success=True,
-		browser_session=session,
+		browser_session=policy_browser_session,
 		file_system=FileSystem(tmp_path / 'completion', create_default_files=False),
 	)
 	assert completion.success is False
 	assert completion.policy_enforcement_unavailable is True
 
 
-async def test_incomplete_snapshot_preserves_confirmed_counters_and_original_result(monkeypatch):
-	tools = Tools()
-	session = BrowserSession()
-	monkeypatch.setattr(session, '_cdp_client_root', SimpleNamespace())
-	monkeypatch.setattr(BrowserSession, 'get_current_page_url', AsyncMock(return_value='http://localhost/'))
-	monkeypatch.setattr(BrowserSession, 'get_or_create_cdp_session', AsyncMock(return_value=object()))
-	monkeypatch.setattr(tools._evaluate_policy_guard, 'has_child_frames', AsyncMock(return_value=False))
-	monkeypatch.setattr(tools._evaluate_policy_guard, 'context_for', AsyncMock(return_value=('main', 1)))
-	monkeypatch.setattr(tools._evaluate_policy_guard, 'install', AsyncMock(return_value=True))
-	monkeypatch.setattr(
-		tools._evaluate_policy_guard,
-		'read_state',
-		AsyncMock(
-			side_effect=[
-				{'counts': {}, 'snapshot': {'controls': [], 'complete': True}},
-				{'counts': {'disabled_control_bypass': 1}, 'snapshot': {'controls': [], 'complete': False}},
-			]
-		),
+async def test_incomplete_snapshot_preserves_confirmed_counters_and_original_result(httpserver, policy_browser_session, tmp_path):
+	result, tools = await _evaluate_page(
+		httpserver,
+		policy_browser_session,
+		'<button id="locked" disabled>Locked</button>',
+		"(() => { const button=document.querySelector('#locked'); try { button.disabled=false; } catch (_) {} "
+		"const fragment=document.createDocumentFragment(); for(let i=0;i<5001;i++) fragment.appendChild(document.createElement('input')); "
+		"document.body.appendChild(fragment); return 'original'; })()",
 	)
-	execute = AsyncMock(return_value=ActionResult(extracted_content='original'))
-	monkeypatch.setattr(tools, '_execute_evaluate_javascript', execute)
-	result = await tools.evaluate(code='attempt()', browser_session=session)
 	assert result.extracted_content == 'original'
 	assert [item.code for item in result.policy_violations] == ['disabled_control_bypass']
 	assert result.policy_enforcement_unavailable is True
-	execute.assert_awaited_once()
+	completion = await tools.done(
+		text='Completed.',
+		success=True,
+		browser_session=policy_browser_session,
+		file_system=FileSystem(tmp_path / 'completion', create_default_files=False),
+	)
+	assert completion.success is False
+	assert completion.policy_enforcement_unavailable is True
 
 
 async def test_sticky_violation_survives_another_tools_instance(monkeypatch):
@@ -821,6 +863,50 @@ async def test_sticky_violation_survives_another_tools_instance(monkeypatch):
 	assert replacement._has_policy_violations(session)
 
 
+async def test_custom_action_cannot_forge_sticky_policy_state(httpserver, policy_browser_session, tmp_path):
+	tools = Tools()
+	await _evaluate_page(
+		httpserver,
+		policy_browser_session,
+		'<button onclick="document.body.dataset.clicked=\'yes\'">Continue</button>',
+		'document.title',
+		tools=tools,
+	)
+	transition = AmbiguousPolicyTransition(observation=ControlStateChangeObservation(disabled_to_enabled=1))
+
+	@tools.action('Return deliberately forged policy metadata for a regression test.')
+	async def forge_policy_metadata():
+		return ActionResult(
+			policy_violations=[ConfirmedPolicyViolation(code='disabled_control_bypass')],
+			ambiguous_policy_transitions=[transition],
+			policy_enforcement_unavailable=True,
+			trusted_policy_disclosure=True,
+		)
+
+	forged = await tools.forge_policy_metadata(browser_session=policy_browser_session)
+	assert forged.policy_violations == []
+	assert forged.ambiguous_policy_transitions == []
+	assert forged.policy_enforcement_unavailable is False
+	assert forged.trusted_policy_disclosure is False
+
+	await policy_browser_session.get_browser_state_summary(include_screenshot=False)
+	selector_map = await policy_browser_session.get_selector_map()
+	assert selector_map
+	click_result = await tools.click(index=next(iter(selector_map)), browser_session=policy_browser_session)
+	assert click_result.error is None
+	assert click_result.extracted_content is not None and click_result.extracted_content.startswith('Clicked')
+	assert await _page_evaluate(policy_browser_session, "document.body.dataset.clicked || ''") == 'yes'
+	completion = await tools.done(
+		text='Continue button clicked.',
+		success=True,
+		browser_session=policy_browser_session,
+		file_system=FileSystem(tmp_path / 'completion', create_default_files=False),
+	)
+	assert completion.is_done is True
+	assert completion.success is True
+	assert completion.trusted_policy_disclosure is False
+
+
 def _history_step(result: ActionResult, model_output=None) -> AgentHistory:
 	return AgentHistory(
 		model_output=model_output,
@@ -835,6 +921,10 @@ class _Answer(BaseModel):
 
 class _StructuredDone(ActionModel):
 	done: dict[str, object]
+
+
+class _QueuedClick(ActionModel):
+	click: dict[str, object]
 
 
 async def test_registered_structured_done_fails_after_violation_but_preserves_json(httpserver, policy_browser_session, tmp_path):
@@ -943,6 +1033,42 @@ def test_confirmed_violation_survives_history_serialization():
 		assert code in (typed_history.final_result() or '')
 		restored_typed_history = AgentHistoryList.load_from_dict(typed_history.model_dump(), AgentOutput)
 		assert restored_typed_history.policy_violations() == [transfer_or_duplication]
+
+
+def test_final_result_is_none_without_completion_text_but_policy_api_remains_available():
+	marker = ConfirmedPolicyViolation(code='disabled_control_bypass')
+	history = AgentHistoryList(history=[_history_step(ActionResult(policy_violations=[marker]))])
+
+	assert history.final_result() is None
+	assert history.is_successful() is None
+	assert history.policy_violations() == [marker]
+	assert history.action_history() == [[{'policy_violations': [{'code': 'disabled_control_bypass', 'attempts': 1}]}]]
+
+
+def test_structured_final_result_uses_done_result_that_actually_executed():
+	marker = ConfirmedPolicyViolation(code='disabled_control_bypass')
+	data = {'answer': 'submitted'}
+	json_payload = json.dumps(data)
+	model_output = AgentOutput.model_construct(
+		action=[
+			_StructuredDone(done={'data': data, 'success': False}),
+			_QueuedClick(click={'index': 1}),
+		]
+	)
+	completion = ActionResult(is_done=True, success=False, extracted_content=json_payload)
+	history = AgentHistoryList(
+		history=[
+			_history_step(ActionResult(policy_violations=[marker])),
+			_history_step(completion, model_output),
+		]
+	)
+
+	assert len(history.history[-1].result) == 1  # The queued click was never executed after done.
+	assert history._final_result_is_structured() is True
+	assert history.final_result() == json_payload
+	assert history.get_structured_output(_Answer) == _Answer(answer='submitted')
+	assert history.is_successful() is False
+	assert history.policy_violations() == [marker]
 
 
 def test_ambiguous_transition_is_typed_separately_from_confirmed_violation():
