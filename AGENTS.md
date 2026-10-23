@@ -371,7 +371,7 @@ history.total_duration_seconds()  # Get total duration of all steps in seconds
 history.structured_output         # Property that returns parsed structured output
 ```
 
-See all helper methods in the [AgentHistoryList source code](https://github.com/browser-use/browser-use/blob/main/browser_use/agent/views.py#L301).
+See all helper methods in the [AgentHistoryList source code](https://github.com/browser-use/browser-use/blob/main/browser_use/agent/views.py#L590).
 
 ## Structured Output
 
@@ -410,7 +410,7 @@ history.total_duration_seconds()  # Get total duration of all steps in seconds
 history.structured_output         # Property that returns parsed structured output
 ```
 
-See all helper methods in the [AgentHistoryList source code](https://github.com/browser-use/browser-use/blob/main/browser_use/agent/views.py#L301).
+See all helper methods in the [AgentHistoryList source code](https://github.com/browser-use/browser-use/blob/main/browser_use/agent/views.py#L590).
 
 ## Structured Output
 
