@@ -7,6 +7,7 @@ and `record_har_mode` (full/minimal).
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -27,6 +28,13 @@ from cdp_use.cdp.page.events import FrameNavigatedEvent, LifecycleEventEvent
 
 from browser_use.browser.events import BrowserConnectedEvent, BrowserStopEvent
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.utils import create_task_with_error_handling
+
+
+# Grace window for in-flight response-body fetches when the browser stops.
+# A fetch that outlives the window is written without its body, which matches
+# the pre-existing behavior for that entry instead of stalling shutdown.
+FETCH_DRAIN_TIMEOUT_SECONDS = 10.0
 
 
 @dataclass
@@ -151,6 +159,7 @@ class HarRecordingWatchdog(BaseWatchdog):
 		super().__init__(*args, **kwargs)
 		self._enabled: bool = False
 		self._entries: dict[str, _HarEntryBuilder] = {}
+		self._fetch_tasks: set[asyncio.Task] = set()
 		self._top_level_pages: dict[
 			str, dict
 		] = {}  # frameId -> {url, title, startedDateTime, monotonic_start, onContentLoad, onLoad}
@@ -201,10 +210,30 @@ class HarRecordingWatchdog(BaseWatchdog):
 		if not self._enabled:
 			return
 		try:
+			await self._drain_fetch_tasks()
 			await self._write_har()
 			self.logger.info(f'📊 HAR file saved: {self._har_path}')
 		except Exception as e:
 			self.logger.warning(f'Failed to write HAR: {e}')
+
+	async def _drain_fetch_tasks(self) -> None:
+		"""Wait for in-flight body fetches so the HAR includes their bodies.
+
+		Bounded on purpose: a fetch that never completes must not stall
+		shutdown, so after the grace window the HAR is written with whatever
+		completed — the same outcome the entry had before this watchdog
+		tracked fetch tasks at all.
+		"""
+		pending = [t for t in self._fetch_tasks if not t.done()]
+		if pending:
+			_, still_pending = await asyncio.wait(pending, timeout=FETCH_DRAIN_TIMEOUT_SECONDS)
+			# Cancel fetches that outlived the window: they hold CDP/entry
+			# references after the HAR is written and would surface as
+			# "Task was destroyed but it is pending" at loop shutdown. Safe
+			# because the wrapper's done-callback treats CancelledError as
+			# normal, and the discard callback still fires so the set cleans up.
+			for task in still_pending:
+				task.cancel()
 
 	# =============== CDP Event Handlers (sync) ==================
 	def _on_request_will_be_sent(self, params: RequestWillBeSentEvent, session_id: str | None) -> None:
@@ -386,7 +415,6 @@ class HarRecordingWatchdog(BaseWatchdog):
 			entry = self._entries[request_id]
 			entry.ts_finished = params.get('timestamp')
 			# Fetch response body via CDP as dataReceived may be incomplete
-			import asyncio as _asyncio
 
 			async def _fetch_body(self_ref, req_id, sess_id):
 				try:
@@ -410,7 +438,12 @@ class HarRecordingWatchdog(BaseWatchdog):
 					pass
 
 			# Always schedule the response body fetch task
-			_asyncio.create_task(_fetch_body(self, request_id, session_id))
+			task = create_task_with_error_handling(
+				_fetch_body(self, request_id, session_id),
+				name=f'har-fetch-{request_id}',
+			)
+			self._fetch_tasks.add(task)
+			task.add_done_callback(self._fetch_tasks.discard)
 
 			encoded_length = (
 				params.get('encodedDataLength') if hasattr(params, 'get') else getattr(params, 'encodedDataLength', None)
