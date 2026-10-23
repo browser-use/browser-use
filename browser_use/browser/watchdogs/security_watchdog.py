@@ -40,6 +40,17 @@ _HOST_APP_SCHEMES = frozenset(
 )
 
 
+def _is_host_app_url(url: str) -> bool:
+	"""True for host-application pages (Electron chrome, browser-internal pages).
+
+	These are never closed or redirected by this watchdog. Agent-initiated
+	navigation is still gated separately in on_NavigateToUrlEvent.
+	"""
+	from urllib.parse import urlparse
+
+	return urlparse(url or '').scheme in _HOST_APP_SCHEMES
+
+
 class SecurityWatchdog(BaseWatchdog):
 	"""Monitors and enforces security policies for URL access."""
 
@@ -70,6 +81,10 @@ class SecurityWatchdog(BaseWatchdog):
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
 		"""Check if navigated URL is allowed (catches redirects to blocked domains)."""
+		# Host-application pages (Electron chrome, browser-internal pages) must
+		# never be redirected to about:blank — that would destroy the host UI.
+		if _is_host_app_url(event.url):
+			return
 		# Check if the navigated URL is allowed (in case of redirects)
 		if not self._is_url_allowed(event.url):
 			self.logger.warning(f'⛔️ Navigation to non-allowed URL detected: {event.url}')
@@ -95,9 +110,7 @@ class SecurityWatchdog(BaseWatchdog):
 		"""Check if new tab URL is allowed."""
 		# Host-application pages (Electron chrome, browser-internal pages) are
 		# not agent content: never close them, never error on them.
-		from urllib.parse import urlparse
-
-		if urlparse(event.url).scheme in _HOST_APP_SCHEMES:
+		if _is_host_app_url(event.url):
 			self.logger.debug(f'Ignoring host-application page target: {event.url}')
 			return
 		if not self._is_url_allowed(event.url):

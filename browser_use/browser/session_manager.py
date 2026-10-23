@@ -691,7 +691,9 @@ class SessionManager:
 			# as page targets; they are not valid agent-focus candidates.
 			from urllib.parse import urlparse
 
-			page_targets = [t for t in page_targets if urlparse(t.url or '').scheme in ('http', 'https', 'about', 'data', 'blob')]
+			page_targets = [
+				t for t in page_targets if urlparse(t.url or '').scheme in ('http', 'https', 'about', 'data', 'blob', 'chrome')
+			]
 
 			new_target_id = None
 			is_existing_tab = False
