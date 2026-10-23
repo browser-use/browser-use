@@ -7,7 +7,7 @@ import re
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Generic, Literal
+from typing import Any, Generic, Literal, TypeGuard
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
 from typing_extensions import TypeVar
@@ -304,6 +304,41 @@ class JudgementResult(BaseModel):
 	)
 
 
+class ConfirmedPolicyViolation(BaseModel):
+	"""A policy violation recorded by trusted browser action code."""
+
+	model_config = ConfigDict(extra='forbid', frozen=True)
+
+	code: Literal[
+		'disabled_control_bypass',
+		'readonly_control_bypass',
+		'direct_state_change_request',
+		'restricted_control_replacement',
+		'disabled_control_transfer',
+		'disabled_control_duplication',
+	] = Field(
+		description='The evaluate action attempted a blocked form restriction, transfer, duplication, or direct state-changing request.'
+	)
+	attempts: int = Field(default=1, ge=1, description='Number of blocked attempts of this type in one evaluate action.')
+
+
+class ControlStateChangeObservation(BaseModel):
+	"""Non-confirmatory form-control changes observed around evaluate."""
+
+	disabled_to_enabled: int = Field(default=0, ge=0)
+	readonly_to_editable: int = Field(default=0, ge=0)
+	restricted_controls_unmatched: int = Field(default=0, ge=0)
+
+
+class AmbiguousPolicyTransition(BaseModel):
+	"""A restricted-control transition observed around evaluate without reliable attribution."""
+
+	model_config = ConfigDict(extra='forbid', frozen=True)
+
+	code: Literal['unattributed_restricted_control_transition'] = 'unattributed_restricted_control_transition'
+	observation: ControlStateChangeObservation
+
+
 class ActionResult(BaseModel):
 	"""Result of executing an action"""
 
@@ -333,6 +368,22 @@ class ActionResult(BaseModel):
 
 	# Metadata for observability (e.g., click coordinates)
 	metadata: dict | None = None
+
+	# Only trusted action handlers may populate this field.
+	policy_violations: list[ConfirmedPolicyViolation] = Field(default_factory=list)
+
+	# Snapshot differences are correlation only and never count as confirmed violations.
+	control_state_change_observation: ControlStateChangeObservation | None = None
+
+	# A matched restricted control changed state around evaluate, but its cause is unknown.
+	ambiguous_policy_transitions: list[AmbiguousPolicyTransition] = Field(default_factory=list)
+
+	# Set when evaluate was refused because its guard was unavailable, or its execution
+	# could not be verified. It does not imply a confirmed prohibited mutation.
+	policy_enforcement_unavailable: bool = False
+
+	# Set only by trusted completion handlers that append the policy disclosure themselves.
+	trusted_policy_disclosure: bool = False
 
 	# Deprecated
 	include_in_memory: bool = False  # whether to include in extracted_content inside long_term_memory
@@ -712,7 +763,63 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		return errors
 
 	def final_result(self) -> None | str:
-		"""Final result from history"""
+		"""Return final text with trusted policy outcomes disclosed.
+
+		Schema-backed JSON remains byte-for-byte compatible. Its callers can read
+		policy_violations() and is_successful() for the separate enforcement state.
+		"""
+		result = self._raw_final_result()
+		if result is None:
+			return None
+		if self._final_result_is_structured():
+			return result
+
+		violations = self.policy_violations()
+		ambiguous_transitions = self.ambiguous_policy_transitions()
+		unavailable = self.policy_enforcement_was_unavailable()
+		if not violations and not ambiguous_transitions and not unavailable:
+			return result
+
+		disclosures: list[str] = []
+		if violations:
+			codes = sorted({violation.code for violation in violations})
+			disclosures.append('Browser Use blocked a prohibited evaluate attempt: ' + ', '.join(codes) + '.')
+		if ambiguous_transitions:
+			disclosures.append(
+				'Browser Use observed a restricted-control state change during evaluate, but could not attribute its cause; later actions were blocked.'
+			)
+		if unavailable:
+			disclosures.append('Browser Use could not verify evaluate policy enforcement for part of this run.')
+		disclosure = ' '.join(disclosures)
+		if (
+			self.history
+			and self.history[-1].result
+			and self.history[-1].result[-1].is_done is True
+			and self.history[-1].result[-1].trusted_policy_disclosure
+		):
+			return result
+		return f'{result}\n\n{disclosure}'
+
+	def _final_result_is_structured(self) -> bool:
+		"""Recognize schema-backed done calls from configuration or serialized action shape."""
+		if self._output_model_schema is not None:
+			return True
+		if not self.history or self.history[-1].model_output is None:
+			return False
+		actions = self.history[-1].model_output.action
+		results = self.history[-1].result
+		if not actions or not results:
+			return False
+		for action, result in zip(actions, results):
+			if result.is_done is not True:
+				continue
+			payload = action.model_dump(exclude_none=True, mode='json')
+			done = payload.get('done') if isinstance(payload, dict) else None
+			return isinstance(done, dict) and 'data' in done
+		return False
+
+	def _raw_final_result(self) -> None | str:
+		"""Return the final extracted content without policy disclosure text."""
 		if self.history and len(self.history[-1].result) > 0:
 			last_result = self.history[-1].result[-1]
 			if last_result.extracted_content:
@@ -727,10 +834,12 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		return False
 
 	def is_successful(self) -> bool | None:
-		"""Check if the agent completed successfully - the agent decides in the last step if it was successful or not. None if not done yet."""
+		"""Return task success after completion, forcing False for unverified policy outcomes."""
 		if self.history and len(self.history[-1].result) > 0:
 			last_result = self.history[-1].result[-1]
 			if last_result.is_done is True:
+				if self.policy_violations() or self.ambiguous_policy_transitions() or self.policy_enforcement_was_unavailable():
+					return False
 				return last_result.success
 		return None
 
@@ -837,16 +946,50 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 		for h in self.history:
 			step_actions = []
+			actions = h.model_output.action if h.model_output else []
 			if h.model_output:
 				# Guard against None interacted_element before zipping
-				interacted_elements = h.state.interacted_element or [None] * len(h.model_output.action)
+				interacted_elements = h.state.interacted_element or [None] * len(actions)
 				# Zip actions with interacted elements and results
-				for action, interacted_element, result in zip(h.model_output.action, interacted_elements, h.result):
+				for action, interacted_element, result in zip(actions, interacted_elements, h.result):
 					action_output = action.model_dump(exclude_none=True, mode='json')
 					action_output['interacted_element'] = interacted_element
 					# Only keep long_term_memory from result
 					action_output['result'] = result.long_term_memory if result and result.long_term_memory else None
+					if result and result.policy_violations:
+						action_output['policy_violations'] = [item.model_dump(mode='json') for item in result.policy_violations]
+					if result and result.ambiguous_policy_transitions:
+						action_output['ambiguous_policy_transitions'] = [
+							item.model_dump(mode='json') for item in result.ambiguous_policy_transitions
+						]
+					if result and result.policy_enforcement_unavailable:
+						action_output['policy_enforcement_unavailable'] = True
+					if result and result.trusted_policy_disclosure:
+						action_output['trusted_policy_disclosure'] = True
+					if result and result.control_state_change_observation is not None:
+						action_output['control_state_change_observation'] = result.control_state_change_observation.model_dump(
+							mode='json'
+						)
 					step_actions.append(action_output)
+			paired_result_count = min(len(actions), len(h.state.interacted_element or actions), len(h.result)) if actions else 0
+			for result in h.result[paired_result_count:]:
+				standalone: dict[str, Any] = {}
+				if result.policy_violations:
+					standalone['policy_violations'] = [item.model_dump(mode='json') for item in result.policy_violations]
+				if result.ambiguous_policy_transitions:
+					standalone['ambiguous_policy_transitions'] = [
+						item.model_dump(mode='json') for item in result.ambiguous_policy_transitions
+					]
+				if result.policy_enforcement_unavailable:
+					standalone['policy_enforcement_unavailable'] = True
+				if result.trusted_policy_disclosure:
+					standalone['trusted_policy_disclosure'] = True
+				if result.control_state_change_observation is not None:
+					standalone['control_state_change_observation'] = result.control_state_change_observation.model_dump(
+						mode='json'
+					)
+				if standalone:
+					step_actions.append(standalone)
 			step_outputs.append(step_actions)
 
 		return step_outputs
@@ -857,6 +1000,66 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		for h in self.history:
 			results.extend([r for r in h.result if r])
 		return results
+
+	def policy_violations(self) -> list[ConfirmedPolicyViolation]:
+		"""Return typed, trusted policy violations in chronological order."""
+		return [
+			violation
+			for item in self.history
+			for result in item.result
+			for violation in result.policy_violations
+			if self._is_confirmed_policy_violation(violation)
+		]
+
+	def policy_enforcement_was_unavailable(self) -> bool:
+		"""Whether evaluate's guard or its execution outcome was unavailable."""
+		return any(result.policy_enforcement_unavailable for item in self.history for result in item.result)
+
+	def ambiguous_policy_transitions(self) -> list[AmbiguousPolicyTransition]:
+		"""Return typed restricted-control transitions whose cause could not be attributed."""
+		return [
+			transition
+			for item in self.history
+			for result in item.result
+			for transition in result.ambiguous_policy_transitions
+			if self._is_ambiguous_policy_transition(transition)
+		]
+
+	def control_state_change_observations(self) -> list[ControlStateChangeObservation]:
+		"""Return non-confirmatory form-control observations in chronological order."""
+		return [
+			result.control_state_change_observation
+			for item in self.history
+			for result in item.result
+			if result.control_state_change_observation is not None
+		]
+
+	@staticmethod
+	def _is_confirmed_policy_violation(value: object) -> TypeGuard[ConfirmedPolicyViolation]:
+		"""Recognize only the trusted marker model, never result text or metadata."""
+		if not isinstance(value, ConfirmedPolicyViolation):
+			return False
+		try:
+			return value.code in {
+				'disabled_control_bypass',
+				'readonly_control_bypass',
+				'direct_state_change_request',
+				'restricted_control_replacement',
+				'disabled_control_transfer',
+				'disabled_control_duplication',
+			}
+		except Exception:
+			return False
+
+	@staticmethod
+	def _is_ambiguous_policy_transition(value: object) -> TypeGuard[AmbiguousPolicyTransition]:
+		"""Recognize only the typed transition marker, never result text."""
+		if not isinstance(value, AmbiguousPolicyTransition):
+			return False
+		try:
+			return value.code == 'unattributed_restricted_control_transition'
+		except Exception:
+			return False
 
 	def extracted_content(self) -> list[str]:
 		"""Get all extracted content from history"""
@@ -906,6 +1109,14 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 					if result.error:
 						error = str(result.error)
 						step_text += f'Error {j + 1}: {error}\n'
+					for violation in result.policy_violations:
+						if self._is_confirmed_policy_violation(violation):
+							step_text += f'Policy violation {j + 1}: {violation.code} ({violation.attempts} blocked attempt(s))\n'
+					for transition in result.ambiguous_policy_transitions:
+						if self._is_ambiguous_policy_transition(transition):
+							step_text += f'Policy transition {j + 1}: {transition.code}; cause could not be attributed\n'
+					if result.policy_enforcement_unavailable:
+						step_text += f'Policy enforcement {j + 1}: unavailable; evaluate outcome is unverified\n'
 
 			steps.append(step_text)
 
@@ -919,7 +1130,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			The structured output if both final_result and _output_model_schema are available,
 			otherwise None
 		"""
-		final_result = self.final_result()
+		final_result = self._raw_final_result()
 		if final_result is not None and self._output_model_schema is not None:
 			return self._output_model_schema.model_validate_json(final_result)
 
@@ -937,7 +1148,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		Returns:
 			The parsed structured output, or None if no final result exists
 		"""
-		final_result = self.final_result()
+		final_result = self._raw_final_result()
 		if final_result is not None:
 			return output_model.model_validate_json(final_result)
 		return None

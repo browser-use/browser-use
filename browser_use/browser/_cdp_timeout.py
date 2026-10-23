@@ -23,6 +23,7 @@ timeout and the typical outer agent watchdog.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import os
@@ -92,8 +93,8 @@ class TimeoutWrappedCDPClient(CDPClient):
 	"""CDPClient subclass that enforces a per-request timeout on send_raw.
 
 	Any CDP method that doesn't receive a response within `cdp_request_timeout_s`
-	raises `TimeoutError` instead of hanging forever. This turns silent-hang
-	failure modes (cloud proxy alive, browser dead) into fast observable errors.
+	raises `TimeoutError` instead of hanging forever. Completed, timed-out and
+	cancelled requests release their own pending-request entry.
 	"""
 
 	def __init__(
@@ -111,9 +112,27 @@ class TimeoutWrappedCDPClient(CDPClient):
 		params: Any | None = None,
 		session_id: str | None = None,
 	) -> dict[str, Any]:
+		websocket = self.ws
+		if websocket is None:
+			raise RuntimeError('Client is not started. Call start() first or use as async context manager.')
+
+		# Allocate the ID and register its future before yielding. Owning both here
+		# avoids guessing which request super().send_raw created during concurrent calls.
+		self.msg_id += 1
+		request_id = int(self.msg_id)
+		message = {'id': request_id, 'method': method, 'params': params or {}}
+		if session_id:
+			message['sessionId'] = session_id
+		future = asyncio.get_running_loop().create_future()
+		self.pending_requests[request_id] = future
+
+		async def send_and_wait() -> dict[str, Any]:
+			await websocket.send(json.dumps(message))
+			return await future
+
 		try:
 			return await asyncio.wait_for(
-				super().send_raw(method=method, params=params, session_id=session_id),
+				send_and_wait(),
 				timeout=self._cdp_request_timeout_s,
 			)
 		except TimeoutError as e:
@@ -123,3 +142,10 @@ class TimeoutWrappedCDPClient(CDPClient):
 				f'CDP method {method!r} did not respond within {self._cdp_request_timeout_s:.0f}s. '
 				f'The browser may be unresponsive (silent WebSocket — container crashed or proxy lost upstream).'
 			) from e
+		finally:
+			# The response handler may already have removed this entry. Never remove
+			# another owner's future, and ignore late responses to abandoned IDs.
+			if self.pending_requests.get(request_id) is future:
+				self.pending_requests.pop(request_id, None)
+			if not future.done():
+				future.cancel()
