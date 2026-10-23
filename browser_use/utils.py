@@ -608,8 +608,16 @@ def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: b
 			pattern_domain = domain_pattern
 
 		# Handle port in pattern (we strip ports from patterns since we already
-		# extracted only the hostname from the URL)
-		if ':' in pattern_domain and not pattern_domain.startswith(':'):
+		# extracted only the hostname from the URL). IPv6 literals are bracketed
+		# (`[::1]:3000`); split on the last colon so the brackets survive, then
+		# drop the brackets because urlparse's hostname has none — otherwise a
+		# literal IPv6 pattern can never match its own URL.
+		if pattern_domain.startswith('['):
+			if pattern_domain.endswith(']'):
+				pattern_domain = pattern_domain[1:-1]
+			elif ']:' in pattern_domain:
+				pattern_domain = pattern_domain.rsplit(':', 1)[0].strip('[]')
+		elif ':' in pattern_domain and not pattern_domain.startswith(':'):
 			pattern_domain = pattern_domain.split(':', 1)[0]
 
 		# If scheme doesn't match, return False
