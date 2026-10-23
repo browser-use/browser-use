@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any, overload
 
 from browser_use.llm.messages import (
@@ -52,17 +51,13 @@ class CerebrasMessageSerializer:
 	def _serialize_tool_calls(tool_calls: list[ToolCall]) -> list[dict[str, Any]]:
 		cerebras_tool_calls: list[dict[str, Any]] = []
 		for tc in tool_calls:
-			try:
-				arguments = json.loads(tc.function.arguments)
-			except json.JSONDecodeError:
-				arguments = {'arguments': tc.function.arguments}
 			cerebras_tool_calls.append(
 				{
 					'id': tc.id,
 					'type': 'function',
 					'function': {
 						'name': tc.function.name,
-						'arguments': arguments,
+						'arguments': tc.function.arguments,
 					},
 				}
 			)
