@@ -144,3 +144,41 @@ class TestPreservesLinksAndEncoding:
 		assert '%20' in content
 		assert '%2F' in content
 		assert '%26' in content
+
+	def test_a_table_without_th_keeps_its_first_row_as_the_header(self):
+		"""A markdown table cannot start with a body row.
+
+		Without header inference markdownify writes an empty header above it and
+		the column names land in the first body row, so the model reads two
+		unnamed columns with `Plan` and `Price` as data.
+		"""
+		from browser_use.dom.markdown_extractor import convert_html_to_markdown
+
+		html = '<table><tr><td>Plan</td><td>Price</td></tr><tr><td>Starter</td><td>9 EUR</td></tr></table>'
+		content, _, _ = convert_html_to_markdown(html)
+
+		rows = [line.strip() for line in content.splitlines() if line.strip().startswith('|')]
+		assert rows == ['| Plan | Price |', '| --- | --- |', '| Starter | 9 EUR |']
+
+	def test_a_table_wrapped_in_tbody_keeps_its_first_row_as_the_header(self):
+		"""What a browser's DOM hands over when the page wrote no tbody itself."""
+		from browser_use.dom.markdown_extractor import convert_html_to_markdown
+
+		html = '<table><tbody><tr><td>Plan</td><td>Price</td></tr><tr><td>Starter</td><td>9 EUR</td></tr></tbody></table>'
+		content, _, _ = convert_html_to_markdown(html)
+
+		rows = [line.strip() for line in content.splitlines() if line.strip().startswith('|')]
+		assert rows == ['| Plan | Price |', '| --- | --- |', '| Starter | 9 EUR |']
+
+	def test_a_table_that_marks_its_header_is_unchanged(self):
+		"""The control: the serializer already turns this shape into thead."""
+		from browser_use.dom.markdown_extractor import convert_html_to_markdown
+
+		html = (
+			'<table><thead><tr><th>Plan</th><th>Price</th></tr></thead>'
+			'<tbody><tr><td>Starter</td><td>9 EUR</td></tr></tbody></table>'
+		)
+		content, _, _ = convert_html_to_markdown(html)
+
+		rows = [line.strip() for line in content.splitlines() if line.strip().startswith('|')]
+		assert rows == ['| Plan | Price |', '| --- | --- |', '| Starter | 9 EUR |']
