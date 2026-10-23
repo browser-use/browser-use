@@ -9,9 +9,13 @@ import shutil
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+	from docx.table import Table
+	from docx.text.paragraph import Paragraph
 
 UNSUPPORTED_BINARY_EXTENSIONS = {
 	'bmp',
@@ -112,6 +116,26 @@ def _markdown_inline_to_rml(text: str) -> str:
 		part = re.sub(r'(?<!\*)\*([^\s*](?:[^*]*[^\s*])?)\*(?!\*)', r'<i>\1</i>', part)
 		rendered.append(part)
 	return ''.join(rendered)
+
+
+def _docx_block_text(block: 'Paragraph | Table') -> str:
+	"""Extract paragraphs and nested table rows in document order."""
+	from docx.text.paragraph import Paragraph
+
+	if isinstance(block, Paragraph):
+		return block.text
+
+	lines: list[str] = []
+	for row in block.rows:
+		seen_cells: set[object] = set()
+		row_text: list[str] = []
+		for cell in row.cells:
+			if cell._tc in seen_cells:
+				continue
+			seen_cells.add(cell._tc)
+			row_text.append('\n'.join(_docx_block_text(inner) for inner in cell.iter_inner_content()))
+		lines.append('\t'.join(row_text))
+	return '\n'.join(lines)
 
 
 DEFAULT_FILE_SYSTEM_PATH = 'browseruse_agent_data'
@@ -694,7 +718,7 @@ class FileSystem:
 					from docx import Document
 
 					doc = Document(full_filename)
-					content = '\n'.join([para.text for para in doc.paragraphs])
+					content = '\n'.join(_docx_block_text(block) for block in doc.iter_inner_content())
 					result['message'] = f'Read from file {full_filename}.\n<content>\n{content}\n</content>'
 					return result
 
