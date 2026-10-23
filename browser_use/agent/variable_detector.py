@@ -180,7 +180,11 @@ def _detect_from_attributes(attributes: dict[str, str]) -> tuple[str, str | None
 		return ('last_name', None)
 	elif 'full' in combined_text and 'name' in combined_text:
 		return ('full_name', None)
-	elif 'name' in combined_text:
+
+	# Generic name detection precedes unrelated keyword matches such as the
+	# "state" in a placeholder like "State your name". Company and
+	# organization fields are handled below after specific field keywords.
+	if 'name' in combined_text and 'company' not in combined_text and 'organization' not in combined_text:
 		return ('name', None)
 
 	# Date detection
@@ -203,7 +207,8 @@ def _detect_from_attributes(attributes: dict[str, str]) -> tuple[str, str | None
 	if any(keyword in combined_text for keyword in ['zip', 'postal', 'postcode']):
 		return ('zip_code', 'postal_code')
 
-	# Company detection
+	# Company and organization fields are checked after more specific fields,
+	# while generic name fields were handled above to avoid incidental matches.
 	if 'company' in combined_text or 'organization' in combined_text:
 		return ('company', None)
 
