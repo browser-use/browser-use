@@ -4188,10 +4188,15 @@ class BrowserSession(BaseModel):
 		if not box_model:
 			return None
 
+		# The box is viewport-relative, but captureScreenshot's clip is document-relative
+		metrics = await cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=cdp_session.session_id)
+		page_x = metrics['cssVisualViewport']['pageX']
+		page_y = metrics['cssVisualViewport']['pageY']
+
 		content = box_model['content']
 		return {
-			'x': min(content[0], content[2], content[4], content[6]),
-			'y': min(content[1], content[3], content[5], content[7]),
+			'x': min(content[0], content[2], content[4], content[6]) + page_x,
+			'y': min(content[1], content[3], content[5], content[7]) + page_y,
 			'width': max(content[0], content[2], content[4], content[6]) - min(content[0], content[2], content[4], content[6]),
 			'height': max(content[1], content[3], content[5], content[7]) - min(content[1], content[3], content[5], content[7]),
 		}
