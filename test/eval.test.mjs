@@ -1,0 +1,406 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { parseOptions, resultEnvelope } from '../eval/run.mjs';
+
+test('eval options reject unknown settings, invalid budgets and browser expiry', () => {
+  assert.equal(parseOptions({}).reasoning_effort, 'medium');
+  assert.equal(parseOptions({}).max_context_chars, 800000);
+  assert.equal(parseOptions({}).research_tools, undefined);
+  assert.equal(parseOptions({ research_tools: true }).research_tools, true);
+  assert.equal(parseOptions({ research_tools: false }).research_tools, false);
+  assert.equal(parseOptions({}).delivery_review, undefined);
+  assert.equal(parseOptions({ delivery_review: true }).delivery_review, true);
+  assert.equal(parseOptions({ delivery_review: false }).delivery_review, false);
+  assert.equal(parseOptions({}).browser_allow_resizing, undefined);
+  assert.equal(parseOptions({ browser_allow_resizing: true }).browser_allow_resizing, true);
+  assert.equal(parseOptions({ browser_allow_resizing: false }).browser_allow_resizing, false);
+  assert.equal(
+    parseOptions({
+      task_timeout_seconds: 3600,
+      browser_timeout_minutes: 70,
+      evidence_format: 'findings',
+    }).task_timeout_seconds,
+    3600,
+  );
+  for (const options of [
+    { typo: true },
+    { research_tools: 'true' },
+    { research_tools: null },
+    { research_tools: 1 },
+    { evidence_format: 'other' },
+    { delivery_review: 'true' },
+    { delivery_review: 1 },
+    { browser_allow_resizing: 'true' },
+    { browser_allow_resizing: null },
+    { browser_allow_resizing: 1 },
+    { task_timeout_seconds: 7201 },
+    { task_timeout_seconds: 3600, browser_timeout_minutes: 60 },
+    { max_context_chars: NaN },
+    { max_context_chars: 0 },
+    { max_context_chars: 3000001 },
+    { task_timeout_seconds: NaN },
+    { browser_timeout_minutes: 1 },
+    { reasoning_effort: 'wat' },
+    { proxy_country_code: 'USA' },
+    null,
+    [],
+  ])
+    assert.throws(() => parseOptions(options));
+});
+test('partial agent outcomes remain judgeable; provider errors remain failures', () => {
+  const usage = {
+    input: 1,
+    output: 2,
+    cacheRead: 3,
+    cacheWrite: 4,
+    totalTokens: 10,
+    cost: { total: 0.01 },
+  };
+  const partial = {
+    status: 'max_steps',
+    text: 'Partial evidence',
+    steps: 35,
+    durationMs: 1000,
+    usage,
+    model: 'openai/gpt-5.5',
+  };
+  const envelope = resultEnvelope(partial, [], {});
+  assert.equal(envelope.status, 'completed');
+  assert.equal(envelope.metadata.stop_reason, 'max_steps');
+  assert.equal(envelope.self_reported_success, null);
+  assert.equal(envelope.metrics.total_cost, 0.01);
+  assert.equal(
+    resultEnvelope({ ...partial, status: 'error', error: 'Provider failed' }, [], {}).status,
+    'failed',
+  );
+});
+
+for (const {
+  label,
+  evidenceFormat,
+  cleanScreenshots = false,
+  deliveryReview = false,
+  maxSteps,
+  namedFailure = false,
+  allowResizing,
+  researchTools,
+  exerciseFiles = false,
+} of [
+  { label: 'default evidence' },
+  {
+    label: 'native files on default evidence',
+    researchTools: true,
+    exerciseFiles: true,
+    maxSteps: 8,
+  },
+  { label: 'native files disabled on findings', evidenceFormat: 'findings', researchTools: false },
+  { label: 'findings evidence', evidenceFormat: 'findings' },
+  { label: 'agent screenshot cleanup', evidenceFormat: 'findings', cleanScreenshots: true },
+  { label: 'delivery review', evidenceFormat: 'findings', deliveryReview: true, maxSteps: 4 },
+  {
+    label: 'review budget exhaustion',
+    evidenceFormat: 'findings',
+    deliveryReview: true,
+    maxSteps: 2,
+  },
+  { label: 'failed named tab', evidenceFormat: 'findings', namedFailure: true },
+  {
+    label: 'resizing enabled',
+    evidenceFormat: 'findings',
+    namedFailure: true,
+    allowResizing: true,
+  },
+  { label: 'resizing disabled', evidenceFormat: 'findings', allowResizing: false },
+])
+  test(`adapter uses real CDP and cleans up (${label})`, async () => {
+    const { main } = await import('../eval/run.mjs');
+    const { openBrowser } = await import('../dist/browser.js');
+    const { startFixture } = await import('./fixture.mjs');
+    const { mkdtemp, writeFile, readFile, rm, mkdir, symlink } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const { createRequire } = await import('node:module');
+    const { Laminar } = createRequire(import.meta.url)('@lmnr-ai/lmnr');
+    const { mock } = await import('node:test');
+    const chrome = await openBrowser(),
+      fixture = await startFixture();
+    const dir = await mkdtemp(join(tmpdir(), 'bu-eval-contract-'));
+    const originalFetch = globalThis.fetch,
+      saved = { ...process.env },
+      telemetry = [];
+    let requests = 0,
+      stops = 0;
+    let firstCapture;
+    const scriptSource =
+      String.raw`const words = text => text.split('\n').filter(s => /\s+\d+/.test(s));` + '\n';
+    const patches = [
+      mock.method(Laminar, 'initialize', () => {}),
+      mock.method(Laminar, 'startSpan', (options) => {
+        const record = { ...options, attributes: {}, ended: false };
+        telemetry.push(record);
+        return {
+          setAttributes: (a) => Object.assign(record.attributes, a),
+          setStatus() {},
+          end() {
+            record.ended = true;
+          },
+        };
+      }),
+      mock.method(Laminar, 'withSpan', (_s, fn) => fn()),
+      ...['setSpanOutput', 'flush', 'shutdown'].map((name) => mock.method(Laminar, name, () => {})),
+    ];
+    try {
+      if (evidenceFormat) {
+        const { execFileSync } = await import('node:child_process');
+        await mkdir(join(dir, '.venv/bin'), { recursive: true });
+        await symlink(
+          process.env.BU_EVAL_PYTHON ??
+            execFileSync('which', ['python3'], { encoding: 'utf8' }).trim(),
+          join(dir, '.venv/bin/python'),
+        );
+      }
+      await writeFile(
+        join(dir, 'task.json'),
+        JSON.stringify({ task_id: 'fixture', confirmed_task: 'Read catalog; save once.' }),
+      );
+      await writeFile(join(dir, 'dependencies.sha256'), 'fixture-hash');
+      await mkdir(join(dir, 'agent_outputs/.browser-use/context'), { recursive: true });
+      await writeFile(
+        join(dir, 'agent_outputs/.browser-use/context/fixture.json'),
+        '{"saved":true}',
+      );
+      await writeFile(join(dir, '.unrelated-secret'), 'fixture-private');
+      await symlink(
+        join(dir, '.unrelated-secret'),
+        join(dir, 'agent_outputs/.browser-use/context/skip.txt'),
+      );
+      Object.assign(process.env, {
+        EVAL_WORKSPACE: dir,
+        EVAL_RESULT_PATH: join(dir, 'result.json'),
+        EVAL_TASK_PATH: join(dir, 'task.json'),
+        EVAL_TARGET_DIR: fileURLToPath(new URL('../', import.meta.url)),
+        EVAL_MODEL: evidenceFormat ? 'gpt-5.6-luna' : 'gpt-5.5',
+        EVAL_MAX_STEPS: String(maxSteps ?? 4),
+        EVAL_OPTIONS_JSON: JSON.stringify({
+          ...(evidenceFormat ? { evidence_format: evidenceFormat, reasoning_effort: 'xhigh' } : {}),
+          ...(deliveryReview ? { delivery_review: true } : {}),
+          ...(researchTools === undefined ? {} : { research_tools: researchTools }),
+          ...(allowResizing === undefined ? {} : { browser_allow_resizing: allowResizing }),
+        }),
+        EVAL_TIMEOUT_MINUTES: '30',
+        EVAL_MODEL_API_KEY: 'fixture-only',
+        BROWSER_USE_API_KEY: 'fixture-only',
+        LMNR_PROJECT_API_KEY: 'fixture-only',
+        LMNR_SPAN_CONTEXT: 'fixture-parent',
+      });
+      globalThis.fetch = async (input, options) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url === 'https://api.browser-use.com/api/v3/browsers') {
+          const body = JSON.parse(options.body);
+          assert.equal(body.allowResizing, allowResizing);
+          assert.equal(Object.hasOwn(body, 'allowResizing'), allowResizing !== undefined);
+          return Response.json({ id: 'fixture-browser', cdpUrl: chrome.endpoint });
+        }
+        if (url.endsWith('/api/v3/browsers/fixture-browser')) {
+          stops++;
+          assert.equal(options.method, 'PATCH');
+          return Response.json({});
+        }
+        if (url.startsWith('https://api.openai.com/')) {
+          const requestBody = JSON.parse(options.body);
+          assert.equal(requestBody.model, evidenceFormat ? 'gpt-5.6-luna' : 'gpt-5.5');
+          assert.equal(requestBody.reasoning.effort, evidenceFormat ? 'xhigh' : 'medium');
+          requests++;
+          if (requests === 1) {
+            const names = requestBody.tools.map((t) => t.name);
+            for (const name of ['read', 'write', 'edit', 'bash'])
+              assert.equal(names.includes(name), researchTools ?? evidenceFormat === 'findings');
+          }
+          if (deliveryReview && requests === 3)
+            assert.match(JSON.stringify(requestBody.input), /Delivery review checkpoint/);
+          const cleanup = cleanScreenshots && requests === 2;
+          if (cleanup) {
+            // Wait for the capture before cleanup to verify image retention.
+            const { watch } = await import('node:fs');
+            await new Promise((resolve, reject) => {
+              const watcher = watch(dir, { recursive: true }, () => void capture());
+              const timer = setTimeout(() => {
+                watcher.close();
+                reject(new Error('The evaluator did not write its first capture.'));
+              }, 5000);
+              const capture = async () => {
+                const bytes = await Promise.any([
+                  readFile(join(dir, 'judge_screenshots/001.png')),
+                  readFile(join(dir, 'agent_outputs/screenshots/001.png')),
+                ]).catch(() => undefined);
+                if (!bytes?.length) return;
+                firstCapture = bytes;
+                watcher.close();
+                clearTimeout(timer);
+                resolve();
+              };
+              void capture();
+            });
+            assert.ok(firstCapture, 'capture must exist before agent cleanup');
+          }
+          let name = requests === 1 || cleanup ? 'javascript' : 'finish';
+          let args =
+            requests === 1
+              ? {
+                  code: namedFailure
+                    ? `await page.goto('data:text/html,<title>Primary stays here</title>'); const named = await tabs.open(${JSON.stringify(fixture.url)}); await named.cdp('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false}); await named.clickAt(...await named.evaluate(() => {const el=document.querySelector('#save');el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})); await artifact('proof.txt',await named.evaluate(() => document.querySelector('[role=status]').textContent)); throw new Error('failure after named-tab action')`
+                    : `await page.goto(${JSON.stringify(fixture.url)});await page.clickAt(...await page.evaluate(s => {const el=document.querySelector(s);el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]}, '#save'));await artifact('proof.txt',await page.evaluate(() => document.querySelector('[role=status]').textContent));await page.evaluate(() => document.querySelector('[role=status]').textContent)`,
+                }
+              : cleanup
+                ? {
+                    code: "await require('node:fs/promises').rm(require('node:path').join(workspace,'screenshots'),{recursive:true,force:true}); await page.evaluate(() => document.querySelector('[role=status]').textContent)",
+                  }
+                : { result: 'Saved exactly once; see proof.txt' };
+          if (exerciseFiles && requests === 2) {
+            name = 'write';
+            args = { path: 'reusable.cjs', content: scriptSource };
+          } else if (exerciseFiles && requests === 3) {
+            name = 'bash';
+            args = { command: 'node --check reusable.cjs', timeout: 10 };
+          }
+          const item = {
+            id: `fc_${requests}`,
+            call_id: `call_${requests}`,
+            type: 'function_call',
+            name,
+            arguments: JSON.stringify(args),
+            status: 'completed',
+          };
+          const events = [
+            [
+              'response.created',
+              { response: { id: `r${requests}`, status: 'in_progress', output: [] } },
+            ],
+            [
+              'response.output_item.added',
+              { output_index: 0, item: { ...item, arguments: '', status: 'in_progress' } },
+            ],
+            [
+              'response.function_call_arguments.delta',
+              { item_id: item.id, output_index: 0, delta: item.arguments },
+            ],
+            ['response.output_item.done', { output_index: 0, item }],
+            [
+              'response.completed',
+              {
+                response: {
+                  id: `r${requests}`,
+                  status: 'completed',
+                  output: [item],
+                  usage: {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    total_tokens: 15,
+                    input_tokens_details: { cached_tokens: 0 },
+                  },
+                },
+              },
+            ],
+          ];
+          return new Response(
+            events
+              .map(
+                ([type, data]) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`,
+              )
+              .join(''),
+            { headers: { 'content-type': 'text/event-stream' } },
+          );
+        }
+        if (url.startsWith('http://127.0.0.1:')) return originalFetch(input, options);
+        throw new Error('Unexpected external request in contract test: ' + new URL(url).hostname);
+      };
+      assert.equal(await main(), 0);
+      const result = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
+      assert.equal(result.metadata.options.browser_allow_resizing, allowResizing);
+      assert.equal(result.metadata.options.research_tools, researchTools);
+      if (exerciseFiles) {
+        assert.equal(await readFile(join(dir, 'agent_outputs/reusable.cjs'), 'utf8'), scriptSource);
+        const events = (await readFile(join(dir, 'events.jsonl'), 'utf8'))
+          .split('\n')
+          .filter(Boolean)
+          .map(JSON.parse);
+        const fileCalls = events.filter(
+          (e) => e.type === 'tool_execution_end' && ['write', 'bash'].includes(e.toolName),
+        );
+        assert.equal(fileCalls.length, 2);
+        assert.ok(fileCalls.every((e) => !e.isError));
+        assert.ok(result.artifacts.includes('agent_outputs/reusable.cjs'));
+      }
+      const reviewExhausted = deliveryReview && maxSteps === 2;
+      assert.equal(result.metadata.stop_reason, reviewExhausted ? 'max_steps' : 'completed');
+      const expectedRequests = exerciseFiles
+        ? 4
+        : cleanScreenshots || (deliveryReview && !reviewExhausted)
+          ? 3
+          : 2;
+      assert.equal(result.metrics.steps, expectedRequests);
+      assert.equal(
+        result.metadata.delivery_review_submissions,
+        deliveryReview ? (reviewExhausted ? 1 : 2) : 0,
+      );
+      assert.equal(result.metadata.screenshot_errors, 0);
+      assert.equal(result.metadata.screenshot_detach_errors, 0);
+      assert.equal(result.metadata.sdk_audit_archive, 'sdk-audit.tar.gz');
+      assert.ok(result.artifacts.includes('sdk-audit.tar.gz'));
+      const { execFileSync } = await import('node:child_process');
+      const archive = join(dir, 'sdk-audit.tar.gz');
+      const archivedPaths = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8' });
+      assert.match(archivedPaths, /\.browser-use\/context\/fixture\.json/);
+      assert.match(archivedPaths, /\.browser-use\/cells\//);
+      assert.match(archivedPaths, /\.browser-use\/runs\//);
+      assert.doesNotMatch(archivedPaths, /unrelated-secret|skip\.txt/);
+      assert.equal(
+        execFileSync('tar', ['-xOzf', archive, '.browser-use/context/fixture.json'], {
+          encoding: 'utf8',
+        }),
+        '{"saved":true}',
+      );
+      assert.ok(result.metadata.screenshot_time_ms > 0);
+      assert.ok(result.artifacts.some((path) => path.endsWith(evidenceFormat ? '.png' : '.jpg')));
+      if (namedFailure) {
+        const image = await readFile(join(dir, result.metadata.judge_screenshots[0]));
+        assert.equal(image.readUInt32BE(16), 390);
+        assert.equal(image.readUInt32BE(20), 844);
+      }
+      if (evidenceFormat) {
+        assert.equal(result.metadata.output_files.length, 1);
+        assert.equal(result.metadata.output_files[0].name, 'proof.txt');
+        assert.equal(result.metadata.output_files[0].text, 'Saved 1 time(s)');
+        assert.ok(result.metadata.steps.some((s) => s.includes('clickAt')));
+        if (cleanScreenshots) assert.ok(result.metadata.judge_screenshots.length >= 1);
+        else assert.equal(result.metadata.judge_screenshots.length, 1);
+        assert.equal(result.metadata.judge_screenshot_steps[0], 1);
+        if (cleanScreenshots)
+          assert.deepEqual(
+            await readFile(join(dir, result.metadata.judge_screenshots[0])),
+            firstCapture,
+          );
+        for (const path of result.metadata.judge_screenshots) {
+          assert.ok(result.artifacts.includes(path));
+          const shot = await readFile(join(dir, path));
+          assert.equal(shot.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+        }
+        assert.deepEqual(result.metadata.staged_outputs, ['agent_outputs/proof.txt']);
+      }
+      assert.equal(await readFile(join(dir, 'agent_outputs/proof.txt'), 'utf8'), 'Saved 1 time(s)');
+      assert.equal(stops, 1);
+      assert.equal(requests, expectedRequests);
+      assert.equal(telemetry[0].parentSpanContext, 'fixture-parent');
+      assert.equal(telemetry.filter((s) => s.spanType === 'LLM').length, requests);
+      assert.ok(telemetry.every((s) => s.ended));
+    } finally {
+      globalThis.fetch = originalFetch;
+      for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+      Object.assign(process.env, saved);
+      for (const patch of patches) patch.mock.restore();
+      await chrome.close();
+      await fixture.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });

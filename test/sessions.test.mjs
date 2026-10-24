@@ -1,0 +1,556 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { closeSync, fstatSync, openSync, statSync } from 'node:fs';
+import { mkdtemp, mkdir, readFile, rm, writeFile, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createServer } from 'node:http';
+import {
+  createAssistantMessageEventStream,
+  getCurrentTools,
+  createModels,
+  fauxProvider,
+  fauxAssistantMessage,
+  fauxToolCall,
+  getCurrentSystemPrompt,
+} from '@earendil-works/pi-ai';
+import { BrowserUse, Type } from '../dist/index.js';
+import { EventStream } from '../dist/events.js';
+
+const call = (name, args) =>
+  fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
+async function fixture(responses, options = {}) {
+  const faux = fauxProvider({ tokensPerSecond: 1000000 });
+  const models = createModels();
+  models.setProvider(faux.provider);
+  faux.setResponses(responses);
+  const workspace = await mkdtemp(join(tmpdir(), 'bu-session-'));
+  const agent = await BrowserUse.create({
+    model: `${faux.getModel().provider}/${faux.getModel().id}`,
+    models,
+    browser: { kind: 'chromium' },
+    workspace,
+    ...options,
+  });
+  return {
+    agent,
+    faux,
+    models,
+    async close() {
+      await agent.close();
+      await rm(workspace, { recursive: true, force: true });
+    },
+  };
+}
+
+test('follow-up retains exact transcript and JS; fresh run drops transcript; costs remain per-run', async () => {
+  const f = await fixture([
+    call('javascript', { code: 'const records = ["Atlas", "Orbit"];' }),
+    call('finish', { result: 'first' }),
+    (context) => {
+      assert.ok(JSON.stringify(context.messages).includes('first task'));
+      return call('finish_from_js', { expression: 'records.length' });
+    },
+    (context) => {
+      assert.ok(!JSON.stringify(context.messages).includes('first task'));
+      return call('finish', { result: 'fresh' });
+    },
+  ]);
+  try {
+    await assert.rejects(f.agent.followUp('too early'), /before followUp/);
+    const first = await f.agent.run('first task');
+    const second = await f.agent.followUp('count them', { schema: Type.Number(), maxSteps: 1 });
+    assert.equal(second.output, 2);
+    assert.equal(second.steps, 1);
+    assert.equal(f.agent.usage.totalTokens, first.usage.totalTokens + second.usage.totalTokens);
+    assert.equal((await f.agent.run('fresh task')).output, 'fresh');
+    assert.equal(f.agent.history.runs, 3);
+  } finally {
+    await f.close();
+  }
+});
+
+test('save/restore validates model, preserves files, redacts saved text and announces lost JS state', async () => {
+  const f = await fixture([call('finish', { result: 'secret-marker' })], {
+    redact: ['secret-marker'],
+  });
+  let restored;
+  try {
+    await f.agent.run('remember secret-marker');
+    const path = await f.agent.saveHistory();
+    assert.ok(!(await readFile(path, 'utf8')).includes('secret-marker'));
+    await writeFile(join(f.agent.workspace, 'input.csv'), 'a,b\n1,2');
+    await symlink('/etc/hosts', join(f.agent.workspace, 'outside-link'));
+    assert.deepEqual(
+      (await f.agent.files()).map((f) => f.relativePath),
+      ['input.csv'],
+    );
+    restored = await BrowserUse.create({
+      model: f.agent.history.model,
+      models: f.models,
+      browser: { kind: 'chromium' },
+      workspace: f.agent.workspace,
+      historyFile: path,
+    });
+    assert.match(JSON.stringify(restored.history.messages.at(-1)), /JavaScript bindings.*reset/);
+    await assert.rejects(
+      BrowserUse.create({ model: 'openai/gpt-5.5', historyFile: path }),
+      /model mismatch/,
+    );
+    const invalid = join(f.agent.workspace, 'bad.json');
+    await writeFile(invalid, '{"version":99}');
+    await assert.rejects(
+      BrowserUse.create({ model: 'openai/gpt-5.5', historyFile: invalid }),
+      /Unsupported/,
+    );
+  } finally {
+    await restored?.close();
+    await f.close();
+  }
+});
+
+test('events arrive before completion and logs/history are usable on disk', async () => {
+  const f = await fixture([call('finish', { result: 'ok' })]);
+  try {
+    const events = f.agent.events();
+    const running = f.agent.run('stream');
+    const first = await events.next();
+    assert.equal(first.value.type, 'run_start');
+    const result = await running;
+    const log = (await readFile(result.eventsPath, 'utf8')).trim().split('\n').map(JSON.parse);
+    assert.equal(log.at(-1).type, 'run_end');
+    assert.ok(log.some((e) => e.event?.type === 'tool_execution_start'));
+    assert.equal(JSON.parse(await readFile(result.historyPath, 'utf8')).version, 1);
+    await events.return();
+  } finally {
+    await f.close();
+  }
+});
+
+test('slow event consumers are bounded and fail visibly', async () => {
+  let disposed = false;
+  const stream = new EventStream(() => {
+    disposed = true;
+  }, 2);
+  const e = { sequence: 1, timestamp: 1, runId: 'test', type: 'paused' };
+  stream.push(e);
+  stream.push(e);
+  stream.push(e);
+  await assert.rejects(stream.next(), /fell behind/);
+  assert.equal(disposed, true);
+});
+
+test('pause acknowledges safe boundary; manual browser code then steering resumes the same run', async () => {
+  let paused;
+  const f = await fixture([
+    call('javascript', { code: 'const value = 7' }),
+    (context) => {
+      assert.match(JSON.stringify(context.messages), /return eight/);
+      return call('finish_from_js', { expression: 'value + 1' });
+    },
+  ]);
+  try {
+    let requested = false;
+    const running = f.agent.run('control test', {
+      schema: Type.Number(),
+      onEvent: (e) => {
+        if (!requested && e.type === 'turn_start') {
+          requested = true;
+          paused = f.agent.pause();
+        }
+      },
+    });
+    while (!paused) await new Promise((r) => setTimeout(r, 5));
+    await paused;
+    assert.equal(f.agent.isPaused, true);
+    assert.equal((await f.agent.execute('const manual = 3; manual')).text, '3');
+    f.agent.steer('return eight');
+    f.agent.resume();
+    assert.equal((await running).output, 8);
+  } finally {
+    await f.close();
+  }
+});
+
+test('cancellation releases a paused run without performing the queued mutation', async () => {
+  let paused;
+  const f = await fixture([call('javascript', { code: 'globalThis.didRun = true;' })]);
+  try {
+    const running = f.agent.run('cancel paused', {
+      onEvent: (e) => {
+        if (e.type === 'turn_start') paused = f.agent.pause();
+      },
+    });
+    while (!paused) await new Promise((r) => setTimeout(r, 5));
+    await paused;
+    f.agent.cancel();
+    assert.equal((await running).status, 'cancelled');
+    assert.equal((await f.agent.execute('globalThis.didRun')).text, '(no output)');
+  } finally {
+    await f.close();
+  }
+});
+
+test('result validation feeds correction back; after-tool hooks see failures and can add feedback', async () => {
+  let saw = false;
+  const f = await fixture(
+    [
+      call('javascript', { code: 'throw new Error("fixture")' }),
+      call('finish', { result: 1 }),
+      (context) => {
+        assert.match(JSON.stringify(context.messages), /must be two/);
+        return call('finish', { result: 2 });
+      },
+    ],
+    {
+      validateResult: async (output) => (output === 2 ? undefined : 'must be two'),
+      afterToolCall: async (ctx) => {
+        if (ctx.toolCall.name === 'javascript') {
+          saw = ctx.isError;
+          return { content: [{ type: 'text', text: 'fixture failed; continue' }] };
+        }
+      },
+    },
+  );
+  try {
+    assert.equal((await f.agent.run('validate', { schema: Type.Number() })).output, 2);
+    assert.equal(saw, true);
+  } finally {
+    await f.close();
+  }
+});
+
+test('hung hooks respect deadlines and do not execute the blocked browser action', async () => {
+  const f = await fixture([call('javascript', { code: 'globalThis.hookRan = true' })], {
+    hookTimeoutMs: 30,
+    beforeToolCall: () => new Promise(() => {}),
+  });
+  try {
+    const result = await f.agent.run('hung', { maxSteps: 1, timeoutMs: 300 });
+    assert.notEqual(result.status, 'completed');
+    assert.equal((await f.agent.execute('globalThis.hookRan')).text, '(no output)');
+  } finally {
+    await f.close();
+  }
+});
+
+test('persistent profile survives restart with cookies, localStorage and IndexedDB; concurrent owner rejected', async () => {
+  const profile = await mkdtemp(join(tmpdir(), 'bu-profile-'));
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<h1>Login fixture</h1>');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  let a, b;
+  try {
+    a = await BrowserUse.create({ model: 'openai/gpt-5.5', browser: { profileDir: profile } });
+    await assert.rejects(
+      BrowserUse.create({ model: 'openai/gpt-5.5', browser: { profileDir: profile } }),
+      /locked/,
+    );
+    await a.execute(
+      `await page.goto(${JSON.stringify(url)}); await page.evaluate(async () => { document.cookie='session=fixture; max-age=3600'; localStorage.setItem('login','yes'); await new Promise((resolve,reject)=>{ const r=indexedDB.open('auth',1); r.onupgradeneeded=()=>r.result.createObjectStore('tokens'); r.onsuccess=()=>{ const tx=r.result.transaction('tokens','readwrite');tx.objectStore('tokens').put('fixture','token');tx.oncomplete=()=>{r.result.close();resolve()};tx.onerror=reject };r.onerror=reject }) });`,
+    );
+    await a.close();
+    b = await BrowserUse.create({ model: 'openai/gpt-5.5', browser: { profileDir: profile } });
+    const value = await b.execute(
+      `await page.goto(${JSON.stringify(url)}); await page.evaluate(async () => ({ cookie:document.cookie, storage:localStorage.getItem('login'), db:await new Promise((resolve,reject)=>{ const r=indexedDB.open('auth');r.onsuccess=()=>{const q=r.result.transaction('tokens').objectStore('tokens').get('token');q.onsuccess=()=>{r.result.close();resolve(q.result)};q.onerror=reject};r.onerror=reject }) }))`,
+    );
+    assert.match(value.text, /session=fixture/);
+    assert.match(value.text, /yes/);
+    assert.match(value.text, /db: 'fixture'/);
+  } finally {
+    await a?.close();
+    await b?.close();
+    if (a) await rm(a.workspace, { recursive: true, force: true });
+    if (b) await rm(b.workspace, { recursive: true, force: true });
+    await rm(profile, { recursive: true, force: true });
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test('history persistence failure preserves delivered output and reports an explicit warning', async () => {
+  const { mkdir } = await import('node:fs/promises');
+  const f = await fixture([call('finish', { result: 'usable result' })]);
+  try {
+    let runId;
+    const stream = f.agent.events();
+    const read = (async () => {
+      for await (const e of stream) {
+        if (e.type === 'run_start') runId = e.runId;
+      }
+    })();
+    const result = await f.agent.run('deliver despite history IO failure', {
+      onEvent: async (e) => {
+        if (e.type === 'tool_execution_start' && e.toolName === 'finish')
+          await mkdir(join(f.agent.workspace, '.browser-use', 'runs', `${runId}.json`));
+      },
+    });
+    assert.equal(result.output, 'usable result');
+    assert.equal(result.status, 'completed');
+    assert.equal(result.historyPath, undefined);
+    assert.match(result.warnings.join(' '), /History could not be saved/);
+    await stream.return();
+    await read;
+  } finally {
+    await f.close();
+  }
+});
+
+// Reuse the stale journal descriptor with /dev/null to protect unrelated resources during cleanup.
+function closeJournalDescriptor(path) {
+  const { ino, dev } = statSync(path);
+  for (let fd = 3; fd < 4096; fd++) {
+    let stat;
+    try {
+      stat = fstatSync(fd);
+    } catch {
+      continue;
+    }
+    if (stat.ino !== ino || stat.dev !== dev) continue;
+    closeSync(fd);
+    assert.equal(openSync('/dev/null', 'r'), fd);
+    return;
+  }
+  throw new Error('journal descriptor not found');
+}
+const journalLog = async (path) =>
+  (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
+
+test('a stale journal handle is reopened once and the run journals on', async () => {
+  const f = await fixture([
+    call('javascript', { code: 'const rows = [1, 2];' }),
+    call('finish_from_js', { expression: 'rows.length' }),
+  ]);
+  try {
+    let journalPath;
+    const stream = f.agent.events();
+    const running = f.agent.run('deliver despite a stale journal handle', {
+      schema: Type.Number(),
+      onEvent: (e) => {
+        if (e.type === 'tool_execution_end' && e.toolName === 'javascript')
+          closeJournalDescriptor(journalPath);
+      },
+    });
+    const first = await stream.next();
+    assert.equal(first.value.type, 'run_start');
+    journalPath = join(f.agent.workspace, '.browser-use', 'runs', `${first.value.runId}.jsonl`);
+    const result = await running;
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 2);
+    assert.equal(result.warnings, undefined);
+    const log = await journalLog(journalPath);
+    assert.equal(log.at(-1).type, 'run_end');
+    assert.ok(log.some((e) => e.event?.type === 'tool_execution_end'));
+    assert.ok(
+      log.some((e) => e.event?.type === 'turn_end'),
+      'events after the failed write',
+    );
+    const sequences = log.map((e) => e.sequence);
+    assert.deepEqual(
+      sequences,
+      [...new Set(sequences)].sort((a, b) => a - b),
+    );
+    await stream.return();
+  } finally {
+    await f.close();
+  }
+});
+
+test('journal write failures never fail a run or erase its result', async () => {
+  const { mkdir, rm: remove } = await import('node:fs/promises');
+  const f = await fixture([
+    call('javascript', { code: 'const rows = [1, 2];' }),
+    call('finish_from_js', { expression: 'rows.length' }),
+  ]);
+  try {
+    const warnings = [];
+    let runId;
+    let runEnd;
+    const stream = f.agent.events();
+    const read = (async () => {
+      for await (const e of stream) {
+        if (e.type === 'run_start') runId = e.runId;
+        if (e.type === 'warning') warnings.push(e.message);
+        if (e.type === 'run_end') runEnd = e.result;
+      }
+    })();
+    let journalPath;
+    const result = await f.agent.run('deliver despite journal IO failure', {
+      schema: Type.Number(),
+      onEvent: async (e) => {
+        if (e.type === 'tool_execution_end' && e.toolName === 'javascript') {
+          journalPath = join(f.agent.workspace, '.browser-use', 'runs', `${runId}.jsonl`);
+          // The stale handle fails (EBADF) and so does reopening the path (EISDIR).
+          closeJournalDescriptor(journalPath);
+          await remove(journalPath);
+          await mkdir(journalPath);
+        }
+      },
+    });
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 2);
+    assert.equal(result.eventsPath, journalPath);
+    assert.match(result.warnings.join(' '), /Event log stopped: .*EISDIR/);
+    assert.deepEqual(warnings, result.warnings);
+    assert.deepEqual(runEnd.warnings, result.warnings, 'the live run_end carries the warning');
+    await stream.return();
+    await read;
+  } finally {
+    await f.close();
+  }
+});
+
+test('a journal that cannot be created leaves no journal path and the run completes', async () => {
+  let prompt;
+  const f = await fixture([
+    (context) => {
+      prompt = getCurrentSystemPrompt(context.messages);
+      return call('finish', { result: 'done' });
+    },
+    call('finish', { result: 'again' }),
+  ]);
+  try {
+    const runs = join(f.agent.workspace, '.browser-use', 'runs');
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(f.agent.workspace, '.browser-use'));
+    await writeFile(runs, 'not a directory'); // Force both journal directory creation and file opening to fail.
+    const result = await f.agent.run('deliver without a journal');
+    assert.equal(result.status, 'completed');
+    assert.equal(result.output, 'done');
+    assert.equal(result.eventsPath, undefined);
+    assert.match(result.warnings.join(' '), /Event log stopped: /);
+    assert.doesNotMatch(prompt, /Run journal/);
+    await rm(runs);
+    const next = await f.agent.followUp('journals again');
+    assert.equal(next.status, 'completed');
+    assert.equal((await journalLog(next.eventsPath)).at(-1).type, 'run_end');
+  } finally {
+    await f.close();
+  }
+});
+
+test('oversized follow-up does not call the provider or return previous task text', async () => {
+  const f = await fixture([call('finish', { result: 'old answer' })]);
+  try {
+    await f.agent.run('old task');
+    const result = await f.agent.followUp('new task', { maxContextChars: 100 });
+    assert.equal(result.status, 'context_limit');
+    assert.equal(result.text, '');
+    assert.equal(result.usage.totalTokens, 0);
+    assert.equal(f.faux.state.callCount, 1);
+  } finally {
+    await f.close();
+  }
+});
+
+test('non-JSON custom-tool metadata cannot break event logging or final delivery', async () => {
+  const details = { count: 1n, handler() {} };
+  details.self = details;
+  const f = await fixture([call('metadata', {}), call('finish', { result: 'done' })], {
+    tools: [
+      {
+        name: 'metadata',
+        label: 'metadata',
+        description: 'fixture',
+        parameters: Type.Object({}),
+        execute: async () => ({ content: [{ type: 'text', text: 'ok' }], details }),
+      },
+    ],
+  });
+  try {
+    const result = await f.agent.run('metadata');
+    assert.equal(result.output, 'done');
+    assert.match(await readFile(result.historyPath, 'utf8'), /Circular metadata/);
+  } finally {
+    await f.close();
+  }
+});
+
+for (const blocked of [false, true]) {
+  test(`completed recovery finalizes history independently of canonical checkpoint failure=${blocked}`, async () => {
+    let summaries = 0,
+      inference = 0;
+    const done = (message) => {
+      const stream = createAssistantMessageEventStream();
+      stream.push(
+        message.stopReason === 'error'
+          ? { type: 'error', reason: 'error', error: message }
+          : { type: 'done', reason: message.stopReason, message },
+      );
+      stream.end();
+      return stream;
+    };
+    const f = await fixture([], {
+      instructions: '',
+      modelInfo: { contextWindow: 50000 },
+      compactionRetryDelayMs: 1,
+      tools: [
+        {
+          name: 'observe',
+          label: 'observe',
+          description: 'Observe once',
+          parameters: Type.Object({}),
+          async execute() {
+            return { content: [{ type: 'text', text: 'observed '.repeat(40000) }], details: {} };
+          },
+        },
+      ],
+      streamFn(_model, request) {
+        if (!getCurrentTools(request.messages).length) {
+          summaries++;
+          return done(
+            summaries === 1
+              ? fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Connection error.' })
+              : fauxAssistantMessage('The observation is complete. Do not repeat it.'),
+          );
+        }
+        inference++;
+        return done(
+          inference === 1 ? call('observe', {}) : call('finish', { result: 'final-result' }),
+        );
+      },
+    });
+    let restored;
+    try {
+      const result = await f.agent.run('Inspect once.', {
+        timeoutMs: 10000,
+        async onContextRecovery(event) {
+          if (blocked && event.state === 'resumed') {
+            const path = join(f.agent.workspace, '.browser-use', 'session.json');
+            await rm(path);
+            await mkdir(path);
+          }
+        },
+      });
+      assert.equal(result.status, 'completed', result.error);
+      assert(summaries >= 2);
+      const path = join(f.agent.workspace, '.browser-use', 'session.json');
+      assert(result.historyPath, 'per-run history must survive canonical checkpoint failure');
+      const perRun = JSON.parse(await readFile(result.historyPath, 'utf8'));
+      assert.deepEqual(perRun.messages, f.agent.history.messages);
+      assert.deepEqual(perRun.usage, f.agent.history.usage);
+      if (blocked) {
+        assert(result.warnings?.some((warning) => /checkpoint/.test(warning)));
+        return;
+      }
+      const saved = JSON.parse(await readFile(path, 'utf8'));
+      assert.equal(saved.runs, 1, 'canonical checkpoint must include the completed run');
+      assert.deepEqual(saved.usage, f.agent.history.usage);
+      assert.deepEqual(saved.messages, f.agent.history.messages);
+      restored = await BrowserUse.create({
+        model: f.agent.history.model,
+        models: f.models,
+        browser: { kind: 'chromium' },
+        workspace: f.agent.workspace,
+        historyFile: path,
+      });
+      assert.match(JSON.stringify(restored.history.messages), /final-result/);
+      assert.equal(restored.history.runs, 1);
+    } finally {
+      await restored?.close();
+      await f.close();
+    }
+  });
+}
