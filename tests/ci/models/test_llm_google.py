@@ -243,3 +243,54 @@ def test_include_system_in_user_keeps_the_agent_state_message(tmp_path):
 	text, images = _describe(contents)
 	assert 'Buy a red stapler' in text, 'the task never reached the model'
 	assert images == 1, 'the screenshot never reached the model'
+
+
+@pytest.mark.asyncio
+async def test_chat_google_gemini_3_5_flash_honors_thinking_level():
+	"""gemini-3.5-flash must use Gemini 3 Flash thinking_level, not the 2.5 path.
+
+	Fixes #6063: substring checks for gemini-3-flash / gemini-3.1-flash missed 3.5.
+	"""
+	from types import SimpleNamespace
+	from unittest.mock import patch
+
+	from google.genai import types
+
+	from browser_use.llm.messages import UserMessage
+
+	recorded = {}
+
+	class FakeModels:
+		async def generate_content(self, *, model, contents, config):
+			recorded['config'] = config
+			return types.GenerateContentResponse(
+				candidates=[
+					types.Candidate(
+						content=types.Content(role='model', parts=[types.Part(text='ok')]),
+						finish_reason='STOP',
+					)
+				]
+			)
+
+	fake_client = SimpleNamespace(aio=SimpleNamespace(models=FakeModels()))
+
+	with patch.object(ChatGoogle, 'get_client', return_value=fake_client):
+		chat = ChatGoogle(model='gemini-3.5-flash', api_key='fake', thinking_level='low')
+		await chat.ainvoke([UserMessage(content='hi')])
+
+	tc = recorded['config'].get('thinking_config')
+	assert tc is not None, 'thinking_config should be set for gemini-3.5-flash'
+	# ThinkingConfigDict may be dict-like or object
+	level = tc.get('thinking_level') if isinstance(tc, dict) else getattr(tc, 'thinking_level', None)
+	assert level is not None
+	assert str(level).upper().endswith('LOW') or str(level) == 'LOW' or level == types.ThinkingLevel.LOW
+
+	# Default (no thinking_level) should still get Flash dynamic budget, not drop config
+	recorded.clear()
+	with patch.object(ChatGoogle, 'get_client', return_value=fake_client):
+		chat = ChatGoogle(model='gemini-3.5-flash', api_key='fake')
+		await chat.ainvoke([UserMessage(content='hi')])
+	tc = recorded['config'].get('thinking_config')
+	assert tc is not None
+	budget = tc.get('thinking_budget') if isinstance(tc, dict) else getattr(tc, 'thinking_budget', None)
+	assert budget == -1
