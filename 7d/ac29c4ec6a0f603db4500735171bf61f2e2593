@@ -1,0 +1,16 @@
+README.md
+  h_e7a2b198222b93 25,55
+docs/python.md
+  h_e7a2b198222b93 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7dac29c4ec6a0f603db4500735171bf61f2e2593",
+  "prompts": {},
+  "humans": {
+    "h_e7a2b198222b93": {
+      "author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
