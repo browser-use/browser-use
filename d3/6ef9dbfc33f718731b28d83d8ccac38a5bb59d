@@ -1,0 +1,32 @@
+README.md
+  s_720d8e6117a3d3::t_11ee2664086c68 141-142,154,272-273
+  s_720d8e6117a3d3::t_71bfcdc5b408bf 122,134,139-140,143-144,182,209
+  s_720d8e6117a3d3::t_851e87b903021e 118,184
+  s_720d8e6117a3d3::t_87abeafbe5fdc1 132
+  s_720d8e6117a3d3::t_3c9edcddeed28b 137,262,270-271
+  s_720d8e6117a3d3::t_f7294897f4fcc3 153
+  s_720d8e6117a3d3::t_138c042462cf3d 199
+  s_720d8e6117a3d3::t_486b702342ae61 77,79
+CLOUD.md
+  s_720d8e6117a3d3::t_5b23804fe37813 1,3,5,7,9,11,13,15,29,33,35,38,42,44-45,47,50-57,60-61,64,70,76-77,81
+  s_720d8e6117a3d3::t_3c9edcddeed28b 18,20-24,66
+  s_720d8e6117a3d3::t_f7294897f4fcc3 16,27,36,68,79
+  s_720d8e6117a3d3::t_11ee2664086c68 31,37,40
+  s_720d8e6117a3d3::t_87abeafbe5fdc1 72,74-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d36ef9dbfc33f718731b28d83d8ccac38a5bb59d",
+  "prompts": {},
+  "sessions": {
+    "s_720d8e6117a3d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0557c-d108-7360-8ad8-bd2346c683a3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}

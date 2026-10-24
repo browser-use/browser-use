@@ -1,0 +1,23 @@
+skills/browser-use/SKILL.md
+  s_8a8565428a2a37::t_31d65806b0a5a9 187-193
+browser_use/skills/browser-use/SKILL.md
+  s_8a8565428a2a37::t_31d65806b0a5a9 187-193
+examples/custom-functions/cua.py
+  s_8a8565428a2a37::t_8abf8a216ecbfa 264-265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d7b36c7dc581c247c4bdee04cf3064052ba8d771",
+  "prompts": {},
+  "sessions": {
+    "s_8a8565428a2a37": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc9bb-f4ca-76c2-a7ad-153da4a495a1",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Saurav Panda <sgp65@cornell.edu>"
+    }
+  }
+}

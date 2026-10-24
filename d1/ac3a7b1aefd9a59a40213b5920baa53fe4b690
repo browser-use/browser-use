@@ -1,0 +1,40 @@
+pyproject.toml
+  s_5d40ae83f8d939::t_09f5aac1e50e17 5,24,39-40,111
+  s_5d40ae83f8d939::t_3e9acb58446ade 49
+browser_use/mcp/controller.py
+  s_5d40ae83f8d939::t_451edb4de381f9 104,106-107
+.github/workflows/publish.yml
+  s_5d40ae83f8d939::t_32f951b399dde4 113
+tests/ci/test_mcp_client_error_result.py
+  s_5d40ae83f8d939::t_0a6921cf53ca8e 33,38,55,63,86,91
+browser_use/mcp/cli_mcp.py
+  s_5d40ae83f8d939::t_8896883fd7c401 15,36-40,82-83,85-87,91-92,94,97,101-102,104,109-110,112-115,169
+  s_5d40ae83f8d939::t_0a6921cf53ca8e 56,67,93,103,111
+  s_5d40ae83f8d939::t_7664ed26bf0c1c 107-108
+browser_use/mcp/client.py
+  s_5d40ae83f8d939::t_451edb4de381f9 259,261-262,329,377
+browser_use/mcp/server.py
+  s_5d40ae83f8d939::t_f2905411f5ad7d 136,214,458,460,462,464,466,468-469,475-476,480-481,483,497-500,1258
+  s_5d40ae83f8d939::t_c259429717d4d1 216-227,229-254,256-271,273,275-286,288-302,304,306-317,319-331,334-347,350-369,371,373-380,382-424,426,428-447,449-456,482,549,559
+  s_5d40ae83f8d939::t_7664ed26bf0c1c 502,547,557
+  s_5d40ae83f8d939::t_9665c904c36e3f 193
+tests/ci/test_mcp_tool_annotations.py
+  s_5d40ae83f8d939::t_842eb53a0b9481 42-44
+  s_5d40ae83f8d939::t_7a9702831fb92f 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d1ac3a7b1aefd9a59a40213b5920baa53fe4b690",
+  "prompts": {},
+  "sessions": {
+    "s_5d40ae83f8d939": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0694d-b970-7ad2-864c-a19af40d1523",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "MagMueller <mamagnus00@gmail.com>"
+    }
+  }
+}

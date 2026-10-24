@@ -1,0 +1,29 @@
+README.md
+  s_d394f711720c51::t_da0f2932d2fb62 79,81,187
+examples/cloud/README.md
+  s_d394f711720c51::t_c874ea51685994 20
+skills/cloud/SKILL.md
+  s_d394f711720c51::t_53f2a3d878fce7 27,31
+skills/cloud/references/api-v4.md
+  s_d394f711720c51::t_4f6f368e73a57e 14,16
+skills/cloud/references/quickstart.md
+  s_d394f711720c51::t_6dffd5c38e3cd0 108
+skills/open-source/references/models.md
+  s_d394f711720c51::t_97c57a9897ac30 25,27,33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5cc0eb8fa707dd68b6032b06b6cc302df005d153",
+  "prompts": {},
+  "sessions": {
+    "s_d394f711720c51": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ee80-a0fd-7822-8caa-bfac8d83ed93",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}

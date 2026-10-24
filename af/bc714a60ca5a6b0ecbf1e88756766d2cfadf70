@@ -1,0 +1,21 @@
+tests/ci/test_mcp_tool_annotations.py
+  s_5d40ae83f8d939::t_e4fe5368480f5e 75-91
+browser_use/mcp/server.py
+  s_5d40ae83f8d939::t_e4fe5368480f5e 583
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "afbc714a60ca5a6b0ecbf1e88756766d2cfadf70",
+  "prompts": {},
+  "sessions": {
+    "s_5d40ae83f8d939": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0694d-b970-7ad2-864c-a19af40d1523",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "MagMueller <mamagnus00@gmail.com>"
+    }
+  }
+}

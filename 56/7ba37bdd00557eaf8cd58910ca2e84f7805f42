@@ -1,0 +1,33 @@
+browser_use/agent/jev_actions.py
+  s_0ea552c519f69f::t_99550f4701a94d 14,186,208,219-227
+browser_use/agent/jev_observation.py
+  s_d976db101683f3::t_6414071c83e208 63,66,170
+tests/ci/test_jev_actions.py
+  s_0ea552c519f69f::t_da551d42dab3fc 268-287
+tests/ci/test_jev_observation.py
+  s_d976db101683f3::t_b114f9396e9a28 227-241
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "567ba37bdd00557eaf8cd58910ca2e84f7805f42",
+  "prompts": {},
+  "sessions": {
+    "s_0ea552c519f69f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ac09-948b-7802-983a-311e52c6ad99",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    },
+    "s_d976db101683f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b582-fb4f-7513-a8de-888125a0da6f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
