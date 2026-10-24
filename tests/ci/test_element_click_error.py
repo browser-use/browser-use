@@ -1,4 +1,5 @@
 import asyncio
+
 """Test for verifying error message correctness in Element.click()
 
 This test demonstrates the bug at browser_use/actor/element.py line 347:
@@ -85,17 +86,35 @@ class TestElementClickPressReleaseExceptions:
 		)
 
 		# Make geometry calls succeed so we reach the mouse events
-		mock_client.send.Page.getLayoutMetrics = AsyncMock(return_value={
-			'layoutViewport': {'pageX': 0, 'pageY': 0, 'clientWidth': 800, 'clientHeight': 600},
-			'visualViewport': {'pageX': 0, 'pageY': 0, 'clientWidth': 800, 'clientHeight': 600, 'offsetX': 0, 'offsetY': 0, 'scale': 1, 'zoom': 1},
-			'contentSize': {'x': 0, 'y': 0, 'width': 800, 'height': 600},
-			'cssLayoutViewport': {'pageX': 0, 'pageY': 0, 'clientWidth': 800, 'clientHeight': 600},
-			'cssVisualViewport': {'pageX': 0, 'pageY': 0, 'clientWidth': 800, 'clientHeight': 600, 'offsetX': 0, 'offsetY': 0, 'scale': 1, 'zoom': 1},
-			'cssContentSize': {'x': 0, 'y': 0, 'width': 800, 'height': 600},
-		})
-		mock_client.send.DOM.getContentQuads = AsyncMock(return_value={
-			'quads': [[10, 10, 20, 10, 20, 20, 10, 20]]
-		})
+		mock_client.send.Page.getLayoutMetrics = AsyncMock(
+			return_value={
+				'layoutViewport': {'pageX': 0, 'pageY': 0, 'clientWidth': 800, 'clientHeight': 600},
+				'visualViewport': {
+					'pageX': 0,
+					'pageY': 0,
+					'clientWidth': 800,
+					'clientHeight': 600,
+					'offsetX': 0,
+					'offsetY': 0,
+					'scale': 1,
+					'zoom': 1,
+				},
+				'contentSize': {'x': 0, 'y': 0, 'width': 800, 'height': 600},
+				'cssLayoutViewport': {'pageX': 0, 'pageY': 0, 'clientWidth': 800, 'clientHeight': 600},
+				'cssVisualViewport': {
+					'pageX': 0,
+					'pageY': 0,
+					'clientWidth': 800,
+					'clientHeight': 600,
+					'offsetX': 0,
+					'offsetY': 0,
+					'scale': 1,
+					'zoom': 1,
+				},
+				'cssContentSize': {'x': 0, 'y': 0, 'width': 800, 'height': 600},
+			}
+		)
+		mock_client.send.DOM.getContentQuads = AsyncMock(return_value={'quads': [[10, 10, 20, 10, 20, 20, 10, 20]]})
 		mock_client.send.DOM.scrollIntoViewIfNeeded = AsyncMock()
 		mock_client.send.Input.dispatchMouseEvent = AsyncMock()
 
@@ -116,3 +135,62 @@ class TestElementClickPressReleaseExceptions:
 		assert 'TimeoutError' in err or 'press timed out' in err, f'Press failure was replaced: {err}'
 		# Release error should not be the primary message
 		assert 'ConnectionError' not in err or 'TimeoutError' in err
+
+	@pytest.mark.asyncio
+	async def test_release_failure_raises_when_press_succeeds(self):
+		"""Pure mouseReleased failure must propagate when mousePressed succeeded."""
+		from browser_use.actor.element import Element
+
+		mock_session = MagicMock()
+		mock_client = AsyncMock()
+		mock_session.cdp_client = mock_client
+
+		element = Element(
+			browser_session=mock_session,
+			backend_node_id=123,
+			session_id='test-session',
+		)
+
+		mock_client.send.Page.getLayoutMetrics = AsyncMock(
+			return_value={
+				'layoutViewport': {'pageX': 0, 'pageY': 0, 'clientWidth': 800, 'clientHeight': 600},
+				'visualViewport': {
+					'pageX': 0,
+					'pageY': 0,
+					'clientWidth': 800,
+					'clientHeight': 600,
+					'offsetX': 0,
+					'offsetY': 0,
+					'scale': 1,
+					'zoom': 1,
+				},
+				'contentSize': {'x': 0, 'y': 0, 'width': 800, 'height': 600},
+				'cssLayoutViewport': {'pageX': 0, 'pageY': 0, 'clientWidth': 800, 'clientHeight': 600},
+				'cssVisualViewport': {
+					'pageX': 0,
+					'pageY': 0,
+					'clientWidth': 800,
+					'clientHeight': 600,
+					'offsetX': 0,
+					'offsetY': 0,
+					'scale': 1,
+					'zoom': 1,
+				},
+				'cssContentSize': {'x': 0, 'y': 0, 'width': 800, 'height': 600},
+			}
+		)
+		mock_client.send.DOM.getContentQuads = AsyncMock(return_value={'quads': [[10, 10, 20, 10, 20, 20, 10, 20]]})
+		mock_client.send.DOM.scrollIntoViewIfNeeded = AsyncMock()
+
+		async def dispatch_side_effect(params, session_id=None):
+			if params.get('type') == 'mouseReleased':
+				raise ConnectionError('WebSocket connection closed on release')
+			return {}
+
+		mock_client.send.Input.dispatchMouseEvent.side_effect = dispatch_side_effect
+
+		with pytest.raises(RuntimeError) as exc_info:
+			await element.click()
+
+		err = str(exc_info.value)
+		assert 'ConnectionError' in err or 'WebSocket' in err, f'Release failure was swallowed: {err}'

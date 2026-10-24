@@ -1,7 +1,6 @@
 """Element class for element operations."""
 
 import asyncio
-import sys
 from typing import TYPE_CHECKING, Literal, Union
 
 from cdp_use.client import logger
@@ -287,6 +286,7 @@ class Element:
 				await asyncio.sleep(0.05)
 
 				# Mouse down
+				press_failed = False
 				try:
 					press_attempted = True
 					await asyncio.wait_for(
@@ -304,6 +304,9 @@ class Element:
 						timeout=1.0,  # 1 second timeout for mousePressed
 					)
 					await asyncio.sleep(0.08)
+				except BaseException:
+					press_failed = True
+					raise
 				finally:
 					# A cancelled or timed-out press may already have reached Chrome.
 					# Always attempt release. Preserve a press failure if the release also fails.
@@ -323,13 +326,11 @@ class Element:
 							timeout=3.0,  # 3 second timeout for mouseReleased
 						)
 					except Exception as release_exc:
-						# If a press exception is already propagating, log the release
-						# failure and let the original exception continue. Only raise
-						# the release error when the press itself succeeded.
-						if sys.exc_info()[1] is not None:
-							logger.debug(
-								f'Mouse release failed after press error (preserving press failure): {release_exc}'
-							)
+						# If the press itself failed, log the release failure and let
+						# the original press exception continue. Only raise the release
+						# error when the press succeeded.
+						if press_failed:
+							logger.debug(f'Mouse release failed after press error (preserving press failure): {release_exc}')
 						else:
 							raise
 
