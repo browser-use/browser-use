@@ -609,8 +609,17 @@ class Element:
 		if not box:
 			raise RuntimeError('Element is not visible or has no bounding box')
 
-		# Create viewport clip for the element
-		viewport: 'Viewport' = {'x': box['x'], 'y': box['y'], 'width': box['width'], 'height': box['height'], 'scale': 1.0}
+		# The box is viewport-relative, but captureScreenshot's clip is document-relative
+		metrics = await self._client.send.Page.getLayoutMetrics(session_id=self._session_id)
+		page_x = metrics['cssVisualViewport']['pageX']
+		page_y = metrics['cssVisualViewport']['pageY']
+		viewport: 'Viewport' = {
+			'x': box['x'] + page_x,
+			'y': box['y'] + page_y,
+			'width': box['width'],
+			'height': box['height'],
+			'scale': 1.0,
+		}
 
 		# Prepare screenshot parameters
 		params: 'CaptureScreenshotParameters' = {'format': format, 'clip': viewport}
