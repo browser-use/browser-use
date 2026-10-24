@@ -68,6 +68,7 @@ from browser_use import ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle
 ChatBrowserUse('bu-fast')                          # also 'bu-ultrafast', 'bu-smart'
 ChatOpenAI('gpt-6-luna')                           # OPENAI_API_KEY; Responses API
 ChatOpenAI('my-model', base_url='http://localhost:8000/v1', api_key='x')  # any OpenAI-compatible server
+ChatOpenAI('plus', base_url='http://127.0.0.1:8787/v1', api_key=os.environ['OPENLLM_API_KEY'])  # OpenLLM daemon (8787 is the default port; check `openllm config --json`)
 ChatAnthropic('claude-haiku-5-5')                  # ANTHROPIC_API_KEY
 ChatGoogle('gemini-3.5-flash')                     # GOOGLE_API_KEY
 Agent(task, llm='groq:llama-3.3-70b-versatile')    # any Pydantic AI model string (groq: pip install 'pydantic-ai-slim[groq]'), or a Pydantic AI Model
