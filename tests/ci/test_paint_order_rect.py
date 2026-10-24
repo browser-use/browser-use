@@ -60,9 +60,9 @@ class TestRectValidation:
 
 class TestPaintOrderSkipsNonPositiveDimensions:
 	@pytest.mark.parametrize(
-		("width", "height"),
+		('width', 'height'),
 		[(0, 10), (10, 0), (-5, 10), (10, -5), (0, 0)],
-		ids=["zero-width", "zero-height", "negative-width", "negative-height", "zero-both"],
+		ids=['zero-width', 'zero-height', 'negative-width', 'negative-height', 'zero-both'],
 	)
 	def test_non_positive_dimension_node_does_not_enter_occlusion(self, width: float, height: float) -> None:
 		"""A collapsed/negative-size element must be skipped, not fed to Rect."""
@@ -77,4 +77,3 @@ class TestPaintOrderSkipsNonPositiveDimensions:
 		PaintOrderRemover(wrapper).calculate_paint_order()
 
 		assert simplified.ignored_by_paint_order is False
-
