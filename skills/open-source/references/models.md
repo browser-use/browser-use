@@ -310,5 +310,19 @@ llm = ChatOpenAI(
 
 Use the `/v1` base URL (not `/v1/chat/completions`). Pass catalog model ids as-is (no `openai/` prefix). The default `deepseek-v4-flash` model is text-only — set `use_vision=False` on the agent unless you pick a vision-capable model. List available models with `GET https://api.pzero.studio/v1/models` (no auth required).
 
+### OpenLLM
+```python
+import os
+
+llm = ChatOpenAI(
+    model="plus",
+    base_url="http://127.0.0.1:8787/v1",
+    api_key=os.environ["OPENLLM_API_KEY"],
+)
+```
+**Env:** `OPENLLM_API_KEY` from https://www.openllm.sh/sign-in
+
+[OpenLLM](https://docs.openllm.sh/quickstart) runs a local daemon that serves your Claude, ChatGPT, Cursor, Kimi and Grok subscriptions, provider API keys, and local models behind one OpenAI-compatible endpoint. `plus`, `ultra` and `lite` are fallback aliases that move to the next model in their chain when a provider is rate-limited or down. Any model ID from `GET http://127.0.0.1:8787/v1/models` also works.
+
 ### LangChain
 See example at [examples/models/langchain](https://github.com/browser-use/browser-use/tree/main/examples/models/langchain).
