@@ -267,7 +267,7 @@ async def test_chat_google_gemini_3_5_flash_honors_thinking_level():
 				candidates=[
 					types.Candidate(
 						content=types.Content(role='model', parts=[types.Part(text='ok')]),
-						finish_reason='STOP',
+						finish_reason=types.FinishReason.STOP,
 					)
 				]
 			)
