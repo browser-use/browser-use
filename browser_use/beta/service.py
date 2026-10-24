@@ -5694,12 +5694,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._force_done_after_failure()
 		return browser_state_summary
 
-	async def get_model_output(self, input_messages: list[BaseMessage]) -> AgentOutput:
-		"""Get next Browser Use action output from the configured Python LLM."""
+	async def get_model_output(
+		self, input_messages: list[BaseMessage], url_replacements: dict[str, str] | None = None
+	) -> AgentOutput:
+		"""Get next Browser Use action output from the configured Python LLM.
+
+		Pass `url_replacements` from an earlier call when re-sending the same message objects: they are
+		already shortened in place, so a second pass alone has nothing to restore.
+		"""
 		if self.llm is None or not hasattr(self.llm, 'ainvoke'):
 			raise ValueError('A Browser Use-compatible llm with ainvoke(...) is required for get_model_output().')
 
-		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
+		urls_replaced = url_replacements if url_replacements is not None else {}
+		urls_replaced.update(self._process_messsages_and_replace_long_urls_shorter_ones(input_messages))
 		response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
 		parsed: AgentOutput = getattr(response, 'completion', response)
 
@@ -5721,7 +5728,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _get_model_output_with_retry(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get model output, retrying once when the model returns no usable action."""
-		model_output = await self.get_model_output(input_messages)
+		# The retry re-sends the same, already shortened message objects, so both calls share one mapping.
+		url_replacements: dict[str, str] = {}
+		model_output = await self.get_model_output(input_messages, url_replacements)
 		action_count = len(model_output.action) if getattr(model_output, 'action', None) else 0
 		self.logger.debug(f'✅ Step {self.state.n_steps}: Got LLM response with {action_count} actions')
 
@@ -5738,7 +5747,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			clarification_message = UserMessage(
 				content='You forgot to return an action. Please respond with a valid JSON action according to the expected schema with your assessment and next actions.'
 			)
-			model_output = await self.get_model_output(input_messages + [clarification_message])
+			model_output = await self.get_model_output(input_messages + [clarification_message], url_replacements)
 			if has_empty_actions(model_output):
 				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
 				try:
