@@ -25,7 +25,7 @@ max_steps: 10
 To run all agent tasks:
 
 ```bash
-pytest tests/ci/test_agent_real_tasks.py
+python tests/ci/evaluate_tasks.py
 ```
 
 ---
