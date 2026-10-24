@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import platform
 from typing import Literal
 
 from cdp_use.cdp.input.commands import DispatchKeyEventParameters
@@ -27,6 +28,13 @@ from browser_use.browser.views import BrowserError, URLNotAllowedError
 from browser_use.browser.watchdog_base import BaseWatchdog
 from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.observability import observe_debug
+
+# Editing commands for Cmd shortcuts, keyed by (modifiers, lowercase main key)
+_MACOS_META_EDITING_COMMANDS = {
+	(frozenset({'Meta'}), 'a'): 'selectAll',
+	(frozenset({'Meta'}), 'z'): 'undo',
+	(frozenset({'Meta', 'Shift'}), 'z'): 'redo',
+}
 
 # Import EnhancedDOMTreeNode and rebuild event models that have forward references to it
 # This must be done after all imports are complete
@@ -2461,7 +2469,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 		except Exception as e:
 			raise
 
-	async def _dispatch_key_event(self, cdp_session, event_type: str, key: str, modifiers: int = 0) -> None:
+	async def _dispatch_key_event(
+		self, cdp_session, event_type: str, key: str, modifiers: int = 0, commands: list[str] | None = None
+	) -> None:
 		"""Helper to dispatch a keyboard event with proper key codes."""
 		code, vk_code = get_key_info(key)
 		params: DispatchKeyEventParameters = {
@@ -2471,6 +2481,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 		}
 		if modifiers:
 			params['modifiers'] = modifiers
+		if commands:
+			params['commands'] = commands
 		if vk_code is not None:
 			params['windowsVirtualKeyCode'] = vk_code
 		await cdp_session.cdp_client.send.Input.dispatchKeyEvent(params=params, session_id=cdp_session.session_id)
@@ -2545,8 +2557,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 				for mod in modifiers:
 					await self._dispatch_key_event(cdp_session, 'keyDown', mod)
 
+				# Chrome on macOS only runs Cmd editing shortcuts when the key event names the command
+				commands = None
+				if platform.system() == 'Darwin':
+					command = _MACOS_META_EDITING_COMMANDS.get((frozenset(modifiers), main_key.lower()))
+					commands = [command] if command else None
+
 				# Press main key with modifiers bitmask
-				await self._dispatch_key_event(cdp_session, 'keyDown', main_key, modifier_value)
+				await self._dispatch_key_event(cdp_session, 'keyDown', main_key, modifier_value, commands=commands)
 
 				await self._dispatch_key_event(cdp_session, 'keyUp', main_key, modifier_value)
 
