@@ -22,7 +22,7 @@ import asyncio
 from browser_use import Agent
 
 async def main():
-    async with await Agent.create(model="openai/gpt-6-luna") as agent:
+    async with Agent(model="openai/gpt-6-luna") as agent:
         result = await agent.run("Find the top story on Hacker News.")
         print(result.status, result.text)
 
@@ -52,7 +52,7 @@ Accept Chrome's connection prompt when Chrome requires it.
 ```python
 from browser_use import Agent, Browser
 
-async with await Agent.create(
+async with Agent(
     model="openai/gpt-6-luna",
     browser=Browser.chrome(),
 ) as agent:

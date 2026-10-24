@@ -13,7 +13,7 @@ import asyncio
 from browser_use import Agent, Browser
 
 async def main():
-    async with await Agent.create(
+    async with Agent(
         model="openai/gpt-6-luna",
         browser=Browser.chrome(),
         workspace="./work",
