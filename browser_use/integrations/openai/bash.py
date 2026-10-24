@@ -1,5 +1,3 @@
-"""Expose the shared Bash executor through OpenAI's tool runner."""
-
 import sys
 from pathlib import Path
 

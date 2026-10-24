@@ -86,3 +86,17 @@ product_extraction.py
 plot.py
 
 .claude/
+
+node_modules/
+build/
+browser_use/runtime/
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+!/tsconfig.build.json
+!/uv.lock
+
+.task-bin/
+artifacts/
+browser_use/runtime/
+BUILD-OWNER.txt

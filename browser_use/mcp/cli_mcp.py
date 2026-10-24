@@ -1,6 +1,4 @@
-"""MCP server exposing the CLI 3.0
-Run with: browser-use --cli-mcp
-"""
+"""Expose direct Browser Harness control through the Browser Use MCP server."""
 
 import asyncio
 import base64
@@ -14,7 +12,7 @@ import mcp.server.stdio
 import mcp.types as types
 from mcp.server import Server
 
-from browser_use.utils import get_browser_use_version
+from browser_use.cli import _browser_use_version, _ensure_harness_browser
 
 _NAMESPACE_IMPORTS = (
 	'from browser_harness.admin import ('
@@ -35,7 +33,7 @@ class CLIMCPServer:
 	def __init__(self):
 		self.server: Server = Server(
 			'browser-use',
-			version=get_browser_use_version(),
+			version=_browser_use_version(),
 			instructions=self._instructions(),
 		)
 		self._namespace: dict[str, Any] | None = None
@@ -93,8 +91,10 @@ class CLIMCPServer:
 						is_error=True,
 					)
 				async with self._exec_lock:
-					output = await asyncio.to_thread(self._execute, code)
-				return types.CallToolResult(content=[types.TextContent(type='text', text=output or '(no output)')])
+					output, failed = await asyncio.to_thread(self._execute, code)
+				return types.CallToolResult(
+					content=[types.TextContent(type='text', text=output or '(no output)')], is_error=failed
+				)
 			if name == 'browser_screenshot':
 				max_dim = arguments.get('max_dim')
 				if max_dim is not None and (isinstance(max_dim, bool) or not isinstance(max_dim, int) or max_dim < 1):
@@ -123,31 +123,30 @@ class CLIMCPServer:
 
 	def _ensure_daemon(self, code: str) -> None:
 		"""Mirror run.py: daemon must be up before helpers run, except for cloud admin snippets."""
-		ns = self._ensure_namespace()
 		if code.lstrip().startswith(('start_remote_daemon(', 'stop_remote_daemon(')):
 			return
-		ns['ensure_daemon']()
+		_ensure_harness_browser()
+		self._ensure_namespace()['ensure_daemon']()
 
-	def _execute(self, code: str, connect: bool = True) -> str:
-		"""Run code in the persistent namespace, capturing stdout/stderr.
-
-		Runs in a worker thread: harness helpers are synchronous socket IPC. Output is
-		captured because stdout carries the MCP protocol.
-		"""
+	def _execute(self, code: str, connect: bool = True) -> tuple[str, bool]:
+		"""Capture program output because stdout carries the MCP protocol."""
 		buffer = StringIO()
+		failed = False
 		with redirect_stdout(buffer), redirect_stderr(buffer):
 			try:
-				ns = self._ensure_namespace()
 				if connect:
 					self._ensure_daemon(code)
+				ns = self._ensure_namespace()
 				exec(code, ns)
 			except BaseException:
+				failed = True
 				traceback.print_exc(file=buffer)
-		return buffer.getvalue()
+		return buffer.getvalue(), failed
 
 	def _screenshot(self, full: bool, max_dim: int | None) -> str:
 		buffer = StringIO()
 		with redirect_stdout(buffer), redirect_stderr(buffer):
+			_ensure_harness_browser()
 			ns = self._ensure_namespace()
 			ns['ensure_daemon']()
 			path = ns['capture_screenshot'](full=full, max_dim=max_dim)

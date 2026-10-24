@@ -1,5 +1,5 @@
 default_language_version:
-  python: python3.11
+  python: python3
 
 repos:
   - repo: https://github.com/asottile/yesqa
@@ -29,14 +29,15 @@ repos:
     rev: v0.12.10
     hooks:
       - id: ruff-check
-        args: [ --fix ]
+        args: [--fix]
       - id: ruff-format
       # see pyproject.toml for more details on ruff config
 
   - repo: https://github.com/RobertCraigie/pyright-python
     rev: v1.1.404
     hooks:
-    - id: pyright
+      - id: pyright
+        pass_filenames: false
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -62,6 +63,6 @@ repos:
       - id: debug-statements
       - id: forbid-submodules
       - id: check-added-large-files
-        args: ["--maxkb=600"]
+        args: ['--maxkb=600']
       # - id: name-tests-test
       #   args: ["--pytest-test-first"]

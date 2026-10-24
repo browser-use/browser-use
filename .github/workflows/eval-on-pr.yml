@@ -13,9 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     # Only run if PR author has write access
     if: |
+      !github.event.pull_request.draft && (
       github.event.pull_request.author_association == 'OWNER' ||
       github.event.pull_request.author_association == 'MEMBER' ||
-      github.event.pull_request.author_association == 'COLLABORATOR'
+      github.event.pull_request.author_association == 'COLLABORATOR')
 
     steps:
       - name: Trigger Evaluation settings
