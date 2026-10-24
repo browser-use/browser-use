@@ -34,7 +34,7 @@ class PositiveQuantity(BaseModel):
 class ClientTests(unittest.IsolatedAsyncioTestCase):
 	async def asyncSetUp(self):
 		self.original_node = os.environ.get('BROWSER_USE_NODE')
-		os.environ['BROWSER_USE_NODE'] = str(Path(__file__).resolve().parents[2] / 'build/node/linux-x64/node')
+		os.environ.setdefault('BROWSER_USE_NODE', str(Path(__file__).resolve().parents[2] / 'build/node/linux-x64/node'))
 		self.directory = tempfile.TemporaryDirectory(prefix='bu-python-')
 		self.agent = None
 		self.responses = []
