@@ -1,0 +1,254 @@
+.dockerignore
+  h_e7a2b198222b93 1-2,4-7,9-11
+.env.example
+  h_e7a2b198222b93 1-5
+.github/CONTRIBUTING.md
+  h_e7a2b198222b93 8
+.github/workflows/eval-on-pr.yml
+  h_e7a2b198222b93 16,19
+.github/workflows/lint.yml
+  h_e7a2b198222b93 5-6,13-14,17,19-20,23-28
+.github/workflows/package.yaml
+  h_e7a2b198222b93 4,6,8,14,16,18-29,31-32,36,38-47,50,52,54-78
+.github/workflows/publish.yml
+  h_e7a2b198222b93 7,10,13,15-17
+.github/workflows/test.yaml
+  h_e7a2b198222b93 5-6,9-10,12-14,16-18,20,22-23,26,28-29,32-39
+.gitignore
+  h_e7a2b198222b93 89-102
+.pre-commit-config.yaml
+  h_e7a2b198222b93 2,32,39-40,66
+.prettierignore
+  h_e7a2b198222b93 1-22
+AGENTS.md
+  h_e7a2b198222b93 1-27
+CLAUDE.md
+  h_e7a2b198222b93 1,3
+Dockerfile
+  h_e7a2b198222b93 1-11,13-21
+Dockerfile.fast
+  h_e7a2b198222b93 1-2
+README.md
+  h_e7a2b198222b93 1,3-5,7,9,13-16,18,22,25-27,29,32-35,37-40,43-45,47,49-50,53,55-59,62-65,68-69,72,74-75,77-79,81,83-86,88,90-92,94-95,97,99-104,107-108,110-111
+bin/lint.sh
+  h_e7a2b198222b93 2-6
+bin/test.sh
+  h_e7a2b198222b93 2-8
+browser_use/__init__.py
+  h_e7a2b198222b93 1-5,7-10,12,15-16,19-34,36-39,41,44-171,174-228,230-232,234-273,275-281,283-594
+browser_use/cli.py
+  h_e7a2b198222b93 1,5,7,26-29,31-36,40,50-52,56-67,132-135,155-179,183-198,200,211-216,220-269,277,367,390-391,407,411-412,434-435,454-456
+browser_use/integrations/_browser.py
+  h_e7a2b198222b93 1,4-5,7-11,15,18-19,22-25,28-31,33-36,38-39,42-60,62-83,85-169,171-175,177-183,185-188,191-196,198-200,202-220,222-235,238-239,241-264,266-267,269-270,272-273,275-289,291,296,298,305,307-326,328,330-343,345-348,351-355,358-360,363-366,368-377,379-429,432-447,450-476,480-503,505-509,511-513,515-517,519-522,524-526,528-530
+browser_use/integrations/anthropic/__init__.py
+  h_e7a2b198222b93 23-24
+browser_use/integrations/anthropic/bash.py
+  h_e7a2b198222b93 1,108
+browser_use/integrations/anthropic/browser_use.py
+  h_e7a2b198222b93 9,12,25-33,47,61,63-65,87,93,105-107,109-111,119-126,130-132,139,150,153,156,159-194,197,212,218,224,227,236-241,246,251,264-265,270-271,276,502,520-526,580-582,604,753,765-766,965-972,1003,1007,1010,1015-1024,1027
+browser_use/integrations/anthropic/tab_state.py
+  h_e7a2b198222b93 1,13
+browser_use/integrations/openai/__init__.py
+  h_e7a2b198222b93 1,3-7,10-29
+browser_use/integrations/openai/browser_use.py
+  h_e7a2b198222b93 9,16-17,52,55-56,64,68,72,78,83,99,106,349,434-451
+browser_use/mcp/__main__.py
+  h_e7a2b198222b93 3
+browser_use/mcp/cli_mcp.py
+  h_e7a2b198222b93 1,15,36,94-97,128-129,131-132,134,139,142,144,149
+browser_use/skills/__init__.py
+  h_e7a2b198222b93 3
+browser_use/skills/browser-use/SKILL.md
+  h_e7a2b198222b93 3,26-59,195
+browser_use/skills/browser_use.py
+  h_e7a2b198222b93 1,11,69
+browser_use/skills/install.py
+  h_e7a2b198222b93 131,144
+docs/api.md
+  h_e7a2b198222b93 1-59
+docs/browser.md
+  h_e7a2b198222b93 1,3,5-17,19,21,23-32,34,36,38,40,42,44,46,48,50
+docs/enterprise.md
+  h_e7a2b198222b93 1-93
+docs/legacy.md
+  h_e7a2b198222b93 1,3-4,6,8-10,12-15,17
+docs/migration.md
+  h_e7a2b198222b93 1,3-4,6,8-16,18-19,21,23-26,28-29,31,33-37,39,41-45,47,49-52,54,56-61,63-65,67,69-72,74,76,78-81,83-86
+docs/models.md
+  h_e7a2b198222b93 1,3-6,11-12,14-16,18-20,22-24
+docs/python.md
+  h_e7a2b198222b93 1,3-5,7-9,11,13,16-47
+docs/sessions.md
+  h_e7a2b198222b93 1-102
+docs/telemetry.md
+  h_e7a2b198222b93 1-270
+eval/README.md
+  h_e7a2b198222b93 1,3-43
+eval/findings.py
+  h_e7a2b198222b93 1-2,4-7,9-10,13-38,41-45,47-98,102
+eval/run.mjs
+  h_e7a2b198222b93 1-69,72-79,82-111,113-121,123-151,153-508,510-511
+eval/setup.sh
+  h_e7a2b198222b93 1-14
+examples/README.md
+  h_e7a2b198222b93 1,3,5,7-12,14,16,18-27,29,31,33,35-37,39,41,43,45,47,49-56,58,60
+examples/apply-to-job.ts
+  h_e7a2b198222b93 1-57
+examples/ehr.ts
+  h_e7a2b198222b93 1-53
+examples/extract.ts
+  h_e7a2b198222b93 1-60
+examples/form.ts
+  h_e7a2b198222b93 1-36
+examples/onepassword.ts
+  h_e7a2b198222b93 1-3,5-14,16-66
+examples/qa.ts
+  h_e7a2b198222b93 1-72
+examples/research.ts
+  h_e7a2b198222b93 1-34
+examples/stripe-link.ts
+  h_e7a2b198222b93 1-166
+hatch_build.py
+  h_e7a2b198222b93 1-2,6-8,11-89,91-98,100-104
+package-lock.json
+  h_e7a2b198222b93 1-7453
+package.json
+  h_e7a2b198222b93 1-59
+pyproject.toml
+  h_e7a2b198222b93 1-4,7-8,10-12,15,19-21,30-34,36-57,59-67,78-80,86,88-90
+scripts/build-python.mjs
+  h_e7a2b198222b93 1-61
+skills/browser-use/SKILL.md
+  h_e7a2b198222b93 3,26-59,195
+skills/open-source/SKILL.md
+  h_e7a2b198222b93 3,7,9,11-19,21-25
+src/agent.ts
+  h_e7a2b198222b93 1-700
+src/ax.ts
+  h_e7a2b198222b93 1-82,84-89,91-112,115-175,178-213,216-217,220-245,247-248,251-277,282-313,315-406,409-417,420-439,443-445,448-470,472-505,508-516,518-522,524-528,531-538,541-546,549-627,630-635,637
+src/browser.ts
+  h_e7a2b198222b93 1-396
+src/cdp.ts
+  h_e7a2b198222b93 1-423
+src/context.ts
+  h_e7a2b198222b93 1-340
+src/control.ts
+  h_e7a2b198222b93 1-21,23-31,33,35-44,46-64,66-76,78-83
+src/events.ts
+  h_e7a2b198222b93 1-97
+src/highlight.ts
+  h_e7a2b198222b93 1-123
+src/history.ts
+  h_e7a2b198222b93 1-157
+src/images.ts
+  h_e7a2b198222b93 1-129
+src/index.ts
+  h_e7a2b198222b93 1-809
+src/model-stream.ts
+  h_e7a2b198222b93 1-73
+src/models.ts
+  h_e7a2b198222b93 1-119
+src/observer.ts
+  h_e7a2b198222b93 1-51
+src/page.ts
+  h_e7a2b198222b93 1-222
+src/policy.ts
+  h_e7a2b198222b93 1-8,10-11,13-42,44-57,61-155,157-165,167-182,184-206,208-276,278
+src/prompt.ts
+  h_e7a2b198222b93 1,3,5-14,16-20,22,24,26,28-33,35,37,39,41,43-46
+src/protocol.ts
+  h_e7a2b198222b93 1-76
+src/recording.ts
+  h_e7a2b198222b93 1-24,27-138
+src/research-tools.ts
+  h_e7a2b198222b93 1-102
+src/runtime.ts
+  h_e7a2b198222b93 1-383
+src/server.ts
+  h_e7a2b198222b93 1-459
+src/telemetry.ts
+  h_e7a2b198222b93 1-546
+src/types.ts
+  h_e7a2b198222b93 1-162
+src/video.ts
+  h_e7a2b198222b93 1-225
+src/worker.ts
+  h_e7a2b198222b93 1-490
+test/accessibility-state.test.mjs
+  h_e7a2b198222b93 1-95
+test/agent.test.mjs
+  h_e7a2b198222b93 1-1055
+test/browser-options.test.mjs
+  h_e7a2b198222b93 1-210
+test/cdp.test.mjs
+  h_e7a2b198222b93 1-296
+test/compatibility.test.mjs
+  h_e7a2b198222b93 1-97
+test/context-budget.test.mjs
+  h_e7a2b198222b93 1-108,110-143,145-171,173-226,228-237,239,241-251,253-281,283-346,348-356,358-366
+test/context-retention.test.mjs
+  h_e7a2b198222b93 1-598
+test/eval.test.mjs
+  h_e7a2b198222b93 1-406
+test/evaluation-deadline.test.mjs
+  h_e7a2b198222b93 1-5,7-45,47-69
+test/events.test.mjs
+  h_e7a2b198222b93 1-18
+test/examples.test.mjs
+  h_e7a2b198222b93 1-340
+test/findings_evidence.py
+  h_e7a2b198222b93 1-79,83
+test/fixture.mjs
+  h_e7a2b198222b93 1-44
+test/images.test.mjs
+  h_e7a2b198222b93 1-3,5-9,11-22,24-40,42-59
+test/model-stream.test.mjs
+  h_e7a2b198222b93 1-153
+test/ownership.test.mjs
+  h_e7a2b198222b93 1-313
+test/pending-browser.test.mjs
+  h_e7a2b198222b93 1-150
+test/policy.test.mjs
+  h_e7a2b198222b93 1-330
+test/provider.test.mjs
+  h_e7a2b198222b93 1-8,10-57,59-197,199-254,256-262,264-278,280-308,310-319,321-327
+test/recording.test.mjs
+  h_e7a2b198222b93 1-90
+test/recovery.test.mjs
+  h_e7a2b198222b93 1-330
+test/runtime.test.mjs
+  h_e7a2b198222b93 1-489
+test/search.test.mjs
+  h_e7a2b198222b93 1-63
+test/sessions.test.mjs
+  h_e7a2b198222b93 1-43,46-556
+test/telemetry.test.mjs
+  h_e7a2b198222b93 1-305
+tests/ci/integrations/test_anthropic_browser_use.py
+  h_e7a2b198222b93 87,90,97-99,117,122,125-126,259-273,275-288,290-340
+tests/ci/integrations/test_openai_browser_use.py
+  h_e7a2b198222b93 5,14-16,21,27-32,36,38,69,482,489
+tests/ci/test_browser_use_cli.py
+  h_e7a2b198222b93 5-7,61-311
+tests/ci/test_browser_use_skill_install_docs.py
+  h_e7a2b198222b93 21,38,90-91,116,122
+tests/packaging/test_wheel.py
+  h_e7a2b198222b93 2-3,5-8,11-53,57
+tests/python/test_client.py
+  h_e7a2b198222b93 2-8,10,12,15-16,19-20,23-24,26-31,34-43,45-54,56-206,208-270,272-307,309-490,492-750
+tsconfig.build.json
+  h_e7a2b198222b93 1-5
+tsconfig.json
+  h_e7a2b198222b93 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a8ecff1486b2cc0dbfb0f1d036e51624fb9d9743",
+  "prompts": {},
+  "humans": {
+    "h_e7a2b198222b93": {
+      "author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
