@@ -27,7 +27,7 @@ from pytest_httpserver import HTTPServer
 from browser_use.agent.service import Agent
 from browser_use.agent.views import ActionModel
 from browser_use.browser import BrowserSession
-from browser_use.browser.events import SwitchTabEvent
+from browser_use.browser.events import CloseTabEvent, SwitchTabEvent
 from browser_use.browser.profile import BrowserProfile
 from browser_use.tools.service import Tools
 from tests.ci.conftest import create_mock_llm
@@ -685,6 +685,7 @@ class _TabActionModel(ActionModel):
 
 	switch: dict[str, Any] | None = None
 	navigate: dict[str, Any] | None = None
+	close: dict[str, Any] | None = None
 
 
 class TestSwitchTabFailureReporting:
@@ -763,3 +764,88 @@ class TestSwitchTabFailureReporting:
 		assert 'produced no result' in result.error
 		assert 'Switched to tab' not in (result.extracted_content or '')
 		assert 'Switched to tab' not in (result.long_term_memory or '')
+
+
+class TestHostApplicationTargets:
+	async def test_host_pages_are_hidden_and_cannot_be_switched_to_or_closed(self, browser_session, base_url, tmp_path):
+		"""Host UI targets stay alive without becoming agent-accessible tabs."""
+		host_path = tmp_path / 'host.html'
+		host_path.write_text('<title>Host UI</title>')
+
+		assert browser_session._cdp_client_root is not None
+		web_target_id = (await browser_session._cdp_client_root.send.Target.createTarget(params={'url': f'{base_url}/page1'}))[
+			'targetId'
+		]
+		host_target_id = (await browser_session._cdp_client_root.send.Target.createTarget(params={'url': host_path.as_uri()}))[
+			'targetId'
+		]
+
+		for _ in range(100):
+			raw_ids = {target.target_id for target in browser_session.session_manager.get_all_page_targets()}
+			if {web_target_id, host_target_id} <= raw_ids:
+				break
+			await asyncio.sleep(0.05)
+		else:
+			pytest.fail('SessionManager did not discover the web and host targets')
+
+		visible_ids = {tab.target_id for tab in await browser_session.get_tabs()}
+		assert web_target_id in visible_ids
+		assert host_target_id not in visible_ids
+
+		state = await browser_session.get_browser_state_summary(include_screenshot=False)
+		assert host_target_id not in {tab.target_id for tab in state.tabs}
+
+		tools = Tools()
+		host_tab_id = host_target_id[-4:]
+		focus_before = browser_session.agent_focus_target_id
+		switch_result = await tools.act(_TabActionModel(switch={'tab_id': host_tab_id}), browser_session=browser_session)
+		assert switch_result.error is not None
+		assert browser_session.agent_focus_target_id == focus_before
+
+		await tools.act(_TabActionModel(close={'tab_id': host_tab_id}), browser_session=browser_session)
+		assert host_target_id in {target.target_id for target in browser_session.session_manager.get_all_page_targets()}
+
+		direct_switch = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=host_target_id))
+		with pytest.raises(ValueError, match='host-application'):
+			await direct_switch
+			await direct_switch.event_result(raise_if_any=True)
+		assert browser_session.agent_focus_target_id == focus_before
+
+		direct_close = browser_session.event_bus.dispatch(CloseTabEvent(target_id=host_target_id))
+		with pytest.raises(ValueError, match='host-application'):
+			await direct_close
+			await direct_close.event_result(raise_if_any=True)
+		assert host_target_id in {target.target_id for target in browser_session.session_manager.get_all_page_targets()}
+
+		switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=None))
+		await switch_event
+		assert await switch_event.event_result(raise_if_any=True) == web_target_id
+		assert browser_session.agent_focus_target_id == web_target_id
+
+	async def test_explicitly_navigated_file_remains_agent_accessible(self, browser_session, tmp_path):
+		"""The host-target filter must not disable direct local-file workflows."""
+		local_page = tmp_path / 'local.html'
+		local_page.write_text('<title>Local document</title><p>Local content</p>')
+		target_id = browser_session.agent_focus_target_id
+		assert target_id is not None
+		cdp_session = await browser_session.get_or_create_cdp_session(target_id)
+		await cdp_session.cdp_client.send.Page.navigate(params={'url': local_page.as_uri()}, session_id=cdp_session.session_id)
+		for _ in range(100):
+			if browser_session.session_manager.get_target(target_id).url == local_page.as_uri():
+				break
+			await asyncio.sleep(0.05)
+		else:
+			pytest.fail('Local-file navigation was not observed')
+
+		state = await browser_session.get_browser_state_summary(include_screenshot=False)
+		assert state.url == local_page.as_uri()
+		assert local_page.as_uri() in {tab.url for tab in state.tabs}
+
+		result = await Tools().act(_TabActionModel(close={'tab_id': target_id[-4:]}), browser_session=browser_session)
+		assert result.error is None
+		for _ in range(100):
+			if target_id not in {target.target_id for target in browser_session.session_manager.get_all_page_targets()}:
+				break
+			await asyncio.sleep(0.05)
+		else:
+			pytest.fail('Explicitly navigated local-file tab was not closed')
