@@ -1,6 +1,6 @@
 # Baizhi Cloud Browser + Browser Use
 
-Run a Browser Use Agent against a short-lived [Baizhi Cloud Browser](https://capybrowser.app.baizhi.cloud/) Session. The Agent reads the heading and explanatory sentence at `https://www.w3.org/Provider/Style/dummy.html`. Browser Use handles page actions over CDP; Baizhi Cloud Browser creates and ends the temporary Session. See the [installation contract](https://capybrowser.app.baizhi.cloud/docs/installation.md) and [Session API](https://capybrowser.app.baizhi.cloud/docs/browser-session-openapi.yaml).
+Run a Browser Use Agent against a short-lived [Baizhi Cloud Browser (CapyBrowser)](https://capybrowser.app.baizhi.cloud/) Session. The Agent reads the heading and explanatory sentence at `https://www.w3.org/Provider/Style/dummy.html`. Browser Use handles page actions over CDP; Baizhi Cloud Browser creates and ends the temporary Session. See the [installation contract](https://capybrowser.app.baizhi.cloud/docs/installation.md) and [Session API](https://capybrowser.app.baizhi.cloud/docs/browser-session-openapi.yaml).
 
 ## Prerequisites
 
