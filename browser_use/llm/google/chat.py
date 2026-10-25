@@ -21,6 +21,7 @@ from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+_THOUGHT_SEPARATOR = '\n'
 
 
 VerifiedGeminiModels = Literal[
@@ -66,6 +67,7 @@ class ChatGoogle(BaseChatModel):
 		http_options: HTTP options for the client
 		include_system_in_user: If True, system messages are included in the first user message
 		supports_structured_output: If True, uses native JSON mode; if False, uses prompt-based fallback
+		include_thoughts: If True, requests Gemini thought summaries when thinking is enabled
 		max_retries: Number of retries for retryable errors (default: 5)
 		retryable_status_codes: List of HTTP status codes to retry on (default: [429, 500, 502, 503, 504])
 		retry_base_delay: Base delay in seconds for exponential backoff (default: 1.0)
@@ -95,6 +97,7 @@ class ChatGoogle(BaseChatModel):
 	thinking_level: Literal['minimal', 'low', 'medium', 'high'] | None = (
 		None  # for Gemini 3: Pro supports low/high, Flash supports all levels
 	)
+	include_thoughts: bool = field(default=True, kw_only=True)
 	max_output_tokens: int | None = 8096
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
@@ -192,6 +195,18 @@ class ChatGoogle(BaseChatModel):
 		if hasattr(response, 'candidates') and response.candidates:
 			return str(response.candidates[0].finish_reason) if hasattr(response.candidates[0], 'finish_reason') else None
 		return None
+
+	def _extract_thinking(self, response: types.GenerateContentResponse) -> str | None:
+		"""Extract Gemini thought-summary parts without polluting completion text."""
+		if not response.candidates:
+			return None
+
+		content = response.candidates[0].content
+		if content is None or not content.parts:
+			return None
+
+		thoughts = [part.text for part in content.parts if part.thought and part.text]
+		return _THOUGHT_SEPARATOR.join(thoughts) if thoughts else None
 
 	def _raise_if_output_truncated(self, response: types.GenerateContentResponse) -> None:
 		"""Raise ModelOutputTruncatedError when the response hit an output-token limit."""
@@ -313,17 +328,20 @@ class ChatGoogle(BaseChatModel):
 
 			# Map to ThinkingLevel enum (SDK accepts string values)
 			level = types.ThinkingLevel(self.thinking_level.upper())
-			config['thinking_config'] = types.ThinkingConfigDict(thinking_level=level)
+			config['thinking_config'] = types.ThinkingConfigDict(thinking_level=level, include_thoughts=self.include_thoughts)
 		elif is_gemini_3_flash:
 			# Gemini 3 Flash supports both thinking_level and thinking_budget
 			# If user set thinking_level, use that; otherwise default to thinking_budget=-1
 			if self.thinking_level is not None:
 				level = types.ThinkingLevel(self.thinking_level.upper())
-				config['thinking_config'] = types.ThinkingConfigDict(thinking_level=level)
+				config['thinking_config'] = types.ThinkingConfigDict(thinking_level=level, include_thoughts=self.include_thoughts)
 			else:
 				if self.thinking_budget is None:
 					self.thinking_budget = -1
-				config['thinking_config'] = types.ThinkingConfigDict(thinking_budget=self.thinking_budget)
+				config['thinking_config'] = types.ThinkingConfigDict(
+					thinking_budget=self.thinking_budget,
+					include_thoughts=self.include_thoughts and self.thinking_budget != 0,
+				)
 		else:
 			# Gemini 2.5 and earlier: use thinking_budget only
 			if self.thinking_level is not None:
@@ -335,7 +353,10 @@ class ChatGoogle(BaseChatModel):
 			if self.thinking_budget is None and ('gemini-2.5' in self.model or 'gemini-flash' in self.model):
 				self.thinking_budget = -1
 			if self.thinking_budget is not None:
-				config['thinking_config'] = types.ThinkingConfigDict(thinking_budget=self.thinking_budget)
+				config['thinking_config'] = types.ThinkingConfigDict(
+					thinking_budget=self.thinking_budget,
+					include_thoughts=self.include_thoughts and self.thinking_budget != 0,
+				)
 
 		if self.max_output_tokens is not None:
 			config['max_output_tokens'] = self.max_output_tokens
@@ -367,6 +388,7 @@ class ChatGoogle(BaseChatModel):
 
 					return ChatInvokeCompletion(
 						completion=text,
+						thinking=self._extract_thinking(response),
 						usage=usage,
 						stop_reason=self._get_stop_reason(response),
 					)
@@ -414,6 +436,7 @@ class ChatGoogle(BaseChatModel):
 									parsed_data = json.loads(text)
 									return ChatInvokeCompletion(
 										completion=output_format.model_validate(parsed_data),
+										thinking=self._extract_thinking(response),
 										usage=usage,
 										stop_reason=self._get_stop_reason(response),
 									)
@@ -437,6 +460,7 @@ class ChatGoogle(BaseChatModel):
 						if isinstance(response.parsed, output_format):
 							return ChatInvokeCompletion(
 								completion=response.parsed,
+								thinking=self._extract_thinking(response),
 								usage=usage,
 								stop_reason=self._get_stop_reason(response),
 							)
@@ -444,6 +468,7 @@ class ChatGoogle(BaseChatModel):
 							# If it's not the expected type, try to validate it
 							return ChatInvokeCompletion(
 								completion=output_format.model_validate(response.parsed),
+								thinking=self._extract_thinking(response),
 								usage=usage,
 								stop_reason=self._get_stop_reason(response),
 							)
@@ -496,6 +521,7 @@ class ChatGoogle(BaseChatModel):
 								parsed_data = json.loads(text)
 								return ChatInvokeCompletion(
 									completion=output_format.model_validate(parsed_data),
+									thinking=self._extract_thinking(response),
 									usage=usage,
 									stop_reason=self._get_stop_reason(response),
 								)
