@@ -5,6 +5,7 @@
 default-umask write would leave a live Gmail credential at mode 0644.
 """
 
+import io
 import os
 import stat
 import sys
@@ -52,3 +53,38 @@ async def test_write_is_truncating(tmp_path: Path):
 	await _write_secret_file(token, 'b')
 
 	assert token.read_text() == 'b'
+
+
+async def test_mode_failure_does_not_write_secret(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+	"""If the mode cannot be tightened, the new credential is not written and the old file is left intact."""
+	token = tmp_path / 'gmail_token.json'
+	token.write_text('{"refresh_token": "old"}')
+	os.chmod(token, 0o644)
+
+	def refuse(fd: int, mode: int) -> None:
+		raise PermissionError('fchmod not permitted')
+
+	monkeypatch.setattr(os, 'fchmod', refuse)
+	with pytest.raises(PermissionError):
+		await _write_secret_file(token, '{"refresh_token": "new"}')
+
+	assert token.read_text() == '{"refresh_token": "old"}'
+
+
+async def test_secret_is_not_written_by_reopening_the_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+	"""The payload goes through the 0600 descriptor; reopening the token path by name would
+	let a file recreated in between receive the secret at the default umask."""
+	token = tmp_path / 'gmail_token.json'
+	real_io_open = io.open
+
+	def guarded_open(file, *args, **kwargs):
+		if not isinstance(file, int) and Path(file) == token:
+			raise AssertionError('token file reopened by path')
+		return real_io_open(file, *args, **kwargs)
+
+	monkeypatch.setattr(io, 'open', guarded_open)
+	await _write_secret_file(token, 'secret')
+	monkeypatch.undo()
+
+	assert _mode(token) == 0o600
+	assert token.read_text() == 'secret'

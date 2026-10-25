@@ -22,6 +22,29 @@ from browser_use.config import CONFIG
 logger = logging.getLogger(__name__)
 
 
+def _write_secret_file_sync(path: Path, content: str) -> None:
+	# O_CREAT with an explicit mode covers a new file; fchmod on the same
+	# descriptor covers a file left at 0644 by an earlier version (the mode
+	# argument to os.open is ignored when the file already exists). The secret
+	# is then written through that descriptor, so it lands in the inode whose
+	# mode was just set, never in a file reopened by path.
+	fd = os.open(path, os.O_WRONLY | os.O_CREAT, 0o600)
+	try:
+		if os.name != 'nt':
+			# Fail closed: if the mode cannot be tightened, do not write the
+			# credential into a file that may stay group or world readable.
+			# This runs before the truncate, so a failure leaves the existing
+			# token in place rather than an empty file.
+			os.fchmod(fd, 0o600)
+		os.ftruncate(fd, 0)
+		with os.fdopen(fd, 'w', encoding='utf-8') as f:
+			fd = -1
+			f.write(content)
+	finally:
+		if fd != -1:
+			os.close(fd)
+
+
 async def _write_secret_file(path: Path, content: str) -> None:
 	"""Write a credential file readable only by the current user.
 
@@ -30,23 +53,14 @@ async def _write_secret_file(path: Path, content: str) -> None:
 	(0644 on a default Linux install). The file is created with 0600 *before*
 	any content is written, so the secret is never briefly present in a
 	world-readable file, and an existing file from an earlier version has its
-	mode corrected too (the mode argument to os.open is ignored when the file
-	already exists).
+	mode corrected too. On POSIX, a failure to set the mode raises instead of
+	writing the secret. Windows has no POSIX modes, so the mode step is skipped
+	there.
 
 	Mirrors the protection `browser_use/sync/auth.py` already applies to
 	`cloud_auth.json`.
 	"""
-	# O_CREAT|O_TRUNC with an explicit mode, then an unconditional chmod for
-	# the pre-existing-file case.
-	fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-	os.close(fd)
-	try:
-		os.chmod(path, 0o600)
-	except OSError:
-		# Some filesystems and platforms (notably Windows) do not support
-		# POSIX modes; the write below still needs to happen.
-		pass
-	await anyio.Path(path).write_text(content)
+	await anyio.to_thread.run_sync(_write_secret_file_sync, path, content)
 
 
 class GmailService:
