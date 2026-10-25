@@ -1204,7 +1204,7 @@ class BrowserSession(BaseModel):
 	async def on_CloseTabEvent(self, event: CloseTabEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
 		if not any(target.target_id == event.target_id for target in self.get_page_targets()):
-			raise ValueError(f'Cannot close unavailable or host-application target {event.target_id}')
+			raise PermissionError(f'Cannot close unavailable or host-application target {event.target_id}')
 
 		try:
 			# Dispatch tab closed event
@@ -2672,14 +2672,18 @@ class BrowserSession(BaseModel):
 		if not self.session_manager:
 			raise RuntimeError('SessionManager not initialized')
 
-		for target in self.get_page_targets():
+		agent_target_ids = {target.target_id for target in self.get_page_targets()}
+		for target in self.session_manager.get_all_page_targets():
 			full_target_id = target.target_id
-			if full_target_id.endswith(tab_id):
-				if await self.session_manager.is_target_valid(full_target_id):
-					return full_target_id
-				# Stale target - Chrome should have sent detach event
-				# If we're here, event listener will clean it up
-				self.logger.debug(f'Found stale target {full_target_id}, skipping')
+			if not full_target_id.endswith(tab_id):
+				continue
+			if full_target_id not in agent_target_ids:
+				raise PermissionError(f'Tab #{tab_id} is not agent-accessible')
+			if await self.session_manager.is_target_valid(full_target_id):
+				return full_target_id
+			# Stale target - Chrome should have sent detach event
+			# If we're here, event listener will clean it up
+			self.logger.debug(f'Found stale target {full_target_id}, skipping')
 
 		raise ValueError(f'No TargetID found ending in tab_id=...{tab_id}')
 

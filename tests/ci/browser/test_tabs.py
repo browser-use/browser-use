@@ -802,7 +802,9 @@ class TestHostApplicationTargets:
 		assert switch_result.error is not None
 		assert browser_session.agent_focus_target_id == focus_before
 
-		await tools.act(_TabActionModel(close={'tab_id': host_tab_id}), browser_session=browser_session)
+		close_result = await tools.act(_TabActionModel(close={'tab_id': host_tab_id}), browser_session=browser_session)
+		assert close_result.error is not None
+		assert 'not agent-accessible' in close_result.error
 		assert host_target_id in {target.target_id for target in browser_session.session_manager.get_all_page_targets()}
 
 		direct_switch = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=host_target_id))
@@ -812,7 +814,7 @@ class TestHostApplicationTargets:
 		assert browser_session.agent_focus_target_id == focus_before
 
 		direct_close = browser_session.event_bus.dispatch(CloseTabEvent(target_id=host_target_id))
-		with pytest.raises(ValueError, match='host-application'):
+		with pytest.raises(PermissionError, match='host-application'):
 			await direct_close
 			await direct_close.event_result(raise_if_any=True)
 		assert host_target_id in {target.target_id for target in browser_session.session_manager.get_all_page_targets()}
