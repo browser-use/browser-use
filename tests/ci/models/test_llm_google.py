@@ -243,3 +243,157 @@ def test_include_system_in_user_keeps_the_agent_state_message(tmp_path):
 	text, images = _describe(contents)
 	assert 'Buy a red stapler' in text, 'the task never reached the model'
 	assert images == 1, 'the screenshot never reached the model'
+
+
+_GEMINI_THINKING_MODELS = ('gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-flash')
+_THOUGHT_SUMMARY = 'I should click the button.'
+_FINAL_TEXT = 'Hello'
+_POSITIONAL_MAX_OUTPUT_TOKENS = 4096
+
+
+def _mock_genai_client(response):
+	"""Build a mock genai client returning the supplied response."""
+	from unittest.mock import AsyncMock, MagicMock
+
+	mock_client = MagicMock()
+	mock_client.aio = MagicMock()
+	mock_client.aio.models = AsyncMock()
+	mock_client.aio.models.generate_content.return_value = response
+	return mock_client, mock_client.aio.models
+
+
+def _thought_response(final_text: str):
+	"""Build a real genai response containing separate thought and answer parts."""
+	from google.genai import types
+
+	return types.GenerateContentResponse(
+		candidates=[
+			types.Candidate(
+				content=types.Content(
+					role='model',
+					parts=[
+						types.Part(text=_THOUGHT_SUMMARY, thought=True),
+						types.Part(text=final_text),
+					],
+				),
+				finish_reason=types.FinishReason.STOP,
+			)
+		]
+	)
+
+
+def _agent_mock_llm(agent_output_json: str, provider_thinking: str):
+	"""Build an agent LLM response with provider thinking on the envelope."""
+	from unittest.mock import AsyncMock
+
+	from browser_use.llm import BaseChatModel
+	from browser_use.llm.views import ChatInvokeCompletion
+
+	llm = AsyncMock(spec=BaseChatModel)
+	llm.model = 'mock-llm'
+	llm._verified_api_keys = True
+	llm.provider = 'mock'
+	llm.name = 'mock-llm'
+	llm.model_name = 'mock-llm'
+
+	async def mock_ainvoke(*args, **kwargs):
+		output_format = args[1] if len(args) >= 2 else kwargs.get('output_format')
+		assert output_format is not None
+		return ChatInvokeCompletion(
+			completion=output_format.model_validate_json(agent_output_json),
+			thinking=provider_thinking,
+			usage=None,
+		)
+
+	llm.ainvoke.side_effect = mock_ainvoke
+	return llm
+
+
+class TestGeminiThoughts:
+	"""Regression coverage for Gemini thought summaries from issue #5128."""
+
+	def test_constructor_positional_order_is_preserved(self):
+		"""New options must not shift the existing positional constructor contract."""
+		chat = ChatGoogle('gemini-2.5-flash', 0.5, None, None, -1, None, _POSITIONAL_MAX_OUTPUT_TOKENS)
+
+		assert chat.max_output_tokens == _POSITIONAL_MAX_OUTPUT_TOKENS
+		assert chat.include_thoughts is True
+
+	@pytest.mark.asyncio
+	@pytest.mark.parametrize('model', _GEMINI_THINKING_MODELS)
+	async def test_ainvoke_requests_and_returns_thought_summaries(self, model):
+		"""Every thinking model must request and expose thought-summary parts."""
+		from unittest.mock import patch
+
+		from browser_use.llm.messages import UserMessage
+
+		mock_client, mock_models = _mock_genai_client(_thought_response(_FINAL_TEXT))
+		with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+			result = await ChatGoogle(model=model, api_key='fake').ainvoke([UserMessage(content='Hello')])
+
+		thinking_config = mock_models.generate_content.call_args.kwargs['config']['thinking_config']
+		assert thinking_config.get('include_thoughts') is True
+		assert result.thinking == _THOUGHT_SUMMARY
+		assert result.completion == _FINAL_TEXT
+
+	@pytest.mark.asyncio
+	async def test_disabled_thinking_does_not_request_summaries(self):
+		"""A zero thinking budget must not request thought summaries."""
+		from unittest.mock import patch
+
+		from browser_use.llm.messages import UserMessage
+
+		mock_client, mock_models = _mock_genai_client(_thought_response(_FINAL_TEXT))
+		with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+			await ChatGoogle(model='gemini-2.5-flash', api_key='fake', thinking_budget=0).ainvoke([UserMessage(content='Hello')])
+
+		thinking_config = mock_models.generate_content.call_args.kwargs['config']['thinking_config']
+		assert thinking_config.get('include_thoughts') is not True
+
+	@pytest.mark.asyncio
+	async def test_structured_output_returns_thought_summaries(self):
+		"""Structured JSON output must retain provider thought summaries."""
+		from unittest.mock import patch
+
+		from pydantic import BaseModel
+
+		from browser_use.llm.messages import UserMessage
+
+		class Answer(BaseModel):
+			answer: str
+
+		mock_client, _ = _mock_genai_client(_thought_response('{"answer": "42"}'))
+		with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+			result = await ChatGoogle(model='gemini-2.5-flash', api_key='fake').ainvoke(
+				[UserMessage(content='Answer briefly')], output_format=Answer
+			)
+
+		assert result.completion.answer == '42'
+		assert result.thinking == _THOUGHT_SUMMARY
+
+	@pytest.mark.asyncio
+	@pytest.mark.parametrize(
+		('agent_kwargs', 'expected_thinking'),
+		[
+			({}, _THOUGHT_SUMMARY),
+			({'use_thinking': False}, None),
+			({'flash_mode': True}, None),
+		],
+	)
+	async def test_agent_bridges_provider_thinking_only_when_enabled(self, agent_kwargs, expected_thinking):
+		"""Agent history receives provider thinking unless thinking is disabled."""
+		from browser_use import Agent
+		from browser_use.llm.messages import UserMessage
+
+		if agent_kwargs.get('flash_mode'):
+			output_json = '{"memory": "m", "action": [{"done": {"text": "ok", "success": true}}]}'
+		else:
+			output_json = (
+				'{"evaluation_previous_goal": "e", "memory": "m", "next_goal": "n",'
+				' "action": [{"done": {"text": "ok", "success": true}}]}'
+			)
+		agent = Agent(task='Test task', llm=_agent_mock_llm(output_json, _THOUGHT_SUMMARY), **agent_kwargs)
+
+		output = await agent.get_model_output([UserMessage(content='x')])
+
+		assert output.thinking == expected_thinking
