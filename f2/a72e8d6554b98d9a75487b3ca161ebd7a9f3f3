@@ -1,0 +1,14 @@
+pyproject.toml
+  h_e7a2b198222b93 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f2a72e8d6554b98d9a75487b3ca161ebd7a9f3f3",
+  "prompts": {},
+  "humans": {
+    "h_e7a2b198222b93": {
+      "author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
