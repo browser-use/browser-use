@@ -273,6 +273,7 @@ function connection(value: unknown) {
     const rawValues = url.search
       .slice(1)
       .split('&')
+      .filter(Boolean)
       .map((entry) => entry.slice(entry.indexOf('=') + 1));
     for (const [index, [key, value]] of [...url.searchParams].entries()) {
       if (
@@ -424,10 +425,9 @@ export function createTelemetry(options: TelemetryOptions = {}) {
     ...Object.values(options.configuration?.sensitiveData ?? {}).map((secret) => secret.value),
     ...(browser && 'apiKey' in browser && browser.apiKey ? [browser.apiKey] : []),
     ...(browser && 'headers' in browser
-      ? Object.values(browser.headers ?? {}).flatMap((value) => [
-          value,
-          value.replace(/^Bearer\s+/i, ''),
-        ])
+      ? Object.values(browser.headers ?? {})
+          .filter((value) => typeof value === 'string')
+          .flatMap((value) => [value, value.replace(/^Bearer\s+/i, '')])
       : []),
     ...(browser && 'tls' in browser ? [browser.tls?.key, browser.tls?.passphrase] : []),
   ].filter((value): value is string => typeof value === 'string' && value.length > 0);

@@ -243,6 +243,7 @@ test('all opt-outs suppress final events and override explicit enablement', asyn
 
 test('unpriced and malformed metadata remain unknown without changing operation results', async () => {
   const restore = environment();
+  const workspace = await mkdtemp(join(tmpdir(), 'bu-telemetry-invalid-'));
   const requests = [];
   const patch = mock.method(globalThis, 'fetch', async (_url, options) => {
     requests.push(JSON.parse(options.body));
@@ -275,7 +276,23 @@ test('unpriced and malformed metadata remain unknown without changing operation 
     await unmeasuredCost.flush();
     assert.equal(requests.at(-1).properties.usage.estimated_cost_usd, null);
     assert.equal(requests.at(-1).properties.cost_completeness, 'unknown');
+    const requestCount = requests.length;
+    for (const enabled of [false, true]) {
+      await assert.rejects(
+        BrowserUse.create({
+          browser: {
+            cdpUrl: 'wss://browser.example.test/session',
+            headers: { Authorization: 123 },
+          },
+          telemetry: enabled,
+          workspace,
+        }),
+        /CDP headers must contain valid names/,
+      );
+      assert.equal(requests.length, requestCount + Number(enabled));
+    }
   } finally {
+    await rm(workspace, { recursive: true, force: true });
     patch.mock.restore();
     restore();
   }
@@ -319,6 +336,8 @@ test('transport buffering stays bounded while requests remain pending', async ()
 
 test('CDP URLs preserve connection location and remove credentials from every content field', async () => {
   const { requests, restore } = captureTelemetry();
+  const content =
+    'operator PASSWORD QUERY_SECRET FRAGMENT_SECRET SIGNED_SECRET OPAQUE%2fVALUE OPAQUE/VALUE HEADER_SECRET TLS_SECRET TLS_PASSWORD';
   const rows = [
     [
       'ws://operator:PASSWORD@127.0.0.1:9222/devtools/browser/session?key=QUERY_SECRET&region=eu#FRAGMENT_SECRET',
@@ -347,6 +366,16 @@ test('CDP URLs preserve connection location and remove credentials from every co
       'wss',
       'wss://browser.example.test/session',
     ],
+    ...[
+      '?&token=OPAQUE%2fVALUE&region=eu',
+      '?region=eu&&token=OPAQUE%2fVALUE',
+      '?region=eu&token=OPAQUE%2fVALUE&',
+    ].map((query) => [
+      `wss://browser.example.test/session${query}`,
+      'hostname',
+      'wss',
+      'wss://browser.example.test/session?region=eu',
+    ]),
     ['INVALID', 'unknown', null, null],
   ];
   try {
@@ -360,12 +389,12 @@ test('CDP URLs preserve connection location and remove credentials from every co
       });
       telemetry
         .start('browser_session', {
-          task: 'operator PASSWORD QUERY_SECRET FRAGMENT_SECRET SIGNED_SECRET OPAQUE%2fVALUE OPAQUE/VALUE HEADER_SECRET TLS_SECRET TLS_PASSWORD',
+          task: content,
         })
         .finish({
           status: 'error',
-          result: { ...result, text: 'PASSWORD QUERY_SECRET FRAGMENT_SECRET SIGNED_SECRET' },
-          error: 'Connection operator PASSWORD QUERY_SECRET FRAGMENT_SECRET SIGNED_SECRET failed',
+          result: { ...result, text: content, warnings: [content] },
+          error: content,
         });
       await telemetry.flush();
       const finish = requests.at(-1).properties;
