@@ -35,7 +35,7 @@ def get_llm(provider: str):
 			st.error('Error: ANTHROPIC_API_KEY is not set. Please provide a valid API key.')
 			st.stop()
 
-		return ChatAnthropic(model='claude-3-5-sonnet-20240620', temperature=0.0)
+		return ChatAnthropic(model='claude-sonnet-5-5', temperature=0.0)
 	elif provider == 'openai':
 		from browser_use import ChatOpenAI
 
