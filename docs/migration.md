@@ -38,7 +38,8 @@ Explicit provider models retain their own authentication.
 Known provider transports accept exact new model IDs without catalog registration.
 Unknown prices remain unknown.
 A cost limit requires known prices or provider-reported cost.
-Time, turn, and token limits remain available when pricing is unknown.
+Time, turn, and context limits remain available when pricing is unknown.
+The run API has no cumulative token budget.
 The library never silently substitutes another model.
 
 ## Controls

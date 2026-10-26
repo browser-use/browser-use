@@ -3,12 +3,13 @@
 The migration removes the old Python planner, browser stack, model wrappers, and Rust beta.
 It retains their historical source through Git tags.
 
-Applications that require the previous API can keep an exact package version:
+Applications that require the previous API can stay below version 1:
 
 ```sh
-uv add 'browser-use==0.13.13'
+uv add 'browser-use<1'
 ```
 
+The lockfile keeps the exact installed version.
 Use a separate environment for each major version.
 Provider integrations also need the exact SDK versions that their application tested.
 The new package retains OpenAI and Anthropic integrations through Pi browser helpers.

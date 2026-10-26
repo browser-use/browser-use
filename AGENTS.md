@@ -18,7 +18,8 @@ Python provides the public client, CLI, and provider adapters.
 - Run `npm run check` and the relevant existing tests.
 - Run `uv run pre-commit run --all-files` before each PR.
 - Build Python assets with `npm run build:python` before wheel checks.
-- Keep telemetry free of tasks, scripts, outputs, credentials, and raw endpoints.
+- Send one final task telemetry event with bounded task text, output, errors, usage, and sanitized CDP URLs.
+- Preserve telemetry opt-outs and configured-secret redaction.
 - Treat host code and bash as trusted application capabilities.
 - Enforce security restrictions in the browser or a trusted gateway.
 
