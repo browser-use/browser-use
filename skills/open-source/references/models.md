@@ -310,5 +310,19 @@ llm = ChatOpenAI(
 
 Use the `/v1` base URL (not `/v1/chat/completions`). Pass catalog model ids as-is (no `openai/` prefix). The default `deepseek-v4-flash` model is text-only — set `use_vision=False` on the agent unless you pick a vision-capable model. List available models with `GET https://api.pzero.studio/v1/models` (no auth required).
 
+### Opper
+```python
+import os
+
+llm = ChatOpenAI(
+    model="claude-sonnet-4-6",
+    base_url="https://api.opper.ai/v3/compat",
+    api_key=os.environ["OPPER_API_KEY"],
+)
+```
+**Env:** `OPPER_API_KEY`, get a key at https://platform.opper.ai
+
+Opper is an EU-hosted AI gateway with 700+ models from 50+ providers behind one OpenAI-compatible API. Use the `/v3/compat` base URL (not `/v3/compat/chat/completions`). Model names such as `claude-sonnet-4-6` or `gpt-5.4-mini` cover every provider that serves the model, and Opper picks one per request. Browse models at https://opper.ai/models.
+
 ### LangChain
 See example at [examples/models/langchain](https://github.com/browser-use/browser-use/tree/main/examples/models/langchain).
