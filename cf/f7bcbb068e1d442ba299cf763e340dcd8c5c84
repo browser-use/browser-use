@@ -1,0 +1,38 @@
+README.md
+  h_e7a2b198222b93 16-18,27,40-42
+browser_use/__init__.py
+  h_e7a2b198222b93 14-15,71-72,198,568-569
+browser_use/cli.py
+  h_e7a2b198222b93 133,228-234,265-268
+docs/api.md
+  h_e7a2b198222b93 6-7
+docs/migration.md
+  h_e7a2b198222b93 33-37,85
+docs/models.md
+  h_e7a2b198222b93 3-6,15,18-33
+docs/python.md
+  h_e7a2b198222b93 26-28,40-42
+src/index.ts
+  h_e7a2b198222b93 25,46
+src/models.ts
+  h_e7a2b198222b93 1-10,13-58,172
+src/server.ts
+  h_e7a2b198222b93 4
+test/provider.test.mjs
+  h_e7a2b198222b93 6-7,328-485
+tests/ci/test_browser_use_cli.py
+  h_e7a2b198222b93 72,74,77
+tests/python/test_client.py
+  h_e7a2b198222b93 42,65-89,249-299
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cff7bcbb068e1d442ba299cf763e340dcd8c5c84",
+  "prompts": {},
+  "humans": {
+    "h_e7a2b198222b93": {
+      "author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
