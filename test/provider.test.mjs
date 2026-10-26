@@ -253,6 +253,33 @@ test('explicit OpenRouter transport metadata uses completions across follow-ups 
   }
 });
 
+test('public gateway aliases preserve their wire IDs without physical model mappings', () => {
+  for (const alias of ['bu-recommended', 'bu-balanced', 'bu-smart']) {
+    for (const prefix of ['', 'browser-use/']) {
+      const { model, priceKnown } = resolveModel({ model: prefix + alias });
+      assert.equal(model.provider, 'browser-use');
+      assert.equal(model.id, alias);
+      assert.equal(model.reasoning, true);
+      assert.deepEqual(model.input, ['text', 'image']);
+      assert.equal(priceKnown, false);
+    }
+  }
+});
+
+test('BU2 requests report the supported alias and old-package option', () => {
+  for (const model of [
+    'BU2',
+    'bu-2',
+    'bu-2-0',
+    'bu-2.0',
+    'bu-2-0-mini-preview',
+    'browser-use/bu-2-0',
+    'openai/BU2',
+  ]) {
+    assert.throws(() => resolveModel({ model }), /BU2.*Pi.*bu-recommended.*browser-use<1/, model);
+  }
+});
+
 test('known models preserve exact catalog metadata', () => {
   const models = builtinModels();
   const expected = models.getModel('openai', 'gpt-5.4');
@@ -326,7 +353,7 @@ test('model prices reject partial and negative rates', () => {
     );
 });
 
-for (const scenario of ['complete', 'unknown-model', 'unauthorized']) {
+for (const scenario of ['complete', 'balanced', 'smart', 'unknown-model', 'unauthorized']) {
   test(`Browser Use gateway sends exact model, auth, tools and usage; scenario=${scenario}`, async () => {
     const previous = process.env.BROWSER_USE_API_KEY;
     process.env.BROWSER_USE_API_KEY = 'fixture-browser-use-key';
@@ -386,7 +413,13 @@ for (const scenario of ['complete', 'unknown-model', 'unauthorized']) {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     let agent;
     const model =
-      scenario === 'unknown-model' ? 'browser-use/vendor/released-today' : DEFAULT_MODEL;
+      scenario === 'unknown-model'
+        ? 'browser-use/vendor/released-today'
+        : scenario === 'balanced'
+          ? 'bu-balanced'
+          : scenario === 'smart'
+            ? 'browser-use/bu-smart'
+            : DEFAULT_MODEL;
     try {
       agent = await BrowserUse.create({
         model,
@@ -402,7 +435,8 @@ for (const scenario of ['complete', 'unknown-model', 'unauthorized']) {
       assert.equal(request.headers.authorization, 'Bearer fixture-browser-use-key');
       assert.equal(request.headers['x-browser-use-client'], 'pi');
       assert.equal(request.headers['x-browser-use-request-type'], undefined);
-      assert.equal(request.body.model, model.slice('browser-use/'.length));
+      assert.equal(request.body.model, model.replace(/^browser-use\//, ''));
+      if (scenario !== 'unknown-model') assert.equal(request.body.reasoning_effort, 'high');
       assert.equal(request.body.stream_options.include_usage, true);
       assert.notEqual(request.body.store, true);
       assert.ok(request.body.tools.some((tool) => tool.function.name === 'finish'));
@@ -450,9 +484,9 @@ test('Browser Use gateway requires its own key and keeps catalog prices unknown'
     assert.deepEqual(await models.getAvailable('browser-use'), []);
     assert.ok((await models.getAvailable()).some((model) => model.provider === 'openai'));
     const { model, priceKnown } = resolveModel({ model: DEFAULT_MODEL, models });
-    assert.equal(model.id, 'openai/gpt-6-luna');
+    assert.equal(model.id, 'bu-recommended');
     assert.equal(model.api, 'openai-completions');
-    assert.equal(model.baseUrl, 'https://llm.api.browser-use.com/v1');
+    assert.equal(model.baseUrl, 'https://api.browser-use.com/api/llm/v1');
     assert.equal(model.contextWindow, 250000);
     assert.equal(model.maxTokens, 32000);
     assert.deepEqual(model.input, ['text', 'image']);
@@ -474,7 +508,8 @@ test('Browser Use gateway requires its own key and keeps catalog prices unknown'
     });
     const result = await agent.run('Reject missing authentication.');
     assert.equal(result.status, 'error');
-    assert.match(result.error, /Provider is not configured: browser-use/);
+    assert.match(result.error, /BROWSER_USE_API_KEY/);
+    assert.ok(result.error.includes('https://cloud.browser-use.com/settings?tab=api-keys&new=1'));
     assert.equal(result.providerRetries, 0);
   } finally {
     if (previous === undefined) delete process.env.BROWSER_USE_API_KEY;

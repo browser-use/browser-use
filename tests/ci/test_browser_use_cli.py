@@ -69,6 +69,44 @@ def test_pi_task_help_requires_no_browser_or_runtime():
 	assert '--cdp-url' in result.stdout
 
 
+@pytest.mark.parametrize(
+	'model, gateway',
+	[
+		(None, True),
+		('bu-balanced', True),
+		('bu-smart', True),
+		('browser-use/bu-recommended', True),
+		('browser-use/new-model', True),
+		('openai/gpt-6-luna', False),
+	],
+)
+def test_task_aliases_load_cached_credentials_and_preserve_endpoint_overrides(monkeypatch, model, gateway):
+	from browser_harness import auth
+	from browser_use import BrowserUse
+	from browser_use.cli import _run_task
+
+	monkeypatch.delenv('BROWSER_USE_MODEL', raising=False)
+	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+	monkeypatch.setattr(auth, 'get_browser_use_api_key', lambda: 'cached-fixture-key')
+	captured = {}
+
+	async def create(**options):
+		captured.update(options)
+		raise RuntimeError('stop-before-runtime')
+
+	monkeypatch.setattr(BrowserUse, 'create', create)
+	args = ['Read the title', '--cdp-url', 'http://127.0.0.1:9222', '--base-url', 'http://127.0.0.1:8000/private']
+	if model is not None:
+		args.extend(['--model', model])
+	with pytest.raises(RuntimeError, match='stop-before-runtime'):
+		_run_task(args)
+
+	assert captured['model'] == (model or 'bu-recommended')
+	assert captured.get('apiKey') == ('cached-fixture-key' if gateway else None)
+	assert captured['baseUrl'] == 'http://127.0.0.1:8000/private'
+	assert captured['browser'] == {'cdpUrl': 'http://127.0.0.1:9222'}
+
+
 def test_pi_task_rejects_invalid_steps_before_connecting(monkeypatch):
 	monkeypatch.delenv('BROWSER_USE_MODEL', raising=False)
 	result = _run_browser_use_cli('run', 'Read the page title', '--max-steps', '0')

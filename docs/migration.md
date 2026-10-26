@@ -5,22 +5,51 @@ It replaces the old planner with Pi.
 
 ## Public API
 
-| Previous pattern                | New pattern                                                                |
-| ------------------------------- | -------------------------------------------------------------------------- |
-| `Agent(task=task, llm=llm)`     | `await Agent.create(model="provider/model")`, then `await agent.run(task)` |
-| Python provider wrapper classes | Exact model string and optional provider metadata                          |
-| `BrowserSession` and Watchdogs  | Pi browser session and CDP helpers                                         |
-| `@tools.action`                 | Typed Python `Tool` callback                                               |
-| Old step callback               | Event stream or before/after tool callback                                 |
-| Old history replay              | Transcript, workspace, checkpoints, and explicit follow-up                 |
-| Rust `[core]` extra             | Pi engine                                                                  |
+| Previous pattern                                     | New pattern                                                |
+| ---------------------------------------------------- | ---------------------------------------------------------- |
+| `Agent(task=task)`, then `await agent.run()`         | Same calls, using the Browser Use model default            |
+| `history.final_result()`                             | `result.final_result()` returns completed response text    |
+| `agent.add_new_task(task)`, then `await agent.run()` | Same calls, continuing the Pi transcript                   |
+| `Agent(task=task, llm=llm)`                          | Remove `llm` or pass `model="provider/model"`              |
+| Python provider wrapper classes                      | Exact model string and optional provider metadata          |
+| `BrowserSession` and Watchdogs                       | Pi browser session and CDP helpers                         |
+| `@tools.action`                                      | Typed Python `Tool` callback                               |
+| Old step callback                                    | Event stream or before/after tool callback                 |
+| Old history replay                                   | Transcript, workspace, checkpoints, and explicit follow-up |
+| Rust `[core]` extra                                  | Pi engine                                                  |
 
 Existing lockfiles retain their selected release until users update them.
 The new package does not preserve every old internal import.
+The constructor starts a session lazily when `run()` begins.
+Close the session with `await agent.close()` or use `async with Agent(...)`.
+`await Agent.create(...)` and `run(task)` retain their explicit startup and task interfaces.
+Use `follow_up(task)` to continue the current transcript directly.
+Use `output_model_schema=YourModel` to configure structured output in the constructor.
+
+Pi warns for these obsolete settings and continues the task:
+
+- `calculate_cost`
+- `display_files_in_done_text`
+- `include_attributes`
+- `include_recent_events`
+- `include_tool_call_examples`
+- `max_actions_per_step`
+- `max_clickable_elements_length`
+- `use_vision=True` or `use_vision="auto"`
+
+Pi rejects `use_vision=False` because it cannot enforce that choice.
+Unknown options, model objects, and unsupported controls still raise errors.
+The library never discards privacy or security settings silently.
 
 ## Browser ownership
 
 Omitting the browser creates an owned Cloud browser.
+`Browser(use_cloud=True)` and `Browser.cloud()` select Cloud.
+`Browser(cdp_url=url)` and `Browser.cdp(url)` select an existing browser connection.
+`Browser(use_cloud=False)` and `Browser.chromium()` select local Chromium.
+Local constructors retain `headless`, `executable_path`, and `user_data_dir`.
+Cloud constructors retain `cloud_profile_id`, `cloud_proxy_country_code`, and `cloud_timeout`.
+Pass only unstarted `Browser` objects as agent configuration.
 Explicit Cloud and Chromium choices create owned browsers.
 Explicit Chrome and CDP choices borrow browsers.
 Closing a borrowed connection preserves unrelated tabs and the caller's browser.
@@ -30,7 +59,7 @@ A remote browser does not move bash or JavaScript onto the browser host.
 
 ## Models and cost
 
-Python `Agent` and CLI tasks default to GPT-6 Luna through the Browser Use gateway.
+Python `Agent` and CLI tasks default to `bu-recommended` through the Browser Use gateway.
 Cloud browsers and the gateway use `BROWSER_USE_API_KEY`.
 Explicit provider models retain their own authentication.
 `Browser` and `BrowserUse` keep deterministic execution model-free.
@@ -41,6 +70,8 @@ A cost limit requires known prices or provider-reported cost.
 Time, turn, and context limits remain available when pricing is unknown.
 The run API has no cumulative token budget.
 The library never silently substitutes another model.
+The Pi engine rejects BU2 model IDs.
+Applications that require BU2 must retain `browser-use<1`.
 
 ## Controls
 

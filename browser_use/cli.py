@@ -230,7 +230,7 @@ def _run_task(argv: list[str]) -> int:
 	parser.add_argument(
 		'--model',
 		default=os.environ.get('BROWSER_USE_MODEL') or DEFAULT_MODEL,
-		help='Provider/model ID; defaults to GPT-6 Luna through Browser Use',
+		help='Model ID or Browser Use alias; defaults to bu-recommended',
 	)
 	parser.add_argument(
 		'--browser', choices=('cloud', 'chrome', 'chromium'), default=os.environ.get('BROWSER_USE_BROWSER', 'cloud')
@@ -262,7 +262,7 @@ def _run_task(argv: list[str]) -> int:
 		from browser_use import BrowserUse
 
 		options = {'baseUrl': args.base_url} if args.base_url else {}
-		if args.model.startswith('browser-use/'):
+		if args.model in {'bu-recommended', 'bu-balanced', 'bu-smart'} or args.model.startswith('browser-use/'):
 			from browser_harness import auth
 
 			options['apiKey'] = auth.get_browser_use_api_key()

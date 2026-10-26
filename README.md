@@ -13,7 +13,7 @@ uv add browser-use
 Platform wheels contain a private Node runtime and the JavaScript engine.
 Users need no separate Node installation.
 Cloud browsers need `BROWSER_USE_API_KEY`.
-Python `Agent` and CLI tasks select GPT-6 Luna through the Browser Use gateway.
+Python `Agent` and CLI tasks select `bu-recommended` through the Browser Use gateway.
 The gateway uses the same `BROWSER_USE_API_KEY`.
 Explicit provider models use their own credentials.
 
@@ -24,9 +24,11 @@ import asyncio
 from browser_use import Agent
 
 async def main():
-    async with Agent() as agent:
-        result = await agent.run("Find the top story on Hacker News.")
-        print(result.status, result.text)
+    async with Agent(task="Find the top story on Hacker News.") as agent:
+        result = await agent.run()
+        print(result.final_result())
+        follow_up = await agent.follow_up("Summarize that story.")
+        print(follow_up.final_result())
 
 asyncio.run(main())
 ```

@@ -99,7 +99,9 @@ async function discoverChrome(options: ChromeBrowserOptions) {
 async function openCloud(options: CloudBrowserOptions) {
   const apiKey = options.apiKey ?? process.env.BROWSER_USE_API_KEY;
   if (typeof apiKey !== 'string' || !apiKey.trim())
-    throw new Error('Cloud browsers require BROWSER_USE_API_KEY or Browser.cloud({ apiKey }).');
+    throw new Error(
+      'Set BROWSER_USE_API_KEY or Browser.cloud({ apiKey }). Create an API key at https://cloud.browser-use.com/settings?tab=api-keys&new=1.',
+    );
   const timeout = options.timeoutMinutes ?? 30;
   if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 240)
     throw new Error('timeoutMinutes must be an integer from 1 to 240.');

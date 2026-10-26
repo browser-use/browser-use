@@ -122,7 +122,13 @@ test('Cloud reads its key from the environment and reports failed cleanup for re
     await browser.close();
     assert.equal(requests.filter((request) => request.method === 'PATCH').length, 2);
     delete process.env.BROWSER_USE_API_KEY;
-    await assert.rejects(openBrowser(Browser.cloud()), /BROWSER_USE_API_KEY/);
+    await assert.rejects(openBrowser(Browser.cloud()), (error) => {
+      assert.match(error.message, /BROWSER_USE_API_KEY/);
+      assert.ok(
+        error.message.includes('https://cloud.browser-use.com/settings?tab=api-keys&new=1'),
+      );
+      return true;
+    });
   } finally {
     patch.mock.restore();
     if (previous === undefined) delete process.env.BROWSER_USE_API_KEY;

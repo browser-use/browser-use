@@ -10,17 +10,27 @@ import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completio
 import { builtinModels as piModels } from '@earendil-works/pi-ai/providers/all';
 import type { ModelInfo } from './types.js';
 
-export const DEFAULT_MODEL = 'browser-use/openai/gpt-6-luna';
+export const DEFAULT_MODEL = 'bu-recommended';
+const gatewayAliases = new Set([DEFAULT_MODEL, 'bu-balanced', 'bu-smart']);
+
+export function isGatewayAlias(name: string | undefined): boolean {
+  return typeof name === 'string' && gatewayAliases.has(name.replace(/^browser-use\//, ''));
+}
+
+export function gatewayErrorMessage(message: string): string {
+  return message === 'Provider is not configured: browser-use'
+    ? 'Set BROWSER_USE_API_KEY. Create an API key at https://cloud.browser-use.com/settings?tab=api-keys&new=1.'
+    : message;
+}
 
 export function builtinModels(options?: CreateModelsOptions) {
   const models = piModels(options);
-  const luna = models.getModel('openai', 'gpt-6-luna')!;
   const auth = envApiKeyAuth('Browser Use API key', ['BROWSER_USE_API_KEY']);
   models.setProvider(
     createProvider({
       id: 'browser-use',
       name: 'Browser Use',
-      baseUrl: 'https://llm.api.browser-use.com/v1',
+      baseUrl: 'https://api.browser-use.com/api/llm/v1',
       auth: {
         apiKey: {
           ...auth,
@@ -37,19 +47,28 @@ export function builtinModels(options?: CreateModelsOptions) {
           },
         },
       },
-      models: [
-        {
-          ...luna,
-          provider: 'browser-use',
-          id: 'openai/gpt-6-luna',
-          api: 'openai-completions',
-          baseUrl: 'https://llm.api.browser-use.com/v1',
-          contextWindow: Math.min(luna.contextWindow, 250000),
-          maxTokens: Math.min(luna.maxTokens, 32000),
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          compat: { supportsStore: false, supportsStrictMode: true },
+      models: [...gatewayAliases].map((id): Model<'openai-completions'> => ({
+        provider: 'browser-use',
+        id,
+        name: id,
+        api: 'openai-completions',
+        baseUrl: 'https://api.browser-use.com/api/llm/v1',
+        reasoning: true,
+        input: ['text', 'image'],
+        contextWindow: 250000,
+        maxTokens: 32000,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        thinkingLevelMap: {
+          off: 'none',
+          minimal: null,
+          low: 'low',
+          medium: 'medium',
+          high: 'high',
+          xhigh: 'xhigh',
+          max: 'max',
         },
-      ],
+        compat: { supportsStore: false, supportsStrictMode: true },
+      })),
       api: openAICompletionsApi(),
     }),
   );
@@ -62,7 +81,14 @@ export interface ModelOptions {
   modelInfo?: ModelInfo;
 }
 
+export function rejectBu2(name: string | undefined) {
+  if (typeof name === 'string' && /(?:^|\/)bu[-_.]?2(?:$|[-_.])/i.test(name))
+    throw new Error('BU2 does not support Pi. Use bu-recommended or install browser-use<1.');
+}
+
 function splitModel(name: string | undefined): [string, string] {
+  rejectBu2(name);
+  if (isGatewayAlias(name)) return ['browser-use', name!.replace(/^browser-use\//, '')];
   const separator = typeof name === 'string' ? name.indexOf('/') : -1;
   if (typeof name !== 'string' || separator < 1 || separator === name.length - 1)
     throw new Error('model must be provider/model.');

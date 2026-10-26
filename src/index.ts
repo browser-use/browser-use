@@ -22,7 +22,7 @@ import {
 } from './history.js';
 import { EventStream, formatEvent, type SessionEvent, type SessionEventData } from './events.js';
 import { positiveInteger } from './protocol.js';
-import { builtinModels, resolveModel } from './models.js';
+import { builtinModels, gatewayErrorMessage, isGatewayAlias, resolveModel } from './models.js';
 import type { BrowserUseOptions, RunOptions, RunResult } from './types.js';
 export type {
   BrowserUseOptions,
@@ -107,6 +107,9 @@ export class BrowserUse {
     options = {
       ...options,
       researchTools: options.researchTools ?? true,
+      ...(options.reasoning === undefined && isGatewayAlias(options.model)
+        ? { reasoning: 'high' as const }
+        : {}),
       browserSelection: options.browser ? 'explicit' : 'default',
       modelMetadataSource: options.models || options.modelInfo ? 'explicit' : 'unknown',
       browser: options.browser ?? Browser.cloud(),
@@ -533,6 +536,7 @@ export class BrowserUse {
       recorder = undefined;
       const delivered: RunResult<unknown> = {
         ...result,
+        ...('error' in result && result.error ? { error: gatewayErrorMessage(result.error) } : {}),
         pricingKnown: !!this.config.pricingKnown,
         estimatedCostUsd: this.config.pricingKnown ? (result.usage.cost?.total ?? null) : null,
         usage: { ...result.usage, cost: this.config.pricingKnown ? result.usage.cost : null },

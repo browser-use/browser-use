@@ -2,10 +2,12 @@ import asyncio
 import base64
 import json
 import os
+import signal
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from pydantic import BaseModel, field_validator
 
@@ -247,8 +249,8 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 		self.assertIn('manual_execution', manual.read_text())
 
 	async def test_agent_defaults_to_browser_use_gateway_through_create_and_context(self):
-		for context_manager in (False, True):
-			with self.subTest(context_manager=context_manager):
+		for startup in ('create', 'context', 'run'):
+			with self.subTest(startup=startup):
 				self.responses = [('finish', {'result': 'default gateway'})]
 				options = {
 					'browser': {'kind': 'pending'},
@@ -257,11 +259,18 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 					'api_key': 'local-fixture-key',
 					'telemetry': False,
 				}
-				context = Agent(**options) if context_manager else await Agent.create(**options)
-				async with context as agent:
-					result = await agent.run('Use the default gateway.')
+				options['task'] = 'Use the default gateway.'
+				context = await Agent.create(**options) if startup == 'create' else Agent(**options)
+				try:
+					if startup == 'run':
+						result = await context.run()
+					else:
+						async with context as agent:
+							result = await agent.run()
+				finally:
+					await context.close()
 				self.assertEqual(result.output, 'default gateway')
-				self.assertEqual(self.requests[-1]['model'], 'openai/gpt-6-luna')
+				self.assertEqual(self.requests[-1]['model'], 'bu-recommended')
 				self.assertIn('authorization: bearer local-fixture-key', self.headers[-1])
 				self.assertIn('x-browser-use-client: pi', self.headers[-1])
 				self.assertIsNone(result.usage['cost'])
@@ -294,7 +303,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 				await process.wait()
 		self.assertEqual(process.returncode, 0, stderr.decode())
 		self.assertEqual(json.loads(stdout)['output'], 'CLI gateway')
-		self.assertEqual(self.requests[-1]['model'], 'openai/gpt-6-luna')
+		self.assertEqual(self.requests[-1]['model'], 'bu-recommended')
 		self.assertIn('authorization: bearer cli-fixture-key', self.headers[-1])
 
 	async def test_default_research_tools_include_working_bash(self):
@@ -357,6 +366,101 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 		self.assertIsNotNone(clients[0]._process.returncode)
 		self.assertTrue(clients[0]._closed)
 
+	@unittest.skipIf(sys.platform == 'win32', 'Signal-controlled Cloud fixture requires POSIX.')
+	async def test_shutdown_waits_for_accepted_cloud_creation_and_stops_the_browser(self):
+		server = os.environ.get('BROWSER_USE_TEST_BRIDGE_SERVER') or str(
+			Path(__file__).resolve().parents[2] / 'browser_use/runtime/server.mjs'
+		)
+		wrapper = Path(self.directory.name) / 'cloud-lifecycle.mjs'
+		wrapper.write_text(
+			"const send = fixture => process.stdout.write(JSON.stringify({fixture}) + '\\n');\n"
+			"process.on('SIGTERM', () => send('shutdown'));\n"
+			"process.stdin.on('end', () => send('shutdown'));\n"
+			'globalThis.fetch = async (_url, options) => {\n'
+			" if (options.method === 'POST') {\n"
+			"  send('provisioning');\n"
+			"  await new Promise(resolve => process.once('SIGUSR1', resolve));\n"
+			"  return Response.json({id:'fixture-owned', cdpUrl:'ws://127.0.0.1:1'});\n"
+			' }\n'
+			" send('stopped');\n"
+			' return Response.json({});\n'
+			'};\n'
+			f'await import({json.dumps(Path(server).as_uri())});\n'
+		)
+		for shutdown in ('close', 'EOF', 'SIGTERM'):
+			with self.subTest(shutdown=shutdown):
+				process = await asyncio.create_subprocess_exec(
+					os.environ['BROWSER_USE_NODE'],
+					str(wrapper),
+					stdin=asyncio.subprocess.PIPE,
+					stdout=asyncio.subprocess.PIPE,
+					stderr=asyncio.subprocess.PIPE,
+					env={**os.environ, 'DO_NOT_TRACK': '1'},
+				)
+				messages = []
+
+				async def receive_until(predicate):
+					while line := await asyncio.wait_for(process.stdout.readline(), 5):
+						message = json.loads(line)
+						messages.append(message)
+						if predicate(message):
+							return message
+					return None
+
+				try:
+					request = {
+						'id': 1,
+						'method': 'create',
+						'params': {'browser': {'kind': 'cloud', 'apiKey': 'fixture'}, 'telemetry': False},
+					}
+					process.stdin.write((json.dumps(request) + '\n').encode())
+					await process.stdin.drain()
+					await receive_until(lambda message: message.get('fixture') == 'provisioning')
+					if shutdown == 'close':
+						for request in [
+							{'id': 2, 'method': 'close'},
+							{'id': 3, 'method': 'executeJson', 'params': {'expression': '1'}},
+						]:
+							process.stdin.write((json.dumps(request) + '\n').encode())
+						await process.stdin.drain()
+						response = await receive_until(lambda message: message.get('id') == 3)
+						self.assertIn('closing', response['error']['message'])
+						self.assertFalse(any(message.get('id') == 2 for message in messages))
+					elif shutdown == 'EOF':
+						process.stdin.write_eof()
+						await receive_until(lambda message: message.get('fixture') == 'shutdown')
+					else:
+						process.send_signal(signal.SIGTERM)
+						await receive_until(lambda message: message.get('fixture') == 'shutdown')
+					process.send_signal(signal.SIGUSR1)
+					stopped = await receive_until(lambda message: message.get('fixture') == 'stopped')
+					self.assertIsNotNone(stopped, 'Shutdown lost the accepted Cloud browser.')
+					if shutdown == 'close':
+						await receive_until(lambda message: message.get('id') == 2)
+						process.stdin.write_eof()
+					await asyncio.wait_for(process.wait(), 5)
+					self.assertEqual(process.returncode, 0, (await process.stderr.read()).decode())
+				finally:
+					if process.returncode is None:
+						process.kill()
+					await process.wait()
+
+	async def test_ready_callback_can_close_the_bridge_without_waiting_for_itself(self):
+		entered = asyncio.Event()
+
+		async def ready(browser):
+			entered.set()
+			await browser.close()
+
+		options = (
+			{'server_path': os.environ['BROWSER_USE_TEST_BRIDGE_SERVER']}
+			if 'BROWSER_USE_TEST_BRIDGE_SERVER' in os.environ
+			else {}
+		)
+		with self.assertRaises(BrowserUseError):
+			await asyncio.wait_for(self.create(on_browser_ready=ready, **options), 5)
+		self.assertTrue(entered.is_set(), 'The browser-ready callback did not run.')
+
 	async def test_cleanup_retries_then_reports_failure_after_stopping_the_runtime(self):
 		for succeeds in (True, False):
 			with self.subTest(retry_succeeds=succeeds):
@@ -416,9 +520,127 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 			telemetry=False,
 		)
 		async with context as agent:
+			self.assertIs(agent, context)
 			self.assertEqual((await agent.run('Return context.')).output, 'context')
 			process = agent._process
 		self.assertIsNotNone(process.returncode)
+
+	async def test_constructor_task_and_followups_preserve_the_running_session(self):
+		self.responses = [
+			('javascript', {'code': 'var savedNumber = 41'}),
+			('finish', {'result': 'first'}),
+			('javascript', {'code': 'console.log(savedNumber + 1)'}),
+			('finish', {'result': 'second'}),
+			('finish', {'result': 'third'}),
+		]
+		self.agent = Agent(
+			task='Remember the first instruction.',
+			model='openai/gpt-5.5',
+			browser=Browser(cdp_url='http://127.0.0.1:1'),
+			workspace=self.directory.name,
+			base_url=self.base_url,
+			api_key='local-fixture-key',
+			telemetry=False,
+		)
+		self.assertIsNone(self.agent._process)
+		self.assertEqual((await self.agent.run()).final_result(), 'first')
+		process = self.agent._process
+		self.assertEqual((await self.agent.follow_up('Read the saved number.')).final_result(), 'second')
+		self.assertIn('Remember the first instruction.', json.dumps(self.requests[2]))
+		self.assertIn('42', json.dumps(self.requests[3]))
+		self.agent.add_new_task('Continue the same conversation.')
+		with self.assertRaisesRegex(BrowserUseError, 'Unsupported run option'):
+			await self.agent.run(unknown_option=True)
+		self.assertEqual((await self.agent.run()).final_result(), 'third')
+		self.assertIn('Read the saved number.', json.dumps(self.requests[4]))
+		self.assertIs(self.agent._process, process)
+		self.assertTrue(all(request['model'] == 'gpt-5.5' for request in self.requests))
+
+	async def test_constructor_schema_preserves_typed_output_and_final_result_text(self):
+		self.responses = [('finish', {'result': {'quantity': 2}})]
+		self.agent = await Agent.create(
+			task='Return the quantity.',
+			output_model_schema=PositiveQuantity,
+			model='openai/gpt-5.5',
+			browser={'kind': 'pending'},
+			workspace=self.directory.name,
+			base_url=self.base_url,
+			api_key='local-fixture-key',
+			telemetry=False,
+		)
+		result = await self.agent.run()
+		self.assertEqual(result.output, PositiveQuantity(quantity=2))
+		self.assertEqual(json.loads(result.final_result()), {'quantity': 2})
+
+	async def test_missing_task_fails_before_starting_a_runtime(self):
+		self.agent = Agent()
+		with self.assertRaisesRegex(ValueError, 'Provide task text'):
+			await self.agent.run()
+		self.assertIsNone(self.agent._process)
+		await self.agent.close()
+		with self.assertRaisesRegex(BrowserUseError, 'closed'):
+			await self.agent.run('Do not start a closed session.')
+		self.assertIsNone(self.agent._process)
+
+	async def test_close_during_lazy_startup_stops_the_late_subprocess(self):
+		created = asyncio.Event()
+		release = asyncio.Event()
+		processes = []
+		create_subprocess = asyncio.create_subprocess_exec
+
+		async def start(*args, **options):
+			process = await create_subprocess(*args, **options)
+			processes.append(process)
+			created.set()
+			await release.wait()
+			return process
+
+		self.agent = Agent(task='Never start a model request.')
+		with patch('browser_use.asyncio.create_subprocess_exec', start):
+			running = asyncio.create_task(self.agent.run())
+			try:
+				await asyncio.wait_for(created.wait(), 5)
+				await self.agent.close()
+				release.set()
+				with self.assertRaises(BrowserUseError):
+					await asyncio.wait_for(running, 5)
+				self.assertIsNotNone(processes[0].returncode)
+			finally:
+				release.set()
+				running.cancel()
+				await asyncio.gather(running, return_exceptions=True)
+				for process in processes:
+					if process.returncode is None:
+						process.kill()
+					await process.wait()
+
+	async def test_obsolete_planner_options_warn_without_stopping_the_task(self):
+		self.responses = [('finish', {'result': 'done'})]
+		with self.assertWarnsRegex(UserWarning, 'max_actions_per_step'):
+			agent = await self.create(max_actions_per_step=5)
+		self.assertEqual((await agent.run('Complete the task.')).final_result(), 'done')
+
+	async def test_unsupported_vision_and_model_options_fail_before_browser_creation(self):
+		for options, message in [
+			({'use_vision': False}, 'disabling vision'),
+			({'llm': object()}, 'LLM wrapper objects'),
+			({'browser': Browser(use_cloud=True), 'blocked_domains': ['example.com']}, 'Unsupported create option'),
+		]:
+			with self.subTest(options=tuple(options)):
+				with self.assertRaisesRegex((TypeError, BrowserUseError), message):
+					await Agent.create(**options)
+		self.assertEqual(self.requests, [])
+
+	async def test_invalid_browser_selection_cannot_fall_back_to_another_browser(self):
+		for options in (
+			{'cdp_url': ''},
+			{'cdp_url': 'http://127.0.0.1:1', 'use_cloud': True},
+			{'use_cloud': True, 'headless': True},
+			{'use_cloud': False, 'cloud_profile_id': 'profile'},
+		):
+			with self.subTest(options=options):
+				with self.assertRaises((TypeError, ValueError)):
+					Browser(**options)
 
 	async def test_cancel_waits_for_manual_worker_termination(self):
 		agent = await self.create()
@@ -518,9 +740,12 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 
 	async def test_browser_policy_and_secrets_cross_the_python_bridge(self):
 		agent = await self.create(
-			browser={'kind': 'chromium'},
-			allowedDomains=[],
-			sensitiveData={'password': {'value': 'fixture-private-password', 'domains': ['example.com']}},
+			browser=Browser(
+				use_cloud=False,
+				user_data_dir=Path(self.directory.name) / 'profile',
+				allowed_domains=[],
+				sensitive_data={'password': {'value': 'fixture-private-password', 'domains': ['example.com']}},
+			),
 		)
 		with self.assertRaisesRegex(BrowserUseError, 'domain policy'):
 			await agent.execute("await page.goto('https://example.com')")
@@ -537,6 +762,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 		result = await agent.run('Audit', schema=Quote, maxSteps=1)
 		self.assertEqual(result.status, 'max_steps')
 		self.assertIsNone(result.output)
+		self.assertIsNone(result.final_result())
 		self.assertEqual(result.partial['value'], [{'issue': 'Broken search'}])
 		self.assertTrue(Path(result.partial['path']).is_file())
 		self.assertEqual(len(self.requests), 1)
@@ -641,6 +867,21 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 		agent = await self.create(modelId='gpt-6-luna')
 		self.assertEqual((await agent.run('say done')).output, 'done')
 		self.assertEqual(self.requests[0]['model'], 'gpt-6-luna')
+		for key, model_id in [
+			('model_id', 'bu-2-0'),
+			('modelId', 'browser-use/bu-2-0'),
+			('model_id', 'openai/BU2'),
+		]:
+			with self.subTest(key=key, model_id=model_id):
+				with self.assertRaisesRegex(BrowserUseError, 'BU2.*bu-recommended.*browser-use<1'):
+					await Agent.create(
+						model='bu-recommended',
+						browser={'kind': 'cloud', 'apiKey': 'fixture-key', 'timeoutMinutes': 0},
+						workspace=self.directory.name,
+						telemetry=False,
+						**{key: model_id},
+					)
+		self.assertEqual(len(self.requests), 1)
 
 	async def test_model_info_serves_a_model_newer_than_the_catalog(self):
 		self.responses = [('finish', {'result': 'done'})]

@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import json
 import os
+import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +12,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel
 
-DEFAULT_MODEL = 'browser-use/openai/gpt-6-luna'
+DEFAULT_MODEL = 'bu-recommended'
 
 
 class BrowserUseError(RuntimeError):
@@ -58,6 +59,9 @@ class RunResult:
 	text: str
 	metadata: dict[str, Any]
 
+	def final_result(self) -> str | None:
+		return self.text if self.status == 'completed' else None
+
 	@property
 	def partial(self) -> dict[str, Any] | None:
 		return self.metadata.get('partial')
@@ -70,8 +74,23 @@ class RunResult:
 class BrowserUse:
 	_default_model: str | None = None
 
-	def __init__(self, *, model: str | None = None, **options: Any) -> None:
+	def __init__(
+		self,
+		*,
+		task: str | None = None,
+		model: str | None = None,
+		tools: list[Tool] | None = None,
+		node: str | None = None,
+		server_path: str | Path | None = None,
+		**options: Any,
+	) -> None:
+		self._task = task
+		self._follow_up_task = False
+		self._schema = options.pop('output_model_schema', None)
 		self._initial_options = {'model': model, **options}
+		self._node = node
+		self._server_path = server_path
+		self._startup_lock = asyncio.Lock()
 		self._callbacks: dict[str, Callable[..., Any]] = {}
 		self._run_active = False
 		self._result_validator: Callable[..., Any] | None = None
@@ -81,6 +100,10 @@ class BrowserUse:
 		self._next_id = 0
 		self._write_lock = asyncio.Lock()
 		self._tools: dict[str, Tool] = {}
+		for tool in tools or []:
+			if tool.name in self._tools:
+				raise ValueError(f'Duplicate tool: {tool.name}')
+			self._tools[tool.name] = tool
 		self._tool_tasks: dict[str, asyncio.Task[None]] = {}
 		self._queues: set[asyncio.Queue[Any]] = set()
 		self._reader: asyncio.Task[None] | None = None
@@ -100,8 +123,9 @@ class BrowserUse:
 		server_path: str | Path | None = None,
 		**options: Any,
 	) -> Self:
-		agent = await cls.start(tools=tools, node=node, server_path=server_path)
-		return await agent.configure(model=model, **options)
+		agent = cls(model=model, tools=tools, node=node, server_path=server_path, **options)
+		await agent._ensure_ready()
+		return agent
 
 	@classmethod
 	async def start(
@@ -111,11 +135,20 @@ class BrowserUse:
 		node: str | None = None,
 		server_path: str | Path | None = None,
 	) -> Self:
-		self = cls()
-		for tool in tools or []:
-			if tool.name in self._tools:
-				raise ValueError(f'Duplicate tool: {tool.name}')
-			self._tools[tool.name] = tool
+		self = cls(tools=tools, node=node, server_path=server_path)
+		await self._start(node=node, server_path=server_path)
+		return self
+
+	async def _ensure_ready(self) -> None:
+		async with self._startup_lock:
+			if self._closed:
+				raise BrowserUseError('Session is closed.')
+			if self._process is None:
+				await self._start(node=self._node, server_path=self._server_path)
+			if not self._configuring:
+				await self.configure(**self._initial_options)
+
+	async def _start(self, *, node: str | None = None, server_path: str | Path | None = None) -> None:
 		private_node = Path(__file__).with_name('runtime') / ('node.exe' if os.name == 'nt' else 'node')
 		executable = node or os.environ.get('BROWSER_USE_NODE') or str(private_node)
 		if not Path(executable).is_file():
@@ -161,6 +194,15 @@ class BrowserUse:
 			env=env,
 			limit=64_000_001,
 		)
+		if self._closed:
+			if self._process.returncode is None:
+				self._process.terminate()
+				try:
+					await asyncio.wait_for(self._process.wait(), 1)
+				except TimeoutError:
+					self._process.kill()
+			await self._process.wait()
+			raise BrowserUseError('Session closed during startup.')
 		self._reader = asyncio.create_task(self._read())
 		self._stderr_task = asyncio.create_task(self._read_stderr())
 		try:
@@ -170,7 +212,6 @@ class BrowserUse:
 			version = tuple(int(part) for part in ping['node'].split('.')[:2])
 			if version < (22, 19):
 				raise BrowserUseError('Node.js 22.19+ is required.')
-			return self
 		except BaseException:
 			await self.close()
 			raise
@@ -188,7 +229,7 @@ class BrowserUse:
 				}
 				for t in self._tools.values()
 			]
-			options = _options(options)
+			options = _configuration(options)
 			for name in ('beforeToolCall', 'afterToolCall', 'validateResult', 'onBrowserReady'):
 				callback = options.pop(name, None)
 				if callback is not None:
@@ -340,7 +381,7 @@ class BrowserUse:
 	) -> RunResult:
 		if self._run_active:
 			raise BrowserUseError('This session is busy; await its active run.')
-		options = _options(options)
+		options = _configuration(options)
 		validator = options.pop('validateResult', None)
 		if validator is not None and not callable(validator):
 			raise TypeError('validate_result must be callable.')
@@ -388,12 +429,27 @@ class BrowserUse:
 
 	async def run(
 		self,
-		task: str,
+		task: str | None = None,
 		*,
 		schema: type[BaseModel] | dict[str, Any] | None = None,
 		**options: Any,
 	) -> RunResult:
-		return await self._run('run', task, schema, options)
+		text = self._task if task is None else task
+		if not isinstance(text, str) or not text.strip():
+			raise ValueError('Provide task text to Agent(task=...) or run(task).')
+		await self._ensure_ready()
+		method = 'followUp' if task is None and self._follow_up_task else 'run'
+		result = await self._run(method, text, self._schema if schema is None else schema, options)
+		self._follow_up_task = False
+		return result
+
+	def add_new_task(self, new_task: str) -> None:
+		if self._run_active:
+			raise BrowserUseError('This session is busy; use steer() during its active run.')
+		if not isinstance(new_task, str) or not new_task.strip():
+			raise ValueError('Task text must be a non-empty string.')
+		self._task = new_task
+		self._follow_up_task = True
 
 	async def follow_up(
 		self,
@@ -402,7 +458,8 @@ class BrowserUse:
 		schema: type[BaseModel] | dict[str, Any] | None = None,
 		**options: Any,
 	) -> RunResult:
-		return await self._run('followUp', task, schema, options)
+		await self._ensure_ready()
+		return await self._run('followUp', task, self._schema if schema is None else schema, options)
 
 	async def _execute(self, method: str, params: dict[str, Any]) -> Any:
 		try:
@@ -483,7 +540,7 @@ class BrowserUse:
 					try:
 						await asyncio.wait_for(
 							self._call('close', {'keepTabs': keep_tabs} if keep_tabs else None),
-							10,
+							30,
 						)
 						cleanup_error = None
 						break
@@ -520,13 +577,47 @@ class BrowserUse:
 			raise BrowserUseError(f'Browser cleanup failed after retry: {cleanup_error}') from cleanup_error
 
 	async def __aenter__(self) -> Self:
-		if self._process is None:
-			self._entered = await type(self).create(**self._initial_options)
-			return self._entered
+		await self._ensure_ready()
 		return self
 
 	async def __aexit__(self, *_exc: object) -> None:
-		await getattr(self, '_entered', self).close()
+		await self.close()
+
+
+def _configuration(options: dict[str, Any]) -> dict[str, Any]:
+	options = dict(options)
+	browser = options.get('browser')
+	if isinstance(browser, Browser):
+		if browser._process is not None or browser._closed:
+			raise TypeError('Use an unstarted Browser configuration or Browser.cdp() with an existing connection.')
+		browser_options = dict(browser._initial_options)
+		if browser_options.pop('model', None) is not None or browser._tools:
+			raise TypeError('Configure the model and tools on Agent, not its Browser configuration.')
+		options.pop('browser')
+		for name, value in browser_options.items():
+			if name in options:
+				raise TypeError(f'Duplicate browser option: {name}')
+			options[name] = value
+	if options.pop('llm', None) is not None:
+		raise TypeError('LLM wrapper objects are unsupported; use model="provider/model" or omit model for Browser Use.')
+	if 'use_vision' in options:
+		vision = options.pop('use_vision')
+		if vision is not True and vision != 'auto':
+			raise TypeError('Pi does not support disabling vision; remove use_vision only if screenshots are permitted.')
+		warnings.warn('Pi manages vision automatically; use_vision has no effect.', UserWarning, stacklevel=3)
+	for name in (
+		'calculate_cost',
+		'display_files_in_done_text',
+		'include_attributes',
+		'include_recent_events',
+		'include_tool_call_examples',
+		'max_actions_per_step',
+		'max_clickable_elements_length',
+	):
+		if name in options:
+			options.pop(name)
+			warnings.warn(f'Pi does not use {name}; this option has no effect.', UserWarning, stacklevel=3)
+	return _options(options)
 
 
 def _options(options: dict[str, Any]) -> dict[str, Any]:
@@ -570,6 +661,41 @@ class Agent(BrowserUse):
 
 
 class Browser(BrowserUse):
+	def __init__(self, *, use_cloud: bool | None = None, cdp_url: str | None = None, **options: Any) -> None:
+		local_aliases = {
+			'headless': 'headless',
+			'executable_path': 'executablePath',
+			'user_data_dir': 'profileDir',
+			'channel': 'channel',
+		}
+		cloud_aliases = {
+			'cloud_profile_id': 'profileId',
+			'cloud_proxy_country_code': 'proxyCountryCode',
+			'cloud_timeout': 'timeoutMinutes',
+		}
+		local = {alias: options.pop(name) for name, alias in local_aliases.items() if name in options}
+		for name in ('executablePath', 'profileDir'):
+			if isinstance(local.get(name), Path):
+				local[name] = str(local[name])
+		cloud = {alias: options.pop(name) for name, alias in cloud_aliases.items() if name in options}
+		if use_cloud is not None and not isinstance(use_cloud, bool):
+			raise TypeError('use_cloud must be a boolean.')
+		if cdp_url is not None:
+			if use_cloud or local or cloud:
+				raise TypeError('cdp_url cannot accompany Cloud or local browser options.')
+			selection = Browser.cdp(cdp_url)
+		elif use_cloud is False or local:
+			if use_cloud or cloud:
+				raise TypeError('Cloud options cannot accompany local browser options.')
+			selection = Browser.chromium(**local)
+		else:
+			selection = Browser.cloud(**cloud)
+		if use_cloud is not None or cdp_url is not None or local or cloud or 'browser' not in options:
+			if 'browser' in options:
+				raise TypeError('Select a browser with either browser= or Browser constructor options.')
+			options['browser'] = selection
+		super().__init__(**options)
+
 	@staticmethod
 	def cloud(**options: Any) -> dict[str, Any]:
 		aliases = {
@@ -597,4 +723,6 @@ class Browser(BrowserUse):
 
 	@staticmethod
 	def cdp(url: str, **options: Any) -> dict[str, Any]:
+		if not isinstance(url, str) or not url.strip():
+			raise ValueError('CDP URL must be a non-empty string.')
 		return {'cdpUrl': url, **options}

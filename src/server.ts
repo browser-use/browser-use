@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { BrowserUse, exportRecording, type BrowserUseOptions } from './index.js';
 import type { SessionEvent } from './events.js';
-import { builtinModels } from './models.js';
+import { builtinModels, rejectBu2 } from './models.js';
 import { Type, type TSchema } from 'typebox';
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import type { Context } from '@earendil-works/pi-ai';
@@ -61,6 +61,8 @@ function withModelId(context: Context, provider: string, id: string): Context {
 }
 let agent: BrowserUse | undefined;
 let creating = false;
+let creation: Promise<BrowserUse> | undefined;
+let readyController: AbortController | undefined;
 let closing = false;
 let nextTool = 0;
 let queuedBytes = 0;
@@ -190,6 +192,12 @@ const CREATE_KEYS = new Set([
   'controller',
   'initScripts',
 ]);
+async function closeSession(options: { keepTabs?: boolean | 'current' } = {}) {
+  closing = true;
+  readyController?.abort();
+  const current = agent ?? (await creation?.catch(() => undefined));
+  await current?.close(options);
+}
 async function dispatch(method: string, params: Record<string, unknown>): Promise<unknown> {
   if (method === 'ping') return { protocol: 1, node: process.versions.node };
   if (method === 'tool_result' || method === 'callback_result') {
@@ -211,6 +219,13 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
       });
     return null;
   }
+  if (method === 'close') {
+    await closeSession({
+      keepTabs: params.keepTabs === 'current' ? 'current' : params.keepTabs === true,
+    });
+    return null;
+  }
+  if (closing) throw new Error('Session is closing.');
   if (method === 'create') {
     if (agent || creating || closing) throw new Error('One session per bridge process.');
     for (const key of Object.keys(params))
@@ -235,6 +250,7 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
         throw new Error('baseUrl must be a string.');
       if (modelId !== undefined && (typeof modelId !== 'string' || !modelId))
         throw new Error('modelId must be a non-empty string.');
+      if (typeof modelId === 'string') rejectBu2(modelId);
       if (modelInfo !== undefined && (typeof modelInfo !== 'object' || modelInfo === null))
         throw new Error('modelInfo must be an object.');
       const models = builtinModels();
@@ -254,7 +270,7 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
         )
       )
         throw new Error('Invalid Python tool specifications.');
-      agent = await BrowserUse.create({
+      creation = BrowserUse.create({
         ...(options as unknown as BrowserUseOptions),
         models,
         ...(typeof modelId === 'string' &&
@@ -292,8 +308,11 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
           );
         },
       });
+      agent = await creation;
+      if (closing) throw new Error('Session closed during creation.');
       if (Array.isArray(callbacks) && callbacks.includes('onBrowserReady')) {
         const controller = new AbortController();
+        readyController = controller;
         try {
           await bounded(
             () => invokeCallback('onBrowserReady', null, controller.signal),
@@ -310,8 +329,10 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
           throw error;
         } finally {
           controller.abort();
+          readyController = undefined;
         }
       }
+      if (closing) throw new Error('Session closed during creation.');
       const current = agent;
       void (async () => {
         const settled = (event: SessionEvent) =>
@@ -330,7 +351,6 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
       creating = false;
     }
   }
-  if (!agent && method === 'close') return null;
   if (!agent) throw new Error('Create a session first.');
   switch (method) {
     case 'run':
@@ -410,12 +430,6 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
           : {}),
       });
       return null;
-    case 'close':
-      closing = true;
-      await agent.close({
-        keepTabs: params.keepTabs === 'current' ? 'current' : params.keepTabs === true,
-      });
-      return null;
     default:
       throw new Error(`Unknown bridge method: ${method}`);
   }
@@ -456,11 +470,18 @@ process.stdin.on('data', (chunk: string) => {
     if (line.trim()) void handle(line);
   }
 });
-process.stdin.on('end', () => {
-  void agent?.close().finally(() => process.exit(0));
-  if (!agent) process.exit(0);
-});
-process.on('SIGTERM', () => {
-  void agent?.close().finally(() => process.exit(0));
-  if (!agent) process.exit(0);
-});
+function shutdown() {
+  // Keep the process alive until browser provisioning and cleanup finish.
+  const keepAlive = setInterval(() => {}, 1000);
+  void closeSession()
+    .then(
+      () => 0,
+      () => 1,
+    )
+    .then((code) => {
+      clearInterval(keepAlive);
+      process.exit(code);
+    });
+}
+process.stdin.on('end', shutdown);
+process.on('SIGTERM', shutdown);
