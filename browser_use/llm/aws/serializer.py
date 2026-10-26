@@ -180,7 +180,8 @@ class AWSBedrockMessageSerializer:
 		for part in content:
 			if part.type == 'text':
 				content_blocks.append(AWSBedrockMessageSerializer._serialize_content_part_text(part))
-			# Skip refusal content parts - AWS Bedrock doesn't need them
+			elif part.type == 'refusal':
+				content_blocks.append({'text': f'[Refusal] {part.refusal}'})
 
 		return content_blocks
 
