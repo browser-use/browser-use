@@ -10,7 +10,8 @@ from pydantic import BaseModel
 
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.groq.chat import ChatGroq, ToolCallingModels
-from browser_use.llm.messages import UserMessage
+from browser_use.llm.groq.serializer import GroqMessageSerializer
+from browser_use.llm.messages import AssistantMessage, ContentPartRefusalParam, ContentPartTextParam, UserMessage
 
 # A syntactically-valid key so the constructor doesn't bail before we reach the
 # code under test. These unit tests never hit the network.
@@ -21,6 +22,26 @@ TOOL_CALLING_MODEL = ToolCallingModels[0]
 
 class Answer(BaseModel):
 	answer: str
+
+
+@pytest.mark.parametrize(
+	('parts', 'expected'),
+	[
+		([ContentPartRefusalParam(refusal='Cannot help')], '[Refusal] Cannot help'),
+		(
+			[
+				ContentPartTextParam(text='Before'),
+				ContentPartRefusalParam(refusal='Cannot help'),
+				ContentPartTextParam(text='After'),
+			],
+			'Before\n[Refusal] Cannot help\nAfter',
+		),
+	],
+)
+def test_assistant_refusal_content_is_preserved(parts, expected):
+	"""Groq's string content must retain refusal parts in their original order."""
+	serialized = GroqMessageSerializer.serialize(AssistantMessage(content=parts))
+	assert serialized.get('content') == expected
 
 
 def _completion(model: str, *, content: str | None, tool_arguments: str | None) -> ChatCompletion:
