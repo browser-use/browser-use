@@ -46,6 +46,28 @@ def test_assistant_plain_and_empty_content_is_unchanged(content: str | None) -> 
 	assert system is None
 
 
+@pytest.mark.parametrize('with_tool', [False, True])
+@pytest.mark.parametrize('content', [None, [], 'Explanation.', [ContentPartRefusalParam(refusal='Content refusal.')]])
+def test_top_level_refusal_preserves_content_and_tool_calls(
+	content: str | list[ContentPartTextParam | ContentPartRefusalParam] | None, with_tool: bool
+) -> None:
+	tool_calls = [ToolCall(id='tool_1', function=Function(name='lookup', arguments='{}'))] if with_tool else []
+	message = AssistantMessage(content=content, refusal='Top-level refusal.', tool_calls=tool_calls)
+	original = message.model_dump()
+	expected: list[dict[str, Any]] = []
+	if isinstance(content, str):
+		expected.append({'text': content})
+	elif content:
+		expected.append({'text': '[Refusal] Content refusal.'})
+	expected.append({'text': '[Refusal] Top-level refusal.'})
+	if with_tool:
+		expected.append({'toolUse': {'toolUseId': 'tool_1', 'name': 'lookup', 'input': {}}})
+	serialized, system = AWSBedrockMessageSerializer.serialize_messages([message])
+	assert serialized == [{'role': 'assistant', 'content': expected}]
+	assert system is None
+	assert message.model_dump() == original
+
+
 @pytest.mark.parametrize(
 	'url',
 	[
