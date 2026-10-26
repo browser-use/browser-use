@@ -1,0 +1,40 @@
+README.md
+  h_e7a2b198222b93 16,27-31
+browser_use/__init__.py
+  h_e7a2b198222b93 7,15,62-64,77-89,91-93,103-106,126-128,138-151,197-205,232,384,432,437-452,461-462,543,580,584-620,664-698,726-727
+browser_use/cli.py
+  h_e7a2b198222b93 233,265
+docs/migration.md
+  h_e7a2b198222b93 8-19,23-42,47-52,62,73-74
+docs/models.md
+  h_e7a2b198222b93 3,5-17,22,25-35,38,40,43,45-47
+docs/python.md
+  h_e7a2b198222b93 17,20-23,28,30,33,37-45,47,60-61,65-76
+src/browser.ts
+  h_e7a2b198222b93 102-104
+src/index.ts
+  h_e7a2b198222b93 25,110-112,539
+src/models.ts
+  h_e7a2b198222b93 13-24,33,50-68,70-71,84-88,90-91
+src/server.ts
+  h_e7a2b198222b93 4,64-65,195-200,222-228,253,273,311-312,315,332,335,473-487
+test/browser-options.test.mjs
+  h_e7a2b198222b93 125-131
+test/provider.test.mjs
+  h_e7a2b198222b93 256-282,356,416-422,438-439,487,489,511-512
+tests/ci/test_browser_use_cli.py
+  h_e7a2b198222b93 72-109
+tests/python/test_client.py
+  h_e7a2b198222b93 5,10,252-253,262-271,273,306,369-463,523,528-644,743-748,765,870-884
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "325e535a741031498e52ce9ec0a46a8c3bb72b99",
+  "prompts": {},
+  "humans": {
+    "h_e7a2b198222b93": {
+      "author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
