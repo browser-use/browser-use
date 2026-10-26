@@ -1,7 +1,6 @@
 import { appendFile, mkdir, mkdtemp, open, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { performance } from 'node:perf_hooks';
 import { randomUUID } from 'node:crypto';
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
@@ -23,7 +22,7 @@ import {
 } from './history.js';
 import { EventStream, formatEvent, type SessionEvent, type SessionEventData } from './events.js';
 import { positiveInteger } from './protocol.js';
-import { resolveModel } from './models.js';
+import { builtinModels, resolveModel } from './models.js';
 import type { BrowserUseOptions, RunOptions, RunResult } from './types.js';
 export type {
   BrowserUseOptions,
@@ -44,7 +43,7 @@ export type { CellResult, Image } from './protocol.js';
 export { CellError } from './runtime.js';
 export type { AgentTool, AgentEvent, StreamFn } from '@earendil-works/pi-agent-core';
 export { Type, type Static, type TSchema } from 'typebox';
-export { builtinModels } from '@earendil-works/pi-ai/providers/all';
+export { builtinModels, DEFAULT_MODEL } from './models.js';
 export class BrowserUse {
   private readonly telemetry: Telemetry;
   private readonly sessionOperation: TelemetryOperation;

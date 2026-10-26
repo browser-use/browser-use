@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { BrowserUse, exportRecording, type BrowserUseOptions } from './index.js';
 import type { SessionEvent } from './events.js';
-import { builtinModels } from '@earendil-works/pi-ai/providers/all';
+import { builtinModels } from './models.js';
 import { Type, type TSchema } from 'typebox';
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import type { Context } from '@earendil-works/pi-ai';

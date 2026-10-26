@@ -39,6 +39,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 		self.agent = None
 		self.responses = []
 		self.requests = []
+		self.headers = []
 		self.server = await asyncio.start_server(self.handle, '127.0.0.1', 0)
 		self.base_url = f'http://127.0.0.1:{self.server.sockets[0].getsockname()[1]}/v1'
 
@@ -61,6 +62,31 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 			)
 			request = json.loads(await reader.readexactly(length))
 			self.requests.append(request)
+			self.headers.append(headers.lower())
+			if 'messages' in request and 'stream_options' in request:
+				name, args = self.responses.pop(0)[:2]
+				base = {'id': 'gateway_fixture', 'object': 'chat.completion.chunk', 'created': 1, 'model': request['model']}
+				call = {
+					'index': 0,
+					'id': 'gateway_finish',
+					'type': 'function',
+					'function': {'name': name, 'arguments': json.dumps(args)},
+				}
+				chunks = [
+					{
+						**base,
+						'choices': [{'index': 0, 'delta': {'role': 'assistant', 'tool_calls': [call]}, 'finish_reason': None}],
+					},
+					{**base, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]},
+					{**base, 'choices': [], 'usage': {'prompt_tokens': 10, 'completion_tokens': 5, 'total_tokens': 15}},
+				]
+				payload = (''.join(f'data: {json.dumps(chunk)}\n\n' for chunk in chunks) + 'data: [DONE]\n\n').encode()
+				writer.write(
+					f'HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {len(payload)}\r\nConnection: close\r\n\r\n'.encode()
+					+ payload
+				)
+				await writer.drain()
+				return
 			if 'contents' in request:
 				name, args = self.responses.pop(0)[:2]
 				part = {'functionCall': {'name': name, 'args': args}, 'thoughtSignature': '-_-_Pj8='}
@@ -219,6 +245,57 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 		manual = Path(self.directory.name) / '.browser-use/manual.jsonl'
 		await self.agent.execute("console.log('manual')")
 		self.assertIn('manual_execution', manual.read_text())
+
+	async def test_agent_defaults_to_browser_use_gateway_through_create_and_context(self):
+		for context_manager in (False, True):
+			with self.subTest(context_manager=context_manager):
+				self.responses = [('finish', {'result': 'default gateway'})]
+				options = {
+					'browser': {'kind': 'pending'},
+					'workspace': self.directory.name,
+					'base_url': self.base_url,
+					'api_key': 'local-fixture-key',
+					'telemetry': False,
+				}
+				context = Agent(**options) if context_manager else await Agent.create(**options)
+				async with context as agent:
+					result = await agent.run('Use the default gateway.')
+				self.assertEqual(result.output, 'default gateway')
+				self.assertEqual(self.requests[-1]['model'], 'openai/gpt-6-luna')
+				self.assertIn('authorization: bearer local-fixture-key', self.headers[-1])
+				self.assertIn('x-browser-use-client: pi', self.headers[-1])
+				self.assertIsNone(result.usage['cost'])
+				self.assertIsNone(result.metadata['estimatedCostUsd'])
+
+	async def test_task_cli_defaults_to_browser_use_gateway(self):
+		self.responses = [('finish', {'result': 'CLI gateway'})]
+		env = dict(os.environ, BROWSER_USE_API_KEY='cli-fixture-key', DO_NOT_TRACK='1')
+		env.pop('BROWSER_USE_MODEL', None)
+		process = await asyncio.create_subprocess_exec(
+			sys.executable,
+			'-m',
+			'browser_use.cli',
+			'run',
+			'Use the default model.',
+			'--cdp-url',
+			'http://127.0.0.1:1',
+			'--base-url',
+			self.base_url,
+			'--json',
+			env=env,
+			stdout=asyncio.subprocess.PIPE,
+			stderr=asyncio.subprocess.PIPE,
+		)
+		try:
+			stdout, stderr = await asyncio.wait_for(process.communicate(), 15)
+		finally:
+			if process.returncode is None:
+				process.kill()
+				await process.wait()
+		self.assertEqual(process.returncode, 0, stderr.decode())
+		self.assertEqual(json.loads(stdout)['output'], 'CLI gateway')
+		self.assertEqual(self.requests[-1]['model'], 'openai/gpt-6-luna')
+		self.assertIn('authorization: bearer cli-fixture-key', self.headers[-1])
 
 	async def test_default_research_tools_include_working_bash(self):
 		self.responses = [

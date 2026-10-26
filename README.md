@@ -13,7 +13,9 @@ uv add browser-use
 Platform wheels contain a private Node runtime and the JavaScript engine.
 Users need no separate Node installation.
 Cloud browsers need `BROWSER_USE_API_KEY`.
-A model needs its provider credentials.
+Python `Agent` and CLI tasks select GPT-6 Luna through the Browser Use gateway.
+The gateway uses the same `BROWSER_USE_API_KEY`.
+Explicit provider models use their own credentials.
 
 ## Run a task
 
@@ -22,7 +24,7 @@ import asyncio
 from browser_use import Agent
 
 async def main():
-    async with Agent(model="openai/gpt-6-luna") as agent:
+    async with Agent() as agent:
         result = await agent.run("Find the top story on Hacker News.")
         print(result.status, result.text)
 
@@ -35,9 +37,9 @@ The agent and its bash commands execute on the application machine.
 The browser can execute remotely.
 
 ```sh
-uvx browser-use run "Find the top story on Hacker News" --model openai/gpt-6-luna
-uvx browser-use run "Read my dashboard" --model openai/gpt-6-luna --browser chrome
-uvx browser-use run "Inspect example.com" --model openai/gpt-6-luna --browser chromium
+uvx browser-use run "Find the top story on Hacker News"
+uvx browser-use run "Read my dashboard" --browser chrome
+uvx browser-use run "Inspect example.com" --browser chromium
 ```
 
 The agent includes read, write, edit, and bash tools by default.
@@ -53,7 +55,6 @@ Accept Chrome's connection prompt when Chrome requires it.
 from browser_use import Agent, Browser
 
 async with Agent(
-    model="openai/gpt-6-luna",
     browser=Browser.chrome(),
 ) as agent:
     result = await agent.run("Read my dashboard.")

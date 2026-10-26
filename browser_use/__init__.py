@@ -11,6 +11,8 @@ from typing import Any, Self
 
 from pydantic import BaseModel
 
+DEFAULT_MODEL = 'browser-use/openai/gpt-6-luna'
+
 
 class BrowserUseError(RuntimeError):
 	pass
@@ -66,6 +68,8 @@ class RunResult:
 
 
 class BrowserUse:
+	_default_model: str | None = None
+
 	def __init__(self, *, model: str | None = None, **options: Any) -> None:
 		self._initial_options = {'model': model, **options}
 		self._callbacks: dict[str, Callable[..., Any]] = {}
@@ -191,6 +195,7 @@ class BrowserUse:
 					if not callable(callback):
 						raise TypeError(f'{name} must be callable.')
 					self._callbacks[name] = callback
+			model = self._default_model if model is None else model
 			options['callbacks'] = list(self._callbacks)
 			options.setdefault('clientLanguage', 'python')
 			result = await asyncio.wait_for(
@@ -560,7 +565,8 @@ def _options(options: dict[str, Any]) -> dict[str, Any]:
 	return result
 
 
-Agent = BrowserUse
+class Agent(BrowserUse):
+	_default_model = DEFAULT_MODEL
 
 
 class Browser(BrowserUse):

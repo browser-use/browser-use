@@ -3,7 +3,8 @@
 `BrowserUse.create(options)` creates one browser session and JavaScript workspace.
 Python also exports `Agent` and `Browser`.
 A session can omit its model for deterministic browser execution.
-Agent runs require a model.
+Python `Agent` supplies GPT-6 Luna through the Browser Use gateway when callers omit `model`.
+`Browser` and `BrowserUse` keep deterministic execution model-free.
 
 | Option                                | Purpose                                           |
 | ------------------------------------- | ------------------------------------------------- |

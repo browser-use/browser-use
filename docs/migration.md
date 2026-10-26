@@ -30,6 +30,11 @@ A remote browser does not move bash or JavaScript onto the browser host.
 
 ## Models and cost
 
+Python `Agent` and CLI tasks default to GPT-6 Luna through the Browser Use gateway.
+Cloud browsers and the gateway use `BROWSER_USE_API_KEY`.
+Explicit provider models retain their own authentication.
+`Browser` and `BrowserUse` keep deterministic execution model-free.
+
 Known provider transports accept exact new model IDs without catalog registration.
 Unknown prices remain unknown.
 A cost limit requires known prices or provider-reported cost.
@@ -77,6 +82,7 @@ Keep this migration unpublished until these checks finish:
 
 - Execute installed wheels on every supported native platform.
 - Compare the frozen migration against Pi on BU Bench V2.1.
+- Deploy and verify the companion gateway change before enabling the new default in a release.
 - Review the pinned Pi dependencies and update vulnerable nested packages through a tested upstream release.
 - Validate each required remote file workflow against its actual browser provider.
 

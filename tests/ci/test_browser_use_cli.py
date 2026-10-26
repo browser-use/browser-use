@@ -69,16 +69,12 @@ def test_pi_task_help_requires_no_browser_or_runtime():
 	assert '--cdp-url' in result.stdout
 
 
-@pytest.mark.parametrize(
-	'extra, message',
-	[([], 'Set --model or BROWSER_USE_MODEL.'), (['--model', 'test/model', '--max-steps', '0'], '--max-steps must be positive.')],
-)
-def test_pi_task_rejects_invalid_options_before_connecting(monkeypatch, extra, message):
+def test_pi_task_rejects_invalid_steps_before_connecting(monkeypatch):
 	monkeypatch.delenv('BROWSER_USE_MODEL', raising=False)
-	result = _run_browser_use_cli('run', 'Read the page title', *extra)
+	result = _run_browser_use_cli('run', 'Read the page title', '--max-steps', '0')
 
 	assert result.returncode == 2
-	assert message in result.stderr
+	assert '--max-steps must be positive.' in result.stderr
 
 
 @pytest.mark.parametrize(

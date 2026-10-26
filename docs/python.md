@@ -14,7 +14,6 @@ from browser_use import Agent, Browser
 
 async def main():
     async with Agent(
-        model="openai/gpt-6-luna",
         browser=Browser.chrome(),
         workspace="./work",
     ) as agent:
@@ -24,6 +23,9 @@ async def main():
 asyncio.run(main())
 ```
 
+Python `Agent` defaults to GPT-6 Luna through the Browser Use gateway.
+Set `BROWSER_USE_API_KEY` for gateway authentication.
+Pass `model="provider/model"` to select another model.
 Omit `browser` to create a Cloud browser.
 Chrome discovery uses the application machine.
 An application on another machine needs an explicit Chrome endpoint.
@@ -35,8 +37,9 @@ Before-tool and after-tool callbacks operate on full tool calls.
 A JavaScript tool call can execute several browser operations.
 
 Session methods include `run`, `follow_up`, `execute`, `execute_json`, `events`, `pause`, `resume`, `steer`, `cancel`, and `close`.
-A browser-only session can omit `model` and use deterministic execution.
-An agent run requires a model.
+`Browser` and `BrowserUse` remain model-free when callers omit `model`.
+Their deterministic execution does not call a model.
+`Agent` supplies the gateway model when callers omit `model`.
 
 `run` starts a new transcript while preserving browser and workspace state.
 `follow_up` continues the existing transcript.

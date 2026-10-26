@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { rm } from 'node:fs/promises';
 import { streamSimple } from '@earendil-works/pi-ai/api/openai-responses';
-import { BrowserUse } from '../dist/index.js';
-import { resolveModel } from '../dist/models.js';
+import { BrowserUse, builtinModels as sdkModels } from '../dist/index.js';
+import { DEFAULT_MODEL, resolveModel } from '../dist/models.js';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 
 test(
@@ -324,4 +324,162 @@ test('model prices reject partial and negative rates', () => {
       () => resolveModel({ model: 'openai/released-today', modelInfo: { cost } }),
       /modelInfo.cost/,
     );
+});
+
+for (const scenario of ['complete', 'unknown-model', 'unauthorized']) {
+  test(`Browser Use gateway sends exact model, auth, tools and usage; scenario=${scenario}`, async () => {
+    const previous = process.env.BROWSER_USE_API_KEY;
+    process.env.BROWSER_USE_API_KEY = 'fixture-browser-use-key';
+    const requests = [];
+    const server = createServer(async (req, res) => {
+      let raw = '';
+      for await (const chunk of req) raw += chunk;
+      const body = JSON.parse(raw);
+      requests.push({ url: req.url, headers: req.headers, body });
+      if (scenario === 'unauthorized') {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            error: { message: 'Fixture rejects this key.', type: 'authentication_error' },
+          }),
+        );
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const event = (choices, usage) =>
+        `data: ${JSON.stringify({
+          id: 'gateway_fixture',
+          object: 'chat.completion.chunk',
+          created: 1,
+          model: body.model,
+          choices,
+          ...(usage ? { usage } : {}),
+        })}\n\n`;
+      res.end(
+        event([
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'gateway_finish',
+                  type: 'function',
+                  function: { name: 'finish', arguments: '{"result":"gateway verified"}' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ]) +
+          event([{ index: 0, delta: {}, finish_reason: 'tool_calls' }]) +
+          event([], {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: 15,
+            prompt_tokens_details: { cached_tokens: 2 },
+          }) +
+          'data: [DONE]\n\n',
+      );
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    let agent;
+    const model =
+      scenario === 'unknown-model' ? 'browser-use/vendor/released-today' : DEFAULT_MODEL;
+    try {
+      agent = await BrowserUse.create({
+        model,
+        modelInfo: { baseUrl: `http://127.0.0.1:${server.address().port}/v1` },
+        browser: { kind: 'pending' },
+        researchTools: false,
+        telemetry: false,
+      });
+      const result = await agent.run('Check the gateway.');
+      assert.equal(requests.length, 1);
+      const request = requests[0];
+      assert.equal(request.url, '/v1/chat/completions');
+      assert.equal(request.headers.authorization, 'Bearer fixture-browser-use-key');
+      assert.equal(request.headers['x-browser-use-client'], 'pi');
+      assert.equal(request.headers['x-browser-use-request-type'], undefined);
+      assert.equal(request.body.model, model.slice('browser-use/'.length));
+      assert.equal(request.body.stream_options.include_usage, true);
+      assert.notEqual(request.body.store, true);
+      assert.ok(request.body.tools.some((tool) => tool.function.name === 'finish'));
+      if (scenario === 'unauthorized') {
+        assert.equal(result.status, 'error');
+        assert.match(result.error, /401|Fixture rejects this key/);
+        assert.equal(result.providerRetries, 0);
+      } else {
+        assert.equal(result.status, 'completed', result.error);
+        assert.equal(result.output, 'gateway verified');
+        assert.equal(result.usage.input, 8);
+        assert.equal(result.usage.cacheRead, 2);
+        assert.equal(result.usage.output, 5);
+        assert.equal(result.pricingKnown, false);
+        assert.equal(result.estimatedCostUsd, null);
+        assert.equal(result.usage.cost, null);
+        await assert.rejects(
+          agent.run('Apply an unknown cost limit.', { maxCostUsd: 1 }),
+          /requires explicit pricing/,
+        );
+      }
+    } finally {
+      if (previous === undefined) delete process.env.BROWSER_USE_API_KEY;
+      else process.env.BROWSER_USE_API_KEY = previous;
+      await agent?.close();
+      if (agent) await rm(agent.workspace, { recursive: true, force: true });
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+}
+
+test('Browser Use gateway requires its own key and keeps catalog prices unknown', async () => {
+  const previous = process.env.BROWSER_USE_API_KEY;
+  delete process.env.BROWSER_USE_API_KEY;
+  let agent;
+  try {
+    const models = sdkModels({
+      authContext: {
+        env: async (name) => (name === 'OPENAI_API_KEY' ? 'fixture-openai-key' : undefined),
+        fileExists: async () => false,
+      },
+    });
+    assert.equal(await models.checkAuth('browser-use'), undefined);
+    assert.deepEqual(await models.getAvailable('browser-use'), []);
+    assert.ok((await models.getAvailable()).some((model) => model.provider === 'openai'));
+    const { model, priceKnown } = resolveModel({ model: DEFAULT_MODEL, models });
+    assert.equal(model.id, 'openai/gpt-6-luna');
+    assert.equal(model.api, 'openai-completions');
+    assert.equal(model.baseUrl, 'https://llm.api.browser-use.com/v1');
+    assert.equal(model.contextWindow, 250000);
+    assert.equal(model.maxTokens, 32000);
+    assert.deepEqual(model.input, ['text', 'image']);
+    assert.equal(priceKnown, false);
+    assert.equal(
+      resolveModel({
+        model: DEFAULT_MODEL,
+        modelInfo: {
+          cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+        },
+      }).priceKnown,
+      true,
+    );
+    agent = await BrowserUse.create({
+      model: DEFAULT_MODEL,
+      models,
+      browser: { kind: 'pending' },
+      telemetry: false,
+    });
+    const result = await agent.run('Reject missing authentication.');
+    assert.equal(result.status, 'error');
+    assert.match(result.error, /Provider is not configured: browser-use/);
+    assert.equal(result.providerRetries, 0);
+  } finally {
+    if (previous === undefined) delete process.env.BROWSER_USE_API_KEY;
+    else process.env.BROWSER_USE_API_KEY = previous;
+    await agent?.close();
+    if (agent) await rm(agent.workspace, { recursive: true, force: true });
+  }
 });

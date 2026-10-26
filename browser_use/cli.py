@@ -130,7 +130,7 @@ def _patch_browser_harness_cli_text() -> None:
 
 	run.HELP = _as_browser_use_cli_text(run.HELP)
 	if 'browser-use run <task>' not in run.HELP:
-		run.HELP += '\nPi tasks: browser-use run <task> --model provider/model\n'
+		run.HELP += '\nPi tasks: browser-use run <task> [--model provider/model]\n'
 		run.HELP += 'Browser selection: --browser cloud|chrome|chromium or --cdp-url URL.\n'
 		run.HELP += 'Python programs default to Cloud; local modes attach to a running browser.\n'
 	run.USAGE = _as_browser_use_cli_text(run.USAGE)
@@ -225,7 +225,13 @@ def _run_task(argv: list[str]) -> int:
 
 	parser = argparse.ArgumentParser(prog='browser-use run', description='Run a task with the Pi agent.')
 	parser.add_argument('task', help='Task instructions')
-	parser.add_argument('--model', default=os.environ.get('BROWSER_USE_MODEL'), help='Provider/model ID or BROWSER_USE_MODEL')
+	from browser_use import DEFAULT_MODEL
+
+	parser.add_argument(
+		'--model',
+		default=os.environ.get('BROWSER_USE_MODEL') or DEFAULT_MODEL,
+		help='Provider/model ID; defaults to GPT-6 Luna through Browser Use',
+	)
 	parser.add_argument(
 		'--browser', choices=('cloud', 'chrome', 'chromium'), default=os.environ.get('BROWSER_USE_BROWSER', 'cloud')
 	)
@@ -236,8 +242,6 @@ def _run_task(argv: list[str]) -> int:
 	parser.add_argument('--max-steps', type=int, default=100)
 	parser.add_argument('--json', action='store_true', help='Print the full result as JSON')
 	args = parser.parse_args(argv)
-	if not args.model:
-		parser.error('Set --model or BROWSER_USE_MODEL.')
 	if args.max_steps < 1:
 		parser.error('--max-steps must be positive.')
 	cdp_url = args.cdp_url or os.environ.get('BU_CDP_URL') or os.environ.get('BU_CDP_WS')
@@ -258,6 +262,10 @@ def _run_task(argv: list[str]) -> int:
 		from browser_use import BrowserUse
 
 		options = {'baseUrl': args.base_url} if args.base_url else {}
+		if args.model.startswith('browser-use/'):
+			from browser_harness import auth
+
+			options['apiKey'] = auth.get_browser_use_api_key()
 		async with await BrowserUse.create(model=args.model, browser=browser, **options) as agent:
 			return await agent.run(args.task, maxSteps=args.max_steps)
 

@@ -1,6 +1,60 @@
-import type { Api, Model, Models } from '@earendil-works/pi-ai';
-import { builtinModels } from '@earendil-works/pi-ai/providers/all';
+import {
+  createProvider,
+  envApiKeyAuth,
+  type Api,
+  type CreateModelsOptions,
+  type Model,
+  type Models,
+} from '@earendil-works/pi-ai';
+import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
+import { builtinModels as piModels } from '@earendil-works/pi-ai/providers/all';
 import type { ModelInfo } from './types.js';
+
+export const DEFAULT_MODEL = 'browser-use/openai/gpt-6-luna';
+
+export function builtinModels(options?: CreateModelsOptions) {
+  const models = piModels(options);
+  const luna = models.getModel('openai', 'gpt-6-luna')!;
+  const auth = envApiKeyAuth('Browser Use API key', ['BROWSER_USE_API_KEY']);
+  models.setProvider(
+    createProvider({
+      id: 'browser-use',
+      name: 'Browser Use',
+      baseUrl: 'https://llm.api.browser-use.com/v1',
+      auth: {
+        apiKey: {
+          ...auth,
+          resolve: async (options) => {
+            const result = await auth.resolve(options);
+            if (!result) return undefined;
+            return {
+              ...result,
+              auth: {
+                ...result.auth,
+                headers: { ...result.auth.headers, 'x-browser-use-client': 'pi' },
+              },
+            };
+          },
+        },
+      },
+      models: [
+        {
+          ...luna,
+          provider: 'browser-use',
+          id: 'openai/gpt-6-luna',
+          api: 'openai-completions',
+          baseUrl: 'https://llm.api.browser-use.com/v1',
+          contextWindow: Math.min(luna.contextWindow, 250000),
+          maxTokens: Math.min(luna.maxTokens, 32000),
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          compat: { supportsStore: false, supportsStrictMode: true },
+        },
+      ],
+      api: openAICompletionsApi(),
+    }),
+  );
+  return models;
+}
 
 export interface ModelOptions {
   model?: string;
@@ -115,5 +169,5 @@ export function resolveModel(options: ModelOptions): { model: Model<Api>; priceK
   if (info.cost !== undefined) model.cost = info.cost;
   if (info.compat !== undefined) model.compat = { ...model.compat, ...info.compat };
   if (info.thinkingLevelMap !== undefined) model.thinkingLevelMap = info.thinkingLevelMap;
-  return { model, priceKnown: !!known || info.cost !== undefined };
+  return { model, priceKnown: (!!known && provider !== 'browser-use') || info.cost !== undefined };
 }
