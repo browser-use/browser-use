@@ -159,7 +159,7 @@ class BrowserUse:
 			stdout=asyncio.subprocess.PIPE,
 			stderr=asyncio.subprocess.PIPE,
 			env=env,
-			limit=16_000_001,
+			limit=64_000_001,
 		)
 		self._reader = asyncio.create_task(self._read())
 		self._stderr_task = asyncio.create_task(self._read_stderr())

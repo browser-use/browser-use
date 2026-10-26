@@ -73,12 +73,19 @@ const toolCalls = new Map<
 >();
 function send(value: unknown): Promise<void> {
   const line = JSON.stringify(value) + '\n';
-  if (line.length > 16000000 || queuedBytes + line.length > 32000000)
-    return Promise.reject(new Error('Bridge output exceeded 32 MB; consumer must drain events.'));
-  queuedBytes += line.length;
+  const bytes = Buffer.byteLength(line);
+  if (bytes > 64_000_000)
+    return Promise.reject(
+      new Error('Bridge output frame exceeds 64 MB; save large data in a workspace file.'),
+    );
+  if (queuedBytes + bytes > 128_000_000)
+    return Promise.reject(
+      new Error('Bridge pending output exceeds 128 MB; consumer must drain events.'),
+    );
+  queuedBytes += bytes;
   return new Promise((resolve, reject) =>
     process.stdout.write(line, (error) => {
-      queuedBytes -= line.length;
+      queuedBytes -= bytes;
       error ? reject(error) : resolve();
     }),
   );

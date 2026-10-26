@@ -456,6 +456,47 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 		self.assertEqual((await agent.run('Observe one cell.')).output, 'done')
 		self.assertEqual(seen, ['javascript'])
 
+	async def test_large_results_preserve_stdio_return_values_and_terminal_events(self):
+		for name, expression, expected, schema in [
+			('string', '"x".repeat(11_000_000)', 'x' * 11_000_000, None),
+			(
+				'structured UTF-8',
+				'({value:"é".repeat(6_000_000)})',
+				{'value': 'é' * 6_000_000},
+				{'type': 'object', 'properties': {'value': {'type': 'string'}}, 'required': ['value']},
+			),
+		]:
+			with self.subTest(result=name):
+				self.responses = [('finish_from_js', {'expression': 'largeResult'})]
+				agent = await self.create(browser={'kind': 'chromium'}, streamDeltas=False)
+				await agent.execute(f'var largeResult = {expression};')
+				ready = asyncio.Event()
+
+				async def observe():
+					ready.set()
+					async for event in agent.events():
+						if event.get('type') == 'run_end':
+							return event['result']
+					raise AssertionError('Missing terminal event.')
+
+				observer = asyncio.create_task(observe())
+				try:
+					await ready.wait()
+					result, terminal = await asyncio.wait_for(
+						asyncio.gather(agent.run('Deliver the existing result.', schema=schema), observer), 30
+					)
+					self.assertEqual(result.status, 'completed')
+					self.assertTrue(result.output == expected, 'Return output changed.')
+					text = (
+						expected if isinstance(expected, str) else json.dumps(expected, ensure_ascii=False, separators=(',', ':'))
+					)
+					self.assertTrue(result.text == text, 'Return text changed.')
+					self.assertTrue(terminal == result.metadata, 'Terminal event changed.')
+				finally:
+					observer.cancel()
+					await asyncio.gather(observer, return_exceptions=True)
+					await agent.close()
+
 	async def test_timed_out_hook_cancels_its_python_callback(self):
 		entered = asyncio.Event()
 		cancelled = asyncio.Event()

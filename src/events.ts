@@ -34,8 +34,9 @@ export class EventStream implements AsyncIterableIterator<SessionEvent> {
   ) {}
   push(event: SessionEvent) {
     if (this.ended || !this.accept(event)) return;
-    const size = JSON.stringify(event).length;
-    if (this.queue.length >= this.capacity || this.bytes + size > 8_000_000) {
+    const size = Buffer.byteLength(JSON.stringify(event));
+    const maxBytes = event.type === 'run_end' ? 64_000_000 : 8_000_000;
+    if (this.queue.length >= this.capacity || this.bytes + size > maxBytes) {
       this.error = new Error(
         'Event consumer fell behind. Read the persisted run log; resubscribe for live events.',
       );
@@ -64,7 +65,7 @@ export class EventStream implements AsyncIterableIterator<SessionEvent> {
     }
     const event = this.queue.shift();
     if (event) {
-      this.bytes -= JSON.stringify(event).length;
+      this.bytes -= Buffer.byteLength(JSON.stringify(event));
       return { value: event, done: false };
     }
     return { value: undefined, done: true };

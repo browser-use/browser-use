@@ -140,6 +140,62 @@ test('slow event consumers are bounded and fail visibly', async () => {
   assert.equal(disposed, true);
 });
 
+test('event queues count UTF-8 bytes before accepting ordinary events', async () => {
+  const stream = new EventStream(() => {});
+  stream.push({
+    sequence: 1,
+    timestamp: 1,
+    runId: 'test',
+    type: 'warning',
+    message: 'é'.repeat(4_000_000),
+  });
+  await assert.rejects(stream.next(), /fell behind/);
+});
+
+for (const [name, expression, schema, expected] of [
+  ['string', '"x".repeat(11_000_000)', Type.String(), 'x'.repeat(11_000_000)],
+  [
+    'structured UTF-8',
+    '({value:"é".repeat(6_000_000)})',
+    Type.Object({ value: Type.String() }),
+    { value: 'é'.repeat(6_000_000) },
+  ],
+]) {
+  test(
+    `large ${name} results preserve return values and terminal events`,
+    { timeout: 30000 },
+    async () => {
+      const f = await fixture([call('finish_from_js', { expression: 'largeResult' })], {
+        telemetry: false,
+      });
+      try {
+        await f.agent.execute(`var largeResult = ${expression};`);
+        const observed = (async () => {
+          for await (const event of f.agent.events())
+            if (event.type === 'run_end') return event.result;
+          throw new Error('Missing terminal event.');
+        })();
+        const [result, terminal] = await Promise.all([
+          f.agent.run('Deliver the existing result.', { schema }),
+          observed,
+        ]);
+        assert.equal(result.status, 'completed', result.error);
+        assert.ok(
+          JSON.stringify(result.output) === JSON.stringify(expected),
+          'Return output changed.',
+        );
+        assert.equal(
+          result.text,
+          typeof expected === 'string' ? expected : JSON.stringify(expected),
+        );
+        assert.deepEqual(terminal, result);
+      } finally {
+        await f.close();
+      }
+    },
+  );
+}
+
 test('pause acknowledges safe boundary; manual browser code then steering resumes the same run', async () => {
   let paused;
   const f = await fixture([
