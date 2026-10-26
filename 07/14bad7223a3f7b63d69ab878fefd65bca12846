@@ -1,0 +1,18 @@
+AGENTS.md
+  h_e7a2b198222b93 21-22
+docs/legacy.md
+  h_e7a2b198222b93 6,9,12
+docs/migration.md
+  h_e7a2b198222b93 41-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0714bad7223a3f7b63d69ab878fefd65bca12846",
+  "prompts": {},
+  "humans": {
+    "h_e7a2b198222b93": {
+      "author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
