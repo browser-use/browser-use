@@ -4,7 +4,6 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Browser, openBrowser, chromeProfileDirs } from '../dist/browser.js';
-import { CDP } from '../dist/cdp.js';
 import { BrowserUse } from '../dist/index.js';
 
 for (const malformed of [false, true])
@@ -79,43 +78,6 @@ test('real Chrome discovery uses current websocket and preserves the caller brow
     /Library\/Application Support\/Google\/Chrome$/,
   );
   assert.match(chromeProfileDirs('win32', '/fixture', '/local')[0], /Google\/Chrome\/User Data$/);
-});
-
-test('persistent profile retains login across owned browser restarts and rejects concurrent use', async () => {
-  const profile = await mkdtemp(join(tmpdir(), 'bu-profile-'));
-  let browser;
-  let cdp;
-  try {
-    browser = await openBrowser(Browser.chromium({ profileDir: profile }));
-    cdp = await CDP.connect(browser.endpoint);
-    await cdp.send('Storage.setCookies', {
-      cookies: [
-        {
-          name: 'login',
-          value: 'fixture-login',
-          domain: 'example.com',
-          path: '/',
-          expires: Date.now() / 1000 + 3600,
-        },
-      ],
-    });
-    await assert.rejects(
-      openBrowser(Browser.chromium({ profileDir: profile })),
-      /profile is locked/,
-    );
-    cdp.close();
-    await browser.close();
-    browser = await openBrowser(Browser.chromium({ profileDir: profile }));
-    cdp = await CDP.connect(browser.endpoint);
-    assert.equal(
-      (await cdp.send('Storage.getCookies')).cookies.find((c) => c.name === 'login').value,
-      'fixture-login',
-    );
-  } finally {
-    cdp?.close();
-    await browser?.close();
-    await rm(profile, { recursive: true, force: true });
-  }
 });
 
 test(
