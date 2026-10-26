@@ -210,7 +210,7 @@ export class BrowserUse {
       });
       failure
         .start('browser_session')
-        .finish({ status: 'error', stage: 'provision', errorClass: 'provisioning' });
+        .finish({ status: 'error', stage: 'provision', errorClass: 'provisioning', error });
       await failure.flush();
       throw error;
     }
@@ -257,6 +257,13 @@ export class BrowserUse {
       try {
         await bounded(() => options.onBrowserReady!(instance), options.hookTimeoutMs ?? 30000);
       } catch (error) {
+        instance.sessionOperation.finish({
+          status: 'error',
+          stage: 'configure',
+          errorClass: 'configuration',
+          error,
+          cdpUrl: runtime.endpoint,
+        });
         await instance.close().catch(() => {});
         throw error;
       }
@@ -321,8 +328,10 @@ export class BrowserUse {
     this.active = true;
     if (!followUp) this.messages = [];
     this.runId = randomUUID();
+    this.sessionOperation.discard();
     this.operation = this.telemetry.start('agent_run', {
       operationId: this.runId,
+      task,
       parentOperationId: this.sessionOperation.operationId,
       run: {
         maxSteps: options.maxSteps ?? 40,
@@ -562,6 +571,7 @@ export class BrowserUse {
       if (journalFailure && !delivered.warnings?.includes(journalFailure))
         delivered.warnings = [...(delivered.warnings ?? []), journalFailure];
       this.operation?.finish({
+        cdpUrl: this.runtime.endpoint,
         result: delivered,
         ...(result.summaryUsage ? { summaryUsage: result.summaryUsage as Usage } : {}),
         ...(result.modelDurationMs !== undefined
@@ -573,6 +583,14 @@ export class BrowserUse {
         usageCompleteness: 'partial',
       });
       return redact(delivered, this.config.redact ?? []);
+    } catch (error) {
+      this.operation?.finish({
+        status: signal.aborted ? 'cancelled' : 'error',
+        errorClass: signal.aborted ? 'cancelled' : 'unknown',
+        error,
+        cdpUrl: this.runtime.endpoint,
+      });
+      throw error;
     } finally {
       this.runtime.onAction = undefined;
       await this.manualCell?.catch(() => {});
@@ -584,7 +602,6 @@ export class BrowserUse {
       this.active = false;
       this.controller = undefined;
       this.control = undefined;
-      this.operation?.finish({ status: 'error', errorClass: 'unknown' });
       this.operation = undefined;
     }
   }
@@ -779,11 +796,17 @@ export class BrowserUse {
       } catch (error) {
         failure = failure ? new AggregateError([failure, error], 'Browser cleanup failed.') : error;
       } finally {
-        this.sessionOperation.finish(
-          failure
-            ? { status: 'error', stage: 'cleanup', errorClass: 'cleanup' }
-            : { status: 'closed' },
-        );
+        this.sessionOperation.finish({
+          cdpUrl: this.runtime.endpoint,
+          ...(failure
+            ? ({
+                status: 'error',
+                stage: 'cleanup',
+                errorClass: 'cleanup',
+                error: failure,
+              } as const)
+            : ({ status: 'closed' } as const)),
+        });
         await this.telemetry.flush();
         for (const stream of [...this.streams]) stream.end();
       }

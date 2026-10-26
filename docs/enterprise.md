@@ -75,9 +75,10 @@ Use `log="pretty"` for readable progress.
 Use `log="json"` for structured progress.
 Use event streams for application observers.
 
-Keep task evidence in application-controlled storage.
-Product telemetry uses a separate bounded field contract.
-Keep raw exception text outside that product contract.
+Product telemetry includes bounded task text, final responses, errors, warnings, and CDP URLs after credential removal.
+Configured-secret redaction applies before upload.
+Disable telemetry when your organization restricts content uploads.
+Keep full task evidence in application-controlled storage.
 
 Recording captures sampled screenshots.
 It does not prove every browser effect.

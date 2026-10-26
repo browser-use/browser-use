@@ -19,7 +19,7 @@ Python `Agent` supplies GPT-6 Luna through the Browser Use gateway when callers 
 | `sensitiveData`, `redact`             | Named secrets and configured text redaction       |
 | `recording`                           | Optional sampled browser frames                   |
 | `log`                                 | Readable or JSON progress                         |
-| `telemetry`                           | Optional aggregate product measurements           |
+| `telemetry`                           | Final task content and usage measurements           |
 
 | Method                     | Behavior                                               |
 | -------------------------- | ------------------------------------------------------ |

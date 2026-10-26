@@ -1,8 +1,18 @@
 # Telemetry
 
-The Pi emitter sends bounded usage metadata to EU PostHog ingestion when telemetry remains enabled.
+The Pi emitter sends one final event when each task ends.
 
-Its strict field list excludes tasks, page content, outputs, secrets, raw errors, endpoint URLs, and configuration dumps.
+The event includes task text, final response, errors, warnings, usage, and configuration.
+
+It also includes a CDP URL after credential removal.
+
+The emitter sends this content to EU PostHog ingestion whenever telemetry remains enabled.
+
+The emitter applies configured-secret redaction before content upload.
+
+Disable telemetry when your organization restricts content uploads.
+
+The emitter collects only the fields that this document lists.
 
 Model identifiers can describe private deployments. The identifier check does not establish that an identifier is public.
 
@@ -30,7 +40,19 @@ Optional SDK telemetry does not control required Cloud service records.
 
 ## Ownership and identity
 
-The event names are bu_operation_started and bu_operation_finished.
+The event name is bu_operation_finished.
+
+The emitter sends no start event.
+
+Each task produces one final agent_run event, including failed and cancelled tasks.
+
+Task sessions suppress their separate browser_session event.
+
+Browser-only sessions produce one final browser_session event when they close.
+
+Browser provisioning failures produce a final browser_session event when reporter creation remains possible.
+
+Failures before reporter creation produce no event.
 
 The operation_kind values are agent_run, browser_session, and cli_command.
 
@@ -66,9 +88,9 @@ Every event contains these properties:
 | Model capabilities    | model_reasoning, model_image_input, model_metadata_source                                           |
 | Pricing               | pricing_known, pricing_unit, pricing_input, pricing_output, pricing_cache_read, pricing_cache_write |
 
-Schema and measurement versions currently equal 1. Sampling probability currently equals 1.
+Schema version currently equals 2. Measurement version currently equals 1. Sampling probability currently equals 1.
 
-The reporter disables person profiles and GeoIP enrichment. It sends no IP property.
+The reporter disables person profiles and GeoIP enrichment. It sends no caller-IP property.
 
 IP means Internet Protocol, the address system for network connections. The ingestion service still receives each network request.
 
@@ -114,7 +136,21 @@ The classifier checks the supplied endpoint locally. It performs no DNS lookup.
 
 DNS translates hostnames into network addresses.
 
-The payload excludes endpoint URLs, hostnames, addresses, paths, credentials, and authentication headers.
+The `cdp_url` field includes the actual browser endpoint's protocol, hostname, port, path, and ordinary query parameters.
+
+The emitter removes URL usernames, passwords, fragments, and authentication query parameters.
+
+Authentication names include auth, token, password, secret, signature, credential, API key, and signed-provider query names.
+
+The emitter also removes these credential values from task text, outputs, errors, and warnings.
+
+The emitter preserves endpoint paths. Deployments with credentials inside paths must configure those values through redact.
+
+Configured secret values, browser API keys, browser header values, and private TLS credentials also trigger content redaction.
+
+TLS means Transport Layer Security, the encrypted connection protocol.
+
+Redaction covers configured values. It does not detect every possible credential inside arbitrary task content.
 
 Endpoint category does not establish browser location. A loopback tunnel can reach a remote browser.
 
@@ -134,9 +170,9 @@ Unknown prices produce null estimated costs. They never produce fake zero-dollar
 
 Cost fields describe model estimates. They exclude remote browser charges and external service charges.
 
-## Start properties
+## Configuration properties
 
-Start events add these properties:
+Final events include these configuration properties:
 
 | Group                 | Exact fields                                                 |
 | --------------------- | ------------------------------------------------------------ |
@@ -183,7 +219,7 @@ Error class accepts configuration, authentication, provisioning, connection, pol
 
 Error stage accepts startup, configure, provision, connect, model, tool, persist, cleanup, or null.
 
-The reporter excludes exception messages and stack traces.
+The `error` field includes a bounded, redacted error message. The emitter reads Error.message instead of Error.stack.
 
 Operation duration uses a monotonic clock. Result-provided run duration follows the result's measurement method.
 
@@ -194,6 +230,42 @@ Model and tool intervals can overlap. Their sums do not equal wall time.
 Current assistant-message timing can omit model connection setup, summary requests, and interrupted responses.
 
 Context token measurements use estimates. They do not establish provider billing tokens.
+
+### Task content
+
+Final events include these content fields:
+
+| Field    | Content                                                    | Maximum UTF-8 bytes |
+| -------- | ---------------------------------------------------------- | ------------------- |
+| task     | Original task text after redaction                         | 32768               |
+| output   | Final response or unfinished response text after redaction | 65536               |
+| error    | Error message after redaction                              | 8192                |
+| warnings | Warning messages after redaction, joined with newlines     | 8192                |
+| cdp_url  | Browser endpoint after credential removal and redaction    | 4096                |
+
+UTF-8 describes the byte encoding for text.
+
+JSON stores structured data as text.
+
+The emitter masks configured secrets in plain text and JSON-escaped response text.
+
+The `output_format` field uses json for structured completed results and text for other responses.
+
+The output field reuses the agent's existing response text. The emitter does not serialize the result object again.
+
+Truncation can leave structured output incomplete. Check content_truncated.output before JSON parsing.
+
+The `content_original_bytes` field reports each source field's byte count before redaction and truncation.
+
+The cdp_url source count follows credential removal.
+
+The `content_truncated` field reports whether the byte limit omitted content from each field.
+
+Missing content uses null values and false truncation flags. Missing content does not establish complete capture.
+
+The `warning_count` field reports the original warning count when the result supplies warnings.
+
+The emitter bounds content while reading source strings. It does not copy full oversized responses into telemetry.
 
 ### Usage objects
 
@@ -241,23 +313,29 @@ Raw CDP and arbitrary JavaScript can bypass semantic counters. Missing observati
 
 ## Delivery and analysis limits
 
-Each operation reserves bounded capacity for its start and finish. The reporter permits at most 32 pending or reserved sends.
+Each operation reserves capacity for one final event. The reporter permits at most 32 pending or reserved sends.
 
-When capacity fills, it omits another operation's pair. Network failures can still lose either event.
+When capacity fills, it omits another operation's event. Network failures can also lose final events.
 
 Each request uses a one-second timeout without retries. A manual flush waits at most 1.1 seconds.
 
 Transport failures do not change operation results. Repeated finish calls send no duplicate terminal event.
 
-Deduplicate received events by event_id. Correlate phases through operation_id.
+Deduplicate received events by event_id. Correlate operations through operation_id and parent_operation_id.
 
-Missing finishes mean unknown outcomes. They do not prove crashes or task failures.
+Browser cleanup after a task's final event can produce later local errors.
+
+Process crashes and SIGKILL can prevent final delivery.
+
+SIGKILL is an operating-system command that stops a process immediately.
+
+Final-only telemetry cannot count these missing operations or determine their outcomes.
 
 Received telemetry-enabled operations define all denominators. They do not represent every installation, user, or run.
 
-Count configured share among eligible starts with known configuration. Count used share among finishes with complete relevant coverage.
+Count configured share among final events with known configuration. Count used share among final events with complete relevant coverage.
 
-Show missing outcomes, unknown configuration, and partial coverage beside every usage rate.
+Show unknown configuration and partial coverage beside every usage rate. Final-only delivery cannot measure the missing-outcome rate.
 
 Browser Use suppresses the legacy Harness emitter for direct CLI programs and direct MCP sessions.
 

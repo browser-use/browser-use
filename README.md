@@ -89,8 +89,9 @@ OpenAI and Anthropic adapters execute deterministic browser operations without a
 ## History and telemetry
 
 Local history and recordings preserve task evidence.
-Product telemetry records bounded usage, feature counters, timings, and classified errors.
-It excludes raw task text, credentials, and full CDP URLs.
+Product telemetry sends one final event with usage, feature counters, timings, and configuration.
+It includes bounded task text, final responses, errors, warnings, and CDP URLs after credential removal.
+Configured-secret redaction applies before upload.
 
 Disable product telemetry with `ANONYMIZED_TELEMETRY=false`, `DO_NOT_TRACK=1`, or `telemetry=False`.
 The migration also preserves Browser Harness disable settings.
