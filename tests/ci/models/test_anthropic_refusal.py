@@ -17,7 +17,11 @@ def test_assistant_refusal_preserves_order_and_cache(parts, cache, with_tool):
 		for index, part in enumerate(parts)
 	]
 	expected = [f'[Refusal] Declined {index}.' if part == 'refusal' else f'Text {index}.' for index, part in enumerate(parts)]
-	tool_calls = [ToolCall(id='tool_1', function=Function(name='lookup', arguments='{}'))] if with_tool else []
+	tool_calls = (
+		[ToolCall(id='tool_1', function=Function(name='lookup', arguments='{"query": "refusal context", "limit": 2}'))]
+		if with_tool
+		else []
+	)
 	message = AssistantMessage(content=content, cache=cache, tool_calls=tool_calls)
 	original = message.model_dump()
 	serialized, _ = AnthropicMessageSerializer.serialize_messages([message])
@@ -37,6 +41,8 @@ def test_assistant_refusal_preserves_order_and_cache(parts, cache, with_tool):
 			assert isinstance(last, dict)
 			assert last['type'] == 'tool_use'
 			assert last['id'] == 'tool_1'
+			assert last['name'] == 'lookup'
+			assert last['input'] == {'query': 'refusal context', 'limit': 2}
 	assert message.model_dump() == original
 
 
@@ -46,7 +52,11 @@ def test_assistant_refusal_preserves_order_and_cache(parts, cache, with_tool):
 def test_top_level_refusal_preserves_content_and_cache(
 	content: str | list[ContentPartTextParam | ContentPartRefusalParam] | None, cache: bool, with_tool: bool
 ) -> None:
-	tool_calls = [ToolCall(id='tool_1', function=Function(name='lookup', arguments='{}'))] if with_tool else []
+	tool_calls = (
+		[ToolCall(id='tool_1', function=Function(name='lookup', arguments='{"query": "refusal context", "limit": 2}'))]
+		if with_tool
+		else []
+	)
 	message = AssistantMessage(content=content, refusal='Top-level refusal.', cache=cache, tool_calls=tool_calls)
 	original = message.model_dump()
 	serialized, system = AnthropicMessageSerializer.serialize_messages([message])
@@ -72,5 +82,7 @@ def test_top_level_refusal_preserves_content_and_cache(
 			assert isinstance(last, dict)
 			assert last['type'] == 'tool_use'
 			assert last['id'] == 'tool_1'
+			assert last['name'] == 'lookup'
+			assert last['input'] == {'query': 'refusal context', 'limit': 2}
 	assert system is None
 	assert message.model_dump() == original
