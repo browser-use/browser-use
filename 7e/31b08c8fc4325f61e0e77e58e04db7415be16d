@@ -1,0 +1,16 @@
+src/telemetry.ts
+  h_e7a2b198222b93 276,428-430
+test/telemetry.test.mjs
+  h_e7a2b198222b93 246,279-293,295,339-340,369-378,392,396-397
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7e31b08c8fc4325f61e0e77e58e04db7415be16d",
+  "prompts": {},
+  "humans": {
+    "h_e7a2b198222b93": {
+      "author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
