@@ -352,12 +352,21 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 	logger.debug(f'Old config format detected at {config_path}, creating fresh config')
 	new_config = create_default_config()
 
+	# Write to a sibling temp file and swap it in, so a failed write never leaves a truncated config.json
+	tmp_path = config_path.with_name(f'{config_path.name}.{uuid4().hex}.tmp')
 	try:
-		with open(config_path, 'w') as f:
+		with open(tmp_path, 'w') as f:
 			json.dump(new_config.model_dump(), f, indent=2)
+			f.flush()
+			os.fsync(f.fileno())
+		os.replace(tmp_path, config_path)
 		logger.debug(f'Created fresh config.json at {config_path}')
 	except Exception as write_error:
 		logger.error(f'Failed to write fresh config: {write_error}')
+		try:
+			tmp_path.unlink(missing_ok=True)
+		except OSError:
+			pass
 	return new_config
 
 

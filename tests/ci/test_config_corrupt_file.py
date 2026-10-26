@@ -42,3 +42,20 @@ def test_unparseable_config_fails_closed_and_is_left_unchanged(tmp_path):
 		load_and_migrate_config(config_path)
 
 	assert config_path.read_text() == corrupt
+
+
+def test_failed_migration_write_leaves_old_config_intact(tmp_path, monkeypatch):
+	config_path = tmp_path / 'config.json'
+	old_format = json.dumps({'browser_profile': {'headless': True}})
+	config_path.write_text(old_format)
+
+	def failing_dump(*args, **kwargs):
+		raise OSError('disk full')
+
+	monkeypatch.setattr('browser_use.config.json.dump', failing_dump)
+
+	config = load_and_migrate_config(config_path)
+
+	assert len(config.browser_profile) == 1
+	assert config_path.read_text() == old_format
+	assert [p.name for p in tmp_path.iterdir()] == ['config.json']
