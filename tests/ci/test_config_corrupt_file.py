@@ -26,9 +26,9 @@ def test_valid_config_keeps_browser_restrictions(tmp_path):
 
 	config = load_and_migrate_config(config_path)
 
-	loaded = next(iter(config.browser_profile.values()))
-	assert loaded.allowed_domains == ['example.com']
-	assert loaded.prohibited_domains == ['127.0.0.1']
+	loaded = next(iter(config.browser_profile.values())).model_dump()
+	assert loaded['allowed_domains'] == ['example.com']
+	assert loaded['prohibited_domains'] == ['127.0.0.1']
 
 
 def test_unparseable_config_fails_closed_and_is_left_unchanged(tmp_path):

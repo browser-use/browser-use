@@ -339,18 +339,6 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 			if data.get('browser_profile') and all(isinstance(v, dict) and 'id' in v for v in data['browser_profile'].values()):
 				# Already in new format
 				return DBStyleConfigJSON(**data)
-
-		# Old format detected - delete it and create fresh config
-		logger.debug(f'Old config format detected at {config_path}, creating fresh config')
-		new_config = create_default_config()
-
-		# Overwrite with new config
-		with open(config_path, 'w') as f:
-			json.dump(new_config.model_dump(), f, indent=2)
-
-		logger.debug(f'Created fresh config.json at {config_path}')
-		return new_config
-
 	except Exception as e:
 		# The file exists but cannot be read or parsed. Replacing it with defaults would silently drop
 		# the operator's browser restrictions (allowed_domains, prohibited_domains, block_ip_addresses)
@@ -359,6 +347,18 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 			f'Failed to load browser-use config from {config_path}: {e}. '
 			'Fix or remove the file; it was left unchanged so its settings are not lost.'
 		) from e
+
+	# Old format detected - replace it with a fresh config
+	logger.debug(f'Old config format detected at {config_path}, creating fresh config')
+	new_config = create_default_config()
+
+	try:
+		with open(config_path, 'w') as f:
+			json.dump(new_config.model_dump(), f, indent=2)
+		logger.debug(f'Created fresh config.json at {config_path}')
+	except Exception as write_error:
+		logger.error(f'Failed to write fresh config: {write_error}')
+	return new_config
 
 
 class Config:
