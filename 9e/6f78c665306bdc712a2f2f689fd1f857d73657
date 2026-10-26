@@ -1,0 +1,22 @@
+browser_use/__init__.py
+  h_e7a2b198222b93 162
+src/events.ts
+  h_e7a2b198222b93 37-39,68
+src/server.ts
+  h_e7a2b198222b93 76-85,88
+test/sessions.test.mjs
+  h_e7a2b198222b93 143-198
+tests/python/test_client.py
+  h_e7a2b198222b93 459-499
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9e6f78c665306bdc712a2f2f689fd1f857d73657",
+  "prompts": {},
+  "humans": {
+    "h_e7a2b198222b93": {
+      "author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
