@@ -95,3 +95,43 @@ def test_optimizer_treats_property_names_as_data_not_schema_keywords():
 		field_schema = schema['properties'][field_name]
 		assert '$ref' not in field_schema
 		assert field_schema['properties']['summary']['type'] == 'string'
+
+
+def test_optimizer_keeps_instance_values_unchanged():
+	"""default, const, enum and examples hold data; keys inside them are not schema keywords."""
+
+	class Search(BaseModel):
+		filters: dict[str, str] = Field(default={'title': 'Engineer', 'type': 'object'})
+		columns: list[dict[str, str]] = Field(
+			default=[{'title': 'Name', 'description': ''}],
+			examples=[[{'title': 'Price', 'properties': 'x'}]],
+		)
+
+	schema = SchemaOptimizer.create_optimized_json_schema(Search)
+
+	assert schema['properties']['filters']['default'] == {'title': 'Engineer', 'type': 'object'}
+	assert schema['properties']['columns']['default'] == [{'title': 'Name', 'description': ''}]
+	assert schema['properties']['columns']['examples'] == [[{'title': 'Price', 'properties': 'x'}]]
+
+
+def test_optimizer_strict_passes_treat_property_names_as_names():
+	"""Fields named like schema keywords still get strict-mode treatment and survive removal passes."""
+
+	class Inner(BaseModel):
+		name: str
+		note: str | None = None
+
+	class Form(BaseModel):
+		required: Inner
+		default: Inner
+		min_items: Inner
+
+	schema = SchemaOptimizer.create_optimized_json_schema(Form, remove_min_items=True, remove_defaults=True)
+
+	assert set(schema['properties']) == {'required', 'default', 'min_items'}
+	assert schema['required'] == ['required', 'default', 'min_items']
+	for field_name in ('required', 'default', 'min_items'):
+		field_schema = schema['properties'][field_name]
+		assert field_schema['required'] == ['name', 'note']
+		assert field_schema['additionalProperties'] is False
+		assert 'default' not in field_schema['properties']['note']
