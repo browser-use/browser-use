@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Open-source browser agent + hosted cloud browsers for AI agents, from $0.02/browser-hour"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.13.13"
+version = "0.13.14"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
