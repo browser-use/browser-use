@@ -4058,8 +4058,11 @@ def _load_rust_history(file_path: str | Path) -> AgentHistoryList:
 		if isinstance(item, dict):
 			item['model_output'] = None
 			state = item.get('state')
-			if isinstance(state, dict) and 'interacted_element' not in state:
-				state['interacted_element'] = None
+			# Same legacy normalization as AgentHistoryList.load_from_dict():
+			# the field is a list, so a missing/None value becomes [] instead of
+			# None, which pydantic would reject.
+			if isinstance(state, dict) and state.get('interacted_element') is None:
+				state['interacted_element'] = []
 	return AgentHistoryList.model_validate(data)
 
 
