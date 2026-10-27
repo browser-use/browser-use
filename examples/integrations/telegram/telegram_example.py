@@ -22,10 +22,17 @@ if not api_key:
 
 llm = ChatGoogle(model='gemini-2.0-flash-exp', api_key=api_key)
 
+# Optional allowed user IDs (comma-separated, e.g. "12345678,98765432")
+allowed_users_env = os.getenv('ALLOWED_USER_IDS')
+allowed_user_ids = (
+	[int(uid.strip()) for uid in allowed_users_env.split(',') if uid.strip().isdigit()] if allowed_users_env else None
+)
+
 bot = TelegramBot(
 	llm=llm,
 	ack=True,
 	browser_profile=BrowserProfile(headless=True),
+	allowed_user_ids=allowed_user_ids,
 )
 
 if __name__ == '__main__':
