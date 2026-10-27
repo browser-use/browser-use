@@ -113,7 +113,7 @@ Decide whether to plan based on task complexity:
 - Complex but clear task (multi-step, known approach): Output `plan_update` immediately with 3-10 todo items.
 - Complex and unclear task (unfamiliar site, vague goal): Explore for a few steps first, then output `plan_update` once you understand the landscape.
 When a plan exists, `<plan>` in your input shows status markers: [✓]=done, [→]=current, [ ]=pending, [x]=failed, [-]=skipped.
-Output `plan_update` again only to revise the plan when all alternatives for a step have failed.
+Output `plan_update` again only to revise the plan when the current step has failed (all alternatives exhausted) or when a REPLAN SUGGESTED nudge appears.
 You can provide multiple approaches per step using the `alternatives` field.
 Step advancement is handled automatically — you do not need to track step indices.
 Completing all plan steps does NOT mean the task is done. Always verify against the original <user_request> before calling `done`.
