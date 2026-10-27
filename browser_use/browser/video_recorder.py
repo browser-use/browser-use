@@ -122,20 +122,37 @@ class VideoRecorderService:
 		except Exception as e:
 			logger.warning(f'Could not process and add video frame: {e}')
 
-	def stop_and_save(self) -> None:
+	def stop_and_save(self) -> bool:
 		"""
 		Finalizes the video file by closing the writer.
 
 		This method should be called when the recording session is complete.
+		Returns True only when the writer closed successfully and produced a non-empty file.
 		"""
 		if not self._is_active or not self._writer:
-			return
+			return False
 
+		finalized = False
 		try:
 			self._writer.close()
-			logger.info(f'📹 Video recording saved successfully to: {self.output_path}')
+			finalized = True
 		except Exception as e:
 			logger.error(f'Failed to finalize and save video: {e}')
 		finally:
 			self._is_active = False
 			self._writer = None
+
+		if not finalized:
+			return False
+
+		try:
+			file_is_valid = self.output_path.is_file() and self.output_path.stat().st_size > 0
+		except OSError as e:
+			logger.error(f'Failed to validate finalized video file: {e}')
+			return False
+
+		if file_is_valid:
+			logger.info(f'📹 Video recording saved successfully to: {self.output_path}')
+		else:
+			logger.error(f'Video recorder produced no usable output file: {self.output_path}')
+		return file_is_valid
