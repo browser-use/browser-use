@@ -172,8 +172,11 @@ class ChatBrowserUse(BaseChatModel):
 
 		last_error: Exception | None = None
 
-		# Retry loop with exponential backoff
-		for attempt in range(self.max_retries):
+		# Retry loop with exponential backoff. Always make at least one request, so that
+		# max_retries=0 disables retrying instead of skipping the call entirely.
+		attempts = max(1, self.max_retries)
+		attempts_text = f'{attempts} attempt' if attempts == 1 else f'{attempts} attempts'
+		for attempt in range(attempts):
 			try:
 				result = await self._make_request(payload)
 				break
@@ -211,8 +214,8 @@ class ChatBrowserUse(BaseChatModel):
 
 				# Exhausted retries
 				if isinstance(e, httpx.TimeoutException):
-					raise ValueError(f'Request timed out after {self.timeout}s (retried {self.max_retries} times)')
-				raise ValueError(f'Failed to connect to browser-use API after {self.max_retries} attempts: {e}')
+					raise ValueError(f'Request timed out after {self.timeout}s ({attempts_text})')
+				raise ValueError(f'Failed to connect to browser-use API after {attempts_text}: {e}')
 
 			except Exception as e:
 				raise ValueError(f'Failed to connect to browser-use API: {e}')
@@ -221,7 +224,7 @@ class ChatBrowserUse(BaseChatModel):
 			if last_error is not None:
 				if isinstance(last_error, httpx.HTTPStatusError):
 					self._raise_http_error(last_error)
-				raise ValueError(f'Request failed after {self.max_retries} attempts: {last_error}')
+				raise ValueError(f'Request failed after {attempts_text}: {last_error}')
 			raise RuntimeError('Retry loop completed without return or exception')
 
 		# Parse response - server returns structured data as dict
