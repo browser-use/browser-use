@@ -130,7 +130,7 @@ class RecoveryContext:
 		self.action_kind = infer_action_kind(action)
 		self.failed_result = failed_result
 		self.browser_state = browser_state
-		self.attempts: dict[str, int] = attempts or {}
+		self.attempts: dict[str, int] = attempts if attempts is not None else {}
 		self.step_id = step_id
 		self.page_hash_before = page_hash_before
 		self.page_hash_after = page_hash_after
