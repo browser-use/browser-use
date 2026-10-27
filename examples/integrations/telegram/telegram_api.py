@@ -58,6 +58,7 @@ class TelegramBot:
 		self.browser_profile = browser_profile
 		self.allowed_user_ids = allowed_user_ids
 		self.allowed_chat_ids = allowed_chat_ids
+		self._active_tasks: set[asyncio.Task] = set()
 
 	def _is_authorized(self, update: Update) -> bool:
 		"""Checks whether the update sender and chat are in the allowlist."""
@@ -140,8 +141,10 @@ class TelegramBot:
 			except Exception as e:
 				print(f'Error sending ack message: {e}')
 
-		# Run the agent in a non-blocking background task so polling updates are not blocked
-		asyncio.create_task(self._execute_task_and_reply(update, task))
+		# Run the agent in a retained background task so asyncio does not garbage-collect it
+		task_obj = asyncio.create_task(self._execute_task_and_reply(update, task))
+		self._active_tasks.add(task_obj)
+		task_obj.add_done_callback(self._active_tasks.discard)
 
 	async def _execute_task_and_reply(self, update: Update, task: str) -> None:
 		"""Executes the agent and sends the result back to the user."""

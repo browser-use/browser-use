@@ -24,9 +24,18 @@ llm = ChatGoogle(model='gemini-2.0-flash-exp', api_key=api_key)
 
 # Optional allowed user IDs (comma-separated, e.g. "12345678,98765432")
 allowed_users_env = os.getenv('ALLOWED_USER_IDS')
-allowed_user_ids = (
-	[int(uid.strip()) for uid in allowed_users_env.split(',') if uid.strip().isdigit()] if allowed_users_env else None
-)
+allowed_user_ids: list[int] | None = None
+if allowed_users_env:
+	allowed_user_ids = []
+	for uid in allowed_users_env.split(','):
+		item = uid.strip()
+		if item:
+			try:
+				allowed_user_ids.append(int(item))
+			except ValueError:
+				raise ValueError(f'Invalid ALLOWED_USER_IDS entry: {item!r}') from None
+	if not allowed_user_ids:
+		raise ValueError('ALLOWED_USER_IDS is set but contains no valid user IDs')
 
 bot = TelegramBot(
 	llm=llm,
