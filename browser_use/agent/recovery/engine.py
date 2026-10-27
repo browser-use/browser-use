@@ -215,7 +215,9 @@ class RecoveryStage:
 			except Exception as e:
 				new_result = ActionResult(error=f'{type(e).__name__}: {e}')
 			ctx.failed_result = new_result
-			ctx.page_hash_after = RecoveryContext.page_hash(browser_state)
+			if agent.browser_session is not None:
+				ctx.browser_state = await agent.browser_session.get_browser_state_summary(include_screenshot=False)
+			ctx.page_hash_after = RecoveryContext.page_hash(ctx.browser_state)
 			if not new_result.error:
 				self.engine.stats.record_success(decision.strategy, max(len(chain), 1))
 				logger.info(
