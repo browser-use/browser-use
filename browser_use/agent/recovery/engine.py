@@ -200,6 +200,7 @@ class RecoveryStage:
 				)
 			# SUCCESS / RETRY → re-execute the (possibly updated) action.
 			retry_action = decision.retry_action or ctx.action
+			ctx.action = retry_action
 			try:
 				session = agent.browser_session
 				new_result = await agent.tools.act(
