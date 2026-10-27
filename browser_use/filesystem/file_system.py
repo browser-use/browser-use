@@ -708,13 +708,17 @@ class FileSystem:
 					# Extract text from all pages with page markers
 					page_texts: list[tuple[int, str]] = []
 					total_chars = 0
+					formatted_chars = 0
 					for i, page in enumerate(reader.pages, 1):
 						text = page.extract_text() or ''
 						page_texts.append((i, text))
 						total_chars += len(text)
+						if text.strip():
+							separator_chars = 2 if formatted_chars else 0
+							formatted_chars += separator_chars + len(f'--- Page {i} ---\n') + len(text)
 
 					# If small enough, return everything
-					if total_chars <= MAX_CHARS:
+					if formatted_chars <= MAX_CHARS:
 						content_parts = []
 						for page_num, text in page_texts:
 							if text.strip():
@@ -778,7 +782,8 @@ class FileSystem:
 							continue
 						page_header = f'--- Page {page_num} ---\n'
 						truncation_suffix = '\n[...truncated]'
-						remaining = MAX_CHARS - chars_used
+						separator_chars = 2 if content_parts else 0
+						remaining = MAX_CHARS - chars_used - separator_chars
 						# Need room for header + suffix + at least some content
 						min_useful = len(page_header) + len(truncation_suffix) + 50
 						if remaining < min_useful:
@@ -788,7 +793,7 @@ class FileSystem:
 							# Truncate page to fit remaining budget exactly
 							page_content = page_content[: remaining - len(truncation_suffix)] + truncation_suffix
 						content_parts.append((page_num, page_content))
-						chars_used += len(page_content)
+						chars_used += separator_chars + len(page_content)
 						pages_included.append(page_num)
 						if chars_used >= MAX_CHARS:
 							break
