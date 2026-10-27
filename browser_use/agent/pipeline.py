@@ -760,33 +760,10 @@ class StepPipeline(BaseStepPipeline):
 			raise InterruptedError
 
 	async def _check_and_update_downloads(self, context: str = '') -> None:
-		if not self._agent.has_downloads_path:
-			return
-		try:
-			current_downloads = self._agent.browser_session.downloaded_files
-			if current_downloads != self._agent._last_known_downloads:
-				self._update_available_file_paths(current_downloads)
-				self._agent._last_known_downloads = current_downloads
-				if context:
-					self._agent.logger.debug(f'\U0001f4c1 {context}: Updated available files')
-		except Exception as e:
-			extra = f' {context}' if context else ''
-			self._agent.logger.debug(f'\U0001f4c1 Failed to check for downloads{extra}: {type(e).__name__}: {e}')
+		await self._agent._check_and_update_downloads(context)
 
 	def _update_available_file_paths(self, downloads: list[str]) -> None:
-		if not self._agent.has_downloads_path:
-			return
-		current_files = set(self._agent.available_file_paths or [])
-		new_files = set(downloads) - current_files
-		if new_files:
-			self._agent.available_file_paths = list(current_files | new_files)
-			self._agent.logger.info(
-				f'\U0001f4c1 Added {len(new_files)} downloaded files to available_file_paths (total: {len(self._agent.available_file_paths)} files)'
-			)
-			for f in new_files:
-				self._agent.logger.info(f'\U0001f4c4 New file available: {f}')
-		else:
-			self._agent.logger.debug(f'\U0001f4c1 No new downloads detected (tracking {len(current_files)} files)')
+		self._agent._update_available_file_paths(downloads)
 
 	# ── Error handling ────────────────────────────────────────────
 

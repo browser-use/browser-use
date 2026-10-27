@@ -638,6 +638,48 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Get the model name of the currently active LLM."""
 		return self._llm_service.current_llm_model
 
+	async def _check_and_update_downloads(self, context: str = '') -> None:
+		"""Check for new downloads and update available file paths."""
+		if not self.has_downloads_path:
+			return
+
+		assert self.browser_session is not None, 'BrowserSession is not set up'
+
+		try:
+			current_downloads = self.browser_session.downloaded_files
+			if current_downloads != self._last_known_downloads:
+				self._update_available_file_paths(current_downloads)
+				self._last_known_downloads = current_downloads
+				if context:
+					self.logger.debug(f'📁 {context}: Updated available files')
+		except Exception as e:
+			error_context = f' {context}' if context else ''
+			self.logger.debug(f'📁 Failed to check for downloads{error_context}: {type(e).__name__}: {e}')
+
+	def _update_available_file_paths(self, downloads: list[str]) -> None:
+		"""Update available_file_paths with downloaded files, preserving input order."""
+		if not self.has_downloads_path:
+			return
+
+		available_files = self.available_file_paths or []
+		seen_files = set(available_files)
+		new_files = []
+		for download in downloads:
+			if download not in seen_files:
+				seen_files.add(download)
+				new_files.append(download)
+
+		if new_files:
+			self.available_file_paths = [*available_files, *new_files]
+
+			self.logger.info(
+				f'📁 Added {len(new_files)} downloaded files to available_file_paths (total: {len(self.available_file_paths)} files)'
+			)
+			for file_path in new_files:
+				self.logger.info(f'📄 New file available: {file_path}')
+		else:
+			self.logger.debug(f'📁 No new downloads detected (tracking {len(available_files)} files)')
+
 	def _set_file_system(self, file_system_path: str | None = None) -> None:
 		# Check for conflicting parameters
 		if self.state.file_system_state and file_system_path:
