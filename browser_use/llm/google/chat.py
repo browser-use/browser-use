@@ -361,6 +361,9 @@ class ChatGoogle(BaseChatModel):
 		if self.max_output_tokens is not None:
 			config['max_output_tokens'] = self.max_output_tokens
 
+		thinking_config = config.get('thinking_config')
+		should_extract_thinking = bool(thinking_config and thinking_config.get('include_thoughts'))
+
 		async def _make_api_call():
 			start_time = time.time()
 			self.logger.debug(f'🚀 Starting API call to {self.model}')
@@ -388,7 +391,7 @@ class ChatGoogle(BaseChatModel):
 
 					return ChatInvokeCompletion(
 						completion=text,
-						thinking=self._extract_thinking(response),
+						thinking=self._extract_thinking(response) if should_extract_thinking else None,
 						usage=usage,
 						stop_reason=self._get_stop_reason(response),
 					)
@@ -436,7 +439,7 @@ class ChatGoogle(BaseChatModel):
 									parsed_data = json.loads(text)
 									return ChatInvokeCompletion(
 										completion=output_format.model_validate(parsed_data),
-										thinking=self._extract_thinking(response),
+										thinking=self._extract_thinking(response) if should_extract_thinking else None,
 										usage=usage,
 										stop_reason=self._get_stop_reason(response),
 									)
@@ -460,7 +463,7 @@ class ChatGoogle(BaseChatModel):
 						if isinstance(response.parsed, output_format):
 							return ChatInvokeCompletion(
 								completion=response.parsed,
-								thinking=self._extract_thinking(response),
+								thinking=self._extract_thinking(response) if should_extract_thinking else None,
 								usage=usage,
 								stop_reason=self._get_stop_reason(response),
 							)
@@ -468,7 +471,7 @@ class ChatGoogle(BaseChatModel):
 							# If it's not the expected type, try to validate it
 							return ChatInvokeCompletion(
 								completion=output_format.model_validate(response.parsed),
-								thinking=self._extract_thinking(response),
+								thinking=self._extract_thinking(response) if should_extract_thinking else None,
 								usage=usage,
 								stop_reason=self._get_stop_reason(response),
 							)
@@ -521,7 +524,7 @@ class ChatGoogle(BaseChatModel):
 								parsed_data = json.loads(text)
 								return ChatInvokeCompletion(
 									completion=output_format.model_validate(parsed_data),
-									thinking=self._extract_thinking(response),
+									thinking=self._extract_thinking(response) if should_extract_thinking else None,
 									usage=usage,
 									stop_reason=self._get_stop_reason(response),
 								)
