@@ -39,7 +39,7 @@ def _messages():
 	]
 
 
-async def test_repair_json_control_chars_escapes_raw_control_chars_inside_strings():
+def test_repair_json_control_chars_escapes_raw_control_chars_inside_strings():
 	broken = '{\n  "thinking": "line1\nline2\tend",\n  "action": [{"search": {"query": "a", "engine": "google"}}]\n}'
 	repaired = _repair_json_control_chars(broken)
 
