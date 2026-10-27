@@ -274,7 +274,7 @@ class ContextPreparer(BaseContextPreparer):
 		ps = self._agent.state.plan_state
 		total = ps.consecutive_failures if ps else self._agent.state.consecutive_failures
 		if total >= self._agent.settings.max_failures and self._agent.settings.final_response_after_failure:
-			msg = f'You failed {total} consecutive plan versions. We terminate the agent. Your only tool is "done".'
+			msg = f'You failed {total} consecutive times. We terminate the agent. Your only tool is "done".'
 			self._agent.logger.debug('Force done after max plan failures')
 			self._agent.message_manager._add_context_message(UserMessage(content=msg))
 			self._agent.AgentOutput = self._agent.DoneAgentOutput
