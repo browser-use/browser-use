@@ -90,6 +90,12 @@ class RecoveryEngine:
 		failures naturally cascade to the next strategy (attempt 1: wait,
 		attempt 2: relocate, attempt 3: retry, ...).
 		"""
+		if ctx.engine_attempts >= self.max_attempts:
+			return RecoveryResult(
+				outcome=RecoveryOutcome.GIVE_UP,
+				reason=f'engine attempt budget exhausted ({self.max_attempts})',
+			)
+		ctx.engine_attempts += 1
 		for strategy in self._candidates(ctx):
 			attempt = ctx.attempts.get(strategy.name, 0) + 1
 			ctx.attempts[strategy.name] = attempt
@@ -117,9 +123,7 @@ class RecoveryEngine:
 
 	def ordered_strategy_names(self) -> list[str]:
 		"""Strategy names in dispatch order — used for logging and tests."""
-		return [
-			s.name for s in sorted(self.strategies, key=lambda s: (_PHASE_ORDER[s.phase], _COST_ORDER[s.cost.value]))
-		]
+		return [s.name for s in sorted(self.strategies, key=lambda s: (_PHASE_ORDER[s.phase], _COST_ORDER[s.cost.value]))]
 
 
 @dataclass
@@ -158,6 +162,7 @@ class RecoveryStage:
 		action_name: str,
 		failed_result,
 		browser_state,
+		historical_element=None,
 	) -> RecoveryContext:
 		return RecoveryContext(
 			agent=agent,
@@ -165,6 +170,7 @@ class RecoveryStage:
 			action_name=action_name,
 			failed_result=failed_result,
 			browser_state=browser_state,
+			historical_element=historical_element,
 			step_id=agent.state.n_steps,
 			page_hash_before=RecoveryContext.page_hash(browser_state),
 		)
@@ -176,6 +182,7 @@ class RecoveryStage:
 		action_name: str,
 		failed_result,
 		browser_state,
+		historical_element=None,
 	) -> RecoveryAttempt:
 		"""Attempt to repair the failure and return the final action result.
 
@@ -183,7 +190,8 @@ class RecoveryStage:
 		``attempt.result`` is the successful ``ActionResult``. Otherwise the
 		original error is preserved and the LLM becomes the fallback.
 		"""
-		ctx = self._build_context(agent, action, action_name, failed_result, browser_state)
+		ctx = self._build_context(agent, action, action_name, failed_result, browser_state, historical_element)
+		self.engine.stats.record_session()
 		chain: list[str] = []
 		for _ in range(self.max_rounds):
 			decision = await self.engine.evaluate(ctx)

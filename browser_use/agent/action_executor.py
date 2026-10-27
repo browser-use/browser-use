@@ -52,36 +52,15 @@ class ActionExecutor:
 		on_step_start: Callable | None = None,
 		on_step_end: Callable | None = None,
 	) -> bool:
-		"""Execute a single step with timeout."""
-		if on_step_start is not None:
-			await on_step_start(self._agent)
+		"""Execute a single step.
 
-		await self._pipeline.demo_mode_log(
-			f'Starting step {step + 1}/{max_steps}',
-			'info',
-			{'step': step + 1, 'total_steps': max_steps},
-		)
-		self._agent.logger.debug(f'\U0001f6b6 Starting step {step + 1}/{max_steps}...')
+		Lifecycle (hooks, start logging and the timeout wrapper) is owned by
+		``execute_step_with_hooks``; this method only adds the completion side
+		effects (completion logging, judge and done callback).
+		"""
+		is_done = await self._pipeline.execute_step_with_hooks(step_info, on_step_start=on_step_start, on_step_end=on_step_end)
 
-		try:
-			await asyncio.wait_for(
-				self._pipeline.execute_step_with_hooks(step_info),
-				timeout=self._agent.settings.step_timeout,
-			)
-			self._agent.logger.debug(f'\u2705 Completed step {step + 1}/{max_steps}')
-		except TimeoutError:
-			error_msg = f'Step {step + 1} timed out after {self._agent.settings.step_timeout} seconds'
-			self._agent.logger.error(f'\u23f0 {error_msg}')
-			await self._pipeline.demo_mode_log(error_msg, 'error', {'step': step + 1})
-			self._agent.state.consecutive_failures += 1
-			self._agent.state.last_result = [ActionResult(error=error_msg)]
-			if self._agent.state.n_steps == step + 1:
-				self._agent.state.n_steps += 1
-
-		if on_step_end is not None:
-			await on_step_end(self._agent)
-
-		if self._agent.history.is_done():
+		if is_done:
 			await self.log_completion()
 			if self._agent.settings.use_judge:
 				await self._agent._judge_and_log()
@@ -90,8 +69,7 @@ class ActionExecutor:
 					await self._agent.register_done_callback(self._agent.history)
 				else:
 					self._agent.register_done_callback(self._agent.history)
-			return True
-		return False
+		return is_done
 
 	# ── Multi-action execution ──────────────────────────────────────────
 	async def multi_act(self, actions: list[ActionModel]) -> list[ActionResult]:
@@ -151,12 +129,22 @@ class ActionExecutor:
 				)
 
 				if result.error and self._agent.settings.auto_recovery:
+					# The failed action's element comes from the pre-action
+					# selector map, not the previous history step.
+					historical_element = None
+					index = action.get_index()
+					if index is not None:
+						node = cached_selector_map.get(index)
+						if node is not None:
+							historical_element = DOMInteractedElement.load_from_enhanced_dom_tree(node)
+
 					attempt = await self._recovery.recover(
 						agent=self._agent,
 						action=action,
 						action_name=action_name,
 						failed_result=result,
 						browser_state=self._agent.browser_session._cached_browser_state_summary,
+						historical_element=historical_element,
 					)
 					if attempt.recovered:
 						result = attempt.result

@@ -533,3 +533,109 @@ async def test_stage_recovers_navigation_failure_with_default_engine():
 		extraction_schema=None,
 	)
 	assert agent.tools.act.await_count == 2
+
+
+# ── Regression: engine budget, composite filters, stats ───────────────────
+@pytest.mark.asyncio
+async def test_engine_enforces_engine_wide_attempt_budget():
+	from browser_use.agent.recovery.base import RecoveryCost, RecoveryPhase
+
+	strategy = _DummyStrategy('endless', RecoveryPhase.ACTION, RecoveryCost.LOW)
+	strategy.max_attempts = 99
+	engine = RecoveryEngine([strategy], max_attempts=2)
+	ctx = _make_context(_make_agent())
+
+	assert (await engine.evaluate(ctx)).outcome == RecoveryOutcome.RETRY
+	assert (await engine.evaluate(ctx)).outcome == RecoveryOutcome.RETRY
+	budget = await engine.evaluate(ctx)
+	assert budget.outcome == RecoveryOutcome.GIVE_UP
+	assert 'budget' in (budget.reason or '')
+
+
+@pytest.mark.asyncio
+async def test_composite_skips_unsupported_sub_strategies():
+	from browser_use.agent.recovery.base import RecoveryCost, RecoveryPhase
+
+	click_only = _DummyStrategy('click_only', RecoveryPhase.ELEMENT, RecoveryCost.LOW)
+	click_only.supports = {ActionKind.CLICK}
+	any_action = _DummyStrategy('any_action', RecoveryPhase.ELEMENT, RecoveryCost.MEDIUM)
+	chain = CompositeRecovery([click_only, any_action], name='chain')
+
+	ctx = _make_context(_make_agent(), action_kind=ActionKind.NAVIGATE)
+	assert chain.can_handle(ctx)
+	result = await chain.recover(ctx)
+	assert result.chain == ['any_action']
+
+
+@pytest.mark.asyncio
+async def test_composite_falls_through_on_give_up():
+	from browser_use.agent.recovery.base import RecoveryCost, RecoveryPhase
+
+	give_up = _DummyStrategy('give_up', RecoveryPhase.ELEMENT, RecoveryCost.LOW, outcome=RecoveryOutcome.GIVE_UP)
+	retry = _DummyStrategy('retry_like', RecoveryPhase.ELEMENT, RecoveryCost.MEDIUM, outcome=RecoveryOutcome.RETRY)
+	chain = CompositeRecovery([give_up, retry], name='chain')
+
+	result = await chain.recover(_make_context(_make_agent()))
+	assert result.outcome == RecoveryOutcome.RETRY
+	assert result.chain == ['give_up', 'retry_like']
+
+
+@pytest.mark.asyncio
+@patch('browser_use.agent.recovery.strategies.asyncio.sleep', new_callable=AsyncMock)
+async def test_composite_retry_backoff_uses_sub_attempts(mock_sleep):
+	chain = CompositeRecovery([RetryRecovery()], name='element_chain')
+	ctx = _make_context(_make_agent(), error='boom')
+	ctx.attempts['element_chain:retry'] = 1
+
+	result = await chain.recover(ctx)
+	assert result.outcome == RecoveryOutcome.RETRY
+	# Composite increments 1 → 2, so RetryRecovery backs off 2s * 2^(2-1).
+	mock_sleep.assert_awaited_once_with(4.0)
+
+
+@pytest.mark.asyncio
+async def test_relocate_prefers_current_action_element():
+	from browser_use.dom.views import DOMInteractedElement
+
+	strategy = RelocateRecovery()
+	agent = _make_agent()
+	agent.history.history = []
+	current = MagicMock(spec=DOMInteractedElement)
+	executor = MagicMock()
+	executor._update_action_indices = AsyncMock(return_value=_StubAction(click={'index': 12}))
+	agent._pipeline.action_executor = executor
+	state = _make_state()
+	state.dom_state.selector_map = {12: MagicMock()}
+
+	ctx = _make_context(agent, error='element index 5 not found', state=state)
+	ctx.historical_element = current
+
+	result = await strategy.recover(ctx)
+	assert result.outcome == RecoveryOutcome.RETRY
+	executor._update_action_indices.assert_awaited_once_with(current, ctx.action, state)
+
+
+@pytest.mark.asyncio
+async def test_scroll_recovery_gives_up_when_helper_action_fails():
+	strategy = ScrollRecovery()
+	agent = _make_agent()
+	agent.tools.registry.execute_action = AsyncMock(return_value=ActionResult(error='scroll blocked'))
+	ctx = _make_context(agent, error='element not visible', state=_make_state())
+
+	result = await strategy.recover(ctx)
+	assert result.outcome == RecoveryOutcome.GIVE_UP
+	assert 'scroll blocked' in (result.reason or '')
+
+
+def test_stats_surface_sessions_and_strategy_successes():
+	stats = RecoveryStats()
+	stats.record_session()
+	stats.record_session()
+	stats.record_attempt('scroll')
+	stats.record_success('scroll', chain_length=1)
+	stats.record_give_up()
+
+	assert stats.session_success_rate == pytest.approx(0.5)
+	assert stats.strategy_successes == {'scroll': 1}
+	assert 'session_success_rate=50%' in stats.summary()
+	assert 'successes: scroll=1' in stats.summary()

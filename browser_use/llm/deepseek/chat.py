@@ -211,9 +211,24 @@ class ChatDeepSeek(BaseChatModel):
 			and self._is_reasoning_model(self.model)
 		):
 			try:
+				# DeepSeek requires the prompt to mention JSON when response_format
+				# is json_object, otherwise it may emit whitespace until the token
+				# limit. Include the schema so the model knows the expected shape.
+				schema = output_format.model_json_schema()
+				json_instruction = (
+					'Respond with a single valid JSON object only. '
+					'Do not include markdown fences or any prose. '
+					f'The JSON object must conform to this schema:\n{json.dumps(schema, ensure_ascii=False)}'
+				)
+				json_messages = [dict(message) for message in ds_messages]
+				if json_messages and json_messages[0].get('role') == 'system':
+					json_messages[0]['content'] = f'{json_messages[0].get("content", "")}\n\n{json_instruction}'
+				else:
+					json_messages.insert(0, {'role': 'system', 'content': json_instruction})
+
 				resp = await client.chat.completions.create(  # type: ignore
 					model=self.model,
-					messages=ds_messages,  # type: ignore
+					messages=json_messages,  # type: ignore
 					response_format={'type': 'json_object'},
 					**common,
 				)

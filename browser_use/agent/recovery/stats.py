@@ -14,12 +14,17 @@ class RecoveryStats:
 	"""
 
 	total_attempts: int = 0
+	sessions: int = 0
 	recovered: int = 0
 	gave_up: int = 0
 	escalated: int = 0
 	strategy_attempts: dict[str, int] = field(default_factory=dict)
 	strategy_successes: dict[str, int] = field(default_factory=dict)
 	chain_lengths: list[int] = field(default_factory=list)
+
+	def record_session(self) -> None:
+		"""Record one failed-action recovery session (one failure)."""
+		self.sessions += 1
 
 	def record_attempt(self, strategy: str | None) -> None:
 		self.total_attempts += 1
@@ -40,10 +45,21 @@ class RecoveryStats:
 
 	@property
 	def success_rate(self) -> float:
-		"""Share of attempts that recovered before reaching the LLM."""
+		"""Share of strategy attempts that recovered before reaching the LLM.
+
+		Note: the denominator is strategy evaluations, not failures. Use
+		``session_success_rate`` for "share of failures recovered".
+		"""
 		if self.total_attempts == 0:
 			return 0.0
 		return self.recovered / self.total_attempts
+
+	@property
+	def session_success_rate(self) -> float:
+		"""Share of failed-action recovery sessions that recovered."""
+		if self.sessions == 0:
+			return 0.0
+		return self.recovered / self.sessions
 
 	@property
 	def avg_chain_length(self) -> float:
@@ -56,12 +72,19 @@ class RecoveryStats:
 		"""Strategy usage distribution, most-used first."""
 		return dict(sorted(self.strategy_attempts.items(), key=lambda item: item[1], reverse=True))
 
+	def success_distribution(self) -> dict[str, int]:
+		"""Per-strategy success counts, most-successful first."""
+		return dict(sorted(self.strategy_successes.items(), key=lambda item: item[1], reverse=True))
+
 	def summary(self) -> str:
 		"""One-line summary suitable for logs."""
 		dist = ', '.join(f'{name}={count}' for name, count in self.distribution().items())
+		successes = ', '.join(f'{name}={count}' for name, count in self.success_distribution().items())
 		return (
-			f'recovery: attempts={self.total_attempts} recovered={self.recovered} '
+			f'recovery: attempts={self.total_attempts} sessions={self.sessions} recovered={self.recovered} '
 			f'gave_up={self.gave_up} escalated={self.escalated} '
-			f'success_rate={self.success_rate:.0%} avg_chain={self.avg_chain_length:.1f}'
+			f'success_rate={self.success_rate:.0%} session_success_rate={self.session_success_rate:.0%} '
+			f'avg_chain={self.avg_chain_length:.1f}'
 			f'{f" ({dist})" if dist else ""}'
+			f'{f" successes: {successes}" if successes else ""}'
 		)

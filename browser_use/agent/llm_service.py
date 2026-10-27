@@ -20,7 +20,7 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage, ContentPartTextParam, UserMessage
 from browser_use.observability import observe_debug
-from browser_use.utils import URL_PATTERN
+from browser_use.utils import URL_PATTERN, time_execution_async
 
 logger = logging.getLogger(__name__)
 
@@ -111,11 +111,23 @@ class LLMService:
 
 	# ── Core LLM call ───────────────────────────────────────────────
 
+	@time_execution_async('--get_next_action')
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_model_output')
-	async def get_model_output(self, input_messages: list[BaseMessage]) -> AgentOutput:
-		"""Get next action from LLM based on current state"""
+	async def get_model_output(
+		self,
+		input_messages: list[BaseMessage],
+		_url_replacements: dict[str, str] | None = None,
+	) -> AgentOutput:
+		"""Get next action from LLM based on current state.
 
-		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
+		``_url_replacements`` is internal: it carries the shortened→original URL
+		map across a fallback-LLM retry so the fallback response can be expanded
+		all the way back to the original URLs without re-shortening the messages.
+		"""
+		if _url_replacements is None:
+			urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
+		else:
+			urls_replaced = dict(_url_replacements)
 
 		# Build kwargs for ainvoke
 		# Note: ChatBrowserUse will automatically generate action descriptions from output_format schema
@@ -147,8 +159,9 @@ class LLMService:
 			if not self._try_switch_to_fallback_llm(e):
 				# No fallback available, re-raise the original error
 				raise
-			# Retry with the fallback LLM
-			return await self.get_model_output(input_messages)
+			# Retry with the fallback LLM, preserving the URL map so the response
+			# is expanded back to the original URLs (messages are already shortened).
+			return await self.get_model_output(input_messages, _url_replacements=urls_replaced)
 
 	async def get_model_output_with_retry(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get model output with retry logic for empty actions"""
@@ -384,3 +397,6 @@ class LLMService:
 
 			param_str = f'({", ".join(param_summary)})' if param_summary else ''
 			action_details.append(f'{action_name}{param_str}')
+
+		if action_details:
+			self._agent.logger.debug(f'📋 Next action: {", ".join(action_details)}')

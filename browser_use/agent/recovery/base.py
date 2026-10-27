@@ -23,6 +23,7 @@ from browser_use.tools.registry.views import ActionModel
 if TYPE_CHECKING:
 	from browser_use.agent.service import Agent
 	from browser_use.browser.session import BrowserSession
+	from browser_use.dom.views import DOMInteractedElement
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,7 @@ class RecoveryContext:
 		failed_result: ActionResult,
 		browser_state: BrowserStateSummary | None,
 		attempts: dict[str, int] | None = None,
+		historical_element: DOMInteractedElement | None = None,
 		step_id: int | None = None,
 		page_hash_before: str | None = None,
 		page_hash_after: str | None = None,
@@ -131,6 +133,8 @@ class RecoveryContext:
 		self.failed_result = failed_result
 		self.browser_state = browser_state
 		self.attempts: dict[str, int] = attempts if attempts is not None else {}
+		self.engine_attempts = 0
+		self.historical_element = historical_element
 		self.step_id = step_id
 		self.page_hash_before = page_hash_before
 		self.page_hash_after = page_hash_after
@@ -141,6 +145,12 @@ class RecoveryContext:
 	def error(self) -> str:
 		"""Lowercased error message from the failed result."""
 		return (self.failed_result.error or '').lower()
+
+	def attempts_for(self, strategy_name: str) -> int:
+		"""Attempts recorded for a strategy, including composite sub-keys."""
+		return max(
+			[count for key, count in self.attempts.items() if key == strategy_name or key.endswith(f':{strategy_name}')] or [0]
+		)
 
 	@property
 	def browser_session(self) -> BrowserSession | None:
@@ -213,9 +223,13 @@ class RecoveryStrategy:
 	async def run_registered_action(
 		self, ctx: RecoveryContext, action_name: str, params: dict[str, Any] | None = None
 	) -> ActionResult:
-		"""Execute a registered action by name with plain params."""
+		"""Execute a registered action by name with plain params.
+
+		Raises when the helper action reports an error so callers treat the
+		recovery step as failed instead of reporting a false success.
+		"""
 		session = ctx.browser_session
-		return await ctx.agent.tools.registry.execute_action(
+		result = await ctx.agent.tools.registry.execute_action(
 			action_name=action_name,
 			params=params or {},
 			browser_session=session,
@@ -225,3 +239,6 @@ class RecoveryStrategy:
 			available_file_paths=ctx.agent.available_file_paths,
 			extraction_schema=ctx.agent.extraction_schema,
 		)
+		if result.error:
+			raise RuntimeError(result.error)
+		return result

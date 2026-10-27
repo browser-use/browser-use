@@ -416,10 +416,13 @@ class PostProcessor(BasePostProcessor):
 		elif self._agent.state.consecutive_failures > 0:
 			self._agent.state.consecutive_failures = 0
 			self._agent.logger.debug(f'\U0001f504 Step {self._agent.state.n_steps}: Consecutive failures reset')
-		# Sync with PlanState node-level tracking
+		# Sync with PlanState node-level tracking. A multi-action batch is only a
+		# plan success if *every* action succeeded; `has_error` above intentionally
+		# follows the single-action semantics for consecutive failures.
 		ps = self._agent.state.plan_state
 		if ps is not None:
-			if has_error:
+			results = self._agent.state.last_result or []
+			if any(result.error for result in results):
 				ps.mark_current_failed()
 			else:
 				ps.mark_current_completed()
@@ -513,11 +516,32 @@ class BaseStepPipeline(ABC):
 	) -> bool:
 		"""Execute one step with timeout and lifecycle hooks.
 
-		Default implementation: delegates to execute().
-		Override to add hook/timeout logic.
+		Default implementation preserves the hook/timeout contract when the
+		pipeline exposes an ``_agent`` and derives completion from the agent
+		history. Pipelines without an agent keep the minimal execute()-only
+		behaviour.
 		"""
-		await self.execute(step_info)
-		return False
+		agent = getattr(self, '_agent', None)
+		if agent is None:
+			await self.execute(step_info)
+			return False
+
+		if on_step_start is not None:
+			await on_step_start(agent)
+
+		try:
+			await asyncio.wait_for(self.execute(step_info), timeout=timeout or agent.settings.step_timeout)
+		except TimeoutError:
+			timeout_s = timeout or agent.settings.step_timeout
+			error_msg = f'Step timed out after {timeout_s} seconds'
+			agent.logger.error(f'⏰ {error_msg}')
+			agent.state.consecutive_failures += 1
+			agent.state.last_result = [ActionResult(error=error_msg)]
+		finally:
+			if on_step_end is not None:
+				await on_step_end(agent)
+
+		return agent.history.is_done()
 
 	def is_connection_like_error(self, error: Exception) -> bool:
 		"""Check if an exception indicates a browser/connection failure."""
@@ -799,6 +823,9 @@ class StepPipeline(BaseStepPipeline):
 		prefix = f'\u274c Failed {self._agent.state.consecutive_failures}/{max_fails}: '
 		is_final = self._agent.state.consecutive_failures >= max_fails
 		level = logging.ERROR if is_final else logging.WARNING
+		if 'Could not parse response' in error_msg or 'tool_use_failed' in error_msg:
+			# Give the model a hint about how its output should look.
+			self._agent.logger.log(level, f'Model: {self._agent.llm.model} failed')
 		self._agent.logger.log(level, f'{prefix}{error_msg}')
 		await self._demo_mode_log(f'Step error: {error_msg}', 'error', {'step': self._agent.state.n_steps})
 		self._agent.state.last_result = [ActionResult(error=error_msg)]

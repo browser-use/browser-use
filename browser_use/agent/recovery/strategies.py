@@ -204,16 +204,21 @@ class RelocateRecovery(RecoveryStrategy):
 		)
 
 	async def recover(self, ctx: RecoveryContext) -> RecoveryResult:
-		history = ctx.agent.history
-		if history is None or not history.history:
-			return RecoveryResult(
-				outcome=RecoveryOutcome.GIVE_UP,
-				strategy=self.name,
-				reason='no history to relocate from',
-			)
-		history_item = history.history[-1]
-		interacted = history_item.state.interacted_element or []
-		historical_element = next((el for el in reversed(interacted) if el is not None), None)
+		# Prefer the element the current failed action targeted (captured from
+		# the pre-action browser state). Fall back to the last history item for
+		# callers that do not provide it.
+		historical_element = ctx.historical_element
+		if historical_element is None:
+			history = ctx.agent.history
+			if history is None or not history.history:
+				return RecoveryResult(
+					outcome=RecoveryOutcome.GIVE_UP,
+					strategy=self.name,
+					reason='no history to relocate from',
+				)
+			history_item = history.history[-1]
+			interacted = history_item.state.interacted_element or []
+			historical_element = next((el for el in reversed(interacted) if el is not None), None)
 		if historical_element is None:
 			return RecoveryResult(
 				outcome=RecoveryOutcome.GIVE_UP,
@@ -312,7 +317,7 @@ class RetryRecovery(RecoveryStrategy):
 		return True
 
 	async def recover(self, ctx: RecoveryContext) -> RecoveryResult:
-		attempt = ctx.attempts.get(self.name, 1)
+		attempt = ctx.attempts_for(self.name) or 1
 		delay = min(2.0 * (2 ** (attempt - 1)), 30.0)
 		await asyncio.sleep(delay)
 		return RecoveryResult(
@@ -343,13 +348,21 @@ class CompositeRecovery(RecoveryStrategy):
 			self.name = name
 		else:
 			self.name = '+'.join(s.name for s in strategies)
+		# The chain needs enough dispatches for every sub-strategy to use its
+		# own budget, rather than inheriting the base class's small default.
+		self.max_attempts = sum(max(1, strategy.max_attempts) for strategy in self._strategies)
+
+	def _applicable(self, strategy: RecoveryStrategy, ctx: RecoveryContext) -> bool:
+		return strategy.supports is None or ctx.action_kind in strategy.supports
 
 	def can_handle(self, ctx: RecoveryContext) -> bool:
-		return any(s.can_handle(ctx) for s in self._strategies)
+		return any(self._applicable(s, ctx) and s.can_handle(ctx) for s in self._strategies)
 
 	async def recover(self, ctx: RecoveryContext) -> RecoveryResult:
 		chain: list[str] = []
 		for strategy in self._strategies:
+			if not self._applicable(strategy, ctx):
+				continue
 			sub_key = f'{self.name}:{strategy.name}'
 			if ctx.attempts.get(sub_key, 0) >= strategy.max_attempts:
 				continue
@@ -358,7 +371,7 @@ class CompositeRecovery(RecoveryStrategy):
 			ctx.attempts[sub_key] = ctx.attempts.get(sub_key, 0) + 1
 			result = await strategy.recover(ctx)
 			chain.append(strategy.name)
-			if result.outcome in (RecoveryOutcome.GIVE_UP, RecoveryOutcome.ESCALATE):
+			if result.outcome == RecoveryOutcome.ESCALATE:
 				return RecoveryResult(
 					outcome=result.outcome,
 					strategy=self.name,
@@ -366,6 +379,10 @@ class CompositeRecovery(RecoveryStrategy):
 					reason=result.reason,
 					explanation=result.explanation,
 				)
+			if result.outcome == RecoveryOutcome.GIVE_UP:
+				# One repair failing should not abort the whole chain; let the
+				# next sub-strategy try.
+				continue
 			return RecoveryResult(
 				outcome=result.outcome,
 				strategy=self.name,

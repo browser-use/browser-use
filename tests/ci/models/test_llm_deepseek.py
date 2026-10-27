@@ -65,6 +65,9 @@ async def test_reasoning_model_uses_json_output_path():
 	assert kwargs['response_format'] == {'type': 'json_object'}
 	assert 'tools' not in kwargs
 	assert kwargs['extra_body'] == {'thinking': {'type': 'disabled'}}
+	# DeepSeek requires the prompt to explicitly ask for JSON in json_object mode.
+	assert 'JSON' in kwargs['messages'][0]['content']
+	assert 'action' in kwargs['messages'][0]['content']
 	assert result.completion.action == [{'search': {'query': 'a', 'engine': 'google'}}]
 
 

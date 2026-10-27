@@ -403,3 +403,42 @@ async def test_exploration_nudge_disabled_when_planning_off(browser_session, moc
 async def test_flash_mode_disables_planning(browser_session, mock_llm):
 	agent = _make_agent(browser_session, mock_llm, flash_mode=True)
 	assert agent.settings.enable_planning is False
+
+
+# ── Plan state sync with PostProcessor ────────────────────────────────────
+def test_post_processor_marks_plan_failed_on_multi_action_error():
+	from unittest.mock import MagicMock
+
+	from browser_use.agent.pipeline import PostProcessor
+	from browser_use.agent.views import ActionResult
+
+	agent = MagicMock()
+	agent.state.last_result = [ActionResult(extracted_content='ok'), ActionResult(error='bad')]
+	agent.state.consecutive_failures = 0
+	agent.state.plan_state = MagicMock()
+	agent.state.n_steps = 1
+	agent.logger = MagicMock()
+
+	PostProcessor(agent, MagicMock())._update_consecutive_failures()
+
+	agent.state.plan_state.mark_current_failed.assert_called_once()
+	agent.state.plan_state.mark_current_completed.assert_not_called()
+
+
+def test_post_processor_marks_plan_completed_when_all_actions_succeed():
+	from unittest.mock import MagicMock
+
+	from browser_use.agent.pipeline import PostProcessor
+	from browser_use.agent.views import ActionResult
+
+	agent = MagicMock()
+	agent.state.last_result = [ActionResult(extracted_content='ok'), ActionResult(extracted_content='ok2')]
+	agent.state.consecutive_failures = 0
+	agent.state.plan_state = MagicMock()
+	agent.state.n_steps = 1
+	agent.logger = MagicMock()
+
+	PostProcessor(agent, MagicMock())._update_consecutive_failures()
+
+	agent.state.plan_state.mark_current_completed.assert_called_once()
+	agent.state.plan_state.mark_current_failed.assert_not_called()
