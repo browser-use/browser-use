@@ -2796,7 +2796,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 								);
 								let node;
 								while (node = walker.nextNode()) {{
-									if (node.textContent.includes("{event.text}")) {{
+									if (node.textContent.includes({json.dumps(event.text)})) {{
 										node.parentElement.scrollIntoView({{behavior: 'smooth', block: 'center'}});
 										return true;
 									}}
