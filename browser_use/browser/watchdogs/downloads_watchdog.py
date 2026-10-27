@@ -441,6 +441,26 @@ class DownloadsWatchdog(BaseWatchdog):
 						effective_path = file_path or str(Path(downloads_path) / suggested_filename)
 						file_name = Path(effective_path).name
 						file_ext = Path(file_name).suffix.lower().lstrip('.')
+						# Call direct callbacks first so click handlers waiting on the
+						# download (e.g. _execute_click_with_download_detection) resolve.
+						# The local branch does this inside _track_download(); the remote
+						# branch previously only emitted the event, so the click action
+						# timed out waiting for on_download_complete even though the
+						# download had finished (see issue #5132).
+						complete_info = {
+							'guid': guid,
+							'url': info.get('url', ''),
+							'path': str(effective_path),
+							'file_name': file_name,
+							'file_size': 0,
+							'file_type': file_ext if file_ext else None,
+							'auto_download': False,
+						}
+						for callback in self._download_complete_callbacks:
+							try:
+								callback(complete_info)
+							except Exception as e:
+								self.logger.debug(f'[DownloadsWatchdog] Error in download complete callback: {e}')
 						self.event_bus.dispatch(
 							FileDownloadedEvent(
 								guid=guid,

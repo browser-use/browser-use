@@ -179,7 +179,7 @@ def create_history_gif(
 		image = Image.open(io.BytesIO(img_data))
 
 		if show_goals and item.model_output:
-			image = _add_overlay_to_image(
+			overlay = _add_overlay_to_image(
 				image=image,
 				step_number=i,
 				goal_text=item.model_output.current_state.next_goal,
@@ -188,22 +188,31 @@ def create_history_gif(
 				margin=margin,
 				logo=logo,
 			)
+			image.close()
+			image = overlay
 
 		images.append(image)
 
-	if images:
-		# Save the GIF
-		images[0].save(
-			output_path,
-			save_all=True,
-			append_images=images[1:],
-			duration=duration,
-			loop=0,
-			optimize=False,
-		)
-		logger.info(f'Created GIF at {output_path}')
-	else:
-		logger.warning('No images found in history to create GIF')
+	try:
+		if images:
+			# Save the GIF
+			images[0].save(
+				output_path,
+				save_all=True,
+				append_images=images[1:],
+				duration=duration,
+				loop=0,
+				optimize=False,
+			)
+			logger.info(f'Created GIF at {output_path}')
+		else:
+			logger.warning('No images found in history to create GIF')
+	finally:
+		# Close all PIL images to release file descriptors
+		for img in images:
+			img.close()
+		if logo:
+			logo.close()
 
 
 def _create_task_frame(
@@ -220,6 +229,7 @@ def _create_task_frame(
 	img_data = base64.b64decode(first_screenshot)
 	template = Image.open(io.BytesIO(img_data))
 	image = Image.new('RGB', template.size, (0, 0, 0))
+	template.close()
 	draw = ImageDraw.Draw(image)
 
 	# Calculate vertical center of image

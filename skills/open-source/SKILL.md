@@ -27,7 +27,7 @@ Read the relevant file based on what the user needs.
 | Browser params, auth, real browser, remote/cloud | `references/browser.md` |
 | Custom tools, built-in tools, ActionResult | `references/tools.md` |
 | Actor API: Page/Element/Mouse (legacy) | `references/actor.md` |
-| MCP server, skills, docs-mcp | `references/integrations.md` |
+| Browser Use toolsets for Claude, MCP server, skills, docs-mcp | `references/integrations.md` |
 | Laminar, OpenLIT, cost tracking, telemetry | `references/monitoring.md` |
 | Fast agent, parallel, playwright, sensitive data | `references/examples.md` |
 

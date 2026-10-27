@@ -59,8 +59,8 @@ Optimized for browser automation — highest accuracy, fastest speed, lowest tok
 ```python
 from browser_use import Agent, ChatBrowserUse
 
-llm = ChatBrowserUse()                    # bu-latest (default)
-llm = ChatBrowserUse(model='bu-2-0')      # Premium model
+llm = ChatBrowserUse()                              # bu-2-0 (default, 'bu-latest' tracks it)
+llm = ChatBrowserUse(model='bu-2-0-mini-preview')   # Cheaper per token, opt-in while in preview
 ```
 
 **Env:** `BROWSER_USE_API_KEY` — get at https://cloud.browser-use.com/new-api-key
@@ -68,9 +68,31 @@ llm = ChatBrowserUse(model='bu-2-0')      # Premium model
 **Models & Pricing (per 1M tokens):**
 | Model | Input | Cached | Output |
 |-------|-------|--------|--------|
-| bu-1-0 / bu-latest (default) | $0.20 | $0.02 | $2.00 |
-| bu-2-0 (premium) | $0.60 | $0.06 | $3.50 |
-| browser-use/bu-30b-a3b-preview (OSS) | — | — | — |
+| bu-2-0 (default, premium) | $0.60 | $0.06 | $3.50 |
+| bu-2-0-mini-preview (opt-in) | $0.15 | $0.15 | $1.50 |
+| bu-1-0 (redirects to bu-2-0) | $0.60 | $0.06 | $3.50 |
+
+### Open weights (self-hosted)
+
+`bu-30b-a3b-preview` is our open-weights browser model: 30B total, 3B active, 64K context.
+Browser Use Cloud does not route it, so there is no `bu-*` alias and no per-token price.
+Run it yourself and talk to it with `ChatOpenAI`:
+
+```bash
+vllm serve browser-use/bu-30b-a3b-preview --max-model-len 65536 --host 0.0.0.0 --port 8000
+```
+
+```python
+from browser_use import ChatOpenAI
+
+llm = ChatOpenAI(
+    model='browser-use/bu-30b-a3b-preview',
+    base_url='http://localhost:8000/v1',
+    api_key='not-needed',
+)
+```
+
+Weights: https://huggingface.co/browser-use/bu-30b-a3b-preview
 
 ## OpenAI
 
@@ -149,7 +171,7 @@ Supports profiles, IAM roles, SSO via standard AWS credential chain. Install wit
 ```python
 from browser_use import Agent, ChatDeepSeek
 
-llm = ChatDeepSeek(model="deepseek-chat")
+llm = ChatDeepSeek(model="deepseek-v4-flash")
 ```
 
 **Env:** `DEEPSEEK_API_KEY` | [Available models](https://api-docs.deepseek.com/quick_start/pricing)
@@ -273,6 +295,20 @@ llm = ChatOpenAI(model="Qwen/Qwen2.5-VL-72B-Instruct", base_url="https://api-inf
 llm = ChatOpenAI(model="deepseek/deepseek-r1", base_url="https://api.novita.ai/v3/openai")
 ```
 **Env:** `NOVITA_API_KEY`
+
+### PZERO
+```python
+import os
+
+llm = ChatOpenAI(
+    model="deepseek-v4-flash",
+    base_url="https://api.pzero.studio/v1",
+    api_key=os.environ["PZERO_API_KEY"],
+)
+```
+**Env:** `PZERO_API_KEY` — get a key at https://pzero.studio/agents
+
+Use the `/v1` base URL (not `/v1/chat/completions`). Pass catalog model ids as-is (no `openai/` prefix). The default `deepseek-v4-flash` model is text-only — set `use_vision=False` on the agent unless you pick a vision-capable model. List available models with `GET https://api.pzero.studio/v1/models` (no auth required).
 
 ### LangChain
 See example at [examples/models/langchain](https://github.com/browser-use/browser-use/tree/main/examples/models/langchain).

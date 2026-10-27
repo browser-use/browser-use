@@ -1,4 +1,4 @@
-"""Unit tests for the DeepSeek chat client (v4 JSON-output compatibility)."""
+"""Unit tests for the DeepSeek chat client (v4 JSON-output compatibility + setup regressions)."""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,6 +7,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from browser_use.llm.deepseek.chat import ChatDeepSeek, _repair_json_control_chars
+from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.messages import SystemMessage, UserMessage
 
 
@@ -93,3 +94,19 @@ async def test_non_reasoning_model_keeps_function_calling_path():
 	assert kwargs['tool_choice'] == {'type': 'function', 'function': {'name': '_SimpleOutput'}}
 	assert 'response_format' not in kwargs
 	assert result.completion.action == [{'search': {'query': 'a', 'engine': 'google'}}]
+
+
+def test_provider_key_does_not_fall_back_to_openai_key(monkeypatch: pytest.MonkeyPatch):
+	monkeypatch.setenv('OPENAI_API_KEY', 'wrong-provider-key')
+	monkeypatch.setenv('DEEPSEEK_API_KEY', 'deepseek-key')
+	assert ChatDeepSeek(model='deepseek-v4-flash')._client().api_key == 'deepseek-key'
+
+	monkeypatch.delenv('DEEPSEEK_API_KEY')
+	with pytest.raises(ModelProviderError, match='Missing DeepSeek API key') as exc_info:
+		ChatDeepSeek(model='deepseek-v4-flash')._client()
+	assert exc_info.value.status_code == 401
+
+
+def test_explicit_api_key_takes_precedence_over_env(monkeypatch: pytest.MonkeyPatch):
+	monkeypatch.setenv('DEEPSEEK_API_KEY', 'env-key')
+	assert ChatDeepSeek(model='deepseek-v4-flash', api_key='explicit-key')._client().api_key == 'explicit-key'
