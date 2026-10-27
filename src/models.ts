@@ -60,7 +60,7 @@ export function builtinModels(options?: CreateModelsOptions) {
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         thinkingLevelMap: {
           off: 'none',
-          minimal: null,
+          minimal: 'minimal',
           low: 'low',
           medium: 'medium',
           high: 'high',

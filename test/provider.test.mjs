@@ -353,7 +353,14 @@ test('model prices reject partial and negative rates', () => {
     );
 });
 
-for (const scenario of ['complete', 'balanced', 'smart', 'unknown-model', 'unauthorized']) {
+for (const scenario of [
+  'complete',
+  'balanced',
+  'smart',
+  'minimal',
+  'unknown-model',
+  'unauthorized',
+]) {
   test(`Browser Use gateway sends exact model, auth, tools and usage; scenario=${scenario}`, async () => {
     const previous = process.env.BROWSER_USE_API_KEY;
     process.env.BROWSER_USE_API_KEY = 'fixture-browser-use-key';
@@ -427,6 +434,7 @@ for (const scenario of ['complete', 'balanced', 'smart', 'unknown-model', 'unaut
         browser: { kind: 'pending' },
         researchTools: false,
         telemetry: false,
+        ...(scenario === 'minimal' ? { reasoning: 'minimal' } : {}),
       });
       const result = await agent.run('Check the gateway.');
       assert.equal(requests.length, 1);
@@ -436,7 +444,8 @@ for (const scenario of ['complete', 'balanced', 'smart', 'unknown-model', 'unaut
       assert.equal(request.headers['x-browser-use-client'], 'pi');
       assert.equal(request.headers['x-browser-use-request-type'], undefined);
       assert.equal(request.body.model, model.replace(/^browser-use\//, ''));
-      if (scenario !== 'unknown-model') assert.equal(request.body.reasoning_effort, 'high');
+      if (scenario === 'minimal') assert.equal(request.body.reasoning_effort, 'minimal');
+      else if (scenario !== 'unknown-model') assert.equal(request.body.reasoning_effort, 'high');
       assert.equal(request.body.stream_options.include_usage, true);
       assert.notEqual(request.body.store, true);
       assert.ok(request.body.tools.some((tool) => tool.function.name === 'finish'));
