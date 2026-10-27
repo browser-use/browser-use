@@ -95,3 +95,60 @@ def test_optimizer_treats_property_names_as_data_not_schema_keywords():
 		field_schema = schema['properties'][field_name]
 		assert '$ref' not in field_schema
 		assert field_schema['properties']['summary']['type'] == 'string'
+
+
+def test_remove_flags_keep_fields_named_after_removed_keywords():
+	"""remove_defaults/remove_min_items must not drop user fields of those names.
+
+	The cleanup pass strips schema metadata (a field's default value, or a
+	minItems annotation). Names inside a properties map are user fields, and
+	dropping them leaves the names in required under additionalProperties: false (#5829).
+	"""
+
+	class Nested(BaseModel):
+		default: str = 'nested fallback'
+		minItems: list[str] = Field(min_length=1)
+		min_items: int
+
+	class Output(BaseModel):
+		default: bool
+		minItems: str
+		min_items: str
+		nested: Nested
+		properties: Nested
+		nested_items: list[Nested]
+		optional_value: str = 'fallback'
+		constrained: list[str] = Field(min_length=2)
+
+	schema = SchemaOptimizer.create_optimized_json_schema(
+		Output,
+		remove_defaults=True,
+		remove_min_items=True,
+	)
+
+	for object_schema, model in (
+		(schema, Output),
+		(schema['properties']['nested'], Nested),
+		(schema['properties']['properties'], Nested),
+		(schema['properties']['nested_items']['items'], Nested),
+	):
+		assert set(object_schema['properties']) == set(model.model_fields)
+		assert set(object_schema['required']) == set(model.model_fields)
+		assert object_schema['additionalProperties'] is False
+
+	# Metadata is still removed. A field named default/minItems keeps its name,
+	# but its own default value / minItems annotation does not survive.
+	assert 'default' not in schema['properties']['optional_value']
+	assert 'minItems' not in schema['properties']['constrained']
+	nested_props = schema['properties']['nested']['properties']
+	assert 'default' not in nested_props['default']
+	assert 'minItems' not in nested_props['minItems']
+	properties_field = schema['properties']['properties']['properties']
+	assert 'default' not in properties_field['default']
+	assert 'minItems' not in properties_field['minItems']
+
+	unchanged = SchemaOptimizer.create_optimized_json_schema(Output)
+	assert unchanged['properties']['optional_value']['default'] == 'fallback'
+	assert unchanged['properties']['constrained']['minItems'] == 2
+	assert unchanged['properties']['nested']['properties']['default']['default'] == 'nested fallback'
+	assert unchanged['properties']['nested']['properties']['minItems']['minItems'] == 1
