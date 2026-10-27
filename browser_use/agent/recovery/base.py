@@ -199,6 +199,7 @@ class RecoveryStrategy:
 	async def run_action(self, ctx: RecoveryContext, action: ActionModel) -> ActionResult:
 		"""Execute an action through the same entry point as the main loop."""
 		session = ctx.browser_session
+		assert session is not None, 'BrowserSession is not set up'
 		return await ctx.agent.tools.act(
 			action=action,
 			browser_session=session,
