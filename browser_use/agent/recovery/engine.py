@@ -117,7 +117,9 @@ class RecoveryEngine:
 
 	def ordered_strategy_names(self) -> list[str]:
 		"""Strategy names in dispatch order — used for logging and tests."""
-		return [s.name for s in self.strategies]
+		return [
+			s.name for s in sorted(self.strategies, key=lambda s: (_PHASE_ORDER[s.phase], _COST_ORDER[s.cost.value]))
+		]
 
 
 @dataclass
