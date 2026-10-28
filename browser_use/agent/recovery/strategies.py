@@ -227,7 +227,20 @@ class RelocateRecovery(RecoveryStrategy):
 				reason='no interacted element recorded for relocation',
 			)
 
+		# Refresh only for relocation: the retry action returned here carries an
+		# index that matches the refreshed selector map. Other recovery
+		# strategies keep the step's selector map so index-based retries do not
+		# accidentally target a different element after a DOM shift.
 		state = ctx.browser_state
+		session = ctx.browser_session
+		if session is not None:
+			try:
+				fresh_state = await session.get_browser_state_summary(include_screenshot=False)
+				if fresh_state is not None:
+					state = fresh_state
+			except Exception as e:
+				logger.debug(f'Relocation could not refresh browser state: {type(e).__name__}: {e}')
+
 		if state is None or not state.dom_state or not state.dom_state.selector_map:
 			return RecoveryResult(
 				outcome=RecoveryOutcome.GIVE_UP,

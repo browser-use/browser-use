@@ -152,6 +152,47 @@ class RecoveryContext:
 			[count for key, count in self.attempts.items() if key == strategy_name or key.endswith(f':{strategy_name}')] or [0]
 		)
 
+	#: Idempotent/read-only actions that are always safe to replay.
+	_SAFE_RETRY_KINDS = {ActionKind.NAVIGATE, ActionKind.SCROLL, ActionKind.EXTRACT}
+	_SAFE_RETRY_NAMES = {'wait', 'done'}
+	#: Errors that prove the action never ran, making replay safe for effectful
+	#: actions (click/type/upload/download).
+	_NON_EXECUTION_ERROR_TOKENS = (
+		'not found',
+		'not available',
+		'not visible',
+		'outside viewport',
+		'not in viewport',
+		'offscreen',
+		'scrolled out',
+		'below the fold',
+		'detached',
+		'stale',
+		'no element',
+		'element index',
+		'page may have changed',
+		'loading',
+		'not loaded',
+		'pending network',
+		'intercept',
+		'overlay',
+		'site unavailable',
+		'navigation failed',
+		'failed to load',
+	)
+
+	def is_safe_to_retry(self) -> bool:
+		"""Whether replaying the failed action cannot duplicate a side effect.
+
+		Effectful actions (click, type, upload, download) are only retried when
+		the error proves they never executed (e.g. the element was missing).
+		Ambiguous failures (timeouts, unknown errors) are handed back to the LLM
+		instead of replaying a possibly-already-applied action.
+		"""
+		if self.action_kind in self._SAFE_RETRY_KINDS or self.action_name in self._SAFE_RETRY_NAMES:
+			return True
+		return any(token in self.error for token in self._NON_EXECUTION_ERROR_TOKENS)
+
 	@property
 	def browser_session(self) -> BrowserSession | None:
 		return self.agent.browser_session

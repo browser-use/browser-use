@@ -45,6 +45,12 @@ class _StubAction(ActionModel):
 	click: dict[str, Any] | None = None
 
 
+class _ScrollAction(ActionModel):
+	"""Explicitly idempotent/safe action for budget tests."""
+
+	scroll: dict[str, Any] | None = None
+
+
 def _make_state(url: str = 'https://example.com', pending: tuple = ()) -> BrowserStateSummary:
 	return BrowserStateSummary(
 		dom_state=SerializedDOMState(_root=None, selector_map={}),
@@ -438,14 +444,61 @@ async def test_stage_budget_limits_retry_rounds():
 	stage = RecoveryStage(engine=RecoveryEngine([strategy]), max_rounds=1)
 	attempt = await stage.recover(
 		agent=agent,
-		action=_StubAction(click={'index': 5}),
-		action_name='click',
+		action=_ScrollAction(scroll={'down': True}),
+		action_name='scroll',
 		failed_result=ActionResult(error='boom'),
 		browser_state=_make_state(),
 	)
 	assert attempt.recovered is False
 	assert attempt.outcome == RecoveryOutcome.GIVE_UP
-	# max_rounds=1 → one recovery round, which re-executes the action once.
+	# max_rounds=1 → one recovery round, which re-executes the safe action once.
+	agent.tools.act.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stage_does_not_retry_effectful_action_on_ambiguous_error():
+	from browser_use.agent.recovery.base import RecoveryCost, RecoveryPhase
+
+	strategy = _DummyStrategy('always_retry', RecoveryPhase.ACTION, RecoveryCost.LOW)
+	strategy.max_attempts = 99
+	agent = _make_agent()
+	agent.tools.act = AsyncMock(return_value=ActionResult(extracted_content='unexpected'))
+	stage = RecoveryStage(engine=RecoveryEngine([strategy]), max_rounds=2)
+
+	attempt = await stage.recover(
+		agent=agent,
+		action=_StubAction(click={'index': 5}),
+		action_name='click',
+		failed_result=ActionResult(error='boom'),
+		browser_state=_make_state(),
+	)
+
+	assert attempt.recovered is False
+	assert attempt.outcome == RecoveryOutcome.GIVE_UP
+	assert 'not safe' in (attempt.reason or '')
+	agent.tools.act.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stage_retries_effectful_action_when_error_proves_no_execution():
+	from browser_use.agent.recovery.base import RecoveryCost, RecoveryPhase
+
+	strategy = _DummyStrategy('always_retry', RecoveryPhase.ACTION, RecoveryCost.LOW)
+	strategy.max_attempts = 99
+	agent = _make_agent()
+	agent.tools.act = AsyncMock(return_value=ActionResult(extracted_content='clicked'))
+	stage = RecoveryStage(engine=RecoveryEngine([strategy]), max_rounds=2)
+
+	attempt = await stage.recover(
+		agent=agent,
+		action=_StubAction(click={'index': 5}),
+		action_name='click',
+		failed_result=ActionResult(error='element index 5 not found'),
+		browser_state=_make_state(),
+	)
+
+	assert attempt.recovered is True
+	assert attempt.result.extracted_content == 'clicked'
 	agent.tools.act.assert_awaited_once()
 
 
@@ -688,59 +741,53 @@ async def test_composite_stops_on_terminal_relocate_give_up():
 
 
 @pytest.mark.asyncio
-async def test_stage_refreshes_browser_state_for_recovery():
+async def test_relocate_refreshes_browser_state():
+	from browser_use.dom.views import DOMInteractedElement
+
+	strategy = RelocateRecovery()
 	agent = _make_agent()
+	current = MagicMock(spec=DOMInteractedElement)
 	stale = _make_state(url='https://stale.example')
 	fresh = _make_state(url='https://fresh.example')
+	fresh.dom_state.selector_map = {12: MagicMock()}
 	browser_session = MagicMock()
 	browser_session.get_browser_state_summary = AsyncMock(return_value=fresh)
 	agent.browser_session = browser_session
 
-	seen: dict[str, Any] = {}
-	engine = RecoveryEngine([])
+	executor = MagicMock()
+	executor._update_action_indices = AsyncMock(return_value=_StubAction(click={'index': 12}))
+	agent._pipeline.action_executor = executor
 
-	async def fake_evaluate(ctx):
-		seen['state'] = ctx.browser_state
-		return RecoveryResult(outcome=RecoveryOutcome.GIVE_UP, reason='stop')
+	ctx = _make_context(agent, error='element index 5 not found', state=stale)
+	ctx.historical_element = current
 
-	engine.evaluate = fake_evaluate  # type: ignore[method-assign]
-	stage = RecoveryStage(engine=engine, max_rounds=1)
+	result = await strategy.recover(ctx)
 
-	await stage.recover(
-		agent=agent,
-		action=_StubAction(click={'index': 5}),
-		action_name='click',
-		failed_result=ActionResult(error='boom'),
-		browser_state=stale,
-	)
-
-	assert seen['state'] is fresh
+	assert result.outcome == RecoveryOutcome.RETRY
+	executor._update_action_indices.assert_awaited_once_with(current, ctx.action, fresh)
 
 
 @pytest.mark.asyncio
-async def test_stage_falls_back_when_state_refresh_fails():
+async def test_relocate_falls_back_when_refresh_fails():
+	from browser_use.dom.views import DOMInteractedElement
+
+	strategy = RelocateRecovery()
 	agent = _make_agent()
+	current = MagicMock(spec=DOMInteractedElement)
 	stale = _make_state(url='https://stale.example')
+	stale.dom_state.selector_map = {12: MagicMock()}
 	browser_session = MagicMock()
 	browser_session.get_browser_state_summary = AsyncMock(side_effect=RuntimeError('disconnected'))
 	agent.browser_session = browser_session
 
-	seen: dict[str, Any] = {}
-	engine = RecoveryEngine([])
+	executor = MagicMock()
+	executor._update_action_indices = AsyncMock(return_value=_StubAction(click={'index': 12}))
+	agent._pipeline.action_executor = executor
 
-	async def fake_evaluate(ctx):
-		seen['state'] = ctx.browser_state
-		return RecoveryResult(outcome=RecoveryOutcome.GIVE_UP, reason='stop')
+	ctx = _make_context(agent, error='element index 5 not found', state=stale)
+	ctx.historical_element = current
 
-	engine.evaluate = fake_evaluate  # type: ignore[method-assign]
-	stage = RecoveryStage(engine=engine, max_rounds=1)
+	result = await strategy.recover(ctx)
 
-	await stage.recover(
-		agent=agent,
-		action=_StubAction(click={'index': 5}),
-		action_name='click',
-		failed_result=ActionResult(error='boom'),
-		browser_state=stale,
-	)
-
-	assert seen['state'] is stale
+	assert result.outcome == RecoveryOutcome.RETRY
+	executor._update_action_indices.assert_awaited_once_with(current, ctx.action, stale)

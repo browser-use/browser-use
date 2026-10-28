@@ -190,18 +190,6 @@ class RecoveryStage:
 		``attempt.result`` is the successful ``ActionResult``. Otherwise the
 		original error is preserved and the LLM becomes the fallback.
 		"""
-		# Refresh the page state so element-repair strategies target the live
-		# DOM rather than the snapshot that produced the failed action. Fall
-		# back to the supplied state if the session is disconnected or the read
-		# fails.
-		if agent.browser_session is not None:
-			try:
-				fresh_state = await agent.browser_session.get_browser_state_summary(include_screenshot=False)
-				if fresh_state is not None:
-					browser_state = fresh_state
-			except Exception as e:
-				logger.debug(f'Recovery could not refresh browser state: {type(e).__name__}: {e}')
-
 		ctx = self._build_context(agent, action, action_name, failed_result, browser_state, historical_element)
 		self.engine.stats.record_session()
 		chain: list[str] = []
@@ -218,7 +206,20 @@ class RecoveryStage:
 					attempts=decision.attempts,
 					reason=decision.reason,
 				)
-			# SUCCESS / RETRY → re-execute the (possibly updated) action.
+			# SUCCESS / RETRY → re-execute the (possibly updated) action, but
+			# never replay an effectful action after an ambiguous failure.
+			if not ctx.is_safe_to_retry():
+				self.engine.stats.record_give_up()
+				logger.info(f'❌ Recovery gave up: action {ctx.action_name} is not safe to retry after "{ctx.error}"')
+				return RecoveryAttempt(
+					result=failed_result,
+					outcome=RecoveryOutcome.GIVE_UP,
+					recovered=False,
+					chain=chain,
+					strategy=decision.strategy,
+					attempts=decision.attempts,
+					reason='action is not safe to retry after an ambiguous failure',
+				)
 			retry_action = decision.retry_action or ctx.action
 			ctx.action = retry_action
 			try:

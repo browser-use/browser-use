@@ -11,6 +11,7 @@ import inspect
 import logging
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -32,6 +33,15 @@ from browser_use.llm.messages import BaseMessage
 from browser_use.tools.registry.views import ActionModel
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class HistoryStepExecution:
+	"""Outcome of executing one history step during rerun."""
+
+	results: list[ActionResult]
+	failed_action_index: int | None = None
+	error: str | None = None
 
 
 class ActionExecutor:
@@ -387,7 +397,8 @@ class ActionExecutor:
 		delay: float,
 		ai_step_llm: BaseChatModel | None = None,
 		wait_for_elements: bool = False,
-	) -> list[ActionResult]:
+		start_index: int = 0,
+	) -> HistoryStepExecution:
 		"""Execute a single step from history with element validation.
 
 		For extract actions, uses AI to re-evaluate the content since page content may have changed.
@@ -397,6 +408,7 @@ class ActionExecutor:
 			delay: Delay before executing the step
 			ai_step_llm: Optional LLM to use for AI steps
 			wait_for_elements: If True, wait for minimum elements before element matching
+			start_index: Index of the first action to execute (resume after a partial failure)
 		"""
 		assert self._agent.browser_session is not None, 'BrowserSession is not set up'
 
@@ -408,6 +420,8 @@ class ActionExecutor:
 			needs_element_matching = False
 			if history_item.model_output:
 				for i, action in enumerate(history_item.model_output.action):
+					if i < start_index:
+						continue
 					action_data = action.model_dump(exclude_unset=True)
 					action_name = next(iter(action_data.keys()), None)
 					# Actions that need element matching
@@ -432,10 +446,33 @@ class ActionExecutor:
 		if not state or not history_item.model_output:
 			raise ValueError('Invalid state or model output')
 
-		results = []
-		pending_actions = []
+		results: list[ActionResult] = []
+		pending_actions: list[ActionModel] = []
+		pending_indices: list[int] = []
+
+		async def flush_pending() -> HistoryStepExecution | None:
+			nonlocal pending_actions, pending_indices
+			if not pending_actions:
+				return None
+			batch_results = await self.multi_act(pending_actions)
+			for offset, batch_result in enumerate(batch_results):
+				if batch_result.error:
+					# Keep only the successful actions from this attempt; the caller
+					# reports the terminal error once retries are exhausted.
+					results.extend(batch_results[:offset])
+					failed_index = pending_indices[offset] if offset < len(pending_indices) else None
+					pending_actions = []
+					pending_indices = []
+					return HistoryStepExecution(results=results, failed_action_index=failed_index, error=batch_result.error)
+			results.extend(batch_results)
+			pending_actions = []
+			pending_indices = []
+			return None
 
 		for i, action in enumerate(history_item.model_output.action):
+			if i < start_index:
+				continue
+
 			# Check if this is an extract action - use AI step instead
 			action_data = action.model_dump(exclude_unset=True)
 			action_name = next(iter(action_data.keys()), None)
@@ -443,10 +480,9 @@ class ActionExecutor:
 			if action_name == 'extract':
 				# Execute any pending actions first to maintain correct order
 				# (e.g., if step is [click, extract], click must happen before extract)
-				if pending_actions:
-					batch_results = await self.multi_act(pending_actions)
-					results.extend(batch_results)
-					pending_actions = []
+				failed = await flush_pending()
+				if failed is not None:
+					return failed
 
 				# Now execute AI step for extract action
 				extract_params = action_data['extract']
@@ -460,6 +496,8 @@ class ActionExecutor:
 					extract_links=extract_links,
 					ai_step_llm=ai_step_llm,
 				)
+				if ai_result.error:
+					return HistoryStepExecution(results=results, failed_action_index=i, error=ai_result.error)
 				results.append(ai_result)
 			else:
 				# For non-extract actions, update indices and collect for batch execution.
@@ -472,6 +510,11 @@ class ActionExecutor:
 					state,
 				)
 				if updated_action is None:
+					# Execute preceding actions before reporting this failure.
+					failed = await flush_pending()
+					if failed is not None:
+						return failed
+
 					# Build informative error message with diagnostic info
 					elem_info = self._format_element_for_error(historical_elem)
 					selector_map = state.dom_state.selector_map or {}
@@ -498,20 +541,25 @@ class ActionExecutor:
 							f'\n  Found {same_node_count} <{hist_node.upper()}> elements (none with matching identifiers)'
 						)
 
-					raise ValueError(
-						f'Could not find matching element for action {i} in current page.\n'
-						f'  Looking for: {elem_info}\n'
-						f'  Page has {selector_count} interactive elements.{diagnostic}\n'
-						f'  Tried: EXACT hash → STABLE hash → XPATH → AX_NAME → ATTRIBUTE matching'
+					return HistoryStepExecution(
+						results=results,
+						failed_action_index=i,
+						error=(
+							f'Could not find matching element for action {i} in current page.\n'
+							f'  Looking for: {elem_info}\n'
+							f'  Page has {selector_count} interactive elements.{diagnostic}\n'
+							f'  Tried: EXACT hash → STABLE hash → XPATH → AX_NAME → ATTRIBUTE matching'
+						),
 					)
 				pending_actions.append(updated_action)
+				pending_indices.append(i)
 
 		# Execute any remaining pending actions
-		if pending_actions:
-			batch_results = await self.multi_act(pending_actions)
-			results.extend(batch_results)
+		failed = await flush_pending()
+		if failed is not None:
+			return failed
 
-		return results
+		return HistoryStepExecution(results=results)
 
 	async def _wait_for_minimum_elements(
 		self,
@@ -597,7 +645,11 @@ class ActionExecutor:
 		4. AX_NAME: Accessible name match from accessibility tree (robust for dynamic menus)
 		5. ATTRIBUTE: Unique attribute match (name, id, aria-label) for old history files
 		"""
-		if not historical_element or not browser_state_summary.dom_state.selector_map:
+		if not historical_element:
+			# Index-based actions cannot be replayed safely without a recorded
+			# element; the positional index may now point at a different control.
+			return action if action.get_index() is None else None
+		if not browser_state_summary.dom_state.selector_map:
 			return action
 
 		selector_map = browser_state_summary.dom_state.selector_map
@@ -605,9 +657,26 @@ class ActionExecutor:
 		if historical_element.frame_id:
 			# Stay inside the recorded frame: matching an identical control in a
 			# different iframe could operate on the wrong embedded page.
-			selector_items = [
+			same_frame_items = [
 				(index, element) for index, element in selector_items if element.frame_id == historical_element.frame_id
 			]
+			if same_frame_items:
+				selector_items = same_frame_items
+			else:
+				# Frame IDs are session-scoped and can change between runs. Remap
+				# only when the recorded element is uniquely identifiable.
+				exact_matches = [
+					(index, element)
+					for index, element in selector_items
+					if element.element_hash == historical_element.element_hash
+				]
+				if len(exact_matches) == 1 and exact_matches[0][1].frame_id is not None:
+					remapped_frame_id = exact_matches[0][1].frame_id
+					selector_items = [
+						(index, element) for index, element in selector_items if element.frame_id == remapped_frame_id
+					]
+				else:
+					selector_items = []
 		highlight_index: int | None = None
 		match_level: MatchLevel | None = None
 
@@ -922,7 +991,10 @@ class ActionExecutor:
 		try:
 			self._agent.logger.info('🔄 Re-opening dropdown/menu by re-executing previous step...')
 			# Use a minimal delay - we want to quickly re-open the menu
-			await self._execute_history_step(opener_item, delay=0.5, ai_step_llm=ai_step_llm, wait_for_elements=False)
+			outcome = await self._execute_history_step(opener_item, delay=0.5, ai_step_llm=ai_step_llm, wait_for_elements=False)
+			if outcome.error is not None:
+				self._agent.logger.warning(f'Failed to re-open dropdown: {outcome.error}')
+				return False
 			# Small delay to let the menu render
 			await asyncio.sleep(0.3)
 			return True
@@ -1106,21 +1178,28 @@ class ActionExecutor:
 				retry_count = 0
 				step_succeeded = False
 				menu_reopened = False  # Track if we've already tried reopening the menu
+				resume_index = 0
 				# Exponential backoff: 5s base, doubling each retry, capped at 30s
 				base_retry_delay = 5.0
 				max_retry_delay = 30.0
 				while retry_count < max_retries:
 					try:
-						result = await self._execute_history_step(history_item, step_delay, ai_step_llm, wait_for_elements)
-						# _execute_history_step reports action failures as returned
-						# ActionResult.error values instead of raising. Treat those as
-						# a failed attempt so max_retries and the final summary work.
-						error_results = [r for r in result if r.error]
-						if error_results:
-							raise RuntimeError(error_results[0].error or 'Action failed')
-						results.extend(result)
-						step_succeeded = True
-						break
+						outcome = await self._execute_history_step(
+							history_item,
+							step_delay,
+							ai_step_llm,
+							wait_for_elements,
+							start_index=resume_index,
+						)
+						# Successful results from this attempt are kept even if a
+						# later action fails; retries resume at the failed action.
+						results.extend(outcome.results)
+						if outcome.error is None:
+							step_succeeded = True
+							break
+						if outcome.failed_action_index is not None:
+							resume_index = outcome.failed_action_index
+						raise RuntimeError(outcome.error)
 
 					except Exception as e:
 						error_str = str(e)
