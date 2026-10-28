@@ -653,6 +653,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=True,
 		description='Enable the captcha solver watchdog that listens for captcha events from the browser proxy. Automatically pauses agent steps while a CAPTCHA is being solved. Only active when the browser emits BrowserUse CDP events (e.g. Browser Use cloud browsers). Harmless when disabled or when events are not emitted.',
 	)
+	about_blank_screensaver: bool = Field(
+		default=True,
+		description='Show the browser-use loading animation (a bouncing logo loaded from cf.browser-use.com) on about:blank tabs. Set to False to leave about:blank tabs untouched: nothing is written into them and the logo is not requested.',
+	)
 	demo_mode: bool = Field(
 		default=False,
 		description='Enable demo mode side panel that streams agent logs directly inside the browser window (requires headless=False).',
