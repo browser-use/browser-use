@@ -57,61 +57,11 @@ class MessageCompactionSettings(BaseModel):
 		return self
 
 
-class VisionSettings(BaseModel):
-	"""Vision & page extraction settings."""
-
-	model_config = ConfigDict(extra='forbid')
-	use_vision: bool | Literal['auto'] = True
-	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
-	page_extraction_llm: BaseChatModel | None = None
-	llm_screenshot_size: tuple[int, int] | None = None
-	include_attributes: list[str] | None = DEFAULT_INCLUDE_ATTRIBUTES
-	include_tool_call_examples: bool = False
-
-
-class BehaviorSettings(BaseModel):
-	"""Action execution & step behavior settings."""
-
-	model_config = ConfigDict(extra='forbid')
-	max_actions_per_step: int = 5
-	max_failures: int = 5
-	final_response_after_failure: bool = True
-	use_thinking: bool = True
-	flash_mode: bool = False
-	use_judge: bool = True
-	ground_truth: str | None = None
-	max_history_items: int | None = None
-	message_compaction: MessageCompactionSettings | None = None
-
-
-class PlanningSettings(BaseModel):
-	"""Task planning & loop detection settings."""
-
-	model_config = ConfigDict(extra='forbid')
-	enable_planning: bool = True
-	planning_replan_on_stall: int = 3
-	planning_exploration_limit: int = 5
-	loop_detection_window: int = 20
-	loop_detection_enabled: bool = True
-	max_clickable_elements_length: int = 40000
-
-
-class OutputSettings(BaseModel):
-	"""Output, file, and conversation saving settings."""
-
-	model_config = ConfigDict(extra='forbid')
-	save_conversation_path: str | Path | None = None
-	save_conversation_path_encoding: str | None = 'utf-8'
-	generate_gif: bool | str = False
-	calculate_cost: bool = False
-
-
 class AgentSettings(BaseModel):
-	"""Configuration options for the Agent
+	"""Configuration options for the Agent.
 
-	Settings are grouped into sub-categories for convenience.
-	Use the sub-setting classes (VisionSettings, BehaviorSettings, etc.)
-	or pass individual params directly to Agent.
+	All settings are flat fields: pass them individually to ``Agent`` or as
+	keyword arguments to ``AgentSettings``. There is no grouped sub-setting API.
 	"""
 
 	# --- Vision ---
@@ -556,7 +506,13 @@ class PlanState(BaseModel):
 		return all(s.status == PlanNodeStatus.COMPLETED for s in self.steps)
 
 	def current_step_all_alternatives_failed(self) -> bool:
-		step = self.find_current_step()
+		"""Whether every alternative of the indexed current step has failed.
+
+		Uses ``current_step_index`` rather than ``find_current_step()``: once the
+		last alternative fails, ``mark_current_failed`` marks the step FAILED, so
+		a CURRENT-only lookup would never detect the exhaustion.
+		"""
+		step = self.steps[self.current_step_index] if 0 <= self.current_step_index < len(self.steps) else None
 		if not step or not step.alternatives:
 			return False
 		return all(a.status == PlanNodeStatus.FAILED for a in step.alternatives)

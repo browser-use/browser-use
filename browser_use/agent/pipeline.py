@@ -182,22 +182,33 @@ class ContextPreparer(BaseContextPreparer):
 		return self._agent.state.plan_state.render()
 
 	def _inject_replan_nudge(self) -> None:
-		"""Inject a replan nudge when stall detection threshold is met."""
+		"""Inject a replan nudge when alternatives are exhausted or stall threshold is met."""
 		if not self._agent.settings.enable_planning or self._agent.state.plan_state is None:
 			return
 		if self._agent.settings.planning_replan_on_stall <= 0:
 			return
-		if self._agent.state.plan_state.consecutive_failures >= self._agent.settings.planning_replan_on_stall:
+
+		plan_state = self._agent.state.plan_state
+		if plan_state.current_step_all_alternatives_failed():
+			step = plan_state.steps[plan_state.current_step_index]
+			msg = (
+				f'ALL ALTERNATIVES FAILED for step "{step.description}". '
+				'All retries exhausted. Output a `plan_update` with revised steps to continue.'
+			)
+			self._agent.logger.info(f'\U0001f4cb Replan nudge: all alternatives failed for step "{step.description}"')
+		elif plan_state.consecutive_failures >= self._agent.settings.planning_replan_on_stall:
 			msg = (
 				'REPLAN SUGGESTED: You have failed '
-				f'{self._agent.state.plan_state.consecutive_failures} consecutive times. '
+				f'{plan_state.consecutive_failures} consecutive times. '
 				'Your current plan may need revision. '
 				'Output a new `plan_update` with revised steps to recover.'
 			)
 			self._agent.logger.info(
-				f'\U0001f4cb Replan nudge injected after {self._agent.state.plan_state.consecutive_failures} consecutive failures'
+				f'\U0001f4cb Replan nudge injected after {plan_state.consecutive_failures} consecutive failures'
 			)
-			self._agent.message_manager._add_context_message(UserMessage(content=msg))
+		else:
+			return
+		self._agent.message_manager._add_context_message(UserMessage(content=msg))
 
 	def _inject_exploration_nudge(self) -> None:
 		if not self._agent.settings.enable_planning or self._agent.state.plan_state is not None:
@@ -383,9 +394,9 @@ class BasePostProcessor(ABC):
 		"""Post-action processing."""
 		...
 
-	def _update_plan_from_model_output(self, model_output: AgentOutput) -> None:
+	def _update_plan_from_model_output(self, model_output: AgentOutput) -> bool:
 		"""Update the plan state from model output fields (current_plan_item, plan_update)."""
-		pass
+		return False
 
 
 class PostProcessor(BasePostProcessor):
@@ -398,13 +409,14 @@ class PostProcessor(BasePostProcessor):
 	async def execute(self) -> None:
 		"""Run Phase 3: post-action processing."""
 		await self._pipeline._check_and_update_downloads('after executing actions')
+		plan_updated = False
 		if self._agent.state.last_model_output is not None:
-			self._update_plan_from_model_output(self._agent.state.last_model_output)
+			plan_updated = self._update_plan_from_model_output(self._agent.state.last_model_output)
 		self._update_loop_detector_actions()
-		self._update_consecutive_failures()
+		self._update_consecutive_failures(plan_updated=plan_updated)
 		self._log_completion_if_done()
 
-	def _update_consecutive_failures(self) -> None:
+	def _update_consecutive_failures(self, *, plan_updated: bool = False) -> None:
 		has_error = bool(
 			self._agent.state.last_result and len(self._agent.state.last_result) == 1 and self._agent.state.last_result[-1].error
 		)
@@ -421,11 +433,14 @@ class PostProcessor(BasePostProcessor):
 		# follows the single-action semantics for consecutive failures.
 		ps = self._agent.state.plan_state
 		if ps is not None:
-			results = self._agent.state.last_result or []
-			if any(result.error for result in results):
-				ps.mark_current_failed()
-			else:
-				ps.mark_current_completed()
+			# A plan just (re)created this pass has not executed its first step
+			# yet. Completing it here would silently skip that step.
+			if not plan_updated:
+				results = self._agent.state.last_result or []
+				if any(result.error for result in results):
+					ps.mark_current_failed()
+				else:
+					ps.mark_current_completed()
 			ps.log_plan(self._agent.logger)
 
 	def _log_completion_if_done(self) -> None:
@@ -442,21 +457,23 @@ class PostProcessor(BasePostProcessor):
 						f'\U0001f449 Attachment {i + 1 if len(self._agent.state.last_result[-1].attachments) > 1 else ""}: {fp}'
 					)
 
-	def _update_plan_from_model_output(self, model_output: AgentOutput) -> None:
+	def _update_plan_from_model_output(self, model_output: AgentOutput) -> bool:
 		if not self._agent.settings.enable_planning:
-			return
-		if model_output.plan_update is not None:
-			if self._agent.state.plan_state is None:
-				self._agent.state.plan_state = PlanState(
-					steps=[],
-					current_step_index=0,
-					created_at_step=self._agent.state.n_steps,
-				)
-			self._agent.state.plan_state.apply_plan_update(model_output.plan_update, at_step=self._agent.state.n_steps)
-			self._agent.logger.info(
-				f'\U0001f4cb Plan updated with {len(model_output.plan_update)} steps '
-				f'(version failures: {self._agent.state.plan_state.consecutive_failures})'
+			return False
+		if model_output.plan_update is None:
+			return False
+		if self._agent.state.plan_state is None:
+			self._agent.state.plan_state = PlanState(
+				steps=[],
+				current_step_index=0,
+				created_at_step=self._agent.state.n_steps,
 			)
+		self._agent.state.plan_state.apply_plan_update(model_output.plan_update, at_step=self._agent.state.n_steps)
+		self._agent.logger.info(
+			f'\U0001f4cb Plan updated with {len(model_output.plan_update)} steps '
+			f'(version failures: {self._agent.state.plan_state.consecutive_failures})'
+		)
+		return True
 
 	def _update_loop_detector_actions(self) -> None:
 		if not self._agent.settings.loop_detection_enabled or self._agent.state.last_model_output is None:

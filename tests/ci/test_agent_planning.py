@@ -7,7 +7,9 @@ disabled planning, replan nudge, flash mode schema, and edge cases.
 import json
 
 from browser_use.agent.views import (
+	ActionResult,
 	AgentOutput,
+	PlanNode,
 	PlanNodeStatus,
 	PlanState,
 	PlanStep,
@@ -442,3 +444,78 @@ def test_post_processor_marks_plan_completed_when_all_actions_succeed():
 
 	agent.state.plan_state.mark_current_completed.assert_called_once()
 	agent.state.plan_state.mark_current_failed.assert_not_called()
+
+
+# ── Exhausted alternatives trigger a replan nudge ─────────────────────────
+def test_current_step_all_alternatives_failed_uses_indexed_step():
+	plan = PlanState(
+		steps=[
+			PlanStep(
+				description='Try alternatives',
+				step_number=0,
+				status=PlanNodeStatus.FAILED,
+				alternatives=[
+					PlanNode(description='A', status=PlanNodeStatus.FAILED),
+					PlanNode(description='B', status=PlanNodeStatus.FAILED),
+				],
+			)
+		],
+		current_step_index=0,
+		created_at_step=0,
+	)
+
+	# The step is FAILED (not CURRENT), but the exhaustion check must still work.
+	assert plan.find_current_step() is None
+	assert plan.current_step_all_alternatives_failed() is True
+
+
+async def test_replan_nudge_on_exhausted_alternatives(browser_session, mock_llm):
+	agent = _make_agent(browser_session, mock_llm, planning_replan_on_stall=3)
+	agent.state.plan_state = PlanState(
+		steps=[
+			PlanStep(
+				description='Try alternatives',
+				step_number=0,
+				status=PlanNodeStatus.FAILED,
+				alternatives=[
+					PlanNode(description='A', status=PlanNodeStatus.FAILED),
+					PlanNode(description='B', status=PlanNodeStatus.FAILED),
+				],
+			)
+		],
+		current_step_index=0,
+		created_at_step=0,
+	)
+
+	initial_count = len(agent._message_manager.state.history.context_messages)
+	agent._inject_replan_nudge()
+
+	assert len(agent._message_manager.state.history.context_messages) == initial_count + 1
+	msg = agent._message_manager.state.history.context_messages[-1]
+	assert isinstance(msg.content, str) and 'ALL ALTERNATIVES FAILED' in msg.content
+
+
+# ── A newly created plan must not skip its first step ─────────────────────
+async def test_new_plan_first_step_is_not_completed_in_same_pass(browser_session, mock_llm):
+	agent = _make_agent(browser_session, mock_llm)
+	output = _make_agent_output(plan_update=['Step A', 'Step B'])
+
+	agent.state.last_model_output = output
+	agent.state.last_result = [ActionResult(extracted_content='ok')]
+	await agent._pipeline.post_processor.execute()
+
+	ps = agent.state.plan_state
+	assert ps is not None
+	assert ps.steps[0].description == 'Step A'
+	assert ps.steps[0].status == PlanNodeStatus.CURRENT
+	assert ps.current_step_index == 0
+
+	# The next pass has no plan_update: the executed step now completes and
+	# the plan advances normally.
+	agent.state.last_model_output = _make_agent_output()
+	agent.state.last_result = [ActionResult(extracted_content='ok')]
+	await agent._pipeline.post_processor.execute()
+
+	assert ps.steps[0].status == PlanNodeStatus.COMPLETED
+	assert ps.steps[1].status == PlanNodeStatus.CURRENT
+	assert ps.current_step_index == 1
