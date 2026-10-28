@@ -21,7 +21,13 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
 
 from browser_use.browser._cdp_timeout import TimeoutWrappedCDPClient
-from browser_use.browser.cloud.cloud import CloudBrowserAuthError, CloudBrowserClient, CloudBrowserError
+from browser_use.browser.cloud.cloud import (
+	MISSING_API_KEY_MESSAGE,
+	CloudBrowserAuthError,
+	CloudBrowserClient,
+	CloudBrowserError,
+	resolve_api_key,
+)
 
 # CDP logging is now handled by setup_logging() in logging_config.py
 # It automatically sets CDP logs to the same level as browser_use logs
@@ -54,6 +60,7 @@ from browser_use.browser.events import (
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
 from browser_use.browser.views import BrowserStateSummary, TabInfo
+from browser_use.config import CONFIG
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, SerializedDOMState, TargetInfo
 from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_url, create_task_with_error_handling, is_new_tab_page
@@ -690,11 +697,15 @@ class BrowserSession(BaseModel):
 		self.logger.info('✅ Browser session reset complete')
 
 	def model_post_init(self, __context) -> None:
-		"""Register event handlers after model initialization."""
+		"""Initialize runtime state and register event handlers."""
 		self._connection_lock = asyncio.Lock()
 		# Initialize reconnect event as set (no reconnection pending)
 		self._reconnect_event = asyncio.Event()
 		self._reconnect_event.set()
+		self._register_session_event_handlers()
+
+	def _register_session_event_handlers(self) -> None:
+		"""Register BrowserSession handlers on the current event bus."""
 
 		# Check if handlers are already registered to prevent duplicates
 		from browser_use.browser.watchdog_base import BaseWatchdog
@@ -722,10 +733,19 @@ class BrowserSession(BaseModel):
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_session_start')
 	async def start(self) -> None:
 		"""Start the browser session."""
+		self._raise_if_cloud_api_key_missing()
 		start_event = self.event_bus.dispatch(BrowserStartEvent())
 		await start_event
 		# Ensure any exceptions from the event handler are propagated
 		await start_event.event_result(raise_if_any=True, raise_if_none=False)
+
+	def _raise_if_cloud_api_key_missing(self) -> None:
+		"""Fail fast with one clear message instead of letting the event bus log the error several times."""
+		profile = self.browser_profile
+		if self.cdp_url or not (profile.use_cloud or profile.cloud_browser_params is not None):
+			return
+		if not resolve_api_key():
+			raise CloudBrowserAuthError(MISSING_API_KEY_MESSAGE)
 
 	async def kill(self) -> None:
 		"""Kill the browser session and reset all state."""
@@ -746,6 +766,7 @@ class BrowserSession(BaseModel):
 		await self.reset()
 		# Create fresh event bus
 		self.event_bus = ResilientEventBus()
+		self._register_session_event_handlers()
 
 	async def stop(self) -> None:
 		"""Stop the browser session without killing the browser process.
@@ -771,6 +792,7 @@ class BrowserSession(BaseModel):
 		await self.reset()
 		# Create fresh event bus
 		self.event_bus = ResilientEventBus()
+		self._register_session_event_handlers()
 
 	async def close(self) -> None:
 		"""Alias for stop()."""
@@ -800,6 +822,8 @@ class BrowserSession(BaseModel):
 						# Use cloud_browser_params if provided, otherwise create empty request
 						cloud_params = self.browser_profile.cloud_browser_params or CreateBrowserRequest()
 						cloud_browser_response = await self._cloud_browser_client.create_browser(cloud_params)
+						if not cloud_browser_response.cdpUrl:
+							raise CloudBrowserError('Cloud browser response did not include a CDP URL')
 						self.browser_profile.cdp_url = cloud_browser_response.cdpUrl
 						self.browser_profile.is_local = False
 						self.logger.info('🌤️ Successfully connected to cloud browser service')
@@ -889,7 +913,7 @@ class BrowserSession(BaseModel):
 					details={'cdp_url': self.cdp_url, 'is_local': self.is_local},
 				)
 			)
-			if self.is_local and not isinstance(e, (CloudBrowserAuthError, CloudBrowserError)):
+			if self.is_local and CONFIG.BROWSER_USE_CLOUD_HINTS and not isinstance(e, (CloudBrowserAuthError, CloudBrowserError)):
 				self.logger.warning(
 					'Local browser failed to start. Cloud browsers require no local install and work out of the box.\n'
 					'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=browser_launch_failure'
@@ -2194,49 +2218,75 @@ class BrowserSession(BaseModel):
 			additional_headers=headers or None,
 			max_ws_frame_size=200 * 1024 * 1024,
 		)
-		await self._cdp_client_root.start()
+		try:
+			await self._cdp_client_root.start()
 
-		# 4. Re-initialize SessionManager
-		from browser_use.browser.session_manager import SessionManager
+			from browser_use.browser.session_manager import SessionManager
 
-		self.session_manager = SessionManager(self)
-		await self.session_manager.start_monitoring()
+			self.session_manager = SessionManager(self)
+			await self.session_manager.start_monitoring()
 
-		# 5. Re-enable autoAttach
-		await self._cdp_client_root.send.Target.setAutoAttach(
-			params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
-		)
+			await self._cdp_client_root.send.Target.setAutoAttach(
+				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
+			)
 
-		# 6. Re-discover page targets and restore focus
-		page_targets = self.session_manager.get_all_page_targets()
+			page_targets = self.session_manager.get_all_page_targets()
 
-		# Prefer the old focus target if it still exists
-		restored = False
-		if old_focus_target_id:
-			for target in page_targets:
-				if target.target_id == old_focus_target_id:
-					await self.get_or_create_cdp_session(old_focus_target_id, focus=True)
-					restored = True
-					self.logger.debug(f'🔄 Restored agent focus to previous target {old_focus_target_id[:8]}...')
-					break
+			# Prefer the previous focus target when it remains available.
+			restored = False
+			if old_focus_target_id:
+				for target in page_targets:
+					if target.target_id == old_focus_target_id:
+						await self.get_or_create_cdp_session(old_focus_target_id, focus=True)
+						restored = True
+						self.logger.debug(f'🔄 Restored agent focus to previous target {old_focus_target_id[:8]}...')
+						break
 
-		if not restored:
-			if page_targets:
-				fallback_id = page_targets[0].target_id
-				await self.get_or_create_cdp_session(fallback_id, focus=True)
-				self.logger.debug(f'🔄 Agent focus set to fallback target {fallback_id[:8]}...')
-			else:
-				# No pages exist — create one
-				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
-				target_id = new_target['targetId']
-				await self.get_or_create_cdp_session(target_id, focus=True)
-				self.logger.debug(f'🔄 Created new blank page during reconnect: {target_id[:8]}...')
+			if not restored:
+				if page_targets:
+					fallback_id = page_targets[0].target_id
+					await self.get_or_create_cdp_session(fallback_id, focus=True)
+					self.logger.debug(f'🔄 Agent focus set to fallback target {fallback_id[:8]}...')
+				else:
+					new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
+					target_id = new_target['targetId']
+					await self.get_or_create_cdp_session(target_id, focus=True)
+					self.logger.debug(f'🔄 Created new blank page during reconnect: {target_id[:8]}...')
 
-		# 7. Re-enable proxy auth if configured
-		await self._setup_proxy_auth()
+			await self._setup_proxy_auth()
 
-		# 8. Attach the WS drop detection callback to the new client
-		self._attach_ws_drop_callback()
+			self._attach_ws_drop_callback()
+		except BaseException:
+			client, manager = self._cdp_client_root, self.session_manager
+			self._cdp_client_root = None
+			self.session_manager = None
+			self.agent_focus_target_id = None
+
+			async def cleanup() -> None:
+				try:
+					if client:
+						try:
+							await client.stop()
+						except Exception:
+							self.logger.debug('Failed to close the replacement CDP client')
+				finally:
+					if manager:
+						try:
+							await manager.clear()
+						except Exception:
+							self.logger.debug('Failed to clear the replacement session manager')
+
+			cleanup_task = asyncio.create_task(cleanup())
+			cancelled = False
+			while not cleanup_task.done():
+				try:
+					await asyncio.shield(cleanup_task)
+				except asyncio.CancelledError:
+					cancelled = True
+			cleanup_task.result()
+			if cancelled:
+				raise asyncio.CancelledError
+			raise
 
 	async def _auto_reconnect(self, max_attempts: int = 3) -> None:
 		"""Attempt to reconnect with exponential backoff.

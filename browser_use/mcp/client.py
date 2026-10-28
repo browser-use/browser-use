@@ -256,10 +256,10 @@ class MCPClient:
 		# Parse tool parameters to create Pydantic model
 		param_fields = {}
 
-		if tool.inputSchema:
+		if tool.input_schema:
 			# MCP tools use JSON Schema for parameters
-			properties = tool.inputSchema.get('properties', {})
-			required = set(tool.inputSchema.get('required', []))
+			properties = tool.input_schema.get('properties', {})
+			required = set(tool.input_schema.get('required', []))
 
 			for param_name, param_schema in properties.items():
 				# Convert JSON Schema type to Python type
@@ -326,7 +326,7 @@ class MCPClient:
 					# Convert MCP result to ActionResult
 					extracted_content = self._format_mcp_result(result)
 
-					if getattr(result, 'isError', False):
+					if result.is_error:
 						error_msg = f"MCP tool '{tool.name}' reported an error: {extracted_content}"
 						return ActionResult(error=error_msg, success=False)
 
@@ -374,7 +374,7 @@ class MCPClient:
 					# Convert MCP result to ActionResult
 					extracted_content = self._format_mcp_result(result)
 
-					if getattr(result, 'isError', False):
+					if result.is_error:
 						error_msg = f"MCP tool '{tool.name}' reported an error: {extracted_content}"
 						return ActionResult(error=error_msg, success=False)
 
