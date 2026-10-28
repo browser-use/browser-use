@@ -1,6 +1,6 @@
 # Baizhi Cloud Browser + Browser Use
 
-Run a Browser Use Agent against a short-lived [Baizhi Cloud Browser (CapyBrowser)](https://capybrowser.app.baizhi.cloud/) Session. The Agent reads the heading and explanatory sentence at `https://www.w3.org/Provider/Style/dummy.html`. Browser Use handles page actions over CDP; Baizhi Cloud Browser creates and ends the temporary Session. See the [installation contract](https://capybrowser.app.baizhi.cloud/docs/installation.md) and [Session API](https://capybrowser.app.baizhi.cloud/docs/browser-session-openapi.yaml).
+Run a Browser Use Agent against a short-lived [Baizhi Cloud Browser (CapyBrowser)](https://baizhibrowser.cloud/) Session. The Agent reads the heading and explanatory sentence at `https://www.w3.org/Provider/Style/dummy.html`. Browser Use handles page actions over CDP; Baizhi Cloud Browser creates and ends the temporary Session. See the [installation contract](https://capybrowser.app.baizhi.cloud/docs/installation.md) and [Session API](https://capybrowser.app.baizhi.cloud/docs/browser-session-openapi.yaml).
 
 ## Prerequisites
 
@@ -75,3 +75,11 @@ CAPY_LOCAL_CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 ```
 
 On Linux, set the executable path accordingly. The tests use a temporary profile and a loopback CDP fault relay, without disabling Chromium's sandbox or TLS verification. They drop the real browser-use connection during startup and during navigation, count connection attempts, and time the parent reaching a mock management DELETE. They use no cloud Session or model. Mock API tests and local browser tests do not establish a successful cloud Agent task or real cloud cleanup.
+
+## Maintenance and support
+
+Example source: [main.py](./main.py).
+
+Maintained by [ctcbyzx](https://github.com/ctcbyzx), a contributor to [Chaitin's public integration guides](https://github.com/chaitin/baizhi-cloud-browser). See [other browser integrations](https://github.com/ctcbyzx/baizhi-cloud-browser).
+
+For setup help, use the [integration issue tracker](https://github.com/ctcbyzx/baizhi-cloud-browser/issues) and include the client version and a redacted error. Use the [service console](https://capybrowser.app.baizhi.cloud/) for private account or billing questions.
