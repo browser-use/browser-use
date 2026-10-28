@@ -106,12 +106,21 @@ def test_optimizer_keeps_instance_values_unchanged():
 			default=[{'title': 'Name', 'description': ''}],
 			examples=[[{'title': 'Price', 'properties': 'x'}]],
 		)
+		# `const` and `enum` also hold JSON instances. Their nested keys (`type`, `properties`,
+		# `required`) read like schema keywords but are data, so the optimizer must leave them be.
+		mode: str = Field(default='exact', json_schema_extra={'const': {'title': 'Exact', 'type': 'object'}})
+		operator: str = Field(
+			default='and',
+			json_schema_extra={'enum': [{'title': 'And', 'type': 'object'}, {'title': 'Or', 'required': ['x']}]},
+		)
 
 	schema = SchemaOptimizer.create_optimized_json_schema(Search)
 
 	assert schema['properties']['filters']['default'] == {'title': 'Engineer', 'type': 'object'}
 	assert schema['properties']['columns']['default'] == [{'title': 'Name', 'description': ''}]
 	assert schema['properties']['columns']['examples'] == [[{'title': 'Price', 'properties': 'x'}]]
+	assert schema['properties']['mode']['const'] == {'title': 'Exact', 'type': 'object'}
+	assert schema['properties']['operator']['enum'] == [{'title': 'And', 'type': 'object'}, {'title': 'Or', 'required': ['x']}]
 
 
 def test_optimizer_strict_passes_treat_property_names_as_names():
