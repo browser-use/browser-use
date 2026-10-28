@@ -649,7 +649,7 @@ class AgentOutput(BaseModel):
 	evaluation_previous_goal: str | None = None
 	memory: str | None = None
 	next_goal: str | None = None
-	plan_update: list[PlanUpdateStep] | None = None
+	plan_update: list[PlanUpdateStep] | None = Field(default=None, min_length=1)
 	action: list[ActionModel] = Field(
 		...,
 		json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
