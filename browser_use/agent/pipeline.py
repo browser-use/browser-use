@@ -537,6 +537,8 @@ class BaseStepPipeline(ABC):
 			agent.logger.error(f'⏰ {error_msg}')
 			agent.state.consecutive_failures += 1
 			agent.state.last_result = [ActionResult(error=error_msg)]
+			if step_info is not None and agent.state.n_steps == step_info.step_number + 1:
+				agent.state.n_steps += 1
 		finally:
 			if on_step_end is not None:
 				await on_step_end(agent)
