@@ -2895,6 +2895,24 @@ class BrowserSession(BaseModel):
 		except Exception as e:
 			self.logger.debug(f'DOM.getContentQuads failed: {e}')
 
+		# Skip zero-area quads (e.g. an inline element whose first content quad is a
+		# line break). Keep only quads with positive width and height so Method 2/3
+		# still run when every content quad is degenerate.
+		if quads:
+			positive = []
+			for quad in quads:
+				if len(quad) < 8:
+					continue
+				x_coords = [quad[i] for i in range(0, 8, 2)]
+				y_coords = [quad[i] for i in range(1, 8, 2)]
+				if (max(x_coords) - min(x_coords)) > 0 and (max(y_coords) - min(y_coords)) > 0:
+					positive.append(quad)
+			if positive:
+				quads = positive
+			else:
+				self.logger.debug('All content quads were degenerate; falling back')
+				quads = []
+
 		# Method 2: Fall back to DOM.getBoxModel
 		if not quads:
 			try:
