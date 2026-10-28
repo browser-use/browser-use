@@ -191,6 +191,10 @@ class RecoveryStrategy:
 	cost: RecoveryCost = RecoveryCost.LOW
 	destructive: bool = False
 	max_attempts: int = 2
+	#: If True, a GIVE_UP from this strategy terminates a composite chain instead
+	#: of falling through to the next repair (used by element-targeted repairs,
+	#: where retrying the original index after relocation failure is unsafe).
+	give_up_is_terminal: bool = False
 	#: Capability filter; ``None`` means the strategy applies to every action kind.
 	supports: set[ActionKind] | None = None
 

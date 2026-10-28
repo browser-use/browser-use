@@ -8,6 +8,7 @@ import json
 
 from browser_use.agent.views import (
 	ActionResult,
+	AgentHistoryList,
 	AgentOutput,
 	PlanNode,
 	PlanNodeStatus,
@@ -125,20 +126,25 @@ async def test_step_advancement_via_completed(browser_session, mock_llm):
 
 async def test_replanning_replaces_old_plan(browser_session, mock_llm):
 	agent = _make_agent(browser_session, mock_llm)
-	agent.state.plan_state = _make_plan_state(['Old step 1', 'Old step 2'], completed_up_to=0)
+	# Seed a plan where the first step already completed and the second is current.
+	agent.state.plan_state = _make_plan_state(['Old step 1', 'Old step 2', 'Old step 3'], completed_up_to=1)
 
 	output = _make_agent_output(plan_update=['New step A', 'New step B', 'New step C'])
 	agent._update_plan_from_model_output(output)
 
 	ps = agent.state.plan_state
 	assert ps is not None
-	assert len(ps.steps) == 3
-	assert ps.steps[0].description == 'New step A'
-	# first step of new plan marked as current, rest pending
-	assert ps.steps[0].status == PlanNodeStatus.CURRENT
-	assert ps.steps[1].status == PlanNodeStatus.PENDING
+	# The completed prefix is preserved; the current portion is replaced.
+	assert len(ps.steps) == 4
+	assert ps.steps[0].description == 'Old step 1'
+	assert ps.steps[0].status == PlanNodeStatus.COMPLETED
+	assert ps.steps[1].description == 'New step A'
+	assert ps.steps[1].status == PlanNodeStatus.CURRENT
+	assert ps.steps[2].description == 'New step B'
 	assert ps.steps[2].status == PlanNodeStatus.PENDING
-	assert ps.current_step_index == 0
+	assert ps.steps[3].description == 'New step C'
+	assert ps.steps[3].status == PlanNodeStatus.PENDING
+	assert ps.current_step_index == 1
 
 
 # ---------------------------------------------------------------------------
@@ -519,3 +525,39 @@ async def test_new_plan_first_step_is_not_completed_in_same_pass(browser_session
 	assert ps.steps[0].status == PlanNodeStatus.COMPLETED
 	assert ps.steps[1].status == PlanNodeStatus.CURRENT
 	assert ps.current_step_index == 1
+
+
+def test_load_from_dict_accepts_legacy_model_output():
+	"""Old saved histories with current_plan_item / string plan_update still load."""
+	tools = Tools()
+	ActionModel = tools.registry.create_action_model()
+	output_model = AgentOutput.type_with_custom_actions(ActionModel)
+
+	data = {
+		'history': [
+			{
+				'model_output': {
+					'evaluation_previous_goal': 'ok',
+					'memory': 'mem',
+					'next_goal': 'goal',
+					'current_plan_item': 0,
+					'plan_update': ['Step A', 'Step B'],
+					'action': [{'done': {'text': 'ok', 'success': True}}],
+				},
+				'result': [ActionResult(extracted_content='done').model_dump(mode='json')],
+				'state': {
+					'url': 'https://example.com',
+					'title': 'Example',
+					'tabs': [],
+					'interacted_element': [],
+					'screenshot_path': None,
+				},
+			}
+		]
+	}
+
+	loaded = AgentHistoryList.load_from_dict(data, output_model)
+	model_output = loaded.history[0].model_output
+	assert model_output is not None
+	assert model_output.plan_update is not None
+	assert [step.description for step in model_output.plan_update] == ['Step A', 'Step B']

@@ -920,6 +920,25 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			'history': [h.model_dump(**kwargs) for h in self.history],
 		}
 
+	@staticmethod
+	def _normalize_legacy_model_output(model_output: dict[str, Any]) -> dict[str, Any]:
+		"""Accept pre-plan-tree saved AgentOutput shapes.
+
+		Older histories store the removed ``current_plan_item`` field and a
+		``plan_update`` list of strings. Normalize both into the current
+		``plan_update: list[PlanUpdateStep]`` shape before validation.
+		"""
+		normalized = dict(model_output)
+		normalized.pop('current_plan_item', None)
+
+		plan_update = normalized.get('plan_update')
+		if isinstance(plan_update, str):
+			plan_update = [plan_update]
+		if isinstance(plan_update, list):
+			steps = [{'description': step} if isinstance(step, str) else step for step in plan_update]
+			normalized['plan_update'] = steps or None
+		return normalized
+
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
 		# loop through history and validate output_model actions to enrich with custom actions
@@ -928,6 +947,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			model_output = h.get('model_output')
 			if model_output:
 				if isinstance(model_output, dict):
+					model_output = cls._normalize_legacy_model_output(model_output)
 					h['model_output'] = output_model.model_validate(model_output)
 				else:
 					h['model_output'] = None

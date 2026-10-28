@@ -113,13 +113,22 @@ async def test_engine_orders_by_phase_then_cost():
 	from browser_use.agent.recovery.base import RecoveryCost, RecoveryPhase
 
 	late = _DummyStrategy('retry_phase', RecoveryPhase.RETRY, RecoveryCost.LOW)
+	# Same phase, different costs: cost ordering must be low → medium → high.
+	elem_high = _DummyStrategy('elem_high', RecoveryPhase.ELEMENT, RecoveryCost.HIGH)
+	elem_low = _DummyStrategy('elem_low', RecoveryPhase.ELEMENT, RecoveryCost.LOW)
+	elem_medium = _DummyStrategy('elem_medium', RecoveryPhase.ELEMENT, RecoveryCost.MEDIUM)
 	early_env = _DummyStrategy('env_high', RecoveryPhase.ENVIRONMENT, RecoveryCost.HIGH)
-	early_elem = _DummyStrategy('elem_low', RecoveryPhase.ELEMENT, RecoveryCost.LOW)
-	engine = RecoveryEngine([late, early_env, early_elem])
+	engine = RecoveryEngine([late, elem_high, early_env, elem_medium, elem_low])
 	agent = _make_agent()
 	ctx = _make_context(agent)
 
-	assert [s.name for s in engine._candidates(ctx)] == ['env_high', 'elem_low', 'retry_phase']
+	assert [s.name for s in engine._candidates(ctx)] == [
+		'env_high',
+		'elem_low',
+		'elem_medium',
+		'elem_high',
+		'retry_phase',
+	]
 
 
 @pytest.mark.asyncio
@@ -420,9 +429,13 @@ async def test_stage_gives_up_and_preserves_original_error():
 @pytest.mark.asyncio
 async def test_stage_budget_limits_retry_rounds():
 	"""The stage must not retry more than max_rounds times."""
+	from browser_use.agent.recovery.base import RecoveryCost, RecoveryPhase
+
+	strategy = _DummyStrategy('always_retry', RecoveryPhase.ACTION, RecoveryCost.LOW)
+	strategy.max_attempts = 99
 	agent = _make_agent()
 	agent.tools.act = AsyncMock(return_value=ActionResult(error='never succeeds'))
-	stage = RecoveryStage(engine=RecoveryEngine([]), max_rounds=1)
+	stage = RecoveryStage(engine=RecoveryEngine([strategy]), max_rounds=1)
 	attempt = await stage.recover(
 		agent=agent,
 		action=_StubAction(click={'index': 5}),
@@ -431,7 +444,9 @@ async def test_stage_budget_limits_retry_rounds():
 		browser_state=_make_state(),
 	)
 	assert attempt.recovered is False
-	agent.tools.act.assert_not_awaited()
+	assert attempt.outcome == RecoveryOutcome.GIVE_UP
+	# max_rounds=1 → one recovery round, which re-executes the action once.
+	agent.tools.act.assert_awaited_once()
 
 
 # ── Stats ─────────────────────────────────────────────────────────────────
@@ -501,7 +516,8 @@ def test_stage_default_engine_has_builtin_strategies():
 
 
 @pytest.mark.asyncio
-async def test_stage_recovers_navigation_failure_with_default_engine():
+@patch('browser_use.agent.recovery.strategies.asyncio.sleep', new_callable=AsyncMock)
+async def test_stage_recovers_navigation_failure_with_default_engine(_mock_sleep):
 	"""Regression: site-unavailable navigation errors must match NavigationRecovery."""
 	agent = _make_agent()
 	agent.tools.act = AsyncMock(
@@ -639,3 +655,92 @@ def test_stats_surface_sessions_and_strategy_successes():
 	assert stats.strategy_successes == {'scroll': 1}
 	assert 'session_success_rate=50%' in stats.summary()
 	assert 'successes: scroll=1' in stats.summary()
+
+
+@pytest.mark.asyncio
+async def test_composite_stops_on_terminal_relocate_give_up():
+	"""Relocation failure must not fall through to retry with a stale index."""
+	from browser_use.dom.views import DOMInteractedElement
+
+	relocate = RelocateRecovery()
+	retry = RetryRecovery()
+	chain = CompositeRecovery([relocate, retry], name='element_chain')
+
+	agent = _make_agent()
+	agent.history.history = []
+	current = MagicMock(spec=DOMInteractedElement)
+	executor = MagicMock()
+	executor._update_action_indices = AsyncMock(return_value=None)  # element gone
+	agent._pipeline.action_executor = executor
+	state = _make_state()
+	state.dom_state.selector_map = {12: MagicMock()}
+
+	ctx = _make_context(agent, error='element index 5 not found', state=state)
+	ctx.historical_element = current
+
+	retry.recover = AsyncMock()  # type: ignore[method-assign]
+
+	result = await chain.recover(ctx)
+
+	assert result.outcome == RecoveryOutcome.GIVE_UP
+	assert result.chain == ['relocate']
+	retry.recover.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stage_refreshes_browser_state_for_recovery():
+	agent = _make_agent()
+	stale = _make_state(url='https://stale.example')
+	fresh = _make_state(url='https://fresh.example')
+	browser_session = MagicMock()
+	browser_session.get_browser_state_summary = AsyncMock(return_value=fresh)
+	agent.browser_session = browser_session
+
+	seen: dict[str, Any] = {}
+	engine = RecoveryEngine([])
+
+	async def fake_evaluate(ctx):
+		seen['state'] = ctx.browser_state
+		return RecoveryResult(outcome=RecoveryOutcome.GIVE_UP, reason='stop')
+
+	engine.evaluate = fake_evaluate  # type: ignore[method-assign]
+	stage = RecoveryStage(engine=engine, max_rounds=1)
+
+	await stage.recover(
+		agent=agent,
+		action=_StubAction(click={'index': 5}),
+		action_name='click',
+		failed_result=ActionResult(error='boom'),
+		browser_state=stale,
+	)
+
+	assert seen['state'] is fresh
+
+
+@pytest.mark.asyncio
+async def test_stage_falls_back_when_state_refresh_fails():
+	agent = _make_agent()
+	stale = _make_state(url='https://stale.example')
+	browser_session = MagicMock()
+	browser_session.get_browser_state_summary = AsyncMock(side_effect=RuntimeError('disconnected'))
+	agent.browser_session = browser_session
+
+	seen: dict[str, Any] = {}
+	engine = RecoveryEngine([])
+
+	async def fake_evaluate(ctx):
+		seen['state'] = ctx.browser_state
+		return RecoveryResult(outcome=RecoveryOutcome.GIVE_UP, reason='stop')
+
+	engine.evaluate = fake_evaluate  # type: ignore[method-assign]
+	stage = RecoveryStage(engine=engine, max_rounds=1)
+
+	await stage.recover(
+		agent=agent,
+		action=_StubAction(click={'index': 5}),
+		action_name='click',
+		failed_result=ActionResult(error='boom'),
+		browser_state=stale,
+	)
+
+	assert seen['state'] is stale

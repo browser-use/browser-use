@@ -412,9 +412,8 @@ class ActionExecutor:
 					action_name = next(iter(action_data.keys()), None)
 					# Actions that need element matching
 					if action_name in ('click', 'input', 'hover', 'select_option', 'drag_and_drop'):
-						historical_elem = (
-							history_item.state.interacted_element[i] if i < len(history_item.state.interacted_element) else None
-						)
+						interacted = history_item.state.interacted_element or []
+						historical_elem = interacted[i] if i < len(interacted) else None
 						if historical_elem is not None:
 							needs_element_matching = True
 							break
@@ -463,8 +462,10 @@ class ActionExecutor:
 				)
 				results.append(ai_result)
 			else:
-				# For non-extract actions, update indices and collect for batch execution
-				historical_elem = history_item.state.interacted_element[i]
+				# For non-extract actions, update indices and collect for batch execution.
+				# Older histories may not have a recorded element for every action.
+				interacted = history_item.state.interacted_element or []
+				historical_elem = interacted[i] if i < len(interacted) else None
 				updated_action = await self._update_action_indices(
 					historical_elem,
 					action,
@@ -602,13 +603,11 @@ class ActionExecutor:
 		selector_map = browser_state_summary.dom_state.selector_map
 		selector_items = list(selector_map.items())
 		if historical_element.frame_id:
-			same_frame_items = [
+			# Stay inside the recorded frame: matching an identical control in a
+			# different iframe could operate on the wrong embedded page.
+			selector_items = [
 				(index, element) for index, element in selector_items if element.frame_id == historical_element.frame_id
 			]
-			if same_frame_items:
-				selector_items = same_frame_items + [
-					(index, element) for index, element in selector_items if element.frame_id != historical_element.frame_id
-				]
 		highlight_index: int | None = None
 		match_level: MatchLevel | None = None
 
@@ -1026,9 +1025,6 @@ class ActionExecutor:
 		# Skip cloud sync session events for rerunning (we're replaying, not starting new)
 		self._agent.state.session_initialized = True
 
-		# Initialize browser session
-		await self._agent.browser_session.start()
-
 		results = []
 
 		# Track previous step for redundant retry detection
@@ -1036,6 +1032,10 @@ class ActionExecutor:
 		previous_step_succeeded: bool = False
 
 		try:
+			# Start inside the protected block so a partial startup is still
+			# cleaned up by close() below.
+			await self._agent.browser_session.start()
+
 			for i, history_item in enumerate(history.history):
 				goal = history_item.model_output.current_state.next_goal if history_item.model_output else ''
 				step_num = history_item.metadata.step_number if history_item.metadata else i
@@ -1112,6 +1112,12 @@ class ActionExecutor:
 				while retry_count < max_retries:
 					try:
 						result = await self._execute_history_step(history_item, step_delay, ai_step_llm, wait_for_elements)
+						# _execute_history_step reports action failures as returned
+						# ActionResult.error values instead of raising. Treat those as
+						# a failed attempt so max_retries and the final summary work.
+						error_results = [r for r in result if r.error]
+						if error_results:
+							raise RuntimeError(error_results[0].error or 'Action failed')
 						results.extend(result)
 						step_succeeded = True
 						break

@@ -187,6 +187,7 @@ class RelocateRecovery(RecoveryStrategy):
 	phase = RecoveryPhase.ELEMENT
 	cost = RecoveryCost.MEDIUM
 	max_attempts = 2
+	give_up_is_terminal = True
 	supports = {ActionKind.CLICK, ActionKind.TYPE, ActionKind.SCROLL, ActionKind.EXTRACT, ActionKind.OTHER}
 
 	def can_handle(self, ctx: RecoveryContext) -> bool:
@@ -380,8 +381,17 @@ class CompositeRecovery(RecoveryStrategy):
 					explanation=result.explanation,
 				)
 			if result.outcome == RecoveryOutcome.GIVE_UP:
-				# One repair failing should not abort the whole chain; let the
-				# next sub-strategy try.
+				if strategy.give_up_is_terminal:
+					# Element-targeted repairs must not fall through to a retry:
+					# the original index may now point at a different element.
+					return RecoveryResult(
+						outcome=RecoveryOutcome.GIVE_UP,
+						strategy=self.name,
+						chain=chain,
+						reason=result.reason,
+						explanation=result.explanation,
+					)
+				# Other repairs can give up without aborting the whole chain.
 				continue
 			return RecoveryResult(
 				outcome=result.outcome,

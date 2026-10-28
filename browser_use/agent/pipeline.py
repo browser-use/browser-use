@@ -27,7 +27,7 @@ from browser_use.agent.views import (
 )
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.llm.messages import BaseMessage, UserMessage
-from browser_use.observability import observe_debug
+from browser_use.observability import observe, observe_debug
 from browser_use.utils import time_execution_async
 
 logger = logging.getLogger(__name__)
@@ -345,7 +345,16 @@ class ActionPhase(BaseActionPhase):
 				self._agent._llm_service.get_model_output_with_retry(input_messages), timeout=self._agent.settings.llm_timeout
 			)
 		except TimeoutError:
-			raise TimeoutError(f'LLM call timed out after {self._agent.settings.llm_timeout} seconds. Keep your output short.')
+
+			@observe(name='_llm_call_timed_out_with_input')
+			async def _log_model_input_to_lmnr(input_messages: list[BaseMessage]) -> None:
+				"""Log the model input"""
+				pass
+
+			await _log_model_input_to_lmnr(input_messages)
+			raise TimeoutError(
+				f'LLM call timed out after {self._agent.settings.llm_timeout} seconds. Keep your thinking and output short.'
+			)
 
 		self._agent.state.last_model_output = model_output
 		await self._pipeline.check_stop_or_pause()

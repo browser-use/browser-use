@@ -190,6 +190,18 @@ class RecoveryStage:
 		``attempt.result`` is the successful ``ActionResult``. Otherwise the
 		original error is preserved and the LLM becomes the fallback.
 		"""
+		# Refresh the page state so element-repair strategies target the live
+		# DOM rather than the snapshot that produced the failed action. Fall
+		# back to the supplied state if the session is disconnected or the read
+		# fails.
+		if agent.browser_session is not None:
+			try:
+				fresh_state = await agent.browser_session.get_browser_state_summary(include_screenshot=False)
+				if fresh_state is not None:
+					browser_state = fresh_state
+			except Exception as e:
+				logger.debug(f'Recovery could not refresh browser state: {type(e).__name__}: {e}')
+
 		ctx = self._build_context(agent, action, action_name, failed_result, browser_state, historical_element)
 		self.engine.stats.record_session()
 		chain: list[str] = []
