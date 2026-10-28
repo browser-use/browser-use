@@ -542,9 +542,9 @@ class BaseStepPipeline(ABC):
 	) -> bool:
 		"""Execute one step with timeout and lifecycle hooks.
 
-		Default implementation preserves the hook/timeout contract when the
-		pipeline exposes an ``_agent`` and derives completion from the agent
-		history. Pipelines without an agent keep the minimal execute()-only
+		This is the single lifecycle layer for both ``Agent.run()`` and direct
+		steps: hooks, start/completion logging, and the per-step timeout live
+		here. Pipelines without an ``_agent`` keep the minimal execute()-only
 		behaviour.
 		"""
 		agent = getattr(self, '_agent', None)
@@ -555,15 +555,30 @@ class BaseStepPipeline(ABC):
 		if on_step_start is not None:
 			await on_step_start(agent)
 
+		if step_info:
+			step_num = step_info.step_number + 1
+			max_steps = step_info.max_steps
+		else:
+			step_num = 0
+			max_steps = 0
+
+		await self.demo_mode_log(
+			f'Starting step {step_num}/{max_steps}',
+			'info',
+			{'step': step_num, 'total_steps': max_steps},
+		)
+		agent.logger.debug(f'\U0001f6b6 Starting step {step_num}/{max_steps}...')
+
 		try:
 			await asyncio.wait_for(self.execute(step_info), timeout=timeout or agent.settings.step_timeout)
+			agent.logger.debug(f'\u2705 Completed step {step_num}/{max_steps}')
 		except TimeoutError:
-			timeout_s = timeout or agent.settings.step_timeout
-			error_msg = f'Step timed out after {timeout_s} seconds'
-			agent.logger.error(f'⏰ {error_msg}')
+			error_msg = f'Step {step_num} timed out after {timeout or agent.settings.step_timeout} seconds'
+			agent.logger.error(f'\u23f0 {error_msg}')
+			await self.demo_mode_log(error_msg, 'error', {'step': step_num})
 			agent.state.consecutive_failures += 1
 			agent.state.last_result = [ActionResult(error=error_msg)]
-			if step_info is not None and agent.state.n_steps == step_info.step_number + 1:
+			if agent.state.n_steps == step_num:
 				agent.state.n_steps += 1
 		finally:
 			if on_step_end is not None:
@@ -692,66 +707,6 @@ class StepPipeline(BaseStepPipeline):
 	def action_executor(self) -> ActionExecutor:
 		"""Public accessor for the action executor."""
 		return self._action_executor
-
-	# ── Hooked execution (timeout + hooks) ──────────────────────────
-
-	async def execute_step_with_hooks(
-		self,
-		step_info: AgentStepInfo | None,
-		*,
-		on_step_start: Callable[[Agent], Awaitable[None]] | None = None,
-		on_step_end: Callable[[Agent], Awaitable[None]] | None = None,
-		timeout: float | None = None,
-	) -> bool:
-		"""Execute one step with timeout and lifecycle hooks.
-
-		Args:
-			step_info: Step number and max steps info.
-			on_step_start: Called before the step begins.
-			on_step_end: Called after the step completes.
-			timeout: Per-step timeout. Falls back to agent's step_timeout setting.
-
-		Returns:
-			True if the agent's history indicates the task is done.
-		"""
-		if on_step_start is not None:
-			await on_step_start(self._agent)
-
-		if step_info:
-			step_num = step_info.step_number + 1
-			max_steps = step_info.max_steps
-		else:
-			step_num = 0
-			max_steps = 0
-
-		await self._demo_mode_log(
-			f'Starting step {step_num}/{max_steps}',
-			'info',
-			{'step': step_num, 'total_steps': max_steps},
-		)
-		self._agent.logger.debug(f'\U0001f6b6 Starting step {step_num}/{max_steps}...')
-
-		try:
-			await asyncio.wait_for(
-				self.execute(step_info),
-				timeout=timeout or self._agent.settings.step_timeout,
-			)
-			self._agent.logger.debug(f'\u2705 Completed step {step_num}/{max_steps}')
-		except TimeoutError:
-			error_msg = f'Step {step_num} timed out after {timeout or self._agent.settings.step_timeout} seconds'
-			self._agent.logger.error(f'\u23f0 {error_msg}')
-			await self._demo_mode_log(error_msg, 'error', {'step': step_num})
-			self._agent.state.consecutive_failures += 1
-			self._agent.state.last_result = [ActionResult(error=error_msg)]
-			# Ensure step counter advances on timeout — _finalize() may have
-			# been skipped or returned early due to the cancellation.
-			if self._agent.state.n_steps == step_num:
-				self._agent.state.n_steps += 1
-
-		if on_step_end is not None:
-			await on_step_end(self._agent)
-
-		return self._agent.history.is_done()
 
 	# ── Main entry point ──────────────────────────────────────────
 	@time_execution_async('--step')

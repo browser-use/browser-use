@@ -797,8 +797,25 @@ async def test_relocate_falls_back_when_refresh_fails():
 async def test_stage_refresh_preserves_step_selector_map_for_retries():
 	from browser_use.agent.recovery.base import RecoveryCost, RecoveryPhase
 
-	strategy = _DummyStrategy('always_retry', RecoveryPhase.ACTION, RecoveryCost.LOW)
-	strategy.max_attempts = 99
+	class ObserveStateStrategy(RecoveryStrategy):
+		name = 'observe_state'
+		phase = RecoveryPhase.ACTION
+		cost = RecoveryCost.LOW
+		max_attempts = 5
+
+		def __init__(self) -> None:
+			self.seen_states = []
+
+		def can_handle(self, ctx):
+			return True
+
+		async def recover(self, ctx):
+			self.seen_states.append(ctx.browser_state)
+			if len(self.seen_states) == 1:
+				return RecoveryResult(outcome=RecoveryOutcome.RETRY, strategy=self.name, reason='retry once')
+			return RecoveryResult(outcome=RecoveryOutcome.GIVE_UP, strategy=self.name, reason='stop after observing state')
+
+	strategy = ObserveStateStrategy()
 	agent = _make_agent()
 	agent.tools.act = AsyncMock(return_value=ActionResult(error='still failing'))
 
@@ -817,7 +834,7 @@ async def test_stage_refresh_preserves_step_selector_map_for_retries():
 	session.update_cached_selector_map.side_effect = lambda selector_map: setattr(session, '_cached_selector_map', selector_map)
 	agent.browser_session = session
 
-	stage = RecoveryStage(engine=RecoveryEngine([strategy]), max_rounds=1)
+	stage = RecoveryStage(engine=RecoveryEngine([strategy]), max_rounds=2)
 	await stage.recover(
 		agent=agent,
 		action=_ScrollAction(scroll={'down': True}),
@@ -826,8 +843,13 @@ async def test_stage_refresh_preserves_step_selector_map_for_retries():
 		browser_state=stale_state,
 	)
 
-	# Fresh state is used for decisions, but the step selector map is kept so
-	# index-based retries still resolve against the map the action came from.
+	# The refresh actually ran, and the next recovery decision observed it.
+	session.get_browser_state_summary.assert_awaited()
+	assert len(strategy.seen_states) == 2
+	assert strategy.seen_states[0] is stale_state
+	assert strategy.seen_states[1] is fresh_state
+
+	# The step selector map is still kept for index-based retries.
 	assert session._cached_browser_state_summary is stale_state
 	assert session._cached_selector_map == {0: 'step-element'}
 
