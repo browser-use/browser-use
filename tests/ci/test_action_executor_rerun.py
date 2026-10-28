@@ -204,7 +204,9 @@ async def test_rerun_treats_returned_action_error_as_failure(_mock_sleep):
 		return_value=HistoryStepExecution(results=[], failed_action_index=0, error='click failed')
 	)
 
-	history = AgentHistoryList.model_construct(history=[_make_history_item([_GoBackAction(go_back={}), _GoBackAction(go_back={})])])
+	history = AgentHistoryList.model_construct(
+		history=[_make_history_item([_GoBackAction(go_back={}), _GoBackAction(go_back={})])]
+	)
 
 	results = await executor.rerun_history(history, max_retries=2, skip_failures=True, delay_between_actions=0)
 
