@@ -76,8 +76,9 @@ class ChatMistral(BaseChatModel):
 		if not hasattr(self, '_cached_client'):
 			transport = httpx.AsyncHTTPTransport(retries=self.max_retries)
 			client_args: dict[str, Any] = {'transport': transport}
-			if self.timeout is not None:
-				client_args['timeout'] = self.timeout
+			# Fall back to the same 600s default the AsyncOpenAI-based providers get;
+			# httpx's own library default is only 5s, which times out most real LLM calls.
+			client_args['timeout'] = self.timeout if self.timeout is not None else httpx.Timeout(timeout=600.0, connect=5.0)
 			self._cached_client = httpx.AsyncClient(**client_args)
 		return self._cached_client
 
