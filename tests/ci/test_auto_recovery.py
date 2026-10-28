@@ -791,3 +791,80 @@ async def test_relocate_falls_back_when_refresh_fails():
 
 	assert result.outcome == RecoveryOutcome.RETRY
 	executor._update_action_indices.assert_awaited_once_with(current, ctx.action, stale)
+
+
+@pytest.mark.asyncio
+async def test_stage_refresh_preserves_step_selector_map_for_retries():
+	from browser_use.agent.recovery.base import RecoveryCost, RecoveryPhase
+
+	strategy = _DummyStrategy('always_retry', RecoveryPhase.ACTION, RecoveryCost.LOW)
+	strategy.max_attempts = 99
+	agent = _make_agent()
+	agent.tools.act = AsyncMock(return_value=ActionResult(error='still failing'))
+
+	stale_state = _make_state(url='https://stale.example')
+	fresh_state = _make_state(url='https://fresh.example')
+	session = MagicMock()
+	session._cached_browser_state_summary = stale_state
+	session._cached_selector_map = {0: 'step-element'}
+
+	def read_state(**_):
+		session._cached_browser_state_summary = fresh_state
+		session._cached_selector_map = {1: 'fresh-element'}
+		return fresh_state
+
+	session.get_browser_state_summary = AsyncMock(side_effect=read_state)
+	session.update_cached_selector_map.side_effect = lambda selector_map: setattr(session, '_cached_selector_map', selector_map)
+	agent.browser_session = session
+
+	stage = RecoveryStage(engine=RecoveryEngine([strategy]), max_rounds=1)
+	await stage.recover(
+		agent=agent,
+		action=_ScrollAction(scroll={'down': True}),
+		action_name='scroll',
+		failed_result=ActionResult(error='boom'),
+		browser_state=stale_state,
+	)
+
+	# Fresh state is used for decisions, but the step selector map is kept so
+	# index-based retries still resolve against the map the action came from.
+	assert session._cached_browser_state_summary is stale_state
+	assert session._cached_selector_map == {0: 'step-element'}
+
+
+@pytest.mark.parametrize(
+	'error',
+	[
+		'element is not clickable at point',
+		'element is covered by another element',
+		'obstructed by a banner',
+		'element is overlapped',
+		'element is obscured',
+	],
+)
+def test_overlay_errors_are_safe_to_retry_for_clicks(error):
+	ctx = _make_context(_make_agent(), error=error)
+	assert ctx.is_safe_to_retry()
+
+
+@pytest.mark.asyncio
+async def test_stage_retries_click_after_overlay_obstruction():
+	from browser_use.agent.recovery.base import RecoveryCost, RecoveryPhase
+
+	strategy = _DummyStrategy('always_retry', RecoveryPhase.ACTION, RecoveryCost.LOW)
+	strategy.max_attempts = 99
+	agent = _make_agent()
+	agent.tools.act = AsyncMock(return_value=ActionResult(extracted_content='clicked'))
+	stage = RecoveryStage(engine=RecoveryEngine([strategy]), max_rounds=2)
+
+	attempt = await stage.recover(
+		agent=agent,
+		action=_StubAction(click={'index': 5}),
+		action_name='click',
+		failed_result=ActionResult(error='element is obscured'),
+		browser_state=_make_state(),
+	)
+
+	assert attempt.recovered is True
+	assert attempt.result.extracted_content == 'clicked'
+	agent.tools.act.assert_awaited_once()

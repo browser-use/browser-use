@@ -155,6 +155,27 @@ class RecoveryStage:
 		self.engine = engine or RecoveryEngine()
 		self.max_rounds = max_rounds
 
+	async def _read_browser_state_preserving_cache(self, agent: Agent):
+		"""Read a fresh state for decisions without replacing the step cache.
+
+		Index-based retries still resolve against the selector map the failed
+		action came from; only RelocateRecovery is allowed to refresh the cache
+		(its updated action carries an index valid for the new map).
+		"""
+		session = agent.browser_session
+		if session is None:
+			return None
+		cached_summary = session._cached_browser_state_summary
+		cached_selector_map = dict(session._cached_selector_map)
+		try:
+			return await session.get_browser_state_summary(include_screenshot=False)
+		except Exception as e:
+			logger.debug(f'Recovery could not refresh browser state: {type(e).__name__}: {e}')
+			return None
+		finally:
+			session._cached_browser_state_summary = cached_summary
+			session.update_cached_selector_map(cached_selector_map)
+
 	def _build_context(
 		self,
 		agent: Agent,
@@ -236,8 +257,9 @@ class RecoveryStage:
 			except Exception as e:
 				new_result = ActionResult(error=f'{type(e).__name__}: {e}')
 			ctx.failed_result = new_result
-			if agent.browser_session is not None:
-				ctx.browser_state = await agent.browser_session.get_browser_state_summary(include_screenshot=False)
+			fresh_state = await self._read_browser_state_preserving_cache(agent)
+			if fresh_state is not None:
+				ctx.browser_state = fresh_state
 			ctx.page_hash_after = RecoveryContext.page_hash(ctx.browser_state)
 			if not new_result.error:
 				self.engine.stats.record_success(decision.strategy, max(len(chain), 1))

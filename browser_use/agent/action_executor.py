@@ -434,7 +434,7 @@ class ActionExecutor:
 
 			# If we need element matching, wait for minimum elements before proceeding
 			if needs_element_matching:
-				min_elements = self._count_expected_elements_from_history(history_item)
+				min_elements = self._count_expected_elements_from_history(history_item, start_index=start_index)
 				if min_elements > 0:
 					state = await self._wait_for_minimum_elements(min_elements, timeout=15.0, poll_interval=1.0)
 				else:
@@ -606,18 +606,23 @@ class ActionExecutor:
 		self._agent.logger.warning(f'⚠️ Timeout waiting for {min_elements} elements, proceeding with {last_count} elements')
 		return await self._agent.browser_session.get_browser_state_summary(include_screenshot=False)
 
-	def _count_expected_elements_from_history(self, history_item: AgentHistory) -> int:
+	def _count_expected_elements_from_history(self, history_item: AgentHistory, start_index: int = 0) -> int:
 		"""Estimate the minimum number of elements expected based on history.
 
 		Uses the action indices from the history to determine the minimum
 		number of elements the page should have. If an action targets index N,
 		the page needs at least N+1 elements in the selector_map.
+
+		Actions before ``start_index`` are skipped because resumed reruns do not
+		execute them.
 		"""
 		if not history_item.model_output or not history_item.model_output.action:
 			return 0
 
 		max_index = -1  # Use -1 to indicate no index found yet
-		for action in history_item.model_output.action:
+		for i, action in enumerate(history_item.model_output.action):
+			if i < start_index:
+				continue
 			# Get the element index this action targets
 			index = action.get_index()
 			if index is not None:

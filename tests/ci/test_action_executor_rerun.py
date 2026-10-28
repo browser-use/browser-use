@@ -233,7 +233,9 @@ async def test_rerun_resumes_after_successful_prefix(_mock_sleep):
 		]
 	)
 
-	history = AgentHistoryList.model_construct(history=[_make_history_item([_GoBackAction(go_back={})])])
+	history = AgentHistoryList.model_construct(
+		history=[_make_history_item([_GoBackAction(go_back={}), _GoBackAction(go_back={})])]
+	)
 
 	results = await executor.rerun_history(history, max_retries=2, skip_failures=True, delay_between_actions=0)
 
@@ -242,3 +244,17 @@ async def test_rerun_resumes_after_successful_prefix(_mock_sleep):
 	assert [r.extracted_content for r in results if r.extracted_content] == ['add ok', 'checkout ok', 'summary']
 	assert results[-1].extracted_content == 'summary'
 	agent.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_count_expected_elements_skips_actions_before_start_index():
+	executor, _ = _make_executor()
+	history_item = _make_history_item(
+		[
+			_ClickAction(click=ClickElementAction(index=10)),
+			_ClickAction(click=ClickElementAction(index=2)),
+		]
+	)
+
+	assert executor._count_expected_elements_from_history(history_item) == 11
+	assert executor._count_expected_elements_from_history(history_item, start_index=1) == 3
