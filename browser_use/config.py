@@ -357,32 +357,36 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
     a present config with an allow-all default that clears security policy.
     """
     if not config_path.exists():
-        # Create fresh config with defaults only for a first-run config file.
         config_path.parent.mkdir(parents=True, exist_ok=True)
         new_config = create_default_config()
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(new_config.model_dump(), f, indent=2)
         return new_config
 
-    backup_path = _backup_config_file(config_path)
+    backup_path = config_path.with_name(f'{config_path.name}.bak')
+
     try:
-        return _load_db_config_from_path(config_path)
-    except ValueError as exc:
-        if backup_path and backup_path.exists():
-            logger.warning(f'Config at {config_path} is invalid; restoring backup from {backup_path}')
+        config = _load_db_config_from_path(config_path)
+
+        # Keep backup fresh only after a valid config was successfully loaded.
+        try:
+            if backup_path != config_path:
+                shutil.copy2(config_path, backup_path)
+        except Exception:
+            logger.warning(f'Failed to update backup for {config_path}')
+
+        return config
+
+    except Exception as exc:
+        if backup_path.exists():
             try:
+                logger.warning(f'Config at {config_path} is invalid; restoring backup from {backup_path}')
                 return _load_db_config_from_path(backup_path)
             except Exception:
                 pass
+
         raise ValueError(f'Config at {config_path} is invalid and cannot be safely loaded: {exc}') from exc
-    except json.JSONDecodeError as exc: # type: ignore
-        if backup_path and backup_path.exists():
-            logger.warning(f'Config at {config_path} is invalid JSON; restoring backup from {backup_path}')
-            try:
-                return _load_db_config_from_path(backup_path)
-            except Exception:
-                pass
-        raise ValueError(f'Failed to parse config at {config_path}: {exc}') from exc
+	
     except Exception as e:
         if backup_path and backup_path.exists():
             logger.warning(f'Config at {config_path} could not be loaded; restoring backup from {backup_path}')
