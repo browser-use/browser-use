@@ -1,6 +1,7 @@
 """An existing config.json that cannot be parsed must not be replaced with allow-all defaults."""
 
 import json
+import os
 
 import pytest
 
@@ -58,4 +59,25 @@ def test_failed_migration_write_leaves_old_config_intact(tmp_path, monkeypatch):
 
 	assert len(config.browser_profile) == 1
 	assert config_path.read_text() == old_format
+	assert [p.name for p in tmp_path.iterdir()] == ['config.json']
+
+
+def test_migration_preserves_existing_0600_mode(tmp_path):
+	"""An old-format 0600 config must stay 0600 after the atomic rewrite, even under umask 022."""
+	config_path = tmp_path / 'config.json'
+	old_format = json.dumps({'browser_profile': {'headless': True}})
+	config_path.write_text(old_format)
+	config_path.chmod(0o600)
+
+	# open() applies umask. 022 would turn a newly created file into 0644 and leak api_key
+	# unless the replacement copies the existing mode before os.replace.
+	previous_umask = os.umask(0o022)
+	try:
+		config = load_and_migrate_config(config_path)
+	finally:
+		os.umask(previous_umask)
+
+	assert len(config.browser_profile) == 1
+	assert config_path.read_text() != old_format
+	assert config_path.stat().st_mode & 0o777 == 0o600
 	assert [p.name for p in tmp_path.iterdir()] == ['config.json']

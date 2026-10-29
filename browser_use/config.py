@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import stat
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -359,6 +360,9 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 			json.dump(new_config.model_dump(), f, indent=2)
 			f.flush()
 			os.fsync(f.fileno())
+		# open() applies the process umask, so a 0600 config would become 0644 under umask 022
+		# and expose LLMEntry.api_key. Copy the existing mode onto the temp file before the swap.
+		os.chmod(tmp_path, stat.S_IMODE(config_path.stat().st_mode))
 		os.replace(tmp_path, config_path)
 		logger.debug(f'Created fresh config.json at {config_path}')
 	except Exception as write_error:
