@@ -229,6 +229,14 @@ def test_error_detail_is_truncated() -> None:
 	assert len(_gmi_error_detail({'details': 'x' * 2000}) or '') == 500
 
 
+def test_error_detail_accepts_the_full_error_envelope() -> None:
+	"""The SDK passes the unwrapped error dict, but a body still wrapped in `error` must work too."""
+	body = {'error': {'message': 'Backend request failed with status 400', 'details': PENALTY_DETAILS}}
+
+	assert _gmi_error_detail(body) == 'Penalty is not enabled for this model'
+	assert _gmi_error_detail({'error': {'message': 'no details here'}}) is None
+
+
 # --- malformed or unusual responses --------------------------------------------------------------
 
 

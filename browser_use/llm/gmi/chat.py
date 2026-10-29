@@ -53,7 +53,9 @@ def _gmi_error_detail(body: object) -> str | None:
 	"""
 	if not isinstance(body, dict):
 		return None
-	details = body.get('details')
+	# The SDK passes the unwrapped error dict; also accept a body that is still wrapped in `error`.
+	error = body['error'] if 'details' not in body and isinstance(body.get('error'), dict) else body
+	details = error.get('details')
 	if not isinstance(details, str) or not details.strip():
 		return None
 	try:
