@@ -309,6 +309,23 @@ def test_stripping_keeps_a_field_that_is_named_additional_properties() -> None:
 	assert schema['additionalProperties'] is False  # input is not mutated
 
 
+def test_stripping_handles_a_field_named_properties() -> None:
+	"""A field called `properties` is a key of the properties map, not the JSON Schema keyword."""
+	schema = {
+		'type': 'object',
+		'additionalProperties': False,
+		'properties': {
+			'properties': {
+				'type': 'object',
+				'additionalProperties': False,
+				'properties': {'x': {'type': 'object', 'additionalProperties': False}},
+			}
+		},
+	}
+
+	assert not _contains_key(gmi_chat._strip_additional_properties(schema), 'additionalProperties')
+
+
 # --- token cost attribution -----------------------------------------------------------------------
 
 

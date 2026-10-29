@@ -25,21 +25,22 @@ T = TypeVar('T', bound=BaseModel)
 GMI_BASE_URL = 'https://api.gmi-serving.com/v1'
 
 
-def _strip_additional_properties(node: Any, parent_key: str | None = None) -> Any:
+def _strip_additional_properties(node: Any, in_properties_map: bool = False) -> Any:
 	"""Return a copy of a JSON schema without `additionalProperties` keywords.
 
 	GMI forwards Gemini requests to Google's `response_schema`, which rejects `additionalProperties`
 	(`Unknown name "additionalProperties" ... Cannot find field`), most visibly inside `anyOf` branches.
-	A field that is itself named `additionalProperties` (a key of a `properties` map) is kept.
+	`in_properties_map` is True for the value of a `properties` keyword: its keys are field names, so a field
+	that is itself named `additionalProperties` (or `properties`) is kept and only its schema is cleaned.
 	"""
 	if isinstance(node, dict):
 		return {
-			key: _strip_additional_properties(value, key)
+			key: _strip_additional_properties(value, key == 'properties' and not in_properties_map)
 			for key, value in node.items()
-			if not (key == 'additionalProperties' and parent_key != 'properties')
+			if in_properties_map or key != 'additionalProperties'
 		}
 	if isinstance(node, list):
-		return [_strip_additional_properties(item, parent_key) for item in node]
+		return [_strip_additional_properties(item) for item in node]
 	return node
 
 
