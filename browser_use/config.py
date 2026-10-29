@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import shutil
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -316,51 +317,80 @@ def create_default_config() -> DBStyleConfigJSON:
 
 	return new_config
 
+def _backup_config_file(config_path: Path) -> Path | None:
+    """Create a backup of a config file before refusing to overwrite it with defaults."""
+    if not config_path.exists():
+        return None
+
+    backup_path = config_path.with_name(f'{config_path.name}.bak')
+    try:
+        shutil.copy2(config_path, backup_path)
+        return backup_path
+    except Exception as exc:
+        logger.warning(f'Failed to back up config at {config_path}: {exc}')
+        return None
+
+
+def _load_db_config_from_path(config_path: Path) -> DBStyleConfigJSON:
+    """Load a DB-style config file and validate that it matches the expected schema."""
+    with open(config_path, encoding='utf-8') as f:
+        data = json.load(f)
+
+    if not isinstance(data, dict):
+        raise ValueError(f'Config at {config_path} is not a JSON object')
+
+    if not all(key in data for key in ['browser_profile', 'llm', 'agent']):
+        raise ValueError(f'Config at {config_path} is missing required top-level keys: browser_profile, llm, agent')
+
+    if not all(isinstance(data.get(key, {}), dict) for key in ['browser_profile', 'llm', 'agent']):
+        raise ValueError(f'Config at {config_path} has invalid top-level object types')
+
+    if not data.get('browser_profile') or not all(isinstance(v, dict) and 'id' in v for v in data['browser_profile'].values()):
+        raise ValueError(f'Config at {config_path} is not in DB-style profile format')
+
+    return DBStyleConfigJSON(**data)
 
 def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
-	"""Load config.json or create fresh one if old format detected."""
-	if not config_path.exists():
-		# Create fresh config with defaults
-		config_path.parent.mkdir(parents=True, exist_ok=True)
-		new_config = create_default_config()
-		with open(config_path, 'w') as f:
-			json.dump(new_config.model_dump(), f, indent=2)
-		return new_config
+    """Load config.json or create fresh one if old format detected.
 
-	try:
-		with open(config_path) as f:
-			data = json.load(f)
+    Fail closed on malformed or unreadable config files: never silently replace
+    a present config with an allow-all default that clears security policy.
+    """
+    if not config_path.exists():
+        # Create fresh config with defaults only for a first-run config file.
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        new_config = create_default_config()
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(new_config.model_dump(), f, indent=2)
+        return new_config
 
-		# Check if it's already in DB-style format
-		if all(key in data for key in ['browser_profile', 'llm', 'agent']) and all(
-			isinstance(data.get(key, {}), dict) for key in ['browser_profile', 'llm', 'agent']
-		):
-			# Check if the values are DB-style entries (have UUIDs as keys)
-			if data.get('browser_profile') and all(isinstance(v, dict) and 'id' in v for v in data['browser_profile'].values()):
-				# Already in new format
-				return DBStyleConfigJSON(**data)
-
-		# Old format detected - delete it and create fresh config
-		logger.debug(f'Old config format detected at {config_path}, creating fresh config')
-		new_config = create_default_config()
-
-		# Overwrite with new config
-		with open(config_path, 'w') as f:
-			json.dump(new_config.model_dump(), f, indent=2)
-
-		logger.debug(f'Created fresh config.json at {config_path}')
-		return new_config
-
-	except Exception as e:
-		logger.error(f'Failed to load config from {config_path}: {e}, creating fresh config')
-		# On any error, create fresh config
-		new_config = create_default_config()
-		try:
-			with open(config_path, 'w') as f:
-				json.dump(new_config.model_dump(), f, indent=2)
-		except Exception as write_error:
-			logger.error(f'Failed to write fresh config: {write_error}')
-		return new_config
+    backup_path = _backup_config_file(config_path)
+    try:
+        return _load_db_config_from_path(config_path)
+    except ValueError as exc:
+        if backup_path and backup_path.exists():
+            logger.warning(f'Config at {config_path} is invalid; restoring backup from {backup_path}')
+            try:
+                return _load_db_config_from_path(backup_path)
+            except Exception:
+                pass
+        raise ValueError(f'Config at {config_path} is invalid and cannot be safely loaded: {exc}') from exc
+    except json.JSONDecodeError as exc: # type: ignore
+        if backup_path and backup_path.exists():
+            logger.warning(f'Config at {config_path} is invalid JSON; restoring backup from {backup_path}')
+            try:
+                return _load_db_config_from_path(backup_path)
+            except Exception:
+                pass
+        raise ValueError(f'Failed to parse config at {config_path}: {exc}') from exc
+    except Exception as e:
+        if backup_path and backup_path.exists():
+            logger.warning(f'Config at {config_path} could not be loaded; restoring backup from {backup_path}')
+            try:
+                return _load_db_config_from_path(backup_path)
+            except Exception:
+                pass
+        raise ValueError(f'Failed to load config from {config_path}: {e}') from e 
 
 
 class Config:
