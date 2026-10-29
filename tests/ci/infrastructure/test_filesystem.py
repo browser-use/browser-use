@@ -633,6 +633,27 @@ class TestFileSystem:
 		assert result == 'Data written to file products.csv successfully.'
 		assert 'products.csv' in fs.files
 
+	@pytest.mark.parametrize('operation', ['write', 'append'])
+	async def test_cr_delimited_csv_records_through_filesystem(self, temp_filesystem, operation):
+		"""CSV record delimiters may be CR and should be normalized consistently."""
+		fs = temp_filesystem
+
+		if operation == 'write':
+			result = await fs.write_file('records.csv', 'name,note\rAlice,hello\rBob,bye')
+			expected_content = 'name,note\nAlice,hello\nBob,bye'
+			expected_result = 'Data written to file records.csv successfully.'
+		else:
+			await fs.write_file('records.csv', 'name,note\nAlice,hello')
+			result = await fs.append_file('records.csv', '\rBob,bye\rCarol,see you')
+			expected_content = 'name,note\nAlice,hello\nBob,bye\nCarol,see you'
+			expected_result = 'Data appended to file records.csv successfully.'
+
+		assert result == expected_result
+		file_obj = fs.get_file('records.csv')
+		assert file_obj is not None
+		assert file_obj.content == expected_content
+		assert (fs.data_dir / 'records.csv').read_text(encoding='utf-8') == expected_content
+
 	async def test_append_file(self, temp_filesystem):
 		"""Test appending content to files."""
 		fs = temp_filesystem
@@ -1525,6 +1546,25 @@ class TestCsvNormalization:
 		csv_file = CsvFile(name='test')
 		csv_file.write_file_content(valid)
 		assert csv_file.content == valid
+
+	@pytest.mark.parametrize(
+		('raw', 'expected'),
+		[
+			(
+				'name,note\rAlice,"hello\rworld"\rBob,bye',
+				'name,note\nAlice,"hello\rworld"\nBob,bye',
+			),
+			(
+				'name,note\r\nAlice,"hello\r\nworld"\r\nBob,bye',
+				'name,note\nAlice,"hello\r\nworld"\nBob,bye',
+			),
+		],
+	)
+	def test_normalize_preserves_quoted_carriage_returns(self, raw, expected):
+		"""Normalize record endings while preserving carriage returns inside quoted fields."""
+		csv_file = CsvFile(name='test')
+		csv_file.write_file_content(raw)
+		assert csv_file.content == expected
 
 	def test_normalize_empty_content(self):
 		"""Empty or whitespace-only content should pass through."""
