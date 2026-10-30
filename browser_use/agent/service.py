@@ -86,6 +86,7 @@ from browser_use.utils import (
 )
 
 logger = logging.getLogger(__name__)
+_THINKING_SEPARATOR = '\n'
 
 
 def log_response(response: AgentOutput, registry=None, logger=None) -> None:
@@ -1952,6 +1953,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			response = await self.llm.ainvoke(input_messages, **kwargs)
 			parsed: AgentOutput = response.completion  # type: ignore[assignment]
+
+			# Provider reasoning lives outside structured output; bridge it into agent history when enabled.
+			if self.settings.use_thinking and not self.settings.flash_mode:
+				provider_thinking = getattr(response, 'thinking', None)
+				if provider_thinking:
+					parsed.thinking = (
+						_THINKING_SEPARATOR.join((provider_thinking, parsed.thinking)) if parsed.thinking else provider_thinking
+					)
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
