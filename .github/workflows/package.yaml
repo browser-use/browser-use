@@ -1,64 +1,78 @@
 name: package
 
-# Cancel in-progress runs when a new commit is pushed to the same branch/PR
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 on:
+  pull_request:
   push:
-    branches:
-      - main
-      - stable
-      - 'releases/**'
-    tags:
-      - '*'
+    branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: pip-build
-    runs-on: ubuntu-latest
+  wheel:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: macos-15
+            target: darwin-arm64
+          - os: macos-15-intel
+            target: darwin-x64
+          - os: windows-2025
+            target: win-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      BROWSER_USE_WHEEL_TARGET: ${{ matrix.target }}
+      DO_NOT_TRACK: '1'
+      ANONYMIZED_TELEMETRY: 'false'
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv build --python 3.12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.1
+          cache: npm
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.11'
+      - run: npm ci
+      - run: npm run build:python
+      - run: uv build --wheel --out-dir artifacts/python
+      - run: uv venv .wheel-test --python 3.11
+      - shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            WHEEL_PYTHON=.wheel-test/Scripts/python.exe
+          else
+            WHEEL_PYTHON=.wheel-test/bin/python
+          fi
+          uv pip install --python "$WHEEL_PYTHON" artifacts/python/*.whl
+          "$WHEEL_PYTHON" -I tests/packaging/test_wheel.py
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-artifact
-          path: |
-            dist/*.whl
-            dist/*.tar.gz
+          name: python-wheel-${{ matrix.target }}
+          path: artifacts/python/*.whl
 
-  build_test:
-    name: pip-install-on-${{ matrix.os }}-py-${{ matrix.python-version }}
-    needs: build
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.11", "3.13"]
-    env:
-      ANONYMIZED_TELEMETRY: 'false'
-
+  source:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          name: dist-artifact
-
-      - name: Set up venv and test for OS/Python versions
-        shell: bash
-        run: |
-          uv venv /tmp/testenv --python ${{ matrix.python-version }} --clear
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            . /tmp/testenv/Scripts/activate
-          else
-            source /tmp/testenv/bin/activate
-          fi
-          uv pip install *.whl
-          python -c 'from browser_use import Agent, BrowserProfile, BrowserSession, Tools, ActionModel, ActionResult'
+          node-version: 24.22.1
+          cache: npm
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.11'
+      - run: npm ci
+      - run: npm run build:python
+      - run: uv build --sdist --out-dir artifacts/python
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-sdist
+          path: artifacts/python/*.tar.gz

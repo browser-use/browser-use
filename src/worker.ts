@@ -1,0 +1,490 @@
+import { Writable } from 'node:stream';
+import { Session, type Runtime } from 'node:inspector';
+import { createRequire } from 'node:module';
+import { createContext, constants } from 'node:vm';
+import { inspect } from 'node:util';
+import { readFile, writeFile, rename, stat } from 'node:fs/promises';
+import { appendFileSync } from 'node:fs';
+import { extname, join, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { CDP } from './cdp.js';
+import { Page, Tabs } from './page.js';
+import type { Image, WorkerConfig, WorkerRequest, WorkerResponse } from './protocol.js';
+import { installDomainPolicy, fillSecret } from './policy.js';
+import { redact } from './history.js';
+import { actionHighlighter } from './highlight.js';
+import { imageDimensions, imageMimeType, prepareModelImages } from './images.js';
+import { AxHelpers } from './ax.js';
+
+// IPC initialization keeps connection details out of argv and environment.
+process.on('disconnect', () => process.exit(0));
+const config = await new Promise<WorkerConfig>((resolve) => process.once('message', resolve));
+const clean = <T>(value: T): T => redact(value, config.redact ?? []);
+const send = (message: WorkerResponse) => process.send!(clean(message));
+const feature = (name: Extract<WorkerResponse, { type: 'feature' }>['name']) =>
+  send({ type: 'feature', name });
+process.chdir(config.workspace);
+let browser = CDP.lazy(
+  config.endpoint,
+  config.operationTimeoutMs,
+  config.approveConnection,
+  config.cdpOptions,
+);
+browser.onConnected = () => feature('connections');
+installDomainPolicy(browser, config, (id) => send({ type: 'owned', targetId: id }), feature);
+let highlight = config.highlightActions ? actionHighlighter(browser) : undefined;
+let tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
+const chromiumEmptyPageUrls = new Set([
+  'about:blank',
+  'chrome://newtab',
+  'chrome://newtab/',
+  'chrome://new-tab-page',
+  'chrome://new-tab-page/',
+]);
+function deferredPage(targetId?: string) {
+  return Page.deferred(
+    browser,
+    async () => {
+      const existing = await tabs.list();
+      // Preserve existing targets after attachment failures.
+      if (targetId && existing.some((t) => t.targetId === targetId)) return tabs.get(targetId);
+      // Reuse empty tabs only in dedicated browsers.
+      const blank =
+        config.dedicatedBrowser && existing.find((t) => chromiumEmptyPageUrls.has(t.url));
+      return blank ? tabs.get(blank.targetId) : tabs.open();
+    },
+    targetId,
+  );
+}
+const page = deferredPage(config.targetId);
+let outputFile: string | undefined;
+let runId: string | undefined;
+let output = '';
+let images: Image[] = [];
+let captureResponse: CDP['observeResponse'];
+let attachImage: ((image: Image) => boolean) | undefined;
+let overflow = false;
+// Bound memory even when generated code writes an unbounded amount of output.
+const hardLimit = 1_000_000;
+let pendingText = '';
+const tailLength = Math.max(0, ...(config.redact ?? []).map((value) => value.length));
+function captureText(text: string) {
+  if (output.length + text.length > hardLimit) overflow = true;
+  const captured = text.slice(0, Math.max(0, hardLimit - output.length));
+  output += captured;
+  if (outputFile && captured) appendFileSync(outputFile, captured);
+}
+const sink = new Writable({
+  write(chunk: Buffer, _encoding, callback) {
+    pendingText += chunk.toString();
+    // Redact before splitting, and retain the raw suffix across chunk boundaries.
+    const cut = Math.max(0, pendingText.length - tailLength);
+    let safeCut = cut;
+    for (const secret of config.redact ?? []) {
+      if (!secret) continue;
+      let at = pendingText.indexOf(secret);
+      while (at >= 0 && at < cut) {
+        if (at + secret.length > cut) safeCut = Math.min(safeCut, at);
+        at = pendingText.indexOf(secret, at + 1);
+      }
+    }
+    captureText(clean(pendingText.slice(0, safeCut)));
+    pendingText = pendingText.slice(safeCut);
+    callback();
+  },
+});
+const evaluator = new Session();
+evaluator.connect();
+let executionContextId: number | undefined;
+evaluator.on('Runtime.executionContextCreated', ({ params }) => {
+  if (params.context.name === 'browser-use') executionContextId = params.context.id;
+});
+evaluator.post('Runtime.enable');
+const realm = createContext(
+  {},
+  {
+    name: 'browser-use',
+    importModuleDynamically: constants.USE_MAIN_CONTEXT_DEFAULT_LOADER,
+  },
+);
+if (executionContextId === undefined)
+  throw new Error('Could not initialize the JavaScript context.');
+const bu =
+  config.mode === 'ultrafast'
+    ? new AxHelpers(
+        () => Reflect.get(realm, 'page') as Page,
+        () => browser,
+        (text) => (Reflect.get(realm, 'console') as Console).log(text),
+      )
+    : undefined;
+// Preserve search environment names for older transcripts.
+if (config.webSearch) {
+  process.env.V4_GATEWAY_URL = config.webSearch.url.replace(/\/api\/v4\/search\/?$/, '');
+  process.env.V4_RUN_TOKEN = config.webSearch.token;
+}
+const webSearch = config.webSearch;
+/** Read the search response once to preserve failure details. */
+async function search(query: string, options: { num_results?: number; category?: string } = {}) {
+  if (!webSearch) throw new Error('Web search is not enabled.');
+  if (typeof query !== 'string' || !query.trim()) throw new Error('search(query) needs text.');
+  const { num_results, category } = options;
+  // End search before the cell deadline to preserve the worker after a timeout.
+  const response = await fetch(webSearch.url, {
+    signal: AbortSignal.timeout(25_000),
+    method: 'POST',
+    headers: { Authorization: `Bearer ${webSearch.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query,
+      ...(num_results !== undefined ? { num_results } : {}),
+      ...(category !== undefined ? { category } : {}),
+    }),
+  }).catch((error: Error) => {
+    throw error.name === 'TimeoutError' ? new Error('Search failed: timed out after 25 s.') : error;
+  });
+  const body = await response.text();
+  if (!response.ok)
+    throw new Error(
+      `Search failed: HTTP ${response.status}${response.status === 402 ? ' (run out of budget)' : ''}: ${body.slice(0, 300)}`,
+    );
+  let parsed: { results?: unknown };
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new Error(`Search returned non-JSON: ${body.slice(0, 300)}`);
+  }
+  if (!parsed || typeof parsed !== 'object') throw new Error('Search returned no result object.');
+  // Preserve individual search results from the endpoint response.
+  const results = Array.isArray(parsed.results)
+    ? parsed.results
+    : typeof parsed.results === 'string' && parsed.results.trim()
+      ? parsed.results.split(/\n\n---\n\n/)
+      : [];
+  return { ...parsed, results };
+}
+Object.assign(realm, {
+  global: realm, // Node's global alias refers to this REPL realm, not the worker host.
+  // Reject lossy JSON values while preserving normal date and toJSON serialization.
+  __serializeResult(value: unknown) {
+    const json = JSON.stringify(value, (_key, item: unknown) => {
+      if (
+        ['undefined', 'function', 'symbol', 'bigint'].includes(typeof item) ||
+        (typeof item === 'number' && !Number.isFinite(item))
+      )
+        throw new Error(
+          'Result must contain JSON values: no undefined, functions, symbols, bigint, or non-finite numbers.',
+        );
+      return item;
+    });
+    if (json === undefined) throw new Error('Result must be JSON serializable.');
+    if (Buffer.byteLength(json) > 16_000_000)
+      throw new Error('Result exceeds 16 MB; save an artifact and return its path.');
+    return json;
+  },
+  process,
+  Buffer,
+  URL,
+  URLSearchParams,
+  fetch,
+  AbortController,
+  AbortSignal,
+  setTimeout,
+  clearTimeout,
+  setInterval,
+  clearInterval,
+  queueMicrotask,
+  structuredClone,
+  TextEncoder,
+  TextDecoder,
+  browser,
+  tabs,
+  page,
+  ...(bu ? { bu } : {}),
+  ...(webSearch ? { search } : {}),
+  workspace: config.workspace,
+  async reconnect(endpoint?: string) {
+    let targetId: string | undefined = (Reflect.get(realm, 'page') as Page)?.targetId;
+    if (endpoint !== undefined) {
+      // A host that provisions replacement browsers lets the agent move to one.
+      if (!config.browserSwitching) throw new Error('Switching browsers is not enabled.');
+      if (!['http:', 'https:', 'ws:', 'wss:'].includes(new URL(endpoint).protocol))
+        throw new Error('reconnect(endpoint) needs an HTTP(S) or WebSocket CDP endpoint.');
+      feature('browser_switches');
+      config.endpoint = endpoint;
+      config.cdpOptions = {};
+      targetId = undefined;
+      send({ type: 'endpoint', endpoint });
+    }
+    feature('reconnects');
+    browser.close();
+    browser = CDP.lazy(
+      config.endpoint,
+      config.operationTimeoutMs,
+      config.approveConnection,
+      config.cdpOptions,
+    );
+    browser.onConnected = () => feature('connections');
+    installDomainPolicy(browser, config, (id) => send({ type: 'owned', targetId: id }), feature);
+    highlight = config.highlightActions ? actionHighlighter(browser) : undefined;
+    browser.observeResponse = captureResponse;
+    tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
+    Object.assign(realm, { browser, tabs, page: deferredPage(targetId) });
+    observe();
+    return 'Connection reset. Inspect the page; no browser action was replayed. Reacquire other page/frame handles.';
+  },
+  async fillSecret(
+    name: string,
+    backendNodeId: number,
+    target: Page = Reflect.get(realm, 'page') as Page,
+  ) {
+    await target.info();
+    feature('secret_attempts');
+    const result = await fillSecret(
+      browser,
+      target.sessionId,
+      name,
+      backendNodeId,
+      config.sensitiveData ?? {},
+    );
+    feature('secret_insertions');
+    void highlight?.('DOM.focus', { backendNodeId }, target.sessionId);
+    return result;
+  },
+  async checkpoint(name: string, value: unknown, options: { partial?: boolean } = {}) {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,119}$/.test(name))
+      throw new Error('Use a plain checkpoint filename.');
+    const checkpointRun = runId;
+    const valueJson = JSON.stringify(clean(value));
+    if (typeof valueJson !== 'string') throw new Error('Checkpoint must be JSON serializable.');
+    if (options.partial && Buffer.byteLength(valueJson) > 16_000_000)
+      throw new Error(
+        'Partial result exceeds 16 MB; checkpoint smaller batches or return file paths.',
+      );
+    const path = join(config.workspace, name);
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    await writeFile(temporary, valueJson, { flag: 'wx', mode: 0o600 });
+    await rename(temporary, path);
+    if (options.partial)
+      await new Promise<void>((resolve, reject) =>
+        process.send!(
+          {
+            type: 'partial',
+            ...(checkpointRun ? { runId: checkpointRun } : {}),
+            path,
+            valueJson,
+          } satisfies WorkerResponse,
+          (error) => (error ? reject(error) : resolve()),
+        ),
+      );
+    return path;
+  },
+  require: createRequire(join(config.workspace, 'package.json')),
+  async screenshot() {
+    const current = Reflect.get(realm, 'page') as Page;
+    if (images.length >= 4) throw new Error('At most four screenshots per cell.');
+    const count = images.length;
+    await current.screenshot({ quality: 70 });
+    return images.length > count ? 'Screenshot captured.' : 'Screenshot omitted; see warning.';
+  },
+  async showImage(path: string) {
+    if (typeof path !== 'string' || !path) throw new Error('showImage(path) needs a file path.');
+    const missing = (error: NodeJS.ErrnoException) => {
+      throw new Error(
+        error.code === 'ENOENT'
+          ? `No file at ${path} (relative to ${process.cwd()}).`
+          : error.message,
+      );
+    };
+    // Check size before reading so a huge file never lands in memory.
+    if ((await stat(resolve(path)).catch(missing)).size > 8_000_000)
+      throw new Error(`${path} not shown: images are limited to 8 MB.`);
+    const bytes = await readFile(resolve(path)).catch(missing);
+    const byExtension: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+      '.gif': 'image/gif',
+    };
+    const mimeType = imageMimeType(bytes) ?? byExtension[extname(path).toLowerCase()];
+    if (!mimeType) throw new Error(`${path} is not a png, jpeg, webp or gif image.`);
+    const size = imageDimensions(bytes);
+    if (!size || size.width * size.height > 50_000_000)
+      throw new Error(`${path}: unreadable image or over 50 megapixels.`);
+    if (!attachImage?.({ type: 'image', data: bytes.toString('base64'), mimeType }))
+      throw new Error(`${path} not shown: at most four images per cell, 8 MB each.`);
+    return `Image shown: ${path} (${size.width}x${size.height})`;
+  },
+  async snapshot() {
+    const current = Reflect.get(realm, 'page') as Page;
+    return current.snapshot();
+  },
+  async artifact(name: string, data: string | Uint8Array) {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,119}$/.test(name))
+      throw new Error('Use a plain filename, max 120 characters.');
+    const path = join(config.workspace, name);
+    await writeFile(path, data, { flag: 'wx' });
+    return path;
+  },
+});
+function observe() {
+  if (config.recording)
+    browser.observeCommand = (method, raw, sessionId) => {
+      const params = raw as { type?: string; x?: number; y?: number };
+      const protocolTarget = sessionId ? browser.targetForSession(sessionId) : undefined;
+      const targetId = protocolTarget ? browser.observationTargetId : undefined;
+      if (!targetId) return;
+      if (
+        method === 'Input.dispatchMouseEvent' &&
+        ['mouseReleased', 'mouseWheel'].includes(params.type ?? '')
+      )
+        send({
+          type: 'action',
+          action: {
+            kind: params.type === 'mouseReleased' ? 'Click' : 'Scroll',
+            targetId,
+            ...(protocolTarget === targetId && params.x !== undefined ? { x: params.x } : {}),
+            ...(protocolTarget === targetId && params.y !== undefined ? { y: params.y } : {}),
+          },
+        });
+      else if (method === 'Input.insertText' || method === 'Page.navigate')
+        send({
+          type: 'action',
+          action: { kind: method === 'Page.navigate' ? 'Navigate' : 'Type', targetId },
+        });
+    };
+}
+observe();
+realm.console = new (await import('node:console')).Console(sink, sink);
+
+async function evaluate(code: string, captureJson = false): Promise<string | undefined> {
+  try {
+    // Preserve replMode despite the incomplete Node protocol types.
+    const parameters = {
+      expression: captureJson ? `__serializeResult(await (${code}\n))` : code,
+      contextId: executionContextId,
+      awaitPromise: true,
+      replMode: true,
+      objectGroup: 'cell',
+    };
+    const { result, exceptionDetails } = await new Promise<Runtime.EvaluateReturnType>(
+      (resolve, reject) => {
+        evaluator.post(
+          'Runtime.evaluate',
+          parameters,
+          (error: Error | null, response: Runtime.EvaluateReturnType) => {
+            if (error) reject(error);
+            else resolve(response);
+          },
+        );
+      },
+    );
+    if (exceptionDetails)
+      throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
+    if (captureJson) {
+      if (typeof result.value !== 'string')
+        throw new Error('Result serialization returned no JSON.');
+      return JSON.stringify(clean(JSON.parse(result.value)));
+    }
+    if (result.objectId) {
+      await new Promise<void>((resolve, reject) =>
+        evaluator.post(
+          'Runtime.callFunctionOn',
+          {
+            objectId: result.objectId,
+            functionDeclaration: 'function() { console.log(this); }',
+            returnByValue: true,
+          },
+          (error) => {
+            if (error) reject(error);
+            else resolve();
+          },
+        ),
+      );
+    } else if (result.type !== 'undefined') {
+      sink.write(result.unserializableValue ?? inspect(result.value, { maxStringLength: 20_000 }));
+    }
+  } finally {
+    evaluator.post('Runtime.releaseObjectGroup', { objectGroup: 'cell' });
+  }
+}
+
+process.on('message', async (message: WorkerRequest) => {
+  if (message.type === 'close') {
+    browser.close();
+    evaluator.disconnect();
+    send({ type: 'closed' });
+    return;
+  }
+  runId = message.runId;
+  output = '';
+  pendingText = '';
+  images = [];
+  const cellImages = images;
+  let active = true;
+  let warned = false;
+  // Apply shared image limits to screenshots and showImage().
+  attachImage = (image) => {
+    if (cellImages.length >= 4 || Buffer.byteLength(image.data, 'base64') > 8_000_000) return false;
+    cellImages.push(image);
+    return true;
+  };
+  captureResponse = (method, params, result, sessionId) => {
+    if (active) void highlight?.(method, params, sessionId);
+    if (!active || method !== 'Page.captureScreenshot') return;
+    const data = (result as { data?: unknown })?.data;
+    if (typeof data !== 'string') return;
+    const format = (params as { format?: string })?.format ?? 'png';
+    const mimeType =
+      format === 'jpeg' ? 'image/jpeg' : format === 'webp' ? 'image/webp' : 'image/png';
+    if (attachImage!({ type: 'image', data, mimeType })) return;
+    if (!warned) sink.write('[Screenshot omitted from model vision: four-image/8 MB limit.]\n');
+    warned = true;
+  };
+  browser.observeResponse = captureResponse;
+  overflow = false;
+  outputFile = message.outputFile;
+  let valueJson: string | undefined;
+  let failure: string | undefined;
+  let activeTargetId: string | undefined;
+  try {
+    valueJson = await evaluate(message.code, message.captureJson);
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+  } finally {
+    // Capture the active target before automatic state output reads the primary page.
+    activeTargetId = browser.observationTargetId;
+    // Show resulting browser state without another model request.
+    if (bu?.acted)
+      await bu
+        .state()
+        .catch((error: unknown) => sink.write(`[state unavailable: ${String(error)}]\n`));
+    active = false;
+    browser.observeResponse = undefined;
+    captureResponse = undefined;
+    attachImage = undefined;
+  }
+  captureText(clean(pendingText));
+  pendingText = '';
+  if (overflow) output += '\n[Output exceeded the 1 MB capture limit.]';
+  if (output.length > config.maxOutputChars)
+    output = `${output.slice(0, config.maxOutputChars)}\n[Truncated. Full captured output: ${outputFile}]`;
+  const previews = await prepareModelImages(images);
+  const targetId = (Reflect.get(realm, 'page') as Page)?.targetId;
+  const focused = activeTargetId ?? targetId;
+  if (config.focusTab && focused) {
+    // Align visible focus with the active target for host interactions.
+    await browser.send('Target.activateTarget', { targetId: focused }).catch(() => {});
+  }
+  const result = {
+    text: [output, ...previews.notes].filter(Boolean).join('\n') || '(no output)',
+    images: previews.images,
+    targetId,
+    ...(browser.observationTargetId ? { observationTargetId: browser.observationTargetId } : {}),
+    ...(activeTargetId ? { activeTargetId } : {}),
+    ...(valueJson !== undefined ? { valueJson } : {}),
+    ...(outputFile ? { outputFile } : {}),
+  };
+  if (failure) send({ type: 'error', message: failure, result });
+  else send({ type: 'result', result });
+});
+send({ type: 'ready', targetId: page.targetId });

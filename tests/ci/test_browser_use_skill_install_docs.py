@@ -1,11 +1,9 @@
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-BROWSER_USE_REPO_SKILL_URL = 'https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md'
 EXPECTED_SKILL_INSTALL_PATHS = (
 	Path('.agents') / 'skills' / 'browser-use' / 'SKILL.md',
 	Path('.claude') / 'skills' / 'browser-use' / 'SKILL.md',
@@ -18,10 +16,9 @@ EXPECTED_SKILL_INSTALL_PATHS = (
 )
 
 
-def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
+def _fake_uv(tmp_path: Path) -> Path:
 	bin_dir = tmp_path / 'bin'
 	bin_dir.mkdir()
-
 	uv = bin_dir / 'uv'
 	uv.write_text(
 		'#!/usr/bin/env python3\n'
@@ -30,80 +27,11 @@ def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
 		encoding='utf-8',
 	)
 	uv.chmod(0o755)
-
-	browser_harness = bin_dir / 'browser-harness'
-	browser_harness.write_text(
-		'#!/usr/bin/env python3\n'
-		'import sys\n'
-		f'text = {skill_text!r}\n'
-		'if sys.argv[1:] == ["skill"]:\n'
-		'    print(text, end="")\n'
-		'else:\n'
-		'    print("usage: browser-harness skill", file=sys.stderr)\n'
-		'    sys.exit(2)\n',
-		encoding='utf-8',
-	)
-	browser_harness.chmod(0o755)
 	return bin_dir
 
 
-def test_docs_install_browser_use_skill_from_package_alias():
-	readme = (ROOT / 'README.md').read_text(encoding='utf-8')
-
-	assert 'run `browser-use skill install` to register the skill' in readme
-	assert 'mkdir -p ~/.claude/skills/browser-use' not in readme
-	assert 'uv run --with "browser-use[browser-harness]" python -c' not in readme
-	assert 'from browser_use.skills import browser_use_skill_text' not in readme
-	assert BROWSER_USE_REPO_SKILL_URL not in readme
-	assert 'raw.githubusercontent.com/browser-use/browser-harness/main/SKILL.md' not in readme
-
-
-def test_cloud_v4_reference_scopes_workspace_file_listing():
-	api_v4 = (ROOT / 'skills' / 'cloud' / 'references' / 'api-v4.md').read_text(encoding='utf-8')
-
-	assert 'client.workspaces.files(workspace.id)' in api_v4
-	assert 'client.workspaces.files()' not in api_v4
-	python_examples = re.findall(r'```python\n(.*?)```', api_v4, flags=re.DOTALL)
-	assert python_examples
-	assert all('BrowserUse' in example for example in python_examples if 'client.' in example)
-
-
-def test_remote_browser_skill_uses_current_cli():
-	remote_skill = (ROOT / 'skills' / 'remote-browser' / 'SKILL.md').read_text(encoding='utf-8')
-
-	for removed_command in (
-		'browser-use open',
-		'browser-use state',
-		'browser-use click',
-		'browser-use input',
-		'browser-use tab',
-		'browser-use screenshot',
-		'browser-use eval',
-		'browser-use cookies',
-		'browser-use close',
-		'browser-use sessions',
-		'browser-use tunnel',
-		'browser-use wait',
-		'browser-use register',
-		'browser-use cloud connect',
-		'browser-use --connect',
-		'browser_use/skill_cli/README.md',
-	):
-		assert removed_command not in remote_skill
-
-	for current_command in (
-		"browser-use <<'PY'",
-		'start_remote_daemon("r7k2")',
-		'BU_NAME=r7k2 browser-use',
-		'new_tab("https://example.com")',
-		'print(page_info())',
-		'stop_remote_daemon("r7k2")',
-	):
-		assert current_command in remote_skill
-
-
-def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
-	bin_dir = _fake_browser_harness_tools(tmp_path, '---\nname: browser-harness\n---\n\n# Browser Harness\n')
+def test_browser_use_cli_installs_packaged_browser_use_skill(tmp_path):
+	bin_dir = _fake_uv(tmp_path)
 
 	home = tmp_path / 'home'
 	for stale in (home / path for path in EXPECTED_SKILL_INSTALL_PATHS):
@@ -128,37 +56,13 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 
 	assert result.returncode == 0, result.stderr
 	assert uv_args.read_text(encoding='utf-8') == 'tool install --python 3.12 --upgrade --force browser-use'
-	expected = (
-		'---\n'
-		'name: browser-use\n'
-		'description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser(use_cloud=True)), Playwright, Puppeteer or any CDP client."\n'
-		'homepage: https://browser-use.com\n'
-		'metadata:\n'
-		'  {\n'
-		'    "openclaw":\n'
-		'      {\n'
-		'        "requires": { "bins": ["browser-use"] },\n'
-		'        "install":\n'
-		'          [\n'
-		'            {\n'
-		'              "id": "uv",\n'
-		'              "kind": "uv",\n'
-		'              "package": "browser-use",\n'
-		'              "bins": ["browser-use"],\n'
-		'              "label": "Install Browser Use CLI (uv)",\n'
-		'            },\n'
-		'          ],\n'
-		'      },\n'
-		'  }\n'
-		'---\n\n'
-		'# Browser Use\n'
-	)
+	expected = (ROOT / 'browser_use/skills/browser-use/SKILL.md').read_text(encoding='utf-8')
 	for installed in (home / path for path in EXPECTED_SKILL_INSTALL_PATHS):
 		assert installed.read_text(encoding='utf-8') == expected
 
 
 def test_browser_use_cli_validates_destination_before_installing_harness(tmp_path):
-	bin_dir = _fake_browser_harness_tools(tmp_path, '---\nname: browser-harness\n---\n\n# Browser Harness\n')
+	bin_dir = _fake_uv(tmp_path)
 	blocking_file = tmp_path / 'not-a-directory'
 	blocking_file.write_text('blocks skill directory creation', encoding='utf-8')
 

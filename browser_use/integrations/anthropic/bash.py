@@ -1,6 +1,4 @@
-# pyright: reportCallIssue=false
-
-"""Bounded Bash tool for Anthropic tool runners."""
+"""Provide bounded Bash execution for Anthropic tool runners."""
 
 from __future__ import annotations
 
@@ -96,7 +94,6 @@ async def run_bash(
 	)
 	timed_out = False
 	try:
-		# connection_lost covers the shell AND inherited output pipes.
 		await asyncio.wait_for(asyncio.shield(protocol.closed), timeout=timeout_seconds)
 	except TimeoutError:
 		timed_out = True
@@ -108,7 +105,7 @@ async def run_bash(
 		if timed_out:
 			with contextlib.suppress(ProcessLookupError):
 				os.killpg(transport.get_pid(), signal.SIGKILL)
-		# Close pipes even if a detached descendant still holds their write end.
+
 		transport.close()
 		with contextlib.suppress(TimeoutError):
 			await asyncio.wait_for(asyncio.shield(protocol.exited), timeout=1)

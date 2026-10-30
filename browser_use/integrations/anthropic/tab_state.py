@@ -1,4 +1,4 @@
-"""Small, dependency-free helpers for atomic browser-tab state handoff."""
+"""Preserve tab state across provider tool results."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ TabEntry = dict[str, Any]
 
 @dataclass(frozen=True)
 class PinnedTabSnapshot:
-	"""One member call's immutable-by-copy tab inventory."""
+	"""Preserve one tab inventory for the member call."""
 
 	context: object
 	tabs: tuple[TabEntry, ...]

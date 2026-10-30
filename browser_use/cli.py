@@ -1,10 +1,10 @@
-"""Browser Use CLI backed by Browser Harness"""
+"""Run Pi tasks or Browser Harness programs through the Browser Use CLI."""
 
 from __future__ import annotations
 
+import os
 import sys
-import time
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from importlib.metadata import PackageNotFoundError, version
 from io import StringIO
 
@@ -16,14 +16,6 @@ def _browser_use_version() -> str:
 		return 'unknown'
 
 
-def _exit_code(result: int | str | None) -> int:
-	if result is None:
-		return 0
-	if isinstance(result, int):
-		return result
-	return 1
-
-
 def _set_harness_client_env() -> None:
 	import os
 
@@ -31,34 +23,21 @@ def _set_harness_client_env() -> None:
 	os.environ['BH_CLIENT_VERSION'] = _browser_use_version()
 
 
-def _capture_via_harness(
-	*,
-	command: str,
-	start_time: float,
-	result: int | str | None = None,
-	error_message: str | None = None,
-) -> None:
+@contextmanager
+def _without_harness_telemetry():
+	previous = os.environ.get('BH_TELEMETRY')
+	os.environ['BH_TELEMETRY'] = 'false'
 	try:
-		from browser_harness import telemetry as harness_telemetry
-
-		capture_cli_event = getattr(harness_telemetry, 'capture_cli_event', None)
-		if capture_cli_event is None:
-			return
-		_set_harness_client_env()
-		code = _exit_code(result)
-		capture_cli_event(
-			action='error' if code else 'completed',
-			command=command,
-			duration_seconds=time.monotonic() - start_time,
-			exit_code=code,
-			error_message=error_message,
-		)
-	except Exception:
-		pass
+		yield
+	finally:
+		if previous is None:
+			os.environ.pop('BH_TELEMETRY', None)
+		else:
+			os.environ['BH_TELEMETRY'] = previous
 
 
 def _run_mcp_stdio_server(module_name: str) -> None:
-	"""Silence all logging"""
+	"""Silence logging during structured CLI operations."""
 	import asyncio
 	import importlib
 	import logging
@@ -68,15 +47,24 @@ def _run_mcp_stdio_server(module_name: str) -> None:
 	os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
 	logging.disable(logging.CRITICAL)
 
-	main = importlib.import_module(module_name).main
-	asyncio.run(main())
-
-
-def _run_mcp_server() -> None:
-	_run_mcp_stdio_server('browser_use.mcp.server')
+	with _without_harness_telemetry():
+		main = importlib.import_module(module_name).main
+		asyncio.run(main())
 
 
 def _run_cli_mcp_server() -> None:
+	import argparse
+
+	parser = argparse.ArgumentParser(prog='browser-use --mcp', description='Expose direct browser control through MCP.')
+	parser.add_argument(
+		'--browser', choices=('cloud', 'chrome', 'chromium'), default=os.environ.get('BROWSER_USE_BROWSER', 'cloud')
+	)
+	parser.add_argument('--cdp-url')
+	options = parser.parse_args([arg for arg in sys.argv[1:] if arg not in {'--mcp', '--cli-mcp'}])
+	os.environ['BROWSER_USE_BROWSER'] = options.browser
+	if options.cdp_url:
+		os.environ['BU_CDP_URL'] = options.cdp_url
+		os.environ.pop('BU_CDP_WS', None)
 	_run_mcp_stdio_server('browser_use.mcp.cli_mcp')
 
 
@@ -106,25 +94,6 @@ def _run_install_command(argv: list[str]) -> int:
 
 	print('\nInstallation failed', file=sys.stderr)
 	return result.returncode or 1
-
-
-def _run_init_command(argv: list[str]) -> int | None:
-	from browser_use.init_cmd import main as init_main
-
-	original_argv = sys.argv
-	try:
-		sys.argv = [original_argv[0], *argv]
-		init_main()
-	except SystemExit as exc:
-		if exc.code is None:
-			return 0
-		if isinstance(exc.code, int):
-			return exc.code
-		print(exc.code, file=sys.stderr)
-		return 1
-	finally:
-		sys.argv = original_argv
-	return 0
 
 
 def _as_browser_use_cli_text(text: str) -> str:
@@ -160,6 +129,10 @@ def _patch_browser_harness_cli_text() -> None:
 	from browser_harness import auth, run, telemetry
 
 	run.HELP = _as_browser_use_cli_text(run.HELP)
+	if 'browser-use run <task>' not in run.HELP:
+		run.HELP += '\nPi tasks: browser-use run <task> [--model provider/model]\n'
+		run.HELP += 'Browser selection: --browser cloud|chrome|chromium or --cdp-url URL.\n'
+		run.HELP += 'Python programs default to Cloud; local modes attach to a running browser.\n'
 	run.USAGE = _as_browser_use_cli_text(run.USAGE)
 
 	original_auth_cli = auth.run_auth_cli
@@ -179,17 +152,55 @@ def _patch_browser_harness_cli_text() -> None:
 	telemetry.run_telemetry_cli = run_telemetry_cli
 
 
-_delegated_to_harness = False
+def _ensure_harness_browser(browser: str | None = None, cdp_url: str | None = None) -> None:
+	browser = browser or os.environ.get('BROWSER_USE_BROWSER', 'cloud')
+	if cdp_url:
+		os.environ['BU_CDP_URL'] = cdp_url
+		os.environ.pop('BU_CDP_WS', None)
+	endpoint = os.environ.get('BU_CDP_URL') or os.environ.get('BU_CDP_WS')
+	if endpoint:
+		from hashlib import sha256
+
+		os.environ.setdefault('BU_NAME', 'browser-use-cdp-' + sha256(endpoint.encode()).hexdigest()[:12])
+		return
+	if browser != 'cloud':
+		return
+	os.environ.setdefault('BU_NAME', 'browser-use-cloud')
+	from browser_harness import admin
+
+	name = os.environ['BU_NAME']
+	if admin.daemon_alive(name):
+		if admin.daemon_browser_kind(name) != 'cloud':
+			raise RuntimeError('This daemon uses a local browser; use --browser chrome or choose another BU_NAME.')
+		return
+	if os.environ.get('BH_REQUIRE_EXISTING_DAEMON') == '1':
+		admin.require_existing_daemon(name)
+		return
+	admin.start_remote_daemon(name)
 
 
 def _run_browser_harness() -> int | None:
-	from browser_harness import run
+	import argparse
 
-	global _delegated_to_harness
+	parser = argparse.ArgumentParser(add_help=False)
+	parser.add_argument(
+		'--browser', choices=('cloud', 'chrome', 'chromium'), default=os.environ.get('BROWSER_USE_BROWSER', 'cloud')
+	)
+	parser.add_argument('--cdp-url')
+	options, args = parser.parse_known_args(sys.argv[1:])
+	if not args or args == ['--debug-clicks']:
+		code = sys.stdin.read()
+		if not code.strip():
+			print(_EMPTY_STDIN_MESSAGE, file=sys.stderr)
+			return 1
+		sys.stdin = StringIO(code)
+		if not code.lstrip().startswith(('start_remote_daemon(', 'stop_remote_daemon(')):
+			_ensure_harness_browser(options.browser, options.cdp_url)
+
+	from browser_harness import run
 
 	_set_harness_client_env()
 	_patch_browser_harness_cli_text()
-	args = sys.argv[1:]
 	if args and args[0] == 'doctor' and args[1:]:
 		if args[1:] in (['--help'], ['-h']):
 			print('usage: browser-use doctor [--fix-snap]')
@@ -197,12 +208,73 @@ def _run_browser_harness() -> int | None:
 		if args[1:] != ['--fix-snap']:
 			print('usage: browser-use doctor [--fix-snap]', file=sys.stderr)
 			sys.exit(2)
-	_delegated_to_harness = True
-	run.main()
+	original_argv = sys.argv
+	try:
+		sys.argv = [original_argv[0], *args]
+		run.main()
+	finally:
+		sys.argv = original_argv
 	return None
 
 
-# Subcommands and flags from the pre-3.0 CLI; maps to hint
+def _run_task(argv: list[str]) -> int:
+	import argparse
+	import asyncio
+	import json
+	from dataclasses import asdict
+
+	parser = argparse.ArgumentParser(prog='browser-use run', description='Run a task with the Pi agent.')
+	parser.add_argument('task', help='Task instructions')
+	from browser_use import DEFAULT_MODEL
+
+	parser.add_argument(
+		'--model',
+		default=os.environ.get('BROWSER_USE_MODEL') or DEFAULT_MODEL,
+		help='Model ID or Browser Use alias; defaults to bu-recommended',
+	)
+	parser.add_argument(
+		'--browser', choices=('cloud', 'chrome', 'chromium'), default=os.environ.get('BROWSER_USE_BROWSER', 'cloud')
+	)
+	parser.add_argument('--cdp-url', help='Connect to an existing CDP endpoint')
+	parser.add_argument('--base-url', help='Provider API endpoint')
+	parser.add_argument('--profile-dir', help='Chrome user-data root or Chromium profile directory')
+	parser.add_argument('--headed', action='store_true', help='Show a launched Chromium browser')
+	parser.add_argument('--max-steps', type=int, default=100)
+	parser.add_argument('--json', action='store_true', help='Print the full result as JSON')
+	args = parser.parse_args(argv)
+	if args.max_steps < 1:
+		parser.error('--max-steps must be positive.')
+	cdp_url = args.cdp_url or os.environ.get('BU_CDP_URL') or os.environ.get('BU_CDP_WS')
+	if cdp_url:
+		browser = {'cdpUrl': cdp_url}
+	elif args.browser == 'cloud':
+		from browser_harness import auth
+
+		browser = {'kind': 'cloud', 'apiKey': auth.get_browser_use_api_key()}
+	else:
+		browser = {'kind': args.browser}
+		if args.profile_dir:
+			browser['profileDir'] = args.profile_dir
+		if args.browser == 'chromium':
+			browser['headless'] = not args.headed
+
+	async def run():
+		from browser_use import BrowserUse
+
+		options = {'baseUrl': args.base_url} if args.base_url else {}
+		if args.model in {'bu-recommended', 'bu-balanced', 'bu-smart'} or args.model.startswith('browser-use/'):
+			from browser_harness import auth
+
+			options['apiKey'] = auth.get_browser_use_api_key()
+		async with await BrowserUse.create(model=args.model, browser=browser, **options) as agent:
+			return await agent.run(args.task, maxSteps=args.max_steps)
+
+	result = asyncio.run(run())
+	print(json.dumps(asdict(result), ensure_ascii=False) if args.json else result.text)
+	return 0 if result.status == 'completed' else 1
+
+
+# Map previous CLI commands to migration instructions.
 _LEGACY_HINTS: dict[str, str] = {
 	'open': 'new_tab("https://example.com")',
 	'state': 'print(page_info())',
@@ -210,8 +282,7 @@ _LEGACY_HINTS: dict[str, str] = {
 	'eval': 'print(js("document.title"))',
 	'cookies': 'print(cdp("Network.getCookies"))',
 	'python': '# the CLI runs Python directly now — pipe it on stdin as shown below',
-	'run': '# write the steps as Python using the pre-imported helpers shown below',
-	'connect': '# connecting is automatic — the default flow attaches to your running Chrome',
+	'connect': '# use --browser chrome for your running Chrome or --cdp-url for an existing endpoint',
 	'close': '# restart the local daemon with `browser-use --reload`; stop cloud browsers with stop_remote_daemon(name)',
 	'sessions': '# named local sessions were removed — one default daemon; use BU_NAME=<name> for cloud daemons',
 	'profile': '# profiles now come from your real Chrome; see the profile-sync interaction skill',
@@ -221,7 +292,6 @@ _LEGACY_HINTS: dict[str, str] = {
 	'mcp': '# MCP server mode is now the --mcp flag: `browser-use --mcp`',
 	'--session': '# use BU_NAME=<name> as an env var for named cloud daemons; local runs use one default daemon',
 	'--headed': '# local control always attaches to your real, visible Chrome — no flag needed',
-	'--cdp-url': '# use the BU_CDP_URL=<url> env var instead of a flag',
 	'--profile': '# use your real Chrome profile; for cloud cookie sync see the profile-sync interaction skill',
 	'--json': '# output is whatever your Python prints — use print(json.dumps(...))',
 	'-c': "# pipe code on stdin instead: echo 'print(page_info())' | browser-use",
@@ -302,7 +372,7 @@ def _raised_from_piped_code(exc: BaseException) -> bool:
 
 _QUICKSTART = """Welcome to the Browser Use CLI. Allow your coding agent to reliably control a web browser.
 
-The CLI allows your agent to control the browser via Python, and it manages the browser in the background.
+The CLI runs Pi tasks or Python browser programs. Cloud browsers are the default.
 
   browser-use <<'PY'
   new_tab("https://news.ycombinator.com")
@@ -325,6 +395,8 @@ You can also paste this into your agent to get started:
   connection fails.
 
 More:
+  browser-use run "Find the top Show HN post" --model provider/model
+  browser-use --browser chrome  attach to your real Chrome
   browser-use --doctor     check install, daemon, and browser health
   browser-use --help       full command list
   docs: https://github.com/browser-use/browser-use/blob/main/browser_use/skills/browser-use/SKILL.md"""
@@ -335,38 +407,17 @@ _EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Py
   PY"""
 
 
-def _command_name(args: list[str]) -> str:
-	if '--cli-mcp' in args:
-		return 'cli-mcp'
-	if '--mcp' in args:
-		return 'mcp'
-	if args and args[0] == 'install':
-		return 'install'
-	if args and args[0] == 'init':
-		return 'init'
-	if '--template' in args or '-t' in args:
-		return 'init'
-	if args and args[0] == 'skill':
-		return 'skill'
-	legacy = _legacy_command(args)
-	if legacy is not None:
-		return f'legacy:{legacy}'
-	return args[0] if args else 'run'
-
-
 def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	if '--cli-mcp' in args:
 		_run_cli_mcp_server()
 		return 0, 'cli-mcp'
 	if '--mcp' in args:
-		_run_mcp_server()
+		_run_cli_mcp_server()
 		return 0, 'mcp'
 	if args and args[0] == 'install':
 		return _run_install_command(args[1:]), 'install'
-	if args and args[0] == 'init':
-		return _run_init_command(args[1:]), 'init'
-	if '--template' in args or '-t' in args:
-		return _run_init_command(args), 'init'
+	if args and args[0] == 'run':
+		return _run_task(args[1:]), 'run'
 	if args and args[0] == 'skill':
 		from browser_use.skills.install import handle as handle_skill_command
 
@@ -388,7 +439,8 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		sys.stdin = StringIO(code)
 
 	try:
-		return _run_browser_harness(), args[0] if args else 'run'
+		with _without_harness_telemetry():
+			return _run_browser_harness(), args[0] if args else 'run'
 	except NameError as exc:
 		name = _unknown_exec_name(exc)
 		if name is None or not _raised_from_piped_code(exc):
@@ -400,61 +452,16 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		return 2, args[0] if args else 'run'
 
 
-class _StderrTail:
-	"""Pass-through stderr wrapper that remembers the tail as error context."""
-
-	def __init__(self, wrapped):
-		self._wrapped = wrapped
-		self.tail = ''
-
-	def write(self, text):
-		self.tail = (self.tail + text)[-500:]
-		return self._wrapped.write(text)
-
-	def __getattr__(self, name):
-		return getattr(self._wrapped, name)
-
-
 def browser_use_tui_main() -> int | None:
 	print('browser-use-tui is deprecated; use browser-use instead.', file=sys.stderr)
 	return main()
 
 
 def main() -> int | None:
-	global _delegated_to_harness
-
-	_delegated_to_harness = False
 	args = sys.argv[1:]
-	start_time = time.monotonic()
-	command = _command_name(args)
-	stderr_tail = _StderrTail(sys.stderr)
-	sys.stderr = stderr_tail
-	try:
-		result, command = _dispatch(args)
-	except SystemExit as exc:
-		result = exc.code
-		if not _delegated_to_harness:
-			_capture_via_harness(
-				command=command,
-				start_time=start_time,
-				result=result,
-				error_message=str(result) if isinstance(result, str) else stderr_tail.tail.strip() or None,
-			)
-		raise
-	except Exception as exc:
-		if not _delegated_to_harness:
-			_capture_via_harness(command=command, start_time=start_time, result=1, error_message=str(exc))
-		raise
-	finally:
-		sys.stderr = stderr_tail._wrapped
-
-	if not _delegated_to_harness:
-		_capture_via_harness(
-			command=command,
-			start_time=start_time,
-			result=result,
-			error_message=(stderr_tail.tail.strip() or None) if _exit_code(result) else None,
-		)
+	if args and args[0] == 'telemetry':
+		return _run_browser_harness()
+	result, _ = _dispatch(args)
 	return result
 
 
