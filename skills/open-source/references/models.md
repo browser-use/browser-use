@@ -16,6 +16,7 @@ Browser Use natively supports 15+ LLM providers. Most providers accept any model
 | Mistral | `ChatMistral` | `MISTRAL_API_KEY` |
 | Groq | `ChatGroq` | `GROQ_API_KEY` |
 | Cerebras | `ChatCerebras` | `CEREBRAS_API_KEY` |
+| GMI Cloud | `ChatGMI` | `GMI_API_KEY` |
 | Ollama | `ChatOllama` | — |
 | OpenRouter | `ChatOpenRouter` | `OPENROUTER_API_KEY` |
 | Vercel AI Gateway | `ChatVercel` | `AI_GATEWAY_API_KEY` |
@@ -43,6 +44,7 @@ Based on our [benchmark of real-world browser tasks](https://browser-use.com/pos
 - [Mistral](#mistral)
 - [Groq](#groq)
 - [Cerebras](#cerebras)
+- [GMI Cloud](#gmi-cloud)
 - [Ollama (Local)](#ollama-local)
 - [OpenRouter](#openrouter)
 - [Vercel AI Gateway](#vercel-ai-gateway)
@@ -205,6 +207,23 @@ llm = ChatCerebras(model="llama3.3-70b")
 ```
 
 **Env:** `CEREBRAS_API_KEY` | [Available models](https://inference-docs.cerebras.ai/models/overview)
+
+## GMI Cloud
+
+OpenAI-compatible inference API (`https://api.gmi-serving.com/v1`).
+
+```python
+from browser_use import Agent, ChatGMI
+
+llm = ChatGMI(model="google/gemini-3.6-flash")
+```
+
+**Env:** `GMI_API_KEY` | List the models your key can use with `GET https://api.gmi-serving.com/v1/models` (requires the key). A listed model may still not be callable on your account.
+
+- `ChatGMI` never falls back to `OPENAI_API_KEY`, and does not send `frequency_penalty`.
+- For Gemini models it removes `additionalProperties` from the structured-output schema (GMI forwards it to Google, which rejects it). Override with `remove_additional_properties_from_schema=True/False`.
+- GMI error responses wrap the real cause in `error.details`; `ChatGMI` appends it to the exception message.
+- The agent turns `use_vision` off automatically for model names containing `deepseek`.
 
 ## Ollama (Local)
 
