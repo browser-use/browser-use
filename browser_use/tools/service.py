@@ -1047,7 +1047,7 @@ class Tools(Generic[Context]):
 				# Dispatch close tab event - handle stale target IDs gracefully
 				event = browser_session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
 				await event
-				await event.event_result(raise_if_any=False, raise_if_none=False)  # Don't raise on errors
+				await event.event_result(raise_if_any=True, raise_if_none=False)
 
 				memory = f'Closed tab #{params.tab_id}'
 				logger.info(f'🗑️  {memory}')
@@ -1055,6 +1055,10 @@ class Tools(Generic[Context]):
 					extracted_content=memory,
 					long_term_memory=memory,
 				)
+			except PermissionError as e:
+				memory = f'Failed to close tab #{params.tab_id}: {e}'
+				logger.warning(memory)
+				raise BrowserError(memory, short_term_memory=memory, long_term_memory=memory)
 			except Exception as e:
 				# Handle stale target IDs gracefully
 				logger.warning(f'Tab {params.tab_id} may already be closed: {e}')

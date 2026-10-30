@@ -685,8 +685,8 @@ class SessionManager:
 				)
 
 			# Perform recovery (outside lock to allow concurrent operations)
-			# Try to find another valid page target
-			page_targets = self.get_all_page_targets()
+			# Try to find another valid agent-accessible page target.
+			page_targets = self.browser_session.get_page_targets()
 
 			new_target_id = None
 			is_existing_tab = False

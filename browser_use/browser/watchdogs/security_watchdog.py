@@ -19,6 +19,38 @@ if TYPE_CHECKING:
 _GLOB_WARNING_SHOWN = False
 
 
+# URL schemes belonging to the host application, not to web content.
+# Electron apps expose their UI (tab strip, settings, etc.) as file:// page
+# targets; browsers expose chrome:// pages. Closing these targets can destroy
+# the host application, so the watchdog must ignore them, never enforce
+# domain policy on them.
+_HOST_APP_SCHEMES = frozenset(
+	{
+		'file',
+		'chrome',
+		'chrome-extension',
+		'chrome-untrusted',
+		'devtools',
+		'moz-extension',
+		'edge',
+		'opera',
+		'vivaldi',
+		'brave',
+	}
+)
+
+
+def _is_host_app_url(url: str) -> bool:
+	"""True for host-application pages (Electron chrome, browser-internal pages).
+
+	These are never closed or redirected by this watchdog. Agent-initiated
+	navigation is still gated separately in on_NavigateToUrlEvent.
+	"""
+	from urllib.parse import urlparse
+
+	return urlparse(url or '').scheme in _HOST_APP_SCHEMES
+
+
 class SecurityWatchdog(BaseWatchdog):
 	"""Monitors and enforces security policies for URL access."""
 
@@ -49,6 +81,10 @@ class SecurityWatchdog(BaseWatchdog):
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
 		"""Check if navigated URL is allowed (catches redirects to blocked domains)."""
+		# Host-application pages (Electron chrome, browser-internal pages) must
+		# never be redirected to about:blank — that would destroy the host UI.
+		if _is_host_app_url(event.url):
+			return
 		# Check if the navigated URL is allowed (in case of redirects)
 		if not self._is_url_allowed(event.url):
 			self.logger.warning(f'⛔️ Navigation to non-allowed URL detected: {event.url}')
@@ -72,6 +108,11 @@ class SecurityWatchdog(BaseWatchdog):
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Check if new tab URL is allowed."""
+		# Host-application pages (Electron chrome, browser-internal pages) are
+		# not agent content: never close them, never error on them.
+		if _is_host_app_url(event.url):
+			self.logger.debug(f'Ignoring host-application page target: {event.url}')
+			return
 		if not self._is_url_allowed(event.url):
 			self.logger.warning(f'⛔️ New tab created with disallowed URL: {event.url}')
 

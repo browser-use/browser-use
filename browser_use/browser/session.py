@@ -72,6 +72,8 @@ if TYPE_CHECKING:
 
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
 
+_AGENT_PAGE_SCHEMES = frozenset({'http', 'https', 'about', 'data', 'blob', 'chrome'})
+
 _LOGGED_UNIQUE_SESSION_IDS = set()  # track unique session IDs that have been logged to make sure we always assign a unique enough id to new sessions and avoid ambiguity in logs
 red = '\033[91m'
 reset = '\033[0m'
@@ -1159,8 +1161,8 @@ class BrowserSession(BaseModel):
 		if not self.agent_focus_target_id:
 			raise RuntimeError('Cannot switch tabs - browser not connected')
 
-		# Get all page targets
-		page_targets = self.session_manager.get_all_page_targets()
+		# Host-application pages stay alive but are not agent-accessible tabs.
+		page_targets = self.get_page_targets()
 		if event.target_id is None:
 			# Most recently opened page
 			if page_targets:
@@ -1176,6 +1178,10 @@ class BrowserSession(BaseModel):
 				self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url='about:blank'))
 				return target_id
 
+		target = next((target for target in page_targets if target.target_id == event.target_id), None)
+		if target is None:
+			raise ValueError(f'Cannot switch to unavailable or host-application target {event.target_id}')
+
 		# Switch to the target
 		assert event.target_id is not None, 'target_id must be set at this point'
 		# Ensure session exists and update agent focus (only for page/tab targets)
@@ -1186,10 +1192,7 @@ class BrowserSession(BaseModel):
 		# but we still want the agent to be able to explicitly switch tabs when needed
 		await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': event.target_id})
 
-		# Get target to access url
-		target = self.session_manager.get_target(event.target_id)
-
-		# dispatch focus changed event
+		# Dispatch focus changed event.
 		await self.event_bus.dispatch(
 			AgentFocusChangedEvent(
 				target_id=target.target_id,
@@ -1200,6 +1203,9 @@ class BrowserSession(BaseModel):
 
 	async def on_CloseTabEvent(self, event: CloseTabEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
+		if not any(target.target_id == event.target_id for target in self.get_page_targets()):
+			raise PermissionError(f'Cannot close unavailable or host-application target {event.target_id}')
+
 		try:
 			# Dispatch tab closed event
 			await self.event_bus.dispatch(TabClosedEvent(target_id=event.target_id))
@@ -1393,11 +1399,11 @@ class BrowserSession(BaseModel):
 		return page
 
 	async def get_pages(self) -> list['Page']:
-		"""Get all available pages using SessionManager (source of truth)."""
+		"""Get all agent-accessible pages using SessionManager (source of truth)."""
 		# Import here to avoid circular import
 		from browser_use.actor.page import Page as PageActor
 
-		page_targets = self.session_manager.get_all_page_targets() if self.session_manager else []
+		page_targets = self.get_page_targets()
 
 		targets = []
 		for target in page_targets:
@@ -1416,14 +1422,21 @@ class BrowserSession(BaseModel):
 		return self.session_manager.get_focused_target()
 
 	def get_page_targets(self) -> list['Target']:
-		"""Get all page/tab targets (excludes iframes, workers, etc.).
+		"""Get page targets eligible for agent visibility, focus, and tab actions.
 
-		Returns:
-			List of Target objects for all page/tab targets.
+		Host-application pages remain in SessionManager for lifecycle management,
+		but must not be exposed to the agent. Chrome pages remain eligible for
+		Chromium's new-tab flow. A file:// page explicitly navigated by the agent
+		remains accessible while focused; pre-existing host file pages do not.
 		"""
 		if not self.session_manager:
 			return []
-		return self.session_manager.get_all_page_targets()
+		page_targets = []
+		for target in self.session_manager.get_all_page_targets():
+			scheme = urlparse(target.url or '').scheme
+			if scheme in _AGENT_PAGE_SCHEMES or (scheme == 'file' and target.target_id == self.agent_focus_target_id):
+				page_targets.append(target)
+		return page_targets
 
 	async def close_page(self, page: 'Union[Page, str]') -> None:
 		"""Close a page by Page object or target ID."""
@@ -1942,9 +1955,8 @@ class BrowserSession(BaseModel):
 			)
 			self.logger.debug('CDP client connected with auto-attach enabled')
 
-			# Get browser targets from SessionManager (source of truth)
-			# SessionManager has already discovered all targets via start_monitoring()
-			page_targets_from_manager = self.session_manager.get_all_page_targets()
+			# Only web-content pages are eligible for initial agent focus.
+			page_targets_from_manager = self.get_page_targets()
 
 			# Check for chrome://newtab pages and redirect them to about:blank (in parallel)
 			from browser_use.utils import is_new_tab_page
@@ -2230,7 +2242,7 @@ class BrowserSession(BaseModel):
 				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
 			)
 
-			page_targets = self.session_manager.get_all_page_targets()
+			page_targets = self.get_page_targets()
 
 			# Prefer the previous focus target when it remains available.
 			restored = False
@@ -2390,15 +2402,15 @@ class BrowserSession(BaseModel):
 		task.add_done_callback(_on_message_handler_done)
 
 	async def get_tabs(self) -> list[TabInfo]:
-		"""Get information about all open tabs using cached target data."""
+		"""Get information about agent-accessible tabs using cached target data."""
 		tabs = []
 
 		# Safety check - return empty list if browser not connected yet
 		if not self.session_manager:
 			return tabs
 
-		# Get all page targets from SessionManager
-		page_targets = self.session_manager.get_all_page_targets()
+		# Get agent-accessible page targets from SessionManager
+		page_targets = self.get_page_targets()
 
 		for i, target in enumerate(page_targets):
 			target_id = target.target_id
@@ -2656,17 +2668,22 @@ class BrowserSession(BaseModel):
 			return None
 
 	async def get_target_id_from_tab_id(self, tab_id: str) -> TargetID:
-		"""Get the full-length TargetID from the truncated 4-char tab_id using SessionManager."""
+		"""Resolve an agent-visible tab ID to its full TargetID using SessionManager."""
 		if not self.session_manager:
 			raise RuntimeError('SessionManager not initialized')
 
-		for full_target_id in self.session_manager.get_all_target_ids():
-			if full_target_id.endswith(tab_id):
-				if await self.session_manager.is_target_valid(full_target_id):
-					return full_target_id
-				# Stale target - Chrome should have sent detach event
-				# If we're here, event listener will clean it up
-				self.logger.debug(f'Found stale target {full_target_id}, skipping')
+		agent_target_ids = {target.target_id for target in self.get_page_targets()}
+		for target in self.session_manager.get_all_page_targets():
+			full_target_id = target.target_id
+			if not full_target_id.endswith(tab_id):
+				continue
+			if full_target_id not in agent_target_ids:
+				raise PermissionError(f'Tab #{tab_id} is not agent-accessible')
+			if await self.session_manager.is_target_valid(full_target_id):
+				return full_target_id
+			# Stale target - Chrome should have sent detach event
+			# If we're here, event listener will clean it up
+			self.logger.debug(f'Found stale target {full_target_id}, skipping')
 
 		raise ValueError(f'No TargetID found ending in tab_id=...{tab_id}')
 
@@ -2689,8 +2706,8 @@ class BrowserSession(BaseModel):
 
 	async def get_most_recently_opened_target_id(self) -> TargetID:
 		"""Get the most recently opened target ID using SessionManager."""
-		# Get all page targets from SessionManager
-		page_targets = self.session_manager.get_all_page_targets()
+		# Get all agent-accessible page targets from SessionManager
+		page_targets = self.get_page_targets()
 		if not page_targets:
 			raise RuntimeError('No page targets available')
 		return page_targets[-1].target_id
