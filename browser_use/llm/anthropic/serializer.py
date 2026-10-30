@@ -15,6 +15,7 @@ from browser_use.llm.messages import (
 	AssistantMessage,
 	BaseMessage,
 	ContentPartImageParam,
+	ContentPartRefusalParam,
 	ContentPartTextParam,
 	SupportedImageMediaType,
 	SystemMessage,
@@ -224,10 +225,18 @@ class AnthropicMessageSerializer:
 									part, use_cache=message.cache and is_last_content
 								)
 							)
-							# # Note: Anthropic doesn't have a specific refusal block type,
-							# # so we convert refusals to text blocks
-							# elif part.type == 'refusal':
-							# 	blocks.append(TextBlockParam(text=f'[Refusal] {part.refusal}', type='text'))
+						elif part.type == 'refusal':
+							# Anthropic doesn't have a specific refusal block type,
+							# so we convert refusals to text blocks with [Refusal] prefix
+							blocks.append(
+								TextBlockParam(
+									text=f'[Refusal] {part.refusal}',
+									type='text',
+									cache_control=AnthropicMessageSerializer._serialize_cache_control(
+										message.cache and is_last_content
+									),
+								)
+							)
 
 			# Add tool use blocks if present
 			if message.tool_calls:
