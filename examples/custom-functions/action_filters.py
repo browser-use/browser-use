@@ -28,8 +28,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from browser_use import ChatOpenAI
-from browser_use.agent.service import Agent, Tools
+from browser_use.agent.service import Agent
 from browser_use.browser import BrowserSession
+from browser_use.tools.service import Tools
 
 # Initialize tools and registry
 tools = Tools()
