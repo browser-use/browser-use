@@ -1125,7 +1125,7 @@ class Tools(Generic[Context]):
 			chunks = chunk_markdown_by_structure(content, max_chunk_chars=MAX_CHAR_LIMIT, start_from_char=start_from_char)
 			if not chunks:
 				return ActionResult(
-					error=f'start_from_char ({start_from_char}) exceeds content length {final_filtered_length} characters.'
+					error=f'start_from_char ({start_from_char}) exceeds content length {len(content)} characters.'
 				)
 			chunk = chunks[0]
 			content = chunk.content
