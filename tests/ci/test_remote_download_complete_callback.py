@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from browser_use.browser.events import TabCreatedEvent
 from browser_use.browser.watchdogs.downloads_watchdog import DownloadsWatchdog
 
 
@@ -37,7 +38,7 @@ class _ProgressCapture:
 		self.handler = handler
 
 
-def _make_watchdog(tmp_path) -> tuple[DownloadsWatchdog, _ProgressCapture]:
+def _make_watchdog(tmp_path, *, is_local: bool = False) -> tuple[DownloadsWatchdog, _ProgressCapture]:
 	"""Build a DownloadsWatchdog bound to a lightweight fake *remote* session.
 
 	Uses ``model_construct`` to bypass pydantic validation (which requires a real
@@ -58,7 +59,7 @@ def _make_watchdog(tmp_path) -> tuple[DownloadsWatchdog, _ProgressCapture]:
 
 	browser_session = SimpleNamespace(
 		logger=logging.getLogger('test.downloads_watchdog'),
-		is_local=False,  # remote browser -> exercises the fixed branch
+		is_local=is_local,
 		cdp_client=cdp_client,
 		browser_profile=SimpleNamespace(downloads_path=str(tmp_path), auto_download_pdfs=False),
 		id='test-session-0001',
@@ -86,6 +87,32 @@ async def test_remote_attachment_creates_missing_download_directory(tmp_path) ->
 	set_download_behavior = wd.browser_session.cdp_client.send.Browser.setDownloadBehavior
 	assert isinstance(set_download_behavior, AsyncMock)
 	set_download_behavior.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_local_attachment_reports_download_directory_creation_failure(tmp_path, monkeypatch) -> None:
+	"""A local browser must report an unusable download directory to its caller."""
+	wd, _ = _make_watchdog(tmp_path / 'unwritable', is_local=True)
+
+	def reject_local_mkdir(*_args, **_kwargs):
+		"""Model an unavailable local download directory."""
+		raise PermissionError('cannot create download directory')
+
+	monkeypatch.setattr('pathlib.Path.mkdir', reject_local_mkdir)
+	with pytest.raises(PermissionError, match='cannot create download directory'):
+		await wd.on_TabCreatedEvent(TabCreatedEvent(target_id='FAKE_TARGET_LOCAL', url='about:blank'))
+	assert not wd._download_cdp_session_setup
+
+
+@pytest.mark.asyncio
+async def test_download_listener_failure_remains_nonfatal(tmp_path) -> None:
+	"""A CDP setup failure keeps the watchdog's existing best-effort behavior."""
+	wd, _ = _make_watchdog(tmp_path)
+	set_download_behavior = wd.browser_session.cdp_client.send.Browser.setDownloadBehavior
+	assert isinstance(set_download_behavior, AsyncMock)
+	set_download_behavior.side_effect = RuntimeError('CDP unavailable')
+	await wd.attach_to_target('FAKE_TARGET_CDP_FAILURE')
+	assert not wd._download_cdp_session_setup
 
 
 @pytest.mark.asyncio
