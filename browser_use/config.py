@@ -317,6 +317,18 @@ def create_default_config() -> DBStyleConfigJSON:
 	return new_config
 
 
+class ConfigLoadError(Exception):
+	"""Raised when an existing config.json exists but cannot be parsed.
+
+	We deliberately do not fall back to a fresh default config in this case: the
+	default profile carries no domain allowlist/blocklist and no IP blocking, and
+	the URL policy treats missing lists as allow-all, so a silent fallback would
+	turn one corrupt file into a permanent loss of the configured network
+	boundary. Callers should surface this error and ask the operator to fix or
+	remove the file.
+	"""
+
+
 def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 	"""Load config.json or create fresh one if old format detected."""
 	if not config_path.exists():
@@ -352,15 +364,22 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 		return new_config
 
 	except Exception as e:
-		logger.error(f'Failed to load config from {config_path}: {e}, creating fresh config')
-		# On any error, create fresh config
-		new_config = create_default_config()
+		# The file exists but cannot be used (unreadable or invalid JSON). Fail closed:
+		# a fresh default profile has no allowed_domains / prohibited_domains /
+		# block_ip_addresses, and the URL policy treats "no lists" as allow-all, so
+		# silently falling back to defaults would drop the operator's network
+		# boundary. Preserve the original bytes and raise instead (issue #6218).
+		backup_path = config_path.with_name(config_path.name + '.bak')
 		try:
-			with open(config_path, 'w') as f:
-				json.dump(new_config.model_dump(), f, indent=2)
-		except Exception as write_error:
-			logger.error(f'Failed to write fresh config: {write_error}')
-		return new_config
+			if not backup_path.exists():
+				backup_path.write_bytes(config_path.read_bytes())
+		except Exception as backup_error:
+			logger.error(f'Failed to back up unreadable config {config_path}: {backup_error}')
+		raise ConfigLoadError(
+			f'Failed to load config from {config_path}: {e}. '
+			f'The original file was preserved at {backup_path}; '
+			'fix or remove it manually instead of silently falling back to an allow-all default config.'
+		) from e
 
 
 class Config:
