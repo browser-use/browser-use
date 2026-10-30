@@ -77,6 +77,38 @@ async def test_basic_screenshots(browser_session: BrowserSession, httpserver):
 	assert element, 'Element screenshot returned no data'
 
 
+async def test_element_screenshots_capture_the_element_after_scrolling(browser_session: BrowserSession, httpserver):
+	"""Element screenshots must capture the element itself once the page is scrolled past it."""
+	import base64
+	import io
+
+	from PIL import Image
+
+	html = """
+	<html><body style="margin: 0">
+		<div style="height: 3000px; background: rgb(0, 0, 255)"></div>
+		<div id="target" style="width: 200px; height: 100px; background: rgb(255, 0, 0)"></div>
+		<div style="height: 3000px; background: rgb(0, 255, 0)"></div>
+	</body></html>
+	"""
+	httpserver.expect_request('/scrolled').respond_with_data(html, content_type='text/html')
+	await browser_session.event_bus.dispatch(NavigateToUrlEvent(url=httpserver.url_for('/scrolled'), new_tab=False))
+
+	page = await browser_session.get_current_page()
+	assert page is not None
+	element = (await page.get_elements_by_css_selector('#target'))[0]
+	await element.scroll_into_view()
+	assert float(await page.evaluate('() => window.scrollY')) > 0
+
+	def center_pixel(data: bytes) -> tuple[int, ...]:
+		with Image.open(io.BytesIO(data)) as image:
+			rgb = image.convert('RGB')
+			return rgb.getpixel((rgb.width // 2, rgb.height // 2))  # type: ignore[return-value]
+
+	assert center_pixel(base64.b64decode(await element.screenshot())) == (255, 0, 0)
+	assert center_pixel(await browser_session.screenshot_element('#target')) == (255, 0, 0)
+
+
 async def test_agent_screenshot_with_vision_enabled(browser_session, base_url):
 	"""Test that agent captures screenshots when vision is enabled.
 
