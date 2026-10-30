@@ -32,3 +32,5 @@ Add entries in this format:
 ```markdown
 - [Project name](https://github.com/org/project) - One sentence about what it integrates with. Maintained by @github-handle.
 ```
+
+- [Solvecha](https://github.com/Solvecha/solvecha-skills/tree/main/python) - Adds a `solve_recaptcha_in_tab` action (`pip install "solvecha[browser-use]"`) that reads reCAPTCHA v2 image challenges and returns the tiles to click. It solves captcha images and text only and does not return captcha tokens. Maintained by @Solvecha.
