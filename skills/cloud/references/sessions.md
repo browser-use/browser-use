@@ -87,10 +87,9 @@ await client.profiles.delete(profile.id)
 
 Upload local browser cookies to cloud profiles:
 
-```bash
-export BROWSER_USE_API_KEY=your_key
-curl -fsSL https://browser-use.com/profile.sh | sh
-```
+1. Set `BROWSER_USE_API_KEY`.
+2. Install [`profile-use`](https://github.com/browser-use/profile-use-releases/releases/latest) for your platform.
+3. Follow the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md).
 
 Opens a browser where you log into sites. Returns a `profile_id` to use in tasks.
 
@@ -99,9 +98,9 @@ Opens a browser where you log into sites. Returns a `profile_id` to use in tasks
 ### 1. Profile Sync (Easiest)
 
 Log in locally, sync cookies to cloud:
-```bash
-curl -fsSL https://browser-use.com/profile.sh | sh
-```
+
+1. Install [`profile-use`](https://github.com/browser-use/profile-use-releases/releases/latest) for your platform.
+2. Follow the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md).
 
 ### 2. Secrets (Domain-Scoped)
 
