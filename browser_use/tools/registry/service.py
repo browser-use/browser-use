@@ -117,7 +117,7 @@ class Registry(Generic[Context]):
 					# Handle Optional types - normalize both sides
 					param_type = param.annotation
 					origin = get_origin(param_type)
-					if origin is Union:
+					if origin in (Union, UnionType):
 						args = get_args(param_type)
 						# Find non-None type
 						param_type = next((arg for arg in args if arg is not type(None)), param_type)
