@@ -62,6 +62,7 @@ def test_failed_migration_write_leaves_old_config_intact(tmp_path, monkeypatch):
 	assert [p.name for p in tmp_path.iterdir()] == ['config.json']
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits / umask not meaningful on Windows")
 def test_migration_preserves_existing_0600_mode(tmp_path):
 	"""An old-format 0600 config must stay 0600 after the atomic rewrite, even under umask 022."""
 	config_path = tmp_path / 'config.json'
