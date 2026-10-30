@@ -302,7 +302,8 @@ class DownloadsWatchdog(BaseWatchdog):
 
 	def _is_auto_download_enabled(self) -> bool:
 		"""Check if auto-download PDFs is enabled in browser profile."""
-		return self.browser_session.browser_profile.auto_download_pdfs
+		profile = self.browser_session.browser_profile
+		return profile.accept_downloads and profile.auto_download_pdfs
 
 	async def attach_to_target(self, target_id: TargetID) -> None:
 		"""Set up download monitoring for a specific target."""
@@ -477,6 +478,14 @@ class DownloadsWatchdog(BaseWatchdog):
 							del self._cdp_downloads_info[guid]
 
 		try:
+			# Deny downloads before any downloads_path check, so a profile without a path can't fall back to the browser default
+			if not self.browser_session.browser_profile.accept_downloads:
+				if not self._download_cdp_session_setup:
+					await self.browser_session.cdp_client.send.Browser.setDownloadBehavior(params={'behavior': 'deny'})
+					self._download_cdp_session_setup = True
+					self.logger.debug('[DownloadsWatchdog] accept_downloads=False, denying browser downloads')
+				return
+
 			downloads_path_raw = self.browser_session.browser_profile.downloads_path
 			if not downloads_path_raw:
 				# logger.info(f'[DownloadsWatchdog] No downloads path configured, skipping target: {target_id}')
