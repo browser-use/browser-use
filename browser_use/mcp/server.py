@@ -405,7 +405,7 @@ class BrowserUseServer:
 								},
 								'model': {
 									'type': 'string',
-									'description': 'LLM model to use (e.g., gpt-4o, claude-3-opus-20240229). Defaults to the configured model.',
+									'description': 'LLM model to use (e.g., gpt-4o, claude-opus-4-8). Defaults to the configured model.',
 								},
 								'allowed_domains': {
 									'type': 'array',
