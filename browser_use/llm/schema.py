@@ -193,8 +193,10 @@ class SchemaOptimizer:
 		"""Ensure all properties are required for OpenAI strict mode"""
 		if isinstance(schema, dict):
 			# First recursively apply to nested objects
-			for key, value in schema.items():
-				if isinstance(value, (dict, list)) and key != 'required':
+			# Note: we recurse into ALL dict/list values. The 'required' key holds a list of strings,
+			# and recursing into it is a no-op. This also correctly handles user fields named 'required'.
+			for value in schema.values():
+				if isinstance(value, (dict, list)):
 					SchemaOptimizer._make_strict_compatible(value)
 
 			# Then update required for this level
