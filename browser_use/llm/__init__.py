@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.openrouter.chat import ChatOpenRouter
 	from browser_use.llm.orcarouter.chat import ChatOrcaRouter
 	from browser_use.llm.vercel.chat import ChatVercel
+	from browser_use.llm.zhipuai.chat import ChatZai, ChatZhipuAI
 
 	# Type stubs for model instances - enables IDE autocomplete
 	openai_gpt_4o: ChatOpenAI
@@ -76,6 +77,12 @@ if TYPE_CHECKING:
 	google_gemini_2_5_flash: ChatGoogle
 	google_gemini_2_5_flash_lite: ChatGoogle
 
+	zhipuai_glm_5_3: ChatZhipuAI
+	zhipuai_glm_5_3_flash: ChatZhipuAI
+	zhipuai_glm_5v_turbo: ChatZhipuAI
+	zai_glm_5_3: ChatZai
+	zai_glm_5_3_flash: ChatZai
+
 # Models are imported on-demand via __getattr__
 
 # Lazy imports mapping for heavy chat models
@@ -96,6 +103,8 @@ _LAZY_IMPORTS = {
 	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
 	'ChatOrcaRouter': ('browser_use.llm.orcarouter.chat', 'ChatOrcaRouter'),
 	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
+	'ChatZhipuAI': ('browser_use.llm.zhipuai.chat', 'ChatZhipuAI'),
+	'ChatZai': ('browser_use.llm.zhipuai.chat', 'ChatZai'),
 }
 
 # Cache for model instances - only created when accessed
@@ -161,4 +170,6 @@ __all__ = [
 	'ChatOrcaRouter',
 	'ChatVercel',
 	'ChatCerebras',
+	'ChatZhipuAI',
+	'ChatZai',
 ]
