@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
+from browser_use.agent.message_manager.compress_oversized import choose_compress_target, fit_to_cap
 from browser_use.agent.message_manager.views import (
 	HistoryItem,
 )
@@ -347,24 +348,33 @@ class MessageManager:
 				action_results += f'{error_text}\n'
 				logger.debug(f'Added error to action_results: {error_text}')
 
-		# Simple 60k character limit for read_state_description
+		# 60k character limit. One optional compress call for the longer field.
 		MAX_CONTENT_SIZE = 60000
-		if len(self.state.read_state_description) > MAX_CONTENT_SIZE:
-			self.state.read_state_description = (
-				self.state.read_state_description[:MAX_CONTENT_SIZE] + '\n... [Content truncated at 60k characters]'
-			)
-			logger.debug(f'Truncated read_state_description to {MAX_CONTENT_SIZE} characters')
-
-		self.state.read_state_description = self.state.read_state_description.strip('\n')
-
 		if action_results:
 			action_results = f'Result\n{action_results}'
 		action_results = action_results.strip('\n') if action_results else None
 
-		# Simple 60k character limit for action_results
-		if action_results and len(action_results) > MAX_CONTENT_SIZE:
-			action_results = action_results[:MAX_CONTENT_SIZE] + '\n... [Content truncated at 60k characters]'
-			logger.debug(f'Truncated action_results to {MAX_CONTENT_SIZE} characters')
+		compress_target = choose_compress_target(
+			{
+				'read': len(self.state.read_state_description),
+				'action': len(action_results or ''),
+			},
+			MAX_CONTENT_SIZE,
+		)
+		self.state.read_state_description = fit_to_cap(
+			self.state.read_state_description,
+			MAX_CONTENT_SIZE,
+			query=self.task,
+			enabled=compress_target == 'read',
+		)
+		self.state.read_state_description = self.state.read_state_description.strip('\n')
+		if action_results:
+			action_results = fit_to_cap(
+				action_results,
+				MAX_CONTENT_SIZE,
+				query=self.task,
+				enabled=compress_target == 'action',
+			)
 
 		# Build the history item
 		if model_output is None:
