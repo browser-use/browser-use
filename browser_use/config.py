@@ -353,13 +353,16 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 
 	except Exception as e:
 		logger.error(f'Failed to load config from {config_path}: {e}, creating fresh config')
-		# On any error, create fresh config
+		# On any error, create fresh config but preserve the original file
 		new_config = create_default_config()
+		# Back up the unreadable file instead of overwriting it
 		try:
-			with open(config_path, 'w') as f:
-				json.dump(new_config.model_dump(), f, indent=2)
-		except Exception as write_error:
-			logger.error(f'Failed to write fresh config: {write_error}')
+			backup_path = config_path.with_suffix(config_path.suffix + '.bak')
+			if config_path.exists():
+				import shutil
+				shutil.copy2(config_path, backup_path)
+		except Exception:
+			pass
 		return new_config
 
 

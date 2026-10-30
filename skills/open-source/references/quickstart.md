@@ -108,7 +108,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-See `references/open-source/models.md` for all 15+ providers.
+See `models.md` for all 15+ providers.
 
 ---
 
