@@ -22,10 +22,18 @@ max_steps: 10
 
 ## Running the Tests
 
-To run all agent tasks:
+From the repository root, run all agent tasks:
 
 ```bash
-pytest tests/ci/test_agent_real_tasks.py
+uv run python tests/ci/evaluate_tasks.py
+```
+
+The evaluator requires Chromium, `BROWSER_USE_API_KEY` for the agent, and `GOOGLE_API_KEY` for the judge. The keys can be set in `.env`. Evaluations are skipped when either key is missing.
+
+To evaluate tasks from another directory:
+
+```bash
+uv run python tests/ci/evaluate_tasks.py path/to/tasks
 ```
 
 ---
