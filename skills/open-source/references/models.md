@@ -16,6 +16,7 @@ Browser Use natively supports 15+ LLM providers. Most providers accept any model
 | Mistral | `ChatMistral` | `MISTRAL_API_KEY` |
 | Groq | `ChatGroq` | `GROQ_API_KEY` |
 | Cerebras | `ChatCerebras` | `CEREBRAS_API_KEY` |
+| NVIDIA | `ChatNvidia` | `NVIDIA_API_KEY` |
 | Ollama | `ChatOllama` | — |
 | OpenRouter | `ChatOpenRouter` | `OPENROUTER_API_KEY` |
 | Vercel AI Gateway | `ChatVercel` | `AI_GATEWAY_API_KEY` |
@@ -43,6 +44,7 @@ Based on our [benchmark of real-world browser tasks](https://browser-use.com/pos
 - [Mistral](#mistral)
 - [Groq](#groq)
 - [Cerebras](#cerebras)
+- [NVIDIA](#nvidia)
 - [Ollama (Local)](#ollama-local)
 - [OpenRouter](#openrouter)
 - [Vercel AI Gateway](#vercel-ai-gateway)
@@ -205,6 +207,18 @@ llm = ChatCerebras(model="llama3.3-70b")
 ```
 
 **Env:** `CEREBRAS_API_KEY` | [Available models](https://inference-docs.cerebras.ai/models/overview)
+
+## NVIDIA
+
+```python
+from browser_use import Agent, ChatNvidia
+
+llm = ChatNvidia(model="nvidia/nemotron-3.5-super-vl-120b-a12b")
+```
+
+Defaults to `https://integrate.api.nvidia.com/v1`; pass `base_url` for a self-hosted NIM.
+
+**Env:** `NVIDIA_API_KEY` | [Available models](https://build.nvidia.com/models)
 
 ## Ollama (Local)
 
