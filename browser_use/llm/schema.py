@@ -105,6 +105,10 @@ class SchemaOptimizer:
 					]:
 						optimized[key] = value if not isinstance(value, (dict, list)) else optimize_schema(value, defs_lookup)
 
+					# Preserve default, examples, const values as-is (they're data, not schemas)
+					elif key in ('default', 'examples', 'const'):
+						optimized[key] = value
+
 					# Recursively process all other fields
 					else:
 						optimized[key] = optimize_schema(value, defs_lookup) if isinstance(value, (dict, list)) else value
@@ -147,8 +151,9 @@ class SchemaOptimizer:
 		def ensure_additional_properties_false(obj: Any) -> None:
 			"""Ensure all objects have additionalProperties: false"""
 			if isinstance(obj, dict):
-				# If it's an object type, ensure additionalProperties is false
-				if obj.get('type') == 'object':
+				# If it's an object type (schema), ensure additionalProperties is false
+				# Skip if this is a data value (has default/examples/const but no properties)
+				if obj.get('type') == 'object' and 'properties' in obj:
 					obj['additionalProperties'] = False
 
 				# Recursively apply to all values
@@ -199,9 +204,9 @@ class SchemaOptimizer:
 				if isinstance(value, (dict, list)):
 					SchemaOptimizer._make_strict_compatible(value)
 
-			# Then update required for this level
+			# Then update required for this level (only for schemas with properties)
 			if 'properties' in schema and 'type' in schema and schema['type'] == 'object':
-				# Add all properties to required array
+				# Skip if this looks like data (no actual schema properties beyond data)
 				all_props = list(schema['properties'].keys())
 				schema['required'] = all_props  # Set all properties as required
 
