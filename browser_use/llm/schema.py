@@ -114,13 +114,12 @@ class SchemaOptimizer:
 					# Start with the flattened reference as the base
 					result = flattened_ref.copy()
 
-					# Merge in any sibling properties that were processed
-					for key, value in optimized.items():
-						# Preserve descriptions from the original object if they exist
-						if key == 'description' and 'description' not in result:
-							result[key] = value
-						elif key != 'description':  # Don't overwrite description from flattened ref
-							result[key] = value
+					# Merge in any sibling properties that were processed. A description
+					# written next to the $ref (Field(description=...)) describes the field
+					# itself and is more specific than the referenced model's docstring, so
+					# siblings win once the ref is inlined - otherwise flattening silently
+					# drops it.
+					result.update(optimized)
 
 					return result
 				else:
