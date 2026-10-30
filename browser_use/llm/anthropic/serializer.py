@@ -203,31 +203,48 @@ class AnthropicMessageSerializer:
 			# Add content blocks if present
 			if message.content is not None:
 				if isinstance(message.content, str):
-					# String content: only cache if it's the only/last block (no tool calls)
+					# Cache content only when no refusal or tool blocks follow.
 					blocks.append(
 						TextBlockParam(
 							text=message.content,
 							type='text',
 							cache_control=AnthropicMessageSerializer._serialize_cache_control(
-								message.cache and not message.tool_calls
+								message.cache and message.refusal is None and not message.tool_calls
 							),
 						)
 					)
 				else:
 					# Process content parts (text and refusal)
 					for i, part in enumerate(message.content):
-						# Only last content block gets cache if there are no tool calls
-						is_last_content = (i == len(message.content) - 1) and not message.tool_calls
+						# Only cache the last block when no refusal or tool blocks follow.
+						is_last_content = (i == len(message.content) - 1) and message.refusal is None and not message.tool_calls
 						if part.type == 'text':
 							blocks.append(
 								AnthropicMessageSerializer._serialize_content_part_text(
 									part, use_cache=message.cache and is_last_content
 								)
 							)
-							# # Note: Anthropic doesn't have a specific refusal block type,
-							# # so we convert refusals to text blocks
-							# elif part.type == 'refusal':
-							# 	blocks.append(TextBlockParam(text=f'[Refusal] {part.refusal}', type='text'))
+						elif part.type == 'refusal':
+							blocks.append(
+								TextBlockParam(
+									text=f'[Refusal] {part.refusal}',
+									type='text',
+									cache_control=AnthropicMessageSerializer._serialize_cache_control(
+										message.cache and is_last_content
+									),
+								)
+							)
+
+			if message.refusal is not None:
+				blocks.append(
+					TextBlockParam(
+						text=f'[Refusal] {message.refusal}',
+						type='text',
+						cache_control=AnthropicMessageSerializer._serialize_cache_control(
+							message.cache and not message.tool_calls
+						),
+					)
+				)
 
 			# Add tool use blocks if present
 			if message.tool_calls:
