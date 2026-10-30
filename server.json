@@ -18,7 +18,7 @@
 			"packageArguments": [
 				{
 					"type": "positional",
-					"value": "--cli-mcp"
+					"value": "--mcp"
 				}
 			],
 			"transport": {
