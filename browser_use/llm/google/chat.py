@@ -3,6 +3,7 @@ import importlib.metadata
 import json
 import logging
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -288,8 +289,9 @@ class ChatGoogle(BaseChatModel):
 		# Gemini 3 Pro: uses thinking_level only
 		# Gemini 3 Flash: supports both, defaults to thinking_budget=-1
 		# Gemini 2.5: uses thinking_budget only
-		is_gemini_3_pro = 'gemini-3-pro' in self.model or 'gemini-3.1-pro' in self.model
-		is_gemini_3_flash = 'gemini-3-flash' in self.model or 'gemini-3.1-flash' in self.model
+		# Match gemini-3[-.]X-(pro|flash) so gemini-3.5-flash is not treated as Gemini 2.5
+		is_gemini_3_pro = bool(re.search(r'gemini-3(?:\.\d+)?-pro', self.model))
+		is_gemini_3_flash = bool(re.search(r'gemini-3(?:\.\d+)?-flash', self.model))
 
 		if is_gemini_3_pro:
 			# Validate: thinking_budget should not be set for Gemini 3 Pro
