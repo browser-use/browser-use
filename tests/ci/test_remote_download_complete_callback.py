@@ -74,6 +74,37 @@ def _make_watchdog(tmp_path) -> tuple[DownloadsWatchdog, _ProgressCapture]:
 
 
 @pytest.mark.asyncio
+async def test_remote_attachment_creates_missing_download_directory(tmp_path) -> None:
+	"""An existing CDP browser must prepare downloads without a local launch event."""
+	downloads = tmp_path / 'downloads'
+	wd, _ = _make_watchdog(downloads)
+	assert not downloads.exists()
+
+	await wd.attach_to_target('FAKE_TARGET_0')
+
+	assert downloads.is_dir()
+	set_download_behavior = wd.browser_session.cdp_client.send.Browser.setDownloadBehavior
+	assert isinstance(set_download_behavior, AsyncMock)
+	set_download_behavior.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_remote_attachment_allows_paths_unavailable_on_the_local_host(tmp_path, monkeypatch) -> None:
+	"""A remote browser's download directory may not be accessible on this machine."""
+	wd, _ = _make_watchdog(tmp_path / 'remote-only')
+
+	def reject_local_mkdir(*_args, **_kwargs):
+		"""Model a path that cannot be created on the client host."""
+		raise PermissionError('remote-only path')
+
+	monkeypatch.setattr('pathlib.Path.mkdir', reject_local_mkdir)
+	await wd.attach_to_target('FAKE_TARGET_REMOTE')
+	set_download_behavior = wd.browser_session.cdp_client.send.Browser.setDownloadBehavior
+	assert isinstance(set_download_behavior, AsyncMock)
+	set_download_behavior.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_remote_download_complete_invokes_registered_callback(tmp_path) -> None:
 	wd, progress_capture = _make_watchdog(tmp_path)
 

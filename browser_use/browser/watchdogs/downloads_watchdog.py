@@ -504,6 +504,13 @@ class DownloadsWatchdog(BaseWatchdog):
 					return
 				# Ensure path is properly expanded (~ -> absolute path)
 				expanded_downloads_path = Path(downloads_path).expanduser().resolve()
+				# Attached browsers skip BrowserLaunchEvent. A remote path need not exist on this host.
+				try:
+					expanded_downloads_path.mkdir(parents=True, exist_ok=True)
+				except OSError:
+					if self.browser_session.is_local:
+						raise
+					self.logger.debug('[DownloadsWatchdog] Download path may be available on the remote browser only')
 				await cdp_client.send.Browser.setDownloadBehavior(
 					params={
 						'behavior': 'allow',

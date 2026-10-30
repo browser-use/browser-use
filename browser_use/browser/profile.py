@@ -477,7 +477,7 @@ class BrowserLaunchArgs(BaseModel):
 		if self.downloads_path is None:
 			import uuid
 
-			# Create unique directory in system temp folder for downloads
+			# Pick a unique path now; the downloads watchdog creates it when needed.
 			unique_id = str(uuid.uuid4())[:8]  # 8 characters
 			downloads_path = Path(tempfile.gettempdir()) / f'browser-use-downloads-{unique_id}'
 
@@ -487,7 +487,6 @@ class BrowserLaunchArgs(BaseModel):
 				downloads_path = Path(tempfile.gettempdir()) / f'browser-use-downloads-{unique_id}'
 
 			self.downloads_path = downloads_path
-			self.downloads_path.mkdir(parents=True, exist_ok=True)
 		return self
 
 	@staticmethod
