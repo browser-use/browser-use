@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlparse
 
-from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from browser_use.browser.cloud.views import CloudBrowserParams
 from browser_use.config import CONFIG
@@ -146,6 +146,19 @@ CHROME_DISABLE_SECURITY_ARGS = [
 	'--ignore-certificate-errors',
 	'--ignore-ssl-errors',
 	'--ignore-certificate-errors-spki-list',
+]
+
+# Chromium reaches the OS credential store (macOS Keychain, Linux Secret Service)
+# when it initialises a profile. On a browser-use-managed, throwaway profile there
+# is nothing worth protecting and no interactive session to answer a prompt, so
+# Chromium can otherwise hang indefinitely at startup (headless, CI, containers)
+# before it ever opens its CDP port. These flags keep the managed profile on an
+# in-process mock store. They are deliberately NOT applied to a caller-supplied
+# profile because there the real keychain is required to decrypt saved cookies and
+# passwords (see #3225).
+CHROME_MANAGED_PROFILE_KEYCHAIN_ARGS = [
+	'--use-mock-keychain',
+	'--password-store=basic',
 ]
 
 CHROME_DETERMINISTIC_RENDERING_ARGS = [
@@ -605,6 +618,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# ... extends options defined in:
 	# BrowserLaunchPersistentContextArgs, BrowserLaunchArgs, BrowserNewContextArgs, BrowserConnectArgs
 
+	# Set by _copy_profile() when it copies a caller-supplied Chrome profile into a
+	# browser-use temp dir. That copy still holds the caller's saved credentials, so
+	# it keeps real keychain access and must not receive the mock-keychain flags
+	# (see #3225).
+	_copied_from_caller_profile: bool = PrivateAttr(default=False)
+
 	# Session/connection configuration
 	cdp_url: str | None = Field(default=None, description='CDP URL for connecting to existing browser instance')
 	is_local: bool = Field(default=False, description='Whether this is a local browser instance')
@@ -841,6 +860,27 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			self.highlight_elements = False
 		return self
 
+	def _is_managed_profile_directory(self) -> bool:
+		"""Return True when browser-use owns this profile directory.
+
+		That is the throwaway temp directory created for ``user_data_dir=None`` and any
+		directory still carrying a browser-use temp prefix. A caller-supplied Chrome
+		profile is not managed, even after _copy_profile() copies it into a temp dir:
+		that copy still holds the caller's saved credentials, which need the real OS
+		keychain to decrypt, so the mock-keychain flags stay off it (#3225).
+
+		Evaluated on every get_args() call rather than captured once, so a profile whose
+		user_data_dir changes later -- the launch watchdog's temp-dir fallback, or a
+		caller reassigning the field -- is judged by the directory it actually launches
+		with.
+		"""
+		if self._copied_from_caller_profile:
+			return False
+		if self.user_data_dir is None:
+			return True
+		user_data_str = str(self.user_data_dir).lower()
+		return 'browser-use-user-data-dir-' in user_data_str or 'browseruse-tmp-' in user_data_str
+
 	def model_post_init(self, __context: Any) -> None:
 		"""Called after model initialization to set up display configuration."""
 		self.detect_display_configuration()
@@ -902,6 +942,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			logger.info(f'Created new profile ({self.profile_directory}) in temp directory: {temp_dir}')
 
 		self.user_data_dir = temp_dir
+		self._copied_from_caller_profile = True
 
 	def get_args(self) -> list[str]:
 		"""Get the list of all Chrome CLI launch args for this profile (compiled from defaults, user-provided, and system-specific)."""
@@ -926,6 +967,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			*(CHROME_HEADLESS_ARGS if self.headless else []),
 			*(CHROME_DISABLE_SECURITY_ARGS if self.disable_security else []),
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
+			# Managed (throwaway) profiles must not touch the OS credential store;
+			# caller-supplied profiles keep real keychain access (see #3225).
+			*(CHROME_MANAGED_PROFILE_KEYCHAIN_ARGS if self._is_managed_profile_directory() else []),
 			*(
 				[f'--window-size={self.window_size["width"]},{self.window_size["height"]}']
 				if self.window_size
