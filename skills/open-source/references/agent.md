@@ -293,7 +293,7 @@ Fine-tune timeouts via environment variables (values in seconds):
 | `TIMEOUT_SwitchTabEvent` | 10.0 |
 | `TIMEOUT_CloseTabEvent` | 10.0 |
 | `TIMEOUT_TabCreatedEvent` | 30.0 |
-| `TIMEOUT_TabClosedEvent` | 10.0 |
+| `TIMEOUT_TabClosedEvent` | 3.0 |
 
 ### Storage & Downloads
 | Variable | Default |
