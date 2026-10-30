@@ -663,9 +663,51 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def model_dump(self, **kwargs) -> dict[str, Any]:
 		"""Custom serialization that properly uses AgentHistory's model_dump"""
-		return {
+		dump: dict[str, Any] = {
 			'history': [h.model_dump(**kwargs) for h in self.history],
 		}
+
+		# Check if 'usage' should be excluded based on top-level include / exclude
+		include = kwargs.get('include')
+		exclude = kwargs.get('exclude')
+
+		should_include = True
+		if include is not None:
+			if isinstance(include, (set, list, tuple)) and 'usage' not in include:
+				should_include = False
+			elif isinstance(include, dict) and 'usage' not in include:
+				should_include = False
+
+		if exclude is not None:
+			if isinstance(exclude, (set, list, tuple)) and 'usage' in exclude:
+				should_include = False
+			elif isinstance(exclude, dict) and exclude.get('usage') is True:
+				should_include = False
+
+		if should_include:
+			if self.usage is not None:
+				usage_kwargs = {k: v for k, v in kwargs.items() if k not in ('sensitive_data', 'include', 'exclude')}
+				if isinstance(include, dict):
+					inc_usage = include.get('usage')
+					if isinstance(inc_usage, (set, list, tuple)):
+						usage_kwargs['include'] = set(inc_usage)
+					elif isinstance(inc_usage, dict):
+						usage_kwargs['include'] = inc_usage
+				if isinstance(exclude, dict):
+					exc_usage = exclude.get('usage')
+					if isinstance(exc_usage, (set, list, tuple)):
+						usage_kwargs['exclude'] = set(exc_usage)
+					elif isinstance(exc_usage, dict):
+						usage_kwargs['exclude'] = exc_usage
+				dump['usage'] = self.usage.model_dump(**usage_kwargs)
+			elif not (
+				kwargs.get('exclude_none')
+				or (kwargs.get('exclude_unset') and 'usage' not in self.__pydantic_fields_set__)
+				or kwargs.get('exclude_defaults')
+			):
+				dump['usage'] = None
+
+		return dump
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
