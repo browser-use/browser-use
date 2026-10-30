@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+import time
 from collections.abc import Iterable
 from enum import Enum
 from fnmatch import fnmatch
@@ -35,6 +36,7 @@ def _get_headless_default() -> bool | None:
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
 DOMAIN_OPTIMIZATION_THRESHOLD = 100  # Convert domain lists to sets for O(1) lookup when >= this size
+STALE_EXTENSION_DOWNLOAD_TEMP_FILE_AGE_SECONDS = 60 * 60
 CHROME_PROFILE_TRANSIENT_FILE_PATTERNS = (
 	'Singleton*',
 	'*.lock',
@@ -1001,23 +1003,41 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		return args
 
 	@staticmethod
-	def _check_extension_manifest_version(ext_dir: Path, ext_name: str) -> bool:
-		"""Check that an extension uses Manifest V3. Returns False for MV2 extensions (unsupported by Chrome 145+)."""
+	def _read_extension_manifest_version(ext_dir: Path) -> int:
+		"""Read the required integer manifest version from an extension manifest."""
 		import json
+		import stat
 
 		manifest_path = ext_dir / 'manifest.json'
-		if not manifest_path.exists():
-			return False
+		# is_file() suppresses filesystem errors on Python 3.14+.
 		try:
-			with open(manifest_path, encoding='utf-8') as f:
-				manifest = json.load(f)
-			mv = manifest.get('manifest_version', 2)
+			manifest_mode = manifest_path.stat().st_mode
+		except (FileNotFoundError, NotADirectoryError) as exc:
+			raise ValueError('No manifest.json found in extension') from exc
+		if not stat.S_ISREG(manifest_mode):
+			raise ValueError('No manifest.json found in extension')
+		with manifest_path.open(encoding='utf-8') as manifest_file:
+			manifest = json.load(manifest_file)
+		if not isinstance(manifest, dict):
+			raise ValueError('Extension manifest must be a JSON object')
+		mv = manifest.get('manifest_version')
+		if type(mv) is not int:
+			raise ValueError('Extension manifest_version must be an integer')
+		return mv
+
+	@staticmethod
+	def _check_extension_manifest_version(ext_dir: Path, ext_name: str) -> bool | None:
+		"""Return True for supported manifests, False for MV2/I/O errors, or None for invalid manifests."""
+		try:
+			mv = BrowserProfile._read_extension_manifest_version(ext_dir)
 			if mv < 3:
 				logger.warning(f'Skipping {ext_name} extension: Manifest V{mv} is no longer supported by Chrome')
 				return False
 			return True
-		except Exception:
+		except OSError:
 			return False
+		except Exception:
+			return None
 
 	def _ensure_default_extensions_downloaded(self) -> list[str]:
 		"""
@@ -1072,16 +1092,33 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		for ext in extensions:
 			ext_dir = cache_dir / ext['id']
 			crx_file = cache_dir / f'{ext["id"]}.crx'
+			extract_marker = cache_dir / f'.{ext["id"]}.extracting'
 
-			# Check if extension is already extracted
-			if ext_dir.exists() and (ext_dir / 'manifest.json').exists():
-				if not self._check_extension_manifest_version(ext_dir, ext['name']):
+			# Clean up abandoned download temp files without touching active concurrent downloads.
+			stale_temp_cutoff = time.time() - STALE_EXTENSION_DOWNLOAD_TEMP_FILE_AGE_SECONDS
+			for temp_path in cache_dir.glob(f'.{crx_file.name}.*.tmp'):
+				try:
+					if temp_path.stat().st_mtime < stale_temp_cutoff:
+						temp_path.unlink()
+				except OSError as cleanup_error:
+					logger.debug(f'Failed to remove stale extension temp file {_log_pretty_path(temp_path)}: {cleanup_error}')
+
+			# Only trust extracted extensions from a completed extraction attempt.
+			if ext_dir.exists() and not extract_marker.exists():
+				manifest_status = self._check_extension_manifest_version(ext_dir, ext['name'])
+				if manifest_status is False:
 					continue
-				extension_paths.append(str(ext_dir))
-				loaded_extension_names.append(ext['name'])
-				continue
+				if manifest_status is True:
+					extension_paths.append(str(ext_dir))
+					loaded_extension_names.append(ext['name'])
+					continue
 
 			try:
+				# Remove empty cache files left by failed downloads so they can be retried.
+				if crx_file.exists() and crx_file.stat().st_size == 0:
+					logger.warning(f'⚠️ Removing empty cached {ext["name"]} .crx file')
+					crx_file.unlink()
+
 				# Download extension if not cached
 				if not crx_file.exists():
 					logger.info(f'📦 Downloading {ext["name"]} extension...')
@@ -1091,7 +1128,33 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 				# Extract extension
 				logger.info(f'📂 Extracting {ext["name"]} extension...')
-				self._extract_extension(crx_file, ext_dir)
+				extract_marker.touch()
+				try:
+					self._extract_extension(crx_file, ext_dir)
+				except Exception as extract_error:
+					if not isinstance(extract_error, OSError):
+						import shutil
+
+						try:
+							shutil.rmtree(ext_dir)
+						except OSError as cleanup_error:
+							logger.debug(
+								f'Failed to remove partial extension directory {_log_pretty_path(ext_dir)}: {cleanup_error}'
+							)
+						try:
+							crx_file.unlink(missing_ok=True)
+						except OSError as cleanup_error:
+							logger.debug(
+								f'Failed to remove invalid extension cache {_log_pretty_path(crx_file)}: {cleanup_error}'
+							)
+					raise
+				else:
+					try:
+						extract_marker.unlink(missing_ok=True)
+					except OSError as cleanup_error:
+						logger.debug(
+							f'Failed to remove extension extraction marker {_log_pretty_path(extract_marker)}: {cleanup_error}'
+						)
 
 				if not self._check_extension_manifest_version(ext_dir, ext['name']):
 					continue
@@ -1180,19 +1243,34 @@ async function initialize(checkInitialized, magic) {{
 			logger.debug(f'[BrowserProfile] Could not patch extension storage: {e}')
 
 	def _download_extension(self, url: str, output_path: Path) -> None:
-		"""Download extension .crx file."""
+		"""Download extension .crx file without exposing partial cache files."""
 		import urllib.request
 
+		temp_path: Path | None = None
 		try:
 			with urllib.request.urlopen(url) as response:
-				with open(output_path, 'wb') as f:
-					f.write(response.read())
+				crx_data = response.read()
+
+			if not crx_data:
+				raise Exception('Extension download returned an empty body')
+
+			with tempfile.NamedTemporaryFile(
+				dir=output_path.parent, prefix=f'.{output_path.name}.', suffix='.tmp', delete=False
+			) as temp_file:
+				temp_path = Path(temp_file.name)
+				temp_file.write(crx_data)
+
+			temp_path.replace(output_path)
 		except Exception as e:
+			if temp_path is not None:
+				try:
+					temp_path.unlink(missing_ok=True)
+				except OSError as cleanup_error:
+					logger.debug(f'Failed to remove temporary extension file {_log_pretty_path(temp_path)}: {cleanup_error}')
 			raise Exception(f'Failed to download extension: {e}')
 
 	def _extract_extension(self, crx_path: Path, extract_dir: Path) -> None:
 		"""Extract .crx file to directory."""
-		import os
 		import zipfile
 
 		# Remove existing directory
@@ -1207,10 +1285,6 @@ async function initialize(checkInitialized, magic) {{
 			# CRX files are ZIP files with a header, try to extract as ZIP
 			with zipfile.ZipFile(crx_path, 'r') as zip_ref:
 				zip_ref.extractall(extract_dir)
-
-			# Verify manifest exists
-			if not (extract_dir / 'manifest.json').exists():
-				raise Exception('No manifest.json found in extension')
 
 		except zipfile.BadZipFile:
 			# CRX files have a header before the ZIP data
@@ -1233,16 +1307,27 @@ async function initialize(checkInitialized, magic) {{
 				# Extract ZIP data
 				zip_data = f.read()
 
-			# Write ZIP data to temp file and extract
+			# Keep temp-file creation, writing, closing, and extraction in one cleanup scope.
+			temp_zip = tempfile.NamedTemporaryFile(suffix='.zip', delete=False)
+			temp_zip_path = Path(temp_zip.name)
+			try:
+				with temp_zip:
+					temp_zip.write(zip_data)
 
-			with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
-				temp_zip.write(zip_data)
-				temp_zip.flush()
-
-				with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
+				with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
 					zip_ref.extractall(extract_dir)
+			finally:
+				try:
+					temp_zip.close()
+				except OSError as cleanup_error:
+					logger.debug(f'Failed to close temporary extension ZIP {_log_pretty_path(temp_zip_path)}: {cleanup_error}')
+				try:
+					temp_zip_path.unlink(missing_ok=True)
+				except OSError as cleanup_error:
+					logger.debug(f'Failed to remove temporary extension ZIP {_log_pretty_path(temp_zip_path)}: {cleanup_error}')
 
-				os.unlink(temp_zip.name)
+		# Validate both ZIP and CRX fallback results before trusting the extraction.
+		self._read_extension_manifest_version(extract_dir)
 
 	def detect_display_configuration(self) -> None:
 		"""
