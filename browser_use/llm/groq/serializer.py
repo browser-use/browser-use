@@ -83,6 +83,8 @@ class GroqMessageSerializer:
 		for part in content:
 			if part.type == 'text':
 				serialized_parts.append(GroqMessageSerializer._serialize_content_part_text(part)['text'])
+			elif part.type == 'refusal':
+				serialized_parts.append(f'[Refusal] {part.refusal}')
 
 		return '\n'.join(serialized_parts)
 
