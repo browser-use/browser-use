@@ -2959,23 +2959,104 @@ class BrowserSession(BaseModel):
 
 		# Convert quads to bounding rectangle if we have them
 		if quads:
-			# Use the first quad (most relevant for the element)
-			quad = quads[0]
-			if len(quad) >= 8:
-				# Calculate bounding rect from quad points
+			# Find the first quad with positive area (skip degenerate quads)
+			# E.g., inline elements with line breaks can have zero-width first quad
+			valid_quad = None
+			for quad in quads:
+				if len(quad) >= 8:
+					x_coords = [quad[i] for i in range(0, 8, 2)]
+					y_coords = [quad[i] for i in range(1, 8, 2)]
+					width = max(x_coords) - min(x_coords)
+					height = max(y_coords) - min(y_coords)
+					if width > 0 and height > 0:
+						valid_quad = quad
+						break
+			
+			if valid_quad:
+				quad = valid_quad
 				x_coords = [quad[i] for i in range(0, 8, 2)]
 				y_coords = [quad[i] for i in range(1, 8, 2)]
-
 				min_x = min(x_coords)
 				min_y = min(y_coords)
 				max_x = max(x_coords)
 				max_y = max(y_coords)
-
 				width = max_x - min_x
 				height = max_y - min_y
+				return DOMRect(x=min_x, y=min_y, width=width, height=height)
 
-				if width > 0 and height > 0:
-					return DOMRect(x=min_x, y=min_y, width=width, height=height)
+			# No valid quad found - fall back to getBoxModel
+			try:
+				box_model = await cdp_session.cdp_client.send.DOM.getBoxModel(
+					params={'backendNodeId': backend_node_id}, session_id=session_id
+				)
+				if 'model' in box_model and 'content' in box_model['model']:
+					content_quad = box_model['model']['content']
+					if len(content_quad) >= 8:
+						quads = [
+							[
+								content_quad[0],
+								content_quad[1],
+								content_quad[2],
+								content_quad[3],
+								content_quad[4],
+								content_quad[5],
+								content_quad[6],
+								content_quad[7],
+							]
+						]
+						self.logger.debug('Got quad from DOM.getBoxModel fallback')
+			except Exception as e:
+				self.logger.debug(f'DOM.getBoxModel fallback failed: {e}')
+
+			# If box model gives valid quad, use it
+			if quads:
+				quad = quads[0]
+				if len(quad) >= 8:
+					x_coords = [quad[i] for i in range(0, 8, 2)]
+					y_coords = [quad[i] for i in range(1, 8, 2)]
+					min_x = min(x_coords)
+					min_y = min(y_coords)
+					max_x = max(x_coords)
+					max_y = max(y_coords)
+					width = max_x - min_x
+					height = max_y - min_y
+					if width > 0 and height > 0:
+						return DOMRect(x=min_x, y=min_y, width=width, height=height)
+
+		# Fall back to JavaScript getBoundingClientRect
+		try:
+			result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': backend_node_id},
+				session_id=session_id,
+			)
+			if 'object' in result and 'objectId' in result['object']:
+				object_id = result['object']['objectId']
+				js_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+					params={
+						'objectId': object_id,
+						'functionDeclaration': """
+						function() {
+							const rect = this.getBoundingClientRect();
+							return {
+								x: rect.x,
+								y: rect.y,
+								width: rect.width,
+								height: rect.height
+							};
+						}
+						""",
+						'returnByValue': True,
+					},
+					session_id=session_id,
+				)
+				if 'result' in js_result and 'value' in js_result['result']:
+					rect_data = js_result['result']['value']
+					if rect_data['width'] > 0 and rect_data['height'] > 0:
+						return DOMRect(
+							x=rect_data['x'], y=rect_data['y'], width=rect_data['width'], height=rect_data['height']
+						)
+		except Exception as e:
+			self.logger.debug(f'JavaScript getBoundingClientRect failed: {e}')
 
 		return None
 
