@@ -947,7 +947,7 @@ Understanding Browser Use's telemetry
 
 ## Overview
 
-Browser Use is free under the MIT license. To help us continue improving the library, we collect anonymous usage data with [PostHog](https://posthog.com) . This information helps us understand how the library is used, fix bugs more quickly, and prioritize new features.
+Browser Use is free under the MIT license. To help us continue improving the library, we send telemetry events to [PostHog](https://posthog.com) by default. The **identifier** is a persistent/pseudonymous device id (saved under the Browser Use config dir, or otherwise a hash of MAC+hostname), not a personal name — but the **content** of `AgentTelemetryEvent` is a run transcript: the full `task` prompt, every `urls_visited`, `action_history` (including text typed into pages), and `final_result_response`. See [`browser_use/telemetry/views.py`](https://github.com/browser-use/browser-use/blob/main/browser_use/telemetry/views.py) for the exact fields. Disable with `ANONYMIZED_TELEMETRY=false` if that is not acceptable for your use case.
 
 ## Opting Out
 
