@@ -20,8 +20,9 @@ ProxyCountryCode = (
 )
 
 # Browser session timeout limits (in minutes)
-MAX_FREE_USER_SESSION_TIMEOUT = 15  # Free users limited to 15 minutes
-MAX_PAID_USER_SESSION_TIMEOUT = 240  # Paid users can go up to 4 hours
+MAX_PAID_USER_SESSION_TIMEOUT = 240  # All users (free and paid) can go up to 4 hours
+# Kept for backwards compatibility: the free-tier cap now matches the 4-hour limit for all users.
+MAX_FREE_USER_SESSION_TIMEOUT = MAX_PAID_USER_SESSION_TIMEOUT
 
 
 # Requests
@@ -55,7 +56,7 @@ class CreateBrowserRequest(BaseModel):
 		le=MAX_PAID_USER_SESSION_TIMEOUT,
 		default=None,
 		alias='cloud_timeout',
-		description=f'The timeout for the session in minutes. Free users are limited to {MAX_FREE_USER_SESSION_TIMEOUT} minutes, paid users can use up to {MAX_PAID_USER_SESSION_TIMEOUT} minutes ({MAX_PAID_USER_SESSION_TIMEOUT // 60} hours).',
+		description=f'The timeout for the session in minutes. All users can use up to {MAX_PAID_USER_SESSION_TIMEOUT} minutes ({MAX_PAID_USER_SESSION_TIMEOUT // 60} hours).',
 		title='Cloud Timeout',
 	)
 
