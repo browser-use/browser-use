@@ -856,6 +856,11 @@ class FileSystem:
 			return result
 
 		try:
+			from browser_use.filesystem.file_system import Base64BinaryFile
+			if isinstance(file_obj, Base64BinaryFile):
+				result['message'] = f'Read image file {resolved}.'
+				result['images'] = [{'name': file_obj.full_name, 'data': file_obj.content}]
+				return result
 			content = file_obj.read()
 			sanitize_note = f"Note: filename was auto-corrected from '{full_filename}' to '{resolved}'. " if was_sanitized else ''
 			result['message'] = f'{sanitize_note}Read from file {resolved}.\n<content>\n{content}\n</content>'
@@ -945,6 +950,10 @@ class FileSystem:
 			if was_sanitized:
 				return f"File '{full_filename}' not found. (Filename was auto-corrected from '{original_filename}')"
 			return f"File '{full_filename}' not found."
+
+		from browser_use.filesystem.file_system import Base64BinaryFile
+		if isinstance(file_obj, Base64BinaryFile):
+			return f"Error: Cannot replace text in binary file '{full_filename}'. Overwrite it instead."
 
 		try:
 			content = file_obj.read()
