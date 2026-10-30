@@ -1,8 +1,26 @@
 """Tests for lazy loading configuration system."""
 
+import json
 import os
 
-from browser_use.config import CONFIG
+import pytest
+
+from browser_use.config import CONFIG, load_and_migrate_config
+
+
+class TestConfigFileLoading:
+	"""Test that configuration loading preserves invalid files."""
+
+	def test_invalid_json_preserves_config_file(self, tmp_path):
+		"""Do not replace a corrupt config file with permissive defaults."""
+		config_path = tmp_path / 'config.json'
+		config_contents = '{"browser_profile":{"default":{"allowed_domains":["example.com"]}}'
+		config_path.write_text(config_contents, encoding='utf-8')
+
+		with pytest.raises(json.JSONDecodeError):
+			load_and_migrate_config(config_path)
+
+		assert config_path.read_text(encoding='utf-8') == config_contents
 
 
 class TestLazyConfig:

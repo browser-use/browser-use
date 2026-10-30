@@ -352,15 +352,8 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 		return new_config
 
 	except Exception as e:
-		logger.error(f'Failed to load config from {config_path}: {e}, creating fresh config')
-		# On any error, create fresh config
-		new_config = create_default_config()
-		try:
-			with open(config_path, 'w') as f:
-				json.dump(new_config.model_dump(), f, indent=2)
-		except Exception as write_error:
-			logger.error(f'Failed to write fresh config: {write_error}')
-		return new_config
+		logger.error(f'Failed to load config from {config_path}: {e}; preserving the existing file')
+		raise
 
 
 class Config:
