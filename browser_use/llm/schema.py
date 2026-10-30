@@ -2,9 +2,14 @@
 Utilities for creating optimized Pydantic schemas for LLM usage.
 """
 
+from collections.abc import Iterator
 from typing import Any
 
 from pydantic import BaseModel
+
+# Keywords whose values are JSON instances (data), not schemas. Their contents must
+# be copied as-is: keys like "title" or "type" inside them are data, not keywords.
+_INSTANCE_KEYWORDS = frozenset({'default', 'const', 'enum', 'examples'})
 
 
 class SchemaOptimizer:
@@ -80,6 +85,10 @@ class SchemaOptimizer:
 					elif key == 'default' and remove_defaults:
 						continue  # Skip default values
 
+					# Keep instance values (default, const, enum, examples) unchanged
+					elif key in _INSTANCE_KEYWORDS:
+						optimized[key] = value
+
 					# Keep all anyOf structures (action unions) and resolve any $refs within
 					elif key == 'anyOf' and isinstance(value, list):
 						optimized[key] = [optimize_schema(item, defs_lookup) for item in value]
@@ -101,7 +110,6 @@ class SchemaOptimizer:
 						'min_items',
 						'maxItems',
 						'pattern',
-						'default',
 					]:
 						optimized[key] = value if not isinstance(value, (dict, list)) else optimize_schema(value, defs_lookup)
 
@@ -144,68 +152,52 @@ class SchemaOptimizer:
 		optimized_schema: dict[str, Any] = optimized_result
 
 		# Additional pass to ensure ALL objects have additionalProperties: false
-		def ensure_additional_properties_false(obj: Any) -> None:
-			"""Ensure all objects have additionalProperties: false"""
-			if isinstance(obj, dict):
-				# If it's an object type, ensure additionalProperties is false
-				if obj.get('type') == 'object':
-					obj['additionalProperties'] = False
+		for sub_schema in SchemaOptimizer._iter_schemas(optimized_schema):
+			if sub_schema.get('type') == 'object':
+				sub_schema['additionalProperties'] = False
 
-				# Recursively apply to all values
-				for value in obj.values():
-					if isinstance(value, (dict, list)):
-						ensure_additional_properties_false(value)
-			elif isinstance(obj, list):
-				for item in obj:
-					if isinstance(item, (dict, list)):
-						ensure_additional_properties_false(item)
-
-		ensure_additional_properties_false(optimized_schema)
 		SchemaOptimizer._make_strict_compatible(optimized_schema)
 
 		# Final pass to remove minItems/min_items and default values if requested
 		if remove_min_items or remove_defaults:
-
-			def remove_forbidden_fields(obj: Any) -> None:
-				"""Recursively remove minItems/min_items and default values"""
-				if isinstance(obj, dict):
-					# Remove forbidden keys
-					if remove_min_items:
-						obj.pop('minItems', None)
-						obj.pop('min_items', None)
-					if remove_defaults:
-						obj.pop('default', None)
-					# Recursively process all values
-					for value in obj.values():
-						if isinstance(value, (dict, list)):
-							remove_forbidden_fields(value)
-				elif isinstance(obj, list):
-					for item in obj:
-						if isinstance(item, (dict, list)):
-							remove_forbidden_fields(item)
-
-			remove_forbidden_fields(optimized_schema)
+			for sub_schema in SchemaOptimizer._iter_schemas(optimized_schema):
+				if remove_min_items:
+					sub_schema.pop('minItems', None)
+					sub_schema.pop('min_items', None)
+				if remove_defaults:
+					sub_schema.pop('default', None)
 
 		return optimized_schema
 
 	@staticmethod
+	def _iter_schemas(obj: Any) -> Iterator[dict[str, Any]]:
+		"""Yield every schema object in obj.
+
+		Keys of a `properties` map are field names, so the map itself is not yielded, only
+		the schemas it holds. Instance values (default, const, enum, examples) are data and
+		are not walked. A caller may add or remove keys on each yielded schema.
+		"""
+		if isinstance(obj, list):
+			for item in obj:
+				yield from SchemaOptimizer._iter_schemas(item)
+		elif isinstance(obj, dict):
+			yield obj
+			for key, value in list(obj.items()):
+				if key in _INSTANCE_KEYWORDS:
+					continue
+				if key == 'properties' and isinstance(value, dict):
+					for prop_schema in value.values():
+						yield from SchemaOptimizer._iter_schemas(prop_schema)
+				else:
+					yield from SchemaOptimizer._iter_schemas(value)
+
+	@staticmethod
 	def _make_strict_compatible(schema: dict[str, Any] | list[Any]) -> None:
 		"""Ensure all properties are required for OpenAI strict mode"""
-		if isinstance(schema, dict):
-			# First recursively apply to nested objects
-			for key, value in schema.items():
-				if isinstance(value, (dict, list)) and key != 'required':
-					SchemaOptimizer._make_strict_compatible(value)
-
-			# Then update required for this level
-			if 'properties' in schema and 'type' in schema and schema['type'] == 'object':
+		for sub_schema in SchemaOptimizer._iter_schemas(schema):
+			if sub_schema.get('type') == 'object' and isinstance(sub_schema.get('properties'), dict):
 				# Add all properties to required array
-				all_props = list(schema['properties'].keys())
-				schema['required'] = all_props  # Set all properties as required
-
-		elif isinstance(schema, list):
-			for item in schema:
-				SchemaOptimizer._make_strict_compatible(item)
+				sub_schema['required'] = list(sub_schema['properties'].keys())
 
 	@staticmethod
 	def create_gemini_optimized_schema(model: type[BaseModel]) -> dict[str, Any]:
