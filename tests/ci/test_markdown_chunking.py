@@ -129,6 +129,61 @@ class TestChunkMarkdownCodeFence:
 		assert 'y = 2' in chunks[0].content
 
 
+class TestChunkMarkdownFenceMarkers:
+	"""A closer uses the same marker, at least as many times, with no non-whitespace suffix."""
+
+	def _assert_fence_atomic(self, fence: str) -> None:
+		content = fence + '\n\n# Outside\nend'
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=24, overlap_lines=0)
+		fence_chunks = [c for c in chunks if fence in c.content]
+		assert len(fence_chunks) == 1, [c.content for c in chunks]
+		# Exactly the fence: nothing split off inside it, nothing after it swallowed
+		assert fence_chunks[0].content == fence
+		start, end = fence_chunks[0].char_offset_start, fence_chunks[0].char_offset_end
+		assert content[start:end].rstrip('\n') == fence
+		for k in range(1, len(chunks)):
+			assert chunks[k].char_offset_start == chunks[k - 1].char_offset_end
+		assert chunks[-1].char_offset_end == len(content)
+
+	def test_longer_backtick_fence_keeps_inner_triple_backticks(self):
+		self._assert_fence_atomic('````markdown\n' + 'a' * 40 + '\n```\n# literal heading\n```\n' + 'b' * 40 + '\n````')
+
+	def test_tilde_fence_keeps_inner_backticks(self):
+		self._assert_fence_atomic('~~~python\n' + 'a' * 40 + '\n```\n# literal heading\n```\n' + 'b' * 40 + '\n~~~')
+
+	def test_backtick_line_with_info_string_does_not_close(self):
+		self._assert_fence_atomic('```text\n' + 'a' * 40 + '\n```not-a-closer\n# literal heading\n' + 'b' * 40 + '\n```')
+
+	def test_shorter_tilde_run_does_not_close_longer_tilde_fence(self):
+		self._assert_fence_atomic('~~~~\n' + 'a' * 40 + '\n~~~\n# literal heading\n' + 'b' * 40 + '\n~~~~')
+
+	def test_existing_closers_still_close(self):
+		"""Controls: ordinary, longer, whitespace-padded and indented closers all closed before the fix too."""
+		self._assert_fence_atomic('```python\n' + 'a' * 40 + '\n```')
+		self._assert_fence_atomic('```\n' + 'a' * 40 + '\n`````')
+		self._assert_fence_atomic('```\n' + 'a' * 40 + '\n```  ')
+		self._assert_fence_atomic('  ```\n' + 'a' * 40 + '\n  ```')
+
+	def test_unclosed_tilde_fence_runs_to_end_of_content(self):
+		content = '~~~\n' + 'a' * 40 + '\n\n# literal heading\n' + 'b' * 40
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=24, overlap_lines=0)
+		assert len(chunks) == 1, [c.content for c in chunks]
+		assert chunks[0].content == content
+		assert (chunks[0].char_offset_start, chunks[0].char_offset_end) == (0, len(content))
+
+	def test_tilde_fence_interrupts_paragraph(self):
+		fence = '~~~\n' + 'a' * 40 + '\n\n# literal heading\n~~~'
+		content = 'Intro line\n' + fence + '\n\n# Outside\nend'
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=24, overlap_lines=0)
+		assert [c.content for c in chunks if fence in c.content] == [fence], [c.content for c in chunks]
+
+	def test_inline_triple_backtick_span_is_not_a_fence(self):
+		"""A backtick line whose info string holds a backtick is inline code and must not swallow the page."""
+		content = '```inline``` span\n\n# Real heading\n\nbody'
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=10, overlap_lines=0)
+		assert any(c.content.startswith('# Real heading') for c in chunks), [c.content for c in chunks]
+
+
 class TestChunkMarkdownTable:
 	"""Table rows never split mid-row."""
 
