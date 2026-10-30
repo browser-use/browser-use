@@ -38,6 +38,12 @@ TypeTextEvent.model_rebuild()
 ScrollEvent.model_rebuild()
 UploadFileEvent.model_rebuild()
 
+# Text a named key types, sent on its keyDown as Puppeteer does. Chrome inserts a character only
+# when the keyDown carries `text` (without it Shift+Enter adds no newline), and drops it when the
+# page prevents the keydown's default (a separate char event would still insert it) or when
+# Control, Alt or Meta is held.
+_KEY_TEXT = {'Enter': '\r'}
+
 
 class DefaultActionWatchdog(BaseWatchdog):
 	"""Handles default browser actions like click, type, and scroll using CDP."""
@@ -2461,7 +2467,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 		except Exception as e:
 			raise
 
-	async def _dispatch_key_event(self, cdp_session, event_type: str, key: str, modifiers: int = 0) -> None:
+	async def _dispatch_key_event(
+		self, cdp_session, event_type: str, key: str, modifiers: int = 0, text: str | None = None
+	) -> None:
 		"""Helper to dispatch a keyboard event with proper key codes."""
 		code, vk_code = get_key_info(key)
 		params: DispatchKeyEventParameters = {
@@ -2471,6 +2479,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 		}
 		if modifiers:
 			params['modifiers'] = modifiers
+		if text is not None:
+			params['text'] = text
+			params['unmodifiedText'] = text
 		if vk_code is not None:
 			params['windowsVirtualKeyCode'] = vk_code
 		await cdp_session.cdp_client.send.Input.dispatchKeyEvent(params=params, session_id=cdp_session.session_id)
@@ -2546,7 +2557,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					await self._dispatch_key_event(cdp_session, 'keyDown', mod)
 
 				# Press main key with modifiers bitmask
-				await self._dispatch_key_event(cdp_session, 'keyDown', main_key, modifier_value)
+				await self._dispatch_key_event(cdp_session, 'keyDown', main_key, modifier_value, _KEY_TEXT.get(main_key))
 
 				await self._dispatch_key_event(cdp_session, 'keyUp', main_key, modifier_value)
 
@@ -2592,17 +2603,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 				# If it's a special key, use original logic
 				if normalized_keys in special_keys:
-					await self._dispatch_key_event(cdp_session, 'keyDown', normalized_keys)
-					# For Enter key, also dispatch a char event to trigger keypress listeners
-					if normalized_keys == 'Enter':
-						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': 'char',
-								'text': '\r',
-								'key': 'Enter',
-							},
-							session_id=cdp_session.session_id,
-						)
+					# Enter's text on the keyDown also fires keypress listeners
+					await self._dispatch_key_event(cdp_session, 'keyDown', normalized_keys, text=_KEY_TEXT.get(normalized_keys))
 					await self._dispatch_key_event(cdp_session, 'keyUp', normalized_keys)
 				else:
 					# It's text (single character or string) - send each character as text input
