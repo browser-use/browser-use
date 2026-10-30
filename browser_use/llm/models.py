@@ -169,15 +169,15 @@ def get_llm_by_name(model_name: str):
 	elif 'qwen_3_coder_480b' in model_part:
 		model = model_part.replace('qwen_3_coder_480b', 'qwen-3-coder-480b')
 	elif 'glm_5_3_flash' in model_part:
-		model = model_part.replace('glm_5_3_flash', 'glm-5.3-flash')
+		model = model_part.replace('glm_5_3_flash', 'glm-5.3-flash').replace('_', '-')
 	elif 'glm_5_3' in model_part:
-		model = model_part.replace('glm_5_3', 'glm-5.3')
+		model = model_part.replace('glm_5_3', 'glm-5.3').replace('_', '-')
 	elif 'glm_5v_turbo' in model_part:
-		model = model_part.replace('glm_5v_turbo', 'glm-5v-turbo')
+		model = model_part.replace('glm_5v_turbo', 'glm-5v-turbo').replace('_', '-')
 	elif 'glm_4_5' in model_part:
-		model = model_part.replace('glm_4_5', 'glm-4.5')
+		model = model_part.replace('glm_4_5', 'glm-4.5').replace('_', '-')
 	elif 'glm_4v_plus' in model_part:
-		model = model_part.replace('glm_4v_plus', 'glm-4v-plus')
+		model = model_part.replace('glm_4v_plus', 'glm-4v-plus').replace('_', '-')
 	else:
 		model = model_part.replace('_', '-')
 

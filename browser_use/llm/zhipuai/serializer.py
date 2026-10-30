@@ -60,7 +60,7 @@ class ZhipuAIMessageSerializer:
 					'type': 'function',
 					'function': {
 						'name': tc.function.name,
-						'arguments': json.dumps(arguments) if isinstance(arguments, dict) else str(arguments),
+						'arguments': json.dumps(arguments),
 					},
 				}
 			)
@@ -92,9 +92,15 @@ class ZhipuAIMessageSerializer:
 				'content': ZhipuAIMessageSerializer._serialize_content(message.content),
 			}
 		if isinstance(message, AssistantMessage):
+			content = ZhipuAIMessageSerializer._serialize_content(message.content)
+			if message.refusal:
+				if content:
+					content = f'{content}\n[Refusal] {message.refusal}'
+				else:
+					content = f'[Refusal] {message.refusal}'
 			msg: MessageDict = {
 				'role': 'assistant',
-				'content': ZhipuAIMessageSerializer._serialize_content(message.content),
+				'content': content,
 			}
 			if message.tool_calls:
 				msg['tool_calls'] = ZhipuAIMessageSerializer._serialize_tool_calls(message.tool_calls)

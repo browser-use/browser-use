@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import BaseModel
 
-from browser_use.llm.exceptions import ModelProviderError
+from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError
 from browser_use.llm.messages import (
 	AssistantMessage,
 	ContentPartImageParam,
@@ -48,17 +48,18 @@ def test_zhipuai_api_key_fallbacks(monkeypatch: pytest.MonkeyPatch):
 	monkeypatch.delenv('BIGMODEL_API_KEY', raising=False)
 	monkeypatch.delenv('ZAI_API_KEY', raising=False)
 
+	# Test ZHIPUAI_API_KEY precedence over BIGMODEL_API_KEY and ZAI_API_KEY
 	monkeypatch.setenv('ZHIPUAI_API_KEY', 'zhipuai-env-key')
+	monkeypatch.setenv('BIGMODEL_API_KEY', 'bigmodel-env-key')
+	monkeypatch.setenv('ZAI_API_KEY', 'zai-env-key')
 	assert ChatZhipuAI(model='glm-5.3-flash')._client().api_key == 'zhipuai-env-key'
 
-	# Test fallback to BIGMODEL_API_KEY
+	# Test fallback to BIGMODEL_API_KEY over ZAI_API_KEY
 	monkeypatch.delenv('ZHIPUAI_API_KEY')
-	monkeypatch.setenv('BIGMODEL_API_KEY', 'bigmodel-env-key')
 	assert ChatZhipuAI(model='glm-5.3-flash')._client().api_key == 'bigmodel-env-key'
 
 	# Test fallback to ZAI_API_KEY
 	monkeypatch.delenv('BIGMODEL_API_KEY')
-	monkeypatch.setenv('ZAI_API_KEY', 'zai-env-key')
 	assert ChatZhipuAI(model='glm-5.3-flash')._client().api_key == 'zai-env-key'
 
 	# Test missing key raises 401 error
@@ -222,3 +223,46 @@ async def test_zhipuai_ainvoke_structured_output():
 	assert isinstance(res.completion, CapitalResponse)
 	assert res.completion.country == 'France'
 	assert res.completion.capital == 'Paris'
+	assert mock_client.chat.completions.create.call_args.kwargs['tool_choice'] == 'auto'
+
+
+@pytest.mark.asyncio
+async def test_zhipuai_ainvoke_truncated_error():
+	chat = ChatZhipuAI(model='glm-5.3-flash', api_key='test-key', max_tokens=100)
+
+	mock_choice = MagicMock()
+	mock_choice.finish_reason = 'length'
+	mock_choice.message.content = 'Incomplete text...'
+
+	mock_response = MagicMock()
+	mock_response.choices = [mock_choice]
+	mock_response.usage = None
+
+	mock_client = MagicMock()
+	mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+	chat._client = MagicMock(return_value=mock_client)
+
+	with pytest.raises(ModelOutputTruncatedError, match='Model output was truncated at max_tokens=100'):
+		await chat.ainvoke([UserMessage(content='Tell me a story')])
+
+
+def test_zhipuai_serializer_refusal_and_non_object_args():
+	# Test refusal in AssistantMessage
+	msg = AssistantMessage(content='Sorry', refusal='I cannot assist with that request.')
+	serialized = ZhipuAIMessageSerializer.serialize(msg)
+	assert serialized['role'] == 'assistant'
+	assert '[Refusal] I cannot assist with that request.' in serialized['content']
+
+	# Test refusal when content is None
+	msg_none = AssistantMessage(content=None, refusal='Refused')
+	serialized_none = ZhipuAIMessageSerializer.serialize(msg_none)
+	assert serialized_none['content'] == '[Refusal] Refused'
+
+	# Test non-object JSON tool arguments
+	tool_call = ToolCall(
+		id='call_1',
+		function=Function(name='test_func', arguments='"hello"'),
+	)
+	serialized_tools = ZhipuAIMessageSerializer._serialize_tool_calls([tool_call])
+	assert serialized_tools[0]['function']['arguments'] == '"hello"'
+
