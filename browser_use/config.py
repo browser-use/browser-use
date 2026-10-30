@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import stat
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -339,28 +340,38 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 			if data.get('browser_profile') and all(isinstance(v, dict) and 'id' in v for v in data['browser_profile'].values()):
 				# Already in new format
 				return DBStyleConfigJSON(**data)
-
-		# Old format detected - delete it and create fresh config
-		logger.debug(f'Old config format detected at {config_path}, creating fresh config')
-		new_config = create_default_config()
-
-		# Overwrite with new config
-		with open(config_path, 'w') as f:
-			json.dump(new_config.model_dump(), f, indent=2)
-
-		logger.debug(f'Created fresh config.json at {config_path}')
-		return new_config
-
 	except Exception as e:
-		logger.error(f'Failed to load config from {config_path}: {e}, creating fresh config')
-		# On any error, create fresh config
-		new_config = create_default_config()
+		# The file exists but cannot be read or parsed. Replacing it with defaults would silently drop
+		# the operator's browser restrictions (allowed_domains, prohibited_domains, block_ip_addresses)
+		# and overwrite them on disk, so fail closed and leave the file untouched for the user to fix.
+		raise ValueError(
+			f'Failed to load browser-use config from {config_path}: {e}. '
+			'Fix or remove the file; it was left unchanged so its settings are not lost.'
+		) from e
+
+	# Old format detected - replace it with a fresh config
+	logger.debug(f'Old config format detected at {config_path}, creating fresh config')
+	new_config = create_default_config()
+
+	# Write to a sibling temp file and swap it in, so a failed write never leaves a truncated config.json
+	tmp_path = config_path.with_name(f'{config_path.name}.{uuid4().hex}.tmp')
+	try:
+		with open(tmp_path, 'w') as f:
+			json.dump(new_config.model_dump(), f, indent=2)
+			f.flush()
+			os.fsync(f.fileno())
+		# open() applies the process umask, so a 0600 config would become 0644 under umask 022
+		# and expose LLMEntry.api_key. Copy the existing mode onto the temp file before the swap.
+		os.chmod(tmp_path, stat.S_IMODE(config_path.stat().st_mode))
+		os.replace(tmp_path, config_path)
+		logger.debug(f'Created fresh config.json at {config_path}')
+	except Exception as write_error:
+		logger.error(f'Failed to write fresh config: {write_error}')
 		try:
-			with open(config_path, 'w') as f:
-				json.dump(new_config.model_dump(), f, indent=2)
-		except Exception as write_error:
-			logger.error(f'Failed to write fresh config: {write_error}')
-		return new_config
+			tmp_path.unlink(missing_ok=True)
+		except OSError:
+			pass
+	return new_config
 
 
 class Config:
