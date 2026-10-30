@@ -37,7 +37,7 @@ dependencies = [
     "google-api-python-client==2.188.0",
     "google-auth==2.48.0",
     "google-auth-oauthlib==1.2.4",
-    "mcp==2.1.1",
+    "mcp==2.2.0",
     "pypdf==6.16.2",
     "reportlab==4.4.9",
     "cdp-use==1.4.5",
