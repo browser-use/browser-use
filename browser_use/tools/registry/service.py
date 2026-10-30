@@ -200,6 +200,15 @@ class Registry(Generic[Context]):
 			params_dict = params.model_dump() if params is not None else {}
 
 			for i, param in enumerate(parameters):
+				# Keyword-only params (after *) must be passed as kwargs
+				if param.kind == inspect.Parameter.KEYWORD_ONLY:
+					if param.name in params_dict:
+						call_kwargs[param.name] = params_dict[param.name]
+					elif param.default != Parameter.empty:
+						call_kwargs[param.name] = param.default
+					elif param.name in special_param_names and param.name in kwargs:
+						call_kwargs[param.name] = kwargs[param.name]
+					continue
 				# Skip first param for Type 1 pattern (it's the model itself)
 				if param_model_provided and i == 0 and param.name not in special_param_names:
 					call_args.append(params)
@@ -251,11 +260,11 @@ class Registry(Generic[Context]):
 					else:
 						raise ValueError(f"{func.__name__}() missing required parameter '{param.name}'")
 
-			# Call original function with positional args
+			# Call original function with positional and keyword args
 			if iscoroutinefunction(func):
-				return await func(*call_args)
+				return await func(*call_args, **call_kwargs)
 			else:
-				return await asyncio.to_thread(func, *call_args)
+				return await asyncio.to_thread(func, *call_args, **call_kwargs)
 
 		# Update wrapper signature to be kwargs-only
 		new_params = [Parameter('params', Parameter.KEYWORD_ONLY, default=None, annotation=Optional[param_model])]
