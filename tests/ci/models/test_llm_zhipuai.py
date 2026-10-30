@@ -265,4 +265,3 @@ def test_zhipuai_serializer_refusal_and_non_object_args():
 	)
 	serialized_tools = ZhipuAIMessageSerializer._serialize_tool_calls([tool_call])
 	assert serialized_tools[0]['function']['arguments'] == '"hello"'
-
