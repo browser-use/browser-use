@@ -4,6 +4,8 @@ This directory is for examples that show Browser Use working with external produ
 
 ## Shipped integrations
 
+- [Desearch web search](desearch/README.md) - Add web search results to a Browser Use agent.
+
 - [Anthropic Browser Use](anthropic/README.md) - Run the Anthropic SDK tool runner with Browser Use and Bash.
 
 ## Where to put integration contributions
