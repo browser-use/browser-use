@@ -57,4 +57,4 @@ def test_register_action_with_type_array_parameter():
 
 	# Must succeed without raising TypeError: unhashable type: 'list'
 	client._register_tool_as_action(tools.registry, 'echo_nullable', tool)
-	assert 'echo_nullable' in tools.registry.actions
+	assert 'echo_nullable' in tools.registry.registry.actions

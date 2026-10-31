@@ -486,10 +486,7 @@ class MCPClient:
 			is_nullable = 'null' in json_type or bool(schema.get('nullable', False))
 			if not non_null:
 				return type(None)
-			members = [
-				self._json_schema_to_python_type({**schema, 'type': t, 'nullable': False}, model_name)
-				for t in non_null
-			]
+			members = [self._json_schema_to_python_type({**schema, 'type': t, 'nullable': False}, model_name) for t in non_null]
 			if is_nullable:
 				members.append(type(None))
 			resolved = members[0]
