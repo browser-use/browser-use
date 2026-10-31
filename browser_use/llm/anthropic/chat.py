@@ -63,12 +63,10 @@ class ChatAnthropic(BaseChatModel):
 	default_query: Mapping[str, object] | None = None
 	http_client: httpx.AsyncClient | None = None
 
-	# Internal client cache: SDK clients own an httpx connection pool, so share
-	# one client per chat instance instead of allocating a pool on every call.
-	_client: AsyncAnthropic | None = field(default=None, init=False, repr=False, compare=False)
-	# A pooled keep-alive connection belongs to the loop that opened it, so the cached
-	# client is only reusable while that loop is still the running one.
-	_client_loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False, compare=False)
+	# SDK connection pools belong to the loop that uses them. None covers synchronous get_client() calls.
+	_clients: dict[asyncio.AbstractEventLoop | None, AsyncAnthropic] = field(
+		default_factory=dict, init=False, repr=False, compare=False
+	)
 
 	# Static
 	@property
@@ -178,18 +176,32 @@ class ChatAnthropic(BaseChatModel):
 
 	def get_client(self) -> AsyncAnthropic:
 		"""
-		Returns a cached AsyncAnthropic client.
+		Return this event loop's cached AsyncAnthropic client.
 
 		Returns:
-			AsyncAnthropic: The shared AsyncAnthropic client for this chat instance.
+			AsyncAnthropic: The shared client for this chat instance and event loop.
 		"""
 		loop = get_running_loop_or_none()
-		if self._client is None or self._client_loop is not loop:
-			# The old client's loop is already closed, so it cannot be awaited closed here.
+		for cached_loop in tuple(self._clients):
+			if cached_loop is not None and cached_loop.is_closed():
+				# Release closed-loop references; asynchronous teardown must happen before loop.close().
+				self._clients.pop(cached_loop, None)
+		if loop not in self._clients:
 			client_params = self._get_client_params()
-			self._client = AsyncAnthropic(**client_params)
-			self._client_loop = loop
-		return self._client
+			self._clients[loop] = AsyncAnthropic(**client_params)
+		return self._clients[loop]
+
+	async def aclose(self) -> None:
+		"""Close this loop's client and any synchronously created client before the loop exits.
+
+		The caller owns the chat instance; Agent.close() does not close shared LLMs.
+		SDK close also closes a supplied http_client. Other loops' clients are left open.
+		"""
+		for loop in (asyncio.get_running_loop(), None):
+			client = self._clients.get(loop)
+			if client is not None:
+				await client.close()
+				self._clients.pop(loop, None)
 
 	@property
 	def name(self) -> str:

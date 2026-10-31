@@ -71,3 +71,61 @@ def test_consecutive_sync_runs_each_get_their_own_client():
 	llm = ChatOpenAI(model='gpt-4o', api_key='sk-test')
 	clients = [_client_in_a_fresh_loop(llm) for _ in range(3)]  # keep them referenced so id() stays unique
 	assert len({id(client) for client in clients}) == 3
+
+
+@pytest.mark.parametrize('make_llm', CHAT_INSTANCES)
+def test_clients_are_reused_across_alternating_live_loops(make_llm):
+	llm = make_llm()
+	first_loop, second_loop = asyncio.new_event_loop(), asyncio.new_event_loop()
+	clients = []
+
+	async def collect():
+		client = llm.get_client()
+		clients.append((asyncio.get_running_loop(), client))
+		return client
+
+	try:
+		first = first_loop.run_until_complete(collect())
+		second = second_loop.run_until_complete(collect())
+		assert first is not second
+		assert first_loop.run_until_complete(collect()) is first
+		assert second_loop.run_until_complete(collect()) is second
+	finally:
+		for loop, client in clients:
+			loop.run_until_complete(client.close())
+		first_loop.close()
+		second_loop.close()
+
+
+@pytest.mark.parametrize('make_llm', CHAT_INSTANCES)
+def test_aclose_releases_only_the_current_loops_client(make_llm):
+	llm = make_llm()
+	first_loop, second_loop = asyncio.new_event_loop(), asyncio.new_event_loop()
+	sync_client = llm.get_client()
+	clients = [(first_loop, sync_client)]
+
+	async def collect():
+		client = llm.get_client()
+		clients.append((asyncio.get_running_loop(), client))
+		return client
+
+	try:
+		first = first_loop.run_until_complete(collect())
+		second = second_loop.run_until_complete(collect())
+		first_loop.run_until_complete(llm.aclose())
+		assert first.is_closed()
+		assert sync_client.is_closed()
+		assert not second.is_closed()
+		replacement = first_loop.run_until_complete(collect())
+		assert replacement is not first
+		assert not replacement.is_closed()
+		first_loop.run_until_complete(llm.aclose())
+		first_loop.run_until_complete(llm.aclose())
+		assert replacement.is_closed()
+		second_loop.run_until_complete(llm.aclose())
+		assert second.is_closed()
+	finally:
+		for loop, client in clients:
+			loop.run_until_complete(client.close())
+		first_loop.close()
+		second_loop.close()

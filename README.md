@@ -149,6 +149,17 @@ if __name__ == "__main__":
 
 To use BU2, replace the `ChatOpenAI` line with the commented `ChatBrowserUse` line. The cloud-browser option works with either model.
 
+For `ChatOpenAI`, `ChatAnthropic`, and `ChatGroq`, the caller owns the cached SDK clients. Close them before leaving the event loop that used them:
+
+```python
+try:
+    history = await agent.run()
+finally:
+    await llm.aclose()
+```
+
+`aclose()` closes the current loop's client and any synchronously created client; it leaves other live loops' clients open. If a chat instance is used from multiple loops, call `aclose()` on each before its loop exits. `Agent.close()` does not close shared LLMs. Following the provider SDKs, this also closes a supplied `http_client`; custom HTTP clients must stay on their owning loop.
+
 **4. Run it:**
 
 ```bash

@@ -74,22 +74,34 @@ class ChatGroq(BaseChatModel):
 	timeout: float | Timeout | NotGiven | None = None
 	max_retries: int = 10  # Increase default retries for automation reliability
 
-	# Internal client cache: SDK clients own an httpx connection pool, so share
-	# one client per chat instance instead of allocating a pool on every call.
-	_client: AsyncGroq | None = field(default=None, init=False, repr=False, compare=False)
-	# A pooled keep-alive connection belongs to the loop that opened it, so the cached
-	# client is only reusable while that loop is still the running one.
-	_client_loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False, compare=False)
+	# SDK connection pools belong to the loop that uses them. None covers synchronous get_client() calls.
+	_clients: dict[asyncio.AbstractEventLoop | None, AsyncGroq] = field(
+		default_factory=dict, init=False, repr=False, compare=False
+	)
 
 	def get_client(self) -> AsyncGroq:
 		loop = get_running_loop_or_none()
-		if self._client is None or self._client_loop is not loop:
-			# The old client's loop is already closed, so it cannot be awaited closed here.
-			self._client = AsyncGroq(
+		for cached_loop in tuple(self._clients):
+			if cached_loop is not None and cached_loop.is_closed():
+				# Release closed-loop references; asynchronous teardown must happen before loop.close().
+				self._clients.pop(cached_loop, None)
+		if loop not in self._clients:
+			self._clients[loop] = AsyncGroq(
 				api_key=self.api_key, base_url=self.base_url, timeout=self.timeout, max_retries=self.max_retries
 			)
-			self._client_loop = loop
-		return self._client
+		return self._clients[loop]
+
+	async def aclose(self) -> None:
+		"""Close this loop's client and any synchronously created client before the loop exits.
+
+		The caller owns the chat instance; Agent.close() does not close shared LLMs.
+		Other loops' clients are left open.
+		"""
+		for loop in (asyncio.get_running_loop(), None):
+			client = self._clients.get(loop)
+			if client is not None:
+				await client.close()
+				self._clients.pop(loop, None)
 
 	@property
 	def provider(self) -> str:
