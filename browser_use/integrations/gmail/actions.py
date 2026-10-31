@@ -68,12 +68,8 @@ def register_gmail_actions(tools: Tools, gmail_service: GmailService | None = No
 			max_results = params.max_results
 			time_filter = '5m'
 
-			# Build query with time filter and optional user query
-			query_parts = [f'newer_than:{time_filter}']
-			if params.keyword.strip():
-				query_parts.append(params.keyword.strip())
-
-			query = ' '.join(query_parts)
+			# Let GmailService translate the time filter to Gmail search syntax.
+			query = params.keyword.strip()
 			logger.info(f'🔍 Gmail search query: {query}')
 
 			# Get emails
