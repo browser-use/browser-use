@@ -367,12 +367,17 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 
 	except Exception as e:
 		backup_path = config_path.with_name(config_path.name + '.bak')
+		backup_created = False
 		try:
 			with config_path.open('rb') as original:
 				mode = stat.S_IMODE(os.fstat(original.fileno()).st_mode) & 0o600
-				with os.fdopen(os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode), 'wb') as backup:
+				backup_fd = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+				backup_created = True
+				with os.fdopen(backup_fd, 'wb') as backup:
 					shutil.copyfileobj(original, backup)
 		except OSError as backup_error:
+			if backup_created:
+				backup_path.unlink(missing_ok=True)
 			if isinstance(backup_error, FileExistsError):
 				backup_status = f'The existing backup at {backup_path} was left unchanged.'
 			else:

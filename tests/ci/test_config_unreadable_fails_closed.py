@@ -1,6 +1,9 @@
 import json
 import os
 import stat
+import subprocess
+import sys
+import textwrap
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -113,6 +116,43 @@ def test_concurrent_loads_preserve_original_and_backup(corrupt_config: Path):
 
 	assert corrupt_config.read_bytes() == original
 	assert corrupt_config.with_suffix('.json.bak').read_bytes() == original
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='Linux file size resource limits')
+def test_partial_backup_is_removed_and_retry_succeeds(corrupt_config: Path):
+	code = textwrap.dedent("""\
+		import resource
+		import signal
+		import sys
+		from pathlib import Path
+		from browser_use.config import ConfigLoadError, load_and_migrate_config
+
+		config = Path(sys.argv[1])
+		original = config.read_bytes()
+		backup = config.with_suffix('.json.bak')
+		limits = resource.getrlimit(resource.RLIMIT_FSIZE)
+		signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+		resource.setrlimit(resource.RLIMIT_FSIZE, (8, limits[1]))
+		try:
+			load_and_migrate_config(config)
+		except ConfigLoadError as error:
+			assert 'Could not create a complete backup' in str(error)
+		else:
+			raise AssertionError('An invalid configuration must fail to load')
+		finally:
+			resource.setrlimit(resource.RLIMIT_FSIZE, limits)
+		assert not backup.exists()
+		assert config.read_bytes() == original
+		try:
+			load_and_migrate_config(config)
+		except ConfigLoadError as error:
+			assert 'A backup was created' in str(error)
+		else:
+			raise AssertionError('An invalid configuration must fail to load')
+		assert backup.read_bytes() == original
+		assert config.read_bytes() == original
+	""")
+	subprocess.run([sys.executable, '-c', code, str(corrupt_config)], check=True, capture_output=True, text=True, timeout=30)
 
 
 @pytest.mark.skipif(os.name == 'nt', reason='POSIX file permission bits')
