@@ -6,6 +6,7 @@ the `DOM.getBoxModel` and `getBoundingClientRect` fallbacks entirely.
 """
 
 from types import SimpleNamespace
+from typing import Any
 
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
@@ -28,7 +29,7 @@ class DOM:
 		return self._box_model
 
 
-def _cdp_session(dom: DOM) -> SimpleNamespace:
+def _cdp_session(dom: DOM) -> Any:
 	return SimpleNamespace(session_id='s1', cdp_client=SimpleNamespace(send=SimpleNamespace(DOM=dom)))
 
 
