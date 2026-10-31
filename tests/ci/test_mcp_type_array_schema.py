@@ -1,9 +1,8 @@
 """Regression tests for JSON Schema type arrays in MCP tool registration (#6278)."""
 
-import pytest
-
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from mcp import types
 
 from browser_use import Tools
@@ -87,9 +86,8 @@ def test_register_action_with_type_array_parameter():
 async def test_execute_action_preserves_explicit_null():
 	"""Executing a registered action with an explicit null must pass {'value': None} to call_tool."""
 	client = _make_client()
-	client.session.call_tool = AsyncMock(
-		return_value=types.CallToolResult(content=[types.TextContent(type='text', text='ok')])
-	)
+	mock_call = AsyncMock(return_value=types.CallToolResult(content=[types.TextContent(type='text', text='ok')]))
+	client.session.call_tool = mock_call  # type: ignore[union-attr]
 
 	tools = Tools()
 	tool = types.Tool(
@@ -112,4 +110,4 @@ async def test_execute_action_preserves_explicit_null():
 
 	assert result.error is None
 	# Ensure call_tool received {"value": None} and omitted absent optional_param
-	client.session.call_tool.assert_awaited_once_with('nullable_echo', {'value': None})
+	client.session.call_tool.assert_awaited_once_with('nullable_echo', {'value': None})  # type: ignore[union-attr]
