@@ -1,103 +1,168 @@
-"""Regression tests for load_and_migrate_config handling of an unreadable config.json.
-
-A config.json that exists but cannot be parsed used to be silently replaced with a
-fresh default config. The default profile has no allowed_domains / prohibited_domains /
-block_ip_addresses, so the security watchdog's allow-all branch took over and the
-operator's network boundary was lost permanently (issue #6218).
-
-The loader must distinguish "file absent" (fresh default is fine) from "file present
-but unreadable" (fail closed, preserve the original bytes).
-"""
-
 import json
 import os
+import stat
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
-from browser_use.config import load_and_migrate_config
+from browser_use.config import ConfigLoadError, DBStyleConfigJSON, create_default_config, load_and_migrate_config
 
 
 @pytest.fixture(autouse=True)
 def _sandboxed_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-	"""Point browser-use's config dir at a temp dir so tests never touch ~/.config."""
 	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(tmp_path / 'cfgdir'))
-	os.environ.setdefault('XDG_CONFIG_HOME', str(tmp_path / 'xdg'))
-	yield
+	monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path / 'xdg'))
 
 
-RESTRICTED_CONFIG = {
-	'browser_profile': {
-		'11111111-1111-1111-1111-111111111111': {
-			'id': '11111111-1111-1111-1111-111111111111',
-			'default': True,
-			'headless': True,
-			'user_data_dir': None,
-			'allowed_domains': ['example.com'],
-			'prohibited_domains': ['127.0.0.1'],
-			'block_ip_addresses': True,
-		}
-	},
-	'llm': {},
-	'agent': {},
-}
+@pytest.fixture
+def corrupt_config(tmp_path: Path) -> Path:
+	config_path = tmp_path / 'config.json'
+	config_path.write_text(create_default_config().model_dump_json()[:-1], encoding='utf-8')
+	return config_path
 
 
-def _restricted_profile(config: object) -> dict:
+def _restricted_profile(config: DBStyleConfigJSON) -> dict:
 	profiles = [p for p in config.browser_profile.values() if p.default]
 	assert profiles, 'expected a default profile'
-	profile = profiles[0]
-	return profile.model_dump(exclude_none=True)
+	return profiles[0].model_dump(exclude_none=True)
 
 
 def test_absent_file_still_creates_fresh_default(tmp_path: Path):
-	"""First run with no config file keeps the create-default behavior."""
 	config_path = tmp_path / 'config.json'
 
 	config = load_and_migrate_config(config_path)
 
-	assert config_path.exists(), 'fresh default config should be written on first run'
+	assert config_path.exists()
 	profile = _restricted_profile(config)
 	assert 'allowed_domains' not in profile
 	assert 'block_ip_addresses' not in profile
 
 
-def test_corrupt_file_raises_instead_of_failing_open(tmp_path: Path):
-	"""Truncated/invalid JSON must not collapse into an allow-all default profile."""
-	config_path = tmp_path / 'config.json'
-	config_path.write_text(json.dumps(RESTRICTED_CONFIG), encoding='utf-8')
-	config_path.write_text('{"browser_profile": {"oops"', encoding='utf-8')  # truncate
+def test_corrupt_file_raises_instead_of_failing_open(corrupt_config: Path):
+	with pytest.raises(ConfigLoadError) as exc_info:
+		load_and_migrate_config(corrupt_config)
 
-	with pytest.raises(Exception) as exc_info:
+	assert isinstance(exc_info.value.__cause__, json.JSONDecodeError)
+	assert f'The original file remains at {corrupt_config}.' in str(exc_info.value)
+
+
+def test_corrupt_file_is_not_overwritten_and_backup_created(corrupt_config: Path):
+	original = corrupt_config.read_bytes()
+	backup = corrupt_config.with_suffix('.json.bak')
+
+	with pytest.raises(ConfigLoadError) as exc_info:
+		load_and_migrate_config(corrupt_config)
+
+	assert corrupt_config.read_bytes() == original
+	assert backup.read_bytes() == original
+	assert f'A backup was created at {backup}.' in str(exc_info.value)
+
+
+def test_existing_backup_is_preserved(corrupt_config: Path):
+	backup = corrupt_config.with_suffix('.json.bak')
+	previous = Path(__file__).read_bytes()
+	backup.write_bytes(previous)
+	original = corrupt_config.read_bytes()
+
+	with pytest.raises(ConfigLoadError) as exc_info:
+		load_and_migrate_config(corrupt_config)
+
+	assert corrupt_config.read_bytes() == original
+	assert backup.read_bytes() == previous
+	assert f'The existing backup at {backup} was left unchanged.' in str(exc_info.value)
+
+
+def test_backup_creation_failure_identifies_original(corrupt_config: Path):
+	backup = corrupt_config.with_suffix('.json.bak')
+	backup.mkdir()
+	original = corrupt_config.read_bytes()
+
+	with pytest.raises(ConfigLoadError) as exc_info:
+		load_and_migrate_config(corrupt_config)
+
+	assert corrupt_config.read_bytes() == original
+	assert backup.is_dir()
+	assert f'The original file remains at {corrupt_config}.' in str(exc_info.value)
+	assert 'A backup was created' not in str(exc_info.value)
+
+
+def test_unreadable_source_identifies_backup_failure(tmp_path: Path):
+	config_path = tmp_path / 'config.json'
+	config_path.mkdir()
+	backup = config_path.with_suffix('.json.bak')
+
+	with pytest.raises(ConfigLoadError) as exc_info:
 		load_and_migrate_config(config_path)
 
-	# The error must be about the unreadable config, not a silent fallback.
-	assert 'config' in str(exc_info.value).lower()
+	assert config_path.is_dir()
+	assert not backup.exists()
+	assert f'Could not create a complete backup at {backup}:' in str(exc_info.value)
+	assert f'The original file remains at {config_path}.' in str(exc_info.value)
 
 
-def test_corrupt_file_is_not_overwritten_and_bak_preserved(tmp_path: Path):
-	"""The operator's original bytes must survive a failed parse."""
-	config_path = tmp_path / 'config.json'
-	original = '{"browser_profile": {"oops"'
-	config_path.write_text(original, encoding='utf-8')
+def test_concurrent_loads_preserve_original_and_backup(corrupt_config: Path):
+	original = corrupt_config.read_bytes()
 
-	with pytest.raises(Exception):
-		load_and_migrate_config(config_path)
+	def load_config():
+		with pytest.raises(ConfigLoadError):
+			load_and_migrate_config(corrupt_config)
 
-	assert config_path.read_text(encoding='utf-8') == original, 'corrupt config must not be replaced with defaults'
-	backup = config_path.with_name(config_path.name + '.bak')
-	assert backup.exists(), 'a .bak of the original file should be preserved'
-	assert backup.read_text(encoding='utf-8') == original
+	with ThreadPoolExecutor(max_workers=4) as executor:
+		list(executor.map(lambda _: load_config(), range(16)))
+
+	assert corrupt_config.read_bytes() == original
+	assert corrupt_config.with_suffix('.json.bak').read_bytes() == original
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX file permission bits')
+@pytest.mark.parametrize('mode', [0o400, 0o600, 0o640])
+def test_backup_permissions_do_not_expose_config(corrupt_config: Path, mode: int):
+	corrupt_config.chmod(mode)
+
+	with pytest.raises(ConfigLoadError):
+		load_and_migrate_config(corrupt_config)
+
+	backup = corrupt_config.with_suffix('.json.bak')
+	assert stat.S_IMODE(backup.stat().st_mode) == mode & 0o600
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='Creating symlinks requires Windows privileges')
+@pytest.mark.parametrize('existing_target', [False, True])
+def test_backup_symlink_is_not_followed(corrupt_config: Path, existing_target: bool):
+	target = corrupt_config.parent / 'backup-target'
+	previous = Path(__file__).read_bytes()
+	if existing_target:
+		target.write_bytes(previous)
+	backup = corrupt_config.with_suffix('.json.bak')
+	backup.symlink_to(target)
+	original = corrupt_config.read_bytes()
+
+	with pytest.raises(ConfigLoadError) as exc_info:
+		load_and_migrate_config(corrupt_config)
+
+	assert corrupt_config.read_bytes() == original
+	assert backup.is_symlink()
+	assert f'The existing backup at {backup} was left unchanged.' in str(exc_info.value)
+	if existing_target:
+		assert target.read_bytes() == previous
+	else:
+		assert not target.exists()
 
 
 def test_valid_restricted_file_still_loads(tmp_path: Path):
-	"""A parseable config keeps loading exactly as before."""
 	config_path = tmp_path / 'config.json'
-	config_path.write_text(json.dumps(RESTRICTED_CONFIG), encoding='utf-8')
+	config = create_default_config()
+	profile = next(iter(config.browser_profile.values()))
+	config.browser_profile[profile.id] = profile.model_copy(
+		update={'allowed_domains': ['github.com'], 'prohibited_domains': ['127.0.0.1'], 'block_ip_addresses': True}
+	)
+	config_path.write_text(config.model_dump_json(), encoding='utf-8')
 
-	config = load_and_migrate_config(config_path)
+	loaded = load_and_migrate_config(config_path)
 
-	profile = _restricted_profile(config)
-	assert profile['allowed_domains'] == ['example.com']
-	assert profile['prohibited_domains'] == ['127.0.0.1']
-	assert profile['block_ip_addresses'] is True
+	assert loaded == config
+	loaded_profile = _restricted_profile(loaded)
+	assert loaded_profile['allowed_domains'] == ['github.com']
+	assert loaded_profile['prohibited_domains'] == ['127.0.0.1']
+	assert loaded_profile['block_ip_addresses'] is True

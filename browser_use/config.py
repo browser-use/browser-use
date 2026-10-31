@@ -3,6 +3,8 @@
 import json
 import logging
 import os
+import shutil
+import stat
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -364,21 +366,23 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 		return new_config
 
 	except Exception as e:
-		# The file exists but cannot be used (unreadable or invalid JSON). Fail closed:
-		# a fresh default profile has no allowed_domains / prohibited_domains /
-		# block_ip_addresses, and the URL policy treats "no lists" as allow-all, so
-		# silently falling back to defaults would drop the operator's network
-		# boundary. Preserve the original bytes and raise instead (issue #6218).
 		backup_path = config_path.with_name(config_path.name + '.bak')
 		try:
-			if not backup_path.exists():
-				backup_path.write_bytes(config_path.read_bytes())
-		except Exception as backup_error:
-			logger.error(f'Failed to back up unreadable config {config_path}: {backup_error}')
+			with config_path.open('rb') as original:
+				mode = stat.S_IMODE(os.fstat(original.fileno()).st_mode) & 0o600
+				with os.fdopen(os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode), 'wb') as backup:
+					shutil.copyfileobj(original, backup)
+		except OSError as backup_error:
+			if isinstance(backup_error, FileExistsError):
+				backup_status = f'The existing backup at {backup_path} was left unchanged.'
+			else:
+				backup_status = f'Could not create a complete backup at {backup_path}: {backup_error}.'
+		else:
+			backup_status = f'A backup was created at {backup_path}.'
 		raise ConfigLoadError(
 			f'Failed to load config from {config_path}: {e}. '
-			f'The original file was preserved at {backup_path}; '
-			'fix or remove it manually instead of silently falling back to an allow-all default config.'
+			f'The original file remains at {config_path}. {backup_status} '
+			'Fix or remove the original config file before retrying.'
 		) from e
 
 
