@@ -311,8 +311,8 @@ class MCPClient:
 				if not self.session or not self._connected:
 					return ActionResult(error=f"MCP server '{self.server_name}' not connected", success=False)
 
-				# Convert pydantic model to dict for MCP call
-				tool_params = params.model_dump(exclude_none=True)
+				# Convert pydantic model to dict for MCP call, preserving explicit nulls while omitting absent optionals
+				tool_params = {k: v for k, v in params.model_dump().items() if k in params.model_fields_set or v is not None}
 
 				logger.debug(f"🔧 Calling MCP tool '{tool.name}' with params: {tool_params}")
 

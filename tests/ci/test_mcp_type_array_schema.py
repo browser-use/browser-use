@@ -1,6 +1,8 @@
 """Regression tests for JSON Schema type arrays in MCP tool registration (#6278)."""
 
-from unittest.mock import MagicMock
+import pytest
+
+from unittest.mock import AsyncMock, MagicMock
 
 from mcp import types
 
@@ -79,3 +81,35 @@ def test_register_action_with_type_array_parameter():
 	# Must succeed without raising TypeError: unhashable type: 'list'
 	client._register_tool_as_action(tools.registry, 'echo_nullable', tool)
 	assert 'echo_nullable' in tools.registry.registry.actions
+
+
+@pytest.mark.asyncio
+async def test_execute_action_preserves_explicit_null():
+	"""Executing a registered action with an explicit null must pass {'value': None} to call_tool."""
+	client = _make_client()
+	client.session.call_tool = AsyncMock(
+		return_value=types.CallToolResult(content=[types.TextContent(type='text', text='ok')])
+	)
+
+	tools = Tools()
+	tool = types.Tool(
+		name='nullable_echo',
+		description='Echo tool accepting required nullable value',
+		input_schema={
+			'type': 'object',
+			'properties': {
+				'value': {'type': ['string', 'null']},
+				'optional_param': {'type': ['string', 'null']},
+			},
+			'required': ['value'],
+		},
+	)
+
+	client._register_tool_as_action(tools.registry, 'nullable_echo', tool)
+
+	# Execute with explicit null for value, omitting optional_param
+	result = await tools.registry.execute_action('nullable_echo', {'value': None})
+
+	assert result.error is None
+	# Ensure call_tool received {"value": None} and omitted absent optional_param
+	client.session.call_tool.assert_awaited_once_with('nullable_echo', {'value': None})
