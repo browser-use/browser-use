@@ -10,6 +10,7 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import anyio
 import httpx
@@ -163,9 +164,9 @@ class TokenCost:
 			# Ensure cache directory exists
 			self._cache_dir.mkdir(parents=True, exist_ok=True)
 
-			# Create cache file with timestamp in filename
+			# Keep simultaneous refreshes from overwriting another source or writer.
 			timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
-			cache_file = self._cache_dir / f'pricing_{timestamp_str}.json'
+			cache_file = self._cache_dir / f'pricing_{timestamp_str}_{uuid4().hex}.json'
 
 			await anyio.Path(cache_file).write_text(cached.model_dump_json(indent=2))
 		except Exception as e:
