@@ -32,6 +32,9 @@ class SchemaOptimizer:
 
 		# Extract $defs for reference resolution, then flatten everything
 		defs_lookup = original_schema.get('$defs', {})
+		# Names of $defs currently being inlined, used to break reference cycles
+		# (e.g. a model referencing itself) instead of recursing forever.
+		_in_progress: set[str] = set()
 
 		# Create optimized schema with flattening
 		# Pass flags to optimize_schema via closure
@@ -69,10 +72,18 @@ class SchemaOptimizer:
 					# FLATTEN: Resolve $ref by inlining the actual definition
 					elif key == '$ref' and defs_lookup:
 						ref_path = value.split('/')[-1]  # Get the definition name from "#/$defs/SomeName"
-						if ref_path in defs_lookup:
+						if ref_path in defs_lookup and ref_path not in _in_progress:
 							# Get the referenced definition and flatten it
 							referenced_def = defs_lookup[ref_path]
-							flattened_ref = optimize_schema(referenced_def, defs_lookup)
+							_in_progress.add(ref_path)
+							try:
+								flattened_ref = optimize_schema(referenced_def, defs_lookup)
+							finally:
+								_in_progress.discard(ref_path)
+						elif ref_path in _in_progress:
+							# Recursive reference: keep a permissive object at this node so
+							# schema creation terminates instead of raising RecursionError.
+							flattened_ref = {'type': 'object'}
 
 					# Skip minItems/min_items and default if requested (check BEFORE processing)
 					elif key in ('minItems', 'min_items') and remove_min_items:
