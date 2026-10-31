@@ -3,6 +3,7 @@
 import asyncio
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pypdf import PdfReader
@@ -276,6 +277,43 @@ class TestFileSystem:
 				fs.nuke()
 			except Exception:
 				pass
+
+	@pytest.mark.parametrize(
+		('page_texts', 'included_pages', 'complete_pages', 'truncated'),
+		[
+			(['first ' * 6000, 'second ' * 6000], [1, 2], [1], True),
+			(['common ' * 4000, 'common ' * 4000, 'rare unique specific ' * 1000, 'common ' * 4000], [1, 2, 3], [1, 3], True),
+			(['', 'first ' * 6000, 'second ' * 6000], [2, 3], [2], True),
+			(['single ' * 10000], [1], [], True),
+			(['first page', 'second page'], [1, 2], [1, 2], False),
+			(['a' * 30000, 'b' * 30000], [1, 2], [1], True),
+			(['a' * 60000], [1], [], True),
+			(['a' * 59985], [1], [1], False),
+		],
+	)
+	async def test_read_pdf_preserves_selected_pages_within_budget(
+		self, empty_filesystem, monkeypatch, page_texts, included_pages, complete_pages, truncated
+	):
+		"""PDF reads include complete priority pages and truncate the final selected page."""
+		pages = [SimpleNamespace(extract_text=lambda text=text: text) for text in page_texts]
+		monkeypatch.setattr('pypdf.PdfReader', lambda _path: SimpleNamespace(pages=pages))
+
+		result = await empty_filesystem.read_file_structured('report.pdf', external_file=True)
+
+		content = result['message'].split('<content>\n', 1)[1].split('\n</content>', 1)[0]
+		selected_text = content.split('\n\n[Showing', 1)[0]
+		assert len(selected_text) <= 60000
+		assert ('[...truncated]' in selected_text) is truncated
+		headers = [f'--- Page {page_num} ---' for page_num in included_pages]
+		for page_num, header in zip(included_pages, headers):
+			assert header + '\n' + page_texts[page_num - 1][:50] in selected_text
+		for page_num in complete_pages:
+			assert f'--- Page {page_num} ---\n' + page_texts[page_num - 1] in selected_text
+		assert [selected_text.index(header) for header in headers] == sorted(selected_text.index(header) for header in headers)
+		for page_num in set(range(1, len(page_texts) + 1)) - set(included_pages):
+			assert f'--- Page {page_num} ---' not in selected_text
+		if len(included_pages) < len(page_texts):
+			assert f'Showing {len(included_pages)} of {len(page_texts)} pages' in content
 
 	async def test_write_pdf_renders_content_as_plain_text(self, empty_filesystem):
 		"""PDF content should be rendered as plain text, not ReportLab markup."""
