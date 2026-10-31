@@ -53,6 +53,7 @@ if TYPE_CHECKING:
 	from browser_use.dom.service import DomService
 	from browser_use.llm import models
 	from browser_use.llm.anthropic.chat import ChatAnthropic
+	from browser_use.llm.avian.chat import ChatAvian
 	from browser_use.llm.aws.chat_anthropic import ChatAnthropicBedrock
 	from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
 	from browser_use.llm.azure.chat import ChatAzureOpenAI
@@ -94,6 +95,7 @@ _LAZY_IMPORTS = {
 	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
 	'ChatGoogle': ('browser_use.llm.google.chat', 'ChatGoogle'),
 	'ChatAnthropic': ('browser_use.llm.anthropic.chat', 'ChatAnthropic'),
+	'ChatAvian': ('browser_use.llm.avian.chat', 'ChatAvian'),
 	'ChatAnthropicBedrock': ('browser_use.llm.aws.chat_anthropic', 'ChatAnthropicBedrock'),
 	'ChatAWSBedrock': ('browser_use.llm.aws.chat_bedrock', 'ChatAWSBedrock'),
 	'ChatBrowserUse': ('browser_use.llm.browser_use.chat', 'ChatBrowserUse'),
@@ -152,6 +154,7 @@ __all__ = [
 	'ChatOpenAI',
 	'ChatGoogle',
 	'ChatAnthropic',
+	'ChatAvian',
 	'ChatAnthropicBedrock',
 	'ChatAWSBedrock',
 	'ChatBrowserUse',
