@@ -1296,6 +1296,21 @@ class TestFilenameSanitization:
 
 			fs.nuke()
 
+	async def test_read_external_file_preserves_non_ascii(self):
+		"""External text files are read as UTF-8 so non-ASCII content is not lost on a non-UTF-8 locale (e.g. cp1252 on Windows)."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+
+			# A UTF-8 text file outside the agent's data dir, as a user would provide.
+			external = Path(tmp_dir) / 'external_notes.md'
+			text = 'Café ☕ 東京'
+			external.write_text(text, encoding='utf-8')
+
+			content = await fs.read_file(str(external), external_file=True)
+			assert text in content
+
+			fs.nuke()
+
 	async def test_replace_file_with_sanitized_name(self):
 		"""Test that replace_file_str works with sanitized filenames."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
