@@ -33,6 +33,10 @@ class SchemaOptimizer:
 		# Extract $defs for reference resolution, then flatten everything
 		defs_lookup = original_schema.get('$defs', {})
 
+		# Instance data keys: their values are JSON data, not schemas.
+		# Copy them as-is without recursing into them as schema objects.
+		INSTANCE_DATA_KEYS = frozenset({'default', 'const', 'enum', 'examples'})
+
 		# Create optimized schema with flattening
 		# Pass flags to optimize_schema via closure
 		def optimize_schema(obj: Any, defs_lookup: dict[str, Any] | None = None, *, in_properties: bool = False) -> Any:
@@ -92,6 +96,10 @@ class SchemaOptimizer:
 							in_properties=(key == 'properties'),
 						)
 
+					# Copy instance data values as-is; do not recurse into them as schemas
+					elif key in INSTANCE_DATA_KEYS:
+						optimized[key] = value
+
 					# Keep essential validation fields
 					elif key in [
 						'required',
@@ -101,7 +109,6 @@ class SchemaOptimizer:
 						'min_items',
 						'maxItems',
 						'pattern',
-						'default',
 					]:
 						optimized[key] = value if not isinstance(value, (dict, list)) else optimize_schema(value, defs_lookup)
 
@@ -151,8 +158,10 @@ class SchemaOptimizer:
 				if obj.get('type') == 'object':
 					obj['additionalProperties'] = False
 
-				# Recursively apply to all values
-				for value in obj.values():
+				# Recursively apply to all values, but skip instance data keys
+				for key, value in obj.items():
+					if key in INSTANCE_DATA_KEYS:
+						continue
 					if isinstance(value, (dict, list)):
 						ensure_additional_properties_false(value)
 			elif isinstance(obj, list):
@@ -175,8 +184,10 @@ class SchemaOptimizer:
 						obj.pop('min_items', None)
 					if remove_defaults:
 						obj.pop('default', None)
-					# Recursively process all values
-					for value in obj.values():
+					# Recursively process all values, but skip instance data keys
+					for key, value in obj.items():
+						if key in INSTANCE_DATA_KEYS:
+							continue
 						if isinstance(value, (dict, list)):
 							remove_forbidden_fields(value)
 				elif isinstance(obj, list):
