@@ -51,9 +51,7 @@ async def test_only_degenerate_quads_fall_back_to_box_model() -> None:
 	session = _session()
 	rect = await session.get_element_coordinates(
 		backend_node_id=1,
-		cdp_session=_cdp_session(
-			DOM(quads={'quads': [DEGENERATE_FIRST_QUAD['quads'][0]]}, box_model=BOX_MODEL)
-		),
+		cdp_session=_cdp_session(DOM(quads={'quads': [DEGENERATE_FIRST_QUAD['quads'][0]]}, box_model=BOX_MODEL)),
 	)
 
 	assert rect is not None, 'box model has a 40x35 box but get_element_coordinates returned None'
