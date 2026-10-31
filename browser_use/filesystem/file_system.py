@@ -312,8 +312,11 @@ class PdfFile(BaseFile):
 					continue
 
 				if in_fence:
-					# Fenced blocks are literal: no emphasis / inline-code conversion
-					story.append(Paragraph(html.escape(line), styles['Code']))
+					# Fenced blocks are literal: no emphasis / inline-code conversion.
+					# Paragraph collapses leading whitespace, so keep indentation as non-breaking spaces.
+					code = line.expandtabs(4)
+					body = code.lstrip(' ')
+					story.append(Paragraph('&nbsp;' * (len(code) - len(body)) + html.escape(body), styles['Code']))
 					continue
 
 				text, heading_level = _split_heading(line)
