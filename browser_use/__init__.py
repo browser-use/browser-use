@@ -47,7 +47,13 @@ base_subprocess.BaseSubprocessTransport.__del__ = _patched_del
 if TYPE_CHECKING:
 	from browser_use.agent.prompts import SystemPrompt
 	from browser_use.agent.service import Agent
-	from browser_use.agent.views import ActionModel, ActionResult, AgentHistoryList
+	from browser_use.agent.views import (
+		ActionModel,
+		ActionResult,
+		AgentHistoryList,
+		ConfirmedPolicyViolation,
+		ControlStateChangeObservation,
+	)
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.browser import BrowserSession as Browser
 	from browser_use.dom.service import DomService
@@ -82,6 +88,8 @@ _LAZY_IMPORTS = {
 	'ActionModel': ('browser_use.agent.views', 'ActionModel'),
 	'ActionResult': ('browser_use.agent.views', 'ActionResult'),
 	'AgentHistoryList': ('browser_use.agent.views', 'AgentHistoryList'),
+	'ConfirmedPolicyViolation': ('browser_use.agent.views', 'ConfirmedPolicyViolation'),
+	'ControlStateChangeObservation': ('browser_use.agent.views', 'ControlStateChangeObservation'),
 	'BrowserSession': ('browser_use.browser', 'BrowserSession'),
 	'Browser': ('browser_use.browser', 'BrowserSession'),  # Alias for BrowserSession
 	'BrowserProfile': ('browser_use.browser', 'BrowserProfile'),
@@ -148,6 +156,8 @@ __all__ = [
 	'ActionResult',
 	'ActionModel',
 	'AgentHistoryList',
+	'ConfirmedPolicyViolation',
+	'ControlStateChangeObservation',
 	# Chat models
 	'ChatOpenAI',
 	'ChatGoogle',

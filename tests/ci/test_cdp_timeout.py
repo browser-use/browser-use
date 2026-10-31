@@ -1,17 +1,10 @@
-"""Regression tests for TimeoutWrappedCDPClient.
-
-cdp_use.CDPClient.send_raw awaits a future that only resolves when the browser
-sends a matching response. When the server goes silent (observed against cloud
-browsers whose WebSocket stays connected at TCP/keepalive layer but never
-replies), send_raw hangs forever. The wrapper turns that hang into a fast
-TimeoutError.
-"""
+"""Regression tests for TimeoutWrappedCDPClient request timeout and cleanup."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import time
-from unittest.mock import patch
 
 import pytest
 
@@ -23,64 +16,85 @@ from browser_use.browser._cdp_timeout import (
 )
 
 
-def _make_wrapped_client_without_websocket(timeout_s: float) -> TimeoutWrappedCDPClient:
+class _FakeWebSocket:
+	def __init__(self, on_send=None):
+		self.on_send = on_send
+		self.sent = asyncio.Event()
+		self.messages = []
+
+	async def send(self, message: str) -> None:
+		decoded = json.loads(message)
+		self.messages.append(decoded)
+		self.sent.set()
+		if self.on_send is not None:
+			self.on_send(decoded)
+
+
+def _make_wrapped_client_without_websocket(timeout_s: float, websocket: _FakeWebSocket) -> TimeoutWrappedCDPClient:
 	"""Build a TimeoutWrappedCDPClient without opening a real WebSocket.
 
 	Calling `CDPClient.__init__` directly would try to construct a working
-	client. We only want to exercise the timeout-wrapper `send_raw` path, so
-	we construct the object via __new__ and set the single attribute the
-	wrapper needs.
+	client. We construct the object via __new__ and provide the state used by
+	cdp_use's request/response path.
 	"""
 	client = TimeoutWrappedCDPClient.__new__(TimeoutWrappedCDPClient)
 	client._cdp_request_timeout_s = timeout_s
+	client.msg_id = 0
+	client.pending_requests = {}
+	client.ws = websocket  # type: ignore[assignment]
 	return client
 
 
 @pytest.mark.asyncio
 async def test_send_raw_times_out_on_silent_server():
-	"""The production TimeoutWrappedCDPClient.send_raw must cap a hung parent
-	send_raw within the configured timeout.
+	"""The production TimeoutWrappedCDPClient.send_raw must cap a silent server
+	within the configured timeout.
 
 	We deliberately exercise the real `send_raw` (not an inline copy) so
 	regressions in the wrapper itself — e.g. accidentally removing the
 	asyncio.wait_for — fail this test.
 	"""
-	client = _make_wrapped_client_without_websocket(timeout_s=0.5)
-	call_count = {'n': 0}
+	websocket = _FakeWebSocket()
+	client = _make_wrapped_client_without_websocket(timeout_s=0.05, websocket=websocket)
+	start = time.monotonic()
+	with pytest.raises(TimeoutError) as exc:
+		await client.send_raw('Target.getTargets')
+	elapsed = time.monotonic() - start
 
-	async def _hanging_super_send_raw(self, method, params=None, session_id=None):
-		call_count['n'] += 1
-		await asyncio.sleep(30)
-		return {}
-
-	# Patch the parent class's send_raw so TimeoutWrappedCDPClient.send_raw's
-	# `super().send_raw(...)` call lands on our hanging stub.
-	with patch('browser_use.browser._cdp_timeout.CDPClient.send_raw', _hanging_super_send_raw):
-		start = time.monotonic()
-		with pytest.raises(TimeoutError) as exc:
-			await client.send_raw('Target.getTargets')
-		elapsed = time.monotonic() - start
-
-	assert call_count['n'] == 1
-	# Returned within the cap (plus scheduling margin), not after the full 30s.
-	assert elapsed < 2.0, f'wrapper did not enforce timeout; took {elapsed:.2f}s'
+	assert websocket.sent.is_set()
+	assert elapsed < 0.5, f'wrapper did not enforce timeout; took {elapsed:.2f}s'
 	assert 'Target.getTargets' in str(exc.value)
-	# Error message mentions "within 0s" (0.5 rounded with %.0f) or "within 1s".
 	assert 'within' in str(exc.value)
+	assert client.pending_requests == {}
 
 
 @pytest.mark.asyncio
 async def test_send_raw_passes_through_when_fast():
-	"""A parent send_raw that returns quickly should bubble the result up unchanged."""
-	client = _make_wrapped_client_without_websocket(timeout_s=5.0)
+	"""A matching CDP response should bubble up unchanged."""
 
-	async def _fast_super_send_raw(self, method, params=None, session_id=None):
-		return {'ok': True, 'method': method}
+	def reply_to_request(message):
+		client.pending_requests[message['id']].set_result({'ok': True, 'method': message['method']})
 
-	with patch('browser_use.browser._cdp_timeout.CDPClient.send_raw', _fast_super_send_raw):
-		result = await client.send_raw('Target.getTargets')
+	websocket = _FakeWebSocket(on_send=reply_to_request)
+	client = _make_wrapped_client_without_websocket(timeout_s=5.0, websocket=websocket)
+	result = await client.send_raw('Target.getTargets', params={'filter': []}, session_id='session-1')
 
 	assert result == {'ok': True, 'method': 'Target.getTargets'}
+	assert websocket.messages == [{'id': 1, 'method': 'Target.getTargets', 'params': {'filter': []}, 'sessionId': 'session-1'}]
+	assert client.pending_requests == {}
+
+
+@pytest.mark.asyncio
+async def test_send_raw_removes_pending_request_when_cancelled():
+	websocket = _FakeWebSocket()
+	client = _make_wrapped_client_without_websocket(timeout_s=5.0, websocket=websocket)
+	task = asyncio.create_task(client.send_raw('Target.getTargets'))
+	await websocket.sent.wait()
+	task.cancel()
+	with pytest.raises(asyncio.CancelledError):
+		await task
+
+	assert client.pending_requests == {}
 
 
 def test_constructor_rejects_invalid_timeout():

@@ -7,7 +7,7 @@ import re
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Generic, Literal
+from typing import Any, Generic, Literal, TypeGuard
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
 from typing_extensions import TypeVar
@@ -304,6 +304,39 @@ class JudgementResult(BaseModel):
 	)
 
 
+class ConfirmedPolicyViolation(BaseModel):
+	"""Structured marker for a policy violation confirmed by trusted action code.
+
+	The presence of this typed marker, with a recognized code, is the only history
+	signal that counts as a confirmed policy violation. Text, errors, and metadata
+	are never interpreted as policy markers.
+	"""
+
+	model_config = ConfigDict(extra='forbid', frozen=True)
+
+	code: Literal['disabled_control_bypass'] = Field(
+		description='The agent attempted to bypass a disabled or read-only form control.'
+	)
+
+
+class ControlStateChangeObservation(BaseModel):
+	"""Non-confirmatory snapshot differences observed around an evaluate action.
+
+	The counts describe state changes for controls whose node identity was retained
+	inside an isolated execution world, and restricted controls that could not be
+	matched across snapshots. They do not establish which script or action caused
+	the difference.
+	"""
+
+	disabled_to_enabled: int = Field(default=0, ge=0)
+	readonly_to_editable: int = Field(default=0, ge=0)
+	restricted_controls_unmatched: int = Field(
+		default=0,
+		ge=0,
+		description='Number of disabled or read-only controls that could not be matched across snapshots.',
+	)
+
+
 class ActionResult(BaseModel):
 	"""Result of executing an action"""
 
@@ -333,6 +366,12 @@ class ActionResult(BaseModel):
 
 	# Metadata for observability (e.g., click coordinates)
 	metadata: dict | None = None
+
+	# Only trusted action code that has confirmed a policy violation should set this marker.
+	policy_violation: ConfirmedPolicyViolation | None = None
+
+	# A before/after evaluate observation only; it is not a confirmed violation.
+	control_state_change_observation: ControlStateChangeObservation | None = None
 
 	# Deprecated
 	include_in_memory: bool = False  # whether to include in extracted_content inside long_term_memory
@@ -712,7 +751,40 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		return errors
 
 	def final_result(self) -> None | str:
-		"""Final result from history"""
+		"""Final result with policy signals disclosed for ordinary text output.
+
+		Only an explicitly configured output schema identifies structured output.
+		Without a schema, JSON-shaped content is treated as ordinary text and may
+		have disclosure appended. Callers that emit JSON should configure a schema
+		and use policy_violations() or control_state_change_observations() for the
+		separate signals.
+		"""
+		final_result = self._raw_final_result()
+		violations = self.policy_violations()
+		observations = self.control_state_change_observations()
+		if not violations and not observations:
+			return final_result
+
+		# Preserve explicitly schema-backed output verbatim; callers can retrieve
+		# the non-confirmatory signals through their typed accessors.
+		if self._output_model_schema is not None:
+			return final_result
+
+		disclosures = []
+		if violations:
+			disclosures.append('Confirmed policy violation: the agent attempted to bypass a disabled or read-only form control.')
+		if observations:
+			disclosures.append(
+				'Observed around evaluate: disabled/read-only form-control state changed or a restricted control could not be '
+				'matched between snapshots. This observation does not identify its cause.'
+			)
+		disclosure = '\n\n'.join(disclosures)
+		if final_result:
+			return f'{final_result}\n\n{disclosure}'
+		return disclosure
+
+	def _raw_final_result(self) -> None | str:
+		"""Return the final extracted content without policy disclosure text."""
 		if self.history and len(self.history[-1].result) > 0:
 			last_result = self.history[-1].result[-1]
 			if last_result.extracted_content:
@@ -727,7 +799,13 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		return False
 
 	def is_successful(self) -> bool | None:
-		"""Check if the agent completed successfully - the agent decides in the last step if it was successful or not. None if not done yet."""
+		"""Return final success, or False if history contains a confirmed violation.
+
+		Without a violation, the last done result still determines success and an
+		unfinished history still returns None.
+		"""
+		if self.policy_violations():
+			return False
 		if self.history and len(self.history[-1].result) > 0:
 			last_result = self.history[-1].result[-1]
 			if last_result.is_done is True:
@@ -837,16 +915,37 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 		for h in self.history:
 			step_actions = []
+			actions = h.model_output.action if h.model_output else []
+			interacted_elements = h.state.interacted_element or [None] * len(actions)
 			if h.model_output:
 				# Guard against None interacted_element before zipping
-				interacted_elements = h.state.interacted_element or [None] * len(h.model_output.action)
 				# Zip actions with interacted elements and results
-				for action, interacted_element, result in zip(h.model_output.action, interacted_elements, h.result):
+				for action, interacted_element, result in zip(actions, interacted_elements, h.result):
 					action_output = action.model_dump(exclude_none=True, mode='json')
 					action_output['interacted_element'] = interacted_element
 					# Only keep long_term_memory from result
 					action_output['result'] = result.long_term_memory if result and result.long_term_memory else None
+					if self._is_confirmed_policy_violation(result.policy_violation):
+						action_output['policy_violation'] = result.policy_violation.model_dump(mode='json')
+					if result.control_state_change_observation is not None:
+						action_output['control_state_change_observation'] = result.control_state_change_observation.model_dump(
+							mode='json'
+						)
 					step_actions.append(action_output)
+
+			# Preserve markers that have no paired model action, including history
+			# loaded from older or compacted traces with missing model output.
+			paired_result_count = min(len(actions), len(interacted_elements), len(h.result)) if h.model_output else 0
+			for result in h.result[paired_result_count:]:
+				standalone_result: dict[str, Any] = {}
+				if self._is_confirmed_policy_violation(result.policy_violation):
+					standalone_result['policy_violation'] = result.policy_violation.model_dump(mode='json')
+				if result.control_state_change_observation is not None:
+					standalone_result['control_state_change_observation'] = result.control_state_change_observation.model_dump(
+						mode='json'
+					)
+				if standalone_result:
+					step_actions.append(standalone_result)
 			step_outputs.append(step_actions)
 
 		return step_outputs
@@ -857,6 +956,40 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		for h in self.history:
 			results.extend([r for r in h.result if r])
 		return results
+
+	def policy_violations(self) -> list[ConfirmedPolicyViolation]:
+		"""Get confirmed structured policy violations in chronological order.
+
+		Only ActionResult.policy_violation markers count. Ordinary errors, warnings,
+		metadata, and model-generated text are not inspected.
+		"""
+		return [
+			result.policy_violation
+			for history_item in self.history
+			for result in history_item.result
+			if self._is_confirmed_policy_violation(result.policy_violation)
+		]
+
+	def control_state_change_observations(self) -> list[ControlStateChangeObservation]:
+		"""Return non-confirmatory evaluate state observations in chronological order."""
+		return [
+			result.control_state_change_observation
+			for history_item in self.history
+			for result in history_item.result
+			if result.control_state_change_observation is not None
+		]
+
+	@staticmethod
+	def _is_confirmed_policy_violation(value: object) -> TypeGuard[ConfirmedPolicyViolation]:
+		"""Safely recognize a typed policy marker with a supported code."""
+		if not isinstance(value, ConfirmedPolicyViolation):
+			return False
+
+		try:
+			return getattr(value, 'code', None) == 'disabled_control_bypass'
+		except Exception:
+			# Pydantic's model_construct() can produce an instance without required fields.
+			return False
 
 	def extracted_content(self) -> list[str]:
 		"""Get all extracted content from history"""
@@ -916,10 +1049,12 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Get the structured output from the history
 
 		Returns:
-			The structured output if both final_result and _output_model_schema are available,
+			The structured output if final extracted content and _output_model_schema are available,
 			otherwise None
+
+		Confirmed policy violations are exposed separately through policy_violations().
 		"""
-		final_result = self.final_result()
+		final_result = self._raw_final_result()
 		if final_result is not None and self._output_model_schema is not None:
 			return self._output_model_schema.model_validate_json(final_result)
 
@@ -936,8 +1071,10 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 		Returns:
 			The parsed structured output, or None if no final result exists
+
+		Confirmed policy violations are exposed separately through policy_violations().
 		"""
-		final_result = self.final_result()
+		final_result = self._raw_final_result()
 		if final_result is not None:
 			return output_model.model_validate_json(final_result)
 		return None
