@@ -2,6 +2,7 @@
 
 import asyncio
 
+import httpx
 import pytest
 
 from browser_use.llm.anthropic.chat import ChatAnthropic
@@ -129,3 +130,28 @@ def test_aclose_releases_only_the_current_loops_client(make_llm):
 			loop.run_until_complete(client.close())
 		first_loop.close()
 		second_loop.close()
+
+
+@pytest.mark.parametrize(
+	'make_llm',
+	[
+		pytest.param(
+			lambda: ChatOpenAI(model='gpt-4o', api_key='sk-test', http_client=httpx.AsyncClient()),
+			id='openai',
+		),
+	],
+)
+def test_supplied_http_client_is_not_cached_or_closed(make_llm):
+	"""The caller owns that transport; a close on one loop must not invalidate another loop."""
+
+	async def scenario():
+		llm = make_llm()
+		supplied = llm.http_client
+		first = llm.get_client()
+		second = llm.get_client()
+		assert first is not second
+		await llm.aclose()
+		assert not supplied.is_closed
+		await supplied.aclose()
+
+	asyncio.run(scenario())

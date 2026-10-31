@@ -116,8 +116,13 @@ class ChatOpenAI(BaseChatModel):
 		Return this event loop's cached AsyncOpenAI client.
 
 		Returns:
-			AsyncOpenAI: The shared client for this chat instance and event loop.
+			AsyncOpenAI: The cached client for this chat instance and event loop, or a new
+				wrapper when a caller-supplied http_client is configured.
 		"""
+		if self.http_client is not None:
+			# The caller owns this transport, and it may be bound to one loop. Reuse the
+			# transport but not an SDK wrapper that could close it from another loop.
+			return AsyncOpenAI(**self._get_client_params())
 		loop = get_running_loop_or_none()
 		for cached_loop in tuple(self._clients):
 			if cached_loop is not None and cached_loop.is_closed():
@@ -132,13 +137,13 @@ class ChatOpenAI(BaseChatModel):
 		"""Close this loop's client and any synchronously created client before the loop exits.
 
 		The caller owns the chat instance; Agent.close() does not close shared LLMs.
-		SDK close also closes a supplied http_client. Other loops' clients are left open.
+		A caller-supplied http_client is left open for its owner; other loops' clients are
+		left open too.
 		"""
 		for loop in (asyncio.get_running_loop(), None):
-			client = self._clients.get(loop)
+			client = self._clients.pop(loop, None)
 			if client is not None:
 				await client.close()
-				self._clients.pop(loop, None)
 
 	@property
 	def name(self) -> str:

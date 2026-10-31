@@ -98,10 +98,9 @@ class ChatGroq(BaseChatModel):
 		Other loops' clients are left open.
 		"""
 		for loop in (asyncio.get_running_loop(), None):
-			client = self._clients.get(loop)
+			client = self._clients.pop(loop, None)
 			if client is not None:
 				await client.close()
-				self._clients.pop(loop, None)
 
 	@property
 	def provider(self) -> str:
