@@ -1,9 +1,11 @@
 import asyncio
+import inspect
 import json
 import logging
 import math
 import os
-from typing import Generic, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any, Generic, TypeVar
 
 import anyio
 
@@ -444,9 +446,11 @@ class Tools(Generic[Context]):
 		exclude_actions: list[str] | None = None,
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
+		before_action: Callable[[str, dict[str, Any]], Awaitable[ActionResult | None] | ActionResult | None] | None = None,
 	):
 		self.registry = Registry[Context](exclude_actions if exclude_actions is not None else [])
 		self.display_files_in_done_text = display_files_in_done_text
+		self.before_action = before_action
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
 
@@ -2199,6 +2203,23 @@ Validated Code (after quote fixing):
 
 		for action_name, params in action.model_dump(exclude_unset=True).items():
 			if params is not None:
+				if self.before_action is not None:
+					try:
+						registered_action = self.registry.registry.actions[action_name]
+						effective_params = registered_action.param_model(**params).model_dump()
+						decision = self.before_action(action_name, effective_params)
+						if inspect.isawaitable(decision):
+							decision = await asyncio.wait_for(decision, timeout=timeout_s)
+						if isinstance(decision, ActionResult):
+							return decision
+						params = effective_params
+					except TimeoutError:
+						logger.error(f"Pre-action governance timed out for '{action_name}'")
+						return ActionResult(error=f'Action {action_name} rejected: pre-action governance timed out')
+					except Exception as e:
+						logger.error(f"Pre-action governance rejected '{action_name}': {e}")
+						return ActionResult(error=f'Action {action_name} rejected by pre-action governance: {e}')
+
 				# Use Laminar span if available, otherwise use no-op context manager
 				if Laminar is not None:
 					span_context = Laminar.start_as_current_span(
