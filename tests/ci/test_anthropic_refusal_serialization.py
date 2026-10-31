@@ -5,6 +5,10 @@ renders them with a `[Refusal] ` prefix. The Anthropic serializer used to skip r
 so a refusal-only message became an empty string and mixed content silently lost the refusal.
 """
 
+from typing import cast
+
+from anthropic.types import TextBlockParam
+
 from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
 from browser_use.llm.messages import AssistantMessage, ContentPartRefusalParam, ContentPartTextParam
 
@@ -25,7 +29,7 @@ def test_mixed_text_and_refusal_keeps_content_order() -> None:
 	)
 	messages, _ = AnthropicMessageSerializer.serialize_messages([message])
 
-	blocks = messages[0]['content']
+	blocks = cast(list[TextBlockParam], messages[0]['content'])
 	assert isinstance(blocks, list)
 	assert [block['text'] for block in blocks] == [
 		'Here is the summary.',
@@ -38,7 +42,7 @@ def test_refusal_with_cache_keeps_cache_control_on_last_block() -> None:
 	message = AssistantMessage(content=[ContentPartRefusalParam(refusal='Declined 0.')], cache=True)
 	messages, _ = AnthropicMessageSerializer.serialize_messages([message])
 
-	blocks = messages[0]['content']
+	blocks = cast(list[TextBlockParam], messages[0]['content'])
 	assert isinstance(blocks, list)
 	assert blocks[0]['text'] == '[Refusal] Declined 0.'
-	assert blocks[0]['cache_control'] == {'type': 'ephemeral'}
+	assert blocks[0].get('cache_control') == {'type': 'ephemeral'}
