@@ -8,8 +8,6 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-import pytest
-
 from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import CachedPricingData
 
