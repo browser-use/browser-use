@@ -89,7 +89,8 @@ Upload local browser cookies to cloud profiles:
 
 ```bash
 export BROWSER_USE_API_KEY=your_key
-curl -fsSL https://browser-use.com/profile.sh | sh
+# The profile sync script is no longer hosted at this URL (returns 404).
+# Follow the official profile sync guide instead:/n# https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md
 ```
 
 Opens a browser where you log into sites. Returns a `profile_id` to use in tasks.
@@ -100,7 +101,8 @@ Opens a browser where you log into sites. Returns a `profile_id` to use in tasks
 
 Log in locally, sync cookies to cloud:
 ```bash
-curl -fsSL https://browser-use.com/profile.sh | sh
+# The profile sync script is no longer hosted at this URL (returns 404).
+# Follow the official profile sync guide instead:/n# https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md
 ```
 
 ### 2. Secrets (Domain-Scoped)
