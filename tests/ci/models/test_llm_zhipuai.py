@@ -43,6 +43,14 @@ def test_zhipuai_api_key_fallbacks(monkeypatch: pytest.MonkeyPatch):
 	chat = ChatZhipuAI(model='glm-5.3-flash', api_key='explicit-key')
 	assert chat._client().api_key == 'explicit-key'
 
+	# Test explicit key takes precedence over client_params
+	chat_with_params = ChatZhipuAI(
+		model='glm-5.3-flash',
+		api_key='explicit-key',
+		client_params={'api_key': 'ignored-key'},
+	)
+	assert chat_with_params._client().api_key == 'explicit-key'
+
 	# Test ZHIPUAI_API_KEY
 	monkeypatch.delenv('ZHIPUAI_API_KEY', raising=False)
 	monkeypatch.delenv('BIGMODEL_API_KEY', raising=False)

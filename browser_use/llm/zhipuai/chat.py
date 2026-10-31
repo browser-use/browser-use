@@ -79,8 +79,8 @@ class ChatZhipuAI(BaseChatModel):
 			)
 
 		client_kwargs: dict[str, Any] = {
-			'api_key': api_key,
 			**(self.client_params or {}),
+			'api_key': api_key,
 		}
 		if self.base_url is not None:
 			client_kwargs['base_url'] = str(self.base_url)
