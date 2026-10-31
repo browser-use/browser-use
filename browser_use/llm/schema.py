@@ -6,6 +6,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
+# Maximum number of times a single $defs entry is inlined along one branch.
+# Recursive models expand to this depth and then stop with an object placeholder
+# instead of recursing forever.
+_MAX_REF_INLINE_DEPTH = 2
+
 
 class SchemaOptimizer:
 	@staticmethod
@@ -32,9 +37,10 @@ class SchemaOptimizer:
 
 		# Extract $defs for reference resolution, then flatten everything
 		defs_lookup = original_schema.get('$defs', {})
-		# Names of $defs currently being inlined, used to break reference cycles
-		# (e.g. a model referencing itself) instead of recursing forever.
-		_in_progress: set[str] = set()
+		# How many times each $defs entry has been inlined along the current
+		# branch, so recursive references expand to a bounded depth instead of
+		# recursing forever (e.g. a model that references itself).
+		_inline_depth: dict[str, int] = {}
 
 		# Create optimized schema with flattening
 		# Pass flags to optimize_schema via closure
@@ -72,17 +78,18 @@ class SchemaOptimizer:
 					# FLATTEN: Resolve $ref by inlining the actual definition
 					elif key == '$ref' and defs_lookup:
 						ref_path = value.split('/')[-1]  # Get the definition name from "#/$defs/SomeName"
-						if ref_path in defs_lookup and ref_path not in _in_progress:
+						if ref_path in defs_lookup and _inline_depth.get(ref_path, 0) < _MAX_REF_INLINE_DEPTH:
 							# Get the referenced definition and flatten it
 							referenced_def = defs_lookup[ref_path]
-							_in_progress.add(ref_path)
+							_inline_depth[ref_path] = _inline_depth.get(ref_path, 0) + 1
 							try:
 								flattened_ref = optimize_schema(referenced_def, defs_lookup)
 							finally:
-								_in_progress.discard(ref_path)
-						elif ref_path in _in_progress:
-							# Recursive reference: keep a permissive object at this node so
-							# schema creation terminates instead of raising RecursionError.
+								_inline_depth[ref_path] -= 1
+						elif ref_path in defs_lookup:
+							# Recursive reference past the inlining depth limit: stop expanding and
+							# leave an object placeholder so schema creation terminates instead of
+							# raising RecursionError.
 							flattened_ref = {'type': 'object'}
 
 					# Skip minItems/min_items and default if requested (check BEFORE processing)

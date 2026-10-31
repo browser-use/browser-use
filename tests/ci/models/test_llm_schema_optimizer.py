@@ -95,3 +95,43 @@ def test_optimizer_treats_property_names_as_data_not_schema_keywords():
 		field_schema = schema['properties'][field_name]
 		assert '$ref' not in field_schema
 		assert field_schema['properties']['summary']['type'] == 'string'
+
+
+def test_recursive_model_schema_terminates_without_recursion_error():
+	"""A self-referencing model must not blow up schema creation (RecursionError)."""
+
+	class TreeNode(BaseModel):
+		name: str
+		children: list['TreeNode'] = []
+
+	class OrgChart(BaseModel):
+		company: str
+		head: TreeNode
+
+	optimized = SchemaOptimizer.create_optimized_json_schema(OrgChart)
+
+	# The recursive reference is inlined up to the bounded depth, then replaced
+	# by an object placeholder; the result must stay a well-formed object schema.
+	head = optimized['properties']['head']
+	assert head['type'] == 'object'
+	assert 'children' in head['properties']
+	level1_items = head['properties']['children']['items']
+	assert level1_items['type'] == 'object'
+	level2_items = level1_items['properties']['children']['items']
+	assert level2_items.get('type') == 'object'
+
+
+def test_repeated_ref_inlines_every_copy():
+	"""A non-recursive $def used twice must be inlined at both positions."""
+
+	class Item(BaseModel):
+		x: int
+
+	class Pair(BaseModel):
+		first: Item
+		second: Item
+
+	optimized = SchemaOptimizer.create_optimized_json_schema(Pair)
+
+	assert optimized['properties']['first']['properties']['x']['type'] == 'integer'
+	assert optimized['properties']['second']['properties']['x']['type'] == 'integer'
