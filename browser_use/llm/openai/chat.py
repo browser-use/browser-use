@@ -141,6 +141,27 @@ class ChatOpenAI(BaseChatModel):
 
 		return usage
 
+	def _get_model_params(self) -> dict[str, Any]:
+		"""Build request options for OpenAI and compatible providers."""
+		model_params: dict[str, Any] = {}
+		if self.temperature is not None:
+			model_params['temperature'] = self.temperature
+		if self.frequency_penalty is not None:
+			model_params['frequency_penalty'] = self.frequency_penalty
+		if self.max_completion_tokens is not None:
+			model_params['max_completion_tokens'] = self.max_completion_tokens
+		if self.top_p is not None:
+			model_params['top_p'] = self.top_p
+		if self.seed is not None:
+			model_params['seed'] = self.seed
+		if self.service_tier is not None:
+			model_params['service_tier'] = self.service_tier
+		if is_reasoning_model(self.model, self.reasoning_models):
+			model_params['reasoning_effort'] = self.reasoning_effort
+			model_params.pop('temperature', None)
+			model_params.pop('frequency_penalty', None)
+		return model_params
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
@@ -166,30 +187,7 @@ class ChatOpenAI(BaseChatModel):
 		openai_messages = OpenAIMessageSerializer.serialize_messages(messages)
 
 		try:
-			model_params: dict[str, Any] = {}
-
-			if self.temperature is not None:
-				model_params['temperature'] = self.temperature
-
-			if self.frequency_penalty is not None:
-				model_params['frequency_penalty'] = self.frequency_penalty
-
-			if self.max_completion_tokens is not None:
-				model_params['max_completion_tokens'] = self.max_completion_tokens
-
-			if self.top_p is not None:
-				model_params['top_p'] = self.top_p
-
-			if self.seed is not None:
-				model_params['seed'] = self.seed
-
-			if self.service_tier is not None:
-				model_params['service_tier'] = self.service_tier
-
-			if is_reasoning_model(self.model, self.reasoning_models):
-				model_params['reasoning_effort'] = self.reasoning_effort
-				model_params.pop('temperature', None)
-				model_params.pop('frequency_penalty', None)
+			model_params = self._get_model_params()
 
 			if output_format is None:
 				# Return string response
@@ -219,6 +217,7 @@ class ChatOpenAI(BaseChatModel):
 					completion=choice.message.content or '',
 					usage=usage,
 					stop_reason=choice.finish_reason,
+					thinking=getattr(choice.message, 'reasoning_content', None),
 				)
 
 			else:
@@ -304,6 +303,7 @@ class ChatOpenAI(BaseChatModel):
 					completion=parsed,
 					usage=usage,
 					stop_reason=choice.finish_reason,
+					thinking=getattr(choice.message, 'reasoning_content', None),
 				)
 
 		except ModelProviderError:

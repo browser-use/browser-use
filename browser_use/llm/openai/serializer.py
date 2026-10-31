@@ -1,4 +1,4 @@
-from typing import overload
+from typing import Any, cast, overload
 
 from openai.types.chat import (
 	ChatCompletionAssistantMessageParam,
@@ -152,6 +152,9 @@ class OpenAIMessageSerializer:
 				assistant_result['name'] = message.name
 			if message.refusal is not None:
 				assistant_result['refusal'] = message.refusal
+			if message.reasoning_content is not None:
+				# OpenAI-compatible providers such as MiniMax return this extension.
+				cast(dict[str, Any], assistant_result)['reasoning_content'] = message.reasoning_content
 			if message.tool_calls:
 				assistant_result['tool_calls'] = [OpenAIMessageSerializer._serialize_tool_call(tc) for tc in message.tool_calls]
 
