@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
 
 from groq import (
@@ -19,7 +20,7 @@ from groq.types.chat.completion_create_params import (
 from httpx import URL
 from pydantic import BaseModel
 
-from browser_use.llm.base import BaseChatModel, ChatInvokeCompletion
+from browser_use.llm.base import BaseChatModel, ChatInvokeCompletion, get_running_loop_or_none
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.groq.parser import try_parse_groq_failed_generation
 from browser_use.llm.groq.serializer import GroqMessageSerializer
@@ -73,8 +74,33 @@ class ChatGroq(BaseChatModel):
 	timeout: float | Timeout | NotGiven | None = None
 	max_retries: int = 10  # Increase default retries for automation reliability
 
+	# SDK connection pools belong to the loop that uses them. None covers synchronous get_client() calls.
+	_clients: dict[asyncio.AbstractEventLoop | None, AsyncGroq] = field(
+		default_factory=dict, init=False, repr=False, compare=False
+	)
+
 	def get_client(self) -> AsyncGroq:
-		return AsyncGroq(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout, max_retries=self.max_retries)
+		loop = get_running_loop_or_none()
+		for cached_loop in tuple(self._clients):
+			if cached_loop is not None and cached_loop.is_closed():
+				# Release closed-loop references; asynchronous teardown must happen before loop.close().
+				self._clients.pop(cached_loop, None)
+		if loop not in self._clients:
+			self._clients[loop] = AsyncGroq(
+				api_key=self.api_key, base_url=self.base_url, timeout=self.timeout, max_retries=self.max_retries
+			)
+		return self._clients[loop]
+
+	async def aclose(self) -> None:
+		"""Close this loop's client and any synchronously created client before the loop exits.
+
+		The caller owns the chat instance; Agent.close() does not close shared LLMs.
+		Other loops' clients are left open.
+		"""
+		for loop in (asyncio.get_running_loop(), None):
+			client = self._clients.pop(loop, None)
+			if client is not None:
+				await client.close()
 
 	@property
 	def provider(self) -> str:

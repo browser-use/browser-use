@@ -4,6 +4,7 @@ We have switched all of our code from langchain to openai.types.chat.chat_comple
 For easier transition we have
 """
 
+import asyncio
 from collections.abc import Iterable
 from typing import Any, Protocol, TypeVar, overload, runtime_checkable
 
@@ -13,6 +14,14 @@ from browser_use.llm.messages import BaseMessage
 from browser_use.llm.views import ChatInvokeCompletion
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def get_running_loop_or_none() -> asyncio.AbstractEventLoop | None:
+	"""Return the event loop running in this thread, or None when there is none."""
+	try:
+		return asyncio.get_running_loop()
+	except RuntimeError:
+		return None
 
 
 def is_reasoning_model(model: object, reasoning_models: Iterable[object] | None) -> bool:

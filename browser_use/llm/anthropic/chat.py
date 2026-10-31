@@ -1,7 +1,8 @@
+import asyncio
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, TypeVar, overload
 
 import httpx
@@ -21,7 +22,7 @@ from httpx import Timeout
 from pydantic import BaseModel
 
 from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
-from browser_use.llm.base import BaseChatModel
+from browser_use.llm.base import BaseChatModel, get_running_loop_or_none
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
@@ -61,6 +62,11 @@ class ChatAnthropic(BaseChatModel):
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
 	http_client: httpx.AsyncClient | None = None
+
+	# SDK connection pools belong to the loop that uses them. None covers synchronous get_client() calls.
+	_clients: dict[asyncio.AbstractEventLoop | None, AsyncAnthropic] = field(
+		default_factory=dict, init=False, repr=False, compare=False
+	)
 
 	# Static
 	@property
@@ -170,13 +176,37 @@ class ChatAnthropic(BaseChatModel):
 
 	def get_client(self) -> AsyncAnthropic:
 		"""
-		Returns an AsyncAnthropic client.
+		Return this event loop's cached AsyncAnthropic client.
 
 		Returns:
-			AsyncAnthropic: An instance of the AsyncAnthropic client.
+			AsyncAnthropic: The cached client for this chat instance and event loop, or a new
+				wrapper when a caller-supplied http_client is configured.
 		"""
-		client_params = self._get_client_params()
-		return AsyncAnthropic(**client_params)
+		if self.http_client is not None:
+			# The caller owns this transport, and it may be bound to one loop. Reuse the
+			# transport but not an SDK wrapper that could close it from another loop.
+			return AsyncAnthropic(**self._get_client_params())
+		loop = get_running_loop_or_none()
+		for cached_loop in tuple(self._clients):
+			if cached_loop is not None and cached_loop.is_closed():
+				# Release closed-loop references; asynchronous teardown must happen before loop.close().
+				self._clients.pop(cached_loop, None)
+		if loop not in self._clients:
+			client_params = self._get_client_params()
+			self._clients[loop] = AsyncAnthropic(**client_params)
+		return self._clients[loop]
+
+	async def aclose(self) -> None:
+		"""Close this loop's client and any synchronously created client before the loop exits.
+
+		The caller owns the chat instance; Agent.close() does not close shared LLMs.
+		A caller-supplied http_client is left open for its owner; other loops' clients are
+		left open too.
+		"""
+		for loop in (asyncio.get_running_loop(), None):
+			client = self._clients.pop(loop, None)
+			if client is not None:
+				await client.close()
 
 	@property
 	def name(self) -> str:

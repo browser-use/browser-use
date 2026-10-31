@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -11,7 +12,7 @@ from openai.types.shared_params.reasoning_effort import ReasoningEffort
 from openai.types.shared_params.response_format_json_schema import JSONSchema, ResponseFormatJSONSchema
 from pydantic import BaseModel
 
-from browser_use.llm.base import BaseChatModel, is_reasoning_model
+from browser_use.llm.base import BaseChatModel, get_running_loop_or_none, is_reasoning_model
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
@@ -61,6 +62,10 @@ class ChatOpenAI(BaseChatModel):
 	default_query: Mapping[str, object] | None = None
 	http_client: httpx.AsyncClient | DefaultAsyncHttpxClient | None = None
 	_strict_response_validation: bool = False
+	# SDK connection pools belong to the loop that uses them. None covers synchronous get_client() calls.
+	_clients: dict[asyncio.AbstractEventLoop | None, AsyncOpenAI] = field(
+		default_factory=dict, init=False, repr=False, compare=False
+	)
 	max_completion_tokens: int | None = 4096
 	reasoning_models: list[ChatModel | str] | None = field(
 		default_factory=lambda: [
@@ -108,13 +113,37 @@ class ChatOpenAI(BaseChatModel):
 
 	def get_client(self) -> AsyncOpenAI:
 		"""
-		Returns an AsyncOpenAI client.
+		Return this event loop's cached AsyncOpenAI client.
 
 		Returns:
-			AsyncOpenAI: An instance of the AsyncOpenAI client.
+			AsyncOpenAI: The cached client for this chat instance and event loop, or a new
+				wrapper when a caller-supplied http_client is configured.
 		"""
-		client_params = self._get_client_params()
-		return AsyncOpenAI(**client_params)
+		if self.http_client is not None:
+			# The caller owns this transport, and it may be bound to one loop. Reuse the
+			# transport but not an SDK wrapper that could close it from another loop.
+			return AsyncOpenAI(**self._get_client_params())
+		loop = get_running_loop_or_none()
+		for cached_loop in tuple(self._clients):
+			if cached_loop is not None and cached_loop.is_closed():
+				# Release closed-loop references; asynchronous teardown must happen before loop.close().
+				self._clients.pop(cached_loop, None)
+		if loop not in self._clients:
+			client_params = self._get_client_params()
+			self._clients[loop] = AsyncOpenAI(**client_params)
+		return self._clients[loop]
+
+	async def aclose(self) -> None:
+		"""Close this loop's client and any synchronously created client before the loop exits.
+
+		The caller owns the chat instance; Agent.close() does not close shared LLMs.
+		A caller-supplied http_client is left open for its owner; other loops' clients are
+		left open too.
+		"""
+		for loop in (asyncio.get_running_loop(), None):
+			client = self._clients.pop(loop, None)
+			if client is not None:
+				await client.close()
 
 	@property
 	def name(self) -> str:
