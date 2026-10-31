@@ -480,6 +480,23 @@ class MCPClient:
 		if 'enum' in schema:
 			return str
 
+		# Handle JSON Schema type arrays (e.g. ["string", "null"]) (#6278)
+		if isinstance(json_type, list):
+			non_null = [t for t in json_type if t != 'null']
+			is_nullable = 'null' in json_type or bool(schema.get('nullable', False))
+			if not non_null:
+				return type(None)
+			members = [
+				self._json_schema_to_python_type({**schema, 'type': t, 'nullable': False}, model_name)
+				for t in non_null
+			]
+			if is_nullable:
+				members.append(type(None))
+			resolved = members[0]
+			for member in members[1:]:
+				resolved = resolved | member
+			return resolved
+
 		# Handle objects with nested properties
 		if json_type == 'object':
 			properties = schema.get('properties', {})
