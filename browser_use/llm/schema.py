@@ -6,6 +6,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
+# Maximum number of times a single $defs entry is inlined along one branch.
+# Recursive models expand to this depth and then stop with an object placeholder
+# instead of recursing forever.
+_MAX_REF_INLINE_DEPTH = 2
+
 
 class SchemaOptimizer:
 	@staticmethod
@@ -32,6 +37,10 @@ class SchemaOptimizer:
 
 		# Extract $defs for reference resolution, then flatten everything
 		defs_lookup = original_schema.get('$defs', {})
+		# How many times each $defs entry has been inlined along the current
+		# branch, so recursive references expand to a bounded depth instead of
+		# recursing forever (e.g. a model that references itself).
+		_inline_depth: dict[str, int] = {}
 
 		# Create optimized schema with flattening
 		# Pass flags to optimize_schema via closure
@@ -69,10 +78,19 @@ class SchemaOptimizer:
 					# FLATTEN: Resolve $ref by inlining the actual definition
 					elif key == '$ref' and defs_lookup:
 						ref_path = value.split('/')[-1]  # Get the definition name from "#/$defs/SomeName"
-						if ref_path in defs_lookup:
+						if ref_path in defs_lookup and _inline_depth.get(ref_path, 0) < _MAX_REF_INLINE_DEPTH:
 							# Get the referenced definition and flatten it
 							referenced_def = defs_lookup[ref_path]
-							flattened_ref = optimize_schema(referenced_def, defs_lookup)
+							_inline_depth[ref_path] = _inline_depth.get(ref_path, 0) + 1
+							try:
+								flattened_ref = optimize_schema(referenced_def, defs_lookup)
+							finally:
+								_inline_depth[ref_path] -= 1
+						elif ref_path in defs_lookup:
+							# Recursive reference past the inlining depth limit: stop expanding and
+							# leave an object placeholder so schema creation terminates instead of
+							# raising RecursionError.
+							flattened_ref = {'type': 'object'}
 
 					# Skip minItems/min_items and default if requested (check BEFORE processing)
 					elif key in ('minItems', 'min_items') and remove_min_items:
