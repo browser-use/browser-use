@@ -476,11 +476,8 @@ class MCPClient:
 			'null': type(None),
 		}
 
-		# Handle enums (they're still strings)
-		if 'enum' in schema:
-			return str
-
 		# Handle JSON Schema type arrays (e.g. ["string", "null"]) (#6278)
+		# Checked before 'enum' so nullable type-array enums preserve their union
 		if isinstance(json_type, list):
 			non_null = [t for t in json_type if t != 'null']
 			is_nullable = 'null' in json_type or bool(schema.get('nullable', False))
@@ -493,6 +490,12 @@ class MCPClient:
 			for member in members[1:]:
 				resolved = resolved | member
 			return resolved
+
+		# Handle enums (they're still strings)
+		if 'enum' in schema:
+			if schema.get('nullable', False):
+				return str | None
+			return str
 
 		# Handle objects with nested properties
 		if json_type == 'object':
