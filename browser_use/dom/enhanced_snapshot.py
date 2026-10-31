@@ -196,9 +196,11 @@ def build_snapshot_lookup(
 								height=scroll_rect_data[3],
 							)
 
-					# Extract stacking contexts if available
-					if layout_idx < len(layout.get('stackingContexts', {}).get('index', [])):
-						stacking_contexts = layout.get('stackingContexts', {}).get('index', [])[layout_idx]
+					# Extract stacking contexts if available.
+					# CDP sends `stackingContexts` as RareBooleanData: `index` lists the layout indices that
+					# DO create a stacking context. It is not aligned positionally with layout_idx.
+					stacking_context_index = layout.get('stackingContexts', {}).get('index', []) or []
+					stacking_contexts = layout_idx in stacking_context_index
 
 			snapshot_lookup[backend_node_id] = EnhancedSnapshotNode(
 				is_clickable=is_clickable,
