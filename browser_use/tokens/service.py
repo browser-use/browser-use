@@ -611,6 +611,8 @@ class TokenCost:
 
 	async def clean_old_caches(self, keep_count: int = 3) -> None:
 		"""Clean up old cache files, keeping only the most recent ones from this source URL"""
+		if keep_count < 0:
+			raise ValueError(f'keep_count must be non-negative, got {keep_count}')
 		try:
 			# List all JSON files in the cache directory
 			cache_files = list(self._cache_dir.glob('*.json'))
@@ -635,7 +637,8 @@ class TokenCost:
 			own_files.sort(key=lambda f: f.stat().st_mtime)
 
 			# Remove all but the most recent files
-			for cache_file in own_files[:-keep_count]:
+			files_to_remove = own_files if keep_count == 0 else own_files[:-keep_count]
+			for cache_file in files_to_remove:
 				try:
 					os.remove(cache_file)
 				except Exception:
