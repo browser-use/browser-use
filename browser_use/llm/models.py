@@ -20,6 +20,7 @@ from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.mistral.chat import ChatMistral
 from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.llm.zhipuai.chat import ChatZai, ChatZhipuAI
 
 # Optional OCI import
 try:
@@ -84,6 +85,12 @@ bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
 bu_2_0: 'BaseChatModel'
 bu_2_0_mini_preview: 'BaseChatModel'
+
+zhipuai_glm_5_3: 'BaseChatModel'
+zhipuai_glm_5_3_flash: 'BaseChatModel'
+zhipuai_glm_5v_turbo: 'BaseChatModel'
+zai_glm_5_3: 'BaseChatModel'
+zai_glm_5_3_flash: 'BaseChatModel'
 
 
 def get_llm_by_name(model_name: str):
@@ -161,6 +168,16 @@ def get_llm_by_name(model_name: str):
 			model = model_part.replace('qwen_3_235b_a22b_thinking', 'qwen-3-235b-a22b-thinking-2507')
 	elif 'qwen_3_coder_480b' in model_part:
 		model = model_part.replace('qwen_3_coder_480b', 'qwen-3-coder-480b')
+	elif 'glm_5_3_flash' in model_part:
+		model = model_part.replace('glm_5_3_flash', 'glm-5.3-flash').replace('_', '-')
+	elif 'glm_5_3' in model_part:
+		model = model_part.replace('glm_5_3', 'glm-5.3').replace('_', '-')
+	elif 'glm_5v_turbo' in model_part:
+		model = model_part.replace('glm_5v_turbo', 'glm-5v-turbo').replace('_', '-')
+	elif 'glm_4_5' in model_part:
+		model = model_part.replace('glm_4_5', 'glm-4.5').replace('_', '-')
+	elif 'glm_4v_plus' in model_part:
+		model = model_part.replace('glm_4v_plus', 'glm-4v-plus').replace('_', '-')
 	else:
 		model = model_part.replace('_', '-')
 
@@ -220,8 +237,20 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('BROWSER_USE_API_KEY')
 		return ChatBrowserUse(model=model, api_key=api_key)
 
+	# ZhipuAI Models
+	elif provider == 'zhipuai':
+		api_key = os.getenv('ZHIPUAI_API_KEY') or os.getenv('BIGMODEL_API_KEY') or os.getenv('ZAI_API_KEY')
+		base_url = os.getenv('ZHIPUAI_BASE_URL', 'https://open.bigmodel.cn/api/paas/v4/')
+		return ChatZhipuAI(model=model, api_key=api_key, base_url=base_url)
+
+	# Z.ai Models
+	elif provider == 'zai':
+		api_key = os.getenv('ZAI_API_KEY') or os.getenv('BIGMODEL_API_KEY') or os.getenv('ZHIPUAI_API_KEY')
+		base_url = os.getenv('ZAI_BASE_URL', 'https://api.z.ai/api/paas/v4/')
+		return ChatZai(model=model, api_key=api_key, base_url=base_url)
+
 	else:
-		available_providers = ['openai', 'azure', 'google', 'anthropic', 'mistral', 'oci', 'cerebras', 'bu']
+		available_providers = ['openai', 'azure', 'google', 'anthropic', 'mistral', 'oci', 'cerebras', 'bu', 'zhipuai', 'zai']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -247,6 +276,10 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatCerebras  # type: ignore
 	elif name == 'ChatBrowserUse':
 		return ChatBrowserUse  # type: ignore
+	elif name == 'ChatZhipuAI':
+		return ChatZhipuAI  # type: ignore
+	elif name == 'ChatZai':
+		return ChatZai  # type: ignore
 
 	# Handle model instances - these are the main use case
 	try:
@@ -263,6 +296,8 @@ __all__ = [
 	'ChatMistral',
 	'ChatCerebras',
 	'ChatBrowserUse',
+	'ChatZhipuAI',
+	'ChatZai',
 ]
 
 if OCI_AVAILABLE:
@@ -322,6 +357,12 @@ __all__ += [
 	'bu_1_0',
 	'bu_2_0',
 	'bu_2_0_mini_preview',
+	# ZhipuAI / Z.ai instances - created on demand
+	'zhipuai_glm_5_3',
+	'zhipuai_glm_5_3_flash',
+	'zhipuai_glm_5v_turbo',
+	'zai_glm_5_3',
+	'zai_glm_5_3_flash',
 ]
 
 # NOTE: OCI backend is optional. The try/except ImportError and conditional __all__ are required
