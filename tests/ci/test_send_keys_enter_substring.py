@@ -6,6 +6,7 @@
 
 import asyncio
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -15,7 +16,7 @@ from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionW
 ENTER_DELAY = 0.1
 
 
-def _watchdog(monkeypatch):
+def _watchdog(monkeypatch) -> tuple[Any, list[float]]:
 	delays = []
 
 	async def sleep(delay):
@@ -49,6 +50,7 @@ def _watchdog(monkeypatch):
 
 
 async def _run(monkeypatch, keys: str) -> list[float]:
+	watchdog: Any
 	watchdog, delays = _watchdog(monkeypatch)
 	await DefaultActionWatchdog.on_SendKeysEvent(watchdog, SendKeysEvent(keys=keys))
 	return [delay for delay in delays if delay == ENTER_DELAY]
