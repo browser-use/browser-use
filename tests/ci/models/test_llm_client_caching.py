@@ -1,6 +1,7 @@
 """Each chat instance must reuse one SDK client per event loop instead of a pool per call (issue #5565)."""
 
 import asyncio
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -132,6 +133,15 @@ def test_aclose_releases_only_the_current_loops_client(make_llm):
 		second_loop.close()
 
 
+def _anthropic_with_supplied_client():
+	httpx2 = pytest.importorskip('httpx2')
+	return ChatAnthropic(
+		model='claude-sonnet-4-5-20250929',
+		api_key='sk-test',
+		http_client=cast(Any, httpx2.AsyncClient()),
+	)
+
+
 @pytest.mark.parametrize(
 	'make_llm',
 	[
@@ -139,6 +149,7 @@ def test_aclose_releases_only_the_current_loops_client(make_llm):
 			lambda: ChatOpenAI(model='gpt-4o', api_key='sk-test', http_client=httpx.AsyncClient()),
 			id='openai',
 		),
+		pytest.param(_anthropic_with_supplied_client, id='anthropic'),
 	],
 )
 def test_supplied_http_client_is_not_cached_or_closed(make_llm):
