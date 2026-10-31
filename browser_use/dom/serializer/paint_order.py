@@ -18,8 +18,10 @@ class Rect:
 	y2: float
 
 	def __post_init__(self):
+		# A dataclass ignores ``__post_init__`` return values, so an inverted rectangle used to slip
+		# through silently and corrupt occlusion math. Fail loudly instead.
 		if not (self.x1 <= self.x2 and self.y1 <= self.y2):
-			return False
+			raise ValueError(f'Invalid rect: x1={self.x1}, y1={self.y1}, x2={self.x2}, y2={self.y2}')
 
 	# --- fast relations ----------------------------------------------------
 	def area(self) -> float:
@@ -193,11 +195,16 @@ class PaintOrderRemover:
 				if not node.original_node.snapshot_node or not node.original_node.snapshot_node.bounds:
 					continue  # shouldn't happen by how we filter them out in the first place
 
+				bounds = node.original_node.snapshot_node.bounds
+				# Collapsed elements have no area and must not take part in occlusion calculations
+				if bounds.width <= 0 or bounds.height <= 0:
+					continue
+
 				rect = Rect(
-					x1=node.original_node.snapshot_node.bounds.x,
-					y1=node.original_node.snapshot_node.bounds.y,
-					x2=node.original_node.snapshot_node.bounds.x + node.original_node.snapshot_node.bounds.width,
-					y2=node.original_node.snapshot_node.bounds.y + node.original_node.snapshot_node.bounds.height,
+					x1=bounds.x,
+					y1=bounds.y,
+					x2=bounds.x + bounds.width,
+					y2=bounds.y + bounds.height,
 				)
 				context = self._document_context(node)
 
