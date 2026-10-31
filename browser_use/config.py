@@ -3,6 +3,8 @@
 import json
 import logging
 import os
+import shutil
+import stat
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -317,6 +319,18 @@ def create_default_config() -> DBStyleConfigJSON:
 	return new_config
 
 
+class ConfigLoadError(Exception):
+	"""Raised when an existing config.json exists but cannot be parsed.
+
+	We deliberately do not fall back to a fresh default config in this case: the
+	default profile carries no domain allowlist/blocklist and no IP blocking, and
+	the URL policy treats missing lists as allow-all, so a silent fallback would
+	turn one corrupt file into a permanent loss of the configured network
+	boundary. Callers should surface this error and ask the operator to fix or
+	remove the file.
+	"""
+
+
 def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 	"""Load config.json or create fresh one if old format detected."""
 	if not config_path.exists():
@@ -352,15 +366,29 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 		return new_config
 
 	except Exception as e:
-		logger.error(f'Failed to load config from {config_path}: {e}, creating fresh config')
-		# On any error, create fresh config
-		new_config = create_default_config()
+		backup_path = config_path.with_name(config_path.name + '.bak')
+		backup_created = False
 		try:
-			with open(config_path, 'w') as f:
-				json.dump(new_config.model_dump(), f, indent=2)
-		except Exception as write_error:
-			logger.error(f'Failed to write fresh config: {write_error}')
-		return new_config
+			with config_path.open('rb') as original:
+				mode = stat.S_IMODE(os.fstat(original.fileno()).st_mode) & 0o600
+				backup_fd = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+				backup_created = True
+				with os.fdopen(backup_fd, 'wb') as backup:
+					shutil.copyfileobj(original, backup)
+		except OSError as backup_error:
+			if backup_created:
+				backup_path.unlink(missing_ok=True)
+			if isinstance(backup_error, FileExistsError):
+				backup_status = f'The existing backup at {backup_path} was left unchanged.'
+			else:
+				backup_status = f'Could not create a complete backup at {backup_path}: {backup_error}.'
+		else:
+			backup_status = f'A backup was created at {backup_path}.'
+		raise ConfigLoadError(
+			f'Failed to load config from {config_path}: {e}. '
+			f'The original file remains at {config_path}. {backup_status} '
+			'Fix or remove the original config file before retrying.'
+		) from e
 
 
 class Config:
