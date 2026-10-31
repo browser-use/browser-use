@@ -4,11 +4,14 @@
 previous one and only the last instruction was sent as the Anthropic system prompt.
 """
 
+from anthropic.types import TextBlockParam
+
 from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
 from browser_use.llm.messages import SystemMessage, UserMessage
 
 
-def _texts(system_message) -> list[str]:
+def _texts(system_message: str | list[TextBlockParam] | None) -> list[str]:
+	assert system_message is not None
 	if isinstance(system_message, str):
 		return [system_message]
 	return [block['text'] for block in system_message]
@@ -44,5 +47,5 @@ def test_multiple_system_messages_with_cache_keep_cache_on_last_block() -> None:
 
 	assert isinstance(system_message, list)
 	assert _texts(system_message) == ['First instruction.', 'Second instruction.']
-	assert 'cache_control' not in system_message[0]
-	assert system_message[1]['cache_control'] == {'type': 'ephemeral'}
+	assert system_message[0].get('cache_control') is None
+	assert system_message[1].get('cache_control') == {'type': 'ephemeral'}
