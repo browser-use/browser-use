@@ -476,20 +476,23 @@ class DownloadsWatchdog(BaseWatchdog):
 						if guid in self._cdp_downloads_info:
 							del self._cdp_downloads_info[guid]
 
+		downloads_path_raw = self.browser_session.browser_profile.downloads_path
+		if not downloads_path_raw:
+			return
+		if self._download_cdp_session_setup:
+			self.logger.debug('[DownloadsWatchdog] Download listener already set up for browser session')
+			return
+
+		# Attached browsers skip BrowserLaunchEvent. A remote path need not exist on this host.
+		expanded_downloads_path = Path(downloads_path_raw).expanduser().resolve()
 		try:
-			downloads_path_raw = self.browser_session.browser_profile.downloads_path
-			if not downloads_path_raw:
-				# logger.info(f'[DownloadsWatchdog] No downloads path configured, skipping target: {target_id}')
-				return  # No downloads path configured
+			expanded_downloads_path.mkdir(parents=True, exist_ok=True)
+		except OSError:
+			if self.browser_session.is_local:
+				raise
+			self.logger.debug('[DownloadsWatchdog] Download path may be available on the remote browser only')
 
-			# Check if we already have a download listener on this session
-			# to prevent duplicate listeners from being added
-			# Note: Since download listeners are set up once per browser session, not per target,
-			# we just track if we've set up the browser-level listener
-			if self._download_cdp_session_setup:
-				self.logger.debug('[DownloadsWatchdog] Download listener already set up for browser session')
-				return
-
+		try:
 			# logger.debug(f'[DownloadsWatchdog] Setting up CDP download listener for target: {target_id}')
 
 			# Use CDP session for download events but store reference in watchdog
@@ -497,13 +500,7 @@ class DownloadsWatchdog(BaseWatchdog):
 				# Set up CDP session for downloads (only once per browser session)
 				cdp_client = self.browser_session.cdp_client
 
-				# Set download behavior to allow downloads and enable events
-				downloads_path = self.browser_session.browser_profile.downloads_path
-				if not downloads_path:
-					self.logger.warning('[DownloadsWatchdog] No downloads path configured, skipping CDP download setup')
-					return
-				# Ensure path is properly expanded (~ -> absolute path)
-				expanded_downloads_path = Path(downloads_path).expanduser().resolve()
+				# Set download behavior to allow downloads and enable events.
 				await cdp_client.send.Browser.setDownloadBehavior(
 					params={
 						'behavior': 'allow',
