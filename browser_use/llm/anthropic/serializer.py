@@ -312,11 +312,11 @@ class AnthropicMessageSerializer:
 
 		# Separate system messages from normal messages
 		normal_messages: list[NonSystemMessage] = []
-		system_message: SystemMessage | None = None
+		system_messages: list[SystemMessage] = []
 
 		for message in messages:
 			if isinstance(message, SystemMessage):
-				system_message = message
+				system_messages.append(message)
 			else:
 				normal_messages.append(message)
 
@@ -328,11 +328,23 @@ class AnthropicMessageSerializer:
 		for message in normal_messages:
 			serialized_messages.append(AnthropicMessageSerializer.serialize(message))
 
-		# Serialize system message
+		# Serialize system messages, preserving every instruction in its original order
 		serialized_system_message: list[TextBlockParam] | str | None = None
-		if system_message:
-			serialized_system_message = AnthropicMessageSerializer._serialize_content_to_str(
-				system_message.content, use_cache=system_message.cache
-			)
+		if system_messages:
+			blocks: list[TextBlockParam] = []
+			for system_message in system_messages:
+				serialized = AnthropicMessageSerializer._serialize_content_to_str(
+					system_message.content, use_cache=system_message.cache
+				)
+				if isinstance(serialized, str):
+					blocks.append(TextBlockParam(text=serialized, type='text'))
+				else:
+					blocks.extend(serialized)
+
+			# Keep the historical single plain-text system prompt shape
+			if len(blocks) == 1 and not blocks[0].get('cache_control'):
+				serialized_system_message = blocks[0]['text']
+			else:
+				serialized_system_message = blocks
 
 		return serialized_messages, serialized_system_message
