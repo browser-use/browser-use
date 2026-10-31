@@ -112,6 +112,7 @@ async def test_download_listener_failure_remains_nonfatal(tmp_path) -> None:
 	assert isinstance(set_download_behavior, AsyncMock)
 	set_download_behavior.side_effect = RuntimeError('CDP unavailable')
 	await wd.attach_to_target('FAKE_TARGET_CDP_FAILURE')
+	set_download_behavior.assert_awaited_once()
 	assert not wd._download_cdp_session_setup
 
 
