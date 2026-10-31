@@ -387,7 +387,7 @@ class SignalHandler:
 					logger.debug(f'Cancelling task: {task_name}')
 					task.cancel()
 					# Add exception handler to silence "Task exception was never retrieved" warnings
-					task.add_done_callback(lambda t: t.exception() if t.cancelled() else None)
+					task.add_done_callback(lambda t: None if t.cancelled() else t.exception())
 
 		# Also cancel the current task if it's interruptible
 		if current_task and not current_task.done():
