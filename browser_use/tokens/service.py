@@ -634,8 +634,9 @@ class TokenCost:
 			# Sort by modification time (oldest first)
 			own_files.sort(key=lambda f: f.stat().st_mtime)
 
-			# Remove all but the most recent files
-			for cache_file in own_files[:-keep_count]:
+			# Remove all but the most recent files. keep_count=0 means remove every cached file.
+			stale_files = own_files[:-keep_count] if keep_count > 0 else own_files
+			for cache_file in stale_files:
 				try:
 					os.remove(cache_file)
 				except Exception:
