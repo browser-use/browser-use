@@ -69,6 +69,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.openrouter.chat import ChatOpenRouter
 	from browser_use.llm.orcarouter.chat import ChatOrcaRouter
 	from browser_use.llm.vercel.chat import ChatVercel
+	from browser_use.llm.volcengine.chat import ChatVolcengine
 	from browser_use.sandbox import sandbox
 	from browser_use.tools.service import Controller, Tools
 
@@ -108,6 +109,7 @@ _LAZY_IMPORTS = {
 	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
 	'ChatOrcaRouter': ('browser_use.llm.orcarouter.chat', 'ChatOrcaRouter'),
 	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
+	'ChatVolcengine': ('browser_use.llm.volcengine.chat', 'ChatVolcengine'),
 	# LLM models module
 	'models': ('browser_use.llm.models', None),
 	# Sandbox execution
@@ -166,6 +168,7 @@ __all__ = [
 	'ChatOpenRouter',
 	'ChatOrcaRouter',
 	'ChatVercel',
+	'ChatVolcengine',
 	'Tools',
 	'Controller',
 	# LLM models module
