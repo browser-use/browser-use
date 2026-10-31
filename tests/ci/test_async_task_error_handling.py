@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from browser_use.utils import create_task_with_error_handling
+from browser_use.utils import SignalHandler, create_task_with_error_handling
 
 
 class ExpectedTaskError(RuntimeError):
@@ -48,3 +48,27 @@ async def test_task_exception_is_not_reported_as_callback_failure(suppress_excep
 	else:
 		test_logger.warning.assert_called_once()
 		test_logger.error.assert_not_called()
+
+
+async def test_interrupting_task_does_not_report_cancelled_error_from_callback() -> None:
+	loop = asyncio.get_running_loop()
+	previous_exception_handler = loop.get_exception_handler()
+	exception_contexts: list[dict] = []
+
+	async def wait_until_interrupted() -> None:
+		await asyncio.Event().wait()
+
+	loop.set_exception_handler(lambda _loop, context: exception_contexts.append(context))
+	task = asyncio.create_task(wait_until_interrupted(), name='interruptible-step')
+	try:
+		await asyncio.sleep(0)
+		SignalHandler(loop=loop)._cancel_interruptible_tasks()
+		# Run task cancellation and its done callback before checking the loop.
+		await asyncio.sleep(0)
+		await asyncio.sleep(0)
+		assert task.cancelled()
+		assert exception_contexts == []
+	finally:
+		task.cancel()
+		await asyncio.gather(task, return_exceptions=True)
+		loop.set_exception_handler(previous_exception_handler)
