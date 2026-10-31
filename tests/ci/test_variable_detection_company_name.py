@@ -35,7 +35,7 @@ def _history_with_field(attribute_name: str, value: str, placeholder: str) -> Ag
 		x_path=f'//*[@name="{attribute_name}"]',
 		element_hash=12345,
 	)
-	action = action_model(input=InputTextAction(index=1, text=value))
+	action = action_model(**{'input': InputTextAction(index=1, text=value)})
 
 	return AgentHistoryList(
 		history=[
