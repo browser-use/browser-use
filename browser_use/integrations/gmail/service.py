@@ -7,6 +7,8 @@ This service provides a clean interface for agents to interact with Gmail.
 import base64
 import logging
 import os
+import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -153,7 +155,14 @@ class GmailService:
 		try:
 			# Add time filter to query if provided
 			if time_filter and 'newer_than:' not in query:
-				query = f'newer_than:{time_filter} {query}'.strip()
+				# Gmail's newer_than uses m for months and does not support hours.
+				duration = re.fullmatch(r'(\d+)([mh])', time_filter)
+				if duration:
+					seconds = int(duration[1]) * (60 if duration[2] == 'm' else 3600)
+					time_query = f'after:{int(time.time()) - seconds}'
+				else:
+					time_query = f'newer_than:{time_filter}'
+				query = f'{time_query} {query}'.strip()
 
 			logger.info(f'📧 Fetching {max_results} recent emails...')
 			if query:
