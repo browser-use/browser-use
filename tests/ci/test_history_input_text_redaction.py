@@ -22,7 +22,7 @@ SECRET = 'token-123'
 def _history_with_input_text() -> AgentHistoryList:
 	model = create_model('Model', __base__=ActionModel, input_text=(InputTextAction | None, None))
 	output_model = AgentOutput.type_with_custom_actions(model)
-	action = model(input_text=InputTextAction(index=1, text=SECRET))
+	action = model(**{'input_text': InputTextAction(index=1, text=SECRET)})
 
 	return AgentHistoryList[Any](
 		history=[
