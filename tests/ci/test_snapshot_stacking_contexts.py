@@ -5,10 +5,12 @@ indices was read as a per-node value: nodes before the first stacking context re
 and the real stacking-context nodes reported `None`.
 """
 
+from typing import Any
+
 from browser_use.dom.enhanced_snapshot import build_snapshot_lookup
 
 
-def _snapshot() -> dict:
+def _snapshot() -> Any:
 	bounds = [[0, 0, 100, 100], [0, 0, 100, 100], [0, 0, 100, 100]]
 	return {
 		'documents': [
