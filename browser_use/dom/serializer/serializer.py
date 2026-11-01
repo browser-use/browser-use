@@ -1,5 +1,7 @@
 # @file purpose: Serializes enhanced DOM trees to string format for LLM consumption
 
+import json
+import re
 from typing import Any
 
 from browser_use.dom.serializer.clickable_elements import ClickableElementDetector
@@ -431,6 +433,76 @@ class DOMTreeSerializer:
 
 		return {'count': len(options), 'first_options': first_options, 'format_hint': format_hint}
 
+	@staticmethod
+	def _is_disabled_select(node: EnhancedDOMTreeNode) -> bool:
+		"""Use native and accessibility state, including disabled fieldset inheritance."""
+		return node.tag_name == 'select' and (
+			'disabled' in node.attributes
+			or bool(node.ax_node and any(prop.name == 'disabled' and prop.value for prop in node.ax_node.properties or []))
+		)
+
+	@staticmethod
+	def _has_visible_select_layout(node: EnhancedDOMTreeNode) -> bool:
+		"""Check CSS visibility without treating an offscreen control as hidden."""
+		if not node.snapshot_node or not node.snapshot_node.bounds:
+			return False
+		if (node.snapshot_node.computed_styles or {}).get('visibility', '').lower() in {'hidden', 'collapse'}:
+			return False
+		current: EnhancedDOMTreeNode | None = node
+		while current:
+			# DOMSnapshot has no layout styles for display:contents wrappers. They
+			# generate no box, so their own opacity does not hide painted descendants.
+			# Do not treat missing layout styles as evidence that a select is hidden.
+			styles = current.snapshot_node.computed_styles or {} if current.snapshot_node else {}
+			if styles.get('display', '').lower() == 'none':
+				return False
+			try:
+				if float(styles.get('opacity', '1')) <= 0:
+					return False
+			except (ValueError, TypeError):
+				pass
+			# Ancestor opacity affects the entire subtree. Visibility, in contrast,
+			# can be overridden by a child, so its computed value is checked above.
+			current = current.parent_node
+		return True
+
+	@staticmethod
+	def _serialize_selected_options(select_node: EnhancedDOMTreeNode) -> str:
+		"""Describe live selections without guessing from HTML defaults or the option list."""
+		if not select_node.snapshot_node or select_node.snapshot_node.option_selected is None:
+			return 'unknown'
+
+		selected_options: list[dict[str, str]] = []
+		pending = list(reversed(select_node.children))
+		while pending:
+			option = pending.pop()
+			if option.tag_name != 'option':
+				pending.extend(reversed(option.children))
+				continue
+			if not option.snapshot_node or option.snapshot_node.option_selected is None:
+				return 'unknown'
+			if not option.snapshot_node.option_selected:
+				continue
+
+			# option.text collapses HTML whitespace; label/value may differ from that text.
+			text_parts: list[str] = []
+			text_nodes = list(reversed(option.children))
+			while text_nodes:
+				child = text_nodes.pop()
+				if child.node_type == NodeType.TEXT_NODE:
+					text_parts.append(child.node_value)
+				elif child.tag_name != 'script':
+					text_nodes.extend(reversed(child.children))
+			option_text = re.sub(r'[\t\n\f\r ]+', ' ', ''.join(text_parts)).strip(' ')
+			selected_options.append(
+				{
+					'value': option.attributes.get('value', option_text),
+					'label': option.attributes.get('label') or option_text,
+				}
+			)
+
+		return json.dumps(selected_options, ensure_ascii=False, separators=(',', ':'))
+
 	def _is_interactive_cached(self, node: EnhancedDOMTreeNode) -> bool:
 		"""Cached version of clickable element detection to avoid redundant calls."""
 
@@ -660,6 +732,10 @@ class DOMTreeSerializer:
 	def _assign_interactive_indices_and_mark_new_nodes(self, node: SimplifiedNode | None) -> None:
 		"""Assign interactive indices to clickable elements that are also visible."""
 		if not node:
+			return
+
+		# Disabled selects and their options are readable, but cannot be action targets.
+		if self._is_disabled_select(node.original_node):
 			return
 
 		# Skip assigning index to excluded nodes, or ignored by paint order
@@ -1005,6 +1081,20 @@ class DOMTreeSerializer:
 		next_depth = depth
 
 		if node.original_node.node_type == NodeType.ELEMENT_NODE:
+			is_select = node.original_node.tag_name == 'select'
+			is_disabled_select = DOMTreeSerializer._is_disabled_select(node.original_node)
+			if is_select:
+				# Read-only selects require viewport visibility. Existing action targets
+				# may be outside that cutoff, but CSS-hidden data must stay excluded.
+				can_display = node.original_node.is_visible or (node.is_interactive and not is_disabled_select)
+				indexed_without_layout = node.is_interactive and node.original_node.snapshot_node is None
+				if (
+					node.ignored_by_paint_order
+					or not can_display
+					or not (indexed_without_layout or DOMTreeSerializer._has_visible_select_layout(node.original_node))
+				):
+					return ''
+
 			# Skip displaying nodes marked as should_display=False
 			if not node.should_display:
 				for child in node.children:
@@ -1046,6 +1136,7 @@ class DOMTreeSerializer:
 			if (
 				node.is_interactive
 				or is_any_scrollable
+				or is_select
 				or node.original_node.tag_name.upper() == 'IFRAME'
 				or node.original_node.tag_name.upper() == 'FRAME'
 			):
@@ -1056,6 +1147,9 @@ class DOMTreeSerializer:
 				attributes_html_str = DOMTreeSerializer._build_attributes_string(
 					node.original_node, include_attributes, text_content
 				)
+				if is_select:
+					selection = DOMTreeSerializer._serialize_selected_options(node.original_node)
+					attributes_html_str = f'{attributes_html_str} selected={selection}'.strip()
 				if node.is_interactive:
 					image_context = DOMTreeSerializer._get_child_image_context(node)
 					if image_context:
@@ -1065,7 +1159,7 @@ class DOMTreeSerializer:
 							attributes_html_str = image_context
 
 				# Add compound component information to attributes if present
-				if node.original_node._compound_children:
+				if node.original_node._compound_children and (not is_select or node.is_interactive):
 					compound_info = []
 					for child_info in node.original_node._compound_children:
 						parts = []
@@ -1140,6 +1234,10 @@ class DOMTreeSerializer:
 						line += f' ({scroll_info_text})'
 
 				formatted_text.append(line)
+				if is_disabled_select:
+					# The live selection already describes this read-only control.
+					# Option/selectedcontent descendants can otherwise repeat its label.
+					return '\n'.join(formatted_text)
 
 		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
 			# Shadow DOM representation - show clearly to LLM
@@ -1339,6 +1437,14 @@ class DOMTreeSerializer:
 						if value_str:
 							attributes_to_include['value'] = value_str
 							break
+
+		if node.tag_name == 'select':
+			# Avoid stale or duplicate value summaries alongside the explicit live
+			# selection rendered from the snapshot.
+			for attribute in ('value', 'valuetext', 'selected'):
+				attributes_to_include.pop(attribute, None)
+			if 'disabled' in node.attributes:
+				attributes_to_include['disabled'] = 'true'
 
 		if not attributes_to_include:
 			return ''
