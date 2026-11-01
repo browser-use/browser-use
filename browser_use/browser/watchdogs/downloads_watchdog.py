@@ -137,6 +137,8 @@ class DownloadsWatchdog(BaseWatchdog):
 	_network_monitored_targets: set[str] = PrivateAttr(default_factory=set)  # Track targets with network monitoring enabled
 	_detected_downloads: set[str] = PrivateAttr(default_factory=set)  # Track detected download URLs to avoid duplicates
 	_network_callback_registered: bool = PrivateAttr(default=False)  # Track if global network callback is registered
+	_response_received_listener: Any = PrivateAttr(default=None)  # Handler subscribed to SessionManager's multicast
+	_response_received_manager: Any = PrivateAttr(default=None)  # Manager the listener is currently subscribed to
 
 	# Direct callback support for download waiting (bypasses event bus for synchronization)
 	_download_start_callbacks: list[Any] = PrivateAttr(default_factory=list)  # Callbacks for download start
@@ -272,7 +274,7 @@ class DownloadsWatchdog(BaseWatchdog):
 		self._network_monitored_targets.clear()
 		self._detected_downloads.clear()
 		self._initial_downloads_snapshot.clear()
-		self._network_callback_registered = False
+		self._unsubscribe_response_received()
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
 		"""Check for PDFs after navigation completes."""
@@ -714,9 +716,12 @@ class DownloadsWatchdog(BaseWatchdog):
 					except Exception as e:
 						self.logger.error(f'[DownloadsWatchdog] Error in network response handler: {type(e).__name__}: {e}')
 
-				# Register the callback globally (once)
-				cdp_client.register.Network.responseReceived(on_response_received)
-				self._network_callback_registered = True
+				# Subscribe the callback via SessionManager's Network.responseReceived
+				# multicast (once). Registering directly via
+				# cdp_client.register.Network.responseReceived would silently replace
+				# HarRecordingWatchdog's handler in cdp-use's single-slot event registry
+				# (one handler per CDP method), or be replaced by it.
+				self._subscribe_response_received(on_response_received)
 				self.logger.debug('[DownloadsWatchdog] ✅ Registered global network response callback')
 
 			# Get or create CDP session for this target
@@ -732,6 +737,32 @@ class DownloadsWatchdog(BaseWatchdog):
 
 		except Exception as e:
 			self.logger.warning(f'[DownloadsWatchdog] Failed to set up network monitoring for target {target_id}: {e}')
+
+	def _subscribe_response_received(self, listener: Any) -> None:
+		"""Subscribe a Network.responseReceived handler via SessionManager's multicast.
+
+		cdp-use's event registry is single-slot per CDP method, so registering the
+		handler directly on the CDP client would silently replace (or be replaced by)
+		HarRecordingWatchdog's responseReceived handler.
+		"""
+		if self._network_callback_registered:
+			return
+		manager = self.browser_session.session_manager
+		if manager is None:
+			self.logger.warning('[DownloadsWatchdog] No session manager, cannot subscribe to Network.responseReceived')
+			return
+		self._response_received_listener = listener
+		manager.add_response_received_listener(listener)
+		self._response_received_manager = manager
+		self._network_callback_registered = True
+
+	def _unsubscribe_response_received(self) -> None:
+		"""Unsubscribe the Network.responseReceived handler (e.g. on browser stop)."""
+		if self._response_received_manager is not None and self._response_received_listener is not None:
+			self._response_received_manager.remove_response_received_listener(self._response_received_listener)
+		self._response_received_listener = None
+		self._response_received_manager = None
+		self._network_callback_registered = False
 
 	async def download_file_from_url(
 		self, url: str, target_id: TargetID, content_type: str | None = None, suggested_filename: str | None = None
