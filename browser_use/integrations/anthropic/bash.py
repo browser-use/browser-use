@@ -38,6 +38,13 @@ class _BashOutput(asyncio.SubprocessProtocol):
 			self.closed.set_result(None)
 
 
+def _kill_subprocess_group(transport: asyncio.SubprocessTransport) -> None:
+	pid = transport.get_pid()
+	if pid and pid > 0:
+		with contextlib.suppress(ProcessLookupError, PermissionError):
+			os.killpg(pid, signal.SIGKILL)
+
+
 def _prepare_output_dir(output_dir: str | Path) -> tuple[Path, Path]:
 	root = Path(output_dir).expanduser().resolve()
 	tmp = root / '.tmp'
@@ -101,13 +108,11 @@ async def run_bash(
 	except TimeoutError:
 		timed_out = True
 	except asyncio.CancelledError:
-		with contextlib.suppress(ProcessLookupError):
-			os.killpg(transport.get_pid(), signal.SIGKILL)
+		_kill_subprocess_group(transport)
 		raise
 	finally:
 		if timed_out:
-			with contextlib.suppress(ProcessLookupError):
-				os.killpg(transport.get_pid(), signal.SIGKILL)
+			_kill_subprocess_group(transport)
 		# Close pipes even if a detached descendant still holds their write end.
 		transport.close()
 		with contextlib.suppress(TimeoutError):
