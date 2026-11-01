@@ -1,6 +1,7 @@
 """Tests for the FileSystem class and related file operations."""
 
 import asyncio
+import csv
 import tempfile
 from pathlib import Path
 
@@ -250,6 +251,17 @@ class TestBaseFile:
 			file_path = tmp_path / 'sync_test.txt'
 			assert file_path.exists()
 			assert file_path.read_text() == 'Sync content'
+
+	@pytest.mark.parametrize('sync', [False, True])
+	@pytest.mark.parametrize('content', ['first\r\nsecond', 'first\nsecond', 'first\rsecond\nthird\r\nfourth', 'plain café'])
+	async def test_disk_sync_preserves_newlines(self, tmp_path, sync, content):
+		"""Both disk writers preserve the exact UTF-8 content on every platform."""
+		file_obj = TxtFile(name='newlines', content=content)
+		if sync:
+			file_obj.sync_to_disk_sync(tmp_path)
+		else:
+			await file_obj.sync_to_disk(tmp_path)
+		assert (tmp_path / file_obj.full_name).read_bytes() == content.encode('utf-8')
 
 
 class TestFileSystem:
@@ -632,6 +644,32 @@ class TestFileSystem:
 		result = await fs.write_file('products.csv', 'id,name,price\n1,Laptop,999.99\n2,Mouse,29.99')
 		assert result == 'Data written to file products.csv successfully.'
 		assert 'products.csv' in fs.files
+
+	@pytest.mark.parametrize(
+		('filename', 'content', 'addition'),
+		[
+			('notes.txt', 'café\r\nfirst\nsecond', '\r\nthird'),
+			('notes.csv', 'name,note\nAlice,"north\r\nsouth"', '\nBob,"east\r\nwest"'),
+		],
+	)
+	async def test_write_append_restore_preserves_newlines(self, empty_filesystem, filename, content, addition):
+		"""Public file operations must not add carriage returns to text or CSV cells."""
+		fs = empty_filesystem
+		assert 'successfully' in await fs.write_file(filename, content)
+		file_path = fs.data_dir / filename
+		assert file_path.read_bytes() == content.encode('utf-8')
+
+		assert 'successfully' in await fs.append_file(filename, addition)
+		expected = content + addition
+		assert file_path.read_bytes() == expected.encode('utf-8')
+		file_obj = fs.get_file(filename)
+		assert file_obj is not None and file_obj.content == expected
+
+		restored = FileSystem.from_state(fs.get_state())
+		assert (restored.data_dir / filename).read_bytes() == expected.encode('utf-8')
+		if filename.endswith('.csv'):
+			with file_path.open(encoding='utf-8', newline='') as csv_file:
+				assert list(csv.reader(csv_file)) == [['name', 'note'], ['Alice', 'north\r\nsouth'], ['Bob', 'east\r\nwest']]
 
 	async def test_append_file(self, temp_filesystem):
 		"""Test appending content to files."""
