@@ -32,3 +32,5 @@ Add entries in this format:
 ```markdown
 - [Project name](https://github.com/org/project) - One sentence about what it integrates with. Maintained by @github-handle.
 ```
+
+- [rea-captcha](https://github.com/masakaai/rea-captcha) - Adds same-session verification challenge handling to Browser Use and Playwright workflows, automating only owned/provider-test flows and requiring fresh evidence before resume. Maintained by @IRONICBo.
