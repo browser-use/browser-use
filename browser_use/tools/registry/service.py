@@ -404,7 +404,7 @@ class Registry(Generic[Context]):
 			# which would escape Tools.act instead of returning an ActionResult.
 			if e.long_term_memory is not None:
 				raise
-			raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
+			raise RuntimeError(f'Error executing action {action_name}: {str(e) or type(e).__name__}') from e
 		except ValueError as e:
 			# Preserve ValueError messages from validation
 			if 'requires browser_session but none provided' in str(e) or 'requires page_extraction_llm but none provided' in str(
@@ -412,11 +412,11 @@ class Registry(Generic[Context]):
 			):
 				raise RuntimeError(str(e)) from e
 			else:
-				raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
+				raise RuntimeError(f'Error executing action {action_name}: {str(e) or type(e).__name__}') from e
 		except TimeoutError as e:
 			raise RuntimeError(f'Error executing action {action_name} due to timeout.') from e
 		except Exception as e:
-			raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
+			raise RuntimeError(f'Error executing action {action_name}: {str(e) or type(e).__name__}') from e
 
 	def _log_sensitive_data_usage(self, placeholders_used: set[str], current_url: str | None) -> None:
 		"""Log when sensitive data is being used on a page"""
