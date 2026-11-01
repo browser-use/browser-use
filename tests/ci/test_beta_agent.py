@@ -100,17 +100,17 @@ def test_beta_agent_generic_subscription_matches_browser_use():
 	class Answer(BaseModel):
 		answer: str
 
-	browser_use_alias = BrowserUseAgent[dict, Answer]
-	beta_alias = BetaAgent[dict, Answer]
-	service_alias = ServiceAgent[dict, Answer]
+	browser_use_alias = BrowserUseAgent[Answer]
+	beta_alias = BetaAgent[Answer]
+	service_alias = ServiceAgent[Answer]
 
-	assert get_args(beta_alias) == get_args(browser_use_alias) == (dict, Answer)
-	assert get_args(service_alias) == (dict, Answer)
+	assert get_args(beta_alias) == get_args(browser_use_alias) == (Answer,)
+	assert get_args(service_alias) == (Answer,)
 	assert get_origin(beta_alias) is BetaAgent
 	assert get_origin(service_alias) is BrowserUseAgent
 
-	with pytest.raises(TypeError, match='Too few arguments'):
-		BetaAgent[Answer]
+	with pytest.raises(TypeError, match='Too many arguments'):
+		BetaAgent[dict, Answer]
 
 
 def test_beta_agent_constructor_signature_matches_browser_use_order(tmp_path):
@@ -180,17 +180,9 @@ def test_beta_agent_constructor_type_hints_match_browser_use_core_params():
 	):
 		assert beta_hints[name] == browser_use_hints[name]
 
-	def assert_tools_context_hint(annotation):
-		inner = [arg for arg in get_args(annotation) if arg is not type(None)]
-		assert len(inner) == 1
-		assert get_origin(inner[0]) is Tools
-		type_args = get_args(inner[0])
-		assert len(type_args) == 1
-		assert type_args[0].__name__ == 'Context'
-
 	for name in ('tools', 'controller'):
-		assert_tools_context_hint(browser_use_hints[name])
-		assert_tools_context_hint(beta_hints[name])
+		assert browser_use_hints[name] == Tools | None
+		assert beta_hints[name] == Tools | None
 
 	assert 'kwargs' not in beta_hints
 	assert 'return' not in beta_hints

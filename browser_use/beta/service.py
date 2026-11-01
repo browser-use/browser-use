@@ -25,7 +25,6 @@ from urllib.parse import urlparse
 
 from bubus import EventBus
 from pydantic import BaseModel, ValidationError, create_model
-from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
 from browser_use.agent.cloud_events import (
@@ -81,7 +80,6 @@ from browser_use.utils import (
 	sanitize_url_candidate,
 )
 
-Context = TypeVar('Context')
 AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 AgentNewStepCallback = (
 	Callable[[BrowserStateSummary, AgentOutput, int], None] | Callable[[BrowserStateSummary, AgentOutput, int], Awaitable[None]]
@@ -4232,7 +4230,7 @@ def _normalize_initial_action(action_name: str, params: Any) -> tuple[str, Any]:
 	return action_name, params
 
 
-class Agent(Generic[Context, AgentStructuredOutput]):
+class Agent(Generic[AgentStructuredOutput]):
 	"""Browser Use-style Agent backed by the Rust browser-use-terminal core."""
 
 	def __init__(
@@ -4242,8 +4240,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser_profile: BrowserProfile | None = None,
 		browser_session: BrowserSession | None = None,
 		browser: BrowserSession | None = None,
-		tools: Tools[Context] | None = None,
-		controller: Tools[Context] | None = None,
+		tools: Tools | None = None,
+		controller: Tools | None = None,
 		skill_ids: list[str | Literal['*']] | None = None,
 		skills: list[str | Literal['*']] | None = None,
 		skill_service: Any | None = None,
