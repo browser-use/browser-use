@@ -9,24 +9,26 @@ from browser_use.mcp.client import MCPClient
 from browser_use.tools.registry.service import Registry
 
 
-def _make_connected_client() -> MCPClient:
+def _make_connected_client() -> tuple[MCPClient, AsyncMock]:
 	client = MCPClient(server_name='test-server', command='test-command')
 	client._telemetry = MagicMock()
 	client._connected = True
-	client.session = MagicMock()
-	client.session.call_tool = AsyncMock(
+	call_tool = AsyncMock(
 		return_value=types.CallToolResult(
 			content=[types.TextContent(type='text', text='success')],
 			is_error=False,
 		)
 	)
-	return client
+	session = MagicMock()
+	session.call_tool = call_tool
+	client.session = session
+	return client, call_tool
 
 
 @pytest.mark.asyncio
 async def test_register_tool_with_nullable_string_type_array():
 	"""Test registration and execution of a tool with {"type": ["string", "null"]}."""
-	client = _make_connected_client()
+	client, call_tool = _make_connected_client()
 	registry = Registry()
 	tool = types.Tool(
 		name='echo_str',
@@ -47,18 +49,19 @@ async def test_register_tool_with_nullable_string_type_array():
 	res_str = await registry.execute_action('echo_str', {'value': 'hello'})
 	assert res_str.error is None
 	assert res_str.extracted_content == 'success'
-	client.session.call_tool.assert_awaited_with('echo_str', {'value': 'hello'})
+	call_tool.assert_awaited_with('echo_str', {'value': 'hello'})
 
-	# Accepts None
+	# Accepts None and transmits explicit None for nullable field
 	res_none = await registry.execute_action('echo_str', {'value': None})
 	assert res_none.error is None
 	assert res_none.extracted_content == 'success'
+	call_tool.assert_awaited_with('echo_str', {'value': None})
 
 
 @pytest.mark.asyncio
 async def test_register_tool_with_nullable_integer_type_array():
 	"""Test registration and execution of a tool with {"type": ["integer", "null"]}."""
-	client = _make_connected_client()
+	client, call_tool = _make_connected_client()
 	registry = Registry()
 	tool = types.Tool(
 		name='echo_int',
@@ -79,18 +82,19 @@ async def test_register_tool_with_nullable_integer_type_array():
 	res_int = await registry.execute_action('echo_int', {'count': 42})
 	assert res_int.error is None
 	assert res_int.extracted_content == 'success'
-	client.session.call_tool.assert_awaited_with('echo_int', {'count': 42})
+	call_tool.assert_awaited_with('echo_int', {'count': 42})
 
-	# Accepts None
+	# Accepts None and transmits explicit None
 	res_none = await registry.execute_action('echo_int', {'count': None})
 	assert res_none.error is None
 	assert res_none.extracted_content == 'success'
+	call_tool.assert_awaited_with('echo_int', {'count': None})
 
 
 @pytest.mark.asyncio
 async def test_register_tool_with_multi_type_union_array():
 	"""Test registration and execution of a tool with {"type": ["string", "number"]}."""
-	client = _make_connected_client()
+	client, call_tool = _make_connected_client()
 	registry = Registry()
 	tool = types.Tool(
 		name='echo_union',
@@ -111,13 +115,13 @@ async def test_register_tool_with_multi_type_union_array():
 	res_str = await registry.execute_action('echo_union', {'val': 'example'})
 	assert res_str.error is None
 	assert res_str.extracted_content == 'success'
-	client.session.call_tool.assert_awaited_with('echo_union', {'val': 'example'})
+	call_tool.assert_awaited_with('echo_union', {'val': 'example'})
 
 	# Accepts valid number (float)
 	res_float = await registry.execute_action('echo_union', {'val': 3.14})
 	assert res_float.error is None
 	assert res_float.extracted_content == 'success'
-	client.session.call_tool.assert_awaited_with('echo_union', {'val': 3.14})
+	call_tool.assert_awaited_with('echo_union', {'val': 3.14})
 
 	# Accepts valid integer (coerces to number)
 	res_int = await registry.execute_action('echo_union', {'val': 100})
@@ -128,7 +132,7 @@ async def test_register_tool_with_multi_type_union_array():
 @pytest.mark.asyncio
 async def test_register_tool_with_multi_type_union_including_null():
 	"""Test registration with multi-type union including null: ["string", "number", "null"]."""
-	client = _make_connected_client()
+	client, call_tool = _make_connected_client()
 	registry = Registry()
 	tool = types.Tool(
 		name='echo_multi_null',
@@ -156,12 +160,13 @@ async def test_register_tool_with_multi_type_union_including_null():
 	# Accepts None
 	res_none = await registry.execute_action('echo_multi_null', {'val': None})
 	assert res_none.error is None
+	call_tool.assert_awaited_with('echo_multi_null', {'val': None})
 
 
 @pytest.mark.asyncio
 async def test_register_tool_with_nullable_array_items():
 	"""Test registration and execution of nullable array with item types: ["array", "null"]."""
-	client = _make_connected_client()
+	client, call_tool = _make_connected_client()
 	registry = Registry()
 	tool = types.Tool(
 		name='echo_tags',
@@ -185,18 +190,19 @@ async def test_register_tool_with_nullable_array_items():
 	res_list = await registry.execute_action('echo_tags', {'tags': ['tag1', 'tag2']})
 	assert res_list.error is None
 	assert res_list.extracted_content == 'success'
-	client.session.call_tool.assert_awaited_with('echo_tags', {'tags': ['tag1', 'tag2']})
+	call_tool.assert_awaited_with('echo_tags', {'tags': ['tag1', 'tag2']})
 
 	# Accepts None
 	res_none = await registry.execute_action('echo_tags', {'tags': None})
 	assert res_none.error is None
 	assert res_none.extracted_content == 'success'
+	call_tool.assert_awaited_with('echo_tags', {'tags': None})
 
 
 @pytest.mark.asyncio
 async def test_register_tool_with_nullable_nested_object():
 	"""Test registration and execution of nullable object with nested properties: ["object", "null"]."""
-	client = _make_connected_client()
+	client, call_tool = _make_connected_client()
 	registry = Registry()
 	tool = types.Tool(
 		name='echo_meta',
@@ -229,12 +235,13 @@ async def test_register_tool_with_nullable_nested_object():
 	res_none = await registry.execute_action('echo_meta', {'metadata': None})
 	assert res_none.error is None
 	assert res_none.extracted_content == 'success'
+	call_tool.assert_awaited_with('echo_meta', {'metadata': None})
 
 
 @pytest.mark.asyncio
 async def test_reversed_null_type_array():
 	"""Test registration when 'null' is first: ["null", "string"]."""
-	client = _make_connected_client()
+	client, call_tool = _make_connected_client()
 	registry = Registry()
 	tool = types.Tool(
 		name='echo_rev',
@@ -256,3 +263,33 @@ async def test_reversed_null_type_array():
 
 	res_none = await registry.execute_action('echo_rev', {'note': None})
 	assert res_none.error is None
+	call_tool.assert_awaited_with('echo_rev', {'note': None})
+
+
+@pytest.mark.asyncio
+async def test_register_tool_with_nullable_numeric_enum():
+	"""Test registration and execution of nullable numeric enum schemas."""
+	client, call_tool = _make_connected_client()
+	registry = Registry()
+	tool = types.Tool(
+		name='echo_level',
+		description='Echo numeric level or null',
+		input_schema={
+			'type': 'object',
+			'properties': {
+				'level': {'type': ['integer', 'null'], 'enum': [1, 2, None]},
+			},
+			'required': ['level'],
+		},
+	)
+
+	client._register_tool_as_action(registry, 'echo_level', tool)
+	assert 'echo_level' in registry.registry.actions
+
+	res_num = await registry.execute_action('echo_level', {'level': 2})
+	assert res_num.error is None
+	call_tool.assert_awaited_with('echo_level', {'level': 2})
+
+	res_none = await registry.execute_action('echo_level', {'level': None})
+	assert res_none.error is None
+	call_tool.assert_awaited_with('echo_level', {'level': None})

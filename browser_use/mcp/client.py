@@ -255,6 +255,7 @@ class MCPClient:
 		"""
 		# Parse tool parameters to create Pydantic model
 		param_fields = {}
+		nullable_params: set[str] = set()
 
 		if tool.input_schema:
 			# MCP tools use JSON Schema for parameters
@@ -264,6 +265,15 @@ class MCPClient:
 			for param_name, param_schema in properties.items():
 				# Convert JSON Schema type to Python type
 				param_type = self._json_schema_to_python_type(param_schema, f'{action_name}_{param_name}')
+
+				raw_type = param_schema.get('type')
+				if (
+					param_schema.get('nullable', False)
+					or raw_type == 'null'
+					or (isinstance(raw_type, list) and 'null' in raw_type)
+					or ('enum' in param_schema and any(v is None for v in param_schema['enum']))
+				):
+					nullable_params.add(param_name)
 
 				# Determine if field is required and handle defaults
 				if param_name in required:
@@ -311,8 +321,11 @@ class MCPClient:
 				if not self.session or not self._connected:
 					return ActionResult(error=f"MCP server '{self.server_name}' not connected", success=False)
 
-				# Convert pydantic model to dict for MCP call
+				# Convert pydantic model to dict for MCP call, preserving explicit None on nullable schema fields
 				tool_params = params.model_dump(exclude_none=True)
+				for field_name in nullable_params & params.model_fields_set:
+					if getattr(params, field_name) is None:
+						tool_params[field_name] = None
 
 				logger.debug(f"🔧 Calling MCP tool '{tool.name}' with params: {tool_params}")
 
@@ -476,12 +489,25 @@ class MCPClient:
 			'null': type(None),
 		}
 
-		# Handle enums (they're still strings)
-		if 'enum' in schema:
-			is_nullable = (
-				schema.get('nullable', False) or (isinstance(json_type, list) and 'null' in json_type) or json_type == 'null'
-			)
-			return Optional[str] if is_nullable else str
+		# Handle enums without an explicit 'type' by inferring from enum literals
+		if 'enum' in schema and 'type' not in schema:
+			enum_values = schema['enum']
+			has_enum_null = schema.get('nullable', False) or any(v is None for v in enum_values)
+			non_null_py_types: list[Any] = []
+			for val in enum_values:
+				if val is None:
+					continue
+				val_type = type(val)
+				if val_type not in non_null_py_types:
+					non_null_py_types.append(val_type)
+			if not non_null_py_types:
+				return type(None) if has_enum_null else str
+			if len(non_null_py_types) == 1:
+				only = non_null_py_types[0]
+				return Optional[only] if has_enum_null else only
+			if has_enum_null:
+				non_null_py_types.append(type(None))
+			return Union[tuple(non_null_py_types)]
 
 		def _map_single_type(single_type: str) -> Any:
 			# Handle objects with nested properties
@@ -570,7 +596,8 @@ class MCPClient:
 		base_type = _map_single_type(json_type)
 
 		# Handle nullable/optional types
-		if schema.get('nullable', False) or json_type == 'null':
+		has_enum_null = 'enum' in schema and any(v is None for v in schema['enum'])
+		if schema.get('nullable', False) or json_type == 'null' or has_enum_null:
 			return Optional[base_type] if base_type is not type(None) else type(None)
 
 		return base_type
