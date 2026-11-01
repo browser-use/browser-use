@@ -503,7 +503,7 @@ class Registry(Generic[Context]):
 				return tuple(recursively_replace_secrets(v) for v in value)
 			return value
 
-		params_dump = params.model_dump(exclude_unset=True)
+		params_dump = params.model_dump()
 		processed_params = recursively_replace_secrets(params_dump)
 
 		# Log sensitive data usage
@@ -513,7 +513,25 @@ class Registry(Generic[Context]):
 		if all_missing_placeholders:
 			logger.warning(f'Missing or empty keys in sensitive_data dictionary: {", ".join(all_missing_placeholders)}')
 
-		return type(params).model_validate(processed_params)
+		validated = type(params).model_validate(processed_params)
+
+		# Retain original model_fields_set across models so unset fields are not marked as explicitly set
+		def _restore_fields_set(target: Any, source: Any) -> None:
+			if isinstance(target, BaseModel) and isinstance(source, BaseModel):
+				object.__setattr__(target, '__pydantic_fields_set__', set(source.model_fields_set))
+				for field_name in target.model_fields:
+					if hasattr(source, field_name):
+						_restore_fields_set(getattr(target, field_name), getattr(source, field_name))
+			elif isinstance(target, list) and isinstance(source, list):
+				for t_item, s_item in zip(target, source):
+					_restore_fields_set(t_item, s_item)
+			elif isinstance(target, dict) and isinstance(source, dict):
+				for k in target:
+					if k in source:
+						_restore_fields_set(target[k], source[k])
+
+		_restore_fields_set(validated, params)
+		return validated
 
 	# @time_execution_sync('--create_action_model')
 	def create_action_model(self, include_actions: list[str] | None = None, page_url: str | None = None) -> type[ActionModel]:

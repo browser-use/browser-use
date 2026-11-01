@@ -197,3 +197,39 @@ async def test_execute_action_nested_nullable_with_sensitive_data():
 		'nested_echo_sensitive',
 		{'value': None, 'nested': {'present': None}},
 	)
+
+@pytest.mark.asyncio
+async def test_replace_sensitive_data_preserves_default_placeholder_redaction():
+	"""Unset parameters with sensitive placeholders in their default must still be redacted."""
+	client = _make_client()
+	mock_call = AsyncMock(return_value=types.CallToolResult(content=[types.TextContent(type='text', text='ok')]))
+	client.session.call_tool = mock_call  # type: ignore[union-attr]
+
+	tools = Tools()
+	tool = types.Tool(
+		name='auth_echo',
+		description='Echo tool with sensitive placeholder in default value',
+		input_schema={
+			'type': 'object',
+			'properties': {
+				'token': {'type': 'string', 'default': '<secret>auth_token</secret>'},
+				'omitted': {'type': 'string'},
+			},
+		},
+	)
+
+	client._register_tool_as_action(tools.registry, 'auth_echo', tool)
+
+	# Execute without providing token, but providing sensitive_data
+	result = await tools.registry.execute_action(
+		'auth_echo',
+		{},
+		sensitive_data={'auth_token': 'secret-xyz-123'},
+	)
+
+	assert result.error is None
+	# The default placeholder must be replaced with the secret, and omitted must not be present
+	client.session.call_tool.assert_awaited_once_with(  # type: ignore[union-attr]
+		'auth_echo',
+		{'token': 'secret-xyz-123'},
+	)
