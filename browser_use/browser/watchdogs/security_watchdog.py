@@ -183,15 +183,37 @@ class SecurityWatchdog(BaseWatchdog):
 			True if the URL is allowed, False otherwise
 		"""
 
+		# Strip leading and trailing C0 control characters and ASCII whitespace (WHATWG URL input preprocessing)
+		clean_url = url.strip(
+			' \t\r\n\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f'
+		)
+
 		# Always allow internal browser targets (before any other checks)
-		if url in ['about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/']:
+		if clean_url in ['about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/']:
 			return True
+
+		# Normalize backslashes for WHATWG compatibility (special schemes treat \ as / before query/fragment)
+		normalized_url = clean_url
+		if '\\' in clean_url:
+			scheme_end = clean_url.find('://')
+			if scheme_end != -1:
+				scheme = clean_url[:scheme_end].lower()
+				if scheme in {'http', 'https', 'ws', 'wss', 'ftp', 'file'}:
+					rest = clean_url[scheme_end + 3 :]
+					query_start = len(rest)
+					for sep in ['?', '#']:
+						pos = rest.find(sep)
+						if pos != -1 and pos < query_start:
+							query_start = pos
+					normalized_url = clean_url[: scheme_end + 3] + rest[:query_start].replace('\\', '/') + rest[query_start:]
+			else:
+				normalized_url = clean_url.replace('\\', '/')
 
 		# Parse the URL to extract components
 		from urllib.parse import urlparse
 
 		try:
-			parsed = urlparse(url)
+			parsed = urlparse(normalized_url)
 		except Exception:
 			# Invalid URL
 			return False
@@ -202,7 +224,7 @@ class SecurityWatchdog(BaseWatchdog):
 
 		# Get the actual host (domain)
 		host = parsed.hostname
-		if not host:
+		if not host or '\\' in host or '@' in host:
 			return False
 
 		# Check if IP addresses should be blocked (before domain checks)
@@ -228,7 +250,7 @@ class SecurityWatchdog(BaseWatchdog):
 			else:
 				# Slow path: O(n) pattern matching for lists
 				for pattern in allowed_domains:
-					if self._is_url_match(url, host, parsed.scheme, pattern):
+					if self._is_url_match(normalized_url, host, parsed.scheme, pattern):
 						return True
 				return False
 
@@ -243,7 +265,7 @@ class SecurityWatchdog(BaseWatchdog):
 			else:
 				# Slow path: O(n) pattern matching for lists
 				for pattern in prohibited_domains:
-					if self._is_url_match(url, host, parsed.scheme, pattern):
+					if self._is_url_match(normalized_url, host, parsed.scheme, pattern):
 						return False
 				return True
 
