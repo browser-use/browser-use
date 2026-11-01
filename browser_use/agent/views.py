@@ -679,8 +679,12 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				else:
 					h['model_output'] = None
 			state = h.get('state') or {}
-			if 'interacted_element' not in state:
-				state['interacted_element'] = None
+			# `interacted_element` is a list field, so legacy entries must be
+			# normalized to an empty list -- `None` would fail validation and
+			# make this compatibility branch reject the only input it targets.
+			# Non-list values are left untouched and still fail validation.
+			if state.get('interacted_element') is None:
+				state['interacted_element'] = []
 				h['state'] = state
 
 		history = cls.model_validate(data)
