@@ -52,6 +52,7 @@ if TYPE_CHECKING:
 	from browser_use.browser import BrowserSession as Browser
 	from browser_use.dom.service import DomService
 	from browser_use.llm import models
+	from browser_use.llm.aimlapi.chat import ChatAIMLAPI
 	from browser_use.llm.anthropic.chat import ChatAnthropic
 	from browser_use.llm.aws.chat_anthropic import ChatAnthropicBedrock
 	from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
@@ -107,6 +108,7 @@ _LAZY_IMPORTS = {
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
 	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
 	'ChatOrcaRouter': ('browser_use.llm.orcarouter.chat', 'ChatOrcaRouter'),
+	'ChatAIMLAPI': ('browser_use.llm.aimlapi.chat', 'ChatAIMLAPI'),
 	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
 	# LLM models module
 	'models': ('browser_use.llm.models', None),
@@ -165,6 +167,7 @@ __all__ = [
 	'ChatOllama',
 	'ChatOpenRouter',
 	'ChatOrcaRouter',
+	'ChatAIMLAPI',
 	'ChatVercel',
 	'Tools',
 	'Controller',
