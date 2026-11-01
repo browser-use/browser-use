@@ -1378,7 +1378,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 								// Dispatch events
 								this.dispatchEvent(new Event("input", { bubbles: true }));
-								this.dispatchEvent(new Event("change", { bubbles: true }));
 
 								return {cleared: true, method: 'contenteditable', finalText: this.textContent};
 							} else if (this.value !== undefined) {
@@ -1409,7 +1408,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 									this.value = "";
 								}
 								this.dispatchEvent(new Event("input", { bubbles: true }));
-								this.dispatchEvent(new Event("change", { bubbles: true }));
 								return {cleared: true, method: 'value', finalText: this.value};
 							} else {
 								return {cleared: false, method: 'none', error: 'Not a supported input type'};

@@ -146,6 +146,25 @@ def http_server():
 		content_type='text/html',
 	)
 
+	# Page 7: Change formatting must run only after replacement text is entered
+	server.expect_request('/change-format-input').respond_with_data(
+		"""
+		<!DOCTYPE html>
+		<input id="amount" type="text" value="0.00">
+		<script>
+			window.events = [];
+			const amount = document.getElementById('amount');
+			for (const type of ['input', 'change']) {
+				amount.addEventListener(type, () => window.events.push(`${type}:${amount.value}`));
+			}
+			amount.addEventListener('change', () => {
+				amount.value = (Number(amount.value) || 0).toFixed(2);
+			});
+		</script>
+		""",
+		content_type='text/html',
+	)
+
 	yield server
 	server.stop()
 
@@ -294,6 +313,29 @@ class TestAutocompleteInteraction:
 		)
 		actual = readback.get('result', {}).get('value', '')
 		assert actual == 'new value', f'Expected "new value", got "{actual}" — clear=True did not remove old text'
+
+	async def test_change_fires_after_replacement_text(self, tools: Tools, browser_session: BrowserSession, base_url: str):
+		"""Clearing emits input immediately but defers change until replacement text is entered."""
+		await tools.navigate(url=f'{base_url}/change-format-input', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.3)
+		await browser_session.get_browser_state_summary()
+
+		idx = await browser_session.get_index_by_id('amount')
+		assert idx is not None, 'Could not find amount input'
+
+		result = await tools.input(index=idx, text='1', browser_session=browser_session)
+		assert isinstance(result, ActionResult)
+		assert result.error is None, f'Input action failed: {result.error}'
+
+		cdp_session = await browser_session.get_or_create_cdp_session()
+		readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': '({ value: amount.value, events: window.events })', 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		state = readback.get('result', {}).get('value')
+		assert isinstance(state, dict), f'Expected object readback, got {state!r}'
+		assert state['value'] == '1.00'
+		assert 'change:' not in state['events'], f'change fired during clearing: {state["events"]}'
 
 	async def test_prefilled_input_append_with_clear_false(self, tools: Tools, browser_session: BrowserSession, base_url: str):
 		"""Type into a pre-filled input with clear=False. Field should contain old + new text."""
