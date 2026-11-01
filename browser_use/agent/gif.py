@@ -314,6 +314,7 @@ def _add_overlay_to_image(
 	image = image.convert('RGBA')
 	txt_layer = Image.new('RGBA', image.size, (0, 0, 0, 0))
 	draw = ImageDraw.Draw(txt_layer)
+	padding = 20  # Padding around step / spacing base
 	if display_step:
 		# Add step number (bottom left)
 		step_text = str(step_number)
@@ -326,7 +327,6 @@ def _add_overlay_to_image(
 		y_step = image.height - margin - step_height - 10  # Slight offset from bottom
 
 		# Draw rounded rectangle background for step number
-		padding = 20  # Increased padding
 		step_bg_bbox = (
 			x_step - padding,
 			y_step - padding,
@@ -354,9 +354,12 @@ def _add_overlay_to_image(
 	goal_width = goal_bbox[2] - goal_bbox[0]
 	goal_height = goal_bbox[3] - goal_bbox[1]
 
-	# Center goal text horizontally, place above step number
+	# Center goal text horizontally, place above step number if displayed or bottom aligned
 	x_goal = (image.width - goal_width) // 2
-	y_goal = y_step - goal_height - padding * 4  # More space between step and goal
+	if display_step:
+		y_goal = y_step - goal_height - padding * 4  # More space between step and goal
+	else:
+		y_goal = image.height - margin - goal_height - 10
 
 	# Draw rounded rectangle background for goal
 	padding_goal = 25  # Increased padding for goal
