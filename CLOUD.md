@@ -13,13 +13,13 @@ Current docs: [docs.browser-use.com/llms.txt](https://docs.browser-use.com/llms.
 
 | | |
 |---|---|
-| Price | $0.02 per browser-hour, billed by the minute, 1 minute minimum. No subscription. [Pricing](https://browser-use.com/pricing.md) |
+| Price | $0.02 per browser-hour, billed per second, no minimum. No subscription. [Pricing](https://browser-use.com/pricing.md) |
 | Proxy | US residential proxy on by default, other countries by `proxyCountryCode`. $5/GB managed residential, $0.20/GB direct or your own proxy. [Proxies](https://docs.browser-use.com/cloud/browser/proxies) · [Pricing](https://browser-use.com/pricing.md) |
 | CAPTCHAs | Solved automatically by default. Set `"solveCaptchas": false` to handle them yourself. Not guaranteed for every challenge. [CAPTCHA handling](https://docs.browser-use.com/cloud/browser/captcha-handling) |
 | Profiles | Save cookies, local storage and login state, then start new browsers already logged in. [Profiles](https://docs.browser-use.com/cloud/guides/authentication) |
 | Live view | `liveUrl` shows the running browser. [Live preview](https://docs.browser-use.com/cloud/browser/live-preview) |
 | Recording | Off by default. Turn on with `enable_recording=True` / `enableRecording: true`. [Recording](https://docs.browser-use.com/cloud/browser/live-preview) |
-| Timeout | Default 60 minutes, settable up to 240 (4 hours) with `timeout`. Credits are reserved for the requested timeout and the unused part is returned. [Create browser](https://docs.browser-use.com/cloud/api-v4/browsers/create-browser-session) |
+| Timeout | Default 60 minutes, settable up to 240 (4 hours) with `timeout`. You pay only for the seconds the browser runs. [Create browser](https://docs.browser-use.com/cloud/api-v4/browsers/create-browser-session) |
 | Concurrency | Agents and browsers share one project limit of 10 to 1,000 concurrent sessions, rising with lifetime payments; Enterprise above 1,000. [Concurrency](https://docs.browser-use.com/cloud/guides/concurrency) |
 | Signup | One-time $1 credit for eligible Google, GitHub or Microsoft signups. [Pricing](https://browser-use.com/pricing.md) |
 
