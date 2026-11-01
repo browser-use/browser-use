@@ -197,6 +197,28 @@ class TestCloudBrowserClient:
 
 			assert 'BROWSER_USE_API_KEY is invalid' in str(exc_info.value)
 
+	async def test_create_browser_http_403_includes_detail(self, mock_auth_config, monkeypatch):
+		"""403 responses must include the server's detail in the error message."""
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+
+		with patch('httpx.AsyncClient') as mock_client_class:
+			mock_response = AsyncMock()
+			mock_response.status_code = 403
+			mock_response.is_success = False
+			mock_response.json = lambda: {'detail': 'timeout exceeded for free'}
+
+			mock_client = AsyncMock()
+			mock_client.request.return_value = mock_response
+			mock_client_class.return_value = mock_client
+
+			client = CloudBrowserClient()
+			client.client = mock_client
+
+			with pytest.raises(CloudBrowserAuthError) as exc_info:
+				await client.create_browser(CreateBrowserRequest())
+
+			assert 'timeout exceeded for free' in str(exc_info.value)
+
 	async def test_create_browser_with_env_var(self, temp_config_dir, monkeypatch):
 		"""Test cloud browser creation using BROWSER_USE_API_KEY environment variable."""
 
