@@ -20,6 +20,7 @@ from pydantic import PrivateAttr
 
 from browser_use.browser.events import (
 	BrowserConnectedEvent,
+	BrowserReconnectedEvent,
 	BrowserStoppedEvent,
 	CaptchaSolverFinishedEvent,
 	CaptchaSolverStartedEvent,
@@ -54,6 +55,7 @@ class CaptchaWatchdog(BaseWatchdog):
 	# Event contracts
 	LISTENS_TO: ClassVar[list[type[BaseEvent]]] = [
 		BrowserConnectedEvent,
+		BrowserReconnectedEvent,
 		BrowserStoppedEvent,
 	]
 	EMITS: ClassVar[list[type[BaseEvent]]] = [
@@ -78,6 +80,15 @@ class CaptchaWatchdog(BaseWatchdog):
 	# ------------------------------------------------------------------
 
 	async def on_BrowserConnectedEvent(self, event: BrowserConnectedEvent) -> None:
+		"""Register CDP event handlers for BrowserUse captcha solver events."""
+		self._register_cdp_handlers()
+
+	async def on_BrowserReconnectedEvent(self, event: BrowserReconnectedEvent) -> None:
+		"""Register the captcha handlers again on the CDP client created by reconnect()."""
+		self._cdp_handlers_registered = False
+		self._register_cdp_handlers()
+
+	def _register_cdp_handlers(self) -> None:
 		"""Register CDP event handlers for BrowserUse captcha solver events."""
 		if self._cdp_handlers_registered:
 			self.logger.debug('CaptchaWatchdog: CDP handlers already registered, skipping')
