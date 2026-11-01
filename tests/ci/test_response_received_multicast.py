@@ -8,6 +8,7 @@ subscribed listeners instead.
 """
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
