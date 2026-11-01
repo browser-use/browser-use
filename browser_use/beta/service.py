@@ -1168,7 +1168,7 @@ def _sensitive_domain_is_allowed(domain_pattern: str, allowed_domain: str) -> bo
 
 
 def _warn_sensitive_data_domain_constraints(
-	logger: logging.Logger,
+	logger: logging.Logger | logging.LoggerAdapter,
 	sensitive_data: dict[str, str | dict[str, str]] | None,
 	allowed_domains: list[str],
 ) -> None:
@@ -5414,14 +5414,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		return self.history.usage
 
 	@property
-	def logger(self) -> logging.Logger:
+	def logger(self) -> logging.LoggerAdapter:
 		browser_session_id = getattr(self.browser_session, 'id', '----') or '----'
 		target_id = '--'
 		agent_focus = getattr(self.browser_session, 'agent_focus', None)
 		focus_target_id = getattr(agent_focus, 'target_id', None)
 		if isinstance(focus_target_id, str) and focus_target_id:
 			target_id = focus_target_id[-2:]
-		return logging.getLogger(f'browser_use.Agent🅰 {self.task_id[-4:]} ⇢ 🅑 {str(browser_session_id)[-4:]} 🅣 {target_id}')
+		return logging.LoggerAdapter(
+			logging.getLogger('browser_use.Agent'),
+			{'browser_use_instance': f'🅰 {self.task_id[-4:]} ⇢ 🅑 {str(browser_session_id)[-4:]} 🅣 {target_id}'},
+		)
 
 	@property
 	def browser_profile(self) -> Any:

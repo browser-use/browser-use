@@ -89,7 +89,10 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 
 	class BrowserUseFormatter(logging.Formatter):
 		def __init__(self, fmt, log_level):
-			super().__init__(fmt)
+			if log_level <= logging.DEBUG:
+				# Agent and BrowserSession records carry their ids, shown right after the fixed logger name
+				fmt = fmt.replace('%(name)s', '%(name)s%(browser_use_instance)s')
+			super().__init__(fmt, defaults={'browser_use_instance': ''})
 			self.log_level = log_level
 
 		def format(self, record):
