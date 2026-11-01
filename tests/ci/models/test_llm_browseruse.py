@@ -3,6 +3,7 @@
 import pytest
 
 from browser_use.llm.browser_use.chat import ChatBrowserUse
+from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.messages import UserMessage
 from tests.ci.models.model_test_helper import run_model_button_click_test
 
@@ -119,6 +120,39 @@ async def test_provider_prefixed_model_forwarded_in_payload(httpserver):
 	body = request.get_json()
 	assert body['model'] == 'anthropic/claude-sonnet-4-6'
 	assert body['request_type'] == 'browser_agent'
+
+
+# --- Retries ------------------------------------------------------------------
+
+
+async def test_max_retries_zero_still_sends_one_request(httpserver):
+	"""max_retries=0 means no retries, not no request at all."""
+	httpserver.expect_request('/v1/chat/completions', method='POST').respond_with_json({'completion': 'hello'})
+
+	chat = ChatBrowserUse(api_key=TEST_API_KEY, base_url=httpserver.url_for('/').rstrip('/'), max_retries=0)
+	result = await chat.ainvoke([UserMessage(content='hi')])
+
+	assert result.completion == 'hello'
+	assert len(httpserver.log) == 1
+
+
+async def test_max_retries_zero_raises_provider_error_without_retrying(httpserver):
+	"""A server error with retries disabled surfaces as ModelProviderError so fallback_llm can take over."""
+	httpserver.expect_request('/v1/chat/completions', method='POST').respond_with_json({'detail': 'overloaded'}, status=503)
+
+	chat = ChatBrowserUse(api_key=TEST_API_KEY, base_url=httpserver.url_for('/').rstrip('/'), max_retries=0)
+	with pytest.raises(ModelProviderError) as exc_info:
+		await chat.ainvoke([UserMessage(content='hi')])
+
+	assert exc_info.value.status_code == 503
+	assert len(httpserver.log) == 1
+
+
+async def test_max_retries_zero_connect_error_reports_one_attempt():
+	"""The error message counts the request that was actually made, not max_retries."""
+	chat = ChatBrowserUse(api_key=TEST_API_KEY, base_url='http://127.0.0.1:1', max_retries=0)
+	with pytest.raises(ValueError, match='after 1 attempt:'):
+		await chat.ainvoke([UserMessage(content='hi')])
 
 
 # --- Agent screenshot auto-config -------------------------------------------
