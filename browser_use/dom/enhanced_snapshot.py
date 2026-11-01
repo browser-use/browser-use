@@ -11,7 +11,7 @@ from cdp_use.cdp.domsnapshot.types import (
 	NodeTreeSnapshot,
 )
 
-from browser_use.dom.views import DOMRect, EnhancedSnapshotNode
+from browser_use.dom.views import DOMRect, EnhancedSnapshotNode, InputValueState
 
 # Only the ESSENTIAL computed styles for interactivity and visibility detection
 REQUIRED_COMPUTED_STYLES = [
@@ -67,6 +67,20 @@ def _is_sensitive_input(strings: list[str], nodes: NodeTreeSnapshot, snapshot_in
 	return False
 
 
+def _is_password_input(strings: list[str], nodes: NodeTreeSnapshot, snapshot_index: int) -> bool:
+	"""True when the snapshot node is an input[type=password]."""
+	attribute_lists = nodes.get('attributes')
+	if not attribute_lists or snapshot_index >= len(attribute_lists):
+		return False
+	indices = attribute_lists[snapshot_index]
+	for name_index, value_index in zip(indices[0::2], indices[1::2]):
+		if not (0 <= name_index < len(strings) and 0 <= value_index < len(strings)):
+			continue
+		if strings[name_index].lower() == 'type' and strings[value_index].lower() == 'password':
+			return True
+	return False
+
+
 def build_snapshot_lookup(
 	snapshot: CaptureSnapshotReturns,
 	device_pixel_ratio: float = 1.0,
@@ -118,11 +132,28 @@ def build_snapshot_lookup(
 		# Live form values live in the snapshot, not in the DOM attributes. Map
 		# snapshot index -> string once so each node lookup stays O(1).
 		input_value_by_index: dict[int, str] = {}
+		password_input_indices = {
+			idx for idx in range(len(nodes.get('attributes', []))) if _is_password_input(strings, nodes, idx)
+		}
+		# DOMSnapshot omits empty input values from RareStringData, so a password
+		# node present in this snapshot starts as empty. Invalid string references
+		# remain unknown instead of being guessed.
+		password_value_state_by_index: dict[int, InputValueState] = {idx: 'empty' for idx in password_input_indices}
 		for key in ('inputValue', 'textValue'):
 			rare = nodes.get(key)
 			if rare:
 				for idx, string_index in zip(rare.get('index', []), rare.get('value', [])):
-					if 0 <= string_index < len(strings) and not _is_sensitive_input(strings, nodes, idx):
+					if string_index == -1 and idx in password_input_indices:
+						# CDP uses -1 as the empty-string sentinel in RareStringData.
+						password_value_state_by_index[idx] = 'empty'
+						continue
+					if not (0 <= string_index < len(strings)):
+						if idx in password_input_indices:
+							password_value_state_by_index[idx] = 'unknown'
+						continue
+					if idx in password_input_indices:
+						password_value_state_by_index[idx] = 'filled' if strings[string_index] else 'empty'
+					elif not _is_sensitive_input(strings, nodes, idx):
 						input_value_by_index[idx] = strings[string_index]
 		input_checked_set: set[int] = set(nodes['inputChecked']['index']) if 'inputChecked' in nodes else set()
 		has_checked_data = 'inputChecked' in nodes
@@ -210,6 +241,7 @@ def build_snapshot_lookup(
 				paint_order=paint_order,
 				stacking_contexts=stacking_contexts,
 				input_value=input_value_by_index.get(snapshot_index),
+				input_value_state=password_value_state_by_index.get(snapshot_index),
 				input_checked=(snapshot_index in input_checked_set) if has_checked_data else None,
 			)
 
