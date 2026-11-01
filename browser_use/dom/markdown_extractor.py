@@ -133,6 +133,12 @@ def convert_html_to_markdown(page_html: str, extract_images: bool = False) -> tu
 		autolinks=False,  # Don't convert URLs to <> format
 		default_title=False,  # Don't add default title attributes
 		keep_inline_images_in=_keep_inline_images_in,  # Include image src URLs when extract_images=True
+		# A markdown table cannot start with a body row, so without this markdownify
+		# puts an empty header above a table that carries no <th> and the column
+		# names drop into the first body row. The serializer already normalizes a
+		# <th> header row into <thead>; this covers the table written with <td>
+		# throughout, which it leaves alone.
+		table_infer_header=True,
 	)
 
 	initial_markdown_length = len(content)
