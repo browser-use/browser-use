@@ -60,7 +60,7 @@ def _make_watchdog(tmp_path) -> tuple[DownloadsWatchdog, _ProgressCapture]:
 		logger=logging.getLogger('test.downloads_watchdog'),
 		is_local=False,  # remote browser -> exercises the fixed branch
 		cdp_client=cdp_client,
-		browser_profile=SimpleNamespace(downloads_path=str(tmp_path), auto_download_pdfs=False),
+		browser_profile=SimpleNamespace(downloads_path=str(tmp_path), accept_downloads=True, auto_download_pdfs=False),
 		id='test-session-0001',
 	)
 
