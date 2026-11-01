@@ -83,6 +83,11 @@ class MCPClient:
 			logger.debug(f'Already connected to {self.server_name}')
 			return
 
+		# The background task's keep-alive wait shares this event with
+		# disconnect(); a set event from a previous connection cycle would make
+		# the fresh connection tear itself down immediately, so reset it here.
+		self._disconnect_event.clear()
+
 		start_time = time.time()
 		error_msg = None
 
