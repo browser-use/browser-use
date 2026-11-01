@@ -44,6 +44,11 @@ class HTMLSerializer:
 			return ''.join(parts)
 
 		elif node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
+			# User-agent shadow roots are browser-internal (e.g. the aria-hidden label copy inside each
+			# <option>), not page content - serializing them duplicates text such as dropdown options
+			if node.shadow_root_type and node.shadow_root_type.lower() == 'user-agent':
+				return ''
+
 			# Shadow DOM root - wrap in template with shadowrootmode attribute
 			parts = []
 
