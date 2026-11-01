@@ -296,6 +296,20 @@ llm = ChatOpenAI(model="deepseek/deepseek-r1", base_url="https://api.novita.ai/v
 ```
 **Env:** `NOVITA_API_KEY`
 
+### DemonRoute
+```python
+import os
+
+llm = ChatOpenAI(
+    model="dr/mythomax-l2-13b",
+    base_url="https://api.demonroute.com/v1",
+    api_key=os.environ["DEMONROUTE_API_KEY"],
+)
+```
+**Env:** `DEMONROUTE_API_KEY` | [Available models](https://demonroute.com/models)
+
+DemonRoute exposes an OpenAI-compatible endpoint. Use a model ID from its catalog and keep the `/v1` suffix in the base URL.
+
 ### PZERO
 ```python
 import os
