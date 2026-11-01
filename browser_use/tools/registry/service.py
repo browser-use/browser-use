@@ -114,10 +114,10 @@ class Registry(Generic[Context]):
 				# Validate special parameter type
 				expected_type = special_param_types.get(param.name)
 				if param.annotation != Parameter.empty and expected_type is not None:
-					# Handle Optional types - normalize both sides
+					# Handle Optional types - normalize both sides (both typing.Union and PEP 604 X | None)
 					param_type = param.annotation
 					origin = get_origin(param_type)
-					if origin is Union:
+					if origin is Union or origin is UnionType:
 						args = get_args(param_type)
 						# Find non-None type
 						param_type = next((arg for arg in args if arg is not type(None)), param_type)
