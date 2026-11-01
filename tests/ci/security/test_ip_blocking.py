@@ -75,7 +75,7 @@ class TestIPv4Blocking:
 		assert watchdog._is_url_allowed('https://9.10.11.12/path/to/file.html#anchor') is False
 
 	def test_allow_ipv4_when_blocking_disabled(self):
-		"""Test that IPv4 addresses are allowed when block_ip_addresses=False (default)."""
+		"""Test that IPv4 addresses are allowed when block_ip_addresses=False."""
 		browser_profile = BrowserProfile(block_ip_addresses=False, headless=True, user_data_dir=None)
 		browser_session = BrowserSession(browser_profile=browser_profile)
 		event_bus = EventBus()
@@ -393,28 +393,26 @@ class TestIsIPAddressHelper:
 
 
 class TestDefaultBehavior:
-	"""Test that default behavior (no IP blocking) is maintained."""
+	"""Test that IP addresses are blocked by default."""
 
-	def test_default_block_ip_addresses_is_false(self):
-		"""Test that block_ip_addresses defaults to False."""
+	def test_default_block_ip_addresses_is_true(self):
+		"""Test that block_ip_addresses defaults to True."""
 		browser_profile = BrowserProfile(headless=True, user_data_dir=None)
 
-		# Default should be False
-		assert browser_profile.block_ip_addresses is False
+		assert browser_profile.block_ip_addresses is True
 
-	def test_no_blocking_by_default(self):
-		"""Test that IPs are not blocked by default."""
+	def test_ip_addresses_are_blocked_by_default(self):
+		"""Test that IP URLs are rejected by a default profile."""
 		browser_profile = BrowserProfile(headless=True, user_data_dir=None)
 		browser_session = BrowserSession(browser_profile=browser_profile)
 		event_bus = EventBus()
 		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
 
-		# All IPs should be allowed by default
-		assert watchdog._is_url_allowed('http://180.1.1.1/supersafe.txt') is True
-		assert watchdog._is_url_allowed('http://192.168.1.1/') is True
-		assert watchdog._is_url_allowed('http://127.0.0.1:8080/') is True
-		assert watchdog._is_url_allowed('http://[::1]/') is True
-		assert watchdog._is_url_allowed('https://8.8.8.8/') is True
+		assert watchdog._is_url_allowed('http://180.1.1.1/supersafe.txt') is False
+		assert watchdog._is_url_allowed('http://192.168.1.1/') is False
+		assert watchdog._is_url_allowed('http://127.0.0.1:8080/') is False
+		assert watchdog._is_url_allowed('http://[::1]/') is False
+		assert watchdog._is_url_allowed('https://8.8.8.8/') is False
 
 
 class TestComplexScenarios:
