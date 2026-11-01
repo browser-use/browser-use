@@ -4058,8 +4058,8 @@ def _load_rust_history(file_path: str | Path) -> AgentHistoryList:
 		if isinstance(item, dict):
 			item['model_output'] = None
 			state = item.get('state')
-			if isinstance(state, dict) and 'interacted_element' not in state:
-				state['interacted_element'] = None
+			if isinstance(state, dict) and ('interacted_element' not in state or state.get('interacted_element') is None):
+				state['interacted_element'] = []
 	return AgentHistoryList.model_validate(data)
 
 
