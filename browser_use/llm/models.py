@@ -12,14 +12,18 @@ Usage:
 """
 
 import os
+import re
 from typing import TYPE_CHECKING
 
 from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
+from browser_use.llm.deepseek.chat import ChatDeepSeek
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.groq.chat import ChatGroq
 from browser_use.llm.mistral.chat import ChatMistral
 from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.llm.openrouter.chat import ChatOpenRouter
 
 # Optional OCI import
 try:
@@ -29,6 +33,14 @@ try:
 except ImportError:
 	ChatOCIRaw = None
 	OCI_AVAILABLE = False
+
+# Optional Ollama import
+try:
+	from browser_use.llm.ollama.chat import ChatOllama
+
+	OLLAMA_AVAILABLE = True
+except ImportError:
+	OLLAMA_AVAILABLE = False
 
 if TYPE_CHECKING:
 	from browser_use.llm.base import BaseChatModel
@@ -79,6 +91,18 @@ anthropic_claude_3_5_haiku_latest: 'BaseChatModel'
 cerebras_gpt_oss_120b: 'BaseChatModel'
 cerebras_zai_glm_4_7: 'BaseChatModel'
 cerebras_gemma_4_31b: 'BaseChatModel'
+
+deepseek_chat: 'BaseChatModel'
+deepseek_reasoner: 'BaseChatModel'
+
+groq_llama_3_3_70b: 'BaseChatModel'
+groq_llama_4_scout: 'BaseChatModel'
+groq_llama_4_maverick: 'BaseChatModel'
+
+ollama_llama3: 'BaseChatModel'
+ollama_llama3_2: 'BaseChatModel'
+
+openrouter_anthropic_claude_3_5_sonnet: 'BaseChatModel'
 
 bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
@@ -135,10 +159,10 @@ def get_llm_by_name(model_name: str):
 		model = model_part.replace('gemini_2_0', 'gemini-2.0').replace('_', '-')
 	elif 'gemini_2_5' in model_part:
 		model = model_part.replace('gemini_2_5', 'gemini-2.5').replace('_', '-')
-	elif 'llama3_1' in model_part:
-		model = model_part.replace('llama3_1', 'llama3.1').replace('_', '-')
-	elif 'llama3_3' in model_part:
-		model = model_part.replace('llama3_3', 'llama-3.3').replace('_', '-')
+	elif 'llama3_1' in model_part or 'llama_3_1' in model_part:
+		model = model_part.replace('llama3_1', 'llama3.1').replace('llama_3_1', 'llama3.1').replace('_', '-')
+	elif 'llama3_3' in model_part or 'llama_3_3' in model_part:
+		model = model_part.replace('llama3_3', 'llama-3.3').replace('llama_3_3', 'llama-3.3').replace('_', '-')
 	elif 'llama_4_scout' in model_part:
 		model = model_part.replace('llama_4_scout', 'llama-4-scout').replace('_', '-')
 	elif 'llama_4_maverick' in model_part:
@@ -213,6 +237,73 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('CEREBRAS_API_KEY')
 		return ChatCerebras(model=model, api_key=api_key)
 
+	# DeepSeek Models
+	elif provider == 'deepseek':
+		api_key = os.getenv('DEEPSEEK_API_KEY')
+		base_url = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
+		deepseek_map = {
+			'chat': 'deepseek-chat',
+			'reasoner': 'deepseek-reasoner',
+		}
+		normalized_model_part = model_part.replace('_', '-')
+		resolved_model = deepseek_map.get(normalized_model_part, model)
+		if not resolved_model.startswith('deepseek-'):
+			resolved_model = f'deepseek-{resolved_model}'
+		return ChatDeepSeek(model=resolved_model, api_key=api_key, base_url=base_url)
+
+	# Groq Models
+	elif provider == 'groq':
+		api_key = os.getenv('GROQ_API_KEY')
+		base_url = os.getenv('GROQ_BASE_URL')
+		groq_map = {
+			'llama-3.3-70b': 'llama-3.3-70b-versatile',
+			'llama-3.3-70b-versatile': 'llama-3.3-70b-versatile',
+			'llama-4-scout': 'meta-llama/llama-4-scout-17b-16e-instruct',
+			'llama-4-maverick': 'meta-llama/llama-4-maverick-17b-128e-instruct',
+		}
+		normalized_model_part = model_part.replace('_', '-')
+		resolved_model = groq_map.get(normalized_model_part, groq_map.get(model, model))
+		return ChatGroq(model=resolved_model, api_key=api_key, base_url=base_url)
+
+	# Ollama Models
+	elif provider == 'ollama':
+		if not OLLAMA_AVAILABLE:
+			raise ImportError('Ollama integration not available. Install with: pip install ollama')
+		ollama_map = {
+			'llama3_1': 'llama3.1',
+			'llama3-1': 'llama3.1',
+			'llama3_2': 'llama3.2',
+			'llama3-2': 'llama3.2',
+			'llama3_3': 'llama3.3',
+			'llama3-3': 'llama3.3',
+			'llama_3_1': 'llama3.1',
+			'llama_3_2': 'llama3.2',
+			'llama_3_3': 'llama3.3',
+			'qwen2_5': 'qwen2.5',
+			'qwen2-5': 'qwen2.5',
+			'deepseek_r1': 'deepseek-r1',
+		}
+		if model_part in ollama_map:
+			resolved_model = ollama_map[model_part]
+		elif model in ollama_map:
+			resolved_model = ollama_map[model]
+		else:
+			resolved_model = re.sub(r'(\d+)[_-](\d+)(?![a-zA-Z\d])', r'\1.\2', model_part)
+			resolved_model = resolved_model.replace('_', '-')
+		host = os.getenv('OLLAMA_HOST')
+		return ChatOllama(model=resolved_model, host=host)
+
+	# OpenRouter Models
+	elif provider == 'openrouter':
+		api_key = os.getenv('OPENROUTER_API_KEY')
+		base_url = os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1')
+		openrouter_map = {
+			'anthropic_claude_3_5_sonnet': 'anthropic/claude-3.5-sonnet',
+			'anthropic-claude-3-5-sonnet': 'anthropic/claude-3.5-sonnet',
+		}
+		resolved_model = openrouter_map.get(model_part, openrouter_map.get(model, model))
+		return ChatOpenRouter(model=resolved_model, api_key=api_key, base_url=base_url)
+
 	# Browser Use Models
 	elif provider == 'bu':
 		# Handle bu_latest -> bu-latest conversion (need to prepend 'bu-' back)
@@ -221,7 +312,20 @@ def get_llm_by_name(model_name: str):
 		return ChatBrowserUse(model=model, api_key=api_key)
 
 	else:
-		available_providers = ['openai', 'azure', 'google', 'anthropic', 'mistral', 'oci', 'cerebras', 'bu']
+		available_providers = [
+			'openai',
+			'azure',
+			'google',
+			'anthropic',
+			'mistral',
+			'oci',
+			'cerebras',
+			'deepseek',
+			'groq',
+			'ollama',
+			'openrouter',
+			'bu',
+		]
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -245,6 +349,16 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatOCIRaw  # type: ignore
 	elif name == 'ChatCerebras':
 		return ChatCerebras  # type: ignore
+	elif name == 'ChatDeepSeek':
+		return ChatDeepSeek  # type: ignore
+	elif name == 'ChatGroq':
+		return ChatGroq  # type: ignore
+	elif name == 'ChatOllama':
+		if not OLLAMA_AVAILABLE:
+			raise ImportError('Ollama integration not available. Install with: pip install ollama')
+		return ChatOllama  # type: ignore
+	elif name == 'ChatOpenRouter':
+		return ChatOpenRouter  # type: ignore
 	elif name == 'ChatBrowserUse':
 		return ChatBrowserUse  # type: ignore
 
@@ -263,10 +377,15 @@ __all__ = [
 	'ChatMistral',
 	'ChatCerebras',
 	'ChatBrowserUse',
+	'ChatDeepSeek',
+	'ChatGroq',
+	'ChatOpenRouter',
 ]
 
 if OCI_AVAILABLE:
 	__all__.append('ChatOCIRaw')
+if OLLAMA_AVAILABLE:
+	__all__.append('ChatOllama')
 
 __all__ += [
 	'get_llm_by_name',
@@ -317,6 +436,18 @@ __all__ += [
 	'cerebras_gpt_oss_120b',
 	'cerebras_zai_glm_4_7',
 	'cerebras_gemma_4_31b',
+	# DeepSeek instances - created on demand
+	'deepseek_chat',
+	'deepseek_reasoner',
+	# Groq instances - created on demand
+	'groq_llama_3_3_70b',
+	'groq_llama_4_scout',
+	'groq_llama_4_maverick',
+	# Ollama instances - created on demand
+	'ollama_llama3',
+	'ollama_llama3_2',
+	# OpenRouter instances - created on demand
+	'openrouter_anthropic_claude_3_5_sonnet',
 	# Browser Use instances - created on demand
 	'bu_latest',
 	'bu_1_0',
