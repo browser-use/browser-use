@@ -144,3 +144,19 @@ class TestPreservesLinksAndEncoding:
 		assert '%20' in content
 		assert '%2F' in content
 		assert '%26' in content
+
+	def test_preserves_deeply_nested_bracket_lines(self):
+		"""A deeply nested bracket line must not abort the JSON heuristic.
+
+		`json.loads` raises RecursionError (not ValueError) past its nesting
+		limit, so hostile page text like `[[[[...` used to propagate out of
+		markdown extraction and fail the whole extract action.
+		"""
+		line = '[' * 20_000
+		assert len(line) > 100
+		content = f'Header\n{line}\nFooter'
+		filtered, _ = _preprocess_markdown_content(content)
+
+		assert line in filtered
+		assert 'Header' in filtered
+		assert 'Footer' in filtered
