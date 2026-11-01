@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, field
 from importlib import metadata as importlib_metadata
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from bubus import BaseEvent
 from cdp_use.cdp.network.events import (
@@ -27,6 +27,9 @@ from cdp_use.cdp.page.events import FrameNavigatedEvent, LifecycleEventEvent
 
 from browser_use.browser.events import BrowserConnectedEvent, BrowserStopEvent
 from browser_use.browser.watchdog_base import BaseWatchdog
+
+if TYPE_CHECKING:
+	from browser_use.browser.session_manager import SessionManager
 
 
 @dataclass
@@ -150,6 +153,8 @@ class HarRecordingWatchdog(BaseWatchdog):
 	def __init__(self, *args, **kwargs) -> None:
 		super().__init__(*args, **kwargs)
 		self._enabled: bool = False
+		self._response_received_manager: SessionManager | None = None
+		self._response_received_listener = self._on_response_received
 		self._entries: dict[str, _HarEntryBuilder] = {}
 		self._top_level_pages: dict[
 			str, dict
@@ -184,7 +189,13 @@ class HarRecordingWatchdog(BaseWatchdog):
 
 			cdp = self.browser_session.cdp_client.register
 			cdp.Network.requestWillBeSent(self._on_request_will_be_sent)
-			cdp.Network.responseReceived(self._on_response_received)
+			# Network.responseReceived is fanned out by SessionManager because cdp-use's
+			# event registry is single-slot per CDP method: registering directly here
+			# would silently replace DownloadsWatchdog's responseReceived handler.
+			self._remove_response_received_listener()
+			manager = self.browser_session.session_manager
+			manager.add_response_received_listener(self._response_received_listener)
+			self._response_received_manager = manager
 			cdp.Network.dataReceived(self._on_data_received)
 			cdp.Network.loadingFinished(self._on_loading_finished)
 			cdp.Network.loadingFailed(self._on_loading_failed)
@@ -194,19 +205,29 @@ class HarRecordingWatchdog(BaseWatchdog):
 			self._enabled = True
 			self.logger.info(f'📊 Starting HAR recording to {self._har_path}')
 		except Exception as e:
+			self._remove_response_received_listener()
 			self.logger.warning(f'Failed to enable HAR recording: {e}')
 			self._enabled = False
 
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		if not self._enabled:
+			self._remove_response_received_listener()
 			return
 		try:
 			await self._write_har()
 			self.logger.info(f'📊 HAR file saved: {self._har_path}')
 		except Exception as e:
 			self.logger.warning(f'Failed to write HAR: {e}')
+		finally:
+			self._remove_response_received_listener()
 
 	# =============== CDP Event Handlers (sync) ==================
+	def _remove_response_received_listener(self) -> None:
+		# BrowserSession may reset its manager before the watchdog receives stop.
+		if self._response_received_manager is not None:
+			self._response_received_manager.remove_response_received_listener(self._response_received_listener)
+			self._response_received_manager = None
+
 	def _on_request_will_be_sent(self, params: RequestWillBeSentEvent, session_id: str | None) -> None:
 		try:
 			req = params.get('request', {}) if hasattr(params, 'get') else getattr(params, 'request', {})

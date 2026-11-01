@@ -6,6 +6,7 @@ events, ensuring the session pool always reflects the current browser state.
 
 import asyncio
 from collections import deque
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from cdp_use.cdp.target import AttachedToTargetEvent, DetachedFromTargetEvent, SessionID, TargetID
@@ -51,6 +52,12 @@ class SessionManager:
 		# CDP method, so per-session handler registrations would replace each other and
 		# leave every tab but the most recently attached one without lifecycle events.
 		self._lifecycle_events: dict[TargetID, deque[dict[str, Any]]] = {}
+
+		# Network.responseReceived listeners, fed by ONE global handler registered in
+		# start_monitoring(). cdp-use's event registry is single-slot per CDP method,
+		# so per-watchdog registrations (downloads auto-detection, HAR recording) would
+		# silently replace each other on the shared root client.
+		self._response_received_listeners: set[Callable[[Any, Any], None]] = set()
 
 		self._lock = asyncio.Lock()
 		self._recovery_lock = asyncio.Lock()
@@ -126,10 +133,17 @@ class SessionManager:
 				}
 			)
 
+		def on_response_received(event, session_id: SessionID | None = None):
+			# ONE global handler for Network.responseReceived, fanned out to subscribed
+			# listeners: cdp-use's single-slot registry (one handler per CDP method) means
+			# per-watchdog registrations would silently replace each other.
+			self._notify_response_received_listeners(event, session_id)
+
 		cdp_client.register.Target.attachedToTarget(on_attached)
 		cdp_client.register.Target.detachedFromTarget(on_detached)
 		cdp_client.register.Target.targetInfoChanged(on_target_info_changed)
 		cdp_client.register.Page.lifecycleEvent(on_lifecycle_event)
+		cdp_client.register.Network.responseReceived(on_response_received)
 
 		self.logger.debug('[SessionManager] Event monitoring started')
 
@@ -143,6 +157,21 @@ class SessionManager:
 			events = deque(maxlen=50)
 			self._lifecycle_events[target_id] = events
 		return events
+
+	def add_response_received_listener(self, listener: Callable[[Any, Any], None]) -> None:
+		"""Subscribe to the shared Network.responseReceived stream without replacing the global handler."""
+		self._response_received_listeners.add(listener)
+
+	def remove_response_received_listener(self, listener: Callable[[Any, Any], None]) -> None:
+		"""Unsubscribe a listener previously registered with add_response_received_listener."""
+		self._response_received_listeners.discard(listener)
+
+	def _notify_response_received_listeners(self, event: Any, session_id: SessionID | None = None) -> None:
+		for listener in tuple(self._response_received_listeners):
+			try:
+				listener(event, session_id)
+			except Exception as e:
+				self.logger.debug(f'[SessionManager] Network.responseReceived listener failed: {type(e).__name__}: {e}')
 
 	def _get_session_for_target(self, target_id: TargetID) -> 'CDPSession | None':
 		"""Internal: Get ANY valid session for a target (picks first available).
