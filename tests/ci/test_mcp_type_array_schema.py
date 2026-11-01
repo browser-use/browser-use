@@ -111,3 +111,89 @@ async def test_execute_action_preserves_explicit_null():
 	assert result.error is None
 	# Ensure call_tool received {"value": None} and omitted absent optional_param
 	client.session.call_tool.assert_awaited_once_with('nullable_echo', {'value': None})  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_execute_action_nested_nullable_direct():
+	"""Executing a registered action with nested nullable schemas must preserve explicit nulls and omit unset fields."""
+	client = _make_client()
+	mock_call = AsyncMock(return_value=types.CallToolResult(content=[types.TextContent(type='text', text='ok')]))
+	client.session.call_tool = mock_call  # type: ignore[union-attr]
+
+	tools = Tools()
+	tool = types.Tool(
+		name='nested_echo',
+		description='Echo tool with nested nullable and optional fields',
+		input_schema={
+			'type': 'object',
+			'properties': {
+				'value': {'type': ['string', 'null']},
+				'omitted_top': {'type': 'string'},
+				'nested': {
+					'type': 'object',
+					'properties': {
+						'present': {'type': ['string', 'null']},
+						'omitted': {'type': 'string'},
+					},
+					'required': ['present'],
+				},
+			},
+			'required': ['value'],
+		},
+	)
+
+	client._register_tool_as_action(tools.registry, 'nested_echo', tool)
+
+	# Direct wrapper execution without sensitive_data
+	result = await tools.registry.execute_action('nested_echo', {'value': None, 'nested': {'present': None}})
+
+	assert result.error is None
+	client.session.call_tool.assert_awaited_once_with(  # type: ignore[union-attr]
+		'nested_echo',
+		{'value': None, 'nested': {'present': None}},
+	)
+
+
+@pytest.mark.asyncio
+async def test_execute_action_nested_nullable_with_sensitive_data():
+	"""Revalidation under sensitive_data must preserve explicit nulls and not populate omitted fields as None."""
+	client = _make_client()
+	mock_call = AsyncMock(return_value=types.CallToolResult(content=[types.TextContent(type='text', text='ok')]))
+	client.session.call_tool = mock_call  # type: ignore[union-attr]
+
+	tools = Tools()
+	tool = types.Tool(
+		name='nested_echo_sensitive',
+		description='Echo tool with nested nullable and optional fields under sensitive_data revalidation',
+		input_schema={
+			'type': 'object',
+			'properties': {
+				'value': {'type': ['string', 'null']},
+				'omitted_top': {'type': 'string'},
+				'nested': {
+					'type': 'object',
+					'properties': {
+						'present': {'type': ['string', 'null']},
+						'omitted': {'type': 'string'},
+					},
+					'required': ['present'],
+				},
+			},
+			'required': ['value'],
+		},
+	)
+
+	client._register_tool_as_action(tools.registry, 'nested_echo_sensitive', tool)
+
+	# Sensitive data revalidation path
+	result = await tools.registry.execute_action(
+		'nested_echo_sensitive',
+		{'value': None, 'nested': {'present': None}},
+		sensitive_data={'irrelevant': 'value'},
+	)
+
+	assert result.error is None
+	client.session.call_tool.assert_awaited_once_with(  # type: ignore[union-attr]
+		'nested_echo_sensitive',
+		{'value': None, 'nested': {'present': None}},
+	)

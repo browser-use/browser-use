@@ -311,8 +311,8 @@ class MCPClient:
 				if not self.session or not self._connected:
 					return ActionResult(error=f"MCP server '{self.server_name}' not connected", success=False)
 
-				# Convert pydantic model to dict for MCP call, preserving explicit nulls while omitting absent optionals
-				tool_params = {k: v for k, v in params.model_dump().items() if k in params.model_fields_set or v is not None}
+				# Convert pydantic model to dict for MCP call, recursively preserving explicit nulls while omitting absent optionals
+				tool_params = self._serialize_mcp_params(params)
 
 				logger.debug(f"🔧 Calling MCP tool '{tool.name}' with params: {tool_params}")
 
@@ -453,6 +453,31 @@ class MCPClient:
 		else:
 			# Direct result or unknown format
 			return str(result)
+
+	def _serialize_mcp_params(self, val: Any) -> Any:
+		"""Recursively serialize a Pydantic model for an MCP tool call.
+
+		Preserves explicitly set None values at every model level while omitting
+		unset None fields and retaining non-None defaults.
+		"""
+		if isinstance(val, BaseModel):
+			result = {}
+			for field_name in val.model_fields:
+				field_value = getattr(val, field_name)
+				if field_name in val.model_fields_set or field_value is not None:
+					result[field_name] = self._serialize_mcp_params(field_value)
+			if getattr(val, '__pydantic_extra__', None):
+				for extra_name, extra_value in val.__pydantic_extra__.items():  # type: ignore[union-attr]
+					if extra_name in val.model_fields_set or extra_value is not None:
+						result[extra_name] = self._serialize_mcp_params(extra_value)
+			return result
+		elif isinstance(val, dict):
+			return {k: self._serialize_mcp_params(v) for k, v in val.items()}
+		elif isinstance(val, list):
+			return [self._serialize_mcp_params(item) for item in val]
+		elif isinstance(val, tuple):
+			return tuple(self._serialize_mcp_params(item) for item in val)
+		return val
 
 	def _json_schema_to_python_type(self, schema: dict, model_name: str = 'NestedModel') -> Any:
 		"""Convert JSON Schema type to Python type.
