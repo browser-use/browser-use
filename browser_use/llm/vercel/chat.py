@@ -455,7 +455,10 @@ class ChatVercel(BaseChatModel):
 					# 'properties' is the schema keyword only outside a properties map; inside one it is
 					# just another property name, so its value is a sub-schema and not a properties map.
 					child_is_properties_map = key == 'properties' and not in_properties_map
-					if key not in ['additionalProperties', 'default'] and not is_metadata_title:
+					# 'additionalProperties' and 'default' are schema keywords only outside a properties
+					# map as well - inside one they are ordinary property names and must be kept.
+					is_unsupported_keyword = not in_properties_map and key in ['additionalProperties', 'default']
+					if not is_unsupported_keyword and not is_metadata_title:
 						cleaned_value = clean_schema(value, in_properties_map=child_is_properties_map)
 						# Handle empty object properties - Gemini doesn't allow empty OBJECT types
 						if (
@@ -573,9 +576,12 @@ class ChatVercel(BaseChatModel):
 				if is_google_model or is_anthropic_model or is_reasoning:
 					modified_messages = [m.model_copy(deep=True) for m in messages]
 
-					# The prompt carries the schema verbatim, so it has to be Gemini-compatible:
-					# _fix_gemini_schema drops keywords Gemini rejects (additionalProperties, metadata title).
-					schema = self._fix_gemini_schema(SchemaOptimizer.create_gemini_optimized_schema(output_format))
+					# The prompt carries the schema verbatim, so for Gemini it has to be
+					# Gemini-compatible: _fix_gemini_schema drops the keywords Gemini rejects
+					# (additionalProperties, metadata title). Other providers understand those
+					# keywords, so they keep the full optimized schema.
+					optimized_schema = SchemaOptimizer.create_gemini_optimized_schema(output_format)
+					schema = self._fix_gemini_schema(optimized_schema) if is_google_model else optimized_schema
 					json_instruction = f'\n\nIMPORTANT: You must respond with ONLY a valid JSON object (no markdown, no code blocks, no explanations) that exactly matches this schema:\n{json.dumps(schema, indent=2)}'
 
 					instruction_added = False

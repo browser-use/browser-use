@@ -7,6 +7,7 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from pydantic import BaseModel, Field
 
 from browser_use.agent.views import AgentOutput
@@ -88,6 +89,8 @@ def test_gemini_schema_retains_required_fields():
 
 	required_fields = set(schema['required'])
 	assert {'price', 'title'}.issubset(required_fields), 'Mandatory fields must stay required for Gemini.'
+
+
 def test_optimizer_treats_property_names_as_data_not_schema_keywords():
 	"""Nested fields named after schema keywords must still have their refs flattened."""
 
@@ -161,6 +164,47 @@ def test_vercel_gemini_schema_strips_title_under_property_named_properties():
 	assert cleaned['required'] == ['properties', 'title']
 
 
+def test_vercel_gemini_schema_preserves_properties_named_like_schema_keywords():
+	"""Fields named 'default' or 'additionalProperties' are data, not schema keywords."""
+	chat = ChatVercel(model='openai/gpt-4o', api_key='test')
+	schema = {
+		'type': 'object',
+		'properties': {
+			'default': {'type': 'string'},
+			'additionalProperties': {'type': 'string'},
+		},
+		'required': ['default', 'additionalProperties'],
+		'additionalProperties': False,
+	}
+
+	cleaned = chat._fix_gemini_schema(schema)
+
+	# The property names survive - only the schema keyword itself is dropped.
+	assert set(cleaned['properties']) == {'default', 'additionalProperties'}
+	assert cleaned['properties']['default'] == {'type': 'string'}
+	assert cleaned['properties']['additionalProperties'] == {'type': 'string'}
+	# 'required' must not reference properties that were dropped.
+	assert cleaned['required'] == ['default', 'additionalProperties']
+	assert set(cleaned['required']) == set(cleaned['properties'])
+	# The keyword form is still removed from the schema itself.
+	assert 'additionalProperties' not in {k for k in cleaned if k != 'properties'}
+
+
+def test_vercel_gemini_schema_keeps_properties_and_required_consistent_for_default_only_field():
+	"""A lone field named 'default' must not be replaced by a placeholder property."""
+	chat = ChatVercel(model='openai/gpt-4o', api_key='test')
+	schema = {
+		'type': 'object',
+		'properties': {'default': {'type': 'string'}},
+		'required': ['default'],
+	}
+
+	cleaned = chat._fix_gemini_schema(schema)
+
+	assert cleaned['properties'] == {'default': {'type': 'string'}}
+	assert cleaned['required'] == ['default']
+
+
 def _find_keys(node: Any, key: str) -> list[Any]:
 	"""Collect every occurrence of ``key`` anywhere in a nested schema fragment."""
 	found: list[Any] = []
@@ -175,8 +219,8 @@ def _find_keys(node: Any, key: str) -> list[Any]:
 	return found
 
 
-async def test_vercel_gemini_ainvoke_sends_cleaned_schema(monkeypatch):
-	"""ChatVercel.ainvoke must send the Gemini-cleaned schema, not the raw optimized one."""
+async def _ainvoke_prompt_schema(llm: ChatVercel, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+	"""Run ChatVercel.ainvoke and return the JSON schema it embedded in the prompt."""
 	captured: dict[str, Any] = {}
 
 	class FakeCompletions:
@@ -189,11 +233,9 @@ async def test_vercel_gemini_ainvoke_sends_cleaned_schema(monkeypatch):
 				usage=None,
 			)
 
-	llm = ChatVercel(model='google/gemini-2.5-flash', api_key='test-key')
 	monkeypatch.setattr(llm, 'get_client', lambda: SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions())))
 
 	result = await llm.ainvoke([SystemMessage(content='Extract the product info.')], output_format=VercelProduct)
-
 	assert result.completion.title == 'Widget'
 
 	prompt = next(
@@ -201,7 +243,13 @@ async def test_vercel_gemini_ainvoke_sends_cleaned_schema(monkeypatch):
 		for message in captured['messages']
 		if isinstance(message.get('content'), str) and SCHEMA_INSTRUCTION_MARKER in message['content']
 	)
-	schema = json.loads(prompt.split(SCHEMA_INSTRUCTION_MARKER, 1)[1])
+	return json.loads(prompt.split(SCHEMA_INSTRUCTION_MARKER, 1)[1])
+
+
+async def test_vercel_gemini_ainvoke_sends_cleaned_schema(monkeypatch):
+	"""ChatVercel.ainvoke must send the Gemini-cleaned schema, not the raw optimized one."""
+	llm = ChatVercel(model='google/gemini-2.5-flash', api_key='test-key')
+	schema = await _ainvoke_prompt_schema(llm, monkeypatch)
 
 	# Gemini rejects additionalProperties, and the only 'title' left may be the real field.
 	assert _find_keys(schema, 'additionalProperties') == []
@@ -211,3 +259,23 @@ async def test_vercel_gemini_ainvoke_sends_cleaned_schema(monkeypatch):
 		'properties': {'title': {'type': 'string'}, 'price': {'type': 'string'}},
 		'required': ['title', 'price'],
 	}
+
+
+async def test_vercel_anthropic_ainvoke_keeps_non_gemini_schema_keywords(monkeypatch):
+	"""The Gemini cleanup must not be applied to Anthropic, which accepts those keywords."""
+	llm = ChatVercel(model='anthropic/claude-sonnet-4-5', api_key='test-key')
+	schema = await _ainvoke_prompt_schema(llm, monkeypatch)
+
+	# Anthropic understands 'additionalProperties' and 'default', so they must survive.
+	assert schema['additionalProperties'] is False
+	assert 'additionalProperties' not in schema['properties']
+	assert _find_keys(schema, 'title') == [schema['properties']['title']]
+
+
+async def test_vercel_reasoning_ainvoke_keeps_non_gemini_schema_keywords(monkeypatch):
+	"""The Gemini cleanup must not be applied to non-Google reasoning models either."""
+	llm = ChatVercel(model='deepseek/deepseek-r1', api_key='test-key')
+	schema = await _ainvoke_prompt_schema(llm, monkeypatch)
+
+	assert schema['additionalProperties'] is False
+	assert _find_keys(schema, 'title') == [schema['properties']['title']]
