@@ -29,19 +29,39 @@ class TestChunkMarkdownBasic:
 		assert chunks[0].has_more is False
 
 	def test_chunk_offsets_cover_full_content(self):
-		"""Chunk offsets should cover the entire original content without gaps."""
+		"""Chunk offsets should tile the original content without overlaps or lost text.
+
+		Each chunk's [char_offset_start, char_offset_end) range must span exactly its own
+		`content`, and consecutive chunks must be separated by the single newline that
+		`'\\n'.join(...)` inserts between them. `extract()` hands these offsets to the model
+		as `next_start_char`/`truncated_at_char`, so an inflated range misreports where the
+		truncation happened.
+		"""
 		content = '# Header\n\nParagraph one.\n\n# Header 2\n\nParagraph two.'
 		chunks = chunk_markdown_by_structure(content, max_chunk_chars=20)
-		# Verify no gaps between consecutive chunks
-		for i in range(1, len(chunks)):
-			assert chunks[i].char_offset_start == chunks[i - 1].char_offset_end, (
-				f'Gap between chunk {i - 1} end ({chunks[i - 1].char_offset_end}) '
-				f'and chunk {i} start ({chunks[i].char_offset_start})'
+
+		# Every chunk's reported range spans exactly its own content.
+		for chunk in chunks:
+			assert chunk.char_offset_start + len(chunk.content) == chunk.char_offset_end, (
+				f'Chunk {chunk.chunk_index} reports [{chunk.char_offset_start},{chunk.char_offset_end}) '
+				f'for {len(chunk.content)} chars of content'
 			)
+
+		# Consecutive chunks are separated by exactly the one newline that joins them.
+		for i in range(1, len(chunks)):
+			separator = content[chunks[i - 1].char_offset_end : chunks[i].char_offset_start]
+			assert separator == '\n', (
+				f'Expected a single newline between chunk {i - 1} end ({chunks[i - 1].char_offset_end}) '
+				f'and chunk {i} start ({chunks[i].char_offset_start}), got {separator!r}'
+			)
+
 		# First chunk starts at 0
 		assert chunks[0].char_offset_start == 0
 		# Last chunk ends at content length
 		assert chunks[-1].char_offset_end == len(content)
+		# The chunks plus their separators account for the whole document, nothing lost.
+		covered = sum(len(c.content) for c in chunks) + (len(chunks) - 1)
+		assert covered == len(content), f'Chunks cover {covered} of {len(content)} chars'
 
 	def test_last_chunk_offset_equals_len_for_trailing_newline(self):
 		"""Content ending in a newline must report char_offset_end == len(content).
@@ -56,6 +76,112 @@ class TestChunkMarkdownBasic:
 			assert chunks[-1].char_offset_end == len(content), (
 				f'Expected last chunk to end at {len(content)}, got {chunks[-1].char_offset_end} for content {content!r}'
 			)
+
+
+# Documents used by the offset-integrity regression below. Each one exercises a
+# different block mix (headers, paragraphs, lists, tables, code fences, trailing
+# newlines) because the drift depends on how each block's last line is counted.
+_OFFSET_FIXTURES: dict[str, str] = {
+	'headers_and_paragraphs': '# Header\n\nParagraph one.\n\n## Header 2\n\nParagraph two.\n\n### Header 3\n\nParagraph three.',
+	'lists': '\n'.join([f'- item {i}' for i in range(40)]),
+	'table': '\n'.join(['| Name | Value |', '| --- | --- |'] + [f'| row{i} | val{i} |' for i in range(40)]),
+	'code_fences': '\n\n'.join([f'## Section {i}\n\n```python\nx = {i}\ny = {i * 2}\n```' for i in range(20)]),
+	'no_trailing_newline': '\n\n'.join([f'## Section {i}\n\nBody text for section {i}.' for i in range(30)]),
+	'trailing_newlines': '\n\n'.join([f'Body text {i}.' for i in range(30)]) + '\n\n\n',
+	'blank_line_heavy': '\n\n\n'.join([f'Paragraph {i}' for i in range(30)]),
+	'mixed': '\n\n'.join(
+		[f'## Section {i}\n\nParagraph body {i} with padding text.\n\n- bullet a{i}\n- bullet b{i}' for i in range(25)]
+	),
+}
+
+
+class TestChunkMarkdownOffsets:
+	"""`char_offset_start`/`char_offset_end` must describe the chunk's own content.
+
+	`extract()` publishes `chunk.char_offset_end` to the model as `truncated_at_char`
+	and `next_start_char` (browser_use/tools/service.py), so an inflated range makes
+	the reported truncation point fall one character past the text the model received.
+	"""
+
+	def test_chunk_span_matches_content_length(self):
+		"""Every chunk's reported span must equal the length of its own content."""
+		for name, content in _OFFSET_FIXTURES.items():
+			chunks = chunk_markdown_by_structure(content, max_chunk_chars=300)
+			for chunk in chunks:
+				assert chunk.char_offset_start + len(chunk.content) == chunk.char_offset_end, (
+					f'[{name}] chunk {chunk.chunk_index} reports '
+					f'[{chunk.char_offset_start},{chunk.char_offset_end}) '
+					f'({chunk.char_offset_end - chunk.char_offset_start} chars) '
+					f'for content of {len(chunk.content)} chars'
+				)
+
+	def test_offsets_slice_the_source_to_that_chunk(self):
+		"""Slicing the source at a chunk's offsets must reproduce that chunk's content."""
+		for name, content in _OFFSET_FIXTURES.items():
+			chunks = chunk_markdown_by_structure(content, max_chunk_chars=300)
+			for chunk in chunks:
+				sliced = content[chunk.char_offset_start : chunk.char_offset_end]
+				assert sliced == chunk.content, (
+					f'[{name}] chunk {chunk.chunk_index} offsets select {sliced!r} but content is {chunk.content!r}'
+				)
+
+	def test_no_offset_drift_across_the_document(self):
+		"""Chunks plus the single joining newline must account for every source char."""
+		for name, content in _OFFSET_FIXTURES.items():
+			chunks = chunk_markdown_by_structure(content, max_chunk_chars=300)
+			covered = sum(len(c.content) for c in chunks) + (len(chunks) - 1)
+			assert covered == len(content), f'[{name}] chunks cover {covered} of {len(content)} chars'
+			for i in range(1, len(chunks)):
+				gap = content[chunks[i - 1].char_offset_end : chunks[i].char_offset_start]
+				assert gap == '\n', (
+					f'[{name}] chunk {i - 1} ends at {chunks[i - 1].char_offset_end} and chunk {i} '
+					f'starts at {chunks[i].char_offset_start}, but the source between them is {gap!r}'
+				)
+			assert chunks[0].char_offset_start == 0
+			assert chunks[-1].char_offset_end == len(content)
+
+	def test_next_start_char_continues_at_the_next_chunk(self):
+		"""Paginating with the reported next_start_char lands on the following chunk."""
+		for name, content in _OFFSET_FIXTURES.items():
+			chunks = chunk_markdown_by_structure(content, max_chunk_chars=300)
+			if len(chunks) < 2:
+				continue
+			for chunk in chunks[:-1]:
+				# Exactly what extract() instructs the model to do next.
+				page = chunk_markdown_by_structure(content, max_chunk_chars=300, start_from_char=chunk.char_offset_end)
+				assert page, f'[{name}] start_from_char={chunk.char_offset_end} returned no chunk'
+				assert page[0].chunk_index == chunk.chunk_index + 1, (
+					f'[{name}] start_from_char={chunk.char_offset_end} (chunk {chunk.chunk_index} end) '
+					f'returned chunk {page[0].chunk_index} instead of {chunk.chunk_index + 1}'
+				)
+				assert page[0].char_offset_start == chunk.char_offset_start + len(chunk.content) + 1, (
+					f'[{name}] chunk {page[0].chunk_index} starts at {page[0].char_offset_start}, expected '
+					f'{chunk.char_offset_start + len(chunk.content) + 1}'
+				)
+
+	def test_chunks_stay_within_the_limit(self):
+		"""The separator newlines between blocks count towards max_chunk_chars.
+
+		Multi-block chunks used to be measured as the sum of their block texts,
+		so a chunk of many small blocks could exceed the limit by one char per
+		separator. A single oversized block stays a soft limit, as documented.
+		"""
+		# many small one-line blocks, whose separators alone exceed a small limit
+		content = '\n\n'.join(f'p{i}' for i in range(50))
+		limit = 30
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=limit)
+		assert chunks
+		for chunk in chunks:
+			assert len(chunk.content) <= limit, f'chunk {chunk.chunk_index} is {len(chunk.content)} chars, limit is {limit}'
+
+	def test_chunks_stay_within_the_limit_with_headers(self):
+		"""The header-preferred split is measured with the separators too."""
+		content = '\n\n'.join('# H' + str(i) + '\n\n' + 'x' * 10 for i in range(8))
+		limit = 60
+		chunks = chunk_markdown_by_structure(content, max_chunk_chars=limit)
+		assert len(chunks) > 1
+		for chunk in chunks:
+			assert len(chunk.content) <= limit, f'chunk {chunk.chunk_index} is {len(chunk.content)} chars, limit is {limit}'
 
 
 class TestChunkMarkdownHeaders:
