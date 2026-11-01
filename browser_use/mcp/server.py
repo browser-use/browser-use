@@ -528,6 +528,11 @@ class BrowserUseServer:
 			if not self.browser_session:
 				await self._init_browser_session()
 
+			# Every direct browser tool counts as session activity for the
+			# idle-timeout cleanup, regardless of which tool ran
+			if self.browser_session is not None:
+				self._update_session_activity(self.browser_session.id)
+
 			if tool_name == 'browser_navigate':
 				return await self._navigate(arguments['url'], arguments.get('new_tab', False))
 
@@ -758,7 +763,6 @@ class BrowserUseServer:
 			return 'Error: No browser session active'
 
 		# Update session activity
-		self._update_session_activity(self.browser_session.id)
 
 		from browser_use.browser.events import NavigateToUrlEvent
 
@@ -783,7 +787,6 @@ class BrowserUseServer:
 			return 'Error: No browser session active'
 
 		# Update session activity
-		self._update_session_activity(self.browser_session.id)
 
 		# Coordinate-based clicking
 		if coordinate_x is not None and coordinate_y is not None:
@@ -948,8 +951,6 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		self._update_session_activity(self.browser_session.id)
-
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=False)
 		if not cdp_session:
 			return 'Error: No active CDP session'
@@ -976,8 +977,6 @@ class BrowserUseServer:
 			return 'Error: No browser session active', None
 
 		import base64
-
-		self._update_session_activity(self.browser_session.id)
 
 		data = await self.browser_session.take_screenshot(full_page=full_page)
 		b64 = base64.b64encode(data).decode()
