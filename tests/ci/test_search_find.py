@@ -1,12 +1,16 @@
 """Tests for search_page and find_elements actions."""
 
 import asyncio
+import tempfile
 
 import pytest
 from pytest_httpserver import HTTPServer
 
+from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm import SystemMessage
 from browser_use.tools.service import Tools
 
 # --- Fixtures ---
@@ -160,6 +164,20 @@ async def _navigate_and_wait(tools, browser_session, url):
 	await asyncio.sleep(0.5)
 
 
+def _read_state_after(result: ActionResult) -> str:
+	"""Feed one action result through the MessageManager, as the agent does after a step.
+
+	Returns the read_state text the LLM is shown in the next step.
+	"""
+	manager = MessageManager(
+		task='test',
+		system_message=SystemMessage(content='system'),
+		file_system=FileSystem(tempfile.mkdtemp()),
+	)
+	manager._update_agent_history_description(model_output=None, result=[result], step_info=None)
+	return manager.state.read_state_description
+
+
 # --- search_page tests ---
 
 
@@ -286,6 +304,17 @@ class TestSearchPage:
 		assert 'Widget' in result.long_term_memory
 		assert 'match' in result.long_term_memory
 
+	async def test_matches_reach_the_llm(self, tools, browser_session, base_url):
+		"""The matches (not only the one-line summary) are shown to the LLM in the next step."""
+		await _navigate_and_wait(tools, browser_session, f'{base_url}/products')
+
+		result = await tools.search_page(pattern=r'\$\d+\.\d{2}', regex=True, browser_session=browser_session)
+
+		assert result.include_extracted_content_only_once is True
+		read_state = _read_state_after(result)
+		assert '$29.99' in read_state
+		assert '$99.00' in read_state
+
 
 # --- find_elements tests ---
 
@@ -410,6 +439,19 @@ class TestFindElements:
 		assert isinstance(result, ActionResult)
 		assert result.long_term_memory is not None
 		assert '4 element' in result.long_term_memory
+
+	async def test_elements_reach_the_llm(self, tools, browser_session, base_url):
+		"""The found elements (not only the count) are shown to the LLM in the next step."""
+		await _navigate_and_wait(tools, browser_session, f'{base_url}/articles')
+
+		result = await tools.find_elements(
+			selector='a.read-more', attributes=['href'], include_text=False, browser_session=browser_session
+		)
+
+		assert result.include_extracted_content_only_once is True
+		read_state = _read_state_after(result)
+		assert '/articles/python' in read_state
+		assert '/articles/css' in read_state
 
 	async def test_empty_page(self, tools, browser_session, base_url):
 		"""Works on a nearly empty page without errors."""
