@@ -1167,10 +1167,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return
 
 		compaction_llm = settings.compaction_llm or self.settings.page_extraction_llm or self.llm
+		# Compaction cadence persists across runs; the run-relative step_info does not.
+		compaction_step_info = (
+			AgentStepInfo(step_number=self.state.n_steps - 1, max_steps=step_info.max_steps) if step_info is not None else None
+		)
 		await self._message_manager.maybe_compact_messages(
 			llm=compaction_llm,
 			settings=settings,
-			step_info=step_info,
+			step_info=compaction_step_info,
 		)
 
 	@observe_debug(ignore_input=True, name='get_next_action')
@@ -2467,6 +2471,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		Returns:
 			bool: True if task is done, False otherwise
 		"""
+		step_count_before = self.state.n_steps
+
 		if on_step_start is not None:
 			await on_step_start(self)
 
@@ -2493,7 +2499,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.state.last_result = [ActionResult(error=error_msg)]
 			# Ensure step counter advances on timeout — _finalize() may have
 			# been skipped or returned early due to the cancellation.
-			if self.state.n_steps == step + 1:
+			if self.state.n_steps == step_count_before:
 				self.state.n_steps += 1
 
 		if on_step_end is not None:
@@ -2614,11 +2620,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			except Exception as e:
 				raise e
 
+			run_start_step = self.state.n_steps
 			self.logger.debug(
 				f'🔄 Starting main execution loop with max {max_steps} steps (currently at step {self.state.n_steps})...'
 			)
-			while self.state.n_steps <= max_steps:
-				current_step = self.state.n_steps - 1  # Convert to 0-indexed for step_info
+			while self.state.n_steps < run_start_step + max_steps:
+				current_step = self.state.n_steps - run_start_step
 
 				# Use the consolidated pause state management
 				if self.state.paused:
