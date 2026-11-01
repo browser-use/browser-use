@@ -444,9 +444,16 @@ class DOMWatchdog(BaseWatchdog):
 				title = 'Page'
 
 			# Get comprehensive page info from CDP with timeout
+			# Only dimensions measured for this request may survive the fallback below.
+			self.browser_session._original_viewport_size = None
 			try:
 				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Getting page info from CDP...')
-				page_info = await asyncio.wait_for(self._get_page_info(), timeout=1.0)
+				page_info = await asyncio.wait_for(
+					self._get_page_info(
+						include_screenshot_viewport=bool(self.browser_session.llm_screenshot_size and screenshot_b64)
+					),
+					timeout=1.0,
+				)
 				self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Got page info from CDP: {page_info}')
 			except Exception as e:
 				self.logger.debug(
@@ -466,6 +473,8 @@ class DOMWatchdog(BaseWatchdog):
 					pixels_left=0,
 					pixels_right=0,
 				)
+				if self.browser_session._original_viewport_size is None:
+					self.browser_session._original_viewport_size = (page_info.viewport_width, page_info.viewport_height)
 
 			# Check for PDF viewer
 			is_pdf_viewer = page_url.endswith('.pdf') or '/pdf/' in page_url
@@ -504,10 +513,6 @@ class DOMWatchdog(BaseWatchdog):
 
 			# Cache the state
 			self.browser_session._cached_browser_state_summary = browser_state
-
-			# Cache viewport size for coordinate conversion (if llm_screenshot_size is enabled)
-			if page_info:
-				self.browser_session._original_viewport_size = (page_info.viewport_width, page_info.viewport_height)
 
 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ COMPLETED - Returning browser state')
 			return browser_state
@@ -757,8 +762,8 @@ class DOMWatchdog(BaseWatchdog):
 
 		return pagination_buttons_data
 
-	async def _get_page_info(self) -> 'PageInfo':
-		"""Get comprehensive page information using a single CDP call.
+	async def _get_page_info(self, include_screenshot_viewport: bool = False) -> 'PageInfo':
+		"""Collect page information and optional screenshot dimensions in one CDP pass.
 
 		TODO: should we make this an event as well?
 
@@ -773,10 +778,42 @@ class DOMWatchdog(BaseWatchdog):
 			target_id=self.browser_session.agent_focus_target_id, focus=True
 		)
 
-		# Get layout metrics which includes all the information we need
-		metrics = await asyncio.wait_for(
+		async def get_screenshot_viewport() -> tuple[int, int] | None:
+			try:
+				# Screenshots include scrollbars, unlike layout clientWidth/clientHeight.
+				viewport_result = await asyncio.wait_for(
+					cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': '[window.innerWidth, window.innerHeight]', 'returnByValue': True},
+						session_id=cdp_session.session_id,
+					),
+					timeout=0.5,
+				)
+				viewport_size = viewport_result['result'].get('value')
+				if viewport_size and len(viewport_size) == 2 and all(dimension > 0 for dimension in viewport_size):
+					screenshot_viewport = int(viewport_size[0]), int(viewport_size[1])
+					# Keep this measurement even if layout metrics fail or the caller times out.
+					self.browser_session._original_viewport_size = screenshot_viewport
+					return screenshot_viewport
+			except Exception as e:
+				self.logger.debug(f'Failed to get screenshot viewport dimensions, using layout viewport: {e}')
+			return None
+
+		# Reuse the same session and overlap the queries within the existing page-info timeout.
+		layout_metrics_task = asyncio.wait_for(
 			cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=cdp_session.session_id), timeout=10.0
 		)
+		screenshot_viewport = None
+		if include_screenshot_viewport:
+			metrics, screenshot_viewport = await asyncio.gather(
+				layout_metrics_task, get_screenshot_viewport(), return_exceptions=True
+			)
+			# Wait for both queries before propagating a failure so the viewport can be retained.
+			if isinstance(metrics, BaseException):
+				raise metrics
+			if isinstance(screenshot_viewport, BaseException):
+				raise screenshot_viewport
+		else:
+			metrics = await layout_metrics_task
 
 		# Extract different viewport types
 		layout_viewport = metrics.get('layoutViewport', {})
@@ -795,6 +832,7 @@ class DOMWatchdog(BaseWatchdog):
 		# Prioritize CSS layout viewport, then fall back to layout viewport
 		viewport_width = int(css_layout_viewport.get('clientWidth') or layout_viewport.get('clientWidth', 1280))
 		viewport_height = int(css_layout_viewport.get('clientHeight') or layout_viewport.get('clientHeight', 720))
+		self.browser_session._original_viewport_size = screenshot_viewport or (viewport_width, viewport_height)
 
 		# For total page dimensions, content size is typically in device pixels, so convert to CSS pixels
 		# by dividing by device pixel ratio
