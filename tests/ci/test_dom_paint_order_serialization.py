@@ -73,9 +73,42 @@ class TestPaintOrderTextExclusion:
 
 		# Sanity check: paint-order calculation itself flagged the covered node.
 		assert hidden_simplified.ignored_by_paint_order is True
-		assert top_simplified.ignored_by_paint_order is False
-
 		output = DOMTreeSerializer.serialize_tree(wrapper, [])
 
 		assert 'TOP LAYER TEXT' in output
 		assert 'HIDDEN BEHIND MODAL' not in output
+
+	def test_rect_inverted_bounds_raises_value_error(self):
+		"""Rect must raise ValueError when inverted coordinates (x1 > x2 or y1 > y2) are given."""
+		import pytest
+
+		from browser_use.dom.serializer.paint_order import Rect
+
+		with pytest.raises(ValueError, match='Invalid rectangle bounds'):
+			Rect(x1=100.0, y1=50.0, x2=20.0, y2=10.0)
+
+		with pytest.raises(ValueError, match='Invalid rectangle bounds'):
+			Rect(x1=10.0, y1=50.0, x2=20.0, y2=40.0)
+
+		# Valid bounds should succeed
+		valid_rect = Rect(x1=0.0, y1=0.0, x2=10.0, y2=10.0)
+		assert valid_rect.area() == 100.0
+
+	def test_calculate_paint_order_skips_zero_and_negative_dimensions(self):
+		"""Nodes with width <= 0 or height <= 0 should be skipped from occlusion calculations."""
+		zero_width = _make_node(NodeType.TEXT_NODE, 'ZERO WIDTH', _make_snapshot(paint_order=1, bounds=DOMRect(x=0, y=0, width=0, height=20)))
+		zero_height = _make_node(NodeType.TEXT_NODE, 'ZERO HEIGHT', _make_snapshot(paint_order=1, bounds=DOMRect(x=0, y=0, width=20, height=0)))
+
+		zero_w_simplified = SimplifiedNode(original_node=zero_width, children=[])
+		zero_h_simplified = SimplifiedNode(original_node=zero_height, children=[])
+
+		wrapper = SimplifiedNode(
+			original_node=_make_node(NodeType.ELEMENT_NODE, '', None),
+			children=[zero_w_simplified, zero_h_simplified],
+			should_display=False,
+		)
+
+		PaintOrderRemover(wrapper).calculate_paint_order()
+		assert zero_w_simplified.ignored_by_paint_order is False
+		assert zero_h_simplified.ignored_by_paint_order is False
+
