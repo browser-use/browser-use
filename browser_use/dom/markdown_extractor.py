@@ -225,6 +225,13 @@ def _parse_atomic_blocks(content: str) -> list[_AtomicBlock]:
 	i = 0
 	offset = 0  # char offset tracking
 
+	# A trailing newline makes split() yield a final empty element that has no
+	# character behind it in the source. Counting its length would push offsets
+	# past the end of the content and leave a zero-width block behind, which then
+	# becomes its own chunk and advertises has_more for content already returned.
+	if lines and not lines[-1]:
+		lines.pop()
+
 	while i < len(lines):
 		line = lines[i]
 		line_len = len(line) + 1  # +1 for the newline we split on
@@ -489,9 +496,9 @@ def chunk_markdown_by_structure(
 	prev_chunk_last_table_header: str | None = None
 
 	for idx, chunk_blocks in enumerate(raw_chunks):
-		chunk_text = '\n'.join(_block_text(b) for b in chunk_blocks)
 		char_start = chunk_blocks[0].char_start
 		char_end = chunk_blocks[-1].char_end
+		chunk_text = content[char_start:char_end]
 
 		# Build overlap prefix
 		overlap = ''
