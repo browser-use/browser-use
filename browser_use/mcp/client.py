@@ -25,7 +25,7 @@ Example usage:
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Any, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -478,71 +478,100 @@ class MCPClient:
 
 		# Handle enums (they're still strings)
 		if 'enum' in schema:
-			return str
+			is_nullable = (
+				schema.get('nullable', False) or (isinstance(json_type, list) and 'null' in json_type) or json_type == 'null'
+			)
+			return Optional[str] if is_nullable else str
 
-		# Handle objects with nested properties
-		if json_type == 'object':
-			properties = schema.get('properties', {})
-			if properties:
-				# Create nested pydantic model for objects with properties
-				nested_fields = {}
-				required_fields = set(schema.get('required', []))
+		def _map_single_type(single_type: str) -> Any:
+			# Handle objects with nested properties
+			if single_type == 'object':
+				properties = schema.get('properties', {})
+				if properties:
+					# Create nested pydantic model for objects with properties
+					nested_fields = {}
+					required_fields = set(schema.get('required', []))
 
-				for prop_name, prop_schema in properties.items():
-					# Recursively process nested properties
-					prop_type = self._json_schema_to_python_type(prop_schema, f'{model_name}_{prop_name}')
+					for prop_name, prop_schema in properties.items():
+						# Recursively process nested properties
+						prop_type = self._json_schema_to_python_type(prop_schema, f'{model_name}_{prop_name}')
 
-					# Determine if field is required and handle defaults
-					if prop_name in required_fields:
-						default = ...  # Required field
-					else:
-						# Optional field - make type optional and handle default
-						prop_type = prop_type | None
-						if 'default' in prop_schema:
-							default = prop_schema['default']
+						# Determine if field is required and handle defaults
+						if prop_name in required_fields:
+							default = ...  # Required field
 						else:
-							default = None
+							# Optional field - make type optional and handle default
+							prop_type = prop_type | None
+							if 'default' in prop_schema:
+								default = prop_schema['default']
+							else:
+								default = None
 
-					# Add field with description if available
-					field_kwargs = {}
-					if 'description' in prop_schema:
-						field_kwargs['description'] = prop_schema['description']
+						# Add field with description if available
+						field_kwargs = {}
+						if 'description' in prop_schema:
+							field_kwargs['description'] = prop_schema['description']
 
-					nested_fields[prop_name] = (prop_type, Field(default, **field_kwargs))
+						nested_fields[prop_name] = (prop_type, Field(default, **field_kwargs))
 
-				# Create a BaseModel class with proper configuration
-				class ConfiguredBaseModel(BaseModel):
-					model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
+					# Create a BaseModel class with proper configuration
+					class ConfiguredBaseModel(BaseModel):
+						model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
-				try:
-					# Create and return nested pydantic model
-					return create_model(model_name, __base__=ConfiguredBaseModel, **nested_fields)
-				except Exception as e:
-					logger.error(f'Failed to create nested model {model_name}: {e}')
-					logger.debug(f'Fields: {nested_fields}')
-					# Fallback to basic dict if model creation fails
+					try:
+						# Create and return nested pydantic model
+						return create_model(model_name, __base__=ConfiguredBaseModel, **nested_fields)  # type: ignore[call-overload]
+					except Exception as e:
+						logger.error(f'Failed to create nested model {model_name}: {e}')
+						logger.debug(f'Fields: {nested_fields}')
+						# Fallback to basic dict if model creation fails
+						return dict
+				else:
+					# Object without properties - just return dict
 					return dict
-			else:
-				# Object without properties - just return dict
-				return dict
 
-		# Handle arrays with specific item types
-		if json_type == 'array':
-			if 'items' in schema:
-				# Get the item type recursively
-				item_type = self._json_schema_to_python_type(schema['items'], f'{model_name}_item')
-				# Return properly typed list
-				return list[item_type]
-			else:
-				# Array without item type specification
-				return list
+			# Handle arrays with specific item types
+			if single_type == 'array':
+				if 'items' in schema:
+					# Get the item type recursively
+					item_type = self._json_schema_to_python_type(schema['items'], f'{model_name}_item')
+					# Return properly typed list
+					return list[item_type]  # type: ignore[valid-type]
+				else:
+					# Array without item type specification
+					return list
 
-		# Get base type for non-object types
-		base_type = type_mapping.get(json_type, str)
+			if single_type == 'null':
+				return type(None)
+
+			return type_mapping.get(single_type, str)
+
+		# Handle type arrays (e.g. ["string", "null"] or ["string", "number"])
+		if isinstance(json_type, list):
+			unique_types = list(dict.fromkeys(json_type))
+			non_null_types = [t for t in unique_types if t != 'null']
+			has_null = 'null' in unique_types or schema.get('nullable', False)
+
+			if has_null and len(non_null_types) == 1:
+				mapped_type = _map_single_type(non_null_types[0])
+				return Optional[mapped_type]
+
+			mapped_types = [_map_single_type(t) for t in unique_types]
+			if schema.get('nullable', False) and type(None) not in mapped_types:
+				mapped_types.append(type(None))
+
+			if len(mapped_types) == 1:
+				res = mapped_types[0]
+				return Optional[res] if schema.get('nullable', False) else res
+
+			return Union[tuple(mapped_types)]
+
+		# Handle string json_type
+		base_type = _map_single_type(json_type)
 
 		# Handle nullable/optional types
 		if schema.get('nullable', False) or json_type == 'null':
-			return base_type | None
+			return Optional[base_type] if base_type is not type(None) else type(None)
 
 		return base_type
 
