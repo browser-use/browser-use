@@ -400,6 +400,109 @@ def test_sensitive_data_filtered_from_action_results():
 	)
 
 
+def test_state_message_history_snapshot_redacted(tmp_path):
+	"""
+	The history snapshot (`last_state_message_text`) must be redacted the same way
+	as the message actually sent to the LLM.
+
+	The snapshot flows into AgentHistory.state_message via Agent._make_history_item,
+	and AgentHistoryList.save_to_file writes that field verbatim to the history JSON
+	(its sensitive_data filtering only covers action input parameters). Storing the
+	snapshot before the in-place redaction performed by _set_message_with_type leaks
+	the plaintext values to disk.
+	"""
+	import os
+	import tempfile
+	import uuid
+
+	base_tmp = tempfile.gettempdir()
+	file_system_path = os.path.join(base_tmp, str(uuid.uuid4()))
+
+	sensitive_data: dict[str, str | dict[str, str]] = {'username': 'admin_user', 'password': 'secret_pass123'}
+
+	message_manager = MessageManager(
+		task='Login to the website',
+		system_message=SystemMessage(content='You are a browser automation agent'),
+		state=MessageManagerState(),
+		file_system=FileSystem(file_system_path),
+		sensitive_data=sensitive_data,
+	)
+
+	dom_state = SerializedDOMState(_root=None, selector_map={})
+	browser_state = BrowserStateSummary(
+		dom_state=dom_state,
+		url='https://example.com/login',
+		title='Login Page',
+		tabs=[],
+	)
+
+	action_results = [
+		ActionResult(
+			long_term_memory="Successfully typed 'secret_pass123' into the password field",
+			error=None,
+		)
+	]
+
+	model_output = AgentOutput(
+		evaluation_previous_goal='Navigated to login page',
+		memory='On login page, need to enter credentials',
+		next_goal='Submit login form',
+		action=[],
+	)
+
+	step_info = AgentStepInfo(step_number=1, max_steps=10)
+
+	message_manager.create_state_messages(
+		browser_state_summary=browser_state,
+		model_output=model_output,
+		result=action_results,
+		step_info=step_info,
+		use_vision=False,
+	)
+
+	assert message_manager.last_state_message_text is not None
+
+	# The snapshot persisted to history must not contain the plaintext password
+	assert 'secret_pass123' not in message_manager.last_state_message_text, (
+		'Sensitive data leaked! Real password value found in the history snapshot '
+		'(last_state_message_text), which is written verbatim to the history JSON file.'
+	)
+
+	# The redacted placeholder should be present, proving filtering happened
+	assert '<secret>password</secret>' in message_manager.last_state_message_text, (
+		'Expected <secret>password</secret> placeholder in the history snapshot.'
+	)
+
+	# The snapshot must match the text actually sent to the LLM
+	state_message_in_history = message_manager.state.history.state_message
+	assert state_message_in_history is not None
+	assert message_manager.last_state_message_text == state_message_in_history.text
+
+	# End-to-end through the persistence path: the snapshot is what
+	# Agent._make_history_item stores as AgentHistory.state_message, and
+	# save_to_file writes that field verbatim (its sensitive_data filter only
+	# covers action input parameters). The saved history JSON must therefore
+	# not contain the plaintext secret.
+	from browser_use.agent.views import AgentHistory, AgentHistoryList
+	from browser_use.browser.views import BrowserStateHistory
+
+	history_item = AgentHistory(
+		model_output=None,
+		result=[],
+		state=BrowserStateHistory(url='https://example.com/login', title='Login Page', tabs=[], interacted_element=[None]),
+		state_message=message_manager.last_state_message_text,
+	)
+	history = AgentHistoryList(history=[history_item])
+	history.save_to_file(tmp_path / 'history.json', sensitive_data=sensitive_data)
+	saved = (tmp_path / 'history.json').read_text(encoding='utf-8')
+
+	assert 'secret_pass123' not in saved, (
+		'Sensitive data leaked! The plaintext password reached the saved history JSON '
+		'via AgentHistory.state_message, which save_to_file writes without filtering.'
+	)
+	assert '<secret>password</secret>' in saved
+
+
 def test_sensitive_data_filtered_with_domain_specific_format():
 	"""Test that domain-specific sensitive data format is also filtered from action results."""
 	import os

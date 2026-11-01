@@ -501,11 +501,15 @@ class MessageManager:
 			plan_description=plan_description,
 		).get_user_message(effective_use_vision)
 
-		# Store state message text for history
-		self.last_state_message_text = state_message.text
-
-		# Set the state message with caching enabled
+		# Set the state message with caching enabled. For 'state' messages this may
+		# redact sensitive values in place, so the history snapshot below must be
+		# taken after it to capture the redacted text.
 		self._set_message_with_type(state_message, 'state')
+
+		# Store state message text for history. This snapshot flows into
+		# AgentHistory.state_message, which save_to_file writes to disk without
+		# further sensitive-data filtering, so it must match the redacted message.
+		self.last_state_message_text = state_message.text
 
 	def _log_history_lines(self) -> str:
 		"""Generate a formatted log string of message history for debugging / printing to terminal"""
