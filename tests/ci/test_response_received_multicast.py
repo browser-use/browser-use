@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, Mock
 
 from cdp_use.cdp.network.events import RequestWillBeSentEvent
 
-from browser_use.browser.events import BrowserConnectedEvent, BrowserStoppedEvent, BrowserStopEvent
+from browser_use.browser.events import BrowserConnectedEvent, BrowserStopEvent, BrowserStoppedEvent
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from browser_use.browser.session_manager import SessionManager
