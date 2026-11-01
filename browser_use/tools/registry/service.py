@@ -196,8 +196,10 @@ class Registry(Generic[Context]):
 						# Use the param_model which has the correct types defined
 						params = param_model(**action_kwargs)
 
-			# Build call_args by iterating through original function parameters in order
-			params_dict = params.model_dump() if params is not None else {}
+			# Build call_args by iterating through original function parameters in order.
+			# Read field values directly instead of model_dump() so parameters annotated with
+			# pydantic models (or lists of them) receive the validated objects, not plain dicts.
+			params_dict = {name: getattr(params, name) for name in type(params).model_fields} if params is not None else {}
 
 			for i, param in enumerate(parameters):
 				# Skip first param for Type 1 pattern (it's the model itself)
