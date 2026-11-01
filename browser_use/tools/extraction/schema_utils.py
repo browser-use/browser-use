@@ -46,6 +46,22 @@ def _check_unsupported(schema: dict) -> None:
 			raise ValueError(f'Unsupported JSON Schema keyword: {kw}')
 
 
+def _split_type_array(schema: dict) -> tuple[list[Any], bool]:
+	"""Normalize a schema's ``type`` field into ``(non-null member types, nullable)``.
+
+	Handles the standard JSON Schema form ``"type": ["string", "null"]`` and
+	browser-use's proprietary ``nullable`` flag through one code path so
+	``_resolve_type`` and ``_build_model`` cannot disagree on the interpretation.
+	"""
+	raw_type = schema.get('type', 'string')
+	nullable = bool(schema.get('nullable', False))
+	if isinstance(raw_type, list):
+		non_null = [t for t in raw_type if t != 'null']
+		nullable = nullable or 'null' in raw_type
+		return non_null, nullable
+	return [raw_type], nullable
+
+
 def _resolve_type(schema: dict, name: str) -> Any:
 	"""Recursively resolve a JSON Schema node to a Python type.
 
@@ -54,6 +70,23 @@ def _resolve_type(schema: dict, name: str) -> Any:
 	_check_unsupported(schema)
 
 	json_type = schema.get('type', 'string')
+
+	# JSON Schema type arrays (e.g. ["string", "null"]) — standard nullable-union
+	# form. Resolve each member type, then join them into a union ("null"
+	# contributes NoneType). Checked before 'enum' so a node combining a
+	# nullable type array with an enum ({"type": ["string", "null"], "enum":
+	# [...]}) still honors nullability — members keep the enum handling below.
+	if isinstance(json_type, list):
+		non_null, nullable = _split_type_array(schema)
+		if not non_null:
+			return type(None)
+		members = [_resolve_type({**schema, 'type': t, 'nullable': False}, name) for t in non_null]
+		if nullable:
+			members.append(type(None))
+		resolved = members[0]
+		for member in members[1:]:
+			resolved = resolved | member
+		return resolved
 
 	# Enums — constrain to str (Literal would be stricter but LLMs are flaky)
 	if 'enum' in schema:
@@ -103,22 +136,33 @@ def _build_model(schema: dict, name: str) -> type[BaseModel]:
 	for prop_name, prop_schema in properties.items():
 		prop_type = _resolve_type(prop_schema, f'{name}_{prop_name}')
 
+		# Normalize the type field (type arrays and the proprietary nullable flag
+		# share one helper with _resolve_type) so the default-selection logic
+		# below cannot disagree with the resolved annotation.
+		non_null_types, nullable = _split_type_array(prop_schema)
+		json_type = non_null_types[0] if non_null_types else 'null'
+		is_multi_union = len(non_null_types) > 1
+
 		if prop_name in required_fields:
 			default = ...
 		elif 'default' in prop_schema:
 			default = prop_schema['default']
-		elif prop_schema.get('nullable', False):
+		elif nullable or not non_null_types:
 			# _resolve_type already made the type include None
 			default = None
 		else:
 			# Non-required, non-nullable, no explicit default.
 			# Use a type-appropriate zero value for primitives/arrays;
-			# fall back to None (with | None) for enums and nested objects
-			# where no in-set or constructible default exists.
-			json_type = prop_schema.get('type', 'string')
+			# fall back to None (with | None) for enums, unions and nested
+			# objects where no in-set or constructible default exists.
 			if 'enum' in prop_schema:
 				# Can't pick an arbitrary enum member as default — use None
 				# so absent fields serialize as null, not an out-of-set value.
+				prop_type = prop_type | None
+				default = None
+			elif is_multi_union:
+				# Member order in a type array is not semantic — don't key the
+				# default off whichever primitive happens to come first.
 				prop_type = prop_type | None
 				default = None
 			elif json_type in _PRIMITIVE_DEFAULTS:
