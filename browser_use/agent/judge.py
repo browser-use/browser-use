@@ -108,7 +108,7 @@ The ground truth takes ABSOLUTE precedence over all other evaluation criteria. I
 <evaluation_framework>
 {ground_truth_section}
 **PRIMARY EVALUATION CRITERIA (in order of importance):**
-1. **Task Satisfaction (Most Important)**: Did the agent accomplish what the user asked for? Break down the task into the key criteria and evaluate if the agent all of them. Focus on user intent and final outcome.
+1. **Task Satisfaction (Most Important)**: Did the agent accomplish what the user asked for? Break down the task into the key criteria and evaluate if the agent met all of them. Focus on user intent and final outcome.
 2. **Output Quality**: Is the final result in the correct format and complete? Does it match exactly what was requested?
 3. **Tool Effectiveness**: Did the browser interactions work as expected? Were tools used appropriately? How many % of the tools failed? 
 4. **Agent Reasoning**: Quality of decision-making, planning, and problem-solving throughout the trajectory. 
