@@ -27,11 +27,17 @@ class RecordingWatchdog(BaseWatchdog):
 	_recorder: VideoRecorderService | None = PrivateAttr(default=None)
 	_current_session_id: str | None = PrivateAttr(default=None)
 	_screencast_params: dict[str, Any] | None = PrivateAttr(default=None)
+	_last_recording_path: Path | None = PrivateAttr(default=None)
 
 	async def on_BrowserConnectedEvent(self, event: BrowserConnectedEvent) -> None:
 		"""
 		Starts video recording if it is configured in the browser profile.
 		"""
+		# A connection event starts a new recording lifecycle. Do not let a previously
+		# finalized path survive if this run has recording disabled or cannot start.
+		if self._recorder is None:
+			self._last_recording_path = None
+
 		profile = self.browser_session.browser_profile
 		if not profile.record_video_dir:
 			return
@@ -60,6 +66,9 @@ class RecordingWatchdog(BaseWatchdog):
 		"""
 		if self._recorder is not None:
 			raise RuntimeError(f'Recording already in progress (output: {self._recorder.output_path})')
+		# Starting a new attempt invalidates the previous run's finalized path, even if
+		# this attempt fails during viewport detection or writer initialization.
+		self._last_recording_path = None
 
 		if size is None:
 			self.logger.debug('record size not specified, detecting viewport size...')
@@ -114,13 +123,47 @@ class RecordingWatchdog(BaseWatchdog):
 
 		output_path = recorder.output_path
 		loop = asyncio.get_event_loop()
-		await loop.run_in_executor(None, recorder.stop_and_save)
-		return output_path
+		finalization_ok = False
+		try:
+			finalization_ok = await loop.run_in_executor(None, recorder.stop_and_save)
+		except Exception as e:
+			self.logger.error(f'Recording finalization failed: {e}')
+
+		# The recorder reports whether its writer closed successfully; also require a
+		# non-empty file before exposing the path.
+		try:
+			output_exists = output_path.is_file()
+			output_size = output_path.stat().st_size if output_exists else 0
+		except OSError as e:
+			self.logger.warning(f'Could not validate finalized recording {output_path}: {e}')
+			output_exists = False
+			output_size = 0
+
+		if finalization_ok and output_exists and output_size > 0:
+			self._last_recording_path = output_path
+		else:
+			if not finalization_ok:
+				self.logger.warning(f'Recording finalization failed; discarding path {output_path}')
+			elif not output_exists:
+				self.logger.warning(f'Recording file not found after finalization: {output_path}')
+			else:
+				self.logger.warning(f'Recording file is empty after finalization: {output_path}')
+		return self._last_recording_path
 
 	@property
 	def is_recording(self) -> bool:
 		"""Whether a recording is currently in progress."""
 		return self._recorder is not None
+
+	@property
+	def recording_path(self) -> Path | None:
+		"""
+		The active recording path if recording is in progress, or the finalized
+		recording path after recording has stopped. Returns None if no recording has occurred.
+		"""
+		if self._recorder is not None:
+			return self._recorder.output_path
+		return self._last_recording_path
 
 	async def on_AgentFocusChangedEvent(self, event: AgentFocusChangedEvent) -> None:
 		"""
