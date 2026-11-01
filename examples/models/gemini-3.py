@@ -16,7 +16,7 @@ if not api_key:
 
 
 async def run_search():
-	llm = ChatGoogle(model='gemini-3-pro-preview', api_key=api_key)
+	llm = ChatGoogle(model='gemini-3.1-pro-preview', api_key=api_key)
 
 	agent = Agent(
 		llm=llm,
