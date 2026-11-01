@@ -408,6 +408,7 @@ class Base64BinaryFile(BaseFile):
 		'jpg': (b'\xff\xd8\xff',),
 		'jpeg': (b'\xff\xd8\xff',),
 		'webp': (b'RIFF',),  # RIFF container; 'WEBP' tag checked below
+		'pdf': (b'%PDF-',),
 	}
 
 	def _decoded(self) -> bytes:
@@ -466,6 +467,19 @@ class PngFile(Base64BinaryFile):
 	@property
 	def extension(self) -> str:
 		return 'png'
+
+
+class RawPdfFile(Base64BinaryFile):
+	"""A page the browser rendered to PDF (raw bytes), e.g. the save_as_pdf action.
+
+	Distinct from PdfFile, which renders agent-authored markdown to a PDF.
+	write_file keeps mapping `.pdf` to PdfFile, so raw pages register under this
+	class directly instead of going through extension dispatch.
+	"""
+
+	@property
+	def extension(self) -> str:
+		return 'pdf'
 
 
 class GifFile(Base64BinaryFile):

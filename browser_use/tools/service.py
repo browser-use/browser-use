@@ -5,8 +5,6 @@ import math
 import os
 from typing import Generic, TypeVar
 
-import anyio
-
 try:
 	from lmnr import Laminar  # type: ignore
 except ImportError:
@@ -31,7 +29,7 @@ from browser_use.browser.events import (
 )
 from browser_use.browser.views import BrowserError
 from browser_use.dom.service import EnhancedDOMTreeNode
-from browser_use.filesystem.file_system import FileSystem
+from browser_use.filesystem.file_system import FileSystem, RawPdfFile
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
@@ -1651,19 +1649,27 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				file_name = f'{file_name}.pdf'
 			file_name = FileSystem.sanitize_filename(file_name)
 
-			file_path = file_system.get_dir() / file_name
-			# Handle duplicate filenames
-			if file_path.exists():
+			# Handle duplicate filenames — check both the registry and disk so the
+			# two sources of truth can never disagree
+			if file_name in file_system.files or (file_system.get_dir() / file_name).exists():
 				base, ext = os.path.splitext(file_name)
 				counter = 1
-				while (file_system.get_dir() / f'{base} ({counter}){ext}').exists():
+				while (
+					f'{base} ({counter}){ext}' in file_system.files
+					or (file_system.get_dir() / f'{base} ({counter}){ext}').exists()
+				):
 					counter += 1
 				file_name = f'{base} ({counter}){ext}'
-				file_path = file_system.get_dir() / file_name
 
-			async with await anyio.open_file(file_path, 'wb') as f:
-				await f.write(pdf_bytes)
+			# Register through the FileSystem (validates the %PDF magic and syncs
+			# to disk) so read_file / list_files / describe / upload_file /
+			# done(files_to_display=...) can resolve the saved page. Writing the
+			# bytes directly left an orphan the registry never knew about.
+			file_obj = RawPdfFile(name=os.path.splitext(file_name)[0])
+			await file_obj.write(base64.b64encode(pdf_bytes).decode('utf-8'), file_system.get_dir())
+			file_system.files[file_name] = file_obj
 
+			file_path = file_system.get_dir() / file_name
 			file_size = file_path.stat().st_size
 			msg = f'Saved page as PDF: {file_name} ({file_size:,} bytes)'
 			logger.info(f'📄 {msg}. Full path: {file_path}')
