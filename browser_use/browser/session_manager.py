@@ -642,6 +642,12 @@ class SessionManager:
 		Args:
 			crashed_target_id: The target ID that was lost
 		"""
+		# Only the task that created the recovery state (the owner) may reset it in
+		# the finally block below. A concurrent waiter that times out must leave the
+		# owner's state untouched, otherwise it would signal completion early and
+		# allow a second recovery (e.g. a duplicate emergency tab) to start while
+		# the owner is still recovering.
+		owns_recovery_state = False
 		try:
 			# Prevent concurrent recovery attempts
 			async with self._recovery_lock:
@@ -659,6 +665,7 @@ class SessionManager:
 				# Set recovery state
 				self._recovery_in_progress = True
 				self._recovery_complete_event = asyncio.Event()
+				owns_recovery_state = True
 
 				if self.browser_session._cdp_client_root is None:
 					self.logger.debug('[SessionManager] Skipping focus recovery - browser shutting down (no CDP client)')
@@ -775,11 +782,14 @@ class SessionManager:
 		finally:
 			# Always signal completion and reset recovery state
 			# This allows all waiting operations to proceed (success or failure)
-			if self._recovery_complete_event:
-				self._recovery_complete_event.set()
-			self._recovery_in_progress = False
-			self._recovery_task = None
-			self.logger.debug('[SessionManager] Recovery state reset')
+			# Only the owner may do this - a timed-out waiter must not reset the
+			# state of a recovery that is still running.
+			if owns_recovery_state:
+				if self._recovery_complete_event:
+					self._recovery_complete_event.set()
+				self._recovery_in_progress = False
+				self._recovery_task = None
+				self.logger.debug('[SessionManager] Recovery state reset')
 
 	async def _initialize_existing_targets(self) -> None:
 		"""Discover and initialize all existing targets at startup.
