@@ -76,6 +76,26 @@ def sanitize_url_candidate(url: str) -> str:
 	return candidate[:end]
 
 
+def split_trailing_wrapper_brackets(url: str) -> tuple[str, str]:
+	"""Split unbalanced trailing closing brackets off a URL match.
+
+	Markdown links like ``[label](url)`` let the link's closing ``)`` into
+	URL_PATTERN matches; a URL that opened the bracket itself
+	(``/wiki/Python_(programming_language)``) keeps it. Returns ``(url, tail)``
+	where ``tail`` must be re-appended after processing the URL.
+	"""
+	bracket_counts = {bracket: url.count(bracket) for bracket in '()[]'}
+	end = len(url)
+	while end:
+		last_char = url[end - 1]
+		opening_bracket = _CLOSING_TO_OPENING_BRACKET.get(last_char)
+		if opening_bracket is None or bracket_counts[last_char] <= bracket_counts[opening_bracket]:
+			break
+		bracket_counts[last_char] -= 1
+		end -= 1
+	return url[:end], url[end:]
+
+
 def has_url_negation(context: str) -> bool:
 	"""Return whether nearby prose explicitly negates navigation to a URL."""
 	return URL_NEGATION_PATTERN.search(context) is not None

@@ -81,6 +81,7 @@ from browser_use.utils import (
 	has_url_negation,
 	is_placeholder_url,
 	sanitize_url_candidate,
+	split_trailing_wrapper_brackets,
 	time_execution_async,
 	time_execution_sync,
 )
@@ -1797,7 +1798,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			"""Url can only have 1 query and 1 fragment"""
 			import hashlib
 
-			original_url = match.group(0)
+			original_match = match.group(0)
+			# The catch-all branch of URL_PATTERN can swallow markdown structure
+			# like `[label](` into the match. Cut the match at the first real URL
+			# start and keep the discarded prefix verbatim; then strip unbalanced
+			# trailing brackets (a markdown link's closing paren) and re-append
+			# them, so the message keeps its markdown shape and the hash covers
+			# only the real URL. A URL that opened the bracket itself keeps it.
+			head = ''
+			scheme_start = re.search(r'https?://|www\.', original_match)
+			if scheme_start and scheme_start.start() > 0:
+				head = original_match[: scheme_start.start()]
+				original_match = original_match[scheme_start.start() :]
+			original_url, tail = split_trailing_wrapper_brackets(original_match)
 
 			# Find where the query/fragment starts
 			query_start = original_url.find('?')
@@ -1816,7 +1829,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# If after_path is within the limit, don't shorten
 			if len(after_path) <= self._url_shortening_limit:
-				return original_url
+				return head + original_url + tail
 
 			# If after_path is too long, truncate and add hash
 			if after_path:
@@ -1829,9 +1842,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Only use shortened URL if it's actually shorter than the original
 				if len(shortened) < len(original_url):
 					replaced_urls[shortened] = original_url
-					return shortened
+					return head + shortened + tail
 
-			return original_url
+			return head + original_url + tail
 
 		return URL_PATTERN.sub(replace_url, text), replaced_urls
 
