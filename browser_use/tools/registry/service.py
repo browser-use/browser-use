@@ -68,6 +68,7 @@ class Registry(Generic[Context]):
 			'page_extraction_llm': BaseChatModel,
 			'available_file_paths': list,
 			'has_sensitive_data': bool,
+			'sensitive_data': None,  # dict | None, skip type validation
 			'file_system': FileSystem,
 			'extraction_schema': None,  # dict | None, skip type validation
 		}
@@ -374,9 +375,10 @@ class Registry(Generic[Context]):
 				'extraction_schema': extraction_schema,
 			}
 
-			# Only pass sensitive_data to actions that explicitly need it (input)
-			if action_name == 'input':
-				special_context['sensitive_data'] = sensitive_data
+			# Injected into special_context unconditionally: the normalized
+			# wrapper only forwards special params an action actually declares,
+			# so actions without a sensitive_data parameter never see it.
+			special_context['sensitive_data'] = sensitive_data
 
 			# Add CDP-related parameters if browser_session is available
 			if browser_session:
