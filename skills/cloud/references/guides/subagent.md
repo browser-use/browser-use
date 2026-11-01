@@ -76,7 +76,7 @@ browser-use cloud v2 POST /tasks '{
 **For:** LangChain, CrewAI, AutoGen, PydanticAI, Semantic Kernel, or custom Python agents. Uses the Cloud SDK — no local browser needed.
 
 ```python
-from browser_use_sdk import AsyncBrowserUse
+from browser_use_sdk.v2 import AsyncBrowserUse
 from pydantic import BaseModel
 
 client = AsyncBrowserUse()
@@ -111,7 +111,7 @@ await client.sessions.stop(str(session.id))
 **For:** Vercel AI SDK, LangChain.js, or custom TypeScript agents.
 
 ```typescript
-import { BrowserUse } from "browser-use-sdk";
+import { BrowserUse } from "browser-use-sdk/v2"; // SDK 4.0+; on 3.x import from "browser-use-sdk"
 import { z } from "zod";
 
 const client = new BrowserUse();
@@ -214,7 +214,8 @@ Or use webhooks for event-driven workflows (see `../features.md`).
 ### Error handling
 
 ```python
-from browser_use_sdk import AsyncBrowserUse, BrowserUseError
+from browser_use_sdk import BrowserUseError
+from browser_use_sdk.v2 import AsyncBrowserUse
 
 try:
     result = await client.run(task, max_cost_usd=0.10)
