@@ -8,11 +8,12 @@ subscribed listeners instead.
 """
 
 import asyncio
-from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
-from browser_use.browser.events import BrowserConnectedEvent
+from cdp_use.cdp.network.events import RequestWillBeSentEvent
+
+from browser_use.browser.events import BrowserConnectedEvent, BrowserStoppedEvent, BrowserStopEvent
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from browser_use.browser.session_manager import SessionManager
@@ -65,7 +66,7 @@ async def _make_session(tmp_path, monkeypatch) -> tuple[BrowserSession, SessionM
 		)
 	)
 	fake_client = _FakeCdpClient()
-	session._cdp_client_root = fake_client
+	session._cdp_client_root = fake_client  # type: ignore[assignment]
 
 	manager = SessionManager(session)
 	session.session_manager = manager
@@ -110,11 +111,13 @@ async def test_response_received_reaches_downloads_and_har_watchdogs(tmp_path, m
 
 	# Dispatch a PDF response through the real global handler: both watchdogs must react.
 	manager._session_to_target['test-session'] = 'AAAA1111'
-	har._on_request_will_be_sent(
+	request_params = cast(
+		RequestWillBeSentEvent,
 		{'requestId': 'req-1', 'request': {'url': 'https://example.com/report.pdf', 'method': 'GET'}},
-		'test-session',
 	)
-	monkeypatch.setattr(DownloadsWatchdog, 'download_file_from_url', AsyncMock(return_value=None))
+	har._on_request_will_be_sent(request_params, 'test-session')
+	download_mock = AsyncMock(return_value=None)
+	monkeypatch.setattr(DownloadsWatchdog, 'download_file_from_url', download_mock)
 	fan_out(
 		{
 			'requestId': 'req-1',
@@ -135,7 +138,7 @@ async def test_response_received_reaches_downloads_and_har_watchdogs(tmp_path, m
 	)
 	if downloads._cdp_event_tasks:
 		await asyncio.gather(*downloads._cdp_event_tasks)
-	downloads.download_file_from_url.assert_awaited_once()
+	download_mock.assert_awaited_once()
 
 
 async def test_response_received_listeners_removed_on_stop(tmp_path, monkeypatch):
@@ -149,8 +152,8 @@ async def test_response_received_listeners_removed_on_stop(tmp_path, monkeypatch
 	await har.on_BrowserConnectedEvent(BrowserConnectedEvent(cdp_url='ws://localhost:9222'))
 	assert len(manager._response_received_listeners) == 2
 
-	await downloads.on_BrowserStoppedEvent(SimpleNamespace())
-	await har.on_BrowserStopEvent(SimpleNamespace())
+	await downloads.on_BrowserStoppedEvent(BrowserStoppedEvent())
+	await har.on_BrowserStopEvent(BrowserStopEvent())
 
 	assert not manager._response_received_listeners
 	assert not downloads._network_callback_registered
