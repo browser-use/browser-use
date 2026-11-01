@@ -2,6 +2,7 @@
 
 ## Table of Contents
 - [Browser Use toolsets for Claude](#browser-use-toolsets-for-claude)
+- [MuscleMemory](#musclememory)
 - [MCP Server (Cloud)](#mcp-server-cloud)
 - [MCP Server (Local)](#mcp-server-local)
 - [Skills](#skills)
@@ -124,6 +125,102 @@ browser-host paths.
 
 See the complete
 [quickstart, runtime examples, action list, and file guidance](../../../examples/integrations/toolsets-for-claude/README.md).
+
+---
+
+## MuscleMemory
+
+Use `browser_use.integrations.musclememory.MuscleMemory` to recall prior workflow
+guidance before an agent runs, record its actual tool executions, and learn after
+your application verifies the result. Browser Use keeps its normal browser and
+tools. The integration calls MuscleMemory's REST API; it does not need the
+MuscleMemory Python package in the Browser Use environment.
+
+Install the server separately using Python 3.12 or newer:
+
+```bash
+uv tool install thewariend-musclememory==0.1.7
+musclememory init
+musclememory start
+musclememory key --label browser-use --permissions read,write
+```
+
+Set `MM_API_KEY` to the returned `api_key`. `MM_API_URL` defaults to
+`http://127.0.0.1:8080`; `MM_NAMESPACE` defaults to `default` and must match the
+key's namespace grant. `ChatBrowserUse` also needs `BROWSER_USE_API_KEY`.
+
+```python
+import asyncio
+import os
+
+from browser_use import Agent, Browser, ChatBrowserUse
+from browser_use.integrations.musclememory import MuscleMemory, ProcedureVersion
+
+
+async def main():
+    task = 'Open https://example.com and report its main heading.'
+    browser = Browser(keep_alive=True)
+
+    async def verify():
+        page = await browser.get_current_page()
+        return page is not None and await page.evaluate(
+            "() => document.querySelector('h1')?.textContent?.trim() || ''"
+        ) == 'Example Domain'
+
+    try:
+        async with MuscleMemory(
+            task,
+            api_key=os.environ['MM_API_KEY'],
+            base_url=os.getenv('MM_API_URL', 'http://127.0.0.1:8080'),
+            namespace=os.getenv('MM_NAMESPACE', 'default'),
+        ) as memory:
+            agent = Agent(
+                task=task,
+                browser=browser,
+                llm=ChatBrowserUse(),
+                tools=memory.tools,
+                extend_system_message=memory.guidance,
+            )
+            await agent.run()
+            result = await memory.complete(verify)
+            print(result)
+    finally:
+        await browser.kill()
+
+
+asyncio.run(main())
+```
+
+Entering the context calls recall automatically. `memory.tools` captures the
+arguments of executed actions, their success/failure, and their duration. It does
+not upload screenshots, page text, model reasoning, or extracted content. The
+agent can inspect recalled procedures with the registered `musclememory_inspect`
+action. Guidance is prior experience: the agent still reads the current page and
+adapts to its current inputs and permissions.
+
+`complete` requires a host verifier returning a boolean; the model's `done` message
+does not prove success. For a form workflow, verify the saved record through your
+application rather than relying only on a success banner. A false check prevents
+learning. An exception or exiting without `complete` closes a failed run.
+
+A learned procedure is initially provisional. For each of two later independent
+runs, pass `validation_target=ProcedureVersion(procedure_token=..., procedure_version=...)`
+from this module, then call `complete` with the same independent check. A person
+approves the validated procedure in `musclememory dashboard`; agent keys cannot
+approve. Only then is it eligible for future recall. Selecting a validation target
+is explicit; recalling a procedure does not by itself count as applying it.
+
+For variable inputs, pass the v1 `learning_policy.parameters` definitions and
+observed values to `complete`; see the
+[MuscleMemory contract](https://github.com/TheWariend/MuscleMemory/blob/main/docs/contracts.md).
+Supply credentials through Browser Use's `sensitive_data` and pass the same mapping
+to `MuscleMemory`. Known secrets are redacted; a run with omitted capture data is
+not learned. Register custom actions on `memory.tools` before entering the context.
+
+The benefit is persistent, verified workflow guidance across sessions with
+automatic action capture. It does not replay browser actions or promise a token
+or speed reduction for a particular task. Capture failures allow the browser task
+to continue but prevent learning that run.
 
 ---
 
