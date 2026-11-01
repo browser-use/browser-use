@@ -519,7 +519,7 @@ class Registry(Generic[Context]):
 		def _restore_fields_set(target: Any, source: Any) -> None:
 			if isinstance(target, BaseModel) and isinstance(source, BaseModel):
 				object.__setattr__(target, '__pydantic_fields_set__', set(source.model_fields_set))
-				for field_name in target.model_fields:
+				for field_name in type(target).model_fields:
 					if hasattr(source, field_name):
 						_restore_fields_set(getattr(target, field_name), getattr(source, field_name))
 			elif isinstance(target, list) and isinstance(source, list):

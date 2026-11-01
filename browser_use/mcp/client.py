@@ -462,7 +462,7 @@ class MCPClient:
 		"""
 		if isinstance(val, BaseModel):
 			result = {}
-			for field_name in val.model_fields:
+			for field_name in type(val).model_fields:
 				field_value = getattr(val, field_name)
 				if field_name in val.model_fields_set or field_value is not None:
 					result[field_name] = self._serialize_mcp_params(field_value)
