@@ -126,6 +126,8 @@ def build_snapshot_lookup(
 						input_value_by_index[idx] = strings[string_index]
 		input_checked_set: set[int] = set(nodes['inputChecked']['index']) if 'inputChecked' in nodes else set()
 		has_checked_data = 'inputChecked' in nodes
+		# RareBooleanData: `index` lists the layout nodes that create a stacking context, it is not positional.
+		stacking_context_set: set[int] = set(layout.get('stackingContexts', {}).get('index', []))
 
 		# Build snapshot lookup for each backend node id
 		for backend_node_id, snapshot_index in backend_node_to_snapshot_index.items():
@@ -172,7 +174,8 @@ def build_snapshot_lookup(
 					if layout_idx < len(layout.get('paintOrders', [])):
 						paint_order = layout.get('paintOrders', [])[layout_idx]
 
-					# Extract client rects if available
+					# Extract client rects if available. Unlike bounds, client/scroll rects are already in CSS
+					# pixels (Blink builds them from Element.client*/scroll*), so they must NOT be scaled by DPR.
 					client_rects_data = layout.get('clientRects', [])
 					if layout_idx < len(client_rects_data):
 						client_rect_data = client_rects_data[layout_idx]
@@ -196,9 +199,7 @@ def build_snapshot_lookup(
 								height=scroll_rect_data[3],
 							)
 
-					# Extract stacking contexts if available
-					if layout_idx < len(layout.get('stackingContexts', {}).get('index', [])):
-						stacking_contexts = layout.get('stackingContexts', {}).get('index', [])[layout_idx]
+					stacking_contexts = _parse_rare_boolean_data(stacking_context_set, layout_idx)
 
 			snapshot_lookup[backend_node_id] = EnhancedSnapshotNode(
 				is_clickable=is_clickable,
