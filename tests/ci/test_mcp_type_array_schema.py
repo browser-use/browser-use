@@ -198,6 +198,7 @@ async def test_execute_action_nested_nullable_with_sensitive_data():
 		{'value': None, 'nested': {'present': None}},
 	)
 
+
 @pytest.mark.asyncio
 async def test_replace_sensitive_data_preserves_default_placeholder_redaction():
 	"""Unset parameters with sensitive placeholders in their default must still be redacted."""
