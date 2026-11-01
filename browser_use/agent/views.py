@@ -107,6 +107,63 @@ class PageFingerprint(BaseModel):
 		return PageFingerprint(url=url, element_count=element_count, text_hash=text_hash)
 
 
+class ActionReplayCandidate(BaseModel):
+	"""A single candidate for action replay, linking a page fingerprint to a recorded action sequence."""
+
+	model_config = ConfigDict(frozen=True)
+
+	fingerprint: PageFingerprint
+	# Serialized list of actions (model_dump output) — kept as plain dicts so
+	# they survive Pydantic round-trips without needing a concrete ActionModel type.
+	actions: list[dict[str, Any]]
+	# The memory string the LLM wrote when it decided these actions; injected as
+	# context so the replaying agent stays oriented.
+	memory: str | None = None
+
+
+class ActionReplayCache(BaseModel):
+	"""Tracks page fingerprints → action sequences for history-based replay.
+
+	When the agent visits a page whose fingerprint (URL + DOM structure hash)
+	matches a previously successful step, it can replay the recorded actions
+	without an LLM call.  Only steps that ended without error are stored.
+
+	The cache is intentionally small (max_entries) and stores only the most
+	recently observed mapping per fingerprint so that evolving sites do not
+	cause the agent to replay stale actions indefinitely.
+	"""
+
+	max_entries: int = 50
+	entries: list[ActionReplayCandidate] = Field(default_factory=list)
+
+	def _fingerprint_key(self, fp: PageFingerprint) -> str:
+		return f'{fp.url}|{fp.text_hash}'
+
+	def record(self, fp: PageFingerprint, actions: list[dict[str, Any]], memory: str | None) -> None:
+		"""Record a successful action sequence for a page fingerprint."""
+		key = self._fingerprint_key(fp)
+		candidate = ActionReplayCandidate(fingerprint=fp, actions=actions, memory=memory)
+
+		# Update existing entry if present
+		for i, entry in enumerate(self.entries):
+			if self._fingerprint_key(entry.fingerprint) == key:
+				self.entries[i] = candidate
+				return
+
+		# Append new entry, evict oldest if over limit
+		self.entries.append(candidate)
+		if len(self.entries) > self.max_entries:
+			self.entries = self.entries[-self.max_entries :]
+
+	def lookup(self, fp: PageFingerprint) -> ActionReplayCandidate | None:
+		"""Return the recorded candidate for this fingerprint, or None."""
+		key = self._fingerprint_key(fp)
+		for entry in self.entries:
+			if self._fingerprint_key(entry.fingerprint) == key:
+				return entry
+		return None
+
+
 def _normalize_action_for_hash(action_name: str, params: dict[str, Any]) -> str:
 	"""Normalize action parameters for similarity hashing.
 
@@ -273,6 +330,10 @@ class AgentState(BaseModel):
 
 	# Loop detection state
 	loop_detector: ActionLoopDetector = Field(default_factory=ActionLoopDetector)
+
+	# History-based action replay cache: maps page fingerprints to previously
+	# successful action sequences so the agent can skip redundant LLM calls.
+	replay_cache: ActionReplayCache = Field(default_factory=ActionReplayCache)
 
 
 @dataclass
