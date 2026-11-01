@@ -1,3 +1,4 @@
+import math
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -43,7 +44,7 @@ class RectUnionPure:
 	correctness at the cost of less aggressive paint-order filtering.
 	"""
 
-	__slots__ = ('_rects',)
+	__slots__ = ('_rects', '_bands', '_unbanded')
 
 	# Safety cap: with complex overlapping layers, each add() can fragment
 	# existing rects into up to 4 pieces each. On heavy pages (20k+ elements)
@@ -51,8 +52,59 @@ class RectUnionPure:
 	# pages but prevents runaway memory/CPU.
 	_MAX_RECTS = 5000
 
+	# Height of the horizontal bands used to index rectangles. A rectangle is
+	# registered in every band its closed y-range touches, so a query only has to
+	# visit rectangles that could possibly touch it instead of the whole union.
+	_BAND_HEIGHT = 256.0
+	# Queries spanning more bands than this fall back to a full ordered scan.
+	_MAX_QUERY_BANDS = 32
+
 	def __init__(self):
 		self._rects: list[Rect] = []
+		self._bands: dict[int, list[int]] = {}
+		# Indices of rects with non-finite or very tall y ranges, which are not banded.
+		self._unbanded: list[int] = []
+
+	def _band_range(self, r: Rect) -> range | None:
+		if not (math.isfinite(r.y1) and math.isfinite(r.y2)):
+			return None
+		start = math.floor(r.y1 / self._BAND_HEIGHT)
+		stop = math.floor(r.y2 / self._BAND_HEIGHT)
+		# Very tall rects would touch too many bands; keep them unbanded so every query scans them.
+		if stop - start + 1 > self._MAX_QUERY_BANDS:
+			return None
+		return range(start, stop + 1)
+
+	def _candidates(self, r: Rect) -> list[Rect]:
+		"""
+		Rects that may touch r, in insertion order.
+
+		Any rect that intersects or contains r (or a piece of r) overlaps r's
+		closed y-range, so it shares at least one band with r. Skipped rects
+		would have been no-ops in the scan, so the result is unchanged.
+		"""
+		bands = self._band_range(r)
+		if bands is None:
+			return self._rects
+		buckets = [bucket for band in bands if (bucket := self._bands.get(band))]
+		# When the bands cover most of the union, a plain scan is cheaper than merging.
+		if 2 * (len(self._unbanded) + sum(len(bucket) for bucket in buckets)) >= len(self._rects):
+			return self._rects
+		indices: set[int] = set(self._unbanded)
+		for bucket in buckets:
+			indices.update(bucket)
+		rects = self._rects
+		return [rects[i] for i in sorted(indices)]
+
+	def _append(self, r: Rect) -> None:
+		index = len(self._rects)
+		self._rects.append(r)
+		bands = self._band_range(r)
+		if bands is None:
+			self._unbanded.append(index)
+			return
+		for band in bands:
+			self._bands.setdefault(band, []).append(index)
 
 	# -----------------------------------------------------------------
 	def _split_diff(self, a: Rect, b: Rect) -> list[Rect]:
@@ -91,7 +143,7 @@ class RectUnionPure:
 			return False
 
 		stack = [r]
-		for s in self._rects:
+		for s in self._candidates(r):
 			new_stack = []
 			for piece in stack:
 				if s.contains(piece):
@@ -120,26 +172,18 @@ class RectUnionPure:
 			return False
 
 		pending = [r]
-		i = 0
-		while i < len(self._rects):
-			s = self._rects[i]
+		for s in self._candidates(r):
 			new_pending = []
-			changed = False
 			for piece in pending:
 				if piece.intersects(s):
 					new_pending.extend(self._split_diff(piece, s))
-					changed = True
 				else:
 					new_pending.append(piece)
 			pending = new_pending
-			if changed:
-				# s unchanged; proceed with next existing rectangle
-				i += 1
-			else:
-				i += 1
 
 		# Any left‑over pieces are new, non‑overlapping areas
-		self._rects.extend(pending)
+		for piece in pending:
+			self._append(piece)
 		return True
 
 
