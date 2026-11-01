@@ -536,7 +536,7 @@ class MCPClient:
 					# Get the item type recursively
 					item_type = self._json_schema_to_python_type(schema['items'], f'{model_name}_item')
 					# Return properly typed list
-					return list[item_type]  # type: ignore[valid-type]
+					return list[item_type]
 				else:
 					# Array without item type specification
 					return list
