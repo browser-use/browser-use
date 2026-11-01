@@ -47,7 +47,7 @@ Before running the example, check that the installed SDK exposes the browser too
 uv run python -c "from anthropic.tools.browser import BetaLocalFilePolicy; from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse; print('Browser toolset imports OK')"
 ```
 
-Browser Use 0.13.11 or newer includes this integration. The Anthropic 1.x version range alone does not guarantee browser-toolset support: you need the compatible release from Anthropic. If the check reports that `anthropic.tools.browser` is missing, follow Anthropic's browser-toolset release instructions before continuing. Reinstalling Browser Use or adding a Cloud key cannot supply that SDK module.
+Browser Use 0.13.11 or newer includes this integration. The optional browser toolset requires Anthropic Python SDK 1.12.0 or newer. The general Claude client supports the wider SDK range declared by Browser Use; older SDKs do not provide the browser toolset. If the check reports missing browser-toolset modules or exports, upgrade the Anthropic SDK before continuing. Reinstalling Browser Use or adding a Cloud key cannot supply those SDK features.
 
 A local browser only needs `ANTHROPIC_API_KEY`; it does not require a Browser Use Cloud key. Keep both keys exported when using Cloud: Anthropic runs Claude, while Browser Use provisions the browser. The shell `export` commands above apply to the current terminal; this script does not load a `.env` file automatically.
 
