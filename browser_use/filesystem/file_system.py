@@ -156,7 +156,7 @@ class BaseFile(BaseModel, ABC):
 	async def sync_to_disk(self, path: Path) -> None:
 		file_path = path / self.full_name
 		with ThreadPoolExecutor() as executor:
-			await asyncio.get_event_loop().run_in_executor(executor, lambda: file_path.write_text(self.content, encoding='utf-8'))
+			await asyncio.get_running_loop().run_in_executor(executor, lambda: file_path.write_text(self.content, encoding='utf-8'))
 
 	async def write(self, content: str, path: Path) -> None:
 		self.write_file_content(content)
@@ -334,7 +334,7 @@ class PdfFile(BaseFile):
 
 	async def sync_to_disk(self, path: Path) -> None:
 		with ThreadPoolExecutor() as executor:
-			await asyncio.get_event_loop().run_in_executor(executor, lambda: self.sync_to_disk_sync(path))
+			await asyncio.get_running_loop().run_in_executor(executor, lambda: self.sync_to_disk_sync(path))
 
 
 class DocxFile(BaseFile):
@@ -370,7 +370,7 @@ class DocxFile(BaseFile):
 
 	async def sync_to_disk(self, path: Path) -> None:
 		with ThreadPoolExecutor() as executor:
-			await asyncio.get_event_loop().run_in_executor(executor, lambda: self.sync_to_disk_sync(path))
+			await asyncio.get_running_loop().run_in_executor(executor, lambda: self.sync_to_disk_sync(path))
 
 
 class HtmlFile(BaseFile):
@@ -445,7 +445,7 @@ class Base64BinaryFile(BaseFile):
 
 	async def sync_to_disk(self, path: Path) -> None:
 		with ThreadPoolExecutor() as executor:
-			await asyncio.get_event_loop().run_in_executor(executor, lambda: self.sync_to_disk_sync(path))
+			await asyncio.get_running_loop().run_in_executor(executor, lambda: self.sync_to_disk_sync(path))
 
 	def read(self) -> str:
 		try:
