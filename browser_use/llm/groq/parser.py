@@ -31,11 +31,12 @@ def try_parse_groq_failed_generation(
 			if '\n' in content:
 				content = content.split('\n', 1)[1]
 
-		# remove html-like tags before the first { and after the last }
+		# remove html-like tags before the first { or [ and after the last }
 		# This handles cases like <|header_start|>assistant<|header_end|> and <function=AgentOutput>
-		# Only remove content before { if content doesn't already start with {
-		if not content.strip().startswith('{'):
-			content = re.sub(r'^.*?(?=\{)', '', content, flags=re.DOTALL)
+		# Only remove content before the root if content doesn't already start with it,
+		# so array roots (issue #1458) survive instead of collapsing to their first item
+		if not content.strip().startswith(('{', '[')):
+			content = re.sub(r'^[^{\[]*?(?=[{\[])', '', content, flags=re.DOTALL)
 
 		# Remove common HTML-like tags and patterns at the end, but be more conservative
 		# Look for patterns like </function>, <|header_start|>, etc. after the JSON
@@ -43,29 +44,15 @@ def try_parse_groq_failed_generation(
 		content = re.sub(r'\}(\s*<\|[^|]*\|>.*?$)', '}', content, flags=re.DOTALL)
 
 		# Handle extra characters after the JSON, including stray braces
-		# Find the position of the last } that would close the main JSON object
 		content = content.strip()
 
-		if content.endswith('}'):
-			# Try to parse and see if we get valid JSON
-			try:
-				json.loads(content)
-			except json.JSONDecodeError:
-				# If parsing fails, try to find the correct end of the JSON
-				# by counting braces and removing anything after the balanced JSON
-				brace_count = 0
-				last_valid_pos = -1
-				for i, char in enumerate(content):
-					if char == '{':
-						brace_count += 1
-					elif char == '}':
-						brace_count -= 1
-						if brace_count == 0:
-							last_valid_pos = i + 1
-							break
-
-				if last_valid_pos > 0:
-					content = content[:last_valid_pos]
+		# Extract the first balanced JSON object/array, skipping braces inside strings
+		# (e.g. CSS selectors like div[class*='}']), so trailing model commentary after
+		# the JSON doesn't break parsing. Falls back to the original content when no
+		# balanced structure is found and json.loads raises the usual error.
+		balanced_end = _find_balanced_json_end(content)
+		if balanced_end is not None:
+			content = content[:balanced_end]
 
 		# Fix control characters in JSON strings before parsing
 		# This handles cases where literal control characters appear in JSON values
@@ -90,6 +77,38 @@ def try_parse_groq_failed_generation(
 
 	except Exception as e:
 		raise ParseFailedGenerationError(error.response.text) from e
+
+
+def _find_balanced_json_end(content: str) -> int | None:
+	"""Return the end index (exclusive) of the first balanced JSON object or array.
+
+	Braces and brackets inside JSON strings are ignored, so values like
+	``div[class*='}']`` don't break the balance check. Returns None when the
+	content contains no balanced structure.
+	"""
+	depth = 0
+	in_string = False
+	escaped = False
+	for i, char in enumerate(content):
+		if in_string:
+			if escaped:
+				escaped = False
+			elif char == '\\':
+				escaped = True
+			elif char == '"':
+				in_string = False
+			continue
+		if char == '"':
+			in_string = True
+		elif char in '{[':
+			depth += 1
+		elif char in '}]':
+			depth -= 1
+			if depth == 0:
+				return i + 1
+			if depth < 0:
+				return None
+	return None
 
 
 def _fix_control_characters_in_json(content: str) -> str:
