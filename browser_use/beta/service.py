@@ -3260,6 +3260,8 @@ async def _usage_from_events_with_costs(
 		stats.invocations = max(stats.invocations, summed_invocations)
 	if priced_invocations:
 		stats.cost = total_cost
+		stats.prompt_cost = total_prompt_cost
+		stats.completion_cost = total_completion_cost
 	model_stats[model] = stats
 
 	update: dict[str, Any] = {'by_model': model_stats}
