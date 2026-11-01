@@ -244,6 +244,12 @@ class MessageManager:
 
 		logger.debug(f'Compacting message history (items={len(history_items)}, chars={len(full_history_text)})')
 
+		# Record the attempt regardless of outcome: a persistently failing
+		# compaction LLM (rate limits, timeouts, misconfigured model) must be
+		# throttled by the step interval too, instead of rebuilding the
+		# full-history prompt and retrying on every step.
+		self.state.last_compaction_step = step_info.step_number
+
 		# Build compaction input
 		compaction_sections = []
 		if self.state.compacted_memory:
@@ -287,7 +293,6 @@ class MessageManager:
 
 		self.state.compacted_memory = summary
 		self.state.compaction_count += 1
-		self.state.last_compaction_step = step_info.step_number
 
 		# Keep first item + most recent items
 		keep_last = max(0, settings.keep_last_items)
