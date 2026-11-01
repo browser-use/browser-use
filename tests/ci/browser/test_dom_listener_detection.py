@@ -148,6 +148,93 @@ async def test_whole_state_timeout_returns_model_visible_non_actionable_state(
 	assert browser_session._cached_browser_state_summary is state
 
 
+async def test_pending_caller_cancellation_is_propagated_before_state_capture(browser_session: BrowserSession, monkeypatch):
+	"""A cancellation queued before state capture must not be swallowed by recovery handling."""
+
+	class BlockingStateEvent:
+		async def event_result(self, **_kwargs):
+			await asyncio.Future()
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', lambda _event: BlockingStateEvent())
+
+	async def capture():
+		current_task = asyncio.current_task()
+		assert current_task is not None
+		current_task.cancel()
+		return await browser_session.get_browser_state_summary(include_screenshot=False)
+
+	with pytest.raises(asyncio.CancelledError):
+		await capture()
+
+
+async def test_parent_timeout_cancellation_returns_non_actionable_state(browser_session: BrowserSession, monkeypatch):
+	"""A stored cancellation from another handler timeout must not cancel the caller."""
+
+	class InterruptedStateEvent:
+		async def event_result(self, **_kwargs):
+			raise asyncio.CancelledError('interrupted because of a parent timeout')
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', lambda _event: InterruptedStateEvent())
+
+	state = await browser_session.get_browser_state_summary(include_screenshot=True)
+
+	current_task = asyncio.current_task()
+	assert current_task is not None
+	assert current_task.cancelling() == 0
+	assert state.dom_state.selector_map == {}
+	assert state.screenshot is None
+	assert state.state_error is not None
+	assert 'interrupted by another event timeout' in state.state_error
+
+
+async def test_stored_cancellation_is_recovered_after_an_earlier_cancellation_was_suppressed(
+	browser_session: BrowserSession, monkeypatch
+):
+	"""An old cancellation count must not make a stored event error look like a new caller cancellation."""
+
+	class InterruptedStateEvent:
+		async def event_result(self, **_kwargs):
+			raise asyncio.CancelledError('interrupted because of a parent timeout')
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', lambda _event: InterruptedStateEvent())
+
+	async def capture_after_suppressing_cancellation():
+		try:
+			await asyncio.Future()
+		except asyncio.CancelledError:
+			pass
+
+		current_task = asyncio.current_task()
+		assert current_task is not None
+		assert current_task.cancelling() == 1
+		return await browser_session.get_browser_state_summary(include_screenshot=False)
+
+	task = asyncio.create_task(capture_after_suppressing_cancellation())
+	await asyncio.sleep(0)
+	task.cancel()
+	state = await task
+
+	assert state.dom_state.selector_map == {}
+	assert state.state_error is not None
+	assert 'interrupted by another event timeout' in state.state_error
+
+
+async def test_caller_cancellation_during_state_capture_is_propagated(browser_session: BrowserSession, monkeypatch):
+	"""A real cancellation of the state-capture caller must still propagate."""
+
+	class BlockingStateEvent:
+		async def event_result(self, **_kwargs):
+			await asyncio.Future()
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', lambda _event: BlockingStateEvent())
+	task = asyncio.create_task(browser_session.get_browser_state_summary(include_screenshot=False))
+	await asyncio.sleep(0)
+	task.cancel()
+
+	with pytest.raises(asyncio.CancelledError):
+		await task
+
+
 async def test_fresh_state_after_timeout_repopulates_selector_map(httpserver, browser_session: BrowserSession, monkeypatch):
 	"""A timeout must not prevent the next successful state capture from rebuilding selectors."""
 	httpserver.expect_request('/recover-state').respond_with_data(
