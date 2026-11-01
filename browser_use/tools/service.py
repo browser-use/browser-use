@@ -1677,7 +1677,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		# Dropdown Actions
 
 		@self.registry.action(
-			'',
+			'Get options from a dropdown or its associated read-only picker input.',
 			param_model=GetDropdownOptionsAction,
 		)
 		async def dropdown_options(params: GetDropdownOptionsAction, browser_session: BrowserSession):
@@ -1705,7 +1705,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			'Set the option of a <select> element.',
+			'Select an option by text or value. The index may identify a dropdown or its associated read-only picker input. '
+			'Associated native listboxes use a real option click. Verify any dependent fields or page changes separately.',
 			param_model=SelectDropdownOptionAction,
 		)
 		async def select_dropdown(params: SelectDropdownOptionAction, browser_session: BrowserSession):
@@ -1719,9 +1720,21 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 			# Dispatch SelectDropdownOptionEvent to the event handler
 			from browser_use.browser.events import SelectDropdownOptionEvent
+			from browser_use.browser.native_listbox import NativeListboxSelection
 
 			event = browser_session.event_bus.dispatch(SelectDropdownOptionEvent(node=node, text=params.text))
 			selection_data = await event.event_result()
+			if isinstance(selection_data, NativeListboxSelection):
+				metadata = selection_data.model_dump(mode='json')
+				if not selection_data.success:
+					return ActionResult(error=selection_data.error or 'Listbox selection failed.', metadata=metadata)
+				msg = (
+					f'Selected option by native listbox click: {selection_data.text} (value: {selection_data.value}). '
+					'Selection verified. Verify dependent fields or page changes separately.'
+				)
+				if selection_data.readonly_input_value is not None:
+					msg += f' Read-only field value: {selection_data.readonly_input_value!r}.'
+				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg, metadata=metadata)
 
 			if not selection_data:
 				raise ValueError('Failed to select dropdown option - no data returned')

@@ -511,7 +511,7 @@ class TestSelectDropdownOptionEvent:
 			selection_data = await event.event_result(timeout=3.0)
 			# Should have an error in the result
 			assert selection_data is not None
-			assert 'error' in selection_data or 'not found' in str(selection_data).lower()
+			assert (isinstance(selection_data, dict) and 'error' in selection_data) or 'not found' in str(selection_data).lower()
 		except Exception as e:
 			# Or raise an exception
 			assert 'not found' in str(e).lower() or 'no option' in str(e).lower()
