@@ -5,6 +5,7 @@ import logging
 import pytest
 
 from browser_use import Agent
+from browser_use.beta import Agent as BetaAgent
 from browser_use.browser.cloud.cloud import CloudBrowserAuthError, resolve_api_key
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
@@ -71,6 +72,7 @@ def _captcha_hints(records) -> int:
 	return sum('blocked by a captcha' in r.getMessage() for r in records)
 
 
+@pytest.mark.parametrize('agent_cls', [Agent, BetaAgent], ids=['agent', 'beta'])
 @pytest.mark.parametrize(
 	'session_kwargs, expected',
 	[
@@ -81,8 +83,8 @@ def _captcha_hints(records) -> int:
 		({'use_cloud': True, 'cdp_url': 'wss://connect.example-provider.com'}, 1),
 	],
 )
-async def test_captcha_hint_only_for_non_browser_use_browsers_and_deduplicated(records, session_kwargs, expected):
-	agent = Agent(task='t', llm=create_mock_llm(), browser_session=BrowserSession(**session_kwargs))
+async def test_captcha_hint_only_for_non_browser_use_browsers_and_deduplicated(records, agent_cls, session_kwargs, expected):
+	agent = agent_cls(task='t', llm=create_mock_llm(), browser_session=BrowserSession(**session_kwargs))
 
 	agent._log_cloud_captcha_hint()
 	agent._log_cloud_captcha_hint()
@@ -90,9 +92,23 @@ async def test_captcha_hint_only_for_non_browser_use_browsers_and_deduplicated(r
 	assert _captcha_hints(records) == expected
 
 
-async def test_cloud_hints_can_be_silenced(records, monkeypatch):
+@pytest.mark.parametrize('agent_cls', [Agent, BetaAgent], ids=['agent', 'beta'])
+async def test_cloud_hints_can_be_silenced(records, monkeypatch, agent_cls):
 	monkeypatch.setenv('BROWSER_USE_CLOUD_HINTS', 'false')
-	agent = Agent(task='t', llm=create_mock_llm(), browser_session=BrowserSession(browser_profile=BrowserProfile(headless=True)))
+	agent = agent_cls(
+		task='t', llm=create_mock_llm(), browser_session=BrowserSession(browser_profile=BrowserProfile(headless=True))
+	)
+
+	agent._log_cloud_captcha_hint()
+
+	assert _captcha_hints(records) == 0
+
+
+async def test_beta_captcha_hint_skipped_in_cloud_browser_mode(records, monkeypatch):
+	monkeypatch.setenv('BROWSER_USE_BROWSER_MODE', 'cloud')
+	agent = BetaAgent(
+		task='t', llm=create_mock_llm(), browser_session=BrowserSession(browser_profile=BrowserProfile(headless=True))
+	)
 
 	agent._log_cloud_captcha_hint()
 
@@ -110,3 +126,22 @@ async def test_local_launch_failure_hint_can_be_silenced(records, monkeypatch, t
 		await session.kill()
 
 	assert not any('Local browser failed to start' in r.getMessage() for r in records)
+
+
+async def test_beta_captcha_hint_resets_each_run(records, monkeypatch):
+	agent = BetaAgent(
+		task='t', llm=create_mock_llm(), browser_session=BrowserSession(browser_profile=BrowserProfile(headless=True))
+	)
+
+	async def fake_run_terminal(**kwargs):
+		agent._log_cloud_captcha_hint()
+		agent._log_cloud_captcha_hint()
+		return agent.history
+
+	monkeypatch.setattr(agent, '_register_run_signal_handler', lambda max_steps: None)
+	monkeypatch.setattr(agent, '_run_terminal', fake_run_terminal)
+
+	await agent.run()
+	await agent.run()
+
+	assert _captcha_hints(records) == 2
