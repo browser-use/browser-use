@@ -190,10 +190,10 @@ Response: 204.
 | browserScreenHeight | integer | no | Browser height in pixels |
 | customProxy | object | no | `{ host, port, username?, password? }` (HTTP or SOCKS5) |
 
-**Pricing:** $0.02/hour. Billed upfront, proportional refund on stop. Ceil to nearest minute (min 1 min). Free: 15 min max. Paid: 4 hours max.
+**Pricing:** $0.02/hour. Credits for the timeout are reserved upfront and the unused part is returned on stop. Rounded up to the minute (min 1 min). All users: up to 240 minutes.
 
 Response (201): BrowserSessionItemView (includes `cdpUrl` and `liveUrl`).
-Errors: 403 (timeout exceeded for free), 404 (profile not found), 429 (too many concurrent).
+Errors: 402 (insufficient credits or API-key spend cap), 403 (timeout above 240 minutes, or extensions unavailable to the project), 404 (profile or extension not found), 429 (too many concurrent).
 
 **GET /browsers/{id}** — Browser session details.
 
@@ -224,7 +224,7 @@ Errors: 404, 500.
 **GET /profiles** — Paginated list. Query: `pageSize?`, `pageNumber?`
 
 **POST /profiles** — Create profile (persistent cookies/localStorage between tasks).
-Body: `{ name?: string }`. Response (201): ProfileView. Error: 402 (subscription needed).
+Body: `{ name?: string }`. Response (201): ProfileView. Error: 402 (profile limit reached; delete unused profiles).
 
 **GET /profiles/{id}** — Profile details.
 

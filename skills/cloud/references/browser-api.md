@@ -117,6 +117,5 @@ await client.browsers.stop(browser_session.id)
 
 ### Session Limits
 
-- Free: 15 minutes max
-- Paid: 4 hours max
-- Pricing: $0.02/hour, billed upfront, proportional refund on early stop, min 1 minute
+- All users: up to 240 minutes (4 hours)
+- Pricing: $0.02/hour, metered per minute (min 1 minute). Credits for the timeout are reserved upfront; unused credits are returned when the browser ends.

@@ -105,41 +105,28 @@ Open the `liveUrl` to watch the agent work in real-time.
 
 ## Pricing
 
+All usage draws from one dollar-denominated credit balance. No subscription.
+
 ### AI Agent Tasks
-$0.01 init + per-step (varies by model):
-
-| Model | Per Step |
-|-------|---------|
-| Browser Use LLM | $0.002 |
-| Browser Use 2.0 | $0.006 |
-| Gemini Flash Lite | $0.005 |
-| GPT-4.1 Mini | $0.004 |
-| O3 | $0.03 |
-| Claude Sonnet 4.6 | $0.05 |
-
-Typical task: 10 steps = ~$0.03 (with Browser Use LLM)
-
-### V3 API (Token-Based)
-| Model | Input/1M | Output/1M |
-|-------|---------|----------|
-| BU Mini (Gemini 3 Flash) | ~$0.72 | ~$4.20 |
-| BU Max (Claude Sonnet 4.6) | ~$3.60 | ~$18.00 |
+- **V4** (current): token-based per model; see the model table in https://browser-use.com/pricing.md
+- **V3**: Browser Use-hosted model at 1.2x provider token rates; BYOK = provider cost + 0.2x orchestration fee
+- **V2** (legacy): $0.01/task init + from $0.006/step
 
 ### Browser Sessions
-- All plans: $0.02/hour
-- Billed upfront, proportional refund on stop. Min 1 minute.
+- $0.02 per browser-hour, metered per minute, 1-minute minimum (partial minutes round up)
+- Credits for the requested timeout are reserved at creation; unused credits are returned when the browser ends
 
 ### Skills
-- Creation: $2 (PAYG), $1 (Business). Refinements free.
-- Execution: $0.02 (PAYG), $0.01 (Business)
+- Retired: existing skills still run, new skills can no longer be created. Use rerunnable scripts instead.
 
 ### Proxies
 - Managed residential proxy: $5/GB
 - Direct connection or your own proxy: $0.20/GB
 
 ### Plans
-- Pay as you go, no subscription. Concurrency grows with lifetime spend (10 to 1,000 sessions).
-- Legacy Business and Scaleup subscriptions keep their discounted rates.
+- Pay as you go, no subscription. Eligible Google, GitHub or Microsoft signups get a one-time $1 credit.
+- Concurrency grows with total paid: 10 at $0, 50 at $100, 250 at $1,000, 500 at $5,000, 1,000 at $25,000.
+- Accounts that still hold a legacy subscription can manage or cancel it from the Cloud billing page.
 - **Enterprise**: Contact for ZDR, compliance, on-prem
 
 Current prices: https://browser-use.com/pricing.md
@@ -170,7 +157,7 @@ Current prices: https://browser-use.com/pricing.md
 
 **Rate limited?**
 - Auto-retry with backoff
-- Upgrade plan if consistent
+- Top up to reach a higher concurrency tier, or contact sales for more
 
 **Stop a session:**
 ```bash

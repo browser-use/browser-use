@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from browser_use.skills.browser_use import CLOUD_BROWSER_SECTION
+
 ROOT = Path(__file__).resolve().parents[2]
 BROWSER_USE_REPO_SKILL_URL = 'https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md'
 EXPECTED_SKILL_INSTALL_PATHS = (
@@ -151,7 +153,7 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 		'      },\n'
 		'  }\n'
 		'---\n\n'
-		'# Browser Use\n'
+		'# Browser Use\n\n' + CLOUD_BROWSER_SECTION.rstrip('\n') + '\n'
 	)
 	for installed in (home / path for path in EXPECTED_SKILL_INSTALL_PATHS):
 		assert installed.read_text(encoding='utf-8') == expected
@@ -181,3 +183,27 @@ def test_browser_use_cli_validates_destination_before_installing_harness(tmp_pat
 	assert result.returncode == 1
 	assert 'is not a directory' in result.stderr
 	assert not uv_args.exists()
+
+
+def test_browser_use_skill_shows_cloud_browser_connect_code():
+	# The skill description promises hosted browsers for the library, Playwright, Puppeteer and CDP;
+	# the body must carry that code so agents do not write it from memory.
+	for snippet in (
+		'Browser(use_cloud=True)',
+		'from browser_use_sdk.v4 import BrowserUse',
+		"client.browsers.create(proxy_country_code='us')",
+		'p.chromium.connect_over_cdp(session.cdp_url)',
+		'client.browsers.stop(session.id)',
+		'puppeteer.connect({ browserWSEndpoint: session.cdpUrl })',
+		'wss://connect.browser-use.com?apiKey=<BROWSER_USE_API_KEY>',
+		'$0.02 per browser-hour, metered per minute with a\n1-minute minimum',
+		'plus traffic ($5/GB through the default managed proxy, $0.20/GB direct)',
+		'https://docs.browser-use.com/cloud/browser/quickstart',
+	):
+		assert snippet in CLOUD_BROWSER_SECTION
+	assert 'per second' not in CLOUD_BROWSER_SECTION
+
+	for path in (ROOT / 'skills' / 'browser-use' / 'SKILL.md', ROOT / 'browser_use' / 'skills' / 'browser-use' / 'SKILL.md'):
+		text = path.read_text(encoding='utf-8')
+		assert text.count(CLOUD_BROWSER_SECTION) == 1
+		assert text.index(CLOUD_BROWSER_SECTION) < text.index('## Remote Browsers')
