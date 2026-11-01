@@ -14,7 +14,6 @@ the recovery owner was still running outside the lock. Consequences:
 Fix: only the task that created the recovery state (the owner) may reset it.
 """
 
-
 import asyncio
 import logging
 from unittest.mock import AsyncMock, MagicMock
