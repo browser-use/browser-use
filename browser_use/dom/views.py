@@ -58,7 +58,6 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	# Webkit shadow DOM identifiers
 	'pseudo',
 	# Accessibility properties from ax_node (ordered by importance for automation)
-	'checked',
 	'selected',
 	'expanded',
 	'pressed',

@@ -1356,7 +1356,7 @@ class DOMTreeSerializer:
 			for key in ordered_keys:
 				value = attributes_to_include[key]
 				if len(value) > 5:
-					if value in seen_values and key not in protected_attrs:
+					if value in seen_values and seen_values[value] != key and key not in protected_attrs:
 						keys_to_remove.add(key)
 					else:
 						seen_values[value] = key
