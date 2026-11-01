@@ -3503,7 +3503,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				results.append(ai_result)
 			else:
 				# For non-extract actions, update indices and collect for batch execution
-				historical_elem = history_item.state.interacted_element[i]
+				historical_elem = (
+					history_item.state.interacted_element[i] if i < len(history_item.state.interacted_element) else None
+				)
 				updated_action = await self._update_action_indices(
 					historical_elem,
 					action,
