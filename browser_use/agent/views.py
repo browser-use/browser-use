@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import traceback
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, Literal
@@ -669,6 +670,8 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
+		"""Load serialized history without modifying the caller's data."""
+		data = deepcopy(data)
 		# loop through history and validate output_model actions to enrich with custom actions
 		for h in data.get('history', []):
 			# Use .get() to avoid KeyError on incomplete or legacy history entries
