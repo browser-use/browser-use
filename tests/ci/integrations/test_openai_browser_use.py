@@ -256,7 +256,7 @@ async def test_openai_bash_creates_deliverable_without_inherited_secrets(tmp_pat
 	expected_prefix = sys.prefix
 	if custom_python:
 		environment = tmp_path / 'python-env'
-		venv.EnvBuilder().create(environment)
+		venv.EnvBuilder(symlinks=True).create(environment)
 		python = environment / 'bin' / 'python'
 		expected_prefix = str(environment)
 	tool = Bash(output_dir=tmp_path, python_executable=python)
@@ -530,3 +530,31 @@ async def test_page_read_retries_temporary_accessibility_failure(driver, monkeyp
 	monkeypatch.setattr(target, 'getFullAXTree', fail_once)
 	text = await driver.read_page({'tab_id': None, 'filter': 'interactive'})
 	assert reference(text, 'Recovered control')
+
+
+@pytest.mark.asyncio
+async def test_scoped_read_reuses_reference_ids_across_reads(driver):
+	await fixture_page(driver, '<main><button>First Button</button><input type="text" value="val"></main>')
+	discovered = await dispatch(driver, 'read_page_scoped', {'tab_id': None, 'root': None, 'depth': 8, 'filter': 'all'})
+	root = next(scope['ref'] for scope in discovered['scopes'] if scope['label'] == 'main')
+
+	read1 = await dispatch(driver, 'read_page_scoped', {'tab_id': None, 'root': root, 'depth': 8, 'filter': 'interactive'})
+	refs1 = [el['ref'] for el in read1['elements']]
+	assert len(refs1) == 2
+
+	read2 = await dispatch(driver, 'read_page_scoped', {'tab_id': None, 'root': root, 'depth': 8, 'filter': 'interactive'})
+	refs2 = [el['ref'] for el in read2['elements']]
+	assert refs1 == refs2
+
+
+@pytest.mark.asyncio
+async def test_scoped_read_fails_gracefully_on_cdp_error(driver, monkeypatch):
+	page = await fixture_page(driver, '<button>Click Me</button>')
+	target = driver.browser.cdp_client.send.Accessibility
+
+	async def broken_axtree(*args, **kwargs):
+		raise TimeoutError('AX tree timed out')
+
+	monkeypatch.setattr(target, 'getFullAXTree', broken_axtree)
+	with pytest.raises(BrowserError, match='Page reading failed'):
+		await driver.read_page_scoped({'tab_id': page._target_id, 'root': None, 'depth': 2, 'filter': 'all'})
