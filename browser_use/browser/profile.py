@@ -955,16 +955,22 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		# Special handling for --disable-features to merge values instead of overwriting
 		# This prevents disable_security=True from breaking extensions by ensuring
 		# both default features (including extension-related) and security features are preserved
+		# Special handling for --load-extension to merge values instead of overwriting
+		# This prevents the default extensions (uBlock Origin, etc.) from silently dropping
+		# a user-provided --load-extension value, since Chrome accepts multiple comma-separated paths
 		disable_features_values = []
-		non_disable_features_args = []
+		load_extension_paths = []
+		non_special_args = []
 
-		# Extract and merge all --disable-features values
+		# Extract and merge all --disable-features and --load-extension values
 		for arg in pre_conversion_args:
 			if arg.startswith('--disable-features='):
 				features = arg.split('=', 1)[1]
 				disable_features_values.extend(features.split(','))
+			elif arg.startswith('--load-extension='):
+				load_extension_paths.extend(path for path in arg.split('=', 1)[1].split(',') if path)
 			else:
-				non_disable_features_args.append(arg)
+				non_special_args.append(arg)
 
 		# Remove duplicates while preserving order
 		if disable_features_values:
@@ -977,10 +983,22 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 					seen.add(feature)
 
 			# Add merged disable-features back
-			non_disable_features_args.append(f'--disable-features={",".join(unique_features)}')
+			non_special_args.append(f'--disable-features={",".join(unique_features)}')
+
+		if load_extension_paths:
+			unique_paths = []
+			seen = set()
+			for path in load_extension_paths:
+				path = path.strip()
+				if path and path not in seen:
+					unique_paths.append(path)
+					seen.add(path)
+
+			# Add merged load-extension back
+			non_special_args.append(f'--load-extension={",".join(unique_paths)}')
 
 		# convert to dict and back to dedupe and merge other duplicate args
-		final_args_list = BrowserLaunchArgs.args_as_list(BrowserLaunchArgs.args_as_dict(non_disable_features_args))
+		final_args_list = BrowserLaunchArgs.args_as_list(BrowserLaunchArgs.args_as_dict(non_special_args))
 
 		return final_args_list
 
