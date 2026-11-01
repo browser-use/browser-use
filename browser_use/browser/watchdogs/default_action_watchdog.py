@@ -39,6 +39,21 @@ ScrollEvent.model_rebuild()
 UploadFileEvent.model_rebuild()
 
 
+def _direction_to_deltas(direction: str, amount: int) -> tuple[int, int]:
+	"""Map a ScrollEvent direction to pixel deltas.
+
+	mouseWheel convention: deltaY positive = down, deltaX positive = right.
+	"""
+	if direction == 'down':
+		return 0, amount
+	if direction == 'up':
+		return 0, -amount
+	if direction == 'right':
+		return amount, 0
+	# 'left'
+	return -amount, 0
+
+
 class DefaultActionWatchdog(BaseWatchdog):
 	"""Handles default browser actions like click, type, and scroll using CDP."""
 
@@ -524,9 +539,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 				if self.browser_session._dom_watchdog:
 					self.browser_session._dom_watchdog.clear_cache()
 
-			# Convert direction and amount to pixels
-			# Positive pixels = scroll down, negative = scroll up
-			pixels = event.amount if event.direction == 'down' else -event.amount
+			# Convert direction and amount to pixel deltas.
+			# mouseWheel convention: deltaY positive = down, deltaX positive = right.
+			delta_x, delta_y = _direction_to_deltas(event.direction, event.amount)
 
 			# Element-specific scrolling if node is provided
 			if event.node is not None:
@@ -537,7 +552,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				is_iframe = element_node.tag_name and element_node.tag_name.upper() == 'IFRAME'
 
 				# Try to scroll the element's container
-				success = await self._scroll_element_container(element_node, pixels)
+				success = await self._scroll_element_container(element_node, delta_x, delta_y)
 				if success:
 					self.logger.debug(
 						f'📜 Scrolled element {index_for_logging} container {event.direction} by {event.amount} pixels'
@@ -557,7 +572,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					return None
 
 			# Perform target-level scroll
-			await self._scroll_with_cdp_gesture(pixels)
+			await self._scroll_with_cdp_gesture(delta_x, delta_y)
 
 			# Note: We don't clear cached state here - let multi_act handle DOM change detection
 			# by explicitly rebuilding and comparing when needed
@@ -2204,12 +2219,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 			self.logger.warning(f'⚠️ Failed to trigger framework events: {type(e).__name__}: {e}')
 			# Don't raise - framework events are a best-effort enhancement
 
-	async def _scroll_with_cdp_gesture(self, pixels: int) -> bool:
+	async def _scroll_with_cdp_gesture(self, delta_x: int, delta_y: int) -> bool:
 		"""
 		Scroll using CDP Input.synthesizeScrollGesture to simulate realistic scroll gesture.
 
 		Args:
-			pixels: Number of pixels to scroll (positive = down, negative = up)
+			delta_x: Horizontal pixels to scroll (positive = right, negative = left)
+			delta_y: Vertical pixels to scroll (positive = down, negative = up)
 
 		Returns:
 			True if successful, False if failed
@@ -2233,23 +2249,25 @@ class DefaultActionWatchdog(BaseWatchdog):
 			center_x = viewport_width / 2
 			center_y = viewport_height / 2
 
-			# For scroll gesture, positive yDistance scrolls up, negative scrolls down
-			# (opposite of mouseWheel deltaY convention)
-			y_distance = -pixels
+			# For scroll gestures both axes are inverted relative to the
+			# mouseWheel convention: positive yDistance scrolls up, positive
+			# xDistance scrolls left (see the same inversion in actor/mouse.py).
+			x_distance = -delta_x
+			y_distance = -delta_y
 
 			# Synthesize scroll gesture - use very high speed for near-instant scrolling
 			await cdp_client.send.Input.synthesizeScrollGesture(
 				params={
 					'x': center_x,
 					'y': center_y,
-					'xDistance': 0,
+					'xDistance': x_distance,
 					'yDistance': y_distance,
 					'speed': 50000,  # pixels per second (high = near-instant scroll)
 				},
 				session_id=session_id,
 			)
 
-			self.logger.debug(f'📄 Scrolled via CDP gesture: {pixels}px')
+			self.logger.debug(f'📄 Scrolled via CDP gesture: dx={delta_x}px dy={delta_y}px')
 			return True
 
 		except Exception as e:
@@ -2257,7 +2275,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			self.logger.debug(f'CDP gesture scroll failed ({type(e).__name__}: {e}), falling back to JS')
 			return False
 
-	async def _scroll_element_container(self, element_node, pixels: int) -> bool:
+	async def _scroll_element_container(self, element_node, delta_x: int, delta_y: int) -> bool:
 		"""Try to scroll an element's container using CDP."""
 		try:
 			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
@@ -2287,16 +2305,19 @@ class DefaultActionWatchdog(BaseWatchdog):
 										if (doc) {{
 											const scrollElement = doc.documentElement || doc.body;
 											if (scrollElement) {{
-												const oldScrollTop = scrollElement.scrollTop;
-												scrollElement.scrollTop += {pixels};
-												const newScrollTop = scrollElement.scrollTop;
-												return {{
-													success: true,
-													oldScrollTop: oldScrollTop,
-													newScrollTop: newScrollTop,
-													scrolled: newScrollTop - oldScrollTop
-												}};
-											}}
+											const oldScrollTop = scrollElement.scrollTop;
+											const oldScrollLeft = scrollElement.scrollLeft;
+											scrollElement.scrollTop += {delta_y};
+											scrollElement.scrollLeft += {delta_x};
+											const newScrollTop = scrollElement.scrollTop;
+											const newScrollLeft = scrollElement.scrollLeft;
+											return {{
+												success: true,
+												oldScrollTop: oldScrollTop,
+												newScrollTop: newScrollTop,
+												scrolled: (newScrollTop - oldScrollTop) + (newScrollLeft - oldScrollLeft)
+											}};
+										}}
 										}}
 										return {{success: false, error: 'Could not access iframe content'}};
 									}} catch (e) {{
@@ -2336,8 +2357,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 					'type': 'mouseWheel',
 					'x': center_x,
 					'y': center_y,
-					'deltaX': 0,
-					'deltaY': pixels,
+					'deltaX': delta_x,
+					'deltaY': delta_y,
 				},
 				session_id=cdp_session.session_id,
 			)
