@@ -197,6 +197,22 @@ class TestCloudBrowserClient:
 
 			assert 'BROWSER_USE_API_KEY is invalid' in str(exc_info.value)
 
+	async def test_create_browser_http_403_keeps_server_detail(self, httpserver, monkeypatch):
+		"""A 403 surfaces the backend's reason instead of a generic subscription message."""
+		monkeypatch.setenv('BROWSER_USE_API_KEY', 'free-key')
+		detail = 'Free accounts can request at most 15 minutes. Add credits to use longer sessions.'
+		httpserver.expect_request('/api/v2/browsers', method='POST').respond_with_json({'detail': detail}, status=403)
+
+		client = CloudBrowserClient(api_base_url=httpserver.url_for('').rstrip('/'))
+		try:
+			with pytest.raises(CloudBrowserAuthError) as exc_info:
+				await client.create_browser(CreateBrowserRequest(cloud_timeout=60))
+		finally:
+			await client.client.aclose()
+
+		assert detail in str(exc_info.value)
+		assert 'subscription' not in str(exc_info.value)
+
 	async def test_create_browser_with_env_var(self, temp_config_dir, monkeypatch):
 		"""Test cloud browser creation using BROWSER_USE_API_KEY environment variable."""
 
