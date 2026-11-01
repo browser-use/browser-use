@@ -63,10 +63,10 @@ def _create_no_op_decorator(
 	**kwargs: Any,
 ) -> Callable[[F], F]:
 	"""Create a no-op decorator that accepts all lmnr observe parameters but does nothing."""
-	import asyncio
+	import inspect
 
 	def decorator(func: F) -> F:
-		if asyncio.iscoroutinefunction(func):
+		if inspect.iscoroutinefunction(func):
 
 			@wraps(func)
 			async def async_wrapper(*args, **kwargs):
