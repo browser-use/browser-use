@@ -1,4 +1,4 @@
-# pyright: reportArgumentType=false, reportCallIssue=false, reportMissingImports=false
+# pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportMissingImports=false
 # pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
 # pyright: reportTypedDictNotRequiredAccess=false
 
