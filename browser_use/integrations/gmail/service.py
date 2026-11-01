@@ -5,8 +5,10 @@ This service provides a clean interface for agents to interact with Gmail.
 """
 
 import base64
+import binascii
 import logging
 import os
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
@@ -206,20 +208,38 @@ class GmailService:
 		}
 
 	def _extract_body(self, payload: dict[str, Any]) -> str:
-		"""Extract email body from payload"""
-		body = ''
+		"""Extract the body from nested MIME parts, preferring plain text over HTML."""
+		bodies: dict[str, list[tuple[str, str]]] = {'text/plain': [], 'text/html': []}
+		pending = [payload]
+		while pending:
+			part = pending.pop()
+			headers = Message()
+			for header in part.get('headers', []):
+				headers[header['name']] = header['value']
+			if part.get('filename') or headers.get_content_disposition() == 'attachment':
+				continue
+			if part.get('parts'):
+				pending.extend(reversed(part['parts']))
+				continue
 
-		if payload.get('body', {}).get('data'):
-			# Simple email body
-			body = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8')
-		elif payload.get('parts'):
-			# Multi-part email
-			for part in payload['parts']:
-				if part['mimeType'] == 'text/plain' and part.get('body', {}).get('data'):
-					part_body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
-					body += part_body
-				elif part['mimeType'] == 'text/html' and not body and part.get('body', {}).get('data'):
-					# Fallback to HTML if no plain text
-					body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+			mime_type = part.get('mimeType', 'text/plain')
+			data = part.get('body', {}).get('data')
+			if mime_type in bodies and data:
+				bodies[mime_type].append((data, headers.get_content_charset() or 'utf-8'))
 
-		return body
+		for mime_type in ('text/plain', 'text/html'):
+			body = []
+			for data, charset in bodies[mime_type]:
+				try:
+					raw = base64.urlsafe_b64decode(data)
+				except (binascii.Error, ValueError):
+					continue
+				if not raw:
+					continue
+				try:
+					body.append(raw.decode(charset, errors='replace'))
+				except LookupError:
+					body.append(raw.decode('utf-8', errors='replace'))
+			if body:
+				return ''.join(body)
+		return ''
