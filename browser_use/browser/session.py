@@ -138,6 +138,29 @@ class ResilientEventBus(EventBus):
 		return await super().wait_until_idle(timeout)
 
 
+def _rect_from_positive_quad(quad: list[float]) -> DOMRect | None:
+	"""Axis-aligned bounds of one DOM quad, or None when it has no positive area.
+
+	DOM.getContentQuads can lead with a degenerate fragment (zero width or height),
+	for example an inline element whose first box is a ``<br>``. A rotated or
+	otherwise collinear quad can also have a positive bounding box and zero
+	polygon area. Callers skip those and keep looking, then fall through to
+	getBoxModel / getBoundingClientRect.
+	"""
+	if len(quad) < 8:
+		return None
+	x_coords = [quad[i] for i in range(0, 8, 2)]
+	y_coords = [quad[i] for i in range(1, 8, 2)]
+	# Shoelace area. An axis-aligned width/height check accepts collinear points
+	# whose bounding box is still wide and tall (a diagonal line).
+	area = abs(sum(x_coords[i] * y_coords[(i + 1) % 4] - y_coords[i] * x_coords[(i + 1) % 4] for i in range(4))) / 2
+	if area <= 0:
+		return None
+	min_x = min(x_coords)
+	min_y = min(y_coords)
+	return DOMRect(x=min_x, y=min_y, width=max(x_coords) - min_x, height=max(y_coords) - min_y)
+
+
 class BrowserSession(BaseModel):
 	"""Event-driven browser session with backwards compatibility.
 
@@ -2872,6 +2895,12 @@ class BrowserSession(BaseModel):
 		This method tries DOM.getContentQuads first, then falls back to DOM.getBoxModel,
 		and finally uses JavaScript getBoundingClientRect as a last resort.
 
+		A non-empty quad list is not enough. Inline elements can start with a degenerate
+		fragment (zero width or height, such as a leading ``<br>``) followed by a quad
+		that actually covers the text. The first content quad with positive area is
+		used. If none has area, this falls through to getBoxModel and then
+		getBoundingClientRect instead of returning None.
+
 		Args:
 			backend_node_id: The backend node ID to get coordinates for
 			cdp_session: The CDP session to use
@@ -2880,7 +2909,6 @@ class BrowserSession(BaseModel):
 			DOMRect with coordinates or None if element not found/no bounds
 		"""
 		session_id = cdp_session.session_id
-		quads = []
 
 		# Method 1: Try DOM.getContentQuads first (best for inline elements and complex layouts)
 		try:
@@ -2890,92 +2918,62 @@ class BrowserSession(BaseModel):
 			if 'quads' in content_quads_result and content_quads_result['quads']:
 				quads = content_quads_result['quads']
 				self.logger.debug(f'Got {len(quads)} quads from DOM.getContentQuads')
+				for quad in quads:
+					rect = _rect_from_positive_quad(quad)
+					if rect is not None:
+						return rect
+				self.logger.debug('DOM.getContentQuads returned no quad with positive area')
 			else:
 				self.logger.debug(f'No quads found from DOM.getContentQuads {content_quads_result}')
 		except Exception as e:
 			self.logger.debug(f'DOM.getContentQuads failed: {e}')
 
-		# Method 2: Fall back to DOM.getBoxModel
-		if not quads:
-			try:
-				box_model = await cdp_session.cdp_client.send.DOM.getBoxModel(
-					params={'backendNodeId': backend_node_id}, session_id=session_id
-				)
-				if 'model' in box_model and 'content' in box_model['model']:
-					content_quad = box_model['model']['content']
-					if len(content_quad) >= 8:
-						# Convert box model format to quad format
-						quads = [
-							[
-								content_quad[0],
-								content_quad[1],  # x1, y1
-								content_quad[2],
-								content_quad[3],  # x2, y2
-								content_quad[4],
-								content_quad[5],  # x3, y3
-								content_quad[6],
-								content_quad[7],  # x4, y4
-							]
-						]
-						self.logger.debug('Got quad from DOM.getBoxModel')
-			except Exception as e:
-				self.logger.debug(f'DOM.getBoxModel failed: {e}')
+		# Method 2: Fall back to DOM.getBoxModel when no content quad has positive area
+		try:
+			box_model = await cdp_session.cdp_client.send.DOM.getBoxModel(
+				params={'backendNodeId': backend_node_id}, session_id=session_id
+			)
+			if 'model' in box_model and 'content' in box_model['model']:
+				content_quad = box_model['model']['content']
+				rect = _rect_from_positive_quad(content_quad)
+				if rect is not None:
+					self.logger.debug('Got quad from DOM.getBoxModel')
+					return rect
+		except Exception as e:
+			self.logger.debug(f'DOM.getBoxModel failed: {e}')
 
 		# Method 3: Fall back to JavaScript getBoundingClientRect
-		if not quads:
-			try:
-				result = await cdp_session.cdp_client.send.DOM.resolveNode(
-					params={'backendNodeId': backend_node_id},
+		try:
+			result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': backend_node_id},
+				session_id=session_id,
+			)
+			if 'object' in result and 'objectId' in result['object']:
+				object_id = result['object']['objectId']
+				js_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+					params={
+						'objectId': object_id,
+						'functionDeclaration': """
+						function() {
+							const rect = this.getBoundingClientRect();
+							return {
+								x: rect.x,
+								y: rect.y,
+								width: rect.width,
+								height: rect.height
+							};
+						}
+						""",
+						'returnByValue': True,
+					},
 					session_id=session_id,
 				)
-				if 'object' in result and 'objectId' in result['object']:
-					object_id = result['object']['objectId']
-					js_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
-						params={
-							'objectId': object_id,
-							'functionDeclaration': """
-							function() {
-								const rect = this.getBoundingClientRect();
-								return {
-									x: rect.x,
-									y: rect.y,
-									width: rect.width,
-									height: rect.height
-								};
-							}
-							""",
-							'returnByValue': True,
-						},
-						session_id=session_id,
-					)
-					if 'result' in js_result and 'value' in js_result['result']:
-						rect_data = js_result['result']['value']
-						if rect_data['width'] > 0 and rect_data['height'] > 0:
-							return DOMRect(
-								x=rect_data['x'], y=rect_data['y'], width=rect_data['width'], height=rect_data['height']
-							)
-			except Exception as e:
-				self.logger.debug(f'JavaScript getBoundingClientRect failed: {e}')
-
-		# Convert quads to bounding rectangle if we have them
-		if quads:
-			# Use the first quad (most relevant for the element)
-			quad = quads[0]
-			if len(quad) >= 8:
-				# Calculate bounding rect from quad points
-				x_coords = [quad[i] for i in range(0, 8, 2)]
-				y_coords = [quad[i] for i in range(1, 8, 2)]
-
-				min_x = min(x_coords)
-				min_y = min(y_coords)
-				max_x = max(x_coords)
-				max_y = max(y_coords)
-
-				width = max_x - min_x
-				height = max_y - min_y
-
-				if width > 0 and height > 0:
-					return DOMRect(x=min_x, y=min_y, width=width, height=height)
+				if 'result' in js_result and 'value' in js_result['result']:
+					rect_data = js_result['result']['value']
+					if rect_data['width'] > 0 and rect_data['height'] > 0:
+						return DOMRect(x=rect_data['x'], y=rect_data['y'], width=rect_data['width'], height=rect_data['height'])
+		except Exception as e:
+			self.logger.debug(f'JavaScript getBoundingClientRect failed: {e}')
 
 		return None
 
