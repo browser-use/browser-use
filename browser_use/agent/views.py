@@ -130,6 +130,9 @@ def _normalize_action_for_hash(action_name: str, params: dict[str, Any]) -> str:
 			text = str(params.get('text', ''))
 			# Normalize input text: lowercase, strip whitespace
 			return f'input|{index}|{text.strip().lower()}'
+		if index is None:
+			# Coordinate clicks have no element index, so identify them by position instead
+			return f'click|{params.get("coordinate_x")}|{params.get("coordinate_y")}'
 		return f'click|{index}'
 
 	if action_name == 'navigate':
