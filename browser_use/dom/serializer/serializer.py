@@ -584,12 +584,23 @@ class DOMTreeSerializer:
 			and node.original_node.attributes.get('type') == 'file'
 		)
 
+		# Same visibility compensation as the conversion pass above: elements
+		# carrying aria-* / pseudo attributes are kept even when reported not
+		# visible — without this, _optimize_tree drops the very leaves that
+		# compensation just created (the file-input exception is repeated here
+		# for the same reason).
+		is_validation_element = bool(
+			node.original_node.attributes
+			and any(attr.startswith(('aria-', 'pseudo')) for attr in node.original_node.attributes.keys())
+		)
+
 		if (
 			is_visible  # Keep all visible nodes
 			or node.original_node.is_actually_scrollable
 			or node.original_node.node_type == NodeType.TEXT_NODE
 			or node.children
 			or is_file_input  # Keep file inputs even if not visible
+			or is_validation_element  # Keep aria-/pseudo- attributed elements
 		):
 			return node
 
