@@ -192,7 +192,7 @@ HTTP-based MCP at `https://api.browser-use.com/mcp`
 | `list_browser_profiles` | Free | List profiles |
 | `monitor_task` | Free | Check task progress |
 
-Setup: See `references/open-source/integrations.md` for Claude/Cursor/Windsurf config.
+Setup: See `../../open-source/references/integrations.md` for Claude/Cursor/Windsurf config.
 
 ---
 

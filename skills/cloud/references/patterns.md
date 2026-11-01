@@ -179,4 +179,4 @@ pw_browser = await playwright.chromium.connect_over_cdp(browser.cdp_url)
 # Normal Playwright code on stealth infrastructure
 ```
 
-See `references/cloud/browser-api.md` for full examples.
+See `browser-api.md` for full examples.
