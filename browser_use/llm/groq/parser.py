@@ -24,9 +24,9 @@ def try_parse_groq_failed_generation(
 		content = error.body['error']['failed_generation']  # type: ignore
 
 		# If content is wrapped in code blocks, extract just the JSON part
-		if '```' in content:
-			# Find the JSON content between code blocks
-			content = content.split('```')[1]
+		if '```' in content and not content.lstrip().startswith(('{', '[')):
+			# Keep backticks inside JSON strings; only remove the outer fence pair.
+			content = content.split('```', 1)[1].rsplit('```', 1)[0]
 			# Remove language identifier if present (e.g., 'json\n')
 			if '\n' in content:
 				content = content.split('\n', 1)[1]
