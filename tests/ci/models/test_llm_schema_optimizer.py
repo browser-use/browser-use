@@ -95,3 +95,28 @@ def test_optimizer_treats_property_names_as_data_not_schema_keywords():
 		field_schema = schema['properties'][field_name]
 		assert '$ref' not in field_schema
 		assert field_schema['properties']['summary']['type'] == 'string'
+
+
+def test_optimizer_handles_field_named_required_in_strict_mode():
+	"""Nested model under a field literally named 'required' must still be
+	processed for strict mode, so its optional properties appear in that
+	object's required list (regression for #6209)."""
+
+	class Inner(BaseModel):
+		optional_prop: str | None = None
+		mandatory_prop: str
+
+	class Outer(BaseModel):
+		required: Inner
+		sibling: Inner
+
+	schema = SchemaOptimizer.create_optimized_json_schema(Outer)
+
+	required_field_schema = schema['properties']['required']
+	assert 'properties' in required_field_schema
+	assert set(required_field_schema['properties'].keys()) == {'optional_prop', 'mandatory_prop'}
+	assert 'required' in required_field_schema
+	assert set(required_field_schema['required']) == {'optional_prop', 'mandatory_prop'}
+
+	sibling_field_schema = schema['properties']['sibling']
+	assert set(sibling_field_schema['required']) == {'optional_prop', 'mandatory_prop'}
