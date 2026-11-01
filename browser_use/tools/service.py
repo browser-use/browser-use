@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import math
@@ -1539,10 +1540,25 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					file_name = f'{file_name}.png'
 				file_name = FileSystem.sanitize_filename(file_name)
 
-				screenshot_bytes = await browser_session.take_screenshot(full_page=False)
-				file_path = file_system.get_dir() / file_name
-				file_path.write_bytes(screenshot_bytes)
+				# Handle duplicate filenames (same policy as save_as_pdf)
+				if (file_system.get_dir() / file_name).exists():
+					base, ext = os.path.splitext(file_name)
+					counter = 1
+					while (file_system.get_dir() / f'{base} ({counter}){ext}').exists():
+						counter += 1
+					file_name = f'{base} ({counter}){ext}'
 
+				screenshot_bytes = await browser_session.take_screenshot(full_page=False)
+				# Register through the FileSystem (mirrors write_file: validates the
+				# PNG magic and syncs to disk) so read_file / list_files / describe /
+				# upload_file / done(files_to_display=...) can resolve the screenshot.
+				# Writing the bytes directly left an orphan on disk that the registry
+				# never knew about — and that a FileSystem re-init wiped.
+				write_result = await file_system.write_file(file_name, base64.b64encode(screenshot_bytes).decode('utf-8'))
+				if file_name not in file_system.files:
+					return ActionResult(extracted_content=write_result, error=write_result)
+
+				file_path = file_system.get_dir() / file_name
 				result = f'Screenshot saved to {file_name}'
 				logger.info(f'📸 {result}. Full path: {file_path}')
 				return ActionResult(
