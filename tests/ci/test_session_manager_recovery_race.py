@@ -86,7 +86,7 @@ async def test_timed_out_waiter_does_not_reset_owner_recovery_state() -> None:
 	# Swap in a stub event so concurrent waiter B times out quickly (the stub's
 	# wait() raises TimeoutError, i.e. the 5s wait_for timeout fires early)
 	stub_event = TimedOutEventStub()
-	sm._recovery_complete_event = stub_event
+	sm._recovery_complete_event = stub_event  # type: ignore[assignment]
 
 	# Start concurrent waiter B: it sees recovery in progress and waits for it
 	task_b = asyncio.create_task(sm._recover_agent_focus('other-crashed-target'))
