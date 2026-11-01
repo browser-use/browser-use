@@ -1,8 +1,13 @@
 """Test Google model button click."""
 
+import logging
+from types import SimpleNamespace
+
 import pytest
+from google.genai import types
 
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.messages import UserMessage
 from tests.ci.models.model_test_helper import run_model_button_click_test
 
 
@@ -127,6 +132,87 @@ async def test_chat_google_temperature_fallback():
 		mock_models.generate_content.assert_called_once()
 		args, kwargs = mock_models.generate_content.call_args
 		assert kwargs['config']['temperature'] == 1.0
+
+
+class _RecordingModels:
+	"""Stands in for client.aio.models: records the request config instead of calling the API."""
+
+	def __init__(self):
+		self.config: types.GenerateContentConfigDict | None = None
+
+	async def generate_content(self, model, contents, config):
+		self.config = config
+		return SimpleNamespace(text='ok', usage_metadata=None, candidates=[])
+
+
+class _RecordingHandler(logging.Handler):
+	def __init__(self):
+		super().__init__(level=logging.WARNING)
+		self.messages: list[str] = []
+
+	def emit(self, record):
+		self.messages.append(record.getMessage())
+
+
+async def _invoke_and_record(model: str, **kwargs) -> tuple[dict | None, list[str]]:
+	"""Run ainvoke offline and return (thinking_config sent, warnings logged)."""
+	models = _RecordingModels()
+	chat = ChatGoogle(model=model, api_key='fake', **kwargs)
+	chat._client = SimpleNamespace(aio=SimpleNamespace(models=models))  # type: ignore[assignment]
+	# browser_use loggers don't propagate to root, so caplog can't see them
+	handler = _RecordingHandler()
+	chat.logger.addHandler(handler)
+	try:
+		await chat.ainvoke([UserMessage(content='Hello')])
+	finally:
+		chat.logger.removeHandler(handler)
+	assert models.config is not None
+	return models.config.get('thinking_config'), handler.messages  # type: ignore[return-value]
+
+
+GEMINI_3_MODELS = ['gemini-3-pro-preview', 'gemini-3.1-pro', 'gemini-3-flash-preview', 'gemini-3.1-flash', 'gemini-3.5-flash']
+
+
+@pytest.mark.parametrize('model', GEMINI_3_MODELS)
+async def test_gemini_3_sends_thinking_level(model):
+	"""Gemini 3.x models, including gemini-3.5-flash (#6063), must send the caller's thinking_level."""
+	thinking_config, warnings = await _invoke_and_record(model, thinking_level='low')
+
+	assert thinking_config == {'thinking_level': types.ThinkingLevel.LOW}
+	assert warnings == []
+
+
+@pytest.mark.parametrize(
+	'model, expected',
+	[
+		# Pro defaults to thinking_level='low', Flash to thinking_budget=-1
+		('gemini-3-pro-preview', {'thinking_level': types.ThinkingLevel.LOW}),
+		('gemini-3.1-pro', {'thinking_level': types.ThinkingLevel.LOW}),
+		('gemini-3-flash-preview', {'thinking_budget': -1}),
+		('gemini-3.1-flash', {'thinking_budget': -1}),
+		('gemini-3.5-flash', {'thinking_budget': -1}),
+	],
+)
+async def test_gemini_3_default_thinking_config(model, expected):
+	"""With nothing set, each Gemini 3.x model gets its Pro/Flash default thinking config."""
+	thinking_config, warnings = await _invoke_and_record(model)
+
+	assert thinking_config == expected
+	assert warnings == []
+
+
+@pytest.mark.parametrize('model', ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash'])
+async def test_pre_gemini_3_drops_thinking_level_and_honours_budget(model):
+	"""Gemini 2.5 and earlier keep using thinking_budget only: thinking_level is warned about and dropped."""
+	thinking_config, warnings = await _invoke_and_record(model, thinking_level='low')
+
+	assert 'thinking_level' not in (thinking_config or {})
+	assert len(warnings) == 1 and 'thinking_level="low" is not supported' in warnings[0]
+
+	thinking_config, warnings = await _invoke_and_record(model, thinking_budget=1024)
+
+	assert thinking_config == {'thinking_budget': 1024}
+	assert warnings == []
 
 
 # A 1x1 PNG, small enough to inline and still be a real decodable image.
