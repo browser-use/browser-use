@@ -225,7 +225,7 @@ def _parse_atomic_blocks(content: str) -> list[_AtomicBlock]:
 	i = 0
 	offset = 0  # char offset tracking
 
-	while i < len(lines):
+	while i < len(lines) and offset < len(content):
 		line = lines[i]
 		line_len = len(line) + 1  # +1 for the newline we split on
 
@@ -388,6 +388,9 @@ def _parse_atomic_blocks(content: str) -> list[_AtomicBlock]:
 			char_end=len(content),
 		)
 
+	# Filter out any zero-width blocks (e.g. char_start == char_end)
+	blocks = [b for b in blocks if b.char_end > b.char_start]
+
 	return blocks
 
 
@@ -458,6 +461,8 @@ def chunk_markdown_by_structure(
 
 	for block in blocks:
 		block_size = block.char_end - block.char_start
+		if block_size <= 0:
+			continue
 		# If adding this block would exceed limit AND we already have content, emit chunk
 		if current_size + block_size > max_chunk_chars and current_chunk:
 			# Prefer splitting at a header boundary within the current chunk.
@@ -492,6 +497,13 @@ def chunk_markdown_by_structure(
 		chunk_text = '\n'.join(_block_text(b) for b in chunk_blocks)
 		char_start = chunk_blocks[0].char_start
 		char_end = chunk_blocks[-1].char_end
+
+		# Preserve trailing newlines on the final chunk if present in source content
+		if idx == total_chunks - 1 and content.endswith('\n'):
+			content_trailing = len(content) - len(content.rstrip('\n'))
+			chunk_trailing = len(chunk_text) - len(chunk_text.rstrip('\n'))
+			if chunk_trailing < content_trailing:
+				chunk_text += '\n' * (content_trailing - chunk_trailing)
 
 		# Build overlap prefix
 		overlap = ''
