@@ -1,8 +1,12 @@
 """Test Google model button click."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
+from google.genai import types
 
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.messages import UserMessage
 from tests.ci.models.model_test_helper import run_model_button_click_test
 
 
@@ -127,6 +131,35 @@ async def test_chat_google_temperature_fallback():
 		mock_models.generate_content.assert_called_once()
 		args, kwargs = mock_models.generate_content.call_args
 		assert kwargs['config']['temperature'] == 1.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+	'model, kwargs, expected',
+	[
+		('gemini-3.5-flash', {'thinking_level': 'low'}, {'thinking_level': types.ThinkingLevel.LOW}),
+		('gemini-3.5-flash', {}, {'thinking_budget': -1}),
+		('gemini-3-flash-preview', {'thinking_level': 'low'}, {'thinking_level': types.ThinkingLevel.LOW}),
+		('gemini-3.1-pro-preview', {}, {'thinking_level': types.ThinkingLevel.LOW}),
+		('gemini-2.5-flash', {}, {'thinking_budget': -1}),
+	],
+)
+async def test_chat_google_thinking_config_by_model(model, kwargs, expected):
+	"""Gemini 3.x ids get the Gemini 3 thinking config, not the 2.5 one."""
+	mock_models = AsyncMock()
+	mock_response = MagicMock()
+	mock_response.text = 'ok'
+	mock_response.usage = None
+	mock_response.candidates = []
+	mock_models.generate_content.return_value = mock_response
+	mock_client = MagicMock()
+	mock_client.aio.models = mock_models
+
+	with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+		chat = ChatGoogle(model=model, api_key='fake', **kwargs)
+		await chat.ainvoke([UserMessage(content='Hello')])
+
+	assert mock_models.generate_content.call_args.kwargs['config']['thinking_config'] == expected
 
 
 # A 1x1 PNG, small enough to inline and still be a real decodable image.
