@@ -240,6 +240,43 @@ class DOMWatchdog(BaseWatchdog):
 
 		return []
 
+	async def _non_http_page_has_content(self, page_url: str) -> bool:
+		"""Whether a page without an http(s) URL (about:blank, data:, ...) has content.
+
+		Content is any text, or any element other than the loading animation AboutBlankWatchdog
+		draws into blank tabs (#pretty-loading-animation): a page may write only a form or an image.
+		Browser pages (chrome://, chrome-extension://, devtools://) are never treated as content.
+		"""
+		scheme = page_url.lower().split(':', 1)[0]
+		if scheme.startswith('chrome') or scheme == 'devtools':
+			return False
+
+		expression = """(() => {
+			const body = document.body;
+			if (!body) return false;
+			if (body.innerText.trim().length) return true;
+			for (const child of body.children) {
+				if (child.id !== 'pretty-loading-animation') return true;
+			}
+			return false;
+		})()"""
+
+		async def check() -> bool:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=False)
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': expression, 'returnByValue': True},
+				session_id=cdp_session.session_id,
+			)
+			return result.get('result', {}).get('value') is True
+
+		try:
+			# The whole check is bounded, session lookup included, so a stale target cannot hold up
+			# every state request for a non-http(s) page.
+			return await asyncio.wait_for(check(), timeout=2.0)
+		except Exception as e:
+			self.logger.debug(f'Could not check non-http(s) page for content: {type(e).__name__}: {e}')
+			return False
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_state_request_event')
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> 'BrowserStateSummary':
 		"""Handle browser state request by coordinating DOM building and screenshot capture.
@@ -264,6 +301,11 @@ class DOMWatchdog(BaseWatchdog):
 
 		# check if we should skip DOM tree build for pointless pages
 		not_a_meaningful_website = page_url.lower().split(':', 1)[0] not in ('http', 'https')
+		# A page can still have content without an http(s) URL: e.g. a window its opener filled with
+		# window.open('') + document.write(), which stays at about:blank. Read those like any page.
+		if not_a_meaningful_website and await self._non_http_page_has_content(page_url):
+			self.logger.debug(f'🔍 Non-http(s) page has content, reading it like a website: {page_url}')
+			not_a_meaningful_website = False
 
 		# Check for pending network requests BEFORE waiting (so we can see what's loading)
 		# Timeout after 2s — on slow CI machines or heavy pages, this call can hang
