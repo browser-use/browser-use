@@ -7,7 +7,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from browser_use.llm.deepseek.chat import ChatDeepSeek, _repair_json_control_chars
-from browser_use.llm.exceptions import ModelProviderError
+from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError
 from browser_use.llm.messages import SystemMessage, UserMessage
 
 
@@ -27,9 +27,9 @@ def _tool_call_response(args: str):
 	return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 
-def _json_response(content: str):
-	message = SimpleNamespace(content=content, tool_calls=None)
-	return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+def _json_response(content: str, finish_reason: str = 'stop'):
+	message = SimpleNamespace(content=content, tool_calls=None, reasoning_content=None)
+	return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason=finish_reason)])
 
 
 def _messages():
@@ -81,6 +81,34 @@ async def test_json_path_repairs_raw_control_chars_before_validation():
 		result = await llm.ainvoke(_messages(), output_format=_SimpleOutput)
 
 	assert result.completion.action == [{'search': {'query': 'a', 'engine': 'google'}}]
+
+
+@pytest.mark.asyncio
+async def test_json_path_retries_with_correction_when_action_is_missing():
+	missing_action = '{"thinking": "I know what to do but forgot the action."}'
+	valid = '{"action": [{"search": {"query": "a", "engine": "google"}}]}'
+	client = _client_with(_json_response(missing_action))
+	client.chat.completions.create = AsyncMock(side_effect=[_json_response(missing_action), _json_response(valid)])
+	llm = ChatDeepSeek(model='deepseek-v4-flash', api_key='test-key')
+
+	with patch.object(ChatDeepSeek, '_client', return_value=client):
+		result = await llm.ainvoke(_messages(), output_format=_SimpleOutput)
+
+	assert result.completion.action == [{'search': {'query': 'a', 'engine': 'google'}}]
+	assert client.chat.completions.create.await_count == 2
+	retry_messages = client.chat.completions.create.await_args_list[1].kwargs['messages']
+	assert retry_messages[-1]['role'] == 'user'
+	assert '"action" field is required' in retry_messages[-1]['content']
+
+
+@pytest.mark.asyncio
+async def test_json_path_raises_truncation_error_before_parsing():
+	client = _client_with(_json_response('{"thinking": "cut off', finish_reason='length'))
+	llm = ChatDeepSeek(model='deepseek-v4-flash', api_key='test-key')
+
+	with patch.object(ChatDeepSeek, '_client', return_value=client):
+		with pytest.raises(ModelOutputTruncatedError, match='truncated'):
+			await llm.ainvoke(_messages(), output_format=_SimpleOutput)
 
 
 @pytest.mark.asyncio

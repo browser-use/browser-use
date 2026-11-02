@@ -445,14 +445,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
 
 		# TODO: move this logic to the LLMs
-		# Handle users trying to use use_vision=True with DeepSeek models
-		if 'deepseek' in self.llm.model.lower():
-			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
+		# DeepSeek Flash supports vision; other DeepSeek models are text-only.
+		model_lower = self.llm.model.lower()
+		if 'deepseek' in model_lower and 'flash' not in model_lower:
+			self.logger.warning('⚠️ This DeepSeek model does not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 
 		# Handle users trying to use use_vision=True with XAI models that don't support it
 		# grok-3 variants and grok-code don't support vision; grok-2 and grok-4 do
-		model_lower = self.llm.model.lower()
 		if 'grok-3' in model_lower or 'grok-code' in model_lower:
 			self.logger.warning('⚠️ This XAI model does not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False

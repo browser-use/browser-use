@@ -19,7 +19,7 @@ from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.deepseek.serializer import DeepSeekMessageSerializer
-from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
+from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion
@@ -56,6 +56,46 @@ def _repair_json_control_chars(text: str) -> str:
 			if ch == '"':
 				in_string = True
 	return ''.join(out)
+
+
+def _strip_json_wrappers(text: str) -> str:
+	"""Remove markdown fences or surrounding prose from a JSON response."""
+	cleaned = text.strip()
+	if cleaned.startswith('```'):
+		lines = cleaned.splitlines()
+		if lines and lines[0].startswith('```'):
+			lines = lines[1:]
+		if lines and lines[-1].strip() == '```':
+			lines = lines[:-1]
+		cleaned = '\n'.join(lines).strip()
+
+	start = cleaned.find('{')
+	end = cleaned.rfind('}')
+	if start != -1 and end > start:
+		cleaned = cleaned[start : end + 1]
+	return cleaned
+
+
+def _parse_json_output(output_format: type[T], content: str) -> T:
+	"""Parse JSON output, tolerating fences and raw control characters."""
+	last_error: ValidationError | None = None
+	candidates = [content, _strip_json_wrappers(content)]
+	for candidate in candidates:
+		try:
+			return output_format.model_validate_json(candidate)
+		except ValidationError as e:
+			last_error = e
+
+	repaired = _repair_json_control_chars(candidates[-1])
+	if repaired != candidates[-1]:
+		try:
+			return output_format.model_validate_json(repaired)
+		except ValidationError as e:
+			last_error = e
+
+	if last_error is not None:
+		raise last_error
+	raise ValueError('Could not parse JSON output')
 
 
 @dataclass
@@ -217,7 +257,15 @@ class ChatDeepSeek(BaseChatModel):
 				schema = output_format.model_json_schema()
 				json_instruction = (
 					'Respond with a single valid JSON object only. '
-					'Do not include markdown fences or any prose. '
+					'The first character must be "{" and the last character must be "}". '
+					'Do not include markdown fences, comments, trailing commas, or any prose outside the JSON object. '
+					'Every string value MUST be valid JSON: escape every double quote inside a string as \\", '
+					'every backslash as \\\\, and every newline as \\n. '
+					'Never place raw JSON, HTML, or multi-line code inside "thinking". '
+					'When quoting text inside "thinking", prefer single quotes. '
+					'When writing JavaScript for "evaluate", prefer single quotes or backticks so double quotes do not need escaping. '
+					'The "action" field is REQUIRED and must be a non-empty array; never return only '
+					'"thinking", "memory", or "next_goal". If unsure, use the "wait" action. '
 					f'The JSON object must conform to this schema:\n{json.dumps(schema, ensure_ascii=False)}'
 				)
 				json_messages = [dict(message) for message in ds_messages]
@@ -226,30 +274,79 @@ class ChatDeepSeek(BaseChatModel):
 				else:
 					json_messages.insert(0, {'role': 'system', 'content': json_instruction})
 
-				resp = await client.chat.completions.create(  # type: ignore
-					model=self.model,
-					messages=json_messages,  # type: ignore
-					response_format={'type': 'json_object'},
-					**common,
-				)
-				content = resp.choices[0].message.content
-				if not content:
-					raise ModelProviderError('Empty JSON content in DeepSeek response', model=self.name)
-				try:
-					parsed = output_format.model_validate_json(content)
-				except ValidationError as e:
-					if 'json_invalid' not in str(e):
+				last_error: ValidationError | None = None
+				for attempt in range(2):
+					resp = await client.chat.completions.create(  # type: ignore
+						model=self.model,
+						messages=json_messages,  # type: ignore
+						response_format={'type': 'json_object'},
+						**common,
+					)
+					choice = resp.choices[0]
+					if getattr(choice, 'finish_reason', None) == 'length':
+						cap = f'max_tokens={self.max_tokens}' if self.max_tokens is not None else "the model's output token limit"
+						raise ModelOutputTruncatedError(
+							message=(
+								f'DeepSeek output was truncated at {cap}; the structured output is incomplete. '
+								'Increase max_tokens or request shorter output.'
+							),
+							model=self.name,
+						)
+
+					message = choice.message
+					content = message.content
+					if not content:
+						if attempt == 0:
+							json_messages.append(
+								{
+									'role': 'user',
+									'content': (
+										'Your previous response was empty. Return a single valid JSON object only. '
+										'The "action" field is required and must be a non-empty array.'
+									),
+								}
+							)
+							continue
+						raise ModelProviderError('Empty JSON content in DeepSeek response', model=self.name)
+
+					try:
+						parsed = _parse_json_output(output_format, content)
+					except ValidationError as e:
+						last_error = e
+						if attempt == 0:
+							error_summary = str(e).splitlines()[0][:500]
+							json_messages.extend(
+								[
+									{'role': 'assistant', 'content': content},
+									{
+										'role': 'user',
+										'content': (
+											f'Your previous response was invalid: {error_summary}\n'
+											'Return the complete corrected JSON object only. '
+											'The "action" field is required and must be a non-empty array. '
+											'Escape every double quote inside string values as \\". '
+											'Do not use markdown fences or prose.'
+										),
+									},
+								]
+							)
+							continue
 						raise
-					repaired = _repair_json_control_chars(content)
-					if repaired == content:
-						raise
-					parsed = output_format.model_validate_json(repaired)
-				return ChatInvokeCompletion(
-					completion=parsed,
-					usage=None,
-				)
+
+					reasoning = getattr(message, 'reasoning_content', None)
+					return ChatInvokeCompletion(
+						completion=parsed,
+						thinking=str(reasoning) if reasoning else None,
+						usage=None,
+					)
+
+				if last_error is not None:
+					raise last_error
+				raise ModelProviderError('Empty JSON content in DeepSeek response', model=self.name)
 			except RateLimitError as e:
 				raise ModelRateLimitError(str(e), model=self.name) from e
+			except ModelProviderError:
+				raise
 			except (APIError, APIConnectionError, APITimeoutError, APIStatusError) as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 			except Exception as e:
