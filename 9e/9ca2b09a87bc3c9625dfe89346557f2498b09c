@@ -1,0 +1,66 @@
+.env.example
+  h_e7a2b198222b93 2
+README.md
+  h_e7a2b198222b93 16-17,20,22-51,65-75,84,88,91-111,177-178
+browser_use/__init__.py
+  h_e7a2b198222b93 7,16,240-262,656
+browser_use/cli.py
+  h_e7a2b198222b93 233,240,249-262,266,278-281,386,388,390-391,393,395-397,399-400,402-405,408-413
+docs/api.md
+  h_e7a2b198222b93 4-7,9-24
+docs/migration.md
+  h_e7a2b198222b93 62,69-72,75-77
+docs/models.md
+  h_e7a2b198222b93 3-4,6,8-13,15-22,27,30-35,37-39,43,46,48,51-56,59-66,70-73
+docs/python.md
+  h_e7a2b198222b93 28-33
+examples/README.md
+  h_e7a2b198222b93 3-5,10-17,21-23,25-40,84-98
+examples/apply-to-job.ts
+  h_e7a2b198222b93 18,20-21
+examples/ehr.ts
+  h_e7a2b198222b93 6,8
+examples/extract.ts
+  h_e7a2b198222b93 7,9-10
+examples/form.ts
+  h_e7a2b198222b93 4,6-7
+examples/models/fireworks.py
+  h_e7a2b198222b93 1,6,10-13,15-25
+examples/onepassword.ts
+  h_e7a2b198222b93 31,33-34
+examples/qa.ts
+  h_e7a2b198222b93 7,9-10
+examples/research.ts
+  h_e7a2b198222b93 6-13
+examples/stripe-link.ts
+  h_e7a2b198222b93 13-14,17
+src/index.ts
+  h_e7a2b198222b93 25-32,36,169-178,181-203,214-220,300-307,589-590,880-887
+src/models.ts
+  h_e7a2b198222b93 3,6,13-14,16-27,30-34,103,176-180,221-406
+src/server.ts
+  h_e7a2b198222b93 4,158,254-263,286,291-297
+src/telemetry.ts
+  h_e7a2b198222b93 82,361-365
+src/types.ts
+  h_e7a2b198222b93 33,43-44,140-141
+test/provider.test.mjs
+  h_e7a2b198222b93 1,6-7,257-266,288,365-383,385-392,394-430,432-471,473-510,514-515,517-555,557,560-614,616-617,619-631,636-651,653-806
+test/telemetry.test.mjs
+  h_e7a2b198222b93 474,488,499,525,530,541
+tests/ci/test_browser_use_cli.py
+  h_e7a2b198222b93 73,75-83,86,104-105,109,113-149
+tests/python/test_client.py
+  h_e7a2b198222b93 10,62-97,309,312-313,342,345-382,950
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9e9ca2b09a87bc3c9625dfe89346557f2498b09c",
+  "prompts": {},
+  "humans": {
+    "h_e7a2b198222b93": {
+      "author": "Gregor Žunič <36313686+gregpr07@users.noreply.github.com>"
+    }
+  }
+}
