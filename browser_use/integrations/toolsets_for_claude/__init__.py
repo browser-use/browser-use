@@ -1,5 +1,3 @@
-"""Browser Use toolsets for Claude, provided and maintained by Browser Use."""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

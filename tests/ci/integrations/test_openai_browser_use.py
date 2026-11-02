@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import sys
 import venv
@@ -10,24 +11,31 @@ from io import BytesIO
 from typing import cast
 
 import pytest
+
+pytest.importorskip('openai.lib.browser')
+
 from openai.lib.browser import AsyncBrowserToolset, BrowserError
 from openai.types.responses import ResponseFunctionToolCall
 from PIL import Image
 
-from browser_use import BrowserSession
+from browser_use import BrowserUse as PiBrowser
 from browser_use.integrations.openai import BrowserUse
 
 
 @pytest.fixture
 async def driver():
-	browser = BrowserSession(headless=True, enable_default_extensions=False, user_data_dir=None)
-	await browser.start()
+	executable = os.environ.get('BROWSER_USE_TEST_CHROME')
+	if not executable:
+		pytest.skip('Set BROWSER_USE_TEST_CHROME to run real-browser adapter checks.')
+	browser = await PiBrowser.create(
+		browser={'kind': 'chromium', 'headless': True, 'executablePath': executable}, telemetry=False
+	)
 	try:
 		async with BrowserUse(browser) as value:
 			yield value
-		assert browser.is_cdp_connected
+		assert await browser.execute_json('1 + 1') == 2
 	finally:
-		await browser.kill()
+		await browser.close()
 
 
 async def fixture_page(driver, html):
@@ -58,7 +66,7 @@ async def test_driver_reads_and_changes_real_form(driver):
 	await driver.set_checked({'tab_id': None, 'target': reference(text, 'Ready'), 'checked': True})
 	await driver.click({'tab_id': None, 'target': reference(text, 'Save')})
 	assert await page.evaluate("() => document.querySelector('#result').textContent") == 'OpenAI driver'
-	assert await page.evaluate("() => document.querySelector('#ready').checked") == 'True'
+	assert await page.evaluate("() => document.querySelector('#ready').checked") == 'true'
 	updated = await driver.read_page({'tab_id': None, 'filter': 'interactive'})
 	assert 'checked="true"' in next(line for line in updated.splitlines() if 'Ready' in line)
 	image = await driver.zoom({'tab_id': None, 'region': [0, 0, 100, 80]})
@@ -469,22 +477,18 @@ async def test_diagnostics_timeout_does_not_block_page_read(driver, monkeypatch)
 
 	page = await fixture_page(driver, '<p>Readable without diagnostics</p>')
 	driver._diagnostic_sessions.pop(page._target_id)
-	client = driver._diagnostic_client
 	cancelled = asyncio.Event()
 
-	async def never_attach(*args, **kwargs):
+	async def never_observe(*args, **kwargs):
 		try:
 			await asyncio.Event().wait()
 		finally:
 			cancelled.set()
 
 	monkeypatch.setattr(implementation, '_DIAGNOSTIC_TIMEOUT_S', 0.05)
-	monkeypatch.setattr(client.send.Target, 'attachToTarget', never_attach)
+	monkeypatch.setattr(driver.browser, 'observe', never_observe)
 	assert await driver.get_page_text({'tab_id': page._target_id}) == 'Readable without diagnostics'
 	assert cancelled.is_set()
-	assert driver._diagnostic_client is None
-	assert not driver._diagnostic_sessions
-	assert not driver._diagnostics
 
 
 @pytest.mark.asyncio

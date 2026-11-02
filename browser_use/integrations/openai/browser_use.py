@@ -1,5 +1,3 @@
-"""Run OpenAI browser tools through Browser Use Actor methods."""
-
 from __future__ import annotations
 
 import asyncio
@@ -8,17 +6,15 @@ import json
 from collections import deque
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from cdp_use import CDPClient
 from PIL import Image
 from pydantic import BaseModel
 
-from browser_use.actor.page import Page
-from browser_use.browser._cdp_timeout import TimeoutWrappedCDPClient
-from browser_use.browser.session import BrowserSession
+from browser_use import BrowserUse as PiBrowser
+from browser_use.integrations._browser import BrowserConnection, Page
 from openai.lib import browser as api
 
 _STATE_TIMEOUT_S = 15.0
@@ -53,11 +49,11 @@ class FileGrant(BaseModel):
 class BrowserUse:
 	"""Own a browser session or borrow an already connected session."""
 
-	def __init__(self, browser: BrowserSession | None = None, *, use_cloud: bool = False):
+	def __init__(self, browser: PiBrowser | dict[str, Any] | None = None, *, use_cloud: bool = False):
 		if browser is not None and use_cloud:
 			raise ValueError('Pass a browser or use_cloud=True, not both.')
-		self.browser = browser if browser is not None else BrowserSession(use_cloud=use_cloud)
-		self._owns_browser = browser is None
+		self.browser = BrowserConnection(browser, use_cloud=use_cloud, controller='openai_toolset')
+		self._owns_browser = self.browser.owned
 		self._closed = False
 		self._refs: dict[str, Reference] = {}
 		self._next_ref = 0
@@ -65,43 +61,28 @@ class BrowserUse:
 		self._crashed_targets: set[str] = set()
 		self._scopes: dict[str, Reference] = {}
 		self._grants: dict[str, FileGrant] = {}
-		self._diagnostic_client: CDPClient | None = None
+		self._diagnostic_client = None
 		self._diagnostic_sessions: dict[str, str] = {}
 		self._diagnostics: dict[str, dict[str, deque[str]]] = {}
 
-	async def __aenter__(self) -> BrowserUse:
+	async def __aenter__(self) -> Self:
 		if self._closed:
 			raise RuntimeError('The driver is closed.')
 		try:
-			if self._owns_browser:
-				await self.browser.start()
-			elif not self.browser.is_cdp_connected:
-				raise RuntimeError('Start the borrowed browser before entering the driver.')
+			await self.browser.start()
 			return self
 		except BaseException:
 			await self.close()
 			raise
 
-	async def __aexit__(self, *_: Any) -> None:
+	async def __aexit__(self, *_: object) -> None:
 		await self.close()
 
 	async def close(self) -> None:
-		"""Close only the browser that this driver created."""
 		if not self._closed:
-			if self._diagnostic_client:
-				await self._diagnostic_client.stop()
-				self._diagnostic_client = None
+			await self.browser.close()
 			self._grants.clear()
 			self._scopes.clear()
-			if self._owns_browser:
-				try:
-					cloud = self.browser._cloud_browser_client
-					if cloud.current_session_id:
-						stopped = await cloud.stop_browser()
-						if stopped.status != 'stopped':
-							raise api.BrowserError('Cloud did not confirm browser cleanup.')
-				finally:
-					await self.browser.kill()
 			self._refs.clear()
 			self._closed = True
 
@@ -109,26 +90,20 @@ class BrowserUse:
 		self._crashed_targets.add(event['targetId'])
 
 	async def state(self) -> api.BrowserState:
-		"""Report current browser tabs without retaining stale tab state."""
 		if self._closed:
 			raise api.BrowserError('The driver is closed.')
 		for attempt in range(2):
 			try:
 				async with asyncio.timeout(_STATE_TIMEOUT_S):
 					result = await self.browser.cdp_client.send.Target.getTargets()
+					await self.browser.refresh()
 				break
 			except Exception as exc:
 				if attempt:
 					raise api.BrowserError('Browser state is unavailable after reconnecting.') from exc
 				try:
 					async with asyncio.timeout(_STATE_TIMEOUT_S):
-						# Suppress automatic reconnect when this reconnect closes the old socket.
-						stopping = self.browser._intentional_stop
-						self.browser._intentional_stop = True
-						try:
-							await self.browser.reconnect()
-						finally:
-							self.browser._intentional_stop = stopping
+						await self.browser.reconnect()
 				except Exception as reconnect_error:
 					raise api.BrowserError('Browser reconnection failed.') from reconnect_error
 		tabs = [t for t in result['targetInfos'] if t['type'] == 'page']
@@ -184,13 +159,11 @@ class BrowserUse:
 			raise api.BrowserError('Stale element reference; read the page again.') from exc
 
 	async def navigate(self, args: api.NavigateInput) -> None:
-		"""Invalidate element references before navigating the selected tab."""
 		page = await self._page(args['tab_id'])
 		self._refs = {name: ref for name, ref in self._refs.items() if ref.tab != page._target_id}
 		await page.goto(args['url'])
 
 	async def read_page(self, args: api.ReadPageInput) -> str:
-		"""Read the accessibility tree and issue tab-bound element references."""
 		return await self._read_page(args)
 
 	async def _read_page(self, args: api.ReadPageInput, query: str | None = None) -> str:
@@ -281,31 +254,25 @@ class BrowserUse:
 		return '\n'.join(lines)
 
 	async def find(self, args: api.FindInput) -> str:
-		"""Find current interactive elements by visible label text."""
 		return await self._read_page({'tab_id': args['tab_id'], 'filter': 'interactive'}, query=args['query'])
 
 	async def get_page_text(self, args: api.TabInput) -> str:
-		"""Read the selected page without returning form values."""
 		page = await self._page(args['tab_id'])
 		return _bounded_text(await page.evaluate("() => document.body?.innerText || ''"))
 
 	async def click(self, args: api.ClickInput) -> None:
-		"""Click an element from the latest page read."""
 		page = await self._page(args['tab_id'])
 		await (await self._element(page, args['target'])).click()
 
 	async def hover(self, args: api.ClickInput) -> None:
-		"""Move the pointer over a referenced element."""
 		page = await self._page(args['tab_id'])
 		await (await self._element(page, args['target'])).hover()
 
 	async def scroll_to(self, args: api.ClickInput) -> None:
-		"""Scroll a referenced element into view."""
 		page = await self._page(args['tab_id'])
 		await (await self._element(page, args['target'])).scroll_into_view()
 
 	async def type(self, args: api.TypeInput) -> None:
-		"""Fill a referenced element or type at the current focus."""
 		page = await self._page(args['tab_id'])
 		if args['target'] is not None:
 			await (await self._element(page, args['target'])).fill(args['text'])
@@ -313,17 +280,14 @@ class BrowserUse:
 			await self.browser.cdp_client.send.Input.insertText({'text': args['text']}, session_id=await page.session_id)
 
 	async def key(self, args: api.KeyInput) -> None:
-		"""Press a key combination in the selected tab."""
 		page = await self._page(args['tab_id'])
 		await page.press('+'.join(args['keys']))
 
 	async def select_option(self, args: api.SelectOptionInput) -> None:
-		"""Select values in a referenced native select element."""
 		page = await self._page(args['tab_id'])
 		await (await self._element(page, args['target'])).select_option(args['values'])
 
 	async def scroll(self, args: api.ScrollInput) -> None:
-		"""Scroll by the requested number of pixels."""
 		page = await self._page(args['tab_id'])
 		amount = args['amount'] * (-1 if args['direction'] in {'up', 'left'} else 1)
 		horizontal = args['direction'] in {'left', 'right'}
@@ -349,7 +313,6 @@ class BrowserUse:
 			raise api.BrowserError('Visible text did not appear before the deadline.')
 
 	async def screenshot(self, args: api.TabInput) -> dict[str, str]:
-		"""Capture the selected viewport as a native image input."""
 		attempt = 0
 		while True:
 			try:
@@ -372,7 +335,6 @@ class BrowserUse:
 				attempt += 1
 
 	async def zoom(self, args: api.ZoomInput) -> dict[str, str]:
-		"""Crop a screenshot without changing the pointer coordinate origin."""
 		result = await self.screenshot({'tab_id': args['tab_id']})
 		with Image.open(BytesIO(base64.b64decode(result['image_url'].split(',', 1)[1]))) as image:
 			left, top, right, bottom = args['region']
@@ -384,17 +346,14 @@ class BrowserUse:
 		return result
 
 	async def new_tab(self, args: api.NewTabInput) -> None:
-		"""Open a tab and select it for subsequent actions."""
-		page = await self.browser.new_page(args['url'])
+		page = await self.browser.new_page(args['url'] or 'about:blank')
 		self._active = page._target_id
 
 	async def switch_tab(self, args: api.TabInput) -> None:
-		"""Activate an existing tab."""
 		page = await self._page(args['tab_id'])
 		await self.browser.cdp_client.send.Target.activateTarget({'targetId': page._target_id})
 
 	async def close_tab(self, args: api.TabInput) -> None:
-		"""Close only the selected tab."""
 		page = await self._page(args['tab_id'])
 		await self.browser.close_page(page)
 		for _ in range(500):
@@ -410,7 +369,6 @@ class BrowserUse:
 			raise api.BrowserError('Pointer coordinates exceed the viewport.')
 
 	async def click_at(self, args: api.ClickAtInput, *, cancelled=None) -> None:
-		"""Click full-viewport coordinates with the requested modifiers."""
 		page = await self._page(args['tab_id'])
 		await self._bounds(page, [(args['x'], args['y'])])
 		if cancelled and cancelled():
@@ -420,13 +378,11 @@ class BrowserUse:
 		)
 
 	async def hover_at(self, args: api.HoverAtInput) -> None:
-		"""Move the pointer to full-viewport coordinates."""
 		page = await self._page(args['tab_id'])
 		await self._bounds(page, [(args['x'], args['y'])])
 		await (await page.mouse).move(args['x'], args['y'])
 
 	async def drag_path(self, args: api.DragPathInput, *, cancelled=None) -> None:
-		"""Drag through a path and release the pointer after failure."""
 		page = await self._page(args['tab_id'])
 		points = [(point['x'], point['y']) for point in args['path']]
 		await self._bounds(page, points)
@@ -444,14 +400,12 @@ class BrowserUse:
 			await mouse.up(modifiers=args['keys'])
 
 	async def hold_keys(self, args: api.HoldKeysInput, *, cancelled=None) -> None:
-		"""Hold a key combination for the requested duration."""
 		page = await self._page(args['tab_id'])
 		if cancelled and cancelled():
 			raise asyncio.CancelledError()
 		await page.hold_key('+'.join(args['keys']), args['duration_ms'] / 1000)
 
 	async def set_checked(self, args: api.SetCheckedInput) -> None:
-		"""Set a native checkbox without toggling an already matching state."""
 		page = await self._page(args['tab_id'])
 		element = await self._element(page, args['target'])
 		kind = await element.get_attribute('type')
@@ -477,40 +431,24 @@ class BrowserUse:
 			return _bounded_text(value if isinstance(value, str) else json.dumps(value))
 
 	async def _start_diagnostics(self, target: str) -> None:
-		if target in self._diagnostic_sessions:
-			return
-		try:
-			async with asyncio.timeout(_DIAGNOSTIC_TIMEOUT_S):
-				if self._diagnostic_client is None:
-					self._diagnostic_client = TimeoutWrappedCDPClient(
-						self.browser.cdp_client.url,
-						additional_headers=self.browser.cdp_client.additional_headers,
-						cdp_request_timeout_s=_DIAGNOSTIC_TIMEOUT_S,
-					)
-					await self._diagnostic_client.start()
-					self._diagnostic_client.register.Target.targetCrashed(self._target_crashed)
-					await self._diagnostic_client.send.Target.setDiscoverTargets({'discover': True})
-					self._diagnostic_client.register.Runtime.consoleAPICalled(self._console_event)
-					self._diagnostic_client.register.Network.responseReceived(self._network_event)
-				attached = await self._diagnostic_client.send.Target.attachToTarget({'targetId': target, 'flatten': True})
-				session = attached['sessionId']
-				self._diagnostics[session] = {'console': deque(maxlen=100), 'network': deque(maxlen=100)}
-				await self._diagnostic_client.send.Runtime.enable(session_id=session)
-				await self._diagnostic_client.send.Network.enable(session_id=session)
-				self._diagnostic_sessions[target] = session
-		except BaseException as exc:
-			client, self._diagnostic_client = self._diagnostic_client, None
-			self._diagnostic_sessions.clear()
-			self._diagnostics.clear()
-			if client is not None:
-				try:
-					async with asyncio.timeout(_DIAGNOSTIC_TIMEOUT_S):
-						await client.stop()
-				except Exception:
-					pass
-			if not isinstance(exc, Exception):
-				raise
-			raise api.BrowserError('Page diagnostics are unavailable.') from exc
+		if target not in self._diagnostic_sessions:
+			try:
+				async with asyncio.timeout(_DIAGNOSTIC_TIMEOUT_S):
+					await self.browser.observe(['Runtime.enable', 'Network.enable'])
+			except Exception as exc:
+				raise api.BrowserError('Page diagnostics are unavailable.') from exc
+			session = await self.browser.get_or_create_cdp_session(target)
+			self._diagnostic_client = self.browser
+			self._diagnostic_sessions[target] = session.session_id
+			self._diagnostics[session.session_id] = {'console': deque(maxlen=100), 'network': deque(maxlen=100)}
+		for event in await self.browser.events():
+			method, data, session_id = event['method'], event['params'], event['session']
+			if method == 'Runtime.consoleAPICalled':
+				self._console_event(data, session_id)
+			elif method == 'Network.responseReceived':
+				self._network_event(data, session_id)
+			elif method == 'Target.targetCrashed':
+				self._target_crashed(data, session_id)
 
 	def _console_event(self, event: Any, session_id: str | None) -> None:
 		if session_id in self._diagnostics:
@@ -539,7 +477,6 @@ class BrowserUse:
 		}
 
 	async def read_page_scoped(self, args: api.ReadPageScopedInput) -> api.BrowserScopedReadV1:
-		"""Discover semantic regions or read their current accessibility subtree."""
 		page = await self._page(args['tab_id'])
 		result = await self.browser.cdp_client.send.Accessibility.getFullAXTree(session_id=await page.session_id)
 		nodes = {node['nodeId']: node for node in result['nodes']}
@@ -652,7 +589,6 @@ class BrowserUse:
 		return key
 
 	async def grant_download(self, url: str, path: str | Path, *, tab_id: str | None = None) -> str:
-		"""Approve one browser fetch into a new application-side file."""
 		if urlsplit(url).scheme not in {'http', 'https', 'blob'}:
 			raise api.BrowserError('Download requires an HTTP, HTTPS, or blob URL.')
 		page = await self._page(tab_id)

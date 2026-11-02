@@ -50,19 +50,6 @@ def _load_skill_text_from_package() -> str:
 	return skill_text()
 
 
-def _browser_harness_executable() -> str | None:
-	exe = shutil.which('browser-harness')
-	if exe:
-		return exe
-
-	local_bin = Path.home() / '.local' / 'bin'
-	for name in ('browser-harness', 'browser-harness.exe'):
-		path = local_bin / name
-		if path.exists():
-			return str(path)
-	return None
-
-
 def _install_browser_use_tool() -> None:
 	uv = shutil.which('uv')
 	if not uv:
@@ -71,21 +58,6 @@ def _install_browser_use_tool() -> None:
 	result = subprocess.run([uv, 'tool', 'install', '--python', '3.12', '--upgrade', '--force', 'browser-use'])
 	if result.returncode != 0:
 		raise RuntimeError('Failed to install browser-use with `uv tool install --python 3.12 --upgrade --force browser-use`.')
-
-
-def _load_skill_text_from_browser_harness_cli() -> str:
-	exe = _browser_harness_executable()
-	if exe is None:
-		return _load_skill_text_from_package()
-
-	result = subprocess.run([exe, 'skill'], capture_output=True, text=True)
-	if result.returncode != 0:
-		error = result.stderr.strip() or result.stdout.strip() or 'unknown error'
-		raise RuntimeError(f'Failed to read skill from `{exe} skill`: {error}')
-
-	from browser_use.skills.browser_use import as_browser_use_skill
-
-	return as_browser_use_skill(result.stdout)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -156,7 +128,7 @@ def handle(argv: list[str]) -> int:
 
 	if command == 'show':
 		try:
-			text = _load_skill_text_from_browser_harness_cli()
+			text = _load_skill_text_from_package()
 		except RuntimeError as exc:
 			print(f'Error: {exc}', file=sys.stderr)
 			return 1
@@ -169,7 +141,7 @@ def handle(argv: list[str]) -> int:
 			_validate_output_paths(output_paths)
 			if not args.no_install:
 				_install_browser_use_tool()
-			text = _load_skill_text_from_browser_harness_cli()
+			text = _load_skill_text_from_package()
 		except RuntimeError as exc:
 			print(f'Error: {exc}', file=sys.stderr)
 			return 1

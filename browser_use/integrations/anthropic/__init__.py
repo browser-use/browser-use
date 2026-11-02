@@ -1,5 +1,3 @@
-"""Anthropic SDK tools backed by Browser Use."""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -22,11 +20,8 @@ def __getattr__(name: str):
 	try:
 		from .browser_use import BrowserUse
 	except ModuleNotFoundError as exc:
-		if exc.name in {'anthropic', 'anthropic.tools', 'anthropic.tools.browser'}:
-			raise ImportError(
-				'Browser Use requires an Anthropic Python SDK release that includes '
-				'anthropic.tools.browser and client.beta.messages.tool_runner.'
-			) from exc
+		if exc.name and (exc.name.startswith('anthropic') or exc.name.startswith('PIL')):
+			raise ImportError('Install browser-use[anthropic-tools] with anthropic.tools.browser support.') from exc
 		raise
 	globals()[name] = BrowserUse
 	return BrowserUse

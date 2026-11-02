@@ -21,7 +21,6 @@ from browser_use.integrations.anthropic.tab_state import (
 
 ROOT = Path(__file__).parents[3]
 DRIVER_PATH = ROOT / 'browser_use/integrations/anthropic/browser_use.py'
-QUICKSTART_PATH = ROOT / 'examples/integrations/toolsets-for-claude/quickstart.py'
 
 
 def test_browser_use_implements_all_31_browser_actions() -> None:
@@ -85,16 +84,19 @@ def test_missing_browser_toolset_sdk_has_an_actionable_error() -> None:
 		env=env,
 		text=True,
 		capture_output=True,
+		check=False,
 	)
 	assert result.returncode != 0
-	assert 'requires an Anthropic Python SDK release' in result.stderr
+	assert 'browser-use[anthropic-tools]' in result.stderr
 
 
 def test_browser_use_and_bash_construct_with_a_compatible_sdk() -> None:
 	pytest.importorskip('anthropic.tools.browser')
 	from browser_use.integrations.anthropic import Bash, BrowserUse
 	from browser_use.integrations.toolsets_for_claude import Bash as ClaudeBash
-	from browser_use.integrations.toolsets_for_claude import BrowserUse as ClaudeBrowserUse
+	from browser_use.integrations.toolsets_for_claude import (
+		BrowserUse as ClaudeBrowserUse,
+	)
 
 	assert ClaudeBash is Bash
 	assert ClaudeBrowserUse is BrowserUse
@@ -112,16 +114,16 @@ def test_browser_use_can_own_a_cloud_browser() -> None:
 
 	browser = BrowserUse(use_cloud=True)
 	assert browser._manages_browser is True
-	assert browser.browser.browser_profile.use_cloud is True
+	assert browser.browser.owned is True
 
 
 def test_browser_use_rejects_a_borrowed_browser_with_cloud_selection() -> None:
 	pytest.importorskip('anthropic.tools.browser')
-	from browser_use import BrowserSession
+	from browser_use import BrowserUse as PiBrowser
 	from browser_use.integrations.anthropic import BrowserUse
 
-	with pytest.raises(ValueError, match='either a BrowserSession or use_cloud=True'):
-		BrowserUse(BrowserSession(), use_cloud=True)
+	with pytest.raises(ValueError, match='use_cloud=True'):
+		BrowserUse(PiBrowser(), use_cloud=True)
 
 
 async def test_reference_document_identity_survives_cdp_session_rotation() -> None:
@@ -254,26 +256,85 @@ async def test_bash_cancellation_closes_inherited_output_pipes(tmp_path: Path, m
 			task.cancel()
 
 
-def test_quickstart_uses_peer_browser_use_and_bash_tools() -> None:
-	source = QUICKSTART_PATH.read_text()
-	tree = ast.parse(source)
-	assert tree is not None
-	driver = next(
-		node
-		for node in ast.walk(tree)
-		if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'BrowserUse'
+@pytest.fixture
+async def real_driver(request, tmp_path):
+	pytest.importorskip('anthropic.tools.browser')
+	from anthropic.tools.browser import BetaLocalFilePolicy
+
+	from browser_use.integrations.anthropic import BrowserUse
+
+	executable = os.environ.get('BROWSER_USE_TEST_CHROME')
+	if not executable:
+		pytest.skip('Set BROWSER_USE_TEST_CHROME to run real-browser adapter checks.')
+	driver = BrowserUse(
+		{'kind': 'chromium', 'headless': True, 'executablePath': executable},
+		configs={'file_upload': {'enabled': True}},
+		confirm=lambda _: getattr(request, 'param', True),
+		file_policy=BetaLocalFilePolicy(upload_roots=[tmp_path]),
 	)
-	configs = ast.literal_eval(next(option.value for option in driver.keywords if option.arg == 'configs'))
-	for action in ('javascript_exec', 'file_upload', 'read_console', 'read_network'):
-		assert configs[action]['enabled'] is True
-	confirmation = next(option.value for option in driver.keywords if option.arg == 'confirm')
-	assert isinstance(confirmation, ast.Lambda)
-	assert isinstance(confirmation.body, ast.Constant) and confirmation.body.value is True
-	assert not any(
-		isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'input' for node in ast.walk(tree)
+	async with driver:
+		yield driver
+
+
+async def test_sdk_dispatch_updates_form_and_preserves_tab_snapshot(real_driver):
+	from anthropic.tools.browser import BetaToolsetCallContext
+
+	context = BetaToolsetCallContext()
+	opened = await real_driver.call(context, 'new_tab', {})
+	assert opened
+	target = real_driver.browser.agent_focus_target_id
+	page = await real_driver._page(target)
+	await page.evaluate(
+		'() => { document.body.innerHTML = `<label>Name<input id="name"></label><button onclick="document.title=document.getElementById(\'name\').value">Save</button>`; }'
 	)
-	assert "bash = Bash(output_dir=Path('outputs'))" in source
-	assert 'tools=[driver, bash]' in source
-	assert 'ActorUse' not in source
-	assert 'owns_browser' not in source
-	assert 'until_done()' in source
+	text = await real_driver.read_page(context, __import__('anthropic').types.beta.BetaBrowserReadPageInput(tab_id=target))
+	import re
+
+	refs = {
+		line.split('"')[1]: re.search(r'ref_\d+', line).group() for line in text.splitlines() if 'ref_' in line and '"' in line
+	}
+	result = await real_driver.call(
+		context, 'form_input', {'tab_id': target, 'target': {'type': 'ref', 'ref': refs['Name']}, 'value': 'Claude result'}
+	)
+	assert result
+	result = await real_driver.call(context, 'left_click', {'tab_id': target, 'target': {'type': 'ref', 'ref': refs['Save']}})
+	assert result
+	assert await page.get_title() == 'Claude result'
+	tabs = await real_driver.list_tabs(context, None)
+	state = await real_driver._browser_state(context)
+	assert state.tabs == tabs
+
+
+async def test_sdk_upload_transfers_application_bytes(real_driver, tmp_path):
+	import re
+
+	from anthropic.tools.browser import BetaToolsetCallContext
+	from anthropic.types.beta import BetaBrowserReadPageInput
+
+	context = BetaToolsetCallContext()
+	await real_driver.call(context, 'new_tab', {})
+	target = real_driver.browser.agent_focus_target_id
+	page = await real_driver._page(target)
+	await page.evaluate('() => { document.body.innerHTML = `<label>File<input type="file" id="file"></label>`; }')
+	text = await real_driver.read_page(context, BetaBrowserReadPageInput(tab_id=target))
+	ref = re.search(r'ref_\d+', next(line for line in text.splitlines() if 'button' in line)).group()
+	path = tmp_path / 'payload.txt'
+	path.write_bytes(b'actual file bytes\x00')
+	await real_driver.call(
+		context, 'file_upload', {'tab_id': target, 'target': {'type': 'ref', 'ref': ref}, 'paths': [str(path)]}
+	)
+	assert await page.evaluate('() => document.getElementById("file").files[0].text()') == 'actual file bytes\x00'
+
+
+@pytest.mark.parametrize('real_driver', [False], indirect=True)
+async def test_sdk_approval_denial_preserves_page(real_driver):
+	from anthropic.tools import ToolError
+	from anthropic.tools.browser import BetaToolsetCallContext
+
+	page = await real_driver._page()
+	await page.evaluate('() => { document.body.innerHTML = `<button onclick="document.title=\'changed\'">Save</button>`; }')
+	before = await page.get_title()
+	with pytest.raises(ToolError):
+		await real_driver.call(BetaToolsetCallContext(), 'navigate', {'url': 'https://example.com', 'tab_id': page._target_id})
+	assert await page.get_title() == before
+	assert 'Save' in await page.evaluate('() => document.body.innerText')

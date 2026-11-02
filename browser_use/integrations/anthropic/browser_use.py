@@ -1,9 +1,3 @@
-# pyright: reportArgumentType=false, reportCallIssue=false, reportMissingImports=false
-# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
-# pyright: reportTypedDictNotRequiredAccess=false
-
-"""Anthropic browser-toolset adapter backed by Browser Use."""
-
 from __future__ import annotations
 
 import asyncio
@@ -11,15 +5,13 @@ import base64
 import contextlib
 import json
 import re
-import time
 from collections import defaultdict, deque
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
-from cdp_use import CDPClient
 from PIL import Image
 
 from anthropic.tools import ToolError
@@ -30,16 +22,16 @@ from anthropic.tools.browser import (
 	BetaScreenshotResult,
 	TabMissingError,
 )
-from browser_use.actor.page import Page
-from browser_use.browser.events import (
-	DownloadProgressEvent,
-	DownloadStartedEvent,
-	FileDownloadedEvent,
-	SwitchTabEvent,
-)
-from browser_use.browser.session import BrowserSession
+from anthropic.types.beta import BetaBrowserStateTabEntryParam, BetaBrowserToolsetConfigsParam
+from browser_use import BrowserUse as PiBrowser
+from browser_use.integrations._browser import BrowserConnection, Page
 
-from .tab_state import PinnedTabSnapshot, consume_pinned_tabs, converged_active_tab, pin_tabs
+from .tab_state import (
+	PinnedTabSnapshot,
+	consume_pinned_tabs,
+	converged_active_tab,
+	pin_tabs,
+)
 
 
 @dataclass(frozen=True)
@@ -50,18 +42,9 @@ class Reference:
 
 
 class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
-	"""Expose Browser Use as the Anthropic 31-member browser toolset.
-
-	With no argument, Browser Use creates and manages a local BrowserSession. Pass
-	``use_cloud=True`` to create and manage a Browser Use Cloud session instead. A
-	supplied BrowserSession is borrowed and must already be running.
-	``document_resolver`` maps policy-approved document IDs to files visible on the
-	browser host.
-	"""
-
 	def __init__(
 		self,
-		browser: BrowserSession | None = None,
+		browser: PiBrowser | dict[str, Any] | None = None,
 		*,
 		use_cloud: bool = False,
 		document_resolver: Callable[[str], str] | None = None,
@@ -75,14 +58,13 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 			configs = {name: dict(config) for name, config in configs.items()}
 		file_upload_config = configs.setdefault('file_upload', {})
 		file_upload_config.setdefault('enabled', False)
-		super().__init__(configs=configs, **options)
+		super().__init__(configs=cast(BetaBrowserToolsetConfigsParam, configs), **options)
 		if browser is not None and use_cloud:
-			raise ValueError('Pass either a BrowserSession or use_cloud=True, not both.')
-		self._manages_browser = browser is None
-		self.browser = browser or BrowserSession(use_cloud=use_cloud)
+			raise ValueError('Pass a Pi session or use_cloud=True, not both.')
+		self.browser = BrowserConnection(browser, use_cloud=use_cloud, controller='anthropic_toolset')
+		self._manages_browser = self.browser.owned
 		self._document_resolver = document_resolver
 		self._released = False
-		self._closing = False
 		self._pages: dict[str, Page] = {}
 		self._refs: dict[str, Reference] = {}
 		self._ref_names: dict[Reference, str] = {}
@@ -91,7 +73,6 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		self._next_document = 1
 		self._reported_tabs: set[str] = set()
 		self._last_tabs: list[dict] = []
-		self._observer: CDPClient | None = None
 		self._observer_sessions: dict[str, str] = {}
 		self._session_tabs: dict[str, str] = {}
 		self._attached_at: dict[str, float] = {}
@@ -103,18 +84,13 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		self._pending_tabs_snapshot: PinnedTabSnapshot | None = None
 		self._downloads: dict[str, str] = {}
 		self.completed_download_paths: list[str] = []
-		self._seen_download_events: set[str] = set(self.browser.event_bus.event_history)
+
 		self._held: dict[str, tuple[float, float, int]] = {}
-		self._background: set[asyncio.Task] = set()
-		self._observer_lock = asyncio.Lock()
 
 	async def __aenter__(self):
 		await super().__aenter__()
 		try:
-			if self._manages_browser:
-				await self.browser.start()
-			elif not self.browser.is_cdp_connected:
-				raise RuntimeError('Start the borrowed BrowserSession before entering the driver.')
+			await self.browser.start()
 			await self._ensure_observer()
 			self._reported_tabs = {t['tab_id'] for t in self._tabs()}
 			return self
@@ -126,66 +102,41 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		await super().close()
 		if self._released:
 			return
-		# Stop accepting observer work, but leave owned cleanup retryable on failure.
-		self._closing = True
+
+		operations: list[Callable[[], Awaitable[None]]] = [lambda tab=tab: self._release_mouse(tab) for tab in self._held]
+		operations.append(self.browser.close)
 		errors = []
-		for tab in list(self._held):
-			try:
-				await self._release_mouse(tab)
-			except Exception as exc:
-				errors.append(exc)
-		for task in list(self._background):
-			task.cancel()
-		if self._background:
-			await asyncio.gather(*self._background, return_exceptions=True)
-		if self._observer:
-			try:
-				await self._observer.stop()
-				self._observer = None
-			except BaseException as exc:
-				errors.append(exc)
+		for operation in operations:
+			result = await asyncio.gather(operation(), return_exceptions=True)
+			errors.extend(value for value in result if isinstance(value, BaseException))
 		self._refs.clear()
 		self._ref_names.clear()
-		if self._manages_browser:
-			try:
-				await self.browser.kill()
-			except BaseException as exc:
-				errors.append(exc)
 		self._released = not errors
 		if errors:
 			raise errors[0]
 
 	def _tabs(self):
-		try:
-			targets = (self.browser.get_page_targets() if self.browser.is_cdp_connected else [])[:100]
-			active = self.browser.agent_focus_target_id
-			if targets and active not in {t.target_id for t in targets}:
-				active = targets[0].target_id
-			tabs = [
-				dict(
-					tab_id=t.target_id,
-					url=t.url,
-					title=t.title or '',
-					active=t.target_id == active,
-				)
-				for t in targets
-			]
-			self._last_tabs = tabs
-		except Exception:
-			pass  # State reporting must still work after a CDP action fails.
+		targets = (self.browser.get_page_targets() if self.browser.is_cdp_connected else [])[:100]
+		active = self.browser.agent_focus_target_id
+		if targets and active not in {target.target_id for target in targets}:
+			active = targets[0].target_id
+		self._last_tabs = [
+			{'tab_id': target.target_id, 'url': target.url, 'title': target.title or '', 'active': target.target_id == active}
+			for target in targets
+		]
 		return self._last_tabs.copy()
 
 	async def _browser_state(self, context):
-		# A member that returns tab data pins that exact snapshot for the
-		# browser_state block attached to the same SDK tool result.
+		await self.browser.refresh()
+		await self._pump_events()
+
 		tabs = consume_pinned_tabs(self._pending_tabs_snapshot, context)
 		self._pending_tabs_snapshot = None
 		if tabs is None:
 			tabs = self._tabs()
-		self._collect_downloads()
 		changes = self._changes[:]
 		self._changes.clear()
-		changes.extend(dict(type='tab_opened', tab_id=t['tab_id']) for t in tabs if t['tab_id'] not in self._reported_tabs)
+		changes.extend({'type': 'tab_opened', 'tab_id': t['tab_id']} for t in tabs if t['tab_id'] not in self._reported_tabs)
 		self._reported_tabs = {t['tab_id'] for t in tabs}
 		for tab in set(self._pages) - self._reported_tabs:
 			self._pages.pop(tab, None)
@@ -196,65 +147,54 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 			sid = self._observer_sessions.pop(tab, None)
 			if sid:
 				self._session_tabs.pop(sid, None)
-		return BetaBrowserState(tabs=tabs, state_changes=changes)
-
-	def _spawn(self, coro):
-		task = asyncio.create_task(coro)
-		self._background.add(task)
-
-		def done(finished):
-			self._background.discard(finished)
-			if not finished.cancelled():
-				finished.exception()  # observed; action path retries attach if required
-
-		task.add_done_callback(done)
+		return BetaBrowserState(tabs=cast(list[BetaBrowserStateTabEntryParam], tabs), state_changes=changes)
 
 	async def _ensure_observer(self):
-		if self._observer or self._released or self._closing:
-			return
-		async with self._observer_lock:
-			if self._observer or self._closing:
-				return
-			root = self.browser.cdp_client
-			observer = CDPClient(root.url, additional_headers=getattr(root, 'additional_headers', None))
-			await observer.start()
-			self._observer = observer
-			# A dedicated observer avoids replacing BrowserSession's single-listener CDP handlers.
-			observer.register.Runtime.consoleAPICalled(self._on_console)
-			observer.register.Runtime.exceptionThrown(self._on_exception)
-			observer.register.Log.entryAdded(self._on_log)
-			observer.register.Network.requestWillBeSent(self._on_request)
-			observer.register.Network.responseReceived(self._on_response)
-			observer.register.Network.loadingFinished(self._on_finished)
-			observer.register.Network.loadingFailed(self._on_failed)
-			observer.register.Target.targetCreated(self._on_target)
-			await observer.send.Target.setDiscoverTargets(params={'discover': True})
+		await self.browser.observe(['Runtime.enable', 'Network.enable', 'Log.enable'])
 		for tab in self._tabs():
 			await self._observe_tab(tab['tab_id'])
-
-	def _on_target(self, event, session_id=None):
-		info = event.get('targetInfo', {})
-		if info.get('type') == 'page' and not self._released and not self._closing:
-			self._spawn(self._observe_tab(info['targetId']))
+		await self._pump_events()
 
 	async def _observe_tab(self, tab):
-		# Concurrent target-created + first action are possible; serialize attaches.
-		async with self._observer_lock:
-			if not self._observer or self._released or self._closing or tab in self._observer_sessions:
-				return
-			result = await self._observer.send.Target.attachToTarget(params={'targetId': tab, 'flatten': True})
-			sid = result['sessionId']
-			self._observer_sessions[tab] = sid
-			self._session_tabs[sid] = tab
-			self._attached_at[tab] = time.time() * 1000
-			await asyncio.gather(
-				self._observer.send.Runtime.enable(session_id=sid),
-				self._observer.send.Network.enable(session_id=sid),
-				self._observer.send.Log.enable(session_id=sid),
-			)
+		session = await self.browser.get_or_create_cdp_session(tab)
+		self._observer_sessions[tab] = session.session_id
+		self._session_tabs[session.session_id] = tab
+		self._attached_at.setdefault(tab, 0)
+
+	async def _pump_events(self):
+		handlers = {
+			'Runtime.consoleAPICalled': self._on_console,
+			'Runtime.exceptionThrown': self._on_exception,
+			'Log.entryAdded': self._on_log,
+			'Network.requestWillBeSent': self._on_request,
+			'Network.responseReceived': self._on_response,
+			'Network.loadingFinished': self._on_finished,
+			'Network.loadingFailed': self._on_failed,
+		}
+		for event in await self.browser.events():
+			handler = handlers.get(event['method'])
+			if handler:
+				handler(event['params'], event['session'])
+			data = event['params']
+			if event['method'] == 'Browser.downloadWillBegin':
+				self._downloads[data['guid']] = data['url']
+				self._changes.append({'type': 'download_started', 'download_id': data['guid'], 'url': data['url']})
+			elif event['method'] == 'Browser.downloadProgress' and data['guid'] in self._downloads:
+				if data['state'] in {'completed', 'canceled'}:
+					url = self._downloads.pop(data['guid'])
+					change = {
+						'type': 'download_completed' if data['state'] == 'completed' else 'download_failed',
+						'download_id': data['guid'],
+						'url': url,
+					}
+					if data['state'] == 'completed':
+						change['size_bytes'] = int(data['receivedBytes'])
+					else:
+						change['error'] = 'Download cancelled'
+					self._changes.append(change)
 
 	def _on_console(self, event, session_id=None):
-		tab = self._session_tabs.get(session_id)
+		tab = self._session_tabs.get(session_id or '')
 		if tab and event.get('timestamp', float('inf')) >= self._attached_at.get(tab, 0):
 			values = [
 				a.get(
@@ -269,22 +209,22 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 			self._console[tab].append(line[:8192])
 
 	def _on_exception(self, event, session_id=None):
-		tab = self._session_tabs.get(session_id)
+		tab = self._session_tabs.get(session_id or '')
 		if tab:
 			detail = event.get('exceptionDetails', {})
 			self._console[tab].append('error: ' + detail.get('exception', {}).get('description', detail.get('text', 'Exception')))
 
 	def _on_log(self, event, session_id=None):
-		tab = self._session_tabs.get(session_id)
+		tab = self._session_tabs.get(session_id or '')
 		if tab:
 			entry = event.get('entry', {})
 			self._console[tab].append(f'{entry.get("level", "log")}: {entry.get("text", "")}')
 
 	def _on_request(self, event, session_id=None):
-		tab = self._session_tabs.get(session_id)
+		tab = self._session_tabs.get(session_id or '')
 		if not tab:
 			return
-		key = (session_id, event['requestId'])
+		key = (session_id or '', event['requestId'])
 		if 'redirectResponse' in event and key in self._requests:
 			old = self._requests.pop(key)
 			old.update(
@@ -293,22 +233,22 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 			)
 			self._record_request(tab, old, event.get('timestamp'))
 		request = event.get('request', {})
-		self._requests[key] = dict(
-			method=request.get('method', ''),
-			url=request.get('url', ''),
-			start=event.get('timestamp'),
-			type=event.get('type'),
-		)
+		self._requests[key] = {
+			'method': request.get('method', ''),
+			'url': request.get('url', ''),
+			'start': event.get('timestamp'),
+			'type': event.get('type'),
+		}
 		if len(self._requests) > 4000:
 			self._requests.pop(next(iter(self._requests)))
 
 	def _on_response(self, event, session_id=None):
-		key = (session_id, event['requestId'])
+		key = (session_id or '', event['requestId'])
 		request = self._requests.get(key)
 		response = event.get('response', {})
 		if request is not None:
 			request.update(status=response.get('status'), mime=response.get('mimeType'))
-		tab = self._session_tabs.get(session_id)
+		tab = self._session_tabs.get(session_id or '')
 		if tab and event.get('type') == 'Document':
 			self._statuses[tab] = int(response.get('status', 0))
 
@@ -321,55 +261,19 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		self._network[tab].append(json.dumps(row, ensure_ascii=False))
 
 	def _on_finished(self, event, session_id=None):
-		tab = self._session_tabs.get(session_id)
-		request = self._requests.pop((session_id, event['requestId']), None)
+		tab = self._session_tabs.get(session_id or '')
+		request = self._requests.pop((session_id or '', event['requestId']), None)
 		if tab and request:
 			self._record_request(tab, request, event.get('timestamp'))
 
 	def _on_failed(self, event, session_id=None):
-		tab = self._session_tabs.get(session_id)
-		request = self._requests.pop((session_id, event['requestId']), None)
+		tab = self._session_tabs.get(session_id or '')
+		request = self._requests.pop((session_id or '', event['requestId']), None)
 		if tab and request:
 			self._record_request(tab, request, event.get('timestamp'), event.get('errorText', 'Failed'))
 
-	def _collect_downloads(self):
-		# Reuse the normal download watchdog instead of changing browser-wide policy
-		# or competing for its CDP event handlers on a second connection.
-		history = self.browser.event_bus.event_history
-		for event_id, event in list(history.items()):
-			if event_id in self._seen_download_events:
-				continue
-			self._seen_download_events.add(event_id)
-			if isinstance(event, DownloadStartedEvent):
-				self._downloads[event.guid] = event.url
-				self._changes.append(dict(type='download_started', download_id=event.guid, url=event.url))
-			elif isinstance(event, DownloadProgressEvent) and event.state == 'canceled':
-				url = self._downloads.pop(event.guid, None)
-				if url:
-					self._changes.append(
-						dict(
-							type='download_failed',
-							download_id=event.guid,
-							url=url,
-							error='Download cancelled',
-						)
-					)
-			elif isinstance(event, FileDownloadedEvent):
-				if event.path and event.path not in self.completed_download_paths:
-					self.completed_download_paths.append(event.path)
-				self._changes.append(
-					dict(
-						type='download_completed',
-						download_id=event.guid or str(event_id),
-						url=event.url,
-						path=event.path,
-						size_bytes=event.file_size,
-					)
-				)
-				self._downloads.pop(event.guid, None)
-		self._seen_download_events.intersection_update(history)
-
 	async def _page(self, tab_id=None):
+		await self.browser.refresh()
 		tabs = self._tabs()
 		tab = tab_id or next((t['tab_id'] for t in tabs if t['active']), None)
 		if tab is None or not any(t['tab_id'] == tab for t in tabs):
@@ -414,12 +318,6 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		self._documents.pop(tab, None)
 
 	async def _document(self, page):
-		# Prime DOM.resolveNode for this attached session. Do not derive identity
-		# from CDP session, frame, loader, JavaScript-global, or timing values:
-		# Cloud transports can remap all of them between calls on one document.
-		# Driver navigation explicitly invalidates this generation. Page-driven
-		# navigation is caught when DOM.resolveNode or isConnected rejects the old
-		# backend node in _resolve.
 		session_id = await page.session_id
 		await self._cdp.send.DOM.getDocument(params={'depth': 0}, session_id=session_id)
 		tab = page._target_id
@@ -601,17 +499,7 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 				'forward': page.go_forward,
 				'reload': page.reload,
 			}[input.url]()
-			await asyncio.sleep(0.15)
-			for _ in range(100):
-				try:
-					if await self._eval(page, 'document.readyState') in {
-						'interactive',
-						'complete',
-					}:
-						break
-				except Exception:
-					pass
-				await asyncio.sleep(0.05)
+
 		else:
 			url = input.url if urlsplit(input.url).scheme else 'https://' + input.url
 			await self.browser.navigate_to(url)
@@ -629,13 +517,13 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 			params={
 				'format': 'png',
 				'captureBeyondViewport': False,
-				'clip': dict(
-					x=v['pageX'],
-					y=v['pageY'],
-					width=v['clientWidth'],
-					height=v['clientHeight'],
-					scale=1,
-				),
+				'clip': {
+					'x': v['pageX'],
+					'y': v['pageY'],
+					'width': v['clientWidth'],
+					'height': v['clientHeight'],
+					'scale': 1,
+				},
 			},
 			session_id=await page.session_id,
 		)
@@ -689,7 +577,9 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		await self._mouse(page, 'mouseMoved', x, y)
 
 	async def mouse_move(self, context, input):
-		await self.hover(context, input)
+		page = await self._page(input.tab_id)
+		x, y = await self._point(page, input.target)
+		await self._mouse(page, 'mouseMoved', x, y)
 
 	async def left_mouse_down(self, context, input):
 		page = await self._page(input.tab_id)
@@ -711,7 +601,7 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		page = await self._page(input.tab_id)
 		if self._held.get(page._target_id, (0, 0, 0))[2]:
 			raise ToolError('Release held mouse buttons before starting a drag.')
-		# The SDK deliberately requires coordinate targets for both drag endpoints.
+
 		x0, y0 = await self._point(page, input.from_)
 		x1, y1 = await self._point(page, input.target)
 		await self._mouse(page, 'mouseMoved', x0, y0)
@@ -860,7 +750,7 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 			self._cdp.send.Page.getLayoutMetrics(session_id=sid),
 		)
 		nodes = tree['nodes']
-		# Same-process iframe trees are not included in getFullAXTree's default main-frame tree.
+
 		frames = await self._cdp.send.Page.getFrameTree(session_id=sid)
 
 		def descendants(frame):
@@ -872,8 +762,8 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 			try:
 				child_tree = await self._cdp.send.Accessibility.getFullAXTree(params={'frameId': frame}, session_id=sid)
 				nodes.extend(child_tree['nodes'])
-			except Exception:
-				pass  # Remote iframe content is still usable via viewport actions; see capability notes.
+			except Exception as exc:
+				raise ToolError('Frame accessibility data is unavailable.') from exc
 		boxes = {}
 		for doc in snapshot['documents']:
 			dom = doc['nodes']
@@ -1072,8 +962,14 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 			paths = list(input.paths or [])
 			if input.document_ids:
 				if self._document_resolver is None:
-					raise ToolError('Document IDs require an application document_resolver to stage files on the browser host.')
-				paths.extend(self._document_resolver(doc) for doc in input.document_ids)
+					raise ToolError('Document IDs require a document_resolver for browser-host files.')
+				if paths:
+					raise ToolError('Upload local paths and staged remote document IDs in separate calls.')
+				paths = [self._document_resolver(doc) for doc in input.document_ids]
+				await self._cdp.send.DOM.setFileInputFiles(
+					params={'files': paths, 'backendNodeId': backend}, session_id=await page.session_id
+				)
+				return
 			if not paths:
 				raise ToolError('No upload paths were resolved.')
 			multiple = await self._call_node(page, object_id, 'function(){return this.multiple;}')
@@ -1104,61 +1000,33 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 		return json.dumps(result, ensure_ascii=False, default=str)
 
 	async def new_tab(self, context, input):
+		await self.browser.refresh()
 		if len(self._tabs()) >= 100:
 			raise ToolError('At most 100 tabs are supported.')
 		page = await self.browser.new_page()
-		info = await page.get_target_info()
-		target_id = info['targetId']
-		event = self.browser.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
-		await event
-		await event.event_result(raise_if_any=True)
-		for _ in range(100):
-			tabs = self._tabs()
-			converged = converged_active_tab(
-				context,
-				tabs,
-				self.browser.agent_focus_target_id,
-				target_id,
-			)
-			if converged is not None:
-				opened, self._pending_tabs_snapshot = converged
-				return opened
-			await asyncio.sleep(0.02)
-		raise ToolError('New tab opened, but active-tab state did not converge; call list_tabs before retrying.')
+		return await self._select_tab(context, page._target_id)
 
 	async def list_tabs(self, context, input):
+		await self.browser.refresh()
 		tabs = self._tabs()
 		self._pending_tabs_snapshot = pin_tabs(context, tabs)
 		return tabs
 
+	async def _select_tab(self, context, target):
+		await self.browser.command('Target.activateTarget', {'targetId': target})
+		self.browser.agent_focus_target_id = target
+		await self.browser.refresh()
+		converged = converged_active_tab(context, self._tabs(), target, target)
+		if converged is None:
+			raise ToolError('Tab state did not confirm the selected tab.')
+		selected, self._pending_tabs_snapshot = converged
+		return selected
+
 	async def switch_tab(self, context, input):
 		await self._page(input.tab_id)
-		event = self.browser.event_bus.dispatch(SwitchTabEvent(target_id=input.tab_id))
-		await event
-		await event.event_result(raise_if_any=True)
-		for _ in range(100):
-			tabs = self._tabs()
-			converged = converged_active_tab(
-				context,
-				tabs,
-				self.browser.agent_focus_target_id,
-				input.tab_id,
-			)
-			if converged is not None:
-				selected, self._pending_tabs_snapshot = converged
-				return selected
-			await asyncio.sleep(0.02)
-		raise ToolError('Tab switch completed, but active-tab state did not converge; call list_tabs before retrying.')
+		return await self._select_tab(context, input.tab_id)
 
 	async def close_tab(self, context, input):
 		page = await self._page(input.tab_id)
 		await self._release_mouse(page._target_id)
 		await self.browser.close_page(page)
-		# Cloud target-detach notifications can lag behind a successful
-		# Target.closeTarget response. Avoid reporting a false failure while
-		# the browser is still converging.
-		for _ in range(500):
-			if not any(t['tab_id'] == input.tab_id for t in self._tabs()):
-				return
-			await asyncio.sleep(0.02)
-		raise ToolError('Close was sent but tab state has not caught up; call list_tabs before retrying.')

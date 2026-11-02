@@ -1,4 +1,4 @@
-"""Browser Use skill alias for Browser Harness"""
+"""Expose Browser Use instructions over Browser Harness controls."""
 
 from __future__ import annotations
 
@@ -6,16 +6,12 @@ import re
 from importlib import resources
 from pathlib import Path
 
-# Skill description agents see before deciding to open the skill. Name the hosted-browser use case so
-# agents writing agent code (browser-use library, Playwright, Puppeteer, CDP) open it too.
 SKILL_DESCRIPTION = (
 	'Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. '
-	'Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser(use_cloud=True)), '
+	'Also covers hosted cloud browsers for AI agents: the browser-use Python library, '
 	'Playwright, Puppeteer or any CDP client.'
 )
 
-# Browser Use-only frontmatter added while generating both checked-in SKILL.md copies.
-# Keep this as the source of truth; scripts/sync_browser_harness_skill.py verifies the outputs.
 OPENCLAW_METADATA_LINES = (
 	'metadata:',
 	'  {',
@@ -70,7 +66,7 @@ def as_browser_use_skill(text: str) -> str:
 		lines.extend(OPENCLAW_METADATA_LINES)
 
 	body = body.replace('# browser-harness', '# Browser Use', 1).replace('# Browser Harness', '# Browser Use', 1)
-	# Rebrand every mention except repo URLs (github.com/browser-use/browser-harness/...)
+	# Preserve repository URLs when adapting Browser Harness instructions.
 	body = re.sub(r'(?<!/)browser-harness', 'browser-use', body)
 	body = body.replace('Browser Harness', 'Browser Use')
 	frontmatter_text = '\n'.join(lines)

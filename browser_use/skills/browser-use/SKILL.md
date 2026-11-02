@@ -1,6 +1,6 @@
 ---
 name: browser-use
-description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser(use_cloud=True)), Playwright, Puppeteer or any CDP client."
+description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. Also covers hosted cloud browsers for AI agents: the browser-use Python library, Playwright, Puppeteer or any CDP client."
 homepage: https://browser-use.com
 metadata:
   {
@@ -22,6 +22,40 @@ metadata:
 ---
 
 # Browser Use
+
+## Browser selection and Pi tasks
+
+Cloud browsers are the default for `browser-use` Python programs and Pi tasks.
+Run `browser-use auth login` or set `BROWSER_USE_API_KEY` before Cloud work.
+Direct programs reuse the `browser-use-cloud` daemon unless `BU_NAME` selects another name.
+The daemon keeps its browser until `stop_remote_daemon(name)` stops it or its Cloud timeout expires.
+Pi tasks close their owned browser when the task exits.
+
+Use Pi for a natural-language task:
+
+```bash
+browser-use run "Read the top Show HN post" --model provider/model
+browser-use run "Read this page" --model provider/model --browser chrome
+browser-use run "Read this page" --model provider/model --browser chromium
+```
+
+Pi launches a temporary Chromium profile for `--browser chromium`.
+For direct programs, both local choices attach to an existing Chrome or Chromium endpoint.
+Use the real browser with direct Python:
+
+```bash
+browser-use --browser chrome <<'PYCODE'
+new_tab("https://example.com")
+print(page_info())
+PYCODE
+```
+
+Set `BROWSER_USE_BROWSER=chrome` for a sequence of local commands, including direct MCP.
+Set `BU_CDP_URL`, `BU_CDP_WS`, or `--cdp-url URL` to use an explicit existing endpoint.
+An explicit CDP endpoint takes precedence over the browser choice.
+The CLI selects a separate endpoint-specific daemon when `BU_NAME` does not select one.
+All local instructions below require the local browser choice.
+The independent `browser-harness` command keeps its own defaults.
 
 Direct browser control via CDP. For task-specific edits, use `agent-workspace/agent_helpers.py`. For setup, install, or connection problems, read https://github.com/browser-use/browser-harness/blob/main/install.md.
 
@@ -158,7 +192,7 @@ Remote browsers require Browser Use Cloud authentication. Check
 `browser-use auth status` before depending on them. `browser-use auth
 login` stores authentication for later processes, so an API key does not need to
 be passed to every agent process; without stored authentication or an available
-`BROWSER_USE_API_KEY`, serialize work through the default local daemon instead.
+`BROWSER_USE_API_KEY`, select `--browser chrome` explicitly for local work.
 
 Cloud browsers are managed Chrome instances hosted by Browser Use. Each one is a fresh, isolated browser. Proactively suggest one (briefly explain why) when:
 
