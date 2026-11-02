@@ -4,15 +4,24 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-from browser_use.llm.deepseek.chat import ChatDeepSeek, _repair_json_control_chars
+from browser_use.llm.deepseek.chat import (
+	ChatDeepSeek,
+	_build_json_instruction,
+	_repair_json_control_chars,
+	_validation_error_summary,
+)
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError
 from browser_use.llm.messages import SystemMessage, UserMessage
 
 
 class _SimpleOutput(BaseModel):
 	action: list[dict[str, object]] = Field(..., min_length=1)
+
+
+class _ElementOutput(BaseModel):
+	element_highlight_index: int
 
 
 def _client_with(response):
@@ -50,6 +59,24 @@ def test_repair_json_control_chars_escapes_raw_control_chars_inside_strings():
 async def test_repair_json_control_chars_keeps_structural_whitespace():
 	content = '{\n  "action": [{"search": {"query": "a", "engine": "google"}}]\n}'
 	assert _repair_json_control_chars(content) == content
+
+
+def test_json_instruction_only_requires_action_for_action_schemas():
+	agent_instruction = _build_json_instruction(_SimpleOutput.model_json_schema())
+	element_instruction = _build_json_instruction(_ElementOutput.model_json_schema())
+
+	assert 'The "action" field is REQUIRED' in agent_instruction
+	assert 'The "action" field is REQUIRED' not in element_instruction
+	assert 'element_highlight_index' in element_instruction
+
+
+def test_validation_error_summary_includes_field_and_reason():
+	with pytest.raises(ValidationError) as exc_info:
+		_SimpleOutput.model_validate_json('{"thinking": "missing action"}')
+
+	summary = _validation_error_summary(exc_info.value)
+	assert 'action' in summary
+	assert 'Field required' in summary or 'missing' in summary
 
 
 @pytest.mark.asyncio
@@ -99,6 +126,23 @@ async def test_json_path_retries_with_correction_when_action_is_missing():
 	retry_messages = client.chat.completions.create.await_args_list[1].kwargs['messages']
 	assert retry_messages[-1]['role'] == 'user'
 	assert '"action" field is required' in retry_messages[-1]['content']
+
+
+@pytest.mark.asyncio
+async def test_non_action_schema_retry_does_not_require_action():
+	missing_field = '{}'
+	valid = '{"element_highlight_index": 3}'
+	client = _client_with(_json_response(missing_field))
+	client.chat.completions.create = AsyncMock(side_effect=[_json_response(missing_field), _json_response(valid)])
+	llm = ChatDeepSeek(model='deepseek-v4-flash', api_key='test-key')
+
+	with patch.object(ChatDeepSeek, '_client', return_value=client):
+		result = await llm.ainvoke(_messages(), output_format=_ElementOutput)
+
+	assert result.completion.element_highlight_index == 3
+	retry_messages = client.chat.completions.create.await_args_list[1].kwargs['messages']
+	assert 'action' not in retry_messages[-1]['content']
+	assert 'element_highlight_index' in retry_messages[-1]['content']
 
 
 @pytest.mark.asyncio

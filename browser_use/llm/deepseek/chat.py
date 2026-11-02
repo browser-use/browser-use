@@ -98,6 +98,51 @@ def _parse_json_output(output_format: type[T], content: str) -> T:
 	raise ValueError('Could not parse JSON output')
 
 
+def _build_json_instruction(schema: dict[str, Any]) -> str:
+	"""Build a schema-generic JSON instruction for DeepSeek's JSON mode."""
+	properties = schema.get('properties', {})
+	required = schema.get('required', [])
+
+	instruction = (
+		'Respond with a single valid JSON object only. '
+		'The first character must be "{" and the last character must be "}". '
+		'Do not include markdown fences, comments, trailing commas, or any prose outside the JSON object. '
+		'Every string value MUST be valid JSON: escape every double quote inside a string as \\", '
+		'every backslash as \\\\, and every newline as \\n. '
+	)
+	if required:
+		instruction += f'Required top-level fields: {", ".join(required)}. Never omit required fields. '
+
+	# AgentOutput-specific guidance only applies to schemas that actually contain actions.
+	if 'action' in properties:
+		instruction += (
+			'Never place raw JSON, HTML, or multi-line code inside "thinking". '
+			'When quoting text inside "thinking", prefer single quotes. '
+			'When writing JavaScript for "evaluate", prefer single quotes or backticks so double quotes do not need escaping. '
+			'The "action" field is REQUIRED and must be a non-empty array; never return only '
+			'"thinking", "memory", or "next_goal". If unsure, use the "wait" action. '
+		)
+
+	instruction += f'The JSON object must conform to this schema:\n{json.dumps(schema, ensure_ascii=False)}'
+	return instruction
+
+
+def _validation_error_summary(error: ValidationError, max_length: int = 500) -> str:
+	"""Summarize validation errors with field locations and reasons."""
+	parts: list[str] = []
+	for item in error.errors():
+		location = '.'.join(str(part) for part in item.get('loc', ()))
+		message = item.get('msg', 'invalid value')
+		error_type = item.get('type')
+		if location:
+			parts.append(f'{location}: {message}' + (f' ({error_type})' if error_type else ''))
+		else:
+			parts.append(message + (f' ({error_type})' if error_type else ''))
+
+	summary = '; '.join(parts) or str(error).splitlines()[0]
+	return summary[:max_length]
+
+
 @dataclass
 class ChatDeepSeek(BaseChatModel):
 	"""DeepSeek /chat/completions wrapper (OpenAI-compatible)."""
@@ -255,19 +300,9 @@ class ChatDeepSeek(BaseChatModel):
 				# is json_object, otherwise it may emit whitespace until the token
 				# limit. Include the schema so the model knows the expected shape.
 				schema = output_format.model_json_schema()
-				json_instruction = (
-					'Respond with a single valid JSON object only. '
-					'The first character must be "{" and the last character must be "}". '
-					'Do not include markdown fences, comments, trailing commas, or any prose outside the JSON object. '
-					'Every string value MUST be valid JSON: escape every double quote inside a string as \\", '
-					'every backslash as \\\\, and every newline as \\n. '
-					'Never place raw JSON, HTML, or multi-line code inside "thinking". '
-					'When quoting text inside "thinking", prefer single quotes. '
-					'When writing JavaScript for "evaluate", prefer single quotes or backticks so double quotes do not need escaping. '
-					'The "action" field is REQUIRED and must be a non-empty array; never return only '
-					'"thinking", "memory", or "next_goal". If unsure, use the "wait" action. '
-					f'The JSON object must conform to this schema:\n{json.dumps(schema, ensure_ascii=False)}'
-				)
+				json_instruction = _build_json_instruction(schema)
+				has_action = 'action' in schema.get('properties', {})
+				action_hint = ' The "action" field is required and must be a non-empty array.' if has_action else ''
 				json_messages = [dict(message) for message in ds_messages]
 				if json_messages and json_messages[0].get('role') == 'system':
 					json_messages[0]['content'] = f'{json_messages[0].get("content", "")}\n\n{json_instruction}'
@@ -300,10 +335,7 @@ class ChatDeepSeek(BaseChatModel):
 							json_messages.append(
 								{
 									'role': 'user',
-									'content': (
-										'Your previous response was empty. Return a single valid JSON object only. '
-										'The "action" field is required and must be a non-empty array.'
-									),
+									'content': f'Your previous response was empty. Return a single valid JSON object only.{action_hint}',
 								}
 							)
 							continue
@@ -314,7 +346,7 @@ class ChatDeepSeek(BaseChatModel):
 					except ValidationError as e:
 						last_error = e
 						if attempt == 0:
-							error_summary = str(e).splitlines()[0][:500]
+							error_summary = _validation_error_summary(e)
 							json_messages.extend(
 								[
 									{'role': 'assistant', 'content': content},
@@ -322,8 +354,7 @@ class ChatDeepSeek(BaseChatModel):
 										'role': 'user',
 										'content': (
 											f'Your previous response was invalid: {error_summary}\n'
-											'Return the complete corrected JSON object only. '
-											'The "action" field is required and must be a non-empty array. '
+											f'Return the complete corrected JSON object only.{action_hint} '
 											'Escape every double quote inside string values as \\". '
 											'Do not use markdown fences or prose.'
 										),
