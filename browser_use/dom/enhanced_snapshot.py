@@ -115,6 +115,12 @@ def build_snapshot_lookup(
 		has_clickable_data = 'isClickable' in nodes
 		is_clickable_set: set[int] = set(nodes['isClickable']['index']) if has_clickable_data else set()
 
+		# `stackingContexts` is RareBooleanData as well: `index` lists the layout indices
+		# that begin a stacking context, so membership is the value. Indexing it
+		# positionally yields another node's layout index instead of this node's flag.
+		has_stacking_context_data = 'stackingContexts' in layout
+		stacking_context_set: set[int] = set(layout['stackingContexts'].get('index', [])) if has_stacking_context_data else set()
+
 		# Live form values live in the snapshot, not in the DOM attributes. Map
 		# snapshot index -> string once so each node lookup stays O(1).
 		input_value_by_index: dict[int, str] = {}
@@ -196,9 +202,9 @@ def build_snapshot_lookup(
 								height=scroll_rect_data[3],
 							)
 
-					# Extract stacking contexts if available
-					if layout_idx < len(layout.get('stackingContexts', {}).get('index', [])):
-						stacking_contexts = layout.get('stackingContexts', {}).get('index', [])[layout_idx]
+					# Extract the stacking-context flag if available
+					if has_stacking_context_data:
+						stacking_contexts = _parse_rare_boolean_data(stacking_context_set, layout_idx)
 
 			snapshot_lookup[backend_node_id] = EnhancedSnapshotNode(
 				is_clickable=is_clickable,
