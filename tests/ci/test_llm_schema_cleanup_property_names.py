@@ -4,7 +4,7 @@ The final `remove_forbidden_fields` pass popped `default`, `minItems` and `min_i
 including `properties` maps, so fields with those names disappeared while staying in `required`.
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from browser_use.llm.schema import SchemaOptimizer
 
@@ -36,8 +36,12 @@ def test_nested_schema_keeps_named_fields() -> None:
 
 def test_actual_metadata_is_still_removed() -> None:
 	class WithMetadata(BaseModel):
-		items: list[str] = []
+		items: list[str] = Field(default=[], min_length=1)
 		label: str = 'hello'
+
+	# Fixture sanity: without a real length constraint pydantic never emits `minItems`,
+	# so the assertion below would pass even if the removal logic were broken.
+	assert 'minItems' in WithMetadata.model_json_schema()['properties']['items']
 
 	schema = SchemaOptimizer.create_optimized_json_schema(WithMetadata, remove_defaults=True, remove_min_items=True)
 
