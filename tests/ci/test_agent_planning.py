@@ -229,6 +229,21 @@ async def test_no_replan_nudge_below_threshold(browser_session, mock_llm):
 	assert after_count == initial_count
 
 
+async def test_replan_nudge_uses_agent_consecutive_failures(browser_session, mock_llm):
+	agent = _make_agent(browser_session, mock_llm, planning_replan_on_stall=3)
+	agent.state.plan_state = _make_plan_state(['Step 1'], completed_up_to=0)
+	agent.state.consecutive_failures = 3
+
+	initial_count = len(agent._message_manager.state.history.context_messages)
+	agent._inject_replan_nudge()
+	after_count = len(agent._message_manager.state.history.context_messages)
+
+	assert after_count == initial_count + 1
+	msg = agent._message_manager.state.history.context_messages[-1]
+	assert isinstance(msg.content, str) and 'REPLAN SUGGESTED' in msg.content
+	assert '3 consecutive times' in msg.content
+
+
 # ---------------------------------------------------------------------------
 # 8. Flash mode schema excludes plan fields
 # ---------------------------------------------------------------------------

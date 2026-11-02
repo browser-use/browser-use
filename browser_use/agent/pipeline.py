@@ -189,6 +189,7 @@ class ContextPreparer(BaseContextPreparer):
 			return
 
 		plan_state = self._agent.state.plan_state
+		failures = max(plan_state.consecutive_failures, self._agent.state.consecutive_failures)
 		if plan_state.current_step_all_alternatives_failed():
 			step = plan_state.steps[plan_state.current_step_index]
 			msg = (
@@ -196,16 +197,14 @@ class ContextPreparer(BaseContextPreparer):
 				'All retries exhausted. Output a `plan_update` with revised steps to continue.'
 			)
 			self._agent.logger.info(f'\U0001f4cb Replan nudge: all alternatives failed for step "{step.description}"')
-		elif plan_state.consecutive_failures >= self._agent.settings.planning_replan_on_stall:
+		elif failures >= self._agent.settings.planning_replan_on_stall:
 			msg = (
 				'REPLAN SUGGESTED: You have failed '
-				f'{plan_state.consecutive_failures} consecutive times. '
+				f'{failures} consecutive times. '
 				'Your current plan may need revision. '
 				'Output a new `plan_update` with revised steps to recover.'
 			)
-			self._agent.logger.info(
-				f'\U0001f4cb Replan nudge injected after {plan_state.consecutive_failures} consecutive failures'
-			)
+			self._agent.logger.info(f'\U0001f4cb Replan nudge injected after {failures} consecutive failures')
 		else:
 			return
 		self._agent.message_manager._add_context_message(UserMessage(content=msg))
@@ -283,7 +282,9 @@ class ContextPreparer(BaseContextPreparer):
 
 	async def _force_done_after_failure(self) -> None:
 		ps = self._agent.state.plan_state
-		total = ps.consecutive_failures if ps else self._agent.state.consecutive_failures
+		total = (
+			max(ps.consecutive_failures, self._agent.state.consecutive_failures) if ps else self._agent.state.consecutive_failures
+		)
 		if total >= self._agent.settings.max_failures and self._agent.settings.final_response_after_failure:
 			msg = f'You failed {total} consecutive times. We terminate the agent. Your only tool is "done".'
 			self._agent.logger.debug('Force done after max plan failures')
