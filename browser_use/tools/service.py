@@ -3,7 +3,10 @@ import json
 import logging
 import math
 import os
-from typing import Generic, TypeVar
+import weakref
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, ClassVar, Generic, TypeVar
 
 import anyio
 
@@ -13,7 +16,12 @@ except ImportError:
 	Laminar = None  # type: ignore
 from pydantic import BaseModel
 
-from browser_use.agent.views import ActionModel, ActionResult
+from browser_use.agent.views import (
+	ActionModel,
+	ActionResult,
+	AmbiguousPolicyTransition,
+	ConfirmedPolicyViolation,
+)
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
 	ClickCoordinateEvent,
@@ -35,6 +43,12 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
+from browser_use.tools.evaluate_policy import (
+	EvaluatePolicyGuard,
+	compare_control_snapshots,
+	enforcement_unavailable_since,
+	violations_since,
+)
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
@@ -75,6 +89,16 @@ Context = TypeVar('Context')
 T = TypeVar('T', bound=BaseModel)
 
 
+@dataclass
+class _SessionPolicyState:
+	"""Sticky trusted policy results for one live browser-session object."""
+
+	session_ref: weakref.ReferenceType[BrowserSession]
+	violations: list[ConfirmedPolicyViolation]
+	ambiguous_transitions: list[AmbiguousPolicyTransition]
+	enforcement_unavailable: bool = False
+
+
 # Default header/footer templates for save_as_pdf, mirroring the metadata that
 # Chrome's own Print dialog renders by default: the date in the header and the
 # page URL + page numbers in the footer. Chrome injects values into elements
@@ -108,6 +132,11 @@ _DEFAULT_PDF_FOOTER_TEMPLATE = (
 # slow-but-valid LLM-backed actions aren't truncated. Override per-call via
 # BROWSER_USE_ACTION_TIMEOUT_S env var or tools.act(action_timeout=...).
 _ACTION_TIMEOUT_FALLBACK_S = 180.0
+
+
+def _append_action_memory(current: str | None, note: str) -> str:
+	"""Append trusted action state without replacing the JavaScript result."""
+	return f'{current}\n{note}' if current else note
 
 
 def _parse_env_action_timeout(raw: str | None) -> float:
@@ -439,6 +468,10 @@ def _is_autocomplete_field(node: EnhancedDOMTreeNode) -> bool:
 
 
 class Tools(Generic[Context]):
+	# Sticky for the lifetime of the BrowserSession Python object, including reconnects
+	# and use through another Tools instance. Weak references release collected sessions.
+	_session_policy_state: ClassVar[dict[int, _SessionPolicyState]] = {}
+
 	def __init__(
 		self,
 		exclude_actions: list[str] | None = None,
@@ -449,6 +482,9 @@ class Tools(Generic[Context]):
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
+		self._evaluate_policy_guard = EvaluatePolicyGuard()
+		self._trusted_evaluate_action: Callable[..., Any] | None = None
+		self._trusted_done_action: Callable[..., Any] | None = None
 
 		"""Register all default browser actions"""
 
@@ -1831,114 +1867,203 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, or analysing page structure. IMPORTANT: Shadow DOM elements with [index] markers can be clicked directly with click(index) — do NOT use evaluate() to click them. Only use evaluate for shadow DOM elements that are NOT indexed. Limit output size.""",
+			"""Execute browser JavaScript in an isolated world; page-defined globals are unavailable, and nested frames are refused by the policy guard. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, or analysing page structure. IMPORTANT: Shadow DOM elements with [index] markers can be clicked directly with click(index) — do NOT use evaluate() to click them. Only use evaluate for shadow DOM elements that are NOT indexed. Limit output size.""",
 			terminates_sequence=True,
 		)
 		async def evaluate(code: str, browser_session: BrowserSession):
-			# Execute JavaScript with proper error handling and promise support
-
-			cdp_session = await browser_session.get_or_create_cdp_session()
-
+			"""Run JavaScript in an isolated world with trusted policy guards."""
 			try:
-				# Validate and potentially fix JavaScript code before execution
-				validated_code = self._validate_and_fix_javascript(code)
+				cdp_session = await browser_session.get_or_create_cdp_session()
+				if await self._evaluate_policy_guard.has_child_frames(cdp_session):
+					return ActionResult(
+						error=(
+							'Evaluate was not run because this page contains a nested frame. '
+							'The current policy guard only covers the main frame.'
+						),
+						policy_enforcement_unavailable=True,
+					)
+				context = await self._evaluate_policy_guard.context_for(cdp_session)
+				if context is None:
+					return ActionResult(
+						error='Evaluate was not run: could not create its isolated policy-enforcement context.',
+						policy_enforcement_unavailable=True,
+					)
+				frame_id, context_id = context
+				if not await self._evaluate_policy_guard.install(cdp_session, context_id):
+					return ActionResult(
+						error='Evaluate was not run: isolated policy enforcement could not be installed.',
+						policy_enforcement_unavailable=True,
+					)
 
-				# Always use awaitPromise=True - it's ignored for non-promises
-				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': validated_code, 'returnByValue': True, 'awaitPromise': True},
-					session_id=cdp_session.session_id,
+				before = await self._evaluate_policy_guard.read_state(cdp_session, frame_id, context_id)
+				if before is None or before['snapshot'].get('complete') is not True:
+					return ActionResult(
+						error='Evaluate was not run: isolated policy state could not be verified.',
+						policy_enforcement_unavailable=True,
+					)
+
+				validated_code = self._validate_and_fix_javascript(code)
+				result = await self._execute_evaluate_javascript(validated_code, code, cdp_session, context_id)
+				if result.policy_enforcement_unavailable:
+					self._mark_policy_enforcement_unavailable(browser_session)
+					return result
+
+				try:
+					after = await self._evaluate_policy_guard.read_state(cdp_session, frame_id, context_id)
+				except asyncio.CancelledError:
+					raise
+				except Exception:
+					after = None
+
+				try:
+					has_child_frames = await self._evaluate_policy_guard.has_child_frames(cdp_session)
+				except asyncio.CancelledError:
+					raise
+				except Exception:
+					has_child_frames = True
+
+				if after is None:
+					result.policy_enforcement_unavailable = True
+					result.long_term_memory = _append_action_memory(
+						result.long_term_memory or result.extracted_content or result.error,
+						'Policy enforcement status could not be verified after evaluate.',
+					)
+					self._mark_policy_enforcement_unavailable(browser_session)
+					return result
+				if after['snapshot'].get('complete') is not True:
+					result.policy_enforcement_unavailable = True
+					result.long_term_memory = _append_action_memory(
+						result.long_term_memory or result.extracted_content or result.error,
+						'Policy counters were retrieved, but the control snapshot exceeded its bounded scan.',
+					)
+				if has_child_frames:
+					result.policy_enforcement_unavailable = True
+					result.long_term_memory = _append_action_memory(
+						result.long_term_memory or result.extracted_content or result.error,
+						'A nested frame appeared during evaluate; its policy enforcement is unavailable.',
+					)
+					self._mark_policy_enforcement_unavailable(browser_session)
+				if enforcement_unavailable_since(before, after):
+					result.policy_enforcement_unavailable = True
+					result.long_term_memory = _append_action_memory(
+						result.long_term_memory or result.extracted_content or result.error,
+						'A restricted-control replacement was blocked, but the guard could not verify the affected DOM subtree.',
+					)
+					self._mark_policy_enforcement_unavailable(browser_session)
+
+				result.policy_violations = violations_since(before, after)
+				if after['snapshot'].get('complete') is True:
+					result.control_state_change_observation = compare_control_snapshots(before['snapshot'], after['snapshot'])
+					observation = result.control_state_change_observation
+					if observation is not None and (observation.disabled_to_enabled or observation.readonly_to_editable):
+						result.ambiguous_policy_transitions = [AmbiguousPolicyTransition(observation=observation)]
+				if result.policy_violations:
+					codes = ', '.join(sorted({violation.code for violation in result.policy_violations}))
+					result.long_term_memory = _append_action_memory(
+						result.long_term_memory or result.extracted_content or result.error,
+						f'Browser Use blocked prohibited evaluate attempt(s): {codes}.',
+					)
+				if result.control_state_change_observation is not None:
+					result.long_term_memory = _append_action_memory(
+						result.long_term_memory or result.extracted_content or result.error,
+						'Form-control changes were observed around evaluate; this does not establish cause.',
+					)
+					if result.ambiguous_policy_transitions:
+						result.long_term_memory = _append_action_memory(
+							result.long_term_memory or result.extracted_content or result.error,
+							'A restricted control changed state during evaluate; its cause could not be attributed, so later actions are blocked.',
+						)
+					if result.control_state_change_observation.restricted_controls_unmatched:
+						result.policy_enforcement_unavailable = True
+						self._mark_policy_enforcement_unavailable(browser_session)
+				return result
+			except asyncio.CancelledError:
+				self._mark_policy_enforcement_unavailable(browser_session)
+				raise
+			except Exception as e:
+				logger.debug('Failed to execute guarded JavaScript: %s', e)
+				return ActionResult(
+					error=f'Failed to execute JavaScript: {type(e).__name__}: {e}',
+					policy_enforcement_unavailable=True,
 				)
 
-				# Check for JavaScript execution errors
-				if result.get('exceptionDetails'):
-					exception = result['exceptionDetails']
-					error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
+		registered_evaluate = self.registry.registry.actions.get('evaluate')
+		self._trusted_evaluate_action = registered_evaluate.function if registered_evaluate is not None else None
 
-					# Enhanced error message with debugging info
-					enhanced_msg = f"""JavaScript Execution Failed:
+	async def _execute_evaluate_javascript(
+		self, validated_code: str, original_code: str, cdp_session: Any, context_id: int
+	) -> ActionResult:
+		"""Execute JavaScript and preserve the action's existing result/error contract."""
+		try:
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={
+					'expression': validated_code,
+					'contextId': context_id,
+					'returnByValue': True,
+					'awaitPromise': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+		except asyncio.CancelledError:
+			raise
+		except Exception as e:
+			return ActionResult(
+				error=f'Failed to execute JavaScript: {type(e).__name__}: {e}',
+				policy_enforcement_unavailable=True,
+			)
+
+		if result.get('exceptionDetails'):
+			exception = result['exceptionDetails']
+			error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
+			enhanced_msg = f"""JavaScript Execution Failed:
 {error_msg}
 
 Validated Code (after quote fixing):
 {validated_code[:500]}{'...' if len(validated_code) > 500 else ''}
 """
+			logger.debug(enhanced_msg)
+			return ActionResult(error=enhanced_msg)
 
-					logger.debug(enhanced_msg)
-					return ActionResult(error=enhanced_msg)
+		result_data = result.get('result', {})
+		if result_data.get('wasThrown'):
+			msg = f'JavaScript code: {original_code} execution failed (wasThrown=true)'
+			logger.debug(msg)
+			return ActionResult(error=msg)
 
-				# Get the result data
-				result_data = result.get('result', {})
+		value = result_data.get('value')
+		if value is None:
+			result_text = str(value) if 'value' in result_data else 'undefined'
+		elif isinstance(value, (dict, list)):
+			try:
+				result_text = json.dumps(value, ensure_ascii=False)
+			except (TypeError, ValueError):
+				result_text = str(value)
+		else:
+			result_text = str(value)
 
-				# Check for wasThrown flag (backup error detection)
-				if result_data.get('wasThrown'):
-					msg = f'JavaScript code: {code} execution failed (wasThrown=true)'
-					logger.debug(msg)
-					return ActionResult(error=msg)
+		import re
 
-				# Get the actual value
-				value = result_data.get('value')
+		found_images = re.findall(r'(data:image/[^;]+;base64,[A-Za-z0-9+/=]+)', result_text)
+		metadata = {'images': found_images} if found_images else None
+		for image_data in found_images:
+			result_text = result_text.replace(image_data, '[Image]')
+		if len(result_text) > 20000:
+			result_text = result_text[:19950] + '\n... [Truncated after 20000 characters]'
 
-				# Handle different value types
-				if value is None:
-					# Could be legitimate null/undefined result
-					result_text = str(value) if 'value' in result_data else 'undefined'
-				elif isinstance(value, (dict, list)):
-					# Complex objects - should be serialized by returnByValue
-					try:
-						result_text = json.dumps(value, ensure_ascii=False)
-					except (TypeError, ValueError):
-						# Fallback for non-serializable objects
-						result_text = str(value)
-				else:
-					# Primitive values (string, number, boolean)
-					result_text = str(value)
+		logger.debug('JavaScript executed successfully, result length: %s', len(result_text))
+		if len(result_text) < 10000:
+			memory = result_text
+			include_extracted_content_only_once = False
+		else:
+			memory = f'JavaScript executed successfully, result length: {len(result_text)} characters.'
+			include_extracted_content_only_once = True
 
-				import re
-
-				image_pattern = r'(data:image/[^;]+;base64,[A-Za-z0-9+/=]+)'
-				found_images = re.findall(image_pattern, result_text)
-
-				metadata = None
-				if found_images:
-					# Store images in metadata so they can be added as ContentPartImageParam
-					metadata = {'images': found_images}
-
-					# Replace image data in result text with shorter placeholder
-					modified_text = result_text
-					for i, img_data in enumerate(found_images, 1):
-						placeholder = '[Image]'
-						modified_text = modified_text.replace(img_data, placeholder)
-					result_text = modified_text
-
-				# Apply length limit with better truncation (after image extraction)
-				if len(result_text) > 20000:
-					result_text = result_text[:19950] + '\n... [Truncated after 20000 characters]'
-
-				# Don't log the code - it's already visible in the user's cell
-				logger.debug(f'JavaScript executed successfully, result length: {len(result_text)}')
-
-				# Memory handling: keep full result in extracted_content for current step,
-				# but use truncated version in long_term_memory if too large
-				MAX_MEMORY_LENGTH = 10000
-				if len(result_text) < MAX_MEMORY_LENGTH:
-					memory = result_text
-					include_extracted_content_only_once = False
-				else:
-					memory = f'JavaScript executed successfully, result length: {len(result_text)} characters.'
-					include_extracted_content_only_once = True
-
-				# Return only the result, not the code (code is already in user's cell)
-				return ActionResult(
-					extracted_content=result_text,
-					long_term_memory=memory,
-					include_extracted_content_only_once=include_extracted_content_only_once,
-					metadata=metadata,
-				)
-
-			except Exception as e:
-				# CDP communication or other system errors
-				error_msg = f'Failed to execute JavaScript: {type(e).__name__}: {e}'
-				logger.debug(f'JavaScript code that failed: {code[:200]}...')
-				return ActionResult(error=error_msg)
+		return ActionResult(
+			extracted_content=result_text,
+			long_term_memory=memory,
+			include_extracted_content_only_once=include_extracted_content_only_once,
+			metadata=metadata,
+		)
 
 	def _validate_and_fix_javascript(self, code: str) -> str:
 		"""Validate and fix common JavaScript issues before execution"""
@@ -2005,6 +2130,93 @@ Validated Code (after quote fixing):
 
 		return fixed_code
 
+	def _record_policy_violations(self, browser_session: BrowserSession, violations: list[ConfirmedPolicyViolation]) -> None:
+		"""Persist trusted policy signals for later action and completion boundaries."""
+		key, entry = self._policy_state_for(browser_session)
+		entry.violations.extend(violations)
+		self._session_policy_state[key] = entry
+
+	def _record_ambiguous_policy_transitions(
+		self, browser_session: BrowserSession, transitions: list[AmbiguousPolicyTransition]
+	) -> None:
+		"""Persist unattributable restricted-control transitions without calling them violations."""
+		key, entry = self._policy_state_for(browser_session)
+		entry.ambiguous_transitions.extend(transitions)
+		self._session_policy_state[key] = entry
+
+	def _mark_policy_enforcement_unavailable(self, browser_session: BrowserSession) -> None:
+		"""Fail closed when evaluate may have run without a readable guard outcome."""
+		key, entry = self._policy_state_for(browser_session)
+		entry.enforcement_unavailable = True
+		self._session_policy_state[key] = entry
+
+	def _is_trusted_policy_action(self, action_name: str, trusted_handler: Callable[..., Any] | None) -> bool:
+		"""Match the registered handler identity, not a model-controlled action name."""
+		registered = self.registry.registry.actions.get(action_name)
+		return trusted_handler is not None and registered is not None and registered.function is trusted_handler
+
+	@staticmethod
+	def _strip_untrusted_policy_metadata(result: ActionResult) -> ActionResult:
+		"""Prevent custom actions from forging policy provenance in returned history."""
+		return result.model_copy(
+			update={
+				'policy_violations': [],
+				'control_state_change_observation': None,
+				'ambiguous_policy_transitions': [],
+				'policy_enforcement_unavailable': False,
+				'trusted_policy_disclosure': False,
+			}
+		)
+
+	def _policy_state_for(self, browser_session: BrowserSession) -> tuple[int, _SessionPolicyState]:
+		"""Return session state while avoiding stale integer-id reuse and retaining no closed session."""
+		key = id(browser_session)
+		states = self._session_policy_state
+		entry = states.get(key)
+		if entry is not None and entry.session_ref() is browser_session:
+			return key, entry
+
+		def remove_state(reference: weakref.ReferenceType[BrowserSession], session_key: int = key) -> None:
+			current = states.get(session_key)
+			if current is not None and current.session_ref is reference:
+				states.pop(session_key, None)
+
+		reference = weakref.ref(browser_session, remove_state)
+		entry = _SessionPolicyState(reference, [], [])
+		self._session_policy_state[key] = entry
+		return key, entry
+
+	def _has_policy_violations(self, browser_session: BrowserSession) -> bool:
+		"""Whether trusted action code recorded any prohibited attempt for this session."""
+		_, entry = self._policy_state_for(browser_session)
+		return bool(entry.violations)
+
+	def _has_ambiguous_policy_transitions(self, browser_session: BrowserSession) -> bool:
+		"""Whether a restricted-control transition occurred without reliable attribution."""
+		_, entry = self._policy_state_for(browser_session)
+		return bool(entry.ambiguous_transitions)
+
+	def _has_unavailable_policy_result(self, browser_session: BrowserSession) -> bool:
+		"""Whether evaluate ran without a verifiable enforcement result for this session."""
+		_, entry = self._policy_state_for(browser_session)
+		return entry.enforcement_unavailable
+
+	def _policy_disclosure(self, browser_session: BrowserSession) -> str | None:
+		"""Format a completion note using only trusted per-session state."""
+		disclosures: list[str] = []
+		_, entry = self._policy_state_for(browser_session)
+		violations = entry.violations
+		if violations:
+			codes = ', '.join(sorted({violation.code for violation in violations}))
+			disclosures.append(f'Browser Use blocked prohibited evaluate attempt(s): {codes}.')
+		if entry.ambiguous_transitions:
+			disclosures.append(
+				'Browser Use observed a restricted-control state change during evaluate, but could not attribute its cause; later actions were blocked.'
+			)
+		if entry.enforcement_unavailable:
+			disclosures.append('Browser Use could not verify evaluate policy enforcement for part of this run.')
+		return ' '.join(disclosures) if disclosures else None
+
 	def _register_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):
 		if output_model is not None:
 			self.display_files_in_done_text = display_files_in_done_text
@@ -2036,12 +2248,20 @@ Validated Code (after quote fixing):
 						if file_path not in existing:
 							attachments.append(file_path)
 
+				disclosure = self._policy_disclosure(browser_session)
+				success = params.success and disclosure is None
+				memory = f'Task completed. Success Status: {success}'
+				if disclosure:
+					memory = _append_action_memory(memory, disclosure)
+
 				return ActionResult(
 					is_done=True,
-					success=params.success,
+					success=success,
 					extracted_content=json.dumps(output_dict, ensure_ascii=False),
-					long_term_memory=f'Task completed. Success Status: {params.success}',
+					long_term_memory=memory,
 					attachments=attachments,
+					policy_enforcement_unavailable=self._has_unavailable_policy_result(browser_session),
+					trusted_policy_disclosure=disclosure is not None,
 				)
 
 		else:
@@ -2050,12 +2270,16 @@ Validated Code (after quote fixing):
 				'Complete task. Only report actions you performed and data you extracted in this session.',
 				param_model=DoneAction,
 			)
-			async def done(params: DoneAction, file_system: FileSystem):
+			async def done(params: DoneAction, file_system: FileSystem, browser_session: BrowserSession | None = None):
 				user_message = params.text
+				disclosure = self._policy_disclosure(browser_session) if browser_session is not None else None
+				success = params.success and disclosure is None
+				if disclosure:
+					user_message = _append_action_memory(user_message, disclosure)
 
-				len_text = len(params.text)
+				len_text = len(user_message)
 				len_max_memory = 100
-				memory = f'Task completed: {params.success} - {params.text[:len_max_memory]}'
+				memory = f'Task completed: {success} - {user_message[:len_max_memory]}'
 				if len_text > len_max_memory:
 					memory += f' - {len_text - len_max_memory} more characters'
 
@@ -2083,11 +2307,18 @@ Validated Code (after quote fixing):
 
 				return ActionResult(
 					is_done=True,
-					success=params.success,
+					success=success,
 					extracted_content=user_message,
 					long_term_memory=memory,
 					attachments=attachments,
+					policy_enforcement_unavailable=(
+						self._has_unavailable_policy_result(browser_session) if browser_session is not None else False
+					),
+					trusted_policy_disclosure=disclosure is not None,
 				)
+
+		registered_done = self.registry.registry.actions.get('done')
+		self._trusted_done_action = registered_done.function if registered_done is not None else None
 
 	def use_structured_output_action(self, output_model: type[T]):
 		self._output_model = output_model
@@ -2199,6 +2430,24 @@ Validated Code (after quote fixing):
 
 		for action_name, params in action.model_dump(exclude_unset=True).items():
 			if params is not None:
+				trusted_evaluate_action = self._is_trusted_policy_action(action_name, self._trusted_evaluate_action)
+				trusted_done_action = self._is_trusted_policy_action(action_name, self._trusted_done_action)
+				if not trusted_done_action and browser_session is not None:
+					if self._has_policy_violations(browser_session):
+						return ActionResult(
+							error='Browser action blocked because an earlier evaluate attempt violated the policy guard. '
+							'Complete with success=false and disclose the blocked attempt.',
+						)
+					if self._has_ambiguous_policy_transitions(browser_session):
+						return ActionResult(
+							error='Browser action blocked because evaluate observed a restricted-control state change whose cause could not be attributed.',
+						)
+					if self._has_unavailable_policy_result(browser_session):
+						return ActionResult(
+							error='Browser action blocked because evaluate policy enforcement could not be verified.',
+							policy_enforcement_unavailable=True,
+						)
+
 				# Use Laminar span if available, otherwise use no-op context manager
 				if Laminar is not None:
 					span_context = Laminar.start_as_current_span(
@@ -2230,9 +2479,15 @@ Validated Code (after quote fixing):
 							),
 							timeout=timeout_s,
 						)
+					except asyncio.CancelledError:
+						if trusted_evaluate_action and browser_session is not None:
+							self._mark_policy_enforcement_unavailable(browser_session)
+						raise
 					except BrowserError as e:
 						logger.error(f'❌ Action {action_name} failed with BrowserError: {str(e)}')
 						result = handle_browser_error(e)
+						if trusted_evaluate_action:
+							result.policy_enforcement_unavailable = True
 					except TimeoutError:
 						# Covers both the per-action asyncio.wait_for cap and any inner
 						# TimeoutError that bubbled out of the handler.
@@ -2247,10 +2502,25 @@ Validated Code (after quote fixing):
 								f'Try again or a different approach.'
 							)
 						)
+						if trusted_evaluate_action:
+							result.policy_enforcement_unavailable = True
+							if browser_session is not None:
+								self._mark_policy_enforcement_unavailable(browser_session)
 					except Exception as e:
 						# Log the original exception with traceback for observability
 						logger.error(f"Action '{action_name}' failed with error: {str(e)}")
-						result = ActionResult(error=str(e))
+						result = ActionResult(error=str(e), policy_enforcement_unavailable=trusted_evaluate_action)
+
+					if isinstance(result, ActionResult):
+						if trusted_evaluate_action and browser_session is not None:
+							if result.policy_violations:
+								self._record_policy_violations(browser_session, result.policy_violations)
+							if result.ambiguous_policy_transitions:
+								self._record_ambiguous_policy_transitions(browser_session, result.ambiguous_policy_transitions)
+							if result.policy_enforcement_unavailable:
+								self._mark_policy_enforcement_unavailable(browser_session)
+						elif not trusted_done_action:
+							result = self._strip_untrusted_policy_metadata(result)
 
 					if Laminar is not None:
 						Laminar.set_span_output(result)
