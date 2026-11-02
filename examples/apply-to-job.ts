@@ -15,10 +15,10 @@ await mkdir(workspace, { recursive: true });
 if (resolve(resume) !== join(workspace, 'resume.pdf'))
   await copyFile(resume, join(workspace, 'resume.pdf'));
 const agent = await BrowserUse.create({
-  model: process.env.MODEL || 'openrouter/openai/gpt-5.6-luna',
+  model: process.env.MODEL || process.env.BROWSER_USE_MODEL || 'bu-auto',
   browser:
-    process.env.BROWSER === 'cloud'
-      ? Browser.cloud({ apiKey: process.env.BROWSER_USE_API_KEY ?? '' })
+    process.env.BROWSER !== 'local' && process.env.BROWSER !== 'chromium'
+      ? Browser.cloud()
       : Browser.chromium(),
   workspace,
   researchTools: true,

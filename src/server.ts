@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { BrowserUse, exportRecording, type BrowserUseOptions } from './index.js';
 import type { SessionEvent } from './events.js';
-import { builtinModels, rejectBu2 } from './models.js';
+import { builtinModels, isGatewayAlias, rejectBu2 } from './models.js';
 import { Type, type TSchema } from 'typebox';
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import type { Context } from '@earendil-works/pi-ai';
@@ -155,6 +155,7 @@ const CREATE_KEYS = new Set([
   'browser',
   'workspace',
   'reasoning',
+  'serviceTier',
   'instructions',
   'operationTimeoutMs',
   'cellTimeoutMs',
@@ -250,7 +251,16 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
         throw new Error('baseUrl must be a string.');
       if (modelId !== undefined && (typeof modelId !== 'string' || !modelId))
         throw new Error('modelId must be a non-empty string.');
-      if (typeof modelId === 'string') rejectBu2(modelId);
+      if (typeof modelId === 'string') {
+        rejectBu2(modelId);
+        if (
+          isGatewayAlias(options.model as string | undefined) ||
+          String(options.model).startsWith('browser-use/')
+        )
+          throw new Error(
+            'Browser Use gateway models use model, not modelId. Select a published model revision.',
+          );
+      }
       if (modelInfo !== undefined && (typeof modelInfo !== 'object' || modelInfo === null))
         throw new Error('modelInfo must be an object.');
       const models = builtinModels();
@@ -273,12 +283,18 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
       creation = BrowserUse.create({
         ...(options as unknown as BrowserUseOptions),
         models,
+        ...(typeof apiKey === 'string' ? { apiKey } : {}),
         ...(typeof modelId === 'string' &&
         !(modelInfo && typeof modelInfo === 'object' && 'cost' in modelInfo)
           ? { pricingKnown: false }
           : {}),
-        ...(modelInfo
-          ? { modelInfo: modelInfo as NonNullable<BrowserUseOptions['modelInfo']> }
+        ...(modelInfo || typeof baseUrl === 'string'
+          ? {
+              modelInfo: {
+                ...((modelInfo as NonNullable<BrowserUseOptions['modelInfo']>) ?? {}),
+                ...(typeof baseUrl === 'string' ? { baseUrl } : {}),
+              },
+            }
           : {}),
         ...callbackOptions(callbacks),
         tools: toolSpecs.map((tool) => ({

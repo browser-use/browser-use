@@ -22,10 +22,18 @@ import {
 } from './history.js';
 import { EventStream, formatEvent, type SessionEvent, type SessionEventData } from './events.js';
 import { positiveInteger } from './protocol.js';
-import { builtinModels, gatewayErrorMessage, isGatewayAlias, resolveModel } from './models.js';
+import {
+  builtinModels,
+  DEFAULT_MODEL,
+  configuredStream,
+  gatewayErrorMessage,
+  resolveGatewayModel,
+  resolveModel,
+} from './models.js';
 import type { BrowserUseOptions, RunOptions, RunResult } from './types.js';
 export type {
   BrowserUseOptions,
+  ServiceTier,
   RunOptions,
   RunResult,
   StopReason,
@@ -107,9 +115,6 @@ export class BrowserUse {
     options = {
       ...options,
       researchTools: options.researchTools ?? true,
-      ...(options.reasoning === undefined && isGatewayAlias(options.model)
-        ? { reasoning: 'high' as const }
-        : {}),
       browserSelection: options.browser ? 'explicit' : 'default',
       modelMetadataSource: options.models || options.modelInfo ? 'explicit' : 'unknown',
       browser: options.browser ?? Browser.cloud(),
@@ -161,9 +166,41 @@ export class BrowserUse {
     positiveInteger('modelTimeoutMs', options.modelTimeoutMs ?? 300000);
     positiveInteger('compactionTimeoutMs', options.compactionTimeoutMs ?? 120000);
     positiveInteger('compactionRetryDelayMs', options.compactionRetryDelayMs ?? 1000);
+    if (
+      options.apiKey !== undefined &&
+      (typeof options.apiKey !== 'string' || !options.apiKey.trim())
+    )
+      throw new Error('apiKey must be a nonempty string.');
+    if (
+      options.serviceTier !== undefined &&
+      !['default', 'priority', 'ultrafast'].includes(options.serviceTier)
+    )
+      throw new Error('serviceTier must be default, priority, or ultrafast.');
     const models = options.models ?? builtinModels();
     const resolved = options.model ? resolveModel({ ...options, models }) : undefined;
-    const model = resolved?.model;
+    let model = resolved?.model;
+    const gateway =
+      model?.provider === 'browser-use'
+        ? await resolveGatewayModel(model, models, options)
+        : undefined;
+    if (gateway) {
+      model = gateway.model;
+      if (options.browser?.kind === 'cloud' && !options.browser.apiKey)
+        options.browser = { ...options.browser, apiKey: gateway.apiKey };
+      options = {
+        ...options,
+        reasoning: gateway.reasoning,
+        serviceTier: gateway.serviceTier,
+        apiKey: gateway.apiKey,
+      };
+    }
+    if (options.apiKey) options.redact = [...(options.redact ?? []), options.apiKey];
+    if (
+      options.serviceTier &&
+      model &&
+      !['openai-completions', 'openai-responses'].includes(model.api)
+    )
+      throw new Error('serviceTier requires an OpenAI-compatible transport.');
     if (
       options.modelMetadataSource !== 'explicit' &&
       options.model &&
@@ -174,7 +211,13 @@ export class BrowserUse {
       throw new Error(
         'onBrowserReady requires a browser endpoint; use execute after connectBrowser for pending browsers.',
       );
-    options.pricingKnown = options.pricingKnown !== false && (resolved?.priceKnown ?? false);
+    options.pricingKnown =
+      options.pricingKnown !== false &&
+      (gateway !== undefined ||
+        ((resolved?.priceKnown ?? false) &&
+          (!options.serviceTier ||
+            options.serviceTier === 'default' ||
+            options.modelInfo?.cost !== undefined)));
     const names = new Set([
       'javascript',
       'finish',
@@ -254,7 +297,14 @@ export class BrowserUse {
       },
       executable,
     );
-    const config = { ...options, streamFn: options.streamFn ?? models.streamSimple.bind(models) };
+    const config = {
+      ...options,
+      streamFn: configuredStream(options.streamFn ?? models.streamSimple.bind(models), {
+        ...(options.apiKey ? { apiKey: options.apiKey } : {}),
+        ...(options.serviceTier ? { serviceTier: options.serviceTier } : {}),
+        ...(gateway ? { minimumCost: gateway.minimumCost } : {}),
+      }),
+    };
     const instance = new BrowserUse(config, model, runtime, browser, workspace);
     if (options.onBrowserReady) {
       try {
@@ -536,6 +586,8 @@ export class BrowserUse {
       recorder = undefined;
       const delivered: RunResult<unknown> = {
         ...result,
+        ...(this.model?.provider === 'browser-use' ? { resolvedModel: this.model.id } : {}),
+        ...(this.config.serviceTier ? { serviceTier: this.config.serviceTier } : {}),
         ...('error' in result && result.error ? { error: gatewayErrorMessage(result.error) } : {}),
         pricingKnown: !!this.config.pricingKnown,
         estimatedCostUsd: this.config.pricingKnown ? (result.usage.cost?.total ?? null) : null,
@@ -825,6 +877,14 @@ export class BrowserUse {
     await this.close();
   }
 }
+export const Agent = {
+  create(options: BrowserUseOptions = {}): Promise<BrowserUse> {
+    return BrowserUse.create({
+      ...options,
+      model: options.model ?? (process.env.BROWSER_USE_MODEL || DEFAULT_MODEL),
+    });
+  },
+};
 export { CDP } from './cdp.js';
 export { Page, Tabs, type AXNode } from './page.js';
 export type { SessionHistory, WorkspaceFile } from './history.js';

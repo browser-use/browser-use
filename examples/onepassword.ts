@@ -28,10 +28,10 @@ async function secret(reference: string) {
 }
 const [username, password] = await Promise.all([secret(usernameRef), secret(passwordRef)]);
 const agent = await BrowserUse.create({
-  model: process.env.MODEL || 'openrouter/openai/gpt-5.6-luna',
+  model: process.env.MODEL || process.env.BROWSER_USE_MODEL || 'bu-auto',
   browser:
-    process.env.BROWSER === 'cloud'
-      ? Browser.cloud({ apiKey: process.env.BROWSER_USE_API_KEY ?? '' })
+    process.env.BROWSER !== 'local' && process.env.BROWSER !== 'chromium'
+      ? Browser.cloud()
       : Browser.chromium(),
   workspace: process.env.WORKSPACE || './artifacts/onepassword',
   allowedDomains: [domain],

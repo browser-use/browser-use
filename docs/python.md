@@ -25,8 +25,12 @@ async def main():
 asyncio.run(main())
 ```
 
-Python `Agent` defaults to `bu-recommended` through the Browser Use gateway.
-Set `BROWSER_USE_API_KEY` for gateway authentication.
+Python `Agent` defaults to `bu-auto` through the Browser Use gateway.
+Set `BROWSER_USE_API_KEY` or run `browser-use auth login` for authentication.
+`api_key=key` authenticates both the gateway and the default Cloud browser.
+An explicit browser key takes precedence for that browser.
+`BROWSER_USE_MODEL` changes the default; an explicit `model` takes precedence.
+See [model configuration](models.md) for fixed revisions, service tiers, and cost estimates.
 Create an API key at https://cloud.browser-use.com/settings?tab=api-keys&new=1.
 Pass `model="provider/model"` to select another model.
 Omit `browser` to create a Cloud browser.

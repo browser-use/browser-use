@@ -59,17 +59,22 @@ A remote browser does not move bash or JavaScript onto the browser host.
 
 ## Models and cost
 
-Python `Agent` and CLI tasks default to `bu-recommended` through the Browser Use gateway.
+Python `Agent` and CLI tasks default to `bu-auto` through the Browser Use gateway.
 Cloud browsers and the gateway use `BROWSER_USE_API_KEY`.
 Explicit provider models retain their own authentication.
 `Browser` and `BrowserUse` keep deterministic execution model-free.
 
 Known provider transports accept exact new model IDs without catalog registration.
 Unknown prices remain unknown.
-A cost limit requires known prices or provider-reported cost.
+The gateway catalog supplies prices and minimum request charges for SDK estimates.
+Cloud billing records contain authoritative charges.
+A cost limit requires known prices.
+The SDK stops subsequent requests after measured usage reaches the limit.
 Time, turn, and context limits remain available when pricing is unknown.
 The run API has no cumulative token budget.
-The library never silently substitutes another model.
+Moving aliases can change between sessions after evaluated releases.
+Fixed Browser Use revisions keep a named configuration.
+See [model configuration](models.md) for revision names and service tiers.
 The Pi engine rejects BU2 model IDs.
 Applications that require BU2 must retain `browser-use<1`.
 

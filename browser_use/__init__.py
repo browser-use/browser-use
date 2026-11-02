@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import json
 import os
+import re
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel
 
-DEFAULT_MODEL = 'bu-recommended'
+DEFAULT_MODEL = 'bu-auto'
 
 
 class BrowserUseError(RuntimeError):
@@ -236,7 +237,29 @@ class BrowserUse:
 					if not callable(callback):
 						raise TypeError(f'{name} must be callable.')
 					self._callbacks[name] = callback
-			model = self._default_model if model is None else model
+			model = (
+				(os.environ.get('BROWSER_USE_MODEL') or self._default_model) if model is None and self._default_model else model
+			)
+			gateway_model = isinstance(model, str) and (
+				model.startswith('browser-use/')
+				or model in ('bu-auto', 'bu-fast', 'bu-ultrafast', 'bu-smart', 'bu-recommended', 'bu-balanced')
+				or re.fullmatch(r'bu-(fast|ultrafast|smart)-v[1-9][0-9]*', model)
+			)
+			browser = options.get('browser')
+			cloud_browser = browser is None or (isinstance(browser, dict) and browser.get('kind') == 'cloud')
+			if (gateway_model and not options.get('apiKey')) or (cloud_browser and not (browser or {}).get('apiKey')):
+				from browser_harness.auth import CloudAuthRequired, get_browser_use_api_key
+
+				try:
+					key = options.get('apiKey') if gateway_model else None
+					key = key or get_browser_use_api_key()
+				except CloudAuthRequired:
+					key = None
+				if key:
+					if gateway_model:
+						options.setdefault('apiKey', key)
+					if cloud_browser:
+						options['browser'] = {'kind': 'cloud', **(browser or {}), 'apiKey': (browser or {}).get('apiKey') or key}
 			options['callbacks'] = list(self._callbacks)
 			options.setdefault('clientLanguage', 'python')
 			result = await asyncio.wait_for(
@@ -630,6 +653,7 @@ def _options(options: dict[str, Any]) -> dict[str, Any]:
 		'shell_env': 'shellEnv',
 		'shell_timeout_ms': 'shellTimeoutMs',
 		'model_info': 'modelInfo',
+		'service_tier': 'serviceTier',
 		'api_key': 'apiKey',
 		'base_url': 'baseUrl',
 		'model_id': 'modelId',

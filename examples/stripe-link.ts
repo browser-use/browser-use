@@ -10,11 +10,11 @@ if (!url || !purchase)
   throw new Error('Set CHECKOUT_URL to a test checkout and PURCHASE to the intended item.');
 const domain = new URL(url).hostname;
 const browser = () =>
-  process.env.BROWSER === 'cloud'
-    ? Browser.cloud({ apiKey: process.env.BROWSER_USE_API_KEY ?? '' })
+  process.env.BROWSER !== 'local' && process.env.BROWSER !== 'chromium'
+    ? Browser.cloud()
     : Browser.chromium();
 const options = {
-  model: process.env.MODEL || 'openrouter/openai/gpt-5.6-luna',
+  model: process.env.MODEL || process.env.BROWSER_USE_MODEL || 'bu-auto',
   workspace: process.env.WORKSPACE || './artifacts/stripe-link',
   telemetry: false as const,
   log: false as const,

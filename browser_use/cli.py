@@ -230,13 +230,14 @@ def _run_task(argv: list[str]) -> int:
 	parser.add_argument(
 		'--model',
 		default=os.environ.get('BROWSER_USE_MODEL') or DEFAULT_MODEL,
-		help='Model ID or Browser Use alias; defaults to bu-recommended',
+		help=f'Model ID or Browser Use alias; defaults to {DEFAULT_MODEL}',
 	)
 	parser.add_argument(
 		'--browser', choices=('cloud', 'chrome', 'chromium'), default=os.environ.get('BROWSER_USE_BROWSER', 'cloud')
 	)
 	parser.add_argument('--cdp-url', help='Connect to an existing CDP endpoint')
 	parser.add_argument('--base-url', help='Provider API endpoint')
+	parser.add_argument('--service-tier', choices=('default', 'priority', 'ultrafast'), help='Inference service tier')
 	parser.add_argument('--profile-dir', help='Chrome user-data root or Chromium profile directory')
 	parser.add_argument('--headed', action='store_true', help='Show a launched Chromium browser')
 	parser.add_argument('--max-steps', type=int, default=100)
@@ -245,12 +246,24 @@ def _run_task(argv: list[str]) -> int:
 	if args.max_steps < 1:
 		parser.error('--max-steps must be positive.')
 	cdp_url = args.cdp_url or os.environ.get('BU_CDP_URL') or os.environ.get('BU_CDP_WS')
+	gateway_model = args.model.startswith(('bu-', 'browser-use/'))
+	api_key = None
+	if gateway_model or (not cdp_url and args.browser == 'cloud'):
+		from browser_harness import auth
+
+		try:
+			api_key = auth.get_browser_use_api_key()
+		except auth.CloudAuthRequired:
+			print(
+				'Run `browser-use auth login` or set BROWSER_USE_API_KEY. '
+				'Create a key at https://cloud.browser-use.com/settings?tab=api-keys&new=1.',
+				file=sys.stderr,
+			)
+			return 2
 	if cdp_url:
 		browser = {'cdpUrl': cdp_url}
 	elif args.browser == 'cloud':
-		from browser_harness import auth
-
-		browser = {'kind': 'cloud', 'apiKey': auth.get_browser_use_api_key()}
+		browser = {'kind': 'cloud', 'apiKey': api_key}
 	else:
 		browser = {'kind': args.browser}
 		if args.profile_dir:
@@ -262,10 +275,10 @@ def _run_task(argv: list[str]) -> int:
 		from browser_use import BrowserUse
 
 		options = {'baseUrl': args.base_url} if args.base_url else {}
-		if args.model in {'bu-recommended', 'bu-balanced', 'bu-smart'} or args.model.startswith('browser-use/'):
-			from browser_harness import auth
-
-			options['apiKey'] = auth.get_browser_use_api_key()
+		if args.service_tier is not None:
+			options['serviceTier'] = args.service_tier
+		if gateway_model:
+			options['apiKey'] = api_key
 		async with await BrowserUse.create(model=args.model, browser=browser, **options) as agent:
 			return await agent.run(args.task, maxSteps=args.max_steps)
 
@@ -370,36 +383,34 @@ def _raised_from_piped_code(exc: BaseException) -> bool:
 	return last is not None and last.tb_frame.f_code.co_filename == '<string>'
 
 
-_QUICKSTART = """Welcome to the Browser Use CLI. Allow your coding agent to reliably control a web browser.
+_QUICKSTART = """Browser Use runs browser tasks with one Browser Use account.
 
-The CLI runs Pi tasks or Python browser programs. Cloud browsers are the default.
+Start with a Cloud browser and the default Browser Use model:
+
+  browser-use auth login
+  browser-use run "Find the top Show HN post"
+
+Choose another browser when needed:
+
+  browser-use run "Read my dashboard" --browser chrome
+  browser-use run "Inspect example.com" --browser chromium
+  browser-use run "Read my page" --cdp-url http://localhost:9222
+
+Cloud browsers and the Browser Use model use the same account balance.
+Python browser programs remain available through stdin:
 
   browser-use <<'PY'
   new_tab("https://news.ycombinator.com")
   print(page_info())
   PY
 
-Core helpers: new_tab(url), goto_url(url), page_info(),
-  capture_screenshot(), click_at_xy(x, y), js(code), cdp(method, ...),
-  wait_for_load()
-
-Recommended: install the skill so your coding agent remembers this:
-
-  browser-use skill install
-
-You can also paste this into your agent to get started:
-
-  Install or upgrade browser-use to the latest stable version with uv using
-  Python 3.12, register the skill from `browser-use skill`, and connect it to
-  my browser. Follow https://github.com/browser-use/browser-use if setup or
-  connection fails.
-
 More:
-  browser-use run "Find the top Show HN post" --model provider/model
-  browser-use --browser chrome  attach to your real Chrome
-  browser-use --doctor     check install, daemon, and browser health
-  browser-use --help       full command list
-  docs: https://github.com/browser-use/browser-use/blob/main/browser_use/skills/browser-use/SKILL.md"""
+  browser-use skill install  install instructions for your coding agent
+  browser-use --doctor       check browser connections and installation
+  browser-use run --help     task options
+  browser-use --help         full command list
+  docs: https://docs.browser-use.com"""
+
 
 _EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Python piped on stdin:
   browser-use <<'PY'

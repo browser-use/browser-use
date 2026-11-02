@@ -1,10 +1,10 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { rm } from 'node:fs/promises';
 import { streamSimple } from '@earendil-works/pi-ai/api/openai-responses';
-import { BrowserUse, builtinModels as sdkModels } from '../dist/index.js';
-import { DEFAULT_MODEL, resolveModel } from '../dist/models.js';
+import { Agent, BrowserUse, builtinModels as sdkModels } from '../dist/index.js';
+import { DEFAULT_MODEL, configuredStream, resolveModel } from '../dist/models.js';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 
 test(
@@ -254,7 +254,16 @@ test('explicit OpenRouter transport metadata uses completions across follow-ups 
 });
 
 test('public gateway aliases preserve their wire IDs without physical model mappings', () => {
-  for (const alias of ['bu-recommended', 'bu-balanced', 'bu-smart']) {
+  for (const alias of [
+    'bu-auto',
+    'bu-fast',
+    'bu-ultrafast',
+    'bu-smart',
+    'bu-fast-v1',
+    'bu-fast-v42',
+    'bu-recommended',
+    'bu-balanced',
+  ]) {
     for (const prefix of ['', 'browser-use/']) {
       const { model, priceKnown } = resolveModel({ model: prefix + alias });
       assert.equal(model.provider, 'browser-use');
@@ -276,7 +285,7 @@ test('BU2 requests report the supported alias and old-package option', () => {
     'browser-use/bu-2-0',
     'openai/BU2',
   ]) {
-    assert.throws(() => resolveModel({ model }), /BU2.*Pi.*bu-recommended.*browser-use<1/, model);
+    assert.throws(() => resolveModel({ model }), /BU2.*Pi.*bu-auto.*browser-use<1/, model);
   }
 });
 
@@ -353,177 +362,445 @@ test('model prices reject partial and negative rates', () => {
     );
 });
 
-for (const scenario of [
-  'complete',
-  'balanced',
-  'smart',
-  'minimal',
-  'unknown-model',
-  'unauthorized',
-]) {
-  test(`Browser Use gateway sends exact model, auth, tools and usage; scenario=${scenario}`, async () => {
-    const previous = process.env.BROWSER_USE_API_KEY;
-    process.env.BROWSER_USE_API_KEY = 'fixture-browser-use-key';
-    const requests = [];
-    const server = createServer(async (req, res) => {
-      let raw = '';
-      for await (const chunk of req) raw += chunk;
-      const body = JSON.parse(raw);
-      requests.push({ url: req.url, headers: req.headers, body });
-      if (scenario === 'unauthorized') {
-        res.writeHead(401, { 'content-type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            error: { message: 'Fixture rejects this key.', type: 'authentication_error' },
-          }),
-        );
-        return;
-      }
-      res.writeHead(200, { 'content-type': 'text/event-stream' });
-      const event = (choices, usage) =>
-        `data: ${JSON.stringify({
-          id: 'gateway_fixture',
-          object: 'chat.completion.chunk',
-          created: 1,
-          model: body.model,
-          choices,
-          ...(usage ? { usage } : {}),
-        })}\n\n`;
-      res.end(
-        event([
+function gatewayCatalog() {
+  return {
+    object: 'list',
+    data: ['bu-auto', 'bu-fast', 'bu-ultrafast', 'bu-smart', 'bu-fast-v1'].map((id) => ({
+      id,
+      resolved_model:
+        id === 'bu-smart'
+          ? 'bu-smart-v1'
+          : id === 'bu-ultrafast'
+            ? 'bu-ultrafast-v1'
+            : 'bu-fast-v1',
+      default_reasoning: id === 'bu-smart' ? 'high' : id === 'bu-ultrafast' ? 'low' : 'medium',
+      default_service_tier: id === 'bu-ultrafast' ? 'priority' : 'default',
+      context_window: 250000,
+      max_output_tokens: 32000,
+      service_tiers: ['default', 'priority', 'ultrafast'],
+      pricing: Object.fromEntries(
+        ['default', 'priority', 'ultrafast'].map((tier) => [
+          tier,
           {
-            index: 0,
-            delta: {
-              role: 'assistant',
-              tool_calls: [
-                {
-                  index: 0,
-                  id: 'gateway_finish',
-                  type: 'function',
-                  function: { name: 'finish', arguments: '{"result":"gateway verified"}' },
-                },
-              ],
-            },
-            finish_reason: null,
+            input: 0.2,
+            output: 1,
+            cache_read: 0.02,
+            cache_write: 0.25,
+            min_request_usd: 0.0001,
+            long_context_threshold_tokens: 272000,
+            long_context_input_multiplier: 2,
+            long_context_output_multiplier: 1.5,
           },
-        ]) +
-          event([{ index: 0, delta: {}, finish_reason: 'tool_calls' }]) +
-          event([], {
-            prompt_tokens: 10,
-            completion_tokens: 5,
-            total_tokens: 15,
-            prompt_tokens_details: { cached_tokens: 2 },
-          }) +
-          'data: [DONE]\n\n',
+        ]),
+      ),
+    })),
+  };
+}
+
+async function gatewayFixture(
+  run,
+  catalog = gatewayCatalog(),
+  status = 200,
+  completionStatus = 200,
+  usage = {
+    prompt_tokens: 10,
+    completion_tokens: 5,
+    total_tokens: 15,
+    prompt_tokens_details: { cached_tokens: 2 },
+  },
+) {
+  const requests = [];
+  const catalogs = [];
+  const server = createServer(async (req, res) => {
+    if (req.method === 'GET') {
+      catalogs.push({ url: req.url, headers: req.headers });
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(catalog));
+      return;
+    }
+    let raw = '';
+    for await (const chunk of req) raw += chunk;
+    const body = JSON.parse(raw);
+    requests.push({ url: req.url, headers: req.headers, body });
+    if (completionStatus !== 200) {
+      res.writeHead(completionStatus, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          error: { message: 'Fixture rejects this key.', type: 'authentication_error' },
+        }),
       );
+      return;
+    }
+    const summary = !body.tools?.length;
+    const event = (choices, usage) =>
+      `data: ${JSON.stringify({
+        id: 'gateway_fixture',
+        object: 'chat.completion.chunk',
+        created: 1,
+        model: body.model,
+        choices,
+        ...(usage ? { usage } : {}),
+      })}\n\n`;
+    const delta = summary
+      ? { role: 'assistant', content: 'Retain the inspection instructions.' }
+      : {
+          role: 'assistant',
+          tool_calls: [
+            {
+              index: 0,
+              id: 'gateway_finish_' + requests.length,
+              type: 'function',
+              function: { name: 'finish', arguments: '{"result":"gateway verified"}' },
+            },
+          ],
+        };
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.end(
+      event([{ index: 0, delta, finish_reason: null }]) +
+        event([{ index: 0, delta: {}, finish_reason: summary ? 'stop' : 'tool_calls' }]) +
+        event([], usage) +
+        'data: [DONE]\n\n',
+    );
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    await run({
+      requests,
+      catalogs,
+      baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
+      catalog,
     });
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    let agent;
-    const model =
-      scenario === 'unknown-model'
-        ? 'browser-use/vendor/released-today'
-        : scenario === 'balanced'
-          ? 'bu-balanced'
-          : scenario === 'smart'
-            ? 'browser-use/bu-smart'
-            : DEFAULT_MODEL;
-    try {
-      agent = await BrowserUse.create({
-        model,
-        modelInfo: { baseUrl: `http://127.0.0.1:${server.address().port}/v1` },
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+for (const scenario of [
+  { model: 'bu-auto', useDefault: true, resolved: 'bu-fast-v1', effort: 'medium', tier: 'default' },
+  { model: 'bu-balanced', resolved: 'bu-fast-v1', effort: 'high', tier: 'default' },
+  { model: 'bu-recommended', resolved: 'bu-fast-v1', effort: 'high', tier: 'default' },
+  { model: 'bu-fast-v1', resolved: 'bu-fast-v1', effort: 'medium', tier: 'default' },
+  { model: 'browser-use/bu-smart', resolved: 'bu-smart-v1', effort: 'high', tier: 'default' },
+  { model: 'bu-ultrafast', resolved: 'bu-ultrafast-v1', effort: 'low', tier: 'priority' },
+  {
+    model: 'bu-smart',
+    reasoning: 'minimal',
+    serviceTier: 'ultrafast',
+    resolved: 'bu-smart-v1',
+    effort: 'minimal',
+    tier: 'ultrafast',
+  },
+]) {
+  test(`gateway pins model and pricing across follow-ups; ${JSON.stringify(scenario)}`, () =>
+    gatewayFixture(async ({ requests, catalogs, baseUrl, catalog }) => {
+      const agent = await Agent.create({
+        ...(scenario.useDefault ? {} : { model: scenario.model }),
+        ...(scenario.model === 'bu-auto' && !scenario.serviceTier
+          ? {
+              models: sdkModels({
+                authContext: {
+                  env: async (name) =>
+                    name === 'BROWSER_USE_API_KEY' ? 'fixture-browser-use-key' : undefined,
+                  fileExists: async () => false,
+                },
+              }),
+            }
+          : { apiKey: 'fixture-browser-use-key' }),
+        modelInfo: { baseUrl },
         browser: { kind: 'pending' },
         researchTools: false,
         telemetry: false,
-        ...(scenario === 'minimal' ? { reasoning: 'minimal' } : {}),
+        ...(scenario.reasoning ? { reasoning: scenario.reasoning } : {}),
+        ...(scenario.serviceTier ? { serviceTier: scenario.serviceTier } : {}),
       });
-      const result = await agent.run('Check the gateway.');
-      assert.equal(requests.length, 1);
-      const request = requests[0];
-      assert.equal(request.url, '/v1/chat/completions');
-      assert.equal(request.headers.authorization, 'Bearer fixture-browser-use-key');
-      assert.equal(request.headers['x-browser-use-client'], 'pi');
-      assert.equal(request.headers['x-browser-use-request-type'], undefined);
-      assert.equal(request.body.model, model.replace(/^browser-use\//, ''));
-      if (scenario === 'minimal') assert.equal(request.body.reasoning_effort, 'minimal');
-      else if (scenario !== 'unknown-model') assert.equal(request.body.reasoning_effort, 'high');
-      assert.equal(request.body.stream_options.include_usage, true);
-      assert.notEqual(request.body.store, true);
-      assert.ok(request.body.tools.some((tool) => tool.function.name === 'finish'));
-      if (scenario === 'unauthorized') {
-        assert.equal(result.status, 'error');
-        assert.match(result.error, /401|Fixture rejects this key/);
-        assert.equal(result.providerRetries, 0);
-      } else {
-        assert.equal(result.status, 'completed', result.error);
-        assert.equal(result.output, 'gateway verified');
-        assert.equal(result.usage.input, 8);
-        assert.equal(result.usage.cacheRead, 2);
-        assert.equal(result.usage.output, 5);
-        assert.equal(result.pricingKnown, false);
-        assert.equal(result.estimatedCostUsd, null);
-        assert.equal(result.usage.cost, null);
-        await assert.rejects(
-          agent.run('Apply an unknown cost limit.', { maxCostUsd: 1 }),
-          /requires explicit pricing/,
-        );
+      try {
+        for (const [method, task] of [
+          ['run', 'Check the gateway fixture-browser-use-key.'],
+          ['followUp', 'Check again.'],
+        ]) {
+          const result = await agent[method](task, { maxCostUsd: 1 });
+          assert.equal(result.status, 'completed', result.error);
+          assert.equal(result.output, 'gateway verified');
+          assert.doesNotMatch(JSON.stringify(agent.history), /fixture-browser-use-key/);
+          assert.equal(result.resolvedModel, scenario.resolved);
+          assert.equal(result.serviceTier, scenario.tier);
+          assert.equal(result.usage.input, 8);
+          assert.equal(result.usage.cacheRead, 2);
+          assert.equal(result.usage.output, 5);
+          assert.equal(result.pricingKnown, true);
+          assert.equal(result.estimatedCostUsd, 0.0001);
+          for (const entry of catalog.data) {
+            entry.resolved_model = 'bu-smart-v2';
+            entry.pricing[scenario.tier].min_request_usd = 99;
+          }
+        }
+        assert.equal(catalogs.length, 1);
+        assert.equal(catalogs[0].url, '/v1/models');
+        assert.equal(catalogs[0].headers.authorization, 'Bearer fixture-browser-use-key');
+        assert.equal(requests.length, 2);
+        for (const request of requests) {
+          assert.equal(request.url, '/v1/chat/completions');
+          assert.equal(request.headers.authorization, 'Bearer fixture-browser-use-key');
+          assert.equal(request.headers['x-browser-use-client'], 'pi');
+          assert.equal(request.body.model, scenario.resolved);
+          assert.equal(request.body.reasoning_effort, scenario.effort);
+          assert.equal(request.body.service_tier, scenario.tier);
+          assert.equal(request.body.stream_options.include_usage, true);
+          assert.notEqual(request.body.store, true);
+          assert.ok(request.body.tools.some((tool) => tool.function.name === 'finish'));
+        }
+      } finally {
+        await agent.close();
+        await rm(agent.workspace, { recursive: true, force: true });
       }
-    } finally {
-      if (previous === undefined) delete process.env.BROWSER_USE_API_KEY;
-      else process.env.BROWSER_USE_API_KEY = previous;
-      await agent?.close();
-      if (agent) await rm(agent.workspace, { recursive: true, force: true });
-      server.closeAllConnections();
-      await new Promise((resolve) => server.close(resolve));
-    }
+    }));
+}
+
+for (const scenario of [
+  { name: 'unknown revision', model: 'bu-fast-v99', error: /unavailable/ },
+  {
+    name: 'pinned revision change',
+    model: 'bu-fast-v1',
+    mutate: (c) => {
+      c.data.find((e) => e.id === 'bu-fast-v1').resolved_model = 'bu-fast-v2';
+    },
+    error: /different revision/,
+  },
+  {
+    name: 'unsupported tier',
+    serviceTier: 'priority',
+    mutate: (c) => {
+      c.data[0].service_tiers = ['default'];
+    },
+    error: /Service tier priority is unavailable/,
+  },
+  {
+    name: 'negative rate',
+    mutate: (c) => {
+      c.data[0].pricing.default.input = -1;
+    },
+    error: /invalid model metadata/,
+  },
+  ...[
+    ['long_context_threshold_tokens', 0],
+    ['long_context_input_multiplier', undefined],
+    ['long_context_output_multiplier', 0.5],
+  ].map(([field, value]) => ({
+    name: 'invalid ' + field,
+    mutate: (c) => {
+      c.data[0].pricing.default[field] = value;
+    },
+    error: /invalid model metadata/,
+  })),
+  { name: 'unauthorized', status: 401, error: /catalog is unavailable.*HTTP 401/ },
+]) {
+  test(`gateway rejects ${scenario.name} before browser allocation`, async () => {
+    const catalog = gatewayCatalog();
+    scenario.mutate?.(catalog);
+    await gatewayFixture(
+      async ({ baseUrl, requests }) => {
+        await assert.rejects(
+          BrowserUse.create({
+            model: scenario.model ?? DEFAULT_MODEL,
+            apiKey: 'fixture-key',
+            modelInfo: { baseUrl },
+            browser: { kind: 'cdp', cdpUrl: 'http://127.0.0.1:1' },
+            telemetry: false,
+            ...(scenario.serviceTier ? { serviceTier: scenario.serviceTier } : {}),
+          }),
+          scenario.error,
+        );
+        assert.equal(requests.length, 0);
+      },
+      catalog,
+      scenario.status,
+    );
   });
 }
 
-test('Browser Use gateway requires its own key and keeps catalog prices unknown', async () => {
-  const previous = process.env.BROWSER_USE_API_KEY;
-  delete process.env.BROWSER_USE_API_KEY;
-  let agent;
-  try {
-    const models = sdkModels({
-      authContext: {
-        env: async (name) => (name === 'OPENAI_API_KEY' ? 'fixture-openai-key' : undefined),
-        fileExists: async () => false,
-      },
-    });
-    assert.equal(await models.checkAuth('browser-use'), undefined);
-    assert.deepEqual(await models.getAvailable('browser-use'), []);
-    assert.ok((await models.getAvailable()).some((model) => model.provider === 'openai'));
-    const { model, priceKnown } = resolveModel({ model: DEFAULT_MODEL, models });
-    assert.equal(model.id, 'bu-recommended');
-    assert.equal(model.api, 'openai-completions');
-    assert.equal(model.baseUrl, 'https://api.browser-use.com/api/llm/v1');
-    assert.equal(model.contextWindow, 250000);
-    assert.equal(model.maxTokens, 32000);
-    assert.deepEqual(model.input, ['text', 'image']);
-    assert.equal(priceKnown, false);
-    assert.equal(
-      resolveModel({
-        model: DEFAULT_MODEL,
-        modelInfo: {
-          cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
-        },
-      }).priceKnown,
-      true,
-    );
-    agent = await BrowserUse.create({
+test('gateway requires its own key during creation with setup guidance', async () => {
+  const models = sdkModels({
+    authContext: {
+      env: async (name) => (name === 'OPENAI_API_KEY' ? 'fixture-openai-key' : undefined),
+      fileExists: async () => false,
+    },
+  });
+  assert.equal(await models.checkAuth('browser-use'), undefined);
+  await assert.rejects(
+    BrowserUse.create({
       model: DEFAULT_MODEL,
       models,
       browser: { kind: 'pending' },
       telemetry: false,
-    });
-    const result = await agent.run('Reject missing authentication.');
-    assert.equal(result.status, 'error');
-    assert.match(result.error, /BROWSER_USE_API_KEY/);
-    assert.ok(result.error.includes('https://cloud.browser-use.com/settings?tab=api-keys&new=1'));
-    assert.equal(result.providerRetries, 0);
-  } finally {
-    if (previous === undefined) delete process.env.BROWSER_USE_API_KEY;
-    else process.env.BROWSER_USE_API_KEY = previous;
-    await agent?.close();
-    if (agent) await rm(agent.workspace, { recursive: true, force: true });
-  }
+    }),
+    /BROWSER_USE_API_KEY.*https:\/\/cloud\.browser-use\.com\/settings/,
+  );
 });
+
+test('configured streams preserve source errors as terminal events', async () => {
+  const { model } = resolveModel({ model: 'openai/gpt-5.4' });
+  const stream = configuredStream(() => {
+    throw new Error('source connection failed');
+  }, {})(model, { messages: [] });
+  const events = [];
+  for await (const event of stream) events.push(event);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, 'error');
+  assert.equal(events[0].error.errorMessage, 'source connection failed');
+  assert.equal((await stream.result()).errorMessage, 'source connection failed');
+});
+
+test('gateway compaction uses the same pinned model and service tier', () =>
+  gatewayFixture(async ({ baseUrl, requests }) => {
+    const agent = await BrowserUse.create({
+      model: 'bu-auto',
+      apiKey: 'fixture-key',
+      modelInfo: { baseUrl },
+      serviceTier: 'priority',
+      browser: { kind: 'pending' },
+      researchTools: false,
+      telemetry: false,
+    });
+    try {
+      const result = await agent.run('Inspect only. '.repeat(2000), {
+        maxContextChars: 8000,
+        timeoutMs: 5000,
+      });
+      assert.equal(result.status, 'completed', result.error);
+      assert.ok(result.compactions > 0);
+      assert.ok(requests.some((request) => !request.body.tools?.length));
+      assert.ok(
+        requests.every(
+          (request) =>
+            request.body.model === 'bu-fast-v1' && request.body.service_tier === 'priority',
+        ),
+      );
+    } finally {
+      await agent.close();
+      await rm(agent.workspace, { recursive: true, force: true });
+    }
+  }));
+
+for (const browserKey of [undefined, 'separate-browser-key']) {
+  test(`gateway credentials authenticate default Cloud browsers; separate key=${!!browserKey}`, () =>
+    gatewayFixture(async ({ baseUrl }) => {
+      const calls = [];
+      const original = globalThis.fetch;
+      const patch = mock.method(globalThis, 'fetch', async (url, options) => {
+        if (!String(url).startsWith('https://api.browser-use.com/api/v3/browsers'))
+          return original(url, options);
+        calls.push(options.headers['X-Browser-Use-API-Key']);
+        return Response.json(
+          options.method === 'POST'
+            ? { id: 'credential-fixture', cdpUrl: 'wss://example.com/cdp' }
+            : {},
+        );
+      });
+      let agent;
+      try {
+        agent = await BrowserUse.create({
+          model: 'bu-auto',
+          apiKey: 'gateway-key',
+          modelInfo: { baseUrl },
+          telemetry: false,
+          ...(browserKey ? { browser: { kind: 'cloud', apiKey: browserKey } } : {}),
+        });
+        await agent.close();
+        assert.deepEqual(calls, [browserKey ?? 'gateway-key', browserKey ?? 'gateway-key']);
+      } finally {
+        await agent?.close();
+        if (agent) await rm(agent.workspace, { recursive: true, force: true });
+        patch.mock.restore();
+      }
+    }));
+}
+
+test('gateway authorization failures after creation do not retry inference', () =>
+  gatewayFixture(
+    async ({ baseUrl, requests }) => {
+      const agent = await BrowserUse.create({
+        model: 'bu-auto',
+        apiKey: 'fixture-key',
+        modelInfo: { baseUrl },
+        browser: { kind: 'pending' },
+        telemetry: false,
+      });
+      try {
+        const result = await agent.run('Check revoked authentication.');
+        assert.equal(result.status, 'error');
+        assert.match(result.error, /401|Fixture rejects this key/);
+        assert.equal(result.providerRetries, 0);
+        assert.equal(requests.length, 1);
+      } finally {
+        await agent.close();
+        await rm(agent.workspace, { recursive: true, force: true });
+      }
+    },
+    gatewayCatalog(),
+    200,
+    401,
+  ));
+
+for (const row of [
+  {
+    prompt: 271999,
+    threshold: 272000,
+    cached: 100000,
+    writes: 72000,
+    output: 100,
+    expected: 0.0400998,
+  },
+  {
+    prompt: 272000,
+    threshold: 272000,
+    cached: 100000,
+    writes: 72000,
+    output: 100,
+    expected: 0.0401,
+  },
+  {
+    prompt: 272001,
+    threshold: 272000,
+    cached: 100000,
+    writes: 72000,
+    output: 100,
+    expected: 0.0801504,
+  },
+  { prompt: 11, threshold: 10, cached: 0, writes: 0, output: 1, expected: 0.0001 },
+]) {
+  test(`catalog surcharge includes cached input and precedes minimum charges; prompt=${row.prompt}`, async () => {
+    const catalog = gatewayCatalog();
+    catalog.data[0].pricing.default.long_context_threshold_tokens = row.threshold;
+    await gatewayFixture(
+      async ({ baseUrl }) => {
+        const agent = await Agent.create({
+          apiKey: 'fixture-key',
+          modelInfo: { baseUrl },
+          browser: { kind: 'pending' },
+          telemetry: false,
+        });
+        try {
+          const result = await agent.run('Check the request price.');
+          assert.equal(result.status, 'completed', result.error);
+          assert.ok(
+            Math.abs(result.estimatedCostUsd - row.expected) < 1e-12,
+            `Actual ${result.estimatedCostUsd}, expected ${row.expected}`,
+          );
+        } finally {
+          await agent.close();
+          await rm(agent.workspace, { recursive: true, force: true });
+        }
+      },
+      catalog,
+      200,
+      200,
+      {
+        prompt_tokens: row.prompt,
+        completion_tokens: row.output,
+        total_tokens: row.prompt + row.output,
+        prompt_tokens_details: { cached_tokens: row.cached, cache_write_tokens: row.writes },
+      },
+    );
+  });
+}

@@ -4,10 +4,10 @@ import { Browser, BrowserUse, Type } from '@browser_use/pi';
 
 // A website becomes a typed dataset and a CSV, with source URLs for every row.
 const agent = await BrowserUse.create({
-  model: process.env.MODEL || 'openrouter/openai/gpt-5.6-luna',
+  model: process.env.MODEL || process.env.BROWSER_USE_MODEL || 'bu-auto',
   browser:
-    process.env.BROWSER === 'cloud'
-      ? Browser.cloud({ apiKey: process.env.BROWSER_USE_API_KEY ?? '' })
+    process.env.BROWSER !== 'local' && process.env.BROWSER !== 'chromium'
+      ? Browser.cloud()
       : Browser.chromium(),
   workspace: process.env.WORKSPACE || './artifacts/extract',
   researchTools: true,

@@ -1,20 +1,37 @@
 import {
   createProvider,
+  createAssistantMessageEventStream,
   envApiKeyAuth,
   type Api,
+  type AssistantMessage,
   type CreateModelsOptions,
   type Model,
   type Models,
 } from '@earendil-works/pi-ai';
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
 import { builtinModels as piModels } from '@earendil-works/pi-ai/providers/all';
-import type { ModelInfo } from './types.js';
+import type { StreamFn, ThinkingLevel } from '@earendil-works/pi-agent-core';
+import type { ModelInfo, ServiceTier } from './types.js';
 
-export const DEFAULT_MODEL = 'bu-recommended';
-const gatewayAliases = new Set([DEFAULT_MODEL, 'bu-balanced', 'bu-smart']);
+export const DEFAULT_MODEL = 'bu-auto';
+const gatewayAliases = new Set([
+  DEFAULT_MODEL,
+  'bu-fast',
+  'bu-ultrafast',
+  'bu-smart',
+  'bu-fast-v1',
+  'bu-ultrafast-v1',
+  'bu-smart-v1',
+  'bu-recommended',
+  'bu-balanced',
+]);
 
 export function isGatewayAlias(name: string | undefined): boolean {
-  return typeof name === 'string' && gatewayAliases.has(name.replace(/^browser-use\//, ''));
+  return (
+    typeof name === 'string' &&
+    (gatewayAliases.has(name.replace(/^browser-use\//, '')) ||
+      /^bu-(fast|ultrafast|smart)-v[1-9][0-9]*$/.test(name.replace(/^browser-use\//, '')))
+  );
 }
 
 export function gatewayErrorMessage(message: string): string {
@@ -83,7 +100,7 @@ export interface ModelOptions {
 
 export function rejectBu2(name: string | undefined) {
   if (typeof name === 'string' && /(?:^|\/)bu[-_.]?2(?:$|[-_.])/i.test(name))
-    throw new Error('BU2 does not support Pi. Use bu-recommended or install browser-use<1.');
+    throw new Error('BU2 does not support Pi. Use bu-auto or install browser-use<1.');
 }
 
 function splitModel(name: string | undefined): [string, string] {
@@ -156,7 +173,11 @@ export function resolveModel(options: ModelOptions): { model: Model<Api>; priceK
     );
   const info = options.modelInfo ?? {};
   validateInfo(info);
-  const known = models.getModel(provider, id);
+  const known =
+    models.getModel(provider, id) ??
+    (provider === 'browser-use' && isGatewayAlias(id)
+      ? { ...models.getModel(provider, DEFAULT_MODEL)!, id, name: id }
+      : undefined);
   const template = info.template ? models.getModel(...splitModel(info.template)) : undefined;
   if (info.template !== undefined && !template)
     throw new Error(`Unknown modelInfo.template ${info.template}.`);
@@ -196,4 +217,190 @@ export function resolveModel(options: ModelOptions): { model: Model<Api>; priceK
   if (info.compat !== undefined) model.compat = { ...model.compat, ...info.compat };
   if (info.thinkingLevelMap !== undefined) model.thinkingLevelMap = info.thinkingLevelMap;
   return { model, priceKnown: (!!known && provider !== 'browser-use') || info.cost !== undefined };
+}
+
+export interface GatewayModel {
+  model: Model<Api>;
+  reasoning: ThinkingLevel;
+  serviceTier: ServiceTier;
+  minimumCost: number;
+  apiKey: string;
+}
+
+export async function resolveGatewayModel(
+  model: Model<Api>,
+  models: Models,
+  options: { apiKey?: string; serviceTier?: ServiceTier; reasoning?: ThinkingLevel },
+): Promise<GatewayModel> {
+  const auth = await models.getAuth(model, options.apiKey ? { apiKey: options.apiKey } : {});
+  const key = options.apiKey ?? auth?.auth.apiKey;
+  if (!key) throw new Error(gatewayErrorMessage('Provider is not configured: browser-use'));
+  const url = new URL(model.baseUrl.replace(/\/$/, '') + '/models');
+  if (
+    url.protocol !== 'https:' &&
+    !(url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))
+  )
+    throw new Error('Browser Use model catalogs require HTTPS or a loopback test server.');
+  let data: unknown;
+  try {
+    const response = await fetch(url, {
+      headers: { Authorization: 'Bearer ' + key, 'x-browser-use-client': 'pi' },
+      signal: AbortSignal.timeout(10000),
+      redirect: 'error',
+    });
+    if (!response.ok) throw new Error('status:' + response.status);
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('empty');
+    let bytes = 0;
+    const chunks: Uint8Array[] = [];
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        bytes += chunk.value.byteLength;
+        if (bytes > 1_048_576) throw new Error('oversized');
+        chunks.push(chunk.value);
+      }
+    } finally {
+      await reader.cancel();
+    }
+    data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch (error) {
+    const status =
+      error instanceof Error && /^status:\d+$/.test(error.message)
+        ? ' (HTTP ' + error.message.slice(7) + ')'
+        : '';
+    throw new Error(
+      'Browser Use model catalog is unavailable' +
+        status +
+        '. Check your API key and gateway endpoint.',
+    );
+  }
+  const entries = (data as { data?: unknown })?.data;
+  const name = ['bu-recommended', 'bu-balanced'].includes(model.id) ? 'bu-fast-v1' : model.id;
+  const entry = Array.isArray(entries) ? entries.find((value) => value?.id === name) : undefined;
+  if (!entry)
+    throw new Error(
+      'Browser Use model ' + name + ' is unavailable. Use bu-auto or a published revision.',
+    );
+  if (/^bu-(fast|ultrafast|smart)-v[1-9][0-9]*$/.test(name) && entry.resolved_model !== name)
+    throw new Error('Browser Use returned a different revision for pinned model ' + name + '.');
+  const tier = options.serviceTier ?? entry.default_service_tier;
+  const reasoning =
+    options.reasoning ??
+    (['bu-recommended', 'bu-balanced'].includes(model.id) ? 'high' : entry.default_reasoning);
+  if (!Array.isArray(entry.service_tiers) || !entry.service_tiers.includes(tier))
+    throw new Error('Service tier ' + tier + ' is unavailable for ' + name + '.');
+  const price = entry.pricing?.[tier];
+  const rateKeys = [
+    'input',
+    'output',
+    'cache_read',
+    'cache_write',
+    'min_request_usd',
+    'long_context_input_multiplier',
+    'long_context_output_multiplier',
+  ] as const;
+  if (
+    !/^bu-(fast|ultrafast|smart)-v[1-9][0-9]*$/.test(entry.resolved_model) ||
+    !['default', 'priority', 'ultrafast'].includes(tier) ||
+    !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(reasoning) ||
+    !Number.isSafeInteger(entry.context_window) ||
+    entry.context_window < 1024 ||
+    !Number.isSafeInteger(entry.max_output_tokens) ||
+    entry.max_output_tokens < 1 ||
+    entry.max_output_tokens > entry.context_window ||
+    !price ||
+    !Number.isSafeInteger(price.long_context_threshold_tokens) ||
+    price.long_context_threshold_tokens < 1 ||
+    price.long_context_input_multiplier < 1 ||
+    price.long_context_output_multiplier < 1 ||
+    rateKeys.some(
+      (key) => typeof price[key] !== 'number' || !Number.isFinite(price[key]) || price[key] < 0,
+    )
+  )
+    throw new Error('Browser Use returned invalid model metadata.');
+  return {
+    model: {
+      ...model,
+      id: entry.resolved_model,
+      name: entry.resolved_model,
+      contextWindow: entry.context_window,
+      maxTokens: entry.max_output_tokens,
+      cost: {
+        input: price.input,
+        output: price.output,
+        cacheRead: price.cache_read,
+        cacheWrite: price.cache_write,
+        tiers: [
+          {
+            inputTokensAbove: price.long_context_threshold_tokens,
+            input: price.input * price.long_context_input_multiplier,
+            output: price.output * price.long_context_output_multiplier,
+            cacheRead: price.cache_read * price.long_context_input_multiplier,
+            cacheWrite: price.cache_write * price.long_context_input_multiplier,
+          },
+        ],
+      },
+    },
+    reasoning,
+    serviceTier: tier,
+    minimumCost: price.min_request_usd,
+    apiKey: key,
+  };
+}
+
+export function configuredStream(
+  source: StreamFn,
+  options: { apiKey?: string; serviceTier?: ServiceTier; minimumCost?: number },
+): StreamFn {
+  return (model, context, settings) => {
+    const stream = createAssistantMessageEventStream();
+    void (async () => {
+      try {
+        const input = await source(model, context, {
+          ...settings,
+          ...(options.apiKey ? { apiKey: options.apiKey } : {}),
+          ...(options.serviceTier
+            ? {
+                samplingParams: { ...settings?.samplingParams, service_tier: options.serviceTier },
+              }
+            : {}),
+        });
+        for await (const event of input) {
+          if (event.type === 'done' && options.minimumCost) {
+            const cost = event.message.usage.cost;
+            if (cost.total < options.minimumCost) {
+              cost.input += options.minimumCost - cost.total;
+              cost.total = options.minimumCost;
+            }
+          }
+          stream.push(event);
+        }
+        stream.end(await input.result());
+      } catch (error) {
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [],
+          api: model.api,
+          provider: model.provider,
+          model: model.id,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          timestamp: Date.now(),
+          stopReason: 'error',
+          errorMessage: gatewayErrorMessage(error instanceof Error ? error.message : String(error)),
+        };
+        stream.push({ type: 'error', reason: 'error', error: message });
+        stream.end(message);
+      }
+    })();
+    return stream;
+  };
 }

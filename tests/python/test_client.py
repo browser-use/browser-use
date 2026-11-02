@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from pydantic import BaseModel, field_validator
 
@@ -59,6 +59,42 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 	async def handle(self, reader, writer):
 		try:
 			headers = (await reader.readuntil(b'\r\n\r\n')).decode()
+			if headers.startswith('GET /v1/models '):
+				catalog = {
+					'object': 'list',
+					'data': [
+						{
+							'id': name,
+							'resolved_model': 'bu-fast-v1',
+							'default_reasoning': 'medium',
+							'default_service_tier': 'default',
+							'context_window': 250000,
+							'max_output_tokens': 32000,
+							'service_tiers': ['default', 'priority'],
+							'pricing': {
+								tier: {
+									'input': 0.2,
+									'output': 1,
+									'cache_read': 0.02,
+									'cache_write': 0.25,
+									'min_request_usd': 0.0001,
+									'long_context_threshold_tokens': 272000,
+									'long_context_input_multiplier': 2,
+									'long_context_output_multiplier': 1.5,
+								}
+								for tier in ('default', 'priority')
+							},
+						}
+						for name in ('bu-auto', 'bu-fast', 'bu-fast-v1')
+					],
+				}
+				payload = json.dumps(catalog).encode()
+				writer.write(
+					f'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(payload)}\r\nConnection: close\r\n\r\n'.encode()
+					+ payload
+				)
+				await writer.drain()
+				return
 			length = next(
 				int(line.split(':', 1)[1]) for line in headers.splitlines() if line.lower().startswith('content-length:')
 			)
@@ -270,11 +306,11 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 				finally:
 					await context.close()
 				self.assertEqual(result.output, 'default gateway')
-				self.assertEqual(self.requests[-1]['model'], 'bu-recommended')
+				self.assertEqual(self.requests[-1]['model'], 'bu-fast-v1')
 				self.assertIn('authorization: bearer local-fixture-key', self.headers[-1])
 				self.assertIn('x-browser-use-client: pi', self.headers[-1])
-				self.assertIsNone(result.usage['cost'])
-				self.assertIsNone(result.metadata['estimatedCostUsd'])
+				self.assertEqual(result.usage['cost']['total'], 0.0001)
+				self.assertEqual(result.metadata['estimatedCostUsd'], 0.0001)
 
 	async def test_task_cli_defaults_to_browser_use_gateway(self):
 		self.responses = [('finish', {'result': 'CLI gateway'})]
@@ -303,8 +339,46 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 				await process.wait()
 		self.assertEqual(process.returncode, 0, stderr.decode())
 		self.assertEqual(json.loads(stdout)['output'], 'CLI gateway')
-		self.assertEqual(self.requests[-1]['model'], 'bu-recommended')
+		self.assertEqual(self.requests[-1]['model'], 'bu-fast-v1')
 		self.assertIn('authorization: bearer cli-fixture-key', self.headers[-1])
+
+	async def test_gateway_configuration_preserves_credentials_and_explicit_choices(self):
+		for options, expected_model, expected_key, expected_browser_key in (
+			({}, 'bu-fast', 'cached-key', 'cached-key'),
+			({'model': 'bu-smart', 'api_key': 'explicit-key'}, 'bu-smart', 'explicit-key', 'explicit-key'),
+			(
+				{'model': 'bu-smart', 'api_key': 'explicit-key', 'browser': {'kind': 'cloud', 'apiKey': 'browser-key'}},
+				'bu-smart',
+				'explicit-key',
+				'browser-key',
+			),
+			({'model': 'openai/new-model', 'api_key': 'provider-key'}, 'openai/new-model', 'provider-key', 'cached-key'),
+		):
+			with self.subTest(options=options):
+				agent = Agent()
+				call = AsyncMock(return_value={'workspace': self.directory.name})
+				with (
+					patch.dict(os.environ, {'BROWSER_USE_MODEL': 'bu-fast'}),
+					patch.object(agent, '_call', call),
+					patch('browser_harness.auth.get_browser_use_api_key', return_value='cached-key'),
+				):
+					await agent.configure(service_tier='priority', **options)
+				payload = call.call_args.args[1]
+				self.assertEqual(payload['model'], expected_model)
+				self.assertEqual(payload['apiKey'], expected_key)
+				self.assertEqual(payload['browser']['apiKey'], expected_browser_key)
+				self.assertEqual(payload['serviceTier'], 'priority')
+
+	async def test_gateway_model_id_cannot_replace_the_pinned_model(self):
+		with self.assertRaisesRegex(BrowserUseError, 'gateway models use model, not modelId'):
+			await Agent.create(
+				model='bu-auto',
+				model_id='bu-smart-v1',
+				api_key='fixture-key',
+				base_url=self.base_url,
+				browser={'kind': 'pending'},
+				telemetry=False,
+			)
 
 	async def test_default_research_tools_include_working_bash(self):
 		self.responses = [
@@ -873,7 +947,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 			('model_id', 'openai/BU2'),
 		]:
 			with self.subTest(key=key, model_id=model_id):
-				with self.assertRaisesRegex(BrowserUseError, 'BU2.*bu-recommended.*browser-use<1'):
+				with self.assertRaisesRegex(BrowserUseError, 'BU2.*bu-auto.*browser-use<1'):
 					await Agent.create(
 						model='bu-recommended',
 						browser={'kind': 'cloud', 'apiKey': 'fixture-key', 'timeoutMinutes': 0},

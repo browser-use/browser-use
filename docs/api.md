@@ -1,25 +1,27 @@
 # API reference
 
 `BrowserUse.create(options)` creates one browser session and JavaScript workspace.
-Python also exports `Agent` and `Browser`.
-A session can omit its model for deterministic browser execution.
-Python `Agent` supplies GPT-6 Luna through the Browser Use gateway when callers omit `model`.
-`Browser` and `BrowserUse` keep deterministic execution model-free.
+Python `Agent` and TypeScript `Agent.create()` select `bu-auto` when callers omit `model`.
+`BROWSER_USE_MODEL` changes that default; an explicit `model` takes precedence.
+`BrowserUse.create()` keeps deterministic sessions model-free when callers omit `model`.
+Python `Browser` also supports model-free sessions.
 
-| Option                                | Purpose                                           |
-| ------------------------------------- | ------------------------------------------------- |
-| `model`, `modelInfo`                  | Exact model and explicit metadata                 |
-| `browser`                             | Cloud, Chrome, Chromium, pending, or explicit CDP |
-| `workspace`                           | Local artifacts and persistent files              |
-| `tools`                               | Application-defined typed tools                   |
-| `researchTools`                       | Read, write, edit, bash; defaults enabled         |
-| `beforeToolCall`, `afterToolCall`     | Bounded blocking tool callbacks                   |
-| `validateResult`                      | Feedback after schema validation                  |
-| `allowedDomains`, `prohibitedDomains` | Browser document-navigation rules                 |
-| `sensitiveData`, `redact`             | Named secrets and configured text redaction       |
-| `recording`                           | Optional sampled browser frames                   |
-| `log`                                 | Readable or JSON progress                         |
-| `telemetry`                           | Final task content and usage measurements         |
+| Option                                | Purpose                                              |
+| ------------------------------------- | ---------------------------------------------------- |
+| `model`, `modelInfo`                  | Exact model and explicit metadata                    |
+| `serviceTier`                         | Gateway processing speed, separate from model choice |
+| `apiKey`                              | Explicit model credentials                           |
+| `browser`                             | Cloud, Chrome, Chromium, pending, or explicit CDP    |
+| `workspace`                           | Local artifacts and persistent files                 |
+| `tools`                               | Application-defined typed tools                      |
+| `researchTools`                       | Read, write, edit, bash; defaults enabled            |
+| `beforeToolCall`, `afterToolCall`     | Bounded blocking tool callbacks                      |
+| `validateResult`                      | Feedback after schema validation                     |
+| `allowedDomains`, `prohibitedDomains` | Browser document-navigation rules                    |
+| `sensitiveData`, `redact`             | Named secrets and configured text redaction          |
+| `recording`                           | Optional sampled browser frames                      |
+| `log`                                 | Readable or JSON progress                            |
+| `telemetry`                           | Final task content and usage measurements            |
 
 | Method                     | Behavior                                               |
 | -------------------------- | ------------------------------------------------------ |

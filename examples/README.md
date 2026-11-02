@@ -1,19 +1,43 @@
 # Examples
 
-Plain TypeScript. `.mjs` is JavaScript explicitly marked as an ES module; the examples use `.ts` so your editor checks the SDK calls.
+These examples use the Browser Use gateway and a Cloud browser by default.
+One `BROWSER_USE_API_KEY` covers both services.
+Create a key in [Browser Use Cloud](https://cloud.browser-use.com/settings?tab=api-keys&new=1).
 
 From this checkout:
 
 ```sh
-npm ci && npm run build
-cp .env.example .env # fill the two API keys
-node --env-file=.env examples/extract.ts
-# or: bun --env-file=.env examples/extract.ts
+npm ci
+npm run build
+cp .env.example .env
 ```
 
-Node 22.19+ runs these files directly. Bun 1.3.14+ also needs Node for the execution worker. npm and pnpm are package managers, not runtimes.
+Add your key to `.env`, then run an example:
 
-Set `BROWSER=cloud` for Browser Use Cloud, or `BROWSER=local` for isolated local Chrome. Local Chrome must be installed. Each script closes its browser in `finally`. Use `WORKSPACE` to choose where files go.
+```sh
+node --env-file=.env examples/extract.ts
+```
+
+Node 22.19 or later runs these TypeScript files directly.
+Bun 1.3.14 or later also supports them, with Node available for the execution worker.
+Python package wheels include their own Node runtime.
+
+Set `BROWSER=local` for isolated local Chromium.
+Local examples require an installed Chrome or Chromium browser.
+Each script closes its browser in `finally`.
+Set `WORKSPACE` to choose an output directory.
+
+The research example also supports your real Chrome and existing browser connections:
+
+```sh
+BROWSER=chrome node --env-file=.env examples/research.ts "Read my dashboard"
+BROWSER_CDP_URL=http://localhost:9222 node --env-file=.env examples/research.ts "Read my page"
+```
+
+Enable Chrome remote debugging before connecting your real Chrome.
+Set `BROWSER_USE_MODEL=bu-smart` to select another Browser Use model.
+An explicit `MODEL=provider/model` overrides that setting and uses the provider's credentials.
+See [model configuration](../docs/models.md) for model choices and provider settings.
 
 | Example                            | What you get                                       | Extra environment variables                                   |
 | ---------------------------------- | -------------------------------------------------- | ------------------------------------------------------------- |
@@ -57,4 +81,18 @@ The job example reads facts from your JSON file and attaches a real PDF by trans
 
 The extraction result contains `books` and `csvPath`, an absolute path to the saved CSV. It checks that the file exists and is non-empty before printing a completed result.
 
-Each script caps steps, time and cost. A stopped run can return partial progress; inspect its status before treating the task as complete.
+Each script limits steps, elapsed time, and estimated model cost.
+Cost limits need known prices when you select a different provider.
+Cost estimates do not include Cloud browser charges. A stopped run can return partial progress; inspect its status before treating the task as complete.
+
+## Bring your own model key
+
+The [Fireworks example](models/fireworks.py) uses a Fireworks key and a local browser.
+Set `FIREWORKS_API_KEY` in `.env`, install local Chromium, and run:
+
+```sh
+uv run browser-use install
+uv run --env-file .env examples/models/fireworks.py
+```
+
+The example selects its model explicitly and does not use the Browser Use model gateway.

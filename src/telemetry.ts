@@ -79,6 +79,7 @@ type Configuration = Pick<
   BrowserUseOptions,
   | 'mode'
   | 'reasoning'
+  | 'serviceTier'
   | 'researchTools'
   | 'browserSwitching'
   | 'dedicatedBrowser'
@@ -357,6 +358,11 @@ function featureConfiguration(configuration: Partial<Configuration> | undefined)
     configuration === undefined ? null : typeof value === 'function';
   return {
     mode: choice(config.mode, ['default', 'ultrafast', 'unknown'], 'unknown'),
+    service_tier: choice(
+      config.serviceTier,
+      ['default', 'priority', 'ultrafast', 'unknown'],
+      'unknown',
+    ),
     reasoning: choice(
       config.reasoning,
       ['minimal', 'low', 'medium', 'high', 'xhigh', 'unknown'],

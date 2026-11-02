@@ -70,17 +70,20 @@ def test_pi_task_help_requires_no_browser_or_runtime():
 
 
 @pytest.mark.parametrize(
-	'model, gateway',
+	'model, gateway, service_tier',
 	[
-		(None, True),
-		('bu-balanced', True),
-		('bu-smart', True),
-		('browser-use/bu-recommended', True),
-		('browser-use/new-model', True),
-		('openai/gpt-6-luna', False),
+		(None, True, None),
+		('bu-auto', True, 'default'),
+		('bu-fast', True, 'priority'),
+		('bu-ultrafast', True, None),
+		('bu-future-2099-01-01', True, None),
+		('bu-smart', True, 'ultrafast'),
+		('browser-use/bu-auto', True, None),
+		('browser-use/new-model', True, None),
+		('openai/gpt-6-luna', False, None),
 	],
 )
-def test_task_aliases_load_cached_credentials_and_preserve_endpoint_overrides(monkeypatch, model, gateway):
+def test_task_options_load_cached_credentials_and_preserve_overrides(monkeypatch, model, gateway, service_tier):
 	from browser_harness import auth
 	from browser_use import BrowserUse
 	from browser_use.cli import _run_task
@@ -98,13 +101,52 @@ def test_task_aliases_load_cached_credentials_and_preserve_endpoint_overrides(mo
 	args = ['Read the title', '--cdp-url', 'http://127.0.0.1:9222', '--base-url', 'http://127.0.0.1:8000/private']
 	if model is not None:
 		args.extend(['--model', model])
+	if service_tier is not None:
+		args.extend(['--service-tier', service_tier])
 	with pytest.raises(RuntimeError, match='stop-before-runtime'):
 		_run_task(args)
 
-	assert captured['model'] == (model or 'bu-recommended')
+	assert captured['model'] == (model or 'bu-auto')
 	assert captured.get('apiKey') == ('cached-fixture-key' if gateway else None)
 	assert captured['baseUrl'] == 'http://127.0.0.1:8000/private'
 	assert captured['browser'] == {'cdpUrl': 'http://127.0.0.1:9222'}
+	if service_tier is None:
+		assert 'serviceTier' not in captured
+	else:
+		assert captured['serviceTier'] == service_tier
+
+
+@pytest.mark.parametrize(
+	'args',
+	[
+		[],
+		['--cdp-url', 'http://127.0.0.1:9222'],
+		['--model', 'openai/gpt-6-luna', '--browser', 'cloud'],
+	],
+)
+def test_task_without_credentials_explains_login_before_startup(monkeypatch, capsys, args):
+	from browser_harness import auth
+	from browser_use import BrowserUse
+	from browser_use.cli import _run_task
+
+	for key in ('BROWSER_USE_MODEL', 'BROWSER_USE_API_KEY', 'BU_CDP_URL', 'BU_CDP_WS', 'BROWSER_USE_BROWSER'):
+		monkeypatch.delenv(key, raising=False)
+
+	def missing_key():
+		raise auth.CloudAuthRequired()
+
+	async def unexpected_start(**options):
+		pytest.fail('Missing credentials started the runtime.')
+
+	monkeypatch.setattr(auth, 'get_browser_use_api_key', missing_key)
+	monkeypatch.setattr(BrowserUse, 'create', unexpected_start)
+
+	assert _run_task(['Read the page title', *args]) == 2
+	captured = capsys.readouterr()
+	assert captured.out == ''
+	assert 'browser-use auth login' in captured.err
+	assert 'BROWSER_USE_API_KEY' in captured.err
+	assert 'https://cloud.browser-use.com/settings?tab=api-keys&new=1' in captured.err
 
 
 def test_pi_task_rejects_invalid_steps_before_connecting(monkeypatch):

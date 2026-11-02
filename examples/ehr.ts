@@ -3,11 +3,10 @@ import { Browser, BrowserUse, Type } from '@browser_use/pi';
 const url = process.env.EHR_URL;
 if (!url) throw new Error('Set EHR_URL to an EHR sandbox containing synthetic patient TEST-1001.');
 const agent = await BrowserUse.create({
-  model: process.env.MODEL || 'openrouter/openai/gpt-5.6-luna',
+  model: process.env.MODEL || process.env.BROWSER_USE_MODEL || 'bu-auto',
   browser:
-    process.env.BROWSER === 'cloud'
+    process.env.BROWSER !== 'local' && process.env.BROWSER !== 'chromium'
       ? Browser.cloud({
-          apiKey: process.env.BROWSER_USE_API_KEY ?? '',
           ...(process.env.BROWSER_PROFILE_ID ? { profileId: process.env.BROWSER_PROFILE_ID } : {}),
         })
       : Browser.chromium({ profileDir: `${process.env.WORKSPACE || './artifacts/ehr'}-profile` }),

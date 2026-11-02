@@ -471,7 +471,7 @@ test('task completion, model failure, and cancellation each send one final event
   faux.setResponses([
     fauxAssistantMessage(
       fauxToolCall('finish', {
-        result: { answer: 'Result PASSWORD ENDPOINT_TOKEN QUOTED\"SECRET\nVALUE' },
+        result: { answer: 'Result MODEL_API_KEY PASSWORD ENDPOINT_TOKEN QUOTED\"SECRET\nVALUE' },
       }),
       { stopReason: 'toolUse' },
     ),
@@ -485,6 +485,7 @@ test('task completion, model failure, and cancellation each send one final event
     agent = await BrowserUse.create({
       model: `${faux.getModel().provider}/${faux.getModel().id}`,
       models,
+      apiKey: 'MODEL_API_KEY',
       browser: Browser.pending(),
       sensitiveData: { password: { value: 'PASSWORD', domains: ['example.test'] } },
       redact: ['QUOTED\"SECRET\nVALUE'],
@@ -495,7 +496,7 @@ test('task completion, model failure, and cancellation each send one final event
       'wss://operator:ENDPOINT_PASSWORD@browser.example.test/session?token=ENDPOINT_TOKEN&region=eu',
     );
     assert.equal(requests.length, 0);
-    const success = await agent.run('First PASSWORD ENDPOINT_TOKEN', {
+    const success = await agent.run('First MODEL_API_KEY PASSWORD ENDPOINT_TOKEN', {
       schema: Type.Object({ answer: Type.String() }),
       maxSteps: 10,
       timeoutMs: 10000,
@@ -521,12 +522,12 @@ test('task completion, model failure, and cancellation each send one final event
       assert.equal(request.properties.cdp_url, 'wss://browser.example.test/session?region=eu');
     }
     const first = requests[0].properties;
-    assert.equal(first.task, 'First [REDACTED] [REDACTED]');
+    assert.equal(first.task, 'First [REDACTED] [REDACTED] [REDACTED]');
     assert.equal(first.browser_effective, 'cdp');
     assert.equal(first.cdp_protocol, 'wss');
     assert.equal(first.cdp_endpoint_category, 'hostname');
     assert.deepEqual(JSON.parse(first.output), {
-      answer: 'Result [REDACTED] [REDACTED] [REDACTED]',
+      answer: 'Result [REDACTED] [REDACTED] [REDACTED] [REDACTED]',
     });
     assert.equal(first.max_steps, 10);
     assert.equal(first.timeout_ms, 10000);
@@ -537,7 +538,7 @@ test('task completion, model failure, and cancellation each send one final event
     assert.match(requests[3].properties.error, /positive integer/);
     assert.doesNotMatch(
       JSON.stringify(requests),
-      /PASSWORD|ENDPOINT_TOKEN|ENDPOINT_PASSWORD|operator/,
+      /MODEL_API_KEY|PASSWORD|ENDPOINT_TOKEN|ENDPOINT_PASSWORD|operator/,
     );
   } finally {
     await agent?.close();

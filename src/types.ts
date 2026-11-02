@@ -30,6 +30,7 @@ export interface ModelInfo {
   compat?: Record<string, unknown>;
   thinkingLevelMap?: Record<string, string | null>;
 }
+export type ServiceTier = 'default' | 'priority' | 'ultrafast';
 export interface BrowserUseOptions extends DomainOptions {
   mode?: 'default' | 'ultrafast';
   webSearch?: {
@@ -39,6 +40,8 @@ export interface BrowserUseOptions extends DomainOptions {
   sensitiveData?: SensitiveData;
   telemetry?: boolean;
   model?: string;
+  apiKey?: string;
+  serviceTier?: ServiceTier;
   modelInfo?: ModelInfo;
   pricingKnown?: boolean;
   browserSelection?: 'explicit' | 'default';
@@ -134,6 +137,8 @@ export interface RunMetrics {
   workspace: string;
   summaryUsage?: Omit<Usage, 'cost'> & { cost: Usage['cost'] | null };
   model: string;
+  resolvedModel?: string;
+  serviceTier?: ServiceTier;
   runId?: string;
   historyPath?: string;
   eventsPath?: string;
