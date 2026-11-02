@@ -25,7 +25,7 @@ Example usage:
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -42,6 +42,46 @@ from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 
 MCP_AVAILABLE = True
+
+
+def _schema_allows_null(schema: dict[str, Any]) -> bool:
+	json_type = schema.get('type')
+	return (
+		schema.get('nullable', False)
+		or json_type == 'null'
+		or isinstance(json_type, list)
+		and 'null' in json_type
+		or 'enum' in schema
+		and any(value is None for value in schema['enum'])
+	)
+
+
+def _serialize_mcp_params(value: Any) -> Any:
+	"""Serialize MCP parameters without dropping explicit nullable values."""
+	if isinstance(value, BaseModel):
+		serialized = value.model_dump(exclude_none=True)
+		nullable_fields = getattr(value.__class__, '__mcp_nullable_fields__', frozenset())
+
+		for field_name in value.__class__.model_fields:
+			field_value = getattr(value, field_name)
+			if field_value is None:
+				if field_name in nullable_fields and field_name in value.model_fields_set:
+					serialized[field_name] = None
+			elif field_name in serialized:
+				serialized[field_name] = _serialize_mcp_params(field_value)
+
+		return serialized
+	if isinstance(value, dict):
+		return {key: _serialize_mcp_params(item) for key, item in value.items()}
+	if isinstance(value, list):
+		return [_serialize_mcp_params(item) for item in value]
+	return value
+
+
+class MCPToolParameters(BaseModel):
+	model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
+
+	__mcp_nullable_fields__: ClassVar[frozenset[str]] = frozenset()
 
 
 class MCPClient:
@@ -255,6 +295,7 @@ class MCPClient:
 		"""
 		# Parse tool parameters to create Pydantic model
 		param_fields = {}
+		nullable_fields = set()
 
 		if tool.input_schema:
 			# MCP tools use JSON Schema for parameters
@@ -264,6 +305,8 @@ class MCPClient:
 			for param_name, param_schema in properties.items():
 				# Convert JSON Schema type to Python type
 				param_type = self._json_schema_to_python_type(param_schema, f'{action_name}_{param_name}')
+				if _schema_allows_null(param_schema):
+					nullable_fields.add(param_name)
 
 				# Determine if field is required and handle defaults
 				if param_name in required:
@@ -285,11 +328,8 @@ class MCPClient:
 
 		# Create Pydantic model for the tool parameters
 		if param_fields:
-			# Create a BaseModel class with proper configuration
-			class ConfiguredBaseModel(BaseModel):
-				model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
-
-			param_model = create_model(f'{action_name}_Params', __base__=ConfiguredBaseModel, **param_fields)
+			param_model = create_model(f'{action_name}_Params', __base__=MCPToolParameters, **param_fields)
+			setattr(param_model, '__mcp_nullable_fields__', frozenset(nullable_fields))
 		else:
 			# No parameters - create empty model
 			param_model = None
@@ -311,8 +351,8 @@ class MCPClient:
 				if not self.session or not self._connected:
 					return ActionResult(error=f"MCP server '{self.server_name}' not connected", success=False)
 
-				# Convert pydantic model to dict for MCP call
-				tool_params = params.model_dump(exclude_none=True)
+				# Preserve explicit nulls allowed by the schema while omitting absent optional values.
+				tool_params = _serialize_mcp_params(params)
 
 				logger.debug(f"🔧 Calling MCP tool '{tool.name}' with params: {tool_params}")
 
@@ -486,11 +526,14 @@ class MCPClient:
 			if properties:
 				# Create nested pydantic model for objects with properties
 				nested_fields = {}
+				nullable_fields = set()
 				required_fields = set(schema.get('required', []))
 
 				for prop_name, prop_schema in properties.items():
 					# Recursively process nested properties
 					prop_type = self._json_schema_to_python_type(prop_schema, f'{model_name}_{prop_name}')
+					if _schema_allows_null(prop_schema):
+						nullable_fields.add(prop_name)
 
 					# Determine if field is required and handle defaults
 					if prop_name in required_fields:
@@ -510,13 +553,11 @@ class MCPClient:
 
 					nested_fields[prop_name] = (prop_type, Field(default, **field_kwargs))
 
-				# Create a BaseModel class with proper configuration
-				class ConfiguredBaseModel(BaseModel):
-					model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
-
 				try:
 					# Create and return nested pydantic model
-					return create_model(model_name, __base__=ConfiguredBaseModel, **nested_fields)
+					nested_model = create_model(model_name, __base__=MCPToolParameters, **nested_fields)
+					setattr(nested_model, '__mcp_nullable_fields__', frozenset(nullable_fields))
+					return nested_model
 				except Exception as e:
 					logger.error(f'Failed to create nested model {model_name}: {e}')
 					logger.debug(f'Fields: {nested_fields}')
