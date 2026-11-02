@@ -15,16 +15,132 @@ from openai import (
 	RateLimitError,
 	Timeout,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.deepseek.serializer import DeepSeekMessageSerializer
-from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
+from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def _repair_json_control_chars(text: str) -> str:
+	"""Escape raw control characters inside JSON string literals.
+
+	DeepSeek v4 occasionally emits unescaped control characters (e.g. literal
+	newlines) inside JSON string values, which is invalid JSON.
+	"""
+	out: list[str] = []
+	in_string = False
+	escaped = False
+	for ch in text:
+		if in_string:
+			if escaped:
+				out.append(ch)
+				escaped = False
+			elif ch == '\\':
+				out.append(ch)
+				escaped = True
+			elif ch == '"':
+				out.append(ch)
+				in_string = False
+			elif ord(ch) < 0x20:
+				out.append(f'\\u{ord(ch):04x}')
+			else:
+				out.append(ch)
+		else:
+			out.append(ch)
+			if ch == '"':
+				in_string = True
+	return ''.join(out)
+
+
+def _strip_json_wrappers(text: str) -> str:
+	"""Remove markdown fences or surrounding prose from a JSON response."""
+	cleaned = text.strip()
+	if cleaned.startswith('```'):
+		lines = cleaned.splitlines()
+		if lines and lines[0].startswith('```'):
+			lines = lines[1:]
+		if lines and lines[-1].strip() == '```':
+			lines = lines[:-1]
+		cleaned = '\n'.join(lines).strip()
+
+	start = cleaned.find('{')
+	end = cleaned.rfind('}')
+	if start != -1 and end > start:
+		cleaned = cleaned[start : end + 1]
+	return cleaned
+
+
+def _parse_json_output(output_format: type[T], content: str) -> T:
+	"""Parse JSON output, tolerating fences and raw control characters."""
+	last_error: ValidationError | None = None
+	candidates = [content, _strip_json_wrappers(content)]
+	for candidate in candidates:
+		try:
+			return output_format.model_validate_json(candidate)
+		except ValidationError as e:
+			last_error = e
+
+	repaired = _repair_json_control_chars(candidates[-1])
+	if repaired != candidates[-1]:
+		try:
+			return output_format.model_validate_json(repaired)
+		except ValidationError as e:
+			last_error = e
+
+	if last_error is not None:
+		raise last_error
+	raise ValueError('Could not parse JSON output')
+
+
+def _build_json_instruction(schema: dict[str, Any]) -> str:
+	"""Build a schema-generic JSON instruction for DeepSeek's JSON mode."""
+	properties = schema.get('properties', {})
+	required = schema.get('required', [])
+
+	instruction = (
+		'Respond with a single valid JSON object only. '
+		'The first character must be "{" and the last character must be "}". '
+		'Do not include markdown fences, comments, trailing commas, or any prose outside the JSON object. '
+		'Every string value MUST be valid JSON: escape every double quote inside a string as \\", '
+		'every backslash as \\\\, and every newline as \\n. '
+	)
+	if required:
+		instruction += f'Required top-level fields: {", ".join(required)}. Never omit required fields. '
+
+	# AgentOutput-specific guidance only applies to schemas that actually contain actions.
+	if 'action' in properties:
+		instruction += (
+			'Never place raw JSON, HTML, or multi-line code inside "thinking". '
+			'When quoting text inside "thinking", prefer single quotes. '
+			'When writing JavaScript for "evaluate", prefer single quotes or backticks so double quotes do not need escaping. '
+			'The "action" field is REQUIRED and must be a non-empty array; never return only '
+			'"thinking", "memory", or "next_goal". If unsure, use the "wait" action. '
+		)
+
+	instruction += f'The JSON object must conform to this schema:\n{json.dumps(schema, ensure_ascii=False)}'
+	return instruction
+
+
+def _validation_error_summary(error: ValidationError, max_length: int = 500) -> str:
+	"""Summarize validation errors with field locations and reasons."""
+	parts: list[str] = []
+	for item in error.errors():
+		location = '.'.join(str(part) for part in item.get('loc', ()))
+		message = item.get('msg', 'invalid value')
+		error_type = item.get('type')
+		if location:
+			parts.append(f'{location}: {message}' + (f' ({error_type})' if error_type else ''))
+		else:
+			parts.append(message + (f' ({error_type})' if error_type else ''))
+
+	summary = '; '.join(parts) or str(error).splitlines()[0]
+	return summary[:max_length]
 
 
 @dataclass
@@ -46,6 +162,12 @@ class ChatDeepSeek(BaseChatModel):
 	client_params: dict[str, Any] | None = None
 
 	thinking: bool = False
+
+	@staticmethod
+	def _is_reasoning_model(model: str) -> bool:
+		"""Check if the model is a DeepSeek reasoning model that doesn't support tool_choice."""
+		model_lower = model.lower()
+		return any(kw in model_lower for kw in ['reasoner', '/thinking', '-r1', '-thinking', '-v4'])
 
 	@property
 	def provider(self) -> str:
@@ -131,6 +253,12 @@ class ChatDeepSeek(BaseChatModel):
 		ds_messages = DeepSeekMessageSerializer.serialize_messages(messages)
 		common = self._request_kwargs()
 
+		# DeepSeek v4 models default to thinking mode, which breaks strict
+		# function-calling schema adherence; disable it for reasoning models
+		# unless the caller explicitly opted into thinking mode.
+		if self._is_reasoning_model(self.model) and not self.thinking:
+			common['extra_body'] = {'thinking': {'type': 'disabled'}}
+
 		# Beta conversation prefix continuation (see official documentation)
 		if self.base_url and str(self.base_url).endswith('/beta'):
 			# The last assistant message must have prefix
@@ -158,6 +286,103 @@ class ChatDeepSeek(BaseChatModel):
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
+		# ①b JSON Output path — DeepSeek reasoning models (v4 etc.) cannot
+		# reliably follow the function-calling schema (they emit flat tool args),
+		# so route them through strict JSON output mode instead.
+		if (
+			not tools
+			and output_format is not None
+			and hasattr(output_format, 'model_json_schema')
+			and self._is_reasoning_model(self.model)
+		):
+			try:
+				# DeepSeek requires the prompt to mention JSON when response_format
+				# is json_object, otherwise it may emit whitespace until the token
+				# limit. Include the schema so the model knows the expected shape.
+				schema = output_format.model_json_schema()
+				json_instruction = _build_json_instruction(schema)
+				has_action = 'action' in schema.get('properties', {})
+				action_hint = ' The "action" field is required and must be a non-empty array.' if has_action else ''
+				json_messages = [dict(message) for message in ds_messages]
+				if json_messages and json_messages[0].get('role') == 'system':
+					json_messages[0]['content'] = f'{json_messages[0].get("content", "")}\n\n{json_instruction}'
+				else:
+					json_messages.insert(0, {'role': 'system', 'content': json_instruction})
+
+				last_error: ValidationError | None = None
+				for attempt in range(2):
+					resp = await client.chat.completions.create(  # type: ignore
+						model=self.model,
+						messages=json_messages,  # type: ignore
+						response_format={'type': 'json_object'},
+						**common,
+					)
+					choice = resp.choices[0]
+					if getattr(choice, 'finish_reason', None) == 'length':
+						cap = f'max_tokens={self.max_tokens}' if self.max_tokens is not None else "the model's output token limit"
+						raise ModelOutputTruncatedError(
+							message=(
+								f'DeepSeek output was truncated at {cap}; the structured output is incomplete. '
+								'Increase max_tokens or request shorter output.'
+							),
+							model=self.name,
+						)
+
+					message = choice.message
+					content = message.content
+					if not content:
+						if attempt == 0:
+							json_messages.append(
+								{
+									'role': 'user',
+									'content': f'Your previous response was empty. Return a single valid JSON object only.{action_hint}',
+								}
+							)
+							continue
+						raise ModelProviderError('Empty JSON content in DeepSeek response', model=self.name)
+
+					try:
+						parsed = _parse_json_output(output_format, content)
+					except ValidationError as e:
+						last_error = e
+						if attempt == 0:
+							error_summary = _validation_error_summary(e)
+							json_messages.extend(
+								[
+									{'role': 'assistant', 'content': content},
+									{
+										'role': 'user',
+										'content': (
+											f'Your previous response was invalid: {error_summary}\n'
+											f'Return the complete corrected JSON object only.{action_hint} '
+											'Escape every double quote inside string values as \\". '
+											'Do not use markdown fences or prose.'
+										),
+									},
+								]
+							)
+							continue
+						raise
+
+					reasoning = getattr(message, 'reasoning_content', None)
+					return ChatInvokeCompletion(
+						completion=parsed,
+						thinking=str(reasoning) if reasoning else None,
+						usage=None,
+					)
+
+				if last_error is not None:
+					raise last_error
+				raise ModelProviderError('Empty JSON content in DeepSeek response', model=self.name)
+			except RateLimitError as e:
+				raise ModelRateLimitError(str(e), model=self.name) from e
+			except ModelProviderError:
+				raise
+			except (APIError, APIConnectionError, APITimeoutError, APIStatusError) as e:
+				raise ModelProviderError(str(e), model=self.name) from e
+			except Exception as e:
+				raise ModelProviderError(str(e), model=self.name) from e
+
 		# ② Function Calling path (with tools or output_format)
 		if tools or (output_format is not None and hasattr(output_format, 'model_json_schema')):
 			try:
@@ -178,6 +403,9 @@ class ChatDeepSeek(BaseChatModel):
 						}
 					]
 					tool_choice = {'type': 'function', 'function': {'name': tool_name}}
+					# Reasoning models (deepseek-v4-pro, deepseek-reasoner, etc.) reject tool_choice
+					if self._is_reasoning_model(self.model):
+						tool_choice = None
 				resp = await client.chat.completions.create(  # type: ignore
 					model=self.model,
 					messages=ds_messages,  # type: ignore

@@ -1,9 +1,174 @@
-"""Regression tests for DeepSeek client setup."""
+"""Unit tests for the DeepSeek chat client (v4 JSON-output compatibility + setup regressions)."""
+
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import BaseModel, Field, ValidationError
 
-from browser_use.llm.deepseek.chat import ChatDeepSeek
-from browser_use.llm.exceptions import ModelProviderError
+from browser_use.llm.deepseek.chat import (
+	ChatDeepSeek,
+	_build_json_instruction,
+	_repair_json_control_chars,
+	_validation_error_summary,
+)
+from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError
+from browser_use.llm.messages import SystemMessage, UserMessage
+
+
+class _SimpleOutput(BaseModel):
+	action: list[dict[str, object]] = Field(..., min_length=1)
+
+
+class _ElementOutput(BaseModel):
+	element_highlight_index: int
+
+
+def _client_with(response):
+	client = MagicMock()
+	client.chat.completions.create = AsyncMock(return_value=response)
+	return client
+
+
+def _tool_call_response(args: str):
+	tool_call = SimpleNamespace(function=SimpleNamespace(arguments=args))
+	message = SimpleNamespace(content=None, tool_calls=[tool_call])
+	return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
+def _json_response(content: str, finish_reason: str = 'stop'):
+	message = SimpleNamespace(content=content, tool_calls=None, reasoning_content=None)
+	return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason=finish_reason)])
+
+
+def _messages():
+	return [
+		SystemMessage(content='You are a browser automation agent.'),
+		UserMessage(content='Search Google for browser automation.'),
+	]
+
+
+def test_repair_json_control_chars_escapes_raw_control_chars_inside_strings():
+	broken = '{\n  "thinking": "line1\nline2\tend",\n  "action": [{"search": {"query": "a", "engine": "google"}}]\n}'
+	repaired = _repair_json_control_chars(broken)
+
+	assert '\\u000a' in repaired and '\\u0009' in repaired
+	assert _SimpleOutput.model_validate_json(repaired) is not None
+
+
+async def test_repair_json_control_chars_keeps_structural_whitespace():
+	content = '{\n  "action": [{"search": {"query": "a", "engine": "google"}}]\n}'
+	assert _repair_json_control_chars(content) == content
+
+
+def test_json_instruction_only_requires_action_for_action_schemas():
+	agent_instruction = _build_json_instruction(_SimpleOutput.model_json_schema())
+	element_instruction = _build_json_instruction(_ElementOutput.model_json_schema())
+
+	assert 'The "action" field is REQUIRED' in agent_instruction
+	assert 'The "action" field is REQUIRED' not in element_instruction
+	assert 'element_highlight_index' in element_instruction
+
+
+def test_validation_error_summary_includes_field_and_reason():
+	with pytest.raises(ValidationError) as exc_info:
+		_SimpleOutput.model_validate_json('{"thinking": "missing action"}')
+
+	summary = _validation_error_summary(exc_info.value)
+	assert 'action' in summary
+	assert 'Field required' in summary or 'missing' in summary
+
+
+@pytest.mark.asyncio
+async def test_reasoning_model_uses_json_output_path():
+	valid = '{"action": [{"search": {"query": "a", "engine": "google"}}]}'
+	client = _client_with(_json_response(valid))
+	llm = ChatDeepSeek(model='deepseek-v4-flash', api_key='test-key')
+
+	with patch.object(ChatDeepSeek, '_client', return_value=client):
+		result = await llm.ainvoke(_messages(), output_format=_SimpleOutput)
+
+	kwargs = client.chat.completions.create.call_args.kwargs
+	assert kwargs['response_format'] == {'type': 'json_object'}
+	assert 'tools' not in kwargs
+	assert kwargs['extra_body'] == {'thinking': {'type': 'disabled'}}
+	# DeepSeek requires the prompt to explicitly ask for JSON in json_object mode.
+	assert 'JSON' in kwargs['messages'][0]['content']
+	assert 'action' in kwargs['messages'][0]['content']
+	assert result.completion.action == [{'search': {'query': 'a', 'engine': 'google'}}]
+
+
+@pytest.mark.asyncio
+async def test_json_path_repairs_raw_control_chars_before_validation():
+	broken = '{"thinking": "line1\nline2", "action": [{"search": {"query": "a", "engine": "google"}}]}'
+	client = _client_with(_json_response(broken))
+	llm = ChatDeepSeek(model='deepseek-v4-pro', api_key='test-key')
+
+	with patch.object(ChatDeepSeek, '_client', return_value=client):
+		result = await llm.ainvoke(_messages(), output_format=_SimpleOutput)
+
+	assert result.completion.action == [{'search': {'query': 'a', 'engine': 'google'}}]
+
+
+@pytest.mark.asyncio
+async def test_json_path_retries_with_correction_when_action_is_missing():
+	missing_action = '{"thinking": "I know what to do but forgot the action."}'
+	valid = '{"action": [{"search": {"query": "a", "engine": "google"}}]}'
+	client = _client_with(_json_response(missing_action))
+	client.chat.completions.create = AsyncMock(side_effect=[_json_response(missing_action), _json_response(valid)])
+	llm = ChatDeepSeek(model='deepseek-v4-flash', api_key='test-key')
+
+	with patch.object(ChatDeepSeek, '_client', return_value=client):
+		result = await llm.ainvoke(_messages(), output_format=_SimpleOutput)
+
+	assert result.completion.action == [{'search': {'query': 'a', 'engine': 'google'}}]
+	assert client.chat.completions.create.await_count == 2
+	retry_messages = client.chat.completions.create.await_args_list[1].kwargs['messages']
+	assert retry_messages[-1]['role'] == 'user'
+	assert '"action" field is required' in retry_messages[-1]['content']
+
+
+@pytest.mark.asyncio
+async def test_non_action_schema_retry_does_not_require_action():
+	missing_field = '{}'
+	valid = '{"element_highlight_index": 3}'
+	client = _client_with(_json_response(missing_field))
+	client.chat.completions.create = AsyncMock(side_effect=[_json_response(missing_field), _json_response(valid)])
+	llm = ChatDeepSeek(model='deepseek-v4-flash', api_key='test-key')
+
+	with patch.object(ChatDeepSeek, '_client', return_value=client):
+		result = await llm.ainvoke(_messages(), output_format=_ElementOutput)
+
+	assert result.completion.element_highlight_index == 3
+	retry_messages = client.chat.completions.create.await_args_list[1].kwargs['messages']
+	assert 'action' not in retry_messages[-1]['content']
+	assert 'element_highlight_index' in retry_messages[-1]['content']
+
+
+@pytest.mark.asyncio
+async def test_json_path_raises_truncation_error_before_parsing():
+	client = _client_with(_json_response('{"thinking": "cut off', finish_reason='length'))
+	llm = ChatDeepSeek(model='deepseek-v4-flash', api_key='test-key')
+
+	with patch.object(ChatDeepSeek, '_client', return_value=client):
+		with pytest.raises(ModelOutputTruncatedError, match='truncated'):
+			await llm.ainvoke(_messages(), output_format=_SimpleOutput)
+
+
+@pytest.mark.asyncio
+async def test_non_reasoning_model_keeps_function_calling_path():
+	args = '{"action": [{"search": {"query": "a", "engine": "google"}}]}'
+	client = _client_with(_tool_call_response(args))
+	llm = ChatDeepSeek(model='deepseek-chat', api_key='test-key')
+
+	with patch.object(ChatDeepSeek, '_client', return_value=client):
+		result = await llm.ainvoke(_messages(), output_format=_SimpleOutput)
+
+	kwargs = client.chat.completions.create.call_args.kwargs
+	assert kwargs['tools']
+	assert kwargs['tool_choice'] == {'type': 'function', 'function': {'name': '_SimpleOutput'}}
+	assert 'response_format' not in kwargs
+	assert result.completion.action == [{'search': {'query': 'a', 'engine': 'google'}}]
 
 
 def test_provider_key_does_not_fall_back_to_openai_key(monkeypatch: pytest.MonkeyPatch):

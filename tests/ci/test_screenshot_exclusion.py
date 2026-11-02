@@ -5,6 +5,7 @@ import pytest
 from browser_use.agent.service import Agent
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
+from browser_use.llm.deepseek.chat import ChatDeepSeek
 from browser_use.tools.service import Tools
 from tests.ci.conftest import create_mock_llm
 
@@ -57,6 +58,28 @@ def test_screenshot_included_with_use_vision_auto():
 
 	# Verify screenshot IS in the registry
 	assert 'screenshot' in agent.tools.registry.registry.actions, 'Screenshot should be included when use_vision="auto"'
+
+
+def test_deepseek_flash_keeps_vision_enabled():
+	"""DeepSeek Flash supports vision, so use_vision must not be forced off."""
+	agent = Agent(
+		task='test',
+		llm=ChatDeepSeek(model='deepseek-v4-flash', api_key='test-key'),
+		use_vision=True,
+	)
+
+	assert agent.settings.use_vision is True
+
+
+def test_deepseek_pro_disables_vision():
+	"""DeepSeek Pro is text-only, so use_vision should be forced off."""
+	agent = Agent(
+		task='test',
+		llm=ChatDeepSeek(model='deepseek-v4-pro', api_key='test-key'),
+		use_vision=True,
+	)
+
+	assert agent.settings.use_vision is False
 
 
 def test_screenshot_excluded_with_custom_tools_and_use_vision_false():
