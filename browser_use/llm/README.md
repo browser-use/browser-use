@@ -16,6 +16,11 @@ We officially support the following LLMs:
 Use `ChatMistral` with `MISTRAL_API_KEY` (and optional `MISTRAL_BASE_URL`). Structured outputs automatically strip unsupported JSON schema keywords (`minLength`, `maxLength`, `pattern`, `format`), and generation uses `max_tokens` plus the optional `safe_prompt` flag.
 
 - Cerebras
+- NVIDIA
+
+## NVIDIA specifics
+
+Use `ChatNvidia` with `NVIDIA_API_KEY`. It defaults to `https://integrate.api.nvidia.com/v1`; pass `base_url` to use a self-hosted NIM.
 
 
 ## Migrating from LangChain

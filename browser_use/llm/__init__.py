@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.google.chat import ChatGoogle
 	from browser_use.llm.groq.chat import ChatGroq
 	from browser_use.llm.mistral.chat import ChatMistral
+	from browser_use.llm.nvidia.chat import ChatNvidia
 	from browser_use.llm.oci_raw.chat import ChatOCIRaw
 	from browser_use.llm.ollama.chat import ChatOllama
 	from browser_use.llm.openai.chat import ChatOpenAI
@@ -86,6 +87,7 @@ _LAZY_IMPORTS = {
 	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
 	'ChatBrowserUse': ('browser_use.llm.browser_use.chat', 'ChatBrowserUse'),
 	'ChatCerebras': ('browser_use.llm.cerebras.chat', 'ChatCerebras'),
+	'ChatNvidia': ('browser_use.llm.nvidia.chat', 'ChatNvidia'),
 	'ChatDeepSeek': ('browser_use.llm.deepseek.chat', 'ChatDeepSeek'),
 	'ChatGoogle': ('browser_use.llm.google.chat', 'ChatGoogle'),
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
@@ -161,4 +163,5 @@ __all__ = [
 	'ChatOrcaRouter',
 	'ChatVercel',
 	'ChatCerebras',
+	'ChatNvidia',
 ]
