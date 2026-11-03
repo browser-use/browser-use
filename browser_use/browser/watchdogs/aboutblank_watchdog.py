@@ -72,13 +72,23 @@ class AboutBlankWatchdog(BaseWatchdog):
 		# Check if we're about to close the last tab (event happens BEFORE tab closes)
 		# Use _cdp_get_all_pages for quick check without fetching titles
 		page_targets = await self.browser_session._cdp_get_all_pages()
-		if len(page_targets) < 1:
+
+		# TabClosedEvent is dispatched from two places with different timing:
+		# - on_CloseTabEvent dispatches it BEFORE Target.closeTarget runs, so the
+		#   closing tab is still listed and must be excluded from the remaining count
+		# - SessionManager dispatches it after Target.detachedFromTarget, when the
+		#   closed tab has already been removed from the target list
+		remaining_tabs = [t for t in page_targets if t['targetId'] != event.target_id]
+		if not remaining_tabs:
 			self.logger.debug(
 				'[AboutBlankWatchdog] Last tab closing, creating new about:blank tab to avoid closing entire browser'
 			)
-			# Create the animation tab since no tabs should remain
-			navigate_event = self.event_bus.dispatch(NavigateToUrlEvent(url='about:blank', new_tab=True))
-			await navigate_event
+			# Create the replacement tab BEFORE the close lands: closing the last page
+			# would otherwise terminate the whole browser process. Don't use
+			# NavigateToUrlEvent(new_tab=True) here — its about:blank reuse logic would
+			# navigate the dying tab instead of creating a new one.
+			new_target_id = await self.browser_session._cdp_create_new_page('about:blank')
+			self.event_bus.dispatch(TabCreatedEvent(url='about:blank', target_id=new_target_id))
 			# Show DVD screensaver on the new tab
 			await self._show_dvd_screensaver_on_about_blank_tabs()
 		else:
