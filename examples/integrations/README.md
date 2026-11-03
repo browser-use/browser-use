@@ -32,3 +32,5 @@ Add entries in this format:
 ```markdown
 - [Project name](https://github.com/org/project) - One sentence about what it integrates with. Maintained by @github-handle.
 ```
+
+- [herald-browser-use](https://github.com/siddhi-bansal/herald-browser-use) - Lets Browser Use agents report where they got stuck on a website, and get tips about known problems on a site before they start. Maintained by @siddhi-bansal.
