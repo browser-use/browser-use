@@ -25,7 +25,7 @@ Example usage:
 import asyncio
 import logging
 import time
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Union
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -49,11 +49,13 @@ def _schema_allows_null(schema: dict[str, Any]) -> bool:
 	return (
 		schema.get('nullable', False)
 		or json_type == 'null'
-		or isinstance(json_type, list)
-		and 'null' in json_type
-		or 'enum' in schema
-		and any(value is None for value in schema['enum'])
+		or (isinstance(json_type, list) and 'null' in json_type)
+		or ('enum' in schema and any(value is None for value in schema['enum']))
 	)
+
+
+def _nullable_python_type(python_type: Any) -> Any:
+	return python_type if python_type is type(None) else python_type | None
 
 
 def _serialize_mcp_params(value: Any) -> Any:
@@ -313,7 +315,7 @@ class MCPClient:
 					default = ...  # Required field
 				else:
 					# Optional field - make type optional and handle default
-					param_type = param_type | None
+					param_type = _nullable_python_type(param_type)
 					if 'default' in param_schema:
 						default = param_schema['default']
 					else:
@@ -506,6 +508,18 @@ class MCPClient:
 		"""
 		json_type = schema.get('type', 'string')
 
+		if isinstance(json_type, list):
+			python_types = [
+				self._json_schema_to_python_type({**schema, 'type': single_type}, model_name)
+				for single_type in dict.fromkeys(json_type)
+				if single_type != 'null'
+			]
+			if _schema_allows_null(schema):
+				python_types.append(type(None))
+			if not python_types:
+				return type(None)
+			return python_types[0] if len(python_types) == 1 else Union[tuple(python_types)]
+
 		# Basic type mapping
 		type_mapping = {
 			'string': str,
@@ -518,7 +532,7 @@ class MCPClient:
 
 		# Handle enums (they're still strings)
 		if 'enum' in schema:
-			return str
+			return _nullable_python_type(str) if _schema_allows_null(schema) else str
 
 		# Handle objects with nested properties
 		if json_type == 'object':
@@ -540,7 +554,7 @@ class MCPClient:
 						default = ...  # Required field
 					else:
 						# Optional field - make type optional and handle default
-						prop_type = prop_type | None
+						prop_type = _nullable_python_type(prop_type)
 						if 'default' in prop_schema:
 							default = prop_schema['default']
 						else:
@@ -557,15 +571,15 @@ class MCPClient:
 					# Create and return nested pydantic model
 					nested_model = create_model(model_name, __base__=MCPToolParameters, **nested_fields)
 					setattr(nested_model, '__mcp_nullable_fields__', frozenset(nullable_fields))
-					return nested_model
+					return _nullable_python_type(nested_model) if _schema_allows_null(schema) else nested_model
 				except Exception as e:
 					logger.error(f'Failed to create nested model {model_name}: {e}')
 					logger.debug(f'Fields: {nested_fields}')
 					# Fallback to basic dict if model creation fails
-					return dict
+					return _nullable_python_type(dict) if _schema_allows_null(schema) else dict
 			else:
 				# Object without properties - just return dict
-				return dict
+				return _nullable_python_type(dict) if _schema_allows_null(schema) else dict
 
 		# Handle arrays with specific item types
 		if json_type == 'array':
@@ -573,17 +587,18 @@ class MCPClient:
 				# Get the item type recursively
 				item_type = self._json_schema_to_python_type(schema['items'], f'{model_name}_item')
 				# Return properly typed list
-				return list[item_type]
+				array_type = list[item_type]
 			else:
 				# Array without item type specification
-				return list
+				array_type = list
+			return _nullable_python_type(array_type) if _schema_allows_null(schema) else array_type
 
 		# Get base type for non-object types
 		base_type = type_mapping.get(json_type, str)
 
 		# Handle nullable/optional types
-		if schema.get('nullable', False) or json_type == 'null':
-			return base_type | None
+		if _schema_allows_null(schema):
+			return _nullable_python_type(base_type)
 
 		return base_type
 

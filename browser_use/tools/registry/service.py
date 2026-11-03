@@ -503,7 +503,7 @@ class Registry(Generic[Context]):
 				return tuple(recursively_replace_secrets(v) for v in value)
 			return value
 
-		params_dump = params.model_dump()
+		params_dump = params.model_dump(exclude_unset=True)
 		processed_params = recursively_replace_secrets(params_dump)
 
 		# Log sensitive data usage
