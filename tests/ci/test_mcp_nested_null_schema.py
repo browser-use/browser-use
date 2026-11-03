@@ -70,6 +70,8 @@ async def test_nested_nullable_fields_and_array_items_are_preserved():
 		('nullable_enum', {'type': 'string', 'enum': ['ready', None]}),
 		('nullable_type', {'type': 'null'}),
 		('nullable_type_array', {'type': ['string', 'null']}),
+		('nullable_any_of', {'anyOf': [{'type': 'string'}, {'type': 'null'}]}),
+		('nullable_one_of', {'oneOf': [{'type': 'string'}, {'type': 'null'}]}),
 	],
 )
 async def test_nullable_schema_forms_accept_and_transmit_null(name, parameter_schema):
@@ -121,6 +123,7 @@ async def test_omitted_nullable_fields_stay_omitted_with_sensitive_data():
 			'type': 'object',
 			'properties': {
 				'value': {'type': 'string', 'nullable': True},
+				'union_value': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},
 				'payload': {
 					'type': 'object',
 					'properties': {'note': {'type': 'string', 'nullable': True}},
@@ -134,12 +137,12 @@ async def test_omitted_nullable_fields_stay_omitted_with_sensitive_data():
 
 	result = await registry.execute_action(
 		'save_optional',
-		{'value': None, 'payload': {}},
+		{'value': None, 'union_value': None, 'payload': {}},
 		sensitive_data={'api_key': 'secret'},
 	)
 
 	assert result.error is None
 	client.session.call_tool.assert_awaited_once_with(
 		'save_optional',
-		{'value': None, 'payload': {}, 'credential': 'secret'},
+		{'value': None, 'union_value': None, 'payload': {}, 'credential': 'secret'},
 	)

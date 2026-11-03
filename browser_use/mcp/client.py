@@ -51,6 +51,11 @@ def _schema_allows_null(schema: dict[str, Any]) -> bool:
 		or json_type == 'null'
 		or (isinstance(json_type, list) and 'null' in json_type)
 		or ('enum' in schema and any(value is None for value in schema['enum']))
+		or any(
+			isinstance(schema.get(composition), list)
+			and any(isinstance(variant, dict) and _schema_allows_null(variant) for variant in schema[composition])
+			for composition in ('anyOf', 'oneOf')
+		)
 	)
 
 
@@ -506,6 +511,18 @@ class MCPClient:
 		Returns:
 			Python type corresponding to the schema
 		"""
+		for composition in ('anyOf', 'oneOf'):
+			variants = schema.get(composition)
+			if isinstance(variants, list):
+				python_types = []
+				for variant in variants:
+					if isinstance(variant, dict):
+						variant_type = self._json_schema_to_python_type(variant, model_name)
+						if variant_type not in python_types:
+							python_types.append(variant_type)
+				if python_types:
+					return python_types[0] if len(python_types) == 1 else Union[tuple(python_types)]
+
 		json_type = schema.get('type', 'string')
 
 		if isinstance(json_type, list):
