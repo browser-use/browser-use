@@ -80,6 +80,10 @@ class SchemaOptimizer:
 					elif key == 'default' and remove_defaults:
 						continue  # Skip default values
 
+					# Instance keywords contain JSON data rather than child schemas.
+					elif key in ('default', 'const', 'enum', 'examples'):
+						optimized[key] = value
+
 					# Keep all anyOf structures (action unions) and resolve any $refs within
 					elif key == 'anyOf' and isinstance(value, list):
 						optimized[key] = [optimize_schema(item, defs_lookup) for item in value]
@@ -152,8 +156,8 @@ class SchemaOptimizer:
 					obj['additionalProperties'] = False
 
 				# Recursively apply to all values
-				for value in obj.values():
-					if isinstance(value, (dict, list)):
+				for key, value in obj.items():
+					if key not in ('default', 'const', 'enum', 'examples') and isinstance(value, (dict, list)):
 						ensure_additional_properties_false(value)
 			elif isinstance(obj, list):
 				for item in obj:
@@ -176,8 +180,8 @@ class SchemaOptimizer:
 					if remove_defaults:
 						obj.pop('default', None)
 					# Recursively process all values
-					for value in obj.values():
-						if isinstance(value, (dict, list)):
+					for key, value in obj.items():
+						if key not in ('default', 'const', 'enum', 'examples') and isinstance(value, (dict, list)):
 							remove_forbidden_fields(value)
 				elif isinstance(obj, list):
 					for item in obj:
@@ -194,7 +198,7 @@ class SchemaOptimizer:
 		if isinstance(schema, dict):
 			# First recursively apply to nested objects
 			for key, value in schema.items():
-				if isinstance(value, (dict, list)) and key != 'required':
+				if key not in ('required', 'default', 'const', 'enum', 'examples') and isinstance(value, (dict, list)):
 					SchemaOptimizer._make_strict_compatible(value)
 
 			# Then update required for this level
