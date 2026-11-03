@@ -29,7 +29,7 @@ import re
 import time
 from typing import Annotated, Any, ClassVar, Union
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, create_model
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, WithJsonSchema, create_model
 
 from browser_use.agent.views import ActionResult
 from browser_use.telemetry import MCPClientTelemetryEvent, ProductTelemetry
@@ -141,6 +141,36 @@ def _schema_accepts_value(value: Any, schema: dict[str, Any] | bool) -> bool:
 
 def _schema_allows_null(schema: dict[str, Any] | bool) -> bool:
 	return _schema_accepts_value(None, schema)
+
+
+def _schema_for_composed_object(schema: dict[str, Any]) -> dict[str, Any]:
+	"""Expose intersected allOf fields at the top level for tool-call schemas."""
+	json_schema = dict(schema)
+	properties = dict(json_schema.get('properties', {}))
+	required = set(json_schema.get('required', []))
+
+	for branch in schema.get('allOf', []):
+		if not isinstance(branch, dict):
+			continue
+		for name, property_schema in branch.get('properties', {}).items():
+			if name in properties and properties[name] != property_schema:
+				existing_schema = properties[name]
+				existing_branches = (
+					existing_schema.get('allOf')
+					if isinstance(existing_schema, dict) and set(existing_schema) == {'allOf'}
+					else None
+				)
+				properties[name] = {'allOf': [*(existing_branches or [existing_schema]), property_schema]}
+			else:
+				properties[name] = property_schema
+		required.update(branch.get('required', []))
+
+	if properties:
+		json_schema['type'] = 'object'
+		json_schema['properties'] = properties
+	if required:
+		json_schema['required'] = sorted(required)
+	return json_schema
 
 
 def _nullable_python_type(python_type: Any) -> Any:
@@ -639,7 +669,10 @@ class MCPClient:
 					raise ValueError('Value does not satisfy its JSON Schema composition')
 				return value
 
-			return Annotated[python_type, BeforeValidator(validate_composition)]
+			metadata = [BeforeValidator(validate_composition)]
+			if 'allOf' in compositions:
+				metadata.append(WithJsonSchema(_schema_for_composed_object(schema)))
+			return Annotated[python_type, *metadata]
 
 		json_type = schema.get('type', 'string')
 

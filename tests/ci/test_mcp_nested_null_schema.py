@@ -239,6 +239,11 @@ async def test_all_of_object_intersections_and_boolean_alternatives():
 	)
 	client._register_tool_as_action(registry, 'validate_all_of_and_boolean_schemas', tool)
 
+	action_schema = registry.create_action_model().model_json_schema()
+	payload_schemas = [node for node in _walk_schema(action_schema) if {'name', 'age'}.issubset(node.get('properties', {}))]
+	assert payload_schemas
+	assert {'name', 'age'}.issubset(payload_schemas[0].get('required', []))
+
 	with pytest.raises(RuntimeError, match='Invalid parameters'):
 		await registry.execute_action(
 			'validate_all_of_and_boolean_schemas',
@@ -256,6 +261,16 @@ async def test_all_of_object_intersections_and_boolean_alternatives():
 		'validate_all_of_and_boolean_schemas',
 		{'payload': {'name': 'member', 'age': 18}, 'text': 'ok', 'open': 42},
 	)
+
+
+def _walk_schema(value):
+	if isinstance(value, dict):
+		yield value
+		for child in value.values():
+			yield from _walk_schema(child)
+	elif isinstance(value, list):
+		for child in value:
+			yield from _walk_schema(child)
 
 
 @pytest.mark.asyncio
