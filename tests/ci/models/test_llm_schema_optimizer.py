@@ -95,3 +95,35 @@ def test_optimizer_treats_property_names_as_data_not_schema_keywords():
 		field_schema = schema['properties'][field_name]
 		assert '$ref' not in field_schema
 		assert field_schema['properties']['summary']['type'] == 'string'
+
+
+def test_optimizer_preserves_instance_keyword_values():
+	"""Schema-shaped dictionaries in defaults and examples are still user data."""
+
+	class Search(BaseModel):
+		filters: dict[str, str] = Field(default={'title': 'Engineer', 'type': 'object'})
+		columns: list[dict[str, str]] = Field(default=[{'title': 'Name', 'description': ''}])
+
+		model_config = {'json_schema_extra': {'examples': [{'type': 'object', 'properties': {'title': 'data'}}]}}
+
+	schema = SchemaOptimizer.create_optimized_json_schema(Search)
+	properties = schema['properties']
+
+	assert properties['filters']['default'] == {'title': 'Engineer', 'type': 'object'}
+	assert properties['columns']['default'] == [{'title': 'Name', 'description': ''}]
+	assert schema['examples'] == [{'type': 'object', 'properties': {'title': 'data'}}]
+	assert properties['filters']['additionalProperties'] is False
+
+
+def test_remove_defaults_does_not_rewrite_other_instance_values():
+	"""Removing schema defaults leaves const, enum, and examples untouched."""
+
+	class Value(BaseModel):
+		choice: str = Field(default='x', json_schema_extra={'const': {'title': 'fixed'}, 'examples': [{'type': 'object'}]})
+
+	schema = SchemaOptimizer.create_optimized_json_schema(Value, remove_defaults=True)
+	field_schema = schema['properties']['choice']
+
+	assert 'default' not in field_schema
+	assert field_schema['const'] == {'title': 'fixed'}
+	assert field_schema['examples'] == [{'type': 'object'}]
