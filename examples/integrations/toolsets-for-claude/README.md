@@ -2,7 +2,12 @@
 
 Browser Use toolsets for Claude is maintained by Browser Use and is compatible with Claude. It provides browser actions and a Bash tool through the Anthropic Python SDK. The SDK's tool runner sends each of Claude's tool calls to Browser Use, returns the result to Claude, and repeats until Claude finishes.
 
-![Claude sends tool calls through the Anthropic SDK to Browser Use. Browser Use provides browser actions and Bash; results return to Claude. The browser can run locally or remotely, while Bash runs beside the SDK.](./architecture.svg)
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="./architecture-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="./architecture-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="./architecture-dark.svg">
+  <img alt="Claude sends tool calls through the Anthropic SDK to Browser Use. Browser Use provides browser actions and Bash; results return to Claude. The browser can run locally or remotely, while Bash runs beside the SDK." src="./architecture-light.svg" width="100%">
+</picture>
 
 The same program works with three browser runtimes:
 
@@ -39,7 +44,7 @@ export ANTHROPIC_LOG=info
 Before running the example, check that the installed SDK exposes the browser toolset:
 
 ```bash
-uv run python -c "from anthropic.tools.browser import LocalFilePolicy; from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse; print('Browser toolset imports OK')"
+uv run python -c "from anthropic.tools.browser import BetaLocalFilePolicy; from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse; print('Browser toolset imports OK')"
 ```
 
 Browser Use 0.13.11 or newer includes this integration. The Anthropic 1.x version range alone does not guarantee browser-toolset support: you need the compatible release from Anthropic. If the check reports that `anthropic.tools.browser` is missing, follow Anthropic's browser-toolset release instructions before continuing. Reinstalling Browser Use or adding a Cloud key cannot supply that SDK module.
@@ -60,7 +65,7 @@ import asyncio
 from pathlib import Path
 
 from anthropic import AsyncAnthropic
-from anthropic.tools.browser import LocalFilePolicy  # pyright: ignore[reportMissingImports]
+from anthropic.tools.browser import BetaLocalFilePolicy  # pyright: ignore[reportMissingImports]
 
 from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse
 
@@ -80,7 +85,7 @@ async def main() -> None:
 			'read_network': {'enabled': True},
 		},
 		confirm=lambda _: True,  # Run without approval prompts.
-		file_policy=LocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
+		file_policy=BetaLocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
 	)
 	bash = Bash(output_dir=Path('outputs'))
 
@@ -142,7 +147,12 @@ call to Browser Use and returns the result to Claude. Browser actions and
 Bash are part of the same integration; they run on the browser host and
 SDK host respectively.
 
-![Two calls after opening Hacker News: Claude asks Browser Use to read the page, receives the result, then uses Bash to save Markdown and JSON on the SDK host. Anthropic's tool runner connects each request and response.](./tool-sequence.svg)
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="./tool-sequence-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="./tool-sequence-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="./tool-sequence-dark.svg">
+  <img alt="Two calls after opening Hacker News: Claude asks Browser Use to read the page, receives the result, then uses Bash to save Markdown and JSON on the SDK host. Anthropic's tool runner connects each request and response." src="./tool-sequence-light.svg" width="100%">
+</picture>
 
 ## Browser Use Cloud
 
@@ -233,14 +243,19 @@ To opt out, set an action's `enabled` value to `False` in the `configs` passed t
 
 ## Files with remote browsers
 
-![A report starts on the SDK host. The application copies bytes to the remote browser host before file_upload can select the staged file. Download notifications return metadata; the application must retrieve the bytes before Bash can read a local copy. These transfers are not built into the driver.](./files-between-hosts.svg)
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="./files-between-hosts-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="./files-between-hosts-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="./files-between-hosts-dark.svg">
+  <img alt="A report starts on the SDK host. The application copies bytes to the remote browser host before file_upload can select the staged file. Download notifications return metadata; the application must retrieve the bytes before Bash can read a local copy. These transfers are not built into the driver." src="./files-between-hosts-light.svg" width="100%">
+</picture>
 
 `file_upload` works when the resolved file path exists on the browser host.
 For a remote browser, provide a `document_resolver` that maps an approved
 document ID to a browser-host path:
 
 ```python
-from anthropic.tools.browser import LocalFilePolicy
+from anthropic.tools.browser import BetaLocalFilePolicy
 
 # These files must already exist on the browser host.
 remote_paths = {'approved-report': '/srv/staged/report.pdf'}
@@ -248,7 +263,7 @@ remote_paths = {'approved-report': '/srv/staged/report.pdf'}
 driver = BrowserUse(
     session,
     document_resolver=lambda document_id: remote_paths[document_id],
-    file_policy=LocalFilePolicy(upload_document_ids=remote_paths.keys()),
+    file_policy=BetaLocalFilePolicy(upload_document_ids=remote_paths.keys()),
     configs={'file_upload': {'enabled': True}},
     confirm=lambda _: True,
 )
@@ -297,19 +312,24 @@ Enabling JavaScript or file upload requires a `confirm` callback. The SDK calls 
 
 The callback flow is:
 
-![Claude requests an action. The confirmation callback either allows the driver to execute it or declines it. A callback error also prevents execution. The action output, refusal, or error returns to Claude; approval covers one action.](./approval-gate.svg)
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="./approval-gate-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="./approval-gate-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="./approval-gate-dark.svg">
+  <img alt="Claude requests an action. The confirmation callback either allows the driver to execute it or declines it. A callback error also prevents execution. The action output, refusal, or error returns to Claude; approval covers one action." src="./approval-gate-light.svg" width="100%">
+</picture>
 
-[See the detailed file-upload sequence](./confirmation-callback.svg)
+See the detailed file-upload sequence ([light](./confirmation-callback-light.svg), [dark](./confirmation-callback-dark.svg)).
 
 ```python
 import asyncio
 from pathlib import Path
 
-from anthropic.tools.browser import ConfirmContext, LocalFilePolicy
+from anthropic.tools.browser import BetaConfirmContext, BetaLocalFilePolicy
 from browser_use.integrations.toolsets_for_claude import BrowserUse
 
 
-async def confirm(context: ConfirmContext) -> bool:
+async def confirm(context: BetaConfirmContext) -> bool:
     if context.member not in {'file_upload', 'javascript_exec'}:
         return True
     details = context.input.model_dump_json(exclude_none=True)
@@ -326,13 +346,13 @@ driver = BrowserUse(
         'javascript_exec': {'enabled': True},
     },
     confirm=confirm,
-    file_policy=LocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
+    file_policy=BetaLocalFilePolicy(upload_roots=[Path('uploads'), Path('outputs')]),
 )
 ```
 
 A declined approval prevents that browser action from reaching the driver. Enabling
 `file_upload` and approving it does not grant access to every file: configure
-`LocalFilePolicy(upload_roots=[...])` for local files, or allowlisted document IDs
+`BetaLocalFilePolicy(upload_roots=[...])` for local files, or allowlisted document IDs
 as described in [Files with remote browsers](#files-with-remote-browsers). The file policy validates the file selection before the action executes.
 The callback above approves all other browser actions; applications handling purchases,
 messages, or deletion should also gate those actions. Browser `confirm` does not gate
