@@ -68,6 +68,7 @@ async def test_nested_nullable_fields_and_array_items_are_preserved():
 		),
 		('nullable_array', {'type': 'array', 'nullable': True, 'items': {'type': 'string'}}),
 		('nullable_enum', {'type': 'string', 'enum': ['ready', None]}),
+		('nullable_type', {'type': 'null'}),
 		('nullable_type_array', {'type': ['string', 'null']}),
 	],
 )
@@ -125,6 +126,7 @@ async def test_omitted_nullable_fields_stay_omitted_with_sensitive_data():
 					'properties': {'note': {'type': 'string', 'nullable': True}},
 				},
 				'omitted': {'type': 'string', 'nullable': True},
+				'credential': {'type': 'string', 'default': '<secret>api_key</secret>'},
 			},
 		},
 	)
@@ -133,8 +135,11 @@ async def test_omitted_nullable_fields_stay_omitted_with_sensitive_data():
 	result = await registry.execute_action(
 		'save_optional',
 		{'value': None, 'payload': {}},
-		sensitive_data={'unused_secret': 'secret'},
+		sensitive_data={'api_key': 'secret'},
 	)
 
 	assert result.error is None
-	client.session.call_tool.assert_awaited_once_with('save_optional', {'value': None, 'payload': {}})
+	client.session.call_tool.assert_awaited_once_with(
+		'save_optional',
+		{'value': None, 'payload': {}, 'credential': 'secret'},
+	)
