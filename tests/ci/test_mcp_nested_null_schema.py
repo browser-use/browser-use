@@ -199,6 +199,134 @@ async def test_one_of_rejects_values_matching_multiple_alternatives():
 
 
 @pytest.mark.asyncio
+async def test_all_of_object_intersections_and_boolean_alternatives():
+	client = MCPClient(server_name='test-server', command='test-command')
+	client._telemetry = MagicMock()
+	client._connected = True
+	client.session = MagicMock()
+	client.session.call_tool = AsyncMock(
+		return_value=types.CallToolResult(
+			content=[types.TextContent(type='text', text='success')],
+			is_error=False,
+		)
+	)
+	registry = Registry()
+	tool = types.Tool(
+		name='validate_all_of_and_boolean_schemas',
+		description='Validate allOf object intersections and boolean alternatives',
+		input_schema={
+			'type': 'object',
+			'properties': {
+				'payload': {
+					'allOf': [
+						{
+							'type': 'object',
+							'properties': {'name': {'type': 'string'}},
+							'required': ['name'],
+						},
+						{
+							'type': 'object',
+							'properties': {'age': {'type': 'integer', 'minimum': 18}},
+							'required': ['age'],
+						},
+					]
+				},
+				'text': {'anyOf': [False, {'type': 'string'}]},
+				'open': {'anyOf': [True, {'type': 'string'}]},
+			},
+			'required': ['payload', 'text', 'open'],
+		},
+	)
+	client._register_tool_as_action(registry, 'validate_all_of_and_boolean_schemas', tool)
+
+	with pytest.raises(RuntimeError, match='Invalid parameters'):
+		await registry.execute_action(
+			'validate_all_of_and_boolean_schemas',
+			{'payload': {'name': 'member'}, 'text': 'ok', 'open': 42},
+		)
+	client.session.call_tool.assert_not_awaited()
+
+	result = await registry.execute_action(
+		'validate_all_of_and_boolean_schemas',
+		{'payload': {'name': 'member', 'age': 18}, 'text': 'ok', 'open': 42},
+	)
+
+	assert result.error is None
+	client.session.call_tool.assert_awaited_once_with(
+		'validate_all_of_and_boolean_schemas',
+		{'payload': {'name': 'member', 'age': 18}, 'text': 'ok', 'open': 42},
+	)
+
+
+@pytest.mark.asyncio
+async def test_false_boolean_schema_alternative_rejects_values():
+	client = MCPClient(server_name='test-server', command='test-command')
+	client._telemetry = MagicMock()
+	client._connected = True
+	client.session = MagicMock()
+	client.session.call_tool = AsyncMock(
+		return_value=types.CallToolResult(
+			content=[types.TextContent(type='text', text='success')],
+			is_error=False,
+		)
+	)
+	registry = Registry()
+	tool = types.Tool(
+		name='reject_false_schema',
+		description='Reject values for a false JSON Schema',
+		input_schema={
+			'type': 'object',
+			'properties': {'value': {'anyOf': [False]}},
+			'required': ['value'],
+		},
+	)
+	client._register_tool_as_action(registry, 'reject_false_schema', tool)
+
+	with pytest.raises(RuntimeError, match='Invalid parameters'):
+		await registry.execute_action('reject_false_schema', {'value': 'not allowed'})
+	client.session.call_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+	('schema', 'invalid_value'),
+	[
+		({'type': 'string', 'minLength': 3}, 'ab'),
+		({'type': 'string', 'pattern': '^[A-Z]+$'}, 'lower'),
+		({'type': 'number', 'minimum': 5}, 4),
+		({'type': 'array', 'maxItems': 1, 'items': {'type': 'integer'}}, [1, 2]),
+		({'type': 'array', 'uniqueItems': True}, ['same', 'same']),
+	],
+)
+async def test_composition_validator_enforces_scalar_and_collection_constraints(schema, invalid_value):
+	client = MCPClient(server_name='test-server', command='test-command')
+	client._telemetry = MagicMock()
+	client._connected = True
+	client.session = MagicMock()
+	client.session.call_tool = AsyncMock(
+		return_value=types.CallToolResult(
+			content=[types.TextContent(type='text', text='success')],
+			is_error=False,
+		)
+	)
+	registry = Registry()
+	tool = types.Tool(
+		name='validate_constrained_value',
+		description='Validate constrained value',
+		input_schema={
+			'type': 'object',
+			'properties': {'value': {'anyOf': [schema]}},
+			'required': ['value'],
+		},
+	)
+	client._register_tool_as_action(registry, 'validate_constrained_value', tool)
+
+	with pytest.raises(RuntimeError, match='Invalid parameters'):
+		await registry.execute_action('validate_constrained_value', {'value': invalid_value})
+	client.session.call_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_omitted_nullable_fields_stay_omitted_with_sensitive_data():
 	client = MCPClient(server_name='test-server', command='test-command')
 	client._telemetry = MagicMock()

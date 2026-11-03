@@ -24,6 +24,8 @@ Example usage:
 
 import asyncio
 import logging
+import math
+import re
 import time
 from typing import Annotated, Any, ClassVar, Union
 
@@ -44,15 +46,16 @@ from mcp.client.stdio import stdio_client
 MCP_AVAILABLE = True
 
 
-def _schema_accepts_value(value: Any, schema: dict[str, Any]) -> bool:
-	if value is None and schema.get('nullable', False):
-		return True
+def _schema_accepts_value(value: Any, schema: dict[str, Any] | bool) -> bool:
+	if isinstance(schema, bool):
+		return schema
 
 	json_type = schema.get('type')
 	if json_type is not None:
 		json_types = json_type if isinstance(json_type, list) else [json_type]
 		type_matches = any(
 			(type_name == 'null' and value is None)
+			or (value is None and schema.get('nullable', False))
 			or (type_name == 'string' and isinstance(value, str))
 			or (type_name == 'boolean' and isinstance(value, bool))
 			or (type_name == 'integer' and isinstance(value, int) and not isinstance(value, bool))
@@ -76,25 +79,67 @@ def _schema_accepts_value(value: Any, schema: dict[str, Any]) -> bool:
 	if 'allOf' in schema and not all(_schema_accepts_value(value, variant) for variant in schema['allOf']):
 		return False
 
+	if isinstance(value, str):
+		if len(value) < schema.get('minLength', 0) or len(value) > schema.get('maxLength', math.inf):
+			return False
+		if 'pattern' in schema and re.search(schema['pattern'], value) is None:
+			return False
+
+	if isinstance(value, (int, float)) and not isinstance(value, bool):
+		if value < schema.get('minimum', -math.inf) or value > schema.get('maximum', math.inf):
+			return False
+		if value <= schema.get('exclusiveMinimum', -math.inf) or value >= schema.get('exclusiveMaximum', math.inf):
+			return False
+		if 'multipleOf' in schema:
+			multiple = schema['multipleOf']
+			if multiple <= 0 or not math.isclose(value / multiple, round(value / multiple), rel_tol=1e-9, abs_tol=1e-9):
+				return False
+
 	if isinstance(value, dict):
+		if len(value) < schema.get('minProperties', 0) or len(value) > schema.get('maxProperties', math.inf):
+			return False
 		if not set(schema.get('required', [])).issubset(value):
 			return False
 		properties = schema.get('properties', {})
 		if any(
-			key in value and isinstance(property_schema, dict) and not _schema_accepts_value(value[key], property_schema)
-			for key, property_schema in properties.items()
+			key in value and not _schema_accepts_value(value[key], property_schema) for key, property_schema in properties.items()
 		):
 			return False
-		if schema.get('additionalProperties') is False and set(value) - set(properties):
+		extra_properties = set(value) - set(properties)
+		additional_properties = schema.get('additionalProperties', True)
+		if additional_properties is False and extra_properties:
 			return False
-	if isinstance(value, list) and isinstance(schema.get('items'), dict):
-		if any(not _schema_accepts_value(item, schema['items']) for item in value):
+		if isinstance(additional_properties, (dict, bool)) and any(
+			not _schema_accepts_value(value[key], additional_properties) for key in extra_properties
+		):
 			return False
+	if isinstance(value, list):
+		if len(value) < schema.get('minItems', 0) or len(value) > schema.get('maxItems', math.inf):
+			return False
+		if schema.get('uniqueItems', False) and any(
+			value[left] == value[right] for left in range(len(value)) for right in range(left + 1, len(value))
+		):
+			return False
+		prefix_items = schema.get('prefixItems', [])
+		if any(
+			index < len(value) and not _schema_accepts_value(value[index], item_schema)
+			for index, item_schema in enumerate(prefix_items)
+		):
+			return False
+		items_schema = schema.get('items')
+		if isinstance(items_schema, (dict, bool)) and any(
+			not _schema_accepts_value(item, items_schema) for index, item in enumerate(value) if index >= len(prefix_items)
+		):
+			return False
+		if 'contains' in schema:
+			match_count = sum(_schema_accepts_value(item, schema['contains']) for item in value)
+			if match_count < schema.get('minContains', 1) or match_count > schema.get('maxContains', math.inf):
+				return False
 
 	return True
 
 
-def _schema_allows_null(schema: dict[str, Any]) -> bool:
+def _schema_allows_null(schema: dict[str, Any] | bool) -> bool:
 	return _schema_accepts_value(None, schema)
 
 
@@ -550,25 +595,43 @@ class MCPClient:
 		Returns:
 			Python type corresponding to the schema
 		"""
-		compositions = {composition: schema[composition] for composition in ('anyOf', 'oneOf') if composition in schema}
+		compositions = {composition: schema[composition] for composition in ('allOf', 'anyOf', 'oneOf') if composition in schema}
 		if compositions:
 			if any(not isinstance(variants, list) for variants in compositions.values()):
-				raise ValueError('JSON Schema anyOf and oneOf values must be lists')
+				raise ValueError('JSON Schema allOf, anyOf, and oneOf values must be lists')
 
 			base_schema = {key: value for key, value in schema.items() if key not in compositions}
-			if 'type' in base_schema:
+			if base_schema.get('type') == 'object':
+				python_type = dict
+			elif 'type' in base_schema:
 				python_type = self._json_schema_to_python_type(base_schema, model_name)
+			elif 'allOf' in compositions:
+				variant_types = []
+				for variant in compositions['allOf']:
+					if isinstance(variant, bool):
+						continue
+					if not isinstance(variant, dict):
+						raise ValueError('JSON Schema allOf entries must be objects or booleans')
+					if variant.get('type') == 'object':
+						variant_types.append(dict)
+					elif 'type' in variant:
+						variant_types.append(self._json_schema_to_python_type(variant, model_name))
+				python_types = list(dict.fromkeys(variant_types))
+				python_type = python_types[0] if len(python_types) == 1 else Any
 			else:
 				python_types = []
 				for variants in compositions.values():
 					for variant in variants:
-						if not isinstance(variant, dict):
-							raise ValueError('JSON Schema anyOf and oneOf entries must be objects')
-						variant_type = self._json_schema_to_python_type(variant, model_name)
+						if isinstance(variant, bool):
+							variant_type = Any
+						elif isinstance(variant, dict):
+							variant_type = self._json_schema_to_python_type(variant, model_name)
+						else:
+							raise ValueError('JSON Schema composition entries must be objects or booleans')
 						if variant_type not in python_types:
 							python_types.append(variant_type)
 				if not python_types:
-					raise ValueError('JSON Schema anyOf and oneOf must contain at least one schema')
+					raise ValueError('JSON Schema compositions must contain at least one schema')
 				python_type = python_types[0] if len(python_types) == 1 else Union[tuple(python_types)]
 
 			def validate_composition(value: Any) -> Any:
