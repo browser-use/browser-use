@@ -669,7 +669,7 @@ class MCPClient:
 					raise ValueError('Value does not satisfy its JSON Schema composition')
 				return value
 
-			metadata = [BeforeValidator(validate_composition)]
+			metadata: list[Any] = [BeforeValidator(validate_composition)]
 			if 'allOf' in compositions:
 				metadata.append(WithJsonSchema(_schema_for_composed_object(schema)))
 			return Annotated[python_type, *metadata]
