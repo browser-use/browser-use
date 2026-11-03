@@ -104,6 +104,101 @@ async def test_nullable_schema_forms_accept_and_transmit_null(name, parameter_sc
 
 
 @pytest.mark.asyncio
+async def test_composition_respects_sibling_type_and_object_constraints():
+	client = MCPClient(server_name='test-server', command='test-command')
+	client._telemetry = MagicMock()
+	client._connected = True
+	client.session = MagicMock()
+	client.session.call_tool = AsyncMock(
+		return_value=types.CallToolResult(
+			content=[types.TextContent(type='text', text='success')],
+			is_error=False,
+		)
+	)
+	registry = Registry()
+	tool = types.Tool(
+		name='validate_composition_siblings',
+		description='Validate sibling JSON Schema constraints',
+		input_schema={
+			'type': 'object',
+			'properties': {
+				'text': {
+					'type': 'string',
+					'anyOf': [{'type': 'string'}, {'type': 'null'}],
+				},
+				'payload': {
+					'type': 'object',
+					'properties': {'name': {'type': 'string'}},
+					'required': ['name'],
+					'anyOf': [{'type': 'object'}],
+				},
+			},
+			'required': ['text', 'payload'],
+		},
+	)
+	client._register_tool_as_action(registry, 'validate_composition_siblings', tool)
+
+	with pytest.raises(RuntimeError, match='Invalid parameters'):
+		await registry.execute_action(
+			'validate_composition_siblings',
+			{'text': None, 'payload': {'name': 'member'}},
+		)
+	with pytest.raises(RuntimeError, match='Invalid parameters'):
+		await registry.execute_action(
+			'validate_composition_siblings',
+			{'text': 'hello', 'payload': {}},
+		)
+	client.session.call_tool.assert_not_awaited()
+
+	valid = await registry.execute_action(
+		'validate_composition_siblings',
+		{'text': 'hello', 'payload': {'name': 'member'}},
+	)
+
+	assert valid.error is None
+	client.session.call_tool.assert_awaited_once_with(
+		'validate_composition_siblings',
+		{'text': 'hello', 'payload': {'name': 'member'}},
+	)
+
+
+@pytest.mark.asyncio
+async def test_one_of_rejects_values_matching_multiple_alternatives():
+	client = MCPClient(server_name='test-server', command='test-command')
+	client._telemetry = MagicMock()
+	client._connected = True
+	client.session = MagicMock()
+	client.session.call_tool = AsyncMock(
+		return_value=types.CallToolResult(
+			content=[types.TextContent(type='text', text='success')],
+			is_error=False,
+		)
+	)
+	registry = Registry()
+	tool = types.Tool(
+		name='validate_one_of',
+		description='Require exactly one matching alternative',
+		input_schema={
+			'type': 'object',
+			'properties': {
+				'value': {
+					'oneOf': [
+						{'type': 'string'},
+						{'type': 'string', 'enum': ['duplicate']},
+					]
+				}
+			},
+			'required': ['value'],
+		},
+	)
+	client._register_tool_as_action(registry, 'validate_one_of', tool)
+
+	with pytest.raises(RuntimeError, match='Invalid parameters'):
+		await registry.execute_action('validate_one_of', {'value': 'duplicate'})
+	client.session.call_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_omitted_nullable_fields_stay_omitted_with_sensitive_data():
 	client = MCPClient(server_name='test-server', command='test-command')
 	client._telemetry = MagicMock()

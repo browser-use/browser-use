@@ -25,9 +25,9 @@ Example usage:
 import asyncio
 import logging
 import time
-from typing import Any, ClassVar, Union
+from typing import Annotated, Any, ClassVar, Union
 
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, create_model
 
 from browser_use.agent.views import ActionResult
 from browser_use.telemetry import MCPClientTelemetryEvent, ProductTelemetry
@@ -44,19 +44,58 @@ from mcp.client.stdio import stdio_client
 MCP_AVAILABLE = True
 
 
-def _schema_allows_null(schema: dict[str, Any]) -> bool:
+def _schema_accepts_value(value: Any, schema: dict[str, Any]) -> bool:
+	if value is None and schema.get('nullable', False):
+		return True
+
 	json_type = schema.get('type')
-	return (
-		schema.get('nullable', False)
-		or json_type == 'null'
-		or (isinstance(json_type, list) and 'null' in json_type)
-		or ('enum' in schema and any(value is None for value in schema['enum']))
-		or any(
-			isinstance(schema.get(composition), list)
-			and any(isinstance(variant, dict) and _schema_allows_null(variant) for variant in schema[composition])
-			for composition in ('anyOf', 'oneOf')
+	if json_type is not None:
+		json_types = json_type if isinstance(json_type, list) else [json_type]
+		type_matches = any(
+			(type_name == 'null' and value is None)
+			or (type_name == 'string' and isinstance(value, str))
+			or (type_name == 'boolean' and isinstance(value, bool))
+			or (type_name == 'integer' and isinstance(value, int) and not isinstance(value, bool))
+			or (type_name == 'number' and isinstance(value, (int, float)) and not isinstance(value, bool))
+			or (type_name == 'array' and isinstance(value, list))
+			or (type_name == 'object' and isinstance(value, dict))
+			for type_name in json_types
 		)
-	)
+		enum_allows_null = value is None and 'enum' in schema and None in schema['enum']
+		if not type_matches and not enum_allows_null:
+			return False
+
+	if 'enum' in schema and value not in schema['enum']:
+		return False
+	if 'const' in schema and value != schema['const']:
+		return False
+	if 'anyOf' in schema and not any(_schema_accepts_value(value, variant) for variant in schema['anyOf']):
+		return False
+	if 'oneOf' in schema and sum(_schema_accepts_value(value, variant) for variant in schema['oneOf']) != 1:
+		return False
+	if 'allOf' in schema and not all(_schema_accepts_value(value, variant) for variant in schema['allOf']):
+		return False
+
+	if isinstance(value, dict):
+		if not set(schema.get('required', [])).issubset(value):
+			return False
+		properties = schema.get('properties', {})
+		if any(
+			key in value and isinstance(property_schema, dict) and not _schema_accepts_value(value[key], property_schema)
+			for key, property_schema in properties.items()
+		):
+			return False
+		if schema.get('additionalProperties') is False and set(value) - set(properties):
+			return False
+	if isinstance(value, list) and isinstance(schema.get('items'), dict):
+		if any(not _schema_accepts_value(item, schema['items']) for item in value):
+			return False
+
+	return True
+
+
+def _schema_allows_null(schema: dict[str, Any]) -> bool:
+	return _schema_accepts_value(None, schema)
 
 
 def _nullable_python_type(python_type: Any) -> Any:
@@ -511,17 +550,33 @@ class MCPClient:
 		Returns:
 			Python type corresponding to the schema
 		"""
-		for composition in ('anyOf', 'oneOf'):
-			variants = schema.get(composition)
-			if isinstance(variants, list):
+		compositions = {composition: schema[composition] for composition in ('anyOf', 'oneOf') if composition in schema}
+		if compositions:
+			if any(not isinstance(variants, list) for variants in compositions.values()):
+				raise ValueError('JSON Schema anyOf and oneOf values must be lists')
+
+			base_schema = {key: value for key, value in schema.items() if key not in compositions}
+			if 'type' in base_schema:
+				python_type = self._json_schema_to_python_type(base_schema, model_name)
+			else:
 				python_types = []
-				for variant in variants:
-					if isinstance(variant, dict):
+				for variants in compositions.values():
+					for variant in variants:
+						if not isinstance(variant, dict):
+							raise ValueError('JSON Schema anyOf and oneOf entries must be objects')
 						variant_type = self._json_schema_to_python_type(variant, model_name)
 						if variant_type not in python_types:
 							python_types.append(variant_type)
-				if python_types:
-					return python_types[0] if len(python_types) == 1 else Union[tuple(python_types)]
+				if not python_types:
+					raise ValueError('JSON Schema anyOf and oneOf must contain at least one schema')
+				python_type = python_types[0] if len(python_types) == 1 else Union[tuple(python_types)]
+
+			def validate_composition(value: Any) -> Any:
+				if not _schema_accepts_value(value, schema):
+					raise ValueError('Value does not satisfy its JSON Schema composition')
+				return value
+
+			return Annotated[python_type, BeforeValidator(validate_composition)]
 
 		json_type = schema.get('type', 'string')
 
