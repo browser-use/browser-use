@@ -1,8 +1,39 @@
 """Tests for lazy loading configuration system."""
 
+import json
 import os
 
-from browser_use.config import CONFIG
+import pytest
+
+from browser_use.config import CONFIG, load_browser_use_config
+
+
+@pytest.mark.parametrize('server_override', [None, 'http://other-proxy.example:8080'])
+def test_proxy_bypass_override_preserves_existing_proxy(tmp_path, monkeypatch, server_override):
+	proxy = {
+		'server': 'http://proxy.example:8080',
+		'bypass': 'localhost',
+		'username': 'test-user',
+		'password': 'test-password',
+	}
+	config_path = tmp_path / 'config.json'
+	config_path.write_text(
+		json.dumps({'browser_profile': {'test': {'id': 'test', 'proxy': proxy}}, 'llm': {}, 'agent': {}}),
+		encoding='utf-8',
+	)
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv('BROWSER_USE_CONFIG_PATH', str(config_path))
+	for name in ('BROWSER_USE_PROXY_URL', 'BROWSER_USE_PROXY_USERNAME', 'BROWSER_USE_PROXY_PASSWORD'):
+		monkeypatch.delenv(name, raising=False)
+	monkeypatch.setenv('BROWSER_USE_NO_PROXY', 'localhost, *.internal')
+	if server_override:
+		monkeypatch.setenv('BROWSER_USE_PROXY_URL', server_override)
+
+	loaded = load_browser_use_config()['browser_profile']['proxy']
+	if server_override:
+		assert loaded == {'server': server_override, 'bypass': 'localhost,*.internal'}
+	else:
+		assert loaded == {**proxy, 'bypass': 'localhost,*.internal'}
 
 
 class TestLazyConfig:
