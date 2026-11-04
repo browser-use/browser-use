@@ -211,3 +211,81 @@ async def test_vercel_gemini_ainvoke_sends_cleaned_schema(monkeypatch):
 		'properties': {'title': {'type': 'string'}, 'price': {'type': 'string'}},
 		'required': ['title', 'price'],
 	}
+
+
+class SchemaKeywordFields(BaseModel):
+	"""A model whose field names collide with JSON Schema keywords."""
+
+	default: str
+	additionalProperties: str
+
+
+async def test_vercel_gemini_ainvoke_keeps_property_names_that_are_schema_keywords():
+	"""A property literally named 'default' or 'additionalProperties' must survive the Gemini cleanup."""
+	captured: dict[str, Any] = {}
+
+	class FakeCompletions:
+		async def create(self, **kwargs):
+			captured.update(kwargs)
+			return SimpleNamespace(
+				choices=[
+					SimpleNamespace(
+						message=SimpleNamespace(content='{"default": "a", "additionalProperties": "b"}'), finish_reason='stop'
+					)
+				],
+				usage=None,
+			)
+
+	llm = ChatVercel(model='google/gemini-2.5-flash', api_key='test-key')
+	monkeypatch.setattr(llm, 'get_client', lambda: SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions())))
+
+	await llm.ainvoke([SystemMessage(content='Extract the fields.')], output_format=SchemaKeywordFields)
+
+	prompt = next(
+		message['content']
+		for message in captured['messages']
+		if isinstance(message.get('content'), str) and SCHEMA_INSTRUCTION_MARKER in message['content']
+	)
+	schema = json.loads(prompt.split(SCHEMA_INSTRUCTION_MARKER, 1)[1])
+
+	# Inside a properties map every key is a property name, not a schema keyword.
+	assert set(schema['properties']) == {'default', 'additionalProperties'}
+	# So 'required' keeps pointing at properties that really exist.
+	assert set(schema['required']) == {'default', 'additionalProperties'}
+	assert set(schema['required']) <= set(schema['properties'])
+
+
+async def test_vercel_ainvoke_only_cleans_the_schema_for_google_models(monkeypatch):
+	"""The Gemini-only cleanup must not strip schema keywords for other providers."""
+	captured: dict[str, Any] = {}
+
+	class FakeCompletions:
+		async def create(self, **kwargs):
+			captured.update(kwargs)
+			return SimpleNamespace(
+				choices=[
+					SimpleNamespace(message=SimpleNamespace(content='{"title": "Widget", "price": "9.99"}'), finish_reason='stop')
+				],
+				usage=None,
+			)
+
+	def _prompt_schema() -> dict[str, Any]:
+		prompt = next(
+			message['content']
+			for message in captured['messages']
+			if isinstance(message.get('content'), str) and SCHEMA_INSTRUCTION_MARKER in message['content']
+		)
+		return json.loads(prompt.split(SCHEMA_INSTRUCTION_MARKER, 1)[1])
+
+	# Gemini rejects 'additionalProperties', so Google models get the cleaned schema.
+	google = ChatVercel(model='google/gemini-2.5-flash', api_key='test-key')
+	monkeypatch.setattr(google, 'get_client', lambda: SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions())))
+	await google.ainvoke([SystemMessage(content='Extract the product info.')], output_format=VercelProduct)
+	assert _find_keys(_prompt_schema(), 'additionalProperties') == []
+
+	# Anthropic supports 'additionalProperties', so its prompt keeps the full schema.
+	captured.clear()
+	anthropic = ChatVercel(model='anthropic/claude-sonnet-4.5', api_key='test-key')
+	monkeypatch.setattr(anthropic, 'get_client', lambda: SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions())))
+	await anthropic.ainvoke([SystemMessage(content='Extract the product info.')], output_format=VercelProduct)
+	assert _find_keys(_prompt_schema(), 'additionalProperties') == [False]

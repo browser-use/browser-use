@@ -411,7 +411,8 @@ class ChatVercel(BaseChatModel):
 
 		This function removes unsupported properties like 'additionalProperties' and resolves
 		$ref references that Gemini doesn't support. The metadata 'title' of a schema is removed
-		as well, while a property literally named 'title' is kept.
+		as well, while properties literally named 'title', 'default' or 'additionalProperties'
+		are kept.
 		"""
 
 		# Handle $defs and $ref resolution
@@ -455,7 +456,11 @@ class ChatVercel(BaseChatModel):
 					# 'properties' is the schema keyword only outside a properties map; inside one it is
 					# just another property name, so its value is a sub-schema and not a properties map.
 					child_is_properties_map = key == 'properties' and not in_properties_map
-					if key not in ['additionalProperties', 'default'] and not is_metadata_title:
+					# 'additionalProperties' and 'default' are schema keywords Gemini rejects, but they
+					# are legal property names as well. Inside a properties map every key is a property
+					# name and has to be kept, otherwise 'required' would reference a property that no
+					# longer exists.
+					if (key not in ['additionalProperties', 'default'] and not is_metadata_title) or in_properties_map:
 						cleaned_value = clean_schema(value, in_properties_map=child_is_properties_map)
 						# Handle empty object properties - Gemini doesn't allow empty OBJECT types
 						if (
@@ -573,9 +578,11 @@ class ChatVercel(BaseChatModel):
 				if is_google_model or is_anthropic_model or is_reasoning:
 					modified_messages = [m.model_copy(deep=True) for m in messages]
 
-					# The prompt carries the schema verbatim, so it has to be Gemini-compatible:
-					# _fix_gemini_schema drops keywords Gemini rejects (additionalProperties, metadata title).
-					schema = self._fix_gemini_schema(SchemaOptimizer.create_gemini_optimized_schema(output_format))
+					# The prompt carries the schema verbatim. Only Gemini rejects keywords like
+					# 'additionalProperties' or 'default', so the Gemini-specific cleanup is applied to
+					# Google models only - other providers keep the full schema in the prompt.
+					optimized_schema = SchemaOptimizer.create_gemini_optimized_schema(output_format)
+					schema = self._fix_gemini_schema(optimized_schema) if is_google_model else optimized_schema
 					json_instruction = f'\n\nIMPORTANT: You must respond with ONLY a valid JSON object (no markdown, no code blocks, no explanations) that exactly matches this schema:\n{json.dumps(schema, indent=2)}'
 
 					instruction_added = False
