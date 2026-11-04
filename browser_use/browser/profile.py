@@ -607,6 +607,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	# Session/connection configuration
 	cdp_url: str | None = Field(default=None, description='CDP URL for connecting to existing browser instance')
+	initial_tab: Literal['first', 'active'] = Field(
+		default='first',
+		description='Initial page selection: first discovered page, or focused/sole visible existing page (requires cdp_url).',
+	)
 	is_local: bool = Field(default=False, description='Whether this is a local browser instance')
 	use_cloud: bool = Field(
 		default=False,

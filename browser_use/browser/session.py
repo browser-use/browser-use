@@ -816,6 +816,8 @@ class BrowserSession(BaseModel):
 		try:
 			# If no CDP URL, launch local browser or cloud browser
 			if not self.cdp_url:
+				if self.browser_profile.initial_tab == 'active':
+					raise ValueError('initial_tab="active" requires an existing browser cdp_url; no browser will be launched.')
 				if self.browser_profile.use_cloud or self.browser_profile.cloud_browser_params is not None:
 					# Use cloud browser service
 					try:
@@ -1854,6 +1856,50 @@ class BrowserSession(BaseModel):
 		# Mark watchdogs as attached to prevent duplicate attachment
 		self._watchdogs_attached = True
 
+	async def _get_active_page_target(self, targets: list[Target]) -> TargetID:
+		"""Find the focused page, or sole visible page, without changing browser focus."""
+
+		async def page_focus(target: Target) -> tuple[bool, bool]:
+			session = await self.get_or_create_cdp_session(target.target_id, focus=False)
+			result = await session.cdp_client.send.Runtime.evaluate(
+				params={
+					'expression': '({focused: document.hasFocus(), visible: document.visibilityState === "visible"})',
+					'returnByValue': True,
+				},
+				session_id=session.session_id,
+			)
+			value = result.get('result', {}).get('value')
+			if (
+				result.get('exceptionDetails')
+				or not isinstance(value, dict)
+				or not isinstance(value.get('focused'), bool)
+				or not isinstance(value.get('visible'), bool)
+			):
+				raise RuntimeError('Unable to read page focus')
+			return value['focused'], value['visible']
+
+		pages = [target for target in targets if target.target_type == 'page']
+		results = await asyncio.gather(
+			*(asyncio.wait_for(page_focus(target), timeout=3.0) for target in pages), return_exceptions=True
+		)
+		if any(isinstance(result, BaseException) for result in results):
+			raise RuntimeError(
+				'Cannot determine the active tab: a page could not be inspected. '
+				'Retry after the browser settles, or use initial_tab="first" and explicitly switch tabs.'
+			)
+		focused = [target.target_id for target, result in zip(pages, results) if result == (True, True)]
+		# The browser may have lost OS focus to the MCP client or the address bar.
+		# A sole visible page still identifies the selected tab; multiple windows do not.
+		visible = [target.target_id for target, result in zip(pages, results) if isinstance(result, tuple) and result[1]]
+		if len(focused) == 1:
+			return focused[0]
+		if not focused and len(visible) == 1:
+			return visible[0]
+		raise RuntimeError(
+			f'Cannot determine a unique active tab ({len(focused)} focused, {len(visible)} visible pages). '
+			'Focus the intended page in the browser and retry, or use initial_tab="first" and explicitly switch tabs.'
+		)
+
 	async def connect(self, cdp_url: str | None = None) -> Self:
 		"""Connect to a remote chromium-based browser via CDP using cdp-use.
 
@@ -1945,6 +1991,9 @@ class BrowserSession(BaseModel):
 			# Get browser targets from SessionManager (source of truth)
 			# SessionManager has already discovered all targets via start_monitoring()
 			page_targets_from_manager = self.session_manager.get_all_page_targets()
+			active_target_id = None
+			if self.browser_profile.initial_tab == 'active':
+				active_target_id = await self._get_active_page_target(page_targets_from_manager)
 
 			# Check for chrome://newtab pages and redirect them to about:blank (in parallel)
 			from browser_use.utils import is_new_tab_page
@@ -1963,13 +2012,15 @@ class BrowserSession(BaseModel):
 			redirect_tasks = [
 				_redirect_newtab(target)
 				for target in page_targets_from_manager
-				if is_new_tab_page(target.url) and target.url != 'about:blank'
+				if self.browser_profile.initial_tab != 'active' and is_new_tab_page(target.url) and target.url != 'about:blank'
 			]
 			if redirect_tasks:
 				await asyncio.gather(*redirect_tasks, return_exceptions=True)
 
 			# Ensure we have at least one page
-			if not page_targets_from_manager:
+			if active_target_id is not None:
+				target_id = active_target_id
+			elif not page_targets_from_manager:
 				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
 				target_id = new_target['targetId']
 				self.logger.debug(f'📄 Created new blank page: {target_id}')
@@ -2010,9 +2061,9 @@ class BrowserSession(BaseModel):
 
 			# Dispatch initial focus event
 			if page_targets_from_manager:
-				initial_url = page_targets_from_manager[0].url
-				self.event_bus.dispatch(AgentFocusChangedEvent(target_id=page_targets_from_manager[0].target_id, url=initial_url))
-				self.logger.debug(f'Initial agent focus set to tab 0: {initial_url}')
+				initial_url = self.session_manager.get_target(target_id).url
+				self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=initial_url))
+				self.logger.debug(f'Initial agent focus set to {target_id}: {initial_url}')
 
 		except Exception as e:
 			# Fatal error - browser is not usable without CDP connection

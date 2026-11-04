@@ -244,6 +244,31 @@ Note: Use full path to `uvx` on macOS/Linux (run `which uvx` to find it).
 - `BROWSER_USE_DISABLE_SECURITY` — `true` to disable security
 - `BROWSER_USE_LOGGING_LEVEL` — `DEBUG` for verbose logs
 
+### Start on an existing active tab
+
+When attaching to an existing Chromium browser, set `cdp_url` in the default
+browser profile in the browser-use config file (`BROWSER_USE_CONFIG_PATH` selects
+a custom file). In the MCP client's environment, set `BROWSER_USE_INITIAL_TAB`
+to `active`. Alternatively, set `initial_tab: "active"` in that saved profile.
+The environment setting overrides the saved selection policy without rewriting it.
+
+The first browser tool call selects the document with focus. If no document has
+focus (for example, focus is on the MCP client or Chrome's address bar), it uses
+the sole visible page. If multiple windows leave several visible pages with no
+unique focused document, no pages are available, or a page cannot be inspected,
+initialization fails with instructions to focus the intended page. After a failed
+startup, restart the MCP server before retrying; changing focus alone does not
+reset its failed session.
+This mode requires an existing CDP endpoint; it does not launch a browser, create
+a fallback tab, or navigate existing new-tab pages to `about:blank`.
+
+Selection happens when connecting, not before every action. Later manual tab
+changes do not redirect tools to another page; use `browser_switch_tab` explicitly.
+Leaving this option unset preserves `initial_tab="first"`: the first discovered
+page is selected, and an empty browser gets a blank page. Set
+`BROWSER_USE_INITIAL_TAB=first` to override a saved active-tab policy and use
+`browser_list_tabs` / `browser_switch_tab` instead.
+
 ### Programmatic Usage
 
 ```python
