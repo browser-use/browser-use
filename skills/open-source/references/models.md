@@ -310,5 +310,20 @@ llm = ChatOpenAI(
 
 Use the `/v1` base URL (not `/v1/chat/completions`). Pass catalog model ids as-is (no `openai/` prefix). The default `deepseek-v4-flash` model is text-only — set `use_vision=False` on the agent unless you pick a vision-capable model. List available models with `GET https://api.pzero.studio/v1/models` (no auth required).
 
+### Fortytwo
+```python
+import os
+
+llm = ChatOpenAI(
+    model="qwen/qwen3.8-27b",
+    base_url="https://api.fortytwo.network/v1",
+    api_key=os.environ["FORTYTWO_API_KEY"],
+    frequency_penalty=0,
+)
+```
+**Env:** `FORTYTWO_API_KEY` — get a key at https://platform.fortytwo.network
+
+Use the `/v1` base URL (not `/v1/chat/completions`). Set `frequency_penalty=0` because the API only accepts the neutral value. The model accepts image input, so `use_vision` can stay on. The API returns reasoning in the `reasoning` field.
+
 ### LangChain
 See example at [examples/models/langchain](https://github.com/browser-use/browser-use/tree/main/examples/models/langchain).
