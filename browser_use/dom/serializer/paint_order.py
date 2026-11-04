@@ -196,9 +196,6 @@ class PaintOrderRemover:
 					continue  # shouldn't happen by how we filter them out in the first place
 
 				bounds = node.original_node.snapshot_node.bounds
-				# Collapsed elements have no area and must not take part in occlusion calculations
-				if bounds.width <= 0 or bounds.height <= 0:
-					continue
 
 				rect = Rect(
 					x1=bounds.x,
@@ -210,6 +207,13 @@ class PaintOrderRemover:
 
 				if rect_unions[context].contains(rect):
 					node.ignored_by_paint_order = True
+
+				# Collapsed elements have no area, so they must never join the union — two collapsed
+				# siblings at the same point would otherwise occlude each other. They can still be
+				# covered by a real element, so this check stays below `contains` and only skips the
+				# insertion.
+				if bounds.width <= 0 or bounds.height <= 0:
+					continue
 
 				# don't add to the nodes if opacity is less then 0.95 or background-color is transparent
 				if (
