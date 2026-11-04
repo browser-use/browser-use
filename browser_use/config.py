@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import psutil
@@ -238,6 +238,7 @@ class FlatEnvConfig(BaseSettings):
 	BROWSER_USE_DISABLE_SECURITY: bool | None = Field(default=None)
 	BROWSER_USE_ALLOWED_DOMAINS: str | None = Field(default=None)
 	BROWSER_USE_LLM_MODEL: str | None = Field(default=None)
+	BROWSER_USE_INITIAL_TAB: Literal['first', 'active'] | None = Field(default=None)
 
 	# Proxy env vars
 	BROWSER_USE_PROXY_URL: str | None = Field(default=None)
@@ -506,6 +507,9 @@ class Config:
 
 		if env_config.BROWSER_USE_LLM_MODEL:
 			config['llm']['model'] = env_config.BROWSER_USE_LLM_MODEL
+
+		if env_config.BROWSER_USE_INITIAL_TAB is not None:
+			config['browser_profile']['initial_tab'] = env_config.BROWSER_USE_INITIAL_TAB
 
 		# Extension settings
 		if env_config.BROWSER_USE_DISABLE_EXTENSIONS is not None:
