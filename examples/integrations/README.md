@@ -27,6 +27,8 @@ This directory is for examples that show Browser Use working with external produ
 
 External projects listed here are maintained outside this repository. A listing is a pointer for users, not a support guarantee from Browser Use maintainers.
 
+- [CookieGuard AI](https://github.com/aiscihub/cookieguard-ai/tree/main/integrations/browser-use) - Independent authentication-cookie security auditing for Browser Use workflows. Maintained by @aiscihub.
+
 Add entries in this format:
 
 ```markdown
