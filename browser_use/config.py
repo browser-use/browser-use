@@ -234,6 +234,7 @@ class FlatEnvConfig(BaseSettings):
 
 	# MCP-specific env vars
 	BROWSER_USE_CONFIG_PATH: str | None = Field(default=None)
+	BROWSER_USE_CDP_URL: str | None = Field(default=None)
 	BROWSER_USE_HEADLESS: bool | None = Field(default=None)
 	BROWSER_USE_DISABLE_SECURITY: bool | None = Field(default=None)
 	BROWSER_USE_ALLOWED_DOMAINS: str | None = Field(default=None)
@@ -475,6 +476,9 @@ class Config:
 		env_config = FlatEnvConfig()
 
 		# Apply MCP-specific env var overrides
+		if env_config.BROWSER_USE_CDP_URL:
+			config['browser_profile']['cdp_url'] = env_config.BROWSER_USE_CDP_URL
+
 		if env_config.BROWSER_USE_HEADLESS is not None:
 			config['browser_profile']['headless'] = env_config.BROWSER_USE_HEADLESS
 

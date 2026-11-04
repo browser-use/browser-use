@@ -21,6 +21,11 @@ Or as an MCP server in Claude Desktop or other MCP clients:
             }
         }
     }
+
+To connect MCP tools to an existing browser, start Chromium with remote debugging
+enabled and set ``BROWSER_USE_CDP_URL`` in the MCP client's environment to its
+debugging endpoint (for example, ``http://127.0.0.1:9222``). Only enable remote
+debugging on a trusted interface: it grants control of that browser session.
 """
 
 import os
@@ -619,7 +624,8 @@ class BrowserUseServer:
 		profile = BrowserProfile(**profile_data)
 
 		# Create browser session
-		self.browser_session = BrowserSession(browser_profile=profile)
+		# Pass the endpoint explicitly so an attached session is not treated as locally launched.
+		self.browser_session = BrowserSession(browser_profile=profile, cdp_url=profile.cdp_url)
 		await self.browser_session.start()
 
 		# Track the session for management
