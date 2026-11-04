@@ -191,11 +191,20 @@ def _run_browser_harness() -> int | None:
 	_patch_browser_harness_cli_text()
 	args = sys.argv[1:]
 	if args and args[0] == 'doctor' and args[1:]:
+		# The harness doctor supports more than --fix-snap, and the top-level
+		# help advertises those flags — reject only what the harness would
+		# reject, and forward the rest (issue #6309: `--json` and
+		# `--require-existing-daemon` used to die in argument validation here,
+		# before the health check ever ran).
+		doctor_flags = {'--fix-snap', '--json', '--require-existing-daemon'}
 		if args[1:] in (['--help'], ['-h']):
-			print('usage: browser-use doctor [--fix-snap]')
+			print('usage: browser-use doctor [--fix-snap] [--json] [--require-existing-daemon]')
 			return 0
-		if args[1:] != ['--fix-snap']:
-			print('usage: browser-use doctor [--fix-snap]', file=sys.stderr)
+		if any(arg not in doctor_flags for arg in args[1:]):
+			print(
+				'usage: browser-use doctor [--fix-snap] [--json] [--require-existing-daemon]',
+				file=sys.stderr,
+			)
 			sys.exit(2)
 	_delegated_to_harness = True
 	run.main()

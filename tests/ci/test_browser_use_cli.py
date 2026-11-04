@@ -6,9 +6,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _run_browser_use_cli(*args: str, module: str = 'browser_use.cli') -> subprocess.CompletedProcess[str]:
+def _run_browser_use_cli(
+	*args: str, module: str = 'browser_use.cli', env_overrides: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
 	env = os.environ.copy()
 	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
+	for key, value in (env_overrides or {}).items():
+		env[key] = value
 	return subprocess.run(
 		[sys.executable, '-m', module, *args],
 		cwd=ROOT,
@@ -23,8 +27,44 @@ def test_browser_use_doctor_help_prints_browser_use_usage():
 	result = _run_browser_use_cli('doctor', '--help')
 
 	assert result.returncode == 0
-	assert result.stdout == 'usage: browser-use doctor [--fix-snap]\n'
+	assert result.stdout == 'usage: browser-use doctor [--fix-snap] [--json] [--require-existing-daemon]\n'
 	assert result.stderr == ''
+
+
+def test_browser_use_doctor_json_flags_reach_the_json_report():
+	# https://github.com/browser-use/browser-use/issues/6309: the advertised
+	# doctor flags must run the health check, not die in argument validation
+	import json
+	import tempfile
+
+	with tempfile.TemporaryDirectory() as work:
+		overrides = {
+			'HOME': str(Path(work) / 'home'),
+			'BH_HOME': str(Path(work) / 'harness'),
+			'BH_RUNTIME_DIR': str(Path(work) / 'runtime'),
+			'BH_TELEMETRY': 'false',
+			'ANONYMIZED_TELEMETRY': 'false',
+		}
+		result = _run_browser_use_cli(
+			'doctor',
+			'--json',
+			'--require-existing-daemon',
+			env_overrides=overrides,
+		)
+
+	report = json.loads(result.stdout)
+	assert report['require_existing_daemon'] is True
+	assert report['healthy'] is False
+	assert report['daemon']['alive'] is False
+	assert result.returncode == 1
+
+
+def test_browser_use_doctor_rejects_unknown_flags_with_branded_usage():
+	result = _run_browser_use_cli('doctor', '--bogus')
+
+	assert result.returncode == 2
+	assert result.stdout == ''
+	assert result.stderr == ('usage: browser-use doctor [--fix-snap] [--json] [--require-existing-daemon]\n')
 
 
 def test_browser_use_module_entrypoint_matches_cli_entrypoint():
