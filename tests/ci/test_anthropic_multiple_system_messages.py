@@ -82,4 +82,3 @@ def test_breakpoint_stays_on_last_cached_message_not_on_last_message() -> None:
 
 	assert isinstance(system_message, list)
 	assert [block.get('cache_control') for block in system_message] == [{'type': 'ephemeral'}, None]
-
