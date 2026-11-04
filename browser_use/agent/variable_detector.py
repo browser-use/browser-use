@@ -180,7 +180,10 @@ def _detect_from_attributes(attributes: dict[str, str]) -> tuple[str, str | None
 		return ('last_name', None)
 	elif 'full' in combined_text and 'name' in combined_text:
 		return ('full_name', None)
-	elif 'company' in combined_text or 'organization' in combined_text:
+	elif ('company' in combined_text or 'organization' in combined_text) and 'name' in combined_text:
+		# Only name-qualified fields belong here. `company_city`, `company_zip` and friends carry a
+		# stronger location keyword and are classified further down; claiming them here would turn
+		# a city into a company and break replay substitution.
 		return ('company', None)
 	elif 'name' in combined_text:
 		return ('name', None)
@@ -204,6 +207,11 @@ def _detect_from_attributes(attributes: dict[str, str]) -> tuple[str, str | None
 	# Zip code detection
 	if any(keyword in combined_text for keyword in ['zip', 'postal', 'postcode']):
 		return ('zip_code', 'postal_code')
+
+	# Company detection — bare `company` / `organization` fields. Anything qualified by a location
+	# or contact keyword was already claimed above, so this stays the last specific branch.
+	if 'company' in combined_text or 'organization' in combined_text:
+		return ('company', None)
 
 	return None
 
