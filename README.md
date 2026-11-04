@@ -228,6 +228,8 @@ This [very hard benchmark](https://github.com/browser-use/benchmark) targets the
 
 ## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
 
+To connect the MCP server to an existing Chromium session, start the browser with remote debugging enabled and set `BROWSER_USE_CDP_URL` in the MCP client's environment to its debugging endpoint, such as `http://127.0.0.1:9222`. Keep the endpoint on a trusted interface because it grants control of the browser session.
+
 <br/>
 
 # FAQ

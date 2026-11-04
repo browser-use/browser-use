@@ -21,6 +21,11 @@ Or as an MCP server in Claude Desktop or other MCP clients:
             }
         }
     }
+
+To connect MCP tools to an existing browser, start Chromium with remote debugging
+enabled and set ``BROWSER_USE_CDP_URL`` in the MCP client's environment to its
+debugging endpoint (for example, ``http://127.0.0.1:9222``). Only enable remote
+debugging on a trusted interface: it grants control of that browser session.
 """
 
 import os

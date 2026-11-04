@@ -20,6 +20,38 @@ FALSY_STRINGS = ['false', 'False', 'FALSE', '0', 'no', 'off', '']
 class TestConfigEnvVars:
 	"""Tests for browser profile env var configuration."""
 
+	@pytest.mark.parametrize(
+		'env_url,persisted_url,expected_url',
+		[
+			(None, None, None),
+			(None, 'http://localhost:9222', 'http://localhost:9222'),
+			('http://localhost:9333', 'http://localhost:9222', 'http://localhost:9333'),
+		],
+	)
+	def test_mcp_cdp_url_precedence(
+		self,
+		monkeypatch: pytest.MonkeyPatch,
+		tmp_path: Path,
+		env_url: str | None,
+		persisted_url: str | None,
+		expected_url: str | None,
+	):
+		"""Use an explicitly supplied MCP endpoint, or keep the saved profile endpoint."""
+		config_path = tmp_path / 'config.json'
+		monkeypatch.setenv('BROWSER_USE_CONFIG_PATH', str(config_path))
+		monkeypatch.delenv('BROWSER_USE_CDP_URL', raising=False)
+		load_browser_use_config()
+		stored = json.loads(config_path.read_text())
+		if persisted_url:
+			profile = next(profile for profile in stored['browser_profile'].values() if profile.get('default'))
+			profile['cdp_url'] = persisted_url
+			config_path.write_text(json.dumps(stored))
+		if env_url:
+			monkeypatch.setenv('BROWSER_USE_CDP_URL', env_url)
+
+		resolved = load_browser_use_config()['browser_profile']
+		assert resolved.get('cdp_url') == expected_url
+
 	def test_default_values_without_env(self, monkeypatch: pytest.MonkeyPatch):
 		"""Verify default values when environment variables are unset."""
 		monkeypatch.delenv('BROWSER_USE_DISABLE_EXTENSIONS', raising=False)
