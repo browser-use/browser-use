@@ -418,7 +418,7 @@ class TokenCost:
 		model = str(llm.model)
 		base_url = str(getattr(llm, 'base_url', '') or '').rstrip('/')
 		if llm.provider == 'fortytwo' or base_url == 'https://api.fortytwo.network/v1':
-			return f'fortytwo/{model}'
+			return model if model.startswith('fortytwo/') else f'fortytwo/{model}'
 		if llm.provider == 'openrouter' or base_url == 'https://openrouter.ai/api/v1':
 			if not is_openrouter_pricing_model(model):
 				return f'openrouter/{model}'

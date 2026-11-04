@@ -12,7 +12,7 @@ from pydantic.v1 import BaseModel as LegacyBaseModel
 
 from browser_use import ChatFortytwo
 from browser_use.llm import ChatFortytwo as LlmChatFortytwo
-from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
+from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
 from browser_use.llm.openai.chat import ChatOpenAI
 from browser_use.llm.orcarouter.chat import ChatOrcaRouter
@@ -378,3 +378,49 @@ async def test_unrelated_collisions_keep_legacy_behaviour(monkeypatch: pytest.Mo
 	cost = await service.calculate_cost(MODEL, usage())
 	assert cost is not None
 	assert cost.new_prompt_cost == 7 * (99 if reverse else 7)
+
+
+@pytest.mark.parametrize('finish_reason', ['stop', 'length', 'content_filter'])
+@pytest.mark.parametrize('structured', [False, True])
+async def test_completion_stop_reason(finish_reason: str, structured: bool) -> None:
+	payload = completion('{"value": 7}' if structured else 'partial answer')
+	payload['choices'][0]['finish_reason'] = finish_reason
+	async with controlled_client(payload) as (chat, seen):
+		if structured and finish_reason == 'length':
+			with pytest.raises(ModelOutputTruncatedError) as exc:
+				await chat.ainvoke([UserMessage(content='hello')], Answer)
+			assert exc.value.status_code == 400
+		else:
+			result = await chat.ainvoke([UserMessage(content='hello')], Answer if structured else None)
+			assert result.stop_reason == finish_reason
+		assert len(seen) == 1
+
+
+@pytest.mark.parametrize('content', [None, '{"value":'])
+async def test_structured_truncation_before_missing_content_or_parse(content: str | None) -> None:
+	payload = completion(content)
+	payload['choices'][0]['finish_reason'] = 'length'
+	async with controlled_client(payload) as (chat, seen):
+		with pytest.raises(ModelOutputTruncatedError) as exc:
+			await chat.ainvoke([UserMessage(content='hello')], Answer)
+		assert exc.value.status_code == 400
+		assert SECRET not in str(exc.value)
+		assert len(seen) == 1
+
+
+@pytest.mark.parametrize('named', [False, True])
+async def test_already_namespaced_exact_tariff(monkeypatch: pytest.MonkeyPatch, named: bool) -> None:
+	service = priced_service(monkeypatch)
+	chat = (
+		ChatFortytwo(model=PRICE_NAME, api_key='test')
+		if named
+		else ChatOpenAI(model=PRICE_NAME, api_key='test', base_url='https://api.fortytwo.network/v1/')
+	)
+	assert service._get_pricing_model_name(chat) == PRICE_NAME
+	service.register_llm(chat)
+	cost = await service.calculate_cost(PRICE_NAME, usage())
+	assert cost is not None
+	row = tariff()
+	assert cost.total_cost == pytest.approx(
+		7 * row['input_cost_per_token'] + 3 * row['cache_read_input_token_cost'] + 5 * row['output_cost_per_token']
+	)

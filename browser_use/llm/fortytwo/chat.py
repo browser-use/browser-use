@@ -11,7 +11,7 @@ from openai.types.chat.chat_completion import ChatCompletion
 from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
+from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.fortytwo.serializer import FortytwoMessageSerializer
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
@@ -147,17 +147,23 @@ class ChatFortytwo(BaseChatModel):
 			choices = getattr(response, 'choices', None)
 			if not choices:
 				raise ModelProviderError('Invalid Fortytwo response: missing or empty choices', status_code=502, model=self.name)
-			content = choices[0].message.content
+			choice = choices[0]
+			content = choice.message.content
 			usage = self._get_usage(response)
 			if output_format is None:
-				return ChatInvokeCompletion(completion=content or '', usage=usage)
+				return ChatInvokeCompletion(completion=content or '', usage=usage, stop_reason=choice.finish_reason)
+			if choice.finish_reason == 'length':
+				raise ModelOutputTruncatedError(
+					'Model output was truncated at the output token limit; request shorter structured output or increase the output limit',
+					model=self.name,
+				)
 			if content is None:
 				raise ModelProviderError('Missing Fortytwo structured output', status_code=500, model=self.name)
 			try:
 				parsed = output_format.model_validate_json(content)
 			except (ValidationError, ValueError):
 				raise ModelProviderError('Invalid Fortytwo structured output', status_code=502, model=self.name) from None
-			return ChatInvokeCompletion(completion=parsed, usage=usage)
+			return ChatInvokeCompletion(completion=parsed, usage=usage, stop_reason=choice.finish_reason)
 		except ModelProviderError:
 			raise
 		except RateLimitError:
