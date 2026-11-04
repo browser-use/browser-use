@@ -21,16 +21,37 @@ class DOM:
 	def __init__(self, quads=None, box_model=None):
 		self._quads = quads
 		self._box_model = box_model
+		self.calls: list[str] = []
 
 	async def getContentQuads(self, params, session_id=None):
+		self.calls.append('getContentQuads')
 		return self._quads
 
 	async def getBoxModel(self, params, session_id=None):
+		self.calls.append('getBoxModel')
 		return self._box_model
+
+	async def resolveNode(self, params, session_id=None):
+		self.calls.append('resolveNode')
+		return {}
+
+
+class Runtime:
+	"""Stands in for the JS fallback so the tests can prove it was never reached."""
+
+	def __init__(self):
+		self.calls: list[str] = []
+
+	async def callFunctionOn(self, params, session_id=None):
+		self.calls.append('callFunctionOn')
+		return {}
 
 
 def _cdp_session(dom: DOM) -> Any:
-	return SimpleNamespace(session_id='s1', cdp_client=SimpleNamespace(send=SimpleNamespace(DOM=dom)))
+	return SimpleNamespace(
+		session_id='s1',
+		cdp_client=SimpleNamespace(send=SimpleNamespace(DOM=dom, Runtime=Runtime())),
+	)
 
 
 def _session() -> BrowserSession:
@@ -59,11 +80,31 @@ async def test_only_degenerate_quads_fall_back_to_box_model() -> None:
 
 
 async def test_usable_quad_still_short_circuits() -> None:
+	dom = DOM(quads={'quads': [[10, 10, 60, 10, 60, 30, 10, 30]]})
 	session = _session()
-	rect = await session.get_element_coordinates(
-		backend_node_id=1,
-		cdp_session=_cdp_session(DOM(quads={'quads': [[10, 10, 60, 10, 60, 30, 10, 30]]})),
-	)
+	rect = await session.get_element_coordinates(backend_node_id=1, cdp_session=_cdp_session(dom))
 
 	assert rect is not None
 	assert (rect.x, rect.y, rect.width, rect.height) == (10, 10, 50, 20)
+
+	# A usable first quad must not reach either fallback.
+	assert dom.calls == ['getContentQuads']
+
+
+# All four points sit on the line y = x: the bounding box is 30x30, the area is zero.
+COLLINEAR_QUAD = [0, 0, 10, 10, 20, 20, 30, 30]
+
+
+def test_rect_from_quad_rejects_collinear_quad() -> None:
+	assert BrowserSession._rect_from_quad(COLLINEAR_QUAD) is None
+
+
+async def test_collinear_quad_falls_back_to_box_model() -> None:
+	dom = DOM(quads={'quads': [COLLINEAR_QUAD]}, box_model=BOX_MODEL)
+	session = _session()
+	rect = await session.get_element_coordinates(backend_node_id=1, cdp_session=_cdp_session(dom))
+
+	assert rect is not None, 'the only quad is degenerate, so the box model has to answer'
+	assert (rect.x, rect.y, rect.width, rect.height) == (0, 0, 40, 35)
+	assert dom.calls == ['getContentQuads', 'getBoxModel']
+

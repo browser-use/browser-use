@@ -2870,13 +2870,16 @@ class BrowserSession(BaseModel):
 		"""Convert a DOM.getContentQuads/CDP quad into a DOMRect, or None when the quad has no area.
 
 		Chromium returns quads with zero width or height for some elements, for example an inline
-		element that starts with a line break. Such quads have no usable geometry.
+		element that starts with a line break. Such quads have no usable geometry. The same applies to
+		a quad whose four points are collinear even though its bounding box looks non-empty.
 		"""
 		if len(quad) < 8:
 			return None
 
-		x_coords = [quad[i] for i in range(0, 8, 2)]
-		y_coords = [quad[i] for i in range(1, 8, 2)]
+		points = [(quad[i], quad[i + 1]) for i in range(0, 8, 2)]
+
+		x_coords = [x for x, _ in points]
+		y_coords = [y for _, y in points]
 
 		min_x = min(x_coords)
 		min_y = min(y_coords)
@@ -2887,6 +2890,17 @@ class BrowserSession(BaseModel):
 		height = max_y - min_y
 
 		if width <= 0 or height <= 0:
+			return None
+
+		# Extents are not enough: a quad rotated onto a single line has a positive bounding box while
+		# all four points are collinear. The shoelace area catches that shape, so an off-axis
+		# degenerate quad does not get treated as usable geometry.
+		shoelace = 0.0
+		for index, (x1, y1) in enumerate(points):
+			x2, y2 = points[(index + 1) % len(points)]
+			shoelace += x1 * y2 - x2 * y1
+
+		if abs(shoelace) == 0:
 			return None
 
 		return DOMRect(x=min_x, y=min_y, width=width, height=height)
