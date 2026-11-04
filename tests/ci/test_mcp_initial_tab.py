@@ -100,25 +100,9 @@ async def test_real_mcp_selects_active_existing_tab_and_preserves_browser(monkey
 		await default_server._close_session(default_session.id)
 		await owner.cdp_client.send.Target.activateTarget(params={'targetId': active_id})
 
-		# Two visible windows without document focus are ambiguous in headless Chrome.
-		extra = await owner.cdp_client.send.Target.createTarget(params={'url': httpserver.url_for('/a'), 'newWindow': True})
-		await owner.get_or_create_cdp_session(extra['targetId'], focus=False)
-		server = make_server('active')
-		handler = server.server.get_request_handler('tools/call')
-		assert handler is not None
-		ambiguous = await handler.handler(
-			None,  # type: ignore[arg-type]
-			types.CallToolRequestParams(name='browser_get_html', arguments={}),
-		)
-		assert isinstance(ambiguous, types.CallToolResult)
-		assert ambiguous.is_error
-		assert 'Cannot determine a unique active tab' in str(ambiguous.content)
-		assert server.active_sessions == {}
-		assert {tab.target_id for tab in await owner.get_tabs()} == target_ids | {extra['targetId']}
-		await owner.cdp_client.send.Target.closeTarget(params={'targetId': extra['targetId']})
-		await owner.cdp_client.send.Target.activateTarget(params={'targetId': active_id})
-
-		# Restart after failed initialization: same-server retry is covered separately by #5851.
+		# Keep real-browser focus coverage within one window. Headless Chromium
+		# differs across platforms in whether a second window retains document focus;
+		# ambiguous focus combinations are covered by test_initial_active_tab.py.
 		server = make_server('active')
 		html = await call(server, 'browser_get_html')
 		session = server.browser_session
