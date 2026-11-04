@@ -92,7 +92,7 @@ async def test_usable_quad_still_short_circuits() -> None:
 
 
 # All four points sit on the line y = x: the bounding box is 30x30, the area is zero.
-COLLINEAR_QUAD = [0, 0, 10, 10, 20, 20, 30, 30]
+COLLINEAR_QUAD: list[float] = [0, 0, 10, 10, 20, 20, 30, 30]
 
 
 def test_rect_from_quad_rejects_collinear_quad() -> None:
