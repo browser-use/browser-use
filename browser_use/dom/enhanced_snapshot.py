@@ -127,6 +127,13 @@ def build_snapshot_lookup(
 		input_checked_set: set[int] = set(nodes['inputChecked']['index']) if 'inputChecked' in nodes else set()
 		has_checked_data = 'inputChecked' in nodes
 
+		# `stackingContexts` is RareBooleanData as well: `index` lists the layout indices that DO
+		# create a stacking context, so membership has to be a set lookup instead of a scan per node.
+		has_stacking_context_data = 'stackingContexts' in layout if layout else False
+		stacking_context_index_set: set[int] = (
+			set(layout['stackingContexts'].get('index', [])) if has_stacking_context_data else set()
+		)
+
 		# Build snapshot lookup for each backend node id
 		for backend_node_id, snapshot_index in backend_node_to_snapshot_index.items():
 			is_clickable = None
@@ -199,8 +206,9 @@ def build_snapshot_lookup(
 					# Extract stacking contexts if available.
 					# CDP sends `stackingContexts` as RareBooleanData: `index` lists the layout indices that
 					# DO create a stacking context. It is not aligned positionally with layout_idx.
-					stacking_context_index = layout.get('stackingContexts', {}).get('index', []) or []
-					stacking_contexts = layout_idx in stacking_context_index
+					# When CDP omits the field the answer stays unknown (`None`) instead of becoming False.
+					if has_stacking_context_data:
+						stacking_contexts = layout_idx in stacking_context_index_set
 
 			snapshot_lookup[backend_node_id] = EnhancedSnapshotNode(
 				is_clickable=is_clickable,
