@@ -23,6 +23,7 @@ Example usage:
 """
 
 import asyncio
+import json
 import logging
 import time
 from typing import Any
@@ -429,6 +430,10 @@ class MCPClient:
 		if hasattr(result, 'content'):
 			# Structured content response
 			if isinstance(result.content, list):
+				if not result.content:
+					structured_content = getattr(result, 'structured_content', None)
+					if structured_content is not None:
+						return json.dumps(structured_content, ensure_ascii=False)
 				# Multiple content items
 				parts = []
 				for item in result.content:
