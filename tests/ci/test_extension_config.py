@@ -51,6 +51,7 @@ class TestConfigEnvVars:
 
 		resolved = load_browser_use_config()['browser_profile']
 		assert resolved.get('cdp_url') == expected_url
+		assert json.loads(config_path.read_text()) == stored
 
 	def test_default_values_without_env(self, monkeypatch: pytest.MonkeyPatch):
 		"""Verify default values when environment variables are unset."""
