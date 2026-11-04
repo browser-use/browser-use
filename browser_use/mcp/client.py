@@ -47,6 +47,33 @@ from mcp.client.stdio import stdio_client
 MCP_AVAILABLE = True
 
 
+def _json_values_equal(left: Any, right: Any) -> bool:
+	"""Compare JSON values without treating booleans as numbers."""
+	if isinstance(left, bool) or isinstance(right, bool):
+		return isinstance(left, bool) and isinstance(right, bool) and left is right
+	if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+		return left == right
+	if left is None or right is None:
+		return left is None and right is None
+	if isinstance(left, str) or isinstance(right, str):
+		return isinstance(left, str) and isinstance(right, str) and left == right
+	if isinstance(left, list) or isinstance(right, list):
+		return (
+			isinstance(left, list)
+			and isinstance(right, list)
+			and len(left) == len(right)
+			and all(_json_values_equal(left_item, right_item) for left_item, right_item in zip(left, right))
+		)
+	if isinstance(left, dict) or isinstance(right, dict):
+		return (
+			isinstance(left, dict)
+			and isinstance(right, dict)
+			and left.keys() == right.keys()
+			and all(_json_values_equal(left[key], right[key]) for key in left)
+		)
+	return type(left) is type(right) and left == right
+
+
 def _schema_accepts_value(value: Any, schema: dict[str, Any] | bool) -> bool:
 	if isinstance(schema, bool):
 		return schema
@@ -69,9 +96,9 @@ def _schema_accepts_value(value: Any, schema: dict[str, Any] | bool) -> bool:
 		if not type_matches and not enum_allows_null:
 			return False
 
-	if 'enum' in schema and value not in schema['enum']:
+	if 'enum' in schema and not any(_json_values_equal(value, enum_value) for enum_value in schema['enum']):
 		return False
-	if 'const' in schema and value != schema['const']:
+	if 'const' in schema and not _json_values_equal(value, schema['const']):
 		return False
 	if 'anyOf' in schema and not any(_schema_accepts_value(value, variant) for variant in schema['anyOf']):
 		return False
@@ -118,7 +145,7 @@ def _schema_accepts_value(value: Any, schema: dict[str, Any] | bool) -> bool:
 		if len(value) < schema.get('minItems', 0) or len(value) > schema.get('maxItems', math.inf):
 			return False
 		if schema.get('uniqueItems', False) and any(
-			value[left] == value[right] for left in range(len(value)) for right in range(left + 1, len(value))
+			_json_values_equal(value[left], value[right]) for left in range(len(value)) for right in range(left + 1, len(value))
 		):
 			return False
 		prefix_items = schema.get('prefixItems', [])

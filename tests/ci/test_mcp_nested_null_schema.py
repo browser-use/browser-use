@@ -274,6 +274,48 @@ def _walk_schema(value):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+	('schema', 'value', 'should_reject'),
+	[
+		({'allOf': [{'enum': [1]}]}, True, True),
+		({'allOf': [{'const': 1}]}, True, True),
+		({'allOf': [{'uniqueItems': True}]}, [1, True], False),
+	],
+)
+async def test_composed_constraints_use_json_type_aware_equality(schema, value, should_reject):
+	client = MCPClient(server_name='test-server', command='test-command')
+	client._telemetry = MagicMock()
+	client._connected = True
+	client.session = MagicMock()
+	client.session.call_tool = AsyncMock(
+		return_value=types.CallToolResult(
+			content=[types.TextContent(type='text', text='success')],
+			is_error=False,
+		)
+	)
+	registry = Registry()
+	tool = types.Tool(
+		name='validate_json_number',
+		description='Validate a JSON number constraint',
+		input_schema={
+			'type': 'object',
+			'properties': {'value': schema},
+			'required': ['value'],
+		},
+	)
+	client._register_tool_as_action(registry, 'validate_json_number', tool)
+
+	if should_reject:
+		with pytest.raises(RuntimeError, match='Invalid parameters'):
+			await registry.execute_action('validate_json_number', {'value': value})
+		client.session.call_tool.assert_not_awaited()
+	else:
+		result = await registry.execute_action('validate_json_number', {'value': value})
+		assert result.error is None
+		client.session.call_tool.assert_awaited_once_with('validate_json_number', {'value': value})
+
+
+@pytest.mark.asyncio
 async def test_false_boolean_schema_alternative_rejects_values():
 	client = MCPClient(server_name='test-server', command='test-command')
 	client._telemetry = MagicMock()
