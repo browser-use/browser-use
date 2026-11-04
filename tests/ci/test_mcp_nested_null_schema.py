@@ -309,6 +309,7 @@ async def test_false_boolean_schema_alternative_rejects_values():
 		({'type': 'string', 'minLength': 3}, 'ab'),
 		({'type': 'string', 'pattern': '^[A-Z]+$'}, 'lower'),
 		({'type': 'number', 'minimum': 5}, 4),
+		({'type': 'number', 'multipleOf': 1}, 1_000_000_000.5),
 		({'type': 'array', 'maxItems': 1, 'items': {'type': 'integer'}}, [1, 2]),
 		({'type': 'array', 'uniqueItems': True}, ['same', 'same']),
 	],

@@ -27,6 +27,7 @@ import logging
 import math
 import re
 import time
+from decimal import Decimal
 from typing import Annotated, Any, ClassVar, Union
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, WithJsonSchema, create_model
@@ -92,7 +93,7 @@ def _schema_accepts_value(value: Any, schema: dict[str, Any] | bool) -> bool:
 			return False
 		if 'multipleOf' in schema:
 			multiple = schema['multipleOf']
-			if multiple <= 0 or not math.isclose(value / multiple, round(value / multiple), rel_tol=1e-9, abs_tol=1e-9):
+			if not _is_multiple_of(value, multiple):
 				return False
 
 	if isinstance(value, dict):
@@ -141,6 +142,27 @@ def _schema_accepts_value(value: Any, schema: dict[str, Any] | bool) -> bool:
 
 def _schema_allows_null(schema: dict[str, Any] | bool) -> bool:
 	return _schema_accepts_value(None, schema)
+
+
+def _is_multiple_of(value: int | float, multiple: int | float) -> bool:
+	"""Check JSON-number divisibility using their decimal representations."""
+	value_decimal = Decimal(str(value))
+	multiple_decimal = Decimal(str(multiple))
+	if not value_decimal.is_finite() or not multiple_decimal.is_finite() or multiple_decimal <= 0:
+		return False
+
+	def coefficient_and_exponent(number: Decimal) -> tuple[int, int]:
+		sign, digits, exponent = number.as_tuple()
+		assert isinstance(exponent, int)
+		coefficient = int(''.join(str(digit) for digit in digits) or '0')
+		return (-coefficient if sign else coefficient), exponent
+
+	value_coefficient, value_exponent = coefficient_and_exponent(value_decimal)
+	multiple_coefficient, multiple_exponent = coefficient_and_exponent(multiple_decimal)
+	common_exponent = min(value_exponent, multiple_exponent)
+	scaled_value = value_coefficient * 10 ** (value_exponent - common_exponent)
+	scaled_multiple = multiple_coefficient * 10 ** (multiple_exponent - common_exponent)
+	return scaled_value % scaled_multiple == 0
 
 
 def _schema_for_composed_object(schema: dict[str, Any]) -> dict[str, Any]:
