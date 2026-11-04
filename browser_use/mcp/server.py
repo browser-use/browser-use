@@ -194,6 +194,8 @@ class BrowserUseServer:
 		self.config = load_browser_use_config()
 		self.agent: Agent | None = None
 		self.browser_session: BrowserSession | None = None
+		self._agent_session: BrowserSession | None = None
+		self._agent_lock = asyncio.Lock()
 		self.tools: Tools | None = None
 		self.llm: ChatOpenAI | None = None
 		self.file_system: FileSystem | None = None
@@ -422,6 +424,14 @@ class BrowserUseServer:
 									'description': 'Whether to use vision capabilities (screenshots) for the agent',
 									'default': True,
 								},
+								'same_tab': {
+									'type': 'boolean',
+									'description': (
+										'Continue in the active browser session, preserving its tabs and domain restrictions. '
+										'If no session exists, start a new one. Set false to run in a separate session.'
+									),
+									'default': True,
+								},
 							},
 							'required': ['task'],
 						},
@@ -504,13 +514,16 @@ class BrowserUseServer:
 
 		# Agent-based tools
 		if tool_name == 'retry_with_browser_use_agent':
-			return await self._retry_with_browser_use_agent(
-				task=arguments['task'],
-				max_steps=arguments.get('max_steps', 100),
-				model=arguments.get('model'),
-				allowed_domains=arguments.get('allowed_domains'),
-				use_vision=arguments.get('use_vision', True),
-			)
+			# Agents share browser state and temporarily keep the session alive.
+			async with self._agent_lock:
+				return await self._retry_with_browser_use_agent(
+					task=arguments['task'],
+					max_steps=arguments.get('max_steps', 100),
+					model=arguments.get('model'),
+					allowed_domains=arguments.get('allowed_domains'),
+					use_vision=arguments.get('use_vision', True),
+					same_tab=arguments.get('same_tab', True),
+				)
 
 		# Browser session management tools (don't require active session)
 		if tool_name == 'browser_list_sessions':
@@ -655,9 +668,16 @@ class BrowserUseServer:
 		model: str | None = None,
 		allowed_domains: list[str] | None = None,
 		use_vision: bool = True,
+		same_tab: bool = True,
 	) -> str:
-		"""Run an autonomous agent task."""
+		"""Run an autonomous agent task, reusing the active session by default."""
 		logger.debug(f'Running agent task: {task}')
+		session = self.browser_session if same_tab else None
+		if session and allowed_domains and set(allowed_domains) != set(session.browser_profile.allowed_domains or []):
+			return (
+				'Error: allowed_domains differs from the active session restrictions. '
+				'Omit allowed_domains to keep them, or set same_tab=false to use a separate session.'
+			)
 
 		# Get LLM config
 		llm_config = get_default_llm(self.config)
@@ -697,7 +717,7 @@ class BrowserUseServer:
 			)
 
 		# Get profile config and merge with tool parameters
-		profile_config = get_default_profile(self.config)
+		profile_config = get_default_profile(self.config).copy()
 
 		# Override allowed_domains only when the client supplied a non-empty list.
 		# Treating an empty list as an override would silently disable any
@@ -714,8 +734,17 @@ class BrowserUseServer:
 			task=task,
 			llm=llm,
 			browser_profile=profile,
+			browser_session=session,
 			use_vision=use_vision,
 		)
+
+		# Agent.run() closes its resources even on failure. The MCP server owns
+		# the shared session, so keep its browser available for subsequent tools.
+		previous_keep_alive = session.browser_profile.keep_alive if session else None
+		self._agent_session = session
+		if session:
+			session.browser_profile.keep_alive = True
+			self._update_session_activity(session.id)
 
 		try:
 			history = await agent.run(max_steps=max_steps)
@@ -749,8 +778,13 @@ class BrowserUseServer:
 			logger.error(f'Agent task failed: {e}', exc_info=True)
 			return f'Agent task failed: {str(e)}'
 		finally:
-			# Clean up
-			await agent.close()
+			try:
+				await agent.close()
+			finally:
+				self._agent_session = None
+				if session:
+					session.browser_profile.keep_alive = previous_keep_alive
+					self._update_session_activity(session.id)
 
 	async def _navigate(self, url: str, new_tab: bool = False) -> str:
 		"""Navigate to a URL."""
@@ -1216,6 +1250,8 @@ class BrowserUseServer:
 
 		expired_sessions = []
 		for session_id, session_data in self.active_sessions.items():
+			if session_data['session'] is self._agent_session:
+				continue
 			last_activity = session_data['last_activity']
 			if current_time - last_activity > timeout_seconds:
 				expired_sessions.append(session_id)
