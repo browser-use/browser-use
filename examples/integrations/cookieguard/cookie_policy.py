@@ -30,19 +30,24 @@ class LoginRun:
 	result: AuditResult | None
 
 
+def create_local_browser() -> BrowserSession:
+	"""Create the disposable browser used by the loopback demo."""
+	return BrowserSession(
+		browser_profile=BrowserProfile(
+			headless=True,
+			keep_alive=True,
+			user_data_dir=None,
+			enable_default_extensions=False,
+			allowed_domains=['127.0.0.1'],  # Exact hostname matching rejects lookalike external hosts.
+		)
+	)
+
+
 async def run_login(mode: str, *, guarded: bool = True, call_tool: bool = False) -> LoginRun:
 	"""Use a fresh loopback app/browser; retain the final audit for developer enforcement."""
 	with DemoApp(mode) as app:
 		audit = CookieGuardAudit(allowed_origins=[app.origin], auth_cookies=['session_id']) if guarded else None
-		session = BrowserSession(
-			browser_profile=BrowserProfile(
-				headless=True,
-				keep_alive=True,
-				user_data_dir=None,
-				enable_default_extensions=False,
-				allowed_domains=['http://127.0.0.1'],
-			)
-		)
+		session = create_local_browser()
 		tools = Tools()
 		if audit:
 			audit.register_tools(tools)  # Optional provisional, value-free check for the agent.

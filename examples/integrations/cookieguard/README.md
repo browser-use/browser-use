@@ -9,6 +9,8 @@ CookieGuard is maintained by @aiscihub as an external community integration.
 
 Requires Python 3.11+, Node.js 24+, and a local Chrome/Chromium. Tested with
 `browser-use==0.13.14` and `cookieguard-browser-use==0.1.0`.
+The commands below require macOS or Linux with a POSIX shell; this walkthrough
+was verified on macOS.
 
 From the Browser Use repository root, install into a separate environment:
 

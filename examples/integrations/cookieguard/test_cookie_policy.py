@@ -6,8 +6,26 @@ import pytest
 
 pytest.importorskip('cookieguard_browser_use')
 
-from cookie_policy import main, run_login
+from cookie_policy import create_local_browser, main, run_login
 from cookieguard_browser_use import CookiePolicyError  # pyright: ignore[reportMissingImports]
+
+from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+
+def test_demo_navigation_rejects_loopback_lookalikes():
+	"""Check the demo's actual profile without launching a browser or contacting any URL."""
+	session = create_local_browser()
+	watchdog = SecurityWatchdog(browser_session=session, event_bus=session.event_bus)
+	assert watchdog._is_url_allowed('http://127.0.0.1:12345/login')
+	assert watchdog._is_url_allowed('http://127.0.0.1:54321/account')
+	for url in (
+		'http://127.0.0.1.evil.example/',
+		'http://127.0.0.1@evil.example/',
+		'http://127.0.0.10/',
+		'http://www.127.0.0.1/',
+		'http://evil.example/?next=http://127.0.0.1/',
+	):
+		assert not watchdog._is_url_allowed(url), url
 
 
 @pytest.mark.parametrize('mode', ['insecure', 'secure'])
