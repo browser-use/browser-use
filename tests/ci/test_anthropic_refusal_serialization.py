@@ -7,6 +7,7 @@ so a refusal-only message became an empty string and mixed content silently lost
 
 from typing import cast
 
+import pytest
 from anthropic.types import TextBlockParam
 
 from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
@@ -38,11 +39,44 @@ def test_mixed_text_and_refusal_keeps_content_order() -> None:
 	assert [block['type'] for block in blocks] == ['text', 'text']
 
 
-def test_refusal_with_cache_keeps_cache_control_on_last_block() -> None:
-	message = AssistantMessage(content=[ContentPartRefusalParam(refusal='Declined 0.')], cache=True)
+def test_refusal_before_text_keeps_its_position() -> None:
+	"""A serializer that hoists every refusal to the end would pass the text-first case below."""
+	message = AssistantMessage(
+		content=[
+			ContentPartRefusalParam(refusal='I cannot share the raw page contents.'),
+			ContentPartTextParam(text='Here is the summary.'),
+		]
+	)
 	messages, _ = AnthropicMessageSerializer.serialize_messages([message])
 
 	blocks = cast(list[TextBlockParam], messages[0]['content'])
-	assert isinstance(blocks, list)
-	assert blocks[0]['text'] == '[Refusal] Declined 0.'
-	assert blocks[0].get('cache_control') == {'type': 'ephemeral'}
+	assert [block['text'] for block in blocks] == [
+		'[Refusal] I cannot share the raw page contents.',
+		'Here is the summary.',
+	]
+
+
+@pytest.mark.parametrize(
+	'content, expected_texts',
+	[
+		(
+			[ContentPartRefusalParam(refusal='Declined 0.'), ContentPartTextParam(text='Here is the summary.')],
+			['[Refusal] Declined 0.', 'Here is the summary.'],
+		),
+		(
+			[ContentPartTextParam(text='Here is the summary.'), ContentPartRefusalParam(refusal='Declined 0.')],
+			['Here is the summary.', '[Refusal] Declined 0.'],
+		),
+	],
+	ids=['refusal-first', 'refusal-last'],
+)
+def test_cache_control_lands_on_the_final_content_block_only(
+	content: list[ContentPartTextParam | ContentPartRefusalParam], expected_texts: list[str]
+) -> None:
+	"""A single-block fixture cannot distinguish `blocks[0]` from `blocks[-1]`."""
+	message = AssistantMessage(content=content, cache=True)
+	messages, _ = AnthropicMessageSerializer.serialize_messages([message])
+
+	blocks = cast(list[TextBlockParam], messages[0]['content'])
+	assert [block['text'] for block in blocks] == expected_texts
+	assert [block.get('cache_control') for block in blocks] == [None, {'type': 'ephemeral'}]
