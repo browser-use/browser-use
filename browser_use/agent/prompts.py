@@ -4,7 +4,14 @@ from typing import TYPE_CHECKING, Literal, Optional
 
 from browser_use.browser.views import PLACEHOLDER_4PX_SCREENSHOT
 from browser_use.dom.views import NodeType, SimplifiedNode
-from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
+from browser_use.llm.messages import (
+	ContentPartImageParam,
+	ContentPartTextParam,
+	ImageURL,
+	SupportedImageMediaType,
+	SystemMessage,
+	UserMessage,
+)
 from browser_use.observability import observe_debug
 from browser_use.utils import is_new_tab_page, sanitize_surrogates
 
@@ -482,8 +489,13 @@ Available tabs:
 					continue
 
 				# Detect image format from name
-				if img_name.lower().endswith('.png'):
-					media_type = 'image/png'
+				lower_name = img_name.lower()
+				if lower_name.endswith('.png'):
+					media_type: SupportedImageMediaType = 'image/png'
+				elif lower_name.endswith('.gif'):
+					media_type = 'image/gif'
+				elif lower_name.endswith('.webp'):
+					media_type = 'image/webp'
 				else:
 					media_type = 'image/jpeg'
 

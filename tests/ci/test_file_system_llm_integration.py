@@ -175,6 +175,31 @@ class TestImageInLLMMessages:
 		image_parts_jpg = [part for part in message_jpg.content if isinstance(part, ContentPartImageParam)]
 		assert 'data:image/jpeg;base64' in image_parts_jpg[0].image_url.url
 
+		# Test GIF
+		read_state_images_gif = [{'name': 'animation.gif', 'data': 'data'}]
+		prompt_gif = AgentMessagePrompt(
+			browser_state_summary=browser_state,
+			file_system=fs,
+			read_state_images=read_state_images_gif,
+		)
+		message_gif = prompt_gif.get_user_message(use_vision=True)
+		image_parts_gif = [part for part in message_gif.content if isinstance(part, ContentPartImageParam)]
+		assert 'data:image/gif;base64' in image_parts_gif[0].image_url.url
+		assert image_parts_gif[0].image_url.media_type == 'image/gif'
+
+		# Test WebP
+		read_state_images_webp = [{'name': 'image.webp', 'data': 'data'}]
+		prompt_webp = AgentMessagePrompt(
+			browser_state_summary=browser_state,
+			file_system=fs,
+			read_state_images=read_state_images_webp,
+		)
+		message_webp = prompt_webp.get_user_message(use_vision=True)
+		image_parts_webp = [part for part in message_webp.content if isinstance(part, ContentPartImageParam)]
+		assert 'data:image/webp;base64' in image_parts_webp[0].image_url.url
+		assert image_parts_webp[0].image_url.media_type == 'image/webp'
+
+
 	def test_agent_message_prompt_no_images(self, tmp_path: Path):
 		"""Test that message works correctly when no images are present."""
 		fs = FileSystem(tmp_path)

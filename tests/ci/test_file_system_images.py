@@ -311,3 +311,26 @@ class TestBinaryFileCreation:
 		# Content integrity, not just existence: decoded bytes must round-trip and be a real PNG
 		assert restored._decoded() == original_bytes
 		assert restored._decoded()[:8] == b'\x89PNG\r\n\x1a\n'
+
+	async def test_read_internal_binary_image_returns_images_payload(self, tmp_path: Path):
+		fs = FileSystem(str(tmp_path))
+		await fs.write_file('logo.png', self.PNG_1X1)
+		structured_result = await fs.read_file_structured('logo.png')
+		assert 'Read image file logo.png' in structured_result['message']
+		assert structured_result['images'] is not None
+		assert len(structured_result['images']) == 1
+		assert structured_result['images'][0]['name'] == 'logo.png'
+		assert structured_result['images'][0]['data'] == self.PNG_1X1
+
+		read_result = await fs.read_file('logo.png')
+		assert 'Read image file logo.png' in read_result
+
+	async def test_replace_file_str_on_binary_file_returns_clear_error(self, tmp_path: Path):
+		fs = FileSystem(str(tmp_path))
+		await fs.write_file('logo.png', self.PNG_1X1)
+		result = await fs.replace_file_str('logo.png', 'binary', 'text')
+		assert result == "Error: Cannot replace text in binary file 'logo.png'. Overwrite it instead."
+		# Ensure file content was not corrupted
+		file_obj = fs.get_file('logo.png')
+		assert file_obj is not None
+		assert file_obj.content == self.PNG_1X1
