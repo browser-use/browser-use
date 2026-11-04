@@ -107,4 +107,3 @@ async def test_collinear_quad_falls_back_to_box_model() -> None:
 	assert rect is not None, 'the only quad is degenerate, so the box model has to answer'
 	assert (rect.x, rect.y, rect.width, rect.height) == (0, 0, 40, 35)
 	assert dom.calls == ['getContentQuads', 'getBoxModel']
-
