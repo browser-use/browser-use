@@ -60,6 +60,7 @@ class TokenCost:
 		self.usage_history: list[TokenUsageEntry] = []
 		self.registered_llms: dict[str, BaseChatModel] = {}
 		self._pricing_model_names: dict[str, str] = {}
+		self._ambiguous_pricing_models: set[str] = set()
 		self._pricing_data: dict[str, Any] | None = None
 		self._initialized = False
 		self._cache_dir = xdg_cache_home() / self.CACHE_DIR_NAME
@@ -216,12 +217,17 @@ class TokenCost:
 				cache_creation_1h_input_token_cost=data.get('cache_creation_1h_input_token_cost'),
 			)
 
+		# A missing Fortytwo rate is unknown, never another provider's tariff.
+		if model_name.startswith('fortytwo/'):
+			return None
 		return await get_openrouter_model_pricing(model_name)
 
 	async def calculate_cost(self, model: str, usage: ChatInvokeUsage) -> TokenCostCalculated | None:
 		if not self.include_cost:
 			return None
 
+		if model in self._ambiguous_pricing_models:
+			return None
 		pricing_model = self._pricing_model_names.get(model, model)
 		data = await self.get_model_pricing(pricing_model)
 		if data is None:
@@ -364,7 +370,16 @@ class TokenCost:
 			return llm
 
 		self.registered_llms[instance_id] = llm
-		self._pricing_model_names[llm.model] = self._get_pricing_model_name(llm)
+		pricing_model = self._get_pricing_model_name(llm)
+		previous = self._pricing_model_names.get(llm.model)
+		if (
+			previous is not None
+			and previous != pricing_model
+			and (previous.startswith('fortytwo/') or pricing_model.startswith('fortytwo/'))
+		):
+			# Usage is grouped by raw model id: mixed providers cannot be costed safely.
+			self._ambiguous_pricing_models.add(llm.model)
+		self._pricing_model_names[llm.model] = pricing_model
 
 		# Store the original method
 		original_ainvoke = llm.ainvoke
@@ -402,6 +417,8 @@ class TokenCost:
 		"""Disambiguate OpenRouter prices from same-named upstream model ids."""
 		model = str(llm.model)
 		base_url = str(getattr(llm, 'base_url', '') or '').rstrip('/')
+		if llm.provider == 'fortytwo' or base_url == 'https://api.fortytwo.network/v1':
+			return f'fortytwo/{model}'
 		if llm.provider == 'openrouter' or base_url == 'https://openrouter.ai/api/v1':
 			if not is_openrouter_pricing_model(model):
 				return f'openrouter/{model}'

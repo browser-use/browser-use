@@ -59,6 +59,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.browser_use.chat import ChatBrowserUse
 	from browser_use.llm.cerebras.chat import ChatCerebras
 	from browser_use.llm.deepseek.chat import ChatDeepSeek
+	from browser_use.llm.fortytwo.chat import ChatFortytwo
 	from browser_use.llm.google.chat import ChatGoogle
 	from browser_use.llm.groq.chat import ChatGroq
 	from browser_use.llm.litellm.chat import ChatLiteLLM
@@ -106,6 +107,7 @@ _LAZY_IMPORTS = {
 	'ChatOCIRaw': ('browser_use.llm.oci_raw.chat', 'ChatOCIRaw'),
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
 	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
+	'ChatFortytwo': ('browser_use.llm.fortytwo.chat', 'ChatFortytwo'),
 	'ChatOrcaRouter': ('browser_use.llm.orcarouter.chat', 'ChatOrcaRouter'),
 	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
 	# LLM models module
@@ -164,6 +166,7 @@ __all__ = [
 	'ChatOCIRaw',
 	'ChatOllama',
 	'ChatOpenRouter',
+	'ChatFortytwo',
 	'ChatOrcaRouter',
 	'ChatVercel',
 	'Tools',
