@@ -36,6 +36,35 @@ def test_browser_use_module_entrypoint_matches_cli_entrypoint():
 	assert module_result.stderr == cli_result.stderr == ''
 
 
+def test_browser_use_version_flag_reports_own_distribution(monkeypatch, capsys):
+	import browser_use.cli as browser_use_cli
+
+	monkeypatch.setattr(browser_use_cli, '_browser_use_version', lambda: '9.9.9')
+
+	result, command = browser_use_cli._dispatch(['--version'])
+
+	assert result == 0
+	assert command == 'version'
+	captured = capsys.readouterr()
+	assert captured.out == '9.9.9\n'
+	assert captured.err == ''
+
+
+def test_browser_use_version_flag_matches_installed_distribution():
+	import importlib.metadata
+
+	try:
+		expected = importlib.metadata.version('browser-use')
+	except importlib.metadata.PackageNotFoundError:
+		expected = 'unknown'
+
+	result = _run_browser_use_cli('--version')
+
+	assert result.returncode == 0
+	assert result.stdout == f'{expected}\n'
+	assert result.stderr == ''
+
+
 def test_normalize_captured_cli_output_handles_string_system_exit(capsys):
 	from browser_use.cli import _normalize_captured_cli_output
 

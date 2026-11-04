@@ -355,6 +355,9 @@ def _command_name(args: list[str]) -> str:
 
 
 def _dispatch(args: list[str]) -> tuple[int | None, str]:
+	if args and args[0] == '--version':
+		print(_browser_use_version())
+		return 0, 'version'
 	if '--cli-mcp' in args:
 		_run_cli_mcp_server()
 		return 0, 'cli-mcp'
