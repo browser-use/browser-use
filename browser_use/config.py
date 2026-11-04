@@ -497,8 +497,11 @@ class Config:
 		if env_config.BROWSER_USE_PROXY_PASSWORD:
 			proxy_dict['password'] = env_config.BROWSER_USE_PROXY_PASSWORD
 		if proxy_dict:
-			# ensure section exists
-			config.setdefault('browser_profile', {})
+			configured_proxy = config['browser_profile'].get('proxy')
+			# Keep the existing endpoint for partial overrides. An explicit new
+			# endpoint must not inherit credentials from the saved proxy.
+			if 'server' not in proxy_dict and isinstance(configured_proxy, dict):
+				proxy_dict = {**configured_proxy, **proxy_dict}
 			config['browser_profile']['proxy'] = proxy_dict
 
 		if env_config.OPENAI_API_KEY:
