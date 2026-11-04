@@ -2515,6 +2515,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			is_combination = False
 			modifiers = []
 			main_key = None
+			sends_enter = False
 			if '+' in keys and keys != '+':
 				if keys.endswith('++'):
 					prefix = keys[:-2]
@@ -2545,6 +2546,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 				for mod in modifiers:
 					await self._dispatch_key_event(cdp_session, 'keyDown', mod)
 
+				sends_enter = main_key == 'Enter'
+
 				# Press main key with modifiers bitmask
 				await self._dispatch_key_event(cdp_session, 'keyDown', main_key, modifier_value)
 
@@ -2556,6 +2559,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			else:
 				keys_lower = keys.strip().lower()
 				normalized_keys = key_aliases.get(keys_lower, keys)
+				sends_enter = normalized_keys == 'Enter' or any(char in ('\n', '\r') for char in normalized_keys)
 
 				# Check if this is a text string or special key
 				special_keys = {
@@ -2683,8 +2687,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 			self.logger.info(f'⌨️ Sent keys: {event.keys}')
 
 			# Note: We don't clear cached state on Enter; multi_act will detect DOM changes
-			# and rebuild explicitly. We still wait briefly for potential navigation.
-			if 'enter' in event.keys.lower() or 'return' in event.keys.lower():
+			# and rebuild explicitly. We still wait briefly for potential navigation, but only when
+			# Enter/Return was actually sent instead of matching any text containing those letters.
+			if sends_enter:
 				await asyncio.sleep(0.1)
 		except Exception as e:
 			raise
