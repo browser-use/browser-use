@@ -93,8 +93,11 @@ class CLIMCPServer:
 						is_error=True,
 					)
 				async with self._exec_lock:
-					output = await asyncio.to_thread(self._execute, code)
-				return types.CallToolResult(content=[types.TextContent(type='text', text=output or '(no output)')])
+					output, is_error = await asyncio.to_thread(self._execute, code)
+				return types.CallToolResult(
+					content=[types.TextContent(type='text', text=output or '(no output)')],
+					is_error=is_error,
+				)
 			if name == 'browser_screenshot':
 				max_dim = arguments.get('max_dim')
 				if max_dim is not None and (isinstance(max_dim, bool) or not isinstance(max_dim, int) or max_dim < 1):
@@ -128,8 +131,8 @@ class CLIMCPServer:
 			return
 		ns['ensure_daemon']()
 
-	def _execute(self, code: str, connect: bool = True) -> str:
-		"""Run code in the persistent namespace, capturing stdout/stderr.
+	def _execute(self, code: str, connect: bool = True) -> tuple[str, bool]:
+		"""Run code and return the captured output and whether it failed.
 
 		Runs in a worker thread: harness helpers are synchronous socket IPC. Output is
 		captured because stdout carries the MCP protocol.
@@ -143,7 +146,8 @@ class CLIMCPServer:
 				exec(code, ns)
 			except BaseException:
 				traceback.print_exc(file=buffer)
-		return buffer.getvalue()
+				return buffer.getvalue(), True
+		return buffer.getvalue(), False
 
 	def _screenshot(self, full: bool, max_dim: int | None) -> str:
 		buffer = StringIO()
