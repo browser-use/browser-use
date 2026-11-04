@@ -6,6 +6,7 @@ succeeded. `MCPClient` must surface that as a failed `ActionResult`
 instead of silently treating `result.content` as a successful result.
 """
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -95,3 +96,21 @@ async def test_mcp_tool_isError_false_still_succeeds():
 
 	assert result.error is None
 	assert result.extracted_content == 'ok'
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_structured_content_without_text_is_returned():
+	client = _make_connected_client()
+	payload = {'count': 2, 'items': ['first', 'second']}
+	client.session.call_tool = AsyncMock(  # type: ignore[union-attr]
+		return_value=types.CallToolResult(content=[], structured_content=payload)
+	)
+	tools = Tools()
+	tool = types.Tool(name='list_items', input_schema={'type': 'object'})
+	client._register_tool_as_action(tools.registry, 'list_items', tool)
+
+	result = await tools.registry.execute_action('list_items', {})
+
+	assert result.error is None
+	assert result.extracted_content
+	assert json.loads(result.extracted_content) == payload
