@@ -54,7 +54,9 @@ async def test_retry_schema_advertises_session_reuse(server):
 @pytest.mark.parametrize('fails', [False, True])
 async def test_recovery_preserves_live_page_and_session(server, monkeypatch, mock_llm, httpserver, fails):
 	"""Observe lifetime checks outside Agent.run(), where errors cannot swallow assertions."""
-	httpserver.expect_request('/form').respond_with_data('<html><body><input id="field" value="unfinished"></body></html>')
+	httpserver.expect_request('/form').respond_with_data(
+		'<html><body><input id="field" value="unfinished"></body></html>', content_type='text/html'
+	)
 	session = BrowserSession(headless=True, keep_alive=False, user_data_dir=None, enable_default_extensions=False)
 	server.browser_session = session
 	server._track_session(session)
