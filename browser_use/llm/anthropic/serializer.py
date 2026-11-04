@@ -331,10 +331,19 @@ class AnthropicMessageSerializer:
 		# Serialize system messages, preserving every instruction in its original order
 		serialized_system_message: list[TextBlockParam] | str | None = None
 		if system_messages:
+			# Only the last cache=True system message may carry a cache breakpoint. Anthropic caps
+			# the number of cache_control blocks per request, and one breakpoint already covers
+			# every block before it — same rule `_clean_cache_messages` applies to normal messages.
+			last_cached_system_index = -1
+			for i in range(len(system_messages) - 1, -1, -1):
+				if system_messages[i].cache:
+					last_cached_system_index = i
+					break
+
 			blocks: list[TextBlockParam] = []
-			for system_message in system_messages:
+			for i, system_message in enumerate(system_messages):
 				serialized = AnthropicMessageSerializer._serialize_content_to_str(
-					system_message.content, use_cache=system_message.cache
+					system_message.content, use_cache=i == last_cached_system_index
 				)
 				if isinstance(serialized, str):
 					blocks.append(TextBlockParam(text=serialized, type='text'))

@@ -49,3 +49,37 @@ def test_multiple_system_messages_with_cache_keep_cache_on_last_block() -> None:
 	assert _texts(system_message) == ['First instruction.', 'Second instruction.']
 	assert system_message[0].get('cache_control') is None
 	assert system_message[1].get('cache_control') == {'type': 'ephemeral'}
+
+
+def test_several_cached_system_messages_emit_a_single_breakpoint() -> None:
+	"""Only the last cache=True block may carry cache_control.
+
+	Anthropic caps the number of cache breakpoints per request, and a breakpoint already covers
+	every block before it. Emitting one per cached system message spends that budget for nothing
+	and overflows the cap once a caller stacks enough cached system prompts.
+	"""
+	messages = [
+		SystemMessage(content='First instruction.', cache=True),
+		SystemMessage(content='Second instruction.', cache=True),
+		SystemMessage(content='Third instruction.', cache=True),
+		UserMessage(content='Go.'),
+	]
+	_, system_message = AnthropicMessageSerializer.serialize_messages(messages)
+
+	assert isinstance(system_message, list)
+	assert _texts(system_message) == ['First instruction.', 'Second instruction.', 'Third instruction.']
+	assert [block.get('cache_control') for block in system_message] == [None, None, {'type': 'ephemeral'}]
+
+
+def test_breakpoint_stays_on_last_cached_message_not_on_last_message() -> None:
+	"""Trailing uncached system messages must not steal the breakpoint."""
+	messages = [
+		SystemMessage(content='First instruction.', cache=True),
+		SystemMessage(content='Second instruction.'),
+		UserMessage(content='Go.'),
+	]
+	_, system_message = AnthropicMessageSerializer.serialize_messages(messages)
+
+	assert isinstance(system_message, list)
+	assert [block.get('cache_control') for block in system_message] == [{'type': 'ephemeral'}, None]
+
