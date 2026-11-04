@@ -86,9 +86,7 @@ def test_personal_name_fields_keep_their_classification(attribute_name: str, exp
 		('company_zip', '10115', 'zip_code'),
 	],
 )
-def test_location_qualified_company_fields_keep_their_location_type(
-	attribute_name: str, value: str, expected: str
-) -> None:
+def test_location_qualified_company_fields_keep_their_location_type(attribute_name: str, value: str, expected: str) -> None:
 	"""`company_city` is a city, not a company.
 
 	The company branch has to sit above the generic `name` branch, otherwise `company_name` is read
