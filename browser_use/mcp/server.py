@@ -1195,6 +1195,8 @@ class BrowserUseServer:
 
 		session_data = self.active_sessions[session_id]
 		session = session_data['session']
+		if session is self._agent_session:
+			return f'Error: session {session_id} is in use by a running agent'
 
 		try:
 			# Close the session
@@ -1233,9 +1235,8 @@ class BrowserUseServer:
 			except Exception as e:
 				errors.append(f'{session_id}: {str(e)}')
 
-		# Clear current session references
-		self.browser_session = None
-		self.tools = None
+		# _close_session clears references only after a successful close. Keep
+		# the current session reachable if it is busy or could not be closed.
 
 		result = f'Closed {closed_count} sessions'
 		if errors:
