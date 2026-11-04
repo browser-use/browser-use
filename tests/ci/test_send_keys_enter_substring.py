@@ -56,7 +56,19 @@ async def _run(monkeypatch, keys: str) -> list[float]:
 	return [delay for delay in delays if delay == ENTER_DELAY]
 
 
-@pytest.mark.parametrize('keys', ['Enter', 'ENTER', 'Return', 'Control+Enter'])
+@pytest.mark.parametrize(
+	'keys',
+	[
+		'Enter',
+		'ENTER',
+		'Return',
+		'Control+Enter',
+		# `sends_enter` also fires on raw newlines, so both spellings need coverage here
+		pytest.param('\n', id='line-feed'),
+		pytest.param('\r', id='carriage-return'),
+		pytest.param('hello\n', id='text-then-line-feed'),
+	],
+)
 async def test_enter_keys_still_wait(monkeypatch, keys: str) -> None:
 	assert await _run(monkeypatch, keys) == [ENTER_DELAY]
 
