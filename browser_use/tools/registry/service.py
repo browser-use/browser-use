@@ -503,6 +503,18 @@ class Registry(Generic[Context]):
 				return tuple(recursively_replace_secrets(v) for v in value)
 			return value
 
+		def preserve_fields_set(original: Any, processed: Any) -> None:
+			if isinstance(original, BaseModel) and isinstance(processed, BaseModel):
+				processed.__pydantic_fields_set__ = original.model_fields_set.copy()
+				for field_name in original.__class__.model_fields:
+					preserve_fields_set(getattr(original, field_name), getattr(processed, field_name))
+			elif isinstance(original, dict) and isinstance(processed, dict):
+				for key in original.keys() & processed.keys():
+					preserve_fields_set(original[key], processed[key])
+			elif isinstance(original, (list, tuple)) and isinstance(processed, type(original)):
+				for original_item, processed_item in zip(original, processed):
+					preserve_fields_set(original_item, processed_item)
+
 		params_dump = params.model_dump()
 		processed_params = recursively_replace_secrets(params_dump)
 
@@ -513,7 +525,9 @@ class Registry(Generic[Context]):
 		if all_missing_placeholders:
 			logger.warning(f'Missing or empty keys in sensitive_data dictionary: {", ".join(all_missing_placeholders)}')
 
-		return type(params).model_validate(processed_params)
+		validated_params = type(params).model_validate(processed_params)
+		preserve_fields_set(params, validated_params)
+		return validated_params
 
 	# @time_execution_sync('--create_action_model')
 	def create_action_model(self, include_actions: list[str] | None = None, page_url: str | None = None) -> type[ActionModel]:

@@ -24,10 +24,13 @@ Example usage:
 
 import asyncio
 import logging
+import math
+import re
 import time
-from typing import Any
+from decimal import Decimal
+from typing import Annotated, Any, ClassVar, Union
 
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, WithJsonSchema, create_model
 
 from browser_use.agent.views import ActionResult
 from browser_use.telemetry import MCPClientTelemetryEvent, ProductTelemetry
@@ -42,6 +45,213 @@ from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 
 MCP_AVAILABLE = True
+
+
+def _json_values_equal(left: Any, right: Any) -> bool:
+	"""Compare JSON values without treating booleans as numbers."""
+	if isinstance(left, bool) or isinstance(right, bool):
+		return isinstance(left, bool) and isinstance(right, bool) and left is right
+	if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+		return left == right
+	if left is None or right is None:
+		return left is None and right is None
+	if isinstance(left, str) or isinstance(right, str):
+		return isinstance(left, str) and isinstance(right, str) and left == right
+	if isinstance(left, list) or isinstance(right, list):
+		return (
+			isinstance(left, list)
+			and isinstance(right, list)
+			and len(left) == len(right)
+			and all(_json_values_equal(left_item, right_item) for left_item, right_item in zip(left, right))
+		)
+	if isinstance(left, dict) or isinstance(right, dict):
+		return (
+			isinstance(left, dict)
+			and isinstance(right, dict)
+			and left.keys() == right.keys()
+			and all(_json_values_equal(left[key], right[key]) for key in left)
+		)
+	return type(left) is type(right) and left == right
+
+
+def _schema_accepts_value(value: Any, schema: dict[str, Any] | bool) -> bool:
+	if isinstance(schema, bool):
+		return schema
+
+	json_type = schema.get('type')
+	if json_type is not None:
+		json_types = json_type if isinstance(json_type, list) else [json_type]
+		type_matches = any(
+			(type_name == 'null' and value is None)
+			or (value is None and schema.get('nullable', False))
+			or (type_name == 'string' and isinstance(value, str))
+			or (type_name == 'boolean' and isinstance(value, bool))
+			or (type_name == 'integer' and isinstance(value, int) and not isinstance(value, bool))
+			or (type_name == 'number' and isinstance(value, (int, float)) and not isinstance(value, bool))
+			or (type_name == 'array' and isinstance(value, list))
+			or (type_name == 'object' and isinstance(value, dict))
+			for type_name in json_types
+		)
+		enum_allows_null = value is None and 'enum' in schema and None in schema['enum']
+		if not type_matches and not enum_allows_null:
+			return False
+
+	if 'enum' in schema and not any(_json_values_equal(value, enum_value) for enum_value in schema['enum']):
+		return False
+	if 'const' in schema and not _json_values_equal(value, schema['const']):
+		return False
+	if 'anyOf' in schema and not any(_schema_accepts_value(value, variant) for variant in schema['anyOf']):
+		return False
+	if 'oneOf' in schema and sum(_schema_accepts_value(value, variant) for variant in schema['oneOf']) != 1:
+		return False
+	if 'allOf' in schema and not all(_schema_accepts_value(value, variant) for variant in schema['allOf']):
+		return False
+
+	if isinstance(value, str):
+		if len(value) < schema.get('minLength', 0) or len(value) > schema.get('maxLength', math.inf):
+			return False
+		if 'pattern' in schema and re.search(schema['pattern'], value) is None:
+			return False
+
+	if isinstance(value, (int, float)) and not isinstance(value, bool):
+		if value < schema.get('minimum', -math.inf) or value > schema.get('maximum', math.inf):
+			return False
+		if value <= schema.get('exclusiveMinimum', -math.inf) or value >= schema.get('exclusiveMaximum', math.inf):
+			return False
+		if 'multipleOf' in schema:
+			multiple = schema['multipleOf']
+			if not _is_multiple_of(value, multiple):
+				return False
+
+	if isinstance(value, dict):
+		if len(value) < schema.get('minProperties', 0) or len(value) > schema.get('maxProperties', math.inf):
+			return False
+		if not set(schema.get('required', [])).issubset(value):
+			return False
+		properties = schema.get('properties', {})
+		if any(
+			key in value and not _schema_accepts_value(value[key], property_schema) for key, property_schema in properties.items()
+		):
+			return False
+		extra_properties = set(value) - set(properties)
+		additional_properties = schema.get('additionalProperties', True)
+		if additional_properties is False and extra_properties:
+			return False
+		if isinstance(additional_properties, (dict, bool)) and any(
+			not _schema_accepts_value(value[key], additional_properties) for key in extra_properties
+		):
+			return False
+	if isinstance(value, list):
+		if len(value) < schema.get('minItems', 0) or len(value) > schema.get('maxItems', math.inf):
+			return False
+		if schema.get('uniqueItems', False) and any(
+			_json_values_equal(value[left], value[right]) for left in range(len(value)) for right in range(left + 1, len(value))
+		):
+			return False
+		prefix_items = schema.get('prefixItems', [])
+		if any(
+			index < len(value) and not _schema_accepts_value(value[index], item_schema)
+			for index, item_schema in enumerate(prefix_items)
+		):
+			return False
+		items_schema = schema.get('items')
+		if isinstance(items_schema, (dict, bool)) and any(
+			not _schema_accepts_value(item, items_schema) for index, item in enumerate(value) if index >= len(prefix_items)
+		):
+			return False
+		if 'contains' in schema:
+			match_count = sum(_schema_accepts_value(item, schema['contains']) for item in value)
+			if match_count < schema.get('minContains', 1) or match_count > schema.get('maxContains', math.inf):
+				return False
+
+	return True
+
+
+def _schema_allows_null(schema: dict[str, Any] | bool) -> bool:
+	return _schema_accepts_value(None, schema)
+
+
+def _is_multiple_of(value: int | float, multiple: int | float) -> bool:
+	"""Check JSON-number divisibility using their decimal representations."""
+	value_decimal = Decimal(str(value))
+	multiple_decimal = Decimal(str(multiple))
+	if not value_decimal.is_finite() or not multiple_decimal.is_finite() or multiple_decimal <= 0:
+		return False
+
+	def coefficient_and_exponent(number: Decimal) -> tuple[int, int]:
+		sign, digits, exponent = number.as_tuple()
+		assert isinstance(exponent, int)
+		coefficient = int(''.join(str(digit) for digit in digits) or '0')
+		return (-coefficient if sign else coefficient), exponent
+
+	value_coefficient, value_exponent = coefficient_and_exponent(value_decimal)
+	multiple_coefficient, multiple_exponent = coefficient_and_exponent(multiple_decimal)
+	common_exponent = min(value_exponent, multiple_exponent)
+	scaled_value = value_coefficient * 10 ** (value_exponent - common_exponent)
+	scaled_multiple = multiple_coefficient * 10 ** (multiple_exponent - common_exponent)
+	return scaled_value % scaled_multiple == 0
+
+
+def _schema_for_composed_object(schema: dict[str, Any]) -> dict[str, Any]:
+	"""Expose intersected allOf fields at the top level for tool-call schemas."""
+	json_schema = dict(schema)
+	properties = dict(json_schema.get('properties', {}))
+	required = set(json_schema.get('required', []))
+
+	for branch in schema.get('allOf', []):
+		if not isinstance(branch, dict):
+			continue
+		for name, property_schema in branch.get('properties', {}).items():
+			if name in properties and properties[name] != property_schema:
+				existing_schema = properties[name]
+				existing_branches = (
+					existing_schema.get('allOf')
+					if isinstance(existing_schema, dict) and set(existing_schema) == {'allOf'}
+					else None
+				)
+				properties[name] = {'allOf': [*(existing_branches or [existing_schema]), property_schema]}
+			else:
+				properties[name] = property_schema
+		required.update(branch.get('required', []))
+
+	if properties:
+		json_schema['type'] = 'object'
+		json_schema['properties'] = properties
+	if required:
+		json_schema['required'] = sorted(required)
+	return json_schema
+
+
+def _nullable_python_type(python_type: Any) -> Any:
+	return python_type if python_type is type(None) else python_type | None
+
+
+def _serialize_mcp_params(value: Any) -> Any:
+	"""Serialize MCP parameters without dropping explicit nullable values."""
+	if isinstance(value, BaseModel):
+		serialized = value.model_dump(exclude_none=True)
+		nullable_fields = getattr(value.__class__, '__mcp_nullable_fields__', frozenset())
+
+		for field_name in value.__class__.model_fields:
+			field_value = getattr(value, field_name)
+			if field_value is None:
+				if field_name in nullable_fields and field_name in value.model_fields_set:
+					serialized[field_name] = None
+			elif field_name in serialized:
+				serialized[field_name] = _serialize_mcp_params(field_value)
+
+		return serialized
+	if isinstance(value, dict):
+		return {key: _serialize_mcp_params(item) for key, item in value.items()}
+	if isinstance(value, list):
+		return [_serialize_mcp_params(item) for item in value]
+	return value
+
+
+class MCPToolParameters(BaseModel):
+	model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
+
+	__mcp_nullable_fields__: ClassVar[frozenset[str]] = frozenset()
 
 
 class MCPClient:
@@ -255,6 +465,7 @@ class MCPClient:
 		"""
 		# Parse tool parameters to create Pydantic model
 		param_fields = {}
+		nullable_fields = set()
 
 		if tool.input_schema:
 			# MCP tools use JSON Schema for parameters
@@ -264,13 +475,15 @@ class MCPClient:
 			for param_name, param_schema in properties.items():
 				# Convert JSON Schema type to Python type
 				param_type = self._json_schema_to_python_type(param_schema, f'{action_name}_{param_name}')
+				if _schema_allows_null(param_schema):
+					nullable_fields.add(param_name)
 
 				# Determine if field is required and handle defaults
 				if param_name in required:
 					default = ...  # Required field
 				else:
 					# Optional field - make type optional and handle default
-					param_type = param_type | None
+					param_type = _nullable_python_type(param_type)
 					if 'default' in param_schema:
 						default = param_schema['default']
 					else:
@@ -285,11 +498,8 @@ class MCPClient:
 
 		# Create Pydantic model for the tool parameters
 		if param_fields:
-			# Create a BaseModel class with proper configuration
-			class ConfiguredBaseModel(BaseModel):
-				model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
-
-			param_model = create_model(f'{action_name}_Params', __base__=ConfiguredBaseModel, **param_fields)
+			param_model = create_model(f'{action_name}_Params', __base__=MCPToolParameters, **param_fields)
+			setattr(param_model, '__mcp_nullable_fields__', frozenset(nullable_fields))
 		else:
 			# No parameters - create empty model
 			param_model = None
@@ -311,8 +521,8 @@ class MCPClient:
 				if not self.session or not self._connected:
 					return ActionResult(error=f"MCP server '{self.server_name}' not connected", success=False)
 
-				# Convert pydantic model to dict for MCP call
-				tool_params = params.model_dump(exclude_none=True)
+				# Preserve explicit nulls allowed by the schema while omitting absent optional values.
+				tool_params = _serialize_mcp_params(params)
 
 				logger.debug(f"🔧 Calling MCP tool '{tool.name}' with params: {tool_params}")
 
@@ -464,7 +674,68 @@ class MCPClient:
 		Returns:
 			Python type corresponding to the schema
 		"""
+		compositions = {composition: schema[composition] for composition in ('allOf', 'anyOf', 'oneOf') if composition in schema}
+		if compositions:
+			if any(not isinstance(variants, list) for variants in compositions.values()):
+				raise ValueError('JSON Schema allOf, anyOf, and oneOf values must be lists')
+
+			base_schema = {key: value for key, value in schema.items() if key not in compositions}
+			if base_schema.get('type') == 'object':
+				python_type = dict
+			elif 'type' in base_schema:
+				python_type = self._json_schema_to_python_type(base_schema, model_name)
+			elif 'allOf' in compositions:
+				variant_types = []
+				for variant in compositions['allOf']:
+					if isinstance(variant, bool):
+						continue
+					if not isinstance(variant, dict):
+						raise ValueError('JSON Schema allOf entries must be objects or booleans')
+					if variant.get('type') == 'object':
+						variant_types.append(dict)
+					elif 'type' in variant:
+						variant_types.append(self._json_schema_to_python_type(variant, model_name))
+				python_types = list(dict.fromkeys(variant_types))
+				python_type = python_types[0] if len(python_types) == 1 else Any
+			else:
+				python_types = []
+				for variants in compositions.values():
+					for variant in variants:
+						if isinstance(variant, bool):
+							variant_type = Any
+						elif isinstance(variant, dict):
+							variant_type = self._json_schema_to_python_type(variant, model_name)
+						else:
+							raise ValueError('JSON Schema composition entries must be objects or booleans')
+						if variant_type not in python_types:
+							python_types.append(variant_type)
+				if not python_types:
+					raise ValueError('JSON Schema compositions must contain at least one schema')
+				python_type = python_types[0] if len(python_types) == 1 else Union[tuple(python_types)]
+
+			def validate_composition(value: Any) -> Any:
+				if not _schema_accepts_value(value, schema):
+					raise ValueError('Value does not satisfy its JSON Schema composition')
+				return value
+
+			metadata: list[Any] = [BeforeValidator(validate_composition)]
+			if 'allOf' in compositions:
+				metadata.append(WithJsonSchema(_schema_for_composed_object(schema)))
+			return Annotated[python_type, *metadata]
+
 		json_type = schema.get('type', 'string')
+
+		if isinstance(json_type, list):
+			python_types = [
+				self._json_schema_to_python_type({**schema, 'type': single_type}, model_name)
+				for single_type in dict.fromkeys(json_type)
+				if single_type != 'null'
+			]
+			if _schema_allows_null(schema):
+				python_types.append(type(None))
+			if not python_types:
+				return type(None)
+			return python_types[0] if len(python_types) == 1 else Union[tuple(python_types)]
 
 		# Basic type mapping
 		type_mapping = {
@@ -478,7 +749,7 @@ class MCPClient:
 
 		# Handle enums (they're still strings)
 		if 'enum' in schema:
-			return str
+			return _nullable_python_type(str) if _schema_allows_null(schema) else str
 
 		# Handle objects with nested properties
 		if json_type == 'object':
@@ -486,18 +757,21 @@ class MCPClient:
 			if properties:
 				# Create nested pydantic model for objects with properties
 				nested_fields = {}
+				nullable_fields = set()
 				required_fields = set(schema.get('required', []))
 
 				for prop_name, prop_schema in properties.items():
 					# Recursively process nested properties
 					prop_type = self._json_schema_to_python_type(prop_schema, f'{model_name}_{prop_name}')
+					if _schema_allows_null(prop_schema):
+						nullable_fields.add(prop_name)
 
 					# Determine if field is required and handle defaults
 					if prop_name in required_fields:
 						default = ...  # Required field
 					else:
 						# Optional field - make type optional and handle default
-						prop_type = prop_type | None
+						prop_type = _nullable_python_type(prop_type)
 						if 'default' in prop_schema:
 							default = prop_schema['default']
 						else:
@@ -510,21 +784,19 @@ class MCPClient:
 
 					nested_fields[prop_name] = (prop_type, Field(default, **field_kwargs))
 
-				# Create a BaseModel class with proper configuration
-				class ConfiguredBaseModel(BaseModel):
-					model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
-
 				try:
 					# Create and return nested pydantic model
-					return create_model(model_name, __base__=ConfiguredBaseModel, **nested_fields)
+					nested_model = create_model(model_name, __base__=MCPToolParameters, **nested_fields)
+					setattr(nested_model, '__mcp_nullable_fields__', frozenset(nullable_fields))
+					return _nullable_python_type(nested_model) if _schema_allows_null(schema) else nested_model
 				except Exception as e:
 					logger.error(f'Failed to create nested model {model_name}: {e}')
 					logger.debug(f'Fields: {nested_fields}')
 					# Fallback to basic dict if model creation fails
-					return dict
+					return _nullable_python_type(dict) if _schema_allows_null(schema) else dict
 			else:
 				# Object without properties - just return dict
-				return dict
+				return _nullable_python_type(dict) if _schema_allows_null(schema) else dict
 
 		# Handle arrays with specific item types
 		if json_type == 'array':
@@ -532,17 +804,18 @@ class MCPClient:
 				# Get the item type recursively
 				item_type = self._json_schema_to_python_type(schema['items'], f'{model_name}_item')
 				# Return properly typed list
-				return list[item_type]
+				array_type = list[item_type]
 			else:
 				# Array without item type specification
-				return list
+				array_type = list
+			return _nullable_python_type(array_type) if _schema_allows_null(schema) else array_type
 
 		# Get base type for non-object types
 		base_type = type_mapping.get(json_type, str)
 
 		# Handle nullable/optional types
-		if schema.get('nullable', False) or json_type == 'null':
-			return base_type | None
+		if _schema_allows_null(schema):
+			return _nullable_python_type(base_type)
 
 		return base_type
 
