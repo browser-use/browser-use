@@ -250,6 +250,7 @@ class Repl:
 		try:
 			self.proc = await asyncio.create_subprocess_exec(
 				sys.executable,
+				'-P',  # the workspace is not sys.path[0]: a json.py there must not shadow the stdlib (worker.py appends it)
 				'-m',
 				'browser_use.repl.worker',
 				cwd=self.workspace,

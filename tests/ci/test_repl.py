@@ -437,3 +437,16 @@ async def test_timed_out_cell_reads_only_the_start_of_a_huge_output(tmp_path):
 		await repl.close()
 	assert 'timed out' in r['error'] and Path(r['output_file']).stat().st_size >= 20_000_000, r['error']
 	assert 'Truncated' in r['output'] and peak < 10_000_000, peak
+
+
+async def test_workspace_file_named_like_a_stdlib_module_never_breaks_the_worker(tmp_path):
+	"""Fable r3-1: the workspace was sys.path[0] of the worker, so a json.py there (the user's project, or one the
+	model wrote before a restart) shadowed the stdlib and every cell failed with 'REPL worker failed to start'."""
+	(tmp_path / 'json.py').write_text('loads = None\n', encoding='utf-8')
+	(tmp_path / 'mymod.py').write_text('X = 7\n', encoding='utf-8')
+	repl = Repl(tmp_path)
+	try:
+		r = await repl.call('exec', 'import mymod\nprint(mymod.X)', 30)
+	finally:
+		await repl.close()
+	assert (r['output'].strip(), r['error']) == ('7', None)  # the agent's own modules still import

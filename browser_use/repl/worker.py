@@ -261,6 +261,7 @@ def main() -> None:
 	sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
 	ns: dict = {'__name__': '__main__', '__bu_display': _display}
 	bu = _install(ns, secrets)
+	sys.path.append(os.getcwd())  # after the imports (-P kept it off sys.path[0]): modules the agent writes still import
 	loop = asyncio.new_event_loop()
 	asyncio.set_event_loop(loop)
 
