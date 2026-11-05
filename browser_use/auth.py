@@ -85,7 +85,7 @@ def harden_login_callback() -> None:
 		handler = server.RequestHandlerClass  # a class made per login, so patching it touches only this server
 		answer = handler.do_GET  # type: ignore[attr-defined]
 
-		def do_GET(self):  # noqa: N802 - stdlib handler API
+		def do_GET(self):  # - stdlib handler API
 			parsed = urllib.parse.urlparse(self.path)
 			state = urllib.parse.parse_qs(parsed.query).get('state', [None])[0]
 			if parsed.path == auth.CALLBACK_PATH and state != callback.state:
