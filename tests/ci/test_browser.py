@@ -223,3 +223,106 @@ async def test_downloads_are_listed_before_the_stop(cloud, tmp_path):
 	await browser.stop(downloads_dir=tmp_path)
 	order = [c[0] if c[0] == 'PATCH' else 'list' for c in cloud if c[0] == 'PATCH' or 'downloads' in c[1]]
 	assert order == ['list', 'PATCH', 'list']
+
+
+def with_downloads(monkeypatch, files, list_hook=None):
+	"""The cloud fake lists `files` ({'path', 'url'}) as the browser's downloads; list_hook runs on every listing."""
+	real = browser_mod._cloud
+
+	def fake(path, method='GET', body=None):
+		if 'downloads' in path:
+			real(path, method, body)  # recorded
+			if list_hook:
+				list_hook()
+			return {'files': files, 'hasMore': False}
+		return real(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', fake)
+
+
+async def test_restart_during_stop_waits_and_keeps_the_new_browser_owned(cloud, monkeypatch, tmp_path):
+	"""Roast r2-2: a start() during stop()'s post-stop download pass created browser B; the old stop then cleared B's
+	id, so B was never stopped (billed until the server timeout)."""
+	import asyncio
+	import threading
+
+	listing, release, n = threading.Event(), threading.Event(), [0]
+
+	def hook():
+		n[0] += 1
+		if n[0] == 2:  # the post-stop pass
+			listing.set()
+			release.wait(10)
+
+	with_downloads(monkeypatch, [], hook)
+	browser = Browser()
+	await browser.start()
+	stopping = asyncio.ensure_future(browser.stop(downloads_dir=tmp_path))
+	await asyncio.to_thread(listing.wait, 10)
+	starting = asyncio.ensure_future(browser.start())
+	await asyncio.sleep(0.1)
+	assert len([c for c in cloud if c[0] == 'POST']) == 1  # the restart waits for the whole stop
+	release.set()
+	await stopping
+	await starting
+	assert browser.id == 'b2' and browser in browser_mod._LIVE
+	await browser.stop()
+	assert stops(cloud) == ['/browsers/b1', '/browsers/b2'] and not browser_mod._LIVE
+
+
+async def test_cancelled_download_collection_still_stops_the_cloud_browser(cloud, monkeypatch, tmp_path):
+	"""Roast r2-3: cancelling stop() during the pre-stop download pass skipped the PATCH stop (billing went on)."""
+	import asyncio
+	import threading
+
+	listing, release = threading.Event(), threading.Event()
+	with_downloads(monkeypatch, [], lambda: (listing.set(), release.wait(10)))
+	browser = Browser()
+	await browser.start()
+	task = asyncio.ensure_future(browser.stop(downloads_dir=tmp_path))
+	await asyncio.to_thread(listing.wait, 10)
+	task.cancel()
+	release.set()
+	with pytest.raises(asyncio.CancelledError):
+		await task
+	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
+async def test_hung_download_never_holds_the_stop(cloud, monkeypatch, tmp_path):
+	"""Roast r2-3: download collection had no overall bound; a hung transfer kept the browser billed."""
+	import threading
+	import time
+
+	release = threading.Event()
+	with_downloads(monkeypatch, [{'path': '/dl/a.pdf', 'url': 'https://files.test/a'}])
+	monkeypatch.setattr(browser_mod, 'DOWNLOADS_TIMEOUT_S', 0.3)
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda *a, **k: release.wait(10))
+	browser = Browser()
+	await browser.start()
+	t = time.monotonic()
+	try:
+		await browser.stop(downloads_dir=tmp_path)
+	finally:
+		release.set()
+	assert time.monotonic() - t < 3 and stops(cloud) == ['/browsers/b1']
+
+
+async def test_failed_download_is_retried_after_the_stop(cloud, monkeypatch, tmp_path):
+	"""Roast r2-7: a download was marked done before it was copied; one pre-stop connection reset lost the file."""
+	import io
+
+	with_downloads(monkeypatch, [{'path': '/dl/report.pdf', 'url': 'https://files.test/r'}])
+	attempts = []
+
+	def urlopen(url, timeout=None):
+		attempts.append(url)
+		if len(attempts) == 1:
+			raise ConnectionResetError('reset by peer')
+		return io.BytesIO(b'%PDF-1')
+
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', urlopen)
+	browser = Browser()
+	await browser.start()
+	files = await browser.stop(downloads_dir=tmp_path)
+	assert files == [tmp_path / 'report.pdf'] and (tmp_path / 'report.pdf').read_bytes() == b'%PDF-1'
+	assert len(attempts) == 2
