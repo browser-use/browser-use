@@ -101,6 +101,20 @@ class TestUrlAllowlistSecurity:
 		assert watchdog._is_url_allowed('https://www.test.com') is True
 		assert watchdog._is_url_allowed('https://www.testx.com') is False
 
+	def test_unsupported_fnmatch_syntax_is_rejected(self):
+		"""SecurityWatchdog must reject fnmatch syntax beyond the supported star wildcard."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		for pattern in ('*exampl[ae].com', '*exampl?.com', 'h[tx]tp*://api.example.com'):
+			browser_profile = BrowserProfile(allowed_domains=[pattern], headless=True, user_data_dir=None)
+			browser_session = BrowserSession(browser_profile=browser_profile)
+			watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=EventBus())
+
+			assert watchdog._is_url_allowed('https://api.example.com') is False
+			assert watchdog._is_url_allowed('https://api.exampla.com') is False
+
 	def test_glob_pattern_edge_cases(self):
 		"""Test edge cases for glob pattern matching to ensure proper behavior."""
 		from bubus import EventBus

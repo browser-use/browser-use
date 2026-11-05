@@ -547,6 +547,11 @@ def is_unsafe_pattern(pattern: str) -> bool:
 	return '*' in bare_domain
 
 
+def has_unsupported_fnmatch_syntax(pattern: str) -> bool:
+	"""Return whether a pattern uses fnmatch operators beyond the supported `*`."""
+	return any(char in pattern for char in '?[]')
+
+
 def is_new_tab_page(url: str) -> bool:
 	"""
 	Check if a URL is a new tab page (about:blank, chrome://new-tab-page, or chrome://newtab).
@@ -608,7 +613,7 @@ def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: b
 			pattern_domain = domain_pattern
 
 		# fnmatch also treats ?, [ and ] as glob syntax, but allowlists only support *.
-		if any(char in pattern_scheme + pattern_domain for char in '?[]'):
+		if has_unsupported_fnmatch_syntax(pattern_scheme + pattern_domain):
 			if log_warnings:
 				logger = logging.getLogger(__name__)
 				logger.error(f'⛔️ Unsupported glob syntax in pattern=[{domain_pattern}]')

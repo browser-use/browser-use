@@ -9,7 +9,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm import SystemMessage, UserMessage
 from browser_use.llm.messages import ContentPartTextParam
 from browser_use.tools.registry.service import Registry
-from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern
+from browser_use.utils import has_unsupported_fnmatch_syntax, is_new_tab_page, match_url_with_domain_pattern
 
 
 class SensitiveParams(BaseModel):
@@ -182,6 +182,8 @@ def test_unsafe_domain_patterns():
 	assert match_url_with_domain_pattern('https://api.exampla.com', '*.exampl[ae].com') is False
 	assert match_url_with_domain_pattern('https://api.example.com', '*.exampl?.com') is False
 	assert match_url_with_domain_pattern('https://example.com', 'h[tx]tp*://example.com') is False
+	assert has_unsupported_fnmatch_syntax('*.exampl].com') is True
+	assert has_unsupported_fnmatch_syntax('*.example.com') is False
 
 	# Test with patterns that have multiple asterisks in different positions
 	assert match_url_with_domain_pattern('https://subdomain.example.com', '*domain*example*') is False

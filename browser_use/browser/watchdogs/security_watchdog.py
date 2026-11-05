@@ -11,6 +11,7 @@ from browser_use.browser.events import (
 	TabCreatedEvent,
 )
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.utils import has_unsupported_fnmatch_syntax
 
 if TYPE_CHECKING:
 	pass
@@ -258,6 +259,9 @@ class SecurityWatchdog(BaseWatchdog):
 		# Handle glob patterns
 		if '*' in pattern:
 			self._log_glob_warning()
+			if has_unsupported_fnmatch_syntax(pattern):
+				return False
+
 			import fnmatch
 
 			# Check if pattern matches the host
