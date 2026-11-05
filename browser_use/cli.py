@@ -68,13 +68,7 @@ def _run_mcp_stdio_server(module_name: str) -> None:
 	os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
 	logging.disable(logging.CRITICAL)
 
-	try:
-		main = importlib.import_module(module_name).main
-	except ModuleNotFoundError as e:
-		if e.name != 'mcp' and not (e.name or '').startswith('mcp.'):
-			raise
-		print("The MCP server needs the mcp extra: pip install 'browser-use[mcp]'", file=sys.stderr)
-		raise SystemExit(1) from None
+	main = importlib.import_module(module_name).main
 	asyncio.run(main())
 
 

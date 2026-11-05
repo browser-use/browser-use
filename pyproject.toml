@@ -19,17 +19,19 @@ dependencies = [
     "posthog>=7.7.0",
     "python-dotenv>=1.0",
     "uuid7==0.1.0",
+    "mcp==2.1.1",
 ]
 # browser-harness: CDP daemon, browser helpers, CLI, auth (also pulls cdp-use, fetch-use, websockets)
 # pydantic-ai-slim[openai]: agent loop; OpenAI Responses (official API) and chat completions (gateway, base_url)
 # pillow: the REPL worker validates and downsizes images before they reach the model
 # posthog, python-dotenv, uuid7: anonymized telemetry (ANONYMIZED_TELEMETRY=false turns it off)
+# mcp: `browser-use --cli-mcp` (the biggest CLI surface) must work without extras
 
 [project.optional-dependencies]
 anthropic = ["pydantic-ai-slim[anthropic]>=2.64.0"]
 google = ["pydantic-ai-slim[google]>=2.64.0"]
-mcp = ["mcp==2.1.1"]
-all = ["browser-use[anthropic,google,mcp]"]
+mcp = []  # kept so existing `browser-use[mcp]` installs resolve; mcp is a core dependency
+all = ["browser-use[anthropic,google]"]
 
 [project.urls]
 Homepage = "https://browser-use.com"

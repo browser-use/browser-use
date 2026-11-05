@@ -1,1 +1,1 @@
-"""MCP server for coding agents: `browser-use --cli-mcp` (browser-harness exec model). Needs `browser-use[mcp]`."""
+"""MCP server for coding agents: `browser-use --cli-mcp` (browser-harness exec model)."""

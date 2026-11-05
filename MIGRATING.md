@@ -119,7 +119,7 @@ Anthropic / OpenAI hosted-browser integrations (`browser_use.integrations`). The
 ## CLI and MCP
 
 The `browser-use` CLI (Python piped to browser-harness), `browser-use skill install` and `browser-use --cli-mcp` work
-as before. `--cli-mcp` now needs `pip install 'browser-use[mcp]'`. The old `browser-use --mcp` server (tools like
+as before. The old `browser-use --mcp` server (tools like
 `browser_navigate`, `browser_click`) ran the removed engine: `--mcp` now prints a deprecation notice and serves the
 `--cli-mcp` tools (`browser_exec`, `browser_screenshot`). MCP clients that call the old tool names break; switch them
 to `--cli-mcp`. `browser-use init` templates were removed.
