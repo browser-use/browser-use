@@ -1250,7 +1250,10 @@ async function initialize(checkInitialized, magic) {{
 
 				extract_zip(temp_zip.name)
 			finally:
-				os.unlink(temp_zip.name)
+				try:
+					os.unlink(temp_zip.name)
+				except OSError as cleanup_error:
+					logger.warning(f'Failed to remove temporary ZIP {temp_zip.name} for CRX file {crx_path}: {cleanup_error}')
 
 	def detect_display_configuration(self) -> None:
 		"""
