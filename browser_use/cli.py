@@ -139,6 +139,18 @@ LOGIN_DONE = (
 )
 
 
+def _read_api_key_stdin() -> str:
+	"""The key for `login --api-key-stdin`, checked before anything is stored."""
+	from browser_harness import auth
+
+	from browser_use.auth import KEYS_URL
+
+	key = auth._read_manual_api_key()  # piped stdin, or a hidden prompt on a terminal; rejects empty and short input
+	if not key.startswith('bu_'):
+		raise auth.AuthError(f'that is not a Browser Use API key (they start with bu_); create one at {KEYS_URL}')
+	return key
+
+
 def _run_login_command(argv: list[str]) -> int:
 	"""browser-use login [--device-code | --api-key-stdin] [--no-open] [--json]: browser-harness's OAuth login, same
 	key store (~/.config/browser-harness/auth.json), so one login works everywhere. browser-use logout removes it."""
@@ -146,10 +158,21 @@ def _run_login_command(argv: list[str]) -> int:
 
 	from browser_harness import auth
 
+	from browser_use.auth import harden_login_callback, set_aside_corrupt_store
+
 	_set_harness_client_env()
 	command = ['login', *argv]
 	if any(arg in {'-h', '--help'} for arg in argv):
 		return _normalize_captured_cli_output(auth.run_auth_cli, command)
+	if '--api-key-stdin' in argv:
+		try:
+			sys.stdin = StringIO(_read_api_key_stdin())
+		except auth.AuthError as e:
+			print(e, file=sys.stderr)
+			return 1
+	harden_login_callback()
+	if notice := set_aside_corrupt_store():
+		print(notice, file=sys.stderr)
 	code = auth.run_auth_cli(command)
 	if code == 0 and '--json' not in argv:
 		print(LOGIN_DONE)
@@ -159,8 +182,16 @@ def _run_login_command(argv: list[str]) -> int:
 
 
 def _run_logout_command(argv: list[str]) -> int:
+	import json
+
 	from browser_harness import auth
 
+	from browser_use.auth import corrupt_store_path
+
+	if (path := corrupt_store_path()) and not any(arg in {'-h', '--help'} for arg in argv):
+		path.unlink()  # an unreadable store holds no usable key; logging out removes it
+		print(json.dumps({'status': 'logged-out', 'path': str(path), 'note': 'the file was corrupt'}, indent=2))
+		return 0
 	return _normalize_captured_cli_output(auth.run_auth_cli, ['logout', *argv])
 
 
@@ -174,7 +205,10 @@ def _run_init_command(argv: list[str]) -> int:
 
 
 def _as_browser_use_cli_text(text: str) -> str:
-	return text.replace('Browser Harness', 'Browser Use').replace('browser-harness', 'browser-use')
+	"""Rebrand command names in browser-harness output; paths (~/.config/browser-harness/auth.json) stay real."""
+	import re
+
+	return re.sub(r'(?<![/\\])browser-harness(?![/\\])', 'browser-use', text.replace('Browser Harness', 'Browser Use'))
 
 
 def _normalize_captured_cli_output(func, argv: list[str]) -> int:
@@ -205,6 +239,9 @@ def _normalize_captured_cli_output(func, argv: list[str]) -> int:
 def _patch_browser_harness_cli_text() -> None:
 	from browser_harness import auth, run, telemetry
 
+	from browser_use.auth import harden_login_callback
+
+	harden_login_callback()  # `browser-use auth login` runs browser-harness's login too
 	run.HELP = _as_browser_use_cli_text(run.HELP)
 	run.USAGE = _as_browser_use_cli_text(run.USAGE)
 
@@ -228,7 +265,27 @@ def _patch_browser_harness_cli_text() -> None:
 _delegated_to_harness = False
 
 
-def _run_browser_harness() -> int | None:
+def _guard_cloud_browsers(run, code: str | None) -> None:
+	"""Cloud browser rules for piped code (browser_use/harness_cloud.py), installed in the namespace it runs in."""
+	from browser_use import harness_cloud
+
+	harness_cloud.install(vars(run))
+	if (
+		code
+		and harness_cloud.calls_cloud_admin(code)
+		and not code.lstrip().startswith(tuple(f'{n}(' for n in harness_cloud.CLOUD_ADMIN))
+	):
+		# browser-harness only skips its pre-run ensure_daemon() when the code *starts* with start_remote_daemon(; for
+		# `b = start_remote_daemon(...)` that call would attach the local Chrome first. Skip it once, here too.
+		guarded = harness_cloud.ensure_daemon
+
+		def skip_pre_run_attach(*args, **kwargs) -> None:
+			vars(run)['ensure_daemon'] = guarded
+
+		vars(run)['ensure_daemon'] = skip_pre_run_attach
+
+
+def _run_browser_harness(code: str | None = None) -> int | None:
 	from browser_harness import run
 
 	global _delegated_to_harness
@@ -236,7 +293,12 @@ def _run_browser_harness() -> int | None:
 	_set_harness_client_env()
 	_scrub_harness_telemetry()
 	_patch_browser_harness_cli_text()
+	_guard_cloud_browsers(run, code)
 	args = sys.argv[1:]
+	if args == ['--reload']:  # restarting a name on purpose is how it may drive a local Chrome again after a cloud one
+		from browser_use import harness_cloud
+
+		harness_cloud.forget(run.NAME)
 	if args and args[0] == 'doctor' and args[1:]:
 		if args[1:] in (['--help'], ['-h']):
 			print('usage: browser-use doctor [--fix-snap]')
@@ -403,6 +465,11 @@ def _command_name(args: list[str]) -> str:
 
 
 def _dispatch(args: list[str]) -> tuple[int | None, str]:
+	if args in (['--version'], ['-V']):
+		from importlib.metadata import version as package_version
+
+		print(f'browser-use {_browser_use_version()} (browser-harness {package_version("browser-harness")})')
+		return 0, 'version'
 	if '--cli-mcp' in args:
 		_run_cli_mcp_server()
 		return 0, 'cli-mcp'
@@ -429,6 +496,7 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		print(_legacy_migration_message(legacy), file=sys.stderr)
 		return 2, f'legacy:{legacy}'
 
+	code = None
 	if not args:
 		if sys.stdin.isatty():
 			print(_QUICKSTART)
@@ -441,10 +509,15 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 
 	from browser_harness.auth import CloudAuthRequired
 
+	from browser_use.harness_cloud import CloudBrowserError
+
 	try:
-		return _run_browser_harness(), args[0] if args else 'run'
+		return _run_browser_harness(code), args[0] if args else 'run'
 	except CloudAuthRequired:  # its message names `browser-harness auth login`, not on PATH for `uv tool install browser-use`
 		print('Not signed in to Browser Use Cloud. Run `browser-use login`, then retry.', file=sys.stderr)
+		return 1, args[0] if args else 'run'
+	except CloudBrowserError as e:
+		print(e, file=sys.stderr)
 		return 1, args[0] if args else 'run'
 	except NameError as exc:
 		name = _unknown_exec_name(exc)

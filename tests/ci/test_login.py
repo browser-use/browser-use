@@ -236,3 +236,85 @@ async def test_mcp_lists_browser_login():
 
 	names = [tool.name for tool in cli_mcp.CLIMCPServer()._tool_definitions()]
 	assert names == ['browser_exec', 'browser_screenshot', 'browser_login']
+
+
+def test_logout_prints_the_real_store_path_and_version_names_both_packages(store):
+	from importlib.metadata import version
+
+	store.parent.mkdir(parents=True)
+	store.write_text(json.dumps({'browser_use': {'api_key': FAKE_KEY}}))
+	result = _cli('logout')
+	assert result.returncode == 0 and json.loads(result.stdout)['path'] == str(store)  # .../browser-harness/auth.json
+
+	result = _cli('--version')
+	assert result.stdout.strip() == f'browser-use {version("browser-use")} (browser-harness {version("browser-harness")})'
+
+
+def test_api_key_stdin_stores_only_a_browser_use_key(store):
+	result = _cli('login', '--api-key-stdin', stdin='sk-' + 'x' * 40)
+	assert result.returncode == 1 and 'start with bu_' in result.stderr and 'Signed in' not in result.stdout
+	assert not store.exists()
+
+	result = _cli('login', '--api-key-stdin', stdin=FAKE_KEY + '\n')
+	assert result.returncode == 0, result.stderr
+	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY and FAKE_KEY not in result.stdout
+
+
+def test_a_corrupt_key_store_is_named_and_login_or_logout_repairs_it(store):
+	from browser_use.auth import browser_use_api_key
+	from browser_use.exceptions import MissingAPIKeyError
+
+	store.parent.mkdir(parents=True)
+	store.write_text('{"browser_use": {"api_key": "bu_trunc')
+	with pytest.raises(MissingAPIKeyError, match='is corrupt') as raised:
+		browser_use_api_key()
+	assert str(store) in str(raised.value) and 'browser-use login' in str(raised.value)
+
+	result = _cli('login', '--api-key-stdin', stdin=FAKE_KEY)
+	assert result.returncode == 0, result.stderr
+	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY
+	assert store.with_name('auth.json.corrupt').read_text().startswith('{"browser_use"')  # kept, not lost
+
+	store.write_text('not json')
+	result = _cli('logout')
+	assert result.returncode == 0, result.stderr
+	assert json.loads(result.stdout)['status'] == 'logged-out' and not store.exists()
+
+
+def test_a_rejected_key_names_the_login_command(store, monkeypatch):
+	import io
+	import urllib.error
+	import urllib.request
+
+	from browser_use.browser import browser as browser_mod
+
+	monkeypatch.setenv('BROWSER_USE_API_KEY', FAKE_KEY)
+
+	def unauthorized(req, timeout=None):
+		raise urllib.error.HTTPError(req.full_url, 401, 'Unauthorized', {}, io.BytesIO(b'{"detail": "Invalid API key"}'))  # type: ignore[arg-type]
+
+	monkeypatch.setattr(urllib.request, 'urlopen', unauthorized)
+	with pytest.raises(RuntimeError, match='HTTP 401') as raised:
+		browser_mod._cloud('/browsers', 'POST', {})
+	message = str(raised.value)
+	assert 'Invalid API key' in message and 'run `browser-use login`' in message
+	assert 'BROWSER_USE_API_KEY is set' in message and FAKE_KEY not in message
+
+
+def test_a_callback_with_the_wrong_state_neither_completes_nor_aborts_the_login(store, monkeypatch):
+	import urllib.error
+
+	from browser_use.mcp import cli_mcp
+
+	server = _auth_server(monkeypatch, auto_approve=False)
+	monkeypatch.setattr(cli_mcp, '_open_url', lambda url: True)
+	mcp = cli_mcp.CLIMCPServer()
+	assert 'Waiting for the user to approve' in mcp._sign_in(force=False, wait=0.2)
+	start = server.starts[0]
+	with pytest.raises(urllib.error.HTTPError) as raised:
+		urllib.request.urlopen(f'{start["redirect_uri"]}?code=stolen&state=wrong', timeout=10)
+	assert raised.value.code == 400 and b'login complete' not in raised.value.read()
+
+	server.approve()  # the real approval still finishes the same login
+	assert mcp._sign_in(force=False, wait=10).startswith('Signed in to Browser Use Cloud')
+	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY
