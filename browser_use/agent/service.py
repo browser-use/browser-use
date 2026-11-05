@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic_ai.messages import ModelMessage
 
-from browser_use.agent.loop import Session, build_agent, run
+from browser_use.agent.loop import Session, build_agent, reasoning_supported, run
 from browser_use.agent.prompt import CLOUD_PROMPT
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import Browser
@@ -70,7 +70,9 @@ class Agent:
 	for your Chrome. sensitive_data={'name': 'value'} (or {'https://site': {'name': 'value'}} to type it only on that
 	domain): the model types values with type_secret('name'); secret values are hidden from plain text output. Not a
 	sandbox: screenshots and page JS can reveal a typed value. mode='ultrafast' adds accessibility-tree helpers for
-	interaction-heavy tasks."""
+	interaction-heavy tasks. reasoning: 'low'|'medium'|'high' (default 'medium') for OpenAI reasoning models, Anthropic
+	and Google; OpenAI-compatible chat backends (the gateway, base_url servers) ignore it with a warning: pass
+	ChatOpenAI(..., reasoning_effort=...) to send reasoning_effort there."""
 
 	def __init__(
 		self,
@@ -84,7 +86,7 @@ class Agent:
 		output_model_schema: Any = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		extend_system_message: str | None = None,
-		reasoning: str = 'medium',
+		reasoning: str | None = None,
 		mode: str | None = 'default',
 		workspace: str | Path | None = None,
 		**kwargs: Any,
@@ -130,10 +132,15 @@ class Agent:
 		system = getattr(model, 'system', None)  # 'anthropic', 'google-gla', ...: prices are looked up per provider
 		self._model_ref = f'{system}:{self._model_name}' if system and ':' not in self._model_name else self._model_name
 		self._provider = getattr(self.llm, 'provider', None) or getattr(model, 'system', '')
+		if self.reasoning is not None and not reasoning_supported(model):
+			logger.warning(
+				f'reasoning={self.reasoning!r} is ignored: {self._model_name} gets no reasoning setting. For an '
+				'OpenAI-compatible server pass ChatOpenAI(..., reasoning_effort=...) instead.'
+			)
 		self._agent = build_agent(
 			model,
 			output_type=self.output_model_schema,
-			reasoning_effort=self.reasoning,
+			reasoning_effort=self.reasoning or 'medium',
 			instructions='\n'.join(filter(None, [CLOUD_PROMPT if self.browser.use_cloud else '', self.extend_system_message])),
 			mode=self.mode,
 			tools=self.tools.functions if self.tools else (),

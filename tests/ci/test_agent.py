@@ -118,7 +118,8 @@ async def test_type_secret_types_value_and_output_is_redacted(chrome, tmp_path):
 
 
 def test_openai_settings_unchanged():
-	"""The evaluated configuration must not drift."""
+	"""The evaluated configuration must not drift. Non-reasoning OpenAI models get none of it (Fable r2-2: OpenAI 400s
+	reasoning params on gpt-4.1/gpt-4o, and 32768 is above their output cap)."""
 	agent = build_agent('openai-responses:gpt-6-luna', reasoning_effort='medium')
 	assert agent.model_settings == {
 		'openai_reasoning_effort': 'medium',
@@ -126,6 +127,24 @@ def test_openai_settings_unchanged():
 		'openai_reasoning_context': 'auto',
 		'max_tokens': 32_768,
 	}
+	assert build_agent('openai:gpt-4.1').model_settings == build_agent('openai:gpt-4o').model_settings == {}
+
+
+def test_reasoning_on_a_chat_backend_warns_instead_of_silently_doing_nothing(monkeypatch, caplog):
+	"""Fable r2-5: Agent(reasoning='high') with bu-auto or a base_url model changed nothing, without a word."""
+	import logging
+
+	from browser_use import ChatOpenAI
+
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
+	llm = ChatOpenAI('m', api_key='x', base_url='http://localhost:11434/v1')
+	Agent('t', llm, reasoning='high')._build()
+	assert "reasoning='high' is ignored" in caplog.text
+	caplog.clear()
+	Agent('t', llm)._build()  # the default says nothing
+	Agent('t', ChatOpenAI('gpt-6-luna', api_key='x'), reasoning='high')._build()
+	assert 'ignored' not in caplog.text
 
 
 async def test_remote_upload_sends_bytes(chrome, tmp_path):

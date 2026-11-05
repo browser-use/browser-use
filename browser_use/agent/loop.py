@@ -23,6 +23,7 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, ThinkingPart, ToolReturnPart
 from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAICompaction, OpenAIResponsesModel, OpenAIResponsesModelSettings
+from pydantic_ai.settings import ToolOrOutput
 from pydantic_ai.usage import UsageLimits
 from pydantic_core import to_json
 
@@ -204,7 +205,7 @@ def _outputs(output_type: Any) -> list[Any]:
 
 
 class BrowserLoop(AbstractCapability[Session]):
-	"""Keep only recent screenshots; force one delivery turn near the time/step budget."""
+	"""Keep only recent screenshots; one delivery-only turn near the time/step budget or after a text reply."""
 
 	async def before_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
 		s = ctx.deps
@@ -216,13 +217,31 @@ class BrowserLoop(AbstractCapability[Session]):
 		if not s.finalizing and (ctx.run_step >= s.max_steps - 1 or time.monotonic() - s.started >= 0.9 * s.timeout_s):
 			s.finalizing = True
 			ctx.enqueue(DELIVER_NOW)
-			# Step settings were resolved before this hook; restrict this very request, not only the next one.
-			request_context.model_settings = {**(request_context.model_settings or {}), 'tool_choice': DELIVERY_TOOLS}
+		if s.finalizing:  # step settings were resolved before this hook: restrict this very request
+			settings = dict(request_context.model_settings or {})
+			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
+			request_context.model_settings = cast(Any, settings)
 		return request_context
 
-	def get_model_settings(self):
-		# allowed_tools keeps the tool list (cached prefix) while forcing delivery.
-		return lambda ctx: {'tool_choice': DELIVERY_TOOLS} if ctx.deps.finalizing else {}
+
+def delivery_tool_choice(model: Any, settings: dict) -> Any:
+	"""Only finish/finish_from_repl. Forced (allowed_tools keeps the cached tool list) where the model accepts a forced
+	tool choice on this request; otherwise python is withheld and the choice stays auto. Claude rejects forcing with
+	extended thinking and answers a forced call without thinking; Claude Opus 5.5 rejects forcing outright."""
+	p = model.profile
+	effort = settings.get('openai_reasoning_effort')
+	thinks = (
+		settings.get('thinking') not in (None, False)
+		or (settings.get('anthropic_thinking') or {}).get('type') in ('enabled', 'adaptive')
+		or effort not in (None, 'none')
+		or p.get('thinking_always_enabled', False)
+		or (p.get('thinking_enabled_by_default', False) and settings.get('thinking') is not False)
+	)
+	forcing = p.get('supports_forced_tool_choice', True) and not (
+		thinks
+		and (not p.get('supports_forced_tool_choice_with_thinking', True) or p.get('forced_tool_choice_disables_thinking', False))
+	)
+	return DELIVERY_TOOLS if forcing else ToolOrOutput(function_tools=[])
 
 
 def _is_image(c: Any) -> bool:
@@ -258,6 +277,22 @@ def model_kind(model: Any) -> str:
 	return 'other'
 
 
+def reasoning_supported(model: Any) -> bool:
+	"""Whether build_agent sends reasoning_effort to this model. OpenAI: reasoning models only (gpt-4.1 and gpt-4o
+	reject reasoning params). OpenAI-compatible chat backends: never (pass ChatOpenAI(reasoning_effort=...) to send it).
+	Others: the profile's supports_thinking (an unknown model string counts as supported)."""
+	kind = model_kind(model)
+	if kind == 'chat':
+		return False
+	if isinstance(model, str):
+		if kind != 'responses':
+			return True
+		from pydantic_ai.profiles.openai import openai_model_profile
+
+		return bool((openai_model_profile(model.split(':', 1)[1]) or {}).get('openai_supports_reasoning', False))
+	return bool(model.profile.get('openai_supports_reasoning' if kind == 'responses' else 'supports_thinking', False))
+
+
 def build_agent(
 	model: Any = 'openai-responses:gpt-6-luna',
 	*,
@@ -274,18 +309,21 @@ def build_agent(
 	mode = check_mode(mode)
 	model = model_ref(model)
 	kind = model_kind(model)
-	if kind == 'responses':  # the evaluated configuration; unchanged
+	reasoning = reasoning_supported(model)
+	if kind == 'responses':  # the evaluated configuration (reasoning models); unchanged
 		settings: OpenAIResponsesModelSettings | dict = {
 			'openai_reasoning_effort': reasoning_effort,
 			'openai_reasoning_summary': 'auto',
 			'openai_reasoning_context': 'auto',  # bu-pi sends no context; Pydantic AI would send all_turns
 			'max_tokens': 32_768,
 		}
+		if not reasoning:  # gpt-4.1, gpt-4o: reasoning params 400, and 32k is above their output cap
+			settings = {}
 		capabilities = [BrowserLoop(), OpenAICompaction(token_threshold=compact_at_tokens)]
 	elif kind == 'chat':  # DeepSeek, vLLM, Ollama, the gateway: no reasoning settings, no output cap they may reject
 		settings, capabilities = {}, [BrowserLoop()]
-	else:  # other providers: unified thinking setting, no server-side compaction
-		settings = {'thinking': reasoning_effort, 'max_tokens': 32_768}
+	else:  # other providers: unified thinking (dropped where the profile has none), the provider's own max_tokens
+		settings = {'thinking': reasoning_effort} if reasoning else {}
 		capabilities = [BrowserLoop()]
 	agent = Agent(
 		model,

@@ -52,7 +52,7 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 | `calculate_cost`, `pricing_url` | raises: `result.cost_usd` is computed when the price is known (`None` otherwise) |
 | `skill_ids`, `skills`, `skill_service` | raises: Cloud Skills were removed |
 | `enable_planning`, `planning_replan_on_stall`, `planning_exploration_limit`, `loop_detection_window`, `loop_detection_enabled`, `message_compaction`, `max_history_items`, `include_attributes`, `max_clickable_elements_length`, `include_recent_events`, `include_tool_call_examples`, `display_files_in_done_text`, `injected_agent_state`, `source`, `task_id`, `enable_signal_handler`, `_url_shortening_limit` | raises: these tuned the 0.x loop |
-| new: `reasoning`, `mode`, `workspace` | `reasoning='medium'`; `mode='ultrafast'`; `workspace` holds the agent's files (default: a temp dir) |
+| new: `reasoning`, `mode`, `workspace` | `reasoning='medium'` (OpenAI reasoning models, Anthropic, Google; OpenAI-compatible chat backends such as the gateway ignore it with a warning: use `ChatOpenAI(..., reasoning_effort=...)`); `mode='ultrafast'`; `workspace` holds the agent's files (default: a temp dir) |
 
 ## Agent methods
 

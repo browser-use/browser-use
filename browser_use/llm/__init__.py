@@ -21,20 +21,29 @@ DEFAULT_MODEL = 'bu-auto'
 EXTRAS = {'anthropic': 'anthropic', 'google-gla': 'google', 'google-vertex': 'google', 'google': 'google'}
 
 
+def compatible_profile() -> Any:
+	"""Profile override for OpenAI-compatible chat servers. allowed_tools is an OpenAI-only tool_choice that vLLM and
+	DeepSeek reject and Ollama ignores; without it Pydantic AI narrows the tool list and sends plain 'required'."""
+	from pydantic_ai.profiles.openai import OpenAIModelProfile
+
+	return OpenAIModelProfile(openai_chat_supports_allowed_tools=False)
+
+
 class ChatBrowserUse:
 	"""Browser Use gateway models ('bu-auto', 'bu-smart', ...). The key is BROWSER_USE_API_KEY or `browser-use auth login`."""
 
 	provider = 'browser-use'
 
-	def __init__(self, model: str = DEFAULT_MODEL, *, api_key: str | None = None, base_url: str = GATEWAY_URL):
-		self.model, self.api_key, self.base_url = model, api_key, base_url
+	def __init__(self, model: str = DEFAULT_MODEL, *, api_key: str | None = None, base_url: Any = GATEWAY_URL):
+		self.model, self.api_key, self.base_url = model, api_key, str(base_url)
 
 	def pydantic_model(self) -> Any:
 		from pydantic_ai.models.openai import OpenAIChatModel
 		from pydantic_ai.providers.openai import OpenAIProvider
 
 		key = self.api_key or browser_use_api_key(f'The default model ({self.model})')
-		return OpenAIChatModel(self.model, provider=OpenAIProvider(base_url=self.base_url, api_key=key))
+		provider = OpenAIProvider(base_url=self.base_url, api_key=key)
+		return OpenAIChatModel(self.model, provider=provider, profile=compatible_profile())
 
 	def model_settings(self) -> dict:
 		return {}
@@ -66,11 +75,13 @@ class ChatOpenAI:
 		model: str,
 		*,
 		api_key: str | None = None,
-		base_url: str | None = None,
+		base_url: Any = None,
 		temperature: float | None = None,
 		reasoning_effort: str | None = None,
 	):
-		self.model, self.api_key, self.base_url = model, api_key, base_url
+		"""base_url: str or URL object (httpx.URL). reasoning_effort: sent as-is (reasoning_effort on chat backends)."""
+		self.model, self.api_key = model, api_key
+		self.base_url = None if base_url is None else str(base_url)
 		self.temperature, self.reasoning_effort = temperature, reasoning_effort
 
 	@property
@@ -86,7 +97,7 @@ class ChatOpenAI:
 		provider = OpenAIProvider(api_key=self.api_key, base_url=self.base_url)
 		if self.is_official:  # Responses API + server-side compaction: what we evaluate
 			return OpenAIResponsesModel(self.model, provider=provider)
-		return OpenAIChatModel(self.model, provider=provider)  # plain chat completions, no OpenAI-only settings
+		return OpenAIChatModel(self.model, provider=provider, profile=compatible_profile())  # no OpenAI-only settings
 
 	def model_settings(self) -> dict:
 		settings: dict = {}

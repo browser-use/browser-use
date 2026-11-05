@@ -17,32 +17,30 @@ def compaction(agent) -> bool:
 	return any(isinstance(c, OpenAICompaction) for c in agent._root_capability.capabilities)
 
 
+FINISH_OK = {
+	'role': 'assistant',
+	'content': None,
+	'tool_calls': [{'id': 't1', 'type': 'function', 'function': {'name': 'finish', 'arguments': '{"result": "ok"}'}}],
+}
+
+
 @pytest.fixture
 def chat_server():
-	"""OpenAI-compatible /chat/completions that answers every request with a finish tool call."""
-	requests = []
+	"""OpenAI-compatible /chat/completions. Answers with the messages queued in `replies`, then with a finish call."""
+	requests, replies = [], []
 
 	class Handler(BaseHTTPRequestHandler):
 		def do_POST(self):
 			body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
 			requests.append((self.path, body))
+			message = replies.pop(0) if replies else FINISH_OK
 			reply = {
 				'id': 'c1',
 				'object': 'chat.completion',
 				'created': 0,
 				'model': body['model'],
 				'choices': [
-					{
-						'index': 0,
-						'finish_reason': 'tool_calls',
-						'message': {
-							'role': 'assistant',
-							'content': None,
-							'tool_calls': [
-								{'id': 't1', 'type': 'function', 'function': {'name': 'finish', 'arguments': '{"result": "ok"}'}}
-							],
-						},
-					}
+					{'index': 0, 'finish_reason': 'tool_calls' if message.get('tool_calls') else 'stop', 'message': message}
 				],
 				'usage': {'prompt_tokens': 10, 'completion_tokens': 2, 'total_tokens': 12},
 			}
@@ -58,7 +56,7 @@ def chat_server():
 
 	server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
 	threading.Thread(target=server.serve_forever, daemon=True).start()
-	yield f'http://127.0.0.1:{server.server_address[1]}/v1', requests
+	yield f'http://127.0.0.1:{server.server_address[1]}/v1', requests, replies
 	server.shutdown()
 
 
@@ -79,7 +77,7 @@ def test_custom_base_url_is_plain_chat_completions():
 
 
 async def test_custom_base_url_runs_end_to_end(chat_server, tmp_path):
-	url, requests = chat_server
+	url, requests, _ = chat_server
 	model, settings = resolve_model(ChatOpenAI('my-vllm-model', api_key='x', base_url=url, temperature=0.3))
 	session = Session(repl=Repl(tmp_path))
 	result = await run(build_agent(model, model_settings=settings), 'task', session, model.model_name)
@@ -100,7 +98,7 @@ def test_default_llm_is_bu_auto_on_the_gateway(monkeypatch):
 	assert Agent('t', 'bu-smart').llm.model == 'bu-smart'  # ids are passed through, never renamed
 
 
-async def test_gateway_errors_are_one_actionable_line(chat_server, tmp_path):
+async def test_gateway_errors_are_one_actionable_line():
 	from pydantic_ai.exceptions import ModelHTTPError
 
 	llm = ChatBrowserUse(api_key='fake-test-key')
@@ -172,3 +170,90 @@ def test_anthropic_and_google_wrappers_build_models():
 def test_unsupported_llm_object_raises():
 	with pytest.raises(TypeError, match='Pydantic AI model string'):
 		resolve_model(object())
+
+
+def anthropic_mock(*replies):
+	"""An Anthropic client on a mock transport: answers with `replies` (content blocks) in order, streamed when asked
+	(Pydantic AI streams when its default max_tokens is large). Records request bodies."""
+	import httpx2
+	from anthropic import AsyncAnthropic
+
+	bodies = []
+
+	def handler(request):
+		body = json.loads(request.content)
+		bodies.append(body)
+		content = replies[len(bodies) - 1]
+		stop = 'tool_use' if any(b['type'] == 'tool_use' for b in content) else 'end_turn'
+		message = {'id': f'msg_{len(bodies)}', 'type': 'message', 'role': 'assistant', 'model': body['model'],
+				   'stop_sequence': None, 'usage': {'input_tokens': 10, 'output_tokens': 2}}  # fmt: skip
+		if not body.get('stream'):
+			return httpx2.Response(200, json={**message, 'content': content, 'stop_reason': stop})
+		events = [('message_start', {'message': {**message, 'content': [], 'stop_reason': None}})]
+		for i, b in enumerate(content):
+			if b['type'] == 'text':
+				start, delta = {'type': 'text', 'text': ''}, {'type': 'text_delta', 'text': b['text']}
+			else:
+				start = {'type': 'tool_use', 'id': b['id'], 'name': b['name'], 'input': {}}
+				delta = {'type': 'input_json_delta', 'partial_json': json.dumps(b['input'])}
+			events += [('content_block_start', {'index': i, 'content_block': start}),
+					   ('content_block_delta', {'index': i, 'delta': delta}), ('content_block_stop', {'index': i})]  # fmt: skip
+		events += [('message_delta', {'delta': {'stop_reason': stop, 'stop_sequence': None}, 'usage': {'output_tokens': 2}}),
+				   ('message_stop', {})]  # fmt: skip
+		sse = ''.join(f'event: {e}\ndata: {json.dumps({"type": e, **d})}\n\n' for e, d in events)
+		return httpx2.Response(200, text=sse, headers={'content-type': 'text/event-stream'})
+
+	client = AsyncAnthropic(api_key='fake-test-key', http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)))
+	return client, bodies
+
+
+@pytest.mark.parametrize('name', ['claude-sonnet-4-5', 'claude-opus-5-5'])
+async def test_anthropic_text_reply_reaches_delivery_repair_and_finishes(tmp_path, name):
+	"""Roast r2 (both): the delivery turn forced tool_choice; Claude with thinking (and Opus 5.5 always) rejects that,
+	so every Anthropic run that replied in text or hit the budget ended status='error'."""
+	from pydantic_ai.models.anthropic import AnthropicModel
+	from pydantic_ai.providers.anthropic import AnthropicProvider
+
+	client, bodies = anthropic_mock(
+		[{'type': 'text', 'text': 'I found it: 42.'}],
+		[{'type': 'tool_use', 'id': 'tu_1', 'name': 'finish', 'input': {'result': '42'}}],
+	)
+	model = AnthropicModel(name, provider=AnthropicProvider(anthropic_client=client))
+	result = await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), f'anthropic:{name}')
+	assert (result.status, result.output, result.error) == ('completed', '42', None)
+	first, repair = bodies
+	assert 'python' in {t['name'] for t in first['tools']}
+	assert {t['name'] for t in repair['tools']} == {'finish', 'finish_from_repl'}  # python withheld
+	assert repair.get('tool_choice', {'type': 'auto'})['type'] == 'auto' and repair.get('thinking')
+
+
+async def test_compatible_backends_get_plain_required_on_the_delivery_turn(chat_server, tmp_path):
+	"""Fable r2-4: chat backends got OpenAI's allowed_tools tool_choice, which vLLM/DeepSeek reject and Ollama ignores."""
+	url, requests, replies = chat_server
+	for llm in (ChatOpenAI('my-vllm-model', api_key='x', base_url=url), ChatBrowserUse(api_key='fake-test-key', base_url=url)):
+		requests.clear()
+		replies.append({'role': 'assistant', 'content': 'Done, it is ok.'})
+		model, settings = resolve_model(llm)
+		session = Session(repl=Repl(tmp_path))
+		result = await run(build_agent(model, model_settings=settings), 'task', session, model.model_name)
+		assert (result.status, result.output) == ('completed', 'ok')
+		repair = requests[1][1]
+		assert repair['tool_choice'] == 'required'
+		assert {t['function']['name'] for t in repair['tools']} == {'finish', 'finish_from_repl'}
+
+
+def test_openai_non_reasoning_models_get_no_reasoning_params():
+	"""Fable r2-2: ChatOpenAI('gpt-4.1'/'gpt-4o') got reasoning params and max_output_tokens=32768: OpenAI 400s both."""
+	for name in ('gpt-4.1', 'gpt-4o', 'gpt-4.1-mini'):
+		model, settings = resolve_model(ChatOpenAI(name, api_key='sk-test'))
+		assert build_agent(model, model_settings=settings).model_settings == {}, name
+	model, _ = resolve_model(ChatOpenAI('gpt-6-luna', api_key='sk-test'))
+	assert build_agent(model).model_settings['openai_reasoning_effort'] == 'medium'
+
+
+def test_base_url_accepts_url_objects():
+	"""Roast r2-13: ChatOpenAI(base_url=httpx.URL(...)) crashed with AttributeError; 0.x accepted it."""
+	import httpx
+
+	model, _ = resolve_model(ChatOpenAI('m', api_key='x', base_url=httpx.URL('http://localhost:11434/v1')))
+	assert isinstance(model, OpenAIChatModel) and str(model.client.base_url).rstrip('/') == 'http://localhost:11434/v1'
