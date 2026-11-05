@@ -34,7 +34,9 @@ logger = logging.getLogger(__name__)
 
 CLOUD_API = 'https://api.browser-use.com/api/v4'
 UNSUPPORTED = {  # 0.x BrowserSession/BrowserProfile options -> what to do instead
-	'headless': 'Browser(local=True) attaches to your running Chrome; cloud browsers are always headless.',
+	'headless': 'cloud browsers (Browser()) are always headless. On a server or in Docker, start '
+	"chromium --headless=new --remote-debugging-port=9222 yourself and pass Browser(cdp_url='http://127.0.0.1:9222'). "
+	'Browser(local=True) needs a desktop Chrome.',
 	'user_data_dir': 'use Browser(local=True) to drive your own Chrome profile, or cloud_profile_id for cloud logins.',
 	'executable_path': 'Browser(local=True) uses the Chrome browser-harness finds or launches.',
 	'allowed_domains': 'domain restrictions are not in 1.0 yet.',

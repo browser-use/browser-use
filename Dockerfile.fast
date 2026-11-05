@@ -1,4 +1,6 @@
-# Fast Dockerfile using pre-built base images
+# Fast Dockerfile using pre-built base images (the chromium base image only provides the browser binary).
+# browser-use 1.0 drives Chrome over CDP: start chromium --headless=new --remote-debugging-port=9222 in the container
+# and pass Agent(..., browser=Browser(cdp_url='http://127.0.0.1:9222')), or use the default cloud browser.
 ARG REGISTRY=browseruse
 ARG BASE_TAG=latest
 FROM ${REGISTRY}/base-python-deps:${BASE_TAG}

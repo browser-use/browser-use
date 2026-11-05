@@ -55,3 +55,18 @@ def test_browser_use_tui_is_deprecated_alias(monkeypatch, capsys):
 
 	assert browser_use_cli.browser_use_tui_main() == 0
 	assert capsys.readouterr().err == 'browser-use-tui is deprecated; use browser-use instead.\n'
+
+
+def test_install_explains_1_0_browsers_instead_of_downloading_playwright(monkeypatch, capsys):
+	"""0.x `browser-use install` ran `uvx playwright install chromium`, which nothing in 1.0 uses."""
+	import subprocess
+
+	import browser_use.cli as browser_use_cli
+
+	def no_subprocess(*a, **k):
+		raise AssertionError(f'install must not run anything: {a}')
+
+	monkeypatch.setattr(subprocess, 'run', no_subprocess)
+	assert browser_use_cli._run_install_command([]) == 0
+	out = capsys.readouterr().out
+	assert 'does not download a browser' in out and 'cdp_url' in out and 'local=True' in out

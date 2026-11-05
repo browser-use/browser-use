@@ -87,32 +87,26 @@ def _run_cli_mcp_server() -> None:
 	_run_mcp_stdio_server('browser_use.mcp.cli_mcp')
 
 
+INSTALL_TEXT = """browser-use 1.0 does not download a browser (0.x installed Playwright Chromium; nothing uses it now).
+
+Pick where the agent's browser runs:
+  Browser()                   Browser Use Cloud browser (default). Needs a key: browser-use auth login
+  Browser(local=True)         your installed Chrome, through the browser-harness daemon (desktop only)
+  Browser(cdp_url='http://127.0.0.1:9222')
+                              any Chrome you start yourself with --remote-debugging-port=9222
+                              (servers/Docker: chromium --headless=new --remote-debugging-port=9222)
+
+Check the local setup: browser-use --doctor"""
+
+
 def _run_install_command(argv: list[str]) -> int:
 	if any(arg in {'-h', '--help'} for arg in argv):
 		print('usage: browser-use install')
 		print()
-		print('Install Chromium browser and system dependencies.')
+		print('Explain how browser-use 1.0 finds a browser (it no longer downloads one).')
 		return 0
-
-	import platform
-	import subprocess
-
-	print('Installing Chromium browser + system dependencies...')
-	print('This may take a few minutes...\n')
-
-	cmd = ['uvx', 'playwright', 'install', 'chromium']
-	if platform.system() == 'Linux':
-		cmd.append('--with-deps')
-	cmd.append('--no-shell')
-
-	result = subprocess.run(cmd)
-	if result.returncode == 0:
-		print('\nInstallation complete.')
-		print('Ready to use. Run: uvx browser-use')
-		return 0
-
-	print('\nInstallation failed', file=sys.stderr)
-	return result.returncode or 1
+	print(INSTALL_TEXT)
+	return 0
 
 
 def _run_init_command(argv: list[str]) -> int:

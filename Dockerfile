@@ -2,7 +2,9 @@
 # check=skip=SecretsUsedInArgOrEnv
 
 # This is the Dockerfile for browser-use, it bundles the following dependencies:
-#     python3, pip, playwright, chromium, browser-use and its dependencies.
+#     python3, chromium, browser-use and its dependencies.
+# browser-use 1.0 drives Chrome over CDP: start chromium --headless=new --remote-debugging-port=9222 in the container
+# and pass Agent(..., browser=Browser(cdp_url='http://127.0.0.1:9222')), or use the default cloud browser.
 # Usage:
 #     git clone https://github.com/browser-use/browser-use.git && cd browser-use
 #     docker build . -t browseruse --no-cache
@@ -127,7 +129,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked,id=apt-$TARGETARCH$T
         # 3. frivolous CLI helpers to make debugging failed archiving easierL
         nano iputils-ping dnsutils jq \
         # tree yq procps \
-        # 4. browser dependencies: (auto-installed by playwright install --with-deps chromium)
+        # 4. browser dependencies: (installed with the chromium package below)
      #    libnss3 libxss1 libasound2 libx11-xcb1 \
      #    fontconfig fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-khmeros fonts-kacst fonts-symbola fonts-noto fonts-freefont-ttf \
      #    at-spi2-common fonts-liberation fonts-noto-color-emoji fonts-tlwg-loma-otf fonts-unifont libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libavahi-client3 \
