@@ -45,6 +45,12 @@
   </a>
 </div>
 
+<div align="center">
+
+The open-source browser agent. Run it locally with any LLM, or on [Browser Use Cloud](https://cloud.browser-use.com): stealth browsers from $0.02/hour, top score (90.5%) on [Stealth Bench V2](https://browser-use.com/benchmarks/browsers).
+
+</div>
+
 <br/>
 
 # Navigate the web like a human does.
@@ -62,8 +68,10 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 # Which Browser Use do I need?
 
 <picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="static/readme/which-product-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="static/readme/which-product-light-mobile.svg">
   <source media="(prefers-color-scheme: dark)" srcset="static/readme/which-product-dark.svg">
-  <img alt="Three ways to use Browser Use: fully hosted cloud; your existing agent with Browser Use CLI; or the open source Browser Use agent, available as a Python library. The CLI and library each connect to a local or cloud browser." src="static/readme/which-product-light.svg" width="100%">
+  <img alt="Three ways to use Browser Use: the hosted V4 agent, the Browser Use CLI, or the open source Python library. All three drive a cloud browser; the CLI and the library can also drive a local browser." src="static/readme/which-product-light.svg" width="100%">
 </picture>
 
 - **[Path 1: Fully Hosted Cloud](#path-1-fully-hosted-cloud):** Scale up with a fully hosted agent and browser.
@@ -78,7 +86,7 @@ Scale browser automation with our hosted agent, stealth browsers, and infrastruc
 
 [Get started with the API ↗](https://docs.browser-use.com/cloud/agent/quickstart)
 
-New Google, GitHub, or Microsoft signups get **$15 cloud credit**.
+New Google, GitHub, or Microsoft signups get **$1 cloud credit**.
 
 <br/>
 
@@ -149,6 +157,20 @@ uv run agent.py
 
 The agent opens a browser, looks up the repository, and prints its answer.
 
+**5. Run the same agent on a cloud browser (no Chrome to install; works in Docker, CI, and serverless):**
+
+Set `BROWSER_USE_API_KEY` ([get a key](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-path3)), then uncomment the `browser=` line in `agent.py` and run it again:
+
+```python
+    agent = Agent(
+        task="Find the number of stars of the browser-use repo",
+        llm=llm,
+        browser=Browser(use_cloud=True),
+    )
+```
+
+Cloud browsers cost $0.02 per browser-hour plus network traffic ([pricing](https://browser-use.com/pricing)), and add stealth, residential proxies, CAPTCHA solving, and a live view URL. Same code, no other changes.
+
 [Python library docs ↗](https://docs.browser-use.com/open-source/introduction)
 
 <br/>
@@ -162,7 +184,12 @@ implements all 31 browser actions and can control a local browser, a Browser
 Use Cloud browser, or an existing remote browser over CDP.
 Bash is included in the Browser Use integration for processing data and writing files.
 
-<img src="examples/integrations/toolsets-for-claude/architecture.svg" alt="Claude uses Browser Use browser actions and Bash through the Anthropic SDK. The browser can be local or remote; Bash runs on the SDK host." width="100%">
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="examples/integrations/toolsets-for-claude/architecture-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="examples/integrations/toolsets-for-claude/architecture-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="examples/integrations/toolsets-for-claude/architecture-dark.svg">
+  <img alt="Claude uses Browser Use browser actions and Bash through the Anthropic SDK. The browser can be local or remote; Bash runs on the SDK host." src="examples/integrations/toolsets-for-claude/architecture-light.svg" width="100%">
+</picture>
 
 Requires an Anthropic SDK version that includes `anthropic.tools.browser`.
 Bash requires a Linux or macOS host with `/bin/bash`; use WSL on Windows.
@@ -318,6 +345,34 @@ Choose how much you want to manage:
 - **Have us run the agent too:** Use the [fully hosted Cloud API](https://docs.browser-use.com/cloud/agent/quickstart) to submit tasks and retrieve results.
 
 You can also host the Python library and browsers on your own infrastructure.
+</details>
+
+<details>
+<summary><b>Can I rerun a task without calling the model on every step?</b></summary>
+
+Yes. Save a successful run, then replay its clicks and typing with new values. The snippet below runs inside an async function:
+
+```python
+from browser_use import Agent, ChatBrowserUse
+
+llm = ChatBrowserUse()
+agent = Agent(task='Open https://example.com/billing and request an invoice copy for Ada Lovelace, ada@example.com', llm=llm)
+await agent.run()
+agent.save_history('invoice_run.json')
+print(agent.detect_variables())  # names come from the form's fields, e.g. 'name' and 'email'
+
+# Later: the same clicks and typing with new values, no model call per step
+results = await Agent(task='', llm=llm).load_and_rerun(
+    'invoice_run.json', variables={'name': 'Grace Hopper', 'email': 'grace@example.com'}, skip_failures=False
+)
+```
+
+- Use the variable names `detect_variables()` prints. An unknown name is skipped with a warning, and the recorded value is typed instead.
+- Extract steps and the closing summary still call the model.
+- If the page changed, the replay raises `RuntimeError` at the first step it cannot match. The steps before it already ran, so check whether the form was sent before you run the agent again.
+- Keep the saved file private. With `sensitive_data`, typed secrets are saved as `<secret>key</secret>` placeholders, but page snapshots and results are saved as they were and can still contain them. Give the replaying agent the same `sensitive_data`; without it, the placeholder text is typed.
+
+[Example](examples/features/rerun_history.py)
 </details>
 
 <br/>

@@ -17,6 +17,24 @@ logger = logging.getLogger(__name__)
 
 _BROWSER_API_VERSIONS = ('v2', 'v3', 'v4')
 
+MISSING_API_KEY_MESSAGE = (
+	'BROWSER_USE_API_KEY is not set. Browser(use_cloud=True) needs a Browser Use Cloud API key.\n'
+	'  1. Create a key (free to start): '
+	'https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=use_cloud\n'
+	'  2. Set it: export BROWSER_USE_API_KEY=your-key  (or put it in .env and call load_dotenv())'
+)
+
+
+def resolve_api_key() -> str | None:
+	"""Return the Browser Use Cloud API key from BROWSER_USE_API_KEY, then the saved auth config."""
+	api_token = os.getenv('BROWSER_USE_API_KEY')
+	if api_token:
+		return api_token
+	try:
+		return CloudAuthConfig.load_from_file().api_token
+	except Exception:
+		return None
+
 
 class CloudBrowserClient:
 	"""Client for browser-use cloud browser service."""
@@ -77,22 +95,9 @@ class CloudBrowserClient:
 		Returns:
 			CloudBrowserResponse: Contains CDP URL and other browser info
 		"""
-		# Try to get API key from environment variable first, then auth config
-		api_token = os.getenv('BROWSER_USE_API_KEY')
-
+		api_token = resolve_api_key()
 		if not api_token:
-			# Fallback to auth config file
-			try:
-				auth_config = CloudAuthConfig.load_from_file()
-				api_token = auth_config.api_token
-			except Exception:
-				pass
-
-		if not api_token:
-			raise CloudBrowserAuthError(
-				'BROWSER_USE_API_KEY is not set. To use cloud browsers, get a key at:\n'
-				'https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=use_cloud'
-			)
+			raise CloudBrowserAuthError(MISSING_API_KEY_MESSAGE)
 
 		headers = {'X-Browser-Use-API-Key': api_token, 'Content-Type': 'application/json', **(extra_headers or {})}
 
@@ -165,22 +170,9 @@ class CloudBrowserClient:
 		if not session_id:
 			raise CloudBrowserError('No session ID provided and no current session available')
 
-		# Try to get API key from environment variable first, then auth config
-		api_token = os.getenv('BROWSER_USE_API_KEY')
-
+		api_token = resolve_api_key()
 		if not api_token:
-			# Fallback to auth config file
-			try:
-				auth_config = CloudAuthConfig.load_from_file()
-				api_token = auth_config.api_token
-			except Exception:
-				pass
-
-		if not api_token:
-			raise CloudBrowserAuthError(
-				'BROWSER_USE_API_KEY is not set. To use cloud browsers, get a key at:\n'
-				'https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=use_cloud'
-			)
+			raise CloudBrowserAuthError(MISSING_API_KEY_MESSAGE)
 
 		headers = {'X-Browser-Use-API-Key': api_token, 'Content-Type': 'application/json', **(extra_headers or {})}
 

@@ -7,7 +7,7 @@ import asyncio
 from pathlib import Path
 
 from anthropic import AsyncAnthropic
-from anthropic.tools.browser import BetaLocalFilePolicy
+from anthropic.tools.browser import BetaLocalFilePolicy  # pyright: ignore[reportMissingImports]
 
 from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse
 

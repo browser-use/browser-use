@@ -1,8 +1,8 @@
 [project]
 name = "browser-use"
-description = "Make websites accessible for AI agents"
+description = "Open-source browser agent + hosted cloud browsers for AI agents, from $0.02/browser-hour"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.13.11"
+version = "0.13.14"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -11,7 +11,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "aiohttp==3.14.3",
+    "aiohttp==3.14.5",
     "anyio==4.12.1",
     "bubus==1.5.6",
     "click==8.3.3",
@@ -30,7 +30,7 @@ dependencies = [
     "typing-extensions==4.15.0",
     "uuid7==0.1.0",
     "google-genai==1.65.0",
-    "openai==2.26.0",
+    "openai>=2.26.0,<4.0.0",
     "anthropic>=0.76.0,<2.0.0",
     "groq==1.0.0",
     "ollama==0.6.1",
@@ -46,7 +46,7 @@ dependencies = [
     "cloudpickle==3.1.2",
     "markdownify==1.2.2",
     "python-docx==1.2.0",
-    "browser-use-sdk==3.4.2",
+    "browser-use-sdk>=3.10.0,<4",
     "browser-harness==0.1.13",
 ]
 # google-api-core: only used for Google LLM APIs
@@ -59,6 +59,7 @@ dependencies = [
 # click: used for command-line argument parsing
 
 [project.optional-dependencies]
+openai-tools = ["openai>=3.31.0,<4.0.0"]
 cli = []
 core = [
     "browser-use-core==0.13.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
@@ -77,7 +78,7 @@ examples = [
     "imgcat==0.6.0",
     # "stagehand-py>=0.3.6",
     # "browserbase>=0.4.0",
-    "langchain-openai==1.1.14",
+    "langchain-openai==1.7.2",
 ]
 eval = [
     "lmnr[all]==0.7.42",
