@@ -424,3 +424,11 @@ async def test_overlapping_runs_on_one_agent_are_rejected(fake_browser, tmp_path
 	assert isinstance(second, RuntimeError) and 'already running' in str(second)
 	assert first.final_result() == 'one' and len(fake_browser) == 1  # only the first run started and stopped
 	assert (await agent.run()).status == 'error'  # the next run is allowed again (the script has no third turn)
+
+
+@pytest.mark.parametrize('reasoning', ['max', 'Medium', True])
+def test_unknown_reasoning_raises_before_any_browser(reasoning, no_browser):
+	"""Fable r3-2: reasoning was stored unchecked; a typo started (and billed) a cloud browser, then the first model
+	request failed with a 400."""
+	with pytest.raises(ValueError, match='reasoning'):
+		Agent('t', 'test', reasoning=reasoning)

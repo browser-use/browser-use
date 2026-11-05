@@ -31,6 +31,7 @@ LOCAL_TARGET = re.compile(
 	r'|\b172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}\b|\[::1\]|(?<![\w:])::1(?![\w:])|\b[a-z0-9-]+\.local\b',
 	re.I,
 )
+REASONING = (None, 'low', 'medium', 'high')
 UNSUPPORTED = {  # 0.x Agent kwargs -> what to do in 1.0. Anything else unknown raises too.
 	'use_vision': 'remove it: the agent takes screenshots when it needs them.',
 	'max_actions_per_step': 'remove it: each step is one Python cell.',
@@ -93,6 +94,8 @@ class Agent:
 	):
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent')
+		if reasoning not in REASONING:  # a typo would start (and bill) a browser, then 400 on the first model request
+			raise ValueError(f"reasoning must be 'low', 'medium', 'high' or None, not {reasoning!r}")
 		if browser and browser_session:
 			raise ValueError('Pass browser=... or browser_session=..., not both')
 		browser = browser or browser_session or Browser()
