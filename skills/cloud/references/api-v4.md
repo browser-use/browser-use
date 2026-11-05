@@ -11,7 +11,7 @@ is the persistent filesystem that can be reused across sessions.
 
 ## Before the first run
 
-Eligible new Google, GitHub, or Microsoft signups receive a one-time $15 Cloud credit. No credit card is required. Email/password signups are not eligible; the credit does not renew. Start with the default V4 model (`gpt-5.6-luna`); paid-only models require a top-up. See [pricing](https://browser-use.com/pricing.md) for current eligibility and rates.
+Eligible new Google, GitHub, or Microsoft signups receive a one-time $1 Cloud credit. No credit card is required. Email/password signups are not eligible; the credit does not renew. Start with the default V4 model (`gpt-5.6-luna`); paid-only models require a top-up. See [pricing](https://browser-use.com/pricing.md) for current eligibility and rates.
 
 Install or upgrade `browser-use-sdk` to 3.11.3 or newer. Read `BROWSER_USE_API_KEY` from the environment; do not embed it in source or a prompt.
 

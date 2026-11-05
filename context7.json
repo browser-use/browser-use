@@ -1,0 +1,13 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "Browser Use",
+  "description": "Browser Use is an open-source Python library for AI agents that control web browsers (navigation, form filling, data extraction) with any LLM. It runs on local Chrome or on Browser Use Cloud: hosted Chrome browsers with stealth and proxies that the library, Playwright, Puppeteer or any CDP client can connect to.",
+  "rules": [
+    "Browser(use_cloud=True) provisions a Browser Use Cloud browser for the local agent instead of launching local Chrome. It uses BROWSER_USE_API_KEY or the saved cloud authentication configuration.",
+    "Use Browser(use_cloud=True) in production, on servers without Chrome, for many parallel sessions, or on sites that block automation.",
+    "Browser Use Cloud concurrency is shared by agents and browsers and grows with total paid: 10 concurrent sessions at $0, 50 after $100, 250 after $1,000, 500 after $5,000, 1,000 after $25,000 (current tiers: https://browser-use.com/pricing).",
+    "Browser Use Cloud browsers cost $0.02 per browser-hour.",
+    "Playwright, Puppeteer or any CDP client can use a Browser Use Cloud browser: client.browsers.create() from browser-use-sdk (browser_use_sdk.v4), then connect to its cdp_url.",
+    "Stop cloud browsers with client.browsers.stop(id). Closing the CDP connection does not stop the browser."
+  ]
+}
