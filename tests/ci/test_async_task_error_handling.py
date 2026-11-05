@@ -4,11 +4,30 @@ from unittest.mock import Mock
 
 import pytest
 
-from browser_use.utils import create_task_with_error_handling
+from browser_use.utils import SignalHandler, create_task_with_error_handling
 
 
 class ExpectedTaskError(RuntimeError):
 	"""Exception used to verify task propagation."""
+
+
+async def test_signal_handler_empty_patterns_do_not_cancel_tasks() -> None:
+	async def wait_forever() -> None:
+		await asyncio.Event().wait()
+
+	task = asyncio.create_task(wait_forever(), name='step')
+	try:
+		await asyncio.sleep(0)
+		handler = SignalHandler(loop=asyncio.get_running_loop(), interruptible_task_patterns=[])
+		handler._cancel_interruptible_tasks()
+		await asyncio.sleep(0)
+		assert not task.done()
+	finally:
+		task.cancel()
+		try:
+			await task
+		except asyncio.CancelledError:
+			pass
 
 
 @pytest.mark.parametrize('suppress_exceptions', [False, True])
