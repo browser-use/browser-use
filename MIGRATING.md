@@ -163,6 +163,13 @@ MCP tool that opens the browser to approve and stores the same key. The old `bro
 `--cli-mcp` tools (`browser_exec`, `browser_screenshot`). MCP clients that call the old tool names break; switch them
 to `--cli-mcp`. `browser-use init` templates were removed.
 
+Cloud browsers in the CLI and MCP server: after `start_remote_daemon(name)` (anywhere in the code) the rest of that
+call, and every later MCP call, drives that cloud browser. A daemon name that ran a cloud browser never falls back to
+your local Chrome once it ends: calls fail and say to start a new one (`BU_NAME=<name> browser-use --reload` lets the
+name drive a local Chrome again). The MCP server stops the cloud browsers it started when it exits (also when killed)
+and starts them with a 30-minute timeout unless `timeout=` is passed. The live view URL is neither opened nor returned
+unless `BH_OPEN_LIVE_URL=1`, and cloud tabs get no title marker.
+
 ## Trust model for secrets
 
 The REPL worker runs model-written Python as your user. 1.0 limits what it can see by default:

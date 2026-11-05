@@ -16,9 +16,14 @@ from typing import Any
 
 import mcp.server.stdio
 import mcp.types as types
+from browser_harness import _ipc as ipc
+from browser_harness import admin
 from browser_harness.auth import CloudAuthRequired
 from mcp.server import Server
 
+from browser_use import harness_cloud
+from browser_use.auth import harden_login_callback, set_aside_corrupt_store
+from browser_use.harness_cloud import CloudBrowserError
 from browser_use.utils import get_browser_use_version
 
 _NAMESPACE_IMPORTS = (
@@ -31,6 +36,30 @@ _NAMESPACE_IMPORTS = (
 LOGIN_HINT = 'Not signed in to Browser Use Cloud. Call the browser_login tool (it opens the browser to approve), then retry.'
 LOGIN_WAIT_SECONDS = 45.0
 LOGIN_NEXT = 'Start a cloud browser with start_remote_daemon("<name>") in browser_exec.'
+CLOUD_TIMEOUT_MINUTES = 30  # default lifetime of a cloud browser this server starts; start_remote_daemon(timeout=) overrides
+
+MCP_GUIDE = f"""# This MCP server
+
+These rules override the skill below where they differ:
+- Code runs in browser_exec; there is no shell, so ignore `BU_NAME=... browser-use <<'PY'` examples.
+- Local: without a cloud browser, browser_exec drives the user's own Chrome (the default daemon).
+- Cloud: `start_remote_daemon("work")` (call browser_login first if not signed in). Every later browser_exec and
+  browser_screenshot drives that cloud browser; never pass BU_NAME. One cloud browser at a time per server.
+- It lives {CLOUD_TIMEOUT_MINUTES} minutes unless you pass `timeout=<minutes>` (up to 240), and this server stops it when it
+  exits. Once it ends, calls fail with an error: start a new one, never fall back to the local Chrome.
+- The live view URL grants control of the browser, so it is not shown. Only if the user asks to watch, run
+  `os.environ["BH_OPEN_LIVE_URL"] = "1"` before start_remote_daemon: it then opens in their browser and is returned.
+
+"""
+
+# Runs detached for each cloud browser this server starts. Its stdin is a pipe only this server holds: the read
+# returns at EOF, when the server exits however it ends (stdin closed, SIGTERM, SIGKILL), and it stops that browser.
+_REAPER = (
+	'import sys\n'
+	'sys.stdin.buffer.read()\n'
+	'from browser_use.harness_cloud import stop_cloud\n'
+	'stop_cloud(sys.argv[1], sys.argv[2])\n'
+)
 
 
 def _open_url(url: str) -> bool:
@@ -55,6 +84,8 @@ class _Login:
 		from browser_harness import auth
 
 		os.environ.setdefault('BH_DEVICE_NAME', 'browser-use-mcp')
+		harden_login_callback()
+		set_aside_corrupt_store()  # a corrupt key store would make saving the new key fail after the user approved
 		self.start = auth.start_browser_auth(open_url=False)
 		self.opened = _open_url(self.start.auth_url)
 		self.error: str | None = None
@@ -89,6 +120,8 @@ class CLIMCPServer:
 		self._exec_lock = asyncio.Lock()
 		self._login: _Login | None = None
 		self._login_lock = threading.Lock()
+		self._remote: str | None = None  # the cloud daemon this server started; browser_exec drives it
+		self._reapers: list[subprocess.Popen] = []  # held open so the pipes close only when this process exits
 		self._register_handlers()
 
 	def _tool_definitions(self) -> list[types.Tool]:
@@ -100,7 +133,8 @@ class CLIMCPServer:
 					'goto_url(url), page_info(), click_at_xy(x, y), type_text(text), js(code), '
 					'cdp(method, ...), wait_for_load(), list_tabs() are pre-imported. The namespace '
 					'persists across calls. Returns whatever the code prints. First navigation '
-					'should be new_tab(url).'
+					'should be new_tab(url). Drives the local Chrome until start_remote_daemon("<name>") starts a '
+					'cloud browser; then every call drives that one until it ends (stopped when this server exits).'
 				),
 				input_schema={
 					'type': 'object',
@@ -170,7 +204,10 @@ class CLIMCPServer:
 						is_error=True,
 					)
 				async with self._exec_lock:
-					png = await asyncio.to_thread(self._screenshot, bool(arguments.get('full', False)), max_dim)
+					try:
+						png = await asyncio.to_thread(self._screenshot, bool(arguments.get('full', False)), max_dim)
+					except CloudBrowserError as e:
+						return types.CallToolResult(content=[types.TextContent(type='text', text=f'Error: {e}')], is_error=True)
 				content: list[types.ContentBlock] = [types.ImageContent(type='image', data=png, mime_type='image/png')]
 				return types.CallToolResult(content=content)
 			if name == 'browser_login':
@@ -188,15 +225,38 @@ class CLIMCPServer:
 		if self._namespace is None:
 			ns: dict[str, Any] = {}
 			exec(_NAMESPACE_IMPORTS, ns)
+			harness_cloud.install(ns)
+			ns['start_remote_daemon'] = self._start_remote
 			self._namespace = ns
 		return self._namespace
 
 	def _ensure_daemon(self, code: str) -> None:
-		"""Mirror run.py: daemon must be up before helpers run, except for cloud admin snippets."""
-		ns = self._ensure_namespace()
-		if code.lstrip().startswith(('start_remote_daemon(', 'stop_remote_daemon(')):
-			return
-		ns['ensure_daemon']()
+		"""Mirror run.py: daemon must be up before helpers run, except for code that starts or stops a cloud browser
+		(anywhere in it: attaching first would attach the user's Chrome)."""
+		self._ensure_namespace()
+		if not harness_cloud.calls_cloud_admin(code):
+			harness_cloud.ensure_daemon()
+
+	def _start_remote(self, name: str = 'remote', profileName: str | None = None, **create_kwargs: Any) -> dict:
+		if self._remote and self._remote != name and admin.daemon_alive(self._remote):
+			raise CloudBrowserError(
+				f'This server already drives cloud browser {self._remote!r}: stop_remote_daemon({self._remote!r}) first.'
+			)
+		create_kwargs.setdefault('timeout', CLOUD_TIMEOUT_MINUTES)
+		browser = harness_cloud.start(name, profileName, create_kwargs, self._namespace)
+		self._remote = name
+		if browser.get('id'):
+			detach: dict[str, Any] = ipc.spawn_kwargs()  # own session: a Ctrl-C to this server's group does not kill it first
+			self._reapers.append(
+				subprocess.Popen(
+					[sys.executable, '-P', '-c', _REAPER, name, browser['id']],  # -P: never import from the cwd
+					stdin=subprocess.PIPE,
+					stdout=subprocess.DEVNULL,
+					stderr=subprocess.DEVNULL,
+					**detach,
+				)
+			)
+		return browser
 
 	def _execute(self, code: str, connect: bool = True) -> str:
 		"""Run code in the persistent namespace, capturing stdout/stderr.
@@ -211,10 +271,12 @@ class CLIMCPServer:
 				if connect:
 					self._ensure_daemon(code)
 				exec(code, ns)
-			except BaseException as e:
+			except CloudAuthRequired:  # its own message names `browser-harness auth login`, not this server's tool
+				print(LOGIN_HINT, file=buffer)
+			except CloudBrowserError as e:
+				print(f'Error: {e}', file=buffer)
+			except BaseException:
 				traceback.print_exc(file=buffer)
-				if isinstance(e, CloudAuthRequired):
-					print(LOGIN_HINT, file=buffer)
 		return buffer.getvalue()
 
 	def _sign_in(self, force: bool, wait: float = LOGIN_WAIT_SECONDS) -> str:
@@ -259,13 +321,13 @@ class CLIMCPServer:
 		buffer = StringIO()
 		with redirect_stdout(buffer), redirect_stderr(buffer):
 			ns = self._ensure_namespace()
-			ns['ensure_daemon']()
+			harness_cloud.ensure_daemon()
 			path = ns['capture_screenshot'](full=full, max_dim=max_dim)
 		with open(path, 'rb') as f:
 			return base64.b64encode(f.read()).decode()
 
 	def _instructions(self) -> str:
-		return _harness_skill_text()
+		return MCP_GUIDE + _harness_skill_text()
 
 	async def run(self):
 		if sys.stdin is None:
@@ -283,8 +345,6 @@ class CLIMCPServer:
 
 
 async def main():
-	import os
-
 	os.environ.setdefault('BH_CLIENT', 'browser-use-mcp')
 	server = CLIMCPServer()
 	await server.run()

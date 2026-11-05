@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-from browser_use.auth import browser_use_api_key
+from browser_use.auth import browser_use_api_key, cloud_error_hint
 from browser_use.browser import local as _local
 from browser_use.config import load_env
 
@@ -68,12 +68,7 @@ def _cloud(path: str, method: str = 'GET', body: dict | None = None) -> dict:
 			return json.loads(r.read() or b'{}')
 	except urllib.error.HTTPError as e:
 		detail = e.read().decode(errors='replace')[:500]
-		hint = (
-			' Run `browser-use login` again for a key with v4 access (older logins stored browser-only v3 keys), or '
-			'create one at https://cloud.browser-use.com/settings?tab=api-keys and set BROWSER_USE_API_KEY.'
-			if 'missing required scope' in detail
-			else ''
-		)
+		hint = cloud_error_hint(e.code, detail)
 		raise RuntimeError(f'Browser Use Cloud {method} {path} failed: HTTP {e.code} {detail}.{hint}') from None
 
 
