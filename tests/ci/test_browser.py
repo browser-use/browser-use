@@ -428,3 +428,26 @@ async def test_cloud_create_past_its_deadline_stays_owned_and_is_stopped_when_it
 			break
 		await asyncio.sleep(0.05)
 	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
+async def test_cancel_while_the_repl_closes_still_stops_the_cloud_browser(cloud, tmp_path):
+	"""Roast r4-1: a cancel while Repl.close() awaited the worker's exit skipped browser.stop() (billing went on)."""
+	import asyncio
+
+	closing = asyncio.Event()
+
+	class HangingRepl:
+		async def close(self):
+			closing.set()
+			await asyncio.sleep(60)
+
+	browser = Browser()
+	agent = Agent('t', script()[0], browser=browser, workspace=tmp_path)
+	await browser.start()
+	agent._repl = HangingRepl()  # type: ignore[assignment]
+	task = asyncio.ensure_future(agent.close())
+	await closing.wait()
+	task.cancel()
+	with pytest.raises(asyncio.CancelledError):
+		await task
+	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE

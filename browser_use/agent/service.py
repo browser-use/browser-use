@@ -214,11 +214,14 @@ class Agent:
 				self._runner = None
 
 	async def _shutdown(self) -> None:
-		"""Stop the REPL and the browser; a cloud browser's downloads land in workspace/downloads."""
-		if self._repl:
-			await self._repl.close()
-			self._repl = None
-		await self.browser.stop(downloads_dir=self.workspace / 'downloads')
+		"""Stop the REPL and the browser; a cloud browser's downloads land in workspace/downloads. The browser stops
+		even when the REPL's close fails or is cancelled (a cloud browser bills until then); the cancel still raises."""
+		try:
+			if self._repl:
+				repl, self._repl = self._repl, None
+				await repl.close()
+		finally:
+			await self.browser.stop(downloads_dir=self.workspace / 'downloads')
 
 	async def close(self) -> None:
 		"""Stop the REPL, and the browser unless Browser(keep_alive=True). Also closes run_sync()'s event loop when
