@@ -299,8 +299,7 @@ class Agent:
 			fields = getattr(schema, 'model_fields', None)
 			secrets = scoped_secrets(self.sensitive_data)
 			browser = self.browser
-			mode = getattr(browser, 'mode', None)
-			mode = mode if isinstance(mode, str) else 'cloud' if browser.use_cloud else 'cdp' if browser.cdp_url else 'local'
+			mode = browser.kind  # cloud | chromium | chrome | cdp
 			downloads = self._downloads
 			telemetry = ProductTelemetry()
 			telemetry.capture(

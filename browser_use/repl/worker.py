@@ -401,7 +401,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			print(*('' if isinstance(a, ax.Printed) else a for a in args), **kwargs)
 
 		ns['print'] = print_
-	own = {helpers.__name__, __name__, ax.__name__, Captcha.__module__}  # helpers and the ones above; not stdlib names the * import brought
+	# helpers and the ones above (solve_captcha, drain_events too); not stdlib names the * import brought
+	own = {helpers.__name__, __name__, ax.__name__, Captcha.__module__}
 	for name, value in list(ns.items()):
 		if name not in ('cdp', 'print') and not name.startswith('_') and inspect.isroutine(value):
 			if getattr(value, '__module__', None) in own:

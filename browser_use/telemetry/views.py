@@ -47,7 +47,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	follow_up: bool = False  # add_new_task() continued an earlier conversation
 	task_chars: int = 0  # the length only; the task text is never sent
 	# browser
-	browser_mode: str = ''  # cloud | local | cdp
+	browser_mode: str = ''  # cloud | chromium | chrome | cdp (Browser.kind)
 	cdp_url: str | None = None  # hostname only, for Browser(cdp_url=...)
 	keep_alive: bool = False
 	cloud_profile: bool = False

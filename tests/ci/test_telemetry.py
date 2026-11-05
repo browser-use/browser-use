@@ -125,7 +125,7 @@ async def test_failed_run_sends_the_error_class_not_its_message(sent, tmp_path, 
 	assert (props['status'], props['error_type'], props['browser_mode'], props['cells']) == (
 		'error',
 		'ConnectionError',
-		'local',
+		'chromium',
 		0,
 	)
 
