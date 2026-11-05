@@ -181,9 +181,16 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 
 	def _type_keys(value: str) -> None:
 		# Key events per character, as 0.x typed sensitive_data: forms that react to keydown/keyup (enable the submit
-		# button, validate) see the value. Input.insertText alone fires no key events.
-		for ch in value:
-			helpers.press_key(ch)
+		# button, validate) see the value. Input.insertText alone fires no key events. A newline is the Enter key (as in
+		# 0.x); a tab or other control character goes in as text: as a key event a tab moves focus, and the rest of the
+		# secret would land in the next field.
+		for ch in value.replace('\r\n', '\n'):
+			if ch in '\r\n':
+				helpers.press_key('Enter')
+			elif ch.isprintable():
+				helpers.press_key(ch)
+			else:
+				helpers.cdp('Input.insertText', text=ch)
 
 	def type_secret(name):
 		"""Type the secret called `name` into the focused element. Its value is hidden from your text output.

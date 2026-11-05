@@ -220,6 +220,23 @@ async def test_type_secret_sends_key_events_so_key_driven_forms_see_it(daemon, t
 	assert state['output'].strip() == '[True, False]', state
 
 
+async def test_type_secret_types_tabs_newlines_and_non_ascii_exactly(daemon, tmp_path):
+	"""Verify r4: per-character key events turned a tab in a secret into a Tab key (focus moved on and the rest of the
+	secret landed in the next field, visible) and lost a newline and everything after it."""
+	value = 'päss\tw€\U0001f600rd\nZq9'
+	page = 'data:text/html,<textarea id=ta></textarea><input id=next>'
+	repl = Repl(tmp_path, daemon, secrets={'pw': value})
+	try:
+		code = f"new_tab({page!r}); wait_for_load(); js('document.getElementById(\"ta\").focus()'); type_secret('pw')"
+		r = await repl.call('exec', code, 30)
+		read = f'print(js(\'document.getElementById("ta").value\') == {value!r}, repr(js(\'document.getElementById("next").value\')))'
+		state = await repl.call('exec', read + '; close_tab()', 30)
+	finally:
+		await repl.close()
+	assert r['error'] is None, r
+	assert state['output'].strip() == "True ''", state
+
+
 def serve(pages):
 	"""A local HTTP server answering path -> HTML. Returns (server, port)."""
 	import threading
