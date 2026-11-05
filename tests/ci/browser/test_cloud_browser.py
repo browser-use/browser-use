@@ -66,7 +66,7 @@ class TestCloudBrowserClient:
 			mock_response.json = lambda: mock_response_data
 
 			mock_client = AsyncMock()
-			mock_client.post.return_value = mock_response
+			mock_client.request.return_value = mock_response
 			mock_client_class.return_value = mock_client
 
 			client = CloudBrowserClient()
@@ -79,10 +79,87 @@ class TestCloudBrowserClient:
 			assert result.cdpUrl == 'wss://test.proxy.daytona.works'
 
 			# Verify auth headers were included
-			mock_client.post.assert_called_once()
-			call_args = mock_client.post.call_args
+			mock_client.request.assert_called_once()
+			call_args = mock_client.request.call_args
+			assert call_args.args[:2] == ('POST', 'https://api.browser-use.com/api/v2/browsers')
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
 			assert call_args.kwargs['headers']['X-Browser-Use-API-Key'] == 'test-token'
+			assert client.current_api_version == 'v2'
+
+	async def test_create_browser_falls_through_version_scopes(self, mock_auth_config, monkeypatch):
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+		missing_scope = AsyncMock()
+		missing_scope.status_code = 403
+		missing_scope.is_success = False
+		missing_scope.json = lambda: {'detail': 'API key is missing required scope: v2:browsers:create'}
+		created = AsyncMock()
+		created.status_code = 201
+		created.is_success = True
+		created.json = lambda: {
+			'id': 'test-browser-id',
+			'status': 'active',
+			'liveUrl': 'https://live.browser-use.com?wss=test',
+			'cdpUrl': 'wss://test.proxy.daytona.works',
+			'timeoutAt': '2025-09-17T04:35:36.049892',
+			'startedAt': '2025-09-17T03:35:36.049974',
+			'finishedAt': None,
+		}
+
+		with patch('httpx.AsyncClient') as mock_client_class:
+			mock_client = AsyncMock()
+			mock_client.request.side_effect = [missing_scope, created]
+			mock_client_class.return_value = mock_client
+			client = CloudBrowserClient()
+			client.client = mock_client
+
+			result = await client.create_browser(CreateBrowserRequest())
+
+			assert result.id == 'test-browser-id'
+			assert [call.args[:2] for call in mock_client.request.call_args_list] == [
+				('POST', 'https://api.browser-use.com/api/v2/browsers'),
+				('POST', 'https://api.browser-use.com/api/v3/browsers'),
+			]
+			assert client.current_api_version == 'v3'
+
+			stopped = AsyncMock()
+			stopped.status_code = 200
+			stopped.is_success = True
+			stopped.json = lambda: {**created.json(), 'status': 'stopped', 'liveUrl': None, 'cdpUrl': None}
+			mock_client.request.side_effect = [stopped]
+			await client.stop_browser()
+			assert mock_client.request.call_args.args[:2] == (
+				'PATCH',
+				'https://api.browser-use.com/api/v3/browsers/test-browser-id',
+			)
+			assert client.current_session_id is None
+			assert client.current_api_version is None
+
+	async def test_create_browser_renegotiates_for_a_new_scoped_key(self, mock_auth_config, monkeypatch):
+		monkeypatch.setenv('BROWSER_USE_API_KEY', 'new-v2-key')
+		with patch('httpx.AsyncClient') as mock_client_class:
+			response = AsyncMock()
+			response.status_code = 201
+			response.is_success = True
+			response.json = lambda: {
+				'id': 'new-browser',
+				'status': 'active',
+				'liveUrl': None,
+				'cdpUrl': 'wss://example.invalid',
+				'timeoutAt': '2025-09-17T04:35:36',
+				'startedAt': '2025-09-17T03:35:36',
+				'finishedAt': None,
+			}
+			mock_client_class.return_value = AsyncMock()
+			mock_client_class.return_value.request.return_value = response
+			client = CloudBrowserClient()
+			client.current_api_version = 'v3'
+			await client.create_browser(CreateBrowserRequest())
+			assert mock_client_class.return_value.request.call_args.args[:2] == (
+				'POST',
+				'https://api.browser-use.com/api/v2/browsers',
+			)
+			assert mock_client_class.return_value.request.call_args.kwargs['headers']['X-Browser-Use-API-Key'] == 'new-v2-key'
+			assert client.current_api_version == 'v2'
 
 	async def test_create_browser_auth_error(self, temp_config_dir, monkeypatch):
 		"""Test cloud browser creation with auth error."""
@@ -109,7 +186,7 @@ class TestCloudBrowserClient:
 			mock_response.is_success = False
 
 			mock_client = AsyncMock()
-			mock_client.post.return_value = mock_response
+			mock_client.request.return_value = mock_response
 			mock_client_class.return_value = mock_client
 
 			client = CloudBrowserClient()
@@ -144,7 +221,7 @@ class TestCloudBrowserClient:
 			mock_response.json = lambda: mock_response_data
 
 			mock_client = AsyncMock()
-			mock_client.post.return_value = mock_response
+			mock_client.request.return_value = mock_response
 			mock_client_class.return_value = mock_client
 
 			client = CloudBrowserClient()
@@ -157,8 +234,9 @@ class TestCloudBrowserClient:
 			assert result.cdpUrl == 'wss://test.proxy.daytona.works'
 
 			# Verify environment variable was used
-			mock_client.post.assert_called_once()
-			call_args = mock_client.post.call_args
+			mock_client.request.assert_called_once()
+			call_args = mock_client.request.call_args
+			assert call_args.args[0] == 'POST'
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
 			assert call_args.kwargs['headers']['X-Browser-Use-API-Key'] == 'env-test-token'
 
@@ -172,8 +250,8 @@ class TestCloudBrowserClient:
 		mock_response_data = {
 			'id': 'test-browser-id',
 			'status': 'stopped',
-			'liveUrl': 'https://live.browser-use.com?wss=test',
-			'cdpUrl': 'wss://test.proxy.daytona.works',
+			'liveUrl': None,
+			'cdpUrl': None,
 			'timeoutAt': '2025-09-17T04:35:36.049892',
 			'startedAt': '2025-09-17T03:35:36.049974',
 			'finishedAt': '2025-09-17T04:35:36.049892',
@@ -186,7 +264,7 @@ class TestCloudBrowserClient:
 			mock_response.json = lambda: mock_response_data
 
 			mock_client = AsyncMock()
-			mock_client.patch.return_value = mock_response
+			mock_client.request.return_value = mock_response
 			mock_client_class.return_value = mock_client
 
 			client = CloudBrowserClient()
@@ -197,14 +275,20 @@ class TestCloudBrowserClient:
 
 			assert result.id == 'test-browser-id'
 			assert result.status == 'stopped'
+			assert result.liveUrl is None
+			assert result.cdpUrl is None
 			assert result.finishedAt is not None
 
 			# Verify correct API call
-			mock_client.patch.assert_called_once()
-			call_args = mock_client.patch.call_args
-			assert 'test-browser-id' in call_args.args[0]  # URL contains session ID
+			mock_client.request.assert_called_once()
+			call_args = mock_client.request.call_args
+			assert call_args.args[:2] == (
+				'PATCH',
+				'https://api.browser-use.com/api/v2/browsers/test-browser-id',
+			)
 			assert call_args.kwargs['json'] == {'action': 'stop'}
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
+			assert client.current_api_version is None
 
 	async def test_stop_browser_session_not_found(self, mock_auth_config, monkeypatch):
 		"""Test stopping a browser session that doesn't exist."""
@@ -218,7 +302,7 @@ class TestCloudBrowserClient:
 			mock_response.is_success = False
 
 			mock_client = AsyncMock()
-			mock_client.patch.return_value = mock_response
+			mock_client.request.return_value = mock_response
 			mock_client_class.return_value = mock_client
 
 			client = CloudBrowserClient()
