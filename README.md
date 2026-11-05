@@ -134,7 +134,7 @@ result = await agent.run()
 Other models: `ChatAnthropic` (`browser-use[anthropic]`), `ChatGoogle` (`browser-use[google]`), or any Pydantic AI model string such as `llm='groq:llama-3.3-70b'`.
 
 - **Typed results:** `Agent(task, output_model_schema=MyModel)` then `result.structured_output`.
-- **Secrets:** `Agent(task, sensitive_data={'password': '...'})`. The model types it with `type_secret('password')` and only ever sees `<secret:password>`.
+- **Secrets:** `Agent(task, sensitive_data={'password': '...'})`, or `{'https://*.example.com': {'password': '...'}}` to type it only on that domain. The model types it with `type_secret('password')`; secret values are hidden from plain text output (`<secret:password>`). Not a sandbox: a screenshot or `js()` read of the field can still reveal a typed value.
 - **Follow-ups:** `agent.add_new_task('...')` then `await agent.run()`; use `Browser(keep_alive=True)` to keep the same page between runs.
 - **Custom tools:** plain functions with `@tools.action('description')`, then `Agent(task, tools=tools)`.
 - **Ultrafast:** `Agent(task, mode='ultrafast')` acts on accessibility-tree ids for interaction-heavy tasks.
@@ -186,7 +186,7 @@ This open-source library is licensed under the MIT License. For Browser Use serv
 
 - **Local browser:** `Browser(local=True)` drives your own Chrome, with your logins.
 - **Cloud browser:** `Browser(cloud_profile_id='work')` keeps logins in a cloud profile; see the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md).
-- **Passwords:** pass them as `sensitive_data`; the model types them with `type_secret(name)` without seeing them.
+- **Passwords:** pass them as `sensitive_data`; the model types them with `type_secret(name)` and their values are hidden from plain text output. Not a sandbox: screenshots and page JavaScript can reveal a typed value.
 </details>
 
 <details>

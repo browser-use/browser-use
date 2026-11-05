@@ -112,7 +112,7 @@ async def test_type_secret_types_value_and_output_is_redacted(chrome, tmp_path):
 	from pydantic_ai.messages import ToolReturnPart
 
 	out = [p for p in seen[1][-1].parts if isinstance(p, ToolReturnPart)][0].content[0]
-	assert "['password'] <secret:password>" in out  # typed into the page, never shown to the model
+	assert "['password'] <secret:password>" in out  # typed into the page, hidden from text output
 	assert secret not in str(result.messages)
 	assert 'type_secret' in str(seen[0])  # the prompt tells the model about it
 

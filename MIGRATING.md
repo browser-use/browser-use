@@ -31,7 +31,7 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 | `browser`, `browser_session` | kept: take a `Browser(...)` |
 | `tools`, `controller` | kept: take `Tools()` (see below) |
 | `output_model_schema` | kept: `result.structured_output` |
-| `sensitive_data` | kept as `{'name': 'value'}`: the model types values with `type_secret('name')` and sees `<secret:name>`. Domain-scoped `{'https://site': {...}}` raises |
+| `sensitive_data` | kept: `{'name': 'value'}` types anywhere; domain-scoped `{'https://site.com' or '*.site.com': {'name': 'value'}}` types only on matching pages (0.x patterns: no scheme = https only). The model types values with `type_secret('name')`; secret values are hidden from plain text output (`<secret:name>`). Not a sandbox: see [Trust model](#trust-model-for-secrets) |
 | `extend_system_message` | kept |
 | `use_vision`, `max_actions_per_step`, `vision_detail_level`, `llm_screenshot_size`, `sample_images` | raises: screenshots are taken when needed; each step is one Python cell |
 | `flash_mode` | raises: try `mode='ultrafast'` |
@@ -131,9 +131,16 @@ The REPL worker runs model-written Python as your user. 1.0 limits what it can s
 
 - Its environment is an allowlist (`PATH`, `HOME`, locale, temp dirs, `BU_*` / `BH_*` harness settings). Variables
   whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH` never reach it.
-- `sensitive_data` values travel over the worker's control channel, are usable only through `type_secret(name)`,
-  and are replaced with `<secret:name>` in all output the model sees.
+- `sensitive_data` values travel over the worker's control channel and are typed with `type_secret(name)`.
+  Secret values are hidden from plain text output: they, and their reversed, base64, hex and URL-encoded forms, are
+  replaced with `<secret:name>` in cell output, errors, checkpoints and the result text.
+- A domain-scoped secret (`{'https://site.com': {...}}`) is typed only while the current page matches its domain, so
+  a prompt-injected page cannot get the model to type it into another site.
 
-This is not a sandbox. The worker can still read files your user can read (for example
-`~/.config/browser-harness/auth.json`), and a value transformed before printing (reversed, encoded) is not caught.
-Run untrusted tasks in a container or VM.
+This is not a sandbox. Screenshots are images and are not redacted: a typed value in a visible field (an email, a
+token, a "show password" field) reaches the model in a screenshot. Model-written `js()` can read a field's value
+back and transform it in ways redaction does not catch. The worker can also read files your user can read (for
+example `~/.config/browser-harness/auth.json`). Run untrusted tasks in a container or VM.
+
+`Browser(local=True)` drives your real Chrome profile: model-written CDP can read its cookies and open tabs. Use a
+cloud browser or your own Chrome with a throwaway profile (`--user-data-dir=...` + `cdp_url=`) for untrusted tasks.

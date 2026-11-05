@@ -67,8 +67,10 @@ class Agent:
 	"""agent = Agent('task'); result = await agent.run(); result.final_result()
 
 	llm: default ChatBrowserUse('bu-auto'). browser: default Browser() = a Browser Use Cloud browser; Browser(local=True)
-	for your Chrome. sensitive_data={'name': 'value'}: the model types values with type_secret('name') and never sees
-	them. mode='ultrafast' adds accessibility-tree helpers for interaction-heavy tasks."""
+	for your Chrome. sensitive_data={'name': 'value'} (or {'https://site': {'name': 'value'}} to type it only on that
+	domain): the model types values with type_secret('name'); secret values are hidden from plain text output. Not a
+	sandbox: screenshots and page JS can reveal a typed value. mode='ultrafast' adds accessibility-tree helpers for
+	interaction-heavy tasks."""
 
 	def __init__(
 		self,

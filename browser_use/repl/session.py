@@ -4,8 +4,9 @@ Transport: the worker connects back to a 127.0.0.1 ephemeral port and proves its
 works the same on Windows, macOS and Linux (no inherited file descriptors).
 
 Secrets: the worker gets an allowlisted environment (no API keys or tokens). sensitive_data values travel over the
-control channel, are usable only through type_secret(name), and are replaced with <secret:name> in everything the
-worker returns. This limits accidental leaks; it is not a sandbox (model-written Python can still read local files).
+control channel, are typed with type_secret(name) (domain-scoped ones only on a matching page), and are replaced with
+<secret:name> in the text the worker returns. Secret values are hidden from plain text output; this is not a sandbox:
+model-written Python can read local files, and screenshots or js() reads of a field can reveal a typed value.
 """
 
 from __future__ import annotations
