@@ -10,7 +10,6 @@ import time
 import pytest
 
 from browser_use.repl import Repl
-from browser_use.repl import captcha as captcha_mod
 from browser_use.repl.captcha import FINISHED, STARTED, Captcha
 
 
@@ -209,15 +208,14 @@ def test_a_solve_whose_finish_never_comes_is_closed_as_lost():
 	"""A tab closed mid-solve or a missed finished event: the solve is not 'running' forever (bu-pi lostAfterMs)."""
 	c, _, _ = fake_captcha(enabled=True)
 	c.observe(dict(zip(('method', 'params'), started())))
-	c.active['T1']['_t'] -= captcha_mod.LOST_AFTER_S + 1
-	t = time.monotonic()
-	r = c.solve(start_timeout=5, timeout=5)
-	assert (r['solved'], r['detail']) == (False, 'no result from the solver after 150s') and time.monotonic() - t < 2
+	c.active['T1']['_t'] -= 151  # past the solver's own 120 s limit plus slack (bu-pi: 150 s)
+	r = c.solve(start_timeout=1, timeout=1)
+	assert (r['solved'], r['detail']) == (False, 'no result from the solver after 150s') and r['seconds'] < 0.5
 	assert c.active == {}
 	assert c.report().startswith('[captcha solver: no result for recaptcha after 151s')
 
 	c.observe(dict(zip(('method', 'params'), started())))
-	c.active['T1']['_t'] -= captcha_mod.LOST_AFTER_S + 1
+	c.active['T1']['_t'] -= 151
 	notice = c.report()  # the cell notice stops telling the agent to wait
 	assert 'no result for recaptcha' in notice and 'solving' not in notice and c.report() == ''
 
