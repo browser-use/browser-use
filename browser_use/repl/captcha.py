@@ -1,0 +1,153 @@
+"""Browser Use Cloud captcha solver, seen from the REPL worker.
+
+Our cloud browsers answer two custom CDP methods (BrowserUse.setCaptchaSolverEnabled {enabled},
+BrowserUse.getCaptchaSolverEnabled) and broadcast BrowserUse.captchaSolverStarted {targetId, vendor, url, startedAt} and
+BrowserUse.captchaSolverFinished {targetId, vendor, url, durationMs, finishedAt, success} on every connection, the
+browser-harness daemon's included. The events are not replayed: they must be read as they come, so the worker reads the
+daemon's event buffer continuously (EventPump, or ax.AxHelpers in ultrafast mode) and Captcha keeps the solver's state.
+Any other browser rejects the methods: solve_captcha() then reports "solver unavailable".
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+from collections import deque
+from collections.abc import Callable
+
+SOLVE_START_S = 20.0  # bu-pi solve_captcha: a solver that has not started by then found no captcha
+SOLVE_S = 95.0  # bu-pi: then 'still solving'; fits the 120 s cell timeout
+EVENT_BUFFER = 500  # browser-harness daemon's own event buffer size
+PUMP_INTERVAL_S = 0.025  # as ax.AxHelpers: a page-load burst must not fill the daemon's buffer between reads
+
+STARTED, FINISHED = 'BrowserUse.captchaSolverStarted', 'BrowserUse.captchaSolverFinished'
+
+
+class Captcha:
+	"""Solver state from the started/finished events, and solve_captcha() for the agent."""
+
+	def __init__(self, cdp: Callable[..., dict]):
+		self.cdp = cdp
+		self.pump: Callable[[], None] = lambda: None  # reads new daemon events into observe(); set by the worker
+		self.active: dict[str, dict] = {}  # targetId -> started params + '_t' (monotonic start)
+		self.finished: list[dict] = []  # every finished event's params, in order
+		self.reported = 0  # finished events already shown in a cell's output
+		self.answered = 0  # finished events already returned by solve()
+		self._lock = threading.Lock()
+
+	def observe(self, event: dict) -> None:
+		method, params = event.get('method'), event.get('params') or {}
+		if method not in (STARTED, FINISHED):
+			return
+		with self._lock:
+			if method == STARTED:
+				self.active[str(params.get('targetId', ''))] = {**params, '_t': time.monotonic()}
+			else:
+				self.active.pop(str(params.get('targetId', '')), None)
+				self.finished.append(params)
+
+	def solve(self, start_timeout: float = SOLVE_START_S, timeout: float = SOLVE_S) -> dict:
+		"""Wait for the browser's captcha solver: a solve that is running, or one it starts within start_timeout s.
+		Returns {'solved', 'detail', 'seconds'}: detail is 'solved', 'the solver failed', 'still solving' (call again),
+		'the solver found no captcha on the page' or 'solver unavailable: ...'. Turns the solver on if it was off,
+		and off again afterwards unless a solve is still running."""
+		began = time.monotonic()
+
+		def out(solved: bool, detail: str, **extra) -> dict:
+			return {'solved': solved, 'detail': detail, 'seconds': round(time.monotonic() - began, 1), **extra}
+
+		try:
+			was_on = bool(self.cdp('BrowserUse.getCaptchaSolverEnabled').get('enabled'))
+			if not was_on:
+				self.cdp('BrowserUse.setCaptchaSolverEnabled', enabled=True)
+		except Exception as e:
+			why = str(e) or type(e).__name__
+			if "wasn't found" in why or '-32601' in why:  # Chrome: method not found
+				why = 'this browser has no captcha solver (Browser Use Cloud browsers do)'
+			return out(False, f'solver unavailable: {why[:300]}')
+		keep_on = was_on
+		with self._lock:  # a solve that ended after the last cell's output is this call's answer
+			seen = max(self.reported, self.answered)
+		try:
+			while True:
+				try:
+					self.pump()
+				except Exception:  # the daemon restarting: keep waiting on what the next read brings
+					pass
+				with self._lock:
+					done, started = self.finished[seen:], bool(self.active)
+					if done:
+						self.answered = seen + 1
+				if done:
+					return out(bool(done[0].get('success')), 'solved' if done[0].get('success') else 'the solver failed')
+				if time.monotonic() - began >= (timeout if started else start_timeout):
+					if started:
+						keep_on = True
+						return out(False, 'still solving', next='call solve_captcha() again')
+					return out(False, 'the solver found no captcha on the page')
+				time.sleep(PUMP_INTERVAL_S)
+		finally:
+			if not keep_on:
+				try:
+					self.cdp('BrowserUse.setCaptchaSolverEnabled', enabled=False)
+				except Exception:
+					pass
+
+	def report(self) -> str:
+		"""Lines for the cell's output: solves that ended since the last report, and a running one."""
+		with self._lock:
+			done, self.reported = self.finished[self.reported :], len(self.finished)
+			active = list(self.active.values())
+		lines = []
+		for f in done:
+			what, s = f.get('vendor') or 'captcha', round((f.get('durationMs') or 0) / 1000)
+			lines.append(
+				f'[captcha solver: solved {what} in {s}s]'
+				if f.get('success')
+				else f'[captcha solver: {what} stopped unsolved after {s}s; handle it yourself or find another route]'
+			)
+		for a in active:
+			lines.append(
+				f'[captcha solver: solving {a.get("vendor") or "a captcha"} on {str(a.get("url", ""))[:200]} for '
+				f'{time.monotonic() - a["_t"]:.0f}s. Call solve_captcha() to wait for it; do not reload, navigate, switch '
+				'tabs or click the challenge meanwhile]'
+			)
+		return '\n'.join(lines)
+
+
+class EventPump:
+	"""The one reader of the daemon's event buffer (ultrafast mode: ax.AxHelpers is). Read continuously, a busy page's
+	Network events never push a captcha event out of the daemon's 500-event buffer. drain_events() still returns every
+	event to the agent, in order."""
+
+	def __init__(self, send: Callable[[dict], dict], observe: Callable[[dict], None]):
+		self._send, self._observe = send, observe
+		self.events: deque = deque(maxlen=EVENT_BUFFER)
+		self._lock = threading.Lock()
+
+	def pump(self) -> None:
+		with self._lock:
+			events = self._send({'meta': 'drain_events'})['events']
+			for e in events:
+				self._observe(e)
+			self.events.extend(events)
+
+	def start(self) -> None:
+		def run() -> None:
+			while True:
+				try:
+					self.pump()
+					time.sleep(PUMP_INTERVAL_S)
+				except Exception:  # - daemon not up yet or restarting
+					time.sleep(0.5)
+
+		threading.Thread(target=run, daemon=True, name='browser-use-events').start()
+
+	def drain_events(self) -> list[dict]:
+		"""Buffered CDP events since the last call (browser-harness drain_events). Raises, as that does, when the
+		daemon cannot be read; what was buffered stays for the next call."""
+		self.pump()
+		with self._lock:
+			out = list(self.events)
+			self.events.clear()
+		return out

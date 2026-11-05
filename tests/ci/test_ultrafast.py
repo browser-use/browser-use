@@ -141,7 +141,7 @@ async def test_default_worker_has_no_bu(daemon, tmp_path, monkeypatch):
 	r = Repl(tmp_path, daemon)
 	try:
 		out, err = await cell(r, "print('bu' in globals(), drain_events.__module__, os.environ.get('BU_MODE'))")
-		assert err is None and out.strip() == 'False browser_harness.helpers None'
+		assert err is None and out.strip() == 'False browser_use.repl.captcha None'  # EventPump, not bu
 	finally:
 		await r.close()
 

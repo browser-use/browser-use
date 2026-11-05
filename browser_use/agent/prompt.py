@@ -62,5 +62,9 @@ def secrets_prompt(secrets: list[tuple[str, str, str | None]]) -> str:
 CLOUD_PROMPT = (
 	'The browser is a remote Browser Use Cloud browser. upload_file(selector, path) takes local workspace paths. '
 	'Files the browser downloads are copied to downloads/ in the workspace when the session closes; do not change '
-	'the browser download directory.'
+	'the browser download directory. '
+	"It solves captchas automatically, usually in 20-60 s. On a captcha or 'verify you are human' check, call "
+	"solve_captcha(): it waits for the solver (up to 95 s) and returns {'solved', 'detail', 'seconds'}; 'still "
+	"solving' means call it again. While cell output says the solver is working, do not reload, navigate, switch tabs "
+	'or click the challenge. Take over only after the solver failed or found no captcha.'
 )

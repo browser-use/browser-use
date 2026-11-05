@@ -1,6 +1,7 @@
 """Persistent Python REPL for one agent. Runs as a child process so a hung cell can be killed.
 
-Namespace = browser-harness helpers + screenshot/show_image/checkpoint/type_secret (+ bu in ultrafast mode, see ax.py).
+Namespace = browser-harness helpers + screenshot/show_image/checkpoint/type_secret/solve_captcha (+ bu in ultrafast mode,
+see ax.py).
 Protocol: connect to 127.0.0.1:BU_REPL_PORT, send BU_REPL_TOKEN, read one init line ({"secrets": [[name, value, domain|null], ...]}), then one JSON
 line per message. Cell stdout/stderr (including subprocesses) go to a per-cell file, so a killed cell still leaves its
 partial output on disk.
@@ -28,6 +29,7 @@ import traceback
 from pathlib import Path
 
 from browser_use import ax
+from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, domain_matches, redact, redact_forms, secret_forms
 
 MAX_IMAGES_PER_CELL = 4
@@ -95,7 +97,7 @@ def _add_image(data: bytes, media_type: str = 'image/png') -> bool:
 	return True
 
 
-def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
+def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	env = dict(os.environ)  # the allowlisted env the parent gave us
 	from browser_harness import helpers  # loads .env files and agent_helpers.py into this process
 
@@ -118,6 +120,7 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 
 	cdp.__doc__ = raw_cdp.__doc__
 	helpers.cdp = cdp  # capture_screenshot() and friends go through the wrapper too
+	captcha = Captcha(cdp)
 	exec('from browser_harness.helpers import *', ns)
 	ns['cdp'] = cdp
 
@@ -265,13 +268,26 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 		return sorted({n for n, _, _ in secrets})
 
 	ns.update(
-		screenshot=screenshot, show_image=show_image, checkpoint=checkpoint, type_secret=type_secret, secret_names=secret_names
+		screenshot=screenshot,
+		show_image=show_image,
+		checkpoint=checkpoint,
+		type_secret=type_secret,
+		secret_names=secret_names,
+		solve_captcha=captcha.solve,
 	)
-	if os.environ.get('BU_REMOTE_BROWSER') == '1':
+	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
+	if cloud:
 		ns['upload_file'] = _remote_upload(ns['js'])
 	if os.environ.get('BU_MODE') != 'ultrafast':
-		return None
-	bu = ns['bu'] = ax.AxHelpers(cdp)
+		# One reader of the daemon's events, so solver events are never lost; wait_for_network_idle() reads through it.
+		events = EventPump(helpers._send, captcha.observe)
+		if cloud:  # only our cloud browsers send solver events; elsewhere the daemon is read when the agent asks
+			events.start()
+		captcha.pump = events.pump
+		helpers.drain_events = ns['drain_events'] = events.drain_events
+		return None, captcha
+	bu = ns['bu'] = ax.AxHelpers(cdp, on_event=captcha.observe)
+	captcha.pump = bu._pump
 	helpers.drain_events = ns['drain_events'] = bu.drain_events  # bu reads the daemon's events; the agent still gets them
 
 	def print_(*args, **kwargs):
@@ -279,7 +295,7 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 		print(*('' if isinstance(a, ax.Printed) else a for a in args), **kwargs)
 
 	ns['print'] = print_
-	return bu
+	return bu, captcha
 
 
 def _write_atomic(path: Path, text: str) -> None:
@@ -429,7 +445,7 @@ def main() -> None:
 	sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
 	sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
 	ns: dict = {'__name__': '__main__', '__bu_display': _display}
-	bu = _install(ns, secrets)
+	bu, captcha = _install(ns, secrets)
 	sys.path.append(os.getcwd())  # after the imports (-P kept it off sys.path[0]): modules the agent writes still import
 	loop = asyncio.new_event_loop()
 	asyncio.set_event_loop(loop)
@@ -471,6 +487,8 @@ def main() -> None:
 					bu.state()
 				except Exception as e:
 					print(f'[state unavailable: {type(e).__name__}: {e}]')
+			if notice := captcha.report():  # a solve that is running or ended: the agent waits instead of reloading
+				print(notice)
 			sys.stdout.flush()
 			sys.stderr.flush()
 			os.dup2(saved[0], 1)
