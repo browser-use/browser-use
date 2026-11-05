@@ -4,6 +4,7 @@ import logging
 import math
 import os
 from typing import Generic, TypeVar
+from uuid import uuid4
 
 import anyio
 
@@ -13,6 +14,7 @@ except ImportError:
 	Laminar = None  # type: ignore
 from pydantic import BaseModel
 
+from browser_use.actor.element import Element
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
@@ -45,6 +47,7 @@ from browser_use.tools.views import (
 	ExtractAction,
 	FindElementsAction,
 	GetDropdownOptionsAction,
+	HoverAction,
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
@@ -770,6 +773,77 @@ class Tools(Generic[Context]):
 
 		# Register click action (index-only by default)
 		self._register_click_action()
+
+		@self.registry.action('Move the mouse over an element by index to reveal hover content.', param_model=HoverAction)
+		async def hover(params: HoverAction, browser_session: BrowserSession):
+			"""Move the browser mouse over an indexed element and report failures."""
+			node = await browser_session.get_element_by_index(params.index)
+			if node is None:
+				return ActionResult(
+					error=f'Element index {params.index} not available - page may have changed. Refresh browser state.'
+				)
+
+			try:
+				# Use the node's CDP session so elements inside frames resolve in the right target.
+				element = Element(browser_session, node.backend_node_id, node.session_id)
+				await element.scroll_into_view()
+				box = await element.get_bounding_box()
+				if box is None:
+					return ActionResult(error=f'Element {params.index} has no visible bounding box.')
+				x, y = box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
+				current_target = node.target_id
+				ancestor = node.parent_node
+				while ancestor is not None:
+					if ancestor.node_name.upper() == 'IFRAME' and ancestor.target_id != current_target:
+						# Input sent directly to an out-of-process frame can bypass a parent overlay.
+						frame = Element(browser_session, ancestor.backend_node_id, ancestor.session_id)
+						frame_box = await frame.get_bounding_box()
+						if frame_box is None:
+							return ActionResult(error=f'Frame containing element {params.index} is not visible.')
+						x += frame_box['x']
+						y += frame_box['y']
+						hit = await browser_session.cdp_client.send.DOM.getNodeForLocation(
+							params={'x': int(x), 'y': int(y)}, session_id=ancestor.session_id
+						)
+						if hit.get('backendNodeId') != ancestor.backend_node_id:
+							return ActionResult(error=f'Element {params.index} could not be hovered; its frame is covered.')
+						current_target = ancestor.target_id
+					ancestor = ancestor.parent_node
+				if current_target != browser_session.agent_focus_target_id:
+					return ActionResult(error=f'Unable to verify the parent frames for element {params.index}.')
+				# A frame-local hit test cannot see an overlay in an embedding document.
+				# Track the trusted mouse event on the actual target instead.
+				tracking_key = f'__browser_use_hover_{uuid4().hex}'
+				await element.evaluate(
+					"""(key) => {
+					const state = { received: false };
+					state.listener = event => { if (event.isTrusted) state.received = true; };
+					this[key] = state;
+					this.addEventListener('mousemove', state.listener, true);
+				}""",
+					tracking_key,
+				)
+				try:
+					await element.hover()
+					received = await element.evaluate('(key) => this[key]?.received === true', tracking_key)
+				finally:
+					try:
+						await element.evaluate(
+							"""(key) => {
+							if (this[key]) this.removeEventListener('mousemove', this[key].listener, true);
+							delete this[key];
+						}""",
+							tracking_key,
+						)
+					except Exception:
+						logger.debug('Unable to remove hover event listener from element %s', params.index, exc_info=True)
+				if received != 'True':
+					return ActionResult(error=f'Element {params.index} could not be hovered; it may be covered or off screen.')
+				return ActionResult(extracted_content=f'Hovered over {get_click_description(node)}')
+			except BrowserError as e:
+				return handle_browser_error(e)
+			except Exception as e:
+				return ActionResult(error=f'Failed to hover over element {params.index}: {e}')
 
 		@self.registry.action(
 			'Input text into element by index. Clears existing text by default; pass text="" to clear only, or clear=False to append.',
