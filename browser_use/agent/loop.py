@@ -318,7 +318,7 @@ def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[s
 	provider = 'openai'
 	if ':' in model_ref:  # 'anthropic:claude-...'; the eval passes a bare OpenAI name
 		provider, model_ref = model_ref.split(':', 1)
-		provider = provider.removesuffix('-responses')
+		provider = provider.removesuffix('-responses').removesuffix('-chat')
 	for m in messages:
 		if isinstance(m, ModelResponse):
 			u = m.usage

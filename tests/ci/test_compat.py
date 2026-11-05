@@ -4,7 +4,7 @@ import pytest
 from conftest import script
 from pydantic import BaseModel
 
-from browser_use import ActionResult, Agent, AgentHistoryList, Browser, Controller, Tools
+from browser_use import ActionResult, Agent, AgentHistoryList, Browser, ChatAnthropic, ChatGoogle, Controller, Tools
 from browser_use.agent.loop import Session, build_agent, run
 from browser_use.repl import Repl
 
@@ -155,6 +155,29 @@ async def test_a_tools_own_timeout_is_an_error_not_the_run_budget(tmp_path):
 	model, _ = script(('fetch', {'url': 'https://x.test'}))
 	r = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path)), 'm')
 	assert (r.status, r.error) == ('error', 'TimeoutError: timed out')
+
+
+@pytest.mark.parametrize(
+	'llm', [lambda: ChatAnthropic('claude-opus-4-1', api_key='k'), lambda: ChatGoogle('gemini-2.5-pro', api_key='k')]
+)
+async def test_cost_is_priced_with_the_models_provider(llm, fake_browser, tmp_path, monkeypatch):
+	"""Fable: the bare model name was priced as OpenAI, so cost_usd was None for every Anthropic/Google model."""
+	from pydantic_ai.messages import ModelResponse, TextPart
+	from pydantic_ai.usage import RequestUsage
+
+	import browser_use.agent.service as service
+	from browser_use.agent.loop import usage_and_cost
+
+	refs = []
+
+	async def fake_run(agent, task, session, model_ref, **kw):
+		refs.append(model_ref)
+		return result()
+
+	monkeypatch.setattr(service, 'run', fake_run)
+	await Agent('t', llm(), browser=Browser(local=True), workspace=tmp_path).run()
+	usage = RequestUsage(input_tokens=1000, output_tokens=100)
+	assert usage_and_cost([ModelResponse(parts=[TextPart('x')], usage=usage)], refs[0])[1]
 
 
 async def test_param_model_is_authoritative(tmp_path):

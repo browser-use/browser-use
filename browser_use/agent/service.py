@@ -103,7 +103,7 @@ class Agent:
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
 		self.workspace = Path(workspace or tempfile.mkdtemp(prefix='browser-use-')).resolve()
 		self._agent: Any = None
-		self._model_name = self._provider = ''
+		self._model_name = self._model_ref = self._provider = ''
 		self._repl: Repl | None = None
 		self._history: list[ModelMessage] | None = None
 		self._continue = False
@@ -123,6 +123,8 @@ class Agent:
 	def _build(self) -> None:
 		model, settings = resolve_model(self.llm)  # raises here, before any browser: missing key or extra
 		self._model_name = getattr(model, 'model_name', str(model))
+		system = getattr(model, 'system', None)  # 'anthropic', 'google-gla', ...: prices are looked up per provider
+		self._model_ref = f'{system}:{self._model_name}' if system and ':' not in self._model_name else self._model_name
 		self._provider = getattr(self.llm, 'provider', None) or getattr(model, 'system', '')
 		self._agent = build_agent(
 			model,
@@ -154,7 +156,7 @@ class Agent:
 				self._agent,
 				self.task,
 				session,
-				self._model_name,
+				self._model_ref,
 				message_history=history,
 				explain_error=getattr(self.llm, 'explain_error', None),
 			)
