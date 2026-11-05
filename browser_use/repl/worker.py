@@ -10,6 +10,7 @@ import ast
 import asyncio
 import base64
 import codecs
+import contextlib
 import inspect
 import io
 import json
@@ -104,36 +105,99 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 			_write_atomic(STATE / 'partial.json', json.dumps({'file': str(path), 'value': value}, ensure_ascii=False))
 		return str(path)
 
+	def _frame_url(session: str | None, frame_id: str) -> str | None:
+		"""The browser's own record of a frame's URL, from its target's frame tree. None when the frame is not in it."""
+
+		def find(tree: dict) -> str | None:
+			if tree['frame']['id'] == frame_id:
+				return str(tree['frame'].get('url') or '')
+			return next((u for c in tree.get('childFrames') or [] if (u := find(c)) is not None), None)
+
+		return find(helpers.cdp('Page.getFrameTree', session_id=session)['frameTree'])
+
+	def _focused(session: str | None, frame_id: str) -> dict | None:
+		"""DOM.describeNode of the focused element in a frame's document, through open and closed shadow roots, read
+		in an isolated world: page JS cannot change what document.activeElement reports there. None when none."""
+		cdp_ = helpers.cdp
+		world = cdp_('Page.createIsolatedWorld', session_id=session, frameId=frame_id, worldName='browser-use-secrets')
+		ctx = world['executionContextId']
+		obj = cdp_('Runtime.evaluate', session_id=session, expression='document.activeElement', contextId=ctx)['result']
+		obj = obj.get('objectId')
+		for _ in range(32):
+			if not obj:
+				return None
+			node = cdp_('DOM.describeNode', session_id=session, objectId=obj)['node']
+			if not node.get('shadowRoots'):
+				return node
+			root = cdp_(
+				'DOM.resolveNode', session_id=session, backendNodeId=node['shadowRoots'][0]['backendNodeId'], executionContextId=ctx
+			)['object']['objectId']
+			inner = cdp_('Runtime.callFunctionOn', session_id=session, objectId=root, functionDeclaration='function () { return this.activeElement }')
+			if not inner['result'].get('objectId'):
+				return node
+			obj = inner['result']['objectId']
+		raise RuntimeError('shadow roots nested too deep')
+
+	def _recipient_url() -> str:
+		"""URL of the frame typed text reaches: focus followed from the top frame into nested frames, cross-site iframe
+		targets included (the attached tab's own target would type into a focused attacker iframe). Raises when it
+		cannot be established."""
+		session: str | None = None
+		frame_id = helpers.cdp('Page.getFrameTree')['frameTree']['frame']['id']
+		attached: list[str] = []
+		try:
+			for _ in range(16):
+				node = _focused(session, frame_id)
+				if node is None or node.get('nodeName') not in ('IFRAME', 'FRAME'):
+					url = _frame_url(session, frame_id)
+					if url is None:
+						raise RuntimeError('focused frame not found')
+					return url
+				child = node.get('frameId')
+				if not child:
+					raise RuntimeError('focused frame has no id')
+				if _frame_url(session, child) is None:  # another process: a cross-site iframe target, frame id = target id
+					# listing the targets first also makes Chrome accept the attach ("No target with given id" without)
+					targets = helpers.cdp('Target.getTargets')['targetInfos']
+					if not any(t['targetId'] == child and t['type'] == 'iframe' for t in targets):
+						raise RuntimeError('focused frame is neither in the frame tree nor an iframe target')
+					session = helpers.cdp('Target.attachToTarget', targetId=child, flatten=True)['sessionId']
+					attached.append(session)
+				frame_id = child
+			raise RuntimeError('frames nested too deep')
+		finally:
+			for sid in attached:
+				with contextlib.suppress(Exception):
+					helpers.cdp('Target.detachFromTarget', sessionId=sid)
+
 	def _type_keys(value: str) -> None:
 		# Key events per character, as 0.x typed sensitive_data: forms that react to keydown/keyup (enable the submit
 		# button, validate) see the value. Input.insertText alone fires no key events.
 		for ch in value:
 			helpers.press_key(ch)
 
-	def _page_url() -> str:
-		# The browser's own record of the page type_text types into (same CDP session), never page JS: page_info()
-		# runs JSON.stringify in the page, which the page can override to report an allowed URL.
-		frame = (helpers.cdp('Page.getFrameTree').get('frameTree') or {}).get('frame') or {}
-		return str(frame.get('url') or '')
-
 	def type_secret(name):
 		"""Type the secret called `name` into the focused element. Its value is hidden from your text output.
-		A domain-scoped secret types only while the current page matches its domain."""
+		A domain-scoped secret types only while the frame that receives the text matches its domain."""
 		candidates = [(v, scope) for n, v, scope in secrets if n == name]
 		if not candidates:
 			raise KeyError(f'No secret named {name!r}; secret_names() lists them')
 		scoped = [(v, scope) for v, scope in candidates if scope is not None]
+		url = ''
 		if scoped:
-			url = _page_url()
+			try:  # the browser's own records (frame trees, isolated worlds), never page JS
+				url = _recipient_url()
+			except Exception:  # fail closed: unknown recipient
+				url = ''
 			for value, scope in scoped:
-				if domain_matches(url, scope):
+				if url and domain_matches(url, scope):
 					return _type_keys(value)
 		for value, scope in candidates:
 			if scope is None:
 				return _type_keys(value)
 		raise PermissionError(
-			f'Secret {name!r} may only be typed on {", ".join(sorted({s for _, s in scoped}))}; the current page is '
-			f'{url or "unknown"}. Navigate to the right site first.'
+			f'Secret {name!r} may only be typed on {", ".join(sorted({s for _, s in scoped}))}; the focused frame is '
+			f'{url or "unknown"}. Focus a field on the right site first.'
 		)
 
 	def secret_names():

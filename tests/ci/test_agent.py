@@ -215,3 +215,73 @@ async def test_type_secret_sends_key_events_so_key_driven_forms_see_it(daemon, t
 	assert r['error'] is None, r
 	assert state['output'].strip() == '[True, False]', state
 
+
+def serve(pages):
+	"""A local HTTP server answering path -> HTML. Returns (server, port)."""
+	import threading
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	class Handler(BaseHTTPRequestHandler):
+		def do_GET(self):
+			body = pages.get(self.path, '').encode()
+			self.send_response(200)
+			self.send_header('Content-Type', 'text/html')
+			self.send_header('Content-Length', str(len(body)))
+			self.end_headers()
+			self.wfile.write(body)
+
+		def log_message(self, *a):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	return server, server.server_address[1]
+
+
+async def test_domain_scoped_secret_checks_the_frame_that_receives_it(daemon, tmp_path):
+	"""Roast r4-3: type_secret checked the top page's URL, but the text goes to the focused frame: an allowed page with a
+	focused attacker iframe (cross-site: its own process; or same-site, other port) received the credential."""
+	# the frame moves focus into its input whenever it gets focus, as an attacker frame would
+	frame = '<input id=f autofocus><script>addEventListener("focus", () => document.getElementById("f").focus())</script>'
+	other, op = serve({'/frame': frame})
+	pages = {
+		'/cross-site': f'<input id=top><iframe id=i src="http://localhost:{op}/frame"></iframe>',
+		'/same-site': f'<input id=top><iframe id=i src="http://127.0.0.1:{op}/frame"></iframe>',
+		'/same-origin': '<input id=top><iframe id=i src="/frame"></iframe>',
+		# the attacker iframe inside a closed shadow root: document.activeElement stops at the host
+		'/shadow': (
+			f'<div id=h></div><script>const r = document.getElementById("h").attachShadow({{mode: "closed"}}); '
+			f'r.innerHTML = \'<iframe src="http://localhost:{op}/frame"></iframe>\'; '
+			'window.focusFrame = () => r.querySelector("iframe").focus()</script>'
+		),
+		'/frame': frame,
+	}
+	site, sp = serve(pages)
+	allowed, attacker = f'http://127.0.0.1:{sp}', f'http://localhost:{op}'
+	repl = Repl(tmp_path, daemon, secrets={allowed: {'pw': 'hunter2-Zq9'}, attacker: {'tok': 'tok-Zq9'}})
+
+	async def attempt(path, name, read):
+		code = (
+			f"new_tab('{allowed}{path}'); wait_for_load(); import time; time.sleep(1)\n"
+			"js('window.focusFrame ? focusFrame() : document.getElementById(\"i\").focus()'); time.sleep(0.3)\n"
+			f"type_secret({name!r})"
+		)
+		error = (await repl.call('exec', code, 30))['error'] or ''
+		value = (await repl.call('exec', f'print(repr({read})); close_tab()', 30))['output'].strip()  # one frame per URL
+		return 'PermissionError' in error, value
+
+	cross = f"js('document.getElementById(\"f\").value', target_id=iframe_target('localhost:{op}'))"
+	try:
+		assert await attempt('/cross-site', 'pw', cross) == (True, "''")  # the attacker frame gets nothing
+		# same site, other origin: one process, so read it through the frame tree
+		same_site = await attempt('/same-site', 'pw', "'(cross-origin)'")
+		same_origin = await attempt('/same-origin', 'pw', 'js(\'document.getElementById("i").contentDocument.getElementById("f").value\')')
+		assert await attempt('/shadow', 'pw', cross) == (True, "''")
+		allowed_frame = await attempt('/cross-site', 'tok', cross)  # the frame's own secret, on an unrelated top page
+	finally:
+		await repl.close()
+		other.shutdown()
+		site.shutdown()
+	assert same_site[0] is True, same_site
+	assert same_origin == (False, "'<secret:pw>'"), same_origin
+	assert allowed_frame == (False, "'<secret:tok>'"), allowed_frame
