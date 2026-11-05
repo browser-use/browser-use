@@ -89,7 +89,7 @@ def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
 		for i in range(10_000):
 			path = dest / (name if i == 0 else f'{stem} ({i}){suffix}')
 			try:
-				f = open(path, 'xb')  # noqa: SIM115 - exclusive create: two sessions never write the same file
+				f = open(path, 'xb')  # - exclusive create: two sessions never write the same file
 				break
 			except FileExistsError:
 				continue
