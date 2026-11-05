@@ -331,3 +331,27 @@ def test_domain_matches(url, pattern, ok):
 	from browser_use.repl.session import domain_matches
 
 	assert domain_matches(url, pattern) is ok
+
+
+async def test_close_kills_cell_processes_after_the_worker_died(tmp_path):
+	"""Roast r2-4: close() killed the process tree only while the worker was alive; after a worker crash a process a
+	cell started kept running (and could keep driving the browser)."""
+	beat = tmp_path / 'beat.txt'
+	child = f"import time\nwhile True:\n    open({str(beat)!r}, 'a').write('.')\n    time.sleep(0.05)"
+	repl = Repl(tmp_path)
+	try:
+		code = f'import subprocess, sys\n_ = subprocess.Popen([sys.executable, "-c", {child!r}])'
+		assert (await repl.call('exec', code, 30))['error'] is None
+		for _ in range(100):
+			if beat.exists():
+				break
+			await asyncio.sleep(0.05)
+		assert repl.proc is not None
+		repl.proc.kill()  # the worker dies; its cell's process does not
+		await repl.proc.wait()
+	finally:
+		await repl.close()
+	await asyncio.sleep(0.3)
+	size = beat.stat().st_size
+	await asyncio.sleep(0.5)
+	assert beat.stat().st_size == size  # the heartbeat stopped

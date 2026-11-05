@@ -155,15 +155,40 @@ def clip(text: str, path: Path | str) -> str:
 	return text if len(text) <= MAX_OUTPUT_CHARS else f'{text[:MAX_OUTPUT_CHARS]}\n[Truncated. Full captured output: {path}]'
 
 
-def _kill_tree(pid: int) -> None:
-	"""Kill the worker and every process its cells started (a surviving subprocess could keep driving the browser)."""
+def _kill_tree(pid: int, job: int | None = None) -> None:
+	"""Kill the worker and every process its cells started (a surviving subprocess could keep driving the browser),
+	also after the worker itself died: POSIX kills its process group, Windows terminates its job object."""
 	if sys.platform == 'win32':
+		if job is not None:
+			import ctypes
+
+			kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+			kernel32.TerminateJobObject(job, 1)
+			kernel32.CloseHandle(job)
 		subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], capture_output=True)
 	else:
 		try:
 			os.killpg(pid, signal.SIGKILL)  # the worker leads its own process group (start_new_session)
 		except (ProcessLookupError, PermissionError):
 			pass
+
+
+def _job_for(pid: int) -> int | None:
+	"""Windows: a job object holding the worker; processes its cells start join it, so they can be killed after the
+	worker died (taskkill /T no longer finds them then). None when it cannot be created."""
+	if sys.platform != 'win32':
+		return None
+	import ctypes
+
+	kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+	job = kernel32.CreateJobObjectW(None, None)
+	process = kernel32.OpenProcess(0x0101, False, pid)  # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+	ok = bool(job and process and kernel32.AssignProcessToJobObject(job, process))
+	if process:
+		kernel32.CloseHandle(process)
+	if not ok and job:
+		kernel32.CloseHandle(job)
+	return job if ok else None
 
 
 class Repl:
@@ -179,6 +204,7 @@ class Repl:
 		self.workspace, self.env, self.n, self.mode = workspace, env or {}, 0, check_mode(mode)
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		self.proc: asyncio.subprocess.Process | None = None
+		self.job: int | None = None  # Windows job object of the worker's process tree
 		self.loop: asyncio.AbstractEventLoop | None = None
 		self.state = workspace / '.browser-use'
 		self.lock = asyncio.Lock()  # the model may emit parallel python calls; the worker runs one cell at a time
@@ -224,6 +250,7 @@ class Repl:
 					else {'start_new_session': True}
 				),
 			)
+			self.job = _job_for(self.proc.pid)  # before the first cell: every process a cell starts joins it
 			exited = asyncio.ensure_future(self.proc.wait())
 			done, _ = await asyncio.wait({connected, exited}, timeout=60, return_when=asyncio.FIRST_COMPLETED)
 			exited.cancel()
@@ -243,8 +270,11 @@ class Repl:
 
 	async def close(self) -> None:
 		proc, self.proc = self.proc, None
-		if proc and proc.returncode is None:
-			_kill_tree(proc.pid)
+		job, self.job = self.job, None
+		if proc is None:
+			return
+		_kill_tree(proc.pid, job)  # also when the worker already exited: processes its cells started may still run
+		if proc.returncode is None:
 			with contextlib.suppress(OSError):  # already gone
 				proc.kill()
 			if self.loop is asyncio.get_running_loop():  # a process can only be awaited on the loop that started it
