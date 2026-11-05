@@ -217,6 +217,13 @@ def _remote_upload(js):
 	return upload_file
 
 
+def _jsonable(value):
+	"""json.dumps default for delivery: pydantic models, dataclasses, dates as JSON (str(model) is not the schema)."""
+	from pydantic_core import to_jsonable_python
+
+	return to_jsonable_python(value, fallback=str)
+
+
 def _display(value) -> None:
 	if value is None or isinstance(value, ax.Printed):  # bu already printed it
 		return
@@ -289,7 +296,7 @@ def main() -> None:
 			else:  # 'eval': read an existing value for delivery
 				obj = compile(msg['code'], '<finish>', 'eval', flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
 				value = _run(obj, ns, loop) if obj.co_flags & inspect.CO_COROUTINE else eval(obj, ns)
-				value = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+				value = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=_jsonable)
 		except BaseException as e:  # - the agent sees every failure
 			if isinstance(e, (SystemExit, KeyboardInterrupt)):
 				error = f'{type(e).__name__} ignored; the REPL keeps running.'

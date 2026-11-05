@@ -450,3 +450,18 @@ async def test_workspace_file_named_like_a_stdlib_module_never_breaks_the_worker
 	finally:
 		await repl.close()
 	assert (r['output'].strip(), r['error']) == ('7', None)  # the agent's own modules still import
+
+
+async def test_finish_from_repl_delivers_a_pydantic_model_as_json(tmp_path):
+	"""Fable r3-3: eval serialized non-JSON values with str(); a pydantic model came back as "title='x' points=3",
+	which failed the result schema and burned a retry."""
+	import json
+
+	repl = Repl(tmp_path)
+	try:
+		code = 'from pydantic import BaseModel\nclass Story(BaseModel):\n    title: str\n    points: int\ns = Story(title="x", points=3)'
+		assert (await repl.call('exec', code, 30))['error'] is None
+		r = await repl.call('eval', '[s]', 30)
+	finally:
+		await repl.close()
+	assert json.loads(r['value']) == [{'title': 'x', 'points': 3}], r
