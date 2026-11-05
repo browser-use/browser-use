@@ -155,6 +155,15 @@ def clip(text: str, path: Path | str) -> str:
 	return text if len(text) <= MAX_OUTPUT_CHARS else f'{text[:MAX_OUTPUT_CHARS]}\n[Truncated. Full captured output: {path}]'
 
 
+def _head(path: Path) -> str:
+	"""The start of a cell's output file, enough for clip(): a cell may have printed gigabytes before it hung."""
+	try:
+		with open(path, encoding='utf-8', errors='replace') as f:
+			return f.read(MAX_OUTPUT_CHARS + 1)
+	except FileNotFoundError:
+		return ''
+
+
 def _kill_tree(pid: int, job: int | None = None) -> None:
 	"""Kill the worker and every process its cells started (a surviving subprocess could keep driving the browser),
 	also after the worker itself died: POSIX kills its process group, Windows terminates its job object."""
@@ -317,7 +326,7 @@ class Repl:
 				out = self.state / 'cells' / f'{n:04d}.txt'
 				why = f'Cell timed out after {timeout:g}s' if isinstance(e, TimeoutError) else 'REPL worker exited'
 				return {
-					'output': clip(out.read_text(encoding='utf-8', errors='replace'), out) if out.exists() else '',
+					'output': clip(_head(out), out),
 					'images': [],
 					'output_file': str(out),
 					'value': None,

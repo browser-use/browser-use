@@ -417,3 +417,23 @@ async def test_a_new_repl_in_the_same_workspace_never_overwrites_earlier_cell_fi
 		finally:
 			await repl.close()
 	assert files[0] != files[1] and Path(files[0]).read_text(encoding='utf-8') == 'first\n'
+
+
+async def test_timed_out_cell_reads_only_the_start_of_a_huge_output(tmp_path):
+	"""Fable r3-4: on a cell timeout the parent read the cell's whole output file into memory before clipping it."""
+	import tracemalloc
+
+	repl = Repl(tmp_path)
+	try:
+		await repl.call('exec', 'pass', 30)
+		code = "import sys, time\nsys.stdout.write('x' * 20_000_000)\nsys.stdout.flush()\ntime.sleep(30)"
+		tracemalloc.start()
+		try:
+			r = await repl.call('exec', code, 4)
+			peak = tracemalloc.get_traced_memory()[1]
+		finally:
+			tracemalloc.stop()
+	finally:
+		await repl.close()
+	assert 'timed out' in r['error'] and Path(r['output_file']).stat().st_size >= 20_000_000, r['error']
+	assert 'Truncated' in r['output'] and peak < 10_000_000, peak
