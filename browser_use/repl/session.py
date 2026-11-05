@@ -11,6 +11,7 @@ worker returns. This limits accidental leaks; it is not a sandbox (model-written
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import hmac
 import json
@@ -20,11 +21,14 @@ import secrets
 import signal
 import subprocess
 import sys
+import urllib.parse
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 MODES = ('default', 'ultrafast')
 STREAM_LIMIT = 256 * 1024 * 1024
+MAX_OUTPUT_CHARS = 12_000  # per cell, cut in the worker so a huge print never crosses the channel
 ENV_ALLOW = {
 	'PATH', 'PATHEXT', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'USER', 'USERNAME', 'LOGNAME', 'SHELL', 'TERM',
 	'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'PROGRAMFILES',
@@ -59,14 +63,47 @@ def worker_env(extra: dict[str, str] | None = None) -> dict[str, str]:
 	return {**env, **(extra or {})}
 
 
-def redact(text: Any, values: dict[str, str]) -> Any:
-	"""Replace each secret value with <secret:name>, longest first."""
+Secrets = dict[str, str] | Iterable[tuple[str, str]]  # name -> value, or (name, value) pairs
+
+
+def secret_forms(values: Secrets) -> list[tuple[str, str]]:
+	"""(form, name) for each secret value and its reversed, base64, hex and URL-encoded forms, longest first."""
+	forms: dict[str, str] = {}
+	for name, value in values.items() if isinstance(values, dict) else values:
+		if not value:
+			continue
+		forms[value] = name
+		if len(value) >= 4:  # encodings of a 1-3 character value would redact ordinary text
+			b = value.encode()
+			b64 = base64.b64encode(b).decode()
+			for form in (value[::-1], b64, b64.rstrip('='), base64.urlsafe_b64encode(b).decode(), b.hex(), b.hex().upper(),
+						 urllib.parse.quote(value, safe=''), urllib.parse.quote_plus(value)):  # fmt: skip
+				forms.setdefault(form, name)
+	return sorted(forms.items(), key=lambda kv: -len(kv[0]))
+
+
+def redact(text: Any, values: Secrets) -> Any:
+	"""Replace secret values (and common encodings of them) with <secret:name>, in strings, lists and dicts.
+	This hides values from plain text output; it is not a sandbox."""
+	return redact_forms(text, secret_forms(values))
+
+
+def redact_forms(text: Any, forms: list[tuple[str, str]]) -> Any:
+	"""redact() with precomputed secret_forms()."""
+	if isinstance(text, list):
+		return [redact_forms(t, forms) for t in text]
+	if isinstance(text, dict):
+		return {redact_forms(k, forms): redact_forms(v, forms) for k, v in text.items()}
 	if not isinstance(text, str):
 		return text
-	for name, value in sorted(values.items(), key=lambda kv: -len(kv[1])):
-		if value:
-			text = text.replace(value, f'<secret:{name}>')
+	for form, name in forms:
+		text = text.replace(form, f'<secret:{name}>')
 	return text
+
+
+def clip(text: str, path: Path | str) -> str:
+	"""Cell output for the model: at most MAX_OUTPUT_CHARS, then where the full text is."""
+	return text if len(text) <= MAX_OUTPUT_CHARS else f'{text[:MAX_OUTPUT_CHARS]}\n[Truncated. Full captured output: {path}]'
 
 
 def _kill_tree(pid: int) -> None:
@@ -194,7 +231,7 @@ class Repl:
 			out = self.state / 'cells' / f'{self.n:04d}.txt'
 			why = f'Cell timed out after {timeout:g}s' if isinstance(e, TimeoutError) else 'REPL worker exited'
 			return {
-				'output': out.read_text(encoding='utf-8', errors='replace') if out.exists() else '',
+				'output': clip(out.read_text(encoding='utf-8', errors='replace'), out) if out.exists() else '',
 				'images': [],
 				'output_file': str(out),
 				'value': None,

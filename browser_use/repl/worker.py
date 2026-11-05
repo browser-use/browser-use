@@ -9,6 +9,7 @@ partial output on disk.
 import ast
 import asyncio
 import base64
+import codecs
 import inspect
 import io
 import json
@@ -16,11 +17,12 @@ import os
 import pprint
 import socket
 import sys
+import threading
 import traceback
 from pathlib import Path
 
 from browser_use import ax
-from browser_use.repl.session import redact
+from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, redact, redact_forms, secret_forms
 
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
@@ -94,13 +96,10 @@ def _install(ns: dict, secrets: dict[str, str]) -> ax.AxHelpers | None:
 	def checkpoint(filename, value, partial=False):
 		"""Atomically save JSON to the workspace. partial=True also makes it the run's fallback result."""
 		path = Path(filename)
-		path.parent.mkdir(parents=True, exist_ok=True)
-		tmp = path.with_name(path.name + '.tmp')
-		tmp.write_text(json.dumps(value, ensure_ascii=False, indent=1, default=str), encoding='utf-8')
-		os.replace(tmp, path)
+		value = redact(json.loads(json.dumps(value, default=str)), secrets)  # secret values never reach the disk
+		_write_atomic(path, json.dumps(value, ensure_ascii=False, indent=1))
 		if partial:
-			STATE.mkdir(parents=True, exist_ok=True)
-			(STATE / 'partial.json').write_text(json.dumps({'file': str(path), 'value': value}, default=str), encoding='utf-8')
+			_write_atomic(STATE / 'partial.json', json.dumps({'file': str(path), 'value': value}, ensure_ascii=False))
 		return str(path)
 
 	type_text = helpers.type_text
@@ -131,6 +130,33 @@ def _install(ns: dict, secrets: dict[str, str]) -> ax.AxHelpers | None:
 
 	ns['print'] = print_
 	return bu
+
+
+def _write_atomic(path: Path, text: str) -> None:
+	path.parent.mkdir(parents=True, exist_ok=True)
+	tmp = path.with_name(path.name + '.tmp')
+	tmp.write_text(text, encoding='utf-8')
+	os.replace(tmp, path)  # a kill mid-write leaves the old file, never a truncated one
+
+
+def _pump(rfd: int, path: Path, secrets: dict[str, str]) -> None:
+	"""Copy a cell's output pipe into its file, redacting on the way, so secret values never reach the disk even
+	when the cell is killed. Holds back only the tail that could be the start of a secret."""
+	forms = secret_forms(secrets)
+	keep = max((len(f) for f, _ in forms), default=1) - 1
+	by_line = not any('\n' in f for f, _ in forms)  # then a secret never spans a newline
+	decoder, buf = codecs.getincrementaldecoder('utf-8')('replace'), ''
+	with open(path, 'w', encoding='utf-8') as out:
+		while True:
+			chunk = os.read(rfd, 65536)
+			buf = redact_forms(buf + decoder.decode(chunk, final=not chunk), forms)
+			cut = max(len(buf) - keep, buf.rfind('\n') + 1 if by_line else 0) if chunk else len(buf)
+			out.write(buf[:cut])
+			out.flush()
+			buf = buf[cut:]
+			if not chunk:
+				break
+	os.close(rfd)
 
 
 def _remote_upload(js):
@@ -228,38 +254,42 @@ def main() -> None:
 		images.clear()
 		out_path = cells / f'{msg["n"]:04d}.txt'
 		error = value = None
-		with open(out_path, 'wb') as out:
-			saved = os.dup(1), os.dup(2)
-			os.dup2(out.fileno(), 1)
-			os.dup2(out.fileno(), 2)
-			try:
-				if msg['op'] == 'exec':
-					_run(_compile(msg['code'], msg['n']), ns, loop)
-				else:  # 'eval': read an existing value for delivery
-					obj = compile(msg['code'], '<finish>', 'eval', flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
-					value = _run(obj, ns, loop) if obj.co_flags & inspect.CO_COROUTINE else eval(obj, ns)
-					value = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
-			except BaseException as e:  # - the agent sees every failure
-				if isinstance(e, (SystemExit, KeyboardInterrupt)):
-					error = f'{type(e).__name__} ignored; the REPL keeps running.'
-				else:
-					error = _error(e)
-			finally:
-				# After a cell whose bu actions reached the page, show the resulting state without another model turn.
-				if bu is not None and bu.acted:
-					try:
-						bu.state()
-					except Exception as e:
-						print(f'[state unavailable: {type(e).__name__}: {e}]')
-				sys.stdout.flush()
-				sys.stderr.flush()
-				os.dup2(saved[0], 1)
-				os.dup2(saved[1], 2)
-				os.close(saved[0])
-				os.close(saved[1])
-		output = redact(out_path.read_text(encoding='utf-8', errors='replace'), secrets)
-		if secrets:  # the captured file is in the workspace: keep secret values off disk too
-			out_path.write_text(output, encoding='utf-8')
+		rfd, wfd = os.pipe()
+		pump = threading.Thread(target=_pump, args=(rfd, out_path, secrets), daemon=True)
+		pump.start()
+		# Cell stdout/stderr, subprocesses included, go through the redacting pump into out_path.
+		saved = os.dup(1), os.dup(2)
+		os.dup2(wfd, 1)
+		os.dup2(wfd, 2)
+		os.close(wfd)
+		try:
+			if msg['op'] == 'exec':
+				_run(_compile(msg['code'], msg['n']), ns, loop)
+			else:  # 'eval': read an existing value for delivery
+				obj = compile(msg['code'], '<finish>', 'eval', flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
+				value = _run(obj, ns, loop) if obj.co_flags & inspect.CO_COROUTINE else eval(obj, ns)
+				value = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+		except BaseException as e:  # - the agent sees every failure
+			if isinstance(e, (SystemExit, KeyboardInterrupt)):
+				error = f'{type(e).__name__} ignored; the REPL keeps running.'
+			else:
+				error = _error(e)
+		finally:
+			# After a cell whose bu actions reached the page, show the resulting state without another model turn.
+			if bu is not None and bu.acted:
+				try:
+					bu.state()
+				except Exception as e:
+					print(f'[state unavailable: {type(e).__name__}: {e}]')
+			sys.stdout.flush()
+			sys.stderr.flush()
+			os.dup2(saved[0], 1)
+			os.dup2(saved[1], 2)
+			os.close(saved[0])
+			os.close(saved[1])
+		pump.join(5)  # a background subprocess may hold the pipe open; its later output still lands in the file
+		with open(out_path, encoding='utf-8', errors='replace') as f:
+			output = clip(f.read(MAX_OUTPUT_CHARS + 1), out_path)
 		send(
 			{
 				'type': 'result',

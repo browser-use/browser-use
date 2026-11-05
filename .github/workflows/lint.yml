@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - main
+      - v1
       - stable
       - 'releases/**'
     tags:

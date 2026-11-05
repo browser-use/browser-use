@@ -29,9 +29,8 @@ from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
 from browser_use.ax import AX_PROMPT
 from browser_use.llm import model_ref
-from browser_use.repl import Repl, check_mode
+from browser_use.repl import Repl, check_mode, redact
 
-MAX_OUTPUT_CHARS = 12_000
 KEEP_IMAGE_RESULTS = 2
 DELIVER_NOW = (
 	'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_repl. '
@@ -68,8 +67,12 @@ class Session:
 	after_tool: Callable[[str, dict, dict], Awaitable[None]] | None = None  # observer hook (evals)
 
 	def partial(self) -> Any:
-		p = self.repl.state / 'partial.json'
-		return json.loads(p.read_text(encoding='utf-8'))['value'] if p.exists() else None
+		"""The last checkpoint(..., partial=True), secret values redacted. None when missing or unreadable."""
+		try:
+			value = json.loads((self.repl.state / 'partial.json').read_text(encoding='utf-8'))['value']
+		except (OSError, ValueError, KeyError, TypeError):  # recovery data must never turn a timeout into a crash
+			return None
+		return redact(value, self.repl.secrets)
 
 
 async def python(ctx: RunContext[Session], code: str) -> list[Any]:
@@ -79,9 +82,7 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	applies; checkpoint small batches before it. screenshot() returns native images.
 	"""
 	r = await ctx.deps.repl.call('exec', code, ctx.deps.cell_timeout_s)
-	text = r['output']
-	if len(text) > MAX_OUTPUT_CHARS:
-		text = f'{text[:MAX_OUTPUT_CHARS]}\n[Truncated. Full captured output: {r["output_file"]}]'
+	text = r['output']  # already cut to MAX_OUTPUT_CHARS by the worker
 	if r['error']:
 		text = f'{text}\nError: {r["error"]}'.strip()
 	if ctx.deps.after_tool:
@@ -360,6 +361,7 @@ async def run(
 	if output is None:
 		output = json.dumps(partial, ensure_ascii=False) if partial is not None else last_text(messages)
 	text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False, default=str)
+	text = redact(text, session.repl.secrets)
 	new = messages[len(message_history or []) :]
 	usage, cost = usage_and_cost(new, model_ref)
 	steps = sum(isinstance(m, ModelResponse) for m in new)

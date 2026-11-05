@@ -173,3 +173,73 @@ async def test_cells_print_unicode_whatever_the_parent_locale(tmp_path, monkeypa
 	finally:
 		await repl.close()
 	assert r['error'] is None and '日本語 🙂' in r['output'] and 'é' in r['output']
+
+
+async def test_interrupted_cell_never_writes_a_secret_to_disk(tmp_path):
+	"""Roast C8: output reached the workspace file before redaction; a killed cell left the plaintext there."""
+	repl = Repl(tmp_path, secrets={'pw': 'hunter2-Zq9'})
+	try:
+		code = (
+			'v = [c.cell_contents for c in type_secret.__closure__ if isinstance(c.cell_contents, dict)][0]\n'
+			"print('got', v['pw'], flush=True)\nimport time\ntime.sleep(30)"
+		)
+		r = await repl.call('exec', code, 2)
+	finally:
+		await repl.close()
+	assert 'timed out' in r['error']
+	text = Path(r['output_file']).read_text(encoding='utf-8')
+	assert 'got <secret:pw>' in text and 'hunter2' not in text
+
+
+async def test_common_encodings_of_a_secret_are_redacted(tmp_path):
+	"""Fable: btoa(value), value[::-1], hex and URL-encoding walked the value past plain-text redaction."""
+	repl = Repl(tmp_path, secrets={'pw': 'hunter2 Zq9/'})
+	try:
+		code = (
+			'import base64, urllib.parse\n'
+			'v = [c.cell_contents for c in type_secret.__closure__ if isinstance(c.cell_contents, dict)][0]["pw"]\n'
+			'print(base64.b64encode(v.encode()).decode(), v[::-1], v.encode().hex(), urllib.parse.quote(v, safe=""))'
+		)
+		r = await repl.call('exec', code, 30)
+	finally:
+		await repl.close()
+	assert r['output'].split() == ['<secret:pw>'] * 4
+
+
+async def test_checkpoints_and_partial_results_are_redacted(tmp_path):
+	"""Roast C13: checkpointed data holding a secret was saved raw and returned through .partial / timeout text."""
+	from browser_use.agent.loop import Session
+
+	repl = Repl(tmp_path, secrets={'pw': 'hunter2-Zq9'})
+	try:
+		code = (
+			'v = [c.cell_contents for c in type_secret.__closure__ if isinstance(c.cell_contents, dict)][0]\n'
+			"checkpoint('rows.json', [{'note': 'pw is ' + v['pw']}], partial=True)"
+		)
+		assert (await repl.call('exec', code, 30))['error'] is None
+	finally:
+		await repl.close()
+	for f in (tmp_path / 'rows.json', repl.state / 'partial.json'):
+		assert 'hunter2' not in f.read_text(encoding='utf-8') and '<secret:pw>' in f.read_text(encoding='utf-8')
+	assert Session(repl=repl).partial() == [{'note': 'pw is <secret:pw>'}]
+
+
+def test_corrupt_partial_json_is_ignored(tmp_path):
+	"""Roast C12: a partial.json truncated by a kill made the timeout path raise instead of returning."""
+	from browser_use.agent.loop import Session
+
+	repl = Repl(tmp_path)
+	repl.state.mkdir(parents=True)
+	(repl.state / 'partial.json').write_text('{"file": "rows.json", "val', encoding='utf-8')
+	assert Session(repl=repl).partial() is None
+
+
+async def test_worker_cuts_huge_output_before_sending(tmp_path):
+	"""Fable: the worker sent a cell's whole output over the channel; past 256 MB the read failed the run."""
+	repl = Repl(tmp_path)
+	try:
+		r = await repl.call('exec', "print('x' * 50_000)", 30)
+	finally:
+		await repl.close()
+	assert len(r['output']) < 13_000 and 'Truncated. Full captured output' in r['output']
+	assert len(Path(r['output_file']).read_text(encoding='utf-8')) > 50_000
