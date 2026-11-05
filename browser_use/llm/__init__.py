@@ -10,7 +10,9 @@ Any Pydantic AI model string ('openai:gpt-6-luna', 'anthropic:claude-...', 'goog
 
 from __future__ import annotations
 
+import os
 from typing import Any
+from urllib.parse import urlparse
 
 from browser_use.auth import browser_use_api_key
 
@@ -73,7 +75,9 @@ class ChatOpenAI:
 
 	@property
 	def is_official(self) -> bool:
-		return not self.base_url or 'api.openai.com' in self.base_url
+		"""api.openai.com, judged by the hostname of the URL the client will use (base_url, else OPENAI_BASE_URL)."""
+		url = self.base_url or os.environ.get('OPENAI_BASE_URL')
+		return not url or urlparse(url).hostname == 'api.openai.com'
 
 	def pydantic_model(self) -> Any:
 		from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
@@ -133,7 +137,9 @@ CHAT_MODELS = (ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle)
 
 
 def extra_hint(extra: str) -> str:
-	return f"This model needs the {extra} extra: pip install 'browser-use[{extra}]'"
+	if extra in EXTRAS.values():
+		return f"This model needs the {extra} extra: pip install 'browser-use[{extra}]'"
+	return f"This model needs Pydantic AI's {extra} support: pip install 'pydantic-ai-slim[{extra}]'"
 
 
 def model_ref(llm: Any) -> Any:

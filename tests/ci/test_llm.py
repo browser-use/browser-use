@@ -132,6 +132,38 @@ def test_missing_extra_gives_install_hint(monkeypatch):
 		resolve_model('anthropic:claude-opus-5-5')
 
 
+@pytest.mark.parametrize(
+	('base_url', 'env', 'official'),
+	[
+		(None, None, True),
+		('https://api.openai.com/v1', None, True),
+		(None, 'http://localhost:11434/v1', False),  # Ollama via OPENAI_BASE_URL
+		('https://api.openai.com.evil.test/v1', None, False),
+		('https://proxy.test/api.openai.com/v1', None, False),
+	],
+)
+def test_openai_vs_compatible_by_effective_hostname(monkeypatch, base_url, env, official):
+	"""Roast C15: OPENAI_BASE_URL servers got the Responses API; any URL containing 'api.openai.com' counted as OpenAI."""
+	if env:
+		monkeypatch.setenv('OPENAI_BASE_URL', env)
+	else:
+		monkeypatch.delenv('OPENAI_BASE_URL', raising=False)
+	model, _ = resolve_model(ChatOpenAI('m', api_key='x', base_url=base_url))
+	assert isinstance(model, OpenAIResponsesModel if official else OpenAIChatModel)
+
+
+def test_missing_provider_sdk_never_suggests_a_nonexistent_extra(monkeypatch):
+	"""Roast C20: groq suggested browser-use[groq], which does not exist."""
+	import pydantic_ai.models
+
+	def no_sdk(ref):
+		raise ImportError('No module named groq')
+
+	monkeypatch.setattr(pydantic_ai.models, 'infer_model', no_sdk)
+	with pytest.raises(ImportError, match=r'pydantic-ai-slim\[groq\]'):
+		resolve_model('groq:llama-3.3-70b')
+
+
 def test_anthropic_and_google_wrappers_build_models():
 	assert resolve_model(ChatAnthropic('claude-opus-5-5', api_key='x'))[0].model_name == 'claude-opus-5-5'
 	assert resolve_model(ChatGoogle('gemini-3-flash', api_key='x'))[0].model_name == 'gemini-3-flash'
