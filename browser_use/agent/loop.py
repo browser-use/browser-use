@@ -452,7 +452,8 @@ async def run(
 	partial = session.partial()
 	new = messages[len(message_history or []) :]  # an earlier task's text is never this run's fallback
 	if output is None:
-		output = json.dumps(partial, ensure_ascii=False) if partial is not None else last_text(new)
+		# the fallback text is model output that may quote a secret (e.g. read off a screenshot): redact it like .text
+		output = json.dumps(partial, ensure_ascii=False) if partial is not None else redact(last_text(new), session.repl.secrets)
 	text = redact(as_text(output), session.repl.secrets)
 	error = redact(error, session.repl.secrets)  # provider/tool exceptions can quote a secret; Agent.run logs this
 	usage, cost = usage_and_cost(new, model_ref)

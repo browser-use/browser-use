@@ -370,6 +370,26 @@ async def test_run_error_never_shows_a_secret(tmp_path):
 	assert r.status == 'error' and r.error == 'RuntimeError: login failed for password <secret:pw>'
 
 
+async def test_failed_run_fallback_output_never_shows_a_secret(tmp_path):
+	"""Roast r5-1: a text reply quoting a secret, then a provider failure: the fallback became raw result.output."""
+	from pydantic_ai.messages import ModelResponse, TextPart
+	from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+	secret = 'hunter2-Zq9'
+	calls = []
+
+	def reply(messages, info: AgentInfo) -> ModelResponse:
+		calls.append(1)
+		if len(calls) == 1:
+			return ModelResponse(parts=[TextPart(f'The password is {secret}')])
+		raise RuntimeError('provider down')
+
+	session = Session(repl=Repl(tmp_path, secrets={'pw': secret}))
+	r = await run(build_agent(FunctionModel(reply)), 'task', session, 'm')
+	assert r.status == 'error'
+	assert secret not in str(r.output) and secret not in r.text and '<secret:pw>' in str(r.output)
+
+
 def test_cost_includes_cache_writes():
 	"""Roast r2-9: cache_write_tokens were dropped from pricing, so Anthropic runs were under-reported."""
 	from genai_prices import Usage, calc_price
