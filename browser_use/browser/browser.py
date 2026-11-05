@@ -48,6 +48,7 @@ UNSUPPORTED = {  # 0.x BrowserSession/BrowserProfile options -> what to do inste
 	'storage_state': 'use cloud_profile_id (cloud) or your Chrome profile (local=True).',
 	'proxy': 'use cloud_proxy_country_code on cloud browsers.',
 }
+LOCAL_START_WAIT_S = 120  # Browser(local=True): Chrome start plus the user clicking Allow on its remote-debugging prompt
 DOWNLOADS_TIMEOUT_S = 300  # per download pass; a slow or huge download never holds the stop (and billing) longer
 _LIVE: set[Browser] = set()  # browsers this process owns that still need stopping
 _POOL = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='browser-use-cloud')  # joined at exit
@@ -205,7 +206,18 @@ class Browser:
 		from browser_harness import admin
 
 		if self.local:
-			await asyncio.to_thread(admin.ensure_daemon)
+			# Bounded: without a wait, browser-harness waits forever on Chrome's "Allow remote debugging?" prompt, and
+			# run(timeout=) only starts counting after the browser started.
+			try:
+				await asyncio.to_thread(admin.ensure_daemon, wait=LOCAL_START_WAIT_S)
+			except RuntimeError as e:
+				if not str(e).startswith('permission-blocked'):
+					raise
+				raise RuntimeError(
+					f'Browser(local=True): Chrome did not allow remote debugging within {LOCAL_START_WAIT_S:g}s. Click '
+					'Allow on its "Allow remote debugging?" prompt (macOS: or run `browser-harness mac-approve` in another '
+					f'shell), then run again. ({e})'
+				) from None
 			return {}
 		if self.use_cloud:
 			browser_use_api_key('Browser() (a Browser Use Cloud browser)')  # fail before anything starts

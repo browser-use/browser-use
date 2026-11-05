@@ -381,3 +381,22 @@ async def test_sigterm_during_exit_cleanup_never_deadlocks(cloud, monkeypatch):
 	t.start()
 	t.join(5)
 	assert not t.is_alive() and browser.stopped and not browser_mod._LIVE
+
+
+async def test_local_start_is_bounded_when_chrome_never_allows_remote_debugging(monkeypatch):
+	"""Fable r3-7: Browser(local=True) called ensure_daemon() without a wait; browser-harness then waits forever on
+	Chrome's "Allow remote debugging?" prompt, so Agent.run() hung before its timeout even started."""
+	from browser_harness import admin
+
+	calls = []
+
+	def ensure_daemon(wait=None, name=None, env=None):  # what browser-harness does once the wait runs out
+		calls.append(wait)
+		if wait is None:
+			raise AssertionError('unbounded wait: would hang forever on the prompt')
+		raise RuntimeError("permission-blocked: Chrome's Allow popup is still open and the pending daemon was left running.")
+
+	monkeypatch.setattr(admin, 'ensure_daemon', ensure_daemon)
+	with pytest.raises(RuntimeError, match='did not allow remote debugging within 120s'):
+		await Browser(local=True).start()
+	assert calls == [browser_mod.LOCAL_START_WAIT_S]
