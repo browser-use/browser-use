@@ -310,8 +310,8 @@ Recommended: install the skill so your coding agent remembers this:
 
 You can also paste this into your agent to get started:
 
-  Install or upgrade browser-use to the latest stable version with uv using
-  Python 3.12, register the skill from `browser-use skill`, and connect it to
+  Install browser-use 1.0 (`uv tool install --prerelease allow 'browser-use>=1.0.0rc1'`)
+  with Python 3.12, register the skill from `browser-use skill`, and connect it to
   my browser. Follow https://github.com/browser-use/browser-use if setup or
   connection fails.
 
