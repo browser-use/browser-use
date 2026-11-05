@@ -52,7 +52,7 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 | `calculate_cost`, `pricing_url` | raises: `result.cost_usd` is computed when the price is known (`None` otherwise) |
 | `skill_ids`, `skills`, `skill_service` | raises: Cloud Skills were removed |
 | `enable_planning`, `planning_replan_on_stall`, `planning_exploration_limit`, `loop_detection_window`, `loop_detection_enabled`, `message_compaction`, `max_history_items`, `include_attributes`, `max_clickable_elements_length`, `include_recent_events`, `include_tool_call_examples`, `display_files_in_done_text`, `injected_agent_state`, `source`, `task_id`, `enable_signal_handler`, `_url_shortening_limit` | raises: these tuned the 0.x loop |
-| new: `reasoning`, `mode`, `workspace` | `reasoning='medium'` (OpenAI reasoning models, Anthropic, Google; OpenAI-compatible chat backends such as the gateway ignore it with a warning: use `ChatOpenAI(..., reasoning_effort=...)`); `mode='ultrafast'`; `workspace` holds the agent's files (default: a temp dir) |
+| new: `reasoning`, `mode`, `workspace` | `reasoning='medium'` (OpenAI reasoning models, the gateway, Anthropic, Google; on the gateway the default is the alias's own effort; OpenAI-compatible chat backends ignore it with a warning: use `ChatOpenAI(..., reasoning_effort=...)`); `mode='ultrafast'`; `workspace` holds the agent's files (default: a temp dir) |
 
 ## Agent methods
 
@@ -120,8 +120,8 @@ browser-harness default daemon and its one attached tab, so two at once move eac
 
 | 0.x | 1.0 |
 |---|---|
-| `ChatBrowserUse(model=...)` | kept: `bu-ultrafast` (default), `bu-auto`, `bu-smart`, ... on the new gateway. 401/402/403/404 come back as one actionable line in `result.error` |
-| `ChatOpenAI(model, api_key, base_url, temperature, reasoning_effort)` | kept. api.openai.com uses the Responses API; any other `base_url` uses plain chat completions. Other 0.x arguments raise `TypeError` |
+| `ChatBrowserUse(model=...)` | kept: `bu-ultrafast` (default), `bu-auto`, `bu-smart` or a listed OpenAI model on the new gateway, over the stateless Responses API with server-side compaction. 401/402/403/404 come back as one actionable line in `result.error`; `result.cost_usd` is what the gateway charged |
+| `ChatOpenAI(model, api_key, base_url, temperature, reasoning_effort)` | kept. api.openai.com uses the Responses API; the gateway URL is served as `ChatBrowserUse`; any other `base_url` uses plain chat completions. Other 0.x arguments raise `TypeError` |
 | `ChatAnthropic(model, api_key)`, `ChatGoogle(model, api_key)` | kept; need `browser-use[anthropic]` / `browser-use[google]` |
 | `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatDeepSeek`, `ChatMistral`, `ChatOpenRouter`, `ChatAWSBedrock`, `ChatAnthropicBedrock`, `ChatCerebras`, `ChatLiteLLM`, `ChatOCIRaw`, `ChatOrcaRouter`, `ChatVercel` | import raises: use a Pydantic AI model string (`'groq:llama-3.3-70b'`, `'mistral:...'`, `'bedrock:...'`) or `ChatOpenAI(model, base_url=...)` |
 

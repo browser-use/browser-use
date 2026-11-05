@@ -60,6 +60,154 @@ def chat_server():
 	server.shutdown()
 
 
+GATEWAY_ITEMS = {
+	'message',
+	'function_call',
+	'function_call_output',
+	'custom_tool_call',
+	'custom_tool_call_output',
+	'reasoning',
+	'compaction',
+}
+
+
+def gateway_violations(body: dict) -> list[str]:
+	"""What the gateway's /responses (cloud pigateway/responses.go) rejects or silently drops: it stores nothing."""
+	bad = [f for f in ('previous_response_id', 'conversation', 'prompt') if body.get(f) is not None]
+	bad += [f for f in ('store', 'background') if body.get(f) is True]
+	bad += [f'tool {t.get("type")}' for t in body.get('tools', []) if t.get('type') not in ('function', 'custom')]
+	bad += [
+		f'include {i}'
+		for i in body.get('include', [])
+		if i not in ('reasoning.encrypted_content', 'message.output_text.logprobs')
+	]
+	if isinstance(choice := body.get('tool_choice'), dict) and choice.get('type') not in ('function', 'custom', 'allowed_tools'):
+		bad.append(f'tool_choice {choice.get("type")}')
+	for item in body['input'] if isinstance(body['input'], list) else []:
+		kind = item.get('type') or ('message' if 'role' in item else None)
+		if kind not in GATEWAY_ITEMS:
+			bad.append(f'input {kind}')  # item_reference, input_file, hosted tool calls
+		elif kind in ('reasoning', 'compaction') and not item.get('encrypted_content'):
+			bad.append(f'{kind} without encrypted_content')  # dropped (reasoning) or rejected (compaction)
+		for part in item.get('content') or [] if isinstance(item.get('content'), list) else []:
+			if part.get('type') not in ('input_text', 'output_text', 'refusal', 'input_image') or 'file_id' in part:
+				bad.append(f'content {part.get("type")}')
+	return bad
+
+
+def call(name: str, arguments: dict, n: int) -> dict:
+	return {
+		'type': 'function_call',
+		'id': f'fc_{n}',
+		'call_id': f'call_{n}',
+		'name': name,
+		'arguments': json.dumps(arguments),
+		'status': 'completed',
+	}
+
+
+def reasoning(n: int) -> dict:
+	return {'type': 'reasoning', 'id': f'rs_{n}', 'summary': [], 'encrypted_content': f'sealed-reasoning-{n}'}
+
+
+@pytest.fixture
+def responses_server():
+	"""The gateway's POST /responses: 400 on what it rejects, else the queued `replies` (output item lists), then a
+	finish call. The response carries browser_use{resolved_model, service_tier, charge_usd} as the gateway's does."""
+	requests, replies = [], []
+
+	class Handler(BaseHTTPRequestHandler):
+		def do_POST(self):
+			body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+			requests.append((self.path, body))
+			bad = gateway_violations(body) if self.path == '/v1/responses' else ['path']
+			if bad:
+				status, reply = 400, {'error': {'code': 'stateful_request', 'message': '; '.join(bad)}}
+			else:
+				n = len(requests)
+				output = replies.pop(0) if replies else [reasoning(n), call('finish', {'result': 'ok'}, n)]
+				usage = {'input_tokens': 10, 'output_tokens': 2, 'total_tokens': 12,
+						 'input_tokens_details': {'cached_tokens': 0}, 'output_tokens_details': {'reasoning_tokens': 1}}  # fmt: skip
+				status, reply = 200, {
+					'id': f'resp_{n}', 'object': 'response', 'created_at': 0, 'model': body['model'], 'status': 'completed',
+					'output': output, 'usage': usage, 'parallel_tool_calls': True, 'tool_choice': 'auto', 'tools': [],
+					'browser_use': {'resolved_model': 'gpt-6-luna', 'service_tier': 'priority', 'charge_usd': '0.00020000'},
+				}  # fmt: skip
+			data = json.dumps(reply).encode()
+			self.send_response(status)
+			self.send_header('Content-Type', 'application/json')
+			self.send_header('Content-Length', str(len(data)))
+			self.end_headers()
+			self.wfile.write(data)
+
+		def log_message(self, *args):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	yield f'http://127.0.0.1:{server.server_address[1]}/v1', requests, replies
+	server.shutdown()
+
+
+async def test_gateway_models_run_stateless_responses_with_compaction(responses_server, tmp_path):
+	"""The gateway path was chat completions (no compaction, reasoning dropped every turn; wrong 2/2 in a local gateway
+	run where Responses was right 2/2). Now: /responses as the gateway requires it, encrypted reasoning and compaction
+	items sent back, no previous_response_id, the alias's own effort, cost = what the gateway charged."""
+	url, requests, replies = responses_server
+	replies += [
+		[reasoning(1), call('python', {'code': 'print(6 * 7)'}, 1)],
+		[
+			{'type': 'compaction', 'id': 'cmp_2', 'encrypted_content': 'sealed-compaction-2'},
+			reasoning(2),
+			call('python', {'code': 'print(1)'}, 2),
+		],
+		[
+			{
+				'type': 'message',
+				'id': 'msg_3',
+				'role': 'assistant',
+				'status': 'completed',
+				'content': [{'type': 'output_text', 'text': 'Done.', 'annotations': []}],
+			}
+		],
+	]  # then the delivery repair turn: tool_choice forced to finish/finish_from_repl, answered by the default finish
+	model, settings = resolve_model(ChatBrowserUse(api_key='fake-test-key', base_url=url))
+	assert isinstance(model, OpenAIResponsesModel)
+	agent = build_agent(model, model_settings=settings, reasoning_effort=None)  # what Agent() passes for the gateway
+	assert compaction(agent)
+	result = await run(agent, 'TASK-TEXT', Session(repl=Repl(tmp_path)), model.model_name)
+	assert (result.status, result.output, result.error) == ('completed', 'ok', None)
+	assert [path for path, _ in requests] == ['/v1/responses'] * 4
+	for _, body in requests:
+		assert body['model'] == 'bu-ultrafast' and body['store'] is False and 'reasoning.encrypted_content' in body['include']
+		assert body['context_management'] == [{'type': 'compaction', 'compact_threshold': 150_000}]
+		assert 'effort' not in body.get('reasoning', {})  # the gateway applies bu-ultrafast's low
+	second, third = requests[1][1]['input'], requests[2][1]['input']  # after reply 1, after reply 2 (compaction)
+	assert {'type': 'reasoning', 'encrypted_content': 'sealed-reasoning-1'}.items() <= next(
+		i for i in second if i.get('type') == 'reasoning'
+	).items()
+	assert 'TASK-TEXT' in json.dumps(second) and 'TASK-TEXT' not in json.dumps(third)  # compacted away
+	assert any(i.get('type') == 'compaction' and i['encrypted_content'] == 'sealed-compaction-2' for i in third)
+	assert requests[3][1]['tool_choice']['type'] == 'allowed_tools'
+	assert result.cost_usd == pytest.approx(4 * 0.0002)
+
+
+def test_every_gateway_model_and_the_gateway_url_use_responses(monkeypatch):
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
+	for name in ('bu-ultrafast', 'bu-auto', 'bu-smart', 'gpt-6.1-sol'):
+		model, _ = resolve_model(ChatBrowserUse(name))
+		assert isinstance(model, OpenAIResponsesModel) and model.model_name == name  # never renamed
+		assert model.profile['openai_responses_requires_store_false'] and model.profile['openai_supports_reasoning']
+	model, _ = resolve_model(ChatOpenAI('bu-auto', base_url=GATEWAY_URL))
+	assert isinstance(model, OpenAIResponsesModel) and model.profile['openai_responses_requires_store_false']
+	agent = Agent('t', ChatBrowserUse(), browser=None)
+	agent._build()
+	assert 'openai_reasoning_effort' not in agent._agent.model_settings  # the alias decides
+	agent = Agent('t', ChatBrowserUse(), browser=None, reasoning='high')
+	agent._build()
+	assert agent._agent.model_settings['openai_reasoning_effort'] == 'high'
+
+
 def test_official_openai_uses_responses_with_compaction():
 	model, settings = resolve_model(ChatOpenAI('gpt-6-luna', api_key='sk-test'))
 	assert isinstance(model, OpenAIResponsesModel) and settings == {}
@@ -94,7 +242,7 @@ def test_default_llm_is_bu_ultrafast_on_the_gateway(monkeypatch):
 	assert isinstance(agent.llm, ChatBrowserUse) and agent.llm.model == 'bu-ultrafast'
 	assert ChatBrowserUse().model == 'bu-ultrafast'
 	model, _ = resolve_model(agent.llm)
-	assert isinstance(model, OpenAIChatModel) and model.model_name == 'bu-ultrafast'
+	assert isinstance(model, OpenAIResponsesModel) and model.model_name == 'bu-ultrafast'
 	assert str(model.client.base_url).rstrip('/') == GATEWAY_URL
 	assert Agent('t', 'bu-auto').llm.model == 'bu-auto'  # still available; ids are passed through, never renamed
 	assert Agent('t', 'bu-smart').llm.model == 'bu-smart'
@@ -239,7 +387,7 @@ async def test_anthropic_text_reply_reaches_delivery_repair_and_finishes(tmp_pat
 async def test_compatible_backends_get_plain_required_on_the_delivery_turn(chat_server, tmp_path):
 	"""Fable r2-4: chat backends got OpenAI's allowed_tools tool_choice, which vLLM/DeepSeek reject and Ollama ignores."""
 	url, requests, replies = chat_server
-	for llm in (ChatOpenAI('my-vllm-model', api_key='x', base_url=url), ChatBrowserUse(api_key='fake-test-key', base_url=url)):
+	for llm in (ChatOpenAI('my-vllm-model', api_key='x', base_url=url),):
 		requests.clear()
 		replies.append({'role': 'assistant', 'content': 'Done, it is ok.'})
 		model, settings = resolve_model(llm)
@@ -255,7 +403,7 @@ async def test_compatible_backends_get_no_strict_tool_definitions(chat_server, t
 	"""Fable r4-2: the chat path sent "strict": true on tools; Ollama and other compatible servers do not support it
 	(Pydantic AI's own Ollama profile turns it off)."""
 	url, requests, _ = chat_server
-	for llm in (ChatOpenAI('my-ollama-model', api_key='x', base_url=url), ChatBrowserUse(api_key='fake-test-key', base_url=url)):
+	for llm in (ChatOpenAI('my-ollama-model', api_key='x', base_url=url),):
 		requests.clear()
 		model, settings = resolve_model(llm)
 		result = await run(build_agent(model, model_settings=settings), 'task', Session(repl=Repl(tmp_path)), model.model_name)

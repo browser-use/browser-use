@@ -1,7 +1,8 @@
 """Models. Default: bu-ultrafast on the Browser Use gateway (one Browser Use API key runs model and browser).
 
-ChatBrowserUse  the gateway (OpenAI-compatible chat completions)
-ChatOpenAI      api.openai.com -> Responses API (the evaluated setup); any other base_url -> chat completions
+ChatBrowserUse  the gateway: stateless OpenAI Responses (store=false, encrypted reasoning) + server-side compaction
+ChatOpenAI      api.openai.com -> Responses API (the evaluated setup); the gateway URL -> as ChatBrowserUse;
+                any other base_url -> chat completions
 ChatAnthropic   needs `browser-use[anthropic]`
 ChatGoogle      needs `browser-use[google]`
 
@@ -19,6 +20,7 @@ from browser_use.auth import browser_use_api_key
 GATEWAY_URL = 'https://api.browser-use.com/api/llm/v1'
 BILLING_URL = 'https://cloud.browser-use.com/settings?tab=billing'
 DEFAULT_MODEL = 'bu-ultrafast'  # gpt-6-luna, low reasoning, priority tier. bu-auto: same model, medium, default tier
+GATEWAY_UPSTREAM = {'bu-smart': 'gpt-6.1-sol', 'bu-smart-v1': 'gpt-6.1-sol'}  # other bu-* aliases run gpt-6-luna
 EXTRAS = {'anthropic': 'anthropic', 'google-gla': 'google', 'google-vertex': 'google', 'google': 'google'}
 
 
@@ -31,8 +33,34 @@ def compatible_profile() -> Any:
 	return OpenAIModelProfile(openai_chat_supports_allowed_tools=False, openai_supports_strict_tool_definition=False)
 
 
+def gateway_profile(model: str) -> Any:
+	"""The upstream model's OpenAI profile (reasoning, encrypted reasoning) under the gateway's rules: it stores nothing
+	(store=false, so reasoning round-trips encrypted and nothing is chained by previous_response_id) and serves no
+	hosted tools. The model name sent is unchanged; only request features follow the upstream model."""
+	from pydantic_ai.profiles.openai import openai_model_profile
+
+	upstream = GATEWAY_UPSTREAM.get(model, 'gpt-6-luna' if model.startswith('bu-') else model)
+	profile = openai_model_profile(upstream) or {}
+	return {**profile, 'openai_responses_requires_store_false': True, 'supported_native_tools': frozenset()}
+
+
+def gateway_model(model: str, api_key: str, base_url: str) -> Any:
+	from pydantic_ai.models.openai import OpenAIResponsesModel
+	from pydantic_ai.providers.openai import OpenAIProvider
+
+	class GatewayResponsesModel(OpenAIResponsesModel):
+		def _process_provider_details(self, response: Any) -> dict[str, Any] | None:
+			"""The gateway's final response carries browser_use{resolved_model, service_tier, charge_usd}."""
+			meta = (response.model_extra or {}).get('browser_use')
+			return {'browser_use': meta} if isinstance(meta, dict) else None
+
+	provider = OpenAIProvider(base_url=base_url, api_key=api_key)
+	return GatewayResponsesModel(model, provider=provider, profile=gateway_profile(model))
+
+
 class ChatBrowserUse:
-	"""Browser Use gateway models ('bu-ultrafast', 'bu-auto', 'bu-smart', ...). Key: BROWSER_USE_API_KEY or `browser-use login`."""
+	"""Browser Use gateway models ('bu-ultrafast', 'bu-auto', 'bu-smart', or a listed OpenAI model such as 'gpt-6.1-sol').
+	Key: BROWSER_USE_API_KEY or `browser-use login`. Without Agent(reasoning=...) the alias's own effort applies."""
 
 	provider = 'browser-use'
 
@@ -40,12 +68,8 @@ class ChatBrowserUse:
 		self.model, self.api_key, self.base_url = model, api_key, str(base_url)
 
 	def pydantic_model(self) -> Any:
-		from pydantic_ai.models.openai import OpenAIChatModel
-		from pydantic_ai.providers.openai import OpenAIProvider
-
 		key = self.api_key or browser_use_api_key(f'The default model ({self.model})')
-		provider = OpenAIProvider(base_url=self.base_url, api_key=key)
-		return OpenAIChatModel(self.model, provider=provider, profile=compatible_profile())
+		return gateway_model(self.model, key, self.base_url)
 
 	def model_settings(self) -> dict:
 		return {}
@@ -94,15 +118,27 @@ class ChatOpenAI:
 		self.temperature, self.reasoning_effort = temperature, reasoning_effort
 
 	@property
+	def url(self) -> str | None:
+		"""The URL the client will use: base_url, else OPENAI_BASE_URL."""
+		return self.base_url or os.environ.get('OPENAI_BASE_URL')
+
+	@property
+	def is_gateway(self) -> bool:
+		"""The Browser Use gateway URL: served exactly as ChatBrowserUse (key: api_key, else the Browser Use key)."""
+		url, gateway = urlparse(self.url or ''), urlparse(GATEWAY_URL)
+		return url.hostname == gateway.hostname and url.path.rstrip('/') == gateway.path
+
+	@property
 	def is_official(self) -> bool:
-		"""api.openai.com, judged by the hostname of the URL the client will use (base_url, else OPENAI_BASE_URL)."""
-		url = self.base_url or os.environ.get('OPENAI_BASE_URL')
-		return not url or urlparse(url).hostname == 'api.openai.com'
+		"""api.openai.com, judged by the hostname of the URL the client will use."""
+		return not self.url or urlparse(self.url).hostname == 'api.openai.com'
 
 	def pydantic_model(self) -> Any:
 		from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 		from pydantic_ai.providers.openai import OpenAIProvider
 
+		if self.is_gateway:
+			return ChatBrowserUse(self.model, api_key=self.api_key, base_url=self.url).pydantic_model()
 		provider = OpenAIProvider(api_key=self.api_key, base_url=self.base_url)
 		if self.is_official:  # Responses API + server-side compaction: what we evaluate
 			return OpenAIResponsesModel(self.model, provider=provider)
@@ -168,6 +204,10 @@ def model_ref(llm: Any) -> Any:
 		return llm
 	provider, name = llm.split('/', 1)
 	return f'{"openai-responses" if provider == "openai" else provider}:{name}'
+
+
+def on_gateway(llm: Any) -> bool:
+	return isinstance(llm, ChatBrowserUse) or (isinstance(llm, ChatOpenAI) and llm.is_gateway)
 
 
 def as_chat_model(llm: Any) -> Any:

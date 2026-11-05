@@ -338,7 +338,7 @@ def build_agent(
 	model: Any = 'openai-responses:gpt-6-luna',
 	*,
 	output_type: Any = str,
-	reasoning_effort: str = 'medium',
+	reasoning_effort: str | None = 'medium',
 	instructions: str = '',
 	compact_at_tokens: int = 150_000,
 	mode: str | None = 'default',
@@ -346,7 +346,8 @@ def build_agent(
 	model_settings: dict | None = None,
 ) -> Agent[Session, Any]:
 	"""mode='ultrafast' appends AX_PROMPT (the `bu` helpers) to the system prompt; the Repl needs the same mode.
-	tools: extra Pydantic AI tools (Tools().functions). model_settings: merged over the defaults."""
+	tools: extra Pydantic AI tools (Tools().functions). model_settings: merged over the defaults. reasoning_effort=None
+	sends no effort (the gateway then applies the alias's own: bu-ultrafast low, bu-auto medium, bu-smart high)."""
 	mode = check_mode(mode)
 	model = model_ref(model)
 	kind = model_kind(model)
@@ -358,13 +359,15 @@ def build_agent(
 			'openai_reasoning_context': 'auto',  # bu-pi sends no context; Pydantic AI would send all_turns
 			'max_tokens': 32_768,
 		}
+		if reasoning_effort is None:
+			del settings['openai_reasoning_effort']
 		if not reasoning:  # gpt-4.1, gpt-4o: reasoning params 400, and 32k is above their output cap
 			settings = {}
 		capabilities = [BrowserLoop(), OpenAICompaction(token_threshold=compact_at_tokens)]
-	elif kind == 'chat':  # DeepSeek, vLLM, Ollama, the gateway: no reasoning settings, no output cap they may reject
+	elif kind == 'chat':  # DeepSeek, vLLM, Ollama: no reasoning settings, no output cap they may reject
 		settings, capabilities = {}, [BrowserLoop()]
 	else:  # other providers: unified thinking (dropped where the profile has none), the provider's own max_tokens
-		settings = {'thinking': reasoning_effort} if reasoning else {}
+		settings = {'thinking': reasoning_effort or 'medium'} if reasoning else {}
 		capabilities = [BrowserLoop()]
 	agent = Agent(
 		model,
@@ -390,8 +393,18 @@ def build_agent(
 	return agent
 
 
+def gateway_charge(m: ModelResponse) -> float | None:
+	"""USD the Browser Use gateway charged for this response (browser_use.charge_usd, a decimal string)."""
+	charge = ((m.provider_details or {}).get('browser_use') or {}).get('charge_usd')
+	try:
+		return float(charge) if isinstance(charge, (str, int, float)) else None
+	except ValueError:
+		return None
+
+
 def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[str, int], float | None]:
-	"""Tokens and USD cost of these messages. Cost is None when any request has no known price (e.g. gateway models)."""
+	"""Tokens and USD cost of these messages. A gateway response's cost is what the gateway charged (browser_use.charge_usd);
+	others are priced by genai-prices. Cost is None when any request has no known price."""
 	total = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
 	cost: float | None = 0.0
 	provider = 'openai'
@@ -407,6 +420,9 @@ def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[s
 			total['cache_write'] += u.cache_write_tokens
 			total['requests'] += 1
 			if cost is None:
+				continue
+			if (charge := gateway_charge(m)) is not None:
+				cost += charge
 				continue
 			try:
 				cost += float(calc_price(u, model_ref=model_ref, provider_id=provider).total_price)  # cache writes too

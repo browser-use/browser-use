@@ -18,7 +18,7 @@ from browser_use.agent.prompt import CLOUD_PROMPT
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import Browser
 from browser_use.config import load_env
-from browser_use.llm import as_chat_model, resolve_model
+from browser_use.llm import as_chat_model, on_gateway, resolve_model
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import check_loop, scoped_secrets
 from browser_use.tools import Tools
@@ -73,9 +73,10 @@ class Agent:
 	domain): the model types values with type_secret('name'); values become <secret:name> in cell output, checkpoints,
 	tool results, the task and the result (MIGRATING.md "Trust model" lists exactly where). Not a sandbox: model-written
 	Python can read them; screenshots, page JS and a cloud live view or recording can reveal a typed value. mode='ultrafast' adds accessibility-tree helpers for
-	interaction-heavy tasks. reasoning: 'low'|'medium'|'high' (default 'medium') for OpenAI reasoning models, Anthropic
-	and Google; OpenAI-compatible chat backends (the gateway, base_url servers) ignore it with a warning: pass
-	ChatOpenAI(..., reasoning_effort=...) to send reasoning_effort there."""
+	interaction-heavy tasks. reasoning: 'low'|'medium'|'high' for OpenAI reasoning models, the gateway, Anthropic and
+	Google (default 'medium'; on the gateway the alias's own: bu-ultrafast low, bu-auto medium, bu-smart high).
+	OpenAI-compatible chat backends (base_url servers) ignore it with a warning: pass ChatOpenAI(..., reasoning_effort=...)
+	to send reasoning_effort there."""
 
 	def __init__(
 		self,
@@ -148,7 +149,7 @@ class Agent:
 		self._agent = build_agent(
 			model,
 			output_type=self.output_model_schema,
-			reasoning_effort=self.reasoning or 'medium',
+			reasoning_effort=self.reasoning or (None if on_gateway(self.llm) else 'medium'),
 			instructions='\n'.join(
 				filter(
 					None,
