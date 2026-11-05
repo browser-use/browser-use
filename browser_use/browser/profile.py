@@ -1195,6 +1195,14 @@ async function initialize(checkInitialized, magic) {{
 		import os
 		import zipfile
 
+		def extract_zip(zip_path: Path | str) -> None:
+			with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+				for name in zip_ref.namelist():
+					member = zip_ref.getinfo(name)
+					if not member.is_dir() and member.header_offset < 0:
+						raise ValueError(f'Invalid ZIP member offset in CRX file {crx_path}')
+				zip_ref.extractall(extract_dir)
+
 		# Remove existing directory
 		if extract_dir.exists():
 			import shutil
@@ -1205,8 +1213,7 @@ async function initialize(checkInitialized, magic) {{
 
 		try:
 			# CRX files are ZIP files with a header, try to extract as ZIP
-			with zipfile.ZipFile(crx_path, 'r') as zip_ref:
-				zip_ref.extractall(extract_dir)
+			extract_zip(crx_path)
 
 			# Verify manifest exists
 			if not (extract_dir / 'manifest.json').exists():
@@ -1239,8 +1246,7 @@ async function initialize(checkInitialized, magic) {{
 				temp_zip.write(zip_data)
 				temp_zip.flush()
 
-				with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
-					zip_ref.extractall(extract_dir)
+				extract_zip(temp_zip.name)
 
 				os.unlink(temp_zip.name)
 
