@@ -224,7 +224,10 @@ VALUE_JS = "function(){const e=this.nodeType===1?this:this.parentElement;return 
 class AxHelpers:
 	"""State print and id-based actions on Chrome's accessibility tree. Raw cdp()/js() stays available."""
 
-	def __init__(self, cdp: Callable[..., dict], log: Callable[[str], None] = print):
+	def __init__(
+		self, cdp: Callable[..., dict], log: Callable[[str], None] = print, on_event: Callable[[dict], None] | None = None
+	):
+		"""on_event: called with every daemon event bu reads (the worker's captcha solver state)."""
 		from browser_harness import helpers
 
 		def pi_cdp(method: str, session_id: str | None = None, **params: Any) -> dict:
@@ -241,7 +244,7 @@ class AxHelpers:
 					raise RuntimeError(f'CDP {err["code"]}: {err.get("message")}') from None
 				raise
 
-		self.cdp, self.log, self._ipc = pi_cdp, log, helpers._send
+		self.cdp, self.log, self._ipc, self._on_event = pi_cdp, log, helpers._send, on_event
 		self.inflight: dict[str, dict[str, float]] = {}
 		self.last_net: dict[str, float] = {}
 		self.dialogs: list[str] = []
@@ -273,6 +276,8 @@ class AxHelpers:
 			events = self._ipc({'meta': 'drain_events'})['events']
 			for e in events:
 				self._observe(e.get('method', ''), e.get('params') or {}, e.get('session_id'))
+				if self._on_event:
+					self._on_event(e)
 			self.events.extend(events)
 
 	def _observe(self, method: str, params: dict, session: str | None) -> None:
