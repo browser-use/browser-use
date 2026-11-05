@@ -253,21 +253,25 @@ class Repl:
 			)
 			self.job = _job_for(self.proc.pid)  # before the first cell: every process a cell starts joins it
 			exited = asyncio.ensure_future(self.proc.wait())
-			done, _ = await asyncio.wait({connected, exited}, timeout=60, return_when=asyncio.FIRST_COMPLETED)
-			exited.cancel()
+			try:
+				done, _ = await asyncio.wait({connected, exited}, timeout=60, return_when=asyncio.FIRST_COMPLETED)
+			finally:
+				exited.cancel()
 			if connected not in done:
-				await self.close()
 				raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}')
 			self.reader, self.writer = connected.result()
+			self.writer.write(json.dumps({'secrets': self.secrets}).encode() + b'\n')
+			await self.writer.drain()
+			if not await asyncio.wait_for(self.reader.readline(), 60):
+				raise ConnectionError('worker exited')
+		except BaseException as e:  # cancelled or failed half way: never leave a half-started worker behind
+			await self.close()
+			if isinstance(e, (TimeoutError, ConnectionError)):
+				raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}') from e
+			raise
 		finally:
 			log.close()
 			server.close()
-		self.writer.write(json.dumps({'secrets': self.secrets}).encode() + b'\n')
-		await self.writer.drain()
-		ready = await asyncio.wait_for(self.reader.readline(), 60)
-		if not ready:
-			await self.close()
-			raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}')
 
 	async def close(self) -> None:
 		proc, self.proc = self.proc, None
@@ -288,33 +292,34 @@ class Repl:
 		return {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value')}}
 
 	async def _call(self, op: str, code: str, timeout: float) -> dict[str, Any]:
-		if self.proc is None or self.proc.returncode is not None:
-			await self.start()
-		self.n += 1
-		n = self.n
-		self.writer.write(json.dumps({'op': op, 'code': code, 'n': n}).encode() + b'\n')
-		await self.writer.drain()
-		try:
-			async with asyncio.timeout(timeout):
-				while True:
-					line = await self.reader.readline()
-					if not line:
-						raise ConnectionError('worker exited')
-					msg = json.loads(line)
-					if msg.get('n') == n:  # never hand one call another call's answer
-						return msg
+		try:  # one cleanup boundary: a cancel during startup, the send or the wait never leaves a half-used worker
+			if self.proc is None or self.proc.returncode is not None:
+				await self.start()
+			self.n += 1
+			n = self.n
+			try:
+				self.writer.write(json.dumps({'op': op, 'code': code, 'n': n}).encode() + b'\n')
+				await self.writer.drain()
+				async with asyncio.timeout(timeout):
+					while True:
+						line = await self.reader.readline()
+						if not line:
+							raise ConnectionError('worker exited')
+						msg = json.loads(line)
+						if msg.get('n') == n:  # never hand one call another call's answer
+							return msg
+			except (TimeoutError, ConnectionError) as e:
+				await self.close()
+				out = self.state / 'cells' / f'{n:04d}.txt'
+				why = f'Cell timed out after {timeout:g}s' if isinstance(e, TimeoutError) else 'REPL worker exited'
+				return {
+					'output': clip(out.read_text(encoding='utf-8', errors='replace'), out) if out.exists() else '',
+					'images': [],
+					'output_file': str(out),
+					'value': None,
+					'error': f'{why}. The REPL restarted: Python variables are lost; files, checkpoints and '
+					'browser state survive. Actions may already have happened; inspect before retrying.',
+				}
 		except asyncio.CancelledError:  # the whole run was cancelled or timed out: the cell may still be running
 			await self.close()
 			raise
-		except (TimeoutError, ConnectionError) as e:
-			await self.close()
-			out = self.state / 'cells' / f'{self.n:04d}.txt'
-			why = f'Cell timed out after {timeout:g}s' if isinstance(e, TimeoutError) else 'REPL worker exited'
-			return {
-				'output': clip(out.read_text(encoding='utf-8', errors='replace'), out) if out.exists() else '',
-				'images': [],
-				'output_file': str(out),
-				'value': None,
-				'error': f'{why}. The REPL restarted: Python variables are lost; files, checkpoints and '
-				'browser state survive. Actions may already have happened; inspect before retrying.',
-			}

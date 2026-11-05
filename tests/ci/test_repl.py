@@ -381,3 +381,26 @@ async def test_restart_after_the_worker_died_kills_its_cell_processes(tmp_path):
 		assert beat.stat().st_size == size  # the old cell's heartbeat stopped at the restart, not at close()
 	finally:
 		await repl.close()
+
+
+async def test_cancel_during_worker_startup_leaves_a_usable_repl(tmp_path, monkeypatch):
+	"""Roast r3-5: a cancel while the worker was starting left a half-started worker (no channel); with
+	Browser(keep_alive=True) the next call failed on the missing writer."""
+	site, flag = tmp_path / 'site', tmp_path / 'slow-start'
+	site.mkdir()
+	(site / 'sitecustomize.py').write_text(  # the first interpreter that sees the flag starts slowly
+		'import os, time\np = os.environ.get("BU_TEST_SLOW_START", "")\n'
+		'if p and os.path.exists(p):\n    os.remove(p)\n    time.sleep(2)\n',
+		encoding='utf-8',
+	)
+	flag.touch()
+	monkeypatch.setenv('PYTHONPATH', str(site))
+	monkeypatch.setenv('BU_TEST_SLOW_START', str(flag))
+	repl = Repl(tmp_path / 'ws')
+	try:
+		with pytest.raises(TimeoutError):
+			await asyncio.wait_for(repl.call('exec', 'pass', 30), 0.5)  # cancelled while the worker starts
+		assert not flag.exists()  # the cancel landed during startup
+		assert (await repl.call('exec', 'print("fresh")', 30))['output'].strip() == 'fresh'
+	finally:
+		await repl.close()
