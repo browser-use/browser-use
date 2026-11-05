@@ -201,12 +201,16 @@ class Repl:
 		mode: str | None = 'default',
 		secrets: Secrets | None = None,
 	):
-		self.workspace, self.env, self.n, self.mode = workspace, env or {}, 0, check_mode(mode)
+		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		self.proc: asyncio.subprocess.Process | None = None
 		self.job: int | None = None  # Windows job object of the worker's process tree
 		self.loop: asyncio.AbstractEventLoop | None = None
 		self.state = workspace / '.browser-use'
+		# Continue the workspace's cell numbering: a follow-up run's new REPL must not overwrite earlier cells' files,
+		# which the retained conversation still points to.
+		cells = (p.stem for p in (self.state / 'cells').glob('*.txt'))
+		self.n = max((int(c) for c in cells if c.isdigit()), default=0)
 		self.lock = asyncio.Lock()  # the model may emit parallel python calls; the worker runs one cell at a time
 
 	async def start(self) -> None:

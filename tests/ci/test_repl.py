@@ -404,3 +404,16 @@ async def test_cancel_during_worker_startup_leaves_a_usable_repl(tmp_path, monke
 		assert (await repl.call('exec', 'print("fresh")', 30))['output'].strip() == 'fresh'
 	finally:
 		await repl.close()
+
+
+async def test_a_new_repl_in_the_same_workspace_never_overwrites_earlier_cell_files(tmp_path):
+	"""Roast r3-7: a follow-up run starts a fresh REPL; its numbering restarted at 0001 and overwrote the earlier
+	cell's file, which the retained conversation still linked to."""
+	files = []
+	for text in ('first', 'second'):
+		repl = Repl(tmp_path)
+		try:
+			files.append((await repl.call('exec', f'print({text!r})', 30))['output_file'])
+		finally:
+			await repl.close()
+	assert files[0] != files[1] and Path(files[0]).read_text(encoding='utf-8') == 'first\n'
