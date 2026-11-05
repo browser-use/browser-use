@@ -411,3 +411,16 @@ async def test_secrets_in_the_task_never_reach_the_model(fake_browser, tmp_path)
 	await agent.run()
 	assert secret not in str(seen) and 'Log in with <secret:pw>' in str(seen[0]) and 'Again with <secret:pw>' in str(seen[1])
 	assert 'The password is <secret:pw>.' in str(seen[0])
+
+
+async def test_overlapping_runs_on_one_agent_are_rejected(fake_browser, tmp_path):
+	"""Roast r3-6: two concurrent run() calls on one Agent each created a REPL (one never closed) and either could
+	stop the other's browser."""
+	import asyncio
+
+	model, _ = script(('finish', {'result': 'one'}))
+	agent = Agent('t', model, browser=Browser(local=True), workspace=tmp_path)
+	first, second = await asyncio.gather(agent.run(), agent.run(), return_exceptions=True)
+	assert isinstance(second, RuntimeError) and 'already running' in str(second)
+	assert first.final_result() == 'one' and len(fake_browser) == 1  # only the first run started and stopped
+	assert (await agent.run()).status == 'error'  # the next run is allowed again (the script has no third turn)

@@ -114,6 +114,7 @@ class Agent:
 		self._history: list[ModelMessage] | None = None
 		self._continue = False
 		self._runner: asyncio.Runner | None = None  # run_sync's event loop, kept while the REPL lives
+		self._running = False
 
 	def add_new_task(self, task: str) -> None:
 		"""The next run() continues this conversation with a new task."""
@@ -157,6 +158,15 @@ class Agent:
 		cells); starting the browser before it and stopping it (with cloud downloads) after it are not counted."""
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent.run')
+		if self._running:  # two runs would each start a REPL (one leaks) and stop each other's browser
+			raise RuntimeError('This Agent is already running; await that run() first, or use one Agent per concurrent task.')
+		self._running = True
+		try:
+			return await self._run(max_steps, timeout)
+		finally:
+			self._running = False
+
+	async def _run(self, max_steps: int, timeout: float) -> AgentHistoryList:
 		self._check_task()
 		if self._agent is None:
 			self._build()
