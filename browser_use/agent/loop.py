@@ -140,6 +140,23 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 def _outputs(output_type: Any) -> list[Any]:
 	adapter = TypeAdapter(output_type)
 
+	def clean(ctx: RunContext[Session], value: Any) -> Any:
+		"""The delivered value with secret values replaced, the instance too (result.output), redacted field by field
+		before any serialization."""
+		secrets = ctx.deps.repl.secrets
+		if not secrets:
+			return value
+		if isinstance(value, str):
+			return redact(value, secrets)
+		plain = adapter.dump_python(value, mode='json')
+		redacted = redact(plain, secrets)
+		if redacted == plain:
+			return value
+		try:
+			return adapter.validate_python(redacted)
+		except ValidationError:  # a schema constraint rejects '<secret:name>': deliver the redacted plain data
+			return redacted
+
 	async def finish_from_repl(ctx: RunContext[Session], expression: str, success: bool = True):
 		r = await ctx.deps.repl.call('eval', expression, ctx.deps.cell_timeout_s)
 		if r['error']:
@@ -153,12 +170,12 @@ def _outputs(output_type: Any) -> list[Any]:
 			except ValidationError as e:
 				raise ModelRetry(f'Value does not match the result schema: {str(e)[:2000]}')
 		ctx.deps.success = success
-		return value
+		return clean(ctx, value)
 
 	def finish(ctx: RunContext[Session], result, success: bool = True):
 		check_delivery(ctx, result)
 		ctx.deps.success = success
-		return result
+		return clean(ctx, result)
 
 	def on_text(ctx: RunContext[Session], text: str):
 		# Plain text keeps tool_choice=auto (as in bu-pi); a forced tool call every turn made finish() the only way to
@@ -168,9 +185,9 @@ def _outputs(output_type: Any) -> list[Any]:
 			raise ModelRetry(DELIVERY_REPAIR)
 		if output_type is str:
 			check_delivery(ctx, text)
-			return text
+			return clean(ctx, text)
 		try:
-			return adapter.validate_json(text)
+			return clean(ctx, adapter.validate_json(text))
 		except ValidationError as e:
 			raise ModelRetry(f'Deliver with finish or finish_from_repl; text does not match the result schema: {str(e)[:2000]}')
 

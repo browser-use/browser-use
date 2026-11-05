@@ -165,15 +165,16 @@ The REPL worker runs model-written Python as your user. 1.0 limits what it can s
 - A domain-scoped secret (`{'https://site.com': {...}}`) is typed only while the attached tab's URL, as the browser
   reports it (not page JavaScript), matches its domain. A prompt-injected page cannot get it typed on another site.
 
-Redaction replaces a secret value, and its reversed, base64, hex and URL-encoded forms, with `<secret:name>` in
-exactly these places:
+Redaction replaces a secret value, its JSON- and `repr()`-escaped forms, and its reversed, base64, hex and URL-encoded
+forms, with `<secret:name>` in exactly these places:
 
 - what a cell returns to the model: its stdout/stderr (subprocesses included), its error, a `finish_from_repl` value,
   and the cell's output file in `workspace/.browser-use/cells/`
 - files written by `checkpoint()` (and the partial result)
 - results and retry messages of your own `Tools` actions
 - the task, follow-up tasks (`add_new_task`) and `extend_system_message`, before the model sees them
-- `result.final_result()`, `result.partial`, `result.error`, the error `Agent.run` logs, and telemetry
+- `result.final_result()`, `result.output` / `result.structured_output` (field by field), `result.partial`,
+  `result.error`, the error `Agent.run` logs, and telemetry
 
 Nothing else is redacted. This is not a sandbox:
 

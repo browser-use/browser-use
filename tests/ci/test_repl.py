@@ -482,3 +482,52 @@ async def test_checkpoint_saves_a_pydantic_model_as_json(tmp_path):
 	finally:
 		await repl.close()
 	assert json.loads((tmp_path / 'rows.json').read_text(encoding='utf-8')) == [{'title': 'x', 'points': 3}]
+
+
+ESCAPED = 'pa"ss\\wo\nrd-Zq9'  # quotes, a backslash and a newline: JSON and repr() escape all three
+
+
+async def test_escaped_forms_of_a_secret_are_redacted(tmp_path):
+	"""Roast r4-2: json.dumps / repr() escape quotes, backslashes and newlines, so the serialized value no longer matched
+	the plain secret; json.loads(final_result()) recovered the password."""
+	import json
+
+	repl = Repl(tmp_path, secrets={'pw': ESCAPED})
+	try:
+		code = DIG + "import json\nprint({'pw': v['pw']})\nprint(json.dumps({'pw': v['pw']}), json.dumps(v['pw'] + 'é'))"
+		r = await repl.call('exec', code, 30)
+		value = (await repl.call('eval', "json.dumps({'pw': v['pw']})", 30))['value']
+	finally:
+		await repl.close()
+	assert r['output'].count('<secret:pw>') == 3 and 'Zq9' not in r['output'], r
+	assert json.loads(value) == {'pw': '<secret:pw>'}
+
+
+@pytest.mark.parametrize('deliver', ['finish', 'finish_from_repl'])
+async def test_structured_result_never_holds_a_secret(tmp_path, deliver):
+	"""Fable r4-5 + roast r4-2: only the result text was redacted; result.output / structured_output returned the raw
+	model instance, and the text was redacted after JSON escaping."""
+	import json
+
+	from conftest import script
+	from pydantic import BaseModel
+
+	from browser_use.agent.loop import Session, build_agent, run
+
+	class Creds(BaseModel):
+		note: str
+		n: int
+
+	call = (
+		('finish', {'result': {'note': f'pw {ESCAPED}', 'n': 1}})
+		if deliver == 'finish'
+		else ('finish_from_repl', {'expression': "{'note': 'pw ' + v['pw'], 'n': 1}"})
+	)
+	model, _ = script(('python', {'code': DIG}), call)
+	session = Session(repl=Repl(tmp_path, secrets={'pw': ESCAPED}))
+	try:
+		r = await run(build_agent(model, output_type=Creds), 'task', session, 'test')
+	finally:
+		await session.repl.close()
+	assert r.structured_output == Creds(note='pw <secret:pw>', n=1), r
+	assert json.loads(r.final_result()) == {'note': 'pw <secret:pw>', 'n': 1}

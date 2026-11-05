@@ -117,12 +117,16 @@ def domain_matches(url: str, pattern: str) -> bool:
 
 
 def secret_forms(values: Secrets) -> list[tuple[str, str]]:
-	"""(form, name) for each secret value and its reversed, base64, hex and URL-encoded forms, longest first."""
+	"""(form, name) for each secret value; its JSON- and repr()-escaped forms (a value with quotes, backslashes, newlines
+	or non-ASCII text no longer matches once serialized); and its reversed, base64, hex and URL-encoded forms. Longest
+	first."""
 	forms: dict[str, str] = {}
 	for name, value, _ in scoped_secrets(values):
 		if not value:
 			continue
 		forms[value] = name
+		for form in (json.dumps(value)[1:-1], json.dumps(value, ensure_ascii=False)[1:-1], repr(value)[1:-1]):
+			forms.setdefault(form, name)  # escapes only make a value longer: never a shorter, over-matching form
 		if len(value) >= 4:  # encodings of a 1-3 character value would redact ordinary text
 			b = value.encode()
 			b64 = base64.b64encode(b).decode()
