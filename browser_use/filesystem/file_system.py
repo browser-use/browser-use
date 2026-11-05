@@ -206,6 +206,20 @@ class JsonFile(BaseFile):
 		return 'json'
 
 
+def _reads_as_a_table(text: str) -> bool:
+	"""Whether `text` parses as several equally wide rows of more than one column."""
+	try:
+		rows = [row for row in csv.reader(io.StringIO(text)) if row]
+	except csv.Error:
+		return False
+
+	if len(rows) < 2:
+		return False
+
+	width = len(rows[0])
+	return width > 1 and all(len(row) == width for row in rows)
+
+
 class CsvFile(BaseFile):
 	"""CSV file implementation with automatic RFC 4180 normalization.
 
@@ -232,11 +246,19 @@ class CsvFile(BaseFile):
 			return raw
 
 		# Detect double-escaped LLM tool call output: if the content has no real
-		# newlines but contains literal \n sequences, the entire string is likely
+		# newlines but contains literal \n sequences, the entire string may be
 		# double-escaped JSON. Unescape \" → " first, then \n → newline.
+		#
+		# "contains \n" alone is not enough: a Windows path or a regex carries the
+		# same two characters, so `C:\new,ok` used to come back as `C:` and a new
+		# row reading `ew,ok`. Only take the unescaped version when it reads as a
+		# table -- several rows, all the same width, more than one column -- which
+		# is what a double-escaped CSV always looks like and what a split word
+		# never does.
 		if '\n' not in stripped and '\\n' in stripped:
-			stripped = stripped.replace('\\"', '"')
-			stripped = stripped.replace('\\n', '\n')
+			candidate = stripped.replace('\\"', '"').replace('\\n', '\n')
+			if _reads_as_a_table(candidate):
+				stripped = candidate
 
 		reader = csv.reader(io.StringIO(stripped))
 		rows: list[list[str]] = []
