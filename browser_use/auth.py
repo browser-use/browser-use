@@ -17,7 +17,6 @@ def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
 		record = {}
 	if not record.get('api_key'):
 		raise MissingAPIKeyError(what)
-	scopes = record.get('scopes') or []  # empty for a pasted key (--api-key-stdin): unknown, let the server decide
-	if scopes and not any(s == '*:*:*' or s.startswith('v4:') for s in scopes):
-		raise MissingAPIKeyError(what, v3_only=True)  # older logins minted v3 browser-only keys: 403 on API v4
+	# Scopes are the server's to judge: a key it rejects (an older login's v3 browser-only key) gets a 403 that the
+	# cloud and gateway errors turn into "run `browser-use login` again".
 	return str(record['api_key'])

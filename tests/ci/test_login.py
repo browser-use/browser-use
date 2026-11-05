@@ -147,21 +147,32 @@ def test_missing_key_names_the_one_command(store):
 	assert 'Run `browser-use login`' in result.stderr and 'Traceback' not in result.stderr
 
 
-def test_a_v3_only_key_from_an_older_login_asks_for_a_new_login(store):
-	"""Older browser-harness logins stored v3 browser-only keys: API v4 browsers and the gateway answer 403."""
+def test_a_stored_key_goes_to_the_server_whatever_its_scopes_and_a_scope_403_asks_for_a_new_login(store, monkeypatch):
+	"""Scopes are the server's to judge: a local scope check would loop `browser-use login` on any scope name it did
+	not expect. An older login's v3 key reaches API v4, and its 403 names the fix."""
+	import io
+	import urllib.error
+	import urllib.request
+
 	from browser_harness.auth import AuthRecord, save_auth_record
 
 	from browser_use.auth import browser_use_api_key
-	from browser_use.exceptions import MissingAPIKeyError
+	from browser_use.browser import browser as browser_mod
 
-	save_auth_record(AuthRecord(api_key=FAKE_KEY, scopes=['v3:browsers:create', 'v3:profiles:read']))
-	with pytest.raises(MissingAPIKeyError, match='older login') as raised:
-		browser_use_api_key()
+	for scopes in (['v3:browsers:create', 'v3:profiles:read'], ['browsers:create'], ['*:*:*'], []):
+		save_auth_record(AuthRecord(api_key=FAKE_KEY, scopes=scopes))
+		assert browser_use_api_key() == FAKE_KEY
+
+	def forbidden(req, timeout=None):
+		assert req.get_header('X-browser-use-api-key') == FAKE_KEY
+		body = io.BytesIO(b'{"detail": "API key missing required scope: v4:browsers:create"}')
+		raise urllib.error.HTTPError(req.full_url, 403, 'Forbidden', {}, body)  # type: ignore[arg-type]
+
+	save_auth_record(AuthRecord(api_key=FAKE_KEY, scopes=['v3:browsers:create']))
+	monkeypatch.setattr(urllib.request, 'urlopen', forbidden)
+	with pytest.raises(RuntimeError, match='HTTP 403') as raised:
+		browser_mod._cloud('/browsers', 'POST', {})
 	assert 'Run `browser-use login` again' in str(raised.value) and FAKE_KEY not in str(raised.value)
-	save_auth_record(AuthRecord(api_key=FAKE_KEY, scopes=['*:*:*']))
-	assert browser_use_api_key() == FAKE_KEY
-	save_auth_record(AuthRecord(api_key=FAKE_KEY, source='manual'))  # pasted key: scopes unknown, the server decides
-	assert browser_use_api_key() == FAKE_KEY
 
 
 def test_mcp_browser_login_finishes_across_calls_and_never_returns_the_key(store, monkeypatch):
