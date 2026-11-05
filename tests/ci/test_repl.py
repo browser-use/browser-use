@@ -153,6 +153,21 @@ async def test_harness_dotenv_cannot_reintroduce_credentials(tmp_path, monkeypat
 	assert r['error'] is None and 'DATABASE_URL' not in r['output'] and 'BH_AGENT_WORKSPACE' in r['output']
 
 
+async def test_worker_never_loads_dotenv(tmp_path):
+	"""Roast C16: .env is read in the parent only; the worker must not import the modules that load it."""
+	(tmp_path / '.env').write_text('DOTENV_PROBE=planted\n', encoding='utf-8')
+	repl = Repl(tmp_path)
+	try:
+		code = (
+			"import os, sys\nmods = ('browser_use.agent.service', 'browser_use.browser.browser', 'browser_use.telemetry.service')\n"
+			"print([m for m in mods if m in sys.modules], os.environ.get('DOTENV_PROBE'))"
+		)
+		r = await repl.call('exec', code, 30)
+	finally:
+		await repl.close()
+	assert r['output'].strip() == '[] None', r
+
+
 def test_worker_env_keeps_proxy_and_ca_settings(monkeypatch):
 	for name in ('HTTPS_PROXY', 'no_proxy', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'):
 		monkeypatch.setenv(name, 'x')

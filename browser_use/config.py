@@ -1,8 +1,16 @@
-"""Environment settings read by telemetry and logging."""
+"""Environment settings read by telemetry and logging, and .env loading for the parent process."""
 
 import os
 from functools import cache
 from pathlib import Path
+
+
+def load_env() -> None:
+	"""Read .env from the working directory (or a parent) into os.environ, as 0.x did on import; set variables win.
+	Called by the Agent and Browser modules, so credentials resolve from .env. The REPL worker never calls it."""
+	from dotenv import find_dotenv, load_dotenv
+
+	load_dotenv(find_dotenv(usecwd=True))
 
 
 @cache

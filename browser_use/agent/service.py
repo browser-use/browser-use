@@ -16,12 +16,14 @@ from browser_use.agent.loop import Session, build_agent, run
 from browser_use.agent.prompt import CLOUD_PROMPT
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import Browser
+from browser_use.config import load_env
 from browser_use.llm import as_chat_model, resolve_model
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import scoped_secrets
 from browser_use.tools import Tools
 
 logger = logging.getLogger(__name__)
+load_env()  # 0.x read .env on import; credentials below resolve from it
 
 # Hosts a cloud browser cannot reach: localhost, loopback, RFC1918, link-local mDNS (.local).
 LOCAL_TARGET = re.compile(

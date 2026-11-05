@@ -35,6 +35,20 @@ def test_domain_scoped_sensitive_data_is_accepted_and_bad_shapes_raise(no_browse
 		Agent('t', script()[0], sensitive_data={'pw': 123})
 
 
+def test_dotenv_in_the_working_directory_supplies_the_key(tmp_path):
+	"""Roast C16: 0.x loaded .env on import; 1.0 resolved the key before anything read .env ('missing key')."""
+	import os
+	import subprocess
+	import sys
+
+	(tmp_path / '.env').write_text('BROWSER_USE_API_KEY=fake-dotenv-key\n', encoding='utf-8')
+	env = {k: v for k, v in os.environ.items() if k != 'BROWSER_USE_API_KEY'}
+	env.update(HOME=str(tmp_path), USERPROFILE=str(tmp_path), XDG_CONFIG_HOME=str(tmp_path / 'cfg'))
+	code = "from browser_use import Agent\nAgent('t')._build()\nprint('resolved')"
+	r = subprocess.run([sys.executable, '-c', code], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
+	assert r.stdout.strip() == 'resolved', r.stderr[-2000:]
+
+
 def test_removed_classes_raise_with_pointer():
 	import browser_use
 

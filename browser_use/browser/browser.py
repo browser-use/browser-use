@@ -29,8 +29,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from browser_use.auth import browser_use_api_key
+from browser_use.config import load_env
 
 logger = logging.getLogger(__name__)
+load_env()  # 0.x read .env on import; credentials below resolve from it
 
 CLOUD_API = 'https://api.browser-use.com/api/v4'
 UNSUPPORTED = {  # 0.x BrowserSession/BrowserProfile options -> what to do instead
