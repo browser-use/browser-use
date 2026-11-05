@@ -7,3 +7,10 @@ class MissingAPIKeyError(RuntimeError):
 			'works for the library, the CLI, the MCP server and browser-harness), or set BROWSER_USE_API_KEY. No key: '
 			"use a local browser and your own model: Agent(task, llm=ChatOpenAI(...), browser=Browser('chromium'))."
 		)
+
+
+class BrowserConnectionLost(ConnectionError):
+	"""The browser-harness daemon that drives the browser is gone (it crashed or was killed)."""
+
+	def __init__(self) -> None:
+		super().__init__('browser connection lost: the browser-harness daemon is not running')

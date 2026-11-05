@@ -11,6 +11,7 @@ import ast
 import asyncio
 import base64
 import codecs
+import concurrent.futures
 import contextlib
 import functools
 import hashlib
@@ -31,22 +32,29 @@ from collections import Counter
 from pathlib import Path
 
 from browser_use import ax
+from browser_use.exceptions import BrowserConnectionLost
 from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, domain_matches, redact, redact_forms, secret_forms
-from browser_use.telemetry.stats import host
+from browser_use.telemetry.stats import error_class, host
 
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
 CDP_TIMEOUT_S = 20.0  # bu-pi cdp timeout; 30s/60s waits made each stall cost more (v1b: 114 Hard timeouts)
 SCREENSHOT_TIMEOUT_S = 60.0  # browser-harness's own screenshot timeout: cloud screenshots routinely take longer
 HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless never answers it
+# browser-harness's daemon reads each request as one JSON line with asyncio's default 64 KiB limit; a longer one broke
+# the connection (BrokenPipeError). Characters of JSON (ASCII), less a margin for the token Windows adds.
+MAX_IPC_REQUEST = 65_536 - 128
+UPLOAD_PART = 24_000  # bytes per js() call of upload_file(): 32,000 base64 characters, well under that limit
+UPLOAD_MAX = 10_000_000  # bytes per file
 
 
-def capture(raw_cdp, current_tab, session_id=None, **params):
+def capture(raw_cdp, current_tab, session_id=None, *, activate=False, **params):
 	"""Page.captureScreenshot. new_tab()/switch_tab() never activate a tab, and on Linux headless a hidden tab renders
 	no frames, so its capture hangs. A hidden attached tab gets a short first try; only when that times out is it
 	activated (made Chrome's visible tab) and captured again. A hidden tab that captures (macOS, headful Chrome) is
-	never activated: local mode does not switch the user's visible tab."""
+	never activated: local mode does not switch the user's visible tab. activate=True (a cloud browser: ours, and it
+	never answers a hidden tab's capture) activates a hidden tab without the first try."""
 	timeout = params.pop('_response_timeout', SCREENSHOT_TIMEOUT_S)
 	hidden = False
 	if session_id is None:  # the attached tab; another session's target is unknown here
@@ -57,11 +65,13 @@ def capture(raw_cdp, current_tab, session_id=None, **params):
 			pass
 	if not hidden:
 		return raw_cdp('Page.captureScreenshot', session_id, _response_timeout=timeout, **params)
-	try:
-		return raw_cdp('Page.captureScreenshot', _response_timeout=min(timeout, HIDDEN_CAPTURE_TRY_S), **params)
-	except TimeoutError:
-		raw_cdp('Target.activateTarget', targetId=current_tab()['targetId'])
-		return raw_cdp('Page.captureScreenshot', _response_timeout=timeout, **params)
+	if not activate:
+		try:
+			return raw_cdp('Page.captureScreenshot', _response_timeout=min(timeout, HIDDEN_CAPTURE_TRY_S), **params)
+		except TimeoutError:
+			pass
+	raw_cdp('Target.activateTarget', targetId=current_tab()['targetId'])
+	return raw_cdp('Page.captureScreenshot', _response_timeout=timeout, **params)
 
 
 def totp(seed: str, now: float | None = None) -> str:
@@ -77,11 +87,8 @@ def totp(seed: str, now: float | None = None) -> str:
 STATE = Path(os.environ.get('BU_STATE_DIR', '.browser-use'))
 images: list[dict] = []
 NAVIGATING = ('Page.navigate', 'Target.createTarget')
-STAT_EVENTS = {
-	'BrowserUse.captchaSolverStarted': 'captcha_started',
-	'Browser.downloadWillBegin': 'download_started',
-	'Page.downloadWillBegin': 'download_started',
-}
+STAT_EVENTS = {'BrowserUse.captchaSolverStarted': 'captcha_started'}
+DOWNLOAD_EVENTS = ('Browser.downloadWillBegin', 'Page.downloadWillBegin')  # cloud browsers send both for one download
 
 
 class CellStats:
@@ -92,6 +99,7 @@ class CellStats:
 		self.lock = threading.Lock()  # ultrafast reads CDP events on a background thread
 		# Browser('chrome') attaches to a tab the user had open: a page read is only counted once this worker navigated
 		self.navigated = False
+		self.downloads: set[str | None] = set()  # guids seen: one download_started per download, whichever events announce it
 		self.take()
 
 	def count(self, kind: str, name: str) -> None:
@@ -110,9 +118,20 @@ class CellStats:
 	def observe(self, events) -> None:
 		for e in events if isinstance(events, list) else ():
 			method = e.get('method') if isinstance(e, dict) else None
+			params = (e.get('params') if isinstance(e, dict) else None) or {}
 			key = STAT_EVENTS.get(method or '')
 			if method == 'BrowserUse.captchaSolverFinished':
-				key = 'captcha_solved' if (e.get('params') or {}).get('success') else 'captcha_failed'
+				key = 'captcha_solved' if params.get('success') else 'captcha_failed'
+			elif method in DOWNLOAD_EVENTS:
+				with self.lock:
+					guid = params.get('guid')
+					key = None if guid is not None and guid in self.downloads else 'download_started'
+					self.downloads.add(guid)
+				if key:
+					_log_download({'name': params.get('suggestedFilename'), 'url': params.get('url')})
+			elif method == 'Page.frameNavigated' and not (frame := params.get('frame') or {}).get('parentId'):
+				if frame.get('mimeType') == 'application/json':
+					_log_download({'json_page': frame.get('url')})
 			if key:
 				self.count('events', key)
 
@@ -127,6 +146,13 @@ class CellStats:
 			}
 			self.helpers, self.cdp, self.events, self.hosts, self.navigations = Counter(), Counter(), Counter(), set(), 0
 		return out
+
+
+def _log_download(record: dict) -> None:
+	"""Download starts and JSON pages the tab displayed, for the parent (Browser.json_page_copies): a cloud browser also
+	saves a JSON page it displays as a download."""
+	with contextlib.suppress(OSError), open(STATE / 'downloads.jsonl', 'a', encoding='utf-8') as f:
+		f.write(json.dumps(record) + '\n')
 
 
 stats = CellStats()
@@ -156,7 +182,8 @@ class CountedBu:
 
 	def __getattr__(self, name: str):
 		value = getattr(self._bu, name)
-		return _counted(f'bu.{name}', value) if callable(value) and not name.startswith('_') else value
+		public = not name.startswith('_') and hasattr(ax.AxHelpers, name)  # not a name the model's code set on bu
+		return _counted(f'bu.{name}', value) if callable(value) and public else value
 
 	def __setattr__(self, name: str, value) -> None:
 		setattr(self._bu, name, value)
@@ -200,13 +227,23 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	raw_send = helpers._send
 
 	def send(req, *args, **kwargs):  # every drain_events() read, also bu's background one, feeds the event counts
-		r = raw_send(req, *args, **kwargs)
+		if (size := len(json.dumps(req))) > MAX_IPC_REQUEST:
+			label = req.get('method') or req.get('meta') or 'request'
+			raise ValueError(
+				f'{label}: the request is {size:,} bytes and browser-harness takes at most 64 KiB per request; send it '
+				'in parts (upload_file() sends files in parts itself)'
+			)
+		try:
+			r = raw_send(req, *args, **kwargs)
+		except (FileNotFoundError, ConnectionRefusedError, ConnectionResetError, BrokenPipeError):
+			raise BrowserConnectionLost() from None
 		if isinstance(req, dict) and req.get('meta') == 'drain_events' and isinstance(r, dict):
 			stats.observe(r.get('events'))
 		return r
 
 	helpers._send = send
 	raw_cdp = helpers.cdp
+	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
 
 	def cdp(method, session_id=None, **params):
 		if method in NAVIGATING:
@@ -215,7 +252,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			# browser-harness defaults to 5s IPC; heavy cloud pages (Maps, TripAdvisor) blew it on navigate/evaluate/input.
 			params.setdefault('_response_timeout', CDP_TIMEOUT_S)
 			return raw_cdp(method, session_id, **params)
-		result = capture(raw_cdp, helpers.current_tab, session_id, **params)
+		result = capture(raw_cdp, helpers.current_tab, session_id, activate=cloud, **params)
 		# Every screenshot the agent takes is shown to the model as a native image.
 		if isinstance(result, dict) and result.get('data'):
 			fmt = params.get('format', 'png')
@@ -385,7 +422,6 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		secret_names=secret_names,
 		solve_captcha=captcha.solve,
 	)
-	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
 	if cloud:
 		ns['upload_file'] = _remote_upload(ns['js'])
 	bu = None
@@ -444,7 +480,8 @@ def _pump(rfd: int, path: Path, secrets: list) -> None:
 
 
 def _remote_upload(js):
-	"""upload_file for a remote browser: local paths mean nothing on the browser host, so send the bytes."""
+	"""upload_file for a remote browser: local paths mean nothing on the browser host, so send the bytes through the
+	page, in parts (one browser-harness request takes at most 64 KiB), several at a time."""
 	import mimetypes
 
 	def upload_file(selector, path):
@@ -452,28 +489,34 @@ def _remote_upload(js):
 		files = []
 		for p in [path] if isinstance(path, (str, Path)) else path:
 			data = Path(p).read_bytes()
-			if len(data) > 10_000_000:
+			if len(data) > UPLOAD_MAX:
 				raise ValueError(f'{p} is over 10MB; remote uploads go through the page')
-			files.append(
-				{
-					'name': Path(p).name,
-					'type': mimetypes.guess_type(str(p))[0] or 'application/octet-stream',
-					'b64': base64.b64encode(data).decode(),
-				}
-			)
-		n = js(f"""(() => {{
-            const el = document.querySelector({json.dumps(selector)});
-            if (!el) return -1;
-            const dt = new DataTransfer();
-            for (const f of {json.dumps(files)}) {{
-                const bytes = Uint8Array.from(atob(f.b64), c => c.charCodeAt(0));
-                dt.items.add(new File([bytes], f.name, {{type: f.type}}));
-            }}
-            el.files = dt.files;
-            el.dispatchEvent(new Event('input', {{bubbles: true}}));
-            el.dispatchEvent(new Event('change', {{bubbles: true}}));
-            return el.files.length;
-        }})()""")
+			files.append((Path(p).name, mimetypes.guess_type(str(p))[0] or 'application/octet-stream', data))
+		buf = f'window.__buUpload{os.urandom(4).hex()}'
+		js(f'{buf} = {json.dumps([[] for _ in files])}; 0')
+		try:
+
+			def put(i: int, n: int, k: int) -> None:  # part n of file i, decoded in the page
+				b64 = json.dumps(base64.b64encode(files[i][2][k : k + UPLOAD_PART]).decode())
+				js(f'{buf}[{i}][{n}] = Uint8Array.from(atob({b64}), c => c.charCodeAt(0)); 0')
+
+			parts = [(i, n, k) for i, f in enumerate(files) for n, k in enumerate(range(0, len(f[2]), UPLOAD_PART))]
+			with concurrent.futures.ThreadPoolExecutor(8) as pool:  # each js() is one round trip to the browser
+				list(pool.map(lambda part: put(*part), parts))
+			meta = json.dumps([[name, mime] for name, mime, _ in files])
+			n = js(f"""(() => {{
+				const el = document.querySelector({json.dumps(selector)});
+				if (!el) return -1;
+				const dt = new DataTransfer();
+				{meta}.forEach(([name, type], i) => dt.items.add(new File({buf}[i], name, {{type}})));
+				el.files = dt.files;
+				el.dispatchEvent(new Event('input', {{bubbles: true}}));
+				el.dispatchEvent(new Event('change', {{bubbles: true}}));
+				return el.files.length;
+			}})()""")
+		finally:
+			with contextlib.suppress(Exception):
+				js(f'delete {buf}; 0')
 		if n == -1:
 			raise RuntimeError(f'no element for {selector}')
 		return n
@@ -512,6 +555,8 @@ def _run(code_obj, ns, loop):
 
 
 def _error(e: BaseException) -> str:
+	if isinstance(e, BrowserConnectionLost):  # one line: the frames that hit it say nothing more
+		return f'{type(e).__name__}: {e}'
 	lines = traceback.format_exception(e)
 	# Drop worker and bu frames; keep the user's cell frames and the exception itself.
 	keep = [lines[0]] + [
@@ -594,7 +639,7 @@ def main() -> None:
 				value = _run(obj, ns, loop) if obj.co_flags & inspect.CO_COROUTINE else eval(obj, ns)
 				value = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=_jsonable)
 		except BaseException as e:  # - the agent sees every failure
-			error_type = type(e).__name__
+			error_type = error_class(e)  # telemetry: a class the model's code defined is 'custom'
 			if isinstance(e, (SystemExit, KeyboardInterrupt)):
 				error = f'{type(e).__name__} ignored; the REPL keeps running.'
 			else:

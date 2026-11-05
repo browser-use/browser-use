@@ -187,11 +187,6 @@ async def test_live_view_opt_in_prints_url(cloud, monkeypatch, capsys):
 	assert opened == ['https://live.example.test/x'] and 'live.example.test' in capsys.readouterr().out
 
 
-def test_cdp_host_for_telemetry():
-	assert Browser(cdp_url='wss://connect.example.test/x?token=t').cdp_host == 'connect.example.test'
-	assert Browser(local=True).cdp_host is None
-
-
 async def test_cancelled_start_still_stops_the_cloud_browser(cloud, monkeypatch):
 	"""Roast C1: cancelling start() during the POST left the created browser untracked (billed, never stopped)."""
 	import asyncio
@@ -592,3 +587,174 @@ def test_truncated_download_is_rejected_and_leaves_no_file(tmp_path):
 	finally:
 		server.shutdown()
 	assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+	'kwargs, option',
+	[
+		({'kind': 'chromium', 'cloud_proxy_country_code': 'de'}, 'cloud_proxy_country_code'),
+		({'kind': 'chromium', 'cloud_proxy_country_code': 'us'}, 'cloud_proxy_country_code'),  # = the default
+		({'kind': 'chrome', 'cloud_proxy_country_code': None}, 'cloud_proxy_country_code'),
+		({'cdp_url': 'http://x:9222', 'cloud_proxy_country_code': 'de'}, 'cloud_proxy_country_code'),
+		({'local': True, 'cloud_timeout': 5}, 'cloud_timeout'),
+		({'cdp_url': 'http://x:9222', 'cloud_timeout': 60}, 'cloud_timeout'),
+	],
+)
+def test_cloud_options_on_a_local_or_cdp_browser_raise(kwargs, option):
+	"""browser-features #4: Browser('chromium', cloud_proxy_country_code='de') ran with no proxy, silently."""
+	with pytest.raises(ValueError, match=f'does not take {option}='):
+		Browser(**kwargs)
+	assert Browser(cloud_proxy_country_code='us', cloud_timeout=60).proxy == 'us'  # explicit on cloud is fine
+
+
+def test_uppercase_profile_uuid_is_an_id_not_a_name(cloud):
+	"""browser-features #9: an uppercase UUID was looked up as a profile name ('0 cloud profiles are named ...')."""
+	assert browser_mod._profile_id('0A1B2C3D-4E5F-6789-ABCD-EF0123456789') == '0a1b2c3d-4e5f-6789-abcd-ef0123456789'
+	assert not [c for c in cloud if 'profiles' in c[1]]
+
+
+async def test_live_and_cdp_urls_are_cleared_after_stop(cloud):
+	"""browser-features #12: both stayed on the object after stop(), where a repr or log could carry them."""
+	browser = Browser()
+	await browser.start()
+	assert browser.live_url and browser.cloud_cdp_url
+	await browser.stop()
+	assert (browser.live_url, browser.cloud_cdp_url) == (None, None)
+
+
+async def test_download_with_a_name_too_long_for_the_filesystem_is_shortened(cloud, monkeypatch, tmp_path):
+	"""browser-features #8: a name of 255 bytes plus ' (1)' raised 'File name too long' on every retry: the file was
+	never copied."""
+	import io
+
+	long = 'é' * 126 + 'x.csv'  # 257 bytes
+	(tmp_path / 'existing').mkdir()
+	with_downloads(monkeypatch, [{'path': long, 'url': 'u1'}, {'path': f'b/{long}', 'url': 'u2'}])
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(url.encode()))
+	browser = Browser()
+	await browser.start()
+	files = await browser.stop(downloads_dir=tmp_path / 'existing')
+	assert [p.read_bytes() for p in files] == [b'u1', b'u2']
+	assert all(len(p.name.encode()) <= 255 and p.suffix == '.csv' for p in files), [p.name for p in files]
+	assert files[1].name.endswith(' (1).csv')
+
+
+async def test_a_json_page_the_cloud_browser_saved_is_not_copied(cloud, monkeypatch, tmp_path):
+	"""browser-features #6: a cloud browser saves a JSON page it displays as a download (https://httpbin.org/cookies
+	-> cookies.json, cookie values included); the agent's workspace got a copy."""
+	import io
+	import json
+
+	log = tmp_path / 'downloads.jsonl'
+	log.write_text(
+		'\n'.join(
+			json.dumps(r)
+			for r in [
+				{'name': 'cookies.json', 'url': 'https://httpbin.org/cookies.json'},
+				{'json_page': 'https://httpbin.org/cookies'},
+				{'name': 'get.json', 'url': 'https://httpbin.org/get.json'},  # seen on cloud: the query is dropped
+				{'json_page': 'https://httpbin.org/get?a=1'},
+				{'name': 'r.csv', 'url': 'https://httpbin.org/response-headers?x=1'},
+				{'name': 'data.json', 'url': 'https://files.example/data.json'},  # a real JSON download
+			]
+		)
+	)
+	files = [{'path': p, 'url': p} for p in ('cookies.json', 'cookies (1).json', 'get.json', 'r.csv', 'data.json')]
+	with_downloads(monkeypatch, files)
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(url.encode()))
+	browser = Browser()
+	browser.json_page_copies |= browser_mod.json_page_copies(log)
+	await browser.start()
+	copied = await browser.stop(downloads_dir=tmp_path / 'dl')
+	assert sorted(p.name for p in copied) == ['data.json', 'r.csv']
+
+
+def test_worker_logs_downloads_and_json_pages_for_the_parent(tmp_path, monkeypatch):
+	from browser_use.repl import worker
+
+	monkeypatch.setattr(worker, 'STATE', tmp_path)
+	s = worker.CellStats()
+	s.observe(
+		[
+			{
+				'method': 'Browser.downloadWillBegin',
+				'params': {'guid': 'g', 'url': 'https://h/j.json', 'suggestedFilename': 'j.json'},
+			},
+			{
+				'method': 'Page.downloadWillBegin',
+				'params': {'guid': 'g', 'url': 'https://h/j.json', 'suggestedFilename': 'j.json'},
+			},
+			{'method': 'Page.frameNavigated', 'params': {'frame': {'url': 'https://h/j', 'mimeType': 'application/json'}}},
+			{'method': 'Page.frameNavigated', 'params': {'frame': {'url': 'https://h/x', 'mimeType': 'text/html'}}},
+		]
+	)
+	assert browser_mod.json_page_copies(tmp_path / 'downloads.jsonl') == {'j.json'}
+
+
+async def test_cloud_daemon_knows_its_browser_id(cloud, monkeypatch):
+	"""browser-features #3 / lifecycle F3: with only BU_CDP_WS the daemon opened a hidden background tab (every first
+	cloud screenshot waited 10 s) and could not stop the cloud browser itself."""
+	from browser_harness import admin
+
+	envs = []
+	monkeypatch.setattr(admin, 'ensure_daemon', lambda *a, **k: envs.append(k['env']))
+	browser = Browser()
+	await browser.start()
+	await browser.stop()
+	assert envs[0]['BU_BROWSER_ID'] == 'b1' and envs[0]['BU_CDP_WS']
+	envs.clear()
+	local = Browser(cdp_url='http://127.0.0.1:9')
+	monkeypatch.setattr(browser_mod, '_ws_url', lambda url: 'ws://127.0.0.1:9/devtools/browser/x')
+	await local.start()
+	await local.stop()
+	assert 'BU_BROWSER_ID' not in envs[0]
+
+
+async def test_a_daemon_that_acknowledged_shutdown_already_stopped_the_cloud_browser(cloud, monkeypatch):
+	monkeypatch.setattr(browser_mod, '_shutdown_daemon', lambda name: True)
+	browser = Browser()
+	await browser.start()
+	await browser.stop()
+	assert browser.stopped and stops(cloud) == [] and not browser_mod._LIVE
+
+
+def test_signal_handlers_are_installed_on_the_main_thread_after_a_start_on_another(monkeypatch):
+	"""Lifecycle F1: _install_cleanup() off the main thread marked the handlers installed without installing them, so a
+	SIGTERM never stopped the cloud browser. F4: SIGHUP (terminal closed) was not handled at all."""
+	import signal
+	import threading
+
+	monkeypatch.setattr(browser_mod, '_signals_installed', False)
+	monkeypatch.setattr(browser_mod, '_atexit_installed', True)
+	monkeypatch.setattr(signal, 'getsignal', lambda s: signal.SIG_DFL)
+	installed = {}
+	monkeypatch.setattr(signal, 'signal', lambda s, h: installed.__setitem__(s, h))
+	t = threading.Thread(target=browser_mod._install_cleanup)
+	t.start()
+	t.join()
+	assert installed == {}
+	Browser()  # the next main-thread entry
+	assert installed == {signal.SIGTERM: browser_mod._on_signal, signal.SIGHUP: browser_mod._on_signal}
+
+
+SIGHUP_CHILD = """
+import asyncio, os, signal, sys
+from browser_use.browser import browser as b
+stopped = []
+class Fake:
+	def _stop_now(self):
+		stopped.append(1)
+		sys.stdout.write('stopped\\n'); sys.stdout.flush()
+b._LIVE.add(Fake())
+b._install_cleanup()
+os.kill(os.getpid(), signal.SIGHUP)
+"""
+
+
+@pytest.mark.skipif(not hasattr(__import__('signal'), 'SIGHUP'), reason='no SIGHUP on Windows')
+def test_sighup_stops_live_browsers_then_exits():
+	import subprocess
+	import sys
+
+	r = subprocess.run([sys.executable, '-c', SIGHUP_CHILD], capture_output=True, text=True, timeout=60)
+	assert r.stdout.strip() == 'stopped' and r.returncode == -1, (r.returncode, r.stdout, r.stderr[-2000:])

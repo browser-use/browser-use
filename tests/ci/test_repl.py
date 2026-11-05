@@ -600,6 +600,19 @@ def test_hidden_tab_is_activated_only_after_its_capture_times_out():
 	assert state['visibility'] == 'visible' and activated == [1]
 
 
+def test_hidden_cloud_tab_is_activated_before_its_capture():
+	"""browser-features #3: a cloud browser never answers a hidden tab's capture, so every first screenshot and every
+	one after switch_tab() waited the full 10 s first try. Ours and hidden: activate, then capture."""
+	from browser_use.repl.worker import SCREENSHOT_TIMEOUT_S, capture
+
+	raw_cdp, calls, state = _tab(capture_hangs=True)
+	assert capture(raw_cdp, lambda: {'targetId': 'T'}, activate=True, format='jpeg')['data']
+	assert calls == [('Runtime.evaluate', 5), ('Target.activateTarget', 5.0), ('Page.captureScreenshot', SCREENSHOT_TIMEOUT_S)]
+	calls.clear()
+	assert capture(raw_cdp, lambda: {'targetId': 'T'}, activate=True, format='jpeg')['data']  # visible now: no activate
+	assert [m for m, _ in calls] == ['Runtime.evaluate', 'Page.captureScreenshot']
+
+
 PARENT = """
 import asyncio, sys
 from pathlib import Path
