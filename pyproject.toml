@@ -14,7 +14,8 @@ classifiers = [
 dependencies = [
     "browser-harness==0.1.13",
     "pydantic>=2.11",
-    "pydantic-ai-slim[openai]>=2.64.0",
+    "pydantic-ai-slim[openai]>=2.64.0,<3",
+    "genai-prices>=0.1.13",
     "pillow>=11",
     "posthog>=7.7.0",
     "python-dotenv>=1.0",
@@ -22,14 +23,14 @@ dependencies = [
     "mcp==2.1.1",
 ]
 # browser-harness: CDP daemon, browser helpers, CLI, auth (also pulls cdp-use, fetch-use, websockets)
-# pydantic-ai-slim[openai]: agent loop; OpenAI Responses (official API) and chat completions (gateway, base_url)
+# genai-prices: cost per run (imported directly). pydantic-ai-slim[openai]: agent loop (bounded <3: the engine uses its capabilities API); OpenAI Responses (official API) and chat completions (gateway, base_url)
 # pillow: the REPL worker validates and downsizes images before they reach the model
 # posthog, python-dotenv, uuid7: anonymized telemetry (ANONYMIZED_TELEMETRY=false turns it off)
 # mcp: `browser-use --cli-mcp` (the biggest CLI surface) must work without extras
 
 [project.optional-dependencies]
-anthropic = ["pydantic-ai-slim[anthropic]>=2.64.0"]
-google = ["pydantic-ai-slim[google]>=2.64.0"]
+anthropic = ["pydantic-ai-slim[anthropic]>=2.64.0,<3"]
+google = ["pydantic-ai-slim[google]>=2.64.0,<3"]
 mcp = []  # kept so existing `browser-use[mcp]` installs resolve; mcp is a core dependency
 all = ["browser-use[anthropic,google]"]
 
