@@ -104,6 +104,7 @@ class TestToolsIntegration:
 		result = await tools.hover(index=index, browser_session=browser_session)
 
 		assert result.error is None
+		assert (await tools.hover(index=index, browser_session=browser_session)).error is None
 		page = await browser_session.get_current_page()
 		assert (
 			await page.evaluate("() => getComputedStyle(document.querySelector('#hover-target')).backgroundColor")
@@ -165,6 +166,13 @@ class TestToolsIntegration:
 			assert result.error is None
 			element = Element(browser_session, node.backend_node_id, node.session_id)
 			assert await element.evaluate('() => getComputedStyle(this).backgroundColor') == 'rgb(0, 128, 0)'
+			page = await browser_session.get_current_page()
+			await page.evaluate("""() => {
+				const overlay = document.createElement('div');
+				overlay.style.cssText = 'position:fixed;inset:0;z-index:10';
+				document.body.appendChild(overlay);
+			}""")
+			assert (await tools.hover(index=index, browser_session=browser_session)).error is not None
 		finally:
 			frame_server.stop()
 
@@ -193,6 +201,28 @@ class TestToolsIntegration:
 		await browser_session.get_browser_state_summary()
 		selector_map = await browser_session.get_selector_map()
 		index = next(index for index, node in selector_map.items() if node.attributes.get('id') == 'covered-hover')
+		page = await browser_session.get_current_page()
+		await page.evaluate("""() => {
+			const overlay = document.createElement('div');
+			overlay.style.cssText = 'position:fixed;inset:0;z-index:10';
+			document.body.appendChild(overlay);
+		}""")
+
+		result = await tools.hover(index=index, browser_session=browser_session)
+		assert result.error is not None
+
+	async def test_hover_reports_iframe_covered_by_parent(self, tools, browser_session, http_server, base_url):
+		"""An overlay over a frame must not be mistaken for a successful hover inside it."""
+		http_server.expect_request('/covered-frame').respond_with_data(
+			'<button id="frame-covered">Hover in frame</button>', content_type='text/html'
+		)
+		http_server.expect_request('/covered-frame-parent').respond_with_data(
+			'<iframe src="/covered-frame" style="margin:40px"></iframe>', content_type='text/html'
+		)
+		await tools.navigate(url=f'{base_url}/covered-frame-parent', new_tab=False, browser_session=browser_session)
+		await browser_session.get_browser_state_summary()
+		selector_map = await browser_session.get_selector_map()
+		index = next(index for index, node in selector_map.items() if node.attributes.get('id') == 'frame-covered')
 		page = await browser_session.get_current_page()
 		await page.evaluate("""() => {
 			const overlay = document.createElement('div');
