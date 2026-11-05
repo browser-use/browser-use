@@ -152,6 +152,11 @@ def _detect_from_attributes(attributes: dict[str, str]) -> tuple[str, str | None
 
 	combined_text = ' '.join(semantic_attrs).lower()
 
+	# Email detection (must run before address: "Email Address" contains the
+	# substring 'address', so an earlier address check would misclassify it)
+	if 'email' in combined_text or 'e-mail' in combined_text:
+		return ('email', 'email')
+
 	# Address detection
 	if any(keyword in combined_text for keyword in ['address', 'street', 'addr']):
 		if 'billing' in combined_text:
@@ -164,10 +169,6 @@ def _detect_from_attributes(attributes: dict[str, str]) -> tuple[str, str | None
 	# Comment/Note detection
 	if any(keyword in combined_text for keyword in ['comment', 'note', 'message', 'description']):
 		return ('comment', None)
-
-	# Email detection
-	if 'email' in combined_text or 'e-mail' in combined_text:
-		return ('email', 'email')
 
 	# Phone detection
 	if any(keyword in combined_text for keyword in ['phone', 'tel', 'mobile', 'cell']):
