@@ -262,6 +262,7 @@ def main() -> None:
 		send(
 			{
 				'type': 'result',
+				'n': msg['n'],
 				'output': output,
 				'error': error,
 				'value': value,

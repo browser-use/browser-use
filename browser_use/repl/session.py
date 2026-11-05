@@ -11,11 +11,14 @@ worker returns. This limits accidental leaks; it is not a sandbox (model-written
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hmac
 import json
 import os
 import re
 import secrets
+import signal
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -61,6 +64,17 @@ def redact(text: Any, values: dict[str, str]) -> Any:
 		if value:
 			text = text.replace(value, f'<secret:{name}>')
 	return text
+
+
+def _kill_tree(pid: int) -> None:
+	"""Kill the worker and every process its cells started (a surviving subprocess could keep driving the browser)."""
+	if sys.platform == 'win32':
+		subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], capture_output=True)
+	else:
+		try:
+			os.killpg(pid, signal.SIGKILL)  # the worker leads its own process group (start_new_session)
+		except (ProcessLookupError, PermissionError):
+			pass
 
 
 class Repl:
@@ -113,6 +127,12 @@ class Repl:
 				stdout=log,
 				stderr=log,
 				env=env,
+				# Own process group, so a reset kills the cell's subprocesses too.
+				**(
+					{'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}  # type: ignore[attr-defined]
+					if sys.platform == 'win32'
+					else {'start_new_session': True}
+				),
 			)
 			exited = asyncio.ensure_future(self.proc.wait())
 			done, _ = await asyncio.wait({connected, exited}, timeout=60, return_when=asyncio.FIRST_COMPLETED)
@@ -132,11 +152,13 @@ class Repl:
 			raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}')
 
 	async def close(self) -> None:
-		if self.proc and self.proc.returncode is None:
-			self.proc.kill()
+		proc, self.proc = self.proc, None
+		if proc and proc.returncode is None:
+			_kill_tree(proc.pid)
+			with contextlib.suppress(OSError):  # already gone
+				proc.kill()
 			if self.loop is asyncio.get_running_loop():  # a process can only be awaited on the loop that started it
-				await self.proc.wait()
-		self.proc = None
+				await proc.wait()
 
 	async def call(self, op: str, code: str, timeout: float) -> dict[str, Any]:
 		# Ultrafast prints the page state after the cell's code, so its cells may run up to 10 s past the timeout.
@@ -148,13 +170,21 @@ class Repl:
 		if self.proc is None or self.proc.returncode is not None:
 			await self.start()
 		self.n += 1
-		self.writer.write(json.dumps({'op': op, 'code': code, 'n': self.n}).encode() + b'\n')
+		n = self.n
+		self.writer.write(json.dumps({'op': op, 'code': code, 'n': n}).encode() + b'\n')
 		await self.writer.drain()
 		try:
-			line = await asyncio.wait_for(self.reader.readline(), timeout)
-			if not line:
-				raise ConnectionError('worker exited')
-			return json.loads(line)
+			async with asyncio.timeout(timeout):
+				while True:
+					line = await self.reader.readline()
+					if not line:
+						raise ConnectionError('worker exited')
+					msg = json.loads(line)
+					if msg.get('n') == n:  # never hand one call another call's answer
+						return msg
+		except asyncio.CancelledError:  # the whole run was cancelled or timed out: the cell may still be running
+			await self.close()
+			raise
 		except (TimeoutError, ConnectionError) as e:
 			await self.close()
 			out = self.state / 'cells' / f'{self.n:04d}.txt'

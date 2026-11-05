@@ -109,3 +109,33 @@ def test_redact_longest_first():
 def test_bad_mode_raises(tmp_path, mode):
 	with pytest.raises(ValueError):
 		Repl(tmp_path, mode=mode)
+
+
+async def test_cancelled_call_resets_the_worker(tmp_path):
+	"""Roast C5: a whole-run timeout cancelled the call but left its cell running; the next call got its stale answer."""
+	repl = Repl(tmp_path)
+	try:
+		await repl.call('exec', 'pass', 30)
+		with pytest.raises(TimeoutError):
+			await asyncio.wait_for(repl.call('exec', 'import time\ntime.sleep(2)\nprint("stale")', 30), 0.5)
+		await asyncio.sleep(2.5)  # the old cell would have answered by now
+		assert (await repl.call('exec', 'print("fresh")', 30))['output'].strip() == 'fresh'
+	finally:
+		await repl.close()
+
+
+async def test_reset_kills_the_cells_subprocesses(tmp_path):
+	"""Roast C11: a timeout killed only the worker; a subprocess the cell started kept running (and driving the browser)."""
+	marker = tmp_path / 'child-survived'
+	code = (
+		'import subprocess, sys, time\n'
+		f'subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3); open({str(marker)!r}, \\"w\\").close()"])\n'
+		'time.sleep(30)'
+	)
+	repl = Repl(tmp_path)
+	try:
+		assert 'timed out' in (await repl.call('exec', code, 1))['error']
+	finally:
+		await repl.close()
+	await asyncio.sleep(4)
+	assert not marker.exists()
