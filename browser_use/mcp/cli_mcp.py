@@ -4,14 +4,19 @@ Run with: browser-use --cli-mcp
 
 import asyncio
 import base64
+import os
+import subprocess
 import sys
+import threading
 import traceback
+import webbrowser
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from typing import Any
 
 import mcp.server.stdio
 import mcp.types as types
+from browser_harness.auth import CloudAuthRequired
 from mcp.server import Server
 
 from browser_use.utils import get_browser_use_version
@@ -21,6 +26,48 @@ _NAMESPACE_IMPORTS = (
 	'daemon_alive, ensure_daemon, restart_daemon, start_remote_daemon, stop_remote_daemon)\n'
 	'from browser_harness.helpers import *\n'
 )
+
+
+LOGIN_HINT = 'Not signed in to Browser Use Cloud. Call the browser_login tool (it opens the browser to approve), then retry.'
+LOGIN_WAIT_SECONDS = 45.0
+LOGIN_NEXT = 'Start a cloud browser with start_remote_daemon("<name>") in browser_exec.'
+
+
+def _open_url(url: str) -> bool:
+	"""Open url in the user's browser without letting a child process write to stdout (the MCP channel)."""
+	command = {'darwin': ['open', url], 'linux': ['xdg-open', url]}.get(sys.platform)
+	if command is None:
+		try:
+			return bool(webbrowser.open(url))
+		except Exception:
+			return False
+	try:
+		subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+		return True
+	except OSError:
+		return False
+
+
+class _Login:
+	"""One browser OAuth login (browser-harness's flow and key store), finishing in a thread across tool calls."""
+
+	def __init__(self):
+		from browser_harness import auth
+
+		os.environ.setdefault('BH_DEVICE_NAME', 'browser-use-mcp')
+		self.start = auth.start_browser_auth(open_url=False)
+		self.opened = _open_url(self.start.auth_url)
+		self.error: str | None = None
+		self.thread = threading.Thread(target=self._finish, daemon=True, name='browser-use-login')
+		self.thread.start()
+
+	def _finish(self) -> None:
+		from browser_harness import auth
+
+		try:
+			auth.complete_browser_auth(self.start)
+		except Exception as e:  # AuthError: denied, timed out, exchange failed
+			self.error = str(e)
 
 
 def _harness_skill_text() -> str:
@@ -40,6 +87,8 @@ class CLIMCPServer:
 		)
 		self._namespace: dict[str, Any] | None = None
 		self._exec_lock = asyncio.Lock()
+		self._login: _Login | None = None
+		self._login_lock = threading.Lock()
 		self._register_handlers()
 
 	def _tool_definitions(self) -> list[types.Tool]:
@@ -76,6 +125,24 @@ class CLIMCPServer:
 					},
 				},
 			),
+			types.Tool(
+				name='browser_login',
+				description=(
+					"Sign in to Browser Use Cloud for cloud browsers (start_remote_daemon). Opens the user's browser "
+					'to approve; the key is stored for browser-use, browser-harness and this server, never shown. '
+					'Returns once signed in, or with the URL to approve: call it again to finish.'
+				),
+				input_schema={
+					'type': 'object',
+					'properties': {
+						'force': {
+							'type': 'boolean',
+							'description': 'Sign in again even if a key is stored (the stored key was rejected)',
+							'default': False,
+						},
+					},
+				},
+			),
 		]
 
 	def _register_handlers(self):
@@ -106,6 +173,9 @@ class CLIMCPServer:
 					png = await asyncio.to_thread(self._screenshot, bool(arguments.get('full', False)), max_dim)
 				content: list[types.ContentBlock] = [types.ImageContent(type='image', data=png, mime_type='image/png')]
 				return types.CallToolResult(content=content)
+			if name == 'browser_login':
+				text = await asyncio.to_thread(self._sign_in, bool(arguments.get('force', False)))
+				return types.CallToolResult(content=[types.TextContent(type='text', text=text)])
 			return types.CallToolResult(
 				content=[types.TextContent(type='text', text=f'Unknown tool: {name}')],
 				is_error=True,
@@ -141,9 +211,49 @@ class CLIMCPServer:
 				if connect:
 					self._ensure_daemon(code)
 				exec(code, ns)
-			except BaseException:
+			except BaseException as e:
 				traceback.print_exc(file=buffer)
+				if isinstance(e, CloudAuthRequired):
+					print(LOGIN_HINT, file=buffer)
 		return buffer.getvalue()
+
+	def _sign_in(self, force: bool, wait: float = LOGIN_WAIT_SECONDS) -> str:
+		"""Start (or keep waiting on) one browser login. The key never appears in the result."""
+		from browser_harness import auth
+
+		with self._login_lock:
+			login = self._login
+			if login is not None and not login.thread.is_alive():  # finished since the last call: report it once
+				self._login = login = None if login.error is None else login
+			if login is None:
+				try:
+					status = auth.auth_status()
+				except Exception as e:  # an unreadable auth file
+					status = {'status': 'error', 'reason': str(e)}
+				if status.get('source') == 'env':
+					if not force:
+						return f'Signed in to Browser Use Cloud (key from BROWSER_USE_API_KEY). {LOGIN_NEXT}'
+					return 'BROWSER_USE_API_KEY is set for this server and wins over a stored key: fix or unset it in the MCP config.'
+				if status.get('status') == 'authenticated' and not force:
+					return f'Signed in to Browser Use Cloud (key from {status.get("path")}). {LOGIN_NEXT}'
+				try:
+					login = self._login = _Login()
+				except Exception as e:  # network error, auth server refused the request
+					return f'Could not start Browser Use Cloud login: {e}'
+		login.thread.join(wait)
+		if login.thread.is_alive():
+			how = 'in the browser tab that just opened' if login.opened else 'by opening this URL in a browser'
+			return (
+				f'Waiting for the user to approve Browser Use {how}: {login.start.auth_url}\n'
+				'Call browser_login again after approving. No browser on this machine? Run `browser-use login --device-code` '
+				'in a terminal instead.'
+			)
+		with self._login_lock:
+			if self._login is login:
+				self._login = None
+		if login.error:
+			return f'Browser Use Cloud login failed: {login.error}. Call browser_login to try again.'
+		return f'Signed in to Browser Use Cloud. {LOGIN_NEXT}'
 
 	def _screenshot(self, full: bool, max_dim: int | None) -> str:
 		buffer = StringIO()

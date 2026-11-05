@@ -167,16 +167,9 @@ def test_localhost_guard_ignores_normal_text(task):
 
 
 async def test_missing_key_raises_and_never_falls_back_to_local(cloud, monkeypatch):
-	import browser_harness.auth
-
-	monkeypatch.delenv('BROWSER_USE_API_KEY')
-
-	def no_key():
-		raise RuntimeError('no key')
-
-	monkeypatch.setattr(browser_harness.auth, 'get_browser_use_api_key', no_key)
+	monkeypatch.delenv('BROWSER_USE_API_KEY')  # and conftest points the stored-key file at nothing
 	model, _ = script()
-	with pytest.raises(MissingAPIKeyError, match='browser-use auth login'):
+	with pytest.raises(MissingAPIKeyError, match='browser-use login'):
 		await Agent('t', model).run()
 	with pytest.raises(MissingAPIKeyError, match="Browser\\('chromium'\\)"):
 		await Agent('t').run()  # default model too

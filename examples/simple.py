@@ -1,9 +1,9 @@
 """
 Setup:
 1. uv add 'browser-use>=1.0.0.dev0'   (1.0 is a pre-release)
-2. browser-use auth login   (or export BROWSER_USE_API_KEY=...; get one at https://cloud.browser-use.com/new-api-key)
+2. browser-use login   (opens your browser; or export BROWSER_USE_API_KEY=...)
 
-Runs on the default model (bu-auto) in a Browser Use Cloud browser. For a local browser and your own model:
+Runs on the default model (bu-ultrafast) in a Browser Use Cloud browser. For a local browser and your own model:
     Agent(task, llm=ChatOpenAI('gpt-6-luna'), browser=Browser('chromium'))   # or Browser('chrome'): your open Chrome
 """
 

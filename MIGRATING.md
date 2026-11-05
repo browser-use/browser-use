@@ -12,9 +12,9 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 
 | | 0.x | 1.0 |
 |---|---|---|
-| Model (`llm=None`) | required | `bu-auto` on the Browser Use gateway |
+| Model (`llm=None`) | required | `bu-ultrafast` on the Browser Use gateway (`gpt-6-luna`, low reasoning, priority tier; `bu-auto` is the same model at medium) |
 | Browser (`Browser()`) | local Chromium | Browser Use Cloud browser (`Browser('chromium')` / `local=True` for a local one) |
-| Key | per provider | one Browser Use key: `browser-use auth login` or `BROWSER_USE_API_KEY`. A `.env` in the working directory is read on import, as in 0.x |
+| Key | per provider | one Browser Use key: `browser-use login` (stored in `~/.config/browser-harness/auth.json`, shared with the CLI, the MCP server and browser-harness) or `BROWSER_USE_API_KEY` (wins when set). A `.env` in the working directory is read on import, as in 0.x |
 | Python | >= 3.11 | >= 3.11 |
 | Tasks with localhost / private IPs | worked | raise with a cloud browser; use `Browser('chromium')` |
 | Cloud proxy | off | `us` (`cloud_proxy_country_code=None` turns it off) |
@@ -27,7 +27,7 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 | 0.x argument | 1.0 |
 |---|---|
 | `task` | kept |
-| `llm` | kept: `ChatBrowserUse`, `ChatOpenAI`, `ChatAnthropic`, `ChatGoogle`, a Pydantic AI model string or Model. Default `bu-auto` |
+| `llm` | kept: `ChatBrowserUse`, `ChatOpenAI`, `ChatAnthropic`, `ChatGoogle`, a Pydantic AI model string or Model. Default `bu-ultrafast` |
 | `browser`, `browser_session` | kept: take a `Browser(...)` |
 | `tools`, `controller` | kept: take `Tools()` (see below) |
 | `output_model_schema` | kept: `result.structured_output` |
@@ -120,7 +120,7 @@ browser-harness default daemon and its one attached tab, so two at once move eac
 
 | 0.x | 1.0 |
 |---|---|
-| `ChatBrowserUse(model=...)` | kept: `bu-auto` (default), `bu-smart`, ... on the new gateway. 401/402/403/404 come back as one actionable line in `result.error` |
+| `ChatBrowserUse(model=...)` | kept: `bu-ultrafast` (default), `bu-auto`, `bu-smart`, ... on the new gateway. 401/402/403/404 come back as one actionable line in `result.error` |
 | `ChatOpenAI(model, api_key, base_url, temperature, reasoning_effort)` | kept. api.openai.com uses the Responses API; any other `base_url` uses plain chat completions. Other 0.x arguments raise `TypeError` |
 | `ChatAnthropic(model, api_key)`, `ChatGoogle(model, api_key)` | kept; need `browser-use[anthropic]` / `browser-use[google]` |
 | `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatDeepSeek`, `ChatMistral`, `ChatOpenRouter`, `ChatAWSBedrock`, `ChatAnthropicBedrock`, `ChatCerebras`, `ChatLiteLLM`, `ChatOCIRaw`, `ChatOrcaRouter`, `ChatVercel` | import raises: use a Pydantic AI model string (`'groq:llama-3.3-70b'`, `'mistral:...'`, `'bedrock:...'`) or `ChatOpenAI(model, base_url=...)` |
@@ -157,7 +157,8 @@ Deep imports of 0.x internals raise `ModuleNotFoundError`; import from the top l
 ## CLI and MCP
 
 The `browser-use` CLI (Python piped to browser-harness), `browser-use skill install` and `browser-use --cli-mcp` work
-as before. The old `browser-use --mcp` server (tools like
+as before. New: `browser-use login` / `logout` (same as `browser-use auth login` / `logout`), and a `browser_login`
+MCP tool that opens the browser to approve and stores the same key. The old `browser-use --mcp` server (tools like
 `browser_navigate`, `browser_click`) ran the removed engine: `--mcp` now prints a deprecation notice and serves the
 `--cli-mcp` tools (`browser_exec`, `browser_screenshot`). MCP clients that call the old tool names break; switch them
 to `--cli-mcp`. `browser-use init` templates were removed.

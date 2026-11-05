@@ -11,8 +11,8 @@ step from a DOM dump: it writes Python in one persistent REPL that has the
 
 ```
 Agent(task, llm, browser).run()                  browser_use/agent/service.py   0.x API, telemetry, lifecycle
-  -> resolve_model(llm)                          browser_use/llm/__init__.py    bu-auto gateway default, ChatOpenAI/Anthropic/Google, model strings
-  -> Browser.start() -> env for the worker       browser_use/browser/browser.py cloud (API v4, default) | local=True (harness daemon) | cdp_url
+  -> resolve_model(llm)                          browser_use/llm/__init__.py    bu-ultrafast gateway default, ChatOpenAI/Anthropic/Google, model strings
+  -> Browser.start() -> env for the worker       browser_use/browser/browser.py cloud (API v4, default) | 'chromium' (local.py) | 'chrome' (harness daemon) | cdp_url
   -> run(agent, task, Session)                   browser_use/agent/loop.py      Pydantic AI loop: python tool, finish / finish_from_repl,
                                                                                 image pruning, delivery guards, budgets, partial results
        python(code) -> Repl.call()               browser_use/repl/session.py    parent side: spawns the worker, allowlisted env, redaction

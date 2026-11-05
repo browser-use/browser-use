@@ -1,4 +1,4 @@
-"""Models. Default: bu-auto on the Browser Use gateway (one Browser Use API key runs model and browser).
+"""Models. Default: bu-ultrafast on the Browser Use gateway (one Browser Use API key runs model and browser).
 
 ChatBrowserUse  the gateway (OpenAI-compatible chat completions)
 ChatOpenAI      api.openai.com -> Responses API (the evaluated setup); any other base_url -> chat completions
@@ -17,7 +17,8 @@ from urllib.parse import urlparse
 from browser_use.auth import browser_use_api_key
 
 GATEWAY_URL = 'https://api.browser-use.com/api/llm/v1'
-DEFAULT_MODEL = 'bu-auto'
+BILLING_URL = 'https://cloud.browser-use.com/settings?tab=billing'
+DEFAULT_MODEL = 'bu-ultrafast'  # gpt-6-luna, low reasoning, priority tier. bu-auto: same model, medium, default tier
 EXTRAS = {'anthropic': 'anthropic', 'google-gla': 'google', 'google-vertex': 'google', 'google': 'google'}
 
 
@@ -31,7 +32,7 @@ def compatible_profile() -> Any:
 
 
 class ChatBrowserUse:
-	"""Browser Use gateway models ('bu-auto', 'bu-smart', ...). The key is BROWSER_USE_API_KEY or `browser-use auth login`."""
+	"""Browser Use gateway models ('bu-ultrafast', 'bu-auto', 'bu-smart', ...). Key: BROWSER_USE_API_KEY or `browser-use login`."""
 
 	provider = 'browser-use'
 
@@ -50,15 +51,22 @@ class ChatBrowserUse:
 		return {}
 
 	def explain_error(self, e: Exception) -> str | None:
-		"""One actionable line for gateway HTTP errors."""
+		"""One actionable line for gateway HTTP errors. The gateway's own message wins: it names the actual cause."""
 		status = getattr(e, 'status_code', None)
+		code = getattr(e, 'provider_error_code', None)
+		body = getattr(e, 'body', None)
+		message = body.get('message') if isinstance(body, dict) else None
 		if status == 401:
-			return 'Browser Use API key rejected (401). Run `browser-use auth login` or check BROWSER_USE_API_KEY.'
+			return 'Browser Use API key rejected (401). Run `browser-use login` or check BROWSER_USE_API_KEY.'
 		if status == 402:
-			return 'Out of Browser Use credits (402): add credits at https://cloud.browser-use.com/billing'
+			return f'Out of Browser Use credits (402): add credits at {BILLING_URL}'
 		if status == 403:
+			if code == 'insufficient_scope':
+				return f'{message or "This API key cannot use the gateway (403)."} Run `browser-use login` again for a new key.'
+			if message:
+				return f'{self.model} is not available for this key (403): {message}'
 			return (
-				f'{self.model} is not available for this account (403): it is US-only for now. '
+				f'{self.model} is not available for this account (403). '
 				'Use your own model meanwhile, e.g. llm=ChatOpenAI("gpt-6-luna").'
 			)
 		if status == 404:
