@@ -168,8 +168,10 @@ Cloud browsers in the CLI and MCP server: after `start_remote_daemon(name)` (any
 call, and every later MCP call, drives that cloud browser. A daemon name that ran a cloud browser never falls back to
 your local Chrome once it ends: calls fail and say to start a new one (`BU_NAME=<name> browser-use --reload` lets the
 name drive a local Chrome again). The MCP server stops the cloud browsers it started when it exits (also when killed)
-and starts them with a 30-minute timeout unless `timeout=` is passed. The live view URL is neither opened nor returned
-unless `BH_OPEN_LIVE_URL=1`, and cloud tabs get no title marker.
+and starts them with a 30-minute timeout unless `timeout=` is passed. The live view and CDP URLs (each grants control
+of the browser) are neither opened nor returned unless `BH_OPEN_LIVE_URL=1`, and cloud tabs get no title marker.
+`upload_file` sends the file's bytes through the page on a cloud browser. `stop_remote_daemon(name)` stops the cloud
+browser even after its daemon was killed, and a new `start_remote_daemon(name)` first stops one still recorded.
 
 ## Trust model for secrets
 

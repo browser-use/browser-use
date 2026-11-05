@@ -61,7 +61,12 @@ def fake_cloud(chrome, monkeypatch, no_local_chrome):
 		attach = f'from browser_harness import admin; admin.ensure_daemon(name={name!r}, env={{"BU_CDP_WS": {chrome["ws"]!r}}})'
 		subprocess.run([sys.executable, '-c', attach], check=True, timeout=60)
 		started.append(name)
-		return {'id': '', 'liveUrl': 'https://live.example.invalid/grants-control', 'timeout': create_kwargs.get('timeout')}
+		return {
+			'id': '',
+			'liveUrl': 'https://live.example.invalid/x',
+			'cdpUrl': 'https://cdp.example.invalid/x',
+			'timeout': create_kwargs.get('timeout'),
+		}
 
 	monkeypatch.setattr(admin, 'start_remote_daemon', start_remote_daemon)
 	from browser_harness import helpers
@@ -93,6 +98,7 @@ def test_mcp_drives_the_cloud_browser_it_started_wherever_the_start_is_in_the_co
 	out = mcp._execute(f'b = start_remote_daemon({name!r})\nprint(sorted(b))\nprint(b["timeout"])')
 	assert fake_cloud == [name], out
 	assert 'liveUrl' not in out and 'live.example' not in out  # it grants control of the browser
+	assert 'cdpUrl' not in out and 'cdp.example' not in out  # so does the CDP URL, with no key
 	assert out.splitlines()[-1] == str(cli_mcp.CLOUD_TIMEOUT_MINUTES)
 
 	out = mcp._execute('new_tab("data:text/html,<title>cloud page</title>"); wait_for_load(); print(page_info()["title"])')
@@ -102,6 +108,95 @@ def test_mcp_drives_the_cloud_browser_it_started_wherever_the_start_is_in_the_co
 	other = _name('other')
 	out = mcp._execute(f'start_remote_daemon({other!r})')
 	assert f'already drives cloud browser {name!r}' in out and fake_cloud == [name]
+	out = mcp._execute(f'start_remote_daemon({name!r})')
+	assert f'Daemon {name!r} is already running' in out and 'Traceback' not in out and fake_cloud == [name]
+
+
+def test_cloud_upload_sends_the_files_bytes_not_a_local_path(fake_cloud, monkeypatch, tmp_path):
+	"""Astra r1-2: the CLI and MCP namespaces kept browser-harness's upload_file, which hands the browser a path on this
+	machine; a cloud browser's host has no such file."""
+	from browser_harness import helpers
+
+	from browser_use.mcp import cli_mcp
+
+	def upload_by_local_path(selector, path):
+		raise AssertionError(f'sent the local path {path} to a cloud browser')
+
+	monkeypatch.setattr(helpers, 'upload_file', upload_by_local_path)
+	mcp = cli_mcp.CLIMCPServer()
+	mcp._execute(f'start_remote_daemon({_name("upload")!r})')
+	(tmp_path / 'cv.txt').write_text('hello cloud')
+	out = mcp._execute(
+		"new_tab('data:text/html,<input type=file id=f>'); wait_for_load()\n"
+		f"print(upload_file('#f', {str(tmp_path / 'cv.txt')!r}), "
+		"js(\"document.getElementById('f').files[0].name + ':' + document.getElementById('f').files[0].size\"))"
+	)
+	assert out.strip().splitlines()[-1] == '1 cv.txt:11', out
+
+
+def _recorded(name: str, browser_id: str):
+	"""A cloud browser recorded under name whose daemon is gone (SIGKILL, OOM: no exit cleanup stopped it)."""
+	from browser_use import harness_cloud
+
+	harness_cloud._marker(name).write_text(browser_id)
+	return harness_cloud
+
+
+def test_a_new_start_under_a_name_stops_the_browser_still_recorded_there_first(fake_cloud, monkeypatch):
+	"""Astra r1-3: the new browser's id overwrote the only record of the old one, which billed until its timeout."""
+	from browser_harness import admin
+
+	stops: list[str] = []
+	stopped = [False]
+	monkeypatch.setattr(admin, '_stop_cloud_browser', lambda browser_id, strict=False: stops.append(browser_id) or stopped[0])
+	name = _name('again')
+	harness_cloud = _recorded(name, 'browser-a')
+	ns: dict = {}
+	harness_cloud.install(ns)
+	with pytest.raises(harness_cloud.CloudBrowserError, match='browser-a .*could not be stopped, so no new one was started'):
+		ns['start_remote_daemon'](name)
+	assert fake_cloud == [] and harness_cloud._recorded_id(name) == 'browser-a'
+	stopped[0] = True
+	ns['start_remote_daemon'](name)
+	assert stops == ['browser-a', 'browser-a'] and fake_cloud == [name]
+
+
+def test_a_failed_cloud_stop_keeps_the_browser_id_for_a_retry(monkeypatch):
+	"""Astra r1-4: the id was erased even when the stop failed (cloud API down); later calls had nothing to stop."""
+	from browser_harness import admin
+
+	stopped = [False]
+	monkeypatch.setattr(admin, '_stop_cloud_browser', lambda browser_id, strict=False: stopped[0])
+	name = _name('retry')
+	harness_cloud = _recorded(name, 'browser-a')
+	try:
+		assert harness_cloud.stop_cloud(name) is False and harness_cloud._recorded_id(name) == 'browser-a'
+		stopped[0] = True
+		assert harness_cloud.stop_cloud(name) is True and harness_cloud._recorded_id(name) == ''
+	finally:
+		harness_cloud.forget(name)
+
+
+def test_stop_remote_daemon_stops_the_cloud_browser_after_its_daemon_was_killed(monkeypatch):
+	"""Fable r1: browser-harness's stop needs a live daemon ('unavailable for required clean shutdown'); the browser
+	billed until its timeout."""
+	from browser_harness import admin
+
+	stops: list[str] = []
+	monkeypatch.setattr(
+		admin, '_stop_cloud_browser', lambda browser_id, strict=False: stops.append(browser_id) or bool(stops[1:])
+	)
+	name = _name('killed')
+	harness_cloud = _recorded(name, 'browser-a')
+	ns: dict = {}
+	harness_cloud.install(ns)
+	try:
+		with pytest.raises(harness_cloud.CloudBrowserError, match='Could not stop cloud browser browser-a'):
+			ns['stop_remote_daemon'](name)  # the first stop fails: the id stays for the retry
+		ns['stop_remote_daemon'](name)
+		assert stops == ['browser-a', 'browser-a'] and harness_cloud._recorded_id(name) == ''
+	finally:
+		harness_cloud.forget(name)
 
 
 def test_a_cloud_daemon_that_ended_never_falls_back_to_the_local_chrome(fake_cloud):

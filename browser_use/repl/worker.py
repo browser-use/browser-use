@@ -11,7 +11,6 @@ import ast
 import asyncio
 import base64
 import codecs
-import concurrent.futures
 import contextlib
 import functools
 import hashlib
@@ -33,6 +32,7 @@ from pathlib import Path
 
 from browser_use import ax
 from browser_use.exceptions import BrowserConnectionLost
+from browser_use.remote_upload import remote_upload
 from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, domain_matches, redact, redact_forms, secret_forms
 from browser_use.telemetry.stats import error_class, host
@@ -45,8 +45,6 @@ HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless 
 # browser-harness's daemon reads each request as one JSON line with asyncio's default 64 KiB limit; a longer one broke
 # the connection (BrokenPipeError). Characters of JSON (ASCII), less a margin for the token Windows adds.
 MAX_IPC_REQUEST = 65_536 - 128
-UPLOAD_PART = 24_000  # bytes per js() call of upload_file(): 32,000 base64 characters, well under that limit
-UPLOAD_MAX = 10_000_000  # bytes per file
 
 
 def capture(raw_cdp, current_tab, session_id=None, *, activate=False, **params):
@@ -423,7 +421,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		solve_captcha=captcha.solve,
 	)
 	if cloud:
-		ns['upload_file'] = _remote_upload(ns['js'])
+		ns['upload_file'] = remote_upload(ns['js'])
 	bu = None
 	if os.environ.get('BU_MODE') != 'ultrafast':
 		# One reader of the daemon's events, so solver events are never lost; wait_for_network_idle() reads through it.
@@ -477,51 +475,6 @@ def _pump(rfd: int, path: Path, secrets: list) -> None:
 			if not chunk:
 				break
 	os.close(rfd)
-
-
-def _remote_upload(js):
-	"""upload_file for a remote browser: local paths mean nothing on the browser host, so send the bytes through the
-	page, in parts (one browser-harness request takes at most 64 KiB), several at a time."""
-	import mimetypes
-
-	def upload_file(selector, path):
-		"""Set local file(s) on a file input of the remote browser (bytes go through the page, 10MB each max)."""
-		files = []
-		for p in [path] if isinstance(path, (str, Path)) else path:
-			data = Path(p).read_bytes()
-			if len(data) > UPLOAD_MAX:
-				raise ValueError(f'{p} is over 10MB; remote uploads go through the page')
-			files.append((Path(p).name, mimetypes.guess_type(str(p))[0] or 'application/octet-stream', data))
-		buf = f'window.__buUpload{os.urandom(4).hex()}'
-		js(f'{buf} = {json.dumps([[] for _ in files])}; 0')
-		try:
-
-			def put(i: int, n: int, k: int) -> None:  # part n of file i, decoded in the page
-				b64 = json.dumps(base64.b64encode(files[i][2][k : k + UPLOAD_PART]).decode())
-				js(f'{buf}[{i}][{n}] = Uint8Array.from(atob({b64}), c => c.charCodeAt(0)); 0')
-
-			parts = [(i, n, k) for i, f in enumerate(files) for n, k in enumerate(range(0, len(f[2]), UPLOAD_PART))]
-			with concurrent.futures.ThreadPoolExecutor(8) as pool:  # each js() is one round trip to the browser
-				list(pool.map(lambda part: put(*part), parts))
-			meta = json.dumps([[name, mime] for name, mime, _ in files])
-			n = js(f"""(() => {{
-				const el = document.querySelector({json.dumps(selector)});
-				if (!el) return -1;
-				const dt = new DataTransfer();
-				{meta}.forEach(([name, type], i) => dt.items.add(new File({buf}[i], name, {{type}})));
-				el.files = dt.files;
-				el.dispatchEvent(new Event('input', {{bubbles: true}}));
-				el.dispatchEvent(new Event('change', {{bubbles: true}}));
-				return el.files.length;
-			}})()""")
-		finally:
-			with contextlib.suppress(Exception):
-				js(f'delete {buf}; 0')
-		if n == -1:
-			raise RuntimeError(f'no element for {selector}')
-		return n
-
-	return upload_file
 
 
 def _jsonable(value):

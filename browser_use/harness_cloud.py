@@ -5,7 +5,11 @@ Rules browser-harness alone does not keep for them:
 - A daemon name that ran a cloud browser never falls back to the user's local Chrome. browser-harness replaces a stale
   cloud daemon with a local-Chrome one under the same name; here the call fails with one line instead.
 - Cloud errors (bad key, rejected arguments, corrupt key store) are one line with the server's detail and the fix.
-- The live-view URL (it grants control of the browser) is neither opened nor returned unless BH_OPEN_LIVE_URL is on.
+- The live-view and CDP URLs (each grants control of the browser) are neither opened nor returned unless
+  BH_OPEN_LIVE_URL is on.
+- A recorded cloud browser is never forgotten while it may still bill: its id stays recorded until a stop succeeds, a
+  new start under the same name stops it first, and stop_remote_daemon stops it even when its daemon was killed.
+- upload_file sends the file's bytes through the page while a cloud browser is attached (its host has no local paths).
 
 Which names ran a cloud browser is kept in a `.cloud` file next to the daemon's pid file, holding the browser id until
 it is stopped, so a later process (the next CLI call) knows it too.
@@ -23,6 +27,7 @@ from browser_harness import admin, helpers
 from browser_harness.auth import AuthError
 
 from browser_use.auth import cloud_error_hint, corrupt_store_message
+from browser_use.remote_upload import remote_upload
 
 CLOUD_ADMIN = frozenset({'start_remote_daemon', 'stop_remote_daemon'})
 
@@ -70,8 +75,9 @@ def route(name: str, namespace: dict[str, Any] | None = None) -> None:
 		namespace['NAME'] = name
 
 
-def _healthy(name: str) -> bool:
-	for attempt in range(2):  # browser-harness's own stale check: two CDP probes 0.5 s apart
+def daemon_healthy(name: str) -> bool:
+	"""Whether daemon name still reaches its browser: browser-harness's own stale check, two CDP probes 0.5 s apart."""
+	for attempt in range(2):
 		try:
 			admin.require_existing_daemon(name)
 			return True
@@ -81,8 +87,9 @@ def _healthy(name: str) -> bool:
 	return False
 
 
-def stop_cloud(name: str, browser_id: str | None = None) -> None:
-	"""Best effort: end the cloud browser behind name (or browser_id), even when its daemon was killed."""
+def stop_cloud(name: str, browser_id: str | None = None) -> bool:
+	"""End the cloud browser behind name (or browser_id), even when its daemon was killed. Whether it is stopped: the id
+	stays recorded until then, so a later call can retry."""
 	recorded = _recorded_id(name)
 	browser_id = browser_id or recorded
 	if browser_id and browser_id == recorded and admin.daemon_alive(name):
@@ -90,10 +97,12 @@ def stop_cloud(name: str, browser_id: str | None = None) -> None:
 			admin.stop_remote_daemon(name)  # stops the browser, then the daemon, and removes its socket
 		except Exception:
 			pass
-	if browser_id:
-		admin._stop_cloud_browser(browser_id)  # a no-op on a stopped browser; the only way once the daemon is gone
-		if browser_id == recorded:
-			_marker(name).write_text('')
+	if not browser_id:
+		return True
+	stopped = admin._stop_cloud_browser(browser_id)  # a no-op on a stopped browser; the only way once the daemon is gone
+	if stopped and browser_id == recorded:
+		_marker(name).write_text('')
+	return stopped
 
 
 def ensure_daemon(wait: float | None = None, name: str | None = None, env: dict[str, str] | None = None) -> None:
@@ -102,7 +111,7 @@ def ensure_daemon(wait: float | None = None, name: str | None = None, env: dict[
 	if env or not was_cloud(name):
 		return admin.ensure_daemon(wait=wait, name=name, env=env)
 	os.environ.setdefault('BH_TAB_MARKER', '0')  # helpers mark tab titles client side; cloud pages stay untouched
-	if _healthy(name):
+	if daemon_healthy(name):
 		return
 	stop_cloud(name)
 	raise CloudBrowserError(
@@ -114,6 +123,14 @@ def ensure_daemon(wait: float | None = None, name: str | None = None, env: dict[
 def start(name: str, profile_name: str | None, create_kwargs: dict[str, Any], namespace: dict[str, Any] | None) -> dict:
 	"""browser-harness's start_remote_daemon with one-line errors, then route this process to the new daemon."""
 	os.environ.setdefault('BH_TAB_MARKER', '0')  # the daemon spawned below inherits it
+	if admin.daemon_alive(name):
+		raise CloudBrowserError(f'Daemon {name!r} is already running: stop_remote_daemon({name!r}) first, or use another name')
+	previous = _recorded_id(name)
+	if previous and not stop_cloud(name):  # its daemon was killed: the new id would overwrite the only record of it
+		raise CloudBrowserError(
+			f'Cloud browser {previous} ({name!r}) from an earlier start could not be stopped, so no new one was started. '
+			f'Retry start_remote_daemon({name!r}) or stop_remote_daemon({name!r}).'
+		)
 	try:
 		browser = admin.start_remote_daemon(name, profile_name, **create_kwargs)
 	except urllib.error.HTTPError as e:
@@ -128,14 +145,18 @@ def start(name: str, profile_name: str | None, create_kwargs: dict[str, Any], na
 	_marker(name).write_text(str(browser.get('id') or ''))
 	route(name, namespace)
 	if not admin._should_show_remote_live_view():
-		browser = {k: v for k, v in browser.items() if k != 'liveUrl'}
+		browser = {k: v for k, v in browser.items() if k not in ('liveUrl', 'cdpUrl')}
 	return browser
 
 
 def stop(name: str = 'remote') -> None:
-	admin.stop_remote_daemon(name)
-	if _recorded_id(name):
-		_marker(name).write_text('')
+	"""stop_remote_daemon: stops the recorded cloud browser even when its daemon is gone (killed, OOM)."""
+	recorded = _recorded_id(name)
+	if not recorded:  # no cloud browser recorded here: browser-harness's own stop
+		admin.stop_remote_daemon(name)
+		return
+	if not stop_cloud(name):
+		raise CloudBrowserError(f'Could not stop cloud browser {recorded} ({name!r}); retry stop_remote_daemon({name!r})')
 
 
 def forget(name: str) -> None:
@@ -144,13 +165,20 @@ def forget(name: str) -> None:
 
 
 def install(namespace: dict[str, Any]) -> None:
-	"""Put the guarded ensure_daemon / start_remote_daemon / stop_remote_daemon into an exec namespace."""
+	"""Put the guarded ensure_daemon / start_remote_daemon / stop_remote_daemon / upload_file into an exec namespace."""
 	os.environ.setdefault('BH_OPEN_LIVE_URL', '0')  # the live URL grants control: not printed, opened or returned
 
 	def start_remote_daemon(name: str = 'remote', profileName: str | None = None, **create_kwargs: Any) -> dict:
 		return start(name, profileName, create_kwargs, namespace)
 
 	start_remote_daemon.__doc__ = admin.start_remote_daemon.__doc__
+	cloud_upload, local_upload = remote_upload(helpers.js), helpers.upload_file
+
+	def upload_file(selector, path):
+		"""Set local file(s) on a file input; on a cloud browser the bytes go through the page (10MB each max)."""
+		return (cloud_upload if was_cloud(admin.NAME) else local_upload)(selector, path)
+
 	namespace['ensure_daemon'] = ensure_daemon
+	namespace['upload_file'] = upload_file
 	namespace['start_remote_daemon'] = start_remote_daemon
 	namespace['stop_remote_daemon'] = stop

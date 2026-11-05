@@ -167,6 +167,20 @@ def _daemon_cdp(name: str, method: str, **params) -> dict:
 	return r.get('result') or {}
 
 
+def _kill_daemon(name: str) -> None:
+	"""End our daemon's process with no shutdown request and no exit cleanup, so its cloud browser keeps running."""
+	from browser_harness import _ipc as ipc
+
+	pid = ipc.identify(name, timeout=5.0)  # the daemon reports its own pid over its authenticated socket
+	if pid is None:
+		return
+	with contextlib.suppress(OSError):
+		os.kill(pid, getattr(signal, 'SIGKILL', signal.SIGTERM))  # Windows: SIGTERM is TerminateProcess, no cleanup either
+	deadline = time.monotonic() + 5.0
+	while ipc.ping(name, timeout=0.5) and time.monotonic() < deadline:
+		time.sleep(0.1)
+
+
 def _shutdown_daemon(name: str) -> bool:
 	"""Ask our daemon to shut down without waiting for its process to exit. True when it acknowledged: a daemon
 	started with BU_BROWSER_ID acknowledges only once it stopped that cloud browser.
@@ -364,12 +378,20 @@ class Browser:
 			return self._env
 
 	def _reattach(self) -> None:
-		"""Our daemon is gone (crash, OOM, kill) or lost its browser connection: start it again on the same browser."""
+		"""Our daemon is gone (crash, OOM, kill) or lost its browser connection: start it again on the same browser.
+		A daemon that answers but whose browser connection is stuck is killed, never shut down: a cloud daemon's shutdown
+		(and browser-harness's own stale-daemon handling) stops the cloud browser this reattaches to."""
 		from browser_harness import admin
 
+		from browser_use.harness_cloud import daemon_healthy
+
 		assert self.name
+		if admin.daemon_alive(self.name):
+			if daemon_healthy(self.name):
+				return
+			_kill_daemon(self.name)
 		try:
-			admin.ensure_daemon(name=self.name, env=self._daemon_env)  # a no-op while it answers
+			admin.ensure_daemon(name=self.name, env=self._daemon_env)
 		except Exception as e:
 			raise RuntimeError(f'The browser is gone: its browser-harness daemon stopped and could not reattach ({e})') from None
 

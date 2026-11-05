@@ -251,6 +251,91 @@ async def test_a_dead_daemon_is_started_again_on_the_same_browser(chrome, tmp_pa
 		await browser.stop()
 
 
+class _StallingProxy:
+	"""TCP relay to the test Chrome. stall() freezes the connections open now (a stuck browser connection: the browser
+	is fine); connections made later pass."""
+
+	def __init__(self, port: int):
+		import socket
+		import threading
+
+		self.target, self.stalled = port, []
+		self.server = socket.create_server(('127.0.0.1', 0))
+		self.port = self.server.getsockname()[1]
+		threading.Thread(target=self._accept, daemon=True).start()
+
+	def _accept(self) -> None:
+		import socket
+		import threading
+
+		while True:
+			try:
+				client, _ = self.server.accept()
+			except OSError:
+				return
+			upstream = socket.create_connection(('127.0.0.1', self.target))
+			stall = threading.Event()
+			self.stalled.append(stall)
+			for a, b in ((client, upstream), (upstream, client)):
+				threading.Thread(target=self._pipe, args=(a, b, stall), daemon=True).start()
+
+	@staticmethod
+	def _pipe(a, b, stall) -> None:
+		import time
+
+		try:
+			while data := a.recv(65536):
+				while stall.is_set():
+					time.sleep(0.05)
+				b.sendall(data)
+		except OSError:
+			pass
+
+	def stall(self) -> None:
+		for s in self.stalled:
+			s.set()
+
+
+async def test_a_stuck_cloud_daemon_is_replaced_without_stopping_its_cloud_browser(chrome, monkeypatch):
+	"""Astra r1-1: a cloud daemon (BU_BROWSER_ID) whose browser connection got stuck. start() reattached through
+	browser-harness's ensure_daemon, which shuts such a daemon down, and its shutdown stops the cloud browser that is
+	still alive: the next run failed with "The browser is gone" and the user's browser was gone too."""
+	import asyncio
+
+	from browser_harness import _ipc as ipc
+	from browser_harness import admin
+
+	from browser_use.browser import browser as browser_mod
+	from browser_use.harness_cloud import daemon_healthy
+
+	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)  # a cloud stop then fails on "no key", before any request
+	port = chrome['http'].rsplit(':', 1)[1]
+	proxy = _StallingProxy(int(port))
+	browser = Browser(cdp_url=chrome['http'])
+	browser.name = f'bustuck{os.getpid()}'
+	browser._daemon_env = {
+		'BU_CDP_WS': chrome['ws'].replace(f':{port}/', f':{proxy.port}/'),
+		'BU_BROWSER_ID': 'no-such-browser',  # the daemon reports itself as cloud, as the library's cloud daemons do
+		'BH_TAB_MARKER': '0',
+	}
+	admin.ensure_daemon(name=browser.name, env=browser._daemon_env)
+	try:
+		pid = ipc.identify(browser.name)
+		assert pid and daemon_healthy(browser.name)
+		proxy.stall()
+		assert not daemon_healthy(browser.name)
+		await asyncio.to_thread(browser._reattach)
+		assert ipc.identify(browser.name) not in (None, pid) and daemon_healthy(browser.name)
+		assert 'stop_remote' not in ipc.log_path(browser.name).read_text()
+	finally:
+		browser_mod._kill_daemon(browser.name)
+		try:
+			admin.restart_daemon(browser.name)
+		except Exception:
+			pass
+		proxy.server.close()
+
+
 RUNTIME_DIR_CHILD = """
 import asyncio, json, os, sys, tempfile
 from pathlib import Path

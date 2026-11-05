@@ -47,8 +47,9 @@ These rules override the skill below where they differ:
   browser_screenshot drives that cloud browser; never pass BU_NAME. One cloud browser at a time per server.
 - It lives {CLOUD_TIMEOUT_MINUTES} minutes unless you pass `timeout=<minutes>` (up to 240), and this server stops it when it
   exits. Once it ends, calls fail with an error: start a new one, never fall back to the local Chrome.
-- The live view URL grants control of the browser, so it is not shown. Only if the user asks to watch, run
-  `os.environ["BH_OPEN_LIVE_URL"] = "1"` before start_remote_daemon: it then opens in their browser and is returned.
+- The live view and CDP URLs grant control of the browser, so they are not shown. Only if the user asks to watch, run
+  `os.environ["BH_OPEN_LIVE_URL"] = "1"` before start_remote_daemon: the live view then opens in their browser, and
+  both are returned.
 
 """
 
