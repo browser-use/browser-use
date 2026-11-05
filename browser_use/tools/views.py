@@ -80,6 +80,12 @@ class ClickElementActionIndexOnly(BaseModel):
 	index: int = Field(ge=1, description='Element index from browser_state')
 
 
+class HoverAction(BaseModel):
+	"""Identify an element in the current browser state to hover over."""
+
+	index: int = Field(ge=1, description='Element index from browser_state')
+
+
 class InputTextAction(BaseModel):
 	index: int = Field(ge=0, description='from browser_state')
 	text: str = Field(description='Text to enter. With clear=True, text="" clears the field without typing.')

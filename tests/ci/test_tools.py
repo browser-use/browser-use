@@ -89,6 +89,120 @@ def tools():
 class TestToolsIntegration:
 	"""Integration tests for Tools using actual browser instances."""
 
+	async def test_hover_activates_css_hover(self, tools, browser_session, http_server, base_url):
+		"""Hovering an indexed element should activate the browser's CSS hover state."""
+		http_server.expect_request('/hover').respond_with_data(
+			'<style>button { background: red } button:hover { background: green }</style>'
+			'<button id="hover-target">Hover here</button>',
+			content_type='text/html',
+		)
+		await tools.navigate(url=f'{base_url}/hover', new_tab=False, browser_session=browser_session)
+		await browser_session.get_browser_state_summary()
+		selector_map = await browser_session.get_selector_map()
+		index = next(index for index, node in selector_map.items() if node.attributes.get('id') == 'hover-target')
+
+		result = await tools.hover(index=index, browser_session=browser_session)
+
+		assert result.error is None
+		page = await browser_session.get_current_page()
+		assert (
+			await page.evaluate("() => getComputedStyle(document.querySelector('#hover-target')).backgroundColor")
+			== 'rgb(0, 128, 0)'
+		)
+
+	async def test_hover_reports_stale_index(self, tools, browser_session):
+		"""A missing indexed element should return an actionable error."""
+		result = await tools.hover(index=999999, browser_session=browser_session)
+		assert result.error is not None
+		assert '999999' in result.error
+
+	async def test_hover_inside_iframe(self, tools, browser_session, http_server, base_url):
+		"""An indexed element inside a frame should receive the real hover."""
+		http_server.expect_request('/hover-frame').respond_with_data(
+			'<style>button { background: red } button:hover { background: green }</style>'
+			'<button id="frame-hover">Hover in frame</button>',
+			content_type='text/html',
+		)
+		http_server.expect_request('/hover-frame-parent').respond_with_data(
+			'<iframe src="/hover-frame" style="margin:40px"></iframe>', content_type='text/html'
+		)
+		await tools.navigate(url=f'{base_url}/hover-frame-parent', new_tab=False, browser_session=browser_session)
+		await browser_session.get_browser_state_summary()
+		selector_map = await browser_session.get_selector_map()
+		index = next(index for index, node in selector_map.items() if node.attributes.get('id') == 'frame-hover')
+
+		result = await tools.hover(index=index, browser_session=browser_session)
+		assert result.error is None
+		page = await browser_session.get_current_page()
+		color = await page.evaluate(
+			"() => getComputedStyle(document.querySelector('iframe').contentDocument.querySelector('button')).backgroundColor"
+		)
+		assert color == 'rgb(0, 128, 0)'
+
+	async def test_hover_inside_cross_origin_iframe(self, tools, browser_session, http_server, base_url):
+		"""Hover must resolve the element in the frame that owns it."""
+		from browser_use.actor.element import Element
+
+		frame_server = HTTPServer(host='127.0.0.1')
+		frame_server.start()
+		try:
+			frame_server.expect_request('/cross-origin-hover').respond_with_data(
+				'<style>button { background: red } button:hover { background: green }</style>'
+				'<button id="cross-origin-hover">Hover in frame</button>',
+				content_type='text/html',
+			)
+			http_server.expect_request('/cross-origin-parent').respond_with_data(
+				f'<iframe src="http://127.0.0.1:{frame_server.port}/cross-origin-hover" style="margin:40px"></iframe>',
+				content_type='text/html',
+			)
+			await tools.navigate(url=f'{base_url}/cross-origin-parent', new_tab=False, browser_session=browser_session)
+			await browser_session.get_browser_state_summary()
+			selector_map = await browser_session.get_selector_map()
+			index = next(index for index, node in selector_map.items() if node.attributes.get('id') == 'cross-origin-hover')
+			node = selector_map[index]
+
+			result = await tools.hover(index=index, browser_session=browser_session)
+			assert result.error is None
+			element = Element(browser_session, node.backend_node_id, node.session_id)
+			assert await element.evaluate('() => getComputedStyle(this).backgroundColor') == 'rgb(0, 128, 0)'
+		finally:
+			frame_server.stop()
+
+	async def test_hover_reports_removed_element(self, tools, browser_session, http_server, base_url):
+		"""A node removed after the browser state was captured cannot be hovered."""
+		http_server.expect_request('/removed-hover').respond_with_data(
+			'<button id="removed-hover">Remove me</button>', content_type='text/html'
+		)
+		await tools.navigate(url=f'{base_url}/removed-hover', new_tab=False, browser_session=browser_session)
+		await browser_session.get_browser_state_summary()
+		selector_map = await browser_session.get_selector_map()
+		index = next(index for index, node in selector_map.items() if node.attributes.get('id') == 'removed-hover')
+		page = await browser_session.get_current_page()
+		await page.evaluate("() => document.querySelector('#removed-hover').remove()")
+
+		result = await tools.hover(index=index, browser_session=browser_session)
+		assert result.error is not None
+
+	async def test_hover_reports_obscured_element(self, tools, browser_session, http_server, base_url):
+		"""An overlay must not be reported as a successful hover on the covered element."""
+		http_server.expect_request('/obscured-hover').respond_with_data(
+			'<button id="covered-hover">Covered</button>',
+			content_type='text/html',
+		)
+		await tools.navigate(url=f'{base_url}/obscured-hover', new_tab=False, browser_session=browser_session)
+		await browser_session.get_browser_state_summary()
+		selector_map = await browser_session.get_selector_map()
+		index = next(index for index, node in selector_map.items() if node.attributes.get('id') == 'covered-hover')
+		page = await browser_session.get_current_page()
+		await page.evaluate("""() => {
+			const overlay = document.createElement('div');
+			overlay.style.cssText = 'position:fixed;inset:0;z-index:10';
+			document.body.appendChild(overlay);
+		}""")
+
+		result = await tools.hover(index=index, browser_session=browser_session)
+		assert result.error is not None
+
 	async def test_registry_actions(self, tools, browser_session):
 		"""Test that the registry contains the expected default actions."""
 		# Check that common actions are registered

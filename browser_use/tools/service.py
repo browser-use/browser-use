@@ -13,6 +13,7 @@ except ImportError:
 	Laminar = None  # type: ignore
 from pydantic import BaseModel
 
+from browser_use.actor.element import Element
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
@@ -45,6 +46,7 @@ from browser_use.tools.views import (
 	ExtractAction,
 	FindElementsAction,
 	GetDropdownOptionsAction,
+	HoverAction,
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
@@ -770,6 +772,33 @@ class Tools(Generic[Context]):
 
 		# Register click action (index-only by default)
 		self._register_click_action()
+
+		@self.registry.action('Move the mouse over an element by index to reveal hover content.', param_model=HoverAction)
+		async def hover(params: HoverAction, browser_session: BrowserSession):
+			"""Move the browser mouse over an indexed element and report failures."""
+			node = await browser_session.get_element_by_index(params.index)
+			if node is None:
+				return ActionResult(
+					error=f'Element index {params.index} not available - page may have changed. Refresh browser state.'
+				)
+
+			try:
+				# Use the node's CDP session so elements inside frames resolve in the right target.
+				element = Element(browser_session, node.backend_node_id, node.session_id)
+				await element.hover()
+				# Mouse dispatch can succeed even when another element covers the target.
+				hit_target = await element.evaluate("""() => {
+					const rect = this.getBoundingClientRect();
+					const hit = this.getRootNode().elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+					return hit !== null && this.contains(hit);
+				}""")
+				if hit_target != 'True':
+					return ActionResult(error=f'Element {params.index} could not be hovered; it may be covered or off screen.')
+				return ActionResult(extracted_content=f'Hovered over {get_click_description(node)}')
+			except BrowserError as e:
+				return handle_browser_error(e)
+			except Exception as e:
+				return ActionResult(error=f'Failed to hover over element {params.index}: {e}')
 
 		@self.registry.action(
 			'Input text into element by index. Clears existing text by default; pass text="" to clear only, or clear=False to append.',
