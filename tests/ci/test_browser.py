@@ -400,3 +400,31 @@ async def test_local_start_is_bounded_when_chrome_never_allows_remote_debugging(
 	with pytest.raises(RuntimeError, match='did not allow remote debugging within 120s'):
 		await Browser(local=True).start()
 	assert calls == [browser_mod.LOCAL_START_WAIT_S]
+
+
+async def test_cloud_create_past_its_deadline_stays_owned_and_is_stopped_when_it_lands(cloud, monkeypatch):
+	"""Roast r3-4: start() waited forever on a slow POST (socket timeouts bound each read, not the response), and the
+	stop's 120 s wait then gave up and disowned the browser; a create that landed later was billed, never stopped."""
+	import asyncio
+	import threading
+
+	release = threading.Event()
+	real = browser_mod._cloud
+
+	def slow_cloud(path, method='GET', body=None):
+		if method == 'POST':
+			release.wait(10)
+		return real(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', slow_cloud)
+	monkeypatch.setattr(browser_mod, 'CREATE_TIMEOUT_S', 0.3)
+	browser = Browser()
+	with pytest.raises(RuntimeError, match='did not create a browser within'):
+		await asyncio.wait_for(browser.start(), 5)
+	assert browser in browser_mod._LIVE and stops(cloud) == []  # still owned while the POST is in flight
+	release.set()  # the browser lands after start() and its cleanup gave up waiting
+	for _ in range(100):
+		if stops(cloud):
+			break
+		await asyncio.sleep(0.05)
+	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE

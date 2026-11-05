@@ -48,6 +48,7 @@ UNSUPPORTED = {  # 0.x BrowserSession/BrowserProfile options -> what to do inste
 	'storage_state': 'use cloud_profile_id (cloud) or your Chrome profile (local=True).',
 	'proxy': 'use cloud_proxy_country_code on cloud browsers.',
 }
+CREATE_TIMEOUT_S = 120  # total for the cloud create; start() fails past it, and a browser that lands later is stopped
 LOCAL_START_WAIT_S = 120  # Browser(local=True): Chrome start plus the user clicking Allow on its remote-debugging prompt
 DOWNLOADS_TIMEOUT_S = 300  # per download pass; a slow or huge download never holds the stop (and billing) longer
 _LIVE: set[Browser] = set()  # browsers this process owns that still need stopping
@@ -176,6 +177,7 @@ class Browser:
 		self._env: dict[str, str] | None = None  # set while started; what the REPL worker needs
 		self._lock = asyncio.Lock()  # one start or stop at a time: they never interleave
 		self._creating: concurrent.futures.Future | None = None  # the cloud POST, which outlives a cancelled start
+		self._create_deadline = 0.0  # monotonic time after which start() and stop() stop waiting for that POST
 		self._stopping: asyncio.Future | None = None  # the stop thread, which outlives a cancelled stop
 		# stop() and atexit/SIGTERM never run _stop_now at the same time; reentrant: SIGTERM during atexit cleanup runs
 		# the handler on the thread that holds it
@@ -221,8 +223,11 @@ class Browser:
 			return {}
 		if self.use_cloud:
 			browser_use_api_key('Browser() (a Browser Use Cloud browser)')  # fail before anything starts
-			if self.id and not self.stopped and not await asyncio.to_thread(self._stop_now):
-				raise RuntimeError(f'Cloud browser {self.id} is still running and could not be stopped; retry browser.stop()')
+			if ((self.id and not self.stopped) or self._creating is not None) and not await asyncio.to_thread(self._stop_now):
+				raise RuntimeError(
+					f'Cloud browser {self.id or "(still being created)"} is still running and could not be stopped; retry '
+					'browser.stop()'
+				)
 		_install_cleanup()
 		self.name = f'bu{uuid.uuid4().hex[:8]}'
 		_LIVE.add(self)
@@ -246,7 +251,11 @@ class Browser:
 			body['profileId'] = await asyncio.to_thread(_profile_id, self.profile)
 		# The POST records the id from its own thread: a start cancelled mid-request still knows which browser to stop.
 		self._creating = _POOL.submit(self._create, body)
-		await asyncio.wrap_future(self._creating)
+		self._create_deadline = time.monotonic() + CREATE_TIMEOUT_S
+		try:  # socket timeouts bound each read, not the whole response
+			await asyncio.wait_for(asyncio.wrap_future(self._creating), CREATE_TIMEOUT_S)
+		except TimeoutError:
+			raise RuntimeError(f'Browser Use Cloud did not create a browser within {CREATE_TIMEOUT_S:g}s') from None
 		assert self.cloud_cdp_url, 'the cloud API returned no cdpUrl'
 		return await asyncio.to_thread(_ws_url, self.cloud_cdp_url)
 
@@ -263,8 +272,13 @@ class Browser:
 			name, self.name = self.name, None
 			if name:
 				_shutdown_daemon(name)
-			if self._creating is not None:  # a cancelled start's POST may still be in flight
-				concurrent.futures.wait([self._creating], timeout=120)
+			creating = self._creating
+			if creating is not None:  # a cancelled or timed-out start's POST may still be in flight
+				concurrent.futures.wait([creating], timeout=max(0.0, self._create_deadline - time.monotonic()))
+				if not creating.done():  # past its deadline: it stays owned, and is stopped the moment it lands
+					creating.add_done_callback(self._stop_late)
+					logger.warning('A cloud browser is still being created; it will be stopped when it is.')
+					return False
 			if self.use_cloud and self.id and not self.stopped:
 				error: Exception | None = None
 				for attempt in range(3):
@@ -281,6 +295,12 @@ class Browser:
 			self._creating = None
 			_LIVE.discard(self)
 			return True
+
+	def _stop_late(self, creating: concurrent.futures.Future) -> None:
+		"""A create that outlived stop() landed (or failed): stop that browser, unless a later stop already did."""
+		with self._stop_mutex:
+			if self._creating is creating:
+				self._stop_now()
 
 	async def stop(self, downloads_dir: str | Path | None = None) -> list[Path]:
 		"""Stop the daemon this Browser started and its cloud browser. Never touches your local Chrome.
