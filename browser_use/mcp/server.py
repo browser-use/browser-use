@@ -1219,6 +1219,16 @@ class BrowserUseServer:
 
 	async def _close_all_sessions(self) -> str:
 		"""Close all active browser sessions."""
+		# Initialization may fail before _track_session. Drop that stale
+		# reference so the next browser tool can initialize a fresh session.
+		if (
+			self.browser_session
+			and self.browser_session.id not in self.active_sessions
+			and self.browser_session is not self._agent_session
+		):
+			self.browser_session = None
+			self.tools = None
+
 		if not self.active_sessions:
 			return 'No active sessions to close'
 
