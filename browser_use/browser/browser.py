@@ -346,7 +346,8 @@ class Browser:
 		self.chrome_profile, self.headless, self.user_data_dir = profile, headless, user_data_dir
 		self.executable_path = executable_path
 		self.keep_alive, self.live_view, self.captcha_solver = keep_alive, live_view, captcha_solver
-		self.profile, self.proxy, self.timeout = cloud_profile_id, cloud_proxy_country_code, cloud_timeout or 60
+		proxy = cloud_proxy_country_code.lower() if cloud_proxy_country_code else None  # the API takes 'de', rejects 'DE'
+		self.profile, self.proxy, self.timeout = cloud_profile_id, proxy, cloud_timeout or 60
 		self._local: _local.LocalBrowser | None = None  # the Chrome this Browser launched, while it runs
 		self.name: str | None = None  # browser-harness daemon this Browser owns; None = the shared default daemon
 		self.id: str | None = None  # cloud browser id

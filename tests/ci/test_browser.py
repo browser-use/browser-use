@@ -607,6 +607,12 @@ def test_cloud_options_on_a_local_or_cdp_browser_raise(kwargs, option):
 	assert Browser(cloud_proxy_country_code='us', cloud_timeout=60).proxy == 'us'  # explicit on cloud is fine
 
 
+def test_proxy_country_code_is_sent_lowercase():
+	"""browser-features #26: 'DE' got the API's raw 422 enum dump; the API takes only lowercase codes."""
+	assert Browser(cloud_proxy_country_code='DE').proxy == 'de'
+	assert Browser().proxy == 'us' and Browser(cloud_proxy_country_code=None).proxy is None
+
+
 def test_uppercase_profile_uuid_is_an_id_not_a_name(cloud):
 	"""browser-features #9: an uppercase UUID was looked up as a profile name ('0 cloud profiles are named ...')."""
 	assert browser_mod._profile_id('0A1B2C3D-4E5F-6789-ABCD-EF0123456789') == '0a1b2c3d-4e5f-6789-abcd-ef0123456789'

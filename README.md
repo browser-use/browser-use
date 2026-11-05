@@ -211,7 +211,7 @@ Results depend on the site and challenge; no browser configuration guarantees th
 
 Choose how much you want to manage:
 
-- **Keep your agent code:** Connect the CLI or Python library to [cloud browsers](https://docs.browser-use.com/cloud/browser/quickstart) for managed browser infrastructure, stealth, profiles, and recordings.
+- **Keep your agent code:** Connect the CLI or Python library to [cloud browsers](https://docs.browser-use.com/cloud/browser/quickstart) for managed browser infrastructure, stealth, and profiles.
 - **Have us run the agent too:** Use the [fully hosted Cloud API](https://docs.browser-use.com/cloud/agent/quickstart) to submit tasks and retrieve results.
 
 You can also host the Python library and browsers on your own infrastructure.
