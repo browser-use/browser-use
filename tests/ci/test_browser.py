@@ -30,7 +30,8 @@ def cloud(monkeypatch):
 	monkeypatch.setattr(browser_mod, '_ws_url', lambda url: 'ws://fake.test/devtools/browser/x')
 	monkeypatch.setattr(admin, 'ensure_daemon', lambda *a, **k: calls.append(('daemon', 'start', k.get('name'))))
 	monkeypatch.setattr(admin, 'restart_daemon', lambda name=None, **k: calls.append(('daemon', 'stop', name)))
-	return calls
+	yield calls
+	browser_mod._LIVE.clear()  # never let atexit send a leftover fake browser to the real API
 
 
 def stops(calls):
@@ -157,3 +158,68 @@ async def test_live_view_opt_in_prints_url(cloud, monkeypatch, capsys):
 def test_cdp_host_for_telemetry():
 	assert Browser(cdp_url='wss://connect.example.test/x?token=t').cdp_host == 'connect.example.test'
 	assert Browser(local=True).cdp_host is None
+
+
+async def test_cancelled_start_still_stops_the_cloud_browser(cloud, monkeypatch):
+	"""Roast C1: cancelling start() during the POST left the created browser untracked (billed, never stopped)."""
+	import asyncio
+	import threading
+
+	posting, release = threading.Event(), threading.Event()
+	real = browser_mod._cloud
+
+	def slow_cloud(path, method='GET', body=None):
+		if method == 'POST':
+			posting.set()
+			release.wait(10)
+		return real(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', slow_cloud)
+	browser = Browser()
+	task = asyncio.ensure_future(browser.start())
+	await asyncio.to_thread(posting.wait, 10)
+	task.cancel()
+	threading.Timer(0.2, release.set).start()  # the POST returns after the cancellation
+	with pytest.raises(asyncio.CancelledError):
+		await task
+	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
+async def test_failed_stop_keeps_the_browser_owned_for_retry(cloud, monkeypatch):
+	"""Roast C2: after a failed stop the id and _LIVE entry were dropped, so neither stop() nor atexit could retry."""
+	real, fail = browser_mod._cloud, [True]
+
+	def flaky(path, method='GET', body=None):
+		if method == 'PATCH' and fail[0]:
+			raise RuntimeError('HTTP 502')
+		return real(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', flaky)
+	monkeypatch.setattr(browser_mod.time, 'sleep', lambda s: None)
+	browser = Browser()
+	await browser.start()
+	await browser.stop()
+	assert browser in browser_mod._LIVE and browser.id == 'b1' and stops(cloud) == []
+	fail[0] = False
+	browser_mod._stop_all()  # what atexit runs
+	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
+async def test_concurrent_starts_create_one_browser(cloud):
+	"""Roast C4: two concurrent start() calls each created a cloud browser; one leaked."""
+	import asyncio
+
+	browser = Browser()
+	a, b = await asyncio.gather(browser.start(), browser.start())
+	assert a == b and len([c for c in cloud if c[0] == 'POST']) == 1
+	await browser.stop()
+	assert stops(cloud) == ['/browsers/b1']
+
+
+async def test_downloads_are_listed_before_the_stop(cloud, tmp_path):
+	"""The v4 API lists a session's downloads; ask before the stop PATCH as well as after."""
+	browser = Browser()
+	await browser.start()
+	await browser.stop(downloads_dir=tmp_path)
+	order = [c[0] if c[0] == 'PATCH' else 'list' for c in cloud if c[0] == 'PATCH' or 'downloads' in c[1]]
+	assert order == ['list', 'PATCH', 'list']

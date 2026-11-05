@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import concurrent.futures
 import json
 import logging
 import os
@@ -43,6 +44,7 @@ UNSUPPORTED = {  # 0.x BrowserSession/BrowserProfile options -> what to do inste
 	'proxy': 'use cloud_proxy_country_code on cloud browsers.',
 }
 _LIVE: set[Browser] = set()  # browsers this process owns that still need stopping
+_POOL = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='browser-use-cloud')  # joined at exit
 _handlers_installed = False
 
 
@@ -165,6 +167,8 @@ class Browser:
 		self.cloud_cdp_url: str | None = None
 		self.stopped = False  # the cloud browser is stopped (reset on every start)
 		self._env: dict[str, str] | None = None  # set while started; what the REPL worker needs
+		self._lock = asyncio.Lock()  # one start at a time: concurrent starts would each create a browser
+		self._creating: concurrent.futures.Future | None = None  # the cloud POST, which outlives a cancelled start
 
 	@property
 	def cdp_host(self) -> str | None:
@@ -174,16 +178,21 @@ class Browser:
 
 	async def start(self) -> dict[str, str]:
 		"""Attach a browser-harness daemon (idempotent while started); returns the env the REPL worker needs."""
-		if self._env is not None:
+		async with self._lock:
+			if self._env is None:
+				self._env = await self._start()
 			return self._env
+
+	async def _start(self) -> dict[str, str]:
 		from browser_harness import admin
 
 		if self.local:
 			await asyncio.to_thread(admin.ensure_daemon)
-			self._env = {}
-			return self._env
+			return {}
 		if self.use_cloud:
 			browser_use_api_key('Browser() (a Browser Use Cloud browser)')  # fail before anything starts
+			if self.id and not self.stopped and not await asyncio.to_thread(self._stop_now):
+				raise RuntimeError(f'Cloud browser {self.id} is still running and could not be stopped; retry browser.stop()')
 		_install_cleanup()
 		self.name = f'bu{uuid.uuid4().hex[:8]}'
 		_LIVE.add(self)
@@ -199,24 +208,31 @@ class Browser:
 		if self.live_view and self.live_url:
 			print(f'Live view: {self.live_url}')
 			webbrowser.open(self.live_url, new=2)
-		self._env = {'BU_NAME': self.name, **({'BU_REMOTE_BROWSER': '1'} if self.use_cloud else {})}
-		return self._env
+		return {'BU_NAME': self.name, **({'BU_REMOTE_BROWSER': '1'} if self.use_cloud else {})}
 
 	async def _start_cloud(self) -> str:
 		body = {'proxyCountryCode': self.proxy, 'timeout': self.timeout, 'browserScreenWidth': 1440, 'browserScreenHeight': 900}
 		if self.profile:
 			body['profileId'] = await asyncio.to_thread(_profile_id, self.profile)
-		info = await asyncio.to_thread(_cloud, '/browsers', 'POST', body)
+		# The POST records the id from its own thread: a start cancelled mid-request still knows which browser to stop.
+		self._creating = _POOL.submit(self._create, body)
+		await asyncio.wrap_future(self._creating)
+		return await asyncio.to_thread(_ws_url, self.cloud_cdp_url)
+
+	def _create(self, body: dict) -> None:
+		info = _cloud('/browsers', 'POST', body)
 		self.id, self.live_url, self.cloud_cdp_url, self.stopped = info['id'], info.get('liveUrl'), info['cdpUrl'], False
 		logger.debug('Started cloud browser %s', self.id)  # never log live_url: it grants control of the browser
-		return await asyncio.to_thread(_ws_url, info['cdpUrl'])
 
-	def _stop_now(self) -> None:
-		"""Stop our daemon, then the cloud browser (PATCH stop ends billing and saves the profile)."""
+	def _stop_now(self) -> bool:
+		"""Stop our daemon, then the cloud browser (PATCH stop ends billing and saves the profile).
+		False when the cloud browser could not be stopped: it stays owned, so stop() again or process exit retries."""
 		self._env = None
 		name, self.name = self.name, None
 		if name:
 			_shutdown_daemon(name)
+		if self._creating is not None:  # a cancelled start's POST may still be in flight
+			concurrent.futures.wait([self._creating], timeout=120)
 		if self.use_cloud and self.id and not self.stopped:
 			error: Exception | None = None
 			for attempt in range(3):
@@ -228,31 +244,46 @@ class Browser:
 					error = e
 					time.sleep(0.5 * (attempt + 1))
 			else:
-				logger.warning('Could not stop cloud browser %s: %s', self.id, error)
+				logger.warning('Could not stop cloud browser %s (it stays registered for retry): %s', self.id, error)
+				return False
+		self._creating = None
 		_LIVE.discard(self)
+		return True
 
 	async def stop(self, downloads_dir: str | Path | None = None) -> list[Path]:
 		"""Stop the daemon this Browser started and its cloud browser. Never touches your local Chrome.
 		downloads_dir: copy what the cloud browser downloaded there. Returns the local paths."""
-		await asyncio.to_thread(self._stop_now)
 		files: list[Path] = []
-		if downloads_dir and self.id:
-			try:
-				files = await self.download_files(downloads_dir)
-			except Exception as e:  # - the result is already delivered
-				logger.warning('Could not fetch cloud browser downloads: %s', e)
-		self.id = None
+		fetched: set[str] = set()
+		if downloads_dir and self.use_cloud:  # before the stop too: the API may not list a stopped session's files
+			files += await self._fetch_downloads(downloads_dir, fetched)
+		stopped = await asyncio.to_thread(self._stop_now)
+		if downloads_dir and self.use_cloud:  # and after: files that finished while the browser stopped
+			files += await self._fetch_downloads(downloads_dir, fetched)
+		if stopped:
+			self.id = None
 		return files
 
-	async def download_files(self, dest: str | Path) -> list[Path]:
-		"""Copy the files the cloud browser downloaded into dest. Returns the local paths."""
+	async def _fetch_downloads(self, dest: str | Path, skip: set[str]) -> list[Path]:
+		try:
+			return await self.download_files(dest, skip)
+		except Exception as e:  # - the result is already delivered
+			logger.warning('Could not fetch cloud browser downloads: %s', e)
+			return []
+
+	async def download_files(self, dest: str | Path, skip: set[str] | None = None) -> list[Path]:
+		"""Copy the files the cloud browser downloaded into dest. Returns the local paths.
+		skip: remote paths to leave out; each copied path is added to it."""
 		if not self.id:
 			return []
-		dest, out, cursor = Path(dest), [], None
+		dest, out, cursor, skip = Path(dest), [], None, set() if skip is None else skip
 		while True:
 			q = f'/browsers/{self.id}/downloads?includeUrls=true&limit=100' + (f'&cursor={cursor}' if cursor else '')
 			page = await asyncio.to_thread(_cloud, q)
 			for f in page.get('files', []):
+				if f['path'] in skip:
+					continue
+				skip.add(f['path'])
 				path = dest / Path(f['path']).name
 				path.parent.mkdir(parents=True, exist_ok=True)
 				data = await asyncio.to_thread(lambda u=f['url']: urllib.request.urlopen(u, timeout=120).read())  # noqa: ASYNC210 - in a thread
