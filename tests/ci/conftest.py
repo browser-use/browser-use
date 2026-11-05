@@ -17,6 +17,8 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 os.environ['ANONYMIZED_TELEMETRY'] = 'false'
 os.environ['BH_TAB_MARKER'] = '0'
+# REPL workers without an explicit daemon must fail, never drive the developer's own Chrome (the default daemon).
+os.environ['BU_NAME'] = 'browser-use-tests-no-daemon'
 
 
 def find_chrome() -> str | None:

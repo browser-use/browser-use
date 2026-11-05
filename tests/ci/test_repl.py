@@ -110,16 +110,46 @@ def test_bad_mode_raises(tmp_path, mode):
 
 
 async def test_cancelled_call_resets_the_worker(tmp_path):
-	"""Roast C5: a whole-run timeout cancelled the call but left its cell running; the next call got its stale answer."""
+	"""Roast C5: a whole-run timeout cancelled the call but left its cell running (still acting on the browser)."""
+	marker = tmp_path / 'cell-kept-running'
 	repl = Repl(tmp_path)
 	try:
 		await repl.call('exec', 'pass', 30)
+		code = f'import time\ntime.sleep(2)\nopen({str(marker)!r}, "w").close()\nprint("stale")'
 		with pytest.raises(TimeoutError):
-			await asyncio.wait_for(repl.call('exec', 'import time\ntime.sleep(2)\nprint("stale")', 30), 0.5)
-		await asyncio.sleep(2.5)  # the old cell would have answered by now
+			await asyncio.wait_for(repl.call('exec', code, 30), 0.5)
+		await asyncio.sleep(2.5)  # the old cell would have finished by now
+		assert not marker.exists()
 		assert (await repl.call('exec', 'print("fresh")', 30))['output'].strip() == 'fresh'
 	finally:
 		await repl.close()
+
+
+async def test_a_call_never_takes_an_earlier_calls_answer(tmp_path, monkeypatch):
+	"""Roast C5: when a cancelled cell survives (cancelled before the reset, or the kill failed), its late answer
+	was returned as the next call's result."""
+	repl = Repl(tmp_path)
+	try:
+		await repl.call('exec', 'pass', 30)
+		close = repl.close
+		monkeypatch.setattr(repl, 'close', lambda: asyncio.sleep(0))  # the reset does not happen
+		with pytest.raises(TimeoutError):
+			await asyncio.wait_for(repl.call('exec', 'import time\ntime.sleep(1)\nprint("stale")', 30), 0.3)
+		monkeypatch.setattr(repl, 'close', close)
+		assert (await repl.call('exec', 'print("fresh")', 30))['output'].strip() == 'fresh'
+	finally:
+		await repl.close()
+
+
+async def test_repl_without_a_daemon_never_reaches_the_default_one(tmp_path):
+	"""A test REPL with no daemon env attached to the developer's default browser-harness daemon (their own Chrome):
+	a broken type_secret check typed the test value into it. conftest pins BU_NAME to a daemon that never exists."""
+	repl = Repl(tmp_path)
+	try:
+		r = await repl.call('exec', 'page_info()', 30)
+	finally:
+		await repl.close()
+	assert r['error'], r  # no daemon: page_info() fails instead of reading the developer's tab
 
 
 async def test_reset_kills_the_cells_subprocesses(tmp_path):
@@ -178,14 +208,17 @@ async def test_cells_print_unicode_whatever_the_parent_locale(tmp_path, monkeypa
 	"""Roast C17: on Windows (cp1252) a cell printing page text like CJK or emoji raised UnicodeEncodeError."""
 	monkeypatch.setenv('PYTHONIOENCODING', 'ascii')  # stands in for a cp1252 console
 	monkeypatch.setenv('PYTHONUTF8', '0')
+	monkeypatch.setenv('LC_ALL', 'en_US.ISO8859-1')  # a non-UTF-8 locale reaches the worker (LC_* pass) on macOS/Linux
 	repl = Repl(tmp_path)
 	try:
 		r = await repl.call(
-			'exec', "print('日本語 🙂')\nimport subprocess, sys\nsubprocess.run([sys.executable, '-c', 'print(\"é\")'])", 30
+			'exec',
+			"print('日本語 🙂')\nimport subprocess, sys\n_ = subprocess.run([sys.executable, '-c', 'print(\"é 日本\")'])",
+			30,
 		)
 	finally:
 		await repl.close()
-	assert r['error'] is None and '日本語 🙂' in r['output'] and 'é' in r['output']
+	assert r['error'] is None and r['output'].splitlines()[:2] == ['日本語 🙂', 'é 日本'], r  # the child printed it
 
 
 async def test_interrupted_cell_never_writes_a_secret_to_disk(tmp_path):
