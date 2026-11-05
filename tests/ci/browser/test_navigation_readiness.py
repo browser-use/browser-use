@@ -11,13 +11,20 @@ handler registered once on the root CDP client.
 """
 
 import asyncio
+import json
 import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+from pytest_httpserver import HTTPServer
+from werkzeug.serving import generate_adhoc_ssl_context
 
-from browser_use.browser.events import NavigateToUrlEvent
+from browser_use.browser.events import BrowserConnectedEvent, BrowserStopEvent, NavigateToUrlEvent
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
+from browser_use.browser.session_manager import SessionManager
+from browser_use.browser.watchdogs.har_recording_watchdog import HarRecordingWatchdog
 
 SIMPLE_HTML = '<html><head><title>fast page</title></head><body>hello</body></html>'
 
@@ -45,6 +52,44 @@ async def test_navigation_detects_readiness_without_burning_timeout(httpserver, 
 	assert elapsed < FAST_NAVIGATION_BOUND_S, (
 		f'navigation took {elapsed:.2f}s — readiness detection failed and the fallback timeout was burned'
 	)
+
+
+async def test_har_recording_does_not_clobber_navigation_readiness(tmp_path):
+	"""A real HTTPS navigation must reach both readiness detection and the saved HAR."""
+	# HAR deliberately records HTTPS only; plain HTTP cannot verify its timing path.
+	with HTTPServer(ssl_context=generate_adhoc_ssl_context()) as server:
+		server.expect_request('/fast-har').respond_with_data(SIMPLE_HTML, content_type='text/html')
+		url = server.url_for('/fast-har')
+		har_path = tmp_path / 'session.har'
+		session = BrowserSession(
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+				keep_alive=True,
+				record_har_path=har_path,
+				args=['--ignore-certificate-errors'],
+			)
+		)
+		try:
+			await session.start()
+			manager = session.session_manager
+			start = time.monotonic()
+			await session.navigate_to(url)
+			elapsed = time.monotonic() - start
+			har_watchdog = getattr(session, '_har_recording_watchdog', None)
+			assert har_watchdog is not None
+		finally:
+			await session.kill()
+
+	assert elapsed < FAST_NAVIGATION_BOUND_S, (
+		f'HAR-enabled navigation took {elapsed:.2f}s — HAR clobbered lifecycle readiness monitoring'
+	)
+	assert har_watchdog._lifecycle_event_listener not in manager._lifecycle_event_listeners
+	log = json.loads(har_path.read_text())['log']
+	entry = next(entry for entry in log['entries'] if entry['request']['url'] == url)
+	page = next(page for page in log['pages'] if page['id'] == entry['pageref'])
+	assert page['pageTimings']['onContentLoad'] >= 0
+	assert page['pageTimings']['onLoad'] >= page['pageTimings']['onContentLoad']
 
 
 async def test_first_tab_navigation_still_works_after_second_tab_opens(httpserver, browser_session: BrowserSession):
@@ -137,3 +182,29 @@ async def test_same_document_navigation_completes_immediately(httpserver, browse
 
 	assert elapsed < FAST_NAVIGATION_BOUND_S, f'same-document navigation took {elapsed:.2f}s — burned the readiness timeout'
 	assert status is None, f'same-document navigation reported a bogus timeout: {status!r}'
+
+
+@pytest.mark.parametrize('replace_manager', [False, True])
+async def test_har_unregisters_from_original_manager_after_reset(tmp_path, monkeypatch, replace_manager):
+	"""A forced reset must not strand the HAR listener on the old manager."""
+	session = BrowserSession(browser_profile=BrowserProfile(record_har_path=tmp_path / 'reset.har'))
+	manager = session.session_manager = SessionManager(session)
+	client = Mock()
+	client.send.Network.enable = AsyncMock()
+	client.send.Page.enable = AsyncMock()
+	client.send.Browser.getVersion = AsyncMock(return_value={})
+	session._cdp_client_root = client
+	monkeypatch.setattr(
+		BrowserSession,
+		'get_or_create_cdp_session',
+		AsyncMock(return_value=SimpleNamespace(cdp_client=client, session_id='test-session')),
+	)
+	watchdog = HarRecordingWatchdog(event_bus=session.event_bus, browser_session=session)
+	await watchdog.on_BrowserConnectedEvent(BrowserConnectedEvent(cdp_url='ws://localhost:9222'))
+	assert watchdog._on_lifecycle_event in manager._lifecycle_event_listeners
+	await manager.clear()
+	session.session_manager = SessionManager(session) if replace_manager else None
+	await watchdog.on_BrowserStopEvent(BrowserStopEvent())
+	assert not manager._lifecycle_event_listeners
+	# Repeated teardown is harmless even after the registration owner is released.
+	await watchdog.on_BrowserStopEvent(BrowserStopEvent())
