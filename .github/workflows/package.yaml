@@ -62,16 +62,16 @@ jobs:
           else
             source /tmp/testenv/bin/activate
           fi
-          uv pip install "$GITHUB_WORKSPACE"/*.whl
+          uv pip install *.whl
           # Outside the checkout, so the installed wheel is imported, not the source tree.
           cd "$RUNNER_TEMP"
           python - <<'PY'
-          import os, sys
+          import os
           import browser_use
           from browser_use import Agent, Browser, Tools, ActionResult, ChatOpenAI, ChatBrowserUse
           import browser_use.agent.loop, browser_use.repl.worker, browser_use.ax, browser_use.cli, browser_use.mcp.cli_mcp
-          checkout = os.path.realpath(os.environ['GITHUB_WORKSPACE'])
-          assert not os.path.realpath(browser_use.__file__).startswith(checkout), browser_use.__file__
+          checkout = os.path.normcase(os.path.realpath(os.environ['GITHUB_WORKSPACE']))
+          assert not os.path.normcase(os.path.realpath(browser_use.__file__)).startswith(checkout), browser_use.__file__
           print('installed wheel OK:', browser_use.__file__)
           PY
           browser-use --help > /dev/null
