@@ -199,9 +199,21 @@ async def test_worker_never_loads_dotenv(tmp_path):
 
 
 def test_worker_env_keeps_proxy_and_ca_settings(monkeypatch):
-	for name in ('HTTPS_PROXY', 'no_proxy', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'):
+	names = ('HTTPS_PROXY', 'no_proxy', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE')
+	for name in names:
 		monkeypatch.setenv(name, 'x')
-	assert {'HTTPS_PROXY', 'no_proxy', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'} <= set(worker_env())
+	assert {n.upper() for n in names} <= {k.upper() for k in worker_env()}  # Windows env keys are uppercase
+
+
+async def test_cell_output_file_keeps_the_bytes_the_cell_wrote(tmp_path):
+	"""Fable r2-3a: on Windows the text-mode cell file turned the cell's \\r\\n into \\r\\r\\n, so the model saw a blank
+	line after every line."""
+	repl = Repl(tmp_path)
+	try:
+		r = await repl.call('exec', "import os\n_ = os.write(1, b'a\\r\\nb\\n')", 30)
+	finally:
+		await repl.close()
+	assert Path(r['output_file']).read_bytes() == b'a\r\nb\n' and r['output'] == 'a\nb\n', r
 
 
 async def test_cells_print_unicode_whatever_the_parent_locale(tmp_path, monkeypatch):

@@ -160,7 +160,7 @@ def _pump(rfd: int, path: Path, secrets: list) -> None:
 	keep = max((len(f) for f, _ in forms), default=1) - 1
 	by_line = not any('\n' in f for f, _ in forms)  # then a secret never spans a newline
 	decoder, buf = codecs.getincrementaldecoder('utf-8')('replace'), ''
-	with open(path, 'w', encoding='utf-8') as out:
+	with open(path, 'w', encoding='utf-8', newline='') as out:  # Windows: the cell already wrote \r\n; no \r\r\n
 		while True:
 			chunk = os.read(rfd, 65536)
 			buf = redact_forms(buf + decoder.decode(chunk, final=not chunk), forms)
