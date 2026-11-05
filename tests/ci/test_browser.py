@@ -326,3 +326,25 @@ async def test_failed_download_is_retried_after_the_stop(cloud, monkeypatch, tmp
 	files = await browser.stop(downloads_dir=tmp_path)
 	assert files == [tmp_path / 'report.pdf'] and (tmp_path / 'report.pdf').read_bytes() == b'%PDF-1'
 	assert len(attempts) == 2
+
+
+async def test_sigterm_during_exit_cleanup_never_deadlocks(cloud, monkeypatch):
+	"""SIGTERM while atexit is stopping a browser runs the handler's _stop_all on the thread that already holds the
+	stop lock; a non-reentrant lock hung the process forever."""
+	import threading
+
+	real, entered = browser_mod._cloud, []
+
+	def fake(path, method='GET', body=None):
+		if method == 'PATCH' and not entered:
+			entered.append(1)
+			browser_mod._stop_all()  # the SIGTERM handler, interrupting this very thread
+		return real(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', fake)
+	browser = Browser()
+	await browser.start()
+	t = threading.Thread(target=browser_mod._stop_all, daemon=True)  # what atexit runs
+	t.start()
+	t.join(5)
+	assert not t.is_alive() and browser.stopped and not browser_mod._LIVE

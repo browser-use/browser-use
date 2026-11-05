@@ -176,7 +176,9 @@ class Browser:
 		self._lock = asyncio.Lock()  # one start or stop at a time: they never interleave
 		self._creating: concurrent.futures.Future | None = None  # the cloud POST, which outlives a cancelled start
 		self._stopping: asyncio.Future | None = None  # the stop thread, which outlives a cancelled stop
-		self._stop_mutex = threading.Lock()  # stop() and atexit/SIGTERM never run _stop_now at the same time
+		# stop() and atexit/SIGTERM never run _stop_now at the same time; reentrant: SIGTERM during atexit cleanup runs
+		# the handler on the thread that holds it
+		self._stop_mutex = threading.RLock()
 
 	@property
 	def cdp_host(self) -> str | None:
