@@ -178,6 +178,10 @@ def test_unsafe_domain_patterns():
 	assert match_url_with_domain_pattern('https://google.com', '**google.com') is False
 	assert match_url_with_domain_pattern('https://google.com', 'g*e.com') is False
 	assert match_url_with_domain_pattern('https://google.com', '*com*') is False
+	assert match_url_with_domain_pattern('https://api.example.com', '*.exampl[ae].com') is False
+	assert match_url_with_domain_pattern('https://api.exampla.com', '*.exampl[ae].com') is False
+	assert match_url_with_domain_pattern('https://api.example.com', '*.exampl?.com') is False
+	assert match_url_with_domain_pattern('https://example.com', 'h[tx]tp*://example.com') is False
 
 	# Test with patterns that have multiple asterisks in different positions
 	assert match_url_with_domain_pattern('https://subdomain.example.com', '*domain*example*') is False

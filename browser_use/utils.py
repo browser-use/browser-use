@@ -607,6 +607,13 @@ def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: b
 			pattern_scheme = 'https'  # Default to matching only https for security
 			pattern_domain = domain_pattern
 
+		# fnmatch also treats ?, [ and ] as glob syntax, but allowlists only support *.
+		if any(char in pattern_scheme + pattern_domain for char in '?[]'):
+			if log_warnings:
+				logger = logging.getLogger(__name__)
+				logger.error(f'⛔️ Unsupported glob syntax in pattern=[{domain_pattern}]')
+			return False
+
 		# Handle port in pattern (we strip ports from patterns since we already
 		# extracted only the hostname from the URL)
 		if ':' in pattern_domain and not pattern_domain.startswith(':'):
