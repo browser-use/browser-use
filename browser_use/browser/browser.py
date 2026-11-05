@@ -69,8 +69,8 @@ def _cloud(path: str, method: str = 'GET', body: dict | None = None) -> dict:
 	except urllib.error.HTTPError as e:
 		detail = e.read().decode(errors='replace')[:500]
 		hint = (
-			' Create a key with v4 browser access at https://cloud.browser-use.com/settings?tab=api-keys and set '
-			'BROWSER_USE_API_KEY.'
+			' Run `browser-use login` again for a key with v4 access (older logins stored browser-only v3 keys), or '
+			'create one at https://cloud.browser-use.com/settings?tab=api-keys and set BROWSER_USE_API_KEY.'
 			if 'missing required scope' in detail
 			else ''
 		)

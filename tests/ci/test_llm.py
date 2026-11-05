@@ -88,25 +88,34 @@ async def test_custom_base_url_runs_end_to_end(chat_server, tmp_path):
 	assert result.usage['input'] == 10 and result.cost_usd is None  # unknown price is not $0
 
 
-def test_default_llm_is_bu_auto_on_the_gateway(monkeypatch):
+def test_default_llm_is_bu_ultrafast_on_the_gateway(monkeypatch):
 	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
 	agent = Agent('t', browser=None)
-	assert isinstance(agent.llm, ChatBrowserUse) and agent.llm.model == 'bu-auto'
+	assert isinstance(agent.llm, ChatBrowserUse) and agent.llm.model == 'bu-ultrafast'
+	assert ChatBrowserUse().model == 'bu-ultrafast'
 	model, _ = resolve_model(agent.llm)
-	assert isinstance(model, OpenAIChatModel) and model.model_name == 'bu-auto'
+	assert isinstance(model, OpenAIChatModel) and model.model_name == 'bu-ultrafast'
 	assert str(model.client.base_url).rstrip('/') == GATEWAY_URL
-	assert Agent('t', 'bu-smart').llm.model == 'bu-smart'  # ids are passed through, never renamed
+	assert Agent('t', 'bu-auto').llm.model == 'bu-auto'  # still available; ids are passed through, never renamed
+	assert Agent('t', 'bu-smart').llm.model == 'bu-smart'
 
 
 async def test_gateway_errors_are_one_actionable_line():
 	from pydantic_ai.exceptions import ModelHTTPError
 
 	llm = ChatBrowserUse(api_key='fake-test-key')
-	assert 'cloud.browser-use.com/billing' in llm.explain_error(ModelHTTPError(402, 'bu-auto'))
-	assert 'US-only' in llm.explain_error(ModelHTTPError(403, 'bu-auto'))
-	assert 'browser-use auth login' in llm.explain_error(ModelHTTPError(401, 'bu-auto'))
-	assert '404' in llm.explain_error(ModelHTTPError(404, 'bu-auto'))
-	assert llm.explain_error(ModelHTTPError(500, 'bu-auto')) is None
+	assert 'cloud.browser-use.com/settings?tab=billing' in llm.explain_error(ModelHTTPError(402, 'bu-ultrafast'))
+	assert 'browser-use login' in llm.explain_error(ModelHTTPError(401, 'bu-ultrafast'))
+	assert '404' in llm.explain_error(ModelHTTPError(404, 'bu-ultrafast'))
+	assert llm.explain_error(ModelHTTPError(500, 'bu-ultrafast')) is None
+	# 403 has several causes: the gateway's own message (body as the OpenAI SDK passes it) names the actual one
+	policy = {'message': 'This project policy does not permit the new Browser Use LLM gateway.', 'code': 'project_policy'}
+	error = ModelHTTPError(403, 'bu-ultrafast', policy, provider_error_code='project_policy')
+	assert llm.explain_error(error) == f'bu-ultrafast is not available for this key (403): {policy["message"]}'
+	scope = {'message': 'This API key requires v4:runs:create permission.', 'code': 'insufficient_scope'}
+	error = ModelHTTPError(403, 'bu-ultrafast', scope, provider_error_code='insufficient_scope')
+	assert llm.explain_error(error) == f'{scope["message"]} Run `browser-use login` again for a new key.'
+	assert 'ChatOpenAI' in llm.explain_error(ModelHTTPError(403, 'bu-ultrafast'))  # no body: a generic hint
 
 
 def test_model_strings_pass_through(monkeypatch):

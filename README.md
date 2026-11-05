@@ -106,7 +106,7 @@ Install browser-use 1.0 with uv using Python 3.12 (`uv tool install --prerelease
 
 ```bash
 uv add 'browser-use>=1.0.0.dev0'   # pre-release; Python >= 3.11 (plain `uv add browser-use` still gives 0.x)
-browser-use auth login      # one Browser Use API key runs the default model and the cloud browser
+browser-use login           # opens your browser; one key runs the default model, the cloud browser, the CLI and MCP
 ```
 
 ```python
@@ -116,7 +116,7 @@ result = Agent('Find the number of stars of the browser-use repo').run_sync()
 print(result.final_result())
 ```
 
-Defaults: model `bu-auto` on the Browser Use gateway, browser = a Browser Use Cloud browser (stopped when the run ends). No login? Set `BROWSER_USE_API_KEY` instead.
+Defaults: model `bu-ultrafast` on the Browser Use gateway, browser = a Browser Use Cloud browser (stopped when the run ends). No login? Set `BROWSER_USE_API_KEY` instead. Over SSH: `browser-use login --device-code`.
 
 **Your Chrome, your model:**
 
@@ -166,7 +166,7 @@ The CLI and Python library can each connect to a local or cloud browser. A cloud
 <details>
 <summary><b>What's the best model to use?</b></summary>
 
-The default, `bu-auto` on the Browser Use gateway, runs the configuration we evaluate. `ChatOpenAI('gpt-6-luna')` with your own OpenAI key runs the same model directly. See the [benchmark](https://github.com/browser-use/benchmark).
+The default, `bu-ultrafast` on the Browser Use gateway, is `gpt-6-luna` at low reasoning on the priority tier: the fastest setup. `llm='bu-auto'` runs the same model at medium reasoning (the configuration we evaluate), `llm='bu-smart'` a larger one. `ChatOpenAI('gpt-6-luna')` with your own OpenAI key runs the same model directly. See the [benchmark](https://github.com/browser-use/benchmark).
 </details>
 
 <details>

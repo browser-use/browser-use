@@ -19,6 +19,8 @@ os.environ['ANONYMIZED_TELEMETRY'] = 'false'
 os.environ['BH_TAB_MARKER'] = '0'
 # REPL workers without an explicit daemon must fail, never drive the developer's own Chrome (the default daemon).
 os.environ['BU_NAME'] = 'browser-use-tests-no-daemon'
+# The Browser Use key store (`browser-use login`) points at a file that never exists: no test reads the developer's key.
+os.environ['BH_AUTH_PATH'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-auth' / 'auth.json')
 
 
 def find_chrome() -> str | None:

@@ -67,7 +67,7 @@ def _unsupported(kwargs: dict[str, Any], where: str) -> TypeError:
 class Agent:
 	"""agent = Agent('task'); result = await agent.run(); result.final_result()
 
-	llm: default ChatBrowserUse('bu-auto'). browser: default Browser() = a Browser Use Cloud browser; Browser(local=True)
+	llm: default ChatBrowserUse('bu-ultrafast'). browser: default Browser() = a Browser Use Cloud browser; Browser(local=True)
 	for your Chrome. sensitive_data={'name': 'value'} (or {'https://site': {'name': 'value'}} to type it only on that
 	domain): the model types values with type_secret('name'); values become <secret:name> in cell output, checkpoints,
 	tool results, the task and the result (MIGRATING.md "Trust model" lists exactly where). Not a sandbox: model-written
