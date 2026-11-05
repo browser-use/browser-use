@@ -84,7 +84,7 @@ async def test_agent_event_never_has_task_secrets_typed_text_code_or_url_paths(s
 	model, _ = script(
 		('python', {'code': code}),
 		('python', {'code': f'raise ValueError({error!r})'}),
-		('finish', {'result': f'{result} {task} {secret}'}),
+		('finish', {'success': True, 'result': f'{result} {task} {secret}'}),
 	)
 	agent = Agent(
 		f'{task} with {secret}',
@@ -307,7 +307,11 @@ async def test_follow_up_counts_only_its_own_turns_and_cloud_downloads_by_extens
 
 	monkeypatch.setattr(Browser, 'start', start)
 	monkeypatch.setattr(Browser, 'stop', stop)
-	model, _ = script(('python', {'code': 'x = 1'}), ('finish', {'result': 'one'}), ('finish', {'result': 'two'}))
+	model, _ = script(
+		('python', {'code': 'x = 1'}),
+		('finish', {'success': True, 'result': 'one'}),
+		('finish', {'success': True, 'result': 'two'}),
+	)
 	agent = Agent('first', model, browser=Browser(local=True), workspace=tmp_path)
 	await agent.run()
 	agent.add_new_task('second')
@@ -317,3 +321,24 @@ async def test_follow_up_counts_only_its_own_turns_and_cloud_downloads_by_extens
 	assert (second['tool_calls'], second['follow_up'], second['cells']) == ({'finish': 1}, True, 0)
 	assert second['downloads'] == 2 and second['download_exts'] == {'csv': 1, 'pdf': 1}
 	assert_absent(second, 'Payroll', 'invoice-77')
+
+
+async def test_a_step_budget_that_forced_the_delivery_is_max_steps_hit(sent, tmp_path, monkeypatch):
+	"""agent-llm F3: max_steps=3 forced the delivery-only turn at request 2, and telemetry said max_steps_hit=False."""
+
+	async def start(self):
+		return {}
+
+	async def stop(self, downloads_dir=None):
+		return []
+
+	monkeypatch.setattr(Browser, 'start', start)
+	monkeypatch.setattr(Browser, 'stop', stop)
+	model, _ = script(('python', {'code': 'x = 1'}), ('finish', {'success': False, 'result': 'ran out of steps'}))
+	await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run(max_steps=3)
+	model, _ = script(('finish', {'success': True, 'result': 'done'}))
+	await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run(max_steps=10)
+	assert [(e['status'], e['max_steps_hit'], e['success']) for e in sent] == [
+		('completed', True, False),
+		('completed', False, True),
+	]

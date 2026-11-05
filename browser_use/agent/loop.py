@@ -68,11 +68,12 @@ class Session:
 	finalizing: bool = False
 	checked_delivery: bool = False  # the delivery guard fires once; a second identical finish is accepted
 	checked_partial: bool = False  # the early-partial guard fires once
-	success: bool = True  # finish(..., success=False): the agent delivered but could not do the task
+	success: bool | None = None  # the verdict finish/finish_from_repl must give; None for a plain-text delivery
 	messages: list[ModelMessage] = field(default_factory=list)
 	after_tool: Callable[[str, dict, dict], Awaitable[None]] | None = None  # observer hook (evals)
 	stats: RunStats = field(default_factory=RunStats)  # telemetry counts (TELEMETRY.md)
 	finish_via: str | None = None  # finish | finish_from_repl | text: how the result was delivered
+	budget_hit: str | None = None  # max_steps | timeout: the budget that forced the delivery-only turn
 	error_type: str | None = None  # class of the exception that ended the run
 
 	def partial(self) -> Any:
@@ -163,7 +164,7 @@ def _outputs(output_type: Any) -> list[Any]:
 		except ValidationError:  # a schema constraint rejects '<secret:name>': deliver the redacted plain data
 			return redacted
 
-	async def finish_from_repl(ctx: RunContext[Session], expression: str, success: bool = True):
+	async def finish_from_repl(ctx: RunContext[Session], expression: str, success: bool):
 		r = await ctx.deps.repl.call('eval', expression, ctx.deps.cell_timeout_s)
 		if r['error']:
 			raise ModelRetry(f'Expression failed: {r["error"][-2000:]}')
@@ -178,7 +179,7 @@ def _outputs(output_type: Any) -> list[Any]:
 		ctx.deps.success, ctx.deps.finish_via = success, 'finish_from_repl'
 		return clean(ctx, value)
 
-	def finish(ctx: RunContext[Session], result, success: bool = True):
+	def finish(ctx: RunContext[Session], result, success: bool):
 		check_delivery(ctx, result)
 		ctx.deps.success, ctx.deps.finish_via = success, 'finish'
 		return clean(ctx, result)
@@ -188,7 +189,9 @@ def _outputs(output_type: Any) -> list[Any]:
 		# stop and talk. A text-only reply ends the work: one delivery-only repair turn, then text is accepted.
 		if not ctx.deps.finalizing:
 			ctx.deps.finalizing = True
-			raise ModelRetry(DELIVERY_REPAIR)
+			# Quoted: a compaction item at the end of this response replaces everything before it, this text included,
+			# so the repair turn would otherwise not see the answer it is asked to deliver.
+			raise ModelRetry(f'{DELIVERY_REPAIR}\n\nYour reply, not delivered yet:\n{text}')
 		ctx.deps.finish_via = 'text'
 		if output_type is str:
 			check_delivery(ctx, text)
@@ -214,8 +217,9 @@ def _outputs(output_type: Any) -> list[Any]:
 			description=(
 				'Deliver an existing value from the persistent REPL without printing or rewriting it. The Python '
 				'expression must match the result schema of finish; for a string result use json.dumps(records) or an '
-				'existing text variable. Evaluated once; ends the task after validation. success=false when the task '
-				'could not be done (blocked, not found, refused); the result says why.'
+				'existing text variable. Evaluated once; ends the task after validation. success=true only when it '
+				'delivers what the task asked for; false when blocked, refused, partial, or what the task asks for does '
+				'not exist or was not found; the result says why.'
 			),
 		),
 		ToolOutput(
@@ -223,8 +227,9 @@ def _outputs(output_type: Any) -> list[Any]:
 			name='finish',
 			description=(
 				'Submit the verified final result. For data already in the REPL, prefer finish_from_repl to avoid '
-				'rewriting it. This ends the task. success=false when the task could not be done (blocked, not found, '
-				'refused); the result says why.'
+				'rewriting it. This ends the task. success=true only when it delivers what the task asked for; false '
+				'when blocked, refused, partial, or what the task asks for does not exist or was not found; the result '
+				'says why.'
 			),
 		),
 	]
@@ -240,9 +245,14 @@ class BrowserLoop(AbstractCapability[Session]):
 		if pruned is not None:  # same pattern as ProcessHistory: new objects, persisted
 			ctx.messages[:] = pruned
 			request_context.messages = pruned.copy()
-		if not s.finalizing and (ctx.run_step >= s.max_steps - 1 or time.monotonic() - s.started >= 0.9 * s.timeout_s):
-			s.finalizing = True
-			ctx.enqueue(DELIVER_NOW)
+		if not s.finalizing:
+			if ctx.run_step >= s.max_steps - 1:
+				s.budget_hit = 'max_steps'
+			elif time.monotonic() - s.started >= 0.9 * s.timeout_s:
+				s.budget_hit = 'timeout'
+			if s.budget_hit:
+				s.finalizing = True
+				ctx.enqueue(DELIVER_NOW)
 		if s.finalizing:  # step settings were resolved before this hook: restrict this very request
 			settings = dict(request_context.model_settings or {})
 			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)

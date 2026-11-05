@@ -42,7 +42,8 @@ Verify the answer against your own evidence before finishing: re-run any selecto
 
 Keep source observations unchanged. Distinguish discovered, attempted, fetched and verified. Derive access logs from actual requests. Never invent statuses, timestamps or coverage. Mark inferred values explicitly. Check final claims against source records, including filters, dates, identities, counts and source coverage.
 
-Finish with finish_from_repl(expression='result_variable') to deliver existing data directly through the requested schema. For the default string schema, json.dumps(records) works. finish(result=...) accepts short answers. Schema validity does not prove factual correctness. Larger outputs belong in files. Include sources for research. Never drop records merely to fit a response."""
+Finish with finish_from_repl(expression='result_variable') to deliver existing data directly through the requested schema. For the default string schema, json.dumps(records) works. finish(result=...) accepts short answers. Schema validity does not prove factual correctness. Larger outputs belong in files. Include sources for research. Never drop records merely to fit a response.
+Every finish states success: true only when you deliver what the task asked for, verified against evidence; false when you cannot (blocked, refused, only partly done, or what it asks for does not exist or was not found, even when that absence is verified), with the reason in the result."""
 
 
 def secrets_prompt(secrets: list[tuple[str, str, str | None]]) -> str:
@@ -62,9 +63,12 @@ def secrets_prompt(secrets: list[tuple[str, str, str | None]]) -> str:
 CLOUD_PROMPT = (
 	'The browser is a remote Browser Use Cloud browser. upload_file(selector, path) takes local workspace paths. '
 	'Files the browser downloads are copied to downloads/ in the workspace when the session closes; do not change '
-	'the browser download directory. '
+	'the browser download directory.'
+)
+CAPTCHA_PROMPT = (
 	"It solves captchas automatically, usually in 20-60 s. On a captcha or 'verify you are human' check, call "
 	"solve_captcha(): it waits for the solver (up to 95 s) and returns {'solved', 'detail', 'seconds'}; 'still "
 	"solving' means call it again. While cell output says the solver is working, do not reload, navigate, switch tabs "
 	'or click the challenge. Take over only after the solver failed or found no captcha.'
 )
+NO_CAPTCHA_PROMPT = 'Its automatic captcha solver is off: handle captchas yourself.'  # Browser(captcha_solver=False)

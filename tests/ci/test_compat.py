@@ -127,7 +127,7 @@ async def test_custom_action_is_a_model_tool(tmp_path):
 	def get_price(sku: str) -> ActionResult:
 		return ActionResult(extracted_content=f'{sku} costs 9.99')
 
-	model, seen = script(('get_price', {'sku': 'A1'}), ('finish', {'result': 'done'}))
+	model, seen = script(('get_price', {'sku': 'A1'}), ('finish', {'success': True, 'result': 'done'}))
 	session = Session(repl=Repl(tmp_path))
 	r = await run(build_agent(model, tools=tools.functions), 'task', session, 'm')
 	assert r.output == 'done'
@@ -158,7 +158,7 @@ async def test_custom_tool_results_never_show_a_secret_to_the_model(tmp_path):
 	def check() -> str:
 		raise ModelRetry(f'wrong password {secret}')
 
-	model, seen = script(('account', {}), ('note', {}), ('check', {}), ('finish', {'result': 'done'}))
+	model, seen = script(('account', {}), ('note', {}), ('check', {}), ('finish', {'success': True, 'result': 'done'}))
 	session = Session(repl=Repl(tmp_path, secrets={'pw': secret}))
 	r = await run(build_agent(model, tools=tools.functions), 'task', session, 'm')
 	assert r.output == 'done'
@@ -173,8 +173,35 @@ async def test_finish_can_report_a_failed_task(tool, tmp_path):
 	model, _ = script((tool, {**args, 'success': False}))
 	r = await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'm')
 	assert (r.is_done(), r.is_successful(), r.success) == (True, False, False)
-	model, _ = script(('finish', {'result': 'done'}))
+	model, _ = script(('finish', {'success': True, 'result': 'done'}))
 	assert (await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'm')).is_successful() is True
+
+
+async def test_finish_requires_a_success_verdict(tmp_path):
+	"""agent-llm F1: success defaulted to True, so an impossible task finished without a verdict came back
+	is_successful() == True (3/3 runs). Like 0.x done(success), finish and finish_from_repl now require it."""
+	from pydantic_ai.messages import ModelResponse, ToolCallPart
+	from pydantic_ai.models.function import FunctionModel
+
+	turns = [{'result': 'The book does not exist.'}, {'result': 'The book does not exist.', 'success': False}]
+	seen = []
+
+	def fn(messages, info):
+		seen.append(({t.name: t.parameters_json_schema for t in info.output_tools}, messages[-1]))
+		return ModelResponse(parts=[ToolCallPart('finish', turns[len(seen) - 1])])
+
+	model = FunctionModel(fn)
+	r = await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert all('success' in schema['required'] for schema in seen[0][0].values()), seen[0][0]
+	assert 'success' in str(seen[1][1])  # the omitted verdict went back to the model as a retry
+	assert (r.status, r.output, r.is_successful()) == ('completed', 'The book does not exist.', False)
+
+
+@pytest.mark.parametrize('budget', [{'max_steps': 0}, {'max_steps': -1}, {'max_steps': 2.5}, {'timeout': 0}, {'timeout': -5}])
+async def test_impossible_budgets_raise_before_any_browser(budget, no_browser):
+	"""agent-llm: run(max_steps=0) and run(timeout<=0) started (and billed) a browser, then ended in an error."""
+	with pytest.raises(ValueError, match='max_steps' if 'max_steps' in budget else 'timeout'):
+		await Agent('t', script()[0], browser=Browser(local=True)).run(**budget)
 
 
 async def test_structured_final_result_is_the_models_json(tmp_path):
@@ -184,7 +211,7 @@ async def test_structured_final_result_is_the_models_json(tmp_path):
 		title: str
 		points: int
 
-	model, _ = script(('finish', {'result': {'title': 'x', 'points': 3}}))
+	model, _ = script(('finish', {'success': True, 'result': {'title': 'x', 'points': 3}}))
 	r = await run(build_agent(model, output_type=Story), 'task', Session(repl=Repl(tmp_path)), 'm')
 	assert r.final_result() == Story(title='x', points=3).model_dump_json()
 	assert r.structured_output == Story(title='x', points=3)
@@ -240,7 +267,7 @@ async def test_param_model_is_authoritative(tmp_path):
 	def place_order(params: Any) -> str:
 		return f'{params.qty}x {params.sku}'
 
-	model, seen = script(('place_order', {'params': {'sku': 'A1', 'qty': '3'}}), ('finish', {'result': 'done'}))
+	model, seen = script(('place_order', {'params': {'sku': 'A1', 'qty': '3'}}), ('finish', {'success': True, 'result': 'done'}))
 	await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path)), 'm')
 	assert '3x A1' in str(seen[1][-1])
 
@@ -265,7 +292,9 @@ def fake_browser(monkeypatch):
 def test_run_sync_follow_up_keeps_the_repl_with_keep_alive(fake_browser, tmp_path):
 	# 0.x scripts call run_sync() twice; the REPL worker belongs to the first call's event loop.
 	model, _ = script(
-		('python', {'code': 'x = 41'}), ('finish', {'result': 'one'}), ('finish_from_repl', {'expression': 'str(x + 1)'})
+		('python', {'code': 'x = 41'}),
+		('finish', {'success': True, 'result': 'one'}),
+		('finish_from_repl', {'success': True, 'expression': 'str(x + 1)'}),
 	)
 	agent = Agent('t', model, browser=Browser(local=True, keep_alive=True), workspace=tmp_path)
 	assert agent.run_sync().final_result() == 'one'
@@ -281,7 +310,7 @@ def test_run_sync_follow_up_keeps_the_repl_with_keep_alive(fake_browser, tmp_pat
 
 
 def test_close_sync_ends_run_sync_follow_ups(fake_browser, tmp_path):
-	model, _ = script(('python', {'code': 'x = 1'}), ('finish', {'result': 'one'}))
+	model, _ = script(('python', {'code': 'x = 1'}), ('finish', {'success': True, 'result': 'one'}))
 	agent = Agent('t', model, browser=Browser(local=True, keep_alive=True), workspace=tmp_path)
 	assert agent.run_sync().final_result() == 'one'
 	runner_loop, repl = agent._runner.get_loop(), agent._repl
@@ -291,7 +320,7 @@ def test_close_sync_ends_run_sync_follow_ups(fake_browser, tmp_path):
 
 
 async def test_failed_follow_up_still_stops_the_browser(fake_browser, monkeypatch, tmp_path):
-	model, _ = script(('finish', {'result': 'one'}))
+	model, _ = script(('finish', {'success': True, 'result': 'one'}))
 	agent = Agent('t', model, browser=Browser(local=True), workspace=tmp_path)
 	assert (await agent.run()).final_result() == 'one' and len(fake_browser) == 1
 
@@ -384,7 +413,7 @@ async def test_secrets_in_the_task_never_reach_the_model(fake_browser, tmp_path)
 	"""Roast r3-2: Agent(f'Log in with {password}', sensitive_data=...) sent the password in the first request (0.x
 	replaced it with the secret's name); follow-up tasks and extend_system_message too."""
 	secret = 'hunter2-Zq9'
-	model, seen = script(('finish', {'result': 'one'}), ('finish', {'result': 'two'}))
+	model, seen = script(('finish', {'success': True, 'result': 'one'}), ('finish', {'success': True, 'result': 'two'}))
 	agent = Agent(
 		f'Log in with {secret}',
 		model,
@@ -405,7 +434,7 @@ async def test_overlapping_runs_on_one_agent_are_rejected(fake_browser, tmp_path
 	stop the other's browser."""
 	import asyncio
 
-	model, _ = script(('finish', {'result': 'one'}))
+	model, _ = script(('finish', {'success': True, 'result': 'one'}))
 	agent = Agent('t', model, browser=Browser(local=True), workspace=tmp_path)
 	first, second = await asyncio.gather(agent.run(), agent.run(), return_exceptions=True)
 	assert isinstance(second, RuntimeError) and 'already running' in str(second)

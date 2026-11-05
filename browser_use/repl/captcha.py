@@ -6,14 +6,19 @@ BrowserUse.captchaSolverFinished {targetId, vendor, url, durationMs, finishedAt,
 browser-harness daemon's included. The events are not replayed: they must be read as they come, so the worker reads the
 daemon's event buffer continuously (EventPump, or ax.AxHelpers in ultrafast mode) and Captcha keeps the solver's state.
 Any other browser rejects the methods: solve_captcha() then reports "solver unavailable".
+A cell timeout kills the worker; the solver state is saved next to the cells, so the next worker still knows a running
+solve.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from pathlib import Path
 
 SOLVE_START_S = 20.0  # bu-pi solve_captcha: a solver that has not started by then found no captcha
 SOLVE_S = 95.0  # bu-pi: then 'still solving'; fits the 120 s cell timeout
@@ -27,14 +32,44 @@ STARTED, FINISHED = 'BrowserUse.captchaSolverStarted', 'BrowserUse.captchaSolver
 class Captcha:
 	"""Solver state from the started/finished events, and solve_captcha() for the agent."""
 
-	def __init__(self, cdp: Callable[..., dict]):
+	def __init__(self, cdp: Callable[..., dict], path: Path | None = None):
+		"""path: where the state survives a worker restart within one Repl (which deletes it when it is created)."""
 		self.cdp = cdp
 		self.pump: Callable[[], None] = lambda: None  # reads new daemon events into observe(); set by the worker
 		self.active: dict[str, dict] = {}  # targetId -> started params + '_t' (monotonic start)
 		self.finished: list[dict] = []  # every finished event's params, in order
 		self.reported = 0  # finished events already shown in a cell's output
+		self.shown = 0  # first finished event shown in the latest cell's output: solve() answers with it
 		self.answered = 0  # finished events already returned by solve()
 		self._lock = threading.Lock()
+		self.path = path
+		self._load()
+
+	def _load(self) -> None:
+		"""What a worker killed by a cell timeout knew: running solves and finishes it had not shown yet."""
+		if not self.path or not self.path.exists():
+			return
+		try:
+			saved = json.loads(self.path.read_text(encoding='utf-8'))
+			ago = time.time() - time.monotonic()
+			self.active = {str(t): {**a, '_t': a.pop('_wall') - ago} for t, a in saved['active'].items()}
+			self.finished = list(saved['pending'])
+		except (OSError, ValueError, KeyError, TypeError, AttributeError):  # - unreadable: start empty
+			self.active, self.finished = {}, []
+
+	def _save(self) -> None:
+		"""Hold _lock."""
+		if not self.path:
+			return
+		ago = time.time() - time.monotonic()
+		active = {t: {**{k: v for k, v in a.items() if k != '_t'}, '_wall': a['_t'] + ago} for t, a in self.active.items()}
+		data = {'active': active, 'pending': self.finished[self.reported :]}
+		try:
+			tmp = self.path.with_suffix('.tmp')
+			tmp.write_text(json.dumps(data), encoding='utf-8')
+			os.replace(tmp, self.path)
+		except OSError:  # - state for a restart only; never fail a cell over it
+			pass
 
 	def observe(self, event: dict) -> None:
 		method, params = event.get('method'), event.get('params') or {}
@@ -46,6 +81,7 @@ class Captcha:
 			else:
 				self.active.pop(str(params.get('targetId', '')), None)
 				self.finished.append(params)
+			self._save()
 
 	def _prune(self) -> None:
 		"""Close solves whose finished event will not come (tab closed, daemon restarted, event missed) as lost. Hold
@@ -56,6 +92,7 @@ class Captcha:
 				del self.active[target]
 				params = {k: v for k, v in a.items() if k != '_t'}
 				self.finished.append({**params, 'success': False, 'lost': True, 'durationMs': (now - a['_t']) * 1000})
+				self._save()
 
 	def solve(self, start_timeout: float = SOLVE_START_S, timeout: float = SOLVE_S) -> dict:
 		"""Wait for the browser's captcha solver: a solve that is running, or one it starts within start_timeout s.
@@ -79,8 +116,8 @@ class Captcha:
 				why = 'this browser has no captcha solver (Browser Use Cloud browsers do)'
 			return out(False, f'solver unavailable: {why[:300]}')
 		keep_on = was_on
-		with self._lock:  # a solve that ended after the last cell's output is this call's answer
-			seen = max(self.reported, self.answered)
+		with self._lock:  # a solve that ended after the last cell's output, or that its notice showed, is the answer
+			seen = max(self.shown, self.answered)
 		try:
 			while True:
 				try:
@@ -114,8 +151,11 @@ class Captcha:
 		"""Lines for the cell's output: solves that ended since the last report, and a running one."""
 		with self._lock:
 			self._prune()
+			self.shown = self.reported
 			done, self.reported = self.finished[self.reported :], len(self.finished)
 			active = list(self.active.values())
+			if done:
+				self._save()
 		lines = []
 		for f in done:
 			what, s = f.get('vendor') or 'captcha', round((f.get('durationMs') or 0) / 1000)

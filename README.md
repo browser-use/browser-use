@@ -201,6 +201,8 @@ This open-source library is licensed under the MIT License. For Browser Use serv
 
 [Browser Use Cloud](https://docs.browser-use.com/cloud/browser/quickstart) provides stealth browsers and proxies designed to reduce bot detection and CAPTCHA challenges. With the Python library, `Browser()` is a cloud browser by default.
 
+Cloud browsers also solve CAPTCHAs automatically, and the agent waits for the solver with `solve_captcha()` instead of clicking the challenge. `Browser(captcha_solver=False)` turns the solver off.
+
 Results depend on the site and challenge; no browser configuration guarantees that every CAPTCHA can be avoided or solved.
 </details>
 

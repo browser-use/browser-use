@@ -224,7 +224,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 
 	cdp.__doc__ = raw_cdp.__doc__
 	helpers.cdp = cdp  # capture_screenshot() and friends go through the wrapper too
-	captcha = Captcha(cdp)
+	captcha = Captcha(cdp, STATE / 'captcha.json')
 	exec('from browser_harness.helpers import *', ns)
 
 	@functools.wraps(cdp)

@@ -418,7 +418,7 @@ async def test_fresh_chromium_end_to_end_has_no_cookies_and_leaves_nothing(chrom
 				"t = page_info()['title']; n = len(cdp('Storage.getCookies')['cookies'])"
 			},
 		),
-		('finish_from_repl', {'expression': "f'{t}|{n}'"}),
+		('finish_from_repl', {'success': True, 'expression': "f'{t}|{n}'"}),
 	)
 	browser = Browser('chromium', headless=True, executable_path=chrome_binary, keep_alive=True)
 	result = await Agent('Read the title', model, browser=browser, workspace=tmp_path).run()

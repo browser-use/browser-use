@@ -126,10 +126,11 @@ def static_instructions(agent):
 
 
 def test_default_prompt_unchanged():
-	"""Default mode is the evaluated path: its system prompt must stay byte-identical (sha256 from 0.2.0)."""
+	"""Default mode is the evaluated path: its system prompt must stay byte-identical (sha256 from 0.2.0, plus the
+	finish success line that made success required)."""
 	default = static_instructions(build_agent())
 	assert default == [SYSTEM_PROMPT] == static_instructions(build_agent(mode='default'))
-	assert hashlib.sha256(default[0].encode()).hexdigest() == '679ca2d7d5f22146d25badf229903c3d83c3871cea27dd3e30fe1262ba380266'
+	assert hashlib.sha256(default[0].encode()).hexdigest() == '3df0466e7a84dbb46be2f80a05034fb022cb9eff7415bf7ab7532eca3bfb4eb1'
 	assert static_instructions(build_agent(instructions='X')) == [f'{SYSTEM_PROMPT}\nX']
 	assert static_instructions(build_agent(mode='ultrafast')) == [(SYSTEM_PROMPT + AX_PROMPT).rstrip()]
 	assert static_instructions(build_agent(mode='ultrafast', instructions='X')) == [f'{SYSTEM_PROMPT}{AX_PROMPT}\nX']
@@ -359,7 +360,7 @@ async def test_agent_ultrafast_end_to_end(chrome, site, tmp_path):
 	seen = []
 	turns = [
 		[('python', {'code': f"new_tab('{site}/act')" + IDOF + "bu.click(idof('Go'))"})],
-		[('finish', {'result': 'done'})],
+		[('finish', {'success': True, 'result': 'done'})],
 	]
 
 	def fn(messages, info: AgentInfo):

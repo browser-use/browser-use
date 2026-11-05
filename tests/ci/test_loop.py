@@ -54,7 +54,7 @@ async def test_browser_screenshot_and_finish_from_repl(daemon, tmp_path):
 				'python',
 				{'code': 'records = [{"h": h, "title": info["title"]}]\nawait __import__("asyncio").sleep(0)\nlen(records)'},
 			),
-			('finish_from_repl', {'expression': 'json.dumps(records)'}),
+			('finish_from_repl', {'success': True, 'expression': 'json.dumps(records)'}),
 		],
 	)
 	assert result.status == 'completed', result.error
@@ -78,7 +78,7 @@ async def test_cell_timeout_restarts_worker_keeps_files(daemon, tmp_path):
 			),
 			('python', {'code': "print('x' in globals(), json.load(open('rows.json')))"}),
 			('python', {'code': 'raise ValueError("boom")'}),
-			('finish', {'result': 'done'}),
+			('finish', {'success': True, 'result': 'done'}),
 		],
 		cell_timeout_s=3,
 	)
@@ -106,7 +106,7 @@ async def test_timeout_returns_partial(daemon, tmp_path):
 
 async def test_only_last_two_screenshot_results_keep_images(daemon, tmp_path):
 	shot = ('python', {'code': "new_tab('data:text/html,<h1>x</h1>') if not list_tabs(False) else None\nscreenshot()\n'shot'"})
-	result, seen = await go(daemon, tmp_path, [shot, shot, shot, ('finish', {'result': 'ok'})])
+	result, seen = await go(daemon, tmp_path, [shot, shot, shot, ('finish', {'success': True, 'result': 'ok'})])
 	assert result.output == 'ok'
 	returns = [
 		p for m in result.messages for p in getattr(m, 'parts', []) if isinstance(p, ToolReturnPart) and p.tool_name == 'python'
@@ -129,7 +129,7 @@ async def test_parallel_python_calls_are_serialized(daemon, tmp_path):
 					ToolCallPart('python', {'code': 'b = 2'}),
 				]
 			)
-		return ModelResponse(parts=[ToolCallPart('finish_from_repl', {'expression': 'str(a + b)'})])
+		return ModelResponse(parts=[ToolCallPart('finish_from_repl', {'success': True, 'expression': 'str(a + b)'})])
 
 	agent, session = build_agent(), Session(repl=Repl(tmp_path, daemon))
 	try:
@@ -146,7 +146,7 @@ async def test_oversized_and_invalid_images_never_reach_provider(daemon, tmp_pat
 		"from PIL import Image; Image.new('RGB', (1440, 30000), 'white').save('tall.png'); "
 		"open('bad.png', 'wb').write(b'\\x89PNG not really'); print(show_image('tall.png'), show_image('bad.png'))"
 	)
-	result, seen = await go(daemon, tmp_path, [('python', {'code': code}), ('finish', {'result': 'ok'})])
+	result, seen = await go(daemon, tmp_path, [('python', {'code': code}), ('finish', {'success': True, 'result': 'ok'})])
 	part = next(p for p in seen[1].parts if isinstance(p, ToolReturnPart))
 	images = [c for c in part.content if not isinstance(c, str)]
 	assert result.status == 'completed' and len(images) == 1
@@ -163,7 +163,7 @@ async def test_workspace_path_is_in_instructions(daemon, tmp_path):
 
 	def fn(messages, info: AgentInfo):
 		seen.append(info.instructions)
-		return ModelResponse(parts=[ToolCallPart('finish', {'result': 'ok'})])
+		return ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': 'ok'})])
 
 	agent, session = build_agent(), Session(repl=Repl(tmp_path, daemon))
 	try:
@@ -194,7 +194,7 @@ async def test_text_reply_gets_one_delivery_repair_turn(daemon, tmp_path):
 			return ModelResponse(parts=[ToolCallPart('python', {'code': 'rows = [1, 2, 3]'})])
 		if len(seen) == 2:
 			return ModelResponse(parts=[TextPart('I found 3 rows.')])
-		return ModelResponse(parts=[ToolCallPart('finish_from_repl', {'expression': 'json.dumps(rows)'})])
+		return ModelResponse(parts=[ToolCallPart('finish_from_repl', {'success': True, 'expression': 'json.dumps(rows)'})])
 
 	agent, session = build_agent(), Session(repl=Repl(tmp_path, daemon))
 	try:
@@ -236,7 +236,7 @@ async def test_budget_turn_forces_delivery_on_the_same_request(daemon, tmp_path)
 	model, seen = _choice_recorder(
 		[
 			ModelResponse(parts=[ToolCallPart('python', {'code': 'x = 1'})]),
-			ModelResponse(parts=[ToolCallPart('finish', {'result': 'one'})]),
+			ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': 'one'})]),
 		]
 	)
 	agent, session = build_agent(), Session(repl=Repl(tmp_path, daemon), max_steps=3)
@@ -255,8 +255,8 @@ async def test_placeholder_or_missing_file_delivery_gets_one_repair(daemon, tmp_
 	# 4n89qk delivered finish("..."); t4p501 linked leads_verified.csv that was never written.
 	model, seen = _choice_recorder(
 		[
-			ModelResponse(parts=[ToolCallPart('finish', {'result': first})]),
-			ModelResponse(parts=[ToolCallPart('finish', {'result': first})]),
+			ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': first})]),
+			ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': first})]),
 		]
 	)
 	agent, session = build_agent(), Session(repl=Repl(tmp_path, daemon))
@@ -273,7 +273,7 @@ async def test_placeholder_or_missing_file_delivery_gets_one_repair(daemon, tmp_
 async def test_existing_file_link_and_short_answer_pass(daemon, tmp_path):
 	(tmp_path / 'out.csv').write_text('a\n1\n')
 	for answer in ['7', 'See [out.csv](out.csv), `out.csv` and [site](https://example.com)']:
-		result, seen = await go(daemon, tmp_path, [('finish', {'result': answer})])
+		result, seen = await go(daemon, tmp_path, [('finish', {'success': True, 'result': answer})])
 		assert (len(seen), result.output) == (1, answer)
 
 
@@ -282,8 +282,8 @@ async def test_partial_result_with_budget_left_gets_one_continue_turn(daemon, tm
 	first = 'Partial: only 5 of 37 listings checked.'
 	model, seen = _choice_recorder(
 		[
-			ModelResponse(parts=[ToolCallPart('finish', {'result': first})]),
-			ModelResponse(parts=[ToolCallPart('finish', {'result': first})]),
+			ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': first})]),
+			ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': first})]),
 		]
 	)
 	agent, session = build_agent(), Session(repl=Repl(tmp_path, daemon))
@@ -304,7 +304,7 @@ async def test_screenshot_is_jpeg(daemon, tmp_path):
 		tmp_path,
 		[
 			('python', {'code': "new_tab('data:text/html,<h1>hi</h1>')\nwait_for_load()\np = screenshot()\np"}),
-			('finish_from_repl', {'expression': 'p'}),
+			('finish_from_repl', {'success': True, 'expression': 'p'}),
 		],
 	)
 	out = [p for p in seen[1].parts if isinstance(p, ToolReturnPart)][0].content

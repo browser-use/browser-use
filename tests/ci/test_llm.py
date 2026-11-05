@@ -1,6 +1,7 @@
 """Model resolution. A local stub server stands in for OpenAI-compatible backends; no provider calls."""
 
 import json
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -20,7 +21,9 @@ def compaction(agent) -> bool:
 FINISH_OK = {
 	'role': 'assistant',
 	'content': None,
-	'tool_calls': [{'id': 't1', 'type': 'function', 'function': {'name': 'finish', 'arguments': '{"result": "ok"}'}}],
+	'tool_calls': [
+		{'id': 't1', 'type': 'function', 'function': {'name': 'finish', 'arguments': '{"result": "ok", "success": true}'}}
+	],
 }
 
 
@@ -125,7 +128,7 @@ def responses_server():
 				status, reply = 400, {'error': {'code': 'stateful_request', 'message': '; '.join(bad)}}
 			else:
 				n = len(requests)
-				output = replies.pop(0) if replies else [reasoning(n), call('finish', {'result': 'ok'}, n)]
+				output = replies.pop(0) if replies else [reasoning(n), call('finish', {'success': True, 'result': 'ok'}, n)]
 				usage = {'input_tokens': 10, 'output_tokens': 2, 'total_tokens': 12,
 						 'input_tokens_details': {'cached_tokens': 0}, 'output_tokens_details': {'reasoning_tokens': 1}}  # fmt: skip
 				status, reply = 200, {
@@ -192,6 +195,117 @@ async def test_gateway_models_run_stateless_responses_with_compaction(responses_
 	assert result.cost_usd == pytest.approx(4 * 0.0002)
 
 
+async def test_text_answer_reaches_the_repair_turn_when_a_compaction_item_ends_the_response(responses_server, tmp_path):
+	"""agent-llm F2: the model answered in text, the response ended with a compaction item, and the delivery repair
+	request was [compaction, retry]: the answer was gone, and the model then said it could not verify anything."""
+	url, requests, replies = responses_server
+	answer = 'There are 120 books; the cheapest is Patience at 10.16.'
+	replies.append(
+		[
+			reasoning(1),
+			{'type': 'message', 'id': 'msg_1', 'role': 'assistant', 'status': 'completed',
+			 'content': [{'type': 'output_text', 'text': answer, 'annotations': []}]},
+			{'type': 'compaction', 'id': 'cmp_1', 'encrypted_content': 'sealed-compaction-1'},
+		]
+	)  # fmt: skip
+	model, settings = resolve_model(ChatBrowserUse(api_key='fake-test-key', base_url=url))
+	agent = build_agent(model, model_settings=settings, reasoning_effort=None)
+	result = await run(agent, 'TASK-TEXT', Session(repl=Repl(tmp_path)), model.model_name)
+	assert result.status == 'completed'
+	repair = requests[1][1]['input']
+	assert repair[0]['type'] == 'compaction' and 'TASK-TEXT' not in json.dumps(repair)  # compacted as before
+	assert answer in json.dumps(repair)  # but the answer to deliver is in the repair request itself
+
+
+@pytest.fixture
+def models_server():
+	"""The gateway's GET /models: answers with `reply` = [status, body, content type]."""
+	reply, seen = [200, {'data': [{'id': 'bu-ultrafast'}, {'id': 'bu-auto'}, {'id': 'gpt-6-luna'}]}, 'application/json'], []
+
+	class Handler(BaseHTTPRequestHandler):
+		def do_GET(self):
+			seen.append((self.path, self.headers.get('Authorization')))
+			status, body, kind = reply
+			data = (json.dumps(body) if kind == 'application/json' else body).encode()
+			self.send_response(status)
+			self.send_header('Content-Type', kind)
+			self.send_header('Content-Length', str(len(data)))
+			self.end_headers()
+			self.wfile.write(data)
+
+		def log_message(self, *args):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	yield f'http://127.0.0.1:{server.server_address[1]}/v1', reply, seen
+	server.shutdown()
+
+
+def error(code: str, message: str) -> dict:
+	return {'error': {'code': code, 'message': message, 'type': code}}
+
+
+def test_preflight_checks_the_gateway_key_and_model_before_anything_starts(models_server):
+	"""agent-llm F4/F6: a gateway that is not deployed, a rejected key or a model the gateway does not serve failed only
+	after a cloud browser had been created and billed."""
+	url, reply, seen = models_server
+	assert ChatBrowserUse(api_key='fake-test-key', base_url=url).preflight() is None
+	assert ChatBrowserUse('openai/gpt-6-luna', api_key='fake-test-key', base_url=url).preflight() is None
+	assert seen[0] == ('/v1/models', 'Bearer fake-test-key')
+	missing = ChatBrowserUse('bu-nonexistent-xyz', api_key='fake-test-key', base_url=url).preflight()
+	assert missing == 'bu-nonexistent-xyz is not on the Browser Use gateway. Listed: bu-auto, bu-ultrafast, gpt-6-luna.'
+	legacy = ChatBrowserUse('bu-2-0', api_key='fake-test-key', base_url=url).preflight()
+	assert legacy and "needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-ultrafast" in legacy
+	reply[:] = [404, '404 page not found', 'text/plain']  # the route itself is missing (Go's default 404)
+	dead = ChatBrowserUse(api_key='fake-test-key', base_url=url).preflight()
+	assert dead and f'not found at {url} (404)' in dead and 'not deployed in this region' in dead
+	assert 'model id' not in dead
+	reply[:] = [401, error('invalid_api_key', 'Invalid API key.'), 'application/json']
+	assert 'API key rejected (401)' in (ChatBrowserUse(api_key='bad', base_url=url).preflight() or '')
+	reply[:] = [403, error('insufficient_scope', 'This API key requires v4:runs:create permission.'), 'application/json']
+	assert 'requires v4:runs:create permission. Run `browser-use login`' in (
+		ChatBrowserUse(api_key='x', base_url=url).preflight() or ''
+	)
+	with socket.socket() as s:  # a port nothing listens on
+		s.bind(('127.0.0.1', 0))
+		closed = f'http://127.0.0.1:{s.getsockname()[1]}/v1'
+	assert 'is not reachable' in (ChatBrowserUse(api_key='x', base_url=closed).preflight() or '')
+
+
+async def test_agent_preflight_failure_never_starts_a_browser(models_server, monkeypatch, tmp_path):
+	from browser_use import Browser
+
+	url, reply, _ = models_server
+	reply[:] = [404, '404 page not found', 'text/plain']
+	started = []
+
+	async def start(self):
+		started.append(self)
+		return {}
+
+	monkeypatch.setattr(Browser, 'start', start)
+	agent = Agent('t', ChatBrowserUse(api_key='fake-test-key', base_url=url), browser=Browser(local=True), workspace=tmp_path)
+	result = await agent.run()
+	assert (result.status, result.steps, result.is_successful()) == ('error', 0, None)
+	assert 'not deployed in this region' in (result.error or '') and started == []
+
+
+def test_gateway_400s_are_one_line_with_the_gateway_message():
+	"""agent-llm F5: 400s came back as 'ModelRequestRejectedError: status_code: 400, model_name: ..., body: {...}'."""
+	from pydantic_ai.exceptions import ModelHTTPError
+
+	legacy = {'code': 'legacy_model', 'message': 'This model requires browser-use<1.0. Use bu-auto with the new library.'}
+	line = ChatBrowserUse('bu-2-0', api_key='x').explain_error(ModelHTTPError(400, 'bu-2-0', legacy))
+	assert line == "bu-2-0 needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-ultrafast with browser-use 1.0."
+	for code in ('invalid_model', 'model_not_on_gateway'):
+		body = {'code': code, 'message': 'Use bu-auto, bu-ultrafast, bu-smart, or a listed OpenAI model.'}
+		line = ChatBrowserUse('kimi-k3', api_key='x').explain_error(ModelHTTPError(400, 'kimi-k3', body))
+		assert line == f'kimi-k3 is not on the Browser Use gateway (400): {body["message"]}'
+	other = {'code': 'invalid_request', 'message': 'n must be 1'}
+	assert ChatBrowserUse(api_key='x').explain_error(ModelHTTPError(400, 'bu-ultrafast', other)) is None
+
+
 def test_every_gateway_model_and_the_gateway_url_use_responses(monkeypatch):
 	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
 	for name in ('bu-ultrafast', 'bu-auto', 'bu-smart', 'gpt-6.1-sol'):
@@ -254,7 +368,8 @@ async def test_gateway_errors_are_one_actionable_line():
 	llm = ChatBrowserUse(api_key='fake-test-key')
 	assert 'cloud.browser-use.com/settings?tab=billing' in llm.explain_error(ModelHTTPError(402, 'bu-ultrafast'))
 	assert 'browser-use login' in llm.explain_error(ModelHTTPError(401, 'bu-ultrafast'))
-	assert '404' in llm.explain_error(ModelHTTPError(404, 'bu-ultrafast'))
+	not_found = llm.explain_error(ModelHTTPError(404, 'bu-ultrafast'))
+	assert f'not found at {GATEWAY_URL} (404)' in not_found and 'model id' not in not_found
 	assert llm.explain_error(ModelHTTPError(500, 'bu-ultrafast')) is None
 	# 403 has several causes: the gateway's own message (body as the OpenAI SDK passes it) names the actual one
 	policy = {'message': 'This project policy does not permit the new Browser Use LLM gateway.', 'code': 'project_policy'}
@@ -373,7 +488,7 @@ async def test_anthropic_text_reply_reaches_delivery_repair_and_finishes(tmp_pat
 
 	client, bodies = anthropic_mock(
 		[{'type': 'text', 'text': 'I found it: 42.'}],
-		[{'type': 'tool_use', 'id': 'tu_1', 'name': 'finish', 'input': {'result': '42'}}],
+		[{'type': 'tool_use', 'id': 'tu_1', 'name': 'finish', 'input': {'result': '42', 'success': True}}],
 	)
 	model = AnthropicModel(name, provider=AnthropicProvider(anthropic_client=client))
 	result = await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), f'anthropic:{name}')

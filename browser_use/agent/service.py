@@ -14,11 +14,11 @@ from typing import Any
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, ToolCallPart
 
 from browser_use.agent.loop import Session, build_agent, reasoning_supported, run
-from browser_use.agent.prompt import CLOUD_PROMPT
+from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, NO_CAPTCHA_PROMPT
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import Browser
 from browser_use.config import load_env
-from browser_use.llm import as_chat_model, on_gateway, resolve_model
+from browser_use.llm import ChatBrowserUse, as_chat_model, gateway_llm, resolve_model
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import check_loop, scoped_secrets
 from browser_use.tools import Tools
@@ -115,6 +115,8 @@ class Agent:
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
 		self.workspace = Path(workspace or tempfile.mkdtemp(prefix='browser-use-')).resolve()
 		self._agent: Any = None
+		self._gateway: ChatBrowserUse | None = None  # set by _build when the model runs on the Browser Use gateway
+		self._preflighted = False
 		self._model_name = self._model_ref = self._provider = ''
 		self._repl: Repl | None = None
 		self._history: list[ModelMessage] | None = None
@@ -146,14 +148,20 @@ class Agent:
 				f'reasoning={self.reasoning!r} is ignored: {self._model_name} gets no reasoning setting. For an '
 				'OpenAI-compatible server pass ChatOpenAI(..., reasoning_effort=...) instead.'
 			)
+		self._gateway = gateway_llm(self.llm)
 		self._agent = build_agent(
 			model,
 			output_type=self.output_model_schema,
-			reasoning_effort=self.reasoning or (None if on_gateway(self.llm) else 'medium'),
+			reasoning_effort=self.reasoning or (None if self._gateway else 'medium'),
 			instructions='\n'.join(
 				filter(
 					None,
-					[CLOUD_PROMPT if self.browser.use_cloud else '', redact(self.extend_system_message, self.sensitive_data)],
+					[
+						f'{CLOUD_PROMPT} {CAPTCHA_PROMPT if self.browser.captcha_solver else NO_CAPTCHA_PROMPT}'
+						if self.browser.use_cloud
+						else '',
+						redact(self.extend_system_message, self.sensitive_data),
+					],
 				)
 			),
 			mode=self.mode,
@@ -162,10 +170,15 @@ class Agent:
 		)
 
 	async def run(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
-		"""Run the current task. max_steps: model requests. timeout: seconds for the agent loop (model requests and
-		cells); starting the browser before it and stopping it (with cloud downloads) after it are not counted."""
+		"""Run the current task. max_steps: model requests; request max_steps-1 is a delivery-only turn and the last
+		one is kept for a delivery repair. timeout: seconds for the agent loop (model requests and cells); starting the
+		browser before it and stopping it (with cloud downloads) after it are not counted."""
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent.run')
+		if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
+			raise ValueError(f'max_steps must be a whole number >= 1, not {max_steps!r}')
+		if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not timeout > 0:
+			raise ValueError(f'timeout must be a number of seconds > 0, not {timeout!r}')
 		if self._running:  # two runs would each start a REPL (one leaks) and stop each other's browser
 			raise RuntimeError('This Agent is already running; await that run() first, or use one Agent per concurrent task.')
 		self._running = True
@@ -185,6 +198,14 @@ class Agent:
 		try:
 			if self._repl is None:
 				check_loop()  # before the browser starts: a cloud browser bills from its create
+				if self._gateway and not self._preflighted:  # a dead gateway or a bad model fails before any browser
+					if error := await asyncio.to_thread(self._gateway.preflight):
+						logger.error(error)
+						usage = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
+						duration = time.monotonic() - started
+						result = AgentHistoryList('error', '', None, 0, duration, usage, 0.0, None, error, [], None)
+						return result
+					self._preflighted = True
 				self.workspace.mkdir(parents=True, exist_ok=True)
 				env = await self.browser.start()
 				browser_s = time.monotonic() - started
@@ -197,7 +218,7 @@ class Agent:
 				session,
 				self._model_ref,
 				message_history=history,
-				explain_error=getattr(self.llm, 'explain_error', None),
+				explain_error=self._gateway.explain_error if self._gateway else None,
 			)
 			self._history = result.messages
 			if result.status == 'error':
@@ -333,7 +354,7 @@ class Agent:
 					browser_start_seconds=browser_s,
 					status=status,
 					success=result.is_successful() if result else None,
-					max_steps_hit=status == 'max_steps',
+					max_steps_hit=status == 'max_steps' or bool(session and session.budget_hit == 'max_steps'),
 					timed_out=status == 'timeout',
 					finish_via=session.finish_via if session and status == 'completed' else None,
 					partial_used=bool(result and status != 'completed' and result.partial is not None),

@@ -11,7 +11,11 @@ Any Pydantic AI model string ('openai:gpt-6-luna', 'anthropic:claude-...', 'goog
 
 from __future__ import annotations
 
+import json
 import os
+import re
+import urllib.error
+import urllib.request
 from typing import Any
 from urllib.parse import urlparse
 
@@ -21,6 +25,8 @@ GATEWAY_URL = 'https://api.browser-use.com/api/llm/v1'
 BILLING_URL = 'https://cloud.browser-use.com/settings?tab=billing'
 DEFAULT_MODEL = 'bu-ultrafast'  # gpt-6-luna, low reasoning, priority tier. bu-auto: same model, medium, default tier
 GATEWAY_UPSTREAM = {'bu-smart': 'gpt-6.1-sol', 'bu-smart-v1': 'gpt-6.1-sol'}  # other bu-* aliases run gpt-6-luna
+LEGACY_MODEL = re.compile(r'bu-(latest|\d+-\d+)\b')  # bu-2-0, bu-1-0, bu-2-0-mini-preview, bu-latest: the 0.x gateway
+PREFLIGHT_TIMEOUT_S = 15
 EXTRAS = {'anthropic': 'anthropic', 'google-gla': 'google', 'google-vertex': 'google', 'google': 'google'}
 
 
@@ -76,10 +82,18 @@ class ChatBrowserUse:
 
 	def explain_error(self, e: Exception) -> str | None:
 		"""One actionable line for gateway HTTP errors. The gateway's own message wins: it names the actual cause."""
-		status = getattr(e, 'status_code', None)
-		code = getattr(e, 'provider_error_code', None)
 		body = getattr(e, 'body', None)
-		message = body.get('message') if isinstance(body, dict) else None
+		body = body if isinstance(body, dict) else {}
+		code = getattr(e, 'provider_error_code', None) or body.get('code')
+		return self._explain(getattr(e, 'status_code', None), code, body.get('message'))
+
+	def _explain(self, status: int | None, code: str | None, message: str | None) -> str | None:
+		if code == 'legacy_model' or (status == 400 and LEGACY_MODEL.match(self.model)):
+			return (
+				f"{self.model} needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-ultrafast with browser-use 1.0."
+			)
+		if status == 400 and code in ('invalid_model', 'model_not_on_gateway'):
+			return f'{self.model} is not on the Browser Use gateway (400): {message or "use bu-ultrafast, bu-auto or bu-smart."}'
 		if status == 401:
 			return 'Browser Use API key rejected (401). Run `browser-use login` or check BROWSER_USE_API_KEY.'
 		if status == 402:
@@ -93,9 +107,38 @@ class ChatBrowserUse:
 				f'{self.model} is not available for this account (403). '
 				'Use your own model meanwhile, e.g. llm=ChatOpenAI("gpt-6-luna").'
 			)
-		if status == 404:
-			return f'{self.model} is not on the Browser Use gateway (404). Check the model id or use llm=ChatOpenAI(...).'
+		if status == 404:  # unknown models are 400s: a 404 is the route itself
+			return (
+				f'The Browser Use gateway was not found at {self.base_url} (404): it is not deployed in this region yet, '
+				'or base_url is wrong. Use your own model meanwhile, e.g. llm=ChatOpenAI("gpt-6-luna").'
+			)
 		return None
+
+	def preflight(self) -> str | None:
+		"""GET {base_url}/models (free): a gateway that is not there, a rejected key or a model the gateway does not
+		list fails here, before a cloud browser is created and billed. Returns the error line, or None."""
+		key = self.api_key or browser_use_api_key(f'The default model ({self.model})')
+		url = f'{self.base_url.rstrip("/")}/models'
+		request = urllib.request.Request(url, headers={'Authorization': f'Bearer {key}'})
+		try:
+			with urllib.request.urlopen(request, timeout=PREFLIGHT_TIMEOUT_S) as r:
+				listed = {m.get('id') for m in json.loads(r.read()).get('data') or [] if isinstance(m, dict)}
+		except urllib.error.HTTPError as e:
+			try:
+				error = json.loads(e.read()).get('error') or {}
+			except (ValueError, AttributeError):  # Go's plain-text 404
+				error = {}
+			error = error if isinstance(error, dict) else {}
+			return self._explain(e.code, error.get('code'), error.get('message')) or (
+				f'The Browser Use gateway at {self.base_url} answered HTTP {e.code}: {str(error.get("message") or e.reason)[:300]}'
+			)
+		except (OSError, ValueError) as e:  # refused, DNS, timeout, not JSON
+			return f'The Browser Use gateway at {self.base_url} is not reachable: {e}'
+		if not listed or self.model in listed or self.model.removeprefix('openai/') in listed:
+			return None
+		if LEGACY_MODEL.match(self.model):
+			return self._explain(400, 'legacy_model', None)
+		return f'{self.model} is not on the Browser Use gateway. Listed: {", ".join(sorted(str(m) for m in listed))}.'
 
 
 class ChatOpenAI:
@@ -206,8 +249,13 @@ def model_ref(llm: Any) -> Any:
 	return f'{"openai-responses" if provider == "openai" else provider}:{name}'
 
 
-def on_gateway(llm: Any) -> bool:
-	return isinstance(llm, ChatBrowserUse) or (isinstance(llm, ChatOpenAI) and llm.is_gateway)
+def gateway_llm(llm: Any) -> ChatBrowserUse | None:
+	"""The ChatBrowserUse an llm runs as on the Browser Use gateway (ChatOpenAI with the gateway URL too), else None."""
+	if isinstance(llm, ChatBrowserUse):
+		return llm
+	if isinstance(llm, ChatOpenAI) and llm.is_gateway:
+		return ChatBrowserUse(llm.model, api_key=llm.api_key, base_url=llm.url)
+	return None
 
 
 def as_chat_model(llm: Any) -> Any:
