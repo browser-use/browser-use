@@ -221,6 +221,7 @@ class Browser:
 		# The POST records the id from its own thread: a start cancelled mid-request still knows which browser to stop.
 		self._creating = _POOL.submit(self._create, body)
 		await asyncio.wrap_future(self._creating)
+		assert self.cloud_cdp_url, 'the cloud API returned no cdpUrl'
 		return await asyncio.to_thread(_ws_url, self.cloud_cdp_url)
 
 	def _create(self, body: dict) -> None:

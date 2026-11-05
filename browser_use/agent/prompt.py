@@ -47,7 +47,7 @@ Finish with finish_from_repl(expression='result_variable') to deliver existing d
 
 def secrets_prompt(secrets: list[tuple[str, str, str | None]]) -> str:
 	names = ', '.join(
-		json.dumps(n) + (f' (only on {", ".join(sorted(scopes))})' if None not in scopes else '')
+		json.dumps(n) + (f' (only on {", ".join(sorted(s for s in scopes if s))})' if None not in scopes else '')
 		for n in sorted({n for n, _, _ in secrets})
 		for scopes in [{scope for m, _, scope in secrets if m == n}]
 	)

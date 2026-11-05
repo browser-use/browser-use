@@ -26,7 +26,7 @@ import sys
 import urllib.parse
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 MODES = ('default', 'ultrafast')
 STREAM_LIMIT = 256 * 1024 * 1024
@@ -78,7 +78,7 @@ def scoped_secrets(sensitive_data: Secrets | None) -> list[tuple[str, str, str |
 	if not isinstance(sensitive_data, dict):
 		return [(t[0], t[1], t[2] if len(t) > 2 else None) for t in sensitive_data]
 	out: list[tuple[str, str, str | None]] = []
-	for key, value in sensitive_data.items():
+	for key, value in cast(dict[str, Any], sensitive_data).items():
 		if isinstance(value, dict):
 			for name, v in value.items():
 				if not isinstance(v, str):
