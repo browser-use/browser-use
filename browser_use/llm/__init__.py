@@ -1,164 +1,178 @@
+"""Models. Default: bu-auto on the Browser Use gateway (one Browser Use API key runs model and browser).
+
+ChatBrowserUse  the gateway (OpenAI-compatible chat completions)
+ChatOpenAI      api.openai.com -> Responses API (the evaluated setup); any other base_url -> chat completions
+ChatAnthropic   needs `browser-use[anthropic]`
+ChatGoogle      needs `browser-use[google]`
+
+Any Pydantic AI model string ('openai:gpt-6-luna', 'anthropic:claude-...', 'google-gla:gemini-...') or Model works too.
 """
-We have switched all of our code from langchain to openai.types.chat.chat_completion_message_param.
 
-For easier transition we have
-"""
+from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any
 
-# Lightweight imports that are commonly used
-from browser_use.llm.base import BaseChatModel
-from browser_use.llm.messages import (
-	AssistantMessage,
-	BaseMessage,
-	SystemMessage,
-	UserMessage,
-)
-from browser_use.llm.messages import (
-	ContentPartImageParam as ContentImage,
-)
-from browser_use.llm.messages import (
-	ContentPartRefusalParam as ContentRefusal,
-)
-from browser_use.llm.messages import (
-	ContentPartTextParam as ContentText,
-)
+from browser_use.auth import browser_use_api_key
 
-# Type stubs for lazy imports
-if TYPE_CHECKING:
-	from browser_use.llm.anthropic.chat import ChatAnthropic
-	from browser_use.llm.aws.chat_anthropic import ChatAnthropicBedrock
-	from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
-	from browser_use.llm.azure.chat import ChatAzureOpenAI
-	from browser_use.llm.browser_use.chat import ChatBrowserUse
-	from browser_use.llm.cerebras.chat import ChatCerebras
-	from browser_use.llm.deepseek.chat import ChatDeepSeek
-	from browser_use.llm.google.chat import ChatGoogle
-	from browser_use.llm.groq.chat import ChatGroq
-	from browser_use.llm.mistral.chat import ChatMistral
-	from browser_use.llm.oci_raw.chat import ChatOCIRaw
-	from browser_use.llm.ollama.chat import ChatOllama
-	from browser_use.llm.openai.chat import ChatOpenAI
-	from browser_use.llm.openrouter.chat import ChatOpenRouter
-	from browser_use.llm.orcarouter.chat import ChatOrcaRouter
-	from browser_use.llm.vercel.chat import ChatVercel
-
-	# Type stubs for model instances - enables IDE autocomplete
-	openai_gpt_4o: ChatOpenAI
-	openai_gpt_4o_mini: ChatOpenAI
-	openai_gpt_4_1_mini: ChatOpenAI
-	openai_o1: ChatOpenAI
-	openai_o1_mini: ChatOpenAI
-	openai_o1_pro: ChatOpenAI
-	openai_o3: ChatOpenAI
-	openai_o3_mini: ChatOpenAI
-	openai_o3_pro: ChatOpenAI
-	openai_o4_mini: ChatOpenAI
-	openai_gpt_5: ChatOpenAI
-	openai_gpt_5_mini: ChatOpenAI
-	openai_gpt_5_nano: ChatOpenAI
-
-	azure_gpt_4o: ChatAzureOpenAI
-	azure_gpt_4o_mini: ChatAzureOpenAI
-	azure_gpt_4_1_mini: ChatAzureOpenAI
-	azure_o1: ChatAzureOpenAI
-	azure_o1_mini: ChatAzureOpenAI
-	azure_o1_pro: ChatAzureOpenAI
-	azure_o3: ChatAzureOpenAI
-	azure_o3_mini: ChatAzureOpenAI
-	azure_o3_pro: ChatAzureOpenAI
-	azure_gpt_5: ChatAzureOpenAI
-	azure_gpt_5_mini: ChatAzureOpenAI
-
-	google_gemini_2_0_flash: ChatGoogle
-	google_gemini_2_0_pro: ChatGoogle
-	google_gemini_2_5_pro: ChatGoogle
-	google_gemini_2_5_flash: ChatGoogle
-	google_gemini_2_5_flash_lite: ChatGoogle
-
-# Models are imported on-demand via __getattr__
-
-# Lazy imports mapping for heavy chat models
-_LAZY_IMPORTS = {
-	'ChatAnthropic': ('browser_use.llm.anthropic.chat', 'ChatAnthropic'),
-	'ChatAnthropicBedrock': ('browser_use.llm.aws.chat_anthropic', 'ChatAnthropicBedrock'),
-	'ChatAWSBedrock': ('browser_use.llm.aws.chat_bedrock', 'ChatAWSBedrock'),
-	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
-	'ChatBrowserUse': ('browser_use.llm.browser_use.chat', 'ChatBrowserUse'),
-	'ChatCerebras': ('browser_use.llm.cerebras.chat', 'ChatCerebras'),
-	'ChatDeepSeek': ('browser_use.llm.deepseek.chat', 'ChatDeepSeek'),
-	'ChatGoogle': ('browser_use.llm.google.chat', 'ChatGoogle'),
-	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
-	'ChatMistral': ('browser_use.llm.mistral.chat', 'ChatMistral'),
-	'ChatOCIRaw': ('browser_use.llm.oci_raw.chat', 'ChatOCIRaw'),
-	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
-	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
-	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
-	'ChatOrcaRouter': ('browser_use.llm.orcarouter.chat', 'ChatOrcaRouter'),
-	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
-}
-
-# Cache for model instances - only created when accessed
-_model_cache: dict[str, 'BaseChatModel'] = {}
+GATEWAY_URL = 'https://api.browser-use.com/api/llm/v1'
+DEFAULT_MODEL = 'bu-auto'
+EXTRAS = {'anthropic': 'anthropic', 'google-gla': 'google', 'google-vertex': 'google', 'google': 'google'}
 
 
-def __getattr__(name: str):
-	"""Lazy import mechanism for heavy chat model imports and model instances."""
-	if name in _LAZY_IMPORTS:
-		module_path, attr_name = _LAZY_IMPORTS[name]
+class ChatBrowserUse:
+	"""Browser Use gateway models ('bu-auto', 'bu-smart', ...). The key is BROWSER_USE_API_KEY or `browser-use auth login`."""
+
+	provider = 'browser-use'
+
+	def __init__(self, model: str = DEFAULT_MODEL, *, api_key: str | None = None, base_url: str = GATEWAY_URL):
+		self.model, self.api_key, self.base_url = model, api_key, base_url
+
+	def pydantic_model(self) -> Any:
+		from pydantic_ai.models.openai import OpenAIChatModel
+		from pydantic_ai.providers.openai import OpenAIProvider
+
+		key = self.api_key or browser_use_api_key(f'The default model ({self.model})')
+		return OpenAIChatModel(self.model, provider=OpenAIProvider(base_url=self.base_url, api_key=key))
+
+	def model_settings(self) -> dict:
+		return {}
+
+	def explain_error(self, e: Exception) -> str | None:
+		"""One actionable line for gateway HTTP errors."""
+		status = getattr(e, 'status_code', None)
+		if status == 401:
+			return 'Browser Use API key rejected (401). Run `browser-use auth login` or check BROWSER_USE_API_KEY.'
+		if status == 402:
+			return 'Out of Browser Use credits (402): add credits at https://cloud.browser-use.com/billing'
+		if status == 403:
+			return (
+				f'{self.model} is not available for this account (403): it is US-only for now. '
+				'Use your own model meanwhile, e.g. llm=ChatOpenAI("gpt-6-luna").'
+			)
+		if status == 404:
+			return f'{self.model} is not on the Browser Use gateway (404). Check the model id or use llm=ChatOpenAI(...).'
+		return None
+
+
+class ChatOpenAI:
+	"""OpenAI, or any OpenAI-compatible server via base_url (DeepSeek, vLLM, Ollama, OpenRouter, ...)."""
+
+	provider = 'openai'
+
+	def __init__(
+		self,
+		model: str,
+		*,
+		api_key: str | None = None,
+		base_url: str | None = None,
+		temperature: float | None = None,
+		reasoning_effort: str | None = None,
+	):
+		self.model, self.api_key, self.base_url = model, api_key, base_url
+		self.temperature, self.reasoning_effort = temperature, reasoning_effort
+
+	@property
+	def is_official(self) -> bool:
+		return not self.base_url or 'api.openai.com' in self.base_url
+
+	def pydantic_model(self) -> Any:
+		from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+		from pydantic_ai.providers.openai import OpenAIProvider
+
+		provider = OpenAIProvider(api_key=self.api_key, base_url=self.base_url)
+		if self.is_official:  # Responses API + server-side compaction: what we evaluate
+			return OpenAIResponsesModel(self.model, provider=provider)
+		return OpenAIChatModel(self.model, provider=provider)  # plain chat completions, no OpenAI-only settings
+
+	def model_settings(self) -> dict:
+		settings: dict = {}
+		if self.temperature is not None:
+			settings['temperature'] = self.temperature
+		if self.reasoning_effort is not None:
+			settings['openai_reasoning_effort'] = self.reasoning_effort
+		return settings
+
+
+class ChatAnthropic:
+	provider = 'anthropic'
+
+	def __init__(self, model: str, *, api_key: str | None = None):
+		self.model, self.api_key = model, api_key
+
+	def pydantic_model(self) -> Any:
 		try:
-			from importlib import import_module
+			from pydantic_ai.models.anthropic import AnthropicModel
+			from pydantic_ai.providers.anthropic import AnthropicProvider
+		except ImportError:
+			raise ImportError(extra_hint('anthropic')) from None
+		return AnthropicModel(self.model, provider=AnthropicProvider(api_key=self.api_key))
 
-			module = import_module(module_path)
-			attr = getattr(module, attr_name)
-			return attr
-		except ImportError as e:
-			raise ImportError(f'Failed to import {name} from {module_path}: {e}') from e
-
-	# Check cache first for model instances
-	if name in _model_cache:
-		return _model_cache[name]
-
-	# Try to get model instances from models module on-demand
-	try:
-		from browser_use.llm.models import __getattr__ as models_getattr
-
-		attr = models_getattr(name)
-		# Cache in our clean cache dict
-		_model_cache[name] = attr
-		return attr
-	except (AttributeError, ImportError):
-		pass
-
-	raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+	def model_settings(self) -> dict:
+		return {}
 
 
-__all__ = [
-	# Message types -> for easier transition from langchain
-	'BaseMessage',
-	'UserMessage',
-	'SystemMessage',
-	'AssistantMessage',
-	# Content parts with better names
-	'ContentText',
-	'ContentRefusal',
-	'ContentImage',
-	# Chat models
-	'BaseChatModel',
-	'ChatOpenAI',
-	'ChatBrowserUse',
-	'ChatDeepSeek',
-	'ChatGoogle',
-	'ChatAnthropic',
-	'ChatAnthropicBedrock',
-	'ChatAWSBedrock',
-	'ChatGroq',
-	'ChatMistral',
-	'ChatAzureOpenAI',
-	'ChatOCIRaw',
-	'ChatOllama',
-	'ChatOpenRouter',
-	'ChatOrcaRouter',
-	'ChatVercel',
-	'ChatCerebras',
-]
+class ChatGoogle:
+	provider = 'google'
+
+	def __init__(self, model: str, *, api_key: str | None = None):
+		self.model, self.api_key = model, api_key
+
+	def pydantic_model(self) -> Any:
+		try:
+			from pydantic_ai.models.google import GoogleModel
+			from pydantic_ai.providers.google import GoogleProvider
+		except ImportError:
+			raise ImportError(extra_hint('google')) from None
+		return GoogleModel(self.model, provider=GoogleProvider(api_key=self.api_key))
+
+	def model_settings(self) -> dict:
+		return {}
+
+
+CHAT_MODELS = (ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle)
+
+
+def extra_hint(extra: str) -> str:
+	return f"This model needs the {extra} extra: pip install 'browser-use[{extra}]'"
+
+
+def model_ref(llm: Any) -> Any:
+	"""'openai/gpt-5.6-luna' (bu-pi style) -> 'openai-responses:gpt-5.6-luna'. Pydantic AI strings and models pass through."""
+	if not isinstance(llm, str) or ':' in llm or '/' not in llm:
+		return llm
+	provider, name = llm.split('/', 1)
+	return f'{"openai-responses" if provider == "openai" else provider}:{name}'
+
+
+def as_chat_model(llm: Any) -> Any:
+	"""None and 'bu-*' strings -> ChatBrowserUse. Everything else is returned unchanged (validated by resolve_model)."""
+	if llm is None:
+		return ChatBrowserUse()
+	if isinstance(llm, str) and llm.startswith('bu-'):
+		return ChatBrowserUse(llm)
+	return llm
+
+
+def resolve_model(llm: Any) -> tuple[Any, dict]:
+	"""-> (Pydantic AI Model, extra model settings). Raises before any browser starts: missing key, missing extra."""
+	from pydantic_ai.models import Model, infer_model
+
+	if isinstance(llm, CHAT_MODELS):
+		return llm.pydantic_model(), llm.model_settings()
+	if isinstance(llm, Model):
+		return llm, {}
+	if isinstance(llm, str):
+		ref = model_ref(llm)
+		try:
+			return infer_model(ref), {}
+		except ImportError:
+			prefix = str(ref).split(':', 1)[0]
+			raise ImportError(extra_hint(EXTRAS.get(prefix, prefix))) from None
+	raise TypeError(
+		f'llm={type(llm).__name__} is not supported in browser-use 1.0. Pass ChatBrowserUse(), ChatOpenAI(...), '
+		"ChatAnthropic(...), ChatGoogle(...), a Pydantic AI model string like 'groq:llama-3.3-70b' or a Pydantic AI "
+		'Model. See MIGRATING.md.'
+	)
+
+
+__all__ = ['ChatAnthropic', 'ChatBrowserUse', 'ChatGoogle', 'ChatOpenAI', 'GATEWAY_URL', 'model_ref', 'resolve_model']
