@@ -111,6 +111,7 @@ class Agent:
 		self._repl: Repl | None = None
 		self._history: list[ModelMessage] | None = None
 		self._continue = False
+		self._runner: asyncio.Runner | None = None  # run_sync's event loop, kept while the REPL lives
 
 	def add_new_task(self, task: str) -> None:
 		"""The next run() continues this conversation with a new task."""
@@ -152,16 +153,16 @@ class Agent:
 				self._repl = Repl(self.workspace, env, mode=self.mode, secrets=self.sensitive_data)
 			(self._repl.state / 'partial.json').unlink(missing_ok=True)  # a partial belongs to one run
 			session = Session(repl=self._repl, timeout_s=timeout, max_steps=max_steps)
-			explain = getattr(self.llm, 'explain_error', None)
+			history, self._continue = (self._history if self._continue else None), False
 			result = await run(
 				self._agent,
 				self.task,
 				session,
 				self._model_name,
-				message_history=self._history if self._continue else None,
-				explain_error=explain,
+				message_history=history,
+				explain_error=getattr(self.llm, 'explain_error', None),
 			)
-			self._history, self._continue = result.messages, False
+			self._history = result.messages
 			if result.status == 'error':
 				logger.error(result.error)
 			return result
@@ -169,12 +170,20 @@ class Agent:
 			error = f'{type(e).__name__}: {e}'
 			raise
 		finally:
-			if not self.browser.keep_alive and not self._continue:
+			if not self.browser.keep_alive:
 				await self._shutdown()
 			self._capture(result, error, max_steps, time.monotonic() - started)
 
 	def run_sync(self, max_steps: int = 100, timeout: float = 1700) -> AgentHistoryList:
-		return asyncio.run(self.run(max_steps=max_steps, timeout=timeout))
+		"""run() without async. One event loop serves every run_sync() while the REPL lives (Browser(keep_alive=True)),
+		because the REPL worker's pipes belong to the loop that started it."""
+		self._runner = self._runner or asyncio.Runner()
+		try:
+			return self._runner.run(self.run(max_steps=max_steps, timeout=timeout))
+		finally:
+			if self._repl is None:
+				self._runner.close()
+				self._runner = None
 
 	async def _shutdown(self) -> None:
 		"""Stop the REPL and the browser; a cloud browser's downloads land in workspace/downloads."""

@@ -76,11 +76,13 @@ class Repl:
 		self.workspace, self.env, self.n, self.mode = workspace, env or {}, 0, check_mode(mode)
 		self.secrets = dict(secrets or {})
 		self.proc: asyncio.subprocess.Process | None = None
+		self.loop: asyncio.AbstractEventLoop | None = None
 		self.state = workspace / '.browser-use'
 		self.lock = asyncio.Lock()  # the model may emit parallel python calls; the worker runs one cell at a time
 
 	async def start(self) -> None:
 		self.state.mkdir(parents=True, exist_ok=True)
+		self.loop = asyncio.get_running_loop()
 		token = secrets.token_hex(32)
 		connected: asyncio.Future = asyncio.get_running_loop().create_future()
 
@@ -132,7 +134,8 @@ class Repl:
 	async def close(self) -> None:
 		if self.proc and self.proc.returncode is None:
 			self.proc.kill()
-			await self.proc.wait()
+			if self.loop is asyncio.get_running_loop():  # a process can only be awaited on the loop that started it
+				await self.proc.wait()
 		self.proc = None
 
 	async def call(self, op: str, code: str, timeout: float) -> dict[str, Any]:

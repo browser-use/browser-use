@@ -150,3 +150,51 @@ async def test_telemetry_event_has_no_code_or_secrets(tmp_path, monkeypatch):
 	assert props['action_history'] is None and props['urls_visited'] is None and props['final_result_response'] is None
 	assert props['steps'] == 2 and props['success'] is True and props['judge_verdict'] is None
 	assert 'secret code cell' not in str(props) and 'the answer' not in str(props)
+
+
+@pytest.fixture
+def fake_browser(monkeypatch):
+	"""Browser.start/stop as no-ops that count stops; the REPL worker still runs for real."""
+	stops = []
+
+	async def start(self):
+		return {}
+
+	async def stop(self, downloads_dir=None):
+		stops.append(self)
+		return []
+
+	monkeypatch.setattr(Browser, 'start', start)
+	monkeypatch.setattr(Browser, 'stop', stop)
+	return stops
+
+
+def test_run_sync_follow_up_keeps_the_repl_with_keep_alive(fake_browser, tmp_path):
+	# 0.x scripts call run_sync() twice; the REPL worker belongs to the first call's event loop.
+	model, _ = script(
+		('python', {'code': 'x = 41'}), ('finish', {'result': 'one'}), ('finish_from_repl', {'expression': 'str(x + 1)'})
+	)
+	agent = Agent('t', model, browser=Browser(local=True, keep_alive=True), workspace=tmp_path)
+	assert agent.run_sync().final_result() == 'one'
+	agent.add_new_task('again')
+	second = agent.run_sync()
+	assert second.final_result() == '42', second.error  # same REPL: the variable survived
+	import asyncio
+
+	asyncio.run(agent.close())  # from another loop: kills the worker without awaiting it
+	assert agent._repl is None and not fake_browser
+
+
+async def test_failed_follow_up_still_stops_the_browser(fake_browser, monkeypatch, tmp_path):
+	model, _ = script(('finish', {'result': 'one'}))
+	agent = Agent('t', model, browser=Browser(local=True), workspace=tmp_path)
+	assert (await agent.run()).final_result() == 'one' and len(fake_browser) == 1
+
+	async def broken(self):
+		raise RuntimeError('browser failed')
+
+	monkeypatch.setattr(Browser, 'start', broken)
+	agent.add_new_task('again')
+	with pytest.raises(RuntimeError, match='browser failed'):
+		await agent.run()
+	assert len(fake_browser) == 2  # a pending follow-up no longer keeps a failed run's browser alive
