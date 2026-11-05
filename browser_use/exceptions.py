@@ -4,5 +4,5 @@ class MissingAPIKeyError(RuntimeError):
 	def __init__(self, what: str = 'Browser Use Cloud'):
 		super().__init__(
 			f'{what} needs a Browser Use API key. Run `browser-use auth login` (or set BROWSER_USE_API_KEY), '
-			'or use a local browser and your own model: Agent(task, llm=ChatOpenAI(...), browser=Browser(local=True)).'
+			"or use a local browser and your own model: Agent(task, llm=ChatOpenAI(...), browser=Browser('chromium'))."
 		)

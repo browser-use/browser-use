@@ -13,10 +13,10 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 | | 0.x | 1.0 |
 |---|---|---|
 | Model (`llm=None`) | required | `bu-auto` on the Browser Use gateway |
-| Browser (`Browser()`) | local Chromium | Browser Use Cloud browser (`Browser(local=True)` for your Chrome) |
+| Browser (`Browser()`) | local Chromium | Browser Use Cloud browser (`Browser('chromium')` / `local=True` for a local one) |
 | Key | per provider | one Browser Use key: `browser-use auth login` or `BROWSER_USE_API_KEY`. A `.env` in the working directory is read on import, as in 0.x |
 | Python | >= 3.11 | >= 3.11 |
-| Tasks with localhost / private IPs | worked | raise with a cloud browser; use `Browser(local=True)` |
+| Tasks with localhost / private IPs | worked | raise with a cloud browser; use `Browser('chromium')` |
 | Cloud proxy | off | `us` (`cloud_proxy_country_code=None` turns it off) |
 | Cloud live view | | off (`live_view=True` prints and opens it) |
 
@@ -82,31 +82,39 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 |---|---|
 | `Browser()` / `BrowserSession()` | `Browser()` is now a cloud browser; `BrowserSession` and `BrowserProfile` imports raise |
 | `Browser(use_cloud=True)` | kept (now the default) |
-| `Browser(use_cloud=False)` | `Browser(local=True)`: your desktop Chrome and its real profile, through browser-harness |
-| `cdp_url=` | kept |
+| `Browser(use_cloud=False)` | `Browser('chromium')` (`Browser(local=True)` is the same): a fresh local Chrome/Chromium/Edge with its own temp profile, launched like 0.x did, deleted when it stops |
+| `headless`, `executable_path` | kept for browsers 1.0 launches (`'chromium'`, `'chrome'` with `profile=`). `headless=None` (default) is headless only without a display |
+| `user_data_dir` | kept with `Browser('chromium', user_data_dir=...)`: a dedicated profile dir kept between runs. Chrome's own default dir raises: Chrome 136+ refuses remote debugging on it |
+| `Browser.from_system_chrome()`, `profile_directory` | `Browser('chrome')` attaches to the Chrome you have open (enable chrome://inspect/#remote-debugging once, click Allow). `Browser('chrome', profile='Work')` launches a new Chrome on a temporary copy of that profile (display name or directory such as `'Profile 1'`): your logins, your Chrome can stay open, nothing is written back |
 | `keep_alive=True` | kept |
 | `cloud_profile_id`, `cloud_proxy_country_code`, `cloud_timeout` | kept |
 | `cloud_browser_params` | raises: use `cloud_profile_id`, `cloud_proxy_country_code`, `cloud_timeout` |
-| `Browser.from_system_chrome()` | not yet |
+
+`Browser(local=True)` meant "your Chrome" in the 1.0 pre-releases; it now means `Browser('chromium')`. For your own
+Chrome, write `Browser('chrome')`. Options that do not fit the browser (`headless` on a cloud browser, `profile` on
+`'chromium'`, `cloud_profile_id` on a local one, ...) raise `ValueError` naming the right call.
+
+`Browser('chrome')` attaches where browser-harness does: its running default daemon, else the first browser with
+remote debugging on, Google Chrome first. When several are on and none is Google Chrome it raises instead of guessing.
 
 Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` naming it. What to do instead:
 
 | 0.x options | 1.0 |
 |---|---|
-| launching Chromium: `headless`, `executable_path`, `channel`, `user_data_dir`, `profile_directory`, `args`, `ignore_default_args`, `env`, `chromium_sandbox`, `devtools`, `enable_default_extensions`, `disable_security`, `is_local` | 1.0 never launches a browser with options. Desktop: `Browser(local=True)` uses your Chrome. Anything custom: start Chrome yourself with the flags you want (`chrome --remote-debugging-port=9222 --user-data-dir=/tmp/p --headless=new ...`) and pass `Browser(cdp_url='http://127.0.0.1:9222')`. Or use the cloud browser |
-| headless / servers / Docker (`headless=True`, `browser-use install`, the 0.x Dockerfile) | `Browser()` (cloud, always headless), or run `chromium --headless=new --remote-debugging-port=9222` in the container and pass `cdp_url=`. `Browser(local=True)` needs a desktop Chrome. `browser-use install` no longer downloads a browser |
-| window and identity: `window_size`, `window_width`, `window_height`, `window_position`, `viewport`, `no_viewport`, `screen`, `device_scale_factor`, `user_agent`, `headers` | Chrome flags (`--window-size=1280,800`, `--user-agent=...`) on a Chrome you start + `cdp_url=`, or say it in the task: the agent can send `Emulation.setDeviceMetricsOverride`, `Network.setUserAgentOverride`, `Network.setExtraHTTPHeaders` itself |
-| downloads: `downloads_path`, `accept_downloads`, `auto_download_pdfs` | cloud: files the browser downloaded are copied to `agent.workspace/downloads` when it stops. Local / `cdp_url`: the browser's own download folder; the agent can set `Browser.setDownloadBehavior` |
+| other launch options: `channel`, `args`, `ignore_default_args`, `env`, `chromium_sandbox`, `devtools`, `enable_default_extensions`, `disable_security`, `is_local` | raise. `channel`: pass `executable_path=`. `--no-sandbox` is added on Linux as root or in a container, and once more if Chrome reports no usable sandbox |
+| servers / Docker / CI (`browser-use install`, the 0.x Dockerfile) | `Browser('chromium')` is headless there by default (no display); or `Browser()` (cloud). `browser-use install` no longer downloads a browser: install Chrome or Chromium (`BH_CHROME_PATH` / `CHROME_PATH` point at a binary) |
+| window and identity: `window_size`, `window_width`, `window_height`, `window_position`, `viewport`, `no_viewport`, `screen`, `device_scale_factor`, `user_agent`, `headers` | say it in the task: the agent can send `Emulation.setDeviceMetricsOverride`, `Network.setUserAgentOverride`, `Network.setExtraHTTPHeaders` itself. Headless launches use 1440x900 |
+| downloads: `downloads_path`, `accept_downloads`, `auto_download_pdfs` | cloud: files the browser downloaded are copied to `agent.workspace/downloads` when it stops. Local: the browser's own download folder; the agent can set `Browser.setDownloadBehavior` |
 | `permissions` | say it in the task: the agent can send `Browser.grantPermissions` |
-| `proxy` (`server`, `bypass`, `username`, `password`) | cloud: `cloud_proxy_country_code`. Your own Chrome: `--proxy-server=...` + `cdp_url=` |
-| `storage_state`, `cookie_whitelist_domains` | cloud: `cloud_profile_id` keeps logins. Local: your Chrome profile already has them |
+| `proxy` (`server`, `bypass`, `username`, `password`) | cloud: `cloud_proxy_country_code`. Local: not yet |
+| `storage_state`, `cookie_whitelist_domains` | cloud: `cloud_profile_id` keeps logins. Local: `Browser('chrome')` / `Browser('chrome', profile=...)` have yours; `Browser('chromium', user_data_dir=...)` keeps its own |
 | `allowed_domains`, `prohibited_domains`, `block_ip_addresses` | raise: not in 1.0 yet. Domain-scoped `sensitive_data` still limits where secrets are typed |
 | recording: `record_video_dir`, `record_video_size`, `record_video_framerate`, `record_har_path`, `record_har_content`, `record_har_mode`, `traces_dir` | removed. `result.messages` is the transcript; `live_view=True` shows a cloud browser live |
 | 0.x engine tuning: `highlight_elements`, `dom_highlight_elements`, `filter_highlight_ids`, `paint_order_filtering`, `interaction_highlight_color`, `interaction_highlight_duration`, `cross_origin_iframes`, `max_iframes`, `max_iframe_depth`, `minimum_wait_page_load_time`, `wait_for_network_idle_page_load_time`, `wait_between_actions`, `deterministic_rendering`, `demo_mode`, `captcha_solver` | removed: they tuned the 0.x DOM engine. Delete them |
 
-One local agent at a time: every `Browser(local=True)` in a process shares one browser-harness daemon and its one
-attached tab, so two local agents running at once (the 0.x `parallel_agents.py` pattern) move each other's tab. Run
-parallel agents on cloud browsers (`Browser()` each) or on separate Chromes via `cdp_url=`.
+Parallel agents (the 0.x `parallel_agents.py` pattern): give each its own `Browser()` or `Browser('chromium')`; each
+has its own browser and daemon. `Browser('chrome')` is one at a time: every one in a process shares the
+browser-harness default daemon and its one attached tab, so two at once move each other's tab.
 
 ## Models
 
@@ -192,5 +200,6 @@ Nothing else is redacted. This is not a sandbox:
 
 Run untrusted tasks in a container or VM.
 
-`Browser(local=True)` drives your real Chrome profile: model-written CDP can read its cookies and open tabs. Use a
-cloud browser or your own Chrome with a throwaway profile (`--user-data-dir=...` + `cdp_url=`) for untrusted tasks.
+`Browser('chrome')` and `Browser('chrome', profile=...)` drive your real logins: model-written CDP can read their
+cookies and (attached) your open tabs. `Browser('chromium')` and the cloud browser start with no cookies, so CDP cannot
+reach yours; the worker itself still runs as your user (see above). Use them for untrusted tasks.

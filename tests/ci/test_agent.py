@@ -72,8 +72,8 @@ async def test_unfinished_run_has_no_final_result(chrome, tmp_path):
 	assert r.final_result() is None and not r.is_done() and r.is_successful() is None
 
 
-async def test_local_browser_end_to_end(chrome, tmp_path, monkeypatch):
-	"""Browser(local=True) = the browser-harness daemon path; isolated here with its own name and Chrome."""
+async def test_your_chrome_end_to_end(chrome, tmp_path, monkeypatch):
+	"""Browser('chrome') = the shared browser-harness daemon path; isolated here with its own name and Chrome."""
 	from browser_harness import admin
 
 	name = f'butestlocal{os.getpid()}'
@@ -85,12 +85,12 @@ async def test_local_browser_end_to_end(chrome, tmp_path, monkeypatch):
 		('finish_from_repl', {'expression': "info['title']"}),
 	)
 	try:
-		result = await Agent('Read the title', model, browser=Browser(local=True), workspace=tmp_path).run()
+		result = await Agent('Read the title', model, browser=Browser('chrome'), workspace=tmp_path).run()
 		assert (result.status, result.final_result()) == ('completed', 'Local')
 	finally:
 		from browser_use.browser.browser import _shutdown_daemon
 
-		_shutdown_daemon(name)  # Browser(local=True) never stops the shared local daemon itself
+		_shutdown_daemon(name)  # Browser('chrome') never stops the shared local daemon itself
 
 
 async def test_type_secret_types_value_and_output_is_redacted(chrome, tmp_path):

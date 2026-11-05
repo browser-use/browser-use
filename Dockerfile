@@ -3,8 +3,8 @@
 
 # This is the Dockerfile for browser-use, it bundles the following dependencies:
 #     python3, chromium, browser-use and its dependencies.
-# browser-use 1.0 drives Chrome over CDP: start chromium --headless=new --remote-debugging-port=9222 in the container
-# and pass Agent(..., browser=Browser(cdp_url='http://127.0.0.1:9222')), or use the default cloud browser.
+# browser-use 1.0: Agent(..., browser=Browser('chromium')) launches the container's chromium headless, or use the
+# default cloud browser.
 # Usage:
 #     git clone https://github.com/browser-use/browser-use.git && cd browser-use
 #     docker build . -t browseruse --no-cache

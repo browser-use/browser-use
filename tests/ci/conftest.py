@@ -31,6 +31,12 @@ def find_chrome() -> str | None:
 	return next((c for c in candidates if c and Path(c).exists()), None)
 
 
+@pytest.fixture
+def chrome_binary() -> str:
+	"""The Chrome binary, for tests where Browser launches its own (Browser('chromium'), Browser('chrome', profile=))."""
+	return find_chrome() or pytest.skip('Chrome not installed')
+
+
 @pytest.fixture(scope='module')
 def chrome():
 	"""An isolated headless Chrome: {'http': devtools http url, 'ws': browser websocket url}."""
@@ -91,5 +97,5 @@ def script(*turns):
 
 def pytest_collection_modifyitems(items):
 	for item in items:  # `-m "not chrome"` runs everything that needs no browser (the Windows/macOS/Linux matrix)
-		if {'chrome', 'daemon'} & set(getattr(item, 'fixturenames', ())):
+		if {'chrome', 'daemon', 'chrome_binary'} & set(getattr(item, 'fixturenames', ())):
 			item.add_marker(pytest.mark.chrome)
