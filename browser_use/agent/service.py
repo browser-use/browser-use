@@ -18,7 +18,7 @@ from browser_use.agent.prompt import CLOUD_PROMPT
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import Browser
 from browser_use.config import load_env
-from browser_use.llm import as_chat_model, on_gateway, resolve_model
+from browser_use.llm import ChatBrowserUse, as_chat_model, on_gateway, resolve_model
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import check_loop, scoped_secrets
 from browser_use.tools import Tools
@@ -140,6 +140,12 @@ class Agent:
 		self._model_name = getattr(model, 'model_name', str(model))
 		system = getattr(model, 'system', None)  # 'anthropic', 'google-gla', ...: prices are looked up per provider
 		self._model_ref = f'{system}:{self._model_name}' if system and ':' not in self._model_name else self._model_name
+		gateway = on_gateway(model)
+		if gateway:  # cost is only what the gateway charged (charge_usd), never a retail estimate
+			self._model_ref = f'browser-use:{self._model_name}'
+		self._explain_error = (
+			ChatBrowserUse(self._model_name).explain_error if gateway else getattr(self.llm, 'explain_error', None)
+		)
 		self._provider = getattr(self.llm, 'provider', None) or getattr(model, 'system', '')
 		if self.reasoning is not None and not reasoning_supported(model):
 			logger.warning(
@@ -149,7 +155,7 @@ class Agent:
 		self._agent = build_agent(
 			model,
 			output_type=self.output_model_schema,
-			reasoning_effort=self.reasoning or (None if on_gateway(self.llm) else 'medium'),
+			reasoning_effort=self.reasoning or (None if gateway else 'medium'),
 			instructions='\n'.join(
 				filter(
 					None,
@@ -197,7 +203,7 @@ class Agent:
 				session,
 				self._model_ref,
 				message_history=history,
-				explain_error=getattr(self.llm, 'explain_error', None),
+				explain_error=self._explain_error,
 			)
 			self._history = result.messages
 			if result.status == 'error':

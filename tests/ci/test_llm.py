@@ -89,7 +89,8 @@ def gateway_violations(body: dict) -> list[str]:
 			bad.append(f'input {kind}')  # item_reference, input_file, hosted tool calls
 		elif kind in ('reasoning', 'compaction') and not item.get('encrypted_content'):
 			bad.append(f'{kind} without encrypted_content')  # dropped (reasoning) or rejected (compaction)
-		for part in item.get('content') or [] if isinstance(item.get('content'), list) else []:
+		parts = item.get('output' if kind in ('function_call_output', 'custom_tool_call_output') else 'content')
+		for part in parts if isinstance(parts, list) else []:
 			if part.get('type') not in ('input_text', 'output_text', 'refusal', 'input_image') or 'file_id' in part:
 				bad.append(f'content {part.get("type")}')
 	return bad
@@ -150,9 +151,9 @@ def responses_server():
 
 
 async def test_gateway_models_run_stateless_responses_with_compaction(responses_server, tmp_path):
-	"""The gateway path was chat completions (no compaction, reasoning dropped every turn; wrong 2/2 in a local gateway
-	run where Responses was right 2/2). Now: /responses as the gateway requires it, encrypted reasoning and compaction
-	items sent back, no previous_response_id, the alias's own effort, cost = what the gateway charged."""
+	"""The gateway path was chat completions (no compaction, reasoning dropped every turn). Now: /responses as the
+	gateway requires it, encrypted reasoning and compaction items sent back, no previous_response_id, the alias's own
+	effort, cost = what the gateway charged."""
 	url, requests, replies = responses_server
 	replies += [
 		[reasoning(1), call('python', {'code': 'print(6 * 7)'}, 1)],
@@ -206,6 +207,88 @@ def test_every_gateway_model_and_the_gateway_url_use_responses(monkeypatch):
 	agent = Agent('t', ChatBrowserUse(), browser=None, reasoning='high')
 	agent._build()
 	assert agent._agent.model_settings['openai_reasoning_effort'] == 'high'
+
+
+async def test_gateway_tool_revealed_mid_run_sends_no_additional_tools_item(responses_server, tmp_path):
+	"""Roast: a tool hidden on turn 1 and shown on turn 2 went out as an `additional_tools` input item, which the
+	gateway rejects (400 unsupported_input). Now the reveal is a plain tools-list change."""
+	from pydantic_ai import Tool
+
+	url, requests, replies = responses_server
+	replies += [[reasoning(1), call('python', {'code': 'print(1)'}, 1)]]
+
+	def lookup(q: str) -> str:
+		return q
+
+	async def later(ctx, tool_def):
+		return tool_def if ctx.run_step > 1 else None
+
+	model, settings = resolve_model(ChatBrowserUse(api_key='fake-test-key', base_url=url))
+	agent = build_agent(model, model_settings=settings, reasoning_effort=None, tools=[Tool(lookup, prepare=later)])
+	result = await run(agent, 'TASK-TEXT', Session(repl=Repl(tmp_path)), model.model_name)
+	assert (result.status, result.error) == ('completed', None)
+	first, second = requests[0][1], requests[1][1]
+	assert 'lookup' not in json.dumps(first['tools']) and 'lookup' in json.dumps(second['tools'])
+	assert 'additional_tools' not in json.dumps([body for _, body in requests])
+
+
+def test_gateway_detection_https_only_and_openai_key_precedence(monkeypatch):
+	"""Roast: http:// (or another port) on the gateway host got the Browser Use key attached in clear text; with
+	OPENAI_BASE_URL=gateway, a Browser Use key in OPENAI_API_KEY (the 0.x setup) was ignored."""
+	monkeypatch.delenv('OPENAI_BASE_URL', raising=False)
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'bu-env-key')
+	for url in ('http://api.browser-use.com/api/llm/v1', 'https://api.browser-use.com:8443/api/llm/v1'):
+		assert not ChatOpenAI('bu-auto', api_key='x', base_url=url).is_gateway
+	assert ChatOpenAI('bu-auto', base_url=GATEWAY_URL + '/').is_gateway
+	monkeypatch.setenv('OPENAI_BASE_URL', GATEWAY_URL)
+	monkeypatch.setenv('OPENAI_API_KEY', 'bu_openai_env')
+	model, _ = resolve_model(ChatOpenAI('bu-auto'))
+	assert isinstance(model, OpenAIResponsesModel) and model.client.api_key == 'bu_openai_env'
+	monkeypatch.setenv('OPENAI_API_KEY', 'sk-not-a-gateway-key')  # an OpenAI key never works there
+	model, _ = resolve_model(ChatOpenAI('bu-auto'))
+	assert model.client.api_key == 'bu-env-key'
+	assert resolve_model(ChatOpenAI('bu-auto', api_key='explicit'))[0].client.api_key == 'explicit'
+
+
+def test_agent_treats_every_gateway_model_form_alike(monkeypatch):
+	"""Roast: ChatOpenAI(base_url=gateway) lost the actionable 401/402 lines, and an already-resolved gateway model
+	(ChatBrowserUse(...).pydantic_model()) got 'medium' instead of the alias's own effort."""
+	from pydantic_ai.exceptions import ModelHTTPError
+
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
+	for llm in (
+		ChatBrowserUse('bu-smart'),
+		ChatOpenAI('bu-smart', base_url=GATEWAY_URL),
+		ChatBrowserUse('bu-smart').pydantic_model(),
+	):
+		agent = Agent('t', llm, browser=None)
+		agent._build()
+		assert 'openai_reasoning_effort' not in agent._agent.model_settings
+		assert 'tab=billing' in agent._explain_error(ModelHTTPError(402, 'bu-smart'))
+		assert agent._model_ref == 'browser-use:bu-smart'
+	agent = Agent('t', ChatOpenAI('gpt-6-luna', api_key='sk-test'), browser=None)
+	agent._build()
+	assert agent._agent.model_settings['openai_reasoning_effort'] == 'medium' and agent._explain_error is None
+
+
+def test_gateway_cost_is_the_charge_or_none_never_a_retail_estimate():
+	"""Roast: a gateway response without charge_usd (e.g. a listed gpt-4.1) was priced at OpenAI retail and summed
+	with real charges into one authoritative-looking total."""
+	from pydantic_ai.messages import ModelResponse, TextPart
+	from pydantic_ai.usage import RequestUsage
+
+	from browser_use.agent.loop import usage_and_cost
+
+	u = RequestUsage(input_tokens=1000, output_tokens=100)
+
+	def reply(charge):
+		details = None if charge is None else {'browser_use': {'charge_usd': charge}}
+		return ModelResponse(parts=[TextPart('x')], usage=u, provider_details=details)
+
+	assert usage_and_cost([reply('0.0002'), reply('0.0003')], 'browser-use:gpt-4.1')[1] == pytest.approx(0.0005)
+	assert usage_and_cost([reply('0.0002'), reply(None)], 'browser-use:gpt-4.1')[1] is None
+	assert usage_and_cost([reply('nan')], 'browser-use:gpt-4.1')[1] is None
+	assert usage_and_cost([reply(None)], 'openai:gpt-4.1')[1]  # non-gateway: still priced
 
 
 def test_official_openai_uses_responses_with_compaction():

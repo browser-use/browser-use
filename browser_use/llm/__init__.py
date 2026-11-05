@@ -49,6 +49,11 @@ def gateway_model(model: str, api_key: str, base_url: str) -> Any:
 	from pydantic_ai.providers.openai import OpenAIProvider
 
 	class GatewayResponsesModel(OpenAIResponsesModel):
+		browser_use_gateway = True  # Agent: alias effort, gateway errors, cost only from charge_usd
+		# no additional_tools input items or deferred tools: the gateway accepts only function/custom tools and items
+		supported_tool_addition_modes = frozenset()
+		supported_tool_deferral_modes = frozenset()
+
 		def _process_provider_details(self, response: Any) -> dict[str, Any] | None:
 			"""The gateway's final response carries browser_use{resolved_model, service_tier, charge_usd}."""
 			meta = (response.model_extra or {}).get('browser_use')
@@ -124,9 +129,10 @@ class ChatOpenAI:
 
 	@property
 	def is_gateway(self) -> bool:
-		"""The Browser Use gateway URL: served exactly as ChatBrowserUse (key: api_key, else the Browser Use key)."""
+		"""The Browser Use gateway URL (https only, so a Browser Use key never goes out in clear text): served as
+		ChatBrowserUse."""
 		url, gateway = urlparse(self.url or ''), urlparse(GATEWAY_URL)
-		return url.hostname == gateway.hostname and url.path.rstrip('/') == gateway.path
+		return (url.scheme, url.netloc.lower(), url.path.rstrip('/')) == (gateway.scheme, gateway.netloc, gateway.path)
 
 	@property
 	def is_official(self) -> bool:
@@ -137,8 +143,10 @@ class ChatOpenAI:
 		from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 		from pydantic_ai.providers.openai import OpenAIProvider
 
-		if self.is_gateway:
-			return ChatBrowserUse(self.model, api_key=self.api_key, base_url=self.url).pydantic_model()
+		if self.is_gateway:  # key: api_key, else a Browser Use key in OPENAI_API_KEY (as 0.x), else the Browser Use key
+			env = os.environ.get('OPENAI_API_KEY', '')
+			key = self.api_key or (env if env.startswith('bu_') else None)
+			return ChatBrowserUse(self.model, api_key=key, base_url=self.url).pydantic_model()
 		provider = OpenAIProvider(api_key=self.api_key, base_url=self.base_url)
 		if self.is_official:  # Responses API + server-side compaction: what we evaluate
 			return OpenAIResponsesModel(self.model, provider=provider)
@@ -206,8 +214,10 @@ def model_ref(llm: Any) -> Any:
 	return f'{"openai-responses" if provider == "openai" else provider}:{name}'
 
 
-def on_gateway(llm: Any) -> bool:
-	return isinstance(llm, ChatBrowserUse) or (isinstance(llm, ChatOpenAI) and llm.is_gateway)
+def on_gateway(model: Any) -> bool:
+	"""A resolved model that calls the Browser Use gateway (ChatBrowserUse, ChatOpenAI(base_url=gateway), or their
+	pydantic_model())."""
+	return getattr(model, 'browser_use_gateway', False) is True
 
 
 def as_chat_model(llm: Any) -> Any:

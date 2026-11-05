@@ -121,7 +121,7 @@ browser-harness default daemon and its one attached tab, so two at once move eac
 | 0.x | 1.0 |
 |---|---|
 | `ChatBrowserUse(model=...)` | kept: `bu-ultrafast` (default), `bu-auto`, `bu-smart` or a listed OpenAI model on the new gateway, over the stateless Responses API with server-side compaction. 401/402/403/404 come back as one actionable line in `result.error`; `result.cost_usd` is what the gateway charged |
-| `ChatOpenAI(model, api_key, base_url, temperature, reasoning_effort)` | kept. api.openai.com uses the Responses API; the gateway URL is served as `ChatBrowserUse`; any other `base_url` uses plain chat completions. Other 0.x arguments raise `TypeError` |
+| `ChatOpenAI(model, api_key, base_url, temperature, reasoning_effort)` | kept. api.openai.com uses the Responses API; the gateway URL (`https://api.browser-use.com/api/llm/v1`) is served as `ChatBrowserUse` (key: `api_key`, else a `bu_` key in `OPENAI_API_KEY`, else the Browser Use key); any other `base_url` uses plain chat completions. Other 0.x arguments raise `TypeError` |
 | `ChatAnthropic(model, api_key)`, `ChatGoogle(model, api_key)` | kept; need `browser-use[anthropic]` / `browser-use[google]` |
 | `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatDeepSeek`, `ChatMistral`, `ChatOpenRouter`, `ChatAWSBedrock`, `ChatAnthropicBedrock`, `ChatCerebras`, `ChatLiteLLM`, `ChatOCIRaw`, `ChatOrcaRouter`, `ChatVercel` | import raises: use a Pydantic AI model string (`'groq:llama-3.3-70b'`, `'mistral:...'`, `'bedrock:...'`) or `ChatOpenAI(model, base_url=...)` |
 

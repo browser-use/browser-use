@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import math
 import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
@@ -397,14 +398,16 @@ def gateway_charge(m: ModelResponse) -> float | None:
 	"""USD the Browser Use gateway charged for this response (browser_use.charge_usd, a decimal string)."""
 	charge = ((m.provider_details or {}).get('browser_use') or {}).get('charge_usd')
 	try:
-		return float(charge) if isinstance(charge, (str, int, float)) else None
+		value = float(charge) if isinstance(charge, (str, int, float)) and not isinstance(charge, bool) else None
 	except ValueError:
 		return None
+	return value if value is not None and math.isfinite(value) and value >= 0 else None
 
 
 def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[str, int], float | None]:
 	"""Tokens and USD cost of these messages. A gateway response's cost is what the gateway charged (browser_use.charge_usd);
-	others are priced by genai-prices. Cost is None when any request has no known price."""
+	others are priced by genai-prices. Cost is None when any request has no known price, and for a gateway model
+	('browser-use:...') when any response has no charge: never a retail estimate in place of the charge."""
 	total = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
 	cost: float | None = 0.0
 	provider = 'openai'
@@ -423,6 +426,9 @@ def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[s
 				continue
 			if (charge := gateway_charge(m)) is not None:
 				cost += charge
+				continue
+			if provider == 'browser-use':
+				cost = None
 				continue
 			try:
 				cost += float(calc_price(u, model_ref=model_ref, provider_id=provider).total_price)  # cache writes too
