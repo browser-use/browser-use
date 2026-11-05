@@ -34,16 +34,19 @@ def _set_harness_client_env() -> None:
 
 def _scrub_harness_telemetry() -> None:
 	"""browser-harness's cli_event carries the piped code, its output, helper arguments and error text. In the
-	browser-use CLI those never leave the machine: every event is scrubbed right before it is sent (TELEMETRY.md)."""
+	browser-use CLI those never leave the machine: every event is scrubbed right before it is sent (TELEMETRY.md).
+	ANONYMIZED_TELEMETRY turns it off as in the library (browser-harness alone only knows 0, false, no and off)."""
 	from browser_harness import telemetry
 
 	send = telemetry._send_detached
 	if getattr(send, '__bu_scrubbed__', False):
 		return
+	from browser_use.config import CONFIG
 	from browser_use.telemetry.stats import scrub_cli_event
 
 	def scrubbed(payload: dict) -> None:
-		send(scrub_cli_event(payload))
+		if CONFIG.ANONYMIZED_TELEMETRY:
+			send(scrub_cli_event(payload))
 
 	scrubbed.__bu_scrubbed__ = True  # type: ignore[attr-defined]
 	telemetry._send_detached = scrubbed

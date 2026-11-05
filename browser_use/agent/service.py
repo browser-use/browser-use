@@ -17,6 +17,7 @@ from browser_use.agent.loop import Session, build_agent, reasoning_supported, ru
 from browser_use.agent.prompt import CLOUD_PROMPT
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import Browser
+from browser_use.browser.browser import json_page_copies
 from browser_use.config import load_env
 from browser_use.llm import as_chat_model, on_gateway, resolve_model
 from browser_use.repl import Repl, check_mode, redact
@@ -186,9 +187,13 @@ class Agent:
 			if self._repl is None:
 				check_loop()  # before the browser starts: a cloud browser bills from its create
 				self.workspace.mkdir(parents=True, exist_ok=True)
-				env = await self.browser.start()
-				browser_s = time.monotonic() - started
-				self._repl = Repl(self.workspace, env, mode=self.mode, secrets=self.sensitive_data)
+			env = await self.browser.start()  # also on a follow-up: a daemon that died since is started again
+			if self._repl is None or env != self._repl.env:  # or the browser was stopped and started again since
+				if self._repl is None:
+					browser_s = time.monotonic() - started
+				else:
+					await self._repl.close()
+				self._repl = Repl(self.workspace, env, mode=self.mode, secrets=self.sensitive_data, reattach=self.browser.start)
 			session = Session(repl=self._repl, timeout_s=timeout, max_steps=max_steps)
 			history, self._continue = (self._history if self._continue else None), False
 			result = await run(
@@ -207,6 +212,7 @@ class Agent:
 			error_type = type(e).__name__
 			raise
 		finally:
+			self.browser.json_page_copies |= json_page_copies(self.workspace / '.browser-use' / 'downloads.jsonl')
 			if not self.browser.keep_alive:
 				await self._shutdown()
 			self._capture(result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started)
@@ -282,7 +288,7 @@ class Agent:
 			from collections import Counter
 
 			from browser_use.telemetry import ProductTelemetry
-			from browser_use.telemetry.stats import RunStats, top
+			from browser_use.telemetry.stats import RunStats, cdp_category, host, top
 			from browser_use.telemetry.views import AgentTelemetryEvent
 			from browser_use.utils import get_browser_use_version, get_install_source
 
@@ -324,7 +330,7 @@ class Agent:
 					follow_up=prior > 0,
 					task_chars=len(self.task),
 					browser_mode=mode,
-					cdp_url=browser.cdp_host if mode == 'cdp' else None,
+					cdp_url=cdp_category(host(browser.cdp_url)) if mode == 'cdp' else None,
 					keep_alive=browser.keep_alive,
 					cloud_profile=bool(browser.use_cloud and browser.profile),
 					cloud_proxy_country=browser.proxy if browser.use_cloud else None,

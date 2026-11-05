@@ -25,7 +25,7 @@ import signal
 import subprocess
 import sys
 import urllib.parse
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from typing import Any, cast
 
@@ -252,7 +252,8 @@ def _job_for(pid: int) -> int | None:
 
 
 class Repl:
-	"""mode='ultrafast' adds the `bu` helpers to the worker (BU_MODE=ultrafast)."""
+	"""mode='ultrafast' adds the `bu` helpers to the worker (BU_MODE=ultrafast). reattach: starts the browser-harness
+	daemon again after a cell lost it (Browser.start)."""
 
 	def __init__(
 		self,
@@ -260,8 +261,10 @@ class Repl:
 		env: dict[str, str] | None = None,
 		mode: str | None = 'default',
 		secrets: Secrets | None = None,
+		reattach: Callable[[], Awaitable[Any]] | None = None,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
+		self.reattach = reattach
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		self.proc: asyncio.subprocess.Process | None = None
 		self.job: int | None = None  # Windows job object of the worker's process tree
@@ -364,6 +367,14 @@ class Repl:
 			self.lock, self._lock_loop = asyncio.Lock(), loop
 		async with self.lock:
 			r = await self._call(op, code, timeout + (10 if self.mode == 'ultrafast' else 0))
+			if r.get('error_type') == 'BrowserConnectionLost' and self.reattach is not None:
+				try:
+					await self.reattach()
+					r['error'] += (
+						'\n[browser-use started the daemon again on the same browser: retry; check the page state first.]'
+					)
+				except Exception as e:
+					r['error'] += f'\n[{e}. Finish with what you have.]'
 		return {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value')}}
 
 	async def _call(self, op: str, code: str, timeout: float) -> dict[str, Any]:

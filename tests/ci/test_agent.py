@@ -166,6 +166,138 @@ async def test_remote_upload_sends_bytes(chrome, tmp_path):
 		await browser.stop()
 
 
+async def test_remote_upload_of_a_large_file_arrives_intact(chrome, tmp_path):
+	"""browser-features #1 (P1): the whole file went to the daemon in one js() request, and the daemon reads at most
+	64 KiB per request: every upload over about 48 KB failed with BrokenPipeError. Now it goes in parts."""
+	import os
+
+	def fnv1a(data: bytes) -> int:
+		h = 0x811C9DC5
+		for b in data:
+			h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
+		return h
+
+	browser = Browser(cdp_url=chrome['http'])
+	repl = Repl(tmp_path, {**await browser.start(), 'BU_REMOTE_BROWSER': '1'})
+	try:
+		data = os.urandom(1_000_003)
+		(tmp_path / 'big.bin').write_bytes(data)
+		(tmp_path / 'small.txt').write_text('hi')
+		check = (
+			"(async () => { const f = document.getElementById('f').files; const b = new Uint8Array(await "
+			'f[0].arrayBuffer()); let h = 0x811c9dc5; for (const x of b) h = Math.imul(h ^ x, 0x01000193) >>> 0; '
+			'return [f[0].name, f[0].size, h, f[1].name, f[1].size] })()'
+		)
+		r = await repl.call(
+			'exec',
+			"new_tab('data:text/html,<input type=file id=f multiple>'); wait_for_load()\n"
+			"n = upload_file('#f', ['big.bin', 'small.txt'])\n"
+			f'print(n, js({check!r}), js("Object.keys(window).filter(k => k.startsWith(\'__buUpload\')).length"))',
+			120,
+		)
+		assert r['error'] is None, r
+		assert f"2 ['big.bin', 1000003, {fnv1a(data)}, 'small.txt', 2] 0" in r['output'], r
+	finally:
+		await repl.close()
+		await browser.stop()
+
+
+async def test_a_request_too_large_for_the_daemon_raises_one_clear_error(chrome, tmp_path):
+	"""browser-features #1: a js() expression over 64 KiB broke the daemon connection (BrokenPipeError, or 'Separator
+	is found, but chunk is longer than limit')."""
+	browser = Browser(cdp_url=chrome['http'])
+	repl = Repl(tmp_path, await browser.start())
+	try:
+		r = await repl.call('exec', "print(js('1+' * 32_000 + '1'))", 60)  # 64,000 characters: works
+		assert r['error'] is None and '32001' in r['output'], r
+		r = await repl.call('exec', "js('1+' * 40_000 + '1')", 60)
+		assert r['error_type'] == 'ValueError' and 'at most 64 KiB per request' in r['error'], r
+		r = await repl.call('exec', 'print(js("1+1"))', 60)  # the daemon is fine afterwards
+		assert r['output'].strip() == '2', r
+	finally:
+		await repl.close()
+		await browser.stop()
+
+
+async def test_a_dead_daemon_is_started_again_on_the_same_browser(chrome, tmp_path):
+	"""Lifecycle F2: once the daemon died every cell failed with a raw ipc.connect traceback, start() handed back the
+	dead daemon's env, and a keep_alive cloud browser kept billing. Now the cell says so in one line, the daemon is
+	started again on the same browser, and the next cell works."""
+	import os
+	import signal
+
+	from browser_harness import _ipc as ipc
+
+	browser = Browser(cdp_url=chrome['http'])
+	env = await browser.start()
+	repl = Repl(tmp_path, env, reattach=browser.start)
+	try:
+		r = await repl.call('exec', "new_tab('data:text/html,<title>kept</title>'); wait_for_load(); print('ok')", 60)
+		assert r['error'] is None, r
+		assert browser.name
+		pid = ipc.identify(browser.name)
+		assert pid
+		os.kill(pid, signal.SIGKILL)
+		r = await repl.call('exec', 'page_info()', 60)
+		assert r['error'].startswith('BrowserConnectionLost: browser connection lost'), r
+		assert 'Traceback' not in r['error'] and 'started the daemon again' in r['error'], r
+		assert ipc.identify(browser.name) not in (None, pid)
+		r = await repl.call('exec', "print([t['title'] for t in list_tabs()])", 60)
+		assert r['error'] is None and 'kept' in r['output'], r  # the same browser
+		os.kill(ipc.identify(browser.name), signal.SIGKILL)
+		assert await browser.start() == env and ipc.ping(browser.name)  # a follow-up run's start() too
+	finally:
+		await repl.close()
+		await browser.stop()
+
+
+RUNTIME_DIR_CHILD = """
+import asyncio, json, os, sys, tempfile
+from pathlib import Path
+os.environ['BH_RUNTIME_DIR'] = sys.argv[2]
+os.environ.pop('BH_RUNTIME_DIR_SHARED', None)
+from browser_harness import _ipc as ipc
+from browser_use import Browser
+from browser_use.repl import Repl
+
+async def main():
+	a, b = Browser(cdp_url=sys.argv[1]), Browser(cdp_url=sys.argv[1])
+	ea, eb = await a.start(), await b.start()
+	out = {'pids': [ipc.identify(a.name), ipc.identify(b.name)], 'errors': []}
+	ra, rb = Repl(Path(tempfile.mkdtemp()), ea), Repl(Path(tempfile.mkdtemp()), eb)
+	try:
+		for r, code in ((ra, "js('window.who = 1')"), (rb, "js('window.who = 2')")):
+			out['errors'].append((await r.call('exec', code, 60))['error'])
+		for r, key in ((ra, 'a_sees'), (rb, 'b_sees')):
+			res = await r.call('exec', "print(js('window.who'))", 60)
+			out[key] = res['output'].strip()
+			out['errors'].append(res['error'])
+	finally:
+		await ra.close(); await rb.close(); await a.stop(); await b.stop()
+	print(json.dumps(out))
+
+asyncio.run(main())
+"""
+
+
+def test_parallel_browsers_with_bh_runtime_dir_never_share_a_daemon(chrome):
+	"""browser-features #2: with BH_RUNTIME_DIR set (a short path for AF_UNIX) and no BH_RUNTIME_DIR_SHARED, every
+	daemon listened on <dir>/bu.sock: parallel Browser()s drove the last one's browser."""
+	import json
+	import subprocess
+	import sys
+	import tempfile
+
+	with tempfile.TemporaryDirectory(dir='/tmp' if sys.platform != 'win32' else None) as rt:
+		r = subprocess.run(
+			[sys.executable, '-c', RUNTIME_DIR_CHILD, chrome['http'], rt], capture_output=True, text=True, timeout=180
+		)
+	assert r.returncode == 0, r.stderr[-3000:]
+	out = json.loads(r.stdout.strip().splitlines()[-1])
+	assert None not in out['pids'] and out['pids'][0] != out['pids'][1], out
+	assert (out['a_sees'], out['b_sees'], out['errors']) == ('1', '2', [None] * 4), out
+
+
 @pytest.mark.parametrize('mode', ['ultrafast'])
 async def test_ultrafast_agent_runs(chrome, tmp_path, mode):
 	model, _ = script(

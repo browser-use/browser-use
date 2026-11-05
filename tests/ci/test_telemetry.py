@@ -12,7 +12,7 @@ from conftest import script
 
 from browser_use import Agent, Browser
 from browser_use.repl import Repl
-from browser_use.telemetry.stats import RunStats, host, imported_modules, scrub_cli_event
+from browser_use.telemetry.stats import RunStats, cdp_category, error_class, host, imported_modules, scrub_cli_event
 
 
 def rand(rng: random.Random, n: int = 16) -> str:
@@ -107,7 +107,7 @@ async def test_agent_event_never_has_task_secrets_typed_text_code_or_url_paths(s
 	assert props['cell_error_types'] == {'ValueError': 1} and props['tool_calls'] == {'python': 2, 'finish': 1}
 	assert (props['status'], props['success'], props['finish_via'], props['error_type']) == ('completed', True, 'finish', None)
 	assert props['sensitive_data_count'] == 1 and props['task_chars'] == len(agent.task) and props['steps'] == 3
-	assert (props['browser_mode'], props['cdp_url'], props['keep_alive']) == ('cdp', '127.0.0.1', False)
+	assert (props['browser_mode'], props['cdp_url'], props['keep_alive']) == ('cdp', 'localhost', False)
 
 
 async def test_failed_run_sends_the_error_class_not_its_message(sent, tmp_path, monkeypatch):
@@ -150,7 +150,8 @@ def test_cell_stats_count_captcha_and_download_events_and_hostnames_only():
 			{'method': 'BrowserUse.captchaSolverFinished', 'params': {'success': True}},
 			{'method': 'BrowserUse.captchaSolverStarted', 'params': {}},
 			{'method': 'BrowserUse.captchaSolverFinished', 'params': {'success': False}},
-			{'method': 'Browser.downloadWillBegin', 'params': {'suggestedFilename': 'payroll.csv'}},
+			{'method': 'Browser.downloadWillBegin', 'params': {'guid': 'g1', 'suggestedFilename': 'payroll.csv'}},
+			{'method': 'Page.downloadWillBegin', 'params': {'guid': 'g1', 'suggestedFilename': 'payroll.csv'}},
 			{'method': 'Network.requestWillBeSent', 'params': {}},
 			'not an event',
 		]
@@ -163,9 +164,71 @@ def test_cell_stats_count_captcha_and_download_events_and_hostnames_only():
 	assert s.take()['events'] == {}  # reset per cell
 
 	stats = RunStats()
-	stats.add_cell({'error': 'x', 'error_type': 'CellTimeout', 'images': [{}], 'stats': out}, 'import a.b\nfrom c import d', 1.5)
+	stats.add_cell(
+		{'error': 'x', 'error_type': 'CellTimeout', 'images': [{}], 'stats': out}, 'import os.path\nfrom json import d', 1.5
+	)
 	assert (stats.events['captcha_solved'], stats.error_types, stats.images) == (1, {'CellTimeout': 1}, 1)
-	assert dict(stats.imports) == {'a': 1, 'c': 1} and dict(stats.domains) == {'shop.example.com': 1}
+	assert dict(stats.imports) == {'os': 1, 'json': 1} and dict(stats.domains) == {'shop.example.com': 1}
+
+
+def test_one_download_announced_by_both_events_counts_once():
+	"""Cloud browsers send Browser.downloadWillBegin and Page.downloadWillBegin for one download: telemetry said 2."""
+	from browser_use.repl.worker import CellStats
+
+	s = CellStats()
+	s.observe([{'method': 'Browser.downloadWillBegin', 'params': {'guid': 'g1'}}])
+	assert s.take()['events'] == {'download_started': 1}
+	s.observe([{'method': 'Page.downloadWillBegin', 'params': {'guid': 'g1'}}])  # its twin, read in a later cell
+	s.observe([{'method': m, 'params': {'guid': 'g2'}} for m in ('Page.downloadWillBegin', 'Browser.downloadWillBegin')])
+	assert s.take()['events'] == {'download_started': 1}
+
+
+@pytest.mark.parametrize('seed', range(5))
+def test_names_the_models_code_chooses_are_kept_only_when_python_or_a_package_defines_them(seed):
+	"""Telemetry rerun #9: a module, exception class or cdp() method named by the model's code went out verbatim, a
+	channel a prompt-injected page could use to send text out."""
+	secret = rand(random.Random(seed))
+	assert imported_modules(f'import {secret}\nimport json\nfrom PIL import Image') == ['other', 'json', 'PIL']
+	stats = RunStats()
+	stats.add_cell({'stats': {'cdp': {f'Page.{secret}': 1, f'{secret}.navigate': 1, 'Page.navigate': 1}}}, '', 0.1)
+	assert dict(stats.cdp_methods) == {'invalid': 2, 'Page.navigate': 1}
+	custom = type(secret, (ValueError,), {})  # what `class <secret>(ValueError)` in a cell makes
+	assert error_class(custom()) == 'custom' and error_class(KeyError()) == 'KeyError'
+	assert error_class(json.JSONDecodeError('x', 'y', 0)) == 'JSONDecodeError'
+	fake = type(secret, (ValueError,), {'__module__': 'json'})  # claims a stdlib module it is not in
+	assert error_class(fake()) == 'custom'
+
+
+async def test_a_cells_custom_exception_class_is_sent_as_custom(tmp_path):
+	repl = Repl(tmp_path)
+	try:
+		r = await repl.call('exec', 'class ZqSmuggledText(Exception): pass\nraise ZqSmuggledText()', 30)
+	finally:
+		await repl.close()
+	assert r['error_type'] == 'custom' and 'ZqSmuggledText' in r['error']  # the model still sees it
+
+
+@pytest.mark.parametrize(
+	'hostname, kind',
+	[
+		('0a1b2c3d-4e5f-6789-abcd-ef0123456789.cdp.browser-use.com', 'browser-use-cloud'),
+		('127.0.0.1', 'localhost'),
+		('localhost', 'localhost'),
+		('::1', 'localhost'),
+		('192.168.1.20', 'private'),
+		('10.0.0.5', 'private'),
+		('chrome', 'private'),
+		('browser.internal', 'private'),
+		('connect.example.test', 'public-other'),
+		('8.8.8.8', 'public-other'),
+		(None, None),
+	],
+)
+def test_cdp_url_is_sent_as_its_kind_never_its_hostname(hostname, kind):
+	"""Telemetry P1: a Browser Use cloud cdpUrl's hostname is the browser id, which alone drives the live browser."""
+	assert cdp_category(hostname) == kind
+	payload = scrub_cli_event({'properties': {'cdp_url': hostname}})
+	assert payload['properties']['cdp_url'] == kind
 
 
 def test_cdp_method_counts_keep_only_domain_method_names():
@@ -233,6 +296,7 @@ def test_browser_use_cli_scrubs_what_browser_harness_sends(monkeypatch):
 	monkeypatch.setattr(harness, '_send_detached', sent_payloads.append)
 	monkeypatch.setattr(harness, 'is_enabled', lambda: True)
 	monkeypatch.setattr(harness, '_install_id', lambda *a, **k: 'test-install')  # never writes the real config
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
 	cli._scrub_harness_telemetry()
 	cli._scrub_harness_telemetry()  # idempotent: one scrub layer
 	harness.capture_cli_event(
@@ -242,6 +306,23 @@ def test_browser_use_cli_scrubs_what_browser_harness_sends(monkeypatch):
 	assert_absent(payload, 'Zq9-typed', 'Zq9-out')
 	assert payload['properties']['task_length'] == len('type_text("Zq9-typed")')
 	assert payload['properties']['helper_counts'] == {'js': 1}
+
+
+@pytest.mark.parametrize('value, sends', [('n', False), ('disable', False), ('on', False), ('0', False), ('yes', True)])
+def test_cli_opt_out_values_match_the_library(monkeypatch, value, sends):
+	"""TELEMETRY.md: any value not starting with t, y or 1 turns it off. browser-harness alone sent with n, disable."""
+	from browser_harness import telemetry as harness
+
+	import browser_use.cli as cli
+
+	sent_payloads = []
+	monkeypatch.setattr(harness, '_send_detached', sent_payloads.append)
+	monkeypatch.setattr(harness, '_install_id', lambda *a, **k: 'test-install')
+	monkeypatch.setattr(harness, 'is_enabled', lambda: not harness._env_disabled())  # never reads the real config
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', value)
+	cli._scrub_harness_telemetry()
+	harness.capture_cli_event(action='completed', command='version')
+	assert bool(sent_payloads) is sends
 
 
 def test_posthog_client_sends_no_exceptions_and_respects_opt_out(monkeypatch):
