@@ -10,7 +10,7 @@ from pydantic_ai.models.openai import OpenAIChatModel, OpenAICompaction, OpenAIR
 
 from browser_use import Agent, ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI
 from browser_use.agent.loop import Session, build_agent, run
-from browser_use.llm import GATEWAY_URL, gateway_llm, model_ref, resolve_model
+from browser_use.llm import GATEWAY_URL, model_ref, resolve_model
 from browser_use.repl import Repl
 
 
@@ -358,8 +358,9 @@ def test_gateway_detection_https_only_and_openai_key_precedence(monkeypatch):
 	monkeypatch.setenv('OPENAI_API_KEY', 'bu_openai_env')
 	model, _ = resolve_model(ChatOpenAI('bu-auto'))
 	assert isinstance(model, OpenAIResponsesModel) and model.client.api_key == 'bu_openai_env'
-	gateway = gateway_llm(model)  # the preflight checks the key the model sends, not the Browser Use key
-	assert gateway and gateway.api_key == 'bu_openai_env'
+	agent = Agent('t', ChatOpenAI('bu-auto'), browser=None)
+	agent._build()  # the preflight checks the key the model sends, not the Browser Use key
+	assert agent._gateway and agent._gateway.api_key == 'bu_openai_env'
 	monkeypatch.setenv('OPENAI_API_KEY', 'sk-not-a-gateway-key')  # an OpenAI key never works there
 	model, _ = resolve_model(ChatOpenAI('bu-auto'))
 	assert model.client.api_key == 'bu-env-key'

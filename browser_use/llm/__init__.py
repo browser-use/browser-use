@@ -55,6 +55,7 @@ def gateway_model(model: str, api_key: str, base_url: str) -> Any:
 	from pydantic_ai.providers.openai import OpenAIProvider
 
 	class GatewayResponsesModel(OpenAIResponsesModel):
+		browser_use_llm: ChatBrowserUse | None = None  # Agent: preflight, gateway errors, alias effort, charge-only cost
 		# no additional_tools input items or deferred tools: the gateway accepts only function/custom tools and items
 		supported_tool_addition_modes = frozenset()
 		supported_tool_deferral_modes = frozenset()
@@ -66,7 +67,6 @@ def gateway_model(model: str, api_key: str, base_url: str) -> Any:
 
 	provider = OpenAIProvider(base_url=base_url, api_key=api_key)
 	resolved = GatewayResponsesModel(model, provider=provider, profile=gateway_profile(model))
-	# Agent: preflight, gateway errors, alias effort, cost only from charge_usd
 	resolved.browser_use_llm = ChatBrowserUse(model, api_key=api_key, base_url=base_url)
 	return resolved
 
