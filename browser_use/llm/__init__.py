@@ -23,10 +23,11 @@ EXTRAS = {'anthropic': 'anthropic', 'google-gla': 'google', 'google-vertex': 'go
 
 def compatible_profile() -> Any:
 	"""Profile override for OpenAI-compatible chat servers. allowed_tools is an OpenAI-only tool_choice that vLLM and
-	DeepSeek reject and Ollama ignores; without it Pydantic AI narrows the tool list and sends plain 'required'."""
+	DeepSeek reject and Ollama ignores; without it Pydantic AI narrows the tool list and sends plain 'required'.
+	Strict tool definitions are an OpenAI feature too (Pydantic AI's Ollama profile turns them off): never sent here."""
 	from pydantic_ai.profiles.openai import OpenAIModelProfile
 
-	return OpenAIModelProfile(openai_chat_supports_allowed_tools=False)
+	return OpenAIModelProfile(openai_chat_supports_allowed_tools=False, openai_supports_strict_tool_definition=False)
 
 
 class ChatBrowserUse:

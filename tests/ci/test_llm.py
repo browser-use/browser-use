@@ -242,6 +242,18 @@ async def test_compatible_backends_get_plain_required_on_the_delivery_turn(chat_
 		assert {t['function']['name'] for t in repair['tools']} == {'finish', 'finish_from_repl'}
 
 
+async def test_compatible_backends_get_no_strict_tool_definitions(chat_server, tmp_path):
+	"""Fable r4-2: the chat path sent "strict": true on tools; Ollama and other compatible servers do not support it
+	(Pydantic AI's own Ollama profile turns it off)."""
+	url, requests, _ = chat_server
+	for llm in (ChatOpenAI('my-ollama-model', api_key='x', base_url=url), ChatBrowserUse(api_key='fake-test-key', base_url=url)):
+		requests.clear()
+		model, settings = resolve_model(llm)
+		result = await run(build_agent(model, model_settings=settings), 'task', Session(repl=Repl(tmp_path)), model.model_name)
+		assert result.status == 'completed'
+		assert [t['function'].get('strict') for t in requests[0][1]['tools'] if 'strict' in t['function']] == []
+
+
 def test_openai_non_reasoning_models_get_no_reasoning_params():
 	"""Fable r2-2: ChatOpenAI('gpt-4.1'/'gpt-4o') got reasoning params and max_output_tokens=32768: OpenAI 400s both."""
 	for name in ('gpt-4.1', 'gpt-4o', 'gpt-4.1-mini'):
