@@ -23,6 +23,6 @@ The example uses the three endpoints needed for a basic run:
 2. `GET /api/v4/runs/{run_id}/status` until the run is `completed`, `failed`, or `cancelled`
 3. `GET /api/v4/runs/{run_id}` for the result, error, and cost
 
-Authentication uses the `X-Browser-Use-API-Key` header. See the live [V4 OpenAPI specification](https://api.browser-use.com/api/v4/openapi.json) for optional models, browser settings, sessions, files, secrets, and judge settings.
+Authentication uses the `X-Browser-Use-API-Key` header. See the live [V4 OpenAPI specification](https://docs.browser-use.com/cloud/openapi/v4.json) for optional models, browser settings, sessions, files, secrets, and judge settings.
 
 Review usage and credits in [Cloud billing](https://cloud.browser-use.com/billing).
