@@ -53,6 +53,39 @@ def test_detect_email_from_attributes():
 	assert var_format == 'email'
 
 
+def test_detect_email_from_semantic_label():
+	"""Email-labeled fields must classify as email, not address.
+
+	Regression test: a field whose only hint is a semantic label such as
+	"Email Address" (no type='email') was previously classified as a street
+	address because the substring 'address' is contained in 'email address'
+	and the address check ran before the email check.
+	"""
+	for attributes in (
+		{'aria-label': 'Email Address'},
+		{'name': 'email_address'},
+		{'placeholder': 'Enter your email address'},
+		{'id': 'user-email', 'name': 'e-mail'},
+	):
+		result = _detect_from_attributes(attributes)
+		assert result is not None, attributes
+		var_name, var_format = result
+		assert var_name == 'email', f'{attributes} -> {var_name}'
+		assert var_format == 'email', f'{attributes} -> {var_format}'
+
+
+def test_detect_plain_address_still_detected():
+	"""A genuine address field (no email hint) must still classify as address."""
+	for attributes in (
+		{'name': 'street_address', 'id': 'address-input'},
+		{'placeholder': 'Shipping street'},
+	):
+		result = _detect_from_attributes(attributes)
+		assert result is not None, attributes
+		var_name, _ = result
+		assert var_name in ('address', 'shipping_address'), f'{attributes} -> {var_name}'
+
+
 def test_detect_email_from_pattern():
 	"""Test email detection via pattern matching"""
 	result = _detect_from_value_pattern('test@example.com')
