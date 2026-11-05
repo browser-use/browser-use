@@ -2,6 +2,10 @@
 
 This directory is for examples that show Browser Use working with external products, APIs, and services.
 
+## Shipped integrations
+
+- [Anthropic Browser Use](anthropic/README.md) - Run the Anthropic SDK tool runner with Browser Use and Bash.
+
 ## Where to put integration contributions
 
 - Use `examples/integrations/<provider>/` for small, runnable examples that demonstrate Browser Use with a specific third-party service.

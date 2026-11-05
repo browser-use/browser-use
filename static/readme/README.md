@@ -10,20 +10,14 @@ not download the artwork.
 
 ## Product diagram
 
-`which-product-light.svg` and `which-product-dark.svg` are editable SVGs.
-They are adapted from [the SDK product diagram](https://github.com/browser-use/sdk/blob/bfc0140801caf6a4c518c811f03674135efbd4aa/docs/cloud/images/which-product-light.svg),
-introduced in [SDK PR #241](https://github.com/browser-use/sdk/pull/241).
+`which-product-{light,dark}{,-mobile}.svg` are copied from the
+[SDK docs](https://github.com/browser-use/sdk/tree/c63645d081ed14a5d2e785033f6b1afeb300405b/docs/cloud/images),
+where `scripts/diagrams/` generates them (`task docs:diagrams`). Regenerate there
+and copy the four files here; phones under 600 px get the mobile variants.
 
-The README version shows three paths:
-
-- Path 1, fully hosted cloud: our hosted agent → Browser Use CLI → cloud browser.
-- Path 2, CLI: your existing agent → Browser Use CLI → local or cloud browser.
-- Path 3, Python library: the open source Browser Use agent → local or cloud browser.
-  The agent and its Python library are one block, with no CLI step.
-
-Keep the light and dark SVGs structurally identical when changing the diagram.
-The SDK source remains the reference for the hosted stack; this README adds the
-Python-library path and omits the Playwright branch.
+The figure shows the README's three paths: the hosted V4 agent drives a cloud
+browser, while the Browser Use CLI and the Python library drive a cloud or local
+browser.
 
 ## Benchmark plot
 
