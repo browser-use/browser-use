@@ -1,5 +1,6 @@
 # @file purpose: Serializes enhanced DOM trees to string format for LLM consumption
 
+import re
 from typing import Any
 
 from browser_use.dom.serializer.clickable_elements import ClickableElementDetector
@@ -37,6 +38,23 @@ SVG_ELEMENTS = {
 	'text',
 	'tspan',
 }
+
+
+_LINE_BREAK_PATTERN = re.compile(r'[ \t]*(?:[\r\n\u2028\u2029]+[ \t]*)+')
+
+
+def _to_single_line(text: str) -> str:
+	"""Collapse the line breaks out of anything the page supplies.
+
+	The serialized tree is line based: one element per line, joined with newlines,
+	and the model reads an index off the front of a line. Text and attribute values
+	come from the page, so a newline in either adds a line of the page's own
+	choosing -- one that can look exactly like an element line and carry an index
+	that addresses a different element. Multi-line text is ordinary (a `<pre>`
+	block, `white-space: pre-wrap`, a `title` spanning two lines), so this is not
+	an exotic input.
+	"""
+	return _LINE_BREAK_PATTERN.sub(' ', text)
 
 
 class DOMTreeSerializer:
@@ -952,11 +970,11 @@ class DOMTreeSerializer:
 				raw_attr_value = str(attributes.get(attr_name) or '')
 				if len(raw_attr_value) > DOMTreeSerializer.MAX_IMAGE_CONTEXT_ATTRIBUTE_LENGTH:
 					continue
-				attr_value = raw_attr_value.strip()
+				attr_value = _to_single_line(raw_attr_value.strip())
 				if attr_value:
 					parts.append(f'{output_name}={cap_text_length(attr_value, 100)}')
 
-			src = normalize_src(str(attributes.get('src') or ''))
+			src = _to_single_line(normalize_src(str(attributes.get('src') or '')))
 			if src:
 				parts.append(f'image_src={cap_text_length(src, 100)}')
 
@@ -1171,7 +1189,7 @@ class DOMTreeSerializer:
 				and node.original_node.node_value.strip()
 				and len(node.original_node.node_value.strip()) > 1
 			):
-				clean_text = node.original_node.node_value.strip()
+				clean_text = _to_single_line(node.original_node.node_value.strip())
 				formatted_text.append(f'{depth_str}{clean_text}')
 
 		# Process children (for non-shadow elements)
@@ -1192,7 +1210,9 @@ class DOMTreeSerializer:
 					hidden = node.original_node.hidden_elements_info
 					hint_lines = [f'{depth_str}... ({len(hidden)} more elements below - scroll to reveal):']
 					for elem in hidden:
-						hint_lines.append(f'{depth_str}    <{elem["tag"]}> "{elem["text"]}" ~{elem["pages"]} pages down')
+						hint_lines.append(
+							f'{depth_str}    <{elem["tag"]}> "{_to_single_line(str(elem["text"]))}" ~{elem["pages"]} pages down'
+						)
 					formatted_text.extend(hint_lines)
 				elif node.original_node.has_hidden_content:
 					# Generic hint for non-interactive hidden content
@@ -1395,7 +1415,7 @@ class DOMTreeSerializer:
 			# Format attributes, wrapping empty values in quotes for clarity
 			formatted_attrs = []
 			for key, value in attributes_to_include.items():
-				capped_value = cap_text_length(value, 100)
+				capped_value = cap_text_length(_to_single_line(value), 100)
 				# Show empty values as key='' instead of key=
 				if not capped_value:
 					formatted_attrs.append(f"{key}=''")
