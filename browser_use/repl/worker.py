@@ -20,7 +20,7 @@ import traceback
 from pathlib import Path
 
 from browser_use import ax
-from browser_use.repl.session import SECRET_ENV
+from browser_use.repl.session import SECRET_ENV, redact
 
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
@@ -256,10 +256,13 @@ def main() -> None:
 				os.dup2(saved[1], 2)
 				os.close(saved[0])
 				os.close(saved[1])
+		output = redact(out_path.read_text(errors='replace'), secrets)
+		if secrets:  # the captured file is in the workspace: keep secret values off disk too
+			out_path.write_text(output)
 		send(
 			{
 				'type': 'result',
-				'output': out_path.read_text(errors='replace'),
+				'output': output,
 				'error': error,
 				'value': value,
 				'images': list(images),

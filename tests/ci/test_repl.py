@@ -92,6 +92,7 @@ async def test_secret_values_are_redacted_from_everything_returned(tmp_path):
 		)
 		r = await repl.call('exec', code, 30)
 		assert "leak <secret:pw> <secret:pin> ['pin', 'pw']" in r['output']
+		assert 'hunter2' not in Path(r['output_file']).read_text()  # the captured output file in the workspace too
 		assert 'ValueError: <secret:pw>' in r['error'] and 'hunter2' not in r['error']
 		assert (await repl.call('eval', "v['pw']", 30))['value'] == '<secret:pw>'
 		assert 'KeyError' in (await repl.call('exec', "type_secret('nope')", 30))['error']
