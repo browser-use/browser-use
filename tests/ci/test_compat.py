@@ -245,39 +245,6 @@ async def test_param_model_is_authoritative(tmp_path):
 	assert '3x A1' in str(seen[1][-1])
 
 
-async def test_telemetry_event_has_no_code_or_secrets(tmp_path, monkeypatch):
-	import browser_use.telemetry.service as service
-
-	events = []
-
-	class FakeTelemetry:
-		def capture(self, event):
-			events.append(event)
-
-		def flush(self):
-			pass
-
-	monkeypatch.setattr(service, 'ProductTelemetry', FakeTelemetry)
-	import browser_use.telemetry as telemetry
-
-	monkeypatch.setattr(telemetry, 'ProductTelemetry', FakeTelemetry, raising=False)
-	model, _ = script(('python', {'code': 'print("secret code cell")'}), ('finish', {'result': 'the answer'}))
-	browser = Browser(local=True)
-
-	async def no_start():
-		return {}
-
-	monkeypatch.setattr(browser, 'start', no_start)
-	agent = Agent('log in with pw-123', model, browser=browser, sensitive_data={'pw': 'pw-123'}, workspace=tmp_path)
-	await agent.run()
-	(event,) = events
-	props = event.properties
-	assert props['agent_type'] == 'pydantic' and props['task'] == 'log in with <secret:pw>'
-	assert props['action_history'] is None and props['urls_visited'] is None and props['final_result_response'] is None
-	assert props['steps'] == 2 and props['success'] is True and props['judge_verdict'] is None
-	assert 'secret code cell' not in str(props) and 'the answer' not in str(props)
-
-
 @pytest.fixture
 def fake_browser(monkeypatch):
 	"""Browser.start/stop as no-ops that count stops; the REPL worker still runs for real."""

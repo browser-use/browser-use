@@ -31,6 +31,23 @@ def _set_harness_client_env() -> None:
 	os.environ['BH_CLIENT_VERSION'] = _browser_use_version()
 
 
+def _scrub_harness_telemetry() -> None:
+	"""browser-harness's cli_event carries the piped code, its output, helper arguments and error text. In the
+	browser-use CLI those never leave the machine: every event is scrubbed right before it is sent (TELEMETRY.md)."""
+	from browser_harness import telemetry
+
+	send = telemetry._send_detached
+	if getattr(send, '__bu_scrubbed__', False):
+		return
+	from browser_use.telemetry.stats import scrub_cli_event
+
+	def scrubbed(payload: dict) -> None:
+		send(scrub_cli_event(payload))
+
+	scrubbed.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+	telemetry._send_detached = scrubbed
+
+
 def _capture_via_harness(
 	*,
 	command: str,
@@ -45,6 +62,7 @@ def _capture_via_harness(
 		if capture_cli_event is None:
 			return
 		_set_harness_client_env()
+		_scrub_harness_telemetry()
 		code = _exit_code(result)
 		capture_cli_event(
 			action='error' if code else 'completed',
@@ -180,6 +198,7 @@ def _run_browser_harness() -> int | None:
 	global _delegated_to_harness
 
 	_set_harness_client_env()
+	_scrub_harness_telemetry()
 	_patch_browser_harness_cli_text()
 	args = sys.argv[1:]
 	if args and args[0] == 'doctor' and args[1:]:

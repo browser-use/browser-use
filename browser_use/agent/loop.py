@@ -34,6 +34,7 @@ from browser_use.ax import AX_PROMPT
 from browser_use.llm import model_ref
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import redact_forms, secret_forms
+from browser_use.telemetry.stats import RunStats
 
 KEEP_IMAGE_RESULTS = 2
 DELIVER_NOW = (
@@ -70,6 +71,9 @@ class Session:
 	success: bool = True  # finish(..., success=False): the agent delivered but could not do the task
 	messages: list[ModelMessage] = field(default_factory=list)
 	after_tool: Callable[[str, dict, dict], Awaitable[None]] | None = None  # observer hook (evals)
+	stats: RunStats = field(default_factory=RunStats)  # telemetry counts (TELEMETRY.md)
+	finish_via: str | None = None  # finish | finish_from_repl | text: how the result was delivered
+	error_type: str | None = None  # class of the exception that ended the run
 
 	def partial(self) -> Any:
 		"""The last checkpoint(..., partial=True), secret values redacted. None when missing or unreadable."""
@@ -86,7 +90,9 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	Browser helpers are synchronous (do not await them); variables survive calls; the last expression is printed. Cell deadline
 	applies; checkpoint small batches before it. screenshot() returns native images.
 	"""
+	started = time.monotonic()
 	r = await ctx.deps.repl.call('exec', code, ctx.deps.cell_timeout_s)
+	ctx.deps.stats.add_cell(r, code, time.monotonic() - started)
 	text = r['output']  # already cut to MAX_OUTPUT_CHARS by the worker
 	if r['error']:
 		text = f'{text}\nError: {r["error"]}'.strip()
@@ -169,12 +175,12 @@ def _outputs(output_type: Any) -> list[Any]:
 				value = adapter.validate_json(r['value'])
 			except ValidationError as e:
 				raise ModelRetry(f'Value does not match the result schema: {str(e)[:2000]}')
-		ctx.deps.success = success
+		ctx.deps.success, ctx.deps.finish_via = success, 'finish_from_repl'
 		return clean(ctx, value)
 
 	def finish(ctx: RunContext[Session], result, success: bool = True):
 		check_delivery(ctx, result)
-		ctx.deps.success = success
+		ctx.deps.success, ctx.deps.finish_via = success, 'finish'
 		return clean(ctx, result)
 
 	def on_text(ctx: RunContext[Session], text: str):
@@ -183,6 +189,7 @@ def _outputs(output_type: Any) -> list[Any]:
 		if not ctx.deps.finalizing:
 			ctx.deps.finalizing = True
 			raise ModelRetry(DELIVERY_REPAIR)
+		ctx.deps.finish_via = 'text'
 		if output_type is str:
 			check_delivery(ctx, text)
 			return clean(ctx, text)
@@ -440,13 +447,14 @@ async def run(
 			)
 		output, messages = result.output, result.all_messages()
 	except TimeoutError as e:  # a tool's own socket/HTTP timeout is an error, not the run budget
+		session.error_type = type(e).__name__
 		if budget.expired():
 			status, messages = 'timeout', session.messages
 		else:
 			status, messages = 'error', session.messages
 			error = (explain_error and explain_error(e)) or f'{type(e).__name__}: {e}'
 	except Exception as e:
-		name = type(e).__name__
+		name = session.error_type = type(e).__name__
 		status = 'max_steps' if name == 'UsageLimitExceeded' else 'error'
 		error, messages = (explain_error and explain_error(e)) or f'{name}: {e}', session.messages
 	partial = session.partial()

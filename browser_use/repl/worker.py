@@ -12,6 +12,7 @@ import asyncio
 import base64
 import codecs
 import contextlib
+import functools
 import hashlib
 import hmac
 import inspect
@@ -26,11 +27,13 @@ import sys
 import threading
 import time
 import traceback
+from collections import Counter
 from pathlib import Path
 
 from browser_use import ax
 from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, domain_matches, redact, redact_forms, secret_forms
+from browser_use.telemetry.stats import host
 
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
@@ -73,6 +76,90 @@ def totp(seed: str, now: float | None = None) -> str:
 
 STATE = Path(os.environ.get('BU_STATE_DIR', '.browser-use'))
 images: list[dict] = []
+NAVIGATING = ('Page.navigate', 'Target.createTarget')
+STAT_EVENTS = {
+	'BrowserUse.captchaSolverStarted': 'captcha_started',
+	'Browser.downloadWillBegin': 'download_started',
+	'Page.downloadWillBegin': 'download_started',
+}
+
+
+class CellStats:
+	"""Telemetry counts of one cell (TELEMETRY.md): helper and cdp() method names, hostnames, captcha and download
+	events. Never arguments, URLs, page text or values. Sent with the cell's result, then reset."""
+
+	def __init__(self) -> None:
+		self.lock = threading.Lock()  # ultrafast reads CDP events on a background thread
+		self.take()
+
+	def count(self, kind: str, name: str) -> None:
+		with self.lock:
+			getattr(self, kind)[name] += 1
+
+	def url(self, url, navigation: bool = False) -> None:
+		if h := host(url):
+			with self.lock:
+				self.hosts.add(h)
+				self.navigations += navigation
+
+	def observe(self, events) -> None:
+		for e in events if isinstance(events, list) else ():
+			method = e.get('method') if isinstance(e, dict) else None
+			key = STAT_EVENTS.get(method or '')
+			if method == 'BrowserUse.captchaSolverFinished':
+				key = 'captcha_solved' if (e.get('params') or {}).get('success') else 'captcha_failed'
+			if key:
+				self.count('events', key)
+
+	def take(self) -> dict:
+		with self.lock:
+			out = {
+				'helpers': dict(getattr(self, 'helpers', {})),
+				'cdp': dict(getattr(self, 'cdp', {})),
+				'events': dict(getattr(self, 'events', {})),
+				'hosts': sorted(getattr(self, 'hosts', ())),
+				'navigations': getattr(self, 'navigations', 0),
+			}
+			self.helpers, self.cdp, self.events, self.hosts, self.navigations = Counter(), Counter(), Counter(), set(), 0
+		return out
+
+
+stats = CellStats()
+
+
+def _counted(name: str, fn):
+	"""fn, counted in stats under name. page_info()/current_tab() also record the attached tab's hostname."""
+
+	@functools.wraps(fn)
+	def counted(*args, **kwargs):
+		stats.count('helpers', name)
+		result = fn(*args, **kwargs)
+		if name in ('page_info', 'current_tab') and isinstance(result, dict):
+			stats.url(result.get('url'))
+		return result
+
+	return counted
+
+
+class CountedBu:
+	"""The agent's `bu`: each public method call is counted as bu.<name>. The worker keeps the raw object, so its own
+	state print after a cell is not counted."""
+
+	def __init__(self, bu: ax.AxHelpers) -> None:
+		object.__setattr__(self, '_bu', bu)
+
+	def __getattr__(self, name: str):
+		value = getattr(self._bu, name)
+		return _counted(f'bu.{name}', value) if callable(value) and not name.startswith('_') else value
+
+	def __setattr__(self, name: str, value) -> None:
+		setattr(self._bu, name, value)
+
+	def __dir__(self):
+		return dir(self._bu)
+
+	def __repr__(self) -> str:
+		return repr(self._bu)
 
 
 def _add_image(data: bytes, media_type: str = 'image/png') -> bool:
@@ -104,9 +191,20 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	os.environ.clear()  # whatever those added (DATABASE_URL, ...) does not survive
 	os.environ.update(env)
 
+	raw_send = helpers._send
+
+	def send(req, *args, **kwargs):  # every drain_events() read, also bu's background one, feeds the event counts
+		r = raw_send(req, *args, **kwargs)
+		if isinstance(req, dict) and req.get('meta') == 'drain_events' and isinstance(r, dict):
+			stats.observe(r.get('events'))
+		return r
+
+	helpers._send = send
 	raw_cdp = helpers.cdp
 
 	def cdp(method, session_id=None, **params):
+		if method in NAVIGATING:
+			stats.url(params.get('url'), navigation=True)
 		if method != 'Page.captureScreenshot':
 			# browser-harness defaults to 5s IPC; heavy cloud pages (Maps, TripAdvisor) blew it on navigate/evaluate/input.
 			params.setdefault('_response_timeout', CDP_TIMEOUT_S)
@@ -122,7 +220,13 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	helpers.cdp = cdp  # capture_screenshot() and friends go through the wrapper too
 	captcha = Captcha(cdp)
 	exec('from browser_harness.helpers import *', ns)
-	ns['cdp'] = cdp
+
+	@functools.wraps(cdp)
+	def agent_cdp(method, session_id=None, **params):  # the agent's own cdp() calls, counted by method
+		stats.count('cdp', str(method))
+		return cdp(method, session_id, **params)
+
+	ns['cdp'] = agent_cdp
 
 	shots = STATE / 'screenshots'
 
@@ -278,6 +382,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
 	if cloud:
 		ns['upload_file'] = _remote_upload(ns['js'])
+	bu = None
 	if os.environ.get('BU_MODE') != 'ultrafast':
 		# One reader of the daemon's events, so solver events are never lost; wait_for_network_idle() reads through it.
 		events = EventPump(helpers._send, captcha.observe)
@@ -285,16 +390,22 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			events.start()
 		captcha.pump = events.pump
 		helpers.drain_events = ns['drain_events'] = events.drain_events
-		return None, captcha
-	bu = ns['bu'] = ax.AxHelpers(cdp, on_event=captcha.observe)
-	captcha.pump = bu._pump
-	helpers.drain_events = ns['drain_events'] = bu.drain_events  # bu reads the daemon's events; the agent still gets them
+	else:
+		bu = ax.AxHelpers(cdp, on_event=captcha.observe)
+		ns['bu'] = CountedBu(bu)
+		captcha.pump = bu._pump
+		helpers.drain_events = ns['drain_events'] = bu.drain_events  # bu reads the daemon's events; the agent still gets them
 
-	def print_(*args, **kwargs):
-		"""print() for the cell: a bu result is already printed, so it prints empty (Pi: console.log of it)."""
-		print(*('' if isinstance(a, ax.Printed) else a for a in args), **kwargs)
+		def print_(*args, **kwargs):
+			"""print() for the cell: a bu result is already printed, so it prints empty (Pi: console.log of it)."""
+			print(*('' if isinstance(a, ax.Printed) else a for a in args), **kwargs)
 
-	ns['print'] = print_
+		ns['print'] = print_
+	own = {helpers.__name__, __name__, ax.__name__, Captcha.__module__}  # helpers and the ones above; not stdlib names the * import brought
+	for name, value in list(ns.items()):
+		if name not in ('cdp', 'print') and not name.startswith('_') and inspect.isroutine(value):
+			if getattr(value, '__module__', None) in own:
+				ns[name] = _counted(name, value)
 	return bu, captcha
 
 
@@ -459,7 +570,7 @@ def main() -> None:
 		msg = json.loads(line)
 		images.clear()
 		out_path = cells / f'{msg["n"]:04d}.txt'
-		error = value = None
+		error = value = error_type = None  # stats keeps events bu read between cells (a captcha solve while the model thinks)
 		rfd, wfd = os.pipe()
 		pump = threading.Thread(target=_pump, args=(rfd, out_path, secrets), daemon=True)
 		pump.start()
@@ -476,6 +587,7 @@ def main() -> None:
 				value = _run(obj, ns, loop) if obj.co_flags & inspect.CO_COROUTINE else eval(obj, ns)
 				value = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=_jsonable)
 		except BaseException as e:  # - the agent sees every failure
+			error_type = type(e).__name__
 			if isinstance(e, (SystemExit, KeyboardInterrupt)):
 				error = f'{type(e).__name__} ignored; the REPL keeps running.'
 			else:
@@ -507,6 +619,8 @@ def main() -> None:
 				'value': value,
 				'images': list(images),
 				'output_file': str(out_path),
+				'error_type': error_type,
+				'stats': stats.take(),
 			}
 		)
 

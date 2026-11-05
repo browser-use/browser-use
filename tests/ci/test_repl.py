@@ -11,7 +11,10 @@ from browser_use.repl import Repl, redact, worker_env
 
 PACKAGE = Path(browser_use.__file__).parent
 # A prompt-injected cell digging the values out of type_secret's closure.
-DIG = 'v = {n: x for n, x, _ in [c.cell_contents for c in type_secret.__closure__ if isinstance(c.cell_contents, list)][0]}\n'
+DIG = (  # helpers are wrapped for telemetry counts (worker._counted); an injected cell can unwrap them too
+	'import inspect\nv = {n: x for n, x, _ in [c.cell_contents for c in inspect.unwrap(type_secret).__closure__ '
+	'if isinstance(c.cell_contents, list)][0]}\n'
+)
 
 
 async def test_worker_runs_cells_over_loopback(tmp_path):

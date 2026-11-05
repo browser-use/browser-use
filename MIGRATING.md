@@ -185,7 +185,7 @@ forms, with `<secret:name>` in exactly these places:
 - results and retry messages of your own `Tools` actions
 - the task, follow-up tasks (`add_new_task`) and `extend_system_message`, before the model sees them
 - `result.final_result()`, `result.output` / `result.structured_output` (field by field), `result.partial`,
-  `result.error`, the error `Agent.run` logs, and telemetry
+  `result.error`, and the error `Agent.run` logs. Telemetry never sends these texts at all (TELEMETRY.md)
 
 Nothing else is redacted. This is not a sandbox:
 
