@@ -29,9 +29,10 @@ async def test_unsupported_run_kwarg_raises(no_browser):
 		await agent.run(on_step_start=lambda a: None)
 
 
-def test_domain_scoped_sensitive_data_raises(no_browser):
-	with pytest.raises(TypeError, match='Domain-scoped'):
-		Agent('t', script()[0], sensitive_data={'https://example.com': {'pw': 'x'}})
+def test_domain_scoped_sensitive_data_is_accepted_and_bad_shapes_raise(no_browser):
+	Agent('t', script()[0], sensitive_data={'https://example.com': {'pw': 'x'}, 'pin': '1'})
+	with pytest.raises(TypeError, match='must be a string'):
+		Agent('t', script()[0], sensitive_data={'pw': 123})
 
 
 def test_removed_classes_raise_with_pointer():

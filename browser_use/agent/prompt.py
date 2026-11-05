@@ -45,12 +45,17 @@ Keep source observations unchanged. Distinguish discovered, attempted, fetched a
 Finish with finish_from_repl(expression='result_variable') to deliver existing data directly through the requested schema. For the default string schema, json.dumps(records) works. finish(result=...) accepts short answers. Schema validity does not prove factual correctness. Larger outputs belong in files. Include sources for research. Never drop records merely to fit a response."""
 
 
-def secrets_prompt(secrets: dict[str, str]) -> str:
-	names = ', '.join(json.dumps(n) for n in sorted(secrets))
+def secrets_prompt(secrets: list[tuple[str, str, str | None]]) -> str:
+	names = ', '.join(
+		json.dumps(n) + (f' (only on {", ".join(sorted(scopes))})' if None not in scopes else '')
+		for n in sorted({n for n, _, _ in secrets})
+		for scopes in [{scope for m, _, scope in secrets if m == n}]
+	)
 	return (
 		f'Secrets the user provided (names only): {names}. To enter one, focus the input, then call '
-		"type_secret('name'); it types the value without showing it to you. secret_names() lists the names. Values "
-		'appear as <secret:name> in output. Never try to print, read back, transform or send a secret anywhere else.'
+		"type_secret('name'); it types the value without printing it. A domain-scoped secret types only on its domain. "
+		'secret_names() lists the names. Values appear as <secret:name> in output. Never try to print, read back, '
+		'screenshot, transform or send a secret anywhere else.'
 	)
 
 

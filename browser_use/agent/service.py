@@ -18,6 +18,7 @@ from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import Browser
 from browser_use.llm import as_chat_model, resolve_model
 from browser_use.repl import Repl, check_mode, redact
+from browser_use.repl.session import scoped_secrets
 from browser_use.tools import Tools
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ class Agent:
 		tools: Tools | None = None,
 		controller: Tools | None = None,
 		output_model_schema: Any = None,
-		sensitive_data: dict[str, str] | None = None,
+		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		extend_system_message: str | None = None,
 		reasoning: str = 'medium',
 		mode: str | None = 'default',
@@ -94,12 +95,7 @@ class Agent:
 		tools = tools or controller
 		if tools is not None and not isinstance(tools, Tools):
 			raise TypeError(f'tools must be browser_use.Tools, not {type(tools).__name__}')
-		for name, value in (sensitive_data or {}).items():
-			if not isinstance(value, str):
-				raise TypeError(
-					f'sensitive_data[{name!r}] must be a string. Domain-scoped secrets '
-					"({'https://site': {...}}) are not supported in 1.0 yet; pass {'name': 'value'}."
-				)
+		scoped_secrets(sensitive_data)  # raises on a non-string value
 		self.mode = check_mode(mode)
 		self.task, self.llm, self.browser, self.tools = task, as_chat_model(llm), browser, tools
 		self.output_model_schema = output_model_schema or str

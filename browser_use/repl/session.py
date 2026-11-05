@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import fnmatch
 import hmac
 import json
 import os
@@ -63,13 +64,60 @@ def worker_env(extra: dict[str, str] | None = None) -> dict[str, str]:
 	return {**env, **(extra or {})}
 
 
-Secrets = dict[str, str] | Iterable[tuple[str, str]]  # name -> value, or (name, value) pairs
+Secrets = dict[str, Any] | Iterable[tuple]  # 0.x sensitive_data, or (name, value[, domain]) tuples
+
+
+def scoped_secrets(sensitive_data: Secrets | None) -> list[tuple[str, str, str | None]]:
+	"""0.x sensitive_data -> (name, value, domain pattern or None).
+
+	{'name': 'value'} types anywhere; {'https://site.com' or '*.site.com': {'name': 'value'}} types only on pages
+	whose URL matches the pattern (domain_matches)."""
+	if sensitive_data is None:
+		return []
+	if not isinstance(sensitive_data, dict):
+		return [(t[0], t[1], t[2] if len(t) > 2 else None) for t in sensitive_data]
+	out: list[tuple[str, str, str | None]] = []
+	for key, value in sensitive_data.items():
+		if isinstance(value, dict):
+			for name, v in value.items():
+				if not isinstance(v, str):
+					raise TypeError(f'sensitive_data[{key!r}][{name!r}] must be a string')
+				out.append((name, v, key))
+		elif isinstance(value, str):
+			out.append((key, value, None))
+		else:
+			raise TypeError(f"sensitive_data[{key!r}] must be a string, or {{'name': 'value'}} for the domain pattern {key!r}")
+	return out
+
+
+def domain_matches(url: str, pattern: str) -> bool:
+	"""0.x match_url_with_domain_pattern: 'site.com' = https only, 'http*://site.com' = both schemes, '*.site.com'
+	= site.com and its subdomains. A port in the pattern must match; without one any port does."""
+	try:
+		u = urllib.parse.urlparse(url)
+		scheme, host = (u.scheme or '').lower(), (u.hostname or '').lower()
+		if not scheme or not host:  # about:blank, chrome://newtab, data:...
+			return False
+		pattern = pattern.lower()
+		p_scheme, p_host = pattern.split('://', 1) if '://' in pattern else ('https', pattern)
+		p_host, _, p_port = p_host.partition('/')[0].partition(':')
+		if not fnmatch.fnmatchcase(scheme, p_scheme) or (p_port and str(u.port or '') != p_port):
+			return False
+		if p_host in ('*', host):
+			return True
+		if '*' not in p_host or p_host.count('*.') > 1 or p_host.endswith('.*') or '*' in p_host.replace('*.', ''):
+			return False  # only '*.domain' and '*domain' globs, as in 0.x
+		if p_host.startswith('*.') and host == p_host[2:]:
+			return True
+		return fnmatch.fnmatchcase(host, p_host)
+	except ValueError:  # a malformed URL or port
+		return False
 
 
 def secret_forms(values: Secrets) -> list[tuple[str, str]]:
 	"""(form, name) for each secret value and its reversed, base64, hex and URL-encoded forms, longest first."""
 	forms: dict[str, str] = {}
-	for name, value in values.items() if isinstance(values, dict) else values:
+	for name, value, _ in scoped_secrets(values):
 		if not value:
 			continue
 		forms[value] = name
@@ -125,10 +173,10 @@ class Repl:
 		workspace: Path,
 		env: dict[str, str] | None = None,
 		mode: str | None = 'default',
-		secrets: dict[str, str] | None = None,
+		secrets: Secrets | None = None,
 	):
 		self.workspace, self.env, self.n, self.mode = workspace, env or {}, 0, check_mode(mode)
-		self.secrets = dict(secrets or {})
+		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		self.proc: asyncio.subprocess.Process | None = None
 		self.loop: asyncio.AbstractEventLoop | None = None
 		self.state = workspace / '.browser-use'

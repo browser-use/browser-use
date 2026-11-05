@@ -1,7 +1,7 @@
 """Persistent Python REPL for one agent. Runs as a child process so a hung cell can be killed.
 
 Namespace = browser-harness helpers + screenshot/show_image/checkpoint/type_secret (+ bu in ultrafast mode, see ax.py).
-Protocol: connect to 127.0.0.1:BU_REPL_PORT, send BU_REPL_TOKEN, read one init line ({"secrets": {...}}), then one JSON
+Protocol: connect to 127.0.0.1:BU_REPL_PORT, send BU_REPL_TOKEN, read one init line ({"secrets": [[name, value, domain|null], ...]}), then one JSON
 line per message. Cell stdout/stderr (including subprocesses) go to a per-cell file, so a killed cell still leaves its
 partial output on disk.
 """
@@ -22,7 +22,7 @@ import traceback
 from pathlib import Path
 
 from browser_use import ax
-from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, redact, redact_forms, secret_forms
+from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, domain_matches, redact, redact_forms, secret_forms
 
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
@@ -53,7 +53,7 @@ def _add_image(data: bytes, media_type: str = 'image/png') -> bool:
 	return True
 
 
-def _install(ns: dict, secrets: dict[str, str]) -> ax.AxHelpers | None:
+def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 	env = dict(os.environ)  # the allowlisted env the parent gave us
 	from browser_harness import helpers  # loads .env files and agent_helpers.py into this process
 
@@ -105,14 +105,28 @@ def _install(ns: dict, secrets: dict[str, str]) -> ax.AxHelpers | None:
 	type_text = helpers.type_text
 
 	def type_secret(name):
-		"""Type the secret called `name` into the focused element. Its value is never shown to you."""
-		if name not in secrets:
+		"""Type the secret called `name` into the focused element. Its value is hidden from your text output.
+		A domain-scoped secret types only while the current page matches its domain."""
+		candidates = [(v, scope) for n, v, scope in secrets if n == name]
+		if not candidates:
 			raise KeyError(f'No secret named {name!r}; secret_names() lists them')
-		type_text(secrets[name])
+		scoped = [(v, scope) for v, scope in candidates if scope is not None]
+		if scoped:
+			url = str(helpers.page_info().get('url') or '')
+			for value, scope in scoped:
+				if domain_matches(url, scope):
+					return type_text(value)
+		for value, scope in candidates:
+			if scope is None:
+				return type_text(value)
+		raise PermissionError(
+			f'Secret {name!r} may only be typed on {", ".join(sorted({s for _, s in scoped}))}; the current page is '
+			f'{url or "unknown"}. Navigate to the right site first.'
+		)
 
 	def secret_names():
 		"""Names of the secrets you can type with type_secret(name)."""
-		return sorted(secrets)
+		return sorted({n for n, _, _ in secrets})
 
 	ns.update(
 		screenshot=screenshot, show_image=show_image, checkpoint=checkpoint, type_secret=type_secret, secret_names=secret_names
@@ -139,7 +153,7 @@ def _write_atomic(path: Path, text: str) -> None:
 	os.replace(tmp, path)  # a kill mid-write leaves the old file, never a truncated one
 
 
-def _pump(rfd: int, path: Path, secrets: dict[str, str]) -> None:
+def _pump(rfd: int, path: Path, secrets: list) -> None:
 	"""Copy a cell's output pipe into its file, redacting on the way, so secret values never reach the disk even
 	when the cell is killed. Holds back only the tail that could be the start of a secret."""
 	forms = secret_forms(secrets)
