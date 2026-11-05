@@ -241,6 +241,7 @@ class SendKeysEvent(BaseEvent[None]):
 	"""Send keyboard keys/shortcuts."""
 
 	keys: str  # e.g., "ctrl+a", "cmd+c", "Enter"
+	target_id: TargetID | None = None  # Actor pages can address a specific target.
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_SendKeysEvent', 60.0))  # seconds
 

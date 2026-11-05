@@ -61,6 +61,7 @@ from browser_use.agent.views import (
 	PlanItem,
 	StepMetadata,
 )
+from browser_use.browser.cloud.views import CloudBrowserAuthError
 from browser_use.browser.events import _get_timeout
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 from browser_use.browser.views import BrowserStateSummary
@@ -1660,10 +1661,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if judgement.failure_reason:
 					judge_log += f'   Failure Reason: {judgement.failure_reason}\n'
 				if judgement.reached_captcha:
-					self.logger.warning(
-						'Agent was blocked by a captcha. Cloud browsers include stealth fingerprinting and proxy rotation to avoid this.\n'
-						'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=captcha_nudge'
-					)
+					self._log_cloud_captcha_hint()
 				judge_log += f'   {judgement.reasoning}\n'
 				self.logger.info(judge_log)
 
@@ -2161,8 +2159,31 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.logger.debug(message)
 		return message
 
-	def _log_final_outcome_messages(self) -> None:
+	def _log_cloud_captcha_hint(self) -> None:
+		"""Point local-browser users at cloud browsers after a captcha block, at most once per run."""
+		if getattr(self, '_cloud_captcha_hint_logged', False) or not CONFIG.BROWSER_USE_CLOUD_HINTS:
+			return
+		session = self.browser_session
+		if session is not None:
+			profile = session.browser_profile
+			if session.cdp_url:
+				# start() connects to an explicit cdp_url even when use_cloud=True, so trust the host
+				on_browser_use_cloud = (urlparse(session.cdp_url).hostname or '').endswith('.browser-use.com')
+			else:
+				on_browser_use_cloud = profile.use_cloud or profile.cloud_browser_params is not None
+			if on_browser_use_cloud:
+				return
+		self._cloud_captcha_hint_logged = True
+		self.logger.warning(
+			'Agent was blocked by a captcha. Cloud browsers include stealth fingerprinting and proxy rotation to avoid this.\n'
+			'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=captcha_nudge\n'
+			'         Silence this hint: BROWSER_USE_CLOUD_HINTS=false'
+		)
+
+	def _log_final_outcome_messages(self, cloud_auth_failed: bool = False) -> None:
 		"""Log helpful messages to user based on agent run outcome"""
+		if cloud_auth_failed:
+			return  # the missing/invalid key message already says what to do; it is not a bug to report
 		# Check if agent failed
 		is_successful = self.history.is_successful()
 
@@ -2176,10 +2197,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			has_captcha_issue = any(keyword in final_result_str for keyword in captcha_keywords)
 
 			if has_captcha_issue:
-				self.logger.warning(
-					'Agent was blocked by a captcha. Cloud browsers include stealth fingerprinting and proxy rotation to avoid this.\n'
-					'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=captcha_nudge'
-				)
+				self._log_cloud_captcha_hint()
 
 			# General failure message
 			self.logger.info('')
@@ -2510,7 +2528,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		loop = asyncio.get_event_loop()
 		agent_run_error: str | None = None  # Initialize error tracking variable
+		cloud_auth_failed = False
 		self._force_exit_telemetry_logged = False  # ADDED: Flag for custom telemetry on force exit
+		self._cloud_captcha_hint_logged = False
 		should_delay_close = False
 
 		# Set up the  signal handler with callbacks specific to this agent
@@ -2669,7 +2689,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return self.history
 
 		except Exception as e:
-			self.logger.error(f'Agent run failed with exception: {e}', exc_info=True)
+			if isinstance(e, CloudBrowserAuthError):
+				# Actionable config error: show the message once, without a traceback.
+				cloud_auth_failed = True
+				self.logger.error(f'Agent run failed: {e}')
+			else:
+				self.logger.error(f'Agent run failed with exception: {e}', exc_info=True)
 			agent_run_error = str(e)
 			raise e
 
@@ -2717,7 +2742,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					self.eventbus.dispatch(output_event)
 
 			# Log final messages to user based on outcome
-			self._log_final_outcome_messages()
+			self._log_final_outcome_messages(cloud_auth_failed=cloud_auth_failed)
 
 			# Stop the event bus gracefully, waiting for all events to be processed
 			# Configurable via TIMEOUT_AgentEventBusStop env var (default: 3.0s)
