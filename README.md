@@ -118,7 +118,7 @@ print(result.final_result())
 
 Defaults: model `bu-auto` on the Browser Use gateway, browser = a Browser Use Cloud browser (stopped when the run ends). No login? Set `BROWSER_USE_API_KEY` instead.
 
-**Your Chrome, your model:**
+**Local browser, your model:**
 
 ```python
 from browser_use import Agent, Browser, ChatOpenAI
@@ -126,10 +126,17 @@ from browser_use import Agent, Browser, ChatOpenAI
 agent = Agent(
     'Find the number of stars of the browser-use repo',
     llm=ChatOpenAI('gpt-6-luna'),        # OPENAI_API_KEY; or ChatOpenAI(model, base_url=...) for any compatible server
-    browser=Browser(local=True),         # your local Chrome through browser-harness
+    browser=Browser('chromium'),         # a fresh local Chrome with its own temp profile
 )
 result = await agent.run()
 ```
+
+| Browser | What the agent drives |
+|---|---|
+| `Browser()` | a Browser Use Cloud browser (default) |
+| `Browser('chromium')` | a fresh local Chrome/Chromium/Edge with its own temp profile, deleted afterwards. Headless when there is no display (Docker, CI); `headless=`, `executable_path=`, `user_data_dir=` (a profile dir kept between runs) |
+| `Browser('chrome')` | the Chrome you have open, with your logins (turn on chrome://inspect/#remote-debugging once) |
+| `Browser('chrome', profile='Work')` | a new Chrome on a temporary copy of your Chrome profile `Work`; your Chrome can stay open |
 
 Other models: `ChatAnthropic` (`browser-use[anthropic]`), `ChatGoogle` (`browser-use[google]`), or any Pydantic AI model string such as `llm='groq:llama-3.3-70b'`.
 
@@ -172,7 +179,7 @@ The default, `bu-auto` on the Browser Use gateway, runs the configuration we eva
 <details>
 <summary><b>Can I use this for free?</b></summary>
 
-The Python library is free and [MIT-licensed](LICENSE). Model inference and hosted browsers are separate: API providers, including `ChatBrowserUse`, and Browser Use Cloud charge for usage. You can also use `Browser(local=True)` with a local model, e.g. Ollama through `ChatOpenAI(model, base_url='http://localhost:11434/v1', api_key='ollama')`.
+The Python library is free and [MIT-licensed](LICENSE). Model inference and hosted browsers are separate: API providers, including `ChatBrowserUse`, and Browser Use Cloud charge for usage. You can also use `Browser('chromium')` with a local model, e.g. Ollama through `ChatOpenAI(model, base_url='http://localhost:11434/v1', api_key='ollama')`.
 </details>
 
 <details>
@@ -184,7 +191,7 @@ This open-source library is licensed under the MIT License. For Browser Use serv
 <details>
 <summary><b>How do I handle authentication?</b></summary>
 
-- **Local browser:** `Browser(local=True)` drives your own Chrome, with your logins.
+- **Local browser:** `Browser('chrome')` drives the Chrome you have open, with your logins; `Browser('chrome', profile='Work')` uses a copy of that profile; `Browser('chromium', user_data_dir='~/bu-profile')` keeps its own logins between runs.
 - **Cloud browser:** `Browser(cloud_profile_id='work')` keeps logins in a cloud profile; see the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md).
 - **Passwords:** pass them as `sensitive_data`; the model types them with `type_secret(name)` and their values are redacted from cell output, checkpoints, tool results, the task and the result. Not a sandbox: model-written Python can read them, and screenshots, page JavaScript and a cloud live view can reveal a typed value.
 </details>

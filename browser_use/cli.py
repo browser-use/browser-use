@@ -91,10 +91,11 @@ INSTALL_TEXT = """browser-use 1.0 does not download a browser (0.x installed Pla
 
 Pick where the agent's browser runs:
   Browser()                   Browser Use Cloud browser (default). Needs a key: browser-use auth login
-  Browser(local=True)         your installed Chrome, through the browser-harness daemon (desktop only)
-  Browser(cdp_url='http://127.0.0.1:9222')
-                              any Chrome you start yourself with --remote-debugging-port=9222
-                              (servers/Docker: chromium --headless=new --remote-debugging-port=9222)
+  Browser('chromium')         a fresh local Chrome/Chromium/Edge with its own temp profile
+                              (headless when there is no display: servers, Docker, CI)
+  Browser('chrome')           the Chrome you have open, with your logins (browser-harness discovery)
+  Browser('chrome', profile='Work')
+                              a new Chrome on a temporary copy of your Chrome profile 'Work'
 
 Check the local setup: browser-use --doctor"""
 

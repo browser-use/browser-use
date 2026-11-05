@@ -69,4 +69,4 @@ def test_install_explains_1_0_browsers_instead_of_downloading_playwright(monkeyp
 	monkeypatch.setattr(subprocess, 'run', no_subprocess)
 	assert browser_use_cli._run_install_command([]) == 0
 	out = capsys.readouterr().out
-	assert 'does not download a browser' in out and 'cdp_url' in out and 'local=True' in out
+	assert 'does not download a browser' in out and "Browser('chromium')" in out and "Browser('chrome')" in out

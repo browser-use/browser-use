@@ -45,11 +45,50 @@ def test_default_browser_is_cloud_with_us_proxy_and_no_live_view():
 	assert Browser(cdp_url='http://x:9222').use_cloud is False
 
 
+def test_browser_kinds_and_their_0x_aliases():
+	kinds = [Browser().kind, Browser('cloud').kind, Browser('chromium').kind, Browser('chrome').kind]
+	assert kinds == ['cloud', 'cloud', 'chromium', 'chrome']
+	assert Browser(local=True).kind == Browser(use_cloud=False).kind == 'chromium'  # fresh local, as 0.x launched
+	assert Browser(cdp_url='http://x:9222').kind == 'cdp' and Browser(use_cloud=True).kind == 'cloud'
+	assert Browser('chrome', profile='Work', headless=True).chrome_profile == 'Work'
+
+
+@pytest.mark.parametrize(
+	'kwargs, match',
+	[
+		({'kind': 'firefox'}, "pick 'cloud'"),
+		({'kind': 'chrome', 'local': True}, 'Pass one of'),
+		({'local': True, 'use_cloud': True}, 'Pass one of'),
+		({'kind': 'cloud', 'use_cloud': False}, 'Pass one of'),
+		({'kind': 'chromium', 'cdp_url': 'http://x:9222'}, 'Pass one of'),
+		({'headless': False}, r'Browser\(\) \(a cloud browser\) does not take headless='),
+		({'kind': 'chrome', 'headless': True}, "Browser\\('chromium', ...\\) launches"),
+		({'kind': 'chrome', 'executable_path': '/x'}, 'executable_path'),
+		({'kind': 'chrome', 'user_data_dir': '/x'}, 'user_data_dir'),
+		({'kind': 'chromium', 'profile': 'Work'}, "Browser\\('chrome', profile=...\\)"),
+		({'kind': 'chromium', 'cloud_profile_id': 'p'}, 'cloud profiles'),
+		({'local': True, 'live_view': True}, 'live view'),
+	],
+)
+def test_browser_options_that_do_not_fit_the_kind_raise_before_start(kwargs, match):
+	with pytest.raises(ValueError, match=match):
+		Browser(**kwargs)
+
+
+def test_chromes_default_profile_dir_is_refused_as_user_data_dir():
+	"""Chrome 136+ refuses remote debugging on its default user-data-dir; launching on it would fail opaquely."""
+	default = browser_mod._local.chrome_user_data_dir()
+	with pytest.raises(ValueError, match='Chrome 136'):
+		Browser('chromium', user_data_dir=default)
+
+
 def test_conflicting_or_0x_browser_options_raise():
 	with pytest.raises(ValueError):
 		Browser(local=True, use_cloud=True)
-	with pytest.raises(TypeError, match='headless'):
-		Browser(headless=False)
+	with pytest.raises(TypeError, match='window_size'):
+		Browser(window_size={'width': 800})
+	with pytest.raises(TypeError, match="profile='Profile 1'"):
+		Browser(profile_directory='Profile 1')
 
 
 async def test_run_starts_and_stops_cloud_browser(cloud, tmp_path, capsys):
@@ -115,7 +154,7 @@ def test_atexit_cleanup_stops_live_browsers(cloud):
 )
 async def test_localhost_task_with_cloud_browser_raises_before_start(cloud, task):
 	model, _ = script()
-	with pytest.raises(ValueError, match='Browser\\(local=True\\)'):
+	with pytest.raises(ValueError, match="Browser\\('chromium'\\)"):
 		await Agent(task, model).run()
 	assert cloud == []
 
@@ -139,7 +178,7 @@ async def test_missing_key_raises_and_never_falls_back_to_local(cloud, monkeypat
 	model, _ = script()
 	with pytest.raises(MissingAPIKeyError, match='browser-use auth login'):
 		await Agent('t', model).run()
-	with pytest.raises(MissingAPIKeyError, match='Browser\\(local=True\\)'):
+	with pytest.raises(MissingAPIKeyError, match="Browser\\('chromium'\\)"):
 		await Agent('t').run()  # default model too
 	assert cloud == []
 
@@ -384,7 +423,7 @@ async def test_sigterm_during_exit_cleanup_never_deadlocks(cloud, monkeypatch):
 
 
 async def test_local_start_is_bounded_when_chrome_never_allows_remote_debugging(monkeypatch):
-	"""Fable r3-7: Browser(local=True) called ensure_daemon() without a wait; browser-harness then waits forever on
+	"""Fable r3-7: Browser('chrome') (then local=True) called ensure_daemon() without a wait; browser-harness then waits forever on
 	Chrome's "Allow remote debugging?" prompt, so Agent.run() hung before its timeout even started."""
 	from browser_harness import admin
 
@@ -397,8 +436,9 @@ async def test_local_start_is_bounded_when_chrome_never_allows_remote_debugging(
 		raise RuntimeError("permission-blocked: Chrome's Allow popup is still open and the pending daemon was left running.")
 
 	monkeypatch.setattr(admin, 'ensure_daemon', ensure_daemon)
+	monkeypatch.setattr(admin, 'daemon_alive', lambda name=None: True)  # skip discovery of this machine's Chromes
 	with pytest.raises(RuntimeError, match='did not allow remote debugging within 120s'):
-		await Browser(local=True).start()
+		await Browser('chrome').start()
 	assert calls == [browser_mod.LOCAL_START_WAIT_S]
 
 

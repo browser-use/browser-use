@@ -67,8 +67,8 @@ def _unsupported(kwargs: dict[str, Any], where: str) -> TypeError:
 class Agent:
 	"""agent = Agent('task'); result = await agent.run(); result.final_result()
 
-	llm: default ChatBrowserUse('bu-auto'). browser: default Browser() = a Browser Use Cloud browser; Browser(local=True)
-	for your Chrome. sensitive_data={'name': 'value'} (or {'https://site': {'name': 'value'}} to type it only on that
+	llm: default ChatBrowserUse('bu-auto'). browser: default Browser() = a Browser Use Cloud browser; Browser('chromium')
+	for a fresh local one, Browser('chrome') for the Chrome you have open. sensitive_data={'name': 'value'} (or {'https://site': {'name': 'value'}} to type it only on that
 	domain): the model types values with type_secret('name'); values become <secret:name> in cell output, checkpoints,
 	tool results, the task and the result (MIGRATING.md "Trust model" lists exactly where). Not a sandbox: model-written
 	Python can read them; screenshots, page JS and a cloud live view or recording can reveal a typed value. mode='ultrafast' adds accessibility-tree helpers for
@@ -128,7 +128,7 @@ class Agent:
 		if self.browser.use_cloud and (m := LOCAL_TARGET.search(self.task)):
 			raise ValueError(
 				f'The task mentions {m.group()!r}, which a cloud browser cannot reach. '
-				'Use a local browser: Agent(task, browser=Browser(local=True)).'
+				"Use a local browser: Agent(task, browser=Browser('chromium'))."
 			)
 
 	def _build(self) -> None:

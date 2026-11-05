@@ -1,8 +1,9 @@
 """Which browser the agent drives.
 
-Browser()                 a Browser Use Cloud browser (default; needs a Browser Use API key)
-Browser(local=True)       your local Chrome through the browser-harness daemon
-Browser(cdp_url=...)      any running browser with remote debugging
+Browser()                         a Browser Use Cloud browser (default; needs a Browser Use API key)
+Browser('chromium')               a fresh local Chrome/Chromium/Edge with its own temp profile (= Browser(local=True))
+Browser('chrome')                 the Chrome you have open, attached through the shared browser-harness daemon
+Browser('chrome', profile='Work') a new Chrome on a temporary copy of your Chrome profile 'Work'
 
 Agent.run() stops the browser at the end unless Browser(keep_alive=True). Cloud browsers are also stopped when the
 process exits or gets SIGTERM, and the server stops them after cloud_timeout minutes either way.
@@ -27,29 +28,28 @@ import urllib.request
 import uuid
 import webbrowser
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 from browser_use.auth import browser_use_api_key
+from browser_use.browser import local as _local
 from browser_use.config import load_env
 
 logger = logging.getLogger(__name__)
 load_env()  # 0.x read .env on import; credentials below resolve from it
 
 CLOUD_API = 'https://api.browser-use.com/api/v4'
+KINDS = ('cloud', 'chromium', 'chrome')
 UNSUPPORTED = {  # 0.x BrowserSession/BrowserProfile options -> what to do instead
-	'headless': 'cloud browsers (Browser()) are always headless. On a server or in Docker, start '
-	"chromium --headless=new --remote-debugging-port=9222 yourself and pass Browser(cdp_url='http://127.0.0.1:9222'). "
-	'Browser(local=True) needs a desktop Chrome.',
-	'user_data_dir': 'use Browser(local=True) to drive your own Chrome profile, or cloud_profile_id for cloud logins.',
-	'executable_path': 'Browser(local=True) uses the Chrome browser-harness finds or launches.',
+	'profile_directory': "use Browser('chrome', profile='Profile 1') (a copy of that Chrome profile).",
 	'allowed_domains': 'domain restrictions are not in 1.0 yet.',
 	'prohibited_domains': 'domain restrictions are not in 1.0 yet.',
 	'browser_profile': 'BrowserProfile was removed; pass options to Browser(...).',
-	'storage_state': 'use cloud_profile_id (cloud) or your Chrome profile (local=True).',
+	'storage_state': "use cloud_profile_id (cloud), Browser('chrome', profile=...) or Browser('chromium', user_data_dir=...).",
 	'proxy': 'use cloud_proxy_country_code on cloud browsers.',
 }
 CREATE_TIMEOUT_S = 120  # total for the cloud create; start() fails past it, and a browser that lands later is stopped
-LOCAL_START_WAIT_S = 120  # Browser(local=True): Chrome start plus the user clicking Allow on its remote-debugging prompt
+LOCAL_START_WAIT_S = 120  # Browser('chrome'): Chrome start plus the user clicking Allow on its remote-debugging prompt
 DOWNLOADS_TIMEOUT_S = 300  # per download pass; a slow or huge download never holds the stop (and billing) longer
 _LIVE: set[Browser] = set()  # browsers this process owns that still need stopping
 _POOL = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='browser-use-cloud')  # joined at exit
@@ -153,6 +153,21 @@ def _shutdown_daemon(name: str) -> None:
 		pass
 
 
+def _check_one_chrome() -> None:
+	"""Browser('chrome') attaches where browser-harness would: the running default daemon, else the first browser
+	with remote debugging on, Google Chrome first. Raises when that choice is a guess: several are on, none Chrome."""
+	from browser_harness import admin
+
+	if not admin._is_local_chrome_mode() or admin.daemon_alive():
+		return
+	live = _local.live_debug_dirs()
+	if len(live) > 1 and live[0] != _local.chrome_user_data_dir():
+		raise RuntimeError(
+			f"Browser('chrome'): several browsers have remote debugging on ({', '.join(map(str, live))}) and none of "
+			'them is Google Chrome. Turn it off in all but one (chrome://inspect/#remote-debugging), then run again.'
+		)
+
+
 def _stop_all() -> None:
 	from browser_use.repl.session import kill_workers
 
@@ -179,10 +194,26 @@ def _install_cleanup() -> None:
 		signal.signal(signal.SIGTERM, _on_sigterm)
 
 
+def _kind(kind: str | None, local: bool, use_cloud: bool | None, cdp_url: str | None) -> str:
+	"""'cloud', 'chromium', 'chrome' or 'cdp' (cdp_url). local=True and 0.x use_cloud=False mean 'chromium'."""
+	if kind is not None and kind not in KINDS:
+		raise ValueError(f"Browser({kind!r}): pick 'cloud' (default), 'chromium' (a fresh local browser) or 'chrome' (yours)")
+	if sum(map(bool, (kind, local, cdp_url, use_cloud))) > 1 or (use_cloud is False and kind == 'cloud'):
+		raise ValueError("Pass one of Browser('chromium' | 'chrome' | 'cloud'), local=True, cdp_url=... or use_cloud=True")
+	if cdp_url:
+		return 'cdp'
+	return kind or ('chromium' if local or use_cloud is False else 'cloud')
+
+
 class Browser:
 	def __init__(
 		self,
+		kind: Literal['cloud', 'chromium', 'chrome'] | None = None,
 		*,
+		profile: str | None = None,
+		headless: bool | None = None,
+		user_data_dir: str | Path | None = None,
+		executable_path: str | None = None,
 		local: bool = False,
 		use_cloud: bool | None = None,
 		cdp_url: str | None = None,
@@ -193,7 +224,11 @@ class Browser:
 		live_view: bool = False,
 		**kwargs,
 	):
-		"""keep_alive: Agent.run() leaves the browser running (stop it with `await browser.stop()`).
+		"""kind: 'cloud' (default), 'chromium' (a fresh local browser; local=True is the same) or 'chrome' (the Chrome
+		you have open; with profile='Work', a new Chrome on a temporary copy of that profile).
+		headless (launched browsers; default: only without a display), executable_path (default: Chrome, Chromium or
+		Edge, whichever is installed), user_data_dir ('chromium': a dedicated profile dir kept between runs instead of a
+		temp one). keep_alive: Agent.run() leaves the browser running (stop it with `await browser.stop()`).
 		cloud_profile_id: a cloud profile id or name (logins persist in it). cloud_proxy_country_code=None turns the
 		proxy off. cloud_timeout: minutes (1-240). live_view: print and open the interactive live view URL (anyone
 		with that link can drive the browser)."""
@@ -201,13 +236,41 @@ class Browser:
 			name = next(iter(kwargs))
 			hint = UNSUPPORTED.get(name, 'see MIGRATING.md for the 1.0 Browser options.')
 			raise TypeError(f'Browser({name}=...) is not supported in browser-use 1.0: {hint}')
-		if sum(map(bool, (local, cdp_url, use_cloud))) > 1:
-			raise ValueError('Pass only one of local=True, cdp_url=... or use_cloud=True')
-		self.local = local or (use_cloud is False and not cdp_url)  # 0.x Browser(use_cloud=False) meant local
+		self.kind = _kind(kind, local, use_cloud, cdp_url)
+		launches = self.kind == 'chromium' or (self.kind == 'chrome' and profile is not None)
+		where = {'cloud': 'Browser() (a cloud browser)', 'chrome': "Browser('chrome') (your open Chrome)"}.get(
+			self.kind, f'Browser({self.kind!r})'
+		)
+		for option, value, ok in (
+			('headless', headless is not None, launches),
+			('executable_path', executable_path, launches),
+			('user_data_dir', user_data_dir, self.kind == 'chromium'),
+			('profile', profile is not None, self.kind == 'chrome'),
+			('cloud_profile_id', cloud_profile_id, self.kind == 'cloud'),
+			('live_view', live_view, self.kind == 'cloud'),
+		):
+			if value and not ok:
+				fix = {
+					'profile': "Browser('chrome', profile=...) copies one of your Chrome profiles",
+					'user_data_dir': "Browser('chromium', user_data_dir=...) keeps a dedicated profile dir",
+					'cloud_profile_id': 'cloud profiles are for Browser() (a cloud browser)',
+					'live_view': 'live view is for Browser() (a cloud browser)',
+				}.get(option, "Browser('chromium', ...) launches a local browser with it")
+				raise ValueError(f'{where} does not take {option}=: {fix}')
+		if user_data_dir and _local.is_default_user_data_dir(user_data_dir):
+			raise ValueError(
+				f"user_data_dir={str(user_data_dir)!r} is a browser's default profile dir, and Chrome 136+ refuses "
+				"remote debugging on it. Use Browser('chrome', profile='<name>') for a copy of one of its profiles, "
+				"Browser('chrome') to attach to the open Chrome, or another dir."
+			)
+		self.local = self.kind in ('chromium', 'chrome')
 		self.cdp_url = cdp_url
-		self.use_cloud = not self.local and not cdp_url
+		self.use_cloud = self.kind == 'cloud'
+		self.chrome_profile, self.headless, self.user_data_dir = profile, headless, user_data_dir
+		self.executable_path = executable_path
 		self.keep_alive, self.live_view = keep_alive, live_view
 		self.profile, self.proxy, self.timeout = cloud_profile_id, cloud_proxy_country_code, cloud_timeout
+		self._local: _local.LocalBrowser | None = None  # the Chrome this Browser launched, while it runs
 		self.name: str | None = None  # browser-harness daemon this Browser owns; None = the shared default daemon
 		self.id: str | None = None  # cloud browser id
 		self.live_url: str | None = None  # interactive; anyone with the link can drive the browser
@@ -246,16 +309,20 @@ class Browser:
 	async def _start(self) -> dict[str, str]:
 		from browser_harness import admin
 
-		if self.local:
+		if self.kind == 'chrome' and self.chrome_profile is None:
+			await asyncio.to_thread(_check_one_chrome)
 			# Bounded: without a wait, browser-harness waits forever on Chrome's "Allow remote debugging?" prompt, and
 			# run(timeout=) only starts counting after the browser started.
 			try:
 				await asyncio.to_thread(admin.ensure_daemon, wait=LOCAL_START_WAIT_S)
 			except RuntimeError as e:
 				if not str(e).startswith('permission-blocked'):
-					raise
+					raise RuntimeError(
+						f"Browser('chrome') could not attach to your Chrome: {e}\nBrowser('chromium') starts a fresh browser "
+						'that needs no setup.'
+					) from None
 				raise RuntimeError(
-					f'Browser(local=True): Chrome did not allow remote debugging within {LOCAL_START_WAIT_S:g}s. Click '
+					f"Browser('chrome'): Chrome did not allow remote debugging within {LOCAL_START_WAIT_S:g}s. Click "
 					'Allow on its "Allow remote debugging?" prompt (macOS: or run `browser-harness mac-approve` in another '
 					f'shell), then run again. ({e})'
 				) from None
@@ -273,8 +340,17 @@ class Browser:
 		try:
 			if self.cdp_url:
 				ws = await asyncio.to_thread(_ws_url, self.cdp_url)
-			else:
+			elif self.use_cloud:
 				ws = await self._start_cloud()
+			else:  # 'chromium', or 'chrome' with a profile: a browser of our own
+				self._local = _local.LocalBrowser()
+				ws = await asyncio.to_thread(
+					self._local.start,
+					executable_path=self.executable_path,
+					headless=self.headless,
+					user_data_dir=self.user_data_dir,
+					profile=self.chrome_profile,
+				)
 			await asyncio.to_thread(admin.ensure_daemon, name=self.name, env={'BU_CDP_WS': ws, 'BH_TAB_MARKER': '0'})
 		except BaseException:
 			await self._stop()
@@ -311,6 +387,9 @@ class Browser:
 			name, self.name = self.name, None
 			if name:
 				_shutdown_daemon(name)
+			launched, self._local = self._local, None
+			if launched is not None:  # after the daemon: it never reconnects to a Chrome that is going away
+				launched.stop()
 			creating = self._creating
 			if creating is not None:  # a cancelled or timed-out start's POST may still be in flight
 				concurrent.futures.wait([creating], timeout=max(0.0, self._create_deadline - time.monotonic()))
@@ -342,7 +421,8 @@ class Browser:
 				self._stop_now()
 
 	async def stop(self, downloads_dir: str | Path | None = None) -> list[Path]:
-		"""Stop the daemon this Browser started and its cloud browser. Never touches your local Chrome.
+		"""Stop the daemon this Browser started, and the cloud browser or local Chrome it started. Never touches the
+		Chrome you have open.
 		downloads_dir: copy what the cloud browser downloaded there. Returns the local paths."""
 		async with self._lock:
 			await self._stopped()
