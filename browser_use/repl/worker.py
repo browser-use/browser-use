@@ -104,6 +104,12 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 
 	type_text = helpers.type_text
 
+	def _page_url() -> str:
+		# The browser's own record of the page type_text types into (same CDP session), never page JS: page_info()
+		# runs JSON.stringify in the page, which the page can override to report an allowed URL.
+		frame = (helpers.cdp('Page.getFrameTree').get('frameTree') or {}).get('frame') or {}
+		return str(frame.get('url') or '')
+
 	def type_secret(name):
 		"""Type the secret called `name` into the focused element. Its value is hidden from your text output.
 		A domain-scoped secret types only while the current page matches its domain."""
@@ -112,7 +118,7 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 			raise KeyError(f'No secret named {name!r}; secret_names() lists them')
 		scoped = [(v, scope) for v, scope in candidates if scope is not None]
 		if scoped:
-			url = str(helpers.page_info().get('url') or '')
+			url = _page_url()
 			for value, scope in scoped:
 				if domain_matches(url, scope):
 					return type_text(value)

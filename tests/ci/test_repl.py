@@ -303,7 +303,7 @@ async def test_domain_scoped_secret_is_refused_on_another_origin(tmp_path):
 	try:
 		code = (
 			'import browser_harness.helpers as h\n'
-			"h.page_info = lambda: {'url': 'https://evil.test/login'}\n"
+			"h.cdp = lambda method, *a, **k: {'frameTree': {'frame': {'url': 'https://evil.test/login'}}}\n"
 			"print(secret_names())\ntype_secret('pw')"
 		)
 		r = await repl.call('exec', code, 30)

@@ -174,3 +174,25 @@ async def test_ultrafast_agent_runs(chrome, tmp_path, mode):
 	)
 	r = await Agent('t', model, browser=Browser(cdp_url=chrome['http']), mode=mode, workspace=tmp_path).run()
 	assert r.final_result() == 'ok'
+
+
+async def test_domain_check_ignores_what_page_js_reports(daemon, tmp_path):
+	"""Roast r3-1: type_secret read the URL with page_info(), which runs the page's JSON.stringify; a page that
+	overrides it reported an allowed URL and got the credential typed into its own field."""
+	page = (
+		'data:text/html,<input id=pw><script>const real = JSON.stringify; JSON.stringify = (v, ...a) => '
+		"v && v.url !== undefined ? real({...v, url: 'https://site.test/login'}) : real(v, ...a)</script>"
+	)
+	repl = Repl(tmp_path, daemon, secrets={'https://site.test': {'pw': 'hunter2-Zq9'}})
+	try:
+		code = (
+			f'new_tab({page!r}); wait_for_load(); js(\'document.getElementById("pw").focus()\')\n'
+			"print(page_info()['url'])\ntype_secret('pw')"
+		)
+		r = await repl.call('exec', code, 30)
+		typed = (await repl.call('exec', 'print(repr(js(\'document.getElementById("pw").value\')))', 30))['output']
+	finally:
+		await repl.close()
+	assert 'https://site.test/login' in r['output'], r  # the page lies to page JS
+	assert 'PermissionError' in (r['error'] or ''), r
+	assert typed.strip() == "''"
