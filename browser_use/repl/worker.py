@@ -130,9 +130,17 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 			if not node.get('shadowRoots'):
 				return node
 			root = cdp_(
-				'DOM.resolveNode', session_id=session, backendNodeId=node['shadowRoots'][0]['backendNodeId'], executionContextId=ctx
+				'DOM.resolveNode',
+				session_id=session,
+				backendNodeId=node['shadowRoots'][0]['backendNodeId'],
+				executionContextId=ctx,
 			)['object']['objectId']
-			inner = cdp_('Runtime.callFunctionOn', session_id=session, objectId=root, functionDeclaration='function () { return this.activeElement }')
+			inner = cdp_(
+				'Runtime.callFunctionOn',
+				session_id=session,
+				objectId=root,
+				functionDeclaration='function () { return this.activeElement }',
+			)
 			if not inner['result'].get('objectId'):
 				return node
 			obj = inner['result']['objectId']
@@ -161,14 +169,15 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 					targets = helpers.cdp('Target.getTargets')['targetInfos']
 					if not any(t['targetId'] == child and t['type'] == 'iframe' for t in targets):
 						raise RuntimeError('focused frame is neither in the frame tree nor an iframe target')
-					session = helpers.cdp('Target.attachToTarget', targetId=child, flatten=True)['sessionId']
-					attached.append(session)
+					sid = helpers.cdp('Target.attachToTarget', targetId=child, flatten=True)['sessionId']
+					attached.append(sid)
+					session = sid
 				frame_id = child
 			raise RuntimeError('frames nested too deep')
 		finally:
-			for sid in attached:
+			for attached_sid in attached:
 				with contextlib.suppress(Exception):
-					helpers.cdp('Target.detachFromTarget', sessionId=sid)
+					helpers.cdp('Target.detachFromTarget', sessionId=attached_sid)
 
 	def _type_keys(value: str) -> None:
 		# Key events per character, as 0.x typed sensitive_data: forms that react to keydown/keyup (enable the submit

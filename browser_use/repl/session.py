@@ -4,7 +4,7 @@ Transport: the worker connects back to a 127.0.0.1 ephemeral port and proves its
 works the same on Windows, macOS and Linux (no inherited file descriptors).
 
 Secrets: the worker gets an allowlisted environment (no API keys or tokens). sensitive_data values travel over the
-control channel, are typed with type_secret(name) (domain-scoped ones only on a matching page), and are replaced with
+control channel, are typed with type_secret(name) (domain-scoped ones only into a matching focused frame), and are replaced with
 <secret:name> in the text the worker returns and in its cell files and checkpoints. Not a sandbox: model-written
 Python can read the values and local files, write unredacted files, and screenshots or js() reads of a field can
 reveal a typed value (MIGRATING.md "Trust model").

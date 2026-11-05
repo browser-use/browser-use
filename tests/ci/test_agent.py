@@ -209,7 +209,11 @@ async def test_type_secret_sends_key_events_so_key_driven_forms_see_it(daemon, t
 	try:
 		code = f"new_tab({page!r}); wait_for_load(); js('document.getElementById(\"pw\").focus()'); type_secret('pw')"
 		r = await repl.call('exec', code, 30)
-		state = await repl.call('exec', "print(js('[document.getElementById(\"pw\").value === \"Hunter2-Zq9!\", document.getElementById(\"go\").disabled]'))", 30)
+		state = await repl.call(
+			'exec',
+			'print(js(\'[document.getElementById("pw").value === "Hunter2-Zq9!", document.getElementById("go").disabled]\'))',
+			30,
+		)
 	finally:
 		await repl.close()
 	assert r['error'] is None, r
@@ -263,8 +267,8 @@ async def test_domain_scoped_secret_checks_the_frame_that_receives_it(daemon, tm
 	async def attempt(path, name, read):
 		code = (
 			f"new_tab('{allowed}{path}'); wait_for_load(); import time; time.sleep(1)\n"
-			"js('window.focusFrame ? focusFrame() : document.getElementById(\"i\").focus()'); time.sleep(0.3)\n"
-			f"type_secret({name!r})"
+			'js(\'window.focusFrame ? focusFrame() : document.getElementById("i").focus()\'); time.sleep(0.3)\n'
+			f'type_secret({name!r})'
 		)
 		error = (await repl.call('exec', code, 30))['error'] or ''
 		value = (await repl.call('exec', f'print(repr({read})); close_tab()', 30))['output'].strip()  # one frame per URL
@@ -275,7 +279,9 @@ async def test_domain_scoped_secret_checks_the_frame_that_receives_it(daemon, tm
 		assert await attempt('/cross-site', 'pw', cross) == (True, "''")  # the attacker frame gets nothing
 		# same site, other origin: one process, so read it through the frame tree
 		same_site = await attempt('/same-site', 'pw', "'(cross-origin)'")
-		same_origin = await attempt('/same-origin', 'pw', 'js(\'document.getElementById("i").contentDocument.getElementById("f").value\')')
+		same_origin = await attempt(
+			'/same-origin', 'pw', 'js(\'document.getElementById("i").contentDocument.getElementById("f").value\')'
+		)
 		assert await attempt('/shadow', 'pw', cross) == (True, "''")
 		allowed_frame = await attempt('/cross-site', 'tok', cross)  # the frame's own secret, on an unrelated top page
 	finally:

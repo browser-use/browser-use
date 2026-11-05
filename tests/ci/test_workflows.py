@@ -20,9 +20,7 @@ def gha_if(expression: str, github: NS) -> bool:
 
 
 def event(name: str, ref: str, prerelease: bool = False) -> NS:
-	return NS(
-		event_name=name, ref=ref, ref_name=ref.split('/', 2)[2], event=NS(release=NS(prerelease=prerelease))
-	)
+	return NS(event_name=name, ref=ref, ref_name=ref.split('/', 2)[2], event=NS(release=NS(prerelease=prerelease)))
 
 
 @pytest.mark.parametrize(

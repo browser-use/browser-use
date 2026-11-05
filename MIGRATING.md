@@ -162,8 +162,11 @@ The REPL worker runs model-written Python as your user. 1.0 limits what it can s
   whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH` never reach it.
 - `sensitive_data` values are sent to the worker over its control channel. The model is told only their names and
   types a value with `type_secret(name)`.
-- A domain-scoped secret (`{'https://site.com': {...}}`) is typed only while the attached tab's URL, as the browser
-  reports it (not page JavaScript), matches its domain. A prompt-injected page cannot get it typed on another site.
+- A domain-scoped secret (`{'https://site.com': {...}}`) is typed only while the frame that receives the text (the
+  focused frame, followed into iframes and shadow roots) has a matching URL, as the browser reports it (not page
+  JavaScript); when that frame cannot be established it is not typed. A prompt-injected page cannot get it typed on
+  another site, or into another site's iframe on the right page. The page can still move focus between that check and
+  the key events.
 
 Redaction replaces a secret value, its JSON- and `repr()`-escaped forms, and its reversed, base64, hex and URL-encoded
 forms, with `<secret:name>` in exactly these places:
