@@ -24,7 +24,7 @@ Agent(task, llm, browser).run()                  browser_use/agent/service.py   
 - The system prompt is `browser_use/agent/prompt.py`. It is evaluated; do not edit it casually.
 - The REPL worker is a child process in its own process group: a cell timeout kills the tree and restarts it. Files
   and browser state survive, Python variables do not.
-- Secrets (`sensitive_data`) are hidden from plain text output, not sandboxed. See "Trust model" in MIGRATING.md.
+- Secrets (`sensitive_data`) are redacted from specific channels (listed in "Trust model" in MIGRATING.md), not sandboxed.
 - `browser-use` CLI and `--cli-mcp` (`browser_use/cli.py`, `browser_use/mcp/`) pipe Python to browser-harness.
 - `browser_use/skills/` ships the `browser-use` agent skill and its installer.
 

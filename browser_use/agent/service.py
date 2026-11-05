@@ -69,8 +69,9 @@ class Agent:
 
 	llm: default ChatBrowserUse('bu-auto'). browser: default Browser() = a Browser Use Cloud browser; Browser(local=True)
 	for your Chrome. sensitive_data={'name': 'value'} (or {'https://site': {'name': 'value'}} to type it only on that
-	domain): the model types values with type_secret('name'); secret values are hidden from plain text output. Not a
-	sandbox: screenshots and page JS can reveal a typed value. mode='ultrafast' adds accessibility-tree helpers for
+	domain): the model types values with type_secret('name'); values become <secret:name> in cell output, checkpoints,
+	tool results, the task and the result (MIGRATING.md "Trust model" lists exactly where). Not a sandbox: model-written
+	Python can read them; screenshots, page JS and a cloud live view or recording can reveal a typed value. mode='ultrafast' adds accessibility-tree helpers for
 	interaction-heavy tasks. reasoning: 'low'|'medium'|'high' (default 'medium') for OpenAI reasoning models, Anthropic
 	and Google; OpenAI-compatible chat backends (the gateway, base_url servers) ignore it with a warning: pass
 	ChatOpenAI(..., reasoning_effort=...) to send reasoning_effort there."""

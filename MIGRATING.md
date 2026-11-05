@@ -31,7 +31,7 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 | `browser`, `browser_session` | kept: take a `Browser(...)` |
 | `tools`, `controller` | kept: take `Tools()` (see below) |
 | `output_model_schema` | kept: `result.structured_output` |
-| `sensitive_data` | kept: `{'name': 'value'}` types anywhere; domain-scoped `{'https://site.com' or '*.site.com': {'name': 'value'}}` types only on matching pages (0.x patterns: no scheme = https only). The model types values with `type_secret('name')`; secret values are hidden from plain text output (`<secret:name>`). Not a sandbox: see [Trust model](#trust-model-for-secrets) |
+| `sensitive_data` | kept: `{'name': 'value'}` types anywhere; domain-scoped `{'https://site.com' or '*.site.com': {'name': 'value'}}` types only on matching pages (0.x patterns: no scheme = https only). The model types values with `type_secret('name')`; values are replaced with `<secret:name>` in cell output, checkpoints, tool results, the task and the result. Not a sandbox: see [Trust model](#trust-model-for-secrets) for exactly what is redacted |
 | `extend_system_message` | kept |
 | `use_vision`, `max_actions_per_step`, `vision_detail_level`, `llm_screenshot_size`, `sample_images` | raises: screenshots are taken when needed; each step is one Python cell |
 | `flash_mode` | raises: try `mode='ultrafast'` |
@@ -58,7 +58,7 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 
 | 0.x | 1.0 |
 |---|---|
-| `await agent.run(max_steps=100)` | kept; also `timeout=1700`: seconds for the agent loop (model requests and cells). Browser start before it and browser stop / cloud download collection after it are not counted. `on_step_start` / `on_step_end` raise |
+| `await agent.run(max_steps=...)` | kept, but the default changed from 500 to 100: one step is one model request (one Python cell, or the delivery). Also `timeout=1700`: seconds for the agent loop (model requests and cells). Browser start before it and browser stop / cloud download collection after it are not counted. `on_step_start` / `on_step_end` raise |
 | `agent.run_sync()` | kept |
 | `agent.add_new_task(task)` | kept: the next `run()` continues the same conversation |
 | `await agent.close()`, `async with Agent(...)` | kept; after `run_sync()` use `agent.close_sync()` |
@@ -160,16 +160,33 @@ The REPL worker runs model-written Python as your user. 1.0 limits what it can s
 
 - Its environment is an allowlist (`PATH`, `HOME`, locale, temp dirs, `BU_*` / `BH_*` harness settings). Variables
   whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH` never reach it.
-- `sensitive_data` values travel over the worker's control channel and are typed with `type_secret(name)`.
-  Secret values are hidden from plain text output: they, and their reversed, base64, hex and URL-encoded forms, are
-  replaced with `<secret:name>` in cell output, errors, checkpoints and the result text.
-- A domain-scoped secret (`{'https://site.com': {...}}`) is typed only while the current page matches its domain, so
-  a prompt-injected page cannot get the model to type it into another site.
+- `sensitive_data` values are sent to the worker over its control channel. The model is told only their names and
+  types a value with `type_secret(name)`.
+- A domain-scoped secret (`{'https://site.com': {...}}`) is typed only while the attached tab's URL, as the browser
+  reports it (not page JavaScript), matches its domain. A prompt-injected page cannot get it typed on another site.
 
-This is not a sandbox. Screenshots are images and are not redacted: a typed value in a visible field (an email, a
-token, a "show password" field) reaches the model in a screenshot. Model-written `js()` can read a field's value
-back and transform it in ways redaction does not catch. The worker can also read files your user can read (for
-example `~/.config/browser-harness/auth.json`). Run untrusted tasks in a container or VM.
+Redaction replaces a secret value, and its reversed, base64, hex and URL-encoded forms, with `<secret:name>` in
+exactly these places:
+
+- what a cell returns to the model: its stdout/stderr (subprocesses included), its error, a `finish_from_repl` value,
+  and the cell's output file in `workspace/.browser-use/cells/`
+- files written by `checkpoint()` (and the partial result)
+- results and retry messages of your own `Tools` actions
+- the task, follow-up tasks (`add_new_task`) and `extend_system_message`, before the model sees them
+- `result.final_result()`, `result.partial`, `result.error`, the error `Agent.run` logs, and telemetry
+
+Nothing else is redacted. This is not a sandbox:
+
+- The values live in the worker process, so model-written Python can read them. A transform redaction does not know
+  (rot13, splitting a value) passes every channel above, and a file the code writes itself (`open()`, pandas, ...) is
+  never redacted.
+- Screenshots are images and are not redacted: a typed value in a visible field (an email, a token, a "show
+  password" field) reaches the model in a screenshot. Model-written `js()` can read a field's value back.
+- A cloud browser's live view (`live_view=True`, or anyone with that URL) and any recording of the session show what
+  was typed, as in any browser.
+- The worker can read files your user can read (for example `~/.config/browser-harness/auth.json`).
+
+Run untrusted tasks in a container or VM.
 
 `Browser(local=True)` drives your real Chrome profile: model-written CDP can read its cookies and open tabs. Use a
 cloud browser or your own Chrome with a throwaway profile (`--user-data-dir=...` + `cdp_url=`) for untrusted tasks.

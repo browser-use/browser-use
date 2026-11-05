@@ -96,7 +96,7 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 	def checkpoint(filename, value, partial=False):
 		"""Atomically save JSON to the workspace. partial=True also makes it the run's fallback result."""
 		path = Path(filename)
-		value = redact(json.loads(json.dumps(value, default=str)), secrets)  # secret values never reach the disk
+		value = redact(json.loads(json.dumps(value, default=str)), secrets)  # the checkpoint file never holds a secret value
 		_write_atomic(path, json.dumps(value, ensure_ascii=False, indent=1))
 		if partial:
 			_write_atomic(STATE / 'partial.json', json.dumps({'file': str(path), 'value': value}, ensure_ascii=False))

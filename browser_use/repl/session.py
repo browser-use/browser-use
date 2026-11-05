@@ -5,8 +5,9 @@ works the same on Windows, macOS and Linux (no inherited file descriptors).
 
 Secrets: the worker gets an allowlisted environment (no API keys or tokens). sensitive_data values travel over the
 control channel, are typed with type_secret(name) (domain-scoped ones only on a matching page), and are replaced with
-<secret:name> in the text the worker returns. Secret values are hidden from plain text output; this is not a sandbox:
-model-written Python can read local files, and screenshots or js() reads of a field can reveal a typed value.
+<secret:name> in the text the worker returns and in its cell files and checkpoints. Not a sandbox: model-written
+Python can read the values and local files, write unredacted files, and screenshots or js() reads of a field can
+reveal a typed value (MIGRATING.md "Trust model").
 """
 
 from __future__ import annotations
@@ -133,7 +134,7 @@ def secret_forms(values: Secrets) -> list[tuple[str, str]]:
 
 def redact(text: Any, values: Secrets) -> Any:
 	"""Replace secret values (and common encodings of them) with <secret:name>, in strings, lists and dicts.
-	This hides values from plain text output; it is not a sandbox."""
+	Only the text passed here is redacted; it is not a sandbox."""
 	return redact_forms(text, secret_forms(values))
 
 
