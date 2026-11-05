@@ -202,6 +202,9 @@ async def test_solve_captcha_through_the_daemon(cloud, tmp_path):
 			{'enabled': True},
 			{'enabled': False},
 		]
+		# telemetry: the call and the solve, read by the worker's event reader, are counted (names only)
+		assert r['stats']['helpers'].get('solve_captcha') == 1, r['stats']
+		assert r['stats']['events'] == {'captcha_started': 1, 'captcha_solved': 1}, r['stats']
 	finally:
 		await repl.close()
 
