@@ -18,33 +18,50 @@ EXPECTED_SKILL_INSTALL_PATHS = (
 )
 
 
+def _fake_command(bin_dir: Path, name: str, code: str) -> None:
+	"""A command on PATH that runs this Python: a shebang script on POSIX, a .cmd wrapper on Windows."""
+	script = bin_dir / f'{name}.py'
+	script.write_text(code, encoding='utf-8')
+	if sys.platform == 'win32':
+		(bin_dir / f'{name}.cmd').write_text(f'@"{sys.executable}" "{script}" %*\r\n', encoding='utf-8')
+	else:
+		exe = bin_dir / name
+		exe.write_text(f'#!{sys.executable}\n{code}', encoding='utf-8')
+		exe.chmod(0o755)
+
+
 def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
 	bin_dir = tmp_path / 'bin'
 	bin_dir.mkdir()
-
-	uv = bin_dir / 'uv'
-	uv.write_text(
-		'#!/usr/bin/env python3\n'
+	_fake_command(
+		bin_dir,
+		'uv',
 		'import os, pathlib, sys\n'
 		'pathlib.Path(os.environ["UV_TOOL_INSTALL_ARGS_FILE"]).write_text(" ".join(sys.argv[1:]), encoding="utf-8")\n',
-		encoding='utf-8',
 	)
-	uv.chmod(0o755)
-
-	browser_harness = bin_dir / 'browser-harness'
-	browser_harness.write_text(
-		'#!/usr/bin/env python3\n'
+	_fake_command(
+		bin_dir,
+		'browser-harness',
 		'import sys\n'
 		f'text = {skill_text!r}\n'
 		'if sys.argv[1:] == ["skill"]:\n'
-		'    print(text, end="")\n'
+		'    sys.stdout.buffer.write(text.encode("utf-8"))\n'
 		'else:\n'
 		'    print("usage: browser-harness skill", file=sys.stderr)\n'
 		'    sys.exit(2)\n',
-		encoding='utf-8',
 	)
-	browser_harness.chmod(0o755)
 	return bin_dir
+
+
+def _isolated_env(tmp_path: Path, bin_dir: Path, home: Path) -> dict[str, str]:
+	"""Fake tools first on PATH; HOME and USERPROFILE (Windows' home) inside tmp_path."""
+	env = os.environ.copy()
+	env.pop('XDG_CONFIG_HOME', None)
+	env['HOME'] = env['USERPROFILE'] = str(home)
+	env['PATH'] = os.pathsep.join(part for part in (str(bin_dir), env.get('PATH', '')) if part)
+	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
+	env['UV_TOOL_INSTALL_ARGS_FILE'] = str(tmp_path / 'uv-args.txt')
+	return env
 
 
 def test_docs_install_browser_use_skill_from_package_alias():
@@ -111,11 +128,7 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 		stale.write_text('stale browser-use skill', encoding='utf-8')
 
 	uv_args = tmp_path / 'uv-args.txt'
-	env = os.environ.copy()
-	env['HOME'] = str(home)
-	env['PATH'] = os.pathsep.join(part for part in (str(bin_dir), env.get('PATH', '')) if part)
-	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
-	env['UV_TOOL_INSTALL_ARGS_FILE'] = str(uv_args)
+	env = _isolated_env(tmp_path, bin_dir, home)
 
 	result = subprocess.run(
 		[sys.executable, '-m', 'browser_use.cli', 'skill', 'install'],
@@ -163,11 +176,7 @@ def test_browser_use_cli_validates_destination_before_installing_harness(tmp_pat
 	blocking_file.write_text('blocks skill directory creation', encoding='utf-8')
 
 	uv_args = tmp_path / 'uv-args.txt'
-	env = os.environ.copy()
-	env['HOME'] = str(tmp_path / 'home')
-	env['PATH'] = os.pathsep.join(part for part in (str(bin_dir), env.get('PATH', '')) if part)
-	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
-	env['UV_TOOL_INSTALL_ARGS_FILE'] = str(uv_args)
+	env = _isolated_env(tmp_path, bin_dir, tmp_path / 'home')
 
 	result = subprocess.run(
 		[sys.executable, '-m', 'browser_use.cli', 'skill', 'install', '--path', str(blocking_file / 'nested')],
@@ -181,3 +190,23 @@ def test_browser_use_cli_validates_destination_before_installing_harness(tmp_pat
 	assert result.returncode == 1
 	assert 'is not a directory' in result.stderr
 	assert not uv_args.exists()
+
+
+def test_skill_install_reads_utf8_whatever_the_locale(tmp_path):
+	"""Windows CI: the installer decoded `browser-harness skill` with cp1252 and crashed on non-ASCII skill text."""
+	bin_dir = _fake_browser_harness_tools(
+		tmp_path, '---\nname: browser-harness\n---\n\n# Browser Harness \u2014 \u65e5\u672c\u8a9e \U0001f642\n'
+	)
+	home = tmp_path / 'home'
+	env = _isolated_env(tmp_path, bin_dir, home)
+	env.update(LC_ALL='C', LANG='C', PYTHONUTF8='0', PYTHONCOERCECLOCALE='0', PYTHONIOENCODING='ascii')  # a non-UTF-8 locale
+	result = subprocess.run(
+		[sys.executable, '-m', 'browser_use.cli', 'skill', 'install', '--no-install', '--target', 'claude'],
+		cwd=ROOT,
+		env=env,
+		capture_output=True,
+		timeout=30,
+	)
+	assert result.returncode == 0, result.stderr.decode('utf-8', 'replace')
+	installed = (home / '.claude' / 'skills' / 'browser-use' / 'SKILL.md').read_text(encoding='utf-8')
+	assert '# Browser Use \u2014 \u65e5\u672c\u8a9e \U0001f642' in installed

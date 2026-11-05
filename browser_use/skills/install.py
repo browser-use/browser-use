@@ -78,7 +78,7 @@ def _load_skill_text_from_browser_harness_cli() -> str:
 	if exe is None:
 		return _load_skill_text_from_package()
 
-	result = subprocess.run([exe, 'skill'], capture_output=True, text=True)
+	result = subprocess.run([exe, 'skill'], capture_output=True, encoding='utf-8', errors='replace')  # not the locale's
 	if result.returncode != 0:
 		error = result.stderr.strip() or result.stdout.strip() or 'unknown error'
 		raise RuntimeError(f'Failed to read skill from `{exe} skill`: {error}')
