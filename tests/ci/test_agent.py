@@ -196,3 +196,22 @@ async def test_domain_check_ignores_what_page_js_reports(daemon, tmp_path):
 	assert 'https://site.test/login' in r['output'], r  # the page lies to page JS
 	assert 'PermissionError' in (r['error'] or ''), r
 	assert typed.strip() == "''"
+
+
+async def test_type_secret_sends_key_events_so_key_driven_forms_see_it(daemon, tmp_path):
+	"""Fable r4-3: type_secret used Input.insertText only (no key events); a login form that enables its submit button
+	on keyup stayed disabled, and the model had no value to type another way. 0.x typed secrets with key events."""
+	page = (
+		'data:text/html,<input id=pw onkeyup="document.getElementById(\'go\').disabled = this.value.length < 8">'
+		'<button id=go disabled>Log in</button>'
+	)
+	repl = Repl(tmp_path, daemon, secrets={'pw': 'Hunter2-Zq9!'})
+	try:
+		code = f"new_tab({page!r}); wait_for_load(); js('document.getElementById(\"pw\").focus()'); type_secret('pw')"
+		r = await repl.call('exec', code, 30)
+		state = await repl.call('exec', "print(js('[document.getElementById(\"pw\").value === \"Hunter2-Zq9!\", document.getElementById(\"go\").disabled]'))", 30)
+	finally:
+		await repl.close()
+	assert r['error'] is None, r
+	assert state['output'].strip() == '[True, False]', state
+

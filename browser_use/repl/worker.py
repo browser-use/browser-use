@@ -104,7 +104,11 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 			_write_atomic(STATE / 'partial.json', json.dumps({'file': str(path), 'value': value}, ensure_ascii=False))
 		return str(path)
 
-	type_text = helpers.type_text
+	def _type_keys(value: str) -> None:
+		# Key events per character, as 0.x typed sensitive_data: forms that react to keydown/keyup (enable the submit
+		# button, validate) see the value. Input.insertText alone fires no key events.
+		for ch in value:
+			helpers.press_key(ch)
 
 	def _page_url() -> str:
 		# The browser's own record of the page type_text types into (same CDP session), never page JS: page_info()
@@ -123,10 +127,10 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 			url = _page_url()
 			for value, scope in scoped:
 				if domain_matches(url, scope):
-					return type_text(value)
+					return _type_keys(value)
 		for value, scope in candidates:
 			if scope is None:
-				return type_text(value)
+				return _type_keys(value)
 		raise PermissionError(
 			f'Secret {name!r} may only be typed on {", ".join(sorted({s for _, s in scoped}))}; the current page is '
 			f'{url or "unknown"}. Navigate to the right site first.'
