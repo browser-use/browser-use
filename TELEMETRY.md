@@ -1,0 +1,47 @@
+# Telemetry
+
+browser-use sends anonymized usage telemetry to PostHog so we can see which models, browsers and helpers work and where
+runs fail. Turn it off with `ANONYMIZED_TELEMETRY=false` (any value not starting with `t`, `y` or `1`).
+
+## Never sent
+
+- the task, follow-up tasks, `extend_system_message`
+- the result: `final_result()`, structured output, partial results, the model's text
+- code the model writes (cells, `finish_from_repl` expressions)
+- text typed into pages (`type_text`, `fill_input`, `bu.type`), `sensitive_data` names or values, typed secrets
+- page content: titles, HTML, screenshots, extracted data, file names, `js()` expressions, cdp() parameters
+- full URLs: only the hostname is kept; paths, queries, fragments, ports, users and passwords are dropped
+- error messages and tracebacks: only the exception class (`ValueError`, `ModelNotFoundError`)
+- PostHog exception autocapture is off: no uncaught exception from your process is sent
+
+## agent_event (one per `Agent.run()`)
+
+Every field is a number, a bool, an enum, a hostname, or a name chosen by browser-use or the developer (model id,
+helper, tool, module, exception class).
+
+| group | fields |
+|---|---|
+| install | `version`, `source` (pip, uv, editable, git, unknown), `agent_type` (`pydantic`), `run_id` (random per run), `schema_version` (2) |
+| environment | `os`, `os_release`, `arch`, `python_version`, `pydantic_ai_version`, `browser_harness_version`, `is_docker`, `is_ci`, `is_notebook` |
+| configuration | `model` (id as passed, e.g. `bu-auto`, `gpt-6-luna`), `model_provider`, `reasoning`, `mode` (default, ultrafast), `max_steps`, `timeout_s`, `structured_output`, `output_schema_fields`, `custom_tools` (names of your `Tools` actions), `sensitive_data_count`, `sensitive_data_domain_scoped`, `extend_system_message` (bool), `custom_workspace`, `follow_up`, `task_chars` (length only) |
+| browser | `browser_mode` (cloud, local, cdp), `cdp_url` (hostname, cdp mode only), `keep_alive`, `cloud_profile` (bool, never the id or name), `cloud_proxy_country`, `cloud_timeout_min`, `live_view`, `browser_start_seconds` |
+| outcome | `status` (completed, timeout, max_steps, error, cancelled), `success`, `max_steps_hit`, `timed_out`, `finish_via` (finish, finish_from_repl, text), `partial_used`, `error_type`, `output_chars` (length only), `total_duration_seconds` |
+| model | `steps`, `model_requests`, `total_input_tokens`, `total_output_tokens`, `prompt_cached_tokens`, `cache_write_tokens`, `total_tokens`, `cost_usd`, `tool_calls` (calls per tool name), `retry_prompts` |
+| REPL | `cells`, `cell_errors`, `cell_seconds`, `cell_error_types` (class -> count; `CellTimeout`, `WorkerExited` for restarts), `helper_counts` (browser-harness helpers, `screenshot`, `type_secret`, `bu.<method>` -> calls), `cdp_method_counts` (the agent's own `cdp()` calls by method), `imports` (top-level modules cells import), `screenshots` |
+| browsing | `domains` (hostnames of pages the agent navigated to or read with `page_info()`/`current_tab()`; never your other tabs), `domain_count`, `navigations`, `captcha_started`, `captcha_solved`, `captcha_failed` (Browser Use Cloud solver events), `downloads_started`, `downloads` (cloud files copied), `download_exts` (extension -> count) |
+
+Maps and lists keep their 50 most frequent keys.
+
+## cli_event (the `browser-use` CLI)
+
+The CLI runs browser-harness, whose `cli_event` would include the piped code, its output, helper arguments and error
+text. The browser-use CLI removes those before the event is sent and keeps `command`, `action`, `exit_code`,
+`duration_seconds`, `task_length`, `output_length`, `step_count`, `browser`, `cdp_url` (hostname), `client`,
+`client_version`, `agent_client`, `model`, `model_provider`, the browser-harness environment fields, plus
+`helper_counts` (helper name -> calls), `helper_errors` and `schema_version` (2).
+
+## Identity
+
+Events carry one anonymous id per machine: `BROWSER_USE_DEVICE_ID` if set, else a random id stored in
+`~/.config/browseruse/device_id` (`BROWSER_USE_CONFIG_DIR` moves it), else (that file cannot be written) a hash of the
+machine's MAC address and hostname. PostHog derives a location from the request IP (GeoIP).

@@ -82,12 +82,17 @@ class ProductTelemetry:
 		else:
 			from posthog import Posthog
 
-			logger.info('Using anonymized telemetry, see https://docs.browser-use.com/development/monitoring/telemetry.')
+			logger.info(
+				'Using anonymized telemetry (no task text, results or page content; ANONYMIZED_TELEMETRY=false turns it off), '
+				'see https://docs.browser-use.com/development/monitoring/telemetry.'
+			)
 			self._posthog_client = Posthog(
 				project_api_key=self.PROJECT_API_KEY,
 				host=self.HOST,
 				disable_geoip=False,
-				enable_exception_autocapture=True,
+				# off: it sent every uncaught exception in the process with its message and source lines (task text,
+				# URLs, typed values); agent_event.error_type carries the class only
+				enable_exception_autocapture=False,
 			)
 
 			# Silence posthog's logging

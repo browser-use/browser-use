@@ -397,6 +397,7 @@ class Repl:
 					'output_file': str(out),
 					'value': None,
 					'error': f'{RESTARTED.format(why=why)} Actions may already have happened; inspect before retrying.',
+					'error_type': 'CellTimeout' if isinstance(e, TimeoutError) else 'WorkerExited',
 				}
 		except asyncio.CancelledError:  # the whole run was cancelled or timed out: the cell may still be running
 			await self.close()

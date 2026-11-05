@@ -7,10 +7,11 @@ import logging
 import re
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, ToolCallPart
 
 from browser_use.agent.loop import Session, build_agent, reasoning_supported, run
 from browser_use.agent.prompt import CLOUD_PROMPT
@@ -119,6 +120,8 @@ class Agent:
 		self._continue = False
 		self._runner: asyncio.Runner | None = None  # run_sync's event loop, kept while the REPL lives
 		self._running = False
+		self._custom_workspace = workspace is not None
+		self._downloads: list[Path] = []  # what the last stop() copied from a cloud browser (telemetry counts them)
 
 	def add_new_task(self, task: str) -> None:
 		"""The next run() continues this conversation with a new task."""
@@ -174,12 +177,16 @@ class Agent:
 		self._check_task()
 		if self._agent is None:
 			self._build()
-		started, result, error = time.monotonic(), None, None
+		started, result, error_type, session, browser_s = time.monotonic(), None, None, None, None
+		follow_up = self._continue
+		prior = len(self._history or []) if follow_up else 0  # messages of earlier tasks, not counted for this run
+		self._downloads = []
 		try:
 			if self._repl is None:
 				check_loop()  # before the browser starts: a cloud browser bills from its create
 				self.workspace.mkdir(parents=True, exist_ok=True)
 				env = await self.browser.start()
+				browser_s = time.monotonic() - started
 				self._repl = Repl(self.workspace, env, mode=self.mode, secrets=self.sensitive_data)
 			session = Session(repl=self._repl, timeout_s=timeout, max_steps=max_steps)
 			history, self._continue = (self._history if self._continue else None), False
@@ -196,12 +203,12 @@ class Agent:
 				logger.error(result.error)
 			return result
 		except BaseException as e:
-			error = f'{type(e).__name__}: {e}'
+			error_type = type(e).__name__
 			raise
 		finally:
 			if not self.browser.keep_alive:
 				await self._shutdown()
-			self._capture(result, error, max_steps, time.monotonic() - started)
+			self._capture(result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started)
 
 	def run_sync(self, max_steps: int = 100, timeout: float = 1700) -> AgentHistoryList:
 		"""run() without async. One event loop serves every run_sync() while the REPL lives (Browser(keep_alive=True)),
@@ -222,7 +229,7 @@ class Agent:
 				repl, self._repl = self._repl, None
 				await repl.close()
 		finally:
-			await self.browser.stop(downloads_dir=self.workspace / 'downloads')
+			self._downloads = await self.browser.stop(downloads_dir=self.workspace / 'downloads') or []
 
 	async def close(self) -> None:
 		"""Stop the REPL, and the browser unless Browser(keep_alive=True). Also closes run_sync()'s event loop when
@@ -257,40 +264,109 @@ class Agent:
 	async def __aexit__(self, *exc: object) -> None:
 		await self.close()
 
-	def _capture(self, result: AgentHistoryList | None, error: str | None, max_steps: int, duration: float) -> None:
-		"""One agent_event per run (0.x schema). Never sends code, page content, results or secret values."""
+	def _capture(
+		self,
+		result: AgentHistoryList | None,
+		session: Session | None,
+		error_type: str | None,
+		max_steps: int,
+		timeout: float,
+		prior: int,
+		browser_s: float | None,
+		duration: float,
+	) -> None:
+		"""One agent_event per run. Counts, names, hostnames and classes only: never the task, the result, code, typed
+		text, secrets, page content, URLs or error messages (TELEMETRY.md)."""
 		try:
+			from collections import Counter
+
 			from browser_use.telemetry import ProductTelemetry
+			from browser_use.telemetry.stats import RunStats, top
 			from browser_use.telemetry.views import AgentTelemetryEvent
 			from browser_use.utils import get_browser_use_version, get_install_source
 
+			stats = session.stats if session else RunStats()
+			status = (
+				result.status if result else 'cancelled' if error_type in ('CancelledError', 'KeyboardInterrupt') else 'error'
+			)
 			usage = result.usage if result else {}
-			error = redact(error or (result.error if result else None), self.sensitive_data)
+			messages = result.messages[prior:] if result else []
+			tools = Counter(
+				p.tool_name for m in messages if isinstance(m, ModelResponse) for p in m.parts if isinstance(p, ToolCallPart)
+			)
+			retries = sum(isinstance(p, RetryPromptPart) for m in messages if isinstance(m, ModelRequest) for p in m.parts)
+			schema = self.output_model_schema
+			fields = getattr(schema, 'model_fields', None)
+			secrets = scoped_secrets(self.sensitive_data)
+			browser = self.browser
+			mode = getattr(browser, 'mode', None)
+			mode = mode if isinstance(mode, str) else 'cloud' if browser.use_cloud else 'cdp' if browser.cdp_url else 'local'
+			downloads = self._downloads
 			telemetry = ProductTelemetry()
 			telemetry.capture(
 				AgentTelemetryEvent(
-					task=redact(self.task, self.sensitive_data),
-					model=self._model_name,
-					model_provider=self._provider,
-					max_steps=max_steps,
-					max_actions_per_step=None,  # type: ignore[arg-type]
-					use_vision=None,  # type: ignore[arg-type]
 					version=get_browser_use_version(),
 					source=get_install_source(),
-					cdp_url=self.browser.cdp_host,
-					agent_type='pydantic',
-					action_errors=[error] if error else [],
-					action_history=None,  # type: ignore[arg-type]
-					urls_visited=None,  # type: ignore[arg-type]
+					run_id=uuid.uuid4().hex,
+					model=self._model_name,
+					model_provider=self._provider,
+					reasoning=self.reasoning,
+					mode=self.mode,
+					max_steps=max_steps,
+					timeout_s=timeout,
+					structured_output=schema is not str,
+					output_schema_fields=len(fields) if isinstance(fields, dict) else None,
+					custom_tools=sorted(t.name for t in self.tools.functions)[:50] if self.tools else [],
+					sensitive_data_count=len({n for n, _, _ in secrets}),
+					sensitive_data_domain_scoped=sum(d is not None for _, _, d in secrets),
+					extend_system_message=bool(self.extend_system_message),
+					custom_workspace=self._custom_workspace,
+					follow_up=prior > 0,
+					task_chars=len(self.task),
+					browser_mode=mode,
+					cdp_url=browser.cdp_host if mode == 'cdp' else None,
+					keep_alive=browser.keep_alive,
+					cloud_profile=bool(browser.use_cloud and browser.profile),
+					cloud_proxy_country=browser.proxy if browser.use_cloud else None,
+					cloud_timeout_min=browser.timeout if browser.use_cloud else None,
+					live_view=bool(browser.live_view),
+					browser_start_seconds=browser_s,
+					status=status,
+					success=result.is_successful() if result else None,
+					max_steps_hit=status == 'max_steps',
+					timed_out=status == 'timeout',
+					finish_via=session.finish_via if session and status == 'completed' else None,
+					partial_used=bool(result and status != 'completed' and result.partial is not None),
+					error_type=error_type or (session.error_type if session and status == 'error' else None),
+					output_chars=len(result.text) if result else 0,
+					total_duration_seconds=duration,
 					steps=result.steps if result else 0,
+					model_requests=usage.get('requests', 0),
 					total_input_tokens=usage.get('input', 0),
 					total_output_tokens=usage.get('output', 0),
 					prompt_cached_tokens=usage.get('cache_read', 0),
+					cache_write_tokens=usage.get('cache_write', 0),
 					total_tokens=usage.get('input', 0) + usage.get('output', 0),
-					total_duration_seconds=duration,
-					success=result.is_successful() if result else None,
-					final_result_response=None,
-					error_message=error,
+					cost_usd=result.cost_usd if result else None,
+					tool_calls=top(tools),
+					retry_prompts=retries,
+					cells=stats.cells,
+					cell_errors=stats.cell_errors,
+					cell_seconds=round(stats.cell_seconds, 3),
+					cell_error_types=top(stats.error_types),
+					helper_counts=top(stats.helpers),
+					cdp_method_counts=top(stats.cdp_methods),
+					imports=top(stats.imports),
+					screenshots=stats.images,
+					domains=list(top(stats.domains)),
+					domain_count=len(stats.domains),
+					navigations=stats.navigations,
+					captcha_started=stats.events['captcha_started'],
+					captcha_solved=stats.events['captcha_solved'],
+					captcha_failed=stats.events['captcha_failed'],
+					downloads_started=stats.events['download_started'],
+					downloads=len(downloads),
+					download_exts=top(Counter(p.suffix.lower().lstrip('.')[:10] or 'none' for p in downloads)),
 				)
 			)
 			telemetry.flush()
