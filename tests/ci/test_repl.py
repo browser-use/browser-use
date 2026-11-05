@@ -337,7 +337,8 @@ async def test_close_kills_cell_processes_after_the_worker_died(tmp_path):
 	"""Roast r2-4: close() killed the process tree only while the worker was alive; after a worker crash a process a
 	cell started kept running (and could keep driving the browser)."""
 	beat = tmp_path / 'beat.txt'
-	child = f"import time\nwhile True:\n    open({str(beat)!r}, 'a').write('.')\n    time.sleep(0.05)"
+	# Bounded (30 s), so a regression never leaves a process running forever on the test machine.
+	child = f"import time\nfor _ in range(600):\n    open({str(beat)!r}, 'a').write('.')\n    time.sleep(0.05)"
 	repl = Repl(tmp_path)
 	try:
 		code = f'import subprocess, sys\n_ = subprocess.Popen([sys.executable, "-c", {child!r}])'

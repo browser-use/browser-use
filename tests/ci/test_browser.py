@@ -328,6 +328,39 @@ async def test_failed_download_is_retried_after_the_stop(cloud, monkeypatch, tmp
 	assert len(attempts) == 2
 
 
+async def test_start_after_a_cancelled_stop_never_overlaps_its_stop_thread(cloud, monkeypatch):
+	"""A stop() cancelled during the PATCH leaves its thread running; a start() right after must not run its own
+	_stop_now beside it (a second PATCH, and the late thread could disown the new browser)."""
+	import asyncio
+	import threading
+
+	patching, release = threading.Event(), threading.Event()
+	real = browser_mod._cloud
+
+	def fake(path, method='GET', body=None):
+		if method == 'PATCH':
+			patching.set()
+			release.wait(10)
+		return real(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', fake)
+	browser = Browser()
+	await browser.start()
+	task = asyncio.ensure_future(browser.stop())
+	await asyncio.to_thread(patching.wait, 10)
+	task.cancel()
+	with pytest.raises(asyncio.CancelledError):
+		await task
+	starting = asyncio.ensure_future(browser.start())
+	await asyncio.sleep(0.2)
+	assert len([c for c in cloud if c[0] == 'POST']) == 1  # the restart waits for the running stop
+	release.set()
+	await starting
+	assert browser.id == 'b2' and browser in browser_mod._LIVE and stops(cloud) == ['/browsers/b1']
+	await browser.stop()
+	assert stops(cloud) == ['/browsers/b1', '/browsers/b2'] and not browser_mod._LIVE
+
+
 async def test_sigterm_during_exit_cleanup_never_deadlocks(cloud, monkeypatch):
 	"""SIGTERM while atexit is stopping a browser runs the handler's _stop_all on the thread that already holds the
 	stop lock; a non-reentrant lock hung the process forever."""
