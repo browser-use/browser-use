@@ -19,7 +19,7 @@ from browser_use.browser import Browser
 from browser_use.config import load_env
 from browser_use.llm import as_chat_model, resolve_model
 from browser_use.repl import Repl, check_mode, redact
-from browser_use.repl.session import scoped_secrets
+from browser_use.repl.session import check_loop, scoped_secrets
 from browser_use.tools import Tools
 
 logger = logging.getLogger(__name__)
@@ -177,6 +177,7 @@ class Agent:
 		started, result, error = time.monotonic(), None, None
 		try:
 			if self._repl is None:
+				check_loop()  # before the browser starts: a cloud browser bills from its create
 				self.workspace.mkdir(parents=True, exist_ok=True)
 				env = await self.browser.start()
 				self._repl = Repl(self.workspace, env, mode=self.mode, secrets=self.sensitive_data)

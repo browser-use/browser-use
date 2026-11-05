@@ -451,3 +451,18 @@ async def test_cancel_while_the_repl_closes_still_stops_the_cloud_browser(cloud,
 	with pytest.raises(asyncio.CancelledError):
 		await task
 	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
+async def test_windows_selector_loop_raises_before_a_cloud_browser_starts(cloud, tmp_path, monkeypatch):
+	"""Fable r4-7: on a WindowsSelectorEventLoopPolicy loop the REPL subprocess raised a bare NotImplementedError, after
+	a (billed) cloud browser was created."""
+	import sys
+
+	agent = Agent('t', script()[0], browser=Browser(), workspace=tmp_path)
+	monkeypatch.setattr(sys, 'platform', 'win32')  # pytest's loop here is a SelectorEventLoop, as that policy gives
+	try:
+		with pytest.raises(RuntimeError, match='ProactorEventLoop'):
+			await agent.run()
+	finally:
+		monkeypatch.undo()
+	assert [c for c in cloud if c[0] == 'POST'] == []

@@ -55,6 +55,16 @@ def check_mode(mode: str | None) -> str:
 	return mode
 
 
+def check_loop() -> None:
+	"""The REPL worker is a subprocess, which a SelectorEventLoop on Windows cannot start (NotImplementedError):
+	raise a clear error before anything (a billed cloud browser) starts."""
+	if sys.platform == 'win32' and isinstance(asyncio.get_running_loop(), asyncio.SelectorEventLoop):
+		raise RuntimeError(
+			'browser-use needs the default ProactorEventLoop on Windows (it starts a subprocess); this loop is a '
+			'SelectorEventLoop. Remove asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()).'
+		)
+
+
 def worker_env(extra: dict[str, str] | None = None) -> dict[str, str]:
 	"""The REPL worker's environment: an allowlist of the parent's, never anything that looks like a credential."""
 	env = {
@@ -230,6 +240,7 @@ class Repl:
 		self._lock_loop: asyncio.AbstractEventLoop | None = None  # the loop self.lock serves (a lock binds to one)
 
 	async def start(self) -> None:
+		check_loop()
 		await self.close()  # a dead previous worker's cell processes may still run: kill its group/job before replacing it
 		self.state.mkdir(parents=True, exist_ok=True)
 		self.loop = asyncio.get_running_loop()
