@@ -465,3 +465,20 @@ async def test_finish_from_repl_delivers_a_pydantic_model_as_json(tmp_path):
 	finally:
 		await repl.close()
 	assert json.loads(r['value']) == [{'title': 'x', 'points': 3}], r
+
+
+async def test_checkpoint_saves_a_pydantic_model_as_json(tmp_path):
+	"""Same root as Fable r3-3: checkpoint() serialized non-JSON values with str(), so a checkpointed model became
+	the string "title='x' points=3" in the file and in result.partial."""
+	import json
+
+	repl = Repl(tmp_path)
+	try:
+		code = (
+			'from pydantic import BaseModel\nclass Story(BaseModel):\n    title: str\n    points: int\n'
+			'checkpoint("rows.json", [Story(title="x", points=3)], partial=True)'
+		)
+		assert (await repl.call('exec', code, 30))['error'] is None
+	finally:
+		await repl.close()
+	assert json.loads((tmp_path / 'rows.json').read_text(encoding='utf-8')) == [{'title': 'x', 'points': 3}]
