@@ -7,6 +7,10 @@ from typing import Any
 
 from pydantic_ai.messages import ModelMessage
 
+from browser_use.tools import ActionResult  # 0.x imported it from here
+
+__all__ = ['ActionResult', 'AgentHistoryList']
+
 # 0.x methods built on per-step browser state. 1.0 runs Python cells, so these have no faithful equivalent.
 REMOVED = {
 	'history',
@@ -69,9 +73,12 @@ class AgentHistoryList:
 		return self.success if self.status == 'completed' else None
 
 	def errors(self) -> list[str]:
+		"""The error that ended the run, if any. Unlike 0.x (one entry per step), cell errors the agent recovered from
+		are not listed: they are in .messages (the python tool results)."""
 		return [self.error] if self.error else []
 
 	def has_errors(self) -> bool:
+		"""True when an error ended the run (see errors())."""
 		return self.error is not None
 
 	def number_of_steps(self) -> int:

@@ -48,8 +48,8 @@ UNSUPPORTED = {  # 0.x Agent kwargs -> what to do in 1.0. Anything else unknown 
 	'save_conversation_path': 'not supported yet; result.messages holds the transcript.',
 	'max_failures': 'remove it: failed cells are retried by the model within max_steps.',
 	'fallback_llm': 'not supported yet.',
-	'llm_timeout': 'use agent.run(timeout=...) for the whole run.',
-	'step_timeout': 'use agent.run(timeout=...) for the whole run.',
+	'llm_timeout': 'use agent.run(timeout=...) for the agent loop.',
+	'step_timeout': 'use agent.run(timeout=...) for the agent loop.',
 	'calculate_cost': 'remove it: result.cost_usd is always computed when the price is known.',
 	'use_judge': 'not supported in 1.0.',
 	'judge_llm': 'not supported in 1.0.',
@@ -148,7 +148,8 @@ class Agent:
 		)
 
 	async def run(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
-		"""Run the current task. max_steps: model requests; timeout: seconds for the whole run."""
+		"""Run the current task. max_steps: model requests. timeout: seconds for the agent loop (model requests and
+		cells); starting the browser before it and stopping it (with cloud downloads) after it are not counted."""
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent.run')
 		self._check_task()

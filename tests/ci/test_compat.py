@@ -372,3 +372,10 @@ def test_cost_includes_cache_writes():
 		Usage(input_tokens=6000, cache_write_tokens=5000, output_tokens=500), 'claude-sonnet-4-5', provider_id='anthropic'
 	)
 	assert cost == float(expected.total_price) and usage['cache_write'] == 5000
+
+
+def test_action_result_imports_from_its_0x_location():
+	"""Fable r2-7: `from browser_use.agent.views import ActionResult` (0.x's canonical import) raised ImportError."""
+	from browser_use.agent.views import ActionResult as Old
+
+	assert Old is ActionResult

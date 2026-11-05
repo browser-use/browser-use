@@ -44,7 +44,7 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 | `initial_actions`, `directly_open_url` | raises: say it in the task |
 | `register_new_step_callback`, `register_done_callback`, `register_external_agent_status_raise_error_callback`, `register_should_stop_callback` | raises: read `result.messages` after the run |
 | `max_failures`, `final_response_after_failure` | raises: failed cells are retried within `max_steps` |
-| `llm_timeout`, `step_timeout` | raises: `agent.run(timeout=seconds)` bounds the whole run |
+| `llm_timeout`, `step_timeout` | raises: `agent.run(timeout=seconds)` bounds the agent loop (model requests and cells; browser start and stop are not counted) |
 | `fallback_llm` | raises |
 | `use_judge`, `judge_llm`, `ground_truth` | raises |
 | `generate_gif`, `demo_mode` | raises |
@@ -58,7 +58,7 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 
 | 0.x | 1.0 |
 |---|---|
-| `await agent.run(max_steps=100)` | kept; also `timeout=1700` (seconds). `on_step_start` / `on_step_end` raise |
+| `await agent.run(max_steps=100)` | kept; also `timeout=1700`: seconds for the agent loop (model requests and cells). Browser start before it and browser stop / cloud download collection after it are not counted. `on_step_start` / `on_step_end` raise |
 | `agent.run_sync()` | kept |
 | `agent.add_new_task(task)` | kept: the next `run()` continues the same conversation |
 | `await agent.close()`, `async with Agent(...)` | kept |
@@ -70,7 +70,8 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 
 | 0.x | 1.0 |
 |---|---|
-| `final_result()`, `is_done()`, `structured_output`, `errors()`, `has_errors()`, `total_duration_seconds()`, `number_of_steps()` | kept |
+| `final_result()`, `is_done()`, `structured_output`, `total_duration_seconds()`, `number_of_steps()` | kept |
+| `errors()`, `has_errors()` | changed: only the error that ended the run (`result.error`). 0.x listed one entry per step; cell errors the agent recovered from are now in `result.messages` |
 | `is_successful()` | kept: `None` when the run did not complete, else the agent's verdict (`result.success`). The model reports a task it could not do with `finish(result, success=False)`, like 0.x `done(success=False)`. `is_done()` only says the run completed |
 | `history`, `urls()`, `screenshots()`, `screenshot_paths()`, `action_names()`, `action_history()`, `action_results()`, `model_thoughts()`, `model_outputs()`, `model_actions()`, `model_actions_filtered()`, `extracted_content()`, `agent_steps()`, `last_action()`, `save_to_file()`, `load_from_file()`, `get_structured_output()`, `add_item()`, `judgement()`, `is_judged()`, `is_validated()` | raise `NotImplementedError`: there are no per-step actions. Use `result.messages`, `result.status`, `result.partial` and the files in `agent.workspace` |
 | new | `status` (`completed`, `max_steps`, `timeout`, `error`), `success`, `partial` (last `checkpoint(..., partial=True)`), `usage`, `cost_usd`, `messages` |
@@ -134,6 +135,16 @@ parallel agents on cloud browsers (`Browser()` each) or on separate Chromes via 
 `browser_use.filesystem`, `browser_use.screenshots`, `browser_use.tokens`, `browser_use.mcp.client` and the
 Anthropic / OpenAI hosted-browser integrations (`browser_use.integrations`). The integrations come back on the new
 `Browser` in a later release.
+
+Deep imports of 0.x internals raise `ModuleNotFoundError`; import from the top level instead:
+
+| 0.x import | 1.0 |
+|---|---|
+| `browser_use.llm.openai.chat`, `browser_use.llm.anthropic.chat`, `browser_use.llm.google.chat`, `browser_use.llm.browser_use.chat`, `browser_use.llm.messages`, `browser_use.llm.base` | `from browser_use import ChatOpenAI, ChatAnthropic, ChatGoogle, ChatBrowserUse` (or `browser_use.llm`) |
+| `browser_use.browser.session`, `browser_use.browser.profile`, `browser_use.browser.events`, `browser_use.browser.watchdogs` | `from browser_use import Browser` (BrowserSession / BrowserProfile are gone) |
+| `browser_use.controller`, `browser_use.tools.service`, `browser_use.tools.registry` | `from browser_use import Tools, Controller` |
+| `browser_use.agent.views` | kept for `AgentHistoryList` and `ActionResult`; `AgentState`, `AgentOutput`, `AgentStepInfo`, ... are gone |
+| `browser_use.agent.prompts`, `browser_use.agent.message_manager`, `browser_use.agent.judge` | removed: the 0.x loop internals |
 
 ## CLI and MCP
 
