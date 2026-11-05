@@ -43,6 +43,7 @@ ENV_ALLOW = {
 }  # fmt: skip
 ENV_ALLOW_PREFIXES = ('LC_', 'BU_', 'BH_')  # browser-harness reads BU_NAME, BH_RUNTIME_DIR, BH_TMP_DIR, ...
 ENV_DENY = {'BU_CDP_WS', 'BU_CDP_URL', 'BU_MODE'}  # CDP URLs can carry credentials; only Repl.mode sets BU_MODE
+RESTARTED = '{why}. The REPL restarted: Python variables are lost; files, checkpoints and browser state survive.'
 SECRET_ENV = re.compile(r'KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH', re.I)
 
 
@@ -226,6 +227,7 @@ class Repl:
 		cells = (p.stem for p in (self.state / 'cells').glob('*.txt'))
 		self.n = max((int(c) for c in cells if c.isdigit()), default=0)
 		self.lock = asyncio.Lock()  # the model may emit parallel python calls; the worker runs one cell at a time
+		self._lock_loop: asyncio.AbstractEventLoop | None = None  # the loop self.lock serves (a lock binds to one)
 
 	async def start(self) -> None:
 		await self.close()  # a dead previous worker's cell processes may still run: kill its group/job before replacing it
@@ -306,13 +308,17 @@ class Repl:
 
 	async def call(self, op: str, code: str, timeout: float) -> dict[str, Any]:
 		# Ultrafast prints the page state after the cell's code, so its cells may run up to 10 s past the timeout.
+		if self._lock_loop is not (loop := asyncio.get_running_loop()):  # reused from a new loop (asyncio.run per run)
+			self.lock, self._lock_loop = asyncio.Lock(), loop
 		async with self.lock:
 			r = await self._call(op, code, timeout + (10 if self.mode == 'ultrafast' else 0))
 		return {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value')}}
 
 	async def _call(self, op: str, code: str, timeout: float) -> dict[str, Any]:
 		try:  # one cleanup boundary: a cancel during startup, the send or the wait never leaves a half-used worker
-			if self.proc is None or self.proc.returncode is not None:
+			# A worker started on another (finished) event loop cannot be driven from this one: replace it.
+			moved = self.proc is not None and self.loop is not asyncio.get_running_loop()
+			if moved or self.proc is None or self.proc.returncode is not None:
 				await self.start()
 			self.n += 1
 			n = self.n
@@ -326,6 +332,8 @@ class Repl:
 							raise ConnectionError('worker exited')
 						msg = json.loads(line)
 						if msg.get('n') == n:  # never hand one call another call's answer
+							if moved:
+								msg['output'] = f'[{RESTARTED.format(why="This run uses a new event loop")}]\n{msg["output"]}'
 							return msg
 			except (TimeoutError, ConnectionError) as e:
 				await self.close()
@@ -336,8 +344,7 @@ class Repl:
 					'images': [],
 					'output_file': str(out),
 					'value': None,
-					'error': f'{why}. The REPL restarted: Python variables are lost; files, checkpoints and '
-					'browser state survive. Actions may already have happened; inspect before retrying.',
+					'error': f'{RESTARTED.format(why=why)} Actions may already have happened; inspect before retrying.',
 				}
 		except asyncio.CancelledError:  # the whole run was cancelled or timed out: the cell may still be running
 			await self.close()

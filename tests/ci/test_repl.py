@@ -531,3 +531,20 @@ async def test_structured_result_never_holds_a_secret(tmp_path, deliver):
 		await session.repl.close()
 	assert r.structured_output == Creds(note='pw <secret:pw>', n=1), r
 	assert json.loads(r.final_result()) == {'note': 'pw <secret:pw>', 'n': 1}
+
+
+def test_repl_reused_from_a_new_event_loop_restarts_its_worker(tmp_path):
+	"""Fable r4-1: Browser(keep_alive=True) + asyncio.run(agent.run()) twice: the second run's cells failed with "attached
+	to a different loop" (the worker's pipes and the lock belong to the first loop)."""
+	repl = Repl(tmp_path)
+
+	async def two_cells():  # parallel calls contend for the lock, which binds it to this loop
+		return await asyncio.gather(repl.call('exec', 'x = 1', 30), repl.call('exec', 'print(2)', 30))
+
+	try:
+		assert [r['error'] for r in asyncio.run(two_cells())] == [None, None]
+		second = asyncio.run(two_cells())
+	finally:
+		asyncio.run(repl.close())
+	assert [r['error'] for r in second] == [None, None], second
+	assert 'Python variables are lost' in second[0]['output'] and second[1]['output'].strip() == '2'
