@@ -20,18 +20,20 @@ from genai_prices import Usage, calc_price
 from pydantic import TypeAdapter, ValidationError
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput, ToolOutput
 from pydantic_ai.capabilities import AbstractCapability
+from pydantic_ai.exceptions import ToolRetryError
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, ThinkingPart, ToolReturnPart
 from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAICompaction, OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_ai.settings import ToolOrOutput
 from pydantic_ai.usage import UsageLimits
-from pydantic_core import to_json
+from pydantic_core import to_json, to_jsonable_python
 
 from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
 from browser_use.ax import AX_PROMPT
 from browser_use.llm import model_ref
 from browser_use.repl import Repl, check_mode, redact
+from browser_use.repl.session import redact_forms, secret_forms
 
 KEEP_IMAGE_RESULTS = 2
 DELIVER_NOW = (
@@ -222,6 +224,21 @@ class BrowserLoop(AbstractCapability[Session]):
 			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
 			request_context.model_settings = cast(Any, settings)
 		return request_context
+
+	async def wrap_tool_execute(self, ctx: RunContext[Session], *, call, tool_def, args, handler) -> Any:
+		"""Custom tools (Tools) run in this process, so the worker's redaction never saw their results: redact them
+		(strings, ActionResult and other models, nested values) and their retry messages before the model does."""
+		secrets = ctx.deps.repl.secrets
+		if call.tool_name == 'python' or tool_def.kind != 'function' or not secrets:
+			return await handler(args)
+		forms = secret_forms(secrets)
+		try:
+			result = await handler(args)
+		except ToolRetryError as e:  # the tool's ModelRetry, already turned into the retry part
+			raise ToolRetryError(replace(e.tool_retry, content=redact_forms(e.tool_retry.content, forms))) from None
+		plain = result if isinstance(result, str) else to_jsonable_python(result, fallback=str)
+		clean = redact_forms(plain, forms)
+		return result if clean == plain else clean  # untouched (images, types) unless a secret was in it
 
 
 def delivery_tool_choice(model: Any, settings: dict) -> Any:

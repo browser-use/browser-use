@@ -134,6 +134,38 @@ async def test_custom_action_is_a_model_tool(tmp_path):
 	assert 'A1 costs 9.99' in str(seen[1][-1])
 
 
+async def test_custom_tool_results_never_show_a_secret_to_the_model(tmp_path):
+	"""Roast r2-1: a custom action returning a registered secret (ActionResult, nested model, plain str, retry
+	message) reached the model in plaintext; 0.x filtered action results."""
+	from pydantic_ai import ModelRetry
+
+	secret = 'hunter2-Zq9'
+	tools = Tools()
+
+	class Account(BaseModel):
+		user: str
+		password: str
+
+	@tools.action('Look up the account')
+	def account() -> ActionResult:
+		return ActionResult(extracted_content=f'pw={secret}', account=Account(user='me', password=secret))
+
+	@tools.action('Read a note')
+	def note() -> list:
+		return [{'text': f'the password is {secret}'}]
+
+	@tools.action('Check')
+	def check() -> str:
+		raise ModelRetry(f'wrong password {secret}')
+
+	model, seen = script(('account', {}), ('note', {}), ('check', {}), ('finish', {'result': 'done'}))
+	session = Session(repl=Repl(tmp_path, secrets={'pw': secret}))
+	r = await run(build_agent(model, tools=tools.functions), 'task', session, 'm')
+	assert r.output == 'done'
+	assert secret not in str(seen) and secret not in str(r.messages)
+	assert 'pw=<secret:pw>' in str(seen[1][-1]) and 'wrong password <secret:pw>' in str(seen[3][-1])
+
+
 @pytest.mark.parametrize('tool', ['finish', 'finish_from_repl'])
 async def test_finish_can_report_a_failed_task(tool, tmp_path):
 	"""Roast C9: 'Unable to log in. Access denied.' came back with is_successful() == True; 0.x had success=False."""
