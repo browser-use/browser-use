@@ -63,6 +63,7 @@ class Session:
 	finalizing: bool = False
 	checked_delivery: bool = False  # the delivery guard fires once; a second identical finish is accepted
 	checked_partial: bool = False  # the early-partial guard fires once
+	success: bool = True  # finish(..., success=False): the agent delivered but could not do the task
 	messages: list[ModelMessage] = field(default_factory=list)
 	after_tool: Callable[[str, dict, dict], Awaitable[None]] | None = None  # observer hook (evals)
 
@@ -130,20 +131,24 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 def _outputs(output_type: Any) -> list[Any]:
 	adapter = TypeAdapter(output_type)
 
-	async def finish_from_repl(ctx: RunContext[Session], expression: str):
+	async def finish_from_repl(ctx: RunContext[Session], expression: str, success: bool = True):
 		r = await ctx.deps.repl.call('eval', expression, ctx.deps.cell_timeout_s)
 		if r['error']:
 			raise ModelRetry(f'Expression failed: {r["error"][-2000:]}')
 		if output_type is str:
 			check_delivery(ctx, r['value'])
-			return r['value']
-		try:
-			return adapter.validate_json(r['value'])
-		except ValidationError as e:
-			raise ModelRetry(f'Value does not match the result schema: {str(e)[:2000]}')
+			value = r['value']
+		else:
+			try:
+				value = adapter.validate_json(r['value'])
+			except ValidationError as e:
+				raise ModelRetry(f'Value does not match the result schema: {str(e)[:2000]}')
+		ctx.deps.success = success
+		return value
 
-	def finish(ctx: RunContext[Session], result):
+	def finish(ctx: RunContext[Session], result, success: bool = True):
 		check_delivery(ctx, result)
+		ctx.deps.success = success
 		return result
 
 	def on_text(ctx: RunContext[Session], text: str):
@@ -160,8 +165,13 @@ def _outputs(output_type: Any) -> list[Any]:
 		except ValidationError as e:
 			raise ModelRetry(f'Deliver with finish or finish_from_repl; text does not match the result schema: {str(e)[:2000]}')
 
-	finish.__annotations__ = {'ctx': RunContext[Session], 'result': output_type, 'return': output_type}
-	finish_from_repl.__annotations__ = {'ctx': RunContext[Session], 'expression': str, 'return': output_type}
+	finish.__annotations__ = {'ctx': RunContext[Session], 'result': output_type, 'success': bool, 'return': output_type}
+	finish_from_repl.__annotations__ = {
+		'ctx': RunContext[Session],
+		'expression': str,
+		'success': bool,
+		'return': output_type,
+	}
 	on_text.__annotations__ = {'ctx': RunContext[Session], 'text': str, 'return': output_type}
 	return [
 		TextOutput(on_text),
@@ -171,7 +181,8 @@ def _outputs(output_type: Any) -> list[Any]:
 			description=(
 				'Deliver an existing value from the persistent REPL without printing or rewriting it. The Python '
 				'expression must match the result schema of finish; for a string result use json.dumps(records) or an '
-				'existing text variable. Evaluated once; ends the task after validation.'
+				'existing text variable. Evaluated once; ends the task after validation. success=false when the task '
+				'could not be done (blocked, not found, refused); the result says why.'
 			),
 		),
 		ToolOutput(
@@ -179,7 +190,8 @@ def _outputs(output_type: Any) -> list[Any]:
 			name='finish',
 			description=(
 				'Submit the verified final result. For data already in the REPL, prefer finish_from_repl to avoid '
-				'rewriting it. This ends the task.'
+				'rewriting it. This ends the task. success=false when the task could not be done (blocked, not found, '
+				'refused); the result says why.'
 			),
 		),
 	]
@@ -365,9 +377,9 @@ async def run(
 	new = messages[len(message_history or []) :]
 	usage, cost = usage_and_cost(new, model_ref)
 	steps = sum(isinstance(m, ModelResponse) for m in new)
-	return AgentHistoryList(
-		status, text, output, steps, time.monotonic() - session.started, usage, cost, partial, error, messages
-	)
+	duration = time.monotonic() - session.started
+	success = session.success if status == 'completed' else None
+	return AgentHistoryList(status, text, output, steps, duration, usage, cost, partial, error, messages, success)
 
 
 def thinking_and_text(m: ModelResponse) -> list[tuple[str, str]]:

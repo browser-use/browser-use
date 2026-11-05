@@ -45,6 +45,11 @@ class AgentHistoryList:
 	partial: Any  # last checkpoint(..., partial=True) when unfinished
 	error: str | None
 	messages: list[ModelMessage]
+	success: bool | None = True  # the agent's own verdict: finish(..., success=False) when it could not do the task
+
+	def __post_init__(self) -> None:
+		if self.status != 'completed':
+			self.success = None
 
 	def final_result(self) -> str | None:
 		"""The answer text, or None when the run did not complete."""
@@ -59,8 +64,9 @@ class AgentHistoryList:
 		return self.status == 'completed'
 
 	def is_successful(self) -> bool | None:
-		"""True when the agent delivered a result; None when the run did not finish (0.x semantics)."""
-		return True if self.status == 'completed' else None
+		"""The agent's verdict: False when it finished but could not do the task; None when the run did not finish
+		(0.x semantics). is_done() only says the run completed."""
+		return self.success if self.status == 'completed' else None
 
 	def errors(self) -> list[str]:
 		return [self.error] if self.error else []

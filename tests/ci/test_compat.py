@@ -120,6 +120,17 @@ async def test_custom_action_is_a_model_tool(tmp_path):
 	assert 'A1 costs 9.99' in str(seen[1][-1])
 
 
+@pytest.mark.parametrize('tool', ['finish', 'finish_from_repl'])
+async def test_finish_can_report_a_failed_task(tool, tmp_path):
+	"""Roast C9: 'Unable to log in. Access denied.' came back with is_successful() == True; 0.x had success=False."""
+	args = {'result': 'Unable to log in. Access denied.'} if tool == 'finish' else {'expression': "'Access denied.'"}
+	model, _ = script((tool, {**args, 'success': False}))
+	r = await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert (r.is_done(), r.is_successful(), r.success) == (True, False, False)
+	model, _ = script(('finish', {'result': 'done'}))
+	assert (await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'm')).is_successful() is True
+
+
 async def test_param_model_is_authoritative(tmp_path):
 	"""Roast C14: with `params: Any` the param_model was ignored; the action got a dict and params.qty broke."""
 	from typing import Any

@@ -70,9 +70,10 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 
 | 0.x | 1.0 |
 |---|---|
-| `final_result()`, `is_done()`, `is_successful()`, `structured_output`, `errors()`, `has_errors()`, `total_duration_seconds()`, `number_of_steps()` | kept |
+| `final_result()`, `is_done()`, `structured_output`, `errors()`, `has_errors()`, `total_duration_seconds()`, `number_of_steps()` | kept |
+| `is_successful()` | kept: `None` when the run did not complete, else the agent's verdict (`result.success`). The model reports a task it could not do with `finish(result, success=False)`, like 0.x `done(success=False)`. `is_done()` only says the run completed |
 | `history`, `urls()`, `screenshots()`, `screenshot_paths()`, `action_names()`, `action_history()`, `action_results()`, `model_thoughts()`, `model_outputs()`, `model_actions()`, `model_actions_filtered()`, `extracted_content()`, `agent_steps()`, `last_action()`, `save_to_file()`, `load_from_file()`, `get_structured_output()`, `add_item()`, `judgement()`, `is_judged()`, `is_validated()` | raise `NotImplementedError`: there are no per-step actions. Use `result.messages`, `result.status`, `result.partial` and the files in `agent.workspace` |
-| new | `status` (`completed`, `max_steps`, `timeout`, `error`), `partial` (last `checkpoint(..., partial=True)`), `usage`, `cost_usd`, `messages` |
+| new | `status` (`completed`, `max_steps`, `timeout`, `error`), `success`, `partial` (last `checkpoint(..., partial=True)`), `usage`, `cost_usd`, `messages` |
 
 ## Browser(...)
 
