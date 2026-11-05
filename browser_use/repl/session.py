@@ -198,15 +198,45 @@ def _kill_tree(pid: int, job: int | None = None) -> None:
 			pass
 
 
+_WORKERS: dict[int, int | None] = {}  # pid -> Windows job of every live worker this process started
+
+
+def kill_workers() -> None:
+	"""Kill every live REPL worker and the processes its cells started (atexit, SIGTERM): a cell left running after
+	this process exits could keep driving the browser, its timeout gone with us."""
+	while _WORKERS:
+		_kill_tree(*_WORKERS.popitem())
+
+
 def _job_for(pid: int) -> int | None:
 	"""Windows: a job object holding the worker; processes its cells start join it, so they can be killed after the
-	worker died (taskkill /T no longer finds them then). None when it cannot be created."""
+	worker died (taskkill /T no longer finds them then). Kill-on-close: when this process dies, however it dies,
+	Windows closes its job handle and kills the worker's whole tree. None when it cannot be created."""
 	if sys.platform != 'win32':
 		return None
 	import ctypes
 
+	class Basic(ctypes.Structure):  # JOBOBJECT_BASIC_LIMIT_INFORMATION
+		_fields_ = [
+			('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64),
+			('LimitFlags', ctypes.c_uint32), ('MinimumWorkingSetSize', ctypes.c_size_t),
+			('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', ctypes.c_uint32),
+			('Affinity', ctypes.c_size_t), ('PriorityClass', ctypes.c_uint32), ('SchedulingClass', ctypes.c_uint32),
+		]  # fmt: skip
+
+	class Extended(ctypes.Structure):  # JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+		_fields_ = [
+			('BasicLimitInformation', Basic), ('IoInfo', ctypes.c_uint64 * 6), ('ProcessMemoryLimit', ctypes.c_size_t),
+			('JobMemoryLimit', ctypes.c_size_t), ('PeakProcessMemoryUsed', ctypes.c_size_t),
+			('PeakJobMemoryUsed', ctypes.c_size_t),
+		]  # fmt: skip
+
 	kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
 	job = kernel32.CreateJobObjectW(None, None)
+	info = Extended()
+	info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	if job:  # best effort: without it the worker's watchdog still exits when we die (worker._watch_parent)
+		kernel32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))  # JobObjectExtendedLimit...
 	process = kernel32.OpenProcess(0x0101, False, pid)  # PROCESS_SET_QUOTA | PROCESS_TERMINATE
 	ok = bool(job and process and kernel32.AssignProcessToJobObject(job, process))
 	if process:
@@ -261,6 +291,7 @@ class Repl:
 		port = server.sockets[0].getsockname()[1]
 		env = worker_env(self.env)
 		env.update(BH_TAB_MARKER='0', BU_STATE_DIR=str(self.state), BU_REPL_PORT=str(port), BU_REPL_TOKEN=token)
+		env['BU_REPL_PARENT_PID'] = str(os.getpid())  # the worker exits when we die (worker._watch_parent)
 		env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')  # page text is Unicode; Windows defaults to cp1252
 		if self.mode == 'ultrafast':
 			env['BU_MODE'] = 'ultrafast'
@@ -284,6 +315,10 @@ class Repl:
 				),
 			)
 			self.job = _job_for(self.proc.pid)  # before the first cell: every process a cell starts joins it
+			_WORKERS[self.proc.pid] = self.job
+			from browser_use.browser.browser import _install_cleanup
+
+			_install_cleanup()  # atexit and SIGTERM kill the worker (kill_workers) before they stop browsers
 			exited = asyncio.ensure_future(self.proc.wait())
 			try:
 				done, _ = await asyncio.wait({connected, exited}, timeout=60, return_when=asyncio.FIRST_COMPLETED)
@@ -310,6 +345,7 @@ class Repl:
 		job, self.job = self.job, None
 		if proc is None:
 			return
+		_WORKERS.pop(proc.pid, None)
 		_kill_tree(proc.pid, job)  # also when the worker already exited: processes its cells started may still run
 		if proc.returncode is None:
 			with contextlib.suppress(OSError):  # already gone

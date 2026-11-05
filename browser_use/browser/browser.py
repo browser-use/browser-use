@@ -154,6 +154,9 @@ def _shutdown_daemon(name: str) -> None:
 
 
 def _stop_all() -> None:
+	from browser_use.repl.session import kill_workers
+
+	kill_workers()  # first: no agent code keeps acting on a browser while it stops
 	for browser in list(_LIVE):
 		browser._stop_now()
 
@@ -165,7 +168,8 @@ def _on_sigterm(signum, frame) -> None:
 
 
 def _install_cleanup() -> None:
-	"""atexit + SIGTERM: never leave a billed browser behind. Leaves a SIGTERM handler the app set alone."""
+	"""atexit + SIGTERM: never leave a billed browser or a running REPL worker behind. Leaves a SIGTERM handler the
+	app set alone."""
 	global _handlers_installed
 	if _handlers_installed:
 		return

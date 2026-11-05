@@ -18,6 +18,7 @@ import io
 import json
 import os
 import pprint
+import signal
 import socket
 import struct
 import sys
@@ -385,7 +386,31 @@ def _error(e: BaseException) -> str:
 	return ''.join(keep).strip()
 
 
+def _watch_parent(parent: int) -> None:
+	"""Exit when the parent dies (SIGKILL, crash), also mid-cell: its cell timeouts died with it, and a cell left
+	running could keep driving the browser. POSIX kills this worker's process group (cell subprocesses too); on Windows
+	the parent's kill-on-close job object does that (session._job_for)."""
+	if sys.platform == 'win32':
+		import ctypes
+
+		kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+		kernel32.OpenProcess.restype = ctypes.c_void_p
+		kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+		handle = kernel32.OpenProcess(0x00100000, False, parent)  # SYNCHRONIZE; None: already gone
+		if handle:
+			kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)  # INFINITE
+	else:
+		while os.getppid() == parent:  # a dead parent's children are reparented
+			time.sleep(1)
+		if os.getpgrp() == os.getpid():  # we lead our group (start_new_session)
+			with contextlib.suppress(OSError):
+				os.killpg(os.getpid(), signal.SIGKILL)
+	os._exit(1)
+
+
 def main() -> None:
+	if parent := int(os.environ.pop('BU_REPL_PARENT_PID', '0')):
+		threading.Thread(target=_watch_parent, args=(parent,), daemon=True).start()
 	sock = socket.create_connection(('127.0.0.1', int(os.environ.pop('BU_REPL_PORT'))))
 	rfile, wfile = sock.makefile('rb'), sock.makefile('wb')
 	wfile.write(os.environ.pop('BU_REPL_TOKEN').encode() + b'\n')

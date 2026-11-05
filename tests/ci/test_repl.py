@@ -595,3 +595,45 @@ def test_hidden_tab_is_activated_only_after_its_capture_times_out():
 		('Page.captureScreenshot', SCREENSHOT_TIMEOUT_S),
 	]
 	assert state['visibility'] == 'visible' and activated == [1]
+
+
+PARENT = """
+import asyncio, sys
+from pathlib import Path
+from browser_use.repl import Repl
+
+ws = Path(sys.argv[1])
+beat = "import time\\nfor _ in range(600):\\n    open({!r}, 'a').write('.')\\n    time.sleep(0.05)"
+code = (
+    "import subprocess, sys\\n"
+    f"_ = subprocess.Popen([sys.executable, '-c', {beat.format(str(ws / 'child.txt'))!r}])\\n"
+    + beat.format(str(ws / 'cell.txt'))
+)
+asyncio.run(Repl(ws).call('exec', code, 120))
+"""
+
+
+@pytest.mark.parametrize('how', ['terminate', 'kill'])
+def test_worker_dies_with_its_parent_mid_cell(tmp_path, how):
+	"""Roast r7 Codex P1: a parent killed during a cell (SIGTERM, SIGKILL, a crash) left the worker running the cell,
+	and the processes it started, with no timeout: the agent's code could keep driving the browser. Heartbeats are
+	bounded (30 s), so a regression never leaves a process running forever on the test machine."""
+	import subprocess
+	import sys
+	import time
+
+	parent = subprocess.Popen([sys.executable, '-c', PARENT, str(tmp_path)])
+	try:
+		beats = [tmp_path / 'cell.txt', tmp_path / 'child.txt']
+		for _ in range(300):
+			if all(b.exists() for b in beats):
+				break
+			time.sleep(0.05)
+		assert all(b.exists() for b in beats), (tmp_path / '.browser-use' / 'worker.log').read_text()
+	finally:
+		getattr(parent, how)()  # POSIX: SIGTERM / SIGKILL; Windows: TerminateProcess
+		parent.wait()
+	time.sleep(3)  # the watchdog polls every second
+	sizes = [b.stat().st_size for b in beats]
+	time.sleep(0.5)
+	assert [b.stat().st_size for b in beats] == sizes  # both heartbeats stopped
