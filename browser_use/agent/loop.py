@@ -69,7 +69,7 @@ class Session:
 
 	def partial(self) -> Any:
 		p = self.repl.state / 'partial.json'
-		return json.loads(p.read_text())['value'] if p.exists() else None
+		return json.loads(p.read_text(encoding='utf-8'))['value'] if p.exists() else None
 
 
 async def python(ctx: RunContext[Session], code: str) -> list[Any]:

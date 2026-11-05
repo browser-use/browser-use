@@ -20,7 +20,7 @@ import traceback
 from pathlib import Path
 
 from browser_use import ax
-from browser_use.repl.session import SECRET_ENV, redact
+from browser_use.repl.session import redact
 
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
@@ -52,10 +52,11 @@ def _add_image(data: bytes, media_type: str = 'image/png') -> bool:
 
 
 def _install(ns: dict, secrets: dict[str, str]) -> ax.AxHelpers | None:
-	from browser_harness import helpers
+	env = dict(os.environ)  # the allowlisted env the parent gave us
+	from browser_harness import helpers  # loads .env files and agent_helpers.py into this process
 
-	for k in [k for k in os.environ if SECRET_ENV.search(k)]:  # browser-harness may load .env files into os.environ
-		del os.environ[k]
+	os.environ.clear()  # whatever those added (DATABASE_URL, ...) does not survive
+	os.environ.update(env)
 
 	raw_cdp = helpers.cdp
 
@@ -95,11 +96,11 @@ def _install(ns: dict, secrets: dict[str, str]) -> ax.AxHelpers | None:
 		path = Path(filename)
 		path.parent.mkdir(parents=True, exist_ok=True)
 		tmp = path.with_name(path.name + '.tmp')
-		tmp.write_text(json.dumps(value, ensure_ascii=False, indent=1, default=str))
+		tmp.write_text(json.dumps(value, ensure_ascii=False, indent=1, default=str), encoding='utf-8')
 		os.replace(tmp, path)
 		if partial:
 			STATE.mkdir(parents=True, exist_ok=True)
-			(STATE / 'partial.json').write_text(json.dumps({'file': str(path), 'value': value}, default=str))
+			(STATE / 'partial.json').write_text(json.dumps({'file': str(path), 'value': value}, default=str), encoding='utf-8')
 		return str(path)
 
 	type_text = helpers.type_text
@@ -210,8 +211,8 @@ def main() -> None:
 	secrets = json.loads(rfile.readline())['secrets']
 	cells = STATE / 'cells'
 	cells.mkdir(parents=True, exist_ok=True)
-	sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
-	sys.stderr.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+	sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
+	sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
 	ns: dict = {'__name__': '__main__', '__bu_display': _display}
 	bu = _install(ns, secrets)
 	loop = asyncio.new_event_loop()
@@ -256,9 +257,9 @@ def main() -> None:
 				os.dup2(saved[1], 2)
 				os.close(saved[0])
 				os.close(saved[1])
-		output = redact(out_path.read_text(errors='replace'), secrets)
+		output = redact(out_path.read_text(encoding='utf-8', errors='replace'), secrets)
 		if secrets:  # the captured file is in the workspace: keep secret values off disk too
-			out_path.write_text(output)
+			out_path.write_text(output, encoding='utf-8')
 		send(
 			{
 				'type': 'result',

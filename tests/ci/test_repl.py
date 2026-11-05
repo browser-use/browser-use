@@ -139,3 +139,37 @@ async def test_reset_kills_the_cells_subprocesses(tmp_path):
 		await repl.close()
 	await asyncio.sleep(4)
 	assert not marker.exists()
+
+
+async def test_harness_dotenv_cannot_reintroduce_credentials(tmp_path, monkeypatch):
+	"""Roast C7: browser-harness loads its workspace .env on import; DATABASE_URL-style credentials came back."""
+	harness_ws = tmp_path / 'harness-ws'
+	harness_ws.mkdir()
+	(harness_ws / '.env').write_text('DATABASE_URL=postgres://u:planted-fake-value@db/x\n', encoding='utf-8')
+	monkeypatch.setenv('BH_AGENT_WORKSPACE', str(harness_ws))
+	repl = Repl(tmp_path / 'ws')
+	try:
+		r = await repl.call('exec', 'import os, browser_harness.helpers\nprint(sorted(os.environ))', 30)
+	finally:
+		await repl.close()
+	assert r['error'] is None and 'DATABASE_URL' not in r['output'] and 'BH_AGENT_WORKSPACE' in r['output']
+
+
+def test_worker_env_keeps_proxy_and_ca_settings(monkeypatch):
+	for name in ('HTTPS_PROXY', 'no_proxy', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'):
+		monkeypatch.setenv(name, 'x')
+	assert {'HTTPS_PROXY', 'no_proxy', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'} <= set(worker_env())
+
+
+async def test_cells_print_unicode_whatever_the_parent_locale(tmp_path, monkeypatch):
+	"""Roast C17: on Windows (cp1252) a cell printing page text like CJK or emoji raised UnicodeEncodeError."""
+	monkeypatch.setenv('PYTHONIOENCODING', 'ascii')  # stands in for a cp1252 console
+	monkeypatch.setenv('PYTHONUTF8', '0')
+	repl = Repl(tmp_path)
+	try:
+		r = await repl.call(
+			'exec', "print('日本語 🙂')\nimport subprocess, sys\nsubprocess.run([sys.executable, '-c', 'print(\"é\")'])", 30
+		)
+	finally:
+		await repl.close()
+	assert r['error'] is None and '日本語 🙂' in r['output'] and 'é' in r['output']

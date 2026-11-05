@@ -29,7 +29,10 @@ ENV_ALLOW = {
 	'PATH', 'PATHEXT', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'USER', 'USERNAME', 'LOGNAME', 'SHELL', 'TERM',
 	'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'PROGRAMFILES',
 	'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LANGUAGE', 'TZ', 'XDG_CONFIG_HOME', 'XDG_RUNTIME_DIR', 'XDG_CACHE_HOME',
-	'DISPLAY', 'WAYLAND_DISPLAY', 'PYTHONPATH', 'PYTHONIOENCODING', 'PYTHONUTF8', 'VIRTUAL_ENV',
+	'DISPLAY', 'WAYLAND_DISPLAY', 'PYTHONPATH', 'VIRTUAL_ENV',
+	# corporate proxies and CAs: http_get() and requests/httpx in cells need them like the parent does
+	'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE',
+	'CURL_CA_BUNDLE',
 }  # fmt: skip
 ENV_ALLOW_PREFIXES = ('LC_', 'BU_', 'BH_')  # browser-harness reads BU_NAME, BH_RUNTIME_DIR, BH_TMP_DIR, ...
 ENV_DENY = {'BU_CDP_WS', 'BU_CDP_URL', 'BU_MODE'}  # CDP URLs can carry credentials; only Repl.mode sets BU_MODE
@@ -114,6 +117,7 @@ class Repl:
 		port = server.sockets[0].getsockname()[1]
 		env = worker_env(self.env)
 		env.update(BH_TAB_MARKER='0', BU_STATE_DIR=str(self.state), BU_REPL_PORT=str(port), BU_REPL_TOKEN=token)
+		env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')  # page text is Unicode; Windows defaults to cp1252
 		if self.mode == 'ultrafast':
 			env['BU_MODE'] = 'ultrafast'
 		log = open(self.state / 'worker.log', 'ab')  # noqa: ASYNC230 - handed to the child process
@@ -190,7 +194,7 @@ class Repl:
 			out = self.state / 'cells' / f'{self.n:04d}.txt'
 			why = f'Cell timed out after {timeout:g}s' if isinstance(e, TimeoutError) else 'REPL worker exited'
 			return {
-				'output': out.read_text(errors='replace') if out.exists() else '',
+				'output': out.read_text(encoding='utf-8', errors='replace') if out.exists() else '',
 				'images': [],
 				'output_file': str(out),
 				'value': None,
