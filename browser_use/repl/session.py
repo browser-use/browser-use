@@ -232,6 +232,11 @@ def _job_for(pid: int) -> int | None:
 		]  # fmt: skip
 
 	kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+	handle = ctypes.c_void_p  # HANDLEs are pointer-sized: the default int restype truncates them on 64-bit Windows
+	kernel32.CreateJobObjectW.restype = kernel32.OpenProcess.restype = handle
+	kernel32.SetInformationJobObject.argtypes = [handle, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+	kernel32.AssignProcessToJobObject.argtypes = [handle, handle]
+	kernel32.CloseHandle.argtypes = [handle]
 	job = kernel32.CreateJobObjectW(None, None)
 	info = Extended()
 	info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE

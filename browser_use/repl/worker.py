@@ -408,7 +408,15 @@ def _watch_parent(parent: int) -> None:
 	os._exit(1)
 
 
+_OWN_JOB = None  # Windows: the worker's own kill-on-close job, held open for the worker's lifetime
+
+
 def main() -> None:
+	global _OWN_JOB
+	if sys.platform == 'win32':  # processes a cell starts join this job, so they die with the worker however it dies
+		from browser_use.repl.session import _job_for  # (the parent's job can miss them: a venv python.exe launcher
+
+		_OWN_JOB = _job_for(os.getpid())  # starts the real interpreter before the parent assigns it)
 	if parent := int(os.environ.pop('BU_REPL_PARENT_PID', '0')):
 		threading.Thread(target=_watch_parent, args=(parent,), daemon=True).start()
 	sock = socket.create_connection(('127.0.0.1', int(os.environ.pop('BU_REPL_PORT'))))

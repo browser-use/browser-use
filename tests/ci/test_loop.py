@@ -313,12 +313,11 @@ async def test_screenshot_is_jpeg(daemon, tmp_path):
 	assert any(getattr(c, 'media_type', '') == 'image/jpeg' for c in out)
 
 
-async def test_screenshot_of_a_hidden_tab_activates_it_only_when_capture_hangs(daemon, tmp_path):
-	"""new_tab()/switch_tab() never activate a tab. Linux headless renders no frames for a hidden one, so its capture
-	hung 60s (CI): screenshot() and raw cdp('Page.captureScreenshot') activate it after a short try times out. Where a
-	hidden tab captures (macOS), it stays hidden: local mode never switches the user's visible tab."""
-	import sys
-
+async def test_screenshot_of_a_hidden_tab_succeeds(daemon, tmp_path):
+	"""new_tab()/switch_tab() never activate a tab, and Linux headless sometimes renders no frames for a hidden one
+	(CI hung 60s on it). screenshot() and raw cdp('Page.captureScreenshot') of a hidden tab both return an image:
+	whether the capture works directly or needs the activate-after-a-short-try path depends on the Chrome build, so
+	only success is asserted here; when activation happens is pinned by the stubbed unit tests above."""
 	from browser_use.repl.session import Repl
 
 	repl = Repl(tmp_path, daemon)
@@ -335,5 +334,5 @@ async def test_screenshot_of_a_hidden_tab_activates_it_only_when_capture_hangs(d
 	finally:
 		await repl.close()
 	assert r['error'] is None, r
-	after = 'visible' if sys.platform.startswith('linux') else 'hidden'
-	assert r['output'].split() == ['hidden', after, 'hidden', after, 'True', 'True'], r['output']
+	out = r['output'].split()
+	assert out[0] == out[2] == 'hidden' and out[4:] == ['True', 'True'], r['output']
