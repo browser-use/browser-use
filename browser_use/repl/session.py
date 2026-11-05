@@ -267,6 +267,7 @@ class Repl:
 		self.job: int | None = None  # Windows job object of the worker's process tree
 		self.loop: asyncio.AbstractEventLoop | None = None
 		self.state = workspace / '.browser-use'
+		(self.state / 'captcha.json').unlink(missing_ok=True)  # solver state of an earlier browser session; restarts keep it
 		# Continue the workspace's cell numbering: a follow-up run's new REPL must not overwrite earlier cells' files,
 		# which the retained conversation still points to.
 		cells = (p.stem for p in (self.state / 'cells').glob('*.txt'))

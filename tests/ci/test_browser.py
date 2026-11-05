@@ -92,7 +92,7 @@ def test_conflicting_or_0x_browser_options_raise():
 
 
 async def test_run_starts_and_stops_cloud_browser(cloud, tmp_path, capsys):
-	model, _ = script(('finish', {'result': 'ok'}))
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
 	browser = Browser()
 	result = await Agent('t', model, browser=browser, workspace=tmp_path).run()
 	assert result.final_result() == 'ok'
@@ -104,7 +104,7 @@ async def test_run_starts_and_stops_cloud_browser(cloud, tmp_path, capsys):
 
 
 async def test_keep_alive_leaves_cloud_browser_running(cloud, tmp_path):
-	model, _ = script(('finish', {'result': 'ok'}))
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
 	browser = Browser(keep_alive=True)
 	agent = Agent('t', model, browser=browser, workspace=tmp_path)
 	await agent.run()

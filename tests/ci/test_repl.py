@@ -522,9 +522,9 @@ async def test_structured_result_never_holds_a_secret(tmp_path, deliver):
 		n: int
 
 	call = (
-		('finish', {'result': {'note': f'pw {ESCAPED}', 'n': 1}})
+		('finish', {'success': True, 'result': {'note': f'pw {ESCAPED}', 'n': 1}})
 		if deliver == 'finish'
-		else ('finish_from_repl', {'expression': "{'note': 'pw ' + v['pw'], 'n': 1}"})
+		else ('finish_from_repl', {'success': True, 'expression': "{'note': 'pw ' + v['pw'], 'n': 1}"})
 	)
 	model, _ = script(('python', {'code': DIG}), call)
 	session = Session(repl=Repl(tmp_path, secrets={'pw': ESCAPED}))

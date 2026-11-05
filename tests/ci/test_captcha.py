@@ -188,6 +188,19 @@ def test_report_shows_a_running_solve_and_each_end_once():
 	assert c.solve(start_timeout=5)['detail'] == 'the solver failed'
 
 
+def test_solve_after_the_notice_showed_the_end_returns_that_result_at_once():
+	"""captcha finding 2: the notice said '[captcha solver: solved recaptcha in 3s]', the model called solve_captcha() as
+	told, waited 20 s and got 'the solver found no captcha on the page'."""
+	c, _, _ = fake_captcha(enabled=True)
+	c.observe(dict(zip(('method', 'params'), started())))
+	c.observe(dict(zip(('method', 'params'), finished(success=True))))
+	assert c.report() == '[captcha solver: solved recaptcha in 3s]'
+	r = c.solve(start_timeout=5)
+	assert (r['solved'], r['detail']) == (True, 'solved') and r['seconds'] < 1
+	assert c.report() == ''  # a later cell without captcha output: that solve is no longer the answer
+	assert c.solve(start_timeout=0.3)['detail'] == 'the solver found no captcha on the page'
+
+
 def test_solve_waits_for_every_tab_and_reports_a_failure_over_a_later_success():
 	"""A solve that finishes on one tab is not the answer while another tab is still solving (bu-pi waits for all)."""
 	c, _, batches = fake_captcha(enabled=True)
@@ -276,3 +289,66 @@ async def test_solve_captcha_on_another_browser_is_unavailable(cloud, tmp_path):
 		assert time.monotonic() - t < 10
 	finally:
 		await repl.close()
+
+
+async def test_a_worker_restarted_by_a_cell_timeout_still_knows_the_running_solve(cloud, tmp_path):
+	"""captcha finding 1: a CellTimeout while solve_captcha() waited killed the worker; the new one had forgotten the
+	running solve, showed no notice and answered the next solve_captcha() with 'found no captcha'."""
+	fake, env = cloud
+	repl = Repl(tmp_path, env)
+	try:
+		assert (await repl.call('exec', '1', 30))['error'] is None  # worker up, reading events
+		fake.emit(*started())
+		await asyncio.sleep(0.5)
+		r = await repl.call('exec', 'solve_captcha()', 3)  # waits for the finish, past the cell deadline
+		assert 'timed out' in (r['error'] or '') + r['output'], r
+		r = await repl.call('exec', '1', 30)  # a new worker
+		assert '[captcha solver: solving recaptcha on https://example.com/' in r['output'], r['output']
+		fake.emit(*finished(success=True))
+		await asyncio.sleep(0.5)
+		r = await repl.call('exec', 'solve_captcha(start_timeout=1)', 30)
+		assert "'detail': 'solved'" in r['output'], r['output']
+	finally:
+		await repl.close()
+	Repl(tmp_path, env)  # a new Repl is a new browser session: it starts without the saved state
+	assert not (tmp_path / '.browser-use' / 'captcha.json').exists()
+
+
+async def test_captcha_solver_false_turns_the_cloud_solver_off_at_start(monkeypatch):
+	"""captcha finding 6: 1.0 had no knob for the cloud solver; Browser(captcha_solver=False) was a generic TypeError and
+	MIGRATING.md said to delete it."""
+	from browser_use import Agent, Browser
+	from browser_use.agent.prompt import CAPTCHA_PROMPT, NO_CAPTCHA_PROMPT
+	from browser_use.browser import browser as browser_mod
+
+	fake = FakeCloudBrowser()
+
+	async def start_cloud(self):
+		self.id = 'b1'
+		return fake.ws
+
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
+	monkeypatch.setattr(Browser, '_start_cloud', start_cloud)
+	monkeypatch.setattr(browser_mod, '_cloud', lambda path, method='GET', body=None: {})
+	try:
+		for solver in (True, False):
+			fake.calls.clear()
+			browser = Browser(captcha_solver=solver)
+			await browser.start()
+			await browser.stop()
+			assert fake.calls == ([] if solver else [('BrowserUse.setCaptchaSolverEnabled', {'enabled': False})])
+		assert fake.enabled is False
+	finally:
+		browser_mod._LIVE.clear()
+		fake.close()
+
+	def instructions(browser) -> str:
+		agent = Agent('t', 'test', browser=browser)
+		agent._build()
+		return '\n'.join(i.instruction for i in agent._agent._instructions if isinstance(i.instruction, str))
+
+	assert CAPTCHA_PROMPT in instructions(Browser()) and NO_CAPTCHA_PROMPT not in instructions(Browser())
+	off = instructions(Browser(captcha_solver=False))
+	assert NO_CAPTCHA_PROMPT in off and 'solve_captcha' not in off
+	with pytest.raises(ValueError, match=r'only Browser\(\) \(a cloud browser\) has a captcha solver'):
+		Browser('chromium', captcha_solver=False)

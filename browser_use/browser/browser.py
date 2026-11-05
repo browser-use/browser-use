@@ -130,6 +130,21 @@ def _ws_url(cdp_url: str) -> str:
 		return json.load(r)['webSocketDebuggerUrl']
 
 
+def _daemon_cdp(name: str, method: str, **params) -> dict:
+	"""One CDP command through our daemon (browser-harness cdp(), from this process)."""
+	from browser_harness import _ipc as ipc
+
+	c, token = ipc.connect(name, timeout=5.0)
+	try:
+		c.settimeout(30)
+		r = ipc.request(c, token, {'method': method, 'params': params, 'session_id': None})
+	finally:
+		c.close()
+	if 'error' in r:
+		raise RuntimeError(f'{method} failed: {r["error"]}')
+	return r.get('result') or {}
+
+
 def _shutdown_daemon(name: str) -> None:
 	"""Ask our daemon to shut down without waiting for its process to exit.
 
@@ -222,6 +237,7 @@ class Browser:
 		cloud_proxy_country_code: str | None = 'us',
 		cloud_timeout: int = 60,
 		live_view: bool = False,
+		captcha_solver: bool = True,
 		**kwargs,
 	):
 		"""kind: 'cloud' (default), 'chromium' (a fresh local browser; local=True is the same) or 'chrome' (the Chrome
@@ -231,7 +247,8 @@ class Browser:
 		temp one). keep_alive: Agent.run() leaves the browser running (stop it with `await browser.stop()`).
 		cloud_profile_id: a cloud profile id or name (logins persist in it). cloud_proxy_country_code=None turns the
 		proxy off. cloud_timeout: minutes (1-240). live_view: print and open the interactive live view URL (anyone
-		with that link can drive the browser)."""
+		with that link can drive the browser). captcha_solver=False: the cloud browser's automatic captcha solver is
+		off from the start (other browsers have none)."""
 		if kwargs:
 			name = next(iter(kwargs))
 			hint = UNSUPPORTED.get(name, 'see MIGRATING.md for the 1.0 Browser options.')
@@ -248,6 +265,7 @@ class Browser:
 			('profile', profile is not None, self.kind == 'chrome'),
 			('cloud_profile_id', cloud_profile_id, self.kind == 'cloud'),
 			('live_view', live_view, self.kind == 'cloud'),
+			('captcha_solver', captcha_solver is False, self.kind == 'cloud'),
 		):
 			if value and not ok:
 				fix = {
@@ -255,6 +273,7 @@ class Browser:
 					'user_data_dir': "Browser('chromium', user_data_dir=...) keeps a dedicated profile dir",
 					'cloud_profile_id': 'cloud profiles are for Browser() (a cloud browser)',
 					'live_view': 'live view is for Browser() (a cloud browser)',
+					'captcha_solver': 'only Browser() (a cloud browser) has a captcha solver to turn off',
 				}.get(option, "Browser('chromium', ...) launches a local browser with it")
 				raise ValueError(f'{where} does not take {option}=: {fix}')
 		if user_data_dir and _local.is_default_user_data_dir(user_data_dir):
@@ -268,7 +287,7 @@ class Browser:
 		self.use_cloud = self.kind == 'cloud'
 		self.chrome_profile, self.headless, self.user_data_dir = profile, headless, user_data_dir
 		self.executable_path = executable_path
-		self.keep_alive, self.live_view = keep_alive, live_view
+		self.keep_alive, self.live_view, self.captcha_solver = keep_alive, live_view, captcha_solver
 		self.profile, self.proxy, self.timeout = cloud_profile_id, cloud_proxy_country_code, cloud_timeout
 		self._local: _local.LocalBrowser | None = None  # the Chrome this Browser launched, while it runs
 		self.name: str | None = None  # browser-harness daemon this Browser owns; None = the shared default daemon
@@ -352,6 +371,8 @@ class Browser:
 					profile=self.chrome_profile,
 				)
 			await asyncio.to_thread(admin.ensure_daemon, name=self.name, env={'BU_CDP_WS': ws, 'BH_TAB_MARKER': '0'})
+			if self.use_cloud and not self.captcha_solver:
+				await asyncio.to_thread(_daemon_cdp, self.name, 'BrowserUse.setCaptchaSolverEnabled', enabled=False)
 		except BaseException:
 			await self._stop()
 			raise

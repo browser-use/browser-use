@@ -20,8 +20,8 @@ def prompts(messages):
 async def test_run_stops_browser_then_follow_up_restarts_it(chrome, tmp_path):
 	model, seen = script(
 		('python', {'code': "new_tab('data:text/html,<title>Hi there</title>'); wait_for_load(); title = page_info()['title']"}),
-		('finish_from_repl', {'expression': 'title'}),
-		('finish', {'result': 'second answer'}),
+		('finish_from_repl', {'success': True, 'expression': 'title'}),
+		('finish', {'success': True, 'result': 'second answer'}),
 	)
 	browser = Browser(cdp_url=chrome['http'])
 	async with Agent('Read the title', model, browser=browser, workspace=tmp_path) as agent:
@@ -40,8 +40,8 @@ async def test_keep_alive_keeps_browser_and_repl_between_runs(chrome, tmp_path):
 
 	model, _ = script(
 		('python', {'code': 'x = 41'}),
-		('finish', {'result': 'one'}),
-		('finish_from_repl', {'expression': 'str(x + 1)'}),
+		('finish', {'success': True, 'result': 'one'}),
+		('finish_from_repl', {'success': True, 'expression': 'str(x + 1)'}),
 	)
 	browser = Browser(cdp_url=chrome['http'], keep_alive=True)
 	agent = Agent('t', model, browser=browser, workspace=tmp_path)
@@ -61,7 +61,7 @@ async def test_structured_output(chrome, tmp_path):
 		title: str
 		points: int
 
-	model, _ = script(('finish', {'result': {'title': 'x', 'points': 3}}))
+	model, _ = script(('finish', {'success': True, 'result': {'title': 'x', 'points': 3}}))
 	r = await Agent('t', model, browser=Browser(cdp_url=chrome['http']), output_model_schema=Story, workspace=tmp_path).run()
 	assert r.structured_output == Story(title='x', points=3) and r.is_successful()
 
@@ -82,7 +82,7 @@ async def test_your_chrome_end_to_end(chrome, tmp_path, monkeypatch):
 	monkeypatch.setenv('BU_CDP_WS', chrome['ws'])
 	model, _ = script(
 		('python', {'code': "new_tab('data:text/html,<title>Local</title><h1>ok</h1>'); wait_for_load(); info = page_info()"}),
-		('finish_from_repl', {'expression': "info['title']"}),
+		('finish_from_repl', {'success': True, 'expression': "info['title']"}),
 	)
 	try:
 		result = await Agent('Read the title', model, browser=Browser('chrome'), workspace=tmp_path).run()
@@ -102,7 +102,7 @@ async def test_type_secret_types_value_and_output_is_redacted(chrome, tmp_path):
 				"type_secret('password'); print(secret_names(), js('document.getElementById(\"pw\").value'))"
 			},
 		),
-		('finish', {'result': 'typed'}),
+		('finish', {'success': True, 'result': 'typed'}),
 	)
 	secret = 'hunter2-Zq9'
 	agent = Agent(
@@ -170,7 +170,7 @@ async def test_remote_upload_sends_bytes(chrome, tmp_path):
 async def test_ultrafast_agent_runs(chrome, tmp_path, mode):
 	model, _ = script(
 		('python', {'code': "new_tab('data:text/html,<button>Go</button>'); bu.state()"}),
-		('finish', {'result': 'ok'}),
+		('finish', {'success': True, 'result': 'ok'}),
 	)
 	r = await Agent('t', model, browser=Browser(cdp_url=chrome['http']), mode=mode, workspace=tmp_path).run()
 	assert r.final_result() == 'ok'
