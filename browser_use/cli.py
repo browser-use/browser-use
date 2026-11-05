@@ -68,12 +68,25 @@ def _run_mcp_stdio_server(module_name: str) -> None:
 	os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
 	logging.disable(logging.CRITICAL)
 
-	main = importlib.import_module(module_name).main
+	try:
+		main = importlib.import_module(module_name).main
+	except ModuleNotFoundError as e:
+		if e.name != 'mcp' and not (e.name or '').startswith('mcp.'):
+			raise
+		print("The MCP server needs the mcp extra: pip install 'browser-use[mcp]'", file=sys.stderr)
+		raise SystemExit(1) from None
 	asyncio.run(main())
 
 
 def _run_mcp_server() -> None:
-	_run_mcp_stdio_server('browser_use.mcp.server')
+	# The 0.x --mcp server (browser_navigate, browser_click, ...) ran the removed engine. Its clients now get the
+	# browser-harness exec server (browser_exec, browser_screenshot): a protocol change, see MIGRATING.md.
+	print(
+		'browser-use --mcp is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot); '
+		'switch your MCP config to --cli-mcp.',
+		file=sys.stderr,
+	)
+	_run_cli_mcp_server()
 
 
 def _run_cli_mcp_server() -> None:
@@ -108,23 +121,13 @@ def _run_install_command(argv: list[str]) -> int:
 	return result.returncode or 1
 
 
-def _run_init_command(argv: list[str]) -> int | None:
-	from browser_use.init_cmd import main as init_main
-
-	original_argv = sys.argv
-	try:
-		sys.argv = [original_argv[0], *argv]
-		init_main()
-	except SystemExit as exc:
-		if exc.code is None:
-			return 0
-		if isinstance(exc.code, int):
-			return exc.code
-		print(exc.code, file=sys.stderr)
-		return 1
-	finally:
-		sys.argv = original_argv
-	return 0
+def _run_init_command(argv: list[str]) -> int:
+	print(
+		'browser-use init (project templates) was removed in 1.0. Start from:\n'
+		"  from browser_use import Agent\n  print(Agent('Find the top story on Hacker News').run_sync().final_result())",
+		file=sys.stderr,
+	)
+	return 2
 
 
 def _as_browser_use_cli_text(text: str) -> str:
@@ -218,7 +221,7 @@ _LEGACY_HINTS: dict[str, str] = {
 	'cloud': '# authenticate with `browser-use auth login`, then start_remote_daemon("<name>")',
 	'daemon': '# the daemon starts automatically on every call; restart it with `browser-use --reload`',
 	'record': '# session recording was removed; use capture_screenshot() per step',
-	'mcp': '# MCP server mode is now the --mcp flag: `browser-use --mcp`',
+	'mcp': '# MCP server mode is now the --cli-mcp flag: `browser-use --cli-mcp`',
 	'--session': '# use BU_NAME=<name> as an env var for named cloud daemons; local runs use one default daemon',
 	'--headed': '# local control always attaches to your real, visible Chrome — no flag needed',
 	'--cdp-url': '# use the BU_CDP_URL=<url> env var instead of a flag',
