@@ -532,3 +532,30 @@ async def test_downloads_never_overwrite_an_earlier_file(cloud, monkeypatch, tmp
 	files = await browser.stop(downloads_dir=tmp_path)
 	assert (tmp_path / 'report.csv').read_bytes() == b'earlier session'
 	assert [(p.name, p.read_bytes()) for p in files] == [('report (1).csv', b'u1'), ('report (2).csv', b'u2')]
+
+
+def test_truncated_download_is_rejected_and_leaves_no_file(tmp_path):
+	"""Roast r6-2: read1() returned EOF before Content-Length without raising, so a truncated file was accepted as
+	delivered and never retried."""
+	import threading
+	import time
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	class Short(BaseHTTPRequestHandler):
+		def do_GET(self):
+			self.send_response(200)
+			self.send_header('Content-Length', '100')
+			self.end_headers()
+			self.wfile.write(b'hello')  # 5 of 100 bytes, then the connection closes
+
+		def log_message(self, *a):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Short)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	try:
+		with pytest.raises(Exception, match='5 of 100|IncompleteRead|ended'):
+			browser_mod._download(f'http://127.0.0.1:{server.server_port}/r.csv', tmp_path, 'r.csv', time.monotonic() + 10)
+	finally:
+		server.shutdown()
+	assert list(tmp_path.iterdir()) == []

@@ -11,14 +11,18 @@ import asyncio
 import base64
 import codecs
 import contextlib
+import hashlib
+import hmac
 import inspect
 import io
 import json
 import os
 import pprint
 import socket
+import struct
 import sys
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -28,6 +32,19 @@ from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, domain_matches, red
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
 CDP_TIMEOUT_S = 20.0  # bu-pi cdp timeout; 30s/60s waits made each stall cost more (v1b: 114 Hard timeouts)
+SCREENSHOT_TIMEOUT_S = 60.0  # browser-harness's own screenshot timeout: cloud screenshots routinely take longer
+
+
+def totp(seed: str, now: float | None = None) -> str:
+	"""The current 6-digit TOTP code (RFC 6238: SHA-1, 30 s) for a base32 seed, as 0.x generated for secrets whose name
+	ends in 'bu_2fa_code' (pyotp.TOTP(seed, digits=6).now())."""
+	key = seed.replace(' ', '').upper()
+	key = base64.b32decode(key + '=' * (-len(key) % 8))
+	digest = hmac.new(key, struct.pack('>Q', int((time.time() if now is None else now) // 30)), hashlib.sha1).digest()
+	offset = digest[-1] & 15
+	return f'{(int.from_bytes(digest[offset : offset + 4], "big") & 0x7FFFFFFF) % 1_000_000:06d}'
+
+
 STATE = Path(os.environ.get('BU_STATE_DIR', '.browser-use'))
 images: list[dict] = []
 
@@ -65,7 +82,7 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 
 	def cdp(method, session_id=None, **params):
 		# browser-harness defaults to 5s IPC; heavy cloud pages (Maps, TripAdvisor) blew it on navigate/evaluate/input.
-		params.setdefault('_response_timeout', CDP_TIMEOUT_S)
+		params.setdefault('_response_timeout', SCREENSHOT_TIMEOUT_S if method == 'Page.captureScreenshot' else CDP_TIMEOUT_S)
 		result = raw_cdp(method, session_id, **params)
 		# Every screenshot the agent takes is shown to the model as a native image.
 		if method == 'Page.captureScreenshot' and isinstance(result, dict) and result.get('data'):
@@ -194,8 +211,9 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 
 	def type_secret(name):
 		"""Type the secret called `name` into the focused element. Its value is hidden from your text output.
-		A domain-scoped secret types only while the frame that receives the text matches its domain."""
-		candidates = [(v, scope) for n, v, scope in secrets if n == name]
+		A domain-scoped secret types only while the frame that receives the text matches its domain. A secret whose
+		name ends in 'bu_2fa_code' is a TOTP seed: the current 6-digit code is typed, never the seed (0.x)."""
+		candidates = [(totp(v) if name.endswith('bu_2fa_code') else v, scope) for n, v, scope in secrets if n == name]
 		if not candidates:
 			raise KeyError(f'No secret named {name!r}; secret_names() lists them')
 		scoped = [(v, scope) for v, scope in candidates if scope is not None]

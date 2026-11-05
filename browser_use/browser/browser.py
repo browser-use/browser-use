@@ -97,10 +97,15 @@ def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
 			raise FileExistsError(f'no free file name for {name} in {dest}')
 		try:
 			with f:
+				size = 0
 				while chunk := r.read1(65536):  # read1: returns what arrived, so the deadline is checked as bytes drip in
 					f.write(chunk)
+					size += len(chunk)
 					if time.monotonic() > deadline:
 						raise TimeoutError(f'download did not finish within its deadline ({name})')
+				expected = (getattr(r, 'headers', None) or {}).get('Content-Length')
+				if expected is not None and expected.isdigit() and size != int(expected):  # EOF before the end: truncated
+					raise ConnectionError(f'download of {name} ended after {size} of {expected} bytes')
 		except BaseException:
 			path.unlink(missing_ok=True)
 			raise

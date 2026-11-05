@@ -308,3 +308,29 @@ async def test_domain_scoped_secret_checks_the_frame_that_receives_it(daemon, tm
 	assert same_site[0] is True, same_site
 	assert same_origin == (False, "'<secret:pw>'"), same_origin
 	assert allowed_frame == (False, "'<secret:tok>'"), allowed_frame
+
+
+async def test_bu_2fa_code_secret_types_the_current_totp_code_not_the_seed(daemon, tmp_path):
+	"""Roast r6-1: 0.x turned sensitive_data={'bu_2fa_code': seed} into a 6-digit TOTP code; 1.0 typed the raw seed, so
+	login failed and the page received the reusable 2FA secret."""
+	import re
+
+	seed = 'JBSWY3DPEHPK3PXP'
+	page = 'data:text/html,<input id=otp>'
+	repl = Repl(tmp_path, daemon, secrets={'bu_2fa_code': seed})
+	try:
+		code = f"new_tab({page!r}); wait_for_load(); js('document.getElementById(\"otp\").focus()'); type_secret('bu_2fa_code')"
+		r = await repl.call('exec', code, 30)
+		typed = await repl.call('exec', 'print(js(\'document.getElementById("otp").value\'))', 30)
+	finally:
+		await repl.close()
+	assert r['error'] is None, r
+	value = typed['output'].strip()
+	assert seed not in value and re.fullmatch(r'\d{6}', value), typed
+
+
+def test_totp_matches_rfc6238():
+	from browser_use.repl.worker import totp
+
+	seed = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'  # RFC 6238 SHA-1 key '12345678901234567890'
+	assert [totp(seed, now=t) for t in (59, 1111111109, 1234567890)] == ['287082', '081804', '005924']
