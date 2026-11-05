@@ -14,7 +14,7 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 |---|---|---|
 | Model (`llm=None`) | required | `bu-auto` on the Browser Use gateway |
 | Browser (`Browser()`) | local Chromium | Browser Use Cloud browser (`Browser(local=True)` for your Chrome) |
-| Key | per provider | one Browser Use key: `browser-use auth login` or `BROWSER_USE_API_KEY` |
+| Key | per provider | one Browser Use key: `browser-use auth login` or `BROWSER_USE_API_KEY`. A `.env` in the working directory is read on import, as in 0.x |
 | Python | >= 3.11 | >= 3.11 |
 | Tasks with localhost / private IPs | worked | raise with a cloud browser; use `Browser(local=True)` |
 | Cloud proxy | off | `us` (`cloud_proxy_country_code=None` turns it off) |
@@ -81,13 +81,31 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 |---|---|
 | `Browser()` / `BrowserSession()` | `Browser()` is now a cloud browser; `BrowserSession` and `BrowserProfile` imports raise |
 | `Browser(use_cloud=True)` | kept (now the default) |
-| local Chromium (`headless`, `user_data_dir`, `executable_path`, ...) | raises: `Browser(local=True)` drives your Chrome through browser-harness |
+| `Browser(use_cloud=False)` | `Browser(local=True)`: your desktop Chrome and its real profile, through browser-harness |
 | `cdp_url=` | kept |
 | `keep_alive=True` | kept |
 | `cloud_profile_id`, `cloud_proxy_country_code`, `cloud_timeout` | kept |
-| `allowed_domains`, `prohibited_domains` | raise: not in 1.0 yet |
-| `proxy`, `storage_state` | raise: use `cloud_proxy_country_code` / `cloud_profile_id` |
+| `cloud_browser_params` | raises: use `cloud_profile_id`, `cloud_proxy_country_code`, `cloud_timeout` |
 | `Browser.from_system_chrome()` | not yet |
+
+Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` naming it. What to do instead:
+
+| 0.x options | 1.0 |
+|---|---|
+| launching Chromium: `headless`, `executable_path`, `channel`, `user_data_dir`, `profile_directory`, `args`, `ignore_default_args`, `env`, `chromium_sandbox`, `devtools`, `enable_default_extensions`, `disable_security`, `is_local` | 1.0 never launches a browser with options. Desktop: `Browser(local=True)` uses your Chrome. Anything custom: start Chrome yourself with the flags you want (`chrome --remote-debugging-port=9222 --user-data-dir=/tmp/p --headless=new ...`) and pass `Browser(cdp_url='http://127.0.0.1:9222')`. Or use the cloud browser |
+| headless / servers / Docker (`headless=True`, `browser-use install`, the 0.x Dockerfile) | `Browser()` (cloud, always headless), or run `chromium --headless=new --remote-debugging-port=9222` in the container and pass `cdp_url=`. `Browser(local=True)` needs a desktop Chrome. `browser-use install` no longer downloads a browser |
+| window and identity: `window_size`, `window_width`, `window_height`, `window_position`, `viewport`, `no_viewport`, `screen`, `device_scale_factor`, `user_agent`, `headers` | Chrome flags (`--window-size=1280,800`, `--user-agent=...`) on a Chrome you start + `cdp_url=`, or say it in the task: the agent can send `Emulation.setDeviceMetricsOverride`, `Network.setUserAgentOverride`, `Network.setExtraHTTPHeaders` itself |
+| downloads: `downloads_path`, `accept_downloads`, `auto_download_pdfs` | cloud: files the browser downloaded are copied to `agent.workspace/downloads` when it stops. Local / `cdp_url`: the browser's own download folder; the agent can set `Browser.setDownloadBehavior` |
+| `permissions` | say it in the task: the agent can send `Browser.grantPermissions` |
+| `proxy` (`server`, `bypass`, `username`, `password`) | cloud: `cloud_proxy_country_code`. Your own Chrome: `--proxy-server=...` + `cdp_url=` |
+| `storage_state`, `cookie_whitelist_domains` | cloud: `cloud_profile_id` keeps logins. Local: your Chrome profile already has them |
+| `allowed_domains`, `prohibited_domains`, `block_ip_addresses` | raise: not in 1.0 yet. Domain-scoped `sensitive_data` still limits where secrets are typed |
+| recording: `record_video_dir`, `record_video_size`, `record_video_framerate`, `record_har_path`, `record_har_content`, `record_har_mode`, `traces_dir` | removed. `result.messages` is the transcript; `live_view=True` shows a cloud browser live |
+| 0.x engine tuning: `highlight_elements`, `dom_highlight_elements`, `filter_highlight_ids`, `paint_order_filtering`, `interaction_highlight_color`, `interaction_highlight_duration`, `cross_origin_iframes`, `max_iframes`, `max_iframe_depth`, `minimum_wait_page_load_time`, `wait_for_network_idle_page_load_time`, `wait_between_actions`, `deterministic_rendering`, `demo_mode`, `captcha_solver` | removed: they tuned the 0.x DOM engine. Delete them |
+
+One local agent at a time: every `Browser(local=True)` in a process shares one browser-harness daemon and its one
+attached tab, so two local agents running at once (the 0.x `parallel_agents.py` pattern) move each other's tab. Run
+parallel agents on cloud browsers (`Browser()` each) or on separate Chromes via `cdp_url=`.
 
 ## Models
 
