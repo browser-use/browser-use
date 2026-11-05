@@ -144,6 +144,19 @@ async def test_structured_final_result_is_the_models_json(tmp_path):
 	assert r.structured_output == Story(title='x', points=3)
 
 
+async def test_a_tools_own_timeout_is_an_error_not_the_run_budget(tmp_path):
+	"""Fable: socket.timeout is TimeoutError; it was reported as status='timeout', error=None with budget unused."""
+	tools = Tools()
+
+	@tools.action('Fetch a URL')
+	def fetch(url: str) -> str:
+		raise TimeoutError('timed out')
+
+	model, _ = script(('fetch', {'url': 'https://x.test'}))
+	r = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert (r.status, r.error) == ('error', 'TimeoutError: timed out')
+
+
 async def test_param_model_is_authoritative(tmp_path):
 	"""Roast C14: with `params: Any` the param_model was ignored; the action got a dict and params.qty broke."""
 	from typing import Any

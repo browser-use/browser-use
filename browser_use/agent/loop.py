@@ -363,14 +363,19 @@ async def run(
 	message_history continues an earlier transcript (follow-up task); usage and steps count only this run.
 	explain_error turns a provider exception into one actionable line (gateway 401/402/403/404)."""
 	status, output, error = 'completed', None, None
+	budget = asyncio.timeout(session.timeout_s)
 	try:
-		async with asyncio.timeout(session.timeout_s):
+		async with budget:
 			result = await agent.run(
 				task, deps=session, message_history=message_history, usage_limits=UsageLimits(request_limit=session.max_steps)
 			)
 		output, messages = result.output, result.all_messages()
-	except TimeoutError:
-		status, messages = 'timeout', session.messages
+	except TimeoutError as e:  # a tool's own socket/HTTP timeout is an error, not the run budget
+		if budget.expired():
+			status, messages = 'timeout', session.messages
+		else:
+			status, messages = 'error', session.messages
+			error = (explain_error and explain_error(e)) or f'{type(e).__name__}: {e}'
 	except Exception as e:
 		name = type(e).__name__
 		status = 'max_steps' if name == 'UsageLimitExceeded' else 'error'
