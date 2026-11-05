@@ -29,7 +29,7 @@ class FakeAuthServer:
 		owner = self
 
 		class Handler(BaseHTTPRequestHandler):
-			def do_POST(self):  # noqa: N802
+			def do_POST(self):
 				body = json.loads(self.rfile.read(int(self.headers['Content-Length'])) or b'{}')
 				if self.path == '/cloud/cli-auth/browser':
 					owner.starts.append(body)
