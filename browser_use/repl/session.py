@@ -210,6 +210,7 @@ class Repl:
 		self.lock = asyncio.Lock()  # the model may emit parallel python calls; the worker runs one cell at a time
 
 	async def start(self) -> None:
+		await self.close()  # a dead previous worker's cell processes may still run: kill its group/job before replacing it
 		self.state.mkdir(parents=True, exist_ok=True)
 		self.loop = asyncio.get_running_loop()
 		token = secrets.token_hex(32)
