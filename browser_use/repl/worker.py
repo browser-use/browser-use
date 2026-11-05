@@ -90,6 +90,8 @@ class CellStats:
 
 	def __init__(self) -> None:
 		self.lock = threading.Lock()  # ultrafast reads CDP events on a background thread
+		# Browser('chrome') attaches to a tab the user had open: a page read is only counted once this worker navigated
+		self.navigated = False
 		self.take()
 
 	def count(self, kind: str, name: str) -> None:
@@ -97,9 +99,12 @@ class CellStats:
 			getattr(self, kind)[name] += 1
 
 	def url(self, url, navigation: bool = False) -> None:
+		"""A navigation's hostname, or (navigation=False) the hostname of a page the agent read."""
 		if h := host(url):
 			with self.lock:
-				self.hosts.add(h)
+				self.navigated = self.navigated or navigation
+				if self.navigated:
+					self.hosts.add(h)
 				self.navigations += navigation
 
 	def observe(self, events) -> None:
@@ -128,7 +133,8 @@ stats = CellStats()
 
 
 def _counted(name: str, fn):
-	"""fn, counted in stats under name. page_info()/current_tab() also record the attached tab's hostname."""
+	"""fn, counted in stats under name. page_info()/current_tab() also record the attached tab's hostname, once the
+	agent navigated."""
 
 	@functools.wraps(fn)
 	def counted(*args, **kwargs):

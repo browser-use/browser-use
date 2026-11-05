@@ -6,6 +6,7 @@ from __future__ import annotations
 import ast
 import os
 import platform
+import re
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
@@ -15,6 +16,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 MAX_KEYS = 50  # per map or list: a run that visits 10k hosts sends the 50 most frequent
+CDP_METHOD = re.compile(r'[A-Za-z][A-Za-z0-9]{0,40}\.[A-Za-z][A-Za-z0-9]{0,60}')  # Domain.method, nothing else
 CLI_CONTENT = ('task', 'output', 'steps', 'error_message')  # browser-harness cli_event fields that carry text
 
 
@@ -98,7 +100,8 @@ class RunStats:
 		self.imports.update(imported_modules(code))
 		s = result.get('stats') or {}
 		self.helpers.update(s.get('helpers') or {})
-		self.cdp_methods.update(s.get('cdp') or {})
+		for method, n in (s.get('cdp') or {}).items():  # the model can pass anything as the method: a URL, code
+			self.cdp_methods[method if CDP_METHOD.fullmatch(str(method)) else 'invalid'] += int(n)
 		self.domains.update(s.get('hosts') or [])
 		self.events.update(s.get('events') or {})
 		self.navigations += int(s.get('navigations') or 0)

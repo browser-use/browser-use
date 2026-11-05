@@ -168,6 +168,26 @@ def test_cell_stats_count_captcha_and_download_events_and_hostnames_only():
 	assert dict(stats.imports) == {'a': 1, 'c': 1} and dict(stats.domains) == {'shop.example.com': 1}
 
 
+def test_cdp_method_counts_keep_only_domain_method_names():
+	"""The model can pass a URL or code as cdp()'s method; only Domain.method names reach telemetry."""
+	stats = RunStats()
+	cdp = {'Page.navigate': 2, 'https://bank.example/acct?token=SENTINEL': 1, 'x = 1; Page.navigate': 1}
+	stats.add_cell({'stats': {'cdp': cdp}}, '', 0.1)
+	assert dict(stats.cdp_methods) == {'Page.navigate': 2, 'invalid': 2}
+
+
+def test_page_reads_count_hostnames_only_after_the_agent_navigated():
+	"""Browser('chrome') attaches to a tab the user had open: page_info() before any navigation records nothing."""
+	from browser_use.repl.worker import CellStats
+
+	s = CellStats()
+	s.url('https://mail.example.com/inbox')  # page_info() on the user's own tab
+	assert s.take()['hosts'] == []
+	s.url('https://shop.example.com/', navigation=True)
+	s.url('https://pay.example.com/checkout')  # reached by a click, read with page_info()
+	assert s.take()['hosts'] == ['pay.example.com', 'shop.example.com']
+
+
 @pytest.mark.parametrize('seed', range(20))
 def test_host_and_imports_keep_no_path_query_or_code(seed):
 	rng = random.Random(seed)
