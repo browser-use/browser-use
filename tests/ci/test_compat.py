@@ -341,3 +341,18 @@ async def test_failed_follow_up_never_returns_the_previous_tasks_result(tmp_path
 	(repl.state / 'partial.json').write_text('{"file": "a.json", "value": "partial of task A"}', encoding='utf-8')
 	r = await run(build_agent(FunctionModel(broken)), 'task B', Session(repl=repl), 'm', message_history=history)
 	assert (r.status, r.partial, r.text) == ('error', None, '')
+
+
+async def test_run_error_never_shows_a_secret(tmp_path):
+	"""Roast r2-8: an exception quoting a registered secret stayed plaintext in result.error, which Agent.run logs."""
+	secret = 'hunter2-Zq9'
+	tools = Tools()
+
+	@tools.action('Log in')
+	def login() -> str:
+		raise RuntimeError(f'login failed for password {secret}')
+
+	model, _ = script(('login', {}))
+	session = Session(repl=Repl(tmp_path, secrets={'pw': secret}))
+	r = await run(build_agent(model, tools=tools.functions), 'task', session, 'm')
+	assert r.status == 'error' and r.error == 'RuntimeError: login failed for password <secret:pw>'

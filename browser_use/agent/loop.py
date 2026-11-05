@@ -440,8 +440,8 @@ async def run(
 	new = messages[len(message_history or []) :]  # an earlier task's text is never this run's fallback
 	if output is None:
 		output = json.dumps(partial, ensure_ascii=False) if partial is not None else last_text(new)
-	text = as_text(output)
-	text = redact(text, session.repl.secrets)
+	text = redact(as_text(output), session.repl.secrets)
+	error = redact(error, session.repl.secrets)  # provider/tool exceptions can quote a secret; Agent.run logs this
 	usage, cost = usage_and_cost(new, model_ref)
 	steps = sum(isinstance(m, ModelResponse) for m in new)
 	duration = time.monotonic() - session.started
