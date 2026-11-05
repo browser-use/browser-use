@@ -548,3 +548,50 @@ def test_repl_reused_from_a_new_event_loop_restarts_its_worker(tmp_path):
 		asyncio.run(repl.close())
 	assert [r['error'] for r in second] == [None, None], second
 	assert 'Python variables are lost' in second[0]['output'] and second[1]['output'].strip() == '2'
+
+
+def _tab(capture_hangs: bool):
+	"""A stub browser-harness cdp for one hidden attached tab; records (method, response timeout) per call."""
+	from browser_harness.helpers import _IPCResponseTimeout
+
+	state, calls = {'visibility': 'hidden'}, []
+
+	def raw_cdp(method, session_id=None, _response_timeout=5.0, **params):
+		calls.append((method, _response_timeout))
+		if method == 'Runtime.evaluate':
+			return {'result': {'type': 'string', 'value': state['visibility']}}
+		if method == 'Target.activateTarget':
+			state['visibility'] = 'visible'
+			return {}
+		if capture_hangs and state['visibility'] == 'hidden':
+			raise _IPCResponseTimeout(f'{method} timed out after {_response_timeout:g}s waiting for the daemon')
+		return {'data': 'AAAA'}
+
+	return raw_cdp, calls, state
+
+
+def test_hidden_tab_that_captures_is_never_activated():
+	"""Roast r7 F1: screenshot() activated every hidden tab, switching the user's visible tab in local mode, although
+	only Linux headless needs it (a hidden tab captures fine on macOS and in headful Chrome)."""
+	from browser_use.repl.worker import capture
+
+	raw_cdp, calls, state = _tab(capture_hangs=False)
+	assert capture(raw_cdp, lambda: {'targetId': 'T'}, format='jpeg')['data']
+	assert state['visibility'] == 'hidden'
+	assert [m for m, _ in calls] == ['Runtime.evaluate', 'Page.captureScreenshot']
+
+
+def test_hidden_tab_is_activated_only_after_its_capture_times_out():
+	"""Linux headless renders no frames for a hidden tab: its capture hung 60s. A short try first, then activate."""
+	from browser_use.repl.worker import HIDDEN_CAPTURE_TRY_S, SCREENSHOT_TIMEOUT_S, capture
+
+	raw_cdp, calls, state = _tab(capture_hangs=True)
+	activated = []
+	assert capture(raw_cdp, lambda: activated.append(1) or {'targetId': 'T'}, format='jpeg')['data']
+	assert calls == [
+		('Runtime.evaluate', 5),
+		('Page.captureScreenshot', HIDDEN_CAPTURE_TRY_S),
+		('Target.activateTarget', 5.0),
+		('Page.captureScreenshot', SCREENSHOT_TIMEOUT_S),
+	]
+	assert state['visibility'] == 'visible' and activated == [1]

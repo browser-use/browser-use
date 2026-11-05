@@ -33,6 +33,29 @@ MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
 CDP_TIMEOUT_S = 20.0  # bu-pi cdp timeout; 30s/60s waits made each stall cost more (v1b: 114 Hard timeouts)
 SCREENSHOT_TIMEOUT_S = 60.0  # browser-harness's own screenshot timeout: cloud screenshots routinely take longer
+HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless never answers it
+
+
+def capture(raw_cdp, current_tab, session_id=None, **params):
+	"""Page.captureScreenshot. new_tab()/switch_tab() never activate a tab, and on Linux headless a hidden tab renders
+	no frames, so its capture hangs. A hidden attached tab gets a short first try; only when that times out is it
+	activated (made Chrome's visible tab) and captured again. A hidden tab that captures (macOS, headful Chrome) is
+	never activated: local mode does not switch the user's visible tab."""
+	timeout = params.pop('_response_timeout', SCREENSHOT_TIMEOUT_S)
+	hidden = False
+	if session_id is None:  # the attached tab; another session's target is unknown here
+		try:
+			r = raw_cdp('Runtime.evaluate', expression='document.visibilityState', returnByValue=True, _response_timeout=5)
+			hidden = r['result'].get('value') == 'hidden'
+		except Exception:  # unknown: capture as for a visible tab
+			pass
+	if not hidden:
+		return raw_cdp('Page.captureScreenshot', session_id, _response_timeout=timeout, **params)
+	try:
+		return raw_cdp('Page.captureScreenshot', _response_timeout=min(timeout, HIDDEN_CAPTURE_TRY_S), **params)
+	except TimeoutError:
+		raw_cdp('Target.activateTarget', targetId=current_tab()['targetId'])
+		return raw_cdp('Page.captureScreenshot', _response_timeout=timeout, **params)
 
 
 def totp(seed: str, now: float | None = None) -> str:
@@ -81,11 +104,13 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 	raw_cdp = helpers.cdp
 
 	def cdp(method, session_id=None, **params):
-		# browser-harness defaults to 5s IPC; heavy cloud pages (Maps, TripAdvisor) blew it on navigate/evaluate/input.
-		params.setdefault('_response_timeout', SCREENSHOT_TIMEOUT_S if method == 'Page.captureScreenshot' else CDP_TIMEOUT_S)
-		result = raw_cdp(method, session_id, **params)
+		if method != 'Page.captureScreenshot':
+			# browser-harness defaults to 5s IPC; heavy cloud pages (Maps, TripAdvisor) blew it on navigate/evaluate/input.
+			params.setdefault('_response_timeout', CDP_TIMEOUT_S)
+			return raw_cdp(method, session_id, **params)
+		result = capture(raw_cdp, helpers.current_tab, session_id, **params)
 		# Every screenshot the agent takes is shown to the model as a native image.
-		if method == 'Page.captureScreenshot' and isinstance(result, dict) and result.get('data'):
+		if isinstance(result, dict) and result.get('data'):
 			fmt = params.get('format', 'png')
 			_add_image(base64.b64decode(result['data']), f'image/{"jpeg" if fmt == "jpeg" else fmt}')
 		return result
@@ -100,11 +125,6 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 	def screenshot(full=False):
 		"""Capture the current tab (JPEG q70, like bu-pi) and show it to the model. Returns the file path."""
 		shots.mkdir(parents=True, exist_ok=True)
-		try:  # a hidden tab (new_tab/switch_tab never activate) produces no frames on Linux headless: capture hangs
-			if helpers.js('document.visibilityState') == 'hidden':
-				helpers.activate_tab(helpers.current_tab())
-		except Exception:  # best effort; the capture below still reports a real failure
-			pass
 		r = cdp('Page.captureScreenshot', format='jpeg', quality=70, captureBeyondViewport=full)
 		path = shots / f'{len(list(shots.iterdir())):04d}.jpg'
 		path.write_bytes(base64.b64decode(r['data']))

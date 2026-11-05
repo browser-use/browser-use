@@ -313,9 +313,12 @@ async def test_screenshot_is_jpeg(daemon, tmp_path):
 	assert any(getattr(c, 'media_type', '') == 'image/jpeg' for c in out)
 
 
-async def test_screenshot_activates_a_hidden_tab_first(daemon, tmp_path):
-	"""CI (Linux headless) hung 60s on Page.captureScreenshot: new_tab()/switch_tab() never activate a tab, and a
-	hidden tab renders no frames there. screenshot() activates the attached tab when the page reports it is hidden."""
+async def test_screenshot_of_a_hidden_tab_activates_it_only_when_capture_hangs(daemon, tmp_path):
+	"""new_tab()/switch_tab() never activate a tab. Linux headless renders no frames for a hidden one, so its capture
+	hung 60s (CI): screenshot() and raw cdp('Page.captureScreenshot') activate it after a short try times out. Where a
+	hidden tab captures (macOS), it stays hidden: local mode never switches the user's visible tab."""
+	import sys
+
 	from browser_use.repl.session import Repl
 
 	repl = Repl(tmp_path, daemon)
@@ -323,13 +326,14 @@ async def test_screenshot_activates_a_hidden_tab_first(daemon, tmp_path):
 		code = (
 			"a = new_tab('data:text/html,<h1>A</h1>'); wait_for_load()\n"
 			"b = new_tab('data:text/html,<h1>B</h1>'); wait_for_load()\n"
-			'switch_tab(a)\n'
-			"before = js('document.visibilityState')\n"
-			'p = screenshot()\n'
-			"print(before, js('document.visibilityState'), p.endswith('.jpg'))"
+			"vis = lambda: js('document.visibilityState')\n"
+			'switch_tab(a); v = [vis()]; p = screenshot(); v.append(vis())\n'
+			"switch_tab(b); v.append(vis()); r = cdp('Page.captureScreenshot'); v.append(vis())\n"
+			"print(*v, p.endswith('.jpg'), bool(r.get('data')))"
 		)
 		r = await repl.call('exec', code, 90)
 	finally:
 		await repl.close()
 	assert r['error'] is None, r
-	assert r['output'].split() == ['hidden', 'visible', 'True'], r['output']
+	after = 'visible' if sys.platform.startswith('linux') else 'hidden'
+	assert r['output'].split() == ['hidden', after, 'hidden', after, 'True', 'True'], r['output']
