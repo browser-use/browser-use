@@ -44,7 +44,15 @@ export interface WorkerConfig extends importPolicy {
   maxOutputChars: number;
 }
 export type WorkerRequest =
-  | { type: 'execute'; code: string; captureJson?: boolean; outputFile?: string; runId?: string }
+  | {
+      type: 'execute';
+      code: string;
+      captureJson?: boolean;
+      outputFile?: string;
+      runId?: string;
+      /** The cell deadline, so long helpers can return before it. */
+      timeoutMs?: number;
+    }
   | { type: 'close' };
 export type WorkerResponse =
   | { type: 'action'; action: BrowserAction }

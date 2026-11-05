@@ -25,6 +25,8 @@ Use page.evaluate for DOM extraction. Use screenshots for visual questions, canv
 
 Uploads: DOM.setFileInputFiles({backendNodeId,files}). Downloads: Browser.setDownloadBehavior plus Browser.downloadProgress; remote browser files live on the remote host. Use Node/files or the provider's download API to retrieve them. For other controls use explicit CDP or ordinary page code, and verify changes.
 
+Captchas: Browser Use Cloud browsers solve captchas and "verify you are human" checks automatically, usually in 20-60 s. A [Captcha solver running] line in cell output means a solve is active: stop driving that page and wait. When you see a challenge, call await solveCaptcha() -> {solved, detail, seconds}. "still solving": call it again, for up to ~2 minutes in total. "solved": inspect the page and continue. Do not reload, navigate or switch browsers during a solve. Take over only after "the solver failed", or when the challenge remains and no solve is running. "solver unavailable" means this browser has no solver.
+
 Workspace helpers:
 - await artifact(filename, textOrBytes) creates an exclusive file and returns its path.
 - await checkpoint(filename, value, {partial:true}) atomically saves JSON and publishes your latest partial result to the caller. Update it after useful progress, especially QA findings and extracted records. Partial values need not satisfy the final schema. They survive timeout or worker loss. Omit the option for ordinary scratch checkpoints. Save small successful batches, not only the final output.

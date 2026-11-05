@@ -9,12 +9,14 @@ import { extname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { CDP } from './cdp.js';
 import { Page, Tabs } from './page.js';
+import { positiveInteger } from './protocol.js';
 import type { Image, WorkerConfig, WorkerRequest, WorkerResponse } from './protocol.js';
 import { installDomainPolicy, fillSecret } from './policy.js';
 import { redact } from './history.js';
 import { actionHighlighter } from './highlight.js';
 import { imageDimensions, imageMimeType, prepareModelImages } from './images.js';
 import { AxHelpers } from './ax.js';
+import { CaptchaWatch } from './captcha.js';
 
 // IPC initialization keeps connection details out of argv and environment.
 process.on('disconnect', () => process.exit(0));
@@ -24,6 +26,7 @@ const send = (message: WorkerResponse) => process.send!(clean(message));
 process.chdir(config.workspace);
 let browser = CDP.lazy(config.endpoint, config.operationTimeoutMs, config.approveConnection);
 installDomainPolicy(browser, config, (id) => send({ type: 'owned', targetId: id }));
+let captcha = new CaptchaWatch(browser);
 let highlight = config.highlightActions ? actionHighlighter(browser) : undefined;
 let tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
 const chromiumEmptyPageUrls = new Set([
@@ -51,6 +54,7 @@ function deferredPage(targetId?: string) {
 const page = deferredPage(config.targetId);
 let outputFile: string | undefined;
 let runId: string | undefined;
+let cellDeadline = Infinity;
 let output = '';
 let images: Image[] = [];
 let captureResponse: CDP['observeResponse'];
@@ -207,12 +211,22 @@ Object.assign(realm, {
     browser.close();
     browser = CDP.lazy(config.endpoint, config.operationTimeoutMs, config.approveConnection);
     installDomainPolicy(browser, config, (id) => send({ type: 'owned', targetId: id }));
+    captcha = new CaptchaWatch(browser);
     highlight = config.highlightActions ? actionHighlighter(browser) : undefined;
     browser.observeResponse = captureResponse;
     tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
     Object.assign(realm, { browser, tabs, page: deferredPage(targetId) });
     observe();
     return 'Connection reset. Inspect the page; no browser action was replayed. Reacquire other page/frame handles.';
+  },
+  /** Browser Use Cloud's captcha solver; waits within the cell deadline. */
+  async solveCaptcha(options: { timeoutMs?: number } = {}) {
+    if (options.timeoutMs !== undefined) positiveInteger('timeoutMs', options.timeoutMs);
+    // Leave the cell time to return; a cell timeout would reset JavaScript state.
+    const timeoutMs = Math.min(options.timeoutMs ?? 120_000, cellDeadline - Date.now() - 3000);
+    if (timeoutMs < 1000)
+      throw new Error('Too little cell time left; call solveCaptcha() in a new cell.');
+    return captcha.solve({ timeoutMs });
   },
   async fillSecret(
     name: string,
@@ -397,6 +411,7 @@ process.on('message', async (message: WorkerRequest) => {
     return;
   }
   runId = message.runId;
+  cellDeadline = Date.now() + (message.timeoutMs ?? 30_000);
   output = '';
   pendingText = '';
   images = [];
@@ -458,7 +473,7 @@ process.on('message', async (message: WorkerRequest) => {
     await browser.send('Target.activateTarget', { targetId: focused }).catch(() => {});
   }
   const result = {
-    text: [output, ...previews.notes].filter(Boolean).join('\n') || '(no output)',
+    text: [output, captcha.note(), ...previews.notes].filter(Boolean).join('\n') || '(no output)',
     images: previews.images,
     targetId,
     ...(browser.observationTargetId ? { observationTargetId: browser.observationTargetId } : {}),

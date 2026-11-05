@@ -258,7 +258,7 @@ export class BrowserRuntime {
         signal,
       );
       worker.send(
-        { type: 'execute', code, captureJson, outputFile, runId: this.runId },
+        { type: 'execute', code, captureJson, outputFile, runId: this.runId, timeoutMs },
         (error) => {
           if (error) this.pending?.(error);
         },
