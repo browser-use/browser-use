@@ -181,8 +181,12 @@ POINT_JS = r"""function(editableCover) {
   return {x: px, y: py, covered};
 }"""
 
+# Runs before every type branch: native selects and date inputs are set directly, so they never reach POINT_JS's checks.
+# CSS-hidden only (no opacity check): custom-styled widgets often keep an opacity-0 native select underneath.
 KIND_JS = (
 	"function(){const e=this.nodeType===1?this:this.parentElement;if(!e||!e.isConnected)throw Error('Target detached');"
+	"if(e.matches(':disabled')||e.closest('[inert],[aria-disabled=\"true\"]'))throw Error('Target disabled');"
+	"if(!e.checkVisibility({checkVisibilityCSS:true}))throw Error('Target hidden');"
 	"return {tag:e.tagName,type:e.type||''};}"
 )
 

@@ -27,6 +27,9 @@ PAGES = {
 <div style="opacity:0">Secret success</div>
 <a href="/next">Next page</a>""",
 	'/next': '<title>Next</title><p>Second page</p>',
+	'/locked': """<title>Locked</title><select id=a disabled><option>A<option>B</select>
+<fieldset disabled><input id=b type=date></fieldset><div inert><select id=c><option>A<option>B</select></div>
+<select id=d style="display:none"><option>A<option>B</select><span aria-disabled=true><input id=e type=time></span>""",
 	'/act': """<title>Act</title>
 <form action="/next"><input aria-label="Query" name=q></form>
 <button onclick="document.getElementById('out').textContent = 'Clicked'">Go</button>
@@ -248,6 +251,25 @@ async def test_type_select_date_and_clear(repl, site):
 	assert 'Invalid native date/time value; use its ISO format' in err
 	out, err = await cell(repl, "bu.type(idof('City'), 5)")
 	assert 'TypeError: type needs a string.' in err
+
+
+async def test_type_refuses_disabled_inert_and_hidden_native_controls(repl, site):
+	"""Roast r2-10: selects and date/time inputs were set directly, before the disabled/inert/hidden checks, so
+	bu.type() changed disabled controls and fired their input/change events."""
+	await cell(repl, f"new_tab('{site}/locked'); wait_for_load()")
+	byid = (
+		'def byid(i):\n'
+		"    root = cdp('DOM.getDocument', depth=0)['root']['nodeId']\n"
+		"    n = cdp('DOM.querySelector', nodeId=root, selector='#' + i)['nodeId']\n"
+		"    return cdp('DOM.describeNode', nodeId=n)['node']['backendNodeId']\n"
+	)
+	await cell(repl, byid)
+	for i, value, why in [('a', 'B', 'disabled'), ('b', '2026-10-14', 'disabled'), ('c', 'B', 'disabled'),
+						  ('d', 'B', 'hidden'), ('e', '10:30', 'disabled')]:  # fmt: skip
+		out, err = await cell(repl, f"bu.type(byid('{i}'), '{value}')")
+		assert err and f'Target {why}' in err, (i, err)
+	out, err = await cell(repl, "print([js(f\"document.getElementById('{i}').value\") for i in 'abcde'])")
+	assert out.splitlines()[0] == "['A', '', 'A', 'A', '']", out
 
 
 async def test_no_change_and_failures(repl, site):
