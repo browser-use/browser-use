@@ -24,6 +24,7 @@ from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, Text
 from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAICompaction, OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_ai.usage import UsageLimits
+from pydantic_core import to_json
 
 from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
@@ -92,10 +93,15 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	return [text or '(no output)', *shots]
 
 
+def as_text(value: Any) -> str:
+	"""A result as text: strings unchanged; models, dataclasses and lists of them as JSON (0.x model_dump_json)."""
+	return value if isinstance(value, str) else to_json(value, fallback=str).decode()
+
+
 def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 	"""One-shot repairs: a placeholder or links to unwritten files; a self-declared partial result with budget left."""
 	s = ctx.deps
-	text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+	text = as_text(value)
 	if not s.checked_delivery:
 		problem = None
 		if not re.search(r'[^\W_]', text):  # '...', '' (a one-character answer like '7' is fine)
@@ -372,7 +378,7 @@ async def run(
 	partial = session.partial()
 	if output is None:
 		output = json.dumps(partial, ensure_ascii=False) if partial is not None else last_text(messages)
-	text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False, default=str)
+	text = as_text(output)
 	text = redact(text, session.repl.secrets)
 	new = messages[len(message_history or []) :]
 	usage, cost = usage_and_cost(new, model_ref)

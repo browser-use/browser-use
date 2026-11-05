@@ -131,6 +131,19 @@ async def test_finish_can_report_a_failed_task(tool, tmp_path):
 	assert (await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'm')).is_successful() is True
 
 
+async def test_structured_final_result_is_the_models_json(tmp_path):
+	"""Roast C10: final_result() was '"title=\'x\' points=3"' (str() of the model) instead of 0.x model_dump_json()."""
+
+	class Story(BaseModel):
+		title: str
+		points: int
+
+	model, _ = script(('finish', {'result': {'title': 'x', 'points': 3}}))
+	r = await run(build_agent(model, output_type=Story), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert r.final_result() == Story(title='x', points=3).model_dump_json()
+	assert r.structured_output == Story(title='x', points=3)
+
+
 async def test_param_model_is_authoritative(tmp_path):
 	"""Roast C14: with `params: Any` the param_model was ignored; the action got a dict and params.qty broke."""
 	from typing import Any
