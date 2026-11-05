@@ -1,3 +1,4 @@
+import importlib.metadata
 import os
 import re
 import subprocess
@@ -140,7 +141,9 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 	)
 
 	assert result.returncode == 0, result.stderr
-	assert uv_args.read_text(encoding='utf-8') == 'tool install --python 3.12 --upgrade --force browser-use'
+	# Pinned: unpinned, uv installs the latest stable (0.x) over a 1.0 rc install
+	version = importlib.metadata.version('browser-use')
+	assert uv_args.read_text(encoding='utf-8') == f'tool install --python 3.12 --upgrade --force browser-use=={version}'
 	expected = (
 		'---\n'
 		'name: browser-use\n'

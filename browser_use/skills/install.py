@@ -68,9 +68,16 @@ def _install_browser_use_tool() -> None:
 	if not uv:
 		raise RuntimeError('Installing the Browser Use skill requires `uv`. Install uv, then rerun `browser-use skill install`.')
 
-	result = subprocess.run([uv, 'tool', 'install', '--python', '3.12', '--upgrade', '--force', 'browser-use'])
+	from browser_use.utils import get_browser_use_version
+
+	version = get_browser_use_version()
+	if version == 'unknown':
+		raise RuntimeError('Cannot tell which browser-use version is running; rerun with --no-install.')
+	# Pinned to the running version: unpinned, uv picks the latest stable, which replaces a 1.0 rc install with 0.x.
+	args = ['tool', 'install', '--python', '3.12', '--upgrade', '--force', f'browser-use=={version}']
+	result = subprocess.run([uv, *args])
 	if result.returncode != 0:
-		raise RuntimeError('Failed to install browser-use with `uv tool install --python 3.12 --upgrade --force browser-use`.')
+		raise RuntimeError(f'Failed to install browser-use with `uv {" ".join(args)}`.')
 
 
 def _load_skill_text_from_browser_harness_cli() -> str:
