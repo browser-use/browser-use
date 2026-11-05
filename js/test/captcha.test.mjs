@@ -42,12 +42,14 @@ async function fakeBrowser(handle) {
         if (opcode !== 1) continue;
         const message = JSON.parse(data.toString());
         commands.push(message.params ? [message.method, message.params] : [message.method]);
-        const answer = handle(message, emit);
-        socket.write(
-          frame(
-            answer.error
-              ? { id: message.id, error: answer.error }
-              : { id: message.id, result: answer },
+        // An answer may be a promise, to delay or withhold the response.
+        void Promise.resolve(handle(message, emit)).then((answer) =>
+          socket.write(
+            frame(
+              answer.error
+                ? { id: message.id, error: answer.error }
+                : { id: message.id, result: answer },
+            ),
           ),
         );
       }
@@ -61,10 +63,14 @@ async function fakeBrowser(handle) {
         : Buffer.from([0x81, 126, data.length >> 8, data.length & 255]);
     return Buffer.concat([head, data]);
   };
-  const emit = (method, params, delayMs = 0) =>
-    setTimeout(() => {
+  /** Without a delay the event goes out at once, ahead of the answer to the command being handled. */
+  const emit = (method, params, delayMs) => {
+    const write = () => {
       for (const socket of sockets) socket.write(frame({ method, params }));
-    }, delayMs);
+    };
+    if (delayMs === undefined) write();
+    else setTimeout(write, delayMs);
+  };
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const url = `ws://127.0.0.1:${server.address().port}/devtools/browser/fake`;
   return {
@@ -163,14 +169,14 @@ test('a failed solve says so and leaves an enabled solver alone', async () => {
   }
 });
 
-test('no solve within the start window means no captcha found; a solver it switched on goes off', async () => {
+test('no solve within the start window says no solve started; a solver it switched on goes off', async () => {
   const fake = await fakeBrowser(solverOff());
   const { cdp, watch } = await fake.connect();
   try {
     const result = await watch.solve({ timeoutMs: 2000, startMs: 80 });
     assert.deepEqual(
       { solved: result.solved, detail: result.detail },
-      { solved: false, detail: 'the solver found no captcha on the page' },
+      { solved: false, detail: 'no captcha solve started within 0 s' },
     );
     assert.ok(result.seconds < 1);
     assert.deepEqual(toggles(fake.commands), [true, false]);
@@ -243,7 +249,7 @@ test('a solve that finished before the call, in the same cell, is returned at on
     assert.deepEqual(fake.commands, []);
     // Once seen, it is not returned again: the next call waits for a new solve.
     const again = await watch.solve({ timeoutMs: 2000, startMs: 50 });
-    assert.equal(again.detail, 'the solver found no captcha on the page');
+    assert.match(again.detail, /^no captcha solve started/);
   } finally {
     cdp.close();
     await fake.close();
@@ -258,7 +264,7 @@ test('a finish already shown in cell output is not returned by a later call', as
     await wait(30);
     assert.match(watch.note(), /finished: solved/);
     const result = await watch.solve({ timeoutMs: 2000, startMs: 50 });
-    assert.equal(result.detail, 'the solver found no captcha on the page');
+    assert.match(result.detail, /^no captcha solve started/);
   } finally {
     cdp.close();
     await fake.close();
@@ -296,6 +302,171 @@ test('abort rejects promptly and switches off a solver it turned on', async () =
     assert.ok(Date.now() - began < 1000);
     assert.deepEqual(toggles(fake.commands), [true, false]);
     await assert.rejects(watch.solve({ timeoutMs: 100, signal: AbortSignal.abort() }), /abort/i);
+  } finally {
+    cdp.close();
+    await fake.close();
+  }
+});
+
+test('solves on several pages report the failure, not whichever finished last', async () => {
+  const fake = await fakeBrowser(solverOn());
+  const { cdp, watch } = await fake.connect();
+  try {
+    const other = { ...started, targetId: 'T2', url: 'https://example.com/other' };
+    fake.emit('BrowserUse.captchaSolverStarted', started);
+    fake.emit('BrowserUse.captchaSolverStarted', other);
+    fake.emit('BrowserUse.captchaSolverFinished', finished(false), 10);
+    fake.emit('BrowserUse.captchaSolverFinished', { ...other, success: true }, 20);
+    await wait(40);
+    const result = await watch.solve({ timeoutMs: 2000 });
+    assert.equal(result.solved, false);
+    assert.equal(result.detail, 'the solver failed');
+    assert.equal(result.url, 'https://example.com/login');
+  } finally {
+    cdp.close();
+    await fake.close();
+  }
+});
+
+test('concurrent calls share one result', async () => {
+  const fake = await fakeBrowser(
+    solverOff((emit) => {
+      emit('BrowserUse.captchaSolverStarted', started, 10);
+      emit('BrowserUse.captchaSolverFinished', finished(true), 40);
+    }),
+  );
+  const { cdp, watch } = await fake.connect();
+  try {
+    const [a, b] = await Promise.all([
+      watch.solve({ timeoutMs: 2000 }),
+      watch.solve({ timeoutMs: 2000 }),
+    ]);
+    assert.equal(a.detail, 'solved');
+    assert.equal(b.detail, 'solved');
+    assert.deepEqual(toggles(fake.commands), [true, false]);
+  } finally {
+    cdp.close();
+    await fake.close();
+  }
+});
+
+test('a solve that finishes before the enable answer still switches the solver back off', async () => {
+  const fake = await fakeBrowser(
+    solverOff((emit) => {
+      emit('BrowserUse.captchaSolverStarted', started);
+      emit('BrowserUse.captchaSolverFinished', finished(true));
+    }),
+  );
+  const { cdp, watch } = await fake.connect();
+  try {
+    const result = await watch.solve({ timeoutMs: 2000 });
+    assert.equal(result.detail, 'solved');
+    await wait(30);
+    assert.deepEqual(toggles(fake.commands), [true, false]);
+  } finally {
+    cdp.close();
+    await fake.close();
+  }
+});
+
+test('the next call waits for a pending switch-off before reading the solver state', async () => {
+  let enabled = false;
+  const fake = await fakeBrowser((message, emit) => {
+    if (message.method === 'BrowserUse.getCaptchaSolverEnabled') return { enabled };
+    enabled = message.params.enabled;
+    if (enabled) {
+      emit('BrowserUse.captchaSolverStarted', started, 10);
+      return { enabled };
+    }
+    // The switch-off answers late.
+    return wait(150).then(() => {
+      fake.commands.push(['answered']);
+      return { enabled };
+    });
+  });
+  const { cdp, watch } = await fake.connect();
+  try {
+    assert.equal((await watch.solve({ timeoutMs: 100 })).detail, 'still solving');
+    // Finishes between cells: the watch switches the solver off on its own.
+    fake.emit('BrowserUse.captchaSolverFinished', finished(true));
+    await wait(20);
+    watch.note();
+    await watch.solve({ timeoutMs: 2000, startMs: 50 });
+    const order = fake.commands.map(([m, p]) => (p && 'enabled' in p ? p.enabled : m));
+    const answered = order.indexOf('answered');
+    assert.ok(answered > 0);
+    assert.ok(order.indexOf('BrowserUse.getCaptchaSolverEnabled', 1) > answered, String(order));
+  } finally {
+    cdp.close();
+    await fake.close();
+  }
+});
+
+test('a solver switched off by someone else is not switched off again', async () => {
+  const fake = await fakeBrowser(
+    solverOff((emit) => emit('BrowserUse.captchaSolverStarted', started, 10)),
+  );
+  const { cdp, watch } = await fake.connect();
+  try {
+    assert.equal((await watch.solve({ timeoutMs: 100 })).detail, 'still solving');
+    fake.emit('BrowserUse.captchaSolverStateChanged', { enabled: false, changedAt: 3 });
+    fake.emit('BrowserUse.captchaSolverStateChanged', { enabled: true, changedAt: 4 });
+    fake.emit('BrowserUse.captchaSolverFinished', finished(true), 10);
+    await wait(50);
+    assert.deepEqual(toggles(fake.commands), [true]);
+  } finally {
+    cdp.close();
+    await fake.close();
+  }
+});
+
+test('a solve with no finished event for 150 s ends as lost', async (t) => {
+  const fake = await fakeBrowser(solverOn());
+  const { cdp, watch } = await fake.connect();
+  try {
+    fake.emit('BrowserUse.captchaSolverStarted', started);
+    await wait(30);
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    t.mock.timers.tick(151_000);
+    const result = await watch.solve({ timeoutMs: 2000 });
+    assert.equal(result.solved, false);
+    assert.equal(result.detail, 'no result from the solver after 150 s');
+    assert.match(watch.note(), /^\[Captcha solver finished: no result after 150 s \(recaptcha\)/);
+    assert.doesNotMatch(watch.note(), /running/);
+  } finally {
+    cdp.close();
+    await fake.close();
+  }
+});
+
+test('a state read that never answers ends within the helper deadline', async () => {
+  const fake = await fakeBrowser(() => new Promise(() => {}));
+  const { cdp, watch } = await fake.connect();
+  try {
+    const began = Date.now();
+    const result = await watch.solve({ timeoutMs: 200 });
+    assert.match(result.detail, /^solver unavailable: no answer within/);
+    assert.ok(Date.now() - began < 600);
+  } finally {
+    cdp.close();
+    await fake.close();
+  }
+});
+
+test('abort during a solve keeps the solver on until the solve finishes', async () => {
+  const fake = await fakeBrowser(
+    solverOff((emit) => emit('BrowserUse.captchaSolverStarted', started, 10)),
+  );
+  const { cdp, watch } = await fake.connect();
+  try {
+    const controller = new AbortController();
+    const solving = watch.solve({ timeoutMs: 5000, signal: controller.signal });
+    setTimeout(() => controller.abort(), 50);
+    await assert.rejects(solving, /cancelled/);
+    assert.deepEqual(toggles(fake.commands), [true]);
+    fake.emit('BrowserUse.captchaSolverFinished', finished(true));
+    await wait(30);
+    assert.deepEqual(toggles(fake.commands), [true, false]);
   } finally {
     cdp.close();
     await fake.close();

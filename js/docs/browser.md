@@ -35,7 +35,7 @@ Prefer AX for discovery and state. Use page evaluation for extraction, screensho
 
 `artifact(name, data)` creates a new file; `checkpoint(name, value)` atomically saves JSON; `showImage(path)` sends an image file to the model under the screenshot limits. `reconnect()` resets CDP; reacquire handles and inspect before acting. `finish_from_js({expression})` delivers an existing variable without asking the model to rewrite it.
 
-`solveCaptcha()` uses the captcha solver of Browser Use Cloud browsers through their `BrowserUse` CDP domain. It turns the solver on if it is off, waits for a solve to start (20 s) and finish (within the cell deadline), and returns `{solved, detail, seconds}`. `detail` is `solved`, `the solver failed`, `still solving` (call again), `the solver found no captcha on the page` or `solver unavailable: …` on other browsers. A solver it turned on goes back off afterwards. Solves that start on their own add a `[Captcha solver running …]` line to cell output until they finish.
+`solveCaptcha()` uses the captcha solver of Browser Use Cloud browsers through their `BrowserUse` CDP domain. It turns the solver on if it is off, waits for a solve to start (20 s) and finish (within the cell deadline), and returns `{solved, detail, seconds}`. `detail` is `solved`, `the solver failed`, `still solving` (call again), `no captcha solve started within 20 s`, `no result from the solver after 150 s` or `solver unavailable: …` on other browsers. With solves on several pages, a failure wins. A solver it turned on goes back off afterwards, unless something else switched it meanwhile. Concurrent calls share one wait. Solves that start on their own add a `[Captcha solver running …]` line to cell output until they finish.
 
 ## Migration
 
