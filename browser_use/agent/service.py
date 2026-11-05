@@ -141,7 +141,12 @@ class Agent:
 			model,
 			output_type=self.output_model_schema,
 			reasoning_effort=self.reasoning or 'medium',
-			instructions='\n'.join(filter(None, [CLOUD_PROMPT if self.browser.use_cloud else '', self.extend_system_message])),
+			instructions='\n'.join(
+				filter(
+					None,
+					[CLOUD_PROMPT if self.browser.use_cloud else '', redact(self.extend_system_message, self.sensitive_data)],
+				)
+			),
 			mode=self.mode,
 			tools=self.tools.functions if self.tools else (),
 			model_settings=settings,

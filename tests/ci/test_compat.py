@@ -391,3 +391,23 @@ def test_action_result_imports_from_its_0x_location():
 	from browser_use.agent.views import ActionResult as Old
 
 	assert Old is ActionResult
+
+
+async def test_secrets_in_the_task_never_reach_the_model(fake_browser, tmp_path):
+	"""Roast r3-2: Agent(f'Log in with {password}', sensitive_data=...) sent the password in the first request (0.x
+	replaced it with the secret's name); follow-up tasks and extend_system_message too."""
+	secret = 'hunter2-Zq9'
+	model, seen = script(('finish', {'result': 'one'}), ('finish', {'result': 'two'}))
+	agent = Agent(
+		f'Log in with {secret}',
+		model,
+		browser=Browser(local=True),
+		sensitive_data={'pw': secret},
+		extend_system_message=f'The password is {secret}.',
+		workspace=tmp_path,
+	)
+	await agent.run()
+	agent.add_new_task(f'Again with {secret}')
+	await agent.run()
+	assert secret not in str(seen) and 'Log in with <secret:pw>' in str(seen[0]) and 'Again with <secret:pw>' in str(seen[1])
+	assert 'The password is <secret:pw>.' in str(seen[0])

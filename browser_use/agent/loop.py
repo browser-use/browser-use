@@ -415,6 +415,7 @@ async def run(
 	status, output, error = 'completed', None, None
 	(session.repl.state / 'partial.json').unlink(missing_ok=True)  # a partial belongs to one run
 	budget = asyncio.timeout(session.timeout_s)
+	task = redact(task, session.repl.secrets)  # 0.x: a secret written into the task reaches the model as its name only
 	try:
 		async with budget:
 			result = await agent.run(
