@@ -105,7 +105,7 @@ Install or upgrade browser-use to the latest stable version with uv using Python
 > **browser-use 1.0 (pre-release, `v1` branch).** The agent writes Python against raw CDP in a persistent REPL, on [Pydantic AI](https://ai.pydantic.dev). Coming from 0.x? Read [MIGRATING.md](MIGRATING.md).
 
 ```bash
-uv add browser-use          # Python >= 3.11
+uv add 'browser-use>=1.0.0.dev0'   # pre-release; Python >= 3.11 (plain `uv add browser-use` still gives 0.x)
 browser-use auth login      # one Browser Use API key runs the default model and the cloud browser
 ```
 

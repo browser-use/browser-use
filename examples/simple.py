@@ -1,6 +1,6 @@
 """
 Setup:
-1. uv add browser-use
+1. uv add 'browser-use>=1.0.0.dev0'   (1.0 is a pre-release)
 2. browser-use auth login   (or export BROWSER_USE_API_KEY=...; get one at https://cloud.browser-use.com/new-api-key)
 
 Runs on the default model (bu-auto) in a Browser Use Cloud browser. For your own Chrome and model:
