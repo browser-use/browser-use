@@ -77,6 +77,36 @@ def _cloud(path: str, method: str = 'GET', body: dict | None = None) -> dict:
 		raise RuntimeError(f'Browser Use Cloud {method} {path} failed: HTTP {e.code} {detail}.{hint}') from None
 
 
+def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
+	"""Stream url into a new file in dest, never over an existing one ('report (1).csv' next to 'report.csv'). Stops at
+	the monotonic deadline, so the thread ends then: run_sync's loop and interpreter exit never wait on a slow transfer.
+	A transfer that fails or runs out of time leaves no file."""
+	if (left := deadline - time.monotonic()) <= 0:
+		raise TimeoutError('download deadline passed')
+	with urllib.request.urlopen(url, timeout=min(30.0, left)) as r:  # the timeout bounds each read
+		dest.mkdir(parents=True, exist_ok=True)
+		stem, suffix = Path(name).stem, Path(name).suffix
+		for i in range(10_000):
+			path = dest / (name if i == 0 else f'{stem} ({i}){suffix}')
+			try:
+				f = open(path, 'xb')  # noqa: SIM115 - exclusive create: two sessions never write the same file
+				break
+			except FileExistsError:
+				continue
+		else:
+			raise FileExistsError(f'no free file name for {name} in {dest}')
+		try:
+			with f:
+				while chunk := r.read1(65536):  # read1: returns what arrived, so the deadline is checked as bytes drip in
+					f.write(chunk)
+					if time.monotonic() > deadline:
+						raise TimeoutError(f'download did not finish within its deadline ({name})')
+		except BaseException:
+			path.unlink(missing_ok=True)
+			raise
+	return path
+
+
 def _profile_id(profile: str) -> str:
 	"""A cloud profile id, or the id of the one profile with exactly this name."""
 	if re.fullmatch(r'[0-9a-f-]{36}', profile):
@@ -329,19 +359,28 @@ class Browser:
 	async def _fetch_downloads(self, dest: str | Path, skip: set[str], out: list[Path], browser_id: str | None) -> None:
 		try:
 			async with asyncio.timeout(DOWNLOADS_TIMEOUT_S):
-				await self.download_files(dest, skip, out=out, browser_id=browser_id)
+				deadline = time.monotonic() + DOWNLOADS_TIMEOUT_S  # the transfer threads stop on it too
+				await self.download_files(dest, skip, out=out, browser_id=browser_id, deadline=deadline)
 		except Exception as e:  # - the result is already delivered
 			logger.warning('Could not fetch cloud browser downloads: %s', e or type(e).__name__)
 
 	async def download_files(
-		self, dest: str | Path, skip: set[str] | None = None, *, out: list[Path] | None = None, browser_id: str | None = None
+		self,
+		dest: str | Path,
+		skip: set[str] | None = None,
+		*,
+		out: list[Path] | None = None,
+		browser_id: str | None = None,
+		deadline: float | None = None,
 	) -> list[Path]:
 		"""Copy the files the cloud browser downloaded into dest. Returns the local paths.
 		skip: remote paths to leave out; each copied path is added to it. A file that fails to copy is logged and
-		left out of skip, so a later call retries it."""
+		left out of skip, so a later call retries it. A name already in dest gets a ' (1)' suffix, never overwritten.
+		deadline: time.monotonic() value at which transfers stop (default: DOWNLOADS_TIMEOUT_S from now)."""
 		browser_id = browser_id or self.id
 		if not browser_id:
 			return []
+		deadline = time.monotonic() + DOWNLOADS_TIMEOUT_S if deadline is None else deadline
 		dest, cursor, skip = Path(dest), None, set() if skip is None else skip
 		out = [] if out is None else out
 		while True:
@@ -350,11 +389,10 @@ class Browser:
 			for f in page.get('files', []):
 				if f['path'] in skip:
 					continue
-				path = dest / Path(f['path']).name
+				name = Path(f['path']).name
+				name = name if name not in ('', '.', '..') else 'download'
 				try:
-					data = await asyncio.to_thread(lambda u=f['url']: urllib.request.urlopen(u, timeout=120).read())  # noqa: ASYNC210 - in a thread
-					path.parent.mkdir(parents=True, exist_ok=True)
-					path.write_bytes(data)
+					path = await asyncio.to_thread(_download, f['url'], dest, name, deadline)
 				except Exception as e:
 					logger.warning('Could not copy cloud download %s: %s', f['path'], e)
 					continue

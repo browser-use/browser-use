@@ -466,3 +466,66 @@ async def test_windows_selector_loop_raises_before_a_cloud_browser_starts(cloud,
 	finally:
 		monkeypatch.undo()
 	assert [c for c in cloud if c[0] == 'POST'] == []
+
+
+async def test_slow_download_thread_ends_at_the_deadline(cloud, monkeypatch, tmp_path):
+	"""Roast r4-4: the download deadline cancelled the await, but urlopen().read() kept the thread reading a slow-drip
+	transfer; run_sync's Runner.close() and interpreter exit then joined that thread indefinitely."""
+	import asyncio
+	import threading
+	import time
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	open_conns, lock = [0], threading.Lock()
+
+	class Drip(BaseHTTPRequestHandler):
+		def do_GET(self):
+			with lock:
+				open_conns[0] += 1
+			try:
+				self.send_response(200)
+				self.send_header('Content-Length', '1000000')
+				self.end_headers()
+				for _ in range(100):  # 20 s of one byte every 0.2 s
+					self.wfile.write(b'x')
+					self.wfile.flush()
+					time.sleep(0.2)
+			except OSError:
+				pass
+			finally:
+				with lock:
+					open_conns[0] -= 1
+
+		def log_message(self, *a):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Drip)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	try:
+		with_downloads(monkeypatch, [{'path': '/dl/big.bin', 'url': f'http://127.0.0.1:{server.server_address[1]}/f'}])
+		monkeypatch.setattr(browser_mod, 'DOWNLOADS_TIMEOUT_S', 1)
+		browser = Browser()
+		await browser.start()
+		await browser.stop(downloads_dir=tmp_path)
+		for _ in range(30):  # the reading threads close their connections (the server sees it on its next write)
+			if open_conns[0] == 0:
+				break
+			await asyncio.sleep(0.1)
+		assert open_conns[0] == 0
+		assert list(tmp_path.iterdir()) == []  # an unfinished transfer leaves no partial file
+	finally:
+		server.shutdown()
+
+
+async def test_downloads_never_overwrite_an_earlier_file(cloud, monkeypatch, tmp_path):
+	"""Roast r4-5: two sessions (or two remote folders) with the same file name: the second write destroyed the first."""
+	import io
+
+	(tmp_path / 'report.csv').write_bytes(b'earlier session')
+	with_downloads(monkeypatch, [{'path': '/a/report.csv', 'url': 'u1'}, {'path': '/b/report.csv', 'url': 'u2'}])
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(url.encode()))
+	browser = Browser()
+	await browser.start()
+	files = await browser.stop(downloads_dir=tmp_path)
+	assert (tmp_path / 'report.csv').read_bytes() == b'earlier session'
+	assert [(p.name, p.read_bytes()) for p in files] == [('report (1).csv', b'u1'), ('report (2).csv', b'u2')]
