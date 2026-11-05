@@ -734,7 +734,8 @@ def test_signal_handlers_are_installed_on_the_main_thread_after_a_start_on_anoth
 	t.join()
 	assert installed == {}
 	Browser()  # the next main-thread entry
-	assert installed == {signal.SIGTERM: browser_mod._on_signal, signal.SIGHUP: browser_mod._on_signal}
+	expected = [signal.SIGTERM] + ([signal.SIGHUP] if hasattr(signal, 'SIGHUP') else [])  # no SIGHUP on Windows
+	assert installed == dict.fromkeys(expected, browser_mod._on_signal)
 
 
 SIGHUP_CHILD = """
