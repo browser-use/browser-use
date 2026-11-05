@@ -17,6 +17,7 @@ from collections.abc import Callable
 
 SOLVE_START_S = 20.0  # bu-pi solve_captcha: a solver that has not started by then found no captcha
 SOLVE_S = 95.0  # bu-pi: then 'still solving'; fits the 120 s cell timeout
+LOST_AFTER_S = 150.0  # bu-pi lostAfterMs: the solver gives up within 120 s; a solve open past this has no finish coming
 EVENT_BUFFER = 500  # browser-harness daemon's own event buffer size
 PUMP_INTERVAL_S = 0.025  # as ax.AxHelpers: a page-load burst must not fill the daemon's buffer between reads
 
@@ -46,10 +47,22 @@ class Captcha:
 				self.active.pop(str(params.get('targetId', '')), None)
 				self.finished.append(params)
 
+	def _prune(self) -> None:
+		"""Close solves whose finished event will not come (tab closed, daemon restarted, event missed) as lost. Hold
+		_lock."""
+		now = time.monotonic()
+		for target, a in list(self.active.items()):
+			if now - a['_t'] > LOST_AFTER_S:
+				del self.active[target]
+				params = {k: v for k, v in a.items() if k != '_t'}
+				self.finished.append({**params, 'success': False, 'lost': True, 'durationMs': (now - a['_t']) * 1000})
+
 	def solve(self, start_timeout: float = SOLVE_START_S, timeout: float = SOLVE_S) -> dict:
 		"""Wait for the browser's captcha solver: a solve that is running, or one it starts within start_timeout s.
-		Returns {'solved', 'detail', 'seconds'}: detail is 'solved', 'the solver failed', 'still solving' (call again),
-		'the solver found no captcha on the page' or 'solver unavailable: ...'. Turns the solver on if it was off,
+		Waits until no solve runs on any tab; several solves: a failure is reported, not whichever finished last.
+		Returns {'solved', 'detail', 'seconds'}: detail is 'solved', 'the solver failed', 'no result from the solver
+		after 150s', 'still solving' (call again), 'the solver found no captcha on the page' or 'solver unavailable:
+		...'. Turns the solver on if it was off,
 		and off again afterwards unless a solve is still running."""
 		began = time.monotonic()
 
@@ -75,11 +88,15 @@ class Captcha:
 				except Exception:  # the daemon restarting: keep waiting on what the next read brings
 					pass
 				with self._lock:
+					self._prune()
 					done, started = self.finished[seen:], bool(self.active)
-					if done:
-						self.answered = seen + 1
-				if done:
-					return out(bool(done[0].get('success')), 'solved' if done[0].get('success') else 'the solver failed')
+					if done and not started:
+						self.answered = len(self.finished)
+				if done and not started:
+					if failed := next((f for f in done if not f.get('success')), None):
+						lost = f'no result from the solver after {LOST_AFTER_S:.0f}s'
+						return out(False, lost if failed.get('lost') else 'the solver failed')
+					return out(True, 'solved')
 				if time.monotonic() - began >= (timeout if started else start_timeout):
 					if started:
 						keep_on = True
@@ -96,6 +113,7 @@ class Captcha:
 	def report(self) -> str:
 		"""Lines for the cell's output: solves that ended since the last report, and a running one."""
 		with self._lock:
+			self._prune()
 			done, self.reported = self.finished[self.reported :], len(self.finished)
 			active = list(self.active.values())
 		lines = []
@@ -104,6 +122,8 @@ class Captcha:
 			lines.append(
 				f'[captcha solver: solved {what} in {s}s]'
 				if f.get('success')
+				else f'[captcha solver: no result for {what} after {s}s; handle it yourself or find another route]'
+				if f.get('lost')
 				else f'[captcha solver: {what} stopped unsolved after {s}s; handle it yourself or find another route]'
 			)
 		for a in active:
