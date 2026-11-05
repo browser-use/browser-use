@@ -307,8 +307,20 @@ def test_run_sync_follow_up_keeps_the_repl_with_keep_alive(fake_browser, tmp_pat
 	assert second.final_result() == '42', second.error  # same REPL: the variable survived
 	import asyncio
 
+	runner_loop = agent._runner.get_loop()
 	asyncio.run(agent.close())  # from another loop: kills the worker without awaiting it
 	assert agent._repl is None and not fake_browser
+	assert agent._runner is None and runner_loop.is_closed()  # Fable r2-9: run_sync's loop leaked
+
+
+def test_close_sync_ends_run_sync_follow_ups(fake_browser, tmp_path):
+	model, _ = script(('python', {'code': 'x = 1'}), ('finish', {'result': 'one'}))
+	agent = Agent('t', model, browser=Browser(local=True, keep_alive=True), workspace=tmp_path)
+	assert agent.run_sync().final_result() == 'one'
+	runner_loop, repl = agent._runner.get_loop(), agent._repl
+	agent.close_sync()
+	assert agent._runner is None and runner_loop.is_closed() and agent._repl is None
+	assert repl.proc is None
 
 
 async def test_failed_follow_up_still_stops_the_browser(fake_browser, monkeypatch, tmp_path):

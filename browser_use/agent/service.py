@@ -185,7 +185,7 @@ class Agent:
 
 	def run_sync(self, max_steps: int = 100, timeout: float = 1700) -> AgentHistoryList:
 		"""run() without async. One event loop serves every run_sync() while the REPL lives (Browser(keep_alive=True)),
-		because the REPL worker's pipes belong to the loop that started it."""
+		because the REPL worker's pipes belong to the loop that started it; close_sync() ends it."""
 		self._runner = self._runner or asyncio.Runner()
 		try:
 			return self._runner.run(self.run(max_steps=max_steps, timeout=timeout))
@@ -202,13 +202,31 @@ class Agent:
 		await self.browser.stop(downloads_dir=self.workspace / 'downloads')
 
 	async def close(self) -> None:
-		"""Stop the REPL, and the browser unless Browser(keep_alive=True)."""
-		if self.browser.keep_alive:
-			if self._repl:
-				await self._repl.close()
-				self._repl = None
+		"""Stop the REPL, and the browser unless Browser(keep_alive=True). Also closes run_sync()'s event loop when
+		called from another one (inside it, use close_sync())."""
+		try:
+			if self.browser.keep_alive:
+				if self._repl:
+					await self._repl.close()
+					self._repl = None
+				return
+			await self._shutdown()
+		finally:
+			runner = self._runner
+			if runner is not None and runner.get_loop() is not asyncio.get_running_loop():
+				self._runner = None
+				runner.get_loop().close()  # idle: its REPL is gone; Runner.close() cannot run inside another loop
+
+	def close_sync(self) -> None:
+		"""close() without async, on run_sync()'s event loop (the REPL worker belongs to it), then closes that loop."""
+		runner, self._runner = self._runner, None
+		if runner is None:
+			asyncio.run(self.close())
 			return
-		await self._shutdown()
+		try:
+			runner.run(self.close())
+		finally:
+			runner.close()
 
 	async def __aenter__(self) -> Agent:
 		return self

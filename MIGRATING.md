@@ -61,7 +61,7 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 | `await agent.run(max_steps=100)` | kept; also `timeout=1700`: seconds for the agent loop (model requests and cells). Browser start before it and browser stop / cloud download collection after it are not counted. `on_step_start` / `on_step_end` raise |
 | `agent.run_sync()` | kept |
 | `agent.add_new_task(task)` | kept: the next `run()` continues the same conversation |
-| `await agent.close()`, `async with Agent(...)` | kept |
+| `await agent.close()`, `async with Agent(...)` | kept; after `run_sync()` use `agent.close_sync()` |
 | browser stops when `run()` ends | kept, unless `Browser(keep_alive=True)` |
 | `pause()`, `resume()`, `stop()`, `step()`, `multi_act()` | removed |
 | `save_history()`, `load_and_rerun()`, `rerun_history()`, `detect_variables()` | removed |
