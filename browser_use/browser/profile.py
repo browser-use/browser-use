@@ -1195,6 +1195,15 @@ async function initialize(checkInitialized, magic) {{
 		import os
 		import zipfile
 
+		def extract_zip(zip_path: Path | str) -> None:
+			zip_size = os.path.getsize(zip_path)
+			with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+				for name in zip_ref.namelist():
+					member = zip_ref.getinfo(name)
+					if not member.is_dir() and not (0 <= member.header_offset < zip_size):
+						raise ValueError(f'Invalid ZIP member offset in CRX file {crx_path}')
+				zip_ref.extractall(extract_dir)
+
 		# Remove existing directory
 		if extract_dir.exists():
 			import shutil
@@ -1205,8 +1214,7 @@ async function initialize(checkInitialized, magic) {{
 
 		try:
 			# CRX files are ZIP files with a header, try to extract as ZIP
-			with zipfile.ZipFile(crx_path, 'r') as zip_ref:
-				zip_ref.extractall(extract_dir)
+			extract_zip(crx_path)
 
 			# Verify manifest exists
 			if not (extract_dir / 'manifest.json').exists():
@@ -1235,14 +1243,17 @@ async function initialize(checkInitialized, magic) {{
 
 			# Write ZIP data to temp file and extract
 
-			with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
-				temp_zip.write(zip_data)
-				temp_zip.flush()
+			temp_zip = tempfile.NamedTemporaryFile(suffix='.zip', delete=False)
+			try:
+				with temp_zip:
+					temp_zip.write(zip_data)
 
-				with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
-					zip_ref.extractall(extract_dir)
-
-				os.unlink(temp_zip.name)
+				extract_zip(temp_zip.name)
+			finally:
+				try:
+					os.unlink(temp_zip.name)
+				except OSError as cleanup_error:
+					logger.warning(f'Failed to remove temporary ZIP {temp_zip.name} for CRX file {crx_path}: {cleanup_error}')
 
 	def detect_display_configuration(self) -> None:
 		"""
