@@ -119,6 +119,25 @@ async def test_custom_action_is_a_model_tool(tmp_path):
 	assert 'A1 costs 9.99' in str(seen[1][-1])
 
 
+async def test_param_model_is_authoritative(tmp_path):
+	"""Roast C14: with `params: Any` the param_model was ignored; the action got a dict and params.qty broke."""
+	from typing import Any
+
+	tools = Tools()
+
+	class Order(BaseModel):
+		sku: str
+		qty: int
+
+	@tools.action('Place an order', param_model=Order)
+	def place_order(params: Any) -> str:
+		return f'{params.qty}x {params.sku}'
+
+	model, seen = script(('place_order', {'params': {'sku': 'A1', 'qty': '3'}}), ('finish', {'result': 'done'}))
+	await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert '3x A1' in str(seen[1][-1])
+
+
 async def test_telemetry_event_has_no_code_or_secrets(tmp_path, monkeypatch):
 	import browser_use.telemetry.service as service
 

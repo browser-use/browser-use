@@ -76,8 +76,8 @@ class Tools:
 				)
 			if fn.__name__ in RESERVED:
 				raise ValueError(f'@tools.action: {fn.__name__!r} is a built-in tool name; rename the function')
-			if param_model is not None and params and params[0] not in fn.__annotations__:
-				fn.__annotations__[params[0]] = param_model  # 0.x: def action(params, ...) with param_model=Model
+			if param_model is not None and params:  # 0.x: def action(params, ...) with param_model=Model; it wins
+				fn.__annotations__[params[0]] = param_model
 			self.functions.append(Tool(fn, takes_ctx=False, name=fn.__name__, description=description or None))
 			return fn
 
