@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
-from genai_prices import Usage, calc_price
+from genai_prices import calc_price
 from pydantic import TypeAdapter, ValidationError
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput, ToolOutput
 from pydantic_ai.capabilities import AbstractCapability
@@ -368,7 +368,7 @@ def build_agent(
 
 def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[str, int], float | None]:
 	"""Tokens and USD cost of these messages. Cost is None when any request has no known price (e.g. gateway models)."""
-	total = {'input': 0, 'output': 0, 'cache_read': 0, 'requests': 0}
+	total = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
 	cost: float | None = 0.0
 	provider = 'openai'
 	if ':' in model_ref:  # 'anthropic:claude-...'; the eval passes a bare OpenAI name
@@ -380,17 +380,12 @@ def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[s
 			total['input'] += u.input_tokens
 			total['output'] += u.output_tokens
 			total['cache_read'] += u.cache_read_tokens
+			total['cache_write'] += u.cache_write_tokens
 			total['requests'] += 1
 			if cost is None:
 				continue
 			try:
-				cost += float(
-					calc_price(
-						Usage(input_tokens=u.input_tokens, output_tokens=u.output_tokens, cache_read_tokens=u.cache_read_tokens),
-						model_ref=model_ref,
-						provider_id=provider,
-					).total_price
-				)
+				cost += float(calc_price(u, model_ref=model_ref, provider_id=provider).total_price)  # cache writes too
 			except Exception:  # - unknown price: report tokens, not a made-up cost
 				cost = None
 	return total, cost

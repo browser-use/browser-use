@@ -356,3 +356,19 @@ async def test_run_error_never_shows_a_secret(tmp_path):
 	session = Session(repl=Repl(tmp_path, secrets={'pw': secret}))
 	r = await run(build_agent(model, tools=tools.functions), 'task', session, 'm')
 	assert r.status == 'error' and r.error == 'RuntimeError: login failed for password <secret:pw>'
+
+
+def test_cost_includes_cache_writes():
+	"""Roast r2-9: cache_write_tokens were dropped from pricing, so Anthropic runs were under-reported."""
+	from genai_prices import Usage, calc_price
+	from pydantic_ai.messages import ModelResponse, TextPart
+	from pydantic_ai.usage import RequestUsage
+
+	from browser_use.agent.loop import usage_and_cost
+
+	u = RequestUsage(input_tokens=6000, cache_write_tokens=5000, cache_read_tokens=0, output_tokens=500)
+	usage, cost = usage_and_cost([ModelResponse(parts=[TextPart('x')], usage=u)], 'anthropic:claude-sonnet-4-5')
+	expected = calc_price(
+		Usage(input_tokens=6000, cache_write_tokens=5000, output_tokens=500), 'claude-sonnet-4-5', provider_id='anthropic'
+	)
+	assert cost == float(expected.total_price) and usage['cache_write'] == 5000
