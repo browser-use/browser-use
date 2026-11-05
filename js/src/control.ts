@@ -29,6 +29,7 @@ export class RunControl {
   private release: (() => void) | undefined;
   private ended = false;
   steer: ((text: string) => void) | undefined;
+  compact: (() => void) | undefined;
 
   constructor(private readonly changed: (paused: boolean) => void) {}
 
@@ -79,5 +80,6 @@ export class RunControl {
     this.ended = true;
     this.resume();
     this.steer = undefined;
+    this.compact = undefined;
   }
 }

@@ -5,6 +5,36 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { redact } from './history.js';
+import type { ContextSettings } from './types.js';
+import { positiveInteger } from './protocol.js';
+
+const MIN_CONTEXT_TOKENS = 20_000;
+/** Validates per-run context settings against the model window. */
+export function contextSettings(
+  input: ContextSettings | undefined,
+  model: Model<Api>,
+): ContextSettings {
+  if (input !== undefined && (typeof input !== 'object' || input === null || Array.isArray(input)))
+    throw new Error('context must be an object.');
+  const keep = input?.keepScreenshots;
+  if (keep !== undefined && (!Number.isSafeInteger(keep) || keep < 0 || keep > 10))
+    throw new Error('context.keepScreenshots must be an integer from 0 to 10.');
+  for (const name of ['trimAtTokens', 'compactAtTokens'] as const) {
+    const value = input?.[name];
+    if (value === undefined) continue;
+    positiveInteger(`context.${name}`, value);
+    if (value < MIN_CONTEXT_TOKENS || value > model.contextWindow * 0.85)
+      throw new Error(
+        `context.${name} must be from ${MIN_CONTEXT_TOKENS} to ${Math.floor(model.contextWindow * 0.85)} tokens.`,
+      );
+  }
+  if (
+    input?.trimAtTokens !== undefined &&
+    input.trimAtTokens >= (input.compactAtTokens ?? model.contextWindow * 0.65)
+  )
+    throw new Error('context.trimAtTokens must be below the compaction mark.');
+  return { ...input };
+}
 
 /** Wire metadata and encrypted reasoning are not ordinary text tokens. */
 export function contextChars(messages: AgentMessage[]): number {
@@ -29,6 +59,13 @@ export const contextWindowError = (message: string) =>
   );
 
 const checkpointPrefix = 'Conversation checkpoint:';
+const hasImage = (m: AgentMessage) =>
+  m.role === 'toolResult' && m.content.some((c) => c.type === 'image');
+const DEFAULT_KEEP_SCREENSHOTS = 2;
+/** A batch trim must free at least this many tokens. */
+const MIN_TRIM_TOKENS = 15_000;
+const TRIMMED_TEXT_CHARS = 2000;
+const trimmedMarker = '\n[Older output shortened for context.]';
 const textOf = (m: AgentMessage): string => {
   if (m.role !== 'user' && m.role !== 'assistant' && m.role !== 'toolResult') return '';
   return typeof m.content === 'string'
@@ -119,6 +156,7 @@ export class RunContext {
   private summary: AgentMessage | undefined;
   private retained: AgentMessage[] = [];
   private usageAfter = 0;
+  private trimBefore = 0;
   beforeSummary?: () => void;
   force = false;
   compactions = 0;
@@ -131,24 +169,60 @@ export class RunContext {
     private maxChars: number,
     private enabled: boolean,
     private secrets: string[] = [],
+    private settings: ContextSettings = {},
   ) {}
-  project(messages: AgentMessage[]): AgentMessage[] {
+  private body(messages: AgentMessage[]): AgentMessage[] {
     const body = conversation(messages);
-    const projected = this.summary
-      ? [...this.retained, this.summary, ...body.slice(this.covered)]
-      : body;
-    const images = projected.filter(
-      (m) => m.role === 'toolResult' && m.content.some((c) => c.type === 'image'),
-    );
-    const keep = new Set(images.slice(-2));
+    return this.summary ? [...this.retained, this.summary, ...body.slice(this.covered)] : body;
+  }
+  /** Screenshots outside the kept ones go at once, or only before the batch-trim line when one is set. */
+  private projectAt(projected: AgentMessage[], trimBefore: number): AgentMessage[] {
+    const batched = this.settings.trimAtTokens !== undefined;
+    const count = this.settings.keepScreenshots ?? DEFAULT_KEEP_SCREENSHOTS;
+    const keep = new Set(count > 0 ? projected.filter(hasImage).slice(-count) : []);
+    return projected.map((m, i) => {
+      if (m.role !== 'toolResult') return m;
+      const cold = i < trimBefore;
+      const strip = batched ? cold : !keep.has(m);
+      if (!strip && !cold) return m;
+      return {
+        ...m,
+        content: m.content
+          .filter((c) => !(strip && c.type === 'image'))
+          .map((c) =>
+            cold && c.type === 'text' && c.text.length > TRIMMED_TEXT_CHARS
+              ? { ...c, text: c.text.slice(0, TRIMMED_TEXT_CHARS) + trimmedMarker }
+              : c,
+          ),
+      };
+    });
+  }
+  project(messages: AgentMessage[]): AgentMessage[] {
     return [
       ...messages.filter((m) => m.role === 'system'),
-      ...projected.map((m) =>
-        m.role === 'toolResult' && !keep.has(m)
-          ? { ...m, content: m.content.filter((c) => c.type !== 'image') }
-          : m,
-      ),
+      ...this.projectAt(this.body(messages), this.trimBefore),
     ];
+  }
+  /** Moves the batch-trim line forward once the context reaches trimAtTokens; between batches nothing changes. */
+  trim(messages: AgentMessage[], system: string) {
+    const at = this.settings.trimAtTokens;
+    if (at === undefined || this.tokens(messages, system) < at) return;
+    const body = this.body(messages);
+    const results = body.flatMap((m, i) => (m.role === 'toolResult' ? [i] : []));
+    const shots = results.filter((i) => hasImage(body[i]!));
+    const keep = this.settings.keepScreenshots ?? DEFAULT_KEEP_SCREENSHOTS;
+    // Everything before the line goes; the kept screenshots, or the latest result when none are kept, stay whole.
+    const line =
+      keep === 0
+        ? (results.at(-1) ?? 0)
+        : shots.length >= keep
+          ? shots.at(-keep)!
+          : Math.min(shots[0] ?? Infinity, results.at(-1) ?? 0);
+    if (line <= this.trimBefore) return;
+    const size = (before: number) => this.estimate(this.projectAt(body, before), system);
+    if (size(this.trimBefore) - size(line) < MIN_TRIM_TOKENS) return;
+    this.trimBefore = line;
+    this.usageAfter = conversation(messages).length;
   }
   private estimate(messages: AgentMessage[], system: string) {
     return conversation(messages).reduce(
@@ -175,8 +249,10 @@ export class RunContext {
     return estimate;
   }
   needsCompaction(messages: AgentMessage[], system: string) {
+    const at = this.settings.compactAtTokens;
+    if (this.force) return true;
+    if (at !== undefined) return this.tokens(messages, system) >= at;
     return (
-      this.force ||
       contextChars(conversation(this.project(messages))) + system.length > this.maxChars * 0.75 ||
       this.tokens(messages, system) > this.model.contextWindow * 0.65
     );
@@ -344,6 +420,7 @@ export class RunContext {
     this.summary = candidate;
     this.covered = messages.length;
     this.usageAfter = messages.length;
+    this.trimBefore = 0;
     this.force = false;
     this.compactions++;
   }

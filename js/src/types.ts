@@ -78,8 +78,18 @@ export interface BrowserUseOptions extends DomainOptions {
   /** Show temporary orange corner brackets on the element just clicked or typed into. Default false. */
   highlightActions?: boolean;
 }
+/** Per-run context controls. Unset fields keep today's behavior. */
+export interface ContextSettings {
+  /** Screenshots kept in tool results; older ones are removed. Default 2. */
+  keepScreenshots?: number;
+  /** Trim old screenshots and long tool output in one batch when the context reaches this many tokens. */
+  trimAtTokens?: number;
+  /** Compact when the context reaches this many tokens. Default 65% of the model window. */
+  compactAtTokens?: number;
+}
 export interface RunOptions {
   maxSteps?: number;
+  context?: ContextSettings;
   timeoutMs?: number;
   /** Soft threshold: checked between model turns. May exceed by one response. */
   maxCostUsd?: number;

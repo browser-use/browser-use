@@ -31,6 +31,7 @@ export type {
   StopReason,
   RunMetrics,
   ContextMetrics,
+  ContextSettings,
 } from './types.js';
 export { Browser } from './browser.js';
 export type {
@@ -532,6 +533,11 @@ export class BrowserUse {
     if (!this.control?.steer)
       throw new Error('No active agent to steer; use followUp() after a run.');
     this.control.steer(text);
+  }
+  /** Compact the context before the next model call. */
+  compact() {
+    if (!this.control?.compact) throw new Error('No active agent to compact.');
+    this.control.compact();
   }
   cancel() {
     this.controller?.abort();
