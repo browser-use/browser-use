@@ -85,7 +85,7 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 | `Browser(use_cloud=False)` | `Browser('chromium')` (`Browser(local=True)` is the same): a fresh local Chrome/Chromium/Edge with its own temp profile, launched like 0.x did, deleted when it stops |
 | `headless`, `executable_path` | kept for browsers 1.0 launches (`'chromium'`, `'chrome'` with `profile=`). `headless=None` (default) is headless only without a display |
 | `user_data_dir` | kept with `Browser('chromium', user_data_dir=...)`: a dedicated profile dir kept between runs. Chrome's own default dir raises: Chrome 136+ refuses remote debugging on it |
-| `Browser.from_system_chrome()`, `profile_directory` | `Browser('chrome')` attaches to the Chrome you have open (enable chrome://inspect/#remote-debugging once, click Allow). `Browser('chrome', profile='Work')` launches a new Chrome on a temporary copy of that profile (display name or directory such as `'Profile 1'`): your logins, your Chrome can stay open, nothing is written back |
+| `Browser.from_system_chrome()`, `profile_directory` | `Browser('chrome')` attaches to the Chrome you have open (enable chrome://inspect/#remote-debugging once, click Allow). `Browser('chrome', profile='Work')` launches a new Chrome on a temporary copy of that profile (display name or directory such as `'Profile 1'`): your logins, Chrome sync off, nothing is written back. Your Chrome can stay open (Windows: quit it first, Chrome locks its cookies there) |
 | `keep_alive=True` | kept |
 | `cloud_profile_id`, `cloud_proxy_country_code`, `cloud_timeout` | kept |
 | `cloud_browser_params` | raises: use `cloud_profile_id`, `cloud_proxy_country_code`, `cloud_timeout` |

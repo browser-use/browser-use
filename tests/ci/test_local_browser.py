@@ -228,6 +228,107 @@ def test_profile_copy_launches_in_chrome_with_the_real_keychain(tmp_path):
 	assert '--password-store=basic' not in args and '--headless=new' not in args
 
 
+def test_profile_copy_runs_with_sync_off():
+	"""The copy is signed in to the user's Google account: with sync on, the agent's history, tabs and saved passwords
+	would reach the account and the real profile."""
+	assert '--disable-sync' in _local.chrome_args(Path('x'), headless=True, fresh=False, profile_directory='Default')
+	assert '--disable-sync' not in _local.chrome_args(Path('x'), headless=True, fresh=True)
+
+
+def test_locked_cookies_fail_the_profile_copy_and_other_locked_files_warn(tmp_path, monkeypatch):
+	"""Windows locks Cookies while Chrome runs: a copy without them has none of the logins it is for."""
+	import shutil
+
+	root = chrome_root(tmp_path, {'Default': 'Personal'})
+
+	def locked(*names):
+		def copytree(src, dst, **kwargs):
+			errors = [(str(Path(src) / n), str(Path(dst) / n), 'locked') for n in names]
+			raise shutil.Error(errors)
+
+		return copytree
+
+	monkeypatch.setattr(shutil, 'copytree', locked('Network/Cookies', 'Login Data'))
+	with pytest.raises(RuntimeError, match="cookies of Chrome profile 'Default'.*Quit Chrome"):
+		_local.copy_profile(root, 'Default', tmp_path / 'copy1')
+	monkeypatch.setattr(shutil, 'copytree', locked('Login Data', 'History'))
+	warned: list[str] = []
+	monkeypatch.setattr(_local.logger, 'warning', lambda msg, *args: warned.append(msg % args))
+	_local.copy_profile(root, 'Default', tmp_path / 'copy2')
+	assert warned == ["Copied Chrome profile 'Default' without files Chrome holds open: History, Login Data"]
+
+
+def test_stop_during_the_profile_copy_leaves_no_copy_on_disk(tmp_path, monkeypatch):
+	"""Ctrl-C while a large profile copies: stop() deletes the temp dir, the copy still running would recreate it."""
+	root = chrome_root(tmp_path, {'Default': 'Personal'})
+	monkeypatch.setattr(_local, 'chrome_user_data_dir', lambda: root)
+	monkeypatch.setattr(_local, 'find_binary', lambda *a, **k: 'chrome')
+	real_copy, copying = _local.copy_profile, threading.Event()
+
+	def slow_copy(*args):
+		copying.set()
+		time.sleep(0.5)
+		real_copy(*args)
+
+	monkeypatch.setattr(_local, 'copy_profile', slow_copy)
+	lb = _local.LocalBrowser()
+	errors = []
+
+	def start():
+		try:
+			lb.start(headless=True, profile='Personal')
+		except RuntimeError as e:
+			errors.append(str(e))
+
+	t = threading.Thread(target=start)
+	t.start()
+	assert copying.wait(5)
+	lb.stop()
+	t.join(5)
+	assert errors == ['the browser was stopped while it started'] and not lb.tmp.exists()
+
+
+def test_dirs_left_by_dead_processes_are_swept_and_live_ones_kept(tmp_path):
+	"""A SIGKILL, OOM or crash skips stop(): the next LocalBrowser deletes that profile copy (cookies, passwords)."""
+	import subprocess
+
+	code = 'import sys, time\nfrom browser_use.browser.local import LocalBrowser\nlb = LocalBrowser()\nprint(lb.tmp, flush=True)\ntime.sleep(60)'
+	env = {**os.environ, 'TMPDIR': str(tmp_path), 'TEMP': str(tmp_path), 'TMP': str(tmp_path)}
+	proc = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, text=True, env=env)
+	try:
+		dead = Path(proc.stdout.readline().strip())  # type: ignore[union-attr]
+		assert dead.parent == tmp_path and (dead / _local.OWNER).exists()
+		old = time.time() - 3600
+		os.utime(dead / _local.OWNER, (old, old))
+		_local.sweep_stale_dirs(tmp_path)
+		assert dead.exists()  # its process still runs
+	finally:
+		proc.kill()
+		proc.wait(10)
+	unowned, young = tmp_path / f'{_local.TMP_PREFIX}unowned', tmp_path / f'{_local.TMP_PREFIX}young'
+	unowned.mkdir()
+	young.mkdir()
+	(young / _local.OWNER).write_bytes(b'')
+	_local.sweep_stale_dirs(tmp_path)
+	assert not dead.exists() and unowned.exists() and young.exists()
+
+
+def test_snap_chromium_is_refused_with_the_fix(tmp_path, monkeypatch):
+	"""Snap confinement hides our /tmp profile: the browser never reports a DevTools port (a 30 s timeout)."""
+	wrapper = tmp_path / 'chromium-browser'  # Ubuntu's /usr/bin/chromium-browser
+	wrapper.write_text('#!/bin/sh\nexec /snap/bin/chromium "$@"\n')
+	native = tmp_path / 'google-chrome'
+	native.write_text('#!/bin/sh\nexec /opt/google/chrome/chrome "$@"\n')
+	monkeypatch.setattr(sys, 'platform', 'linux')
+	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+	monkeypatch.setenv('BH_CHROME_PATH', str(wrapper))
+	with pytest.raises(RuntimeError, match='Snap Chromium.*doctor --fix-snap'):
+		_local.find_binary()
+	with pytest.raises(RuntimeError, match='Snap Chromium'):
+		_local.find_binary(str(wrapper))
+	assert _local.find_binary(str(native)) == str(native)
+
+
 def test_executable_path_that_is_not_a_file_raises(tmp_path):
 	with pytest.raises(FileNotFoundError, match='executable_path'):
 		_local.find_binary(str(tmp_path / 'no-chrome'))

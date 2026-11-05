@@ -19,6 +19,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 START_TIMEOUT_S = 30  # Chrome start until its DevTools port is open
+TMP_PREFIX = 'browser-use-chrome-'
+OWNER = '.owner'  # in each LocalBrowser temp dir, locked while its process lives; unlocked = left by a dead process
 # Rebuilt by Chrome, large, or owned by the running Chrome: never copied from a real profile
 SKIP_COPY = shutil.ignore_patterns(
 	'Cache',
@@ -69,6 +71,8 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 	if executable_path:
 		if not Path(executable_path).expanduser().is_file():
 			raise FileNotFoundError(f'executable_path={executable_path!r} is not a file')
+		if is_snap(str(Path(executable_path).expanduser())):
+			raise RuntimeError(_snap_error(executable_path))
 		return str(Path(executable_path).expanduser())
 	tried = [p for k in ('BH_CHROME_PATH', 'CHROME_PATH') if (p := (os.environ.get(k) or '').strip())]
 	if sys.platform == 'darwin':
@@ -87,12 +91,40 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 		names = ['google-chrome-stable', 'google-chrome']
 		names += [] if chrome_only else ['chromium', 'chromium-browser', 'microsoft-edge-stable', 'microsoft-edge']
 		tried += [shutil.which(n) or n for n in names]
+	snaps = []
 	for path in tried:
 		if Path(path).expanduser().is_file():
+			if is_snap(str(Path(path).expanduser())):
+				snaps.append(path)
+				continue
 			return str(Path(path).expanduser())
+	if snaps:
+		raise RuntimeError(_snap_error(snaps[0]))
 	kind = 'Google Chrome' if chrome_only else 'Chrome, Chromium or Edge'
 	raise RuntimeError(
 		f'No {kind} found (tried {", ".join(tried)}). Install one, or pass executable_path=... or set BH_CHROME_PATH.'
+	)
+
+
+def is_snap(path: str) -> bool:
+	"""Linux Snap Chromium (Ubuntu's chromium, also behind the /usr/bin/chromium-browser wrapper script). Its
+	confinement hides our /tmp profile from it, so it never reports a DevTools port."""
+	if not sys.platform.startswith('linux'):
+		return False
+	try:
+		real = os.path.realpath(path)
+		with open(real, 'rb') as f:
+			head = f.read(4096)
+	except OSError:
+		return False
+	return '/snap/' in real or (head.startswith(b'#!') and b'/snap/' in head)
+
+
+def _snap_error(path: str) -> str:
+	return (
+		f'{path} is Snap Chromium, which cannot open DevTools for a browser it did not start itself. Install Google '
+		'Chrome from its .deb (https://www.google.com/chrome/) and pass executable_path=... or set BH_CHROME_PATH; '
+		'`browser-harness doctor --fix-snap` shows the steps.'
 	)
 
 
@@ -115,13 +147,51 @@ def resolve_profile(root: Path, name: str) -> str:
 
 def copy_profile(root: Path, directory: str, dest: Path) -> None:
 	"""Local State (it holds the cookie key on Windows and Linux) plus one profile directory, without caches. Chrome may
-	keep running: files it holds locked are skipped."""
+	keep running: files it holds locked are skipped with a warning; locked cookies (Windows, while Chrome runs) raise,
+	since the copy would have none of the logins it is for."""
 	dest.mkdir(parents=True, exist_ok=True)
 	shutil.copy2(root / 'Local State', dest / 'Local State')
 	try:
 		shutil.copytree(root / directory, dest / directory, ignore=SKIP_COPY, symlinks=True, dirs_exist_ok=True)
 	except shutil.Error as e:  # copytree copies everything it can, then reports the files it could not read
-		logger.debug('Skipped %d profile files Chrome holds open', len(e.args[0]))
+		skipped = sorted({Path(err[0]).name for err in e.args[0] if isinstance(err, tuple) and err})
+		if 'Cookies' in skipped:
+			raise RuntimeError(
+				f'Could not copy the cookies of Chrome profile {directory!r}: Chrome holds them locked (Windows does while '
+				'Chrome runs). Quit Chrome and run again.'
+			) from None
+		logger.warning('Copied Chrome profile %r without files Chrome holds open: %s', directory, ', '.join(skipped[:10]))
+
+
+def _try_lock(f) -> bool:
+	"""Non-blocking exclusive lock on an open file; the OS drops it when the process dies, however it dies."""
+	try:
+		if sys.platform == 'win32':
+			import msvcrt
+
+			msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+		else:
+			import fcntl
+
+			fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+		return True
+	except OSError:
+		return False
+
+
+def sweep_stale_dirs(root: Path | None = None) -> None:
+	"""Delete temp dirs that LocalBrowsers of dead processes left (SIGKILL, OOM, a crash, a Windows file lock at stop):
+	a profile copy holds the user's cookies and saved passwords. A dir whose owner still runs stays locked."""
+	for d in Path(root or tempfile.gettempdir()).glob(f'{TMP_PREFIX}*'):
+		try:
+			if time.time() - (d / OWNER).stat().st_mtime < 60:  # just created: its owner may not hold the lock yet
+				continue
+			with open(d / OWNER, 'r+b') as f:
+				if not _try_lock(f):
+					continue
+		except OSError:  # no owner file (another process is creating the dir) or unreadable: not ours to judge
+			continue
+		shutil.rmtree(d, ignore_errors=True)
 
 
 def has_display() -> bool:
@@ -140,6 +210,8 @@ def chrome_args(user_data_dir: Path, *, headless: bool, fresh: bool, profile_dir
 			if sys.platform.startswith('linux')
 			else []
 		)
+	else:  # a copy is signed in to the user's Google account: sync would write the agent's history, tabs and saved
+		args.append('--disable-sync')  # passwords to the account and from there into the real profile
 	if headless:
 		args += ['--headless=new', '--window-size=1440,900']
 	if sys.platform.startswith('linux') and (
@@ -172,7 +244,10 @@ class LocalBrowser:
 	in another thread (a cancelled Browser.start), so a Chrome is never left behind."""
 
 	def __init__(self) -> None:
-		self.tmp = Path(tempfile.mkdtemp(prefix='browser-use-chrome-'))  # holds the log and, unless kept, the profile
+		sweep_stale_dirs()
+		self.tmp = Path(tempfile.mkdtemp(prefix=TMP_PREFIX))  # holds the log and, unless kept, the profile
+		self._owner = open(self.tmp / OWNER, 'wb')  # locked while this process lives: sweep_stale_dirs skips the dir
+		_try_lock(self._owner)
 		self.user_data_dir: Path | None = None
 		self.proc: subprocess.Popen | None = None
 		self._lock = threading.Lock()
@@ -188,6 +263,16 @@ class LocalBrowser:
 	) -> str:
 		"""Launch Chrome; returns its browser websocket URL. profile: copy that Chrome profile into a temp dir first.
 		user_data_dir: a dedicated dir that is kept (default: a temp dir deleted on stop)."""
+		try:
+			return self._start(executable_path, headless, user_data_dir, profile)
+		except BaseException:
+			if self._stopped:  # stop() ran mid-start: a profile copy still running in this thread recreated the dir
+				self._remove_tmp()
+			raise
+
+	def _start(
+		self, executable_path: str | None, headless: bool | None, user_data_dir: str | Path | None, profile: str | None
+	) -> str:
 		binary = find_binary(executable_path, chrome_only=profile is not None)
 		headless = not has_display() if headless is None else headless
 		directory = None
@@ -245,6 +330,10 @@ class LocalBrowser:
 			proc, self.proc = self.proc, None
 		if proc is not None:
 			_kill(proc)
+		self._remove_tmp()
+
+	def _remove_tmp(self) -> None:
+		self._owner.close()
 		for _ in range(20):  # Windows keeps files locked for a moment after the processes exit
 			shutil.rmtree(self.tmp, ignore_errors=True)
 			if not self.tmp.exists():

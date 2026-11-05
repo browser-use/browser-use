@@ -136,7 +136,7 @@ result = await agent.run()
 | `Browser()` | a Browser Use Cloud browser (default) |
 | `Browser('chromium')` | a fresh local Chrome/Chromium/Edge with its own temp profile, deleted afterwards. Headless when there is no display (Docker, CI); `headless=`, `executable_path=`, `user_data_dir=` (a profile dir kept between runs) |
 | `Browser('chrome')` | the Chrome you have open, with your logins (turn on chrome://inspect/#remote-debugging once) |
-| `Browser('chrome', profile='Work')` | a new Chrome on a temporary copy of your Chrome profile `Work`; your Chrome can stay open |
+| `Browser('chrome', profile='Work')` | a new Chrome on a temporary copy of your Chrome profile `Work` (sync off); your Chrome can stay open, except on Windows |
 
 Other models: `ChatAnthropic` (`browser-use[anthropic]`), `ChatGoogle` (`browser-use[google]`), or any Pydantic AI model string such as `llm='groq:llama-3.3-70b'`.
 
