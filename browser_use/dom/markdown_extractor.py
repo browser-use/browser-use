@@ -110,18 +110,45 @@ async def _get_enhanced_dom_tree_from_browser_session(browser_session: 'BrowserS
 # Legacy aliases removed - all code now uses the unified extract_clean_markdown function
 
 
+# Inline tags whose markdownify conversion runs the text through chomp(), which lifts the
+# surrounding whitespace out and then returns an empty string once nothing is left. A page that
+# styles the space between two words on its own -- `Hello<b> </b>world`, which is what an editor
+# emitting one element per styled run produces -- would reach the model as `Helloworld`.
+_WHITESPACE_ONLY_PRESERVING_TAGS = frozenset(
+	{'a', 'b', 'code', 'del', 'em', 'i', 'kbd', 's', 'samp', 'strike', 'strong', 'sub', 'sup', 'u'}
+)
+
+
+def _WhitespacePreservingConverter(page_html: str, **options: Any) -> str:
+	"""markdownify, with a whitespace-only inline element left as its whitespace."""
+	from markdownify import MarkdownConverter
+
+	class _Converter(MarkdownConverter):  # type: ignore[misc]
+		def get_conv_fn(self, tag_name: str) -> Any:
+			convert_fn = super().get_conv_fn(tag_name)  # pyright: ignore[reportAttributeAccessIssue]
+			if convert_fn is None or tag_name.lower() not in _WHITESPACE_ONLY_PRESERVING_TAGS:
+				return convert_fn
+
+			def _keep_whitespace_only(el: Any, text: str, *args: Any, **kwargs: Any) -> str:
+				if not text.strip():
+					return text
+				return convert_fn(el, text, *args, **kwargs)
+
+			return _keep_whitespace_only
+
+	return _Converter(**options).convert(page_html)
+
+
 def convert_html_to_markdown(page_html: str, extract_images: bool = False) -> tuple[str, int, int]:
 	"""Convert serialized page HTML to filtered markdown.
 
 	Returns:
 	    tuple: (filtered_markdown, initial_markdown_chars, chars_filtered)
 	"""
-	from markdownify import markdownify as md
-
 	# 'td', 'th', and headings are the only elements where markdownify sets the _inline context,
 	# which causes img elements to be stripped to just alt text when keep_inline_images_in=[]
 	_keep_inline_images_in = ['td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'] if extract_images else []
-	content = md(
+	content = _WhitespacePreservingConverter(
 		page_html,
 		heading_style='ATX',  # Use # style headings
 		strip=['script', 'style'],  # Remove these tags
