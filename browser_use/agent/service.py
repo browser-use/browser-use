@@ -160,7 +160,6 @@ class Agent:
 				self.workspace.mkdir(parents=True, exist_ok=True)
 				env = await self.browser.start()
 				self._repl = Repl(self.workspace, env, mode=self.mode, secrets=self.sensitive_data)
-			(self._repl.state / 'partial.json').unlink(missing_ok=True)  # a partial belongs to one run
 			session = Session(repl=self._repl, timeout_s=timeout, max_steps=max_steps)
 			history, self._continue = (self._history if self._continue else None), False
 			result = await run(

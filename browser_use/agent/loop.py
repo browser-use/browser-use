@@ -418,6 +418,7 @@ async def run(
 	message_history continues an earlier transcript (follow-up task); usage and steps count only this run.
 	explain_error turns a provider exception into one actionable line (gateway 401/402/403/404)."""
 	status, output, error = 'completed', None, None
+	(session.repl.state / 'partial.json').unlink(missing_ok=True)  # a partial belongs to one run
 	budget = asyncio.timeout(session.timeout_s)
 	try:
 		async with budget:
@@ -436,11 +437,11 @@ async def run(
 		status = 'max_steps' if name == 'UsageLimitExceeded' else 'error'
 		error, messages = (explain_error and explain_error(e)) or f'{name}: {e}', session.messages
 	partial = session.partial()
+	new = messages[len(message_history or []) :]  # an earlier task's text is never this run's fallback
 	if output is None:
-		output = json.dumps(partial, ensure_ascii=False) if partial is not None else last_text(messages)
+		output = json.dumps(partial, ensure_ascii=False) if partial is not None else last_text(new)
 	text = as_text(output)
 	text = redact(text, session.repl.secrets)
-	new = messages[len(message_history or []) :]
 	usage, cost = usage_and_cost(new, model_ref)
 	steps = sum(isinstance(m, ModelResponse) for m in new)
 	duration = time.monotonic() - session.started

@@ -324,3 +324,20 @@ async def test_failed_follow_up_still_stops_the_browser(fake_browser, monkeypatc
 	with pytest.raises(RuntimeError, match='browser failed'):
 		await agent.run()
 	assert len(fake_browser) == 2  # a pending follow-up no longer keeps a failed run's browser alive
+
+
+async def test_failed_follow_up_never_returns_the_previous_tasks_result(tmp_path):
+	"""Roast r2-6: a follow-up that failed before its first checkpoint returned the previous task's partial or last
+	text as its own result."""
+	from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+	from pydantic_ai.models.function import FunctionModel
+
+	def broken(messages, info):
+		raise RuntimeError('provider down')
+
+	history = [ModelRequest(parts=[UserPromptPart('task A')]), ModelResponse(parts=[TextPart('answer to task A')])]
+	repl = Repl(tmp_path)
+	repl.state.mkdir(parents=True)
+	(repl.state / 'partial.json').write_text('{"file": "a.json", "value": "partial of task A"}', encoding='utf-8')
+	r = await run(build_agent(FunctionModel(broken)), 'task B', Session(repl=repl), 'm', message_history=history)
+	assert (r.status, r.partial, r.text) == ('error', None, '')
