@@ -100,6 +100,11 @@ def _install(ns: dict, secrets: list) -> ax.AxHelpers | None:
 	def screenshot(full=False):
 		"""Capture the current tab (JPEG q70, like bu-pi) and show it to the model. Returns the file path."""
 		shots.mkdir(parents=True, exist_ok=True)
+		try:  # a hidden tab (new_tab/switch_tab never activate) produces no frames on Linux headless: capture hangs
+			if helpers.js('document.visibilityState') == 'hidden':
+				helpers.activate_tab(helpers.current_tab())
+		except Exception:  # best effort; the capture below still reports a real failure
+			pass
 		r = cdp('Page.captureScreenshot', format='jpeg', quality=70, captureBeyondViewport=full)
 		path = shots / f'{len(list(shots.iterdir())):04d}.jpg'
 		path.write_bytes(base64.b64decode(r['data']))

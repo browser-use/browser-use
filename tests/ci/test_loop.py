@@ -311,3 +311,25 @@ async def test_screenshot_is_jpeg(daemon, tmp_path):
 	assert result.status == 'completed', out
 	assert result.output.endswith('.jpg') and Path(result.output).read_bytes()[:2] == b'\xff\xd8'
 	assert any(getattr(c, 'media_type', '') == 'image/jpeg' for c in out)
+
+
+async def test_screenshot_activates_a_hidden_tab_first(daemon, tmp_path):
+	"""CI (Linux headless) hung 60s on Page.captureScreenshot: new_tab()/switch_tab() never activate a tab, and a
+	hidden tab renders no frames there. screenshot() activates the attached tab when the page reports it is hidden."""
+	from browser_use.repl.session import Repl
+
+	repl = Repl(tmp_path, daemon)
+	try:
+		code = (
+			"a = new_tab('data:text/html,<h1>A</h1>'); wait_for_load()\n"
+			"b = new_tab('data:text/html,<h1>B</h1>'); wait_for_load()\n"
+			'switch_tab(a)\n'
+			"before = js('document.visibilityState')\n"
+			'p = screenshot()\n'
+			"print(before, js('document.visibilityState'), p.endswith('.jpg'))"
+		)
+		r = await repl.call('exec', code, 90)
+	finally:
+		await repl.close()
+	assert r['error'] is None, r
+	assert r['output'].split() == ['hidden', 'visible', 'True'], r['output']
