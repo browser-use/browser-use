@@ -8,7 +8,7 @@ from pathlib import Path
 @cache
 def is_running_in_docker() -> bool:
 	try:
-		return Path('/.dockerenv').exists() or 'docker' in Path('/proc/1/cgroup').read_text().lower()
+		return Path('/.dockerenv').exists() or 'docker' in Path('/proc/1/cgroup').read_text(encoding='utf-8', errors='replace').lower()
 	except Exception:
 		return False
 
