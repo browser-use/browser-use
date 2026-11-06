@@ -75,7 +75,7 @@ def test_removed_agent_methods_raise_one_error(method, no_browser):
 		getattr(agent, method)
 	assert not hasattr(agent, method)
 	with pytest.raises(AttributeError, match='no attribute'):
-		agent.definitely_not_a_method  # noqa: B018
+		agent.definitely_not_a_method
 
 
 def test_domain_scoped_sensitive_data_is_accepted_and_bad_shapes_raise(no_browser):
