@@ -33,4 +33,4 @@ Add entries in this format:
 - [Project name](https://github.com/org/project) - One sentence about what it integrates with. Maintained by @github-handle.
 ```
 
-- [Agent Help Network](https://github.com/agent-help-network/agent-help-network/tree/main/examples/browser-use) - A custom tool the agent calls on a blocked page (403, login wall, CAPTCHA, 429, 5xx) that looks up what the host declares for agents and returns one next step: use the official path, ask the user, wait, or stop. Maintained by @agent-help-network.
+- [Agent Help Network](https://github.com/agent-help-network/agent-help-network/tree/main/examples/browser-use) - A custom tool the agent calls on a blocked page (403, login wall, CAPTCHA, 429, 5xx) that looks up what the host declares for agents and returns one next step: use the official path, ask the user, wait, or stop. It sends only the target hostname to agenthelpnetwork.com. Maintained by @agent-help-network.
