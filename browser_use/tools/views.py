@@ -100,9 +100,10 @@ class DoneAction(BaseModel):
 	success: bool = Field(
 		default=True,
 		description=(
-			'True if user_request completed successfully. If tool history reports disabled/readonly controls '
-			'changed during evaluate, preserve that uncertainty across turns and do not report success unless '
-			'the page independently confirms completion through its expected workflow.'
+			'True if user_request completed successfully. Treat disabled/readonly state changes reported by evaluate '
+			'as observations, not proof of cause. Consider whether an expected, user-authorized page interaction '
+			'explains them; do not use evaluate to bypass a restriction. If the cause is unclear or success depends '
+			'on the changed control, require the page to confirm completion through its expected workflow.'
 		),
 	)
 	files_to_display: list[str] | None = Field(default=[])
