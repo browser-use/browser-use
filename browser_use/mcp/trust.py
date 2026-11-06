@@ -11,15 +11,15 @@ air-gapped) verifier.
 
 Usage:
 
-	from browser_use.mcp.trust import TrustChecker
+        from browser_use.mcp.trust import TrustChecker
 
-	checker = TrustChecker(min_score=0.7)
-	verdict = await checker.check('https://example.com/mcp/sse')
-	if not verdict.is_trusted:
-		raise ValueError(f'MCP server not trusted: {verdict.reason}')
+        checker = TrustChecker(min_score=0.7)
+        verdict = await checker.check('https://example.com/mcp/sse')
+        if not verdict.is_trusted:
+                raise ValueError(f'MCP server not trusted: {verdict.reason}')
 
-	# Or filter before connecting
-	trusted_servers = await checker.filter_trusted(server_urls)
+        # Or filter before connecting
+        trusted_servers = await checker.filter_trusted(server_urls)
 """
 
 from __future__ import annotations
@@ -187,20 +187,20 @@ class TrustChecker:
 	"""Optional pre-call trust gate for MCP server connections.
 
 	Args:
-		min_score: Minimum trust score to consider a server trusted (default 0.7).
-		lookup: Custom trust lookup function. Defaults to the public Dominion
-			 Observatory API (free tier, 50 queries/day, no key needed).
-		allow_unknown: If True, servers with unknown trust scores are considered
-					   trusted (fail-open). If False (default), unknown servers
-					   are considered untrusted (fail-closed). This is the
-					   recommended setting for browser-use, where a malicious
-					   MCP server could inject harmful actions.
+	        min_score: Minimum trust score to consider a server trusted (default 0.7).
+	        lookup: Custom trust lookup function. Defaults to the public Dominion
+	                 Observatory API (free tier, 50 queries/day, no key needed).
+	        allow_unknown: If True, servers with unknown trust scores are considered
+	                                   trusted (fail-open). If False (default), unknown servers
+	                                   are considered untrusted (fail-closed). This is the
+	                                   recommended setting for browser-use, where a malicious
+	                                   MCP server could inject harmful actions.
 
-		Note on `allow_unknown`: it applies ONLY to explicit
-		`TrustVerdict(score=None)` results returned by `lookup`. Lookup
-		exceptions (network errors, malformed responses, unhandled bugs) are
-		ALWAYS fail-closed — a lookup that raised did not produce a verdict,
-		so the server must not be trusted.
+	        Note on `allow_unknown`: it applies ONLY to explicit
+	        `TrustVerdict(score=None)` results returned by `lookup`. Lookup
+	        exceptions (network errors, malformed responses, unhandled bugs) are
+	        ALWAYS fail-closed — a lookup that raised did not produce a verdict,
+	        so the server must not be trusted.
 	"""
 
 	def __init__(
@@ -253,8 +253,15 @@ class TrustChecker:
 					result,
 				)
 				continue
-			if result.is_trusted:
+			# After the isinstance(result, Exception) check above, pyright still
+			# narrows to BaseException rather than TrustVerdict (because
+			# asyncio.gather with return_exceptions=True returns
+			# List[TrustVerdict | BaseException]). Cast to TrustVerdict so the
+			# verdict attributes are reachable; the runtime check above is the
+			# actual safety boundary.
+			verdict: TrustVerdict = result  # type: ignore[assignment]
+			if verdict.is_trusted:
 				trusted.append(url)
 			else:
-				logger.info('Skipping untrusted MCP server %s: %s', url, result.reason)
+				logger.info('Skipping untrusted MCP server %s: %s', url, verdict.reason)
 		return trusted
