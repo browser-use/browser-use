@@ -1,9 +1,0 @@
-.venv/
-.build-tools/
-build/
-dist/
-ms-playwright/
-*.dmg
-*.spec
-*.log
-__pycache__/

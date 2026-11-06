@@ -1,0 +1,13 @@
+.venv/
+.build-tools/
+build/
+dist/
+ms-playwright/
+frontend/node_modules/
+frontend/dist/
+*.dmg
+*.spec
+*.log
+__pycache__/
+!frontend/package.json
+!frontend/package-lock.json

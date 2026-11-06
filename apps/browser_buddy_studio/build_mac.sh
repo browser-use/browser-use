@@ -7,29 +7,49 @@ APP_NAME="BrowserBuddy"
 
 cd "$APP_DIR"
 
+if ! command -v node >/dev/null 2>&1; then
+	for node_bin in "$HOME"/.nvm/versions/node/*/bin; do
+		if [[ -x "$node_bin/node" ]]; then
+			export PATH="$node_bin:$PATH"
+		fi
+	done
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+	echo "Node.js is required to build the React frontend." >&2
+	exit 1
+fi
+
+if ! command -v uv >/dev/null 2>&1; then
+	for uv_bin in "$HOME/.local/bin/uv" "/opt/homebrew/bin/uv" "/usr/local/bin/uv"; do
+		if [[ -x "$uv_bin" ]]; then
+			export PATH="$(dirname "$uv_bin"):$PATH"
+			break
+		fi
+	done
+fi
+
 if ! command -v uv >/dev/null 2>&1; then
 	echo "uv is required: https://docs.astral.sh/uv/" >&2
 	exit 1
 fi
 
-if [[ ! -d "$ROOT_DIR/browser_use" ]]; then
-	echo "Could not find browser_use at $ROOT_DIR/browser_use" >&2
-	exit 1
-fi
+echo "==> Building React frontend"
+cd "$APP_DIR/frontend"
+npm install
+npm run build
 
-echo "==> Creating build environment"
+echo "==> Creating Python build environment"
+cd "$APP_DIR"
 uv venv --python 3.11 --clear .venv
 # shellcheck disable=SC1091
 source .venv/bin/activate
+uv pip install -e "$ROOT_DIR" fastapi uvicorn pywebview keyring httpx beautifulsoup4 pyinstaller playwright
 
-echo "==> Installing app dependencies"
-uv pip install -e "$ROOT_DIR" gradio keyring pyinstaller playwright
-
-# Some macOS installs have a mixed-architecture Command Line Tools bundle:
-# /usr/bin/lipo picks its arm64e slice, which cannot load the x86_64 libxcrun.
-# Falling back to the x86_64 lipo slice keeps PyInstaller's bootloader thinning working.
+# Some macOS Command Line Tools installs have a mixed-architecture libxcrun.
+# Fall back to the x86_64 slices for tools that PyInstaller invokes.
 if ! xcrun --show-sdk-path >/dev/null 2>&1; then
-	echo "==> xcrun is broken; using x86_64 lipo shim"
+	echo "==> xcrun is broken; using x86_64 tool shims"
 	mkdir -p "$APP_DIR/.build-tools"
 	printf '#!/bin/bash\nexec arch -x86_64 /usr/bin/lipo "$@"\n' > "$APP_DIR/.build-tools/lipo"
 	printf '#!/bin/bash\nexec arch -x86_64 /usr/bin/install_name_tool "$@"\n' > "$APP_DIR/.build-tools/install_name_tool"
@@ -47,15 +67,17 @@ PYINSTALLER_ARGS=(
 	--clean
 	"${MODE[@]}"
 	--name "$APP_NAME"
-	--osx-bundle-identifier "com.example.browserbuddy"
+	--osx-bundle-identifier "com.example.browserbuddystudio"
 	--collect-all browser_use
-	--collect-all gradio
-	--collect-all gradio_client
-	--collect-all playwright
-	--collect-all cdp_use
+	--collect-all webview
 	--collect-all keyring
 	--collect-all safehttpx
 	--collect-all groovy
+	--collect-all uvicorn
+	--collect-all fastapi
+	--hidden-import webview.platforms.cocoa
+	--exclude-module browser_use.llm.oci_raw
+	--add-data "frontend/dist:frontend/dist"
 )
 
 CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -72,7 +94,7 @@ fi
 
 echo "==> Building .app"
 rm -rf build dist
-pyinstaller "${PYINSTALLER_ARGS[@]}" app.py
+pyinstaller "${PYINSTALLER_ARGS[@]}" main.py
 
 if [[ -n "${APPLE_SIGN_IDENTITY:-}" ]]; then
 	echo "==> Signing app"
