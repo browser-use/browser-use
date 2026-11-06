@@ -19,6 +19,30 @@ def _run_browser_use_cli(*args: str, module: str = 'browser_use.cli') -> subproc
 	)
 
 
+def test_browser_use_version_flag_reports_browser_use_distribution_version():
+	from importlib.metadata import PackageNotFoundError, version
+
+	try:
+		expected_version = version('browser-use')
+	except PackageNotFoundError:
+		from browser_use.utils import get_browser_use_version
+
+		expected_version = get_browser_use_version()
+
+	result = _run_browser_use_cli('--version')
+	assert result.returncode == 0
+	assert result.stdout.strip() == expected_version
+	assert result.stderr == ''
+
+	short_result = _run_browser_use_cli('-V')
+	assert short_result.returncode == 0
+	assert short_result.stdout.strip() == expected_version
+
+	module_result = _run_browser_use_cli('--version', module='browser_use')
+	assert module_result.returncode == 0
+	assert module_result.stdout.strip() == expected_version
+
+
 def test_browser_use_doctor_help_prints_browser_use_usage():
 	result = _run_browser_use_cli('doctor', '--help')
 

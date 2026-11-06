@@ -13,7 +13,12 @@ def _browser_use_version() -> str:
 	try:
 		return version('browser-use')
 	except PackageNotFoundError:
-		return 'unknown'
+		try:
+			from browser_use.utils import get_browser_use_version
+
+			return get_browser_use_version()
+		except Exception:
+			return 'unknown'
 
 
 def _exit_code(result: int | str | None) -> int:
@@ -336,6 +341,8 @@ _EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Py
 
 
 def _command_name(args: list[str]) -> str:
+	if args and args[0] in {'--version', '-V'}:
+		return 'version'
 	if '--cli-mcp' in args:
 		return 'cli-mcp'
 	if '--mcp' in args:
@@ -355,6 +362,9 @@ def _command_name(args: list[str]) -> str:
 
 
 def _dispatch(args: list[str]) -> tuple[int | None, str]:
+	if args and args[0] in {'--version', '-V'}:
+		print(_browser_use_version())
+		return 0, 'version'
 	if '--cli-mcp' in args:
 		_run_cli_mcp_server()
 		return 0, 'cli-mcp'
