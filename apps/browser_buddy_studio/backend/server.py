@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import subprocess
 import time
 from typing import Any
 
@@ -21,6 +20,7 @@ from browser_use import Agent, Browser  # noqa: E402
 
 from .artifacts import build_sources, collect_artifacts  # noqa: E402
 from .providers import PROVIDERS, build_llm, get_saved_key, provider_list, save_key  # noqa: E402
+from .storage import add_history, clear_history, load_history, load_preferences, save_preferences  # noqa: E402
 
 logger = logging.getLogger('browser_buddy.server')
 logger.setLevel(logging.INFO)
@@ -206,6 +206,32 @@ async def state() -> dict:
 	return STATE
 
 
+@app.get('/api/history')
+async def history() -> list[dict]:
+	return load_history()
+
+
+@app.post('/api/history')
+async def create_history(entry: dict) -> list[dict]:
+	return add_history(entry)
+
+
+@app.delete('/api/history')
+async def delete_history() -> dict:
+	clear_history()
+	return {'ok': True}
+
+
+@app.get('/api/preferences')
+async def preferences() -> dict:
+	return load_preferences()
+
+
+@app.post('/api/preferences')
+async def update_preferences(preferences: dict) -> dict:
+	return save_preferences(preferences)
+
+
 @app.post('/api/run')
 async def run(request: RunRequest) -> dict:
 	global CURRENT_TASK
@@ -236,7 +262,7 @@ async def stop() -> dict:
 @app.post('/api/open-logs')
 async def open_logs() -> dict:
 	LOG_DIR.mkdir(parents=True, exist_ok=True)
-	subprocess.run(['open', str(LOG_DIR)], check=False)
+	await asyncio.create_subprocess_exec('open', str(LOG_DIR))
 	return {'ok': True, 'path': str(LOG_DIR)}
 
 

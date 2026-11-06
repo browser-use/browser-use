@@ -47,7 +47,7 @@ BUNDLE_CHROMIUM=1 ./build_mac.sh  # bundle Chromium for friends without Chrome
 
 ## Features
 
-- Sidebar with local task history
+- Sidebar with persistent task history (stored under Application Support)
 - Command-style task composer
 - Live execution timeline over SSE
 - Markdown result rendering
@@ -85,4 +85,5 @@ PyWebView window
 - The app is macOS-only because it uses `sips` for PDF previews and macOS Keychain.
 - The backend binds to loopback only.
 - API keys are never written to the frontend bundle.
+- Task history and UI preferences persist across app restarts in `~/Library/Application Support/BrowserBuddy/`.
 - Unsigned builds require right-click → Open on first launch.

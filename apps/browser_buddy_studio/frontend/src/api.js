@@ -18,6 +18,28 @@ export function getState() {
   return jsonFetch('/api/state')
 }
 
+export function getHistory() {
+  return jsonFetch('/api/history')
+}
+
+export function saveHistoryEntry(entry) {
+  return jsonFetch('/api/history', {
+    method: 'POST',
+    body: JSON.stringify(entry),
+  })
+}
+
+export function getPreferences() {
+  return jsonFetch('/api/preferences')
+}
+
+export function savePreferences(preferences) {
+  return jsonFetch('/api/preferences', {
+    method: 'POST',
+    body: JSON.stringify(preferences),
+  })
+}
+
 export function runTask(payload) {
   return jsonFetch('/api/run', {
     method: 'POST',

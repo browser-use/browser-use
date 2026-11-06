@@ -6,13 +6,12 @@ import socket
 import threading
 import time
 
-from backend.config import prepare_runtime
+from backend.config import APP_SUPPORT_DIR, prepare_runtime
 
 prepare_runtime()
 
 import uvicorn  # noqa: E402
 import webview  # noqa: E402
-
 from backend.server import app  # noqa: E402
 
 
@@ -48,7 +47,10 @@ def main() -> None:
 		min_size=(1040, 720),
 		background_color='#0b0f17',
 	)
-	webview.start()
+	webview.start(
+		private_mode=False,
+		storage_path=str(APP_SUPPORT_DIR / 'webview'),
+	)
 	server.should_exit = True
 
 

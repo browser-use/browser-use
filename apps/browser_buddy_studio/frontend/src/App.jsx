@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import { connectEvents, getProviders, getState, openLogs, runTask, stopTask } from './api'
+import {
+  connectEvents,
+  getHistory,
+  getPreferences,
+  getProviders,
+  getState,
+  openLogs,
+  runTask,
+  saveHistoryEntry,
+  savePreferences,
+  stopTask,
+} from './api'
 import { EXAMPLES } from './examples'
 import { Icon } from './icons'
-
-const SETTINGS_KEY = 'browserbuddy.settings.v2'
-const HISTORY_KEY = 'browserbuddy.history.v2'
-const THEME_KEY = 'browserbuddy.theme'
 
 const DEFAULT_SETTINGS = {
   provider: 'DeepSeek',
@@ -15,15 +22,6 @@ const DEFAULT_SETTINGS = {
   headless: false,
   useVision: true,
   maxSteps: 50,
-}
-
-function loadJson(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : fallback
-  } catch {
-    return fallback
-  }
 }
 
 function formatTime(value) {
@@ -647,7 +645,7 @@ function SettingsDrawer({
 
 export default function App() {
   const [providers, setProviders] = useState([])
-  const [settings, setSettings] = useState(() => ({ ...DEFAULT_SETTINGS, ...loadJson(SETTINGS_KEY, {}) }))
+  const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS })
   const [apiKey, setApiKey] = useState('')
   const [task, setTask] = useState('')
   const [view, setView] = useState('home')
@@ -655,24 +653,24 @@ export default function App() {
   const [steps, setSteps] = useState([])
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
-  const [history, setHistory] = useState(() => loadJson(HISTORY_KEY, []))
+  const [history, setHistory] = useState([])
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'dark')
+  const [theme, setTheme] = useState('dark')
   const runMetaRef = useRef(null)
   const stepsRef = useRef([])
+  const prefsLoadedRef = useRef(false)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    localStorage.setItem(THEME_KEY, theme)
   }, [theme])
 
   useEffect(() => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
-  }, [settings])
-
-  useEffect(() => {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 20)))
-  }, [history])
+    if (!prefsLoadedRef.current) return
+    const timer = setTimeout(() => {
+      savePreferences({ settings, theme }).catch(() => {})
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [settings, theme])
 
   useEffect(() => {
     stepsRef.current = steps
@@ -683,6 +681,7 @@ export default function App() {
       const next = [entry, ...prev.filter((item) => item.id !== entry.id)]
       return next.slice(0, 20)
     })
+    saveHistoryEntry(entry).catch(() => {})
   }, [])
 
   const handleEvent = useCallback(
@@ -748,9 +747,18 @@ export default function App() {
     let cancelled = false
     async function bootstrap() {
       try {
-        const [providerData, state] = await Promise.all([getProviders(), getState()])
+        const [providerData, state, historyData, prefs] = await Promise.all([
+          getProviders(),
+          getState(),
+          getHistory(),
+          getPreferences(),
+        ])
         if (cancelled) return
         setProviders(providerData)
+        setHistory(Array.isArray(historyData) ? historyData : [])
+        if (prefs?.settings) setSettings((prev) => ({ ...prev, ...prefs.settings }))
+        if (prefs?.theme) setTheme(prefs.theme)
+        prefsLoadedRef.current = true
         if (state.running || state.result || state.error) {
           setView('run')
           setRunning(Boolean(state.running))
@@ -767,6 +775,8 @@ export default function App() {
         }
       } catch (e) {
         setError(e.message)
+      } finally {
+        prefsLoadedRef.current = true
       }
     }
     bootstrap()
