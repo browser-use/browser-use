@@ -32,13 +32,27 @@ def _encode_image(image_path: str) -> str | None:
 
 
 def _truncate_text(text: str, max_length: int, from_beginning: bool = False) -> str:
-	"""Truncate text to maximum length with eval system indicator."""
+	"""Truncate text to maximum length with eval system indicator.
+
+	The truncation marker length is computed from the marker string itself
+	rather than a hardcoded constant, so the result is exactly ``max_length``
+	characters. When ``max_length`` is too small to fit the marker, the text
+	is sliced directly without one, avoiding negative-index corruption.
+	"""
 	if len(text) <= max_length:
 		return text
 	if from_beginning:
-		return '...[text truncated]' + text[-max_length + 23 :]
+		marker = '...[text truncated]'
+		marker_len = len(marker)
+		if max_length <= marker_len:
+			return text[-max_length:] if max_length > 0 else ''
+		return marker + text[-(max_length - marker_len):]
 	else:
-		return text[: max_length - 23] + '...[text truncated]...'
+		marker = '...[text truncated]...'
+		marker_len = len(marker)
+		if max_length <= marker_len:
+			return text[:max_length] if max_length > 0 else ''
+		return text[:max_length - marker_len] + marker
 
 
 def construct_judge_messages(
