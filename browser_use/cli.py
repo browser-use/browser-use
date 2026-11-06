@@ -191,11 +191,16 @@ def _run_browser_harness() -> int | None:
 	_patch_browser_harness_cli_text()
 	args = sys.argv[1:]
 	if args and args[0] == 'doctor' and args[1:]:
-		if args[1:] in (['--help'], ['-h']):
-			print('usage: browser-use doctor [--fix-snap]')
+		rest = args[1:]
+		usage = 'usage: browser-use doctor [--fix-snap|--json [--require-existing-daemon]]'
+		if rest in (['--help'], ['-h']):
+			print(usage)
 			return 0
-		if args[1:] != ['--fix-snap']:
-			print('usage: browser-use doctor [--fix-snap]', file=sys.stderr)
+		json_options = (
+			set(rest).issubset({'--json', '--require-existing-daemon'}) and '--json' in rest and len(rest) == len(set(rest))
+		)
+		if rest != ['--fix-snap'] and not json_options:
+			print(usage, file=sys.stderr)
 			sys.exit(2)
 	_delegated_to_harness = True
 	run.main()
