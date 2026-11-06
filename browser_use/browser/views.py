@@ -114,7 +114,7 @@ class BrowserStateSummary:
 
 @dataclass
 class BrowserStateHistory:
-	"""The summary of the browser's state at a past point in time to usse in LLM message history"""
+	"""The summary of the browser's state at a past point in time to use in LLM message history"""
 
 	url: str
 	title: str
