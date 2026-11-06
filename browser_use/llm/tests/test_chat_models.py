@@ -1,4 +1,5 @@
 import os
+from types import SimpleNamespace
 
 import pytest
 from pydantic import BaseModel
@@ -94,6 +95,25 @@ class TestChatModels:
 		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
 
 	# Anthropic Tests
+	def test_anthropic_get_usage_includes_cached_tokens_in_total(self):
+		chat = ChatAnthropic(model='claude-3-5-haiku-latest')
+		response = SimpleNamespace(
+			usage=SimpleNamespace(
+				input_tokens=10,
+				cache_read_input_tokens=5,
+				output_tokens=3,
+				cache_creation_input_tokens=0,
+			)
+		)
+
+		usage = chat._get_usage(response)
+
+		assert usage is not None
+		assert usage.prompt_tokens == 15
+		assert usage.prompt_cached_tokens == 5
+		assert usage.completion_tokens == 3
+		assert usage.total_tokens == usage.prompt_tokens + usage.completion_tokens
+
 	@pytest.mark.asyncio
 	async def test_anthropic_ainvoke_normal(self):
 		"""Test normal text response from Anthropic"""
