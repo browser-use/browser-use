@@ -41,8 +41,15 @@ async def _format_conversation(messages: list[BaseMessage], response: Any) -> st
 		lines.append(message.text)
 		lines.append('')  # Empty line after each message
 
-	# Format response
-	lines.append(json.dumps(json.loads(response.model_dump_json(exclude_unset=True)), indent=2, ensure_ascii=False))
+	# Format response — guard against None or serialization failures
+	if response is not None:
+		try:
+			lines.append(json.dumps(response.model_dump(exclude_unset=True), indent=2, ensure_ascii=False))
+		except Exception as e:
+			logger.warning(f'Failed to serialize response: {e}')
+			lines.append(str(response))
+	else:
+		lines.append('(no response)')
 
 	return '\n'.join(lines)
 
