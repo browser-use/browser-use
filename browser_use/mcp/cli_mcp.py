@@ -23,6 +23,7 @@ from mcp.server import Server
 
 from browser_use import harness_cloud
 from browser_use.auth import harden_login_callback, set_aside_corrupt_store
+from browser_use.exceptions import removed
 from browser_use.harness_cloud import CloudBrowserError
 from browser_use.utils import get_browser_use_version
 
@@ -36,6 +37,13 @@ _NAMESPACE_IMPORTS = (
 LOGIN_HINT = 'Not signed in to Browser Use Cloud. Call the browser_login tool (it opens the browser to approve), then retry.'
 LOGIN_WAIT_SECONDS = 45.0
 LOGIN_NEXT = 'Start a cloud browser with start_remote_daemon("<name>") in browser_exec.'
+OLD_TOOLS = {  # the 0.x browser-use --mcp server's tools (it ran the removed engine); browser_screenshot is kept
+	'browser_navigate', 'browser_click', 'browser_type', 'browser_get_state', 'browser_extract_content',
+	'browser_get_html', 'browser_scroll', 'browser_go_back', 'browser_list_tabs', 'browser_switch_tab',
+	'browser_close_tab', 'retry_with_browser_use_agent', 'browser_list_sessions', 'browser_close_session',
+	'browser_close_all',
+}  # fmt: skip
+OLD_TOOL_HINT = 'browser_exec runs Python with the browser-harness helpers (goto_url, click_at_xy, js, list_tabs, ...).'
 CLOUD_TIMEOUT_MINUTES = 30  # default lifetime of a cloud browser this server starts; start_remote_daemon(timeout=) overrides
 
 MCP_GUIDE = f"""# This MCP server
@@ -214,8 +222,9 @@ class CLIMCPServer:
 			if name == 'browser_login':
 				text = await asyncio.to_thread(self._sign_in, bool(arguments.get('force', False)))
 				return types.CallToolResult(content=[types.TextContent(type='text', text=text)])
+			text = removed(f'The MCP tool {name} (the 0.x browser-use --mcp server)', OLD_TOOL_HINT) if name in OLD_TOOLS else ''
 			return types.CallToolResult(
-				content=[types.TextContent(type='text', text=f'Unknown tool: {name}')],
+				content=[types.TextContent(type='text', text=text or f'Unknown tool: {name}')],
 				is_error=True,
 			)
 

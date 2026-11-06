@@ -18,6 +18,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Tool
 
+from browser_use.exceptions import removed
+
 RESERVED = {'python', 'finish', 'finish_from_repl'}
 # 0.x injected these into actions. 1.0 actions get only what the model passes; the model drives the browser in Python.
 INJECTED = {
@@ -61,18 +63,23 @@ class Tools:
 		allowed_domains: list[str] | None = None,
 		**kwargs: Any,
 	) -> Callable[[Callable], Callable]:
-		if domains or allowed_domains or kwargs:
-			name = 'domains' if domains else 'allowed_domains' if allowed_domains else next(iter(kwargs))
-			raise TypeError(f'@tools.action({name}=...) is not supported in browser-use 1.0. See MIGRATING.md.')
+		if domains or allowed_domains:
+			name = 'domains' if domains else 'allowed_domains'
+			raise TypeError(
+				removed(f'@tools.action({name}=...)', 'Browser(allowed_domains=...) limits where the whole browser navigates.')
+			)
+		if kwargs:
+			raise TypeError(f'@tools.action({next(iter(kwargs))}=...) is not a browser-use 1.0 option; see MIGRATING.md.')
 
 		def decorator(fn: Callable) -> Callable:
 			params = list(inspect.signature(fn).parameters)
 			injected = [p for p in params if p in INJECTED]
 			if injected:
 				raise TypeError(
-					f'@tools.action {fn.__name__}(): injected parameter(s) {", ".join(injected)} are not supported in '
-					'browser-use 1.0. Actions get only the arguments the model passes; the model drives the browser '
-					'itself with Python. See MIGRATING.md.'
+					removed(
+						f'Injected action parameters ({", ".join(injected)} in @tools.action {fn.__name__}())',
+						'actions get only the arguments the model passes; the model drives the browser itself in Python.',
+					)
 				)
 			if fn.__name__ in RESERVED:
 				raise ValueError(f'@tools.action: {fn.__name__!r} is a built-in tool name; rename the function')

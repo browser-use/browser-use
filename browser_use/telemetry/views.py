@@ -92,6 +92,8 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	captcha_started: int = 0
 	captcha_solved: int = 0
 	captcha_failed: int = 0
+	domain_restrictions: bool = False  # Browser(allowed_domains / prohibited_domains / block_ip_addresses) set; never the domains
+	domain_blocks: int = 0  # navigations refused or blocked, and tabs reset, by those restrictions
 	downloads_started: int = 0
 	downloads: int = 0
 	download_exts: dict[str, int] = field(default_factory=dict)

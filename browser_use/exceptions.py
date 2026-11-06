@@ -17,3 +17,13 @@ class BrowserConnectionLost(ConnectionError):
 
 	def __init__(self) -> None:
 		super().__init__('browser connection lost: the browser-harness daemon is not running')
+
+
+ISSUES_URL = 'https://github.com/browser-use/browser-use/issues'
+
+
+def removed(feature: str, instead: str = '') -> str:
+	"""The one error text for a 0.x feature 1.0 dropped (MIGRATING.md "Removed in 1.0"), with the 1.0 alternative."""
+	return f'{feature} was removed in browser-use 1.0. Open an issue at {ISSUES_URL} if you need it.' + (
+		f' In 1.0: {instead}' if instead else ''
+	)

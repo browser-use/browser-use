@@ -17,16 +17,65 @@ def no_browser(monkeypatch):
 	monkeypatch.setattr(Browser, 'start', fail)
 
 
-@pytest.mark.parametrize('kwarg', ['use_vision', 'max_actions_per_step', 'flash_mode', 'initial_actions', 'some_new_kwarg'])
-def test_unsupported_0x_agent_kwarg_raises_naming_it(kwarg, no_browser):
-	with pytest.raises(TypeError, match=rf'Agent\({kwarg}=\.\.\.\) is not supported in browser-use 1.0'):
+REMOVED = (
+	r'was removed in browser-use 1\.0\. Open an issue at https://github\.com/browser-use/browser-use/issues if you need it\.'
+)
+
+
+@pytest.mark.parametrize(
+	'kwarg',
+	[
+		'use_vision',  # vision tuning
+		'vision_detail_level',
+		'max_actions_per_step',
+		'flash_mode',
+		'initial_actions',
+		'register_new_step_callback',  # step callbacks
+		'register_done_callback',
+		'register_should_stop_callback',
+		'generate_gif',
+		'use_judge',  # judge
+		'judge_llm',
+		'ground_truth',
+		'enable_planning',  # planner
+		'planner_llm',
+		'planning_replan_on_stall',
+	],
+)
+def test_removed_0x_agent_kwarg_raises_one_error_naming_it(kwarg, no_browser):
+	with pytest.raises(TypeError, match=rf'^Agent\({kwarg}=\.\.\.\) {REMOVED}'):
 		Agent('t', script()[0], **{kwarg: True})
 
 
-async def test_unsupported_run_kwarg_raises(no_browser):
+def test_unknown_agent_kwarg_is_not_called_removed(no_browser):
+	with pytest.raises(TypeError, match=r'^Agent\(some_new_kwarg=\.\.\.\) is not a browser-use 1\.0 option'):
+		Agent('t', script()[0], some_new_kwarg=True)
+
+
+def test_removed_alternative_is_named(no_browser):
+	with pytest.raises(TypeError, match=r"In 1\.0: reasoning='low' \| 'medium' \| 'high'\.$"):
+		Agent('t', script()[0], use_thinking=True)
+
+
+async def test_step_hooks_on_run_raise(no_browser):
 	agent = Agent('t', script()[0], browser=Browser(local=True))
-	with pytest.raises(TypeError, match='on_step_start'):
-		await agent.run(on_step_start=lambda a: None)
+	for hook in ('on_step_start', 'on_step_end'):
+		with pytest.raises(TypeError, match=rf'^Agent\.run\({hook}=\.\.\.\) {REMOVED} In 1\.0: result\.messages'):
+			await agent.run(**{hook: lambda a: None})
+	with pytest.raises(TypeError, match=rf'^Agent\.run_sync\(on_step_end=\.\.\.\) {REMOVED}'):
+		agent.run_sync(on_step_end=lambda a: None)
+
+
+@pytest.mark.parametrize(
+	'method', ['pause', 'resume', 'stop', 'step', 'multi_act', 'rerun_history', 'load_and_rerun', 'save_history']
+)
+def test_removed_agent_methods_raise_one_error(method, no_browser):
+	agent = Agent('t', script()[0])
+	with pytest.raises(AttributeError, match=rf'^Agent\.{method}\(\) {REMOVED}'):
+		getattr(agent, method)
+	assert not hasattr(agent, method)
+	with pytest.raises(AttributeError, match='no attribute'):
+		agent.definitely_not_a_method  # noqa: B018
 
 
 def test_domain_scoped_sensitive_data_is_accepted_and_bad_shapes_raise(no_browser):
@@ -53,8 +102,11 @@ def test_removed_classes_raise_with_pointer():
 	import browser_use
 
 	for name in ['BrowserSession', 'BrowserProfile', 'ChatGroq', 'DomService']:
-		with pytest.raises(ImportError, match='removed in browser-use 1.0'):
+		with pytest.raises(ImportError, match=rf'^browser_use\.{name} {REMOVED}'):
 			getattr(browser_use, name)
+	for name in ['ChatGroq', 'ChatOllama', 'ChatAzureOpenAI', 'ChatOpenRouter', 'ChatDeepSeek']:
+		with pytest.raises(ImportError, match=rf"{REMOVED} In 1\.0: a Pydantic AI model string, e\.g\. llm='groq:"):
+			exec(f'from browser_use import {name}')
 
 
 def test_browser_session_alias_and_controller_alias():
@@ -75,9 +127,9 @@ def test_result_keeps_common_0x_methods():
 	assert (failed.final_result(), failed.is_done(), failed.is_successful(), failed.errors()) == (None, False, None, ['boom'])
 
 
-@pytest.mark.parametrize('name', ['urls', 'screenshots', 'action_names', 'model_thoughts', 'history'])
+@pytest.mark.parametrize('name', ['urls', 'screenshots', 'action_names', 'model_thoughts', 'history', 'judgement', 'is_judged'])
 def test_removed_result_methods_raise_not_implemented(name):
-	with pytest.raises(NotImplementedError, match='MIGRATING.md'):
+	with pytest.raises(NotImplementedError, match=rf'^AgentHistoryList\.{name} {REMOVED} In 1\.0: '):
 		getattr(result(), name)
 	with pytest.raises(AttributeError):
 		result().definitely_not_a_method
@@ -105,14 +157,15 @@ def test_tools_plain_function_and_param_model():
 @pytest.mark.parametrize('param', ['browser_session', 'page_extraction_llm', 'file_system'])
 def test_tools_injected_params_raise(param):
 	tools = Tools()
-	with pytest.raises(TypeError, match=param):
+	with pytest.raises(TypeError, match=rf'^Injected action parameters \({param} in @tools\.action act\(\)\) {REMOVED}'):
 		exec(f'@tools.action("x")\nasync def act(text: str, {param}=None): pass', {'tools': tools})
 
 
 def test_tools_domain_filters_and_reserved_names_raise():
 	tools = Tools()
-	with pytest.raises(TypeError, match='domains'):
-		tools.action('x', domains=['*.example.com'])
+	for name in ('domains', 'allowed_domains'):
+		with pytest.raises(TypeError, match=rf'^@tools\.action\({name}=\.\.\.\) {REMOVED} In 1\.0: Browser\(allowed_domains'):
+			tools.action('x', **{name: ['*.example.com']})
 	with pytest.raises(ValueError, match='built-in'):
 
 		@tools.action('x')
@@ -448,3 +501,20 @@ def test_unknown_reasoning_raises_before_any_browser(reasoning, no_browser):
 	request failed with a 400."""
 	with pytest.raises(ValueError, match='reasoning'):
 		Agent('t', 'test', reasoning=reasoning)
+
+
+async def test_old_mcp_tool_names_return_the_removed_error():
+	from mcp import types
+
+	from browser_use.mcp import cli_mcp
+
+	handler = cli_mcp.CLIMCPServer().server._request_handlers['tools/call'].handler
+	for name in ('browser_navigate', 'browser_click', 'retry_with_browser_use_agent'):
+		r = await handler(None, types.CallToolRequestParams(name=name, arguments={}))
+		text = r.content[0].text  # type: ignore[union-attr]
+		assert r.is_error and text.startswith(
+			f'The MCP tool {name} (the 0.x browser-use --mcp server) was removed in browser-use 1.0.'
+		)
+		assert 'browser_exec runs Python' in text
+	r = await handler(None, types.CallToolRequestParams(name='nope', arguments={}))
+	assert r.content[0].text == 'Unknown tool: nope'  # type: ignore[union-attr]

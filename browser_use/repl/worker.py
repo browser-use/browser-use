@@ -31,6 +31,7 @@ from collections import Counter
 from pathlib import Path
 
 from browser_use import ax
+from browser_use.domains import DomainRules
 from browser_use.exceptions import BrowserConnectionLost
 from browser_use.remote_upload import remote_upload
 from browser_use.repl.captcha import Captcha, EventPump
@@ -193,6 +194,15 @@ class CountedBu:
 		return repr(self._bu)
 
 
+def _checked(fn, check_url):
+	@functools.wraps(fn)
+	def checked(*args, **kwargs):
+		check_url(args[0] if args else kwargs.get('url', 'about:blank'))
+		return fn(*args, **kwargs)
+
+	return checked
+
+
 def _add_image(data: bytes, media_type: str = 'image/png') -> bool:
 	if len(images) >= MAX_IMAGES_PER_CELL:
 		print(f'[image dropped: {MAX_IMAGES_PER_CELL} per call max]')
@@ -242,9 +252,17 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	helpers._send = send
 	raw_cdp = helpers.cdp
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
+	rules = DomainRules.from_json(os.environ.get('BU_DOMAINS'))
+
+	def check_url(url) -> None:
+		"""Browser(allowed_domains=...): refuse a disallowed URL before anything navigates (Browser.domains)."""
+		if rules and (why := rules.blocked(str(url))):
+			stats.count('events', 'domain_blocked')
+			raise PermissionError(why)
 
 	def cdp(method, session_id=None, **params):
 		if method in NAVIGATING:
+			check_url(params.get('url', ''))
 			stats.url(params.get('url'), navigation=True)
 		if method != 'Page.captureScreenshot':
 			# browser-harness defaults to 5s IPC; heavy cloud pages (Maps, TripAdvisor) blew it on navigate/evaluate/input.
@@ -259,6 +277,9 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 
 	cdp.__doc__ = raw_cdp.__doc__
 	helpers.cdp = cdp  # capture_screenshot() and friends go through the wrapper too
+	if rules:  # before the * import below, so the agent's names are the checked ones
+		for name in ('new_tab', 'http_get'):  # new_tab: before it opens an empty tab; http_get: plain HTTP from here
+			helpers.__dict__[name] = _checked(getattr(helpers, name), check_url)
 	captcha = Captcha(cdp, STATE / 'captcha.json')
 	exec('from browser_harness.helpers import *', ns)
 

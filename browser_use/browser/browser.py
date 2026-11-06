@@ -15,6 +15,7 @@ import asyncio
 import atexit
 import concurrent.futures
 import contextlib
+import functools
 import json
 import logging
 import os
@@ -33,19 +34,19 @@ from typing import Literal
 from browser_use.auth import browser_use_api_key, cloud_error_hint
 from browser_use.browser import local as _local
 from browser_use.config import load_env
+from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
+from browser_use.exceptions import removed
 
 logger = logging.getLogger(__name__)
 load_env()  # 0.x read .env on import; credentials below resolve from it
 
 CLOUD_API = 'https://api.browser-use.com/api/v4'
 KINDS = ('cloud', 'chromium', 'chrome')
-UNSUPPORTED = {  # 0.x BrowserSession/BrowserProfile options -> what to do instead
-	'profile_directory': "use Browser('chrome', profile='Profile 1') (a copy of that Chrome profile).",
-	'allowed_domains': 'domain restrictions are not in 1.0 yet.',
-	'prohibited_domains': 'domain restrictions are not in 1.0 yet.',
-	'browser_profile': 'BrowserProfile was removed; pass options to Browser(...).',
-	'storage_state': "use cloud_profile_id (cloud), Browser('chrome', profile=...) or Browser('chromium', user_data_dir=...).",
-	'proxy': 'use cloud_proxy_country_code on cloud browsers.',
+REMOVED = {  # 0.x BrowserSession/BrowserProfile options -> the 1.0 alternative
+	'profile_directory': "Browser('chrome', profile='Profile 1') (a copy of that Chrome profile).",
+	'browser_profile': 'pass options to Browser(...).',
+	'storage_state': "cloud_profile_id (cloud), Browser('chrome', profile=...) or Browser('chromium', user_data_dir=...).",
+	'proxy': 'cloud_proxy_country_code on cloud browsers.',
 }
 CREATE_TIMEOUT_S = 120  # total for the cloud create; start() fails past it, and a browser that lands later is stopped
 LOCAL_START_WAIT_S = 120  # Browser('chrome'): Chrome start plus the user clicking Allow on its remote-debugging prompt
@@ -152,14 +153,14 @@ def _ws_url(cdp_url: str) -> str:
 		return json.load(r)['webSocketDebuggerUrl']
 
 
-def _daemon_cdp(name: str, method: str, **params) -> dict:
+def _daemon_cdp(name: str, method: str, session_id: str | None = None, **params) -> dict:
 	"""One CDP command through our daemon (browser-harness cdp(), from this process)."""
 	from browser_harness import _ipc as ipc
 
 	c, token = ipc.connect(name, timeout=5.0)
 	try:
 		c.settimeout(30)
-		r = ipc.request(c, token, {'method': method, 'params': params, 'session_id': None})
+		r = ipc.request(c, token, {'method': method, 'params': params, 'session_id': session_id})
 	finally:
 		c.close()
 	if 'error' in r:
@@ -292,6 +293,9 @@ class Browser:
 		cloud_timeout: int | None = None,
 		live_view: bool = False,
 		captcha_solver: bool = True,
+		allowed_domains: list[str] | None = None,
+		prohibited_domains: list[str] | None = None,
+		block_ip_addresses: bool = False,
 		**kwargs,
 	):
 		"""kind: 'cloud' (default), 'chromium' (a fresh local browser; local=True is the same) or 'chrome' (the Chrome
@@ -302,12 +306,19 @@ class Browser:
 		cloud_profile_id: a cloud profile id or name (logins persist in it). cloud_proxy_country_code=None turns the
 		proxy off. cloud_timeout: minutes (1-240, default 60). live_view: print and open the interactive live view URL
 		(anyone with that link can drive the browser). captcha_solver=False: the cloud browser's automatic captcha solver
-		is off from the start. The cloud_* options, live_view and captcha_solver=False raise on a local browser."""
+		is off from the start. The cloud_* options, live_view and captcha_solver=False raise on a local browser.
+		allowed_domains / prohibited_domains (0.x patterns: 'example.com', '*.example.com', 'https://example.com') and
+		block_ip_addresses limit where the browser navigates, in every mode (browser_use/domains.py; MIGRATING.md "Domain
+		restrictions" says what is and is not blocked)."""
 		if kwargs:
 			name = next(iter(kwargs))
-			hint = UNSUPPORTED.get(name, 'see MIGRATING.md for the 1.0 Browser options.')
-			raise TypeError(f'Browser({name}=...) is not supported in browser-use 1.0: {hint}')
+			if name in REMOVED:
+				raise TypeError(removed(f'Browser({name}=...)', REMOVED[name]))
+			raise TypeError(
+				f'Browser({name}=...) is not a browser-use 1.0 option; MIGRATING.md lists the options and what replaced 0.x ones.'
+			)
 		self.kind = _kind(kind, local, use_cloud, cdp_url)
+		self.domains = DomainRules.of(allowed_domains, prohibited_domains, block_ip_addresses)
 		launches = self.kind == 'chromium' or (self.kind == 'chrome' and profile is not None)
 		where = {'cloud': 'Browser() (a cloud browser)', 'chrome': "Browser('chrome') (your open Chrome)"}.get(
 			self.kind, f'Browser({self.kind!r})'
@@ -365,6 +376,8 @@ class Browser:
 		# stop() and atexit/SIGTERM never run _stop_now at the same time; reentrant: SIGTERM during atexit cleanup runs
 		# the handler on the thread that holds it
 		self._stop_mutex = threading.RLock()
+		self._guard: Guard | None = None  # domain restrictions' browser-level block, while started
+		self._user_tabs: set[str] = set()  # tabs open on a disallowed page at start: sweep() leaves them alone
 		_install_cleanup()  # here too: the main thread, when start() runs on another
 
 	async def start(self) -> dict[str, str]:
@@ -373,7 +386,11 @@ class Browser:
 		async with self._lock:
 			await self._stopped()
 			if self._env is None or not self.name:  # Browser('chrome'): ensuring the shared daemon is idempotent
-				self._env = await self._start()
+				env = await self._start()
+				if self.domains:  # the REPL helpers refuse disallowed URLs (worker.py)
+					self._user_tabs = await asyncio.to_thread(self._disallowed_tabs)
+					env['BU_DOMAINS'] = self.domains.to_json()
+				self._env = env
 			else:
 				await asyncio.to_thread(self._reattach)
 			return self._env
@@ -453,6 +470,9 @@ class Browser:
 			# tab is hidden, and a cloud browser never answers a hidden tab's screenshot) and stops it when it shuts down.
 			self._daemon_env = {'BU_CDP_WS': ws, 'BH_TAB_MARKER': '0', **({'BU_BROWSER_ID': self.id} if self.id else {})}
 			await asyncio.to_thread(admin.ensure_daemon, name=self.name, env=self._daemon_env)
+			if self.domains:
+				self._guard = Guard(ws, self.domains)
+				await asyncio.to_thread(self._guard.start)
 			if self.use_cloud and not self.captcha_solver:
 				await asyncio.to_thread(_daemon_cdp, self.name, 'BrowserUse.setCaptchaSolverEnabled', enabled=False)
 		except BaseException:
@@ -482,11 +502,36 @@ class Browser:
 		self.id, self.live_url, self.cloud_cdp_url, self.stopped = info['id'], info.get('liveUrl'), info['cdpUrl'], False
 		logger.debug('Started cloud browser %s', self.id)  # never log live_url: it grants control of the browser
 
+	def _daemon_name(self) -> str:
+		return self.name or os.environ.get('BU_NAME') or 'default'  # Browser('chrome'): the shared daemon
+
+	def _cdp(self) -> functools.partial[dict]:
+		return functools.partial(_daemon_cdp, self._daemon_name())
+
+	def _disallowed_tabs(self) -> set[str]:
+		return set(disallowed_tabs(self._cdp(), self.domains))
+
+	async def after_cell(self) -> tuple[list[str], int]:
+		"""Domain restrictions after each REPL cell: what the browser blocked since the last cell, then every tab that
+		still shows a disallowed page goes to about:blank. Returns (notices for the model, blocks)."""
+		if not self.domains:
+			return [], 0
+		notices, blocks = self._guard.take() if self._guard else ([], 0)
+		try:
+			reset = await asyncio.to_thread(sweep, self._cdp(), self.domains, self._user_tabs)
+		except Exception as e:  # - the daemon is gone; the next cell reports and reattaches it
+			logger.debug('domain sweep failed: %s', e)
+			reset = []
+		return notices + reset, blocks + len(reset)
+
 	def _stop_now(self) -> bool:
 		"""Stop our daemon, then the cloud browser (PATCH stop ends billing and saves the profile).
 		False when the cloud browser could not be stopped: it stays owned, so stop() again or process exit retries."""
 		with self._stop_mutex:
 			self._env = None
+			guard, self._guard = self._guard, None
+			if guard is not None:
+				guard.close()
 			name, self.name = self.name, None
 			if name and _shutdown_daemon(name) and self.id and self._daemon_env.get('BU_BROWSER_ID') == self.id:
 				self.stopped = True  # the daemon stopped it before it acknowledged

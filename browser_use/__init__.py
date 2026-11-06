@@ -33,16 +33,19 @@ _LAZY_IMPORTS = {
 	'ChatAnthropic': 'browser_use.llm',
 	'ChatGoogle': 'browser_use.llm',
 }
-_LLM_REMOVED = 'use a Pydantic AI model string instead, e.g. llm="groq:llama-3.3-70b" (see MIGRATING.md)'
-_REMOVED = {
-	'BrowserSession': 'use Browser(...)',
-	'BrowserProfile': 'pass options to Browser(...)',
-	'BrowserConfig': 'pass options to Browser(...)',
-	'DomService': 'the DOM service was removed; the agent reads pages with Python',
-	'SystemPrompt': 'use Agent(extend_system_message=...)',
-	'ActionModel': 'custom actions are plain functions: @tools.action(...)',
-	'sandbox': 'the sandbox decorator was removed',
-	'models': 'use a Pydantic AI model string, e.g. llm="openai:gpt-6-luna"',
+_LLM_REMOVED = (
+	"a Pydantic AI model string, e.g. llm='groq:llama-3.3-70b' or 'ollama:qwen3', or ChatOpenAI(model, base_url=...) "
+	'for any OpenAI-compatible server.'
+)
+_REMOVED = {  # 0.x top-level names -> the 1.0 alternative
+	'BrowserSession': 'Browser(...).',
+	'BrowserProfile': 'pass options to Browser(...).',
+	'BrowserConfig': 'pass options to Browser(...).',
+	'DomService': 'the agent reads pages with Python.',
+	'SystemPrompt': 'Agent(extend_system_message=...).',
+	'ActionModel': 'custom actions are plain functions: @tools.action(...).',
+	'sandbox': '',
+	'models': "a Pydantic AI model string, e.g. llm='openai:gpt-6-luna'.",
 	**{
 		name: _LLM_REMOVED
 		for name in (
@@ -72,7 +75,9 @@ def __getattr__(name: str):
 		globals()[name] = attr
 		return attr
 	if name in _REMOVED:
-		raise ImportError(f'browser_use.{name} was removed in browser-use 1.0: {_REMOVED[name]}.')
+		from browser_use.exceptions import removed
+
+		raise ImportError(removed(f'browser_use.{name}', _REMOVED[name]))
 	raise AttributeError(f"module 'browser_use' has no attribute {name!r}")
 
 

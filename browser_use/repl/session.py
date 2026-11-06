@@ -253,7 +253,8 @@ def _job_for(pid: int) -> int | None:
 
 class Repl:
 	"""mode='ultrafast' adds the `bu` helpers to the worker (BU_MODE=ultrafast). reattach: starts the browser-harness
-	daemon again after a cell lost it (Browser.start)."""
+	daemon again after a cell lost it (Browser.start). after_cell: runs after each cell, outside the worker; returns
+	(lines appended to the cell's output, blocks counted as domain_blocked) (Browser.after_cell)."""
 
 	def __init__(
 		self,
@@ -262,9 +263,10 @@ class Repl:
 		mode: str | None = 'default',
 		secrets: Secrets | None = None,
 		reattach: Callable[[], Awaitable[Any]] | None = None,
+		after_cell: Callable[[], Awaitable[tuple[list[str], int]]] | None = None,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
-		self.reattach = reattach
+		self.reattach, self.after_cell = reattach, after_cell
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		self.proc: asyncio.subprocess.Process | None = None
 		self.job: int | None = None  # Windows job object of the worker's process tree
@@ -376,6 +378,13 @@ class Repl:
 					)
 				except Exception as e:
 					r['error'] += f'\n[{e}. Finish with what you have.]'
+			if self.after_cell is not None and op == 'exec':
+				notices, blocks = await self.after_cell()
+				if notices:
+					r['output'] = '\n'.join(filter(None, [r.get('output') or '', *notices]))
+				if blocks:
+					events = r.setdefault('stats', {}).setdefault('events', {})
+					events['domain_blocked'] = events.get('domain_blocked', 0) + blocks
 		return {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value')}}
 
 	async def _call(self, op: str, code: str, timeout: float) -> dict[str, Any]:

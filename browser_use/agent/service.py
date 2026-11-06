@@ -19,6 +19,7 @@ from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import Browser
 from browser_use.browser.browser import json_page_copies
 from browser_use.config import load_env
+from browser_use.exceptions import removed
 from browser_use.llm import ChatBrowserUse, as_chat_model, gateway_llm, resolve_model
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import check_loop, scoped_secrets
@@ -34,36 +35,90 @@ LOCAL_TARGET = re.compile(
 	re.I,
 )
 REASONING = (None, 'low', 'medium', 'high')
-UNSUPPORTED = {  # 0.x Agent kwargs -> what to do in 1.0. Anything else unknown raises too.
-	'use_vision': 'remove it: the agent takes screenshots when it needs them.',
-	'max_actions_per_step': 'remove it: each step is one Python cell.',
-	'flash_mode': "remove it, or try mode='ultrafast'.",
-	'use_thinking': "use reasoning='low'|'medium'|'high'.",
-	'override_system_message': 'use extend_system_message=... (the core prompt is fixed).',
-	'browser_profile': 'BrowserProfile was removed; pass Browser(...).',
-	'page_extraction_llm': 'remove it: the agent extracts with Python.',
-	'file_system_path': 'use workspace=...',
+_SCREENSHOTS = 'the agent takes screenshots when it needs them.'
+_MESSAGES = 'result.messages holds the whole transcript after the run.'
+_CANCEL = 'cancel the task that awaits agent.run(), or pass run(timeout=seconds).'
+REMOVED = {  # 0.x Agent(...) and run() arguments -> the 1.0 alternative ('' when there is none). MIGRATING.md lists them.
+	'use_vision': _SCREENSHOTS,
+	'vision_detail_level': _SCREENSHOTS,
+	'llm_screenshot_size': _SCREENSHOTS,
+	'sample_images': _SCREENSHOTS,
+	'max_actions_per_step': 'each step is one Python cell.',
+	'flash_mode': "mode='ultrafast'.",
+	'use_thinking': "reasoning='low' | 'medium' | 'high'.",
+	'override_system_message': 'extend_system_message=... (the core prompt is fixed).',
+	'browser_profile': 'pass options to Browser(...).',
+	'page_extraction_llm': 'the agent extracts with Python.',
+	'extraction_schema': 'the agent extracts with Python.',
+	'file_system_path': 'workspace=...',
 	'available_file_paths': 'put the files in the workspace (workspace=...).',
-	'initial_actions': 'describe the first steps in the task instead.',
-	'register_new_step_callback': 'not supported yet; read result.messages after the run.',
-	'register_done_callback': 'not supported yet; use the value run() returns.',
-	'generate_gif': 'not supported in 1.0.',
-	'save_conversation_path': 'not supported yet; result.messages holds the transcript.',
-	'max_failures': 'remove it: failed cells are retried by the model within max_steps.',
-	'fallback_llm': 'not supported yet.',
-	'llm_timeout': 'use agent.run(timeout=...) for the agent loop.',
-	'step_timeout': 'use agent.run(timeout=...) for the agent loop.',
-	'calculate_cost': 'remove it: result.cost_usd is always computed when the price is known.',
-	'use_judge': 'not supported in 1.0.',
-	'judge_llm': 'not supported in 1.0.',
-	'directly_open_url': 'remove it: the agent opens URLs from the task itself.',
+	'initial_actions': 'describe the first steps in the task.',
+	'directly_open_url': 'the agent opens URLs from the task itself.',
+	'register_new_step_callback': _MESSAGES,
+	'register_done_callback': 'use the result agent.run() returns.',
+	'register_external_agent_status_raise_error_callback': _CANCEL,
+	'register_should_stop_callback': _CANCEL,
+	'on_step_start': _MESSAGES,
+	'on_step_end': _MESSAGES,
+	'save_conversation_path': _MESSAGES,
+	'save_conversation_path_encoding': _MESSAGES,
+	'max_failures': 'failed cells are retried by the model within max_steps.',
+	'final_response_after_failure': 'failed cells are retried by the model within max_steps.',
+	'llm_timeout': 'agent.run(timeout=seconds) bounds the agent loop.',
+	'step_timeout': 'agent.run(timeout=seconds) bounds the agent loop.',
+	'calculate_cost': 'result.cost_usd is computed whenever the price is known.',
+	'pricing_url': 'result.cost_usd is computed whenever the price is known.',
+	**dict.fromkeys(('generate_gif', 'demo_mode', 'fallback_llm', 'use_judge', 'judge_llm', 'ground_truth'), ''),
+	**dict.fromkeys(('skill_ids', 'skills', 'skill_service'), ''),  # Cloud Skills
+	**dict.fromkeys(  # the 0.x planner and loop tuning
+		(
+			'enable_planning',
+			'planning_replan_on_stall',
+			'planning_exploration_limit',
+			'planner_llm',
+			'planner_interval',
+			'is_planner_reasoning',
+			'extend_planner_system_message',
+			'use_vision_for_planner',
+			'loop_detection_window',
+			'loop_detection_enabled',
+			'message_compaction',
+			'max_history_items',
+			'include_attributes',
+			'max_clickable_elements_length',
+			'include_recent_events',
+			'include_tool_call_examples',
+			'display_files_in_done_text',
+			'injected_agent_state',
+			'source',
+			'task_id',
+			'enable_signal_handler',
+			'_url_shortening_limit',
+		),
+		'',
+	),
+}
+REMOVED_METHODS = {  # 0.x Agent methods -> the 1.0 alternative
+	'pause': _CANCEL,
+	'resume': '',
+	'stop': _CANCEL,
+	'step': 'agent.run(max_steps=...) runs the loop.',
+	'take_step': 'agent.run(max_steps=...) runs the loop.',
+	'multi_act': 'the model acts in Python cells.',
+	'save_history': _MESSAGES,
+	'load_and_rerun': 'run the task again.',
+	'rerun_history': 'run the task again.',
+	'detect_variables': '',
 }
 
 
 def _unsupported(kwargs: dict[str, Any], where: str) -> TypeError:
 	name = next(iter(kwargs))
-	hint = UNSUPPORTED.get(name, 'see MIGRATING.md for the 1.0 options.')
-	return TypeError(f'{where}({name}=...) is not supported in browser-use 1.0: {hint}')
+	if name in REMOVED:
+		return TypeError(removed(f'{where}({name}=...)', REMOVED[name]))
+	return TypeError(
+		f'{where}({name}=...) is not a browser-use 1.0 option; MIGRATING.md lists the options and what replaced 0.x ones.'
+	)
 
 
 class Agent:
@@ -127,6 +182,11 @@ class Agent:
 		self._custom_workspace = workspace is not None
 		self._downloads: list[Path] = []  # what the last stop() copied from a cloud browser (telemetry counts them)
 
+	def __getattr__(self, name: str) -> Any:
+		if name in REMOVED_METHODS:
+			raise AttributeError(removed(f'Agent.{name}()', REMOVED_METHODS[name]))
+		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')
+
 	def add_new_task(self, task: str) -> None:
 		"""The next run() continues this conversation with a new task."""
 		self.task, self._continue = task, True
@@ -163,6 +223,7 @@ class Agent:
 						f'{CLOUD_PROMPT} {CAPTCHA_PROMPT if self.browser.captcha_solver else NO_CAPTCHA_PROMPT}'
 						if self.browser.use_cloud
 						else '',
+						self.browser.domains.prompt(),  # '' without restrictions: the default prompt stays byte-identical
 						redact(self.extend_system_message, self.sensitive_data),
 					],
 				)
@@ -216,7 +277,14 @@ class Agent:
 					browser_s = time.monotonic() - started
 				else:
 					await self._repl.close()
-				self._repl = Repl(self.workspace, env, mode=self.mode, secrets=self.sensitive_data, reattach=self.browser.start)
+				self._repl = Repl(
+					self.workspace,
+					env,
+					mode=self.mode,
+					secrets=self.sensitive_data,
+					reattach=self.browser.start,
+					after_cell=self.browser.after_cell if self.browser.domains else None,
+				)
 			session = Session(repl=self._repl, timeout_s=timeout, max_steps=max_steps)
 			history, self._continue = (self._history if self._continue else None), False
 			result = await run(
@@ -240,9 +308,11 @@ class Agent:
 				await self._shutdown()
 			self._capture(result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started)
 
-	def run_sync(self, max_steps: int = 100, timeout: float = 1700) -> AgentHistoryList:
+	def run_sync(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
 		"""run() without async. One event loop serves every run_sync() while the REPL lives (Browser(keep_alive=True)),
 		because the REPL worker's pipes belong to the loop that started it; close_sync() ends it."""
+		if kwargs:
+			raise _unsupported(kwargs, 'Agent.run_sync')
 		self._runner = self._runner or asyncio.Runner()
 		try:
 			return self._runner.run(self.run(max_steps=max_steps, timeout=timeout))
@@ -394,6 +464,8 @@ class Agent:
 					captcha_solved=stats.events['captcha_solved'],
 					captcha_failed=stats.events['captcha_failed'],
 					downloads_started=stats.events['download_started'],
+					domain_restrictions=bool(browser.domains),
+					domain_blocks=stats.events['domain_blocked'],
 					downloads=len(downloads),
 					download_exts=top(Counter(p.suffix.lower().lstrip('.')[:10] or 'none' for p in downloads)),
 				)

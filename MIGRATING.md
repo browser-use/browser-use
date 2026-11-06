@@ -4,7 +4,9 @@
 persistent REPL with [browser-harness](https://github.com/browser-use/browser-harness) helpers and raw CDP, on
 [Pydantic AI](https://ai.pydantic.dev). The common 0.x surface (`Agent`, `Browser`, `Tools`, `run()`,
 `final_result()`) still works. Anything 1.0 cannot honor raises a clear error before a browser starts or anything is
-billed, never a silent no-op.
+billed, never a silent no-op. A 0.x feature 1.0 dropped raises one error: "`<feature>` was removed in browser-use 1.0.
+Open an issue at https://github.com/browser-use/browser-use/issues if you need it.", plus the 1.0 alternative when
+there is one; [Removed in 1.0](#removed-in-10) lists them all.
 
 Need 0.x? Pin it: `pip install 'browser-use<1'`.
 
@@ -22,7 +24,8 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 
 ## Agent(...) arguments
 
-Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent(...)` itself.
+Kept: works as in 0.x. Every other 0.x argument raises `TypeError` naming it in `Agent(...)` itself (listed in
+[Removed in 1.0](#removed-in-10)); an argument 0.x never had says it is not a 1.0 option.
 
 | 0.x argument | 1.0 |
 |---|---|
@@ -33,38 +36,19 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 | `output_model_schema` | kept: `result.structured_output` |
 | `sensitive_data` | kept: `{'name': 'value'}` types anywhere; domain-scoped `{'https://site.com' or '*.site.com': {'name': 'value'}}` types only on matching pages (0.x patterns: no scheme = https only). The model types values with `type_secret('name')`; a name ending in `bu_2fa_code` holds a TOTP seed and types the current 6-digit code, as in 0.x; values are replaced with `<secret:name>` in cell output, checkpoints, tool results, the task and the result. Not a sandbox: see [Trust model](#trust-model-for-secrets) for exactly what is redacted |
 | `extend_system_message` | kept |
-| `use_vision`, `max_actions_per_step`, `vision_detail_level`, `llm_screenshot_size`, `sample_images` | raises: screenshots are taken when needed; each step is one Python cell |
-| `flash_mode` | raises: try `mode='ultrafast'` |
-| `use_thinking` | raises: use `reasoning='low' / 'medium' / 'high'` |
-| `override_system_message` | raises: use `extend_system_message` |
-| `browser_profile` | raises: pass options to `Browser(...)` |
-| `page_extraction_llm`, `extraction_schema` | raises: the agent extracts with Python |
-| `file_system_path` | raises: use `workspace=` |
-| `available_file_paths` | raises: put files in the workspace |
-| `initial_actions`, `directly_open_url` | raises: say it in the task |
-| `register_new_step_callback`, `register_done_callback`, `register_external_agent_status_raise_error_callback`, `register_should_stop_callback` | raises: read `result.messages` after the run |
-| `max_failures`, `final_response_after_failure` | raises: failed cells are retried within `max_steps` |
-| `llm_timeout`, `step_timeout` | raises: `agent.run(timeout=seconds)` bounds the agent loop (model requests and cells; browser start and stop are not counted) |
-| `fallback_llm` | raises |
-| `use_judge`, `judge_llm`, `ground_truth` | raises |
-| `generate_gif`, `demo_mode` | raises |
-| `save_conversation_path`, `save_conversation_path_encoding` | raises: `result.messages` holds the transcript |
-| `calculate_cost`, `pricing_url` | raises: `result.cost_usd` is computed when the price is known (`None` otherwise) |
-| `skill_ids`, `skills`, `skill_service` | raises: Cloud Skills were removed |
-| `enable_planning`, `planning_replan_on_stall`, `planning_exploration_limit`, `loop_detection_window`, `loop_detection_enabled`, `message_compaction`, `max_history_items`, `include_attributes`, `max_clickable_elements_length`, `include_recent_events`, `include_tool_call_examples`, `display_files_in_done_text`, `injected_agent_state`, `source`, `task_id`, `enable_signal_handler`, `_url_shortening_limit` | raises: these tuned the 0.x loop |
+| everything else 0.x took | removed: [Removed in 1.0](#removed-in-10) |
 | new: `reasoning`, `mode`, `workspace` | `reasoning='medium'` (OpenAI reasoning models, the gateway, Anthropic, Google; on the gateway the default is the alias's own effort; OpenAI-compatible chat backends ignore it with a warning: use `ChatOpenAI(..., reasoning_effort=...)`); `mode='ultrafast'`; `workspace` holds the agent's files (default: a temp dir) |
 
 ## Agent methods
 
 | 0.x | 1.0 |
 |---|---|
-| `await agent.run(max_steps=...)` | kept, but the default changed from 500 to 100: one step is one model request (one Python cell, or the delivery). Also `timeout=1700`: seconds for the agent loop (model requests and cells). Browser start before it and browser stop / cloud download collection after it are not counted. Request `max_steps - 1` is a delivery-only turn and the last is kept for one delivery repair. `max_steps < 1` or `timeout <= 0` raises `ValueError` before any browser starts. `on_step_start` / `on_step_end` raise |
+| `await agent.run(max_steps=...)` | kept, but the default changed from 500 to 100: one step is one model request (one Python cell, or the delivery). Also `timeout=1700`: seconds for the agent loop (model requests and cells). Browser start before it and browser stop / cloud download collection after it are not counted. Request `max_steps - 1` is a delivery-only turn and the last is kept for one delivery repair. `max_steps < 1` or `timeout <= 0` raises `ValueError` before any browser starts. `on_step_start` / `on_step_end`: removed |
 | `agent.run_sync()` | kept |
 | `agent.add_new_task(task)` | kept: the next `run()` continues the same conversation |
 | `await agent.close()`, `async with Agent(...)` | kept; after `run_sync()` use `agent.close_sync()` |
 | browser stops when `run()` ends | kept, unless `Browser(keep_alive=True)` |
-| `pause()`, `resume()`, `stop()`, `step()`, `multi_act()` | removed |
-| `save_history()`, `load_and_rerun()`, `rerun_history()`, `detect_variables()` | removed |
+| `pause()`, `resume()`, `stop()`, `step()`, `multi_act()`, `save_history()`, `load_and_rerun()`, `rerun_history()`, `detect_variables()` | removed: [Removed in 1.0](#removed-in-10) |
 
 ## The result (AgentHistoryList)
 
@@ -73,7 +57,7 @@ Kept: works as in 0.x. Raises: `TypeError` naming the argument, raised in `Agent
 | `final_result()`, `is_done()`, `structured_output`, `total_duration_seconds()`, `number_of_steps()` | kept |
 | `errors()`, `has_errors()` | changed: only the error that ended the run (`result.error`). 0.x listed one entry per step; cell errors the agent recovered from are now in `result.messages` |
 | `is_successful()` | kept: `None` when the run did not complete, else the agent's verdict (`result.success`). Like 0.x `done(result, success)`, `finish(result, success)` requires the verdict: `success=False` for a task that was blocked, impossible, not found, refused or only partly done. `None` also when the model answered in plain text instead of calling `finish`. `is_done()` only says the run completed |
-| `history`, `urls()`, `screenshots()`, `screenshot_paths()`, `action_names()`, `action_history()`, `action_results()`, `model_thoughts()`, `model_outputs()`, `model_actions()`, `model_actions_filtered()`, `extracted_content()`, `agent_steps()`, `last_action()`, `save_to_file()`, `load_from_file()`, `get_structured_output()`, `add_item()`, `judgement()`, `is_judged()`, `is_validated()` | raise `NotImplementedError`: there are no per-step actions. Use `result.messages`, `result.status`, `result.partial` and the files in `agent.workspace` |
+| `history`, `urls()`, `screenshots()`, `screenshot_paths()`, `action_names()`, `action_history()`, `action_results()`, `model_thoughts()`, `model_outputs()`, `model_actions()`, `model_actions_filtered()`, `extracted_content()`, `agent_steps()`, `last_action()`, `save_to_file()`, `load_from_file()`, `get_structured_output()`, `add_item()`, `judgement()`, `is_judged()`, `is_validated()` | removed (`NotImplementedError`): there are no per-step actions. Use `result.messages`, `result.status`, `result.partial` and the files in `agent.workspace` |
 | new | `status` (`completed`, `max_steps`, `timeout`, `error`), `success`, `partial` (last `checkpoint(..., partial=True)`), `usage`, `cost_usd`, `messages` |
 
 ## Browser(...)
@@ -108,9 +92,9 @@ Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` na
 | `permissions` | say it in the task: the agent can send `Browser.grantPermissions` |
 | `proxy` (`server`, `bypass`, `username`, `password`) | cloud: `cloud_proxy_country_code`. Local: not yet |
 | `storage_state`, `cookie_whitelist_domains` | cloud: `cloud_profile_id` keeps logins. Local: `Browser('chrome')` / `Browser('chrome', profile=...)` have yours; `Browser('chromium', user_data_dir=...)` keeps its own |
-| `allowed_domains`, `prohibited_domains`, `block_ip_addresses` | raise: not in 1.0 yet. Domain-scoped `sensitive_data` still limits where secrets are typed |
 | recording: `record_video_dir`, `record_video_size`, `record_video_framerate`, `record_har_path`, `record_har_content`, `record_har_mode`, `traces_dir` | removed. `result.messages` is the transcript; `live_view=True` shows a cloud browser live |
 | 0.x engine tuning: `highlight_elements`, `dom_highlight_elements`, `filter_highlight_ids`, `paint_order_filtering`, `interaction_highlight_color`, `interaction_highlight_duration`, `cross_origin_iframes`, `max_iframes`, `max_iframe_depth`, `minimum_wait_page_load_time`, `wait_for_network_idle_page_load_time`, `wait_between_actions`, `deterministic_rendering`, `demo_mode` | removed: they tuned the 0.x DOM engine. Delete them |
+| `allowed_domains`, `prohibited_domains`, `block_ip_addresses` | kept, in every mode, with the 0.x patterns: see [Domain restrictions](#domain-restrictions) |
 | `captcha_solver` | kept for cloud browsers: they solve captchas automatically, and `Browser(captcha_solver=False)` turns the solver off when the browser starts (the agent is told to handle captchas itself). Other browsers have no solver: `captcha_solver=False` raises `ValueError` |
 
 Parallel agents (the 0.x `parallel_agents.py` pattern): give each its own `Browser()` or `Browser('chromium')`; each
@@ -124,7 +108,7 @@ browser-harness default daemon and its one attached tab, so two at once move eac
 | `ChatBrowserUse(model=...)` | kept: `bu-ultrafast` (default), `bu-auto`, `bu-smart` or a listed OpenAI model on the new gateway, over the stateless Responses API with server-side compaction. The 0.x gateway models `bu-2-0`, `bu-2-0-mini-preview`, `bu-1-0` and `bu-latest` are rejected: keep `browser-use<1.0` for them, or use `bu-ultrafast`. Before the browser starts, the agent reads the gateway's model list (free): a gateway that is not there, a rejected key or a model it does not list ends the run with `result.error` and no browser created. Gateway errors (400/401/402/403/404) come back as one actionable line in `result.error`; `result.cost_usd` is what the gateway charged. Another gateway URL: `ChatBrowserUse(base_url=...)` (0.x's `BROWSER_USE_LLM_URL` is not read) |
 | `ChatOpenAI(model, api_key, base_url, temperature, reasoning_effort)` | kept. api.openai.com uses the Responses API; the gateway URL (`https://api.browser-use.com/api/llm/v1`) is served as `ChatBrowserUse` (key: `api_key`, else a `bu_` key in `OPENAI_API_KEY`, else the Browser Use key); any other `base_url` uses plain chat completions. Other 0.x arguments raise `TypeError` |
 | `ChatAnthropic(model, api_key)`, `ChatGoogle(model, api_key)` | kept; need `browser-use[anthropic]` / `browser-use[google]` |
-| `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatDeepSeek`, `ChatMistral`, `ChatOpenRouter`, `ChatAWSBedrock`, `ChatAnthropicBedrock`, `ChatCerebras`, `ChatLiteLLM`, `ChatOCIRaw`, `ChatOrcaRouter`, `ChatVercel` | import raises: use a Pydantic AI model string (`'groq:llama-3.3-70b'`, `'mistral:...'`, `'bedrock:...'`) or `ChatOpenAI(model, base_url=...)` |
+| `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatDeepSeek`, `ChatMistral`, `ChatOpenRouter`, `ChatAWSBedrock`, `ChatAnthropicBedrock`, `ChatCerebras`, `ChatLiteLLM`, `ChatOCIRaw`, `ChatOrcaRouter`, `ChatVercel` | removed (the import raises): use a Pydantic AI model string (`'groq:llama-3.3-70b'`, `'mistral:...'`, `'bedrock:...'`) or `ChatOpenAI(model, base_url=...)` |
 
 ## Tools
 
@@ -134,9 +118,100 @@ browser-harness default daemon and its one attached tab, so two at once move eac
 | `@tools.action('description')` on a plain function | kept: the function becomes a model tool |
 | `param_model=Model` | kept |
 | returning `ActionResult(extracted_content=...)` or any value | kept: the model sees it |
-| injected parameters (`browser_session`, `page_extraction_llm`, `file_system`, `available_file_paths`, `sensitive_data`, `has_sensitive_data`, `cdp_client`, `page_url`, ...) | raises: actions get only what the model passes; the model drives the browser itself |
-| `domains=`, `allowed_domains=` | raises |
+| injected parameters (`browser_session`, `page_extraction_llm`, `file_system`, `available_file_paths`, `sensitive_data`, `has_sensitive_data`, `cdp_client`, `page_url`, ...) | removed: actions get only what the model passes; the model drives the browser itself |
+| `domains=`, `allowed_domains=` | removed: `Browser(allowed_domains=...)` limits where the whole browser navigates |
 | `ActionResult(is_done=True)` ending the run | not supported: the model ends the run with `finish` |
+
+## Removed in 1.0
+
+Each raises the one error above (`TypeError` for arguments, `AttributeError` for `Agent` methods, `NotImplementedError`
+for result methods, `ImportError` for imports, an MCP tool error for old tool names) before a browser starts.
+
+| 0.x | Status | In 1.0 |
+|---|---|---|
+| step callbacks: `register_new_step_callback`, `register_done_callback`, `register_external_agent_status_raise_error_callback`, `register_should_stop_callback`, `run(on_step_start=...)`, `run(on_step_end=...)` | removed | `result.messages` after the run; the result `run()` returns; to stop early, cancel the task awaiting `run()` or pass `run(timeout=...)` |
+| `agent.pause()`, `resume()`, `stop()`, `step()`, `take_step()`, `multi_act()` | removed | cancel the task awaiting `run()`, or `run(timeout=..., max_steps=...)` |
+| history replay: `save_history()`, `load_and_rerun()`, `rerun_history()`, `detect_variables()`, `AgentHistoryList.save_to_file()` / `load_from_file()` | removed | `result.messages` holds the transcript; run the task again |
+| judge: `use_judge`, `judge_llm`, `ground_truth`, `AgentHistoryList.judgement()` / `is_judged()` / `is_validated()` | removed | `result.success`, the agent's own verdict |
+| `generate_gif`, `demo_mode` | removed | none (`live_view=True` shows a cloud browser live) |
+| planner and vision tuning: `use_vision`, `vision_detail_level`, `llm_screenshot_size`, `sample_images`, `enable_planning`, `planning_replan_on_stall`, `planning_exploration_limit`, `planner_llm`, `planner_interval`, `is_planner_reasoning`, `extend_planner_system_message`, `use_vision_for_planner`, `max_actions_per_step`, `flash_mode` | removed | the agent takes screenshots when it needs them; each step is one Python cell; `mode='ultrafast'` |
+| other 0.x loop tuning: `loop_detection_window`, `loop_detection_enabled`, `message_compaction`, `max_history_items`, `include_attributes`, `max_clickable_elements_length`, `include_recent_events`, `include_tool_call_examples`, `display_files_in_done_text`, `injected_agent_state`, `source`, `task_id`, `enable_signal_handler`, `_url_shortening_limit`, `max_failures`, `final_response_after_failure` | removed | failed cells are retried by the model within `max_steps` |
+| `use_thinking` | removed | `reasoning='low' / 'medium' / 'high'` |
+| `override_system_message` | removed | `extend_system_message` |
+| `browser_profile` | removed | pass options to `Browser(...)` |
+| `page_extraction_llm`, `extraction_schema` | removed | the agent extracts with Python |
+| `file_system_path`, `available_file_paths` | removed | `workspace=` (put files in it) |
+| `initial_actions`, `directly_open_url` | removed | say it in the task |
+| `llm_timeout`, `step_timeout` | removed | `agent.run(timeout=seconds)` bounds the agent loop (model requests and cells; browser start and stop are not counted) |
+| `fallback_llm` | removed | none |
+| `save_conversation_path`, `save_conversation_path_encoding` | removed | `result.messages` |
+| `calculate_cost`, `pricing_url` | removed | `result.cost_usd` is computed when the price is known (`None` otherwise) |
+| `skill_ids`, `skills`, `skill_service` (Cloud Skills) | removed | none |
+| tool injected parameters (`browser_session`, `page_url`, `cdp_client`, ...) | removed | actions get only what the model passes |
+| `@tools.action(domains=...)`, `@tools.action(allowed_domains=...)` | removed | `Browser(allowed_domains=...)` |
+| `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatOpenRouter`, `ChatDeepSeek` and the other provider classes (see [Models](#models)) | removed | a Pydantic AI model string (`llm='groq:llama-3.3-70b'`, `'ollama:qwen3'`) or `ChatOpenAI(model, base_url=...)` |
+| `browser-use --mcp` tool names (`browser_navigate`, `browser_click`, `browser_type`, `browser_get_state`, `browser_extract_content`, `browser_get_html`, `browser_scroll`, `browser_go_back`, `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab`, `retry_with_browser_use_agent`, `browser_list_sessions`, `browser_close_session`, `browser_close_all`) | removed | `browser_exec` (Python with the browser-harness helpers) and `browser_screenshot` |
+
+## Domain restrictions
+
+`Browser(allowed_domains=[...])`, `Browser(prohibited_domains=[...])` and `Browser(block_ip_addresses=True)` work in
+every mode with the 0.x patterns:
+
+| Pattern | Matches |
+|---|---|
+| `'example.com'` | example.com and www.example.com (www only for a one-dot domain), http and https, any port |
+| `'mail.example.com'` | exactly that host |
+| `'*.example.com'` | example.com and every subdomain, http and https |
+| `'https://example.com'` | that scheme and host on the default port; a path in the pattern is a path prefix |
+| `'https://*.example.com'`, `'http*://example.com/*'`, `'brave://*'` | globs on scheme, host and path |
+| `'localhost:8080'` | that host and port (new: 0.x never matched a port) |
+
+As in 0.x: `about:blank`, the new tab page, `data:` and `blob:` URLs are always allowed; URLs without a host
+(`file:`, `javascript:`) are blocked; hosts compare case-insensitively and `user@host` URLs use the real host; when
+both lists are set `prohibited_domains` is ignored (a warning says so); `block_ip_addresses` blocks IP-literal hosts
+(also `http://0x7f.1/`-style forms) even if they are allowed; `[]` means no restriction. Fixed in 1.0: a
+scheme-qualified pattern compares the parsed host and port, so `'https://example.com'` no longer allows
+`https://example.com.evil.com` or `https://example.com@evil.com`; international domains match in either form
+(`münchen.de` = `xn--mnchen-3ya.de`); 0.x's fast path for lists of 100+ entries (exact hosts only) is gone: patterns
+work at any length.
+
+How it is enforced:
+
+1. The REPL helpers refuse a disallowed URL before anything navigates: `goto_url`, `new_tab`, `http_get`, and the
+   agent's raw `cdp('Page.navigate')` / `cdp('Target.createTarget')`. The model sees `PermissionError: blocked:
+   evil.com is not in allowed_domains (example.com)`.
+2. The browser blocks every main-frame navigation to a disallowed host, whoever starts it: link clicks, redirects,
+   `target=_blank`, `window.open`, meta refresh, JavaScript `location` changes, `Target.createTarget(url=...)`. browser-use
+   holds its own CDP connection with browser-wide `Fetch.enable` for document requests and fails them
+   (`net::ERR_BLOCKED_BY_CLIENT`); the request never leaves the browser. The agent's `cdp('Fetch.disable')` cannot turn
+   it off (it is not the agent's connection). The next cell output says what was blocked.
+3. After every cell, browser-use checks every tab: one still showing a disallowed page is navigated to `about:blank` and
+   the cell output says so. Tabs already open on a disallowed page when the browser started are left alone (your
+   tabs, in `Browser('chrome')`).
+4. The system prompt gets one line listing the domains (only when set).
+
+| Mode | Helpers refuse (1) | Browser blocks (2) | Tabs reset after each cell (3) |
+|---|---|---|---|
+| `Browser()` (cloud) | yes | yes | yes |
+| `Browser('chromium')`, `Browser('chrome', profile=...)` | yes | yes | yes |
+| `Browser(cdp_url=...)` | yes | yes (a second CDP connection to that endpoint) | yes |
+| `Browser('chrome')` (your open Chrome) | yes | no: a second connection would raise Chrome's "Allow remote debugging?" prompt again | yes (tabs you open while it runs too) |
+
+Not blocked (a guard for an aligned model, not a sandbox):
+
+- Subresources: `fetch()`/XHR, images, scripts, iframes and websockets an allowed page loads from other hosts. Pages
+  need their CDNs; a page on an allowed domain can still send data anywhere.
+- The REPL's own Python networking (`requests`, `urllib`, `subprocess curl`): only `http_get` is checked.
+- Navigations from the agent's Python that skip the helpers (`Runtime.evaluate` that sets `location`, a click) are
+  caught by layer 2, except in `Browser('chrome')`, where only the after-cell reset (3) catches them, after the page
+  loaded.
+- Model code that goes around browser-use on purpose: closing or crashing the browser, opening its own CDP
+  connection. Run untrusted tasks in a container or VM.
+- Layer 2 adds one round trip to browser-use per document request (on a cloud browser, your network's latency to it).
+  If its connection drops it reconnects; meanwhile only layers 1 and 3 apply. If it cannot start, `Browser.start()`
+  raises instead of running unguarded.
+
+Domain-scoped `sensitive_data` still limits where each secret is typed, independently of these lists.
 
 ## Other removed modules
 
@@ -161,8 +236,8 @@ The `browser-use` CLI (Python piped to browser-harness), `browser-use skill inst
 as before. New: `browser-use login` / `logout` (same as `browser-use auth login` / `logout`), and a `browser_login`
 MCP tool that opens the browser to approve and stores the same key. The old `browser-use --mcp` server (tools like
 `browser_navigate`, `browser_click`) ran the removed engine: `--mcp` now prints a deprecation notice and serves the
-`--cli-mcp` tools (`browser_exec`, `browser_screenshot`). MCP clients that call the old tool names break; switch them
-to `--cli-mcp`. `browser-use init` templates were removed.
+`--cli-mcp` tools (`browser_exec`, `browser_screenshot`). Calls to the old tool names return the removed error with the
+`browser_exec` alternative; switch those clients to `--cli-mcp`. `browser-use init` templates were removed.
 
 Cloud browsers in the CLI and MCP server: after `start_remote_daemon(name)` (anywhere in the code) the rest of that
 call, and every later MCP call, drives that cloud browser. A daemon name that ran a cloud browser never falls back to

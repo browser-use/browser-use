@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic_ai.messages import ModelMessage
 
+from browser_use.exceptions import removed
 from browser_use.tools import ActionResult  # 0.x imported it from here
 
 __all__ = ['ActionResult', 'AgentHistoryList']
@@ -90,8 +91,10 @@ class AgentHistoryList:
 	def __getattr__(self, name: str) -> Any:
 		if name in REMOVED:
 			raise NotImplementedError(
-				f'AgentHistoryList.{name} is not available in browser-use 1.0: the agent runs Python cells, not '
-				'step actions. Use final_result(), structured_output, errors(), .messages (the full transcript) or '
-				'files the agent saved in agent.workspace. See MIGRATING.md.'
+				removed(
+					f'AgentHistoryList.{name}',
+					'the agent runs Python cells, not step actions: use final_result(), structured_output, errors(), '
+					'.messages (the full transcript) or the files the agent saved in agent.workspace.',
+				)
 			)
 		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')

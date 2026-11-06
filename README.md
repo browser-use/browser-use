@@ -142,6 +142,7 @@ Other models: `ChatAnthropic` (`browser-use[anthropic]`), `ChatGoogle` (`browser
 
 - **Typed results:** `Agent(task, output_model_schema=MyModel)` then `result.structured_output`.
 - **Secrets:** `Agent(task, sensitive_data={'password': '...'})`, or `{'https://*.example.com': {'password': '...'}}` to type it only on that domain. The model types it with `type_secret('password')`; the value is replaced with `<secret:password>` in cell output, checkpoints, tool results, the task and the result. Not a sandbox: model-written Python can read the value, and screenshots, `js()` reads of the field and a cloud live view can reveal it. See the trust model in MIGRATING.md.
+- **Domain restrictions:** `Browser(allowed_domains=['example.com', '*.example.org'])` (or `prohibited_domains=`, `block_ip_addresses=True`) with the 0.x patterns, in every browser mode. A guard for an aligned model, not a sandbox: see the FAQ.
 - **Follow-ups:** `agent.add_new_task('...')` then `await agent.run()`; use `Browser(keep_alive=True)` to keep the same page between runs.
 - **Custom tools:** plain functions with `@tools.action('description')`, then `Agent(task, tools=tools)`.
 - **Ultrafast:** `Agent(task, mode='ultrafast')` acts on accessibility-tree ids for interaction-heavy tasks.
@@ -204,6 +205,14 @@ This open-source library is licensed under the MIT License. For Browser Use serv
 Cloud browsers also solve CAPTCHAs automatically, and the agent waits for the solver with `solve_captcha()` instead of clicking the challenge. `Browser(captcha_solver=False)` turns the solver off.
 
 Results depend on the site and challenge; no browser configuration guarantees that every CAPTCHA can be avoided or solved.
+</details>
+
+<details>
+<summary><b>Can I limit which sites the agent visits?</b></summary>
+
+`Browser(allowed_domains=['example.com', '*.example.org'])`, `Browser(prohibited_domains=['evil.com'])` or `Browser(block_ip_addresses=True)`, with the 0.x patterns, on any browser. The browser helpers refuse a disallowed URL, the browser itself blocks main-frame navigations to it (link clicks, redirects, popups, JavaScript; all modes except `Browser('chrome')` attached to your open Chrome, where a second debugging connection would prompt you again), every tab still on a disallowed page after a cell is reset to `about:blank`, and the system prompt lists the domains.
+
+It is a guard for an aligned model, not a sandbox: requests an allowed page makes to other hosts (`fetch`, images, iframes) are not filtered, nor is the agent's own Python networking beyond `http_get`. Run untrusted tasks in a container or VM. [MIGRATING.md](MIGRATING.md#domain-restrictions) lists exactly what is blocked in each mode.
 </details>
 
 <details>
