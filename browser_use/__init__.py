@@ -68,6 +68,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.openai.chat import ChatOpenAI
 	from browser_use.llm.openrouter.chat import ChatOpenRouter
 	from browser_use.llm.orcarouter.chat import ChatOrcaRouter
+	from browser_use.llm.trustedrouter.chat import ChatTrustedRouter
 	from browser_use.llm.vercel.chat import ChatVercel
 	from browser_use.sandbox import sandbox
 	from browser_use.tools.service import Controller, Tools
@@ -107,6 +108,7 @@ _LAZY_IMPORTS = {
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
 	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
 	'ChatOrcaRouter': ('browser_use.llm.orcarouter.chat', 'ChatOrcaRouter'),
+	'ChatTrustedRouter': ('browser_use.llm.trustedrouter.chat', 'ChatTrustedRouter'),
 	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
 	# LLM models module
 	'models': ('browser_use.llm.models', None),
@@ -165,6 +167,7 @@ __all__ = [
 	'ChatOllama',
 	'ChatOpenRouter',
 	'ChatOrcaRouter',
+	'ChatTrustedRouter',
 	'ChatVercel',
 	'Tools',
 	'Controller',
