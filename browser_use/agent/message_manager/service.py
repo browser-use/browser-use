@@ -262,6 +262,8 @@ class MessageManager:
 		system_prompt = (
 			'You are summarizing an agent run for prompt compaction.\n'
 			'Capture task requirements, key facts, decisions, partial progress, errors, and next steps.\n'
+			'Preserve any warning that a disabled or readonly form control changed state during evaluate, '
+			'and whether the page independently confirmed the requested action through its expected workflow.\n'
 			'Preserve important entities, values, URLs, and file paths.\n'
 			'CRITICAL: Only mark a step as completed if you see explicit success confirmation in the history. '
 			'If a step was started but not explicitly confirmed complete, mark it as "IN-PROGRESS". '

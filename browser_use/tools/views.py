@@ -97,7 +97,15 @@ class DoneAction(BaseModel):
 			'If uncertain whether a prior step completed, say so explicitly.'
 		)
 	)
-	success: bool = Field(default=True, description='True if user_request completed successfully')
+	success: bool = Field(
+		default=True,
+		description=(
+			'True if user_request completed successfully. Treat disabled/readonly state changes reported by evaluate '
+			'as observations, not proof of cause. Consider whether an expected, user-authorized page interaction '
+			'explains them; do not use evaluate to bypass a restriction. If the cause is unclear or success depends '
+			'on the changed control, require the page to confirm completion through its expected workflow.'
+		),
+	)
 	files_to_display: list[str] | None = Field(default=[])
 
 

@@ -52,6 +52,17 @@ class SystemPrompt:
 			self._load_prompt_template()
 			prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
 
+		# A custom override replaces the default prompt, including its safety guidance.
+		if override_system_message is None:
+			prompt += (
+				'\n\nForm-control state changes: If an evaluate result reports that a disabled or readonly '
+				'control changed state during evaluation, treat it as an observation, not proof of what caused it. '
+				'Consider whether an expected, user-authorized page interaction explains the change. The change alone '
+				'does not prove a bypass, but do not use evaluate to remove a restriction. If the cause is unclear or '
+				'success depends on relying on the changed control, preserve the uncertainty and require the page to '
+				'confirm completion through its expected workflow.'
+			)
+
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'
 
