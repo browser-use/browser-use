@@ -1,8 +1,20 @@
+import pytest
+
 from browser_use.agent.prompts import SystemPrompt
 
 
-def test_default_system_prompt_includes_form_control_guidance_once():
-	content = SystemPrompt().get_system_message().content
+@pytest.mark.parametrize(
+	'prompt_options',
+	[
+		{},
+		{'is_browser_use_model': True},
+		{'is_browser_use_model': True, 'flash_mode': True},
+		{'is_browser_use_model': True, 'use_thinking': False},
+		{'is_anthropic': True, 'flash_mode': True},
+	],
+)
+def test_system_prompt_templates_include_form_control_guidance_once(prompt_options):
+	content = SystemPrompt(**prompt_options).get_system_message().content
 
 	assert isinstance(content, str)
 	assert content.count('Form-control state changes:') == 1
