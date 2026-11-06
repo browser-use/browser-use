@@ -141,7 +141,8 @@ class MessageManager:
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
 		# Store settings as direct attributes instead of in a settings object
-		self.include_attributes = include_attributes or []
+		# Keep None ("unset" -> serializer defaults) separate from [] ("no attributes").
+		self.include_attributes = include_attributes
 		self.sensitive_data = sensitive_data
 		self.last_input_messages = []
 		self.last_state_message_text: str | None = None
