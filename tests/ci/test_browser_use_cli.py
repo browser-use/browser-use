@@ -1,7 +1,10 @@
 import os
 import subprocess
 import sys
+from importlib.metadata import version
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -17,6 +20,23 @@ def _run_browser_use_cli(*args: str, module: str = 'browser_use.cli') -> subproc
 		text=True,
 		timeout=20,
 	)
+
+
+def test_browser_use_version_reports_the_browser_use_distribution_version():
+	result = _run_browser_use_cli('--version')
+
+	assert result.returncode == 0
+	assert result.stdout == f'{version("browser-use")}\n'
+	assert result.stderr == ''
+
+
+def test_dispatch_version_does_not_delegate_to_the_harness(monkeypatch, capsys):
+	import browser_use.cli as browser_use_cli
+
+	monkeypatch.setattr(browser_use_cli, '_run_browser_harness', lambda: pytest.fail('delegated to browser-harness'))
+
+	assert browser_use_cli._dispatch(['--version']) == (0, 'version')
+	assert capsys.readouterr().out == f'{browser_use_cli._browser_use_version()}\n'
 
 
 def test_browser_use_doctor_help_prints_browser_use_usage():

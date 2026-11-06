@@ -336,6 +336,8 @@ _EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Py
 
 
 def _command_name(args: list[str]) -> str:
+	if args[:1] == ['--version']:
+		return 'version'
 	if '--cli-mcp' in args:
 		return 'cli-mcp'
 	if '--mcp' in args:
@@ -355,6 +357,9 @@ def _command_name(args: list[str]) -> str:
 
 
 def _dispatch(args: list[str]) -> tuple[int | None, str]:
+	if args[:1] == ['--version']:
+		print(_browser_use_version())
+		return 0, 'version'
 	if '--cli-mcp' in args:
 		_run_cli_mcp_server()
 		return 0, 'cli-mcp'
