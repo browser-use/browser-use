@@ -49,11 +49,6 @@ DELIVERY_REPAIR = (  # bu-pi src/agent.ts:560, verbatim except tool names
 )
 DELIVERY_TOOLS = ['finish_from_repl', 'finish']
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
-PARTIAL = re.compile(
-	r'\b(partial(ly)?|incomplete|not (fully |yet |individually )?(verified|checked|opened|covered)|subset|sample of|'
-	r'first page only|only \d+ of|remaining \d+|did not (check|cover|open|verify|reach))\b',
-	re.I,
-)
 FILE = re.compile(r'`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`
 
 
@@ -68,7 +63,6 @@ class Session:
 	started: float = field(default_factory=time.monotonic)
 	finalizing: bool = False
 	checked_delivery: bool = False  # the delivery guard fires once; a second identical finish is accepted
-	checked_partial: bool = False  # the early-partial guard fires once
 	success: bool | None = None  # the verdict finish/finish_from_repl must give; None for a plain-text delivery
 	messages: list[ModelMessage] = field(default_factory=list)
 	after_tool: Callable[[str, dict, dict], Awaitable[None]] | None = None  # observer hook (evals)
@@ -110,7 +104,7 @@ def as_text(value: Any) -> str:
 
 
 def check_delivery(ctx: RunContext[Session], value: Any) -> None:
-	"""One-shot repairs: a placeholder or links to unwritten files; a self-declared partial result with budget left."""
+	"""One-shot repair: a placeholder or links to unwritten files."""
 	s = ctx.deps
 	text = as_text(value)
 	if not s.checked_delivery:
@@ -133,16 +127,6 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 				f'{problem} Deliver the actual result: finish_from_repl with the existing records, or '
 				'finish with the full answer inline. Do not repeat browser actions.'
 			)
-	left = s.timeout_s - (time.monotonic() - s.started)
-	if not s.finalizing and not s.checked_partial and left > 0.4 * s.timeout_s and PARTIAL.search(text):
-		# v1b stopped by choice with most of the budget left (2vxyzx top-5 of 37, bub2-007 40 of 404, bub2-014 at 7%).
-		s.checked_partial = True
-		raise ModelRetry(
-			f'Your result says it is partial, and {left / 60:.0f} of {s.timeout_s / 60:.0f} minutes '
-			'remain. If coverage is limited by choice, not by a blocker you already tried to get around, '
-			'continue the missing items now, checkpoint progress, then finish. If a real blocker remains, '
-			'finish again with the same result.'
-		)
 
 
 def _outputs(output_type: Any) -> list[Any]:

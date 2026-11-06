@@ -277,24 +277,17 @@ async def test_existing_file_link_and_short_answer_pass(daemon, tmp_path):
 		assert (len(seen), result.output) == (1, answer)
 
 
-async def test_partial_result_with_budget_left_gets_one_continue_turn(daemon, tmp_path):
-	# v1b quit by choice with most of the budget left (2vxyzx, bub2-007, bub2-014).
+async def test_partial_result_is_accepted_without_a_continue_turn(daemon, tmp_path):
+	# The early-partial guard was removed: bench 1106 showed it fired in 57/120 runs, +30 steps/task, no score gain (bu-pi has none).
 	first = 'Partial: only 5 of 37 listings checked.'
-	model, seen = _choice_recorder(
-		[
-			ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': first})]),
-			ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': first})]),
-		]
-	)
+	model, seen = _choice_recorder([ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': first})])])
 	agent, session = build_agent(), Session(repl=Repl(tmp_path, daemon))
 	try:
 		with agent.override(model=model):
 			result = await run(agent, 'task', session, 'gpt-6-luna')
 	finally:
 		await session.repl.close()
-	retry = [p.content for p in seen[1][0][-1].parts if getattr(p, 'outcome', None) == 'retried']
-	assert retry and 'minutes remain' in retry[0]
-	assert (len(seen), result.output) == (2, first)
+	assert (len(seen), result.output) == (1, first)
 
 
 async def test_screenshot_is_jpeg(daemon, tmp_path):

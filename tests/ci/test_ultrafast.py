@@ -127,10 +127,10 @@ def static_instructions(agent):
 
 def test_default_prompt_unchanged():
 	"""Default mode is the evaluated path: its system prompt must stay byte-identical (sha256 from 0.2.0, plus the
-	finish success line that made success required)."""
+	finish success line that made success required, minus the finish-whole-job and verify-answer paragraphs bu-pi lacks)."""
 	default = static_instructions(build_agent())
 	assert default == [SYSTEM_PROMPT] == static_instructions(build_agent(mode='default'))
-	assert hashlib.sha256(default[0].encode()).hexdigest() == '3df0466e7a84dbb46be2f80a05034fb022cb9eff7415bf7ab7532eca3bfb4eb1'
+	assert hashlib.sha256(default[0].encode()).hexdigest() == '3123af555ea3e33bd25d4bc7c907527ae8be8257cc0e3fd18fc426bf336dbf46'
 	assert static_instructions(build_agent(instructions='X')) == [f'{SYSTEM_PROMPT}\nX']
 	assert static_instructions(build_agent(mode='ultrafast')) == [(SYSTEM_PROMPT + AX_PROMPT).rstrip()]
 	assert static_instructions(build_agent(mode='ultrafast', instructions='X')) == [f'{SYSTEM_PROMPT}{AX_PROMPT}\nX']
