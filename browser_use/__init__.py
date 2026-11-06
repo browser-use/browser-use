@@ -34,7 +34,7 @@ _LAZY_IMPORTS = {
 	'ChatGoogle': 'browser_use.llm',
 }
 _LLM_REMOVED = (
-	"a Pydantic AI model string, e.g. llm='groq:llama-3.3-70b' or 'ollama:qwen3', or ChatOpenAI(model, base_url=...) "
+	"a Pydantic AI model string, e.g. llm='groq:llama-3.3-70b-versatile' or 'ollama:qwen3', or ChatOpenAI(model, base_url=...) "
 	'for any OpenAI-compatible server.'
 )
 _REMOVED = {  # 0.x top-level names -> the 1.0 alternative

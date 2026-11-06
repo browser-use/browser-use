@@ -1,7 +1,8 @@
 """Browser(allowed_domains=..., prohibited_domains=..., block_ip_addresses=...): where the browser may navigate.
 
 Patterns follow 0.x (browser_use/browser/watchdogs/security_watchdog.py, _is_url_allowed / _is_url_match):
-  'example.com'           example.com and www.example.com (www only for a one-dot domain), http and https, any port
+  'example.com'           example.com and www.example.com (www only for a one-dot domain), http and https, any port;
+                          in prohibited_domains also every subdomain (new in 1.0: 0.x let en.example.com through)
   'mail.example.com'      exactly that host (no www added)
   '*.example.com'         example.com and every subdomain, http and https
   'https://example.com'   that scheme and host on its default port (a path in the pattern is a path prefix)
@@ -32,6 +33,8 @@ from fnmatch import fnmatchcase
 from typing import Any, NamedTuple
 from urllib.parse import unquote, urlsplit
 
+import idna
+
 logger = logging.getLogger(__name__)
 
 ALWAYS_ALLOWED = ('about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/')  # 0.x list
@@ -50,16 +53,22 @@ class Url(NamedTuple):
 
 
 def canonical_host(host: str) -> str:
-	"""As the browser sends it: lowercase, punycode, no trailing dot, IPv4 in dotted decimal (0x7f.1 -> 127.0.0.1)."""
-	h = unquote(host).strip().strip('[]').lower().removesuffix('.')
+	"""As the browser sends it: UTS46-mapped (lowercase, full-width dots and digits -> ASCII), punycode (IDNA2008, as
+	Chrome: faß.de -> xn--fa-hia.de), no trailing dot, IPv4 in dotted decimal (0x7f.1 -> 127.0.0.1)."""
+	h = unquote(host).strip().strip('[]').lower()
+	if not h.isascii():
+		with contextlib.suppress(idna.IDNAError, UnicodeError):
+			h = idna.uts46_remap(h, std3_rules=False, transitional=False)
+	h = h.removesuffix('.')
 	with contextlib.suppress(ValueError):
 		return str(ipaddress.ip_address(h))
 	labels = h.split('.')
 	if re.fullmatch(r'\d+|0x[0-9a-f]*', labels[-1]):  # WHATWG: a host ending in a number is an IPv4 address
 		with contextlib.suppress(OSError):
 			return socket.inet_ntoa(socket.inet_aton(h))
-	with contextlib.suppress(UnicodeError):
-		return h.encode('idna').decode('ascii')
+	if not h.isascii():
+		with contextlib.suppress(idna.IDNAError, UnicodeError):
+			return idna.encode(h, uts46=True, transitional=False).decode('ascii')
 	return h
 
 
@@ -79,19 +88,27 @@ def parse_url(url: str) -> Url | None:
 
 
 def _split_port(host: str) -> tuple[str, str]:
+	if host.count(':') > 1 and not host.startswith('['):  # a bare IPv6 address ('::1'): no port
+		return host, ''
 	if ':' in host and not host.endswith(']'):
 		host, _, port = host.rpartition(':')
 		return host, port
 	return host, ''
 
 
+def _glob(pattern: str) -> str:
+	"""A host glob with every label that has no '*' canonical ('*.bücher.de' -> '*.xn--bcher-kva.de')."""
+	return '.'.join(label.lower() if '*' in label else canonical_host(label) for label in pattern.split('.'))
+
+
 def _host_matches(host: str, pattern: str) -> bool:
-	return fnmatchcase(host, pattern.lower()) if '*' in pattern else host == canonical_host(pattern)
+	return fnmatchcase(host, _glob(pattern)) if '*' in pattern else host == canonical_host(pattern)
 
 
-def pattern_matches(pattern: str, u: Url) -> bool:
+def pattern_matches(pattern: str, u: Url, subdomains: bool = False) -> bool:
 	"""0.x _is_url_match, with the parsed URL instead of string prefixes: 'https://example.com' no longer matches
-	https://example.com.evil.com or https://example.com@evil.com."""
+	https://example.com.evil.com or https://example.com@evil.com. subdomains (prohibited_domains): a bare host pattern
+	also matches every subdomain, as '*.example.com' does."""
 	p = pattern.strip()
 	if '://' in p:
 		p_scheme, rest = p.split('://', 1)
@@ -117,8 +134,10 @@ def pattern_matches(pattern: str, u: Url) -> bool:
 		base = canonical_host(p_host[2:])
 		return u.host == base or u.host.endswith(f'.{base}')
 	if '*' in p_host:
-		return fnmatchcase(u.host, p_host.lower())
+		return fnmatchcase(u.host, _glob(p_host))
 	h = canonical_host(p_host)
+	if subdomains:
+		return u.host == h or u.host.endswith(f'.{h}')
 	return u.host == h or (p_host.count('.') == 1 and u.host == f'www.{h}')  # 0.x _is_root_domain: www for a.b only
 
 
@@ -173,7 +192,7 @@ class DomainRules:
 		if self.allowed:
 			ok = any(pattern_matches(p, u) for p in self.allowed)
 			return None if ok else f'blocked: {u.host} is not in allowed_domains ({self._list(self.allowed)})'
-		if any(pattern_matches(p, u) for p in self.prohibited):
+		if any(pattern_matches(p, u, subdomains=True) for p in self.prohibited):
 			return f'blocked: {u.host} is in prohibited_domains ({self._list(self.prohibited)})'
 		return None
 
@@ -188,8 +207,9 @@ class DomainRules:
 			return f'sites outside prohibited_domains ({self._list(self.prohibited)})'
 		return 'hosts that are not IP addresses'
 
-	def prompt(self) -> str:
-		"""One system-prompt line; '' without restrictions."""
+	def prompt(self, browser_blocks: bool = True) -> str:
+		"""One system-prompt line; '' without restrictions. browser_blocks=False (Browser('chrome'), no Guard): the line
+		must not claim the browser blocks what only the after-cell reset catches."""
 		if not self:
 			return ''
 		parts = []
@@ -199,6 +219,8 @@ class DomainRules:
 			parts.append(f'The browser must not open these domains: {self._list(self.prohibited)}.')
 		if self.block_ips:
 			parts.append('IP-address URLs are blocked.')
+		if not browser_blocks:
+			return ' '.join(parts) + ' Other pages are reset to about:blank after each step; do not try to get around it.'
 		return ' '.join(parts) + ' Other navigation is blocked by the browser; do not try to get around it.'
 
 	def to_json(self) -> str:
@@ -216,15 +238,21 @@ class Guard:
 	"""Fails main-frame document requests to disallowed hosts, for every tab: browser-level Fetch.enable (Document
 	requests, Request stage) on a CDP connection of its own. Catches link clicks, redirects, target=_blank,
 	window.open, meta refresh, JS location changes and Target.createTarget(url=...): the request never leaves the
-	browser (net::ERR_BLOCKED_BY_CLIENT). Its own connection: the agent's cdp('Fetch.disable') through the daemon does
-	not turn it off. Iframes and subresources pass. When the connection drops, Chrome stops intercepting until it
+	browser (net::ERR_BLOCKED_BY_CLIENT). Pages that commit without a request it sees (a speculation-rules prefetch or
+	prerender, which Chrome fetches in a context Fetch does not intercept; the back/forward cache) are caught when the
+	tab's URL changes to a disallowed one: the guard navigates that tab to about:blank right away, as it does with the
+	error page its own block leaves. Its own connection: the agent's cdp('Fetch.disable') through the daemon does not
+	turn it off. Iframes and subresources pass. When the connection drops, Chrome stops intercepting until it
 	reconnects (sweep() still runs after each cell)."""
 
 	def __init__(self, ws_url: str, rules: DomainRules):
 		self.ws_url, self.rules = ws_url, rules
-		self.pages: set[str] = set()  # page target ids: a page's main frame id is its target id
+		self.pages: dict[str, str] = {}  # page target id (= its main frame id) -> the URL it last showed
 		self.blocks = 0
 		self._notices: list[str] = []
+		self._failed: dict[tuple[str, str], None] = {}  # (tab, url) this guard failed: its error page resets silently
+		self._replies: dict[int, Callable[[dict], object]] = {}
+		self._discovered = False
 		self._lock = threading.Lock()
 		self._ws: Any = None
 		self._id = 0
@@ -248,7 +276,7 @@ class Guard:
 				ws.close()
 
 	def take(self) -> tuple[list[str], int]:
-		"""Notices for the model since the last call, and how many requests were blocked."""
+		"""Notices for the model since the last call, and how many navigations were blocked or reset."""
 		with self._lock:
 			notices, self._notices = self._notices, []
 			blocks, self.blocks = self.blocks, 0
@@ -257,9 +285,16 @@ class Guard:
 			unique = [*unique[:NOTICES_PER_CELL], f'[... {len(unique) - NOTICES_PER_CELL} more blocked navigations]']
 		return unique, blocks
 
-	def _send(self, method: str, **params: Any) -> int:
+	def _send(
+		self, method: str, session_id: str | None = None, reply: Callable[[dict], object] | None = None, **params: Any
+	) -> int:
 		self._id += 1
-		self._ws.send(json.dumps({'id': self._id, 'method': method, 'params': params}))
+		msg: dict[str, Any] = {'id': self._id, 'method': method, 'params': params}
+		if session_id:
+			msg['sessionId'] = session_id
+		if reply is not None:
+			self._replies[self._id] = reply
+		self._ws.send(json.dumps(msg))
 		return self._id
 
 	def _connect(self) -> None:
@@ -267,6 +302,8 @@ class Guard:
 
 		self._ws = connect(self.ws_url, max_size=None, open_timeout=GUARD_START_S, close_timeout=1)
 		self.pages.clear()
+		self._replies.clear()
+		self._discovered = False  # until setDiscoverTargets answered: the targets it reports were already open
 		pending = {
 			self._send('Target.setDiscoverTargets', discover=True),
 			self._send('Fetch.enable', patterns=[{'urlPattern': '*', 'resourceType': 'Document', 'requestStage': 'Request'}]),
@@ -280,6 +317,7 @@ class Guard:
 				pending.discard(msg['id'])
 			else:
 				self._handle(msg)
+		self._discovered = True
 
 	def _run(self) -> None:
 		backoff = 0.5
@@ -291,6 +329,8 @@ class Guard:
 				for raw in self._ws:
 					self._handle(json.loads(raw))
 			except Exception as e:  # - start() reports the first failure; later ones reconnect
+				with contextlib.suppress(Exception):  # an open socket would keep its Fetch.enable with nobody answering
+					self._ws.close()
 				if not self._ready.is_set():
 					self._error = str(e) or type(e).__name__
 					self._ready.set()
@@ -302,42 +342,78 @@ class Guard:
 			backoff = min(backoff * 2, 5.0)
 
 	def _handle(self, msg: dict) -> None:
+		if 'id' in msg:  # a reply to one of the guard's own commands
+			reply = self._replies.pop(msg['id'], None)
+			if reply is not None and 'result' in msg:
+				reply(msg['result'])
+			return
 		method, params = msg.get('method'), msg.get('params') or {}
 		if method in ('Target.targetCreated', 'Target.targetInfoChanged'):
 			info = params.get('targetInfo') or {}
 			if info.get('type') == 'page':
-				self.pages.add(info['targetId'])
+				target, url = str(info['targetId']), str(info.get('url') or 'about:blank')  # '': before its first commit
+				before = self.pages.get(target)
+				self.pages[target] = url
+				# a new tab, or a URL change; a tab already open when the guard connected (yours, or at a reconnect) is
+				# sweep()'s to judge
+				changed = url != before if before is not None else self._discovered
+				if changed and (why := self.rules.blocked(url)):
+					# a tab created on that URL has loaded nothing yet: its request, if any, is blocked and reported
+					self._reset(target, url, why, silent=before is None)
 		elif method == 'Target.targetDestroyed':
-			self.pages.discard(str(params.get('targetId')))
+			self.pages.pop(str(params.get('targetId')), None)
 		elif method == 'Fetch.requestPaused':
 			url = str((params.get('request') or {}).get('url', ''))
-			why = self.rules.blocked(url) if params.get('frameId') in self.pages else None  # iframes pass
+			frame = str(params.get('frameId'))
+			why = self.rules.blocked(url) if frame in self.pages else None  # iframes pass
 			if why:
 				with self._lock:
 					self.blocks += 1
 					self._notices.append(f'[{why}. The browser did not load {url[:120]}]')
+					self._failed[(frame, url)] = None
+					while len(self._failed) > 100:
+						del self._failed[next(iter(self._failed))]
 				self._send('Fetch.failRequest', requestId=params['requestId'], errorReason='BlockedByClient')
 			else:
 				self._send('Fetch.continueRequest', requestId=params['requestId'])
 
+	def _reset(self, target: str, url: str, why: str, silent: bool = False) -> None:
+		"""Navigate a tab that shows a disallowed URL to about:blank, from the guard's own connection."""
+		with self._lock:
+			failed = self._failed.pop((target, url), 'loaded') != 'loaded'  # the error page of a request this guard failed
+			if not (silent or failed):
+				self.blocks += 1
+				self._notices.append(f'[{why}. Tab {target[:8]} loaded {url[:120]}; browser-use navigated it to about:blank]')
 
-def disallowed_tabs(cdp: Callable[..., dict], rules: DomainRules) -> dict[str, str]:
-	"""Page tabs that show a disallowed URL -> why. cdp(method, session_id=None, **params) sends one browser command."""
+		def attached(result: dict) -> None:
+			sid = result['sessionId']
+			self._send('Page.navigate', sid, lambda _: self._send('Target.detachFromTarget', sessionId=sid), url='about:blank')
+
+		self._send('Target.attachToTarget', reply=attached, targetId=target, flatten=True)
+
+
+def disallowed_tabs(cdp: Callable[..., dict], rules: DomainRules, only: set[str] | None = None) -> dict[str, tuple[str, str]]:
+	"""Page tabs that show a disallowed URL -> (url, why). cdp(method, session_id=None, **params) sends one browser
+	command. only: just these tabs and the popups they opened (added to only, transitively)."""
+	pages = [t for t in cdp('Target.getTargets').get('targetInfos', []) if t.get('type') == 'page']
+	while only is not None and (popups := {str(t['targetId']) for t in pages if t.get('openerId') in only} - only):
+		only |= popups
 	out = {}
-	for t in cdp('Target.getTargets').get('targetInfos', []):
+	for t in pages:
 		url = t.get('url') or 'about:blank'  # '': a tab before its first navigation commits
-		if t.get('type') == 'page' and (why := rules.blocked(url)):
-			out[str(t['targetId'])] = why
+		if (only is None or t['targetId'] in only) and (why := rules.blocked(url)):
+			out[str(t['targetId'])] = (url, why)
 	return out
 
 
-def sweep(cdp: Callable[..., dict], rules: DomainRules, keep: set[str]) -> list[str]:
+def sweep(cdp: Callable[..., dict], rules: DomainRules, keep: dict[str, str], only: set[str] | None = None) -> list[str]:
 	"""After a cell: every page tab that shows a disallowed URL is navigated to about:blank (0.x did the same after a
-	navigation). keep: tabs that were already open on such a page when the browser started (yours, in
-	Browser('chrome')): left alone."""
+	navigation). keep: tab -> the disallowed URL it showed when the browser first started (yours, in Browser('chrome')):
+	left alone only while it still shows exactly that URL. only (Browser('chrome')): the agent's tabs; a tab you
+	opened yourself is never touched."""
 	notes = []
-	for target, why in disallowed_tabs(cdp, rules).items():
-		if target in keep:
+	for target, (url, why) in disallowed_tabs(cdp, rules, only).items():
+		if keep.get(target) == url:
 			continue
 		try:
 			sid = cdp('Target.attachToTarget', targetId=target, flatten=True)['sessionId']

@@ -138,7 +138,7 @@ result = await agent.run()
 | `Browser('chrome')` | the Chrome you have open, with your logins (turn on chrome://inspect/#remote-debugging once) |
 | `Browser('chrome', profile='Work')` | a new Chrome on a temporary copy of your Chrome profile `Work` (sync off); your Chrome can stay open, except on Windows |
 
-Other models: `ChatAnthropic` (`browser-use[anthropic]`), `ChatGoogle` (`browser-use[google]`), or any Pydantic AI model string such as `llm='groq:llama-3.3-70b'`.
+Other models: `ChatAnthropic` (`browser-use[anthropic]`), `ChatGoogle` (`browser-use[google]`), or any Pydantic AI model string such as `llm='groq:llama-3.3-70b-versatile'`.
 
 - **Typed results:** `Agent(task, output_model_schema=MyModel)` then `result.structured_output`.
 - **Secrets:** `Agent(task, sensitive_data={'password': '...'})`, or `{'https://*.example.com': {'password': '...'}}` to type it only on that domain. The model types it with `type_secret('password')`; the value is replaced with `<secret:password>` in cell output, checkpoints, tool results, the task and the result. Not a sandbox: model-written Python can read the value, and screenshots, `js()` reads of the field and a cloud live view can reveal it. See the trust model in MIGRATING.md.
@@ -210,9 +210,9 @@ Results depend on the site and challenge; no browser configuration guarantees th
 <details>
 <summary><b>Can I limit which sites the agent visits?</b></summary>
 
-`Browser(allowed_domains=['example.com', '*.example.org'])`, `Browser(prohibited_domains=['evil.com'])` or `Browser(block_ip_addresses=True)`, with the 0.x patterns, on any browser. The browser helpers refuse a disallowed URL, the browser itself blocks main-frame navigations to it (link clicks, redirects, popups, JavaScript; all modes except `Browser('chrome')` attached to your open Chrome, where a second debugging connection would prompt you again), every tab still on a disallowed page after a cell is reset to `about:blank`, and the system prompt lists the domains.
+`Browser(allowed_domains=['example.com', '*.example.org'])`, `Browser(prohibited_domains=['evil.com'])` or `Browser(block_ip_addresses=True)`, with the 0.x patterns, on any browser. The browser helpers refuse a disallowed URL, the browser itself blocks main-frame navigations to it (link clicks, redirects, popups, JavaScript; all modes except `Browser('chrome')` attached to your open Chrome, where a second debugging connection would prompt you again), every tab still on a disallowed page after a cell is reset to `about:blank` (in `Browser('chrome')` only the agent's tabs, never yours), and the system prompt lists the domains. A bare domain in `prohibited_domains` also covers its subdomains.
 
-It is a guard for an aligned model, not a sandbox: requests an allowed page makes to other hosts (`fetch`, images, iframes) are not filtered, nor is the agent's own Python networking beyond `http_get`. Run untrusted tasks in a container or VM. [MIGRATING.md](MIGRATING.md#domain-restrictions) lists exactly what is blocked in each mode.
+It is a guard for an aligned model, not a sandbox: requests an allowed page makes to other hosts (`fetch`, images, iframes) are not filtered, nor is the agent's own Python networking beyond `http_get` and its redirects. Run untrusted tasks in a container or VM. [MIGRATING.md](MIGRATING.md#domain-restrictions) lists exactly what is blocked in each mode.
 </details>
 
 <details>

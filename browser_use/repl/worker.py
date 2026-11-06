@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.request
 from collections import Counter
 from pathlib import Path
 
@@ -203,6 +204,17 @@ def _checked(fn, check_url):
 	return checked
 
 
+def _check_redirects(check_url) -> None:
+	"""http_get (urllib) follows redirects: every hop is checked too, for any urllib.request.urlopen in the worker."""
+
+	class CheckedRedirects(urllib.request.HTTPRedirectHandler):
+		def redirect_request(self, req, fp, code, msg, headers, newurl):
+			check_url(newurl)
+			return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+	urllib.request.install_opener(urllib.request.build_opener(CheckedRedirects))
+
+
 def _add_image(data: bytes, media_type: str = 'image/png') -> bool:
 	if len(images) >= MAX_IMAGES_PER_CELL:
 		print(f'[image dropped: {MAX_IMAGES_PER_CELL} per call max]')
@@ -253,6 +265,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	raw_cdp = helpers.cdp
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
 	rules = DomainRules.from_json(os.environ.get('BU_DOMAINS'))
+	tabs_file = os.environ.get('BU_TABS_FILE')  # Browser('chrome') with domain restrictions
 
 	def check_url(url) -> None:
 		"""Browser(allowed_domains=...): refuse a disallowed URL before anything navigates (Browser.domains)."""
@@ -267,7 +280,11 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		if method != 'Page.captureScreenshot':
 			# browser-harness defaults to 5s IPC; heavy cloud pages (Maps, TripAdvisor) blew it on navigate/evaluate/input.
 			params.setdefault('_response_timeout', CDP_TIMEOUT_S)
-			return raw_cdp(method, session_id, **params)
+			result = raw_cdp(method, session_id, **params)
+			if method == 'Target.createTarget' and tabs_file and isinstance(result, dict) and result.get('targetId'):
+				with contextlib.suppress(OSError), open(tabs_file, 'a') as f:  # Browser._touched_tabs: the agent's tabs
+					f.write(f'{result["targetId"]}\n')
+			return result
 		result = capture(raw_cdp, helpers.current_tab, session_id, activate=cloud, **params)
 		# Every screenshot the agent takes is shown to the model as a native image.
 		if isinstance(result, dict) and result.get('data'):
@@ -280,6 +297,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	if rules:  # before the * import below, so the agent's names are the checked ones
 		for name in ('new_tab', 'http_get'):  # new_tab: before it opens an empty tab; http_get: plain HTTP from here
 			helpers.__dict__[name] = _checked(getattr(helpers, name), check_url)
+		_check_redirects(check_url)
 	captcha = Captcha(cdp, STATE / 'captcha.json')
 	exec('from browser_harness.helpers import *', ns)
 

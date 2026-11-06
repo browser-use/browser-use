@@ -292,9 +292,20 @@ def resolve_model(llm: Any) -> tuple[Any, dict]:
 			raise ImportError(extra_hint(EXTRAS.get(prefix, prefix))) from None
 	raise TypeError(
 		f'llm={type(llm).__name__} is not supported in browser-use 1.0. Pass ChatBrowserUse(), ChatOpenAI(...), '
-		"ChatAnthropic(...), ChatGoogle(...), a Pydantic AI model string like 'groq:llama-3.3-70b' or a Pydantic AI "
+		"ChatAnthropic(...), ChatGoogle(...), a Pydantic AI model string like 'groq:llama-3.3-70b-versatile' or a Pydantic AI "
 		'Model. See MIGRATING.md.'
 	)
+
+
+def __getattr__(name: str):
+	"""from browser_use.llm import ChatGroq (a 0.x import path): the removal message, not a bare ImportError."""
+	from browser_use import _REMOVED
+
+	if name.startswith('Chat') and name in _REMOVED:
+		from browser_use.exceptions import removed
+
+		raise ImportError(removed(f'browser_use.llm.{name}', _REMOVED[name]))
+	raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
 
 
 __all__ = ['ChatAnthropic', 'ChatBrowserUse', 'ChatGoogle', 'ChatOpenAI', 'GATEWAY_URL', 'model_ref', 'resolve_model']

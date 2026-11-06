@@ -108,7 +108,7 @@ browser-harness default daemon and its one attached tab, so two at once move eac
 | `ChatBrowserUse(model=...)` | kept: `bu-ultrafast` (default), `bu-auto`, `bu-smart` or a listed OpenAI model on the new gateway, over the stateless Responses API with server-side compaction. The 0.x gateway models `bu-2-0`, `bu-2-0-mini-preview`, `bu-1-0` and `bu-latest` are rejected: keep `browser-use<1.0` for them, or use `bu-ultrafast`. Before the browser starts, the agent reads the gateway's model list (free): a gateway that is not there, a rejected key or a model it does not list ends the run with `result.error` and no browser created. Gateway errors (400/401/402/403/404) come back as one actionable line in `result.error`; `result.cost_usd` is what the gateway charged. Another gateway URL: `ChatBrowserUse(base_url=...)` (0.x's `BROWSER_USE_LLM_URL` is not read) |
 | `ChatOpenAI(model, api_key, base_url, temperature, reasoning_effort)` | kept. api.openai.com uses the Responses API; the gateway URL (`https://api.browser-use.com/api/llm/v1`) is served as `ChatBrowserUse` (key: `api_key`, else a `bu_` key in `OPENAI_API_KEY`, else the Browser Use key); any other `base_url` uses plain chat completions. Other 0.x arguments raise `TypeError` |
 | `ChatAnthropic(model, api_key)`, `ChatGoogle(model, api_key)` | kept; need `browser-use[anthropic]` / `browser-use[google]` |
-| `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatDeepSeek`, `ChatMistral`, `ChatOpenRouter`, `ChatAWSBedrock`, `ChatAnthropicBedrock`, `ChatCerebras`, `ChatLiteLLM`, `ChatOCIRaw`, `ChatOrcaRouter`, `ChatVercel` | removed (the import raises): use a Pydantic AI model string (`'groq:llama-3.3-70b'`, `'mistral:...'`, `'bedrock:...'`) or `ChatOpenAI(model, base_url=...)` |
+| `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatDeepSeek`, `ChatMistral`, `ChatOpenRouter`, `ChatAWSBedrock`, `ChatAnthropicBedrock`, `ChatCerebras`, `ChatLiteLLM`, `ChatOCIRaw`, `ChatOrcaRouter`, `ChatVercel` | removed (the import raises): use a Pydantic AI model string (`'groq:llama-3.3-70b-versatile'`, `'mistral:...'`, `'bedrock:...'`) or `ChatOpenAI(model, base_url=...)` |
 
 ## Tools
 
@@ -149,7 +149,7 @@ for result methods, `ImportError` for imports, an MCP tool error for old tool na
 | `skill_ids`, `skills`, `skill_service` (Cloud Skills) | removed | none |
 | tool injected parameters (`browser_session`, `page_url`, `cdp_client`, ...) | removed | actions get only what the model passes |
 | `@tools.action(domains=...)`, `@tools.action(allowed_domains=...)` | removed | `Browser(allowed_domains=...)` |
-| `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatOpenRouter`, `ChatDeepSeek` and the other provider classes (see [Models](#models)) | removed | a Pydantic AI model string (`llm='groq:llama-3.3-70b'`, `'ollama:qwen3'`) or `ChatOpenAI(model, base_url=...)` |
+| `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatOpenRouter`, `ChatDeepSeek` and the other provider classes (see [Models](#models)) | removed | a Pydantic AI model string (`llm='groq:llama-3.3-70b-versatile'`, `'ollama:qwen3'`) or `ChatOpenAI(model, base_url=...)` |
 | `browser-use --mcp` tool names (`browser_navigate`, `browser_click`, `browser_type`, `browser_get_state`, `browser_extract_content`, `browser_get_html`, `browser_scroll`, `browser_go_back`, `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab`, `retry_with_browser_use_agent`, `browser_list_sessions`, `browser_close_session`, `browser_close_all`) | removed | `browser_exec` (Python with the browser-harness helpers) and `browser_screenshot` |
 
 ## Domain restrictions
@@ -159,7 +159,7 @@ every mode with the 0.x patterns:
 
 | Pattern | Matches |
 |---|---|
-| `'example.com'` | example.com and www.example.com (www only for a one-dot domain), http and https, any port |
+| `'example.com'` | example.com and www.example.com (www only for a one-dot domain), http and https, any port. In `prohibited_domains` also every subdomain (new: 0.x let `en.example.com` through) |
 | `'mail.example.com'` | exactly that host |
 | `'*.example.com'` | example.com and every subdomain, http and https |
 | `'https://example.com'` | that scheme and host on the default port; a path in the pattern is a path prefix |
@@ -171,40 +171,51 @@ As in 0.x: `about:blank`, the new tab page, `data:` and `blob:` URLs are always 
 both lists are set `prohibited_domains` is ignored (a warning says so); `block_ip_addresses` blocks IP-literal hosts
 (also `http://0x7f.1/`-style forms) even if they are allowed; `[]` means no restriction. Fixed in 1.0: a
 scheme-qualified pattern compares the parsed host and port, so `'https://example.com'` no longer allows
-`https://example.com.evil.com` or `https://example.com@evil.com`; international domains match in either form
-(`münchen.de` = `xn--mnchen-3ya.de`); 0.x's fast path for lists of 100+ entries (exact hosts only) is gone: patterns
+`https://example.com.evil.com` or `https://example.com@evil.com`; international domains match in either form,
+converted as Chrome converts them (`münchen.de` = `xn--mnchen-3ya.de`, `faß.de` = `xn--fa-hia.de`, full-width dots
+are dots); 0.x's fast path for lists of 100+ entries (exact hosts only) is gone: patterns
 work at any length.
 
 How it is enforced:
 
-1. The REPL helpers refuse a disallowed URL before anything navigates: `goto_url`, `new_tab`, `http_get`, and the
-   agent's raw `cdp('Page.navigate')` / `cdp('Target.createTarget')`. The model sees `PermissionError: blocked:
+1. The REPL helpers refuse a disallowed URL before anything navigates: `goto_url`, `new_tab`, `http_get` (and every redirect it
+   follows), and the agent's raw `cdp('Page.navigate')` / `cdp('Target.createTarget')`. The model sees `PermissionError: blocked:
    evil.com is not in allowed_domains (example.com)`.
 2. The browser blocks every main-frame navigation to a disallowed host, whoever starts it: link clicks, redirects,
    `target=_blank`, `window.open`, meta refresh, JavaScript `location` changes, `Target.createTarget(url=...)`. browser-use
    holds its own CDP connection with browser-wide `Fetch.enable` for document requests and fails them
-   (`net::ERR_BLOCKED_BY_CLIENT`); the request never leaves the browser. The agent's `cdp('Fetch.disable')` cannot turn
-   it off (it is not the agent's connection). The next cell output says what was blocked.
-3. After every cell, browser-use checks every tab: one still showing a disallowed page is navigated to `about:blank` and
-   the cell output says so. Tabs already open on a disallowed page when the browser started are left alone (your
-   tabs, in `Browser('chrome')`).
+   (`net::ERR_BLOCKED_BY_CLIENT`); the request never leaves the browser, and the error page it leaves is replaced by
+   `about:blank`. A page that commits without a request Chrome lets it intercept (a speculation-rules prefetch or
+   prerender, which Chrome fetches in a separate network context; the back/forward cache) is caught the moment the tab
+   shows it: the same connection navigates that tab to `about:blank` (about 50 ms on a local Chrome). The agent's
+   `cdp('Fetch.disable')` cannot turn it off (it is not the agent's connection). The next cell output starts with what
+   was blocked.
+3. After every cell, browser-use checks every tab (in `Browser('chrome')`: only the tabs the agent created, switched to
+   or opened popups from; never a tab you opened yourself): one still showing a disallowed page is navigated to
+   `about:blank` and the cell output says so. A tab already open on a disallowed page when the `Browser` first started is left alone
+   while it still shows that page (your tabs, in `Browser('chrome')`); once it navigates, it is reset like any other.
 4. The system prompt gets one line listing the domains (only when set).
 
 | Mode | Helpers refuse (1) | Browser blocks (2) | Tabs reset after each cell (3) |
 |---|---|---|---|
 | `Browser()` (cloud) | yes | yes | yes |
 | `Browser('chromium')`, `Browser('chrome', profile=...)` | yes | yes | yes |
-| `Browser(cdp_url=...)` | yes | yes (a second CDP connection to that endpoint) | yes |
-| `Browser('chrome')` (your open Chrome) | yes | no: a second connection would raise Chrome's "Allow remote debugging?" prompt again | yes (tabs you open while it runs too) |
+| `Browser(cdp_url=...)` | yes | yes (a second CDP connection to that endpoint; it applies these rules to every tab in that browser) | yes (every tab) |
+| `Browser('chrome')` (your open Chrome) | yes | no: a second connection would raise Chrome's "Allow remote debugging?" prompt again | yes (the agent's tabs only) |
 
 Not blocked (a guard for an aligned model, not a sandbox):
 
 - Subresources: `fetch()`/XHR, images, scripts, iframes and websockets an allowed page loads from other hosts. Pages
   need their CDNs; a page on an allowed domain can still send data anywhere.
-- The REPL's own Python networking (`requests`, `urllib`, `subprocess curl`): only `http_get` is checked.
+- The REPL's own Python networking (`requests`, sockets, `subprocess curl`): only `http_get` is checked (its URL and
+  every redirect); a raw `urllib.request.urlopen` gets its redirects checked, not its first URL.
+- Speculative requests: a page's speculation-rules prefetch/prerender (and `<link rel=prefetch>`) of a disallowed URL
+  is sent; if the agent then opens it, layer 2 resets the tab right after it commits.
+- An iframe of a disallowed site inside an allowed page, including one the agent's own code injects: it loads and can
+  be read.
 - Navigations from the agent's Python that skip the helpers (`Runtime.evaluate` that sets `location`, a click) are
   caught by layer 2, except in `Browser('chrome')`, where only the after-cell reset (3) catches them, after the page
-  loaded.
+  loaded and could be read in that cell. The system prompt says so there instead of claiming the browser blocks.
 - Model code that goes around browser-use on purpose: closing or crashing the browser, opening its own CDP
   connection. Run untrusted tasks in a container or VM.
 - Layer 2 adds one round trip to browser-use per document request (on a cloud browser, your network's latency to it).

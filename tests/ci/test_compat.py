@@ -107,6 +107,10 @@ def test_removed_classes_raise_with_pointer():
 	for name in ['ChatGroq', 'ChatOllama', 'ChatAzureOpenAI', 'ChatOpenRouter', 'ChatDeepSeek']:
 		with pytest.raises(ImportError, match=rf"{REMOVED} In 1\.0: a Pydantic AI model string, e\.g\. llm='groq:"):
 			exec(f'from browser_use import {name}')
+		with pytest.raises(ImportError, match=rf'^browser_use\.llm\.{name} {REMOVED} In 1\.0: '):
+			exec(f'from browser_use.llm import {name}')  # the common 0.x import path
+	with pytest.raises(ImportError, match='cannot import name'):
+		exec('from browser_use.llm import NotAThing')
 
 
 def test_browser_session_alias_and_controller_alias():
@@ -133,6 +137,12 @@ def test_removed_result_methods_raise_not_implemented(name):
 		getattr(result(), name)
 	with pytest.raises(AttributeError):
 		result().definitely_not_a_method
+
+
+def test_removed_result_classmethod_raises_on_the_class():
+	"""0.x AgentHistoryList.load_from_file(path) was a classmethod: called on the class, not an instance."""
+	with pytest.raises(NotImplementedError, match=rf'^AgentHistoryList\.load_from_file {REMOVED} In 1\.0: '):
+		AgentHistoryList.load_from_file('history.json')
 
 
 def test_tools_plain_function_and_param_model():

@@ -36,6 +36,10 @@ REMOVED = {
 	'is_judged',
 	'is_validated',
 }
+HISTORY_ALTERNATIVE = (
+	'the agent runs Python cells, not step actions: use final_result(), structured_output, errors(), .messages (the '
+	'full transcript) or the files the agent saved in agent.workspace.'
+)
 
 
 @dataclass
@@ -88,13 +92,12 @@ class AgentHistoryList:
 	def total_duration_seconds(self) -> float:
 		return self.duration_s
 
+	@classmethod
+	def load_from_file(cls, *args: Any, **kwargs: Any) -> Any:
+		"""A 0.x classmethod: called on the class, __getattr__ never runs."""
+		raise NotImplementedError(removed('AgentHistoryList.load_from_file', HISTORY_ALTERNATIVE))
+
 	def __getattr__(self, name: str) -> Any:
 		if name in REMOVED:
-			raise NotImplementedError(
-				removed(
-					f'AgentHistoryList.{name}',
-					'the agent runs Python cells, not step actions: use final_result(), structured_output, errors(), '
-					'.messages (the full transcript) or the files the agent saved in agent.workspace.',
-				)
-			)
+			raise NotImplementedError(removed(f'AgentHistoryList.{name}', HISTORY_ALTERNATIVE))
 		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')

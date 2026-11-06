@@ -223,7 +223,9 @@ class Agent:
 						f'{CLOUD_PROMPT} {CAPTCHA_PROMPT if self.browser.captcha_solver else NO_CAPTCHA_PROMPT}'
 						if self.browser.use_cloud
 						else '',
-						self.browser.domains.prompt(),  # '' without restrictions: the default prompt stays byte-identical
+						self.browser.domains.prompt(
+							browser_blocks=not self.browser._attached()
+						),  # '' without restrictions: the default prompt stays byte-identical
 						redact(self.extend_system_message, self.sensitive_data),
 					],
 				)

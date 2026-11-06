@@ -381,7 +381,9 @@ class Repl:
 			if self.after_cell is not None and op == 'exec':
 				notices, blocks = await self.after_cell()
 				if notices:
-					r['output'] = '\n'.join(filter(None, [r.get('output') or '', *notices]))
+					# first: the cell's own output after a blocked click (an error page titled with the blocked host) can read
+					# as a successful landing
+					r['output'] = '\n'.join(filter(None, [*notices, r.get('output') or '']))
 				if blocks:
 					events = r.setdefault('stats', {}).setdefault('events', {})
 					events['domain_blocked'] = events.get('domain_blocked', 0) + blocks

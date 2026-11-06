@@ -16,6 +16,7 @@ dependencies = [
     "pydantic>=2.11",
     "pydantic-ai-slim[openai]>=2.64.0,<3",
     "genai-prices>=0.1.13",
+    "idna>=3.7",
     "pillow>=11",
     "posthog>=7.7.0",
     "python-dotenv>=1.0",

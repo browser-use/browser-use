@@ -89,7 +89,7 @@ def test_prohibited_domains():
 	p = ['example.com', 'test.org']
 	assert not ok('https://example.com', prohibited=p) and not ok('https://www.example.com', prohibited=p)
 	assert not ok('https://test.org', prohibited=p) and not ok('https://www.test.org', prohibited=p)
-	assert ok('https://mail.example.com', prohibited=p) and ok('https://api.test.org', prohibited=p)
+	assert not ok('https://mail.example.com', prohibited=p) and not ok('https://api.test.org', prohibited=p)  # 1.0
 	assert ok('https://notexample.com', prohibited=p)
 	p = ['*.example.com']
 	assert not ok('https://example.com', prohibited=p) and not ok('https://mail.example.com', prohibited=p)
@@ -107,7 +107,7 @@ def test_prohibited_domains():
 	assert not ok('https://user:password@example.com', prohibited=p)
 	p = ['Example.COM']
 	assert not ok('https://example.com', prohibited=p) and not ok('https://WWW.EXAMPLE.COM', prohibited=p)
-	assert ok('https://mail.example.com', prohibited=p)
+	assert not ok('https://mail.example.com', prohibited=p) and ok('https://example.co', prohibited=p)
 
 
 def test_prohibited_is_ignored_when_an_allowlist_is_set():
@@ -159,6 +159,41 @@ def test_invalid_urls_are_blocked():
 
 
 # Fixed or added in 1.0
+
+
+def test_a_bare_prohibited_domain_covers_its_subdomains():
+	"""0.x: prohibited_domains=['wikipedia.org'] let en.wikipedia.org through (a bare domain was itself plus www)."""
+	p = ['wikipedia.org', 'mail.example.com']
+	for url in ('https://en.wikipedia.org/wiki/X', 'https://m.en.wikipedia.org/', 'https://www.wikipedia.org/',
+				'https://a.mail.example.com/', 'https://mail.example.com/'):  # fmt: skip
+		assert not ok(url, prohibited=p), url
+	for url in (
+		'https://wikipedia.org.evil.com/',
+		'https://notwikipedia.org/',
+		'https://example.com/',
+		'https://www.example.com/',
+	):
+		assert ok(url, prohibited=p), url
+	assert ok('https://en.wikipedia.org/', ['wikipedia.org', 'en.wikipedia.org'])
+	assert not ok('https://de.wikipedia.org/', ['wikipedia.org'])  # an allowlist entry is still itself plus www
+
+
+def test_hosts_convert_as_chrome_does():
+	"""Chrome converts hosts with UTS46/IDNA2008 (faß.de -> xn--fa-hia.de; Python's 'idna' codec says fass.de) and
+	maps full-width dots and digits before reading an IPv4 address."""
+	assert not ok('https://xn--fa-hia.de/', prohibited=['faß.de']) and not ok('https://faß.de/', prohibited=['faß.de'])
+	assert ok('https://fass.de/', prohibited=['faß.de']) and not ok('https://fass.de/', ['faß.de'])
+	assert ok('https://xn--fa-hia.de/', ['faß.de']) and ok('https://faß.de/', ['xn--fa-hia.de'])
+	assert not ok('https://www.xn--bcher-kva.de/', prohibited=['https://*.bücher.de'])  # a scheme glob converts too
+	assert not ok('https://www.bücher.de/', prohibited=['http*://*.xn--bcher-kva.de'])
+	assert not ok('http://0x7f。1/', block_ips=True) and not ok('http://１２７.０.０.１/', block_ips=True)
+	assert not ok('http://evil。com/', prohibited=['evil.com']) and ok('http://good。com/', ['good.com'])
+
+
+def test_a_bare_ipv6_pattern_is_not_read_as_host_and_port():
+	assert not ok('http://[::1]/', prohibited=['::1']) and not ok('http://[::1]:8080/', prohibited=['::1'])
+	assert ok('http://[::1]:8080/', ['[::1]:8080']) and not ok('http://[::1]:9/', ['[::1]:8080'])
+	assert ok('http://[2001:db8::1]/', ['2001:db8::1']) and not ok('http://[2001:db8::2]/', ['2001:db8::1'])
 
 
 def test_scheme_patterns_compare_hosts_not_string_prefixes():
@@ -229,7 +264,92 @@ def test_a_tab_before_its_first_navigation_is_blank_not_disallowed():
 		{'type': 'iframe', 'targetId': 'frame', 'url': 'https://evil.com/'},
 	]
 	tabs = disallowed_tabs(lambda method, **_: {'targetInfos': targets}, RULES)
-	assert list(tabs) == ['evil']
+	assert tabs == {'evil': ('https://evil.com/', 'blocked: evil.com is not in allowed_domains (allowed.localhost)')}
+
+
+def test_a_kept_tab_is_reset_once_it_navigates():
+	"""Browser('chrome'): a tab you had open on a disallowed page is exempt only while it still shows that page; JS in
+	it navigating elsewhere must not stay exempt for the whole run."""
+	urls = {'kept': 'https://other.com/start', 'agent': 'https://evil.com/'}
+	sent = []
+
+	def cdp(method, session_id=None, **params):
+		sent.append((method, params.get('targetId') or params.get('url')))
+		if method == 'Target.getTargets':
+			return {'targetInfos': [{'type': 'page', 'targetId': t, 'url': u} for t, u in urls.items()]}
+		return {'sessionId': 's'}
+
+	keep = {'kept': 'https://other.com/start'}
+	sweep(cdp, RULES, keep)
+	assert ('Target.attachToTarget', 'agent') in sent and ('Target.attachToTarget', 'kept') not in sent
+	sent.clear()
+	urls['kept'] = 'https://evil.com/navigated'
+	notes = sweep(cdp, RULES, keep)
+	assert ('Target.attachToTarget', 'kept') in sent and len(notes) == 2
+
+
+def test_attach_mode_sweeps_only_the_agents_tabs(monkeypatch, tmp_path):
+	"""Browser('chrome'): the sweep resets the tabs the agent created (worker.py writes BU_TABS_FILE), the tab the daemon
+	is attached to, and popups they opened; never a tab you opened yourself on a site outside the list."""
+	from browser_use.browser import browser as module
+
+	targets = {
+		'created': ('https://evil.com/1', None),
+		'attached': ('https://evil.com/2', None),
+		'popup': ('https://evil.com/3', 'created'),
+		'popup_of_popup': ('https://evil.com/4', 'popup'),
+		'yours': ('https://mail.example.org/draft', None),
+	}
+	reset = []
+
+	def cdp(name, method, session_id=None, **params):
+		if method == 'Target.getTargets':
+			infos = [{'type': 'page', 'targetId': t, 'url': u, **({'openerId': o} if o else {})} for t, (u, o) in targets.items()]
+			return {'targetInfos': infos}
+		if method == 'Target.attachToTarget':
+			reset.append(params['targetId'])
+		return {'sessionId': 's'}
+
+	monkeypatch.setattr(module, '_daemon_cdp', cdp)
+	monkeypatch.setattr(module, '_daemon_request', lambda name, req: {'targetId': 'attached'})
+	browser = Browser('chrome', allowed_domains=['allowed.localhost'])
+	browser._tabs_file = str(tmp_path / 'tabs')
+	(tmp_path / 'tabs').write_text('created\n')
+	notes = browser._sweep()
+	assert sorted(reset) == ['attached', 'created', 'popup', 'popup_of_popup'] and len(notes) == 4
+	reset.clear()
+	Browser('chromium', allowed_domains=['allowed.localhost'])._sweep()  # a browser of our own: every tab
+	assert 'yours' in reset
+
+
+async def test_the_worker_records_the_tabs_it_creates(daemon, tmp_path):
+	"""BU_TABS_FILE: every Target.createTarget the worker sends (new_tab included) appends the new tab's id."""
+	tabs = tmp_path / 'tabs'
+	repl = Repl(tmp_path, {**daemon, 'BU_DOMAINS': RULES.to_json(), 'BU_TABS_FILE': str(tabs)})
+	try:
+		r = await repl.call(
+			'exec', 'a = new_tab(); b = cdp("Target.createTarget", url="about:blank")["targetId"]; print(a, b)', 30
+		)
+		assert r['error'] is None, r['error']
+	finally:
+		await repl.close()
+	assert tabs.read_text().split() == r['output'].split()
+
+
+async def test_the_kept_tabs_are_taken_once_per_browser(monkeypatch):
+	"""Browser('chrome') runs _start() on every start() (each run, each reattach): a tab the agent left on a disallowed
+	page (a late redirect after its last cell) must not become exempt in the next run."""
+	browser = Browser('chrome', allowed_domains=['allowed.localhost'])
+	snapshots = iter([{'yours': 'https://other.com/'}, {'yours': 'https://other.com/', 'agent': 'https://evil.com/'}])
+
+	async def start():
+		return {}
+
+	monkeypatch.setattr(browser, '_start', start)
+	monkeypatch.setattr(browser, '_disallowed_tabs', lambda: next(snapshots))
+	await browser.start()
+	await browser.start()
+	assert browser._user_tabs == {'yours': 'https://other.com/'}
 
 
 def test_browser_takes_domain_options_in_every_mode():
@@ -255,6 +375,8 @@ def test_system_prompt_line_only_with_restrictions(tmp_path):
 		restricted
 		== f'{plain}\nThe browser may only open these domains: example.com. Other navigation is blocked by the browser; do not try to get around it.'
 	)
+	attached = prompt(Browser('chrome', allowed_domains=['example.com']))  # no browser-level block in attach mode
+	assert attached.endswith('example.com. Other pages are reset to about:blank after each step; do not try to get around it.')
 
 
 # Against a real Chrome: one test per layer, each failing without its layer
@@ -324,6 +446,8 @@ async def test_helpers_refuse_disallowed_urls(daemon, site, tmp_path):
 			f'cdp("Page.navigate", url={site["evil"]!r})',
 			f'cdp("Target.createTarget", url={site["evil"]!r})',
 			f'http_get({site["evil"]!r})',
+			f'http_get({site["allowed"] + "/redirect"!r})',  # each redirect hop is checked before it is followed
+			f'import urllib.request; urllib.request.urlopen({site["allowed"] + "/redirect"!r})',
 		):
 			r = await repl.call('exec', code, 30)
 			assert (
@@ -365,7 +489,8 @@ async def test_guard_blocks_navigations_the_helpers_never_see(chrome, daemon, si
 		await repl.close()
 		guard.close()
 	assert evil_hits() == []
-	assert blocks == 7, notices
+	assert blocks == 7, notices  # the error pages the blocks left were reset silently: no second count
+	assert not [u for u in page_urls(chrome) if 'evil.' in u]
 	assert notices[0].startswith(
 		'[blocked: evil.localhost is not in allowed_domains (allowed.localhost). The browser did not load'
 	)
@@ -380,13 +505,16 @@ async def test_sweep_resets_tabs_left_on_a_disallowed_page(chrome, daemon, site,
 	from browser_use.browser.browser import _daemon_cdp
 
 	cdp = partial(_daemon_cdp, daemon['BU_NAME'])
-	before = {t['targetId'] for t in cdp('Target.getTargets')['targetInfos'] if RULES.blocked(t['url'])}  # earlier tests'
+	before = {
+		t['targetId']: t['url'] for t in cdp('Target.getTargets')['targetInfos'] if RULES.blocked(t['url'])
+	}  # earlier tests'
 	repl = Repl(tmp_path, daemon)
 	try:
 		r = await repl.call('exec', f'new_tab({site["evil"] + "/stay"!r}); wait_for_load(); current_tab()["targetId"]', 30)
 		tab = r['output'].strip()
 		mine = await repl.call('exec', f'new_tab({site["evil"] + "/mine"!r}); wait_for_load(); current_tab()["targetId"]', 30)
-		notes = await asyncio.to_thread(sweep, cdp, RULES, before | {mine['output'].strip()})
+		keep = {**before, mine['output'].strip(): f'{site["evil"]}/mine'}
+		notes = await asyncio.to_thread(sweep, cdp, RULES, keep)
 		urls = page_urls(chrome)
 	finally:
 		await repl.close()
@@ -405,7 +533,7 @@ async def test_agent_on_chromium_enforces_every_layer(chrome_binary, site, tmp_p
 	model, seen = script(
 		('python', {'code': f'new_tab({allowed + "/"!r}); wait_for_load(); print(page_info()["url"])'}),
 		('python', {'code': f'new_tab({evil + "/direct"!r})'}),
-		('python', {'code': 'js("document.getElementById(\'link\').click()"); wait(1)'}),
+		('python', {'code': 'js("document.getElementById(\'link\').click()"); wait(1); print("CELL-OUTPUT")'}),
 		('python', {'code': 'print([t["url"] for t in list_tabs()])'}),
 		('finish', {'success': True, 'result': 'done'}),
 	)
@@ -423,11 +551,38 @@ async def test_agent_on_chromium_enforces_every_layer(chrome_binary, site, tmp_p
 	assert 'allowed.localhost' in str(returns[0])
 	assert 'PermissionError: blocked: evil.localhost is not in allowed_domains' in str(returns[1])
 	assert '[blocked: evil.localhost is not in allowed_domains (allowed.localhost). The browser did not load' in str(returns[2])
-	assert 'browser-use navigated that tab to about:blank' in str(returns[2])  # the error page the block left
+	assert str(returns[2]).index('[blocked') < str(returns[2]).index('CELL-OUTPUT')  # notices before the cell's output
 	assert 'evil.localhost' not in str(returns[3])
 	assert evil_hits() == []
-	assert captured[0].events['domain_blocked'] == 3  # helper refusal + browser block + tab reset
+	assert captured[0].events['domain_blocked'] == 2  # helper refusal + browser block (its error page reset silently)
 	assert browser._guard is None  # stopped with the browser
+
+
+async def test_guard_resets_a_tab_that_commits_without_a_request_it_saw(chrome, daemon, site, tmp_path):
+	"""A page can commit with no request the guard intercepts (a speculation-rules prefetch, which Chrome fetches in a
+	context Fetch does not see; the back/forward cache): the guard navigates the tab to about:blank as soon as its URL
+	changes to a disallowed one. Simulated by a guard that lets every request through."""
+
+	class Blind(Guard):
+		def _handle(self, msg):
+			if msg.get('method') == 'Fetch.requestPaused':
+				self._send('Fetch.continueRequest', requestId=msg['params']['requestId'])
+				return
+			super()._handle(msg)
+
+	guard = Blind(chrome['ws'], RULES)
+	guard.start()
+	repl = Repl(tmp_path, daemon)
+	try:
+		code = f'goto_url({site["allowed"] + "/"!r}); wait_for_load(); js("location.href = {site["evil"] + "/committed"!r}"); wait(1)'
+		r = await repl.call('exec', f'{code}; print(page_info()["url"])', 30)
+		assert r['error'] is None, r['error']
+		notices, blocks = guard.take()
+	finally:
+		await repl.close()
+		guard.close()
+	assert r['output'].strip() == 'about:blank'
+	assert blocks == 1 and notices[0].endswith('/committed; browser-use navigated it to about:blank]'), notices
 
 
 def test_guard_start_failure_raises():

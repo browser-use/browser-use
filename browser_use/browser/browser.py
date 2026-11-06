@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import signal
+import tempfile
 import threading
 import time
 import urllib.error
@@ -153,16 +154,20 @@ def _ws_url(cdp_url: str) -> str:
 		return json.load(r)['webSocketDebuggerUrl']
 
 
-def _daemon_cdp(name: str, method: str, session_id: str | None = None, **params) -> dict:
-	"""One CDP command through our daemon (browser-harness cdp(), from this process)."""
+def _daemon_request(name: str, request: dict) -> dict:
 	from browser_harness import _ipc as ipc
 
 	c, token = ipc.connect(name, timeout=5.0)
 	try:
 		c.settimeout(30)
-		r = ipc.request(c, token, {'method': method, 'params': params, 'session_id': session_id})
+		return ipc.request(c, token, request)
 	finally:
 		c.close()
+
+
+def _daemon_cdp(name: str, method: str, session_id: str | None = None, **params) -> dict:
+	"""One CDP command through our daemon (browser-harness cdp(), from this process)."""
+	r = _daemon_request(name, {'method': method, 'params': params, 'session_id': session_id})
 	if 'error' in r:
 		raise RuntimeError(f'{method} failed: {r["error"]}')
 	return r.get('result') or {}
@@ -377,7 +382,14 @@ class Browser:
 		# the handler on the thread that holds it
 		self._stop_mutex = threading.RLock()
 		self._guard: Guard | None = None  # domain restrictions' browser-level block, while started
-		self._user_tabs: set[str] = set()  # tabs open on a disallowed page at start: sweep() leaves them alone
+		# tab -> the disallowed URL it showed when this Browser first started (yours, in Browser('chrome')): sweep() leaves
+		# it alone while it still shows that URL. Taken once: a follow-up run or a reattach must not exempt a tab the
+		# agent left on a disallowed page.
+		self._user_tabs: dict[str, str] | None = None
+		# Browser('chrome') with domain restrictions: the tabs the agent created (the worker appends their ids to
+		# _tabs_file), was attached to at the end of a cell, or opened popups from. The sweep touches only these.
+		self._agent_tabs: set[str] = set()
+		self._tabs_file: str | None = None
 		_install_cleanup()  # here too: the main thread, when start() runs on another
 
 	async def start(self) -> dict[str, str]:
@@ -388,8 +400,14 @@ class Browser:
 			if self._env is None or not self.name:  # Browser('chrome'): ensuring the shared daemon is idempotent
 				env = await self._start()
 				if self.domains:  # the REPL helpers refuse disallowed URLs (worker.py)
-					self._user_tabs = await asyncio.to_thread(self._disallowed_tabs)
+					if self._user_tabs is None:
+						self._user_tabs = await asyncio.to_thread(self._disallowed_tabs)
 					env['BU_DOMAINS'] = self.domains.to_json()
+					if self._attached():
+						if self._tabs_file is None:
+							fd, self._tabs_file = tempfile.mkstemp(prefix='browser-use-tabs-')
+							os.close(fd)
+						env['BU_TABS_FILE'] = self._tabs_file
 				self._env = env
 			else:
 				await asyncio.to_thread(self._reattach)
@@ -508,8 +526,24 @@ class Browser:
 	def _cdp(self) -> functools.partial[dict]:
 		return functools.partial(_daemon_cdp, self._daemon_name())
 
-	def _disallowed_tabs(self) -> set[str]:
-		return set(disallowed_tabs(self._cdp(), self.domains))
+	def _attached(self) -> bool:
+		"""Browser('chrome') on your open Chrome: tabs in it are yours too."""
+		return self.kind == 'chrome' and self.chrome_profile is None
+
+	def _touched_tabs(self) -> set[str]:
+		if self._tabs_file:
+			with contextlib.suppress(OSError):
+				self._agent_tabs.update(Path(self._tabs_file).read_text().split())
+		with contextlib.suppress(Exception):  # - no attached tab yet
+			self._agent_tabs.add(str(_daemon_request(self._daemon_name(), {'meta': 'current_tab'})['targetId']))
+		return self._agent_tabs
+
+	def _sweep(self) -> list[str]:
+		only = self._touched_tabs() if self._attached() else None
+		return sweep(self._cdp(), self.domains, self._user_tabs or {}, only)
+
+	def _disallowed_tabs(self) -> dict[str, str]:
+		return {target: url for target, (url, _) in disallowed_tabs(self._cdp(), self.domains).items()}
 
 	async def after_cell(self) -> tuple[list[str], int]:
 		"""Domain restrictions after each REPL cell: what the browser blocked since the last cell, then every tab that
@@ -518,7 +552,7 @@ class Browser:
 			return [], 0
 		notices, blocks = self._guard.take() if self._guard else ([], 0)
 		try:
-			reset = await asyncio.to_thread(sweep, self._cdp(), self.domains, self._user_tabs)
+			reset = await asyncio.to_thread(self._sweep)
 		except Exception as e:  # - the daemon is gone; the next cell reports and reattaches it
 			logger.debug('domain sweep failed: %s', e)
 			reset = []
@@ -532,6 +566,12 @@ class Browser:
 			guard, self._guard = self._guard, None
 			if guard is not None:
 				guard.close()
+			tabs_file, self._tabs_file = self._tabs_file, None
+			if tabs_file:
+				with contextlib.suppress(OSError):
+					self._agent_tabs.update(Path(tabs_file).read_text().split())  # a follow-up run's sweep still knows them
+				with contextlib.suppress(OSError):
+					os.unlink(tabs_file)
 			name, self.name = self.name, None
 			if name and _shutdown_daemon(name) and self.id and self._daemon_env.get('BU_BROWSER_ID') == self.id:
 				self.stopped = True  # the daemon stopped it before it acknowledged
