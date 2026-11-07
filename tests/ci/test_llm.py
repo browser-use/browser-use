@@ -647,6 +647,16 @@ def test_openai_reasoning_models_on_chat_completions_get_reasoning_off(monkeypat
 	assert build_agent(other).model_settings == {}
 
 
+def test_anthropic_models_use_prompt_caching():
+	"""M6: no Anthropic prompt caching: cache_read and cache_write were 0 in every Claude run."""
+	from browser_use.agent.loop import build_agent
+
+	cache = {'anthropic_cache_instructions': True, 'anthropic_cache_tool_definitions': True, 'anthropic_cache': True}
+	for model in ('anthropic:claude-haiku-5-5', ChatAnthropic('claude-haiku-5-5', api_key='k').pydantic_model()):
+		assert build_agent(model).model_settings == {'thinking': 'medium', **cache}
+	assert not set(cache) & set(build_agent(ChatGoogle('gemini-2.5-pro', api_key='k').pydantic_model()).model_settings)
+
+
 def test_base_url_accepts_url_objects():
 	"""Roast r2-13: ChatOpenAI(base_url=httpx.URL(...)) crashed with AttributeError; 0.x accepted it."""
 	import httpx

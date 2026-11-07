@@ -405,6 +405,10 @@ def build_agent(
 		capabilities = [BrowserLoop()]
 	else:  # other providers: unified thinking (dropped where the profile has none), the provider's own max_tokens
 		settings = {'thinking': reasoning_effort or 'medium'} if reasoning else {}
+		if (model.startswith('anthropic:') if isinstance(model, str) else getattr(model, 'system', None) == 'anthropic'):
+			# Anthropic caches nothing unless asked: every request re-billed the whole prompt (cache_read was always 0).
+			# The system prompt, the tools and the conversation so far (moving breakpoint) are read from cache.
+			settings |= {'anthropic_cache_instructions': True, 'anthropic_cache_tool_definitions': True, 'anthropic_cache': True}
 		capabilities = [BrowserLoop()]
 	agent = Agent(
 		model,
