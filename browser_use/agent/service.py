@@ -3639,24 +3639,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Level 4: ax_name (accessible name) match - robust for dynamic SPAs with menus
 		# This uses the accessible name from the accessibility tree which is stable
-		# even when DOM structure changes (e.g., dynamically generated menu items)
-		if highlight_index is None and historical_element.ax_name is not None:
+		# even when DOM structure changes (e.g., dynamically generated menu items).
+		# Explicitly empty ax_name is preserved in history (#5041) but must not drive
+		# replay: a lone unnamed control on the page may not be the originally clicked element.
+		if highlight_index is None and historical_element.ax_name:
 			hist_name = historical_element.node_name.lower()
 			hist_ax_name = historical_element.ax_name
-			use_ax_name_match = hist_ax_name != ''
-			if not use_ax_name_match:
-				empty_ax_name_count = sum(
-					1
-					for _, elem in selector_items
-					if elem.node_name.lower() == hist_name and (elem.ax_node.name if elem.ax_node else None) == ''
-				)
-				use_ax_name_match = empty_ax_name_count == 1
-			if not use_ax_name_match:
-				self.logger.debug(
-					f'AX_NAME match skipped for <{hist_name.upper()}> with empty ax_name: '
-					f'{empty_ax_name_count if hist_ax_name == "" else 0} matching elements'
-				)
-			for idx, elem in selector_items if use_ax_name_match else []:
+			for idx, elem in selector_items:
 				# Match by node type and accessible name
 				elem_ax_name = elem.ax_node.name if elem.ax_node else None
 				if elem.node_name.lower() == hist_name and elem_ax_name == hist_ax_name:
