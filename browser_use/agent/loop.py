@@ -43,7 +43,8 @@ logger = logging.getLogger(__name__)
 KEEP_IMAGE_RESULTS = 2
 DELIVER_NOW = (
 	'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_repl. '
-	'Reference saved files; explicitly list missing evidence. Do not perform more browser actions.'
+	'Reference saved files; explicitly list missing evidence. Do not perform more browser actions. '
+	'If the task is not fully finished as requested, set success=false; else success=true.'  # 0.x last-step prompt
 )
 DELIVERY_REPAIR = (  # bu-pi src/agent.ts:560, verbatim except tool names
 	'The run ended without a validated delivery. Use finish_from_repl for an existing result or finish for a concise '

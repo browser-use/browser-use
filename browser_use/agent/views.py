@@ -75,7 +75,10 @@ HISTORY_ALTERNATIVE = (
 
 @dataclass
 class AgentHistoryList:
-	status: str  # completed | timeout | max_steps | error
+	# completed | timeout | max_steps | error. A run that reaches max_steps or the timeout gets one forced delivery turn
+	# and still returns 'completed' (success=False when the agent reports it unfinished); 'max_steps' and 'timeout'
+	# mean nothing was delivered: read partial.
+	status: str
 	text: str
 	output: Any
 	steps: int

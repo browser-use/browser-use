@@ -316,6 +316,8 @@ async def test_budget_turn_forces_delivery_on_the_same_request(daemon, tmp_path)
 		await session.repl.close()
 	assert seen[0][1] == 'auto'
 	assert DELIVER_NOW in str(seen[1][0][-1]) and seen[1][1] == ('required', {'finish', 'finish_from_repl'})
+	# A budget-cut run still returns status='completed'; the verdict is the caller's only signal (0.x asked for it).
+	assert 'success=false' in str(seen[1][0][-1])
 	assert result.output == 'one'
 
 
