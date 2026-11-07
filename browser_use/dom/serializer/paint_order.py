@@ -17,9 +17,12 @@ class Rect:
 	x2: float
 	y2: float
 
-	def __post_init__(self):
-		if not (self.x1 <= self.x2 and self.y1 <= self.y2):
-			return False
+	def __post_init__(self) -> None:
+		# __post_init__ return values are discarded by @dataclass, so a `return False`
+		# here would silently accept inverted bounds and corrupt every downstream
+		# area/intersection/occlusion calculation.
+		if self.x1 > self.x2 or self.y1 > self.y2:
+			raise ValueError(f'Rect requires x1 <= x2 and y1 <= y2, got x1={self.x1}, y1={self.y1}, x2={self.x2}, y2={self.y2}')
 
 	# --- fast relations ----------------------------------------------------
 	def area(self) -> float:
@@ -193,11 +196,19 @@ class PaintOrderRemover:
 				if not node.original_node.snapshot_node or not node.original_node.snapshot_node.bounds:
 					continue  # shouldn't happen by how we filter them out in the first place
 
+				bounds = node.original_node.snapshot_node.bounds
+				if bounds.width <= 0 or bounds.height <= 0:
+					# Collapsed/hidden wrappers (e.g. a 0x0 overflow:hidden tracker) paint
+					# nothing, so they can never occlude anything. Skipping them also keeps
+					# inverted bounds (negative width/height) out of Rect, which now rejects
+					# reversed corners instead of silently computing a negative area.
+					continue
+
 				rect = Rect(
-					x1=node.original_node.snapshot_node.bounds.x,
-					y1=node.original_node.snapshot_node.bounds.y,
-					x2=node.original_node.snapshot_node.bounds.x + node.original_node.snapshot_node.bounds.width,
-					y2=node.original_node.snapshot_node.bounds.y + node.original_node.snapshot_node.bounds.height,
+					x1=bounds.x,
+					y1=bounds.y,
+					x2=bounds.x + bounds.width,
+					y2=bounds.y + bounds.height,
 				)
 				context = self._document_context(node)
 
