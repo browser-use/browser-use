@@ -79,3 +79,15 @@ def test_install_downloads_playwright_chromium_like_0x(monkeypatch, capsys):
 	monkeypatch.setattr(shutil, 'which', lambda name: None)
 	assert browser_use_cli._run_install_command([]) == 1
 	assert 'playwright install chromium' in capsys.readouterr().err
+
+
+def test_help_is_this_clis_own():
+	"""M34: --help printed browser-harness's help: `doctor --json` (rc 2 here), a --update that updates browser-harness,
+	and no login, logout, install or --cli-mcp."""
+	result = _run_browser_use_cli('--help')
+	assert result.returncode == 0 and result.stderr == ''
+	for command in ('browser-use login', 'browser-use logout', 'browser-use install', '--cli-mcp', 'browser-use skill'):
+		assert command in result.stdout
+	assert 'doctor --json' not in result.stdout and 'browser-harness' not in result.stdout and '--update' not in result.stdout
+	update = _run_browser_use_cli('--update', '-y')
+	assert update.returncode == 2 and 'uv tool upgrade browser-use' in update.stderr

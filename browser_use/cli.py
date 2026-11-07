@@ -466,6 +466,32 @@ _EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Py
   PY"""
 
 
+HELP = """Browser Use CLI: your coding agent drives a browser with Python piped on stdin.
+
+  browser-use <<'PY'
+  new_tab("https://example.com")
+  print(page_info())
+  PY
+
+Helpers are pre-imported; the daemon starts and attaches to your running Chrome by itself.
+
+Commands:
+  browser-use login [--device-code | --api-key-stdin]   sign in to Browser Use Cloud (cloud browsers, default model)
+  browser-use logout                  remove the stored key
+  browser-use auth status             show the sign-in state
+  browser-use --doctor                check install, daemon and browser
+  browser-use doctor --fix-snap       how to fix Snap Chromium blocking CDP (Linux)
+  browser-use mac-approve             approve Chrome's macOS remote-debugging prompt
+  browser-use --reload                restart the daemon
+  browser-use install                 install Chromium for Browser('chromium') (Playwright's build)
+  browser-use skill [show | install [--target NAME] [--path DIR] [--install-cli]]
+                                      print or install the agent skill
+  browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login)
+  browser-use --version               print the versions
+Update: uv tool upgrade browser-use (or pip install -U browser-use).
+Library: from browser_use import Agent (https://github.com/browser-use/browser-use)"""
+
+
 def _command_name(args: list[str]) -> str:
 	if '--cli-mcp' in args:
 		return 'cli-mcp'
@@ -486,6 +512,12 @@ def _command_name(args: list[str]) -> str:
 
 
 def _dispatch(args: list[str]) -> tuple[int | None, str]:
+	if args in (['--help'], ['-h'], ['help']):  # browser-harness's own help named its commands and flags, not ours
+		print(HELP)
+		return 0, 'help'
+	if args and args[0] == '--update':  # browser-harness's self-update would update it, not browser-use
+		print('browser-use does not update itself: uv tool upgrade browser-use (or pip install -U browser-use).', file=sys.stderr)
+		return 2, 'update'
 	if args in (['--version'], ['-V']):
 		from importlib.metadata import version as package_version
 
