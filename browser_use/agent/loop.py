@@ -296,10 +296,14 @@ class BrowserLoop(AbstractCapability[Session]):
 		"""bu-pi's provider retry (src/agent.ts transientModelError): a rate limit, overload, 5xx or dropped connection
 		sends the same request once more per run, after the provider's Retry-After (at most 60 s, pi-ai's cap). Only the
 		inference is repeated: a failed request returned no tool calls. Not where the provider's SDK client has already
-		retried it (OpenAI, Anthropic and OpenAI-compatible clients: max_retries=2 with backoff); xAI's gRPC client retries
-		only UNAVAILABLE, so its 429 "at capacity" ended grok bub2-007 on the first try."""
-		s, client = ctx.deps, getattr(request_context.model, 'client', None)
-		if s.provider_retried or not isinstance(error, TRANSIENT) or getattr(client, 'max_retries', 0):
+		retried it: OpenAI, Anthropic and OpenAI-compatible clients (max_retries=2 with backoff), and xAI's UNAVAILABLE
+		(xai-sdk's gRPC retry policy: 5 attempts). xAI's 429 "at capacity" ended grok bub2-007 on the first try. Bedrock's
+		botocore retries throttling without a max_retries attribute, so it gets this one more."""
+		s, model = ctx.deps, request_context.model
+		sdk_retried = getattr(getattr(model, 'client', None), 'max_retries', 0) or (
+			model.system == 'xai' and getattr(error, 'provider_error_code', None) == 'UNAVAILABLE'
+		)
+		if s.provider_retried or not isinstance(error, TRANSIENT) or sdk_retried:
 			raise error
 		s.provider_retried = True
 		delay = min(error.retry_after or 0, 60)

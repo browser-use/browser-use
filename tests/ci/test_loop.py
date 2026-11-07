@@ -183,6 +183,7 @@ async def test_oversized_and_invalid_images_never_reach_provider(daemon, tmp_pat
 		(['server', 'overloaded'], 0, 'error', 2, [0]),  # once per run, as bu-pi
 		(['rejected'], 0, 'error', 1, []),  # a 400 is not sent again
 		(['rate'], 2, 'error', 1, []),  # the OpenAI/Anthropic SDK client already retried it twice
+		(['grpc_unavailable'], 0, 'error', 1, []),  # xai-sdk's gRPC retry policy already sent it 5 times
 	],
 )
 async def test_transient_provider_error_is_retried_once(tmp_path, monkeypatch, errors, sdk_retries, status, calls, slept):
@@ -198,6 +199,7 @@ async def test_transient_provider_error_is_retried_once(tmp_path, monkeypatch, e
 		'server': lambda: x.ModelServerError('grok-4.7', 'internal'),
 		'overloaded': lambda: x.ModelOverloadedError('grok-4.7', 'overloaded'),
 		'rejected': lambda: x.ModelRequestRejectedError('grok-4.7', 'invalid_image'),
+		'grpc_unavailable': lambda: x.ModelUnavailableError('grok-4.7', 'unavailable', provider_error_code='UNAVAILABLE'),
 	}
 	pending, sleeps, requests, real_sleep = list(errors), [], [], asyncio.sleep
 
@@ -212,6 +214,7 @@ async def test_transient_provider_error_is_retried_once(tmp_path, monkeypatch, e
 		return ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': 'ok'})])
 
 	model = FunctionModel(fn)
+	model._system = 'xai'
 	if sdk_retries:
 		model.client = SimpleNamespace(max_retries=sdk_retries)  # pyright: ignore[reportAttributeAccessIssue]
 	monkeypatch.setattr(asyncio, 'sleep', sleep)
