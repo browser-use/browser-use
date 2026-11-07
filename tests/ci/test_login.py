@@ -186,7 +186,7 @@ def test_mcp_browser_login_finishes_across_calls_and_never_returns_the_key(store
 	mcp = cli_mcp.CLIMCPServer()
 
 	# Not signed in: browser_exec says which tool fixes it
-	output = mcp._execute('start_remote_daemon("browser-use-tests-login")')
+	output = mcp._execute('start_remote_daemon("browser-use-tests-login")')[0]
 	assert cli_mcp.LOGIN_HINT in output
 
 	first = mcp._sign_in(force=False, wait=0.2)

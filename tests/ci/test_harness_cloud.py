@@ -95,20 +95,20 @@ def test_mcp_drives_the_cloud_browser_it_started_wherever_the_start_is_in_the_co
 	mcp = cli_mcp.CLIMCPServer()
 
 	# not the first statement: a prefix check would attach the local Chrome before the cloud browser starts
-	out = mcp._execute(f'b = start_remote_daemon({name!r})\nprint(sorted(b))\nprint(b["timeout"])')
+	out = mcp._execute(f'b = start_remote_daemon({name!r})\nprint(sorted(b))\nprint(b["timeout"])')[0]
 	assert fake_cloud == [name], out
 	assert 'liveUrl' not in out and 'live.example' not in out  # it grants control of the browser
 	assert 'cdpUrl' not in out and 'cdp.example' not in out  # so does the CDP URL, with no key
 	assert out.splitlines()[-1] == str(cli_mcp.CLOUD_TIMEOUT_MINUTES)
 
-	out = mcp._execute('new_tab("data:text/html,<title>cloud page</title>"); wait_for_load(); print(page_info()["title"])')
+	out = mcp._execute('new_tab("data:text/html,<title>cloud page</title>"); wait_for_load(); print(page_info()["title"])')[0]
 	assert out.strip().splitlines()[-1] == 'cloud page', out
-	assert mcp._execute('print(NAME)').strip() == name
+	assert mcp._execute('print(NAME)')[0].strip() == name
 
 	other = _name('other')
-	out = mcp._execute(f'start_remote_daemon({other!r})')
+	out = mcp._execute(f'start_remote_daemon({other!r})')[0]
 	assert f'already drives cloud browser {name!r}' in out and fake_cloud == [name]
-	out = mcp._execute(f'start_remote_daemon({name!r})')
+	out = mcp._execute(f'start_remote_daemon({name!r})')[0]
 	assert f'Daemon {name!r} is already running' in out and 'Traceback' not in out and fake_cloud == [name]
 
 
@@ -124,13 +124,13 @@ def test_cloud_upload_sends_the_files_bytes_not_a_local_path(fake_cloud, monkeyp
 
 	monkeypatch.setattr(helpers, 'upload_file', upload_by_local_path)
 	mcp = cli_mcp.CLIMCPServer()
-	mcp._execute(f'start_remote_daemon({_name("upload")!r})')
+	mcp._execute(f'start_remote_daemon({_name("upload")!r})')[0]
 	(tmp_path / 'cv.txt').write_text('hello cloud')
 	out = mcp._execute(
 		"new_tab('data:text/html,<input type=file id=f>'); wait_for_load()\n"
 		f"print(upload_file('#f', {str(tmp_path / 'cv.txt')!r}), "
 		"js(\"document.getElementById('f').files[0].name + ':' + document.getElementById('f').files[0].size\"))"
-	)
+	)[0]
 	assert out.strip().splitlines()[-1] == '1 cv.txt:11', out
 
 
@@ -207,10 +207,10 @@ def test_a_cloud_daemon_that_ended_never_falls_back_to_the_local_chrome(fake_clo
 
 	name = _name('gone')
 	mcp = cli_mcp.CLIMCPServer()
-	mcp._execute(f'start_remote_daemon({name!r})')
+	mcp._execute(f'start_remote_daemon({name!r})')[0]
 	admin.restart_daemon(name)  # the cloud browser timed out / its daemon died
 
-	for out in (mcp._execute('print(page_info())'), mcp._execute('print(page_info())')):
+	for out in (mcp._execute('print(page_info())')[0], mcp._execute('print(page_info())')[0]):
 		assert f'Cloud browser {name!r} has ended' in out and f'start_remote_daemon({name!r})' in out, out
 		assert 'Traceback' not in out and 'attached a local Chrome' not in out
 	assert not admin.daemon_alive(name)
@@ -335,3 +335,58 @@ time.sleep(600)
 		from browser_use import harness_cloud
 
 		harness_cloud.forget(name)
+
+
+async def test_mcp_exec_reports_failures_and_a_cancelled_call_never_bleeds_into_the_next(monkeypatch):
+	"""M28: browser_exec never set is_error, a traceback came back as a success. M27: a call the client timed out kept
+	running and its prints showed up in the next call's result."""
+	import asyncio
+
+	from browser_use.mcp.cli_mcp import CLIMCPServer
+
+	server = CLIMCPServer()
+	monkeypatch.setattr(server, '_ensure_daemon', lambda code: None)
+	assert server._execute('print("ok")') == ('ok\n', False)
+	text, failed = server._execute('1/0')
+	assert failed and 'ZeroDivisionError' in text
+	runaway = asyncio.ensure_future(
+		server._locked(server._execute, 'import time\nfor i in range(6):\n    print("RUNAWAY", i)\n    time.sleep(0.1)')
+	)
+	await asyncio.sleep(0.15)
+	runaway.cancel()
+	text, failed = await server._locked(server._execute, 'print("MINE")')
+	assert (text, failed) == ('MINE\n', False)
+
+
+def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
+	"""M29: print() from a thread the model's code started landed on stdout and broke the client's JSON-RPC parsing."""
+	import json
+	import os
+	import subprocess
+	import sys
+	import time
+
+	env = {**os.environ, 'BU_CDP_URL': 'http://127.0.0.1:1', 'BU_NAME': f'butestmcp{os.getpid()}', 'HOME': str(tmp_path)}
+	proc = subprocess.Popen(
+		[sys.executable, '-m', 'browser_use', '--cli-mcp'],
+		stdin=subprocess.PIPE,
+		stdout=subprocess.PIPE,
+		stderr=subprocess.PIPE,
+		env=env,
+		cwd=tmp_path,
+	)
+	code = 'if False: start_remote_daemon()\nimport threading, time\nthreading.Thread(target=lambda: (time.sleep(0.5), print("LATE"))).start()'
+	messages = [
+		{'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 't', 'version': '1'}}},
+		{'jsonrpc': '2.0', 'method': 'notifications/initialized'},
+		{'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': 'browser_exec', 'arguments': {'code': code}}},
+	]
+	assert proc.stdin
+	for m in messages:
+		proc.stdin.write((json.dumps(m) + '\n').encode())
+		proc.stdin.flush()
+	time.sleep(3)
+	out, err = proc.communicate(timeout=30)
+	lines = [line for line in out.decode().splitlines() if line.strip()]
+	assert len(lines) == 2 and all(json.loads(line)['id'] in (1, 2) for line in lines), out
+	assert b'LATE' in err

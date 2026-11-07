@@ -4,6 +4,7 @@ Run with: browser-use --cli-mcp
 
 import asyncio
 import base64
+import contextlib
 import os
 import subprocess
 import sys
@@ -55,6 +56,7 @@ These rules override the skill below where they differ:
   browser_screenshot drives that cloud browser; never pass BU_NAME. One cloud browser at a time per server.
 - It lives {CLOUD_TIMEOUT_MINUTES} minutes unless you pass `timeout=<minutes>` (up to 240), and this server stops it when it
   exits. Once it ends, calls fail with an error: start a new one, never fall back to the local Chrome.
+- Code runs in this server's process: it can read the server's environment (BROWSER_USE_API_KEY when set) and files.
 - The live view and CDP URLs grant control of the browser, so they are not shown. Only if the user asks to watch, run
   `os.environ["BH_OPEN_LIVE_URL"] = "1"` before start_remote_daemon: the live view then opens in their browser, and
   both are returned.
@@ -202,9 +204,10 @@ class CLIMCPServer:
 						content=[types.TextContent(type='text', text="Error: 'code' must be a non-empty string")],
 						is_error=True,
 					)
-				async with self._exec_lock:
-					output = await asyncio.to_thread(self._execute, code)
-				return types.CallToolResult(content=[types.TextContent(type='text', text=output or '(no output)')])
+				output, failed = await self._locked(self._execute, code)
+				return types.CallToolResult(
+					content=[types.TextContent(type='text', text=output or '(no output)')], is_error=failed
+				)
 			if name == 'browser_screenshot':
 				max_dim = arguments.get('max_dim')
 				if max_dim is not None and (isinstance(max_dim, bool) or not isinstance(max_dim, int) or max_dim < 1):
@@ -212,11 +215,10 @@ class CLIMCPServer:
 						content=[types.TextContent(type='text', text="Error: 'max_dim' must be a positive integer")],
 						is_error=True,
 					)
-				async with self._exec_lock:
-					try:
-						png = await asyncio.to_thread(self._screenshot, bool(arguments.get('full', False)), max_dim)
-					except CloudBrowserError as e:
-						return types.CallToolResult(content=[types.TextContent(type='text', text=f'Error: {e}')], is_error=True)
+				try:
+					png = await self._locked(self._screenshot, bool(arguments.get('full', False)), max_dim)
+				except CloudBrowserError as e:
+					return types.CallToolResult(content=[types.TextContent(type='text', text=f'Error: {e}')], is_error=True)
 				content: list[types.ContentBlock] = [types.ImageContent(type='image', data=png, mime_type='image/png')]
 				return types.CallToolResult(content=content)
 			if name == 'browser_login':
@@ -230,6 +232,18 @@ class CLIMCPServer:
 
 		self.server.add_request_handler('tools/list', types.PaginatedRequestParams, handle_list_tools)
 		self.server.add_request_handler('tools/call', types.CallToolRequestParams, handle_call_tool)
+
+	async def _locked(self, fn: Any, *args: Any) -> Any:
+		"""fn(*args) in a thread, one at a time. A call the client cancels (its timeout) keeps the lock until its thread
+		ends: the thread cannot be stopped, and the next call's output capture would otherwise collect its prints."""
+		async with self._exec_lock:
+			thread = asyncio.ensure_future(asyncio.to_thread(fn, *args))
+			try:
+				return await asyncio.shield(thread)
+			except asyncio.CancelledError:
+				with contextlib.suppress(BaseException):
+					await thread
+				raise
 
 	def _ensure_namespace(self) -> dict[str, Any]:
 		if self._namespace is None:
@@ -268,26 +282,28 @@ class CLIMCPServer:
 			)
 		return browser
 
-	def _execute(self, code: str, connect: bool = True) -> str:
-		"""Run code in the persistent namespace, capturing stdout/stderr.
+	def _execute(self, code: str, connect: bool = True) -> tuple[str, bool]:
+		"""Run code in the persistent namespace, capturing stdout/stderr. Returns (output, whether it failed): a
+		failure is the tool result's is_error, not only a traceback in its text.
 
 		Runs in a worker thread: harness helpers are synchronous socket IPC. Output is
 		captured because stdout carries the MCP protocol.
 		"""
-		buffer = StringIO()
+		buffer, failed = StringIO(), True
 		with redirect_stdout(buffer), redirect_stderr(buffer):
 			try:
 				ns = self._ensure_namespace()
 				if connect:
 					self._ensure_daemon(code)
 				exec(code, ns)
+				failed = False
 			except CloudAuthRequired:  # its own message names `browser-harness auth login`, not this server's tool
 				print(LOGIN_HINT, file=buffer)
 			except CloudBrowserError as e:
 				print(f'Error: {e}', file=buffer)
 			except BaseException:
 				traceback.print_exc(file=buffer)
-		return buffer.getvalue()
+		return buffer.getvalue(), failed
 
 	def _sign_in(self, force: bool, wait: float = LOGIN_WAIT_SECONDS) -> str:
 		"""Start (or keep waiting on) one browser login. The key never appears in the result."""
@@ -344,6 +360,9 @@ class CLIMCPServer:
 			raise RuntimeError('MCP stdio transport requires stdin, but this process was launched without one.')
 
 		async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+			# print() from a thread model code started, outside any call, sat in sys.stdout's buffer and was flushed
+			# onto the restored protocol stream at exit, corrupting it: such output goes to stderr instead.
+			stdout, sys.stdout = sys.stdout, sys.stderr
 			try:
 				await self.server.run(
 					read_stream,
@@ -352,6 +371,8 @@ class CLIMCPServer:
 				)
 			except BrokenPipeError:
 				pass
+			finally:
+				sys.stdout = stdout
 
 
 async def main():
