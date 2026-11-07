@@ -501,14 +501,20 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			else:
 				helpers.cdp('Input.insertText', text=ch)
 
-	def type_secret(name):
-		"""Type the secret called `name` into the focused element. Its value is hidden from your text output.
+	def type_secret(name, id=None):
+		"""Type the secret called `name` into the input with backendNodeId `id`, replacing its text, or into the focused
+		element. Its value is hidden from your text output.
 		A domain-scoped secret types only while the frame that receives the text matches its domain. A secret whose
 		name ends in 'bu_2fa_code' is a TOTP seed: the current 6-digit code is typed, never the seed (0.x)."""
 		candidates = [(totp(v) if name.endswith('bu_2fa_code') else v, scope) for n, v, scope in secrets if n == name]
 		if not candidates:
 			raise KeyError(f'No secret named {name!r}; secret_names() lists them')
 		scoped = [(v, scope) for v, scope in candidates if scope is not None]
+		if id is not None:  # Pi's fillSecret(name, backendNodeId); focus and select the text so the keys replace it, as bu.type
+			helpers.cdp('DOM.focus', backendNodeId=id)
+			a = {'key': 'a', 'code': 'KeyA', 'windowsVirtualKeyCode': 65, 'modifiers': 2}
+			helpers.cdp('Input.dispatchKeyEvent', type='rawKeyDown', **a, commands=['selectAll'])
+			helpers.cdp('Input.dispatchKeyEvent', type='keyUp', **a)
 		try:  # the browser's own records (frame trees, isolated worlds), never page JS
 			url, node = _recipient()
 		except Exception:  # unknown recipient: scoped secrets fail closed below

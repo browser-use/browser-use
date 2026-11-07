@@ -533,6 +533,25 @@ async def test_type_secret_sends_key_events_so_key_driven_forms_see_it(daemon, t
 	assert state['output'].strip() == '[True, False]', state
 
 
+async def test_type_secret_by_id_replaces_the_fields_text(daemon, tmp_path):
+	"""C15: ultrafast teaches bu.type(id, text) but type_secret took no id, so the model wrote bu.type(8, 'pw') and
+	submitted the secret's name as the password. type_secret(name, id) is Pi's fillSecret(name, backendNodeId)."""
+	page = 'data:text/html,<input id=user><input id=pw value=junk>'
+	repl = Repl(tmp_path, daemon, secrets={'pw': 'Hunter2-Zq9!'}, mode='ultrafast')
+	try:
+		node = "cdp('DOM.querySelector', nodeId=cdp('DOM.getDocument')['root']['nodeId'], selector='#pw')['nodeId']"
+		code = (
+			f'new_tab({page!r}); wait_for_load(); js(\'document.getElementById("user").focus()\')\n'
+			f"type_secret('pw', cdp('DOM.describeNode', nodeId={node})['node']['backendNodeId'])"
+		)
+		r = await repl.call('exec', code, 30)
+		state = await repl.call('exec', 'print(js(\'[document.getElementById("pw").value === "Hunter2-Zq9!"]\'))', 30)
+	finally:
+		await repl.close()
+	assert r['error'] is None, r
+	assert state['output'].strip() == '[True]', state
+
+
 async def test_type_secret_types_tabs_newlines_and_non_ascii_exactly(daemon, tmp_path):
 	"""Verify r4: per-character key events turned a tab in a secret into a Tab key (focus moved on and the rest of the
 	secret landed in the next field, visible) and lost a newline and everything after it."""

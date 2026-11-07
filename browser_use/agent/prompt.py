@@ -48,8 +48,10 @@ def secrets_prompt(secrets: list[tuple[str, str, str | None]]) -> str:
 		for scopes in [{scope for m, _, scope in secrets if m == n}]
 	)
 	return (
-		f'Secrets the user provided (names only): {names}. To enter one, focus the input, then call '
-		"type_secret('name'); it types the value without printing it. A domain-scoped secret types only on its domain. "
+		f"Secrets the user provided (names only): {names}. To enter one, call type_secret('name', id) with the input's "
+		"backendNodeId (it replaces the field's text), or type_secret('name') into the focused input; it types the value "
+		'without printing it. Other typing helpers type literal text, never a secret. A domain-scoped secret types only '
+		'on its domain. '
 		'secret_names() lists the names. Values appear as <secret:name> in output. Never try to print, read back, '
 		'screenshot, transform or send a secret anywhere else.'
 	)
