@@ -45,22 +45,11 @@ def _all_target_skill_paths() -> list[Path]:
 
 
 def _load_skill_text_from_package() -> str:
+	"""The skill of this browser-use install. Never another program's: a `browser-harness` on PATH may be another
+	version (or not browser-harness at all), and running it sent browser-harness's own unscrubbed telemetry."""
 	from browser_use.skills.browser_use import skill_text
 
 	return skill_text()
-
-
-def _browser_harness_executable() -> str | None:
-	exe = shutil.which('browser-harness')
-	if exe:
-		return exe
-
-	local_bin = Path.home() / '.local' / 'bin'
-	for name in ('browser-harness', 'browser-harness.exe'):
-		path = local_bin / name
-		if path.exists():
-			return str(path)
-	return None
 
 
 def _install_browser_use_tool() -> None:
@@ -68,24 +57,16 @@ def _install_browser_use_tool() -> None:
 	if not uv:
 		raise RuntimeError('Installing the Browser Use skill requires `uv`. Install uv, then rerun `browser-use skill install`.')
 
-	result = subprocess.run([uv, 'tool', 'install', '--python', '3.12', '--upgrade', '--force', 'browser-use'])
+	from browser_use.utils import get_browser_use_version
+
+	version = get_browser_use_version()
+	if version == 'unknown':
+		raise RuntimeError('Cannot tell which browser-use version is running; rerun without --install-cli.')
+	# Pinned to the running version: unpinned, uv picks the latest stable, which replaces a 1.0 rc install with 0.x.
+	args = ['tool', 'install', '--python', '3.12', '--upgrade', '--force', f'browser-use=={version}']
+	result = subprocess.run([uv, *args])
 	if result.returncode != 0:
-		raise RuntimeError('Failed to install browser-use with `uv tool install --python 3.12 --upgrade --force browser-use`.')
-
-
-def _load_skill_text_from_browser_harness_cli() -> str:
-	exe = _browser_harness_executable()
-	if exe is None:
-		return _load_skill_text_from_package()
-
-	result = subprocess.run([exe, 'skill'], capture_output=True, text=True)
-	if result.returncode != 0:
-		error = result.stderr.strip() or result.stdout.strip() or 'unknown error'
-		raise RuntimeError(f'Failed to read skill from `{exe} skill`: {error}')
-
-	from browser_use.skills.browser_use import as_browser_use_skill
-
-	return as_browser_use_skill(result.stdout)
+		raise RuntimeError(f'Failed to install browser-use with `uv {" ".join(args)}`.')
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -115,10 +96,11 @@ def _build_parser() -> argparse.ArgumentParser:
 		help='Accepted for compatibility; install overwrites existing SKILL.md files by default',
 	)
 	install.add_argument(
-		'--no-install',
+		'--install-cli',
 		action='store_true',
-		help='Skip uv tool install/upgrade and use the existing browser-use command or package',
+		help='Also (re)install this browser-use version as a uv tool (`uv tool install --force`)',
 	)
+	install.add_argument('--no-install', action='store_true', help='Accepted for compatibility; the default now')
 
 	return parser
 
@@ -156,20 +138,24 @@ def handle(argv: list[str]) -> int:
 
 	if command == 'show':
 		try:
-			text = _load_skill_text_from_browser_harness_cli()
+			text = _load_skill_text_from_package()
 		except RuntimeError as exc:
 			print(f'Error: {exc}', file=sys.stderr)
 			return 1
-		print(text, end='')
+		# UTF-8 whatever the console's code page: `skill show > SKILL.md` on Windows wrote cp1252 (or raised on a character
+		# it lacks)
+		sys.stdout.flush()
+		sys.stdout.buffer.write(text.encode('utf-8'))
+		sys.stdout.buffer.flush()
 		return 0
 
 	if command == 'install':
 		try:
 			output_paths = _resolve_output_paths(args.target, args.path)
 			_validate_output_paths(output_paths)
-			if not args.no_install:
+			if args.install_cli:  # opt-in: it replaces the user's own browser-use tool install
 				_install_browser_use_tool()
-			text = _load_skill_text_from_browser_harness_cli()
+			text = _load_skill_text_from_package()
 		except RuntimeError as exc:
 			print(f'Error: {exc}', file=sys.stderr)
 			return 1

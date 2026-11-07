@@ -55,3 +55,39 @@ def test_browser_use_tui_is_deprecated_alias(monkeypatch, capsys):
 
 	assert browser_use_cli.browser_use_tui_main() == 0
 	assert capsys.readouterr().err == 'browser-use-tui is deprecated; use browser-use instead.\n'
+
+
+def test_install_downloads_playwright_chromium_like_0x(monkeypatch, capsys):
+	"""Kept from 0.x: local-browser users (QA, CI) still get a Chromium from `browser-use install`."""
+	import platform
+	import shutil
+	import subprocess
+
+	import browser_use.cli as browser_use_cli
+
+	ran = []
+	monkeypatch.setattr(shutil, 'which', lambda name: '/usr/bin/uvx')
+	monkeypatch.setattr(platform, 'system', lambda: 'Linux')
+	monkeypatch.setattr(subprocess, 'run', lambda cmd, **k: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0))
+	assert browser_use_cli._run_install_command([]) == 0
+	assert ran == [['uvx', 'playwright', 'install', 'chromium', '--with-deps', '--no-shell']]
+	out = capsys.readouterr().out
+	assert 'Installation complete' in out and "Browser('chromium')" in out and "Browser('chrome')" in out
+
+	monkeypatch.setattr(subprocess, 'run', lambda cmd, **k: subprocess.CompletedProcess(cmd, 3))
+	assert browser_use_cli._run_install_command([]) == 3
+	monkeypatch.setattr(shutil, 'which', lambda name: None)
+	assert browser_use_cli._run_install_command([]) == 1
+	assert 'playwright install chromium' in capsys.readouterr().err
+
+
+def test_help_is_this_clis_own():
+	"""M34: --help printed browser-harness's help: `doctor --json` (rc 2 here), a --update that updates browser-harness,
+	and no login, logout, install or --cli-mcp."""
+	result = _run_browser_use_cli('--help')
+	assert result.returncode == 0 and result.stderr == ''
+	for command in ('browser-use login', 'browser-use logout', 'browser-use install', '--cli-mcp', 'browser-use skill'):
+		assert command in result.stdout
+	assert 'doctor --json' not in result.stdout and 'browser-harness' not in result.stdout and '--update' not in result.stdout
+	update = _run_browser_use_cli('--update', '-y')
+	assert update.returncode == 2 and 'uv tool upgrade browser-use' in update.stderr

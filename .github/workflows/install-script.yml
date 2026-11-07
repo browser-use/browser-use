@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - v1
     paths:
       - 'browser_use/cli.py'
       - 'browser_use/skills/**'

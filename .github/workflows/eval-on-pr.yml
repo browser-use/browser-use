@@ -4,9 +4,9 @@ permissions:
   contents: read
   pull-requests: write
 
+# Off on the 1.0 line: the eval platform's InteractionTasks runner drives the 0.x engine, which 1.0 removed.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  workflow_dispatch:
 
 jobs:
   trigger-evaluation:

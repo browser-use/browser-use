@@ -1,3 +1,4 @@
+import importlib.metadata
 import os
 import re
 import subprocess
@@ -18,33 +19,46 @@ EXPECTED_SKILL_INSTALL_PATHS = (
 )
 
 
+def _fake_command(bin_dir: Path, name: str, code: str) -> None:
+	"""A command on PATH that runs this Python: a shebang script on POSIX, a .cmd wrapper on Windows."""
+	script = bin_dir / f'{name}.py'
+	script.write_text(code, encoding='utf-8')
+	if sys.platform == 'win32':
+		(bin_dir / f'{name}.cmd').write_text(f'@"{sys.executable}" "{script}" %*\r\n', encoding='utf-8')
+	else:
+		exe = bin_dir / name
+		exe.write_text(f'#!{sys.executable}\n{code}', encoding='utf-8')
+		exe.chmod(0o755)
+
+
 def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
 	bin_dir = tmp_path / 'bin'
 	bin_dir.mkdir()
-
-	uv = bin_dir / 'uv'
-	uv.write_text(
-		'#!/usr/bin/env python3\n'
+	_fake_command(
+		bin_dir,
+		'uv',
 		'import os, pathlib, sys\n'
 		'pathlib.Path(os.environ["UV_TOOL_INSTALL_ARGS_FILE"]).write_text(" ".join(sys.argv[1:]), encoding="utf-8")\n',
-		encoding='utf-8',
 	)
-	uv.chmod(0o755)
-
-	browser_harness = bin_dir / 'browser-harness'
-	browser_harness.write_text(
-		'#!/usr/bin/env python3\n'
-		'import sys\n'
-		f'text = {skill_text!r}\n'
-		'if sys.argv[1:] == ["skill"]:\n'
-		'    print(text, end="")\n'
-		'else:\n'
-		'    print("usage: browser-harness skill", file=sys.stderr)\n'
-		'    sys.exit(2)\n',
-		encoding='utf-8',
+	_fake_command(  # another program called browser-harness on PATH: never run, never the skill's source
+		bin_dir,
+		'browser-harness',
+		'import pathlib, sys\n'
+		f'pathlib.Path({str(tmp_path / "harness-ran")!r}).write_text(" ".join(sys.argv[1:]))\n'
+		f'sys.stdout.buffer.write({skill_text!r}.encode("utf-8"))\n',
 	)
-	browser_harness.chmod(0o755)
 	return bin_dir
+
+
+def _isolated_env(tmp_path: Path, bin_dir: Path, home: Path) -> dict[str, str]:
+	"""Fake tools first on PATH; HOME and USERPROFILE (Windows' home) inside tmp_path."""
+	env = os.environ.copy()
+	env.pop('XDG_CONFIG_HOME', None)
+	env['HOME'] = env['USERPROFILE'] = str(home)
+	env['PATH'] = os.pathsep.join(part for part in (str(bin_dir), env.get('PATH', '')) if part)
+	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
+	env['UV_TOOL_INSTALL_ARGS_FILE'] = str(tmp_path / 'uv-args.txt')
+	return env
 
 
 def test_docs_install_browser_use_skill_from_package_alias():
@@ -102,8 +116,12 @@ def test_remote_browser_skill_uses_current_cli():
 		assert current_command in remote_skill
 
 
-def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
-	bin_dir = _fake_browser_harness_tools(tmp_path, '---\nname: browser-harness\n---\n\n# Browser Harness\n')
+def test_skill_install_and_show_use_this_packages_skill_and_never_run_browser_harness(tmp_path):
+	"""H10, M32: `skill install` / `show` ran whichever `browser-harness` came first on PATH (a fake one was installed as
+	the skill), and that run sent browser-harness's own telemetry unscrubbed (CDP host, 10 KB of output)."""
+	from browser_use.skills.browser_use import skill_text
+
+	bin_dir = _fake_browser_harness_tools(tmp_path, '---\nname: evil\n---\n\n# Not the skill\n')
 
 	home = tmp_path / 'home'
 	for stale in (home / path for path in EXPECTED_SKILL_INSTALL_PATHS):
@@ -111,11 +129,7 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 		stale.write_text('stale browser-use skill', encoding='utf-8')
 
 	uv_args = tmp_path / 'uv-args.txt'
-	env = os.environ.copy()
-	env['HOME'] = str(home)
-	env['PATH'] = os.pathsep.join(part for part in (str(bin_dir), env.get('PATH', '')) if part)
-	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
-	env['UV_TOOL_INSTALL_ARGS_FILE'] = str(uv_args)
+	env = _isolated_env(tmp_path, bin_dir, home)
 
 	result = subprocess.run(
 		[sys.executable, '-m', 'browser_use.cli', 'skill', 'install'],
@@ -127,34 +141,40 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 	)
 
 	assert result.returncode == 0, result.stderr
-	assert uv_args.read_text(encoding='utf-8') == 'tool install --python 3.12 --upgrade --force browser-use'
-	expected = (
-		'---\n'
-		'name: browser-use\n'
-		'description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser(use_cloud=True)), Playwright, Puppeteer or any CDP client."\n'
-		'homepage: https://browser-use.com\n'
-		'metadata:\n'
-		'  {\n'
-		'    "openclaw":\n'
-		'      {\n'
-		'        "requires": { "bins": ["browser-use"] },\n'
-		'        "install":\n'
-		'          [\n'
-		'            {\n'
-		'              "id": "uv",\n'
-		'              "kind": "uv",\n'
-		'              "package": "browser-use",\n'
-		'              "bins": ["browser-use"],\n'
-		'              "label": "Install Browser Use CLI (uv)",\n'
-		'            },\n'
-		'          ],\n'
-		'      },\n'
-		'  }\n'
-		'---\n\n'
-		'# Browser Use\n'
-	)
+	assert not uv_args.exists()  # M33: the CLI is reinstalled only with --install-cli
 	for installed in (home / path for path in EXPECTED_SKILL_INSTALL_PATHS):
-		assert installed.read_text(encoding='utf-8') == expected
+		assert installed.read_text(encoding='utf-8') == skill_text()
+	shown = subprocess.run(  # cp1252: a Windows console's code page wrote the skill's em dashes as 0x97
+		[sys.executable, '-m', 'browser_use.cli', 'skill', 'show'],
+		cwd=ROOT,
+		env={**env, 'PYTHONIOENCODING': 'cp1252'},
+		capture_output=True,
+		timeout=10,
+	)
+	assert shown.returncode == 0 and shown.stdout.decode('utf-8') == skill_text()
+	assert not (tmp_path / 'harness-ran').exists()
+
+
+def test_skill_install_reinstalls_the_cli_only_when_asked(tmp_path):
+	"""M33: `skill install` ran `uv tool install --force browser-use==<version>` by default, replacing the user's own
+	install of the CLI. It is opt-in now (--install-cli), pinned to the running version."""
+	bin_dir = _fake_browser_harness_tools(tmp_path, '')
+	env = _isolated_env(tmp_path, bin_dir, tmp_path / 'home')
+	uv_args = tmp_path / 'uv-args.txt'
+	for args, installs in ((['--target', 'claude'], False), (['--target', 'claude', '--install-cli'], True)):
+		result = subprocess.run(
+			[sys.executable, '-m', 'browser_use.cli', 'skill', 'install', *args],
+			cwd=ROOT,
+			env=env,
+			capture_output=True,
+			text=True,
+			timeout=10,
+		)
+		assert result.returncode == 0, result.stderr
+		assert uv_args.exists() is installs
+	# Pinned: unpinned, uv installs the latest stable (0.x) over a 1.0 rc install
+	version = importlib.metadata.version('browser-use')
+	assert uv_args.read_text(encoding='utf-8') == f'tool install --python 3.12 --upgrade --force browser-use=={version}'
 
 
 def test_browser_use_cli_validates_destination_before_installing_harness(tmp_path):
@@ -163,14 +183,10 @@ def test_browser_use_cli_validates_destination_before_installing_harness(tmp_pat
 	blocking_file.write_text('blocks skill directory creation', encoding='utf-8')
 
 	uv_args = tmp_path / 'uv-args.txt'
-	env = os.environ.copy()
-	env['HOME'] = str(tmp_path / 'home')
-	env['PATH'] = os.pathsep.join(part for part in (str(bin_dir), env.get('PATH', '')) if part)
-	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
-	env['UV_TOOL_INSTALL_ARGS_FILE'] = str(uv_args)
+	env = _isolated_env(tmp_path, bin_dir, tmp_path / 'home')
 
 	result = subprocess.run(
-		[sys.executable, '-m', 'browser_use.cli', 'skill', 'install', '--path', str(blocking_file / 'nested')],
+		[sys.executable, '-m', 'browser_use.cli', 'skill', 'install', '--install-cli', '--path', str(blocking_file / 'nested')],
 		cwd=ROOT,
 		env=env,
 		capture_output=True,
@@ -181,3 +197,46 @@ def test_browser_use_cli_validates_destination_before_installing_harness(tmp_pat
 	assert result.returncode == 1
 	assert 'is not a directory' in result.stderr
 	assert not uv_args.exists()
+
+
+def test_skill_install_reads_utf8_whatever_the_locale(tmp_path):
+	"""Windows CI: the installer decoded the skill with cp1252 and crashed on non-ASCII skill text."""
+	from browser_use.skills.browser_use import skill_text
+
+	bin_dir = _fake_browser_harness_tools(tmp_path, '')
+	home = tmp_path / 'home'
+	env = _isolated_env(tmp_path, bin_dir, home)
+	env.update(LC_ALL='C', LANG='C', PYTHONUTF8='0', PYTHONCOERCECLOCALE='0', PYTHONIOENCODING='ascii')  # a non-UTF-8 locale
+	result = subprocess.run(
+		[sys.executable, '-m', 'browser_use.cli', 'skill', 'install', '--no-install', '--target', 'claude'],
+		cwd=ROOT,
+		env=env,
+		capture_output=True,
+		timeout=30,
+	)
+	assert result.returncode == 0, result.stderr.decode('utf-8', 'replace')
+	installed = (home / '.claude' / 'skills' / 'browser-use' / 'SKILL.md').read_text(encoding='utf-8')
+	assert installed == skill_text()
+
+
+def test_open_source_skill_shows_only_1_0_code():
+	"""M7: the bundled open-source skill taught 0.x code that breaks on 1.0 (@sandbox, ChatGroq, BrowserProfile,
+	ChatAnthropic(temperature=...), use_vision=...)."""
+	import ast
+
+	import browser_use
+	from browser_use.agent.service import REMOVED as AGENT_REMOVED
+	from browser_use.browser.browser import REMOVED as BROWSER_REMOVED
+
+	skill_dir = ROOT / 'skills' / 'open-source'
+	assert [p.name for p in skill_dir.rglob('*') if p.is_file()] == ['SKILL.md']
+	text = (skill_dir / 'SKILL.md').read_text(encoding='utf-8')
+	generic = {'timeout', 'id', 'env', 'args', 'headers', 'source', 'skills'}  # also 1.0 words (run(timeout=...))
+	for name in {*AGENT_REMOVED, *BROWSER_REMOVED, 'temperature'} - generic:
+		assert not re.search(rf'(?<![\w.]){name}=', text), name
+	for code in re.findall(r'```python\n(.*?)```', text, flags=re.DOTALL):
+		tree = ast.parse(code)
+		for node in ast.walk(tree):
+			if isinstance(node, ast.ImportFrom) and node.module == 'browser_use':
+				for alias in node.names:
+					assert alias.name in browser_use.__all__, alias.name

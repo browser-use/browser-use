@@ -1,0 +1,787 @@
+"""0.x API compatibility: what is kept, what raises (before any browser or billing starts). No browser needed."""
+
+import pytest
+from conftest import script
+from pydantic import BaseModel
+
+from browser_use import ActionResult, Agent, AgentHistoryList, Browser, ChatAnthropic, ChatGoogle, Controller, Tools
+from browser_use.agent.loop import Session, build_agent, run
+from browser_use.repl import Repl
+
+
+@pytest.fixture
+def no_browser(monkeypatch):
+	async def fail(self):
+		raise AssertionError('browser started')
+
+	monkeypatch.setattr(Browser, 'start', fail)
+
+
+REMOVED = (
+	r'was removed in browser-use 1\.0\. Open an issue at https://github\.com/browser-use/browser-use/issues if you need it\.'
+)
+
+
+@pytest.mark.parametrize(
+	'kwarg',
+	[
+		'use_vision',  # vision tuning
+		'vision_detail_level',
+		'max_actions_per_step',
+		'flash_mode',
+		'initial_actions',
+		'register_new_step_callback',  # step callbacks
+		'register_done_callback',
+		'register_should_stop_callback',
+		'generate_gif',
+		'use_judge',  # judge
+		'judge_llm',
+		'ground_truth',
+		'enable_planning',  # planner
+		'planner_llm',
+		'planning_replan_on_stall',
+	],
+)
+def test_removed_0x_agent_kwarg_raises_one_error_naming_it(kwarg, no_browser):
+	with pytest.raises(TypeError, match=rf'^Agent\({kwarg}=\.\.\.\) {REMOVED}'):
+		Agent('t', script()[0], **{kwarg: True})
+
+
+def test_unknown_agent_kwarg_is_not_called_removed(no_browser):
+	with pytest.raises(TypeError, match=r'^Agent\(some_new_kwarg=\.\.\.\) is not a browser-use 1\.0 option'):
+		Agent('t', script()[0], some_new_kwarg=True)
+
+
+def test_removed_alternative_is_named(no_browser):
+	with pytest.raises(TypeError, match=r"In 1\.0: reasoning='low' \| 'medium' \| 'high'\.$"):
+		Agent('t', script()[0], use_thinking=True)
+
+
+async def test_step_hooks_on_run_raise(no_browser):
+	agent = Agent('t', script()[0], browser=Browser(local=True))
+	for hook in ('on_step_start', 'on_step_end'):
+		with pytest.raises(TypeError, match=rf'^Agent\.run\({hook}=\.\.\.\) {REMOVED} In 1\.0: result\.messages'):
+			await agent.run(**{hook: lambda a: None})
+	with pytest.raises(TypeError, match=rf'^Agent\.run_sync\(on_step_end=\.\.\.\) {REMOVED}'):
+		agent.run_sync(on_step_end=lambda a: None)
+
+
+@pytest.mark.parametrize(
+	'method', ['pause', 'resume', 'stop', 'step', 'multi_act', 'rerun_history', 'load_and_rerun', 'save_history']
+)
+def test_removed_agent_methods_raise_one_error(method, no_browser):
+	agent = Agent('t', script()[0])
+	with pytest.raises(AttributeError, match=rf'^Agent\.{method}\(\) {REMOVED}'):
+		getattr(agent, method)
+	assert not hasattr(agent, method)
+	with pytest.raises(AttributeError, match='no attribute'):
+		agent.definitely_not_a_method
+
+
+def test_short_or_list_shaped_sensitive_data_is_explained(no_browser, caplog):
+	"""M23 and a low: a short value warns (redacted only where it stands alone); a list of tuples gave a raw dict error."""
+	import logging
+
+	logging.getLogger('browser_use').propagate = True
+	try:
+		Agent('t', script()[0], browser=Browser(local=True), sensitive_data={'pin': '42', 'pw': 'long-enough'})
+	finally:
+		logging.getLogger('browser_use').propagate = False
+	assert 'sensitive_data pin: values under 4 characters' in caplog.text and 'pw' not in caplog.text.split('sensitive_data')[1]
+	with pytest.raises(TypeError, match='sensitive_data must be a dict'):
+		Agent('t', script()[0], browser=Browser(local=True), sensitive_data=[('pw', 'x', 'https://a.com')])
+
+
+def test_0x_environment_variables_1_0_ignores_say_so(no_browser, monkeypatch, caplog):
+	"""M38: DEFAULT_LLM (runs billed bu-fast), BROWSER_USE_HEADLESS and log level 'result' were silently ignored. Low:
+	ANONYMIZED_TELEMETRY='' left telemetry on."""
+	import logging
+
+	from browser_use.config import CONFIG
+	from browser_use.logging_config import setup_logging
+
+	monkeypatch.setenv('DEFAULT_LLM', 'openai_gpt_4o')
+	monkeypatch.setenv('BROWSER_USE_HEADLESS', 'false')
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)
+	Agent('t', browser=Browser(local=True))
+	logging.getLogger('browser_use').addHandler(caplog.handler)  # setup_logging turns propagation off
+	try:
+		setup_logging('result')
+	finally:
+		logging.getLogger('browser_use').removeHandler(caplog.handler)
+	assert 'DEFAULT_LLM is set' in caplog.text and 'BROWSER_USE_HEADLESS is set' in caplog.text
+	assert "BROWSER_USE_LOGGING_LEVEL='result' is not a level" in caplog.text
+	setup_logging('info')
+	for value, on in (('', False), ('false', False), ('nope', False), ('true', True), ('1', True)):
+		monkeypatch.setenv('ANONYMIZED_TELEMETRY', value)
+		assert CONFIG.ANONYMIZED_TELEMETRY is on, value
+
+
+def test_domain_scoped_sensitive_data_is_accepted_and_bad_shapes_raise(no_browser):
+	Agent('t', script()[0], sensitive_data={'https://example.com': {'pw': 'x'}, 'pin': '1'})
+	with pytest.raises(TypeError, match='must be a string'):
+		Agent('t', script()[0], sensitive_data={'pw': 123})
+
+
+def test_dotenv_in_the_working_directory_supplies_the_key(tmp_path):
+	"""Roast C16: 0.x loaded .env on import; 1.0 resolved the key before anything read .env ('missing key')."""
+	import os
+	import subprocess
+	import sys
+
+	(tmp_path / '.env').write_text('BROWSER_USE_API_KEY=fake-dotenv-key\n', encoding='utf-8')
+	env = {k: v for k, v in os.environ.items() if k != 'BROWSER_USE_API_KEY'}
+	env.update(HOME=str(tmp_path), USERPROFILE=str(tmp_path), XDG_CONFIG_HOME=str(tmp_path / 'cfg'))
+	code = "from browser_use import Agent\nAgent('t')._build()\nprint('resolved')"
+	r = subprocess.run([sys.executable, '-c', code], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
+	assert r.stdout.strip() == 'resolved', r.stderr[-2000:]
+
+
+def test_removed_classes_raise_with_pointer():
+	import browser_use
+
+	for name in ['BrowserSession', 'BrowserProfile', 'ChatGroq', 'DomService']:
+		with pytest.raises(ImportError, match=rf'^browser_use\.{name} {REMOVED}'):
+			getattr(browser_use, name)
+	for name in ['ChatGroq', 'ChatOllama', 'ChatAzureOpenAI', 'ChatOpenRouter', 'ChatDeepSeek']:
+		with pytest.raises(ImportError, match=rf"{REMOVED} In 1\.0: a Pydantic AI model string, e\.g\. llm='groq:"):
+			exec(f'from browser_use import {name}')
+		with pytest.raises(ImportError, match=rf'^browser_use\.llm\.{name} {REMOVED} In 1\.0: '):
+			exec(f'from browser_use.llm import {name}')  # the common 0.x import path
+	with pytest.raises(ImportError, match='cannot import name'):
+		exec('from browser_use.llm import NotAThing')
+
+
+def test_browser_session_alias_and_controller_alias():
+	browser = Browser(local=True)
+	assert Agent('t', script()[0], browser_session=browser).browser is browser
+	assert Controller is Tools
+
+
+def result(status='completed', output='done', error=None):
+	return AgentHistoryList(status, str(output), output, 3, 1.5, {}, None, None, error, [])
+
+
+def test_printing_a_result_leaves_out_the_transcript():
+	"""M41: print(result) dumped about 565 KB, screenshots' JPEG bytes included."""
+	from pydantic_ai.messages import BinaryContent, ModelRequest, ToolReturnPart
+
+	shot = BinaryContent(b'\xff\xd8' + b'x' * 200_000, media_type='image/jpeg')
+	messages = [ModelRequest(parts=[ToolReturnPart('python', ['ok', shot])])]
+	usage = {'input': 1, 'output': 1, 'cache_read': 0, 'cache_write': 0, 'requests': 1}
+	r = AgentHistoryList('completed', 'answer', 'answer', 1, 1.0, usage, 0.01, None, None, messages, True)
+	assert len(repr(r)) < 1000 and "text='answer'" in repr(r) and '<1 messages>' in str(r)
+
+
+def test_0x_api_shapes_raise_the_removed_error(no_browser):
+	"""M36: these 0.x shapes gave bare TypeError / AttributeError / ImportError instead of the removed error naming the
+	1.0 alternative."""
+	from browser_use import ChatBrowserUse, ChatOpenAI
+
+	usage = {'input': 1, 'output': 1, 'cache_read': 0, 'cache_write': 0, 'requests': 1}
+	result = AgentHistoryList('completed', 't', 't', 1, 1.0, usage, 0.0, None, None, [], True)
+	agent = Agent('t', script()[0], browser=Browser(local=True))
+	cases = [
+		(lambda: ChatAnthropic('claude-haiku-5-5', temperature=0.0), TypeError, r'ChatAnthropic\(temperature=\.\.\.\)'),
+		(lambda: ChatGoogle('gemini-3.5-flash', thinking_budget=0), TypeError, r'ChatGoogle\(thinking_budget='),
+		(lambda: ChatOpenAI('gpt-6-luna', seed=1), TypeError, r'ChatOpenAI\(seed='),
+		(lambda: ChatBrowserUse(fast=True), TypeError, r"In 1\.0: model='bu-ultrafast'"),
+		(lambda: Tools(exclude_actions=['x']), TypeError, r'Tools\(exclude_actions='),
+		(lambda: Controller(output_model=int), TypeError, r'In 1\.0: Agent\(output_model_schema=\.\.\.\)'),
+		(lambda: Browser(local=True).kill, AttributeError, r'Browser\.kill .*await browser\.stop\(\)'),
+		(lambda: Browser(local=True).get_current_page, AttributeError, r'Browser\.get_current_page '),
+		(lambda: Browser.from_system_chrome(), AttributeError, r"Browser\('chrome'\)"),
+		(lambda: agent.state, AttributeError, r'Agent\.state '),
+		(lambda: agent.history, AttributeError, r'Agent\.history '),
+		(lambda: agent.browser_session, AttributeError, r'In 1\.0: agent\.browser\.'),
+		(lambda: result.usage.total_cost, AttributeError, r'In 1\.0: result\.cost_usd\.'),
+		(lambda: len(result), TypeError, r'len\(AgentHistoryList\) .*number_of_steps'),
+		(lambda: result.model_dump(), NotImplementedError, r'AgentHistoryList\.model_dump '),
+		(lambda: result.total_input_tokens(), NotImplementedError, r"usage\['input'\]"),
+		(
+			lambda: __import__('browser_use.browser', fromlist=['BrowserSession']).BrowserSession,
+			ImportError,
+			r'Browser\(\.\.\.\)',
+		),
+	]
+	for fn, error, match in cases:
+		with pytest.raises(error, match=match) as raised:
+			fn()
+		assert 'was removed in browser-use 1.0' in str(raised.value), match
+	assert result and result.usage == usage and result.usage['input'] == 1  # still a plain dict to read
+	with pytest.raises(AttributeError, match="no attribute 'nope'"):
+		Browser(local=True).nope
+
+
+def test_docs_say_the_default_workspace_is_kept():
+	"""M17 (documented, not changed): default workspaces are never deleted (3,772 in $TMPDIR, with page text and
+	screenshots); the docs said only "a temp dir"."""
+	from pathlib import Path
+
+	import browser_use
+
+	migrating = (Path(browser_use.__file__).parents[1] / 'MIGRATING.md').read_text(encoding='utf-8')
+	assert 'kept after the run: it holds page text, screenshots and cell output' in migrating
+
+
+def test_result_keeps_common_0x_methods():
+	r = result()
+	assert (r.final_result(), r.is_done(), r.is_successful(), r.errors(), r.has_errors()) == ('done', True, True, [], False)
+	assert (r.total_duration_seconds(), r.number_of_steps(), r.structured_output) == (1.5, 3, None)
+	failed = result('error', '', 'boom')
+	assert (failed.final_result(), failed.is_done(), failed.is_successful(), failed.errors()) == (None, False, None, ['boom'])
+
+
+@pytest.mark.parametrize('name', ['urls', 'screenshots', 'action_names', 'model_thoughts', 'history', 'judgement', 'is_judged'])
+def test_removed_result_methods_raise_not_implemented(name):
+	with pytest.raises(NotImplementedError, match=rf'^AgentHistoryList\.{name} {REMOVED} In 1\.0: '):
+		getattr(result(), name)
+	with pytest.raises(AttributeError):
+		result().definitely_not_a_method
+
+
+def test_removed_result_classmethod_raises_on_the_class():
+	"""0.x AgentHistoryList.load_from_file(path) was a classmethod: called on the class, not an instance."""
+	with pytest.raises(NotImplementedError, match=rf'^AgentHistoryList\.load_from_file {REMOVED} In 1\.0: '):
+		AgentHistoryList.load_from_file('history.json')
+
+
+def test_tools_plain_function_and_param_model():
+	tools = Tools()
+
+	@tools.action('Price of a product')
+	def get_price(sku: str) -> str:
+		return f'{sku}: 9.99'
+
+	class Order(BaseModel):
+		sku: str
+		qty: int
+
+	@tools.registry.action('Place an order', param_model=Order)
+	async def place_order(params):
+		return ActionResult(extracted_content=f'{params.qty}x {params.sku}')
+
+	assert [t.name for t in tools.functions] == ['get_price', 'place_order']
+	assert get_price('a') == 'a: 9.99'  # the decorator returns the function unchanged
+
+
+@pytest.mark.parametrize('param', ['browser_session', 'page_extraction_llm', 'file_system'])
+def test_tools_injected_params_raise(param):
+	tools = Tools()
+	with pytest.raises(TypeError, match=rf'^Injected action parameters \({param} in @tools\.action act\(\)\) {REMOVED}'):
+		exec(f'@tools.action("x")\nasync def act(text: str, {param}=None): pass', {'tools': tools})
+
+
+def test_tools_domain_filters_and_reserved_names_raise():
+	tools = Tools()
+	for name in ('domains', 'allowed_domains'):
+		with pytest.raises(TypeError, match=rf'^@tools\.action\({name}=\.\.\.\) {REMOVED} In 1\.0: Browser\(allowed_domains'):
+			tools.action('x', **{name: ['*.example.com']})
+	with pytest.raises(ValueError, match='built-in'):
+
+		@tools.action('x')
+		def finish(result: str):
+			return result
+
+
+def test_tool_names_providers_reject_raise_at_registration():
+	"""M12: a lambda ('<lambda>') registered fine and the provider 400ed the first request. Low: @tools.action without
+	parentheses silently registered nothing."""
+	tools = Tools()
+	with pytest.raises(ValueError, match='not a valid tool name'):
+		tools.action('x')(lambda q: q)
+	with pytest.raises(ValueError, match='not a valid tool name'):
+
+		@tools.action('x')
+		def a_name_much_longer_than_the_sixty_four_characters_that_providers_accept_for_tools(q: str) -> str:
+			return q
+
+	with pytest.raises(TypeError, match='with parentheses'):
+
+		@tools.action
+		def nop(x: int) -> int:
+			return x
+
+	assert tools.functions == []
+
+
+async def test_removed_action_result_fields_raise_and_end_the_run(tmp_path):
+	"""M39: ActionResult(is_done=True, success=...) was silently accepted (extra='allow'): the run went on as if the
+	action had ended it. Now the removed error, ending the run so the developer sees it (not the model)."""
+	for field in ('is_done', 'success', 'include_in_memory', 'attachments'):
+		with pytest.raises(TypeError, match=rf'^ActionResult\({field}=\.\.\.\) {REMOVED}'):
+			ActionResult(extracted_content='x', **{field: True})
+	assert ActionResult(extracted_content='x', note='extra fields still pass').note == 'extra fields still pass'
+	tools = Tools()
+
+	@tools.action('Done')
+	def done() -> ActionResult:
+		return ActionResult(is_done=True, extracted_content='all done')
+
+	model, _ = script(('done', {}))
+	r = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert r.status == 'error' and 'ActionResult(is_done=...) was removed in browser-use 1.0' in (r.error or '')
+
+
+async def test_custom_action_is_a_model_tool(tmp_path):
+	tools = Tools()
+
+	@tools.action('Price of a product')
+	def get_price(sku: str) -> ActionResult:
+		return ActionResult(extracted_content=f'{sku} costs 9.99')
+
+	model, seen = script(('get_price', {'sku': 'A1'}), ('finish', {'success': True, 'result': 'done'}))
+	session = Session(repl=Repl(tmp_path))
+	r = await run(build_agent(model, tools=tools.functions), 'task', session, 'm')
+	assert r.output == 'done'
+	assert 'A1 costs 9.99' in str(seen[1][-1])
+
+
+async def test_custom_tool_results_never_show_a_secret_to_the_model(tmp_path):
+	"""Roast r2-1: a custom action returning a registered secret (ActionResult, nested model, plain str, retry
+	message) reached the model in plaintext; 0.x filtered action results."""
+	from pydantic_ai import ModelRetry
+
+	secret = 'hunter2-Zq9'
+	tools = Tools()
+
+	class Account(BaseModel):
+		user: str
+		password: str
+
+	@tools.action('Look up the account')
+	def account() -> ActionResult:
+		return ActionResult(extracted_content=f'pw={secret}', account=Account(user='me', password=secret))
+
+	@tools.action('Read a note')
+	def note() -> list:
+		return [{'text': f'the password is {secret}'}]
+
+	@tools.action('Check')
+	def check() -> str:
+		raise ModelRetry(f'wrong password {secret}')
+
+	model, seen = script(('account', {}), ('note', {}), ('check', {}), ('finish', {'success': True, 'result': 'done'}))
+	session = Session(repl=Repl(tmp_path, secrets={'pw': secret}))
+	r = await run(build_agent(model, tools=tools.functions), 'task', session, 'm')
+	assert r.output == 'done'
+	assert secret not in str(seen) and secret not in str(r.messages)
+	assert 'pw=<secret:pw>' in str(seen[1][-1]) and 'wrong password <secret:pw>' in str(seen[3][-1])
+
+
+@pytest.mark.parametrize('tool', ['finish', 'finish_from_repl'])
+async def test_finish_can_report_a_failed_task(tool, tmp_path):
+	"""Roast C9: 'Unable to log in. Access denied.' came back with is_successful() == True; 0.x had success=False."""
+	args = {'result': 'Unable to log in. Access denied.'} if tool == 'finish' else {'expression': "'Access denied.'"}
+	model, _ = script((tool, {**args, 'success': False}))
+	r = await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert (r.is_done(), r.is_successful(), r.success) == (True, False, False)
+	model, _ = script(('finish', {'success': True, 'result': 'done'}))
+	assert (await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'm')).is_successful() is True
+
+
+@pytest.mark.parametrize(
+	'call,expected',
+	[({'result': 'The book does not exist.'}, None), ({'result': 'The book does not exist.', 'success': False}, False)],
+)
+async def test_finish_success_verdict_is_optional(tmp_path, call, expected):
+	"""agent-llm F1: a finish without a verdict must never read as success. The verdict is optional (a required one made
+	the model give up early on long tasks: ablation 1107), so an omitted verdict is None, not True."""
+	from pydantic_ai.messages import ModelResponse, ToolCallPart
+	from pydantic_ai.models.function import FunctionModel
+
+	seen = []
+
+	def fn(messages, info):
+		seen.append({t.name: t.parameters_json_schema for t in info.output_tools})
+		return ModelResponse(parts=[ToolCallPart('finish', call)])
+
+	r = await run(build_agent(FunctionModel(fn)), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert len(seen) == 1 and not any('success' in schema.get('required', []) for schema in seen[0].values()), seen
+	assert (r.status, r.output, r.is_successful()) == ('completed', 'The book does not exist.', expected)
+
+
+@pytest.mark.parametrize(
+	'budget',
+	[
+		{'max_steps': 0},
+		{'max_steps': -1},
+		{'max_steps': 2.5},
+		{'max_steps': 1},
+		{'max_steps': 2},
+		{'timeout': 0},
+		{'timeout': -5},
+	],
+)
+async def test_impossible_budgets_raise_before_any_browser(budget, no_browser):
+	"""agent-llm: run(max_steps=0) and run(timeout<=0) started (and billed) a browser, then ended in an error."""
+	with pytest.raises(ValueError, match='max_steps' if 'max_steps' in budget else 'timeout'):
+		await Agent('t', script()[0], browser=Browser(local=True)).run(**budget)
+
+
+async def test_structured_final_result_is_the_models_json(tmp_path):
+	"""Roast C10: final_result() was '"title=\'x\' points=3"' (str() of the model) instead of 0.x model_dump_json()."""
+
+	class Story(BaseModel):
+		title: str
+		points: int
+
+	model, _ = script(('finish', {'success': True, 'result': {'title': 'x', 'points': 3}}))
+	r = await run(build_agent(model, output_type=Story), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert r.final_result() == Story(title='x', points=3).model_dump_json()
+	assert r.structured_output == Story(title='x', points=3)
+
+
+@pytest.mark.parametrize('schema', ['literal', 'strenum'])
+async def test_structured_output_of_a_str_valued_schema(schema, fake_browser, tmp_path):
+	"""M8: structured_output was None for Literal and StrEnum schemas: it only checked isinstance(output, str)."""
+	from enum import StrEnum
+	from typing import Literal
+
+	class Answer(StrEnum):
+		yes = 'yes'
+		no = 'no'
+
+	output_type = Literal['yes', 'no'] if schema == 'literal' else Answer
+	model, _ = script(('finish', {'success': True, 'result': 'yes'}))
+	agent = Agent('t', model, browser=Browser(local=True), output_model_schema=output_type, workspace=tmp_path)
+	r = await agent.run()
+	assert r.structured_output == 'yes' and r.final_result() == 'yes'
+	model, _ = script(('finish', {'success': True, 'result': 'plain'}))
+	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()).structured_output is None
+
+
+async def test_a_tools_own_timeout_is_an_error_not_the_run_budget(tmp_path):
+	"""Fable: socket.timeout is TimeoutError; it was reported as status='timeout', error=None with budget unused. The
+	model now gets it as the tool's error (H2) and the run goes on."""
+	tools = Tools()
+
+	@tools.action('Fetch a URL')
+	def fetch(url: str) -> str:
+		raise TimeoutError('timed out')
+
+	model, seen = script(('fetch', {'url': 'https://x.test'}), ('finish', {'success': False, 'result': 'fetch timed out'}))
+	r = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert (r.status, r.error, r.output) == ('completed', None, 'fetch timed out')
+	assert 'TimeoutError: timed out' in str(seen[1][-1])
+
+
+async def test_a_custom_tool_that_raises_returns_the_error_to_the_model(tmp_path):
+	"""H2: a custom tool raising an ordinary exception ended the whole run; 0.x returned ActionResult(error=...) to the
+	model. Sync and async tools, with and without sensitive_data."""
+	tools = Tools()
+
+	@tools.action('Look up a price')
+	def price(sku: str) -> str:
+		raise KeyError(f'no such sku {sku}')
+
+	@tools.action('Look up stock')
+	async def stock(sku: str) -> str:
+		raise ValueError('stock service down hunter2-Zq9')
+
+	for secrets in (None, {'pw': 'hunter2-Zq9'}):
+		model, seen = script(
+			('price', {'sku': 'A1'}), ('stock', {'sku': 'A1'}), ('finish', {'success': False, 'result': 'unknown'})
+		)
+		r = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path, secrets=secrets)), 'm')
+		assert (r.status, r.output) == ('completed', 'unknown'), r.error
+		assert "KeyError: 'no such sku A1'" in str(seen[1][-1])
+		assert 'ValueError: stock service down' in str(seen[2][-1])
+		if secrets:
+			assert 'hunter2-Zq9' not in str(seen) and '<secret:pw>' in str(seen[2][-1])
+
+
+@pytest.mark.parametrize(
+	'llm', [lambda: ChatAnthropic('claude-opus-4-1', api_key='k'), lambda: ChatGoogle('gemini-2.5-pro', api_key='k')]
+)
+async def test_cost_is_priced_with_the_models_provider(llm, fake_browser, tmp_path, monkeypatch):
+	"""Fable: the bare model name was priced as OpenAI, so cost_usd was None for every Anthropic/Google model."""
+	from pydantic_ai.messages import ModelResponse, TextPart
+	from pydantic_ai.usage import RequestUsage
+
+	import browser_use.agent.service as service
+	from browser_use.agent.loop import usage_and_cost
+
+	refs = []
+
+	async def fake_run(agent, task, session, model_ref, **kw):
+		refs.append(model_ref)
+		return result()
+
+	monkeypatch.setattr(service, 'run', fake_run)
+	await Agent('t', llm(), browser=Browser(local=True), workspace=tmp_path).run()
+	usage = RequestUsage(input_tokens=1000, output_tokens=100)
+	assert usage_and_cost([ModelResponse(parts=[TextPart('x')], usage=usage)], refs[0])[1]
+
+
+async def test_param_model_is_authoritative(tmp_path):
+	"""Roast C14: with `params: Any` the param_model was ignored; the action got a dict and params.qty broke."""
+	from typing import Any
+
+	tools = Tools()
+
+	class Order(BaseModel):
+		sku: str
+		qty: int
+
+	@tools.action('Place an order', param_model=Order)
+	def place_order(params: Any) -> str:
+		return f'{params.qty}x {params.sku}'
+
+	model, seen = script(('place_order', {'params': {'sku': 'A1', 'qty': '3'}}), ('finish', {'success': True, 'result': 'done'}))
+	await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert '3x A1' in str(seen[1][-1])
+
+
+@pytest.fixture
+def fake_browser(monkeypatch):
+	"""Browser.start/stop as no-ops that count stops; the REPL worker still runs for real."""
+	stops = []
+
+	async def start(self):
+		return {}
+
+	async def stop(self, downloads_dir=None):
+		stops.append(self)
+		return []
+
+	monkeypatch.setattr(Browser, 'start', start)
+	monkeypatch.setattr(Browser, 'stop', stop)
+	return stops
+
+
+async def test_two_agents_never_run_on_one_browser_at_once(fake_browser, tmp_path):
+	"""H5: two Agents on one Browser drove one tab, and the first to finish stopped the browser under the other. The
+	second run now raises before it starts anything; one after another (keep_alive) still works."""
+	import asyncio
+
+	browser = Browser(local=True, keep_alive=True)
+	slow, _ = script(('python', {'code': 'import time; time.sleep(1)'}), ('finish', {'success': True, 'result': 'one'}))
+	quick, _ = script(('finish', {'success': True, 'result': 'two'}), ('finish', {'success': True, 'result': 'three'}))
+	first = Agent('t', slow, browser=browser, workspace=tmp_path / 'a')
+	second = Agent('t', quick, browser=browser, workspace=tmp_path / 'b')
+	try:
+		r1, r2 = await asyncio.gather(first.run(), second.run(), return_exceptions=True)
+		assert isinstance(r2, RuntimeError) and 'in use by another running Agent' in str(r2)
+		assert not isinstance(r1, BaseException) and r1.final_result() == 'one'
+		assert (await second.run()).final_result() == 'two'  # one after another is fine
+	finally:
+		await first.close()
+		await second.close()
+
+
+def test_run_sync_follow_up_keeps_the_repl_with_keep_alive(fake_browser, tmp_path):
+	# 0.x scripts call run_sync() twice; the REPL worker belongs to the first call's event loop.
+	model, _ = script(
+		('python', {'code': 'x = 41'}),
+		('finish', {'success': True, 'result': 'one'}),
+		('finish_from_repl', {'success': True, 'expression': 'str(x + 1)'}),
+	)
+	agent = Agent('t', model, browser=Browser(local=True, keep_alive=True), workspace=tmp_path)
+	assert agent.run_sync().final_result() == 'one'
+	agent.add_new_task('again')
+	second = agent.run_sync()
+	assert second.final_result() == '42', second.error  # same REPL: the variable survived
+	import asyncio
+
+	runner_loop = agent._runner.get_loop()
+	asyncio.run(agent.close())  # from another loop: kills the worker without awaiting it
+	assert agent._repl is None and not fake_browser
+	assert agent._runner is None and runner_loop.is_closed()  # Fable r2-9: run_sync's loop leaked
+
+
+def test_close_sync_ends_run_sync_follow_ups(fake_browser, tmp_path):
+	model, _ = script(('python', {'code': 'x = 1'}), ('finish', {'success': True, 'result': 'one'}))
+	agent = Agent('t', model, browser=Browser(local=True, keep_alive=True), workspace=tmp_path)
+	assert agent.run_sync().final_result() == 'one'
+	runner_loop, repl = agent._runner.get_loop(), agent._repl
+	agent.close_sync()
+	assert agent._runner is None and runner_loop.is_closed() and agent._repl is None
+	assert repl.proc is None
+
+
+async def test_failed_follow_up_still_stops_the_browser(fake_browser, monkeypatch, tmp_path):
+	model, _ = script(('finish', {'success': True, 'result': 'one'}))
+	agent = Agent('t', model, browser=Browser(local=True), workspace=tmp_path)
+	assert (await agent.run()).final_result() == 'one' and len(fake_browser) == 1
+
+	async def broken(self):
+		raise RuntimeError('browser failed')
+
+	monkeypatch.setattr(Browser, 'start', broken)
+	agent.add_new_task('again')
+	with pytest.raises(RuntimeError, match='browser failed'):
+		await agent.run()
+	assert len(fake_browser) == 2  # a pending follow-up no longer keeps a failed run's browser alive
+
+
+async def test_failed_follow_up_never_returns_the_previous_tasks_result(tmp_path):
+	"""Roast r2-6: a follow-up that failed before its first checkpoint returned the previous task's partial or last
+	text as its own result."""
+	from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+	from pydantic_ai.models.function import FunctionModel
+
+	def broken(messages, info):
+		raise RuntimeError('provider down')
+
+	history = [ModelRequest(parts=[UserPromptPart('task A')]), ModelResponse(parts=[TextPart('answer to task A')])]
+	repl = Repl(tmp_path)
+	repl.state.mkdir(parents=True)
+	(repl.state / 'partial.json').write_text('{"file": "a.json", "value": "partial of task A"}', encoding='utf-8')
+	r = await run(build_agent(FunctionModel(broken)), 'task B', Session(repl=repl), 'm', message_history=history)
+	assert (r.status, r.partial, r.text) == ('error', None, '')
+
+
+async def test_run_error_never_shows_a_secret(tmp_path):
+	"""Roast r2-8: an exception quoting a registered secret stayed plaintext in result.error, which Agent.run logs."""
+	from pydantic_ai.models.function import FunctionModel
+
+	secret = 'hunter2-Zq9'
+
+	def provider(messages, info):  # a custom tool's exception goes back to the model (H2): the provider's ends the run
+		raise RuntimeError(f'login failed for password {secret}')
+
+	session = Session(repl=Repl(tmp_path, secrets={'pw': secret}))
+	r = await run(build_agent(FunctionModel(provider)), 'task', session, 'm')
+	assert r.status == 'error' and r.error == 'RuntimeError: login failed for password <secret:pw>'
+
+
+async def test_failed_run_fallback_output_never_shows_a_secret(tmp_path):
+	"""Roast r5-1: a text reply quoting a secret, then a provider failure: the fallback became raw result.output."""
+	from pydantic_ai.messages import ModelResponse, TextPart
+	from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+	secret = 'hunter2-Zq9'
+	calls = []
+
+	def reply(messages, info: AgentInfo) -> ModelResponse:
+		calls.append(1)
+		if len(calls) == 1:
+			return ModelResponse(parts=[TextPart(f'The password is {secret}')])
+		raise RuntimeError('provider down')
+
+	session = Session(repl=Repl(tmp_path, secrets={'pw': secret}))
+	r = await run(build_agent(FunctionModel(reply)), 'task', session, 'm')
+	assert r.status == 'error'
+	assert secret not in str(r.output) and secret not in r.text and '<secret:pw>' in str(r.output)
+
+
+def test_cost_is_the_price_of_the_model_that_answered():
+	"""H12: Gemini was priced as the requested alias (gemini-3.5-flash) while the response came from (and was billed as)
+	gemini-3.6-flash: about 2.3x too high. Review: an unknown served model was priced as the requested one; only a
+	snapshot of the requested model (or no served name) falls back to the requested price."""
+	from genai_prices import calc_price
+	from pydantic_ai.messages import ModelResponse, TextPart
+	from pydantic_ai.usage import RequestUsage
+
+	from browser_use.agent.loop import usage_and_cost
+
+	u = RequestUsage(input_tokens=1_000_000, output_tokens=100_000)
+	served = float(calc_price(u, model_ref='gemini-2.5-flash', provider_id='google').total_price)
+	requested = float(calc_price(u, model_ref='gemini-2.5-pro', provider_id='google').total_price)
+	answer = ModelResponse(parts=[TextPart('x')], usage=u, model_name='gemini-2.5-flash')
+	assert usage_and_cost([answer], 'google-gla:gemini-2.5-pro')[1] == pytest.approx(served) != pytest.approx(requested)
+	unknown = ModelResponse(parts=[TextPart('x')], usage=u, model_name='gemini-made-up-model-9')
+	assert usage_and_cost([unknown], 'google-gla:gemini-2.5-pro')[1] is None
+	for served in ('gemini-2.5-pro-made-up-snapshot-9', None):
+		answer = ModelResponse(parts=[TextPart('x')], usage=u, model_name=served)
+		assert usage_and_cost([answer], 'google-gla:gemini-2.5-pro')[1] == pytest.approx(requested), served
+
+
+def test_cost_includes_cache_writes():
+	"""Roast r2-9: cache_write_tokens were dropped from pricing, so Anthropic runs were under-reported."""
+	from genai_prices import Usage, calc_price
+	from pydantic_ai.messages import ModelResponse, TextPart
+	from pydantic_ai.usage import RequestUsage
+
+	from browser_use.agent.loop import usage_and_cost
+
+	u = RequestUsage(input_tokens=6000, cache_write_tokens=5000, cache_read_tokens=0, output_tokens=500)
+	usage, cost = usage_and_cost([ModelResponse(parts=[TextPart('x')], usage=u)], 'anthropic:claude-sonnet-4-5')
+	expected = calc_price(
+		Usage(input_tokens=6000, cache_write_tokens=5000, output_tokens=500), 'claude-sonnet-4-5', provider_id='anthropic'
+	)
+	assert cost == float(expected.total_price) and usage['cache_write'] == 5000
+
+
+def test_action_result_imports_from_its_0x_location():
+	"""Fable r2-7: `from browser_use.agent.views import ActionResult` (0.x's canonical import) raised ImportError."""
+	from browser_use.agent.views import ActionResult as Old
+
+	assert Old is ActionResult
+
+
+async def test_secrets_in_the_task_never_reach_the_model(fake_browser, tmp_path):
+	"""Roast r3-2: Agent(f'Log in with {password}', sensitive_data=...) sent the password in the first request (0.x
+	replaced it with the secret's name); follow-up tasks and extend_system_message too."""
+	secret = 'hunter2-Zq9'
+	model, seen = script(('finish', {'success': True, 'result': 'one'}), ('finish', {'success': True, 'result': 'two'}))
+	agent = Agent(
+		f'Log in with {secret}',
+		model,
+		browser=Browser(local=True),
+		sensitive_data={'pw': secret},
+		extend_system_message=f'The password is {secret}.',
+		workspace=tmp_path,
+	)
+	await agent.run()
+	agent.add_new_task(f'Again with {secret}')
+	await agent.run()
+	assert secret not in str(seen) and 'Log in with <secret:pw>' in str(seen[0]) and 'Again with <secret:pw>' in str(seen[1])
+	assert 'The password is <secret:pw>.' in str(seen[0])
+
+
+async def test_overlapping_runs_on_one_agent_are_rejected(fake_browser, tmp_path):
+	"""Roast r3-6: two concurrent run() calls on one Agent each created a REPL (one never closed) and either could
+	stop the other's browser."""
+	import asyncio
+
+	model, _ = script(('finish', {'success': True, 'result': 'one'}))
+	agent = Agent('t', model, browser=Browser(local=True), workspace=tmp_path)
+	first, second = await asyncio.gather(agent.run(), agent.run(), return_exceptions=True)
+	assert isinstance(second, RuntimeError) and 'already running' in str(second)
+	assert first.final_result() == 'one' and len(fake_browser) == 1  # only the first run started and stopped
+	assert (await agent.run()).status == 'error'  # the next run is allowed again (the script has no third turn)
+
+
+@pytest.mark.parametrize('task', [None, '', '   ', 123])
+def test_a_task_that_is_not_text_raises_before_any_browser(task, no_browser):
+	"""M10: Agent(None / '' / 123) was accepted, started Chrome, then failed (a raw TypeError on cloud)."""
+	with pytest.raises((TypeError, ValueError), match='task'):
+		Agent(task, script()[0], browser=Browser(local=True))
+	agent = Agent('t', script()[0], browser=Browser(local=True))
+	with pytest.raises((TypeError, ValueError), match='task'):
+		agent.add_new_task(task)
+
+
+async def test_run_sync_inside_a_running_loop_says_to_await_run(no_browser, recwarn):
+	"""M11: run_sync() inside a running loop gave a raw asyncio error plus a "coroutine never awaited" warning."""
+	agent = Agent('t', script()[0], browser=Browser(local=True))
+	with pytest.raises(RuntimeError, match=r'await agent\.run\(\)'):
+		agent.run_sync()
+	assert not [w for w in recwarn if 'never awaited' in str(w.message)]
+
+
+@pytest.mark.parametrize('reasoning', ['max', 'Medium', True])
+def test_unknown_reasoning_raises_before_any_browser(reasoning, no_browser):
+	"""Fable r3-2: reasoning was stored unchecked; a typo started (and billed) a cloud browser, then the first model
+	request failed with a 400."""
+	with pytest.raises(ValueError, match='reasoning'):
+		Agent('t', 'test', reasoning=reasoning)
+
+
+async def test_old_mcp_tool_names_return_the_removed_error():
+	from mcp import types
+
+	from browser_use.mcp import cli_mcp
+
+	handler = cli_mcp.CLIMCPServer().server._request_handlers['tools/call'].handler
+	for name in ('browser_navigate', 'browser_click', 'retry_with_browser_use_agent'):
+		r = await handler(None, types.CallToolRequestParams(name=name, arguments={}))
+		text = r.content[0].text  # type: ignore[union-attr]
+		assert r.is_error and text.startswith(
+			f'The MCP tool {name} (the 0.x browser-use --mcp server) was removed in browser-use 1.0.'
+		)
+		assert 'browser_exec runs Python' in text
+	r = await handler(None, types.CallToolRequestParams(name='nope', arguments={}))
+	assert r.content[0].text == 'Unknown tool: nope'  # type: ignore[union-attr]

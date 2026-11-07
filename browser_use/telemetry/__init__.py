@@ -1,24 +1,17 @@
-"""
-Telemetry for Browser Use.
-"""
+"""Anonymized telemetry for Browser Use: what is sent is listed in TELEMETRY.md; ANONYMIZED_TELEMETRY=false turns it off."""
 
 from typing import TYPE_CHECKING
 
 # Type stubs for lazy imports
 if TYPE_CHECKING:
 	from browser_use.telemetry.service import ProductTelemetry
-	from browser_use.telemetry.views import (
-		BaseTelemetryEvent,
-		MCPClientTelemetryEvent,
-		MCPServerTelemetryEvent,
-	)
+	from browser_use.telemetry.views import AgentTelemetryEvent, BaseTelemetryEvent
 
 # Lazy imports mapping
 _LAZY_IMPORTS = {
 	'ProductTelemetry': ('browser_use.telemetry.service', 'ProductTelemetry'),
 	'BaseTelemetryEvent': ('browser_use.telemetry.views', 'BaseTelemetryEvent'),
-	'MCPClientTelemetryEvent': ('browser_use.telemetry.views', 'MCPClientTelemetryEvent'),
-	'MCPServerTelemetryEvent': ('browser_use.telemetry.views', 'MCPServerTelemetryEvent'),
+	'AgentTelemetryEvent': ('browser_use.telemetry.views', 'AgentTelemetryEvent'),
 }
 
 
@@ -40,9 +33,4 @@ def __getattr__(name: str):
 	raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
-__all__ = [
-	'BaseTelemetryEvent',
-	'ProductTelemetry',
-	'MCPClientTelemetryEvent',
-	'MCPServerTelemetryEvent',
-]
+__all__ = ['AgentTelemetryEvent', 'BaseTelemetryEvent', 'ProductTelemetry']

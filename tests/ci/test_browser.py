@@ -1,0 +1,1036 @@
+"""Browser lifecycle with the Browser Use Cloud HTTP API and the harness daemon mocked. No network, no browser."""
+
+import pytest
+from conftest import script
+
+from browser_use import Agent, Browser
+from browser_use.browser import browser as browser_mod
+from browser_use.exceptions import MissingAPIKeyError
+
+
+@pytest.fixture
+def cloud(monkeypatch):
+	"""Records cloud API calls and daemon starts/stops instead of making them."""
+	from browser_harness import admin
+
+	calls = []
+	n = [0]
+
+	def fake_cloud(path, method='GET', body=None):
+		calls.append((method, path, body))
+		if method == 'POST' and path == '/browsers':
+			n[0] += 1
+			return {'id': f'b{n[0]}', 'cdpUrl': f'https://cdp{n[0]}.example.test', 'liveUrl': 'https://live.example.test/x'}
+		if 'downloads' in path:
+			return {'files': [], 'hasMore': False}
+		return {}
+
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
+	monkeypatch.setattr(browser_mod, '_cloud', fake_cloud)
+	monkeypatch.setattr(browser_mod, '_ws_url', lambda url: 'ws://fake.test/devtools/browser/x')
+	monkeypatch.setattr(admin, 'ensure_daemon', lambda *a, **k: calls.append(('daemon', 'start', k.get('name'))))
+	monkeypatch.setattr(admin, 'restart_daemon', lambda name=None, **k: calls.append(('daemon', 'stop', name)))
+	yield calls
+	browser_mod._LIVE.clear()  # never let atexit send a leftover fake browser to the real API
+
+
+def stops(calls):
+	return [path for method, path, body in calls if method == 'PATCH' and body == {'action': 'stop'}]
+
+
+def test_default_browser_is_cloud_with_us_proxy_and_no_live_view():
+	b = Browser()
+	assert (b.use_cloud, b.local, b.proxy, b.live_view, b.keep_alive) == (True, False, 'us', False, False)
+	assert Browser(local=True).use_cloud is False and Browser(use_cloud=False).local is True
+	assert Browser(cdp_url='http://x:9222').use_cloud is False
+
+
+def test_browser_kinds_and_their_0x_aliases():
+	kinds = [Browser().kind, Browser('cloud').kind, Browser('chromium').kind, Browser('chrome').kind]
+	assert kinds == ['cloud', 'cloud', 'chromium', 'chrome']
+	assert Browser(local=True).kind == Browser(use_cloud=False).kind == 'chromium'  # fresh local, as 0.x launched
+	assert Browser(cdp_url='http://x:9222').kind == 'cdp' and Browser(use_cloud=True).kind == 'cloud'
+	assert Browser('chrome', profile='Work', headless=True).chrome_profile == 'Work'
+
+
+@pytest.mark.parametrize(
+	'kwargs, match',
+	[
+		({'kind': 'firefox'}, "pick 'cloud'"),
+		({'kind': 'chrome', 'local': True}, 'Pass one of'),
+		({'local': True, 'use_cloud': True}, 'Pass one of'),
+		({'kind': 'cloud', 'use_cloud': False}, 'Pass one of'),
+		({'kind': 'chromium', 'cdp_url': 'http://x:9222'}, 'Pass one of'),
+		({'headless': False}, r'Browser\(\) \(a cloud browser\) does not take headless='),
+		({'kind': 'chrome', 'headless': True}, "Browser\\('chromium', ...\\) launches"),
+		({'kind': 'chrome', 'executable_path': '/x'}, 'executable_path'),
+		({'kind': 'chrome', 'user_data_dir': '/x'}, 'user_data_dir'),
+		({'kind': 'chromium', 'profile': 'Work'}, "Browser\\('chrome', profile=...\\)"),
+		({'kind': 'chromium', 'cloud_profile_id': 'p'}, 'cloud profiles'),
+		({'local': True, 'live_view': True}, 'live view'),
+	],
+)
+def test_browser_options_that_do_not_fit_the_kind_raise_before_start(kwargs, match):
+	with pytest.raises(ValueError, match=match):
+		Browser(**kwargs)
+
+
+def test_chromes_default_profile_dir_is_refused_as_user_data_dir():
+	"""Chrome 136+ refuses remote debugging on its default user-data-dir; launching on it would fail opaquely."""
+	default = browser_mod._local.chrome_user_data_dir()
+	with pytest.raises(ValueError, match='Chrome 136'):
+		Browser('chromium', user_data_dir=default)
+
+
+@pytest.mark.parametrize(
+	'option, instead',
+	[
+		('channel', 'executable_path'),
+		('window_size', 'Emulation.setDeviceMetricsOverride'),
+		('downloads_path', 'agent.workspace/downloads'),
+		('record_video_dir', 'result.messages'),
+		('highlight_elements', '0.x DOM engine'),
+		('cloud_browser_params', 'cloud_profile_id'),
+		('proxy_country_code', 'cloud_proxy_country_code'),
+		('args', "Browser('chromium')"),
+	],
+)
+def test_0x_browser_options_name_their_1_0_alternative(option, instead):
+	"""M37: 51 of 67 0.x Browser options got a generic "not a 1.0 option" instead of the removed error MIGRATING.md
+	promises, with the alternative it lists."""
+	with pytest.raises(TypeError, match=rf'^Browser\({option}=\.\.\.\) was removed in browser-use 1\.0\.') as raised:
+		Browser(**{option: True})
+	assert instead in str(raised.value)
+
+
+def test_conflicting_or_0x_browser_options_raise():
+	with pytest.raises(ValueError):
+		Browser(local=True, use_cloud=True)
+	with pytest.raises(TypeError, match='window_size'):
+		Browser(window_size={'width': 800})
+	with pytest.raises(TypeError, match="profile='Profile 1'"):
+		Browser(profile_directory='Profile 1')
+
+
+async def test_run_starts_and_stops_cloud_browser(cloud, tmp_path, capsys):
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
+	browser = Browser()
+	result = await Agent('t', model, browser=browser, workspace=tmp_path).run()
+	assert result.final_result() == 'ok'
+	assert [c[:2] for c in cloud if c[0] == 'POST'] == [('POST', '/browsers')]
+	assert cloud[0][2]['proxyCountryCode'] == 'us'
+	assert stops(cloud) == ['/browsers/b1'] and browser.name is None
+	assert 'live.example.test' not in capsys.readouterr().out  # live view off by default
+	assert not browser_mod._LIVE
+
+
+async def test_keep_alive_leaves_cloud_browser_running(cloud, tmp_path):
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
+	browser = Browser(keep_alive=True)
+	agent = Agent('t', model, browser=browser, workspace=tmp_path)
+	await agent.run()
+	await agent.close()
+	assert stops(cloud) == [] and browser in browser_mod._LIVE  # atexit/SIGTERM would still stop it
+	await browser.stop()
+	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
+async def test_keep_alive_cloud_downloads_land_in_the_workspace_on_the_later_stop(cloud, monkeypatch, tmp_path):
+	"""H7: with keep_alive the run skipped the download copy and browser.stop() had no downloads_dir, so the cloud
+	browser's downloads were lost. The later stop copies them to the last Agent's workspace/downloads."""
+	import io
+
+	with_downloads(monkeypatch, [{'path': '/d/report.csv', 'url': 'u1'}])
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(b'data'))
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
+	browser = Browser(keep_alive=True)
+	agent = Agent('t', model, browser=browser, workspace=tmp_path)
+	await agent.run()
+	await agent.close()
+	assert not (tmp_path / 'downloads').exists()
+	files = await browser.stop()
+	assert [p.read_bytes() for p in files] == [b'data'] and files[0].parent == tmp_path / 'downloads'
+
+
+async def test_a_socket_path_too_long_for_the_os_names_the_path_before_anything_starts(cloud, monkeypatch, tmp_path):
+	"""M40: a long BH_HOME / XDG_CONFIG_HOME failed inside the daemon with "AF_UNIX path too long", naming no path; on
+	cloud it showed as "stopped remote browser"."""
+	import sys
+
+	from browser_harness import _ipc as ipc
+
+	if sys.platform == 'win32':
+		pytest.skip('Windows uses TCP loopback')
+	long_dir = tmp_path / ('a' * 120)
+	monkeypatch.setattr(ipc, '_sock_path', lambda name: long_dir / f'bu-{name}.sock')
+	with pytest.raises(RuntimeError, match=r'socket path is \d+ bytes, over the 10\d-byte limit.*BH_RUNTIME_DIR') as raised:
+		await Browser().start()
+	assert str(long_dir) in str(raised.value)
+	assert not [c for c in cloud if c[0] == 'POST'] and not browser_mod._LIVE  # no cloud browser created
+
+
+async def test_a_rejected_provider_key_or_unknown_model_never_creates_a_cloud_browser(cloud, monkeypatch, tmp_path):
+	"""M3: a bad OpenAI key or an unknown Anthropic model failed only on the first model request, after a cloud browser
+	had been created and billed. One free GET of the model on its provider now fails first."""
+	import io
+	import urllib.error
+
+	from browser_use import ChatAnthropic, ChatGoogle, ChatOpenAI
+
+	asked = []
+
+	def urlopen(request, timeout=None):
+		url = request.full_url if hasattr(request, 'full_url') else request
+		asked.append(url)
+		if 'api.openai.com/v1/models/gpt-6-luna' in url:
+			body = b'{"error": {"message": "Incorrect API key provided", "code": "invalid_api_key"}}'
+			raise urllib.error.HTTPError(url, 401, 'Unauthorized', {}, io.BytesIO(body))  # type: ignore[arg-type]
+		if 'generativelanguage.googleapis.com/v1beta/models/gemini-nonexistent-9' in url:
+			raise urllib.error.HTTPError(url, 404, 'Not Found', {}, io.BytesIO(b'{"error": "Model is not found"}'))  # type: ignore[arg-type]
+		if 'api.anthropic.com/v1/models/claude-nonexistent-9' in url:
+			raise urllib.error.HTTPError(url, 404, 'Not Found', {}, io.BytesIO(b'{"error": "model: claude-nonexistent-9"}'))  # type: ignore[arg-type]
+		return io.BytesIO(b'{}')
+
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', urlopen)
+	for var in ('ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL'):  # the official endpoints, whatever this machine points at
+		monkeypatch.delenv(var, raising=False)
+	for llm, expect in (
+		(ChatOpenAI('gpt-6-luna', api_key='sk-invalid'), 'openai rejected the API key (401)'),
+		(ChatAnthropic('claude-nonexistent-9', api_key='k'), 'claude-nonexistent-9 is not a model this anthropic key'),
+		(ChatGoogle('gemini-nonexistent-9', api_key='k'), 'gemini-nonexistent-9 is not a model this google key'),
+	):
+		result = await Agent('t', llm, browser=Browser(), workspace=tmp_path).run()
+		assert result.status == 'error' and expect in (result.error or ''), result.error
+	assert not [c for c in cloud if c[0] == 'POST'] and len(asked) == 3
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))  # a model it cannot check: runs as before
+	assert (await Agent('t', model, browser=Browser(), workspace=tmp_path).run()).final_result() == 'ok'
+
+
+def test_preflight_fails_only_on_a_bad_key_or_model_and_only_asks_google_itself(monkeypatch):
+	"""Review: Google's 400 API_KEY_INVALID passed (browser created and billed); a key that may run the model but not
+	look it up (OpenAI 401 missing scope, Anthropic 403) was refused; an auth_token client sent 'x-api-key: None'; a
+	Google client pointed at a proxy sent the proxy's key to Google; 'models/gemini-2.5-flash' became
+	/models/models/...; an error that quoted the key returned it."""
+	import io
+	import urllib.error
+
+	from anthropic import AsyncAnthropic
+	from google import genai
+	from google.genai import types
+	from pydantic_ai.models.anthropic import AnthropicModel
+	from pydantic_ai.models.google import GoogleModel
+	from pydantic_ai.providers.anthropic import AnthropicProvider
+	from pydantic_ai.providers.google import GoogleProvider
+
+	from browser_use import ChatAnthropic, ChatGoogle, ChatOpenAI
+	from browser_use.llm import provider_preflight, resolve_model
+
+	asked, answers = [], {}
+
+	def urlopen(request, timeout=None):
+		asked.append(request.full_url)
+		code, body = answers[request.full_url]
+		raise urllib.error.HTTPError(request.full_url, code, 'x', {}, io.BytesIO(body.encode()))  # type: ignore[arg-type]
+
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', urlopen)
+	for var in ('ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL'):
+		monkeypatch.delenv(var, raising=False)
+	g = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash'
+	bad_google = '{"error": {"code": 400, "message": "API key not valid.", "status": "INVALID_ARGUMENT", "details": [{"reason": "API_KEY_INVALID"}]}}'
+	answers[g] = (400, bad_google)
+	assert 'google rejected the API key (400): API key not valid.' in provider_preflight(
+		resolve_model(ChatGoogle('gemini-2.5-flash', api_key='bad'))[0]
+	)
+	prefixed = GoogleModel('models/gemini-2.5-flash', provider=GoogleProvider(api_key='bad'))
+	assert 'rejected the API key' in (provider_preflight(prefixed) or '') and asked[-1] == g
+	proxy = genai.Client(api_key='proxy-key', http_options=types.HttpOptions(base_url='https://llm-proxy.example.test/'))
+	n = len(asked)
+	assert provider_preflight(GoogleModel('gemini-2.5-flash', provider=GoogleProvider(client=proxy))) is None
+	token = AnthropicModel('claude-haiku-4-5', provider=AnthropicProvider(anthropic_client=AsyncAnthropic(auth_token='t')))
+	assert provider_preflight(token) is None and len(asked) == n  # neither asked anyone
+
+	answers['https://api.openai.com/v1/models/gpt-6-luna'] = (
+		401,
+		'{"error": {"message": "You have insufficient permissions for this operation. Missing scopes: api.model.read.", "code": null}}',
+	)
+	assert provider_preflight(resolve_model(ChatOpenAI('gpt-6-luna', api_key='sk-restricted'))[0]) is None
+	answers['https://api.anthropic.com/v1/models/claude-haiku-4-5'] = (
+		403,
+		'{"type": "error", "error": {"type": "permission_error", "message": "not allowed"}}',
+	)
+	assert provider_preflight(resolve_model(ChatAnthropic('claude-haiku-4-5', api_key='k'))[0]) is None
+	answers['https://api.openai.com/v1/models/gpt-6-luna'] = (
+		401,
+		'{"error": {"message": "Incorrect API key provided: sk-quoted-XYZ.", "code": "invalid_api_key"}}',
+	)
+	error = provider_preflight(resolve_model(ChatOpenAI('gpt-6-luna', api_key='sk-quoted-XYZ'))[0]) or ''
+	assert 'openai rejected the API key (401)' in error and 'sk-quoted-XYZ' not in error, error
+
+
+async def test_a_preflight_error_never_shows_a_secret(cloud, monkeypatch, tmp_path, caplog):
+	"""Review: the preflight error went to the log and result.error verbatim, past sensitive_data redaction."""
+	from browser_use import ChatOpenAI
+
+	secret = 'hunter2-Zq9-long'
+	monkeypatch.setattr(
+		'browser_use.agent.service.provider_preflight', lambda model: f'openai rejected the API key (401): {secret}'
+	)
+	agent = Agent(
+		't', ChatOpenAI('gpt-6-luna', api_key='sk-x'), browser=Browser(), workspace=tmp_path, sensitive_data={'pw': secret}
+	)
+	result = await agent.run()
+	assert result.status == 'error' and '<secret:pw>' in (result.error or '')
+	assert secret not in (result.error or '') and secret not in caplog.text
+
+
+async def test_a_reattach_waiting_on_a_stop_never_creates_a_browser(cloud):
+	"""Review: reattach() checked that the browser was started before it took the lock; a stop() holding the lock then
+	cleared it, and start() created a new cloud browser (billed, none of the agent's tabs)."""
+	import asyncio
+
+	browser = Browser()
+	await browser.start()
+	await browser._lock.acquire()  # a stop() is under way
+	reattach = asyncio.ensure_future(browser.reattach())
+	await asyncio.sleep(0.05)
+	await asyncio.to_thread(browser._stop_now)
+	browser._lock.release()
+	with pytest.raises(RuntimeError, match='The browser was stopped while the agent ran'):
+		await reattach
+	assert len([c for c in cloud if c[0] == 'POST']) == 1
+
+
+async def test_restarted_browser_is_stopped_again(cloud):
+	"""BUP bug: `stopped` never reset, so a browser started a second time was skipped at cleanup (kept billing)."""
+	browser = Browser()
+	await browser.start()
+	await browser.stop()
+	await browser.start()
+	await browser.stop()
+	assert stops(cloud) == ['/browsers/b1', '/browsers/b2']
+
+
+async def test_start_is_idempotent_while_running(cloud):
+	browser = Browser()
+	assert await browser.start() == await browser.start()
+	assert len([c for c in cloud if c[0] == 'POST']) == 1
+	await browser.stop()
+
+
+def test_atexit_cleanup_stops_live_browsers(cloud):
+	import asyncio
+
+	browser = Browser()
+	asyncio.run(browser.start())
+	browser_mod._stop_all()  # what atexit and the SIGTERM handler run
+	assert stops(cloud) == ['/browsers/b1']
+
+
+@pytest.mark.parametrize(
+	'task',
+	[
+		'Open http://localhost:3000 and check the title',
+		'test my app on 127.0.0.1:8000',
+		'go to http://192.168.1.20/admin',
+		'visit 10.0.0.5',
+		'check http://172.20.1.1',
+		'open http://[::1]:8080',
+		'open printer.local',
+	],
+)
+def test_localhost_guard_spots_local_targets(task):
+	from browser_use.agent.service import LOCAL_TARGET
+
+	assert LOCAL_TARGET.search(task)  # a warning only (test_agent.py), never a refusal
+
+
+@pytest.mark.parametrize('task', ['find local restaurants', 'compare 10.5 and 10.25', 'version 172.15.0.1'])
+def test_localhost_guard_ignores_normal_text(task):
+	from browser_use.agent.service import LOCAL_TARGET
+
+	assert not LOCAL_TARGET.search(task)
+
+
+async def test_missing_key_raises_and_never_falls_back_to_local(cloud, monkeypatch):
+	monkeypatch.delenv('BROWSER_USE_API_KEY')  # and conftest points the stored-key file at nothing
+	model, _ = script()
+	with pytest.raises(MissingAPIKeyError, match='browser-use login'):
+		await Agent('t', model).run()
+	with pytest.raises(MissingAPIKeyError, match="Browser\\('chromium'\\)"):
+		await Agent('t').run()  # default model too
+	assert cloud == []
+
+
+async def test_live_view_opt_in_prints_url(cloud, monkeypatch, capsys):
+	import webbrowser
+
+	opened = []
+	monkeypatch.setattr(webbrowser, 'open', lambda url, new=0: opened.append(url))
+	browser = Browser(live_view=True)
+	await browser.start()
+	await browser.stop()
+	assert opened == ['https://live.example.test/x'] and 'live.example.test' in capsys.readouterr().out
+
+
+async def test_cancelled_start_still_stops_the_cloud_browser(cloud, monkeypatch):
+	"""Roast C1: cancelling start() during the POST left the created browser untracked (billed, never stopped)."""
+	import asyncio
+	import threading
+
+	posting, release = threading.Event(), threading.Event()
+	real = browser_mod._cloud
+
+	def slow_cloud(path, method='GET', body=None):
+		if method == 'POST':
+			posting.set()
+			release.wait(10)
+		return real(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', slow_cloud)
+	browser = Browser()
+	task = asyncio.ensure_future(browser.start())
+	await asyncio.to_thread(posting.wait, 10)
+	task.cancel()
+	threading.Timer(0.2, release.set).start()  # the POST returns after the cancellation
+	with pytest.raises(asyncio.CancelledError):
+		await task
+	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
+async def test_failed_stop_keeps_the_browser_owned_for_retry(cloud, monkeypatch):
+	"""Roast C2: after a failed stop the id and _LIVE entry were dropped, so neither stop() nor atexit could retry."""
+	real, fail = browser_mod._cloud, [True]
+
+	def flaky(path, method='GET', body=None):
+		if method == 'PATCH' and fail[0]:
+			raise RuntimeError('HTTP 502')
+		return real(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', flaky)
+	monkeypatch.setattr(browser_mod.time, 'sleep', lambda s: None)
+	browser = Browser()
+	await browser.start()
+	await browser.stop()
+	assert browser in browser_mod._LIVE and browser.id == 'b1' and stops(cloud) == []
+	fail[0] = False
+	browser_mod._stop_all()  # what atexit runs
+	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
+async def test_concurrent_starts_create_one_browser(cloud):
+	"""Roast C4: two concurrent start() calls each created a cloud browser; one leaked."""
+	import asyncio
+
+	browser = Browser()
+	a, b = await asyncio.gather(browser.start(), browser.start())
+	assert a == b and len([c for c in cloud if c[0] == 'POST']) == 1
+	await browser.stop()
+	assert stops(cloud) == ['/browsers/b1']
+
+
+async def test_downloads_are_listed_before_the_stop(cloud, tmp_path):
+	"""The v4 API lists a session's downloads; ask before the stop PATCH as well as after."""
+	browser = Browser()
+	await browser.start()
+	await browser.stop(downloads_dir=tmp_path)
+	order = [c[0] if c[0] == 'PATCH' else 'list' for c in cloud if c[0] == 'PATCH' or 'downloads' in c[1]]
+	assert order == ['list', 'PATCH', 'list']
+
+
+def with_downloads(monkeypatch, files, list_hook=None):
+	"""The cloud fake lists `files` ({'path', 'url'}) as the browser's downloads; list_hook runs on every listing."""
+	real = browser_mod._cloud
+
+	def fake(path, method='GET', body=None):
+		if 'downloads' in path:
+			real(path, method, body)  # recorded
+			if list_hook:
+				list_hook()
+			return {'files': files, 'hasMore': False}
+		return real(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', fake)
+
+
+async def test_restart_during_stop_waits_and_keeps_the_new_browser_owned(cloud, monkeypatch, tmp_path):
+	"""Roast r2-2: a start() during stop()'s post-stop download pass created browser B; the old stop then cleared B's
+	id, so B was never stopped (billed until the server timeout)."""
+	import asyncio
+	import threading
+
+	listing, release, n = threading.Event(), threading.Event(), [0]
+
+	def hook():
+		n[0] += 1
+		if n[0] == 2:  # the post-stop pass
+			listing.set()
+			release.wait(10)
+
+	with_downloads(monkeypatch, [], hook)
+	browser = Browser()
+	await browser.start()
+	stopping = asyncio.ensure_future(browser.stop(downloads_dir=tmp_path))
+	await asyncio.to_thread(listing.wait, 10)
+	starting = asyncio.ensure_future(browser.start())
+	await asyncio.sleep(0.1)
+	assert len([c for c in cloud if c[0] == 'POST']) == 1  # the restart waits for the whole stop
+	release.set()
+	await stopping
+	await starting
+	assert browser.id == 'b2' and browser in browser_mod._LIVE
+	await browser.stop()
+	assert stops(cloud) == ['/browsers/b1', '/browsers/b2'] and not browser_mod._LIVE
+
+
+async def test_cancelled_download_collection_still_stops_the_cloud_browser(cloud, monkeypatch, tmp_path):
+	"""Roast r2-3: cancelling stop() during the pre-stop download pass skipped the PATCH stop (billing went on)."""
+	import asyncio
+	import threading
+
+	listing, release = threading.Event(), threading.Event()
+	with_downloads(monkeypatch, [], lambda: (listing.set(), release.wait(10)))
+	browser = Browser()
+	await browser.start()
+	task = asyncio.ensure_future(browser.stop(downloads_dir=tmp_path))
+	await asyncio.to_thread(listing.wait, 10)
+	task.cancel()
+	release.set()
+	with pytest.raises(asyncio.CancelledError):
+		await task
+	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
+async def test_hung_download_never_holds_the_stop(cloud, monkeypatch, tmp_path):
+	"""Roast r2-3: download collection had no overall bound; a hung transfer kept the browser billed."""
+	import threading
+	import time
+
+	release = threading.Event()
+	with_downloads(monkeypatch, [{'path': '/dl/a.pdf', 'url': 'https://files.test/a'}])
+	monkeypatch.setattr(browser_mod, 'DOWNLOADS_TIMEOUT_S', 0.3)
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda *a, **k: release.wait(10))
+	browser = Browser()
+	await browser.start()
+	t = time.monotonic()
+	try:
+		await browser.stop(downloads_dir=tmp_path)
+	finally:
+		release.set()
+	assert time.monotonic() - t < 3 and stops(cloud) == ['/browsers/b1']
+
+
+async def test_failed_download_is_retried_after_the_stop(cloud, monkeypatch, tmp_path):
+	"""Roast r2-7: a download was marked done before it was copied; one pre-stop connection reset lost the file."""
+	import io
+
+	with_downloads(monkeypatch, [{'path': '/dl/report.pdf', 'url': 'https://files.test/r'}])
+	attempts = []
+
+	def urlopen(url, timeout=None):
+		attempts.append(url)
+		if len(attempts) == 1:
+			raise ConnectionResetError('reset by peer')
+		return io.BytesIO(b'%PDF-1')
+
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', urlopen)
+	browser = Browser()
+	await browser.start()
+	files = await browser.stop(downloads_dir=tmp_path)
+	assert files == [tmp_path / 'report.pdf'] and (tmp_path / 'report.pdf').read_bytes() == b'%PDF-1'
+	assert len(attempts) == 2
+
+
+async def test_start_after_a_cancelled_stop_never_overlaps_its_stop_thread(cloud, monkeypatch):
+	"""A stop() cancelled during the PATCH leaves its thread running; a start() right after must not run its own
+	_stop_now beside it (a second PATCH, and the late thread could disown the new browser)."""
+	import asyncio
+	import threading
+
+	patching, release = threading.Event(), threading.Event()
+	real = browser_mod._cloud
+
+	def fake(path, method='GET', body=None):
+		if method == 'PATCH':
+			patching.set()
+			release.wait(10)
+		return real(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', fake)
+	browser = Browser()
+	await browser.start()
+	task = asyncio.ensure_future(browser.stop())
+	await asyncio.to_thread(patching.wait, 10)
+	task.cancel()
+	with pytest.raises(asyncio.CancelledError):
+		await task
+	starting = asyncio.ensure_future(browser.start())
+	await asyncio.sleep(0.2)
+	assert len([c for c in cloud if c[0] == 'POST']) == 1  # the restart waits for the running stop
+	release.set()
+	await starting
+	assert browser.id == 'b2' and browser in browser_mod._LIVE and stops(cloud) == ['/browsers/b1']
+	await browser.stop()
+	assert stops(cloud) == ['/browsers/b1', '/browsers/b2'] and not browser_mod._LIVE
+
+
+async def test_sigterm_during_exit_cleanup_never_deadlocks(cloud, monkeypatch):
+	"""SIGTERM while atexit is stopping a browser runs the handler's _stop_all on the thread that already holds the
+	stop lock; a non-reentrant lock hung the process forever."""
+	import threading
+
+	real, entered = browser_mod._cloud, []
+
+	def fake(path, method='GET', body=None):
+		if method == 'PATCH' and not entered:
+			entered.append(1)
+			browser_mod._stop_all()  # the SIGTERM handler, interrupting this very thread
+		return real(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', fake)
+	browser = Browser()
+	await browser.start()
+	t = threading.Thread(target=browser_mod._stop_all, daemon=True)  # what atexit runs
+	t.start()
+	t.join(5)
+	assert not t.is_alive() and browser.stopped and not browser_mod._LIVE
+
+
+async def test_local_start_is_bounded_when_chrome_never_allows_remote_debugging(monkeypatch):
+	"""Fable r3-7: Browser('chrome') (then local=True) called ensure_daemon() without a wait; browser-harness then waits forever on
+	Chrome's "Allow remote debugging?" prompt, so Agent.run() hung before its timeout even started."""
+	from browser_harness import admin
+
+	calls = []
+
+	def ensure_daemon(wait=None, name=None, env=None):  # what browser-harness does once the wait runs out
+		calls.append(wait)
+		if wait is None:
+			raise AssertionError('unbounded wait: would hang forever on the prompt')
+		raise RuntimeError("permission-blocked: Chrome's Allow popup is still open and the pending daemon was left running.")
+
+	monkeypatch.setattr(admin, 'ensure_daemon', ensure_daemon)
+	monkeypatch.setattr(admin, 'daemon_alive', lambda name=None: True)  # skip discovery of this machine's Chromes
+	with pytest.raises(RuntimeError, match='did not allow remote debugging within 120s'):
+		await Browser('chrome').start()
+	assert calls == [browser_mod.LOCAL_START_WAIT_S]
+
+
+async def test_cloud_create_past_its_deadline_stays_owned_and_is_stopped_when_it_lands(cloud, monkeypatch):
+	"""Roast r3-4: start() waited forever on a slow POST (socket timeouts bound each read, not the response), and the
+	stop's 120 s wait then gave up and disowned the browser; a create that landed later was billed, never stopped."""
+	import asyncio
+	import threading
+
+	release = threading.Event()
+	real = browser_mod._cloud
+
+	def slow_cloud(path, method='GET', body=None):
+		if method == 'POST':
+			release.wait(10)
+		return real(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', slow_cloud)
+	monkeypatch.setattr(browser_mod, 'CREATE_TIMEOUT_S', 0.3)
+	browser = Browser()
+	with pytest.raises(RuntimeError, match='did not create a browser within'):
+		await asyncio.wait_for(browser.start(), 5)
+	assert browser in browser_mod._LIVE and stops(cloud) == []  # still owned while the POST is in flight
+	release.set()  # the browser lands after start() and its cleanup gave up waiting
+	for _ in range(100):
+		if stops(cloud):
+			break
+		await asyncio.sleep(0.05)
+	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
+async def test_cancel_while_the_repl_closes_still_stops_the_cloud_browser(cloud, tmp_path):
+	"""Roast r4-1: a cancel while Repl.close() awaited the worker's exit skipped browser.stop() (billing went on)."""
+	import asyncio
+
+	closing = asyncio.Event()
+
+	class HangingRepl:
+		async def close(self):
+			closing.set()
+			await asyncio.sleep(60)
+
+	browser = Browser()
+	agent = Agent('t', script()[0], browser=browser, workspace=tmp_path)
+	await browser.start()
+	agent._repl = HangingRepl()  # type: ignore[assignment]
+	task = asyncio.ensure_future(agent.close())
+	await closing.wait()
+	task.cancel()
+	with pytest.raises(asyncio.CancelledError):
+		await task
+	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
+def test_windows_selector_loop_raises_before_a_cloud_browser_starts(cloud, tmp_path, monkeypatch):
+	"""Fable r4-7: on a WindowsSelectorEventLoopPolicy loop the REPL subprocess raised a bare NotImplementedError, after
+	a (billed) cloud browser was created. Runs on an explicit SelectorEventLoop (Windows' default is Proactor)."""
+	import asyncio
+	import sys
+
+	agent = Agent('t', script()[0], browser=Browser(), workspace=tmp_path)
+	loop = asyncio.SelectorEventLoop()
+	monkeypatch.setattr(sys, 'platform', 'win32')
+	try:
+		with pytest.raises(RuntimeError, match='ProactorEventLoop'):
+			loop.run_until_complete(agent.run())
+	finally:
+		monkeypatch.undo()
+		loop.close()
+	assert [c for c in cloud if c[0] == 'POST'] == []
+
+
+async def test_slow_download_thread_ends_at_the_deadline(cloud, monkeypatch, tmp_path):
+	"""Roast r4-4: the download deadline cancelled the await, but urlopen().read() kept the thread reading a slow-drip
+	transfer; run_sync's Runner.close() and interpreter exit then joined that thread indefinitely."""
+	import asyncio
+	import threading
+	import time
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	open_conns, lock = [0], threading.Lock()
+
+	class Drip(BaseHTTPRequestHandler):
+		def do_GET(self):
+			with lock:
+				open_conns[0] += 1
+			try:
+				self.send_response(200)
+				self.send_header('Content-Length', '1000000')
+				self.end_headers()
+				for _ in range(100):  # 20 s of one byte every 0.2 s
+					self.wfile.write(b'x')
+					self.wfile.flush()
+					time.sleep(0.2)
+			except OSError:
+				pass
+			finally:
+				with lock:
+					open_conns[0] -= 1
+
+		def log_message(self, *a):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Drip)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	try:
+		with_downloads(monkeypatch, [{'path': '/dl/big.bin', 'url': f'http://127.0.0.1:{server.server_address[1]}/f'}])
+		monkeypatch.setattr(browser_mod, 'DOWNLOADS_TIMEOUT_S', 1)
+		browser = Browser()
+		await browser.start()
+		await browser.stop(downloads_dir=tmp_path)
+		for _ in range(30):  # the reading threads close their connections (the server sees it on its next write)
+			if open_conns[0] == 0:
+				break
+			await asyncio.sleep(0.1)
+		assert open_conns[0] == 0
+		assert list(tmp_path.iterdir()) == []  # an unfinished transfer leaves no partial file
+	finally:
+		server.shutdown()
+
+
+async def test_downloads_never_overwrite_an_earlier_file(cloud, monkeypatch, tmp_path):
+	"""Roast r4-5: two sessions (or two remote folders) with the same file name: the second write destroyed the first."""
+	import io
+
+	(tmp_path / 'report.csv').write_bytes(b'earlier session')
+	with_downloads(monkeypatch, [{'path': '/a/report.csv', 'url': 'u1'}, {'path': '/b/report.csv', 'url': 'u2'}])
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(url.encode()))
+	browser = Browser()
+	await browser.start()
+	files = await browser.stop(downloads_dir=tmp_path)
+	assert (tmp_path / 'report.csv').read_bytes() == b'earlier session'
+	assert [(p.name, p.read_bytes()) for p in files] == [('report (1).csv', b'u1'), ('report (2).csv', b'u2')]
+
+
+def test_truncated_download_is_rejected_and_leaves_no_file(tmp_path):
+	"""Roast r6-2: read1() returned EOF before Content-Length without raising, so a truncated file was accepted as
+	delivered and never retried."""
+	import threading
+	import time
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	class Short(BaseHTTPRequestHandler):
+		def do_GET(self):
+			self.send_response(200)
+			self.send_header('Content-Length', '100')
+			self.end_headers()
+			self.wfile.write(b'hello')  # 5 of 100 bytes, then the connection closes
+
+		def log_message(self, *a):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Short)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	try:
+		with pytest.raises(Exception, match='5 of 100|IncompleteRead|ended'):
+			browser_mod._download(f'http://127.0.0.1:{server.server_port}/r.csv', tmp_path, 'r.csv', time.monotonic() + 10)
+	finally:
+		server.shutdown()
+	assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+	'kwargs, option',
+	[
+		({'kind': 'chromium', 'cloud_proxy_country_code': 'de'}, 'cloud_proxy_country_code'),
+		({'kind': 'chromium', 'cloud_proxy_country_code': 'us'}, 'cloud_proxy_country_code'),  # = the default
+		({'kind': 'chrome', 'cloud_proxy_country_code': None}, 'cloud_proxy_country_code'),
+		({'cdp_url': 'http://x:9222', 'cloud_proxy_country_code': 'de'}, 'cloud_proxy_country_code'),
+		({'local': True, 'cloud_timeout': 5}, 'cloud_timeout'),
+		({'cdp_url': 'http://x:9222', 'cloud_timeout': 60}, 'cloud_timeout'),
+	],
+)
+def test_cloud_options_on_a_local_or_cdp_browser_raise(kwargs, option):
+	"""browser-features #4: Browser('chromium', cloud_proxy_country_code='de') ran with no proxy, silently."""
+	with pytest.raises(ValueError, match=f'does not take {option}='):
+		Browser(**kwargs)
+	assert Browser(cloud_proxy_country_code='us', cloud_timeout=60).proxy == 'us'  # explicit on cloud is fine
+
+
+@pytest.mark.parametrize(
+	'kwargs, match',
+	[
+		({'cloud_proxy_country_code': 'usa'}, 'two-letter country code'),
+		({'cloud_proxy_country_code': 1}, 'two-letter country code'),
+		({'cloud_proxy_country_code': ''}, 'two-letter country code'),
+		({'cloud_timeout': 0}, 'from 1 to 240'),
+		({'cloud_timeout': True}, 'from 1 to 240'),
+		({'cloud_timeout': 241}, 'from 1 to 240'),
+		({'cloud_timeout': 5.5}, 'from 1 to 240'),
+		({'captcha_solver': 'no'}, 'True or False'),
+	],
+)
+def test_bad_cloud_options_raise_before_any_request(kwargs, match):
+	"""M20 (and lows): a bad proxy country came back from the API as a 500-character validation dump, an int raised
+	AttributeError, cloud_timeout=0 meant 60 and True meant 1 minute, captcha_solver='no' counted as on."""
+	with pytest.raises((ValueError, TypeError), match=match):
+		Browser(**kwargs)
+	assert Browser(cloud_proxy_country_code='DE', cloud_timeout=240).proxy == 'de'
+
+
+def test_proxy_country_code_is_sent_lowercase():
+	"""browser-features #26: 'DE' got the API's raw 422 enum dump; the API takes only lowercase codes."""
+	assert Browser(cloud_proxy_country_code='DE').proxy == 'de'
+	assert Browser().proxy == 'us' and Browser(cloud_proxy_country_code=None).proxy is None
+
+
+def test_uppercase_profile_uuid_is_an_id_not_a_name(cloud):
+	"""browser-features #9: an uppercase UUID was looked up as a profile name ('0 cloud profiles are named ...')."""
+	assert browser_mod._profile_id('0A1B2C3D-4E5F-6789-ABCD-EF0123456789') == '0a1b2c3d-4e5f-6789-abcd-ef0123456789'
+	assert not [c for c in cloud if 'profiles' in c[1]]
+
+
+async def test_live_and_cdp_urls_are_cleared_after_stop(cloud):
+	"""browser-features #12: both stayed on the object after stop(), where a repr or log could carry them."""
+	browser = Browser()
+	await browser.start()
+	assert browser.live_url and browser.cloud_cdp_url
+	await browser.stop()
+	assert (browser.live_url, browser.cloud_cdp_url) == (None, None)
+
+
+async def test_download_with_a_name_too_long_for_the_filesystem_is_shortened(cloud, monkeypatch, tmp_path):
+	"""browser-features #8: a name of 255 bytes plus ' (1)' raised 'File name too long' on every retry: the file was
+	never copied."""
+	import io
+
+	long = 'é' * 126 + 'x.csv'  # 257 bytes
+	(tmp_path / 'existing').mkdir()
+	with_downloads(monkeypatch, [{'path': long, 'url': 'u1'}, {'path': f'b/{long}', 'url': 'u2'}])
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(url.encode()))
+	browser = Browser()
+	await browser.start()
+	files = await browser.stop(downloads_dir=tmp_path / 'existing')
+	assert [p.read_bytes() for p in files] == [b'u1', b'u2']
+	assert all(len(p.name.encode()) <= 255 and p.suffix == '.csv' for p in files), [p.name for p in files]
+	assert files[1].name.endswith(' (1).csv')
+
+
+async def test_a_json_page_the_cloud_browser_saved_is_not_copied(cloud, monkeypatch, tmp_path):
+	"""browser-features #6: a cloud browser saves a JSON page it displays as a download (https://httpbin.org/cookies
+	-> cookies.json, cookie values included); the agent's workspace got a copy."""
+	import io
+	import json
+
+	log = tmp_path / 'downloads.jsonl'
+	log.write_text(
+		'\n'.join(
+			json.dumps(r)
+			for r in [
+				{'name': 'cookies.json', 'url': 'https://httpbin.org/cookies.json'},
+				{'json_page': 'https://httpbin.org/cookies'},
+				{'name': 'cookies.json', 'url': 'https://httpbin.org/cookies.json'},  # shown again: listed as cookies (1).json
+				{'name': 'get.json', 'url': 'https://httpbin.org/get.json'},  # seen on cloud: the query is dropped
+				{'json_page': 'https://httpbin.org/get?a=1'},
+				{'name': 'r.csv', 'url': 'https://httpbin.org/response-headers?x=1'},
+				{'name': 'data.json', 'url': 'https://files.example/data.json'},  # a real JSON download
+				{'json_page': 'https://httpbin.org/json'},
+				{'name': 'json.json', 'url': 'https://httpbin.org/json.json'},
+				{'name': 'json.json', 'url': 'https://httpbin.org/response-headers?filename=json.json'},  # real (M19)
+			]
+		)
+	)
+	listed = ('cookies.json', 'cookies (1).json', 'get.json', 'r.csv', 'data.json', 'json.json', 'json (1).json')
+	files = [{'path': p, 'url': p} for p in listed]
+	with_downloads(monkeypatch, files)
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(url.encode()))
+	browser = Browser()
+	browser.json_page_copies |= browser_mod.json_page_copies(log)
+	await browser.start()
+	copied = await browser.stop(downloads_dir=tmp_path / 'dl')
+	assert sorted(p.name for p in copied) == ['data.json', 'json (1).json', 'r.csv']
+
+
+def test_json_copies_of_every_json_type_are_found_and_a_real_file_sharing_the_name_is_kept(tmp_path):
+	"""M18: only application/json pages counted, so +json and text/json copies were delivered as downloads. M19: the
+	filter matched by name with ' (n)' stripped, so a real download named like a copy ('json (1).json') was dropped."""
+	import json
+
+	from browser_use.repl import worker
+
+	stats, real = worker.CellStats(), 'https://httpbin.org/response-headers?Content-Type=application%2Fjson&x=1'
+	worker.STATE, saved = tmp_path, worker.STATE
+	try:
+		stats.observe(
+			[
+				{'method': 'Page.frameNavigated', 'params': {'frame': {'url': f'https://h/{n}?a=1', 'mimeType': m}}}
+				for n, m in (('api', 'application/vnd.api+json'), ('t', 'text/json'), ('p', 'application/problem+json'))
+			]
+		)
+	finally:
+		worker.STATE = saved
+	log = tmp_path / 'downloads.jsonl'
+	with open(log, 'a') as f:
+		for r in [
+			{'name': 'api', 'url': 'https://h/api'},
+			{'name': 't (1)', 'url': 'https://h/t%20(1)'},
+			{'name': 'p', 'url': 'https://h/p'},
+			{'json_page': 'https://httpbin.org/json'},
+			{'name': 'json.json', 'url': 'https://httpbin.org/json.json'},
+			{'name': 'json.json', 'url': real},  # a real download with the copy's name: listed as json (1).json
+		]:
+			f.write(json.dumps(r) + '\n')
+	assert browser_mod.json_page_copies(log) == {'api', 't (1)', 'p', 'json.json'}
+
+
+def test_json_copies_are_numbered_across_every_agent_on_one_cloud_browser(cloud, tmp_path):
+	"""Review: each workspace's log was numbered on its own, but the cloud numbers a repeated name across the whole
+	session: the second Agent's cookies copy, listed as 'cookies (1).json' (cookies the page echoed), was delivered."""
+	import asyncio
+	import json
+
+	def log(name: str, *records: dict):
+		path = tmp_path / name / 'downloads.jsonl'
+		path.parent.mkdir(exist_ok=True)
+		with open(path, 'a') as f:
+			f.writelines(json.dumps(r) + '\n' for r in records)
+		return path
+
+	page, copy = {'json_page': 'https://httpbin.org/cookies'}, {'name': 'cookies.json', 'url': 'https://httpbin.org/cookies.json'}
+	browser = Browser(keep_alive=True)
+	asyncio.run(browser.start())
+	a = log('a', page, copy)
+	browser.note_downloads(a)
+	browser.note_downloads(log('b', page, copy, {'name': 'data.json', 'url': 'https://files.example/data.json'}))
+	assert browser.json_page_copies == {'cookies.json', 'cookies (1).json'}
+	browser.note_downloads(log('a', copy))  # a follow-up run of the first Agent: only its new line counts
+	assert browser.json_page_copies == {'cookies.json', 'cookies (1).json', 'cookies (2).json'}
+	asyncio.run(browser.stop())
+	assert browser.json_page_copies == set()  # the next cloud session numbers its downloads anew
+
+
+def test_worker_logs_downloads_and_json_pages_for_the_parent(tmp_path, monkeypatch):
+	from browser_use.repl import worker
+
+	monkeypatch.setattr(worker, 'STATE', tmp_path)
+	s = worker.CellStats()
+	s.observe(
+		[
+			{
+				'method': 'Browser.downloadWillBegin',
+				'params': {'guid': 'g', 'url': 'https://h/j.json', 'suggestedFilename': 'j.json'},
+			},
+			{
+				'method': 'Page.downloadWillBegin',
+				'params': {'guid': 'g', 'url': 'https://h/j.json', 'suggestedFilename': 'j.json'},
+			},
+			{'method': 'Page.frameNavigated', 'params': {'frame': {'url': 'https://h/j', 'mimeType': 'application/json'}}},
+			{'method': 'Page.frameNavigated', 'params': {'frame': {'url': 'https://h/x', 'mimeType': 'text/html'}}},
+		]
+	)
+	assert browser_mod.json_page_copies(tmp_path / 'downloads.jsonl') == {'j.json'}
+
+
+async def test_cloud_daemon_knows_its_browser_id(cloud, monkeypatch):
+	"""browser-features #3 / lifecycle F3: with only BU_CDP_WS the daemon opened a hidden background tab (every first
+	cloud screenshot waited 10 s) and could not stop the cloud browser itself."""
+	from browser_harness import admin
+
+	envs = []
+	monkeypatch.setattr(admin, 'ensure_daemon', lambda *a, **k: envs.append(k['env']))
+	browser = Browser()
+	await browser.start()
+	await browser.stop()
+	assert envs[0]['BU_BROWSER_ID'] == 'b1' and envs[0]['BU_CDP_WS']
+	envs.clear()
+	local = Browser(cdp_url='http://127.0.0.1:9')
+	monkeypatch.setattr(browser_mod, '_ws_url', lambda url: 'ws://127.0.0.1:9/devtools/browser/x')
+	await local.start()
+	await local.stop()
+	assert 'BU_BROWSER_ID' not in envs[0]
+
+
+async def test_a_daemon_that_acknowledged_shutdown_already_stopped_the_cloud_browser(cloud, monkeypatch):
+	monkeypatch.setattr(browser_mod, '_shutdown_daemon', lambda name: True)
+	browser = Browser()
+	await browser.start()
+	await browser.stop()
+	assert browser.stopped and stops(cloud) == [] and not browser_mod._LIVE
+
+
+def test_signal_handlers_are_installed_on_the_main_thread_after_a_start_on_another(monkeypatch):
+	"""Lifecycle F1: _install_cleanup() off the main thread marked the handlers installed without installing them, so a
+	SIGTERM never stopped the cloud browser. F4: SIGHUP (terminal closed) was not handled at all."""
+	import signal
+	import threading
+
+	monkeypatch.setattr(browser_mod, '_signals_installed', False)
+	monkeypatch.setattr(browser_mod, '_atexit_installed', True)
+	monkeypatch.setattr(signal, 'getsignal', lambda s: signal.SIG_DFL)
+	installed = {}
+	monkeypatch.setattr(signal, 'signal', lambda s, h: installed.__setitem__(s, h))
+	t = threading.Thread(target=browser_mod._install_cleanup)
+	t.start()
+	t.join()
+	assert installed == {}
+	Browser()  # the next main-thread entry
+	expected = [signal.SIGTERM] + ([signal.SIGHUP] if hasattr(signal, 'SIGHUP') else [])  # no SIGHUP on Windows
+	assert installed == dict.fromkeys(expected, browser_mod._on_signal)
+
+
+SIGHUP_CHILD = """
+import asyncio, os, signal, sys
+from browser_use.browser import browser as b
+stopped = []
+class Fake:
+	def _stop_now(self):
+		stopped.append(1)
+		sys.stdout.write('stopped\\n'); sys.stdout.flush()
+b._LIVE.add(Fake())
+b._install_cleanup()
+os.kill(os.getpid(), signal.SIGHUP)
+"""
+
+
+@pytest.mark.skipif(not hasattr(__import__('signal'), 'SIGHUP'), reason='no SIGHUP on Windows')
+def test_sighup_stops_live_browsers_then_exits():
+	import subprocess
+	import sys
+
+	r = subprocess.run([sys.executable, '-c', SIGHUP_CHILD], capture_output=True, text=True, timeout=60)
+	assert r.stdout.strip() == 'stopped' and r.returncode == -1, (r.returncode, r.stdout, r.stderr[-2000:])

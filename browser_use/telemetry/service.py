@@ -1,15 +1,13 @@
 import logging
 import os
 
-from dotenv import load_dotenv
 from uuid_extensions import uuid7str
 
+from browser_use.config import CONFIG, load_env
 from browser_use.telemetry.views import BaseTelemetryEvent
 from browser_use.utils import singleton
 
-load_dotenv()
-
-from browser_use.config import CONFIG
+load_env()
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +35,12 @@ def get_or_create_device_id() -> str:
 def _persisted_device_id() -> str | None:
 	try:
 		if os.path.exists(DEVICE_ID_PATH):
-			with open(DEVICE_ID_PATH) as f:
+			with open(DEVICE_ID_PATH, encoding='utf-8') as f:
 				return f.read().strip() or None
 		os.makedirs(os.path.dirname(DEVICE_ID_PATH), exist_ok=True)
 		new_device_id = uuid7str()
 		tmp_path = f'{DEVICE_ID_PATH}.{os.getpid()}.tmp'
-		with open(tmp_path, 'w') as f:
+		with open(tmp_path, 'w', encoding='utf-8') as f:
 			f.write(new_device_id)
 		os.replace(tmp_path, DEVICE_ID_PATH)
 		return new_device_id
@@ -84,12 +82,17 @@ class ProductTelemetry:
 		else:
 			from posthog import Posthog
 
-			logger.info('Using anonymized telemetry, see https://docs.browser-use.com/development/monitoring/telemetry.')
+			logger.info(
+				'Using anonymized telemetry (no task text, results or page content; ANONYMIZED_TELEMETRY=false turns it off), '
+				'see https://docs.browser-use.com/development/monitoring/telemetry.'
+			)
 			self._posthog_client = Posthog(
 				project_api_key=self.PROJECT_API_KEY,
 				host=self.HOST,
 				disable_geoip=False,
-				enable_exception_autocapture=True,
+				# off: it sent every uncaught exception in the process with its message and source lines (task text,
+				# URLs, typed values); agent_event.error_type carries the class only
+				enable_exception_autocapture=False,
 			)
 
 			# Silence posthog's logging

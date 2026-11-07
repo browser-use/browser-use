@@ -19,6 +19,8 @@ on:
 
 jobs:
   build_publish_image:
+    # Release candidates (X.Y.ZrcN tags, GitHub pre-releases) get no image: none is smoke-tested before it is pushed.
+    if: ${{ !(startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, 'rc')) && !(github.event_name == 'release' && github.event.release.prerelease) }}
     runs-on: ubuntu-latest
     permissions:
       packages: write
