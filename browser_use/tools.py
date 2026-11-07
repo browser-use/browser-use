@@ -69,8 +69,20 @@ class ActionResult(BaseModel):
 		return data
 
 
+TOOLS_REMOVED = {  # 0.x Tools(...) / Controller(...) arguments -> the 1.0 alternative
+	'exclude_actions': 'there are no built-in actions to exclude: the model acts in Python.',
+	'output_model': 'Agent(output_model_schema=...).',
+	'display_files_in_done_text': '',
+}
+
+
 class Tools:
-	def __init__(self) -> None:
+	def __init__(self, **kwargs: Any) -> None:
+		if kwargs:
+			name = next(iter(kwargs))
+			if name not in TOOLS_REMOVED:
+				raise TypeError(f'Tools({name}=...) is not a browser-use 1.0 option; see MIGRATING.md.')
+			raise TypeError(removed(f'Tools({name}=...)', TOOLS_REMOVED[name]))
 		self.functions: list[Tool] = []
 
 	@property

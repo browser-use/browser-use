@@ -27,6 +27,22 @@ DEFAULT_MODEL = 'bu-fast'  # gpt-6-luna, medium reasoning, default tier (the eva
 GATEWAY_UPSTREAM = {'bu-smart': 'gpt-6.1-sol', 'bu-smart-v1': 'gpt-6.1-sol'}  # other bu-* aliases run gpt-6-luna
 LEGACY_MODEL = re.compile(r'bu-(latest|\d+-\d+)\b')  # bu-2-0, bu-1-0, bu-2-0-mini-preview, bu-latest: the 0.x gateway
 PREFLIGHT_TIMEOUT_S = 15
+CHAT_REMOVED = (
+	'1.0 Chat classes take the model and api_key (ChatOpenAI also base_url, temperature and reasoning_effort); for '
+	"other model settings pass a Pydantic AI Model built with settings=..., e.g. llm=AnthropicModel('claude-...', "
+	'settings={...}).'
+)
+
+
+def _chat_kwargs(cls: str, kwargs: dict[str, Any]) -> None:
+	if kwargs:
+		from browser_use.exceptions import removed
+
+		name = next(iter(kwargs))
+		instead = "model='bu-ultrafast' (the same model, low reasoning, priority tier)." if name == 'fast' else CHAT_REMOVED
+		raise TypeError(removed(f'{cls}({name}=...)', instead))
+
+
 EXTRAS = {'anthropic': 'anthropic', 'google': 'google', 'google-cloud': 'google', 'google-gla': 'google', 'google-vertex': 'google'}
 
 
@@ -77,7 +93,8 @@ class ChatBrowserUse:
 
 	provider = 'browser-use'
 
-	def __init__(self, model: str = DEFAULT_MODEL, *, api_key: str | None = None, base_url: Any = GATEWAY_URL):
+	def __init__(self, model: str = DEFAULT_MODEL, *, api_key: str | None = None, base_url: Any = GATEWAY_URL, **kwargs: Any):
+		_chat_kwargs('ChatBrowserUse', kwargs)
 		key = clean_api_key(api_key, 'ChatBrowserUse(api_key=...)', f'The model {model}') if api_key else None
 		self.model, self.api_key, self.base_url = model, key, str(base_url)
 
@@ -160,8 +177,10 @@ class ChatOpenAI:
 		base_url: Any = None,
 		temperature: float | None = None,
 		reasoning_effort: str | None = None,
+		**kwargs: Any,
 	):
 		"""base_url: str or URL object (httpx.URL). reasoning_effort: sent as-is (reasoning_effort on chat backends)."""
+		_chat_kwargs('ChatOpenAI', kwargs)
 		self.model, self.api_key = model, api_key
 		self.base_url = None if base_url is None else str(base_url)
 		self.temperature, self.reasoning_effort = temperature, reasoning_effort
@@ -208,7 +227,8 @@ class ChatOpenAI:
 class ChatAnthropic:
 	provider = 'anthropic'
 
-	def __init__(self, model: str, *, api_key: str | None = None):
+	def __init__(self, model: str, *, api_key: str | None = None, **kwargs: Any):
+		_chat_kwargs('ChatAnthropic', kwargs)
 		self.model, self.api_key = model, api_key
 
 	def pydantic_model(self) -> Any:
@@ -226,7 +246,8 @@ class ChatAnthropic:
 class ChatGoogle:
 	provider = 'google'
 
-	def __init__(self, model: str, *, api_key: str | None = None):
+	def __init__(self, model: str, *, api_key: str | None = None, **kwargs: Any):
+		_chat_kwargs('ChatGoogle', kwargs)
 		self.model, self.api_key = model, api_key
 
 	def pydantic_model(self) -> Any:

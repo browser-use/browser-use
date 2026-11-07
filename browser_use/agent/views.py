@@ -12,6 +12,26 @@ from browser_use.tools import ActionResult  # 0.x imported it from here
 
 __all__ = ['ActionResult', 'AgentHistoryList']
 
+class Usage(dict):
+	"""result.usage: {'input', 'output', 'cache_read', 'cache_write', 'requests'}. 0.x's UsageSummary attributes raise the
+	removed error with their 1.0 key."""
+
+	ALTERNATIVES = {
+		'total_cost': 'result.cost_usd.',
+		'total_prompt_tokens': "result.usage['input'].",
+		'total_prompt_cached_tokens': "result.usage['cache_read'].",
+		'total_completion_tokens': "result.usage['output'].",
+		'total_tokens': "result.usage['input'] + result.usage['output'].",
+		'entry_count': "result.usage['requests'].",
+		'by_model': 'one model runs the whole task: result.usage.',
+	}
+
+	def __getattr__(self, name: str):
+		if name in self.ALTERNATIVES:
+			raise AttributeError(removed(f'result.usage.{name}', self.ALTERNATIVES[name]))
+		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')
+
+
 # 0.x methods built on per-step browser state. 1.0 runs Python cells, so these have no faithful equivalent.
 REMOVED = {
 	'history',
@@ -35,6 +55,15 @@ REMOVED = {
 	'judgement',
 	'is_judged',
 	'is_validated',
+	'model_dump',
+	'model_dump_json',
+	'total_input_tokens',
+}
+ALTERNATIVES = {  # removed names with a direct 1.0 equivalent
+	'model_dump': 'dataclasses.asdict(result), or result.final_result() / result.structured_output.',
+	'model_dump_json': 'result.final_result() (structured output as JSON).',
+	'total_input_tokens': "result.usage['input'].",
+	'history': 'result.messages (the full transcript) and result.number_of_steps().',
 }
 HISTORY_ALTERNATIVE = (
 	'the agent runs Python cells, not step actions: use final_result(), structured_output, errors(), .messages (the '
@@ -60,6 +89,15 @@ class AgentHistoryList:
 	def __post_init__(self) -> None:
 		if self.status != 'completed':
 			self.success = None
+		if not isinstance(self.usage, Usage):
+			self.usage = Usage(self.usage)
+
+	def __len__(self) -> int:
+		"""0.x: one history item per step; there are none here."""
+		raise TypeError(removed('len(AgentHistoryList)', 'result.number_of_steps() (model requests).'))
+
+	def __bool__(self) -> bool:  # without it, truth testing would call __len__
+		return True
 
 	def __repr__(self) -> str:
 		"""Without .messages: the transcript (screenshots included) made print(result) about 565 KB."""
@@ -112,5 +150,5 @@ class AgentHistoryList:
 
 	def __getattr__(self, name: str) -> Any:
 		if name in REMOVED:
-			raise NotImplementedError(removed(f'AgentHistoryList.{name}', HISTORY_ALTERNATIVE))
+			raise NotImplementedError(removed(f'AgentHistoryList.{name}', ALTERNATIVES.get(name, HISTORY_ALTERNATIVE)))
 		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')

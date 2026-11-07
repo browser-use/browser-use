@@ -82,6 +82,27 @@ def test_chromes_default_profile_dir_is_refused_as_user_data_dir():
 		Browser('chromium', user_data_dir=default)
 
 
+@pytest.mark.parametrize(
+	'option, instead',
+	[
+		('channel', 'executable_path'),
+		('window_size', 'Emulation.setDeviceMetricsOverride'),
+		('downloads_path', 'agent.workspace/downloads'),
+		('record_video_dir', 'result.messages'),
+		('highlight_elements', '0.x DOM engine'),
+		('cloud_browser_params', 'cloud_profile_id'),
+		('proxy_country_code', 'cloud_proxy_country_code'),
+		('args', "Browser('chromium')"),
+	],
+)
+def test_0x_browser_options_name_their_1_0_alternative(option, instead):
+	"""M37: 51 of 67 0.x Browser options got a generic "not a 1.0 option" instead of the removed error MIGRATING.md
+	promises, with the alternative it lists."""
+	with pytest.raises(TypeError, match=rf'^Browser\({option}=\.\.\.\) was removed in browser-use 1\.0\.') as raised:
+		Browser(**{option: True})
+	assert instead in str(raised.value)
+
+
 def test_conflicting_or_0x_browser_options_raise():
 	with pytest.raises(ValueError):
 		Browser(local=True, use_cloud=True)

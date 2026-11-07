@@ -43,11 +43,107 @@ load_env()  # 0.x read .env on import; credentials below resolve from it
 
 CLOUD_API = 'https://api.browser-use.com/api/v4'
 KINDS = ('cloud', 'chromium', 'chrome')
-REMOVED = {  # 0.x BrowserSession/BrowserProfile options -> the 1.0 alternative
+_STORAGE = "cloud_profile_id (cloud), Browser('chrome', profile=...) or Browser('chromium', user_data_dir=...)."
+_IN_TASK = (
+	'say it in the task: the agent can send Emulation.setDeviceMetricsOverride, Network.setUserAgentOverride or '
+	'Network.setExtraHTTPHeaders itself. Headless launches use 1440x900.'
+)
+_RECORDING = 'result.messages is the transcript; live_view=True shows a cloud browser live.'
+_ENGINE = 'it tuned the 0.x DOM engine: delete it.'
+REMOVED = {  # 0.x BrowserSession/BrowserProfile options -> the 1.0 alternative (MIGRATING.md "Browser(...)")
 	'profile_directory': "Browser('chrome', profile='Profile 1') (a copy of that Chrome profile).",
 	'browser_profile': 'pass options to Browser(...).',
-	'storage_state': "cloud_profile_id (cloud), Browser('chrome', profile=...) or Browser('chromium', user_data_dir=...).",
+	'storage_state': _STORAGE,
+	'cookie_whitelist_domains': _STORAGE,
 	'proxy': 'cloud_proxy_country_code on cloud browsers.',
+	'channel': 'executable_path=... (default: Chrome, Chromium or Edge, whichever is installed).',
+	**dict.fromkeys(
+		('args', 'ignore_default_args', 'env', 'chromium_sandbox', 'devtools', 'enable_default_extensions', 'is_local'),
+		"Browser('chromium') launches Chrome with fixed flags (--no-sandbox only on Linux as root or in a container).",
+	),
+	'disable_security': 'none: the browser keeps its security features.',
+	**dict.fromkeys(
+		(
+			'window_size',
+			'window_width',
+			'window_height',
+			'window_position',
+			'viewport',
+			'no_viewport',
+			'screen',
+			'device_scale_factor',
+			'user_agent',
+			'headers',
+		),
+		_IN_TASK,
+	),
+	**dict.fromkeys(
+		('downloads_path', 'accept_downloads', 'auto_download_pdfs'),
+		"downloads land in agent.workspace/downloads (cloud: copied there when the browser stops).",
+	),
+	'permissions': 'say it in the task: the agent can send Browser.grantPermissions.',
+	**dict.fromkeys(
+		(
+			'record_video_dir',
+			'record_video_size',
+			'record_video_framerate',
+			'record_har_path',
+			'record_har_content',
+			'record_har_mode',
+			'traces_dir',
+		),
+		_RECORDING,
+	),
+	**dict.fromkeys(
+		(
+			'highlight_elements',
+			'dom_highlight_elements',
+			'filter_highlight_ids',
+			'paint_order_filtering',
+			'interaction_highlight_color',
+			'interaction_highlight_duration',
+			'cross_origin_iframes',
+			'max_iframes',
+			'max_iframe_depth',
+			'minimum_wait_page_load_time',
+			'wait_for_network_idle_page_load_time',
+			'wait_between_actions',
+			'deterministic_rendering',
+			'demo_mode',
+		),
+		_ENGINE,
+	),
+	'cloud_browser': 'Browser() is a cloud browser (the default).',
+	'cloud_browser_params': 'cloud_profile_id, cloud_proxy_country_code, cloud_timeout.',
+	'profile_id': 'cloud_profile_id.',
+	'proxy_country_code': 'cloud_proxy_country_code.',
+	'timeout': 'cloud_timeout (minutes).',
+	'id': '',
+}
+_STOP = 'await browser.stop() (Agent.run() stops it unless keep_alive=True).'
+_IN_PYTHON = 'the agent drives pages in Python (browser-harness helpers and raw CDP).'
+REMOVED_METHODS = {  # 0.x BrowserSession methods and attributes -> the 1.0 alternative
+	**dict.fromkeys(('kill', 'close', 'stop_session'), _STOP),
+	**dict.fromkeys(
+		(
+			'get_current_page',
+			'new_page',
+			'navigate_to',
+			'navigate',
+			'get_tabs',
+			'switch_tab',
+			'close_tab',
+			'take_screenshot',
+			'get_browser_state_summary',
+			'get_page_html',
+			'get_cookies',
+			'export_storage_state',
+			'cdp_client',
+			'event_bus',
+		),
+		_IN_PYTHON,
+	),
+	'browser_profile': 'the options are Browser(...) arguments.',
 }
 CREATE_TIMEOUT_S = 120  # total for the cloud create; start() fails past it, and a browser that lands later is stopped
 LOCAL_START_WAIT_S = 120  # Browser('chrome'): Chrome start plus the user clicking Allow on its remote-debugging prompt
@@ -281,6 +377,16 @@ def _kind(kind: str | None, local: bool, use_cloud: bool | None, cdp_url: str | 
 
 
 class Browser:
+	@classmethod
+	def from_system_chrome(cls, *args, **kwargs) -> Browser:
+		"""0.x: the Chrome installed on this machine."""
+		raise AttributeError(removed('Browser.from_system_chrome()', "Browser('chrome') attaches to the Chrome you have open."))
+
+	def __getattr__(self, name: str):
+		if name in REMOVED_METHODS:
+			raise AttributeError(removed(f'Browser.{name}', REMOVED_METHODS[name]))
+		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')
+
 	def __init__(
 		self,
 		kind: Literal['cloud', 'chromium', 'chrome'] | None = None,

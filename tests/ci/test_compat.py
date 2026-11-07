@@ -134,6 +134,42 @@ def test_printing_a_result_leaves_out_the_transcript():
 	assert len(repr(r)) < 1000 and "text='answer'" in repr(r) and '<1 messages>' in str(r)
 
 
+def test_0x_api_shapes_raise_the_removed_error(no_browser):
+	"""M36: these 0.x shapes gave bare TypeError / AttributeError / ImportError instead of the removed error naming the
+	1.0 alternative."""
+	from browser_use import ChatBrowserUse, ChatOpenAI
+
+	usage = {'input': 1, 'output': 1, 'cache_read': 0, 'cache_write': 0, 'requests': 1}
+	result = AgentHistoryList('completed', 't', 't', 1, 1.0, usage, 0.0, None, None, [], True)
+	agent = Agent('t', script()[0], browser=Browser(local=True))
+	cases = [
+		(lambda: ChatAnthropic('claude-haiku-5-5', temperature=0.0), TypeError, r'ChatAnthropic\(temperature=\.\.\.\)'),
+		(lambda: ChatGoogle('gemini-3.5-flash', thinking_budget=0), TypeError, r'ChatGoogle\(thinking_budget='),
+		(lambda: ChatOpenAI('gpt-6-luna', seed=1), TypeError, r'ChatOpenAI\(seed='),
+		(lambda: ChatBrowserUse(fast=True), TypeError, r"In 1\.0: model='bu-ultrafast'"),
+		(lambda: Tools(exclude_actions=['x']), TypeError, r'Tools\(exclude_actions='),
+		(lambda: Controller(output_model=int), TypeError, r'In 1\.0: Agent\(output_model_schema=\.\.\.\)'),
+		(lambda: Browser(local=True).kill, AttributeError, r'Browser\.kill .*await browser\.stop\(\)'),
+		(lambda: Browser(local=True).get_current_page, AttributeError, r'Browser\.get_current_page '),
+		(lambda: Browser.from_system_chrome(), AttributeError, r"Browser\('chrome'\)"),
+		(lambda: agent.state, AttributeError, r'Agent\.state '),
+		(lambda: agent.history, AttributeError, r'Agent\.history '),
+		(lambda: agent.browser_session, AttributeError, r'In 1\.0: agent\.browser\.'),
+		(lambda: result.usage.total_cost, AttributeError, r'In 1\.0: result\.cost_usd\.'),
+		(lambda: len(result), TypeError, r'len\(AgentHistoryList\) .*number_of_steps'),
+		(lambda: result.model_dump(), NotImplementedError, r'AgentHistoryList\.model_dump '),
+		(lambda: result.total_input_tokens(), NotImplementedError, r"usage\['input'\]"),
+		(lambda: __import__('browser_use.browser', fromlist=['BrowserSession']).BrowserSession, ImportError, r'Browser\(\.\.\.\)'),
+	]
+	for fn, error, match in cases:
+		with pytest.raises(error, match=match) as raised:
+			fn()
+		assert 'was removed in browser-use 1.0' in str(raised.value), match
+	assert result and result.usage == usage and result.usage['input'] == 1  # still a plain dict to read
+	with pytest.raises(AttributeError, match="no attribute 'nope'"):
+		Browser(local=True).nope  # noqa: B018
+
+
 def test_result_keeps_common_0x_methods():
 	r = result()
 	assert (r.final_result(), r.is_done(), r.is_successful(), r.errors(), r.has_errors()) == ('done', True, True, [], False)

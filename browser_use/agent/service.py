@@ -98,6 +98,16 @@ REMOVED = {  # 0.x Agent(...) and run() arguments -> the 1.0 alternative ('' whe
 		'',
 	),
 }
+REMOVED_ATTRS = {  # 0.x Agent attributes -> the 1.0 alternative
+	'state': 'the result agent.run() returns (status, steps, usage, errors()).',
+	'history': 'the result agent.run() returns.',
+	'message_manager': 'result.messages holds the whole transcript.',
+	'settings': 'the Agent(...) arguments are attributes (agent.task, agent.llm, agent.browser, ...).',
+	'browser_session': 'agent.browser.',
+	'browser_profile': 'agent.browser.',
+	'controller': 'agent.tools.',
+	'file_system': 'agent.workspace (a directory).',
+}
 REMOVED_METHODS = {  # 0.x Agent methods -> the 1.0 alternative
 	'pause': _CANCEL,
 	'resume': '',
@@ -197,6 +207,8 @@ class Agent:
 	def __getattr__(self, name: str) -> Any:
 		if name in REMOVED_METHODS:
 			raise AttributeError(removed(f'Agent.{name}()', REMOVED_METHODS[name]))
+		if name in REMOVED_ATTRS:
+			raise AttributeError(removed(f'Agent.{name}', REMOVED_ATTRS[name]))
 		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')
 
 	def add_new_task(self, task: str) -> None:
