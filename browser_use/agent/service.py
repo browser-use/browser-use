@@ -204,6 +204,8 @@ class Agent:
 		self.output_model_schema = output_model_schema or str
 		self.sensitive_data = dict(sensitive_data or {})
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
+		# Default: a new temp dir, kept after the run (the result's files, screenshots, cell output): the caller deletes
+		# it (MIGRATING.md). Not deleted on close(): delivered files and links in the result point into it.
 		self.workspace = Path(workspace or tempfile.mkdtemp(prefix='browser-use-')).resolve()
 		self._agent: Any = None
 		self._gateway: ChatBrowserUse | None = None  # set by _build when the model runs on the Browser Use gateway

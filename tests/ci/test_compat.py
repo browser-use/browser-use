@@ -209,6 +209,17 @@ def test_0x_api_shapes_raise_the_removed_error(no_browser):
 		Browser(local=True).nope  # noqa: B018
 
 
+def test_docs_say_the_default_workspace_is_kept():
+	"""M17 (documented, not changed): default workspaces are never deleted (3,772 in $TMPDIR, with page text and
+	screenshots); the docs said only "a temp dir"."""
+	from pathlib import Path
+
+	import browser_use
+
+	migrating = (Path(browser_use.__file__).parents[1] / 'MIGRATING.md').read_text(encoding='utf-8')
+	assert 'kept after the run: it holds page text, screenshots and cell output' in migrating
+
+
 def test_result_keeps_common_0x_methods():
 	r = result()
 	assert (r.final_result(), r.is_done(), r.is_successful(), r.errors(), r.has_errors()) == ('done', True, True, [], False)
