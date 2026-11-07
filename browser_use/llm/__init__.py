@@ -281,6 +281,45 @@ def model_ref(llm: Any) -> Any:
 	return f'{"openai-responses" if provider == "openai" else provider}:{name}'
 
 
+def provider_preflight(model: Any) -> str | None:
+	"""One free GET of the model on its provider (OpenAI, Anthropic, Google; official endpoints only): a rejected key
+	or an unknown model fails here, before a cloud browser is created and billed. Returns the error line, or None when
+	the model is there or it cannot be told (another endpoint, no key at hand, the provider unreachable)."""
+	system, name = getattr(model, 'system', None), getattr(model, 'model_name', None)
+	try:
+		client = model.client
+		if system == 'openai' and urlparse(str(client.base_url)).hostname == 'api.openai.com':
+			url, headers = f'{str(client.base_url).rstrip("/")}/models/{name}', {'Authorization': f'Bearer {client.api_key}'}
+		elif system == 'anthropic' and urlparse(str(client.base_url)).hostname == 'api.anthropic.com':
+			url = f'{str(client.base_url).rstrip("/")}/v1/models/{name}'
+			headers = {'x-api-key': str(client.api_key), 'anthropic-version': '2023-06-01'}
+		elif (
+			system in ('google', 'google-gla')
+			and not getattr(client._api_client, 'vertexai', False)
+			and (key := getattr(client._api_client, 'api_key', None))
+		):
+			url, headers = f'https://generativelanguage.googleapis.com/v1beta/models/{name}', {'x-goog-api-key': key}
+		else:
+			return None
+	except Exception:  # - a Model without the client we know
+		return None
+	try:
+		with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=PREFLIGHT_TIMEOUT_S):
+			return None
+	except urllib.error.HTTPError as e:
+		try:
+			detail = str(json.loads(e.read()).get('error') or '')[:300]
+		except (ValueError, AttributeError):
+			detail = ''
+		if e.code in (401, 403):
+			return f'{system} rejected the API key ({e.code}){f": {detail}" if detail else ""}. No browser was started.'
+		if e.code == 404:
+			return f'{name} is not a model this {system} key can use (404){f": {detail}" if detail else ""}. No browser was started.'
+		return None
+	except (OSError, ValueError):  # unreachable: the run itself will say
+		return None
+
+
 def gateway_llm(model: Any) -> ChatBrowserUse | None:
 	"""The ChatBrowserUse behind a resolved gateway model (from ChatBrowserUse, ChatOpenAI(base_url=gateway), or their
 	pydantic_model()), with the key that model sends; None for any other model."""

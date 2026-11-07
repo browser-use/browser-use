@@ -21,7 +21,7 @@ from browser_use.browser import Browser
 from browser_use.browser.browser import json_page_copies
 from browser_use.config import load_env
 from browser_use.exceptions import removed
-from browser_use.llm import ChatBrowserUse, as_chat_model, gateway_llm, resolve_model
+from browser_use.llm import ChatBrowserUse, as_chat_model, gateway_llm, provider_preflight, resolve_model
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets
 from browser_use.tools import Tools
@@ -210,6 +210,7 @@ class Agent:
 		self._agent: Any = None
 		self._gateway: ChatBrowserUse | None = None  # set by _build when the model runs on the Browser Use gateway
 		self._preflighted = False
+		self._model: Any = None
 		self._model_name = self._model_ref = self._provider = ''
 		self._repl: Repl | None = None
 		self._history: list[ModelMessage] | None = None
@@ -240,6 +241,7 @@ class Agent:
 
 	def _build(self) -> None:
 		model, settings = resolve_model(self.llm)  # raises here, before any browser: missing key or extra
+		self._model = model
 		self._model_name = getattr(model, 'model_name', str(model))
 		system = getattr(model, 'system', None)  # 'anthropic', 'google-gla', ...: prices are looked up per provider
 		self._model_ref = f'{system}:{self._model_name}' if system and ':' not in self._model_name else self._model_name
@@ -312,8 +314,11 @@ class Agent:
 		try:
 			if self._repl is None:
 				check_loop()  # before the browser starts: a cloud browser bills from its create
-				if self._gateway and not self._preflighted:  # a dead gateway or a bad model fails before any browser
-					if error := await asyncio.to_thread(self._gateway.preflight):
+				# a dead gateway, a rejected key or a bad model fails before a cloud browser is created and billed
+				if not self._preflighted and (self._gateway or self.browser.use_cloud):
+					model = self._model
+					check = self._gateway.preflight if self._gateway else (lambda: provider_preflight(model))
+					if error := await asyncio.to_thread(check):
 						logger.error(error)
 						usage = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
 						duration = time.monotonic() - started

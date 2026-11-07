@@ -169,6 +169,43 @@ async def test_a_socket_path_too_long_for_the_os_names_the_path_before_anything_
 	assert not [c for c in cloud if c[0] == 'POST'] and not browser_mod._LIVE  # no cloud browser created
 
 
+async def test_a_rejected_provider_key_or_unknown_model_never_creates_a_cloud_browser(cloud, monkeypatch, tmp_path):
+	"""M3: a bad OpenAI key or an unknown Anthropic model failed only on the first model request, after a cloud browser
+	had been created and billed. One free GET of the model on its provider now fails first."""
+	import io
+	import urllib.error
+
+	from browser_use import ChatAnthropic, ChatGoogle, ChatOpenAI
+
+	asked = []
+
+	def urlopen(request, timeout=None):
+		url = request.full_url if hasattr(request, 'full_url') else request
+		asked.append(url)
+		if 'api.openai.com/v1/models/gpt-6-luna' in url:
+			body = b'{"error": {"message": "Incorrect API key provided", "code": "invalid_api_key"}}'
+			raise urllib.error.HTTPError(url, 401, 'Unauthorized', {}, io.BytesIO(body))  # type: ignore[arg-type]
+		if 'generativelanguage.googleapis.com/v1beta/models/gemini-nonexistent-9' in url:
+			raise urllib.error.HTTPError(url, 404, 'Not Found', {}, io.BytesIO(b'{"error": "Model is not found"}'))  # type: ignore[arg-type]
+		if 'api.anthropic.com/v1/models/claude-nonexistent-9' in url:
+			raise urllib.error.HTTPError(url, 404, 'Not Found', {}, io.BytesIO(b'{"error": "model: claude-nonexistent-9"}'))  # type: ignore[arg-type]
+		return io.BytesIO(b'{}')
+
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', urlopen)
+	for var in ('ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL'):  # the official endpoints, whatever this machine points at
+		monkeypatch.delenv(var, raising=False)
+	for llm, expect in (
+		(ChatOpenAI('gpt-6-luna', api_key='sk-invalid'), 'openai rejected the API key (401)'),
+		(ChatAnthropic('claude-nonexistent-9', api_key='k'), 'claude-nonexistent-9 is not a model this anthropic key'),
+		(ChatGoogle('gemini-nonexistent-9', api_key='k'), 'gemini-nonexistent-9 is not a model this google key'),
+	):
+		result = await Agent('t', llm, browser=Browser(), workspace=tmp_path).run()
+		assert result.status == 'error' and expect in (result.error or ''), result.error
+	assert not [c for c in cloud if c[0] == 'POST'] and len(asked) == 3
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))  # a model it cannot check: runs as before
+	assert (await Agent('t', model, browser=Browser(), workspace=tmp_path).run()).final_result() == 'ok'
+
+
 async def test_restarted_browser_is_stopped_again(cloud):
 	"""BUP bug: `stopped` never reset, so a browser started a second time was skipped at cleanup (kept billing)."""
 	browser = Browser()
