@@ -15,6 +15,7 @@ from browser_use.llm.base import BaseChatModel, is_reasoning_model
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
+from browser_use.llm.openai.usage import get_chat_usage
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
@@ -121,25 +122,8 @@ class ChatOpenAI(BaseChatModel):
 		return str(self.model)
 
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
-		if response.usage is not None:
-			# Note: completion_tokens already includes reasoning_tokens per OpenAI API docs.
-			# Unlike Google Gemini where thinking_tokens are reported separately,
-			# OpenAI's reasoning_tokens are a subset of completion_tokens.
-			usage = ChatInvokeUsage(
-				prompt_tokens=response.usage.prompt_tokens,
-				prompt_cached_tokens=response.usage.prompt_tokens_details.cached_tokens
-				if response.usage.prompt_tokens_details is not None
-				else None,
-				prompt_cache_creation_tokens=None,
-				prompt_image_tokens=None,
-				# Completion
-				completion_tokens=response.usage.completion_tokens,
-				total_tokens=response.usage.total_tokens,
-			)
-		else:
-			usage = None
-
-		return usage
+		"""Return provider-reported usage, including prompt cache hits when present."""
+		return get_chat_usage(response)
 
 	@overload
 	async def ainvoke(
