@@ -201,23 +201,25 @@ def instructions(agent: Agent) -> str:
 
 
 @pytest.mark.parametrize(
-	('web_search', 'key', 'browser_kw', 'on'),
+	('kw', 'key', 'browser_kw', 'on'),
 	[
-		(None, KEY, {}, True),
-		(None, None, {}, False),  # no key: off, nothing raised
-		(None, KEY, {'allowed_domains': ['example.com']}, False),  # an allowlist: off by default
-		(None, KEY, {'prohibited_domains': ['evil.com']}, True),
-		(False, KEY, {}, False),
-		(True, KEY, {}, True),
-		(True, KEY, {'allowed_domains': ['example.com']}, True),  # asked for explicitly
+		({}, KEY, {}, False),  # off by default, even with a key
+		({'web_search': False}, KEY, {}, False),
+		({'web_search': True}, KEY, {}, True),
+		({'web_search': True}, KEY, {'prohibited_domains': ['evil.com']}, True),
 	],
 )
-def test_enable_rule(monkeypatch, tmp_path, web_search, key, browser_kw, on):
-	agent = built(monkeypatch, tmp_path, key, Browser('chromium', **browser_kw), web_search=web_search)
+def test_enable_rule(monkeypatch, tmp_path, kw, key, browser_kw, on):
+	agent = built(monkeypatch, tmp_path, key, Browser('chromium', **browser_kw), **kw)
 	assert (agent._search is not None) == on
 	assert (SEARCH_PROMPT in instructions(agent)) == on
 	if on:
 		assert agent._search and (agent._search.api_key, agent._search.url) == (KEY, 'https://api.browser-use.com/api/v4/search')
+
+
+def test_web_search_with_allowed_domains_raises(monkeypatch, tmp_path):
+	with pytest.raises(ValueError, match='cannot be combined with allowed_domains'):
+		built(monkeypatch, tmp_path, KEY, Browser('chromium', allowed_domains=['example.com']), web_search=True)
 
 
 def test_web_search_true_without_a_key_raises(monkeypatch, tmp_path):
@@ -226,18 +228,18 @@ def test_web_search_true_without_a_key_raises(monkeypatch, tmp_path):
 
 
 def test_bad_web_search_value_raises(tmp_path):
-	with pytest.raises(TypeError, match='web_search must be True, False or None'):
+	with pytest.raises(TypeError, match='web_search must be True or False'):
 		Agent('t', 'test', browser=Browser('chromium'), workspace=tmp_path, web_search='yes')  # type: ignore[arg-type]
 
 
 def test_gateway_model_lends_its_key_and_host(monkeypatch, tmp_path):
 	llm = ChatBrowserUse(api_key='bu_gateway_key', base_url='http://127.0.0.1:9/api/v4/llm/v1')
-	agent = built(monkeypatch, tmp_path, None, llm=llm)
+	agent = built(monkeypatch, tmp_path, None, llm=llm, web_search=True)
 	assert agent._search and (agent._search.api_key, agent._search.url) == ('bu_gateway_key', 'http://127.0.0.1:9/api/v4/search')
 
 
 def test_prompt_is_unchanged_when_search_is_off(monkeypatch, tmp_path):
 	"""Off, the system prompt is the evaluated one byte for byte; on, it gains exactly one SEARCH_PROMPT line."""
 	off = instructions(built(monkeypatch, tmp_path, KEY, web_search=False))
-	assert off == SYSTEM_PROMPT == instructions(built(monkeypatch, tmp_path, None))
-	assert instructions(built(monkeypatch, tmp_path, KEY)) == f'{SYSTEM_PROMPT}\n{SEARCH_PROMPT}'
+	assert off == SYSTEM_PROMPT == instructions(built(monkeypatch, tmp_path, KEY))
+	assert instructions(built(monkeypatch, tmp_path, KEY, web_search=True)) == f'{SYSTEM_PROMPT}\n{SEARCH_PROMPT}'

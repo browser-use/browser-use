@@ -20,7 +20,7 @@ from browser_use.agent.views import AgentHistoryList
 from browser_use.auth import browser_use_api_key
 from browser_use.browser import Browser
 from browser_use.config import load_env
-from browser_use.exceptions import MissingAPIKeyError, removed
+from browser_use.exceptions import removed
 from browser_use.llm import GATEWAY_URL, ChatBrowserUse, as_chat_model, gateway_llm, provider_preflight, resolve_model
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets
@@ -156,8 +156,8 @@ class Agent:
 	Google (default 'medium'; on the gateway the alias's own: bu-fast medium, bu-ultrafast low, bu-smart high).
 	OpenAI-compatible chat backends (base_url servers) ignore it with a warning: pass ChatOpenAI(..., reasoning_effort=...)
 	to send reasoning_effort there. web_search: the agent gets search() (Browser Use web search, billed per search to the
-	Browser Use key). None (default): on when a Browser Use key is available and the browser has no allowed_domains;
-	True: on (raises without a key); False: off."""
+	Browser Use key). Off by default; True turns it on (raises without a Browser Use key, or with allowed_domains,
+	since search would reach sites the browser may not open)."""
 
 	def __init__(
 		self,
@@ -174,14 +174,14 @@ class Agent:
 		reasoning: str | None = None,
 		mode: str | None = 'default',
 		workspace: str | Path | None = None,
-		web_search: bool | None = None,
+		web_search: bool = False,
 		**kwargs: Any,
 	):
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent')
 		_check_task_arg(task)
-		if web_search is not None and not isinstance(web_search, bool):
-			raise TypeError(f'web_search must be True, False or None, not {web_search!r}')
+		if not isinstance(web_search, bool):
+			raise TypeError(f'web_search must be True or False, not {web_search!r}')
 		if llm is None and os.environ.get('DEFAULT_LLM'):  # 0.x read it; 1.0 runs (and bills) bu-fast instead
 			logger.warning(
 				'DEFAULT_LLM is set but browser-use 1.0 does not read it: this run uses bu-fast. Pass llm=... instead.'
@@ -291,18 +291,15 @@ class Agent:
 
 	def _web_search(self) -> WebSearch | None:
 		"""search() with the key and host of the gateway model, else the Browser Use key and the default gateway host.
-		None when off (see web_search in the class docstring)."""
-		if self.web_search is False or (self.web_search is None and self.browser.domains.allowed):
-			return None  # allowed_domains: search would reach sites the browser may not open
+		None when off (the default)."""
+		if not self.web_search:
+			return None
+		if self.browser.domains.allowed:
+			raise ValueError(
+				'Agent(web_search=True) cannot be combined with allowed_domains: search would reach sites the browser may not open'
+			)
 		gateway = self._gateway
-		key = gateway.api_key if gateway else None
-		if not key:
-			try:
-				key = browser_use_api_key('Agent(web_search=True)')
-			except MissingAPIKeyError:
-				if self.web_search:
-					raise
-				return None
+		key = (gateway.api_key if gateway else None) or browser_use_api_key('Agent(web_search=True)')
 		return WebSearch(key, search_url(gateway.base_url if gateway else GATEWAY_URL))
 
 	async def run(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
