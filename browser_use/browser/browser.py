@@ -429,6 +429,21 @@ class Browser:
 				f'Browser({name}=...) is not a browser-use 1.0 option; MIGRATING.md lists the options and what replaced 0.x ones.'
 			)
 		self.kind = _kind(kind, local, use_cloud, cdp_url)
+		# Checked here: the API answered a bad country with a 500-character validation dump, an int raised AttributeError,
+		# cloud_timeout=0 became 60 and True 1 minute, and captcha_solver='no' counted as on.
+		if cloud_proxy_country_code is not None and not (
+			isinstance(cloud_proxy_country_code, str) and re.fullmatch(r'[A-Za-z]{2}', cloud_proxy_country_code)
+		):
+			raise ValueError(
+				f"cloud_proxy_country_code must be a two-letter country code such as 'us' or 'de' (or None for no proxy), "
+				f'not {cloud_proxy_country_code!r}'
+			)
+		if cloud_timeout is not None and (
+			isinstance(cloud_timeout, bool) or not isinstance(cloud_timeout, int) or not 1 <= cloud_timeout <= 240
+		):
+			raise ValueError(f'cloud_timeout must be whole minutes from 1 to 240, not {cloud_timeout!r}')
+		if not isinstance(captcha_solver, bool):
+			raise TypeError(f'captcha_solver must be True or False, not {captcha_solver!r}')
 		self.domains = DomainRules.of(allowed_domains, prohibited_domains, block_ip_addresses)
 		launches = self.kind == 'chromium' or (self.kind == 'chrome' and profile is not None)
 		where = {'cloud': 'Browser() (a cloud browser)', 'chrome': "Browser('chrome') (your open Chrome)"}.get(

@@ -644,6 +644,27 @@ def test_cloud_options_on_a_local_or_cdp_browser_raise(kwargs, option):
 	assert Browser(cloud_proxy_country_code='us', cloud_timeout=60).proxy == 'us'  # explicit on cloud is fine
 
 
+@pytest.mark.parametrize(
+	'kwargs, match',
+	[
+		({'cloud_proxy_country_code': 'usa'}, 'two-letter country code'),
+		({'cloud_proxy_country_code': 1}, 'two-letter country code'),
+		({'cloud_proxy_country_code': ''}, 'two-letter country code'),
+		({'cloud_timeout': 0}, 'from 1 to 240'),
+		({'cloud_timeout': True}, 'from 1 to 240'),
+		({'cloud_timeout': 241}, 'from 1 to 240'),
+		({'cloud_timeout': 5.5}, 'from 1 to 240'),
+		({'captcha_solver': 'no'}, 'True or False'),
+	],
+)
+def test_bad_cloud_options_raise_before_any_request(kwargs, match):
+	"""M20 (and lows): a bad proxy country came back from the API as a 500-character validation dump, an int raised
+	AttributeError, cloud_timeout=0 meant 60 and True meant 1 minute, captcha_solver='no' counted as on."""
+	with pytest.raises((ValueError, TypeError), match=match):
+		Browser(**kwargs)
+	assert Browser(cloud_proxy_country_code='DE', cloud_timeout=240).proxy == 'de'
+
+
 def test_proxy_country_code_is_sent_lowercase():
 	"""browser-features #26: 'DE' got the API's raw 422 enum dump; the API takes only lowercase codes."""
 	assert Browser(cloud_proxy_country_code='DE').proxy == 'de'
