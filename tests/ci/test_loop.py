@@ -253,7 +253,7 @@ async def test_a_tool_call_on_the_delivery_turn_is_not_run(daemon, tmp_path):
 		[('python', {'code': "open('ran.txt', 'w').write('yes')"}), ('python', {})],  # the 2nd lacks 'code'
 		('finish', {'success': True, 'result': 'done'}),
 	)
-	session = Session(repl=Repl(tmp_path, daemon), max_steps=3)
+	session = Session(repl=Repl(tmp_path, daemon), max_steps=2)
 	try:
 		result = await run(build_agent(model), 'task', session, 'm')
 	finally:
@@ -331,7 +331,7 @@ async def test_budget_turn_forces_delivery_on_the_same_request(daemon, tmp_path)
 			ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': 'one'})]),
 		]
 	)
-	agent, session = build_agent(), Session(repl=Repl(tmp_path, daemon), max_steps=3)
+	agent, session = build_agent(), Session(repl=Repl(tmp_path, daemon), max_steps=2)
 	try:
 		with agent.override(model=model):
 			result = await run(agent, 'task', session, 'gpt-6-luna')
@@ -342,6 +342,25 @@ async def test_budget_turn_forces_delivery_on_the_same_request(daemon, tmp_path)
 	# A budget-cut run still returns status='completed'; the verdict is the caller's only signal (0.x asked for it).
 	assert 'success=false' in str(seen[1][0][-1])
 	assert result.output == 'one'
+
+
+@pytest.mark.parametrize('max_steps', [1, 3])
+async def test_max_steps_leaves_all_but_the_last_request_for_the_browser(daemon, tmp_path, max_steps):
+	"""C57: max_steps=N ran N-2 cells (delivery at request N-1, repair at N) and N < 3 raised; 0.x ran N-1 steps
+	and made the last one the forced done, so max_steps=1 only delivers."""
+	from browser_use.agent.loop import DELIVER_NOW
+
+	cell = ('python', {'code': "open('cells.txt', 'a').write('x')"})
+	model, seen = script(*[cell] * (max_steps - 1), ('finish', {'success': True, 'result': 'done'}))
+	session = Session(repl=Repl(tmp_path, daemon), max_steps=max_steps)
+	try:
+		result = await run(build_agent(model), 'task', session, 'm')
+	finally:
+		await session.repl.close()
+	assert (result.status, result.output) == ('completed', 'done'), result.error
+	cells = tmp_path / 'cells.txt'
+	assert (cells.read_text() if cells.exists() else '') == 'x' * (max_steps - 1)
+	assert DELIVER_NOW in str(seen[max_steps - 1][-1]) and session.budget_hit == 'max_steps'
 
 
 @pytest.mark.parametrize('first', ['...', 'Saved: [leads](leads.csv)', 'Saved in the workspace: `leads.csv`'])

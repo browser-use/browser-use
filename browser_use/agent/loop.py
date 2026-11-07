@@ -251,7 +251,7 @@ class BrowserLoop(AbstractCapability[Session]):
 			ctx.messages[:] = pruned
 			request_context.messages = pruned.copy()
 		if not s.finalizing:
-			if ctx.run_step >= s.max_steps - 1:
+			if ctx.run_step >= s.max_steps:  # 0.x: the last step is the forced done
 				s.budget_hit = 'max_steps'
 			elif time.monotonic() - s.started >= s.delivery_at():
 				s.budget_hit = 'timeout'
@@ -530,7 +530,7 @@ async def run(
 	try:
 		async with budget:
 			result = await agent.run(
-				task, deps=session, message_history=message_history, usage_limits=UsageLimits(request_limit=session.max_steps)
+				task, deps=session, message_history=message_history, usage_limits=UsageLimits(request_limit=session.max_steps + 1)
 			)
 		output, messages = result.output, result.all_messages()
 	except TimeoutError as e:  # a tool's own socket/HTTP timeout is an error, not the run budget

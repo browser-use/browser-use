@@ -460,8 +460,6 @@ async def test_finish_success_verdict_is_optional(tmp_path, call, expected):
 		{'max_steps': 0},
 		{'max_steps': -1},
 		{'max_steps': 2.5},
-		{'max_steps': 1},
-		{'max_steps': 2},
 		{'timeout': 0},
 		{'timeout': -5},
 	],

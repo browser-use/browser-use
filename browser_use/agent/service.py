@@ -146,9 +146,6 @@ REMOVED_METHODS = {  # 0.x Agent methods -> the 1.0 alternative
 }
 
 
-MIN_STEPS = 3  # request max_steps-1 is delivery-only and the last a delivery repair: 3 leaves one step for the browser
-
-
 def _check_task_arg(task: Any) -> None:
 	"""Before anything starts: None, '' or a number started (and billed) a browser, then failed."""
 	if not isinstance(task, str):
@@ -340,16 +337,13 @@ class Agent:
 		return WebSearch(key, search_url(gateway.base_url if gateway else GATEWAY_URL))
 
 	async def run(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
-		"""Run the current task. max_steps: model requests; request max_steps-1 is a delivery-only turn and the last
-		one is kept for a delivery repair. timeout: seconds for the agent loop (model requests and cells); starting the
-		browser before it and stopping it (with cloud downloads) after it are not counted."""
+		"""Run the current task. max_steps: model requests; as in 0.x the last one is a delivery-only turn (max_steps=1
+		only delivers), and one delivery repair may follow it. timeout: seconds for the agent loop (model requests and
+		cells); starting the browser before it and stopping it (with cloud downloads) after it are not counted."""
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent.run')
-		if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < MIN_STEPS:
-			raise ValueError(
-				f'max_steps must be a whole number >= {MIN_STEPS}, not {max_steps!r}: the last two model requests are '
-				'delivery-only, so fewer leaves the agent no step to use the browser'
-			)
+		if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
+			raise ValueError(f'max_steps must be a whole number >= 1, not {max_steps!r}')
 		if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not timeout > 0:
 			raise ValueError(f'timeout must be a number of seconds > 0, not {timeout!r}')
 		if self._running:  # two runs would each start a REPL (one leaks) and stop each other's browser
