@@ -298,7 +298,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		for name in ('new_tab', 'http_get'):  # new_tab: before it opens an empty tab; http_get: plain HTTP from here
 			helpers.__dict__[name] = _checked(getattr(helpers, name), check_url)
 		_check_redirects(check_url)
-	captcha = Captcha(cdp, STATE / 'captcha.json')
+	captcha = Captcha(cdp, STATE / 'captcha.json', off=os.environ.get('BU_CAPTCHA_SOLVER') == 'off')
 	exec('from browser_harness.helpers import *', ns)
 
 	@functools.wraps(cdp)

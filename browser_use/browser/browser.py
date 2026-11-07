@@ -513,7 +513,10 @@ class Browser:
 		if self.live_view and self.live_url:
 			print(f'Live view: {self.live_url}')
 			webbrowser.open(self.live_url, new=2)
-		return {'BU_NAME': self.name, **({'BU_REMOTE_BROWSER': '1'} if self.use_cloud else {})}
+		env = {'BU_NAME': self.name, **({'BU_REMOTE_BROWSER': '1'} if self.use_cloud else {})}
+		if self.use_cloud and not self.captcha_solver:
+			env['BU_CAPTCHA_SOLVER'] = 'off'  # solve_captcha() must not turn it back on (repl/captcha.py)
+		return env
 
 	async def _start_cloud(self) -> str:
 		body = {'proxyCountryCode': self.proxy, 'timeout': self.timeout, 'browserScreenWidth': 1440, 'browserScreenHeight': 900}

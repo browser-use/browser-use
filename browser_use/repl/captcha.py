@@ -32,9 +32,11 @@ STARTED, FINISHED = 'BrowserUse.captchaSolverStarted', 'BrowserUse.captchaSolver
 class Captcha:
 	"""Solver state from the started/finished events, and solve_captcha() for the agent."""
 
-	def __init__(self, cdp: Callable[..., dict], path: Path | None = None):
-		"""path: where the state survives a worker restart within one Repl (which deletes it when it is created)."""
-		self.cdp = cdp
+	def __init__(self, cdp: Callable[..., dict], path: Path | None = None, *, off: bool = False):
+		"""path: where the state survives a worker restart within one Repl (which deletes it when it is created).
+		off: Browser(captcha_solver=False): solve() never turns the solver on."""
+		self.cdp, self.off = cdp, off
+		self.turned_on = False  # solve() turned the solver on and left it on for a solve still running
 		self.pump: Callable[[], None] = lambda: None  # reads new daemon events into observe(); set by the worker
 		self.active: dict[str, dict] = {}  # targetId -> started params + '_t' (monotonic start)
 		self.finished: list[dict] = []  # every finished event's params, in order
@@ -106,9 +108,13 @@ class Captcha:
 		def out(solved: bool, detail: str, **extra) -> dict:
 			return {'solved': solved, 'detail': detail, 'seconds': round(time.monotonic() - began, 1), **extra}
 
+		if self.off:  # the user turned it off; turning it on would override that for the rest of the session
+			return out(False, 'solver unavailable: Browser(captcha_solver=False) turned it off; handle the captcha yourself')
 		try:
-			was_on = bool(self.cdp('BrowserUse.getCaptchaSolverEnabled').get('enabled'))
-			if not was_on:
+			# on only because an earlier solve() left it on for a running solve: still ours to turn off
+			enabled = bool(self.cdp('BrowserUse.getCaptchaSolverEnabled').get('enabled'))
+			was_on = enabled and not self.turned_on
+			if not enabled:
 				self.cdp('BrowserUse.setCaptchaSolverEnabled', enabled=True)
 		except Exception as e:
 			why = str(e) or type(e).__name__
@@ -141,6 +147,7 @@ class Captcha:
 					return out(False, 'the solver found no captcha on the page')
 				time.sleep(PUMP_INTERVAL_S)
 		finally:
+			self.turned_on = keep_on and not was_on
 			if not keep_on:
 				try:
 					self.cdp('BrowserUse.setCaptchaSolverEnabled', enabled=False)

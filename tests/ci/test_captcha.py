@@ -162,8 +162,21 @@ def test_solve_turns_an_off_solver_on_and_back_off_unless_it_is_still_solving():
 	assert (r['detail'], r['next']) == ('still solving', 'call solve_captcha() again')
 	assert [p for m, p in calls if m == 'BrowserUse.setCaptchaSolverEnabled'] == [{'enabled': True}]  # left on
 
+	calls.clear()
 	batches.append([finished(success=True)])  # the next call picks up the solve that is still running
 	assert c.solve(start_timeout=0.3, timeout=5)['detail'] == 'solved'
+	# H11: then it goes off again; it stayed on for the rest of the session
+	assert [p for m, p in calls if m == 'BrowserUse.setCaptchaSolverEnabled'] == [{'enabled': False}]
+
+
+def test_solve_never_turns_on_a_solver_the_user_turned_off():
+	"""H11: with Browser(captcha_solver=False), solve_captcha() turned the solver on anyway."""
+	c, calls, batches = fake_captcha(enabled=False)
+	c.off = True
+	batches.append([started()])
+	r = c.solve(start_timeout=0.3, timeout=0.3)
+	assert (r['solved'], r['detail']) == (False, r['detail']) and 'captcha_solver=False' in r['detail']
+	assert calls == []
 
 
 def test_solve_on_a_browser_without_a_solver_is_unavailable():
@@ -334,9 +347,10 @@ async def test_captcha_solver_false_turns_the_cloud_solver_off_at_start(monkeypa
 		for solver in (True, False):
 			fake.calls.clear()
 			browser = Browser(captcha_solver=solver)
-			await browser.start()
+			env = await browser.start()
 			await browser.stop()
 			assert fake.calls == ([] if solver else [('BrowserUse.setCaptchaSolverEnabled', {'enabled': False})])
+			assert ('BU_CAPTCHA_SOLVER' in env) is not solver  # the worker's solve_captcha() keeps it off (H11)
 		assert fake.enabled is False
 	finally:
 		browser_mod._LIVE.clear()
