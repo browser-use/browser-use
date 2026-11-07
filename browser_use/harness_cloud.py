@@ -195,7 +195,7 @@ def install(namespace: dict[str, Any]) -> None:
 	cloud_upload, checked_upload = remote_upload(helpers.js), local_upload(helpers.cdp)
 
 	def upload_file(selector, path):
-		"""Set local file(s) on a file input; on a cloud browser the bytes go through the page (10MB each max)."""
+		"""Set local file(s) on a file input; on a cloud browser the bytes go through the page."""
 		return (cloud_upload if was_cloud(admin.NAME) else checked_upload)(selector, path)
 
 	namespace['ensure_daemon'] = ensure_daemon

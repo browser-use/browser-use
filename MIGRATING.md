@@ -152,7 +152,7 @@ for result methods, `ImportError` for imports, an MCP tool error for old tool na
 | `override_system_message` | removed | `extend_system_message` |
 | `browser_profile` | removed | pass options to `Browser(...)` |
 | `page_extraction_llm`, `extraction_schema` | removed | the agent extracts with Python |
-| `file_system_path`, `available_file_paths` | removed | `workspace=` (put files in it) |
+| `file_system_path`, `available_file_paths`, the `upload_file` action | removed | `workspace=`: put the files in it and name them in the task; the agent calls `upload_file(selector, path)`, also on cloud browsers |
 | `initial_actions`, `directly_open_url` | removed | say it in the task |
 | `llm_timeout`, `step_timeout` | removed | `agent.run(timeout=seconds)` bounds the agent loop (model requests and cells; browser start and stop are not counted) |
 | `fallback_llm` | removed | none |

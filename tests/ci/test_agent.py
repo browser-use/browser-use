@@ -246,6 +246,25 @@ async def test_remote_upload_of_a_large_file_arrives_intact(chrome, tmp_path):
 		await browser.stop()
 
 
+async def test_remote_upload_has_no_size_cap(chrome, tmp_path):
+	"""C29: files over 10MB raised ValueError, so the model hand-rolled the same page upload one js() per turn (758
+	calls, 147s for 25MB). The parts already go 8 at a time, so any size goes through upload_file."""
+	browser = Browser(cdp_url=chrome['http'])
+	repl = Repl(tmp_path, {**await browser.start(), 'BU_REMOTE_BROWSER': '1'})
+	try:
+		(tmp_path / 'big.bin').write_bytes(b'\x00' * 10_000_000 + b'end')
+		r = await repl.call(
+			'exec',
+			"new_tab('data:text/html,<input type=file id=f>'); wait_for_load()\n"
+			"print(upload_file('#f', 'big.bin'), js(\"document.getElementById('f').files[0].size\"))",
+			120,
+		)
+		assert r['error'] is None and '1 10000003' in r['output'], r
+	finally:
+		await repl.close()
+		await browser.stop()
+
+
 async def test_a_request_too_large_for_the_daemon_raises_one_clear_error(chrome, tmp_path):
 	"""browser-features #1: a js() expression over 64 KiB broke the daemon connection (BrokenPipeError, or 'Separator
 	is found, but chunk is longer than limit')."""

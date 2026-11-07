@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 
 UPLOAD_PART = 24_000  # bytes per js() call: 32,000 base64 characters, well under browser-harness's 64 KiB per request
-UPLOAD_MAX = 10_000_000  # bytes per file
 
 
 def local_paths(path) -> list[str]:
@@ -54,12 +53,10 @@ def remote_upload(js):
 	import mimetypes
 
 	def upload_file(selector, path):
-		"""Set local file(s) on a file input of the remote browser (bytes go through the page, 10MB each max)."""
+		"""Set local file(s) on a file input of the remote browser (bytes go through the page)."""
 		files = []
 		for p in [path] if isinstance(path, (str, os.PathLike)) else path:
 			data = Path(p).expanduser().read_bytes()
-			if len(data) > UPLOAD_MAX:
-				raise ValueError(f'{p} is over 10MB; remote uploads go through the page')
 			files.append((Path(p).name, mimetypes.guess_type(str(p))[0] or 'application/octet-stream', data))
 		buf = f'window.__buUpload{os.urandom(4).hex()}'
 		js(f'{buf} = {json.dumps([[] for _ in files])}; 0')
