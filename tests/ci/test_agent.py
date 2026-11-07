@@ -613,12 +613,10 @@ async def test_domain_scoped_secret_checks_the_frame_that_receives_it(daemon, tm
 	allowed, attacker = f'http://127.0.0.1:{sp}', f'http://localhost:{op}'
 	repl = Repl(tmp_path, daemon, secrets={allowed: {'pw': 'hunter2-Zq9'}, attacker: {'tok': 'tok-Zq9'}})
 
-	async def attempt(path, name, read):
-		code = (
-			f"new_tab('{allowed}{path}'); wait_for_load(); import time; time.sleep(1)\n"
-			'js(\'window.focusFrame ? focusFrame() : document.getElementById("i").focus()\'); time.sleep(0.3)\n'
-			f'type_secret({name!r})'
-		)
+	# focus the <iframe> element (a page without OS focus never runs the frame's focus handler) or, for a secret
+	# that may type, the frame's own input
+	async def attempt(path, name, read, focus='js(\'window.focusFrame ? focusFrame() : document.getElementById("i").focus()\')'):
+		code = f"new_tab('{allowed}{path}'); wait_for_load(); import time; time.sleep(1)\n{focus}; time.sleep(0.3)\ntype_secret({name!r})"
 		error = (await repl.call('exec', code, 30))['error'] or ''
 		value = (await repl.call('exec', f'print(repr({read})); close_tab()', 30))['output'].strip()  # one frame per URL
 		return 'PermissionError' in error, value
@@ -628,11 +626,12 @@ async def test_domain_scoped_secret_checks_the_frame_that_receives_it(daemon, tm
 		assert await attempt('/cross-site', 'pw', cross) == (True, "''")  # the attacker frame gets nothing
 		# same site, other origin: one process, so read it through the frame tree
 		same_site = await attempt('/same-site', 'pw', "'(cross-origin)'")
-		same_origin = await attempt(
-			'/same-origin', 'pw', 'js(\'document.getElementById("i").contentDocument.getElementById("f").value\')'
-		)
+		inner = 'document.getElementById("i").contentDocument.getElementById("f")'
+		same_origin = await attempt('/same-origin', 'pw', f"js('{inner}.value')", focus=f"js('{inner}.focus()')")
 		assert await attempt('/shadow', 'pw', cross) == (True, "''")
-		allowed_frame = await attempt('/cross-site', 'tok', cross)  # the frame's own secret, on an unrelated top page
+		# the frame's own secret, on an unrelated top page
+		focus_frame_input = cross.replace('.value', '.focus()')
+		allowed_frame = await attempt('/cross-site', 'tok', cross, focus=focus_frame_input)
 	finally:
 		await repl.close()
 		other.shutdown()
@@ -665,6 +664,15 @@ async def test_type_secret_with_no_focused_field_raises(daemon, tmp_path):
 			code = f"js('document.getElementById(\"{el}\").focus()'); type_secret('pw'); print(len(js('document.getElementById(\"{el}\").{prop}')))"
 			r = await repl.call('exec', code, 60)
 			assert r['error'] is None and '11' in r['output'], (el, r)
+		# C27: focus inside an iframe skipped both checks, so a focused frame without a field "typed" and the form posted
+		# empty; a field inside the frame still types
+		page = 'data:text/html,<iframe id=f srcdoc="<input id=i>"></iframe><iframe id=e srcdoc="<p>no field</p>"></iframe>'
+		field = 'document.getElementById("f").contentDocument.getElementById("i")'
+		r = await repl.call('exec', f"new_tab({page!r}); wait_for_load(); js('{field}.focus()'); type_secret('pw')", 60)
+		assert r['error'] is None, r
+		assert '11' in (await repl.call('exec', f"print(len(js('{field}.value')))", 60))['output']
+		r = await repl.call('exec', "js('document.getElementById(\"e\").focus()'); type_secret('pw')", 60)
+		assert "type_secret('pw'): no field is focused (the page <body> is)" in (r['error'] or ''), r
 	finally:
 		await repl.close()
 

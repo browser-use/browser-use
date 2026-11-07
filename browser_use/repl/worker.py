@@ -454,11 +454,11 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		raise RuntimeError('shadow roots nested too deep')
 
 	def _recipient() -> tuple[str, dict | None]:
-		"""URL of the frame typed text reaches, and the top document's focused node ({} when focus is in an iframe):
-		focus followed from the top frame into nested frames, cross-site iframe targets included (the attached tab's own
-		target would type into a focused attacker iframe). Raises when it cannot be established."""
+		"""URL of the frame typed text reaches, and the focused node in that frame (None when none): focus followed from
+		the top frame into nested frames, cross-site iframe targets included (the attached tab's own target would type
+		into a focused attacker iframe). Raises when it cannot be established."""
 		session: str | None = None
-		frame_id = top = helpers.cdp('Page.getFrameTree')['frameTree']['frame']['id']
+		frame_id = helpers.cdp('Page.getFrameTree')['frameTree']['frame']['id']
 		attached: list[str] = []
 		try:
 			for _ in range(16):
@@ -467,9 +467,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 					url = _frame_url(session, frame_id)
 					if url is None:
 						raise RuntimeError('focused frame not found')
-					# the node only for the top document: inside an iframe activeElement can read <body> while keys reach
-					# a field the frame focused itself
-					return url, (node if frame_id == top else {})
+					return url, node
 				child = node.get('frameId')
 				if not child:
 					raise RuntimeError('focused frame has no id')
@@ -521,7 +519,6 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			url, node = '', {}
 
 		def type_into_field(value: str) -> None:
-			# node {}: focus is in an iframe, whose activeElement can read <body> while keys reach a field it focused
 			attrs, editable = (node or {}).get('attributes') or [], (node or {}).get('_editable')
 			page = node is not None and node.get('nodeName') in ('BODY', 'HTML')
 			if node is None or (page and (not editable if editable is not None else 'contenteditable' not in attrs[::2])):
