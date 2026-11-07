@@ -302,14 +302,14 @@ class ChatOpenAI(BaseChatModel):
 				try:
 					parsed = output_format.model_validate_json(choice.message.content)
 				except ValidationError as error:
-					# Preserve JSON shape errors and incomplete objects; only prose suggests an ignored schema.
-					content = choice.message.content.lstrip()
-					if self.base_url is not None and not self.dont_force_structured_output and not content.startswith(('{', '[')):
+					# Keep valid JSON validation errors intact and explain invalid JSON from custom endpoints.
+					content = choice.message.content
+					if self.base_url is not None and not self.dont_force_structured_output:
 						try:
 							json.loads(content)
 						except (ValueError, RecursionError):
 							message = (
-								'The custom endpoint returned non-JSON content for a response_format=json_schema request. '
+								'The custom endpoint returned invalid JSON for a response_format=json_schema request. '
 								'The endpoint may not support structured output.'
 							)
 							if not self.add_schema_to_system_prompt:

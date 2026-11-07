@@ -61,12 +61,21 @@ async def test_custom_endpoint_non_json_response_includes_structured_output_hint
 	assert 'add_schema_to_system_prompt' in str(exc.value)
 
 
-@pytest.mark.parametrize('content', ['{"headline": "unfinished', '{"other": "valid"}', '[]', '123', '"text"', 'true', 'null'])
-async def test_json_or_partial_json_keeps_validation_error(content):
-	"""Valid or incomplete JSON should not be mistaken for an endpoint returning prose."""
+@pytest.mark.parametrize('content', ['{"other": "valid"}', '[]', '123', '"text"', 'true', 'null'])
+async def test_valid_json_keeps_validation_error(content):
+	"""Valid JSON with the wrong shape retains its original validation error."""
 	with pytest.raises(ModelProviderError) as exc:
 		await _invoke(content)
 	assert 'add_schema_to_system_prompt' not in str(exc.value)
+
+
+@pytest.mark.parametrize('content', ['{"headline": "unfinished', '{not json', '[not json', 'tru'])
+async def test_invalid_json_includes_structured_output_hint(content):
+	"""Malformed objects, arrays and scalar prefixes receive an accurate invalid-JSON diagnostic."""
+	with pytest.raises(ModelProviderError) as exc:
+		await _invoke(content)
+	assert 'invalid JSON' in str(exc.value)
+	assert 'add_schema_to_system_prompt' in str(exc.value)
 
 
 async def test_first_party_non_json_response_keeps_validation_error():
