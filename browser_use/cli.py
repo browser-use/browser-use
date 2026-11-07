@@ -99,8 +99,8 @@ def _run_mcp_server() -> None:
 	# browser-harness exec server (browser_exec, browser_screenshot): a protocol change, see MIGRATING.md. It keeps the
 	# 0.x server's own Chromium: an old config must not start driving the user's logged-in Chrome.
 	print(
-		'browser-use --mcp is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot) on its own '
-		'Chromium; --cli-mcp drives your own Chrome instead.',
+		'browser-use --mcp is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot, '
+		'browser_login) on its own Chromium; --cli-mcp drives your own Chrome instead.',
 		file=sys.stderr,
 	)
 	_run_mcp_stdio_server('browser_use.mcp.cli_mcp', own_browser=True)
@@ -384,7 +384,12 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	return None
 
 
-# Subcommands and flags from the pre-3.0 CLI; maps to hint
+_AGENT_HINT = (
+	'# the CLI runs Python, not agent tasks; run an agent with the library:\n'
+	'  python -c "from browser_use import Agent; print(Agent(\'<task>\').run_sync().final_result())"'
+)
+
+# Subcommands and flags from the 0.x CLI; maps to hint
 _LEGACY_HINTS: dict[str, str] = {
 	'open': 'new_tab("https://example.com")',
 	'state': 'print(page_info())',
@@ -392,7 +397,9 @@ _LEGACY_HINTS: dict[str, str] = {
 	'eval': 'print(js("document.title"))',
 	'cookies': 'print(cdp("Network.getCookies"))',
 	'python': '# the CLI runs Python directly now — pipe it on stdin as shown below',
-	'run': '# write the steps as Python using the pre-imported helpers shown below',
+	'run': _AGENT_HINT,
+	'-p': _AGENT_HINT,
+	'--prompt': _AGENT_HINT,
 	'connect': '# connecting is automatic — the default flow attaches to your running Chrome',
 	'close': '# restart the local daemon with `browser-use --reload`; stop cloud browsers with stop_remote_daemon(name)',
 	'sessions': '# named local sessions were removed — one default daemon; use BU_NAME=<name> for cloud daemons',
@@ -439,7 +446,7 @@ def _legacy_migration_message(command: str) -> str:
 		replacement = f'  {hint.lstrip("# ")}\n\nExample:\n  browser-use <<\'PY\'\n  new_tab("https://example.com")\n  print(page_info())\n  PY'
 	else:
 		replacement = f"  browser-use <<'PY'\n  {hint}\n  PY"
-	return f"""The browser-use CLI changed in 3.0, and '{command}' was removed.
+	return f"""The browser-use CLI changed in 1.0, and '{command}' was removed.
 
 The old preset subcommands are gone. To use the CLI, you write raw Python and
 pipe it on stdin, and it runs in a persistent browser session. Browser management

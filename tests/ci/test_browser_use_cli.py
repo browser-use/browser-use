@@ -128,6 +128,17 @@ def test_help_is_this_clis_own():
 	assert update.returncode == 2 and 'uv tool upgrade browser-use' in update.stderr
 
 
+def test_0x_agent_task_commands_point_to_agent():
+	"""C51: `run`, `-p` and `--prompt` started an agent task in 0.x; they said 'changed in 3.0' or printed harness usage."""
+	import browser_use.cli as browser_use_cli
+
+	for args in (['run', 'go to example.com'], ['-p', 'find stars'], ['--prompt=find stars']):
+		code, command = browser_use_cli._dispatch(args)
+		assert code == 2 and command == f'legacy:{args[0].split("=")[0]}'
+		message = browser_use_cli._legacy_migration_message(command.removeprefix('legacy:'))
+		assert 'changed in 1.0' in message and 'from browser_use import Agent' in message and '3.0' not in message
+
+
 def test_bh_runtime_dir_keeps_one_socket_per_bu_name(tmp_path):
 	# C47: with BH_RUNTIME_DIR set (the fix our AF_UNIX-too-long error suggests), browser-harness names every daemon's
 	# files plain bu.sock / bu.pid, so `BU_NAME=b browser-use --reload` stopped daemon a and b drove a's browser.
