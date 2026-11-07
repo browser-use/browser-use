@@ -103,6 +103,19 @@ REMOVED = {  # 0.x Agent(...) and run() arguments -> the 1.0 alternative ('' whe
 		'',
 	),
 }
+# REMOVED tuning knobs that cannot change what a run returns: warn and run (0.x scripts set them often), the rest raise.
+IGNORED = {
+	'use_vision',
+	'vision_detail_level',
+	'llm_screenshot_size',
+	'max_actions_per_step',
+	'flash_mode',
+	'use_thinking',
+	'use_judge',
+	'max_failures',
+	'final_response_after_failure',
+	'calculate_cost',
+}
 REMOVED_ATTRS = {  # 0.x Agent attributes -> the 1.0 alternative
 	'state': 'the result agent.run() returns (status, steps, usage, errors()).',
 	'history': 'the result agent.run() returns.',
@@ -140,6 +153,8 @@ def _check_task_arg(task: Any) -> None:
 
 def _unsupported(kwargs: dict[str, Any], where: str) -> TypeError:
 	name = next(iter(kwargs))
+	if name == 'max_steps':
+		return TypeError(f'{where}(max_steps=...) is not an option: pass it to agent.run(max_steps=...).')
 	if name in REMOVED:
 		return TypeError(removed(f'{where}({name}=...)', REMOVED[name]))
 	return TypeError(
@@ -180,6 +195,10 @@ class Agent:
 		web_search: bool = False,
 		**kwargs: Any,
 	):
+		for name in [n for n in kwargs if n in IGNORED]:
+			hint = REMOVED[name]
+			logger.warning(f'Agent({name}=...) is ignored in browser-use 1.0' + (f': {hint}' if hint else '.'))
+			del kwargs[name]
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent')
 		_check_task_arg(task)

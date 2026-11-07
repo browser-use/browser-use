@@ -1,5 +1,7 @@
 """0.x API compatibility: what is kept, what raises (before any browser or billing starts). No browser needed."""
 
+import logging
+
 import pytest
 from conftest import script
 from pydantic import BaseModel
@@ -25,17 +27,13 @@ REMOVED = (
 @pytest.mark.parametrize(
 	'kwarg',
 	[
-		'use_vision',  # vision tuning
-		'vision_detail_level',
-		'max_actions_per_step',
-		'flash_mode',
+		'sample_images',  # vision input
 		'initial_actions',
 		'register_new_step_callback',  # step callbacks
 		'register_done_callback',
 		'register_should_stop_callback',
 		'generate_gif',
-		'use_judge',  # judge
-		'judge_llm',
+		'judge_llm',  # judge
 		'ground_truth',
 		'enable_planning',  # planner
 		'planner_llm',
@@ -53,8 +51,28 @@ def test_unknown_agent_kwarg_is_not_called_removed(no_browser):
 
 
 def test_removed_alternative_is_named(no_browser):
-	with pytest.raises(TypeError, match=r"In 1\.0: reasoning='low' \| 'medium' \| 'high'\.$"):
-		Agent('t', script()[0], use_thinking=True)
+	with pytest.raises(TypeError, match=r'In 1\.0: extend_system_message=\.\.\. \(the core prompt is fixed\)\.$'):
+		Agent('t', script()[0], override_system_message='x')
+
+
+def test_0x_tuning_knobs_warn_and_construct(no_browser, caplog, monkeypatch):
+	"""use_vision=False alone is on 31% of 0.x devices: a script that only tuned the old loop keeps running."""
+	knobs = dict(use_vision=False, max_actions_per_step=3, flash_mode=True, use_judge=False, use_thinking=True, max_failures=5)
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
+	with caplog.at_level('WARNING', logger='browser_use'):
+		Agent('t', script()[0], **knobs)
+	warnings = [r.getMessage() for r in caplog.records if 'is ignored in browser-use 1.0' in r.getMessage()]
+	assert [w.split('=')[0] for w in warnings] == [f'Agent({k}' for k in knobs]
+	assert "Agent(use_thinking=...) is ignored in browser-use 1.0: reasoning='low' | 'medium' | 'high'." in warnings
+	with pytest.raises(TypeError, match=r'^Agent\(initial_actions=\.\.\.\)'):  # a real removed feature still raises
+		Agent('t', script()[0], use_vision=False, initial_actions=[])
+
+
+def test_agent_max_steps_points_to_run(no_browser):
+	with pytest.raises(
+		TypeError, match=r'^Agent\(max_steps=\.\.\.\) is not an option: pass it to agent\.run\(max_steps=\.\.\.\)\.$'
+	):
+		Agent('t', script()[0], max_steps=5)
 
 
 async def test_step_hooks_on_run_raise(no_browser):

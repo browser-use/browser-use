@@ -24,8 +24,11 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 
 ## Agent(...) arguments
 
-Kept: works as in 0.x. Every other 0.x argument raises `TypeError` naming it in `Agent(...)` itself (listed in
-[Removed in 1.0](#removed-in-10)); an argument 0.x never had says it is not a 1.0 option.
+Kept: works as in 0.x. The 0.x tuning knobs 1.0 has no use for (`use_vision`, `vision_detail_level`,
+`llm_screenshot_size`, `max_actions_per_step`, `flash_mode`, `use_thinking`, `use_judge`, `max_failures`,
+`final_response_after_failure`, `calculate_cost`) log one warning each and are ignored. Every other 0.x argument raises
+`TypeError` naming it in `Agent(...)` itself (listed in [Removed in 1.0](#removed-in-10)); an argument 0.x never had says
+it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=...)`).
 
 | 0.x argument | 1.0 |
 |---|---|
@@ -127,7 +130,7 @@ browser-harness default daemon and its one attached tab, so two at once move eac
 
 ## Removed in 1.0
 
-Each raises the one error above (`TypeError` for arguments, `AttributeError` for `Agent` methods, `NotImplementedError`
+Each raises the one error above (the tuning knobs marked "ignored" warn instead; `TypeError` for arguments, `AttributeError` for `Agent` methods, `NotImplementedError`
 for result methods, `ImportError` for imports, an MCP tool error for old tool names) before a browser starts.
 
 | 0.x | Status | In 1.0 |
@@ -135,11 +138,11 @@ for result methods, `ImportError` for imports, an MCP tool error for old tool na
 | step callbacks: `register_new_step_callback`, `register_done_callback`, `register_external_agent_status_raise_error_callback`, `register_should_stop_callback`, `run(on_step_start=...)`, `run(on_step_end=...)` | removed | live: each step logs one INFO line (`step N: <first line of the cell> -> <error>`) to `logging.getLogger('browser_use')`, after a `Task: ... (workspace ...)` line and before `completed in N steps`; add a `logging.Handler` to it to stream progress to an MCP client or web UI (`BROWSER_USE_LOGGING_LEVEL=warning` silences it). After the run: `result.messages`; the result `run()` returns; to stop early, cancel the task awaiting `run()` or pass `run(timeout=...)` |
 | `agent.pause()`, `resume()`, `stop()`, `step()`, `take_step()`, `multi_act()` | removed | cancel the task awaiting `run()`, or `run(timeout=..., max_steps=...)` |
 | history replay: `save_history()`, `load_and_rerun()`, `rerun_history()`, `detect_variables()`, `AgentHistoryList.save_to_file()` / `load_from_file()` | removed | `result.messages` holds the transcript; run the task again |
-| judge: `use_judge`, `judge_llm`, `ground_truth`, `AgentHistoryList.judgement()` / `is_judged()` / `is_validated()` | removed | `result.success`, the agent's own verdict |
+| judge: `use_judge` (ignored), `judge_llm`, `ground_truth`, `AgentHistoryList.judgement()` / `is_judged()` / `is_validated()` | removed | `result.success`, the agent's own verdict |
 | `generate_gif`, `demo_mode` | removed | none (`live_view=True` shows a cloud browser live) |
-| planner and vision tuning: `use_vision`, `vision_detail_level`, `llm_screenshot_size`, `sample_images`, `enable_planning`, `planning_replan_on_stall`, `planning_exploration_limit`, `planner_llm`, `planner_interval`, `is_planner_reasoning`, `extend_planner_system_message`, `use_vision_for_planner`, `max_actions_per_step`, `flash_mode` | removed | the agent takes screenshots when it needs them; each step is one Python cell; `mode='ultrafast'` |
-| other 0.x loop tuning: `loop_detection_window`, `loop_detection_enabled`, `message_compaction`, `max_history_items`, `include_attributes`, `max_clickable_elements_length`, `include_recent_events`, `include_tool_call_examples`, `display_files_in_done_text`, `injected_agent_state`, `source`, `task_id`, `enable_signal_handler`, `_url_shortening_limit`, `max_failures`, `final_response_after_failure` | removed | failed cells are retried by the model within `max_steps` |
-| `use_thinking` | removed | `reasoning='low' / 'medium' / 'high'` |
+| planner and vision tuning: `use_vision` (ignored), `vision_detail_level` (ignored), `llm_screenshot_size` (ignored), `sample_images`, `enable_planning`, `planning_replan_on_stall`, `planning_exploration_limit`, `planner_llm`, `planner_interval`, `is_planner_reasoning`, `extend_planner_system_message`, `use_vision_for_planner`, `max_actions_per_step` (ignored), `flash_mode` (ignored) | removed | the agent takes screenshots when it needs them; each step is one Python cell; `mode='ultrafast'` |
+| other 0.x loop tuning: `loop_detection_window`, `loop_detection_enabled`, `message_compaction`, `max_history_items`, `include_attributes`, `max_clickable_elements_length`, `include_recent_events`, `include_tool_call_examples`, `display_files_in_done_text`, `injected_agent_state`, `source`, `task_id`, `enable_signal_handler`, `_url_shortening_limit`, `max_failures` (ignored), `final_response_after_failure` (ignored) | removed | failed cells are retried by the model within `max_steps` |
+| `use_thinking` | ignored | `reasoning='low' / 'medium' / 'high'` |
 | `override_system_message` | removed | `extend_system_message` |
 | `browser_profile` | removed | pass options to `Browser(...)` |
 | `page_extraction_llm`, `extraction_schema` | removed | the agent extracts with Python |
@@ -148,7 +151,7 @@ for result methods, `ImportError` for imports, an MCP tool error for old tool na
 | `llm_timeout`, `step_timeout` | removed | `agent.run(timeout=seconds)` bounds the agent loop (model requests and cells; browser start and stop are not counted) |
 | `fallback_llm` | removed | none |
 | `save_conversation_path`, `save_conversation_path_encoding` | removed | `result.messages` |
-| `calculate_cost`, `pricing_url` | removed | `result.cost_usd` is computed when the price is known (`None` otherwise) |
+| `calculate_cost` (ignored), `pricing_url` | removed | `result.cost_usd` is computed when the price is known (`None` otherwise) |
 | `skill_ids`, `skills`, `skill_service` (Cloud Skills) | removed | none |
 | tool injected parameters (`browser_session`, `page_url`, `cdp_client`, ...) | removed | actions get only what the model passes |
 | `@tools.action(domains=...)`, `@tools.action(allowed_domains=...)` | removed | `Browser(allowed_domains=...)` |
