@@ -2,15 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import {
+  cancelHuman,
+  cancelLogin,
   connectEvents,
+  continueHuman,
+  finishLogin,
+  getChats,
   getHistory,
   getPreferences,
   getProviders,
   getState,
+  openDownloads,
   openLogs,
   runTask,
+  saveChat,
   saveHistoryEntry,
   savePreferences,
+  startLogin,
   stopTask,
 } from './api'
 import { EXAMPLES } from './examples'
@@ -22,6 +30,35 @@ const DEFAULT_SETTINGS = {
   headless: false,
   useVision: true,
   maxSteps: 50,
+  searchEngine: 'auto',
+}
+
+const SEARCH_ENGINES = [
+  { value: 'auto', label: '自动（优先 Bing）' },
+  { value: 'bing_cn', label: 'Bing 中国' },
+  { value: 'baidu', label: '百度' },
+  { value: 'sogou', label: '搜狗' },
+  { value: 'so', label: '360 搜索' },
+  { value: 'bing', label: 'Bing 国际' },
+  { value: 'google', label: 'Google' },
+  { value: 'duckduckgo', label: 'DuckDuckGo' },
+]
+
+function searchEngineLabel(value) {
+  return SEARCH_ENGINES.find((engine) => engine.value === value)?.label || '自动'
+}
+
+function buildPreviousContext(followUp) {
+  const links = [...new Set((followUp.sources || []).map((source) => source.url).filter(Boolean))]
+  const files = (followUp.files || []).map((file) => file.display_name || file.name).filter(Boolean)
+  return [
+    `上一次任务：${followUp.task}`,
+    `上一次结果：\n${(followUp.text || '').slice(0, 8000)}`,
+    links.length ? `相关链接：\n${links.join('\n')}` : '',
+    files.length ? `相关文件：${files.join(', ')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 function formatTime(value) {
@@ -77,7 +114,7 @@ function StatusPill({ running, result, error }) {
   return null
 }
 
-function Sidebar({ history, onNew, onSelect, onSettings, theme, setTheme, providers, settings }) {
+function Sidebar({ history, activeId, onNew, onSelect, onSettings, onDownloads, onLogin, loginActive, loginSite, theme, setTheme, providers, settings }) {
   const groups = groupHistory(history)
   const providerInfo = providers.find((item) => item.name === settings.provider)
   const apiReady = Boolean(providerInfo?.has_key)
@@ -96,20 +133,29 @@ function Sidebar({ history, onNew, onSelect, onSettings, theme, setTheme, provid
 
       <button className="new-task" onClick={onNew}>
         <Icon name="plus" size={17} />
-        新建任务
+        新建对话
         <span className="kbd">⌘N</span>
+      </button>
+      <button className="sidebar-action" onClick={onDownloads}>
+        <Icon name="folder" size={16} />
+        下载文件夹
+        <span className="sidebar-action-hint">~/Downloads</span>
+      </button>
+      <button className={`sidebar-action ${loginActive ? 'accent' : ''}`} onClick={onLogin}>
+        <Icon name="login" size={16} />
+        {loginActive ? `登录中：${loginSite === 'taobao' ? '淘宝' : '京东'}` : '登录购物网站'}
       </button>
 
       <div className="sidebar-section">
-        <div className="section-label">最近任务</div>
+        <div className="section-label">对话</div>
         {groups.length === 0 ? (
-          <div className="empty-history">还没有任务记录</div>
+          <div className="empty-history">还没有对话</div>
         ) : (
           groups.map(([label, items]) => (
             <div key={label} className="history-group">
               <div className="history-label">{label}</div>
               {items.map((item) => (
-                <button key={item.id} className="history-item" onClick={() => onSelect(item)}>
+                <button key={item.id} className={`history-item ${item.id === activeId ? 'active' : ''}`} onClick={() => onSelect(item)}>
                   <span className={`history-icon ${item.result?.success === false ? 'failed' : ''}`}>
                     {item.result?.success === false ? <Icon name="x" size={12} /> : <Icon name="check" size={12} />}
                   </span>
@@ -148,7 +194,7 @@ function Sidebar({ history, onNew, onSelect, onSettings, theme, setTheme, provid
   )
 }
 
-function Home({ task, setTask, onRun, running, settings, onSettings, error }) {
+function Home({ task, setTask, onRun, running, settings, onSettings, error, followUp, onClearFollowUp }) {
   const run = () => {
     if (!running) onRun()
   }
@@ -172,6 +218,19 @@ function Home({ task, setTask, onRun, running, settings, onSettings, error }) {
         <h1>今天想让浏览器做什么？</h1>
         <p>描述一个目标，BrowserBuddy 会规划步骤、操作浏览器，并把结果和来源整理给你。</p>
 
+        {followUp && (
+          <div className="followup-banner">
+            <Icon name="sparkles" size={16} />
+            <div>
+              <strong>基于上一次结果继续</strong>
+              <span>{followUp.task}</span>
+            </div>
+            <button className="icon-button" onClick={onClearFollowUp} title="清除上下文">
+              <Icon name="x" size={15} />
+            </button>
+          </div>
+        )}
+
         <div className="composer-card">
           <textarea
             value={task}
@@ -182,7 +241,7 @@ function Home({ task, setTask, onRun, running, settings, onSettings, error }) {
                 run()
               }
             }}
-            placeholder="例如：打开 Google 搜索 browser automation，总结前 3 个结果并附上链接"
+            placeholder="例如：搜索 browser automation，总结前 3 个结果并附上链接"
             rows={5}
             autoFocus
           />
@@ -195,6 +254,10 @@ function Home({ task, setTask, onRun, running, settings, onSettings, error }) {
               <span className="soft-chip">
                 <Icon name={settings.useVision ? 'image' : 'terminal'} size={14} />
                 {settings.useVision ? '视觉模式' : 'DOM 模式'}
+              </span>
+              <span className="soft-chip">
+                <Icon name="search" size={14} />
+                {searchEngineLabel(settings.searchEngine)}
               </span>
             </div>
             <button className="run-button" onClick={run} disabled={running || !task.trim()}>
@@ -214,7 +277,7 @@ function Home({ task, setTask, onRun, running, settings, onSettings, error }) {
 
         <div className="examples-head">
           <span>试试这些</span>
-          <span className="examples-sub">中英文示例都可以直接运行</span>
+          <span className="examples-sub">点击示例快速填入任务</span>
         </div>
         <div className="examples-grid">
           {EXAMPLES.map((example) => (
@@ -230,7 +293,7 @@ function Home({ task, setTask, onRun, running, settings, onSettings, error }) {
                 <span className="example-title">{example.title}</span>
                 <span className="example-subtitle">{example.subtitle}</span>
               </span>
-              <span className={`example-tag ${example.tag === 'EN' ? 'en' : ''}`}>{example.tag}</span>
+              <span className="example-tag">{example.tag}</span>
             </button>
           ))}
         </div>
@@ -351,7 +414,7 @@ function Attachments({ files, images }) {
           {images.map((image) => (
             <a key={image.url} href={image.url} target="_blank" rel="noreferrer" className="image-tile">
               <img src={image.url} alt={image.name} loading="lazy" />
-              <span>{image.name}</span>
+              <span>{image.display_name || image.name}</span>
             </a>
           ))}
         </div>
@@ -361,7 +424,7 @@ function Attachments({ files, images }) {
           {files.map((file) => (
             <a key={file.url} href={file.url} target="_blank" rel="noreferrer" className="file-chip">
               <Icon name={file.kind === 'pdf' ? 'file' : file.kind === 'csv' ? 'table' : 'file'} size={15} />
-              <span>{file.name}</span>
+              <span>{file.display_name || file.name}</span>
               <Icon name="download" size={14} />
             </a>
           ))}
@@ -371,7 +434,7 @@ function Attachments({ files, images }) {
   )
 }
 
-function ResultPanel({ result, error, running, onCopy, onDownload, onNew }) {
+function ResultPanel({ result, error, running, onCopy, onDownload, onNew, onDownloads, onContinue }) {
   if (error && !result) {
     return (
       <section className="result-panel">
@@ -427,6 +490,13 @@ function ResultPanel({ result, error, running, onCopy, onDownload, onNew }) {
           <button className="icon-button" onClick={onDownload} title="导出 Markdown">
             <Icon name="download" size={16} />
           </button>
+          <button className="icon-button" onClick={onDownloads} title="打开下载文件夹">
+            <Icon name="folder" size={16} />
+          </button>
+          <button className="secondary-button" onClick={onContinue}>
+            <Icon name="sparkles" size={15} />
+            继续这个任务
+          </button>
           <button className="secondary-button" onClick={onNew}>
             新建任务
           </button>
@@ -462,6 +532,8 @@ function RunView({
   onNew,
   onCopy,
   onDownload,
+  onDownloads,
+  onContinue,
   onSettings,
   onLogs,
 }) {
@@ -502,7 +574,112 @@ function RunView({
           onCopy={onCopy}
           onDownload={onDownload}
           onNew={onNew}
+          onDownloads={onDownloads}
+          onContinue={onContinue}
         />
+      </div>
+    </div>
+  )
+}
+
+function LoginDialog({ open, active, site, error, onClose, onStart, onFinish, onCancel }) {
+  if (!open) return null
+  const label = site === 'taobao' ? '淘宝' : site === 'jd' ? '京东' : ''
+
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal-card login-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="modal-title">登录购物网站</div>
+            <div className="modal-sub">登录一次后，cookies 会保存在 BrowserBuddy 的独立浏览器 profile 中</div>
+          </div>
+          <button className="icon-button" onClick={onClose}>
+            <Icon name="x" size={18} />
+          </button>
+        </div>
+
+        {active ? (
+          <div className="login-active">
+            <div className="login-site-badge">
+              <Icon name="login" size={18} />
+              {label} 登录页已打开
+            </div>
+            <p>请在弹出的浏览器窗口中完成扫码或账号密码登录。完成后点击“已完成登录”。</p>
+            <div className="login-note">不要在这里输入密码。只在你自己的浏览器窗口中登录。</div>
+            <div className="modal-actions">
+              <button className="run-button" onClick={onFinish}>
+                <Icon name="check" size={15} />
+                已完成登录
+              </button>
+              <button className="secondary-button" onClick={onCancel}>
+                取消登录
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p>选择一个网站。BrowserBuddy 会打开一个可见浏览器，用户自己完成登录，App 不保存账号密码。</p>
+            <div className="login-options">
+              <button className="login-option" onClick={() => onStart('taobao')}>
+                <span className="login-option-icon">
+                  <Icon name="tag" size={20} />
+                </span>
+                <strong>淘宝</strong>
+                <small>扫码或账号密码登录</small>
+              </button>
+              <button className="login-option" onClick={() => onStart('jd')}>
+                <span className="login-option-icon">
+                  <Icon name="tag" size={20} />
+                </span>
+                <strong>京东</strong>
+                <small>扫码或账号密码登录</small>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="inline-error">
+            <Icon name="alert" size={15} />
+            {error}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function HumanDialog({ request, onContinue, onCancel }) {
+  if (!request) return null
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-card human-modal">
+        <div className="modal-head">
+          <div>
+            <div className="modal-title">需要你操作一下</div>
+            <div className="modal-sub">任务已暂停，等你完成浏览器里的操作</div>
+          </div>
+          <span className="live-pill">PAUSED</span>
+        </div>
+        <div className="human-reason">
+          <Icon name="alert" size={18} />
+          <div>{request.reason || '网站要求登录或人工验证'}</div>
+        </div>
+        <p>
+          请在弹出的浏览器窗口中完成扫码、登录或验证码。完成后点击“继续任务”。
+          如果看不到浏览器窗口，请取消任务，并在设置中关闭“后台运行浏览器”后重试。
+        </p>
+        <div className="modal-actions">
+          <button className="run-button" onClick={onContinue}>
+            <Icon name="play" size={15} />
+            继续任务
+          </button>
+          <button className="secondary-button" onClick={onCancel}>
+            取消任务
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -519,6 +696,7 @@ function SettingsDrawer({
   theme,
   setTheme,
   onLogs,
+  onDownloads,
 }) {
   if (!open) return null
   const providerInfo = providers.find((item) => item.name === settings.provider)
@@ -576,6 +754,19 @@ function SettingsDrawer({
               onChange={(event) => setApiKey(event.target.value)}
               placeholder={providerInfo?.has_key ? '已保存，留空即可' : providerInfo?.placeholder || 'sk-...'}
             />
+          </label>
+          <label className="field">
+            <span>搜索引擎</span>
+            <select
+              value={settings.searchEngine || 'auto'}
+              onChange={(event) => setSettings((prev) => ({ ...prev, searchEngine: event.target.value }))}
+            >
+              {SEARCH_ENGINES.map((engine) => (
+                <option key={engine.value} value={engine.value}>
+                  {engine.label}
+                </option>
+              ))}
+            </select>
           </label>
           <div className={`key-status ${providerInfo?.has_key ? 'ready' : ''}`}>
             <span className="api-dot" />
@@ -638,6 +829,378 @@ function SettingsDrawer({
           <Icon name="terminal" size={15} />
           打开日志目录
         </button>
+        <button className="secondary-button wide" onClick={onDownloads} style={{ marginTop: 8 }}>
+          <Icon name="download" size={15} />
+          打开下载文件夹
+        </button>
+      </div>
+    </div>
+  )
+}
+
+
+function newId() {
+  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function buildThreadContext(messages) {
+  const parts = []
+  for (const message of messages || []) {
+    if (message.role === 'user') {
+      parts.push(`用户：${message.text}`)
+    } else if (message.role === 'assistant' && message.result) {
+      const links = [...new Set((message.result.sources || []).map((source) => source.url).filter(Boolean))]
+      const files = (message.result.files || []).map((file) => file.display_name || file.name).filter(Boolean)
+      parts.push(
+        [
+          `助手：${(message.result.text || '').slice(0, 6000)}`,
+          links.length ? `链接：${links.join(', ')}` : '',
+          files.length ? `文件：${files.join(', ')}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      )
+    }
+  }
+  return parts.join('\n\n').slice(-16000)
+}
+
+function TraceList({ steps, running }) {
+  if (!steps.length) {
+    return running ? (
+      <div className="activity-empty">
+        <Icon name="loader" size={16} className="spin" />
+        正在启动浏览器...
+      </div>
+    ) : null
+  }
+
+  return (
+    <div className="timeline">
+      {steps.map((step, index) => {
+        const isLast = index === steps.length - 1
+        return (
+          <div key={`${step.step}-${index}`} className="timeline-item">
+            <div className={`timeline-marker ${running && isLast ? 'active' : 'done'}`}>
+              {running && isLast ? <Icon name="loader" size={12} className="spin" /> : <Icon name="check" size={12} />}
+            </div>
+            <div className="timeline-content">
+              <div className="timeline-head">
+                <span className="timeline-step">Step {step.step}</span>
+                <span className="timeline-actions">
+                  {(step.actions || []).map((action) => (
+                    <span key={action} className="action-chip">
+                      {action}
+                    </span>
+                  ))}
+                </span>
+              </div>
+              <div className="timeline-goal">{step.goal || '执行中'}</div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function UserMessage({ message }) {
+  return (
+    <div className="chat-message user">
+      <div className="user-bubble">{message.text}</div>
+    </div>
+  )
+}
+
+function AssistantMessage({ message, onCopy, onDownload, onDownloads }) {
+  const result = message.result || {}
+  return (
+    <div className="chat-message assistant">
+      <div className="assistant-avatar">
+        <Icon name="sparkles" size={17} />
+      </div>
+      <div className="message-body">
+        <div className="message-meta">
+          <span>BrowserBuddy</span>
+          {result.duration ? <span>{result.duration}s</span> : null}
+          {result.steps ? <span>{result.steps} steps</span> : null}
+          {result.success === false ? <span className="message-warning">部分完成</span> : null}
+        </div>
+
+        <Markdown text={result.text || ''} />
+
+        {result.sources?.length > 0 && (
+          <div className="sources-block">
+            <div className="result-section-head">来源</div>
+            <div className="sources-grid">
+              {result.sources.map((source) => (
+                <SourceCard key={source.url} source={source} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <Attachments files={result.files || []} images={result.images || []} />
+
+        {message.steps?.length > 0 && (
+          <details className="message-trace">
+            <summary>执行轨迹 · {message.steps.length} steps</summary>
+            <TraceList steps={message.steps} running={false} />
+          </details>
+        )}
+
+        <div className="message-actions">
+          <button className="icon-button" onClick={() => onCopy(result.text || '')} title="复制结果">
+            <Icon name="copy" size={15} />
+          </button>
+          <button className="icon-button" onClick={() => onDownload(result.text || '', message.ts)} title="导出 Markdown">
+            <Icon name="download" size={15} />
+          </button>
+          <button className="icon-button" onClick={onDownloads} title="打开下载文件夹">
+            <Icon name="folder" size={15} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LiveMessage({ steps }) {
+  return (
+    <div className="chat-message assistant live">
+      <div className="assistant-avatar">
+        <Icon name="loader" size={17} className="spin" />
+      </div>
+      <div className="message-body">
+        <div className="message-meta">
+          <span>BrowserBuddy</span>
+          <span className="live-label">正在执行</span>
+        </div>
+        <TraceList steps={steps} running />
+      </div>
+    </div>
+  )
+}
+
+function ChatComposer({ value, onChange, onSend, onStop, running, disabled, settings, onSettings, placeholder }) {
+  const canSend = value.trim() && !running && !disabled
+
+  function send() {
+    if (canSend) onSend(value)
+  }
+
+  return (
+    <div className="chat-composer">
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+            event.preventDefault()
+            send()
+          }
+        }}
+        placeholder={placeholder}
+        rows={3}
+      />
+      <div className="chat-composer-footer">
+        <div className="composer-options">
+          <button className="soft-chip" onClick={onSettings}>
+            <Icon name="settings" size={14} />
+            {settings.provider}
+          </button>
+          <span className="soft-chip">
+            <Icon name={settings.useVision ? 'image' : 'terminal'} size={14} />
+            {settings.useVision ? '视觉模式' : 'DOM 模式'}
+          </span>
+          <span className="soft-chip">
+            <Icon name="search" size={14} />
+            {searchEngineLabel(settings.searchEngine)}
+          </span>
+          {running && (
+            <span className="soft-chip running-chip">
+              <Icon name="loader" size={14} className="spin" />
+              正在执行
+            </span>
+          )}
+        </div>
+        {running ? (
+          <button className="stop-button composer-stop" onClick={onStop}>
+            <Icon name="stop" size={14} />
+            停止任务
+          </button>
+        ) : (
+          <button className="run-button" onClick={send} disabled={!canSend}>
+            <Icon name="play" size={15} />
+            发送
+            <span className="kbd">↵</span>
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WelcomeView({ draft, setDraft, onSend, running, disabled, settings, onSettings, error, loginActive, onExample }) {
+  return (
+    <div className="welcome-view">
+      <div className="topbar topbar-home">
+        <div className="topbar-title">新对话</div>
+        <button className="model-chip" onClick={onSettings}>
+          <span className="model-dot" />
+          {settings.provider} · {settings.model}
+          <Icon name="chevronDown" size={14} />
+        </button>
+      </div>
+
+      <div className="hero">
+        <div className="hero-badge">
+          <Icon name="sparkles" size={14} />
+          Browser agent
+        </div>
+        <h1>今天想让浏览器做什么？</h1>
+        <p>描述一个目标，BrowserBuddy 会规划步骤、操作浏览器，并把结果和来源整理给你。</p>
+
+        {loginActive && (
+          <div className="inline-error">
+            <Icon name="login" size={15} />
+            请先完成购物网站登录，或取消登录后再开始任务。
+          </div>
+        )}
+
+        <ChatComposer
+          value={draft}
+          onChange={setDraft}
+          onSend={onSend}
+          running={running}
+          disabled={disabled}
+          settings={settings}
+          onSettings={onSettings}
+          placeholder="例如：搜索 browser automation，总结前 3 个结果并附上链接"
+        />
+
+        {error && (
+          <div className="inline-error">
+            <Icon name="alert" size={16} />
+            {error}
+          </div>
+        )}
+
+        <div className="examples-head">
+          <span>试试这些</span>
+          <span className="examples-sub">点击示例快速填入任务</span>
+        </div>
+        <div className="examples-grid">
+          {EXAMPLES.map((example) => (
+            <button key={example.id} className="example-card" onClick={() => onExample(example.task)}>
+              <span className="example-icon">
+                <Icon name={example.icon} size={18} />
+              </span>
+              <span className="example-body">
+                <span className="example-title">{example.title}</span>
+                <span className="example-subtitle">{example.subtitle}</span>
+              </span>
+              <span className="example-tag">{example.tag}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="home-footnote">
+          <Icon name="key" size={14} />
+          API Key 保存在 macOS Keychain，不会写进代码或日志。
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ChatView({
+  thread,
+  running,
+  liveSteps,
+  error,
+  draft,
+  setDraft,
+  onSend,
+  onStop,
+  onSettings,
+  onLogs,
+  onDownloads,
+  onCopy,
+  onDownload,
+  disabled,
+  settings,
+}) {
+  const bottomRef = useRef(null)
+  const lastAssistant = [...(thread.messages || [])].reverse().find((message) => message.role === 'assistant')
+  const lastResult = lastAssistant?.result
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [thread.messages?.length, liveSteps.length, running])
+
+  return (
+    <div className="chat-view">
+      <div className="topbar">
+        <div className="run-title" title={thread.title}>
+          {thread.title || '对话'}
+        </div>
+        <div className="topbar-actions">
+          <StatusPill running={running} result={lastResult} error={error} />
+          {running ? (
+            <button className="stop-button" onClick={onStop}>
+              <Icon name="stop" size={14} />
+              停止
+            </button>
+          ) : (
+            <button className="icon-button" onClick={onLogs} title="打开日志">
+              <Icon name="terminal" size={17} />
+            </button>
+          )}
+          <button className="icon-button" onClick={onSettings} title="设置">
+            <Icon name="settings" size={17} />
+          </button>
+        </div>
+      </div>
+
+      <div className="chat-scroll">
+        <div className="chat-thread">
+          {(thread.messages || []).map((message, index) =>
+            message.role === 'user' ? (
+              <UserMessage key={`${message.ts}-${index}`} message={message} />
+            ) : (
+              <AssistantMessage
+                key={`${message.ts}-${index}`}
+                message={message}
+                onCopy={onCopy}
+                onDownload={onDownload}
+                onDownloads={onDownloads}
+              />
+            ),
+          )}
+          {running && <LiveMessage steps={liveSteps} />}
+          {error && (
+            <div className="chat-error">
+              <Icon name="alert" size={16} />
+              <div>{error}</div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+      </div>
+
+      <div className="chat-composer-wrap">
+        <ChatComposer
+          value={draft}
+          onChange={setDraft}
+          onSend={onSend}
+          onStop={onStop}
+          running={running}
+          disabled={disabled}
+          settings={settings}
+          onSettings={onSettings}
+          placeholder="继续提问，或输入新的任务…"
+        />
       </div>
     </div>
   )
@@ -647,18 +1210,43 @@ export default function App() {
   const [providers, setProviders] = useState([])
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS })
   const [apiKey, setApiKey] = useState('')
-  const [task, setTask] = useState('')
-  const [view, setView] = useState('home')
+  const [threads, setThreads] = useState([])
+  const [activeThreadId, setActiveThreadId] = useState(null)
+  const [draft, setDraft] = useState('')
   const [running, setRunning] = useState(false)
-  const [steps, setSteps] = useState([])
-  const [result, setResult] = useState(null)
+  const [liveSteps, setLiveSteps] = useState([])
   const [error, setError] = useState('')
-  const [history, setHistory] = useState([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [theme, setTheme] = useState('dark')
+  const [loginOpen, setLoginOpen] = useState(false)
+  const [loginActive, setLoginActive] = useState(false)
+  const [loginSite, setLoginSite] = useState(null)
+  const [loginError, setLoginError] = useState('')
+  const [humanRequest, setHumanRequest] = useState(null)
+  const liveStepsRef = useRef([])
+  const pendingThreadRef = useRef(null)
   const runMetaRef = useRef(null)
-  const stepsRef = useRef([])
   const prefsLoadedRef = useRef(false)
+
+  const activeThread = useMemo(
+    () => threads.find((thread) => thread.id === activeThreadId) || null,
+    [threads, activeThreadId],
+  )
+
+  const sidebarEntries = useMemo(
+    () =>
+      threads.map((thread) => {
+        const lastAssistant = [...(thread.messages || [])].reverse().find((message) => message.role === 'assistant')
+        return {
+          id: thread.id,
+          task: thread.title,
+          ts: thread.updatedAt || thread.createdAt,
+          provider: thread.provider || '',
+          result: lastAssistant?.result,
+        }
+      }),
+    [threads],
+  )
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -673,69 +1261,107 @@ export default function App() {
   }, [settings, theme])
 
   useEffect(() => {
-    stepsRef.current = steps
-  }, [steps])
+    liveStepsRef.current = liveSteps
+  }, [liveSteps])
 
-  const addHistory = useCallback((entry) => {
-    setHistory((prev) => {
-      const next = [entry, ...prev.filter((item) => item.id !== entry.id)]
-      return next.slice(0, 20)
+  const appendAssistant = useCallback((result) => {
+    const threadId = pendingThreadRef.current
+    if (!threadId) return
+
+    const meta = runMetaRef.current
+    const assistant = {
+      role: 'assistant',
+      result,
+      steps: liveStepsRef.current,
+      ts: Date.now(),
+      provider: meta?.provider,
+      model: meta?.model,
+    }
+
+    setThreads((prev) => {
+      const next = prev.map((thread) =>
+        thread.id === threadId
+          ? {
+              ...thread,
+              messages: [...(thread.messages || []), assistant],
+              updatedAt: Date.now(),
+            }
+          : thread,
+      )
+      const updated = next.find((thread) => thread.id === threadId)
+      if (updated) saveChat(updated).catch(() => {})
+      return next
     })
-    saveHistoryEntry(entry).catch(() => {})
+
+    setRunning(false)
+    setLiveSteps([])
+    liveStepsRef.current = []
+    pendingThreadRef.current = null
   }, [])
 
   const handleEvent = useCallback(
     (event) => {
-      if (event.type === 'run_started') {
-        runMetaRef.current = {
-          task: event.task,
-          provider: event.provider,
-          model: event.model,
-        }
-        setView('run')
-        setRunning(true)
-        stepsRef.current = []
-        setSteps([])
-        setResult(null)
-        setError('')
-        setTask(event.task)
+      if (event.type === 'login_started') {
+        setLoginActive(true)
+        setLoginSite(event.site)
+        setLoginOpen(true)
+        setLoginError('')
+        return
+      }
+      if (event.type === 'login_finished') {
+        setLoginActive(false)
+        setLoginSite(null)
+        return
+      }
+      if (event.type === 'needs_human') {
+        setHumanRequest({ reason: event.reason || '网站要求人工操作' })
+        return
+      }
+      if (event.type === 'human_resolved') {
+        setHumanRequest(null)
         return
       }
       if (event.type === 'step') {
-        const next = stepsRef.current.some((item) => item.step === event.step)
-          ? stepsRef.current.map((item) => (item.step === event.step ? event : item))
-          : [...stepsRef.current, event]
-        stepsRef.current = next
-        setSteps(next)
+        const next = liveStepsRef.current.some((item) => item.step === event.step)
+          ? liveStepsRef.current.map((item) => (item.step === event.step ? event : item))
+          : [...liveStepsRef.current, event]
+        liveStepsRef.current = next
+        setLiveSteps(next)
         return
       }
       if (event.type === 'result') {
-        setResult(event)
-        setRunning(false)
-        const meta = runMetaRef.current
-        if (meta) {
-          addHistory({
-            id: `${Date.now()}`,
-            task: meta.task,
-            provider: meta.provider,
-            model: meta.model,
-            ts: Date.now(),
-            result: event,
-            steps: stepsRef.current,
-          })
-        }
+        appendAssistant(event)
+        return
+      }
+      if (event.type === 'stopped') {
+        appendAssistant({
+          text: '任务已被手动停止。',
+          sources: [],
+          files: [],
+          images: [],
+          success: false,
+          duration: 0,
+          steps: liveStepsRef.current.length,
+        })
         return
       }
       if (event.type === 'error') {
-        setError(event.message)
-        setRunning(false)
+        appendAssistant({
+          text: `运行失败：${event.message}`,
+          sources: [],
+          files: [],
+          images: [],
+          success: false,
+          duration: 0,
+          steps: liveStepsRef.current.length,
+        })
         return
       }
       if (event.type === 'run_finished') {
         setRunning(false)
       }
     },
-    [addHistory],
+    [appendAssistant],
   )
 
   useEffect(() => {
@@ -745,33 +1371,80 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false
+
     async function bootstrap() {
       try {
-        const [providerData, state, historyData, prefs] = await Promise.all([
+        const [providerData, state, chatData, prefs, historyData] = await Promise.all([
           getProviders(),
           getState(),
-          getHistory(),
+          getChats(),
           getPreferences(),
+          getHistory(),
         ])
         if (cancelled) return
+
         setProviders(providerData)
-        setHistory(Array.isArray(historyData) ? historyData : [])
         if (prefs?.settings) setSettings((prev) => ({ ...prev, ...prefs.settings }))
         if (prefs?.theme) setTheme(prefs.theme)
         prefsLoadedRef.current = true
-        if (state.running || state.result || state.error) {
-          setView('run')
-          setRunning(Boolean(state.running))
-          stepsRef.current = state.steps || []
-          setSteps(state.steps || [])
-          setResult(state.result)
-          setError(state.error || '')
-          setTask(state.task || '')
-          runMetaRef.current = {
-            task: state.task,
-            provider: state.provider,
-            model: state.model,
+
+        let nextThreads = Array.isArray(chatData) ? chatData : []
+        if (!nextThreads.length && Array.isArray(historyData) && historyData.length) {
+          nextThreads = historyData.map((entry) => ({
+            id: entry.id || newId(),
+            title: entry.task || '历史任务',
+            createdAt: entry.ts || Date.now(),
+            updatedAt: entry.ts || Date.now(),
+            provider: entry.provider || '',
+            model: entry.model || '',
+            messages: [
+              { role: 'user', text: entry.task || '', ts: entry.ts || Date.now() },
+              {
+                role: 'assistant',
+                result: entry.result || { text: '', sources: [], files: [], images: [], success: false, duration: 0, steps: 0 },
+                steps: entry.steps || [],
+                ts: entry.ts || Date.now(),
+              },
+            ],
+          }))
+          await Promise.all(nextThreads.map((thread) => saveChat(thread).catch(() => {})))
+        }
+
+        setThreads(nextThreads)
+
+        if (state.running) {
+          let thread = nextThreads.find((item) =>
+            (item.messages || []).some((message) => message.role === 'user' && message.text === state.task),
+          )
+          if (!thread) {
+            thread = {
+              id: newId(),
+              title: state.task || '正在执行的任务',
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              provider: state.provider,
+              model: state.model,
+              messages: [{ role: 'user', text: state.task || '', ts: Date.now() }],
+            }
+            nextThreads = [thread, ...nextThreads]
+            setThreads(nextThreads)
+            saveChat(thread).catch(() => {})
           }
+          setActiveThreadId(thread.id)
+          pendingThreadRef.current = thread.id
+          runMetaRef.current = { task: state.task, provider: state.provider, model: state.model }
+          setRunning(true)
+          setLiveSteps(state.steps || [])
+          liveStepsRef.current = state.steps || []
+        }
+
+        if (state.login_active) {
+          setLoginActive(true)
+          setLoginSite(state.login_site)
+          setLoginOpen(true)
+        }
+        if (state.human_active) {
+          setHumanRequest({ reason: state.human_reason || '网站要求人工操作' })
         }
       } catch (e) {
         setError(e.message)
@@ -779,6 +1452,7 @@ export default function App() {
         prefsLoadedRef.current = true
       }
     }
+
     bootstrap()
     return () => {
       cancelled = true
@@ -788,13 +1462,9 @@ export default function App() {
   useEffect(() => {
     function onKeyDown(event) {
       const meta = event.metaKey || event.ctrlKey
-      if (meta && event.key.toLowerCase() === 'n') {
+      if (meta && event.key.toLowerCase() === 'n' && !running) {
         event.preventDefault()
-        newTask()
-      }
-      if (meta && event.key === 'Enter' && view === 'home' && !running) {
-        event.preventDefault()
-        handleRun()
+        newChat()
       }
       if (event.key === 'Escape' && running) {
         handleStop()
@@ -804,45 +1474,95 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   })
 
-  function newTask() {
-    setView('home')
-    setTask('')
-    stepsRef.current = []
-    setSteps([])
-    setResult(null)
+  function newChat() {
+    if (running) return
+    setActiveThreadId(null)
+    setDraft('')
+    setLiveSteps([])
+    liveStepsRef.current = []
     setError('')
-    setRunning(false)
+    pendingThreadRef.current = null
   }
 
-  async function handleRun() {
-    if (!task.trim() || running) {
-      if (!task.trim()) setError('请先输入任务。')
+  function selectThread(threadId) {
+    if (running) return
+    setActiveThreadId(threadId)
+    setDraft('')
+    setLiveSteps([])
+    liveStepsRef.current = []
+    setError('')
+    pendingThreadRef.current = null
+  }
+
+  async function sendMessage(text) {
+    const clean = (text || '').trim()
+    if (!clean || running) return
+    if (loginActive) {
+      setError('请先完成购物网站登录，或取消登录后再发送。')
       return
     }
+
+    const now = Date.now()
+    const current = activeThread
+    const previousContext = buildThreadContext(current?.messages || [])
+    const threadId = current?.id || newId()
+    const userMessage = { role: 'user', text: clean, ts: now }
+    const updatedThread = current
+      ? {
+          ...current,
+          title: current.messages?.length ? current.title : clean.slice(0, 40),
+          messages: [...(current.messages || []), userMessage],
+          updatedAt: now,
+          provider: settings.provider,
+          model: settings.model,
+        }
+      : {
+          id: threadId,
+          title: clean.slice(0, 40),
+          createdAt: now,
+          updatedAt: now,
+          provider: settings.provider,
+          model: settings.model,
+          messages: [userMessage],
+        }
+
+    setThreads((prev) =>
+      current ? prev.map((thread) => (thread.id === threadId ? updatedThread : thread)) : [updatedThread, ...prev],
+    )
+    setActiveThreadId(threadId)
+    setDraft('')
     setError('')
-    setView('run')
     setRunning(true)
-    stepsRef.current = []
-    setSteps([])
-    setResult(null)
-    runMetaRef.current = {
-      task,
-      provider: settings.provider,
-      model: settings.model,
-    }
+    setLiveSteps([])
+    liveStepsRef.current = []
+    pendingThreadRef.current = threadId
+    runMetaRef.current = { task: clean, provider: settings.provider, model: settings.model }
+    saveChat(updatedThread).catch(() => {})
+
     try {
       await runTask({
-        task,
+        task: clean,
         provider: settings.provider,
         model: settings.model,
         api_key: apiKey || null,
         headless: settings.headless,
         max_steps: settings.maxSteps,
         use_vision: settings.useVision,
+        search_engine: settings.searchEngine || 'auto',
+        previous_context: previousContext || null,
       })
+      if (apiKey) {
+        setProviders((prev) =>
+          prev.map((provider) =>
+            provider.name === settings.provider ? { ...provider, has_key: true } : provider,
+          ),
+        )
+        setApiKey('')
+      }
     } catch (e) {
       setError(e.message)
       setRunning(false)
+      pendingThreadRef.current = null
     }
   }
 
@@ -854,72 +1574,124 @@ export default function App() {
     }
   }
 
-  function handleSelectHistory(entry) {
-    setView('run')
-    setTask(entry.task)
-    setSteps(entry.steps || [])
-    setResult(entry.result)
-    setError('')
-    setRunning(false)
-    runMetaRef.current = {
-      task: entry.task,
-      provider: entry.provider,
-      model: entry.model,
-    }
+  function handleCopy(text) {
+    if (text) navigator.clipboard?.writeText(text)
   }
 
-  function handleCopy() {
-    if (result?.text) navigator.clipboard?.writeText(result.text)
-  }
-
-  function handleDownload() {
-    if (!result?.text) return
-    const blob = new Blob([result.text], { type: 'text/markdown;charset=utf-8' })
+  function handleDownload(text, ts) {
+    if (!text) return
+    const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'browserbuddy-result.md'
+    link.download = `browserbuddy-${new Date(ts || Date.now()).toISOString().slice(0, 19).replace(/[:T]/g, '-')}.md`
     link.click()
     URL.revokeObjectURL(url)
+  }
+
+  async function handleLoginStart(site) {
+    setLoginError('')
+    try {
+      await startLogin(site)
+      setLoginActive(true)
+      setLoginSite(site)
+      setLoginOpen(true)
+    } catch (e) {
+      setLoginError(e.message)
+    }
+  }
+
+  async function handleLoginFinish() {
+    try {
+      await finishLogin()
+      setLoginActive(false)
+      setLoginSite(null)
+      setLoginOpen(false)
+    } catch (e) {
+      setLoginError(e.message)
+    }
+  }
+
+  async function handleLoginCancel() {
+    try {
+      await cancelLogin()
+      setLoginActive(false)
+      setLoginSite(null)
+      setLoginOpen(false)
+    } catch (e) {
+      setLoginError(e.message)
+    }
+  }
+
+  async function handleHumanContinue() {
+    try {
+      await continueHuman()
+      setHumanRequest(null)
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  async function handleHumanCancel() {
+    try {
+      await cancelHuman()
+      setHumanRequest(null)
+    } catch (e) {
+      setError(e.message)
+    }
   }
 
   return (
     <div className="app-shell">
       <Sidebar
-        history={history}
-        onNew={newTask}
-        onSelect={handleSelectHistory}
+        history={sidebarEntries}
+        activeId={activeThreadId}
+        onNew={newChat}
+        onSelect={(entry) => selectThread(entry.id)}
         onSettings={() => setSettingsOpen(true)}
+        onDownloads={openDownloads}
+        onLogin={() => {
+          setLoginError('')
+          setLoginOpen(true)
+        }}
+        loginActive={loginActive}
+        loginSite={loginSite}
         theme={theme}
         setTheme={setTheme}
         providers={providers}
         settings={settings}
       />
       <main className="main">
-        {view === 'home' ? (
-          <Home
-            task={task}
-            setTask={setTask}
-            onRun={handleRun}
+        {activeThread ? (
+          <ChatView
+            thread={activeThread}
             running={running}
+            liveSteps={liveSteps}
+            error={error}
+            draft={draft}
+            setDraft={setDraft}
+            onSend={sendMessage}
+            onStop={handleStop}
+            onSettings={() => setSettingsOpen(true)}
+            onLogs={openLogs}
+            onDownloads={openDownloads}
+            onCopy={handleCopy}
+            onDownload={handleDownload}
+            disabled={loginActive}
+            settings={settings}
+          />
+        ) : (
+          <WelcomeView
+            draft={draft}
+            setDraft={setDraft}
+            onSend={sendMessage}
+            running={running}
+            disabled={loginActive}
             settings={settings}
             onSettings={() => setSettingsOpen(true)}
             error={error}
-          />
-        ) : (
-          <RunView
-            task={task}
-            steps={steps}
-            running={running}
-            result={result}
-            error={error}
-            onBack={() => setView('home')}
-            onStop={handleStop}
-            onNew={newTask}
-            onCopy={handleCopy}
-            onDownload={handleDownload}
-            onSettings={() => setSettingsOpen(true)}
-            onLogs={openLogs}
+            loginActive={loginActive}
+            onExample={(task) => setDraft(task)}
           />
         )}
       </main>
@@ -934,6 +1706,22 @@ export default function App() {
         theme={theme}
         setTheme={setTheme}
         onLogs={openLogs}
+        onDownloads={openDownloads}
+      />
+      <LoginDialog
+        open={loginOpen}
+        active={loginActive}
+        site={loginSite}
+        error={loginError}
+        onClose={() => setLoginOpen(false)}
+        onStart={handleLoginStart}
+        onFinish={handleLoginFinish}
+        onCancel={handleLoginCancel}
+      />
+      <HumanDialog
+        request={humanRequest}
+        onContinue={handleHumanContinue}
+        onCancel={handleHumanCancel}
       />
     </div>
   )

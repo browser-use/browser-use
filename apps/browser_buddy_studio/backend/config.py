@@ -10,6 +10,8 @@ LOG_DIR = Path.home() / 'Library' / 'Logs' / APP_NAME
 PROFILE_DIR = APP_SUPPORT_DIR / 'browser-profile'
 ARTIFACT_DIR = APP_SUPPORT_DIR / 'artifacts'
 HISTORY_DIR = APP_SUPPORT_DIR / 'history'
+BROWSER_STATE_FILE = APP_SUPPORT_DIR / 'storage_state.json'
+DOWNLOADS_DIR = Path.home() / 'Downloads'
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 
@@ -27,6 +29,7 @@ def prepare_runtime() -> None:
 	PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 	ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 	HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+	DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 	if getattr(sys, 'frozen', False):
 		base = Path(getattr(sys, '_MEIPASS', Path(sys.executable).parent))

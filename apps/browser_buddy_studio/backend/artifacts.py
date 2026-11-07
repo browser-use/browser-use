@@ -11,21 +11,27 @@ from urllib.parse import quote, urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
-from .config import ARTIFACT_DIR
+from .config import ARTIFACT_DIR, DOWNLOADS_DIR
 
 logger = logging.getLogger('browser_buddy.artifacts')
 
-URL_RE = re.compile(r'https?://[^\s<>"\')\]]+')
+URL_RE = re.compile(r'https?://[^\s<>"\')\]\u4e00-\u9fff，。；：！？、]+')
 TRAILING_URL_CHARS = '.,;:!?，。；：！？'
 IMAGE_SUFFIXES = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg')
 
 
 def extract_urls(text: str, limit: int = 5) -> list[str]:
 	urls: list[str] = []
+	seen: set[str] = set()
 	for raw in URL_RE.findall(text or ''):
 		url = raw.rstrip(TRAILING_URL_CHARS)
-		if url and url not in urls and urlparse(url).scheme in ('http', 'https'):
-			urls.append(url)
+		if not url or urlparse(url).scheme not in ('http', 'https'):
+			continue
+		key = url.rstrip('/').lower()
+		if key in seen:
+			continue
+		seen.add(key)
+		urls.append(url)
 		if len(urls) >= limit:
 			break
 	return urls
@@ -88,7 +94,19 @@ async def _fetch_source(client: httpx.AsyncClient, url: str) -> dict[str, str]:
 async def build_sources(text: str, history_urls: list[str] | None = None, limit: int = 5) -> list[dict[str, str]]:
 	urls = extract_urls(text, limit=limit)
 	if not urls and history_urls:
-		urls = [url for url in history_urls[-limit:] if urlparse(url).scheme in ('http', 'https')]
+		seen: set[str] = set()
+		urls = []
+		for url in reversed(history_urls):
+			if urlparse(url).scheme not in ('http', 'https'):
+				continue
+			key = url.rstrip('/').lower()
+			if key in seen:
+				continue
+			seen.add(key)
+			urls.append(url)
+			if len(urls) >= limit:
+				break
+		urls.reverse()
 	if not urls:
 		return []
 
@@ -137,6 +155,8 @@ def collect_artifacts(history) -> tuple[list[dict[str, str]], list[dict[str, str
 		for result in getattr(item, 'result', []):
 			for raw_path in getattr(result, 'attachments', None) or []:
 				source = Path(raw_path).expanduser()
+				if not source.exists() and not source.is_absolute():
+					source = DOWNLOADS_DIR / source
 				if not source.exists():
 					continue
 
@@ -153,6 +173,7 @@ def collect_artifacts(history) -> tuple[list[dict[str, str]], list[dict[str, str
 					files.append(
 						{
 							'name': copied.name,
+							'display_name': source.name,
 							'url': _artifact_url(copied),
 							'kind': copied.suffix.lower().lstrip('.') or 'file',
 						}
@@ -167,7 +188,14 @@ def collect_artifacts(history) -> tuple[list[dict[str, str]], list[dict[str, str
 					image_path = _pdf_preview(copied)
 
 				if image_path and str(image_path) not in seen_images:
-					images.append({'name': image_path.name, 'url': _artifact_url(image_path)})
+					display_name = source.name if suffix in IMAGE_SUFFIXES else f'{source.stem} 预览'
+					images.append(
+						{
+							'name': image_path.name,
+							'display_name': display_name,
+							'url': _artifact_url(image_path),
+						}
+					)
 					seen_images.add(str(image_path))
 
 	return files, images

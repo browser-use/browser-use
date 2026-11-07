@@ -22,6 +22,17 @@ export function getHistory() {
   return jsonFetch('/api/history')
 }
 
+export function getChats() {
+  return jsonFetch('/api/chats')
+}
+
+export function saveChat(thread) {
+  return jsonFetch('/api/chats', {
+    method: 'POST',
+    body: JSON.stringify(thread),
+  })
+}
+
 export function saveHistoryEntry(entry) {
   return jsonFetch('/api/history', {
     method: 'POST',
@@ -53,6 +64,33 @@ export function stopTask() {
 
 export function openLogs() {
   return jsonFetch('/api/open-logs', { method: 'POST' })
+}
+
+export function openDownloads() {
+  return jsonFetch('/api/open-downloads', { method: 'POST' })
+}
+
+export function startLogin(site) {
+  return jsonFetch('/api/login/start', {
+    method: 'POST',
+    body: JSON.stringify({ site }),
+  })
+}
+
+export function finishLogin() {
+  return jsonFetch('/api/login/finish', { method: 'POST' })
+}
+
+export function cancelLogin() {
+  return jsonFetch('/api/login/cancel', { method: 'POST' })
+}
+
+export function continueHuman() {
+  return jsonFetch('/api/human/continue', { method: 'POST' })
+}
+
+export function cancelHuman() {
+  return jsonFetch('/api/human/cancel', { method: 'POST' })
 }
 
 export function connectEvents(onEvent) {

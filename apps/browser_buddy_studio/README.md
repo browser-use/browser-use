@@ -47,7 +47,10 @@ BUNDLE_CHROMIUM=1 ./build_mac.sh  # bundle Chromium for friends without Chrome
 
 ## Features
 
-- Sidebar with persistent task history (stored under Application Support)
+- ChatGPT-style conversation threads with persistent history
+- Intent detection: greetings and pure chat replies do not start a browser; only browser-related requests do
+- Follow-up prompts stay in the same conversation, not a separate task screen
+- Follow-up tasks that reuse the previous result, sources, and links
 - Command-style task composer
 - Live execution timeline over SSE
 - Markdown result rendering
@@ -60,6 +63,7 @@ BUNDLE_CHROMIUM=1 ./build_mac.sh  # bundle Chromium for friends without Chrome
   - Anthropic
   - Google Gemini
 - Per-provider API keys stored in macOS Keychain
+- Configurable search engine with automatic regional fallback (Bing 中国 → 搜狗 → 百度 → 360 → Bing 国际 → Google → DuckDuckGo)
 - Light/dark themes
 - Keyboard shortcuts:
   - `⌘N` new task
@@ -80,10 +84,43 @@ PyWebView window
                     └── browser-use Agent
 ```
 
+## Shopping login
+
+Use the sidebar **登录购物网站** button to open Taobao or JD in a visible browser. The user completes QR or password login directly in the browser; the app never stores the password. Cookies are persisted in the dedicated browser profile and exported to `~/Library/Application Support/BrowserBuddy/storage_state.json`, so shopping logins survive task restarts.
+
+If a task hits login, QR code, CAPTCHA, SMS verification, or payment confirmation, the agent calls `request_human_help`. The UI pauses the task, shows the reason, and waits for **继续任务** or **取消任务**. This requires the browser to be visible (turn off headless mode).
+
+## Follow-up tasks
+
+Follow-up prompts are sent in the same conversation input. Each new message automatically includes prior user tasks, assistant results, source links, and file names as context. This supports flows like:
+
+1. Find product links.
+2. Continue to read reviews for those products.
+3. Continue to add a product to the cart.
+
+Payment confirmation still requires the human-intervention flow and is never automated.
+
+## Chat vs browser tasks
+
+Before each message, the backend classifies intent:
+
+- Greetings, small talk, explanations, writing, translation, math → chat reply only, no browser.
+- Open/search/click/login/download/extract/shop/compare → browser agent.
+
+This avoids starting Chromium for messages like “hi” or “你好”.
+
 ## Notes
 
 - The app is macOS-only because it uses `sips` for PDF previews and macOS Keychain.
 - The backend binds to loopback only.
 - API keys are never written to the frontend bundle.
 - Task history and UI preferences persist across app restarts in `~/Library/Application Support/BrowserBuddy/`.
+- Browser downloads are saved to the macOS default Downloads folder: `~/Downloads`. Open it from the sidebar → 下载文件夹, the result toolbar, or Settings → 打开下载文件夹.
+- For mainland China, choose a search engine in Settings. The default **自动** mode prioritizes Bing 中国, then falls back to 搜狗, 百度, 360, Bing 国际, Google, and DuckDuckGo. Engines that redirect to CAPTCHA pages are skipped.
 - Unsigned builds require right-click → Open on first launch.
+
+## API keys
+
+API keys are stored per provider in macOS Keychain. The backend caches keys in memory so a key is read from Keychain once per app session, not on every task.
+
+On the first read, macOS may ask for Keychain access. Choose **Always Allow** to avoid future prompts for the same signed build. Ad-hoc signed development builds may prompt again after rebuilding because their code signature changes.

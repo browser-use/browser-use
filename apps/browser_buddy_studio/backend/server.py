@@ -6,9 +6,10 @@ import logging
 import time
 from typing import Any
 
+import psutil
 from pydantic import BaseModel
 
-from .config import ARTIFACT_DIR, LOG_DIR, PROFILE_DIR, frontend_dist, prepare_runtime
+from .config import ARTIFACT_DIR, BROWSER_STATE_FILE, DOWNLOADS_DIR, LOG_DIR, PROFILE_DIR, frontend_dist, prepare_runtime
 
 prepare_runtime()
 
@@ -17,10 +18,23 @@ from fastapi.responses import StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from browser_use import Agent, Browser  # noqa: E402
+from browser_use.agent.views import ActionResult  # noqa: E402
+from browser_use.browser.events import NavigateToUrlEvent  # noqa: E402
 
 from .artifacts import build_sources, collect_artifacts  # noqa: E402
+from .intent import chat_reply, needs_browser  # noqa: E402
 from .providers import PROVIDERS, build_llm, get_saved_key, provider_list, save_key  # noqa: E402
-from .storage import add_history, clear_history, load_history, load_preferences, save_preferences  # noqa: E402
+from .search_tools import build_tools  # noqa: E402
+from .storage import (  # noqa: E402
+	add_history,
+	clear_history,
+	delete_chat,
+	load_chats,
+	load_history,
+	load_preferences,
+	save_chat,
+	save_preferences,
+)
 
 logger = logging.getLogger('browser_buddy.server')
 logger.setLevel(logging.INFO)
@@ -53,7 +67,15 @@ class EventHub:
 HUB = EventHub()
 CURRENT_TASK: asyncio.Task | None = None
 CURRENT_AGENT: Agent | None = None
+CURRENT_BROWSER: Browser | None = None
 STOP_REQUESTED = False
+LOGIN_SESSION: Browser | None = None
+LOGIN_SITE: str | None = None
+HUMAN_STATE: dict[str, Any] = {'active': False, 'reason': '', 'cancelled': False, 'event': None}
+LOGIN_URLS = {
+	'taobao': ('淘宝', 'https://login.taobao.com/member/login.jhtml'),
+	'jd': ('京东', 'https://passport.jd.com/new/login.aspx'),
+}
 
 STATE: dict[str, Any] = {
 	'running': False,
@@ -76,6 +98,81 @@ class RunRequest(BaseModel):
 	headless: bool = False
 	max_steps: int = 50
 	use_vision: bool = True
+	search_engine: str = 'auto'
+	previous_context: str | None = None
+
+
+class LoginRequest(BaseModel):
+	site: str
+
+
+def _cleanup_stale_browser_profile() -> None:
+	"""Kill leftover BrowserBuddy Chrome processes and remove stale profile locks."""
+	profile_marker = str(PROFILE_DIR)
+	for proc in psutil.process_iter(['pid', 'cmdline']):
+		try:
+			cmdline = ' '.join(proc.info.get('cmdline') or [])
+			if profile_marker in cmdline and 'Google Chrome' in cmdline:
+				proc.terminate()
+		except Exception:
+			continue
+
+	for lock_name in ('SingletonLock', 'SingletonCookie', 'SingletonSocket'):
+		try:
+			(PROFILE_DIR / lock_name).unlink(missing_ok=True)
+		except Exception:
+			pass
+
+
+def _contains_chinese(text: str) -> bool:
+	return any('\u4e00' <= char <= '\u9fff' for char in text)
+
+
+def _language_instruction(task: str) -> str:
+	instruction = (
+		'Always answer in the same language as the user task. '
+		'If the task is written in Chinese, the final answer MUST be in Chinese; '
+		'do not switch to English unless the user explicitly asks. '
+		'Keep URLs, code, product names, and quoted page text in their original language when necessary.'
+	)
+	if _contains_chinese(task):
+		instruction += ' The current task is in Chinese: write the final answer in Chinese.'
+	return instruction
+
+
+async def _request_human_help(reason: str) -> ActionResult:
+	global STOP_REQUESTED
+
+	event = asyncio.Event()
+	HUMAN_STATE.update({'active': True, 'reason': reason, 'cancelled': False, 'event': event})
+	HUB.publish({'type': 'needs_human', 'reason': reason})
+	await event.wait()
+	cancelled = bool(HUMAN_STATE.get('cancelled'))
+	HUMAN_STATE.update({'active': False, 'event': None})
+	HUB.publish({'type': 'human_resolved', 'cancelled': cancelled})
+	if cancelled:
+		STOP_REQUESTED = True
+		return ActionResult(error='用户取消了人工协助')
+	return ActionResult(extracted_content='用户已完成登录或验证，请继续执行任务。')
+
+
+async def _close_login_browser(cancelled: bool = False) -> None:
+	global LOGIN_SESSION, LOGIN_SITE
+
+	browser = LOGIN_SESSION
+	LOGIN_SESSION = None
+	LOGIN_SITE = None
+	if browser is not None:
+		if not cancelled:
+			try:
+				await browser.export_storage_state(BROWSER_STATE_FILE)
+			except Exception as e:
+				logger.warning(f'Could not export login storage state: {type(e).__name__}: {e}')
+		try:
+			await browser.kill()
+		except Exception as e:
+			logger.warning(f'Could not close login browser: {type(e).__name__}: {e}')
+	HUB.publish({'type': 'login_finished', 'cancelled': cancelled})
 
 
 def _action_names(model_output) -> list[str]:
@@ -108,7 +205,7 @@ async def _should_stop() -> bool:
 
 
 async def _run_agent(request: RunRequest) -> None:
-	global CURRENT_AGENT, CURRENT_TASK, STOP_REQUESTED
+	global CURRENT_AGENT, CURRENT_BROWSER, CURRENT_TASK, STOP_REQUESTED
 
 	started_at = time.time()
 	STOP_REQUESTED = False
@@ -143,14 +240,68 @@ async def _run_agent(request: RunRequest) -> None:
 			save_key(request.provider, request.api_key)
 
 		llm = build_llm(request.provider, request.model, key)
-		browser = Browser(headless=request.headless, user_data_dir=str(PROFILE_DIR))
+
+		if not await needs_browser(request.task, llm, request.previous_context):
+			reply = await chat_reply(llm, request.task, request.previous_context)
+			result = {
+				'text': reply,
+				'sources': [],
+				'files': [],
+				'images': [],
+				'success': True,
+				'duration': round(time.time() - started_at, 1),
+				'steps': 0,
+				'mode': 'chat',
+			}
+			STATE['result'] = result
+			STATE['finished_at'] = time.time()
+			HUB.publish({'type': 'result', **result})
+			return
+
+		agent_task = request.task
+		if request.previous_context:
+			agent_task = (
+				'以下是上一次任务的结果，请把它作为上下文继续使用。\n\n'
+				f'{request.previous_context[:12000]}\n\n'
+				f'本次任务：{request.task}'
+			)
+		await asyncio.to_thread(_cleanup_stale_browser_profile)
+		await asyncio.sleep(0.3)
+		browser = Browser(
+			headless=request.headless,
+			user_data_dir=str(PROFILE_DIR),
+			storage_state=str(BROWSER_STATE_FILE),
+			downloads_path=str(DOWNLOADS_DIR),
+			keep_alive=False,
+		)
+		CURRENT_BROWSER = browser
+		tools = build_tools(request.search_engine)
+
+		@tools.action(
+			'Ask the user to complete a human action such as login, QR code scan, CAPTCHA, SMS verification, '
+			'or payment confirmation. Use this instead of guessing or entering credentials. '
+			'The app pauses the task and shows a prompt; after the user clicks continue, the task resumes.'
+		)
+		async def request_human_help(reason: str) -> ActionResult:
+			if request.headless:
+				return ActionResult(error='当前是后台运行模式，无法进行人工登录。请先取消任务，在设置中关闭后台运行后重试。')
+			return await _request_human_help(reason)
+
 		agent = Agent(
-			task=request.task,
+			task=agent_task,
 			llm=llm,
 			browser=browser,
+			tools=tools,
 			use_vision=request.use_vision,
 			auto_recovery=True,
 			use_judge=False,
+			extend_system_message=(
+				'For web searches, use the `web_search` action instead of navigating directly to a search engine URL. '
+				'The app selects a working search engine and handles regional fallbacks. '
+				'If the page requires login, QR code scan, CAPTCHA, SMS verification, or another human action, '
+				'call `request_human_help` with a short Chinese reason instead of guessing or entering credentials. '
+				+ _language_instruction(request.task)
+			),
 			register_new_step_callback=_on_step,
 			register_should_stop_callback=_should_stop,
 		)
@@ -174,6 +325,11 @@ async def _run_agent(request: RunRequest) -> None:
 		STATE['result'] = result
 		STATE['finished_at'] = time.time()
 		HUB.publish({'type': 'result', **result})
+	except asyncio.CancelledError:
+		STATE['error'] = '任务已停止'
+		STATE['finished_at'] = time.time()
+		HUB.publish({'type': 'stopped'})
+		raise
 	except Exception as e:
 		logger.exception('Task failed')
 		message = f'{type(e).__name__}: {e}'
@@ -183,6 +339,12 @@ async def _run_agent(request: RunRequest) -> None:
 	finally:
 		STATE['running'] = False
 		CURRENT_AGENT = None
+		if CURRENT_BROWSER is not None:
+			try:
+				await CURRENT_BROWSER.kill()
+			except Exception:
+				pass
+			CURRENT_BROWSER = None
 		HUB.publish({'type': 'run_finished', 'duration': round(time.time() - started_at, 1)})
 		if CURRENT_TASK is asyncio.current_task():
 			CURRENT_TASK = None
@@ -203,7 +365,99 @@ async def providers() -> list[dict]:
 
 @app.get('/api/state')
 async def state() -> dict:
-	return STATE
+	return {
+		**STATE,
+		'login_active': LOGIN_SESSION is not None,
+		'login_site': LOGIN_SITE,
+		'human_active': bool(HUMAN_STATE.get('active')),
+		'human_reason': HUMAN_STATE.get('reason') or '',
+	}
+
+
+@app.post('/api/login/start')
+async def login_start(request: LoginRequest) -> dict:
+	global LOGIN_SESSION, LOGIN_SITE
+
+	if request.site not in LOGIN_URLS:
+		raise HTTPException(status_code=400, detail='不支持的登录站点')
+	if CURRENT_TASK is not None and not CURRENT_TASK.done():
+		raise HTTPException(status_code=409, detail='请先等待当前任务结束')
+	if LOGIN_SESSION is not None:
+		label, _ = LOGIN_URLS.get(LOGIN_SITE or '', ('登录', ''))
+		return {'ok': True, 'label': label, 'already_open': True}
+
+	await asyncio.to_thread(_cleanup_stale_browser_profile)
+	await asyncio.sleep(0.3)
+	label, url = LOGIN_URLS[request.site]
+	browser = Browser(
+		headless=False,
+		user_data_dir=str(PROFILE_DIR),
+		storage_state=str(BROWSER_STATE_FILE),
+		downloads_path=str(DOWNLOADS_DIR),
+		keep_alive=True,
+	)
+	try:
+		await browser.start()
+		event = browser.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=False))
+		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
+	except Exception as e:
+		try:
+			await browser.kill()
+		except Exception:
+			pass
+		raise HTTPException(status_code=500, detail=f'打开登录页失败: {type(e).__name__}: {e}') from e
+
+	LOGIN_SESSION = browser
+	LOGIN_SITE = request.site
+	HUB.publish({'type': 'login_started', 'site': request.site, 'label': label})
+	return {'ok': True, 'label': label}
+
+
+@app.post('/api/login/finish')
+async def login_finish() -> dict:
+	await _close_login_browser(cancelled=False)
+	return {'ok': True}
+
+
+@app.post('/api/login/cancel')
+async def login_cancel() -> dict:
+	await _close_login_browser(cancelled=True)
+	return {'ok': True}
+
+
+@app.post('/api/human/continue')
+async def human_continue() -> dict:
+	event = HUMAN_STATE.get('event')
+	if isinstance(event, asyncio.Event):
+		HUMAN_STATE['cancelled'] = False
+		event.set()
+	return {'ok': True}
+
+
+@app.post('/api/human/cancel')
+async def human_cancel() -> dict:
+	event = HUMAN_STATE.get('event')
+	if isinstance(event, asyncio.Event):
+		HUMAN_STATE['cancelled'] = True
+		event.set()
+	return {'ok': True}
+
+
+@app.get('/api/chats')
+async def chats() -> list[dict]:
+	return load_chats()
+
+
+@app.post('/api/chats')
+async def create_chat(thread: dict) -> list[dict]:
+	return save_chat(thread)
+
+
+@app.delete('/api/chats/{thread_id}')
+async def remove_chat(thread_id: str) -> dict:
+	delete_chat(thread_id)
+	return {'ok': True}
 
 
 @app.get('/api/history')
@@ -238,6 +492,8 @@ async def run(request: RunRequest) -> dict:
 
 	if request.provider not in PROVIDERS:
 		raise HTTPException(status_code=400, detail=f'不支持的模型提供商: {request.provider}')
+	if LOGIN_SESSION is not None:
+		raise HTTPException(status_code=409, detail='请先完成登录或取消登录')
 	if CURRENT_TASK is not None and not CURRENT_TASK.done():
 		raise HTTPException(status_code=409, detail='已有任务正在执行')
 
@@ -247,9 +503,15 @@ async def run(request: RunRequest) -> dict:
 
 @app.post('/api/stop')
 async def stop() -> dict:
-	global STOP_REQUESTED
+	global CURRENT_TASK, STOP_REQUESTED
 
 	STOP_REQUESTED = True
+	if CURRENT_TASK is not None and not CURRENT_TASK.done():
+		CURRENT_TASK.cancel()
+	human_event = HUMAN_STATE.get('event')
+	if isinstance(human_event, asyncio.Event):
+		HUMAN_STATE['cancelled'] = True
+		human_event.set()
 	if CURRENT_AGENT is not None:
 		try:
 			CURRENT_AGENT.stop()
@@ -264,6 +526,13 @@ async def open_logs() -> dict:
 	LOG_DIR.mkdir(parents=True, exist_ok=True)
 	await asyncio.create_subprocess_exec('open', str(LOG_DIR))
 	return {'ok': True, 'path': str(LOG_DIR)}
+
+
+@app.post('/api/open-downloads')
+async def open_downloads() -> dict:
+	DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+	await asyncio.create_subprocess_exec('open', str(DOWNLOADS_DIR))
+	return {'ok': True, 'path': str(DOWNLOADS_DIR)}
 
 
 @app.get('/api/events')
