@@ -3643,7 +3643,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if highlight_index is None and historical_element.ax_name is not None:
 			hist_name = historical_element.node_name.lower()
 			hist_ax_name = historical_element.ax_name
-			for idx, elem in selector_items:
+			use_ax_name_match = hist_ax_name != ''
+			if not use_ax_name_match:
+				empty_ax_name_count = sum(
+					1
+					for _, elem in selector_items
+					if elem.node_name.lower() == hist_name and (elem.ax_node.name if elem.ax_node else None) == ''
+				)
+				use_ax_name_match = empty_ax_name_count == 1
+			if not use_ax_name_match:
+				self.logger.debug(
+					f'AX_NAME match skipped for <{hist_name.upper()}> with empty ax_name: '
+					f'{empty_ax_name_count if hist_ax_name == "" else 0} matching elements'
+				)
+			for idx, elem in selector_items if use_ax_name_match else []:
 				# Match by node type and accessible name
 				elem_ax_name = elem.ax_node.name if elem.ax_node else None
 				if elem.node_name.lower() == hist_name and elem_ax_name == hist_ax_name:

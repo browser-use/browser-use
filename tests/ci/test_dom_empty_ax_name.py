@@ -71,3 +71,4 @@ def test_explicit_empty_ax_name_affects_stable_hash() -> None:
 	without_name = _make_node(_make_ax_node(None))
 
 	assert with_name.compute_stable_hash() != without_name.compute_stable_hash()
+	assert hash(with_name) != hash(without_name)
