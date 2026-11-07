@@ -328,6 +328,9 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		if method in NAVIGATING:
 			check_url(params.get('url', ''))
 			stats.url(params.get('url'), navigation=True)
+		# browser-harness sends its Windows key code as nativeVirtualKeyCode; macOS Chrome reads it as a Mac one, so a
+		# printable press_key() on a visible tab also opened chrome://settings/help. 0.x never sent it.
+		params.pop('nativeVirtualKeyCode', None)
 		if method != 'Page.captureScreenshot':
 			# browser-harness defaults to 5s IPC; heavy cloud pages (Maps, TripAdvisor) blew it on navigate/evaluate/input.
 			params.setdefault('_response_timeout', CDP_TIMEOUT_S)
@@ -349,6 +352,11 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		for name in ('new_tab', 'http_get'):  # new_tab: before it opens an empty tab; http_get: plain HTTP from here
 			helpers.__dict__[name] = _checked(getattr(helpers, name), check_url)
 		_check_redirects(check_url)
+	if os.environ.get('BU_OWN_BROWSER') == '1':  # a browser we launched or were given: the agent's tab is the visible one,
+		# as in 0.x. A hidden tab never paints, so scroll() timed out and keys and clicks were dropped.
+		helpers.switch_tab = functools.partial(helpers.switch_tab, activate=True)  # new_tab() calls it too
+		with contextlib.suppress(Exception):  # the daemon attached to a background tab of its own
+			cdp('Target.activateTarget', targetId=helpers.current_tab()['targetId'])
 	captcha = Captcha(cdp, STATE / 'captcha.json', off=os.environ.get('BU_CAPTCHA_SOLVER') == 'off')
 	exec('from browser_harness.helpers import *', ns)
 

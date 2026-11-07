@@ -733,7 +733,8 @@ class Browser:
 		if self.live_view and self.live_url:
 			print(f'Live view: {self.live_url}')
 			webbrowser.open(self.live_url, new=2)
-		env = {'BU_NAME': self.name, **({'BU_REMOTE_BROWSER': '1'} if self.use_cloud else {})}
+		# BU_OWN_BROWSER: not the user's Chrome, so the agent's tab may be the visible one (repl/worker.py)
+		env = {'BU_NAME': self.name, 'BU_OWN_BROWSER': '1', **({'BU_REMOTE_BROWSER': '1'} if self.use_cloud else {})}
 		if self.use_cloud and not self.captcha_solver:
 			env['BU_CAPTCHA_SOLVER'] = 'off'  # solve_captcha() must not turn it back on (repl/captcha.py)
 		return env

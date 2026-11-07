@@ -236,6 +236,7 @@ def has_display() -> bool:
 
 def chrome_args(user_data_dir: Path, *, headless: bool, fresh: bool, profile_directory: str | None = None) -> list[str]:
 	args = [f'--user-data-dir={user_data_dir}', '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check']
+	args.append('--allow-pre-commit-input')  # 0.x and Playwright: keys and clicks reach a tab that has not painted yet
 	if fresh:  # a profile of our own never asks for (or reads) the OS keychain; a copied profile needs the real key
 		args += (
 			['--use-mock-keychain']

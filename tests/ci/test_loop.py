@@ -400,6 +400,31 @@ async def test_screenshot_of_a_hidden_tab_succeeds(daemon, tmp_path):
 	assert out[0] == out[2] == 'hidden' and out[4:] == ['True', 'True'], r['output']
 
 
+async def test_tabs_of_a_browser_we_own_are_visible_so_scroll_and_keys_work(daemon, tmp_path):
+	"""C09: the daemon's first tab and every new_tab() were hidden background tabs. A hidden tab never paints, so scroll()
+	timed out and keys and clicks were dropped until a screenshot. In a browser we launched or were given, the agent's
+	tab is the visible one (as in 0.x), and press_key() sends no nativeVirtualKeyCode (on macOS browser-harness's Windows
+	code opened chrome://settings/help on every printable key)."""
+	from browser_use.repl.session import Repl
+
+	repl = Repl(tmp_path, {**daemon, 'BU_OWN_BROWSER': '1'})
+	try:
+		code = (
+			"v = [js('document.visibilityState')]\n"
+			"new_tab('data:text/html,<input id=i autofocus><div style=height:5000px></div>'); wait_for_load()\n"
+			"v.append(js('document.visibilityState'))\n"
+			"js('document.getElementById(\"i\").focus()'); press_key('a'); press_key('b')\n"
+			'scroll(100, 100, dy=600); time.sleep(0.5)\n'
+			"print(*v, js('document.getElementById(\"i\").value'), js('scrollY') > 0,"
+			" any(t['url'].startswith('chrome://settings') for t in list_tabs()))"
+		)
+		r = await repl.call('exec', code, 90)
+	finally:
+		await repl.close()
+	assert r['error'] is None, r
+	assert r['output'].split() == ['visible', 'visible', 'ab', 'True', 'False'], r['output']
+
+
 async def test_a_browser_that_cannot_be_reattached_ends_the_cells(tmp_path):
 	"""C04: after the browser died and could not be reattached, the model kept running cells and went looking for another
 	browser: it reattached browser-harness to another run's Chrome and drove it. The next turn is now delivery-only: no

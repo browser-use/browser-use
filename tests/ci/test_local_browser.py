@@ -147,7 +147,8 @@ async def test_browser_chromium_runs_its_own_daemon_and_stop_ends_the_browser(fa
 	browser = Browser('chromium', executable_path=fake_chrome('ok'), headless=True)
 	env = await browser.start()
 	pid, tmp = int((tmp_path / 'pid').read_text()), browser._local.tmp
-	assert env == {'BU_NAME': browser.name} and env['BU_NAME'].startswith('bu')  # never the shared default daemon
+	# never the shared default daemon; BU_OWN_BROWSER: the agent's tab is the visible one (C09)
+	assert env == {'BU_NAME': browser.name, 'BU_OWN_BROWSER': '1'} and env['BU_NAME'].startswith('bu')
 	assert no_daemon == [
 		('start', browser.name, {'BU_CDP_WS': 'ws://127.0.0.1:4321/devtools/browser/fake', 'BH_TAB_MARKER': '0'})
 	]
@@ -252,6 +253,7 @@ def test_profile_copy_runs_with_sync_off():
 	would reach the account and the real profile."""
 	assert '--disable-sync' in _local.chrome_args(Path('x'), headless=True, fresh=False, profile_directory='Default')
 	assert '--disable-sync' not in _local.chrome_args(Path('x'), headless=True, fresh=True)
+	assert '--allow-pre-commit-input' in _local.chrome_args(Path('x'), headless=False, fresh=True)  # C09, as in 0.x
 
 
 def test_locked_cookies_fail_the_profile_copy_and_other_locked_files_warn(tmp_path, monkeypatch):
