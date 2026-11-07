@@ -398,3 +398,29 @@ async def test_screenshot_of_a_hidden_tab_succeeds(daemon, tmp_path):
 	assert r['error'] is None, r
 	out = r['output'].split()
 	assert out[0] == out[2] == 'hidden' and out[4:] == ['True', 'True'], r['output']
+
+
+async def test_a_browser_that_cannot_be_reattached_ends_the_cells(tmp_path):
+	"""C04: after the browser died and could not be reattached, the model kept running cells and went looking for another
+	browser: it reattached browser-harness to another run's Chrome and drove it. The next turn is now delivery-only: no
+	more cells, and finish_from_repl still delivers what the REPL has."""
+	from browser_use.agent.loop import DELIVER_NOW, NOT_RUN
+
+	async def reattach():
+		raise RuntimeError('The browser is gone: its browser-harness daemon stopped and could not reattach')
+
+	lost = 'found = [1]\nfrom browser_use.exceptions import BrowserConnectionLost\nraise BrowserConnectionLost()'
+	model, seen = script(
+		('python', {'code': lost}),
+		('python', {'code': "open('hijack.txt', 'w').write('ran')"}),
+		('finish_from_repl', {'expression': 'json.dumps(found)', 'success': False}),
+	)
+	session = Session(repl=Repl(tmp_path, reattach=reattach))
+	try:
+		result = await run(build_agent(model), 'task', session, 'm')
+	finally:
+		await session.repl.close()
+	assert (result.status, result.output) == ('completed', '[1]'), result.error
+	assert 'Finish with what you have' in str(seen[1][-1]) and DELIVER_NOW in str(seen[1][-1])
+	assert NOT_RUN in str(seen[2][-1]) and not (tmp_path / 'hijack.txt').exists()
+	assert session.budget_hit == 'browser_gone'

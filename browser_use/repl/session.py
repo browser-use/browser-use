@@ -312,7 +312,7 @@ class Repl:
 		port = server.sockets[0].getsockname()[1]
 		env = worker_env(self.env)
 		env.update(BH_TAB_MARKER='0', BU_STATE_DIR=str(self.state), BU_REPL_PORT=str(port), BU_REPL_TOKEN=token)
-		# A cell must never reach another browser (the user's own Chrome): a `browser-harness` CLI call reuses this run's
+		# A naive call never reaches another browser (the user's own Chrome): a `browser-harness` CLI call reuses this run's
 		# daemon or fails, and any daemon a cell starts dials a dead port instead of discovering a local Chrome.
 		env.update(BH_REQUIRE_EXISTING_DAEMON='1', BU_CDP_WS='ws://127.0.0.1:9/browser-use-owns-the-browser')
 		env['BU_REPL_PARENT_PID'] = str(os.getpid())  # the worker exits when we die (worker._watch_parent)
@@ -399,6 +399,7 @@ class Repl:
 						)
 				except Exception as e:
 					r['error'] += f'\n[{e}. Finish with what you have.]'
+					r['browser_gone'] = True  # the agent's next turn is delivery-only: no cells without a browser
 			if self.after_cell is not None and op == 'exec':
 				notices, blocks = await self.after_cell()
 				if notices:

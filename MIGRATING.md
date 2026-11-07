@@ -310,5 +310,7 @@ Nothing else is redacted. This is not a sandbox:
 Run untrusted tasks in a container or VM.
 
 `Browser('chrome')` and `Browser('chrome', profile=...)` drive your real logins: model-written CDP can read their
-cookies and (attached) your open tabs. `Browser('chromium')` and the cloud browser start with no cookies, so CDP cannot
-reach yours; the worker itself still runs as your user (see above). Use them for untrusted tasks.
+cookies and (attached) your open tabs. `Browser('chromium')` and the cloud browser start with no cookies. Model code
+still runs as your user and can attach to any browser on this machine with a debugging port open: other runs'
+`Browser('chromium')` need no approval, your Chrome asks "Allow remote debugging?". Once the browser is gone and
+cannot be reattached, the agent runs no more cells and delivers what it has.

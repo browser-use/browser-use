@@ -70,7 +70,7 @@ class Session:
 	after_tool: Callable[[str, dict, dict], Awaitable[None]] | None = None  # observer hook (evals)
 	stats: RunStats = field(default_factory=RunStats)  # telemetry counts (TELEMETRY.md)
 	finish_via: str | None = None  # finish | finish_from_repl | text: how the result was delivered
-	budget_hit: str | None = None  # max_steps | timeout: the budget that forced the delivery-only turn
+	budget_hit: str | None = None  # max_steps | timeout | browser_gone: what forced the delivery-only turn
 	error_type: str | None = None  # class of the exception that ended the run
 
 	def delivery_at(self) -> float:
@@ -97,6 +97,8 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	left = ctx.deps.delivery_at() - (started - ctx.deps.started)  # a cell never runs into the delivery turn's time
 	r = await ctx.deps.repl.call('exec', code, min(ctx.deps.cell_timeout_s, max(left, 1.0)))
 	ctx.deps.stats.add_cell(r, code, time.monotonic() - started)
+	if r.get('browser_gone'):  # a model left without a browser went looking for another one (the user's own Chrome)
+		ctx.deps.budget_hit = 'browser_gone'
 	text = r['output']  # already cut to MAX_OUTPUT_CHARS by the worker
 	if r['error']:
 		text = f'{text}\nError: {r["error"]}'.strip()
