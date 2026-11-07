@@ -10,7 +10,7 @@ import sys
 import threading
 import traceback
 import webbrowser
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager
 from io import StringIO
 from typing import Any
 
@@ -72,6 +72,33 @@ _REAPER = (
 )
 
 
+_cell = threading.local()  # .buffer: where the cell running on this thread prints
+
+
+class _CellStream:
+	"""Stands in for sys.stdout/sys.stderr: a cell's thread prints into its own buffer, any other thread into stream."""
+
+	def __init__(self, stream: Any):
+		self.stream = stream
+
+	def __getattr__(self, name: str) -> Any:
+		return getattr(getattr(_cell, 'buffer', None) or self.stream, name)
+
+
+@contextmanager
+def _capture(buffer: StringIO):
+	"""redirect_stdout/redirect_stderr for this thread only: a cell the client gave up on keeps printing into its own
+	buffer, never into the next call's."""
+	for name in ('stdout', 'stderr'):
+		if not isinstance(getattr(sys, name), _CellStream):
+			setattr(sys, name, _CellStream(getattr(sys, name)))
+	_cell.buffer = buffer
+	try:
+		yield
+	finally:
+		_cell.buffer = None
+
+
 def _open_url(url: str) -> bool:
 	"""Open url in the user's browser without letting a child process write to stdout (the MCP channel)."""
 	command = {'darwin': ['open', url], 'linux': ['xdg-open', url]}.get(sys.platform)
@@ -128,7 +155,6 @@ class CLIMCPServer:
 		)
 		self._namespace: dict[str, Any] | None = None
 		self._exec_lock = asyncio.Lock()
-		self._jobs: set[asyncio.Task] = set()  # _locked() calls: kept referenced while they run
 		self._login: _Login | None = None
 		self._login_lock = threading.Lock()
 		self._remote = f'mcp-{os.getpid()}'  # this server's cloud daemon name: no other server or CLI shares it
@@ -236,28 +262,11 @@ class CLIMCPServer:
 		self.server.add_request_handler('tools/call', types.CallToolRequestParams, handle_call_tool)
 
 	async def _locked(self, fn: Any, *args: Any) -> Any:
-		"""fn(*args) in a thread, one at a time. A call the client cancels (its timeout) keeps the lock until its thread
-		ends: the thread cannot be stopped, and the next call's output capture would otherwise collect its prints.
-		The lock is held by a task of its own: the MCP SDK cancels a request through an AnyIO cancel scope, which cancels
-		every await of the request's task again, so a wait there would end early and release the lock. A call cancelled
-		before it got the lock never runs."""
-		abandoned = False
-
-		async def job() -> Any:
-			async with self._exec_lock:
-				if abandoned:
-					raise asyncio.CancelledError
-				return await asyncio.to_thread(fn, *args)
-
-		task = asyncio.ensure_future(job())
-		self._jobs.add(task)
-		task.add_done_callback(self._jobs.discard)
-		task.add_done_callback(lambda t: t.cancelled() or t.exception())  # an abandoned call's error is never awaited
-		try:
-			return await asyncio.shield(task)
-		except asyncio.CancelledError:
-			abandoned = True
-			raise
+		"""fn(*args) in a thread, one at a time. A call the client cancels (its timeout) lets go of the lock at once: its
+		thread cannot be stopped and runs on, printing into its own buffer, but a hung cell never blocks the calls after
+		it (stop_remote_daemon among them). A call cancelled before it got the lock never runs."""
+		async with self._exec_lock:
+			return await asyncio.to_thread(fn, *args)
 
 	def _ensure_namespace(self) -> dict[str, Any]:
 		if self._namespace is None:
@@ -301,7 +310,7 @@ class CLIMCPServer:
 		captured because stdout carries the MCP protocol.
 		"""
 		buffer, failed = StringIO(), True
-		with redirect_stdout(buffer), redirect_stderr(buffer):
+		with _capture(buffer):
 			try:
 				ns = self._ensure_namespace()
 				if connect:
@@ -356,7 +365,7 @@ class CLIMCPServer:
 
 	def _screenshot(self, full: bool, max_dim: int | None) -> str:
 		buffer = StringIO()
-		with redirect_stdout(buffer), redirect_stderr(buffer):
+		with _capture(buffer):
 			ns = self._ensure_namespace()
 			harness_cloud.ensure_daemon()
 			path = ns['capture_screenshot'](full=full, max_dim=max_dim)

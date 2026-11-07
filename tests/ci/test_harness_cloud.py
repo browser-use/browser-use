@@ -369,45 +369,44 @@ async def test_mcp_exec_reports_failures_and_a_cancelled_call_never_bleeds_into_
 	)
 	await asyncio.sleep(0.15)
 	runaway.cancel()
-	text, failed = await server._locked(server._execute, 'print("MINE")')
+	# runs while the cancelled cell still prints (C23: it no longer holds the lock): none of those prints land here
+	text, failed = await server._locked(server._execute, 'import time\nprint("MINE")\ntime.sleep(0.3)')
 	assert (text, failed) == ('MINE\n', False)
 
 
-async def test_mcp_calls_an_anyio_cancel_scope_cancels_never_overlap_and_a_queued_one_never_runs(monkeypatch):
-	"""Review: the MCP SDK cancels a timed-out call through an AnyIO cancel scope, which cancels every await again, so
-	the cleanup await was cancelled too, the lock was released and the next call ran next to the first one's thread.
-	A call cancelled while it still waited for the lock must not run later either."""
+async def test_mcp_a_cancelled_call_lets_go_of_the_lock_and_a_queued_one_never_runs():
+	"""C23: a hung cell (find /, a wait that never returns) kept the lock after the client cancelled it, so every later
+	call timed out and a cloud browser could not even be stopped. The MCP SDK cancels through an AnyIO cancel scope.
+	A call cancelled while it still waited for the lock must never run later."""
 	import threading
-	import time
 
 	import anyio
 
 	from browser_use.mcp.cli_mcp import CLIMCPServer
 
 	server = CLIMCPServer()
-	running, most, ran = [0], [0], []
-	guard = threading.Lock()
+	release, ran = threading.Event(), []
 
-	def work(tag: str, seconds: float) -> tuple[str, bool]:
-		with guard:
-			running[0] += 1
-			most[0] = max(most[0], running[0])
+	def work(tag: str, block: bool = False) -> tuple[str, bool]:
 		ran.append(tag)
-		time.sleep(seconds)
-		with guard:
-			running[0] -= 1
+		if block:
+			release.wait()
 		return tag, False
 
-	async def timed_out(tag: str, seconds: float) -> None:
-		with anyio.move_on_after(0.1):  # what the MCP server does with a request the client cancelled
-			await server._locked(work, tag, seconds)
+	async def cancelled(tag: str, block: bool, after: float) -> None:
+		with anyio.move_on_after(after):  # what the MCP server does with a request the client cancelled
+			await server._locked(work, tag, block)
 
-	async with anyio.create_task_group() as tg:
-		tg.start_soon(timed_out, 'first', 0.5)
-		await anyio.sleep(0.02)
-		tg.start_soon(timed_out, 'queued', 0.0)  # cancelled before the first call let go of the lock
-	assert await server._locked(work, 'next', 0.0) == ('next', False)
-	assert most[0] == 1 and ran == ['first', 'next'], (most, ran)
+	try:
+		async with anyio.create_task_group() as tg:
+			tg.start_soon(cancelled, 'hung', True, 0.1)
+			await anyio.sleep(0.02)
+			tg.start_soon(cancelled, 'queued', False, 0.05)  # gives up while 'hung' still holds the lock
+		with anyio.fail_after(2):
+			assert await server._locked(work, 'next') == ('next', False)  # while the hung thread still runs
+		assert ran == ['hung', 'next']
+	finally:
+		release.set()
 
 
 def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
