@@ -130,7 +130,7 @@ def test_default_prompt_unchanged():
 	finish success line that made success required, minus the finish-whole-job and verify-answer paragraphs bu-pi lacks)."""
 	default = static_instructions(build_agent())
 	assert default == [SYSTEM_PROMPT] == static_instructions(build_agent(mode='default'))
-	assert hashlib.sha256(default[0].encode()).hexdigest() == '3123af555ea3e33bd25d4bc7c907527ae8be8257cc0e3fd18fc426bf336dbf46'
+	assert hashlib.sha256(default[0].encode()).hexdigest() == 'a7b0870b3cd613a82cbcc8af36ddcb367a63e7df96dcc66b573e3e401b1b5277'
 	assert static_instructions(build_agent(instructions='X')) == [f'{SYSTEM_PROMPT}\nX']
 	assert static_instructions(build_agent(mode='ultrafast')) == [(SYSTEM_PROMPT + AX_PROMPT).rstrip()]
 	assert static_instructions(build_agent(mode='ultrafast', instructions='X')) == [f'{SYSTEM_PROMPT}{AX_PROMPT}\nX']

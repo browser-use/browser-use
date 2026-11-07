@@ -380,24 +380,25 @@ async def test_finish_can_report_a_failed_task(tool, tmp_path):
 	assert (await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'm')).is_successful() is True
 
 
-async def test_finish_requires_a_success_verdict(tmp_path):
-	"""agent-llm F1: success defaulted to True, so an impossible task finished without a verdict came back
-	is_successful() == True (3/3 runs). Like 0.x done(success), finish and finish_from_repl now require it."""
+@pytest.mark.parametrize(
+	'call,expected',
+	[({'result': 'The book does not exist.'}, None), ({'result': 'The book does not exist.', 'success': False}, False)],
+)
+async def test_finish_success_verdict_is_optional(tmp_path, call, expected):
+	"""agent-llm F1: a finish without a verdict must never read as success. The verdict is optional (a required one made
+	the model give up early on long tasks: ablation 1107), so an omitted verdict is None, not True."""
 	from pydantic_ai.messages import ModelResponse, ToolCallPart
 	from pydantic_ai.models.function import FunctionModel
 
-	turns = [{'result': 'The book does not exist.'}, {'result': 'The book does not exist.', 'success': False}]
 	seen = []
 
 	def fn(messages, info):
-		seen.append(({t.name: t.parameters_json_schema for t in info.output_tools}, messages[-1]))
-		return ModelResponse(parts=[ToolCallPart('finish', turns[len(seen) - 1])])
+		seen.append({t.name: t.parameters_json_schema for t in info.output_tools})
+		return ModelResponse(parts=[ToolCallPart('finish', call)])
 
-	model = FunctionModel(fn)
-	r = await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'm')
-	assert all('success' in schema['required'] for schema in seen[0][0].values()), seen[0][0]
-	assert 'success' in str(seen[1][1])  # the omitted verdict went back to the model as a retry
-	assert (r.status, r.output, r.is_successful()) == ('completed', 'The book does not exist.', False)
+	r = await run(build_agent(FunctionModel(fn)), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert len(seen) == 1 and not any('success' in schema.get('required', []) for schema in seen[0].values()), seen
+	assert (r.status, r.output, r.is_successful()) == ('completed', 'The book does not exist.', expected)
 
 
 @pytest.mark.parametrize(

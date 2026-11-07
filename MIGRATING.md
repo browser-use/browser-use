@@ -56,7 +56,7 @@ Kept: works as in 0.x. Every other 0.x argument raises `TypeError` naming it in 
 |---|---|
 | `final_result()`, `is_done()`, `structured_output`, `total_duration_seconds()`, `number_of_steps()` | kept |
 | `errors()`, `has_errors()` | changed: only the error that ended the run (`result.error`). 0.x listed one entry per step; cell errors the agent recovered from are now in `result.messages` |
-| `is_successful()` | kept: `None` when the run did not complete, else the agent's verdict (`result.success`). Like 0.x `done(result, success)`, `finish(result, success)` requires the verdict: `success=False` for a task that was blocked, impossible, not found, refused or only partly done. `None` also when the model answered in plain text instead of calling `finish`. `is_done()` only says the run completed |
+| `is_successful()` | kept: `None` when the run did not complete, else the agent's verdict (`result.success`). The verdict in `finish(result, success)` is optional (0.x `done` required it): `None` when the model gave none or answered in plain text instead of calling `finish`, so a missing verdict never reads as success. `is_done()` only says the run completed |
 | `history`, `urls()`, `screenshots()`, `screenshot_paths()`, `action_names()`, `action_history()`, `action_results()`, `model_thoughts()`, `model_outputs()`, `model_actions()`, `model_actions_filtered()`, `extracted_content()`, `agent_steps()`, `last_action()`, `save_to_file()`, `load_from_file()`, `get_structured_output()`, `add_item()`, `judgement()`, `is_judged()`, `is_validated()` | removed (`NotImplementedError`): there are no per-step actions. Use `result.messages`, `result.status`, `result.partial` and the files in `agent.workspace` |
 | new | `status` (`completed`, `max_steps`, `timeout`, `error`), `success`, `partial` (last `checkpoint(..., partial=True)`), `usage`, `cost_usd`, `messages` |
 
@@ -123,7 +123,7 @@ browser-harness default daemon and its one attached tab, so two at once move eac
 | an action that raises | kept: the model gets `ActionResult(error='<Type>: <message>')` and can recover; the run goes on (`ModelRetry` asks the model to call it again) |
 | injected parameters (`browser_session`, `page_extraction_llm`, `file_system`, `available_file_paths`, `sensitive_data`, `has_sensitive_data`, `cdp_client`, `page_url`, ...) | removed: actions get only what the model passes; the model drives the browser itself |
 | `domains=`, `allowed_domains=` | removed: `Browser(allowed_domains=...)` limits where the whole browser navigates |
-| `ActionResult(is_done=..., success=..., include_in_memory=..., attachments=...)` | removed (raises, ending the run): the model ends the run with `finish(result, success)`; every result stays in the conversation; save files in the workspace |
+| `ActionResult(is_done=..., success=..., include_in_memory=..., attachments=...)` | removed (raises, ending the run): the model ends the run with `finish(result)` (optional `success`); every result stays in the conversation; save files in the workspace |
 
 ## Removed in 1.0
 

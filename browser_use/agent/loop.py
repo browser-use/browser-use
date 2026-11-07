@@ -157,7 +157,7 @@ def _outputs(output_type: Any) -> list[Any]:
 		except ValidationError:  # a schema constraint rejects '<secret:name>': deliver the redacted plain data
 			return redacted
 
-	async def finish_from_repl(ctx: RunContext[Session], expression: str, success: bool):
+	async def finish_from_repl(ctx: RunContext[Session], expression: str, success: bool | None = None):
 		r = await ctx.deps.repl.call('eval', expression, ctx.deps.cell_timeout_s)
 		if r['error']:
 			raise ModelRetry(f'Expression failed: {r["error"][-2000:]}')
@@ -172,7 +172,7 @@ def _outputs(output_type: Any) -> list[Any]:
 		ctx.deps.success, ctx.deps.finish_via = success, 'finish_from_repl'
 		return clean(ctx, value)
 
-	def finish(ctx: RunContext[Session], result, success: bool):
+	def finish(ctx: RunContext[Session], result, success: bool | None = None):
 		check_delivery(ctx, result)
 		ctx.deps.success, ctx.deps.finish_via = success, 'finish'
 		return clean(ctx, result)
@@ -194,11 +194,11 @@ def _outputs(output_type: Any) -> list[Any]:
 		except ValidationError as e:
 			raise ModelRetry(f'Deliver with finish or finish_from_repl; text does not match the result schema: {str(e)[:2000]}')
 
-	finish.__annotations__ = {'ctx': RunContext[Session], 'result': output_type, 'success': bool, 'return': output_type}
+	finish.__annotations__ = {'ctx': RunContext[Session], 'result': output_type, 'success': bool | None, 'return': output_type}
 	finish_from_repl.__annotations__ = {
 		'ctx': RunContext[Session],
 		'expression': str,
-		'success': bool,
+		'success': bool | None,
 		'return': output_type,
 	}
 	on_text.__annotations__ = {'ctx': RunContext[Session], 'text': str, 'return': output_type}
@@ -210,9 +210,7 @@ def _outputs(output_type: Any) -> list[Any]:
 			description=(
 				'Deliver an existing value from the persistent REPL without printing or rewriting it. The Python '
 				'expression must match the result schema of finish; for a string result use json.dumps(records) or an '
-				'existing text variable. Evaluated once; ends the task after validation. success=true only when it '
-				'delivers what the task asked for; false when blocked, refused, partial, or what the task asks for does '
-				'not exist or was not found; the result says why.'
+				'existing text variable. Evaluated once; ends the task after validation.'
 			),
 		),
 		ToolOutput(
@@ -220,9 +218,7 @@ def _outputs(output_type: Any) -> list[Any]:
 			name='finish',
 			description=(
 				'Submit the verified final result. For data already in the REPL, prefer finish_from_repl to avoid '
-				'rewriting it. This ends the task. success=true only when it delivers what the task asked for; false '
-				'when blocked, refused, partial, or what the task asks for does not exist or was not found; the result '
-				'says why.'
+				'rewriting it. This ends the task.'
 			),
 		),
 	]

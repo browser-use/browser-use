@@ -84,7 +84,7 @@ class AgentHistoryList:
 	partial: Any  # last checkpoint(..., partial=True) when unfinished
 	error: str | None
 	messages: list[ModelMessage]
-	success: bool | None = True  # the agent's own verdict: finish(..., success=False) when it could not do the task
+	success: bool | None = True  # the agent's optional verdict from finish(..., success=...); None when it gave none
 	output_schema: Any = None  # Agent(output_model_schema=...) (str when none); None: unknown, judged by the output
 
 	def __post_init__(self) -> None:

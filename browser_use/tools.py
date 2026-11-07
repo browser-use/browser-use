@@ -47,7 +47,7 @@ class RemovedField(TypeError):
 
 REMOVED_FIELDS = {  # 0.x ActionResult fields -> the 1.0 alternative
 	'is_done': 'the model ends the run with finish.',
-	'success': 'the model gives the verdict in finish(..., success=...); result.success holds it.',
+	'success': 'the model may give a verdict in finish(..., success=...); result.success holds it (None when omitted).',
 	'include_in_memory': 'every action result stays in the conversation.',
 	'attachments': 'save files in the workspace; files the agent wrote there are delivered.',
 }
