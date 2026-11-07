@@ -444,6 +444,13 @@ class Browser:
 			raise ValueError(f'cloud_timeout must be whole minutes from 1 to 240, not {cloud_timeout!r}')
 		if not isinstance(captcha_solver, bool):
 			raise TypeError(f'captcha_solver must be True or False, not {captcha_solver!r}')
+		if os.environ.get('BROWSER_USE_ALLOWED_DOMAINS', '').strip():  # silently ignored, the browser went anywhere
+			raise RuntimeError(
+				removed(
+					'The BROWSER_USE_ALLOWED_DOMAINS environment variable',
+					'Browser(allowed_domains=[...]); unset the variable.',
+				)
+			)
 		self.domains = DomainRules.of(allowed_domains, prohibited_domains, block_ip_addresses)
 		launches = self.kind == 'chromium' or (self.kind == 'chrome' and profile is not None)
 		where = {'cloud': 'Browser() (a cloud browser)', 'chrome': "Browser('chrome') (your open Chrome)"}.get(

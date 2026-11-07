@@ -21,6 +21,23 @@ from browser_use.repl import Repl
 from tests.ci.conftest import script
 
 
+def test_a_prohibited_scheme_pattern_without_a_port_blocks_every_port():
+	"""M22: prohibited_domains=['http://evil.test'] let http://evil.test:8080 through."""
+	rules = DomainRules.of(prohibited=['http://evil.test'])
+	assert rules.blocked('http://evil.test:8080/x') and rules.blocked('http://evil.test/')
+	assert not rules.blocked('http://good.test:8080/')
+	assert DomainRules.of(allowed=['http://ok.test']).blocked('http://ok.test:8080/')  # allowed: still the exact port
+
+
+def test_the_0x_allowed_domains_env_var_raises_instead_of_being_ignored(monkeypatch):
+	"""M21: BROWSER_USE_ALLOWED_DOMAINS was silently ignored: the browser went anywhere."""
+	monkeypatch.setenv('BROWSER_USE_ALLOWED_DOMAINS', 'example.com')
+	with pytest.raises(RuntimeError, match='BROWSER_USE_ALLOWED_DOMAINS environment variable was removed'):
+		Browser('chromium')
+	monkeypatch.setenv('BROWSER_USE_ALLOWED_DOMAINS', '')
+	Browser('chromium')
+
+
 def ok(url: str, allowed=(), prohibited=(), block_ips=False) -> bool:
 	return DomainRules(tuple(allowed), tuple(prohibited), block_ips).blocked(url) is None
 

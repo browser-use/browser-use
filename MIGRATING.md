@@ -157,14 +157,15 @@ for result methods, `ImportError` for imports, an MCP tool error for old tool na
 ## Domain restrictions
 
 `Browser(allowed_domains=[...])`, `Browser(prohibited_domains=[...])` and `Browser(block_ip_addresses=True)` work in
-every mode with the 0.x patterns:
+every mode with the 0.x patterns. The 0.x `BROWSER_USE_ALLOWED_DOMAINS` environment variable is not read: `Browser()`
+raises while it is set.
 
 | Pattern | Matches |
 |---|---|
 | `'example.com'` | example.com and www.example.com (www only for a one-dot domain), http and https, any port. In `prohibited_domains` also every subdomain (new: 0.x let `en.example.com` through) |
 | `'mail.example.com'` | exactly that host |
 | `'*.example.com'` | example.com and every subdomain, http and https |
-| `'https://example.com'` | that scheme and host on the default port; a path in the pattern is a path prefix |
+| `'https://example.com'` | that scheme and host on the default port (in `prohibited_domains`: on every port); a path in the pattern is a path prefix |
 | `'https://*.example.com'`, `'http*://example.com/*'`, `'brave://*'` | globs on scheme, host and path |
 | `'localhost:8080'` | that host and port (new: 0.x never matched a port) |
 

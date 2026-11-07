@@ -5,7 +5,8 @@ Patterns follow 0.x (browser_use/browser/watchdogs/security_watchdog.py, _is_url
                           in prohibited_domains also every subdomain (new in 1.0: 0.x let en.example.com through)
   'mail.example.com'      exactly that host (no www added)
   '*.example.com'         example.com and every subdomain, http and https
-  'https://example.com'   that scheme and host on its default port (a path in the pattern is a path prefix)
+  'https://example.com'   that scheme and host on its default port (a path in the pattern is a path prefix); in
+                          prohibited_domains on every port
   'https://*.example.com', 'http*://example.com/*', 'brave://*'   globs on scheme, host and path
   'localhost:8080'        a host with a port (new in 1.0; 0.x never matched it)
 about:blank, the new tab page, data: and blob: are always allowed. A URL without a host (file:, javascript:) is not.
@@ -120,7 +121,9 @@ def pattern_matches(pattern: str, u: Url, subdomains: bool = False) -> bool:
 		if p_port:
 			if not fnmatchcase(port, p_port):
 				return False
-		elif u.port and u.port != DEFAULT_PORT.get(u.scheme):  # 0.x: 'https://site' was a prefix of 'https://site/...'
+		# 0.x: 'https://site' was a prefix of 'https://site/...'. A prohibited pattern without a port blocks every port:
+		# 'http://evil' let http://evil:8080 through.
+		elif not subdomains and u.port and u.port != DEFAULT_PORT.get(u.scheme):
 			return False
 		if not slash:
 			return True
