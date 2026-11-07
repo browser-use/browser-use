@@ -547,6 +547,7 @@ async def test_cost_is_priced_with_the_models_provider(llm, fake_browser, tmp_pa
 		return result()
 
 	monkeypatch.setattr(service, 'run', fake_run)
+	monkeypatch.setattr(service, 'provider_preflight', lambda model: None)  # the provider would reject the fake key
 	await Agent('t', llm(), browser=Browser(local=True), workspace=tmp_path).run()
 	usage = RequestUsage(input_tokens=1000, output_tokens=100)
 	assert usage_and_cost([ModelResponse(parts=[TextPart('x')], usage=usage)], refs[0])[1]

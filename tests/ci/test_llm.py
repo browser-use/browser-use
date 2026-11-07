@@ -6,6 +6,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+from pydantic_ai.exceptions import UserError
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAICompaction, OpenAIResponsesModel
 
 from browser_use import Agent, ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI
@@ -271,7 +272,8 @@ def test_preflight_checks_the_gateway_key_and_model_before_anything_starts(model
 	assert dead and f'gateway is not deployed at {url} (404)' in dead and 'region' not in dead  # H1: no region claim
 	assert 'model id' not in dead
 	reply[:] = [401, error('invalid_api_key', 'Invalid API key.'), 'application/json']
-	assert 'API key rejected (401)' in (ChatBrowserUse(api_key='bad', base_url=url).preflight() or '')
+	rejected = ChatBrowserUse(api_key='bad', base_url=url).preflight() or ''
+	assert 'API key rejected (401): check api_key=..., or BROWSER_USE_API_KEY' in rejected  # C38: may be either key
 	reply[:] = [403, error('insufficient_scope', 'This API key requires v4:runs:create permission.'), 'application/json']
 	assert 'requires v4:runs:create permission. Run `browser-use login`' in (
 		ChatBrowserUse(api_key='x', base_url=url).preflight() or ''
@@ -298,6 +300,19 @@ async def test_agent_preflight_failure_never_starts_a_browser(models_server, mon
 	result = await agent.run()
 	assert (result.status, result.steps, result.is_successful()) == ('error', 0, None)
 	assert 'gateway is not deployed at' in (result.error or '') and started == []
+	# C38: a provider key is checked on a local browser too, not only before a billed cloud browser
+	monkeypatch.setattr('browser_use.agent.service.provider_preflight', lambda model: 'openai rejected the API key (401)')
+	result = await Agent('t', ChatOpenAI('gpt-6-luna', api_key='bad'), browser=Browser(local=True), workspace=tmp_path).run()
+	assert result.error == 'openai rejected the API key (401)' and started == []
+
+
+def test_missing_provider_key_names_the_env_var_not_pydantic_ai_internals(monkeypatch):
+	"""C38: Pydantic AI's text named OpenAIProvider(api_key=...) and suggested Agent('test'), a task named 'test' here."""
+	monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+	for llm in (ChatOpenAI('gpt-6-luna'), 'openai:gpt-6-luna'):
+		with pytest.raises(UserError) as e:
+			resolve_model(llm)
+		assert str(e.value) == 'OPENAI_API_KEY is not set: export it, put it in .env, or pass api_key=... to the model.'
 
 
 def test_gateway_400s_are_one_line_with_the_gateway_message():

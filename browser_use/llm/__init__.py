@@ -138,7 +138,7 @@ class ChatBrowserUse:
 		if status == 400 and code in ('invalid_model', 'model_not_on_gateway'):
 			return f'{self.model} is not on the Browser Use gateway (400): {message or "use bu-fast, bu-ultrafast or bu-smart."}'
 		if status == 401:
-			return 'Browser Use API key rejected (401). Run `browser-use login` or check BROWSER_USE_API_KEY.'
+			return 'Browser Use API key rejected (401): check api_key=..., or BROWSER_USE_API_KEY / `browser-use login`.'
 		if status == 402:
 			return f'Out of Browser Use credits (402): add credits at {BILLING_URL}'
 		if status == 403:
@@ -370,6 +370,17 @@ def as_chat_model(llm: Any) -> Any:
 
 def resolve_model(llm: Any) -> tuple[Any, dict]:
 	"""-> (Pydantic AI Model, extra model settings). Raises before any browser starts: missing key, missing extra."""
+	from pydantic_ai.exceptions import UserError
+
+	try:
+		return _resolve_model(llm)
+	except UserError as e:  # Pydantic AI's missing-key text names its provider classes and suggests Agent('test')
+		if not (env := re.match(r'Set the `(\w+)` environment variable', str(e))):
+			raise
+		raise UserError(f'{env[1]} is not set: export it, put it in .env, or pass api_key=... to the model.') from None
+
+
+def _resolve_model(llm: Any) -> tuple[Any, dict]:
 	from pydantic_ai.models import Model, infer_model
 
 	if isinstance(llm, CHAT_MODELS):
