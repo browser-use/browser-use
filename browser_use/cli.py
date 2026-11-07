@@ -109,11 +109,9 @@ def _run_cli_mcp_server() -> None:
 	_run_mcp_stdio_server('browser_use.mcp.cli_mcp')
 
 
-INSTALL_TEXT = """browser-use 1.0 does not download a browser (0.x installed Playwright Chromium; nothing uses it now).
-
-Pick where the agent's browser runs:
+INSTALL_TEXT = """Pick where the agent's browser runs:
   Browser()                   Browser Use Cloud browser (default). Needs a key: browser-use login
-  Browser('chromium')         a fresh local Chrome/Chromium/Edge with its own temp profile
+  Browser('chromium')         a fresh local Chrome/Chromium/Edge (or the Chromium just installed) with its own temp profile
                               (headless when there is no display: servers, Docker, CI)
   Browser('chrome')           the Chrome you have open, with your logins (browser-harness discovery)
   Browser('chrome', profile='Work')
@@ -126,8 +124,29 @@ def _run_install_command(argv: list[str]) -> int:
 	if any(arg in {'-h', '--help'} for arg in argv):
 		print('usage: browser-use install')
 		print()
-		print('Explain how browser-use 1.0 finds a browser (it no longer downloads one).')
+		print("Install Playwright's Chromium (+ system dependencies on Linux) for Browser('chromium').")
+		print('Not needed for the default cloud browser or a Chrome you already have.')
 		return 0
+	import platform
+	import shutil
+	import subprocess
+
+	if not shutil.which('uvx'):
+		print(
+			'uvx not found. Install uv (https://docs.astral.sh/uv/), or: pip install playwright && playwright install chromium',
+			file=sys.stderr,
+		)
+		return 1
+	print('Installing Chromium browser + system dependencies...\nThis may take a few minutes...\n')
+	cmd = ['uvx', 'playwright', 'install', 'chromium']
+	if platform.system() == 'Linux':
+		cmd.append('--with-deps')
+	cmd.append('--no-shell')
+	result = subprocess.run(cmd)
+	if result.returncode != 0:
+		print('\nInstallation failed', file=sys.stderr)
+		return result.returncode or 1
+	print('\nInstallation complete.\n')
 	print(INSTALL_TEXT)
 	return 0
 

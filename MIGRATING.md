@@ -14,11 +14,11 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 
 | | 0.x | 1.0 |
 |---|---|---|
-| Model (`llm=None`) | required | `bu-ultrafast` on the Browser Use gateway (`gpt-6-luna`, low reasoning, priority tier; `bu-auto` is the same model at medium) |
+| Model (`llm=None`) | required | `bu-fast` on the Browser Use gateway (`gpt-6-luna`, medium reasoning; `bu-ultrafast` is the same model at low reasoning on the priority tier) |
 | Browser (`Browser()`) | local Chromium | Browser Use Cloud browser (`Browser('chromium')` / `local=True` for a local one) |
 | Key | per provider | one Browser Use key: `browser-use login` (stored in `~/.config/browser-harness/auth.json`, shared with the CLI, the MCP server and browser-harness) or `BROWSER_USE_API_KEY` (wins when set). A `.env` in the working directory is read on import, as in 0.x |
 | Python | >= 3.11 | >= 3.11 |
-| Tasks with localhost / private IPs | worked | raise with a cloud browser; use `Browser('chromium')` |
+| Tasks with localhost / private IPs | worked | a cloud browser cannot reach them: one warning, use `Browser('chromium')` |
 | Cloud proxy | off | `us` (`cloud_proxy_country_code=None` turns it off) |
 | Cloud live view | | off (`live_view=True` prints and opens it) |
 
@@ -30,7 +30,7 @@ Kept: works as in 0.x. Every other 0.x argument raises `TypeError` naming it in 
 | 0.x argument | 1.0 |
 |---|---|
 | `task` | kept |
-| `llm` | kept: `ChatBrowserUse`, `ChatOpenAI`, `ChatAnthropic`, `ChatGoogle`, a Pydantic AI model string or Model. Default `bu-ultrafast` |
+| `llm` | kept: `ChatBrowserUse`, `ChatOpenAI`, `ChatAnthropic`, `ChatGoogle`, a Pydantic AI model string or Model. Default `bu-fast` |
 | `browser`, `browser_session` | kept: take a `Browser(...)` |
 | `tools`, `controller` | kept: take `Tools()` (see below) |
 | `output_model_schema` | kept: `result.structured_output` |
@@ -86,7 +86,7 @@ Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` na
 | 0.x options | 1.0 |
 |---|---|
 | other launch options: `channel`, `args`, `ignore_default_args`, `env`, `chromium_sandbox`, `devtools`, `enable_default_extensions`, `disable_security`, `is_local` | raise. `channel`: pass `executable_path=`. `--no-sandbox` is added on Linux as root or in a container, and once more if Chrome reports no usable sandbox |
-| servers / Docker / CI (`browser-use install`, the 0.x Dockerfile) | `Browser('chromium')` is headless there by default (no display); or `Browser()` (cloud). `browser-use install` no longer downloads a browser: install Chrome or Chromium (`BH_CHROME_PATH` / `CHROME_PATH` point at a binary) |
+| servers / Docker / CI (`browser-use install`, the 0.x Dockerfile) | `Browser('chromium')` is headless there by default (no display); or `Browser()` (cloud). `browser-use install` still downloads Playwright's Chromium (with system deps on Linux), which `Browser('chromium')` finds when no Chrome is installed; or point `BH_CHROME_PATH` / `CHROME_PATH` at a binary |
 | window and identity: `window_size`, `window_width`, `window_height`, `window_position`, `viewport`, `no_viewport`, `screen`, `device_scale_factor`, `user_agent`, `headers` | say it in the task: the agent can send `Emulation.setDeviceMetricsOverride`, `Network.setUserAgentOverride`, `Network.setExtraHTTPHeaders` itself. Headless launches use 1440x900. Viewport emulation does not work on cloud browsers yet: `Emulation.setDeviceMetricsOverride` is accepted there but the page keeps its 1440 px width; use `Browser('chromium')` for another viewport |
 | downloads: `downloads_path`, `accept_downloads`, `auto_download_pdfs` | cloud: files the browser downloaded are copied to `agent.workspace/downloads` when it stops. Local: the browser's own download folder; the agent can set `Browser.setDownloadBehavior` |
 | `permissions` | say it in the task: the agent can send `Browser.grantPermissions` |
@@ -105,7 +105,7 @@ browser-harness default daemon and its one attached tab, so two at once move eac
 
 | 0.x | 1.0 |
 |---|---|
-| `ChatBrowserUse(model=...)` | kept: `bu-ultrafast` (default), `bu-auto`, `bu-smart` or a listed OpenAI model on the new gateway, over the stateless Responses API with server-side compaction. The 0.x gateway models `bu-2-0`, `bu-2-0-mini-preview`, `bu-1-0` and `bu-latest` are rejected: keep `browser-use<1.0` for them, or use `bu-ultrafast`. Before the browser starts, the agent reads the gateway's model list (free): a gateway that is not there, a rejected key or a model it does not list ends the run with `result.error` and no browser created. Gateway errors (400/401/402/403/404) come back as one actionable line in `result.error`; `result.cost_usd` is what the gateway charged. Another gateway URL: `ChatBrowserUse(base_url=...)` (0.x's `BROWSER_USE_LLM_URL` is not read) |
+| `ChatBrowserUse(model=...)` | kept: `bu-fast` (default), `bu-ultrafast`, `bu-smart` or a listed OpenAI model on the new gateway, over the stateless Responses API with server-side compaction. The 0.x gateway models `bu-2-0`, `bu-2-0-mini-preview`, `bu-1-0` and `bu-latest` are rejected: keep `browser-use<1.0` for them, or use `bu-fast`. Before the browser starts, the agent reads the gateway's model list (free): a gateway that is not there, a rejected key or a model it does not list ends the run with `result.error` and no browser created. Gateway errors (400/401/402/403/404) come back as one actionable line in `result.error`; `result.cost_usd` is what the gateway charged. Another gateway URL: `ChatBrowserUse(base_url=...)` (0.x's `BROWSER_USE_LLM_URL` is not read) |
 | `ChatOpenAI(model, api_key, base_url, temperature, reasoning_effort)` | kept. api.openai.com uses the Responses API; the gateway URL (`https://api.browser-use.com/api/llm/v1`) is served as `ChatBrowserUse` (key: `api_key`, else a `bu_` key in `OPENAI_API_KEY`, else the Browser Use key); any other `base_url` uses plain chat completions. Other 0.x arguments raise `TypeError` |
 | `ChatAnthropic(model, api_key)`, `ChatGoogle(model, api_key)` | kept; need `browser-use[anthropic]` / `browser-use[google]` |
 | `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatDeepSeek`, `ChatMistral`, `ChatOpenRouter`, `ChatAWSBedrock`, `ChatAnthropicBedrock`, `ChatCerebras`, `ChatLiteLLM`, `ChatOCIRaw`, `ChatOrcaRouter`, `ChatVercel` | removed (the import raises): use a Pydantic AI model string (`'groq:llama-3.3-70b-versatile'`, `'mistral:...'`, `'bedrock:...'`) or `ChatOpenAI(model, base_url=...)` |

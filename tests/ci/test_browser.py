@@ -152,11 +152,10 @@ def test_atexit_cleanup_stops_live_browsers(cloud):
 		'open printer.local',
 	],
 )
-async def test_localhost_task_with_cloud_browser_raises_before_start(cloud, task):
-	model, _ = script()
-	with pytest.raises(ValueError, match="Browser\\('chromium'\\)"):
-		await Agent(task, model).run()
-	assert cloud == []
+def test_localhost_guard_spots_local_targets(task):
+	from browser_use.agent.service import LOCAL_TARGET
+
+	assert LOCAL_TARGET.search(task)  # a warning only (test_agent.py), never a refusal
 
 
 @pytest.mark.parametrize('task', ['find local restaurants', 'compare 10.5 and 10.25', 'version 172.15.0.1'])

@@ -1,4 +1,4 @@
-"""Models. Default: bu-ultrafast on the Browser Use gateway (one Browser Use API key runs model and browser).
+"""Models. Default: bu-fast on the Browser Use gateway (one Browser Use API key runs model and browser).
 
 ChatBrowserUse  the gateway: stateless OpenAI Responses (store=false, encrypted reasoning) + server-side compaction
 ChatOpenAI      api.openai.com -> Responses API (the evaluated setup); the gateway URL -> as ChatBrowserUse;
@@ -23,7 +23,7 @@ from browser_use.auth import browser_use_api_key
 
 GATEWAY_URL = 'https://api.browser-use.com/api/llm/v1'
 BILLING_URL = 'https://cloud.browser-use.com/settings?tab=billing'
-DEFAULT_MODEL = 'bu-ultrafast'  # gpt-6-luna, low reasoning, priority tier. bu-auto: same model, medium, default tier
+DEFAULT_MODEL = 'bu-fast'  # gpt-6-luna, medium reasoning, default tier (the evaluated setup). bu-ultrafast: low, priority
 GATEWAY_UPSTREAM = {'bu-smart': 'gpt-6.1-sol', 'bu-smart-v1': 'gpt-6.1-sol'}  # other bu-* aliases run gpt-6-luna
 LEGACY_MODEL = re.compile(r'bu-(latest|\d+-\d+)\b')  # bu-2-0, bu-1-0, bu-2-0-mini-preview, bu-latest: the 0.x gateway
 PREFLIGHT_TIMEOUT_S = 15
@@ -72,7 +72,7 @@ def gateway_model(model: str, api_key: str, base_url: str) -> Any:
 
 
 class ChatBrowserUse:
-	"""Browser Use gateway models ('bu-ultrafast', 'bu-auto', 'bu-smart', or a listed OpenAI model such as 'gpt-6.1-sol').
+	"""Browser Use gateway models ('bu-fast', 'bu-ultrafast', 'bu-smart', or a listed OpenAI model such as 'gpt-6.1-sol').
 	Key: BROWSER_USE_API_KEY or `browser-use login`. Without Agent(reasoning=...) the alias's own effort applies."""
 
 	provider = 'browser-use'
@@ -96,11 +96,9 @@ class ChatBrowserUse:
 
 	def _explain(self, status: int | None, code: str | None, message: str | None) -> str | None:
 		if code == 'legacy_model' or (status == 400 and LEGACY_MODEL.match(self.model)):
-			return (
-				f"{self.model} needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-ultrafast with browser-use 1.0."
-			)
+			return f"{self.model} needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast with browser-use 1.0."
 		if status == 400 and code in ('invalid_model', 'model_not_on_gateway'):
-			return f'{self.model} is not on the Browser Use gateway (400): {message or "use bu-ultrafast, bu-auto or bu-smart."}'
+			return f'{self.model} is not on the Browser Use gateway (400): {message or "use bu-fast, bu-ultrafast or bu-smart."}'
 		if status == 401:
 			return 'Browser Use API key rejected (401). Run `browser-use login` or check BROWSER_USE_API_KEY.'
 		if status == 402:

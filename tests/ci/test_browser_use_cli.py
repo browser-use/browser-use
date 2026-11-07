@@ -57,16 +57,25 @@ def test_browser_use_tui_is_deprecated_alias(monkeypatch, capsys):
 	assert capsys.readouterr().err == 'browser-use-tui is deprecated; use browser-use instead.\n'
 
 
-def test_install_explains_1_0_browsers_instead_of_downloading_playwright(monkeypatch, capsys):
-	"""0.x `browser-use install` ran `uvx playwright install chromium`, which nothing in 1.0 uses."""
+def test_install_downloads_playwright_chromium_like_0x(monkeypatch, capsys):
+	"""Kept from 0.x: local-browser users (QA, CI) still get a Chromium from `browser-use install`."""
+	import platform
+	import shutil
 	import subprocess
 
 	import browser_use.cli as browser_use_cli
 
-	def no_subprocess(*a, **k):
-		raise AssertionError(f'install must not run anything: {a}')
-
-	monkeypatch.setattr(subprocess, 'run', no_subprocess)
+	ran = []
+	monkeypatch.setattr(shutil, 'which', lambda name: '/usr/bin/uvx')
+	monkeypatch.setattr(platform, 'system', lambda: 'Linux')
+	monkeypatch.setattr(subprocess, 'run', lambda cmd, **k: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0))
 	assert browser_use_cli._run_install_command([]) == 0
+	assert ran == [['uvx', 'playwright', 'install', 'chromium', '--with-deps', '--no-shell']]
 	out = capsys.readouterr().out
-	assert 'does not download a browser' in out and "Browser('chromium')" in out and "Browser('chrome')" in out
+	assert 'Installation complete' in out and "Browser('chromium')" in out and "Browser('chrome')" in out
+
+	monkeypatch.setattr(subprocess, 'run', lambda cmd, **k: subprocess.CompletedProcess(cmd, 3))
+	assert browser_use_cli._run_install_command([]) == 3
+	monkeypatch.setattr(shutil, 'which', lambda name: None)
+	assert browser_use_cli._run_install_command([]) == 1
+	assert 'playwright install chromium' in capsys.readouterr().err

@@ -551,3 +551,15 @@ def test_totp_matches_rfc6238():
 
 	seed = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'  # RFC 6238 SHA-1 key '12345678901234567890'
 	assert [totp(seed, now=t) for t in (59, 1111111109, 1234567890)] == ['287082', '081804', '005924']
+
+
+def test_localhost_task_with_a_cloud_browser_warns_instead_of_refusing(monkeypatch, caplog):
+	"""A cloud browser cannot reach localhost, but the task may only mention it (docs, a version number): a hint only."""
+	import logging
+
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
+	agent = Agent('Test the signup form on http://localhost:3000', 'test', browser=Browser())
+	with caplog.at_level('WARNING', logger='browser_use.agent.service'):
+		agent._check_task()
+	assert "'localhost'" in caplog.text and "Browser('chromium')" in caplog.text

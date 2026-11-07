@@ -1,13 +1,13 @@
 # Models (browser-use 1.0)
 
-`Agent(task)` with no `llm` runs `bu-ultrafast` on the Browser Use gateway: one `BROWSER_USE_API_KEY` (or
+`Agent(task)` with no `llm` runs `bu-fast` on the Browser Use gateway: one `BROWSER_USE_API_KEY` (or
 `browser-use login`) pays for the model and the cloud browser.
 
 ## Quick reference
 
 | What | How | Key |
 |---|---|---|
-| Browser Use gateway (default) | `llm=None`, `'bu-ultrafast'`, `'bu-auto'`, `'bu-smart'`, or `ChatBrowserUse(model)` | `BROWSER_USE_API_KEY` |
+| Browser Use gateway (default) | `llm=None`, `'bu-fast'`, `'bu-ultrafast'`, `'bu-smart'`, or `ChatBrowserUse(model)` | `BROWSER_USE_API_KEY` |
 | OpenAI | `ChatOpenAI('gpt-6-luna')` | `OPENAI_API_KEY` |
 | OpenAI-compatible server (vLLM, Ollama, DeepSeek, ...) | `ChatOpenAI(model, base_url=..., api_key=...)` | the server's |
 | Anthropic | `ChatAnthropic('claude-opus-5-5')`, needs `pip install 'browser-use[anthropic]'` | `ANTHROPIC_API_KEY` |
@@ -19,14 +19,14 @@
 ```python
 from browser_use import Agent, ChatBrowserUse
 
-agent = Agent('Find the top post on Hacker News')                 # bu-ultrafast (default)
-agent = Agent('Find the top post on Hacker News', llm='bu-auto')  # same as ChatBrowserUse('bu-auto')
+agent = Agent('Find the top post on Hacker News')                 # bu-fast (default)
+agent = Agent('Find the top post on Hacker News', llm='bu-ultrafast')  # same as ChatBrowserUse('bu-ultrafast')
 ```
 
 | Model | What it is |
 |---|---|
-| `bu-ultrafast` (default) | `gpt-6-luna`, low reasoning, priority tier: the fastest |
-| `bu-auto` | the same model at medium reasoning on the default tier: the configuration we evaluate |
+| `bu-fast` (default) | `gpt-6-luna`, medium reasoning, default tier: the configuration we evaluate (`bu-auto` is the same) |
+| `bu-ultrafast` | the same model at low reasoning on the priority tier: the fastest |
 | `bu-smart` | `gpt-6.1-sol`, a larger model at high reasoning |
 | a listed OpenAI model, e.g. `gpt-6-luna` | that model through the gateway |
 
@@ -34,7 +34,7 @@ agent = Agent('Find the top post on Hacker News', llm='bu-auto')  # same as Chat
 `GET https://api.browser-use.com/api/llm/v1/models`. `result.cost_usd` is exactly what the gateway charged.
 
 `bu-2-0`, `bu-2-0-mini-preview`, `bu-1-0` and `bu-latest` were the 0.x models. browser-use 1.0 rejects them before a
-browser starts: keep `browser-use<1.0` for them, or switch to `bu-ultrafast`.
+browser starts: keep `browser-use<1.0` for them, or switch to `bu-fast`.
 
 ## Your own model
 

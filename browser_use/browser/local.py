@@ -91,6 +91,8 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 		names = ['google-chrome-stable', 'google-chrome']
 		names += [] if chrome_only else ['chromium', 'chromium-browser', 'microsoft-edge-stable', 'microsoft-edge']
 		tried += [shutil.which(n) or n for n in names]
+	if not chrome_only:
+		tried += playwright_chromium()  # `browser-use install` (Playwright's Chromium), last: an installed Chrome wins
 	snaps = []
 	for path in tried:
 		if Path(path).expanduser().is_file():
@@ -104,6 +106,34 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 	raise RuntimeError(
 		f'No {kind} found (tried {", ".join(tried)}). Install one, or pass executable_path=... or set BH_CHROME_PATH.'
 	)
+
+
+def playwright_chromium() -> list[str]:
+	"""Chromium binaries `browser-use install` (uvx playwright install chromium) left in Playwright's cache, newest first.
+	PLAYWRIGHT_BROWSERS_PATH, else the platform default. Newer builds ship Chrome for Testing, older ones Chromium."""
+	root = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '').strip()
+	if root in ('', '0'):
+		if sys.platform == 'darwin':
+			root = str(Path.home() / 'Library/Caches/ms-playwright')
+		elif sys.platform == 'win32':
+			root = str(Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData/Local') / 'ms-playwright')
+		else:
+			root = str(Path.home() / '.cache/ms-playwright')
+	builds = sorted(
+		Path(root).expanduser().glob('chromium-*'),
+		key=lambda p: int(p.name.split('-')[-1]) if p.name.split('-')[-1].isdigit() else -1,
+		reverse=True,
+	)
+	if sys.platform == 'darwin':
+		rels = [
+			'chrome-mac*/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
+			'chrome-mac*/Chromium.app/Contents/MacOS/Chromium',
+		]
+	elif sys.platform == 'win32':
+		rels = ['chrome-win*/chrome.exe']
+	else:
+		rels = ['chrome-linux*/chrome']
+	return [str(hit) for build in builds for rel in rels for hit in sorted(build.glob(rel))]
 
 
 def is_snap(path: str) -> bool:

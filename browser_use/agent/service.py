@@ -124,13 +124,13 @@ def _unsupported(kwargs: dict[str, Any], where: str) -> TypeError:
 class Agent:
 	"""agent = Agent('task'); result = await agent.run(); result.final_result()
 
-	llm: default ChatBrowserUse('bu-ultrafast'). browser: default Browser() = a Browser Use Cloud browser; Browser('chromium')
+	llm: default ChatBrowserUse('bu-fast'). browser: default Browser() = a Browser Use Cloud browser; Browser('chromium')
 	for a fresh local one, Browser('chrome') for the Chrome you have open. sensitive_data={'name': 'value'} (or {'https://site': {'name': 'value'}} to type it only on that
 	domain): the model types values with type_secret('name'); values become <secret:name> in cell output, checkpoints,
 	tool results, the task and the result (MIGRATING.md "Trust model" lists exactly where). Not a sandbox: model-written
 	Python can read them; screenshots, page JS and a cloud live view or recording can reveal a typed value. mode='ultrafast' adds accessibility-tree helpers for
 	interaction-heavy tasks. reasoning: 'low'|'medium'|'high' for OpenAI reasoning models, the gateway, Anthropic and
-	Google (default 'medium'; on the gateway the alias's own: bu-ultrafast low, bu-auto medium, bu-smart high).
+	Google (default 'medium'; on the gateway the alias's own: bu-fast medium, bu-ultrafast low, bu-smart high).
 	OpenAI-compatible chat backends (base_url servers) ignore it with a warning: pass ChatOpenAI(..., reasoning_effort=...)
 	to send reasoning_effort there."""
 
@@ -192,10 +192,10 @@ class Agent:
 		self.task, self._continue = task, True
 
 	def _check_task(self) -> None:
-		if self.browser.use_cloud and (m := LOCAL_TARGET.search(self.task)):
-			raise ValueError(
-				f'The task mentions {m.group()!r}, which a cloud browser cannot reach. '
-				"Use a local browser: Agent(task, browser=Browser('chromium'))."
+		if self.browser.use_cloud and (m := LOCAL_TARGET.search(self.task)):  # a hint, never a refusal
+			logger.warning(
+				f'The task mentions {m.group()!r}; a cloud browser cannot reach your localhost or private network. '
+				"If that is the target, use a local browser: Agent(task, browser=Browser('chromium'))."
 			)
 
 	def _build(self) -> None:

@@ -342,7 +342,7 @@ def build_agent(
 ) -> Agent[Session, Any]:
 	"""mode='ultrafast' appends AX_PROMPT (the `bu` helpers) to the system prompt; the Repl needs the same mode.
 	tools: extra Pydantic AI tools (Tools().functions). model_settings: merged over the defaults. reasoning_effort=None
-	sends no effort (the gateway then applies the alias's own: bu-ultrafast low, bu-auto medium, bu-smart high)."""
+	sends no effort (the gateway then applies the alias's own: bu-fast medium, bu-ultrafast low, bu-smart high)."""
 	mode = check_mode(mode)
 	model = model_ref(model)
 	kind = model_kind(model)

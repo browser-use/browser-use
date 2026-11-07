@@ -322,6 +322,7 @@ def test_snap_chromium_is_refused_with_the_fix(tmp_path, monkeypatch):
 	monkeypatch.setattr(sys, 'platform', 'linux')
 	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
 	monkeypatch.setenv('BH_CHROME_PATH', str(wrapper))
+	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', str(tmp_path / 'no-playwright'))
 	with pytest.raises(RuntimeError, match='Snap Chromium.*doctor --fix-snap'):
 		_local.find_binary()
 	with pytest.raises(RuntimeError, match='Snap Chromium'):
@@ -339,6 +340,21 @@ def test_bh_chrome_path_is_honored(tmp_path, monkeypatch):
 	binary.write_text('')
 	monkeypatch.setenv('BH_CHROME_PATH', str(binary))
 	assert _local.find_binary() == str(binary)
+
+
+def test_playwright_chromium_from_browser_use_install_is_found_last(tmp_path, monkeypatch):
+	"""`browser-use install` puts Chromium in Playwright's cache; find_binary uses it when no Chrome is installed."""
+	monkeypatch.setattr(sys, 'platform', 'linux')
+	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+	monkeypatch.delenv('BH_CHROME_PATH', raising=False)
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', str(tmp_path / 'pw'))
+	for build in ('chromium-1200', 'chromium-1248'):
+		(tmp_path / 'pw' / build / 'chrome-linux64').mkdir(parents=True)
+		(tmp_path / 'pw' / build / 'chrome-linux64' / 'chrome').write_text('')
+	assert _local.find_binary() == str(tmp_path / 'pw/chromium-1248/chrome-linux64/chrome')
+	with pytest.raises(RuntimeError, match='No Google Chrome found'):
+		_local.find_binary(chrome_only=True)  # a copied Chrome profile needs real Chrome
 
 
 @pytest.fixture

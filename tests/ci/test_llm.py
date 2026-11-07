@@ -183,9 +183,9 @@ async def test_gateway_models_run_stateless_responses_with_compaction(responses_
 	assert (result.status, result.output, result.error) == ('completed', 'ok', None)
 	assert [path for path, _ in requests] == ['/v1/responses'] * 4
 	for _, body in requests:
-		assert body['model'] == 'bu-ultrafast' and body['store'] is False and 'reasoning.encrypted_content' in body['include']
+		assert body['model'] == 'bu-fast' and body['store'] is False and 'reasoning.encrypted_content' in body['include']
 		assert body['context_management'] == [{'type': 'compaction', 'compact_threshold': 150_000}]
-		assert 'effort' not in body.get('reasoning', {})  # the gateway applies bu-ultrafast's low
+		assert 'effort' not in body.get('reasoning', {})  # the gateway applies bu-fast's medium
 	second, third = requests[1][1]['input'], requests[2][1]['input']  # after reply 1, after reply 2 (compaction)
 	assert {'type': 'reasoning', 'encrypted_content': 'sealed-reasoning-1'}.items() <= next(
 		i for i in second if i.get('type') == 'reasoning'
@@ -221,7 +221,10 @@ async def test_text_answer_reaches_the_repair_turn_when_a_compaction_item_ends_t
 @pytest.fixture
 def models_server():
 	"""The gateway's GET /models: answers with `reply` = [status, body, content type]."""
-	reply, seen = [200, {'data': [{'id': 'bu-ultrafast'}, {'id': 'bu-auto'}, {'id': 'gpt-6-luna'}]}, 'application/json'], []
+	reply, seen = (
+		[200, {'data': [{'id': 'bu-ultrafast'}, {'id': 'bu-fast'}, {'id': 'bu-auto'}, {'id': 'gpt-6-luna'}]}, 'application/json'],
+		[],
+	)
 
 	class Handler(BaseHTTPRequestHandler):
 		def do_GET(self):
@@ -255,9 +258,9 @@ def test_preflight_checks_the_gateway_key_and_model_before_anything_starts(model
 	assert ChatBrowserUse('openai/gpt-6-luna', api_key='fake-test-key', base_url=url).preflight() is None
 	assert seen[0] == ('/v1/models', 'Bearer fake-test-key')
 	missing = ChatBrowserUse('bu-nonexistent-xyz', api_key='fake-test-key', base_url=url).preflight()
-	assert missing == 'bu-nonexistent-xyz is not on the Browser Use gateway. Listed: bu-auto, bu-ultrafast, gpt-6-luna.'
+	assert missing == 'bu-nonexistent-xyz is not on the Browser Use gateway. Listed: bu-auto, bu-fast, bu-ultrafast, gpt-6-luna.'
 	legacy = ChatBrowserUse('bu-2-0', api_key='fake-test-key', base_url=url).preflight()
-	assert legacy and "needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-ultrafast" in legacy
+	assert legacy and "needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast" in legacy
 	reply[:] = [404, '404 page not found', 'text/plain']  # the route itself is missing (Go's default 404)
 	dead = ChatBrowserUse(api_key='fake-test-key', base_url=url).preflight()
 	assert dead and f'not found at {url} (404)' in dead and 'not deployed in this region' in dead
@@ -298,7 +301,7 @@ def test_gateway_400s_are_one_line_with_the_gateway_message():
 
 	legacy = {'code': 'legacy_model', 'message': 'This model requires browser-use<1.0. Use bu-auto with the new library.'}
 	line = ChatBrowserUse('bu-2-0', api_key='x').explain_error(ModelHTTPError(400, 'bu-2-0', legacy))
-	assert line == "bu-2-0 needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-ultrafast with browser-use 1.0."
+	assert line == "bu-2-0 needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast with browser-use 1.0."
 	for code in ('invalid_model', 'model_not_on_gateway'):
 		body = {'code': code, 'message': 'Use bu-auto, bu-ultrafast, bu-smart, or a listed OpenAI model.'}
 		line = ChatBrowserUse('kimi-k3', api_key='x').explain_error(ModelHTTPError(400, 'kimi-k3', body))
@@ -436,13 +439,13 @@ async def test_custom_base_url_runs_end_to_end(chat_server, tmp_path):
 	assert result.usage['input'] == 10 and result.cost_usd is None  # unknown price is not $0
 
 
-def test_default_llm_is_bu_ultrafast_on_the_gateway(monkeypatch):
+def test_default_llm_is_bu_fast_on_the_gateway(monkeypatch):
 	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
 	agent = Agent('t', browser=None)
-	assert isinstance(agent.llm, ChatBrowserUse) and agent.llm.model == 'bu-ultrafast'
-	assert ChatBrowserUse().model == 'bu-ultrafast'
+	assert isinstance(agent.llm, ChatBrowserUse) and agent.llm.model == 'bu-fast'
+	assert ChatBrowserUse().model == 'bu-fast'
 	model, _ = resolve_model(agent.llm)
-	assert isinstance(model, OpenAIResponsesModel) and model.model_name == 'bu-ultrafast'
+	assert isinstance(model, OpenAIResponsesModel) and model.model_name == 'bu-fast'
 	assert str(model.client.base_url).rstrip('/') == GATEWAY_URL
 	assert Agent('t', 'bu-auto').llm.model == 'bu-auto'  # still available; ids are passed through, never renamed
 	assert Agent('t', 'bu-smart').llm.model == 'bu-smart'
@@ -460,7 +463,7 @@ async def test_gateway_errors_are_one_actionable_line():
 	# 403 has several causes: the gateway's own message (body as the OpenAI SDK passes it) names the actual one
 	policy = {'message': 'This project policy does not permit the new Browser Use LLM gateway.', 'code': 'project_policy'}
 	error = ModelHTTPError(403, 'bu-ultrafast', policy, provider_error_code='project_policy')
-	assert llm.explain_error(error) == f'bu-ultrafast is not available for this key (403): {policy["message"]}'
+	assert llm.explain_error(error) == f'bu-fast is not available for this key (403): {policy["message"]}'
 	scope = {'message': 'This API key requires v4:runs:create permission.', 'code': 'insufficient_scope'}
 	error = ModelHTTPError(403, 'bu-ultrafast', scope, provider_error_code='insufficient_scope')
 	assert llm.explain_error(error) == f'{scope["message"]} Run `browser-use login` again for a new key.'
