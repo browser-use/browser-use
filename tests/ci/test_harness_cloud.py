@@ -358,6 +358,43 @@ async def test_mcp_exec_reports_failures_and_a_cancelled_call_never_bleeds_into_
 	assert (text, failed) == ('MINE\n', False)
 
 
+async def test_mcp_calls_an_anyio_cancel_scope_cancels_never_overlap_and_a_queued_one_never_runs(monkeypatch):
+	"""Review: the MCP SDK cancels a timed-out call through an AnyIO cancel scope, which cancels every await again, so
+	the cleanup await was cancelled too, the lock was released and the next call ran next to the first one's thread.
+	A call cancelled while it still waited for the lock must not run later either."""
+	import threading
+	import time
+
+	import anyio
+
+	from browser_use.mcp.cli_mcp import CLIMCPServer
+
+	server = CLIMCPServer()
+	running, most, ran = [0], [0], []
+	guard = threading.Lock()
+
+	def work(tag: str, seconds: float) -> tuple[str, bool]:
+		with guard:
+			running[0] += 1
+			most[0] = max(most[0], running[0])
+		ran.append(tag)
+		time.sleep(seconds)
+		with guard:
+			running[0] -= 1
+		return tag, False
+
+	async def timed_out(tag: str, seconds: float) -> None:
+		with anyio.move_on_after(0.1):  # what the MCP server does with a request the client cancelled
+			await server._locked(work, tag, seconds)
+
+	async with anyio.create_task_group() as tg:
+		tg.start_soon(timed_out, 'first', 0.5)
+		await anyio.sleep(0.02)
+		tg.start_soon(timed_out, 'queued', 0.0)  # cancelled before the first call let go of the lock
+	assert await server._locked(work, 'next', 0.0) == ('next', False)
+	assert most[0] == 1 and ran == ['first', 'next'], (most, ran)
+
+
 def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
 	"""M29: print() from a thread the model's code started landed on stdout and broke the client's JSON-RPC parsing."""
 	import json

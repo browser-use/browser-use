@@ -4,7 +4,6 @@ Run with: browser-use --cli-mcp
 
 import asyncio
 import base64
-import contextlib
 import os
 import subprocess
 import sys
@@ -129,6 +128,7 @@ class CLIMCPServer:
 		)
 		self._namespace: dict[str, Any] | None = None
 		self._exec_lock = asyncio.Lock()
+		self._jobs: set[asyncio.Task] = set()  # _locked() calls: kept referenced while they run
 		self._login: _Login | None = None
 		self._login_lock = threading.Lock()
 		self._remote: str | None = None  # the cloud daemon this server started; browser_exec drives it
@@ -235,15 +235,27 @@ class CLIMCPServer:
 
 	async def _locked(self, fn: Any, *args: Any) -> Any:
 		"""fn(*args) in a thread, one at a time. A call the client cancels (its timeout) keeps the lock until its thread
-		ends: the thread cannot be stopped, and the next call's output capture would otherwise collect its prints."""
-		async with self._exec_lock:
-			thread = asyncio.ensure_future(asyncio.to_thread(fn, *args))
-			try:
-				return await asyncio.shield(thread)
-			except asyncio.CancelledError:
-				with contextlib.suppress(BaseException):
-					await thread
-				raise
+		ends: the thread cannot be stopped, and the next call's output capture would otherwise collect its prints.
+		The lock is held by a task of its own: the MCP SDK cancels a request through an AnyIO cancel scope, which cancels
+		every await of the request's task again, so a wait there would end early and release the lock. A call cancelled
+		before it got the lock never runs."""
+		abandoned = False
+
+		async def job() -> Any:
+			async with self._exec_lock:
+				if abandoned:
+					raise asyncio.CancelledError
+				return await asyncio.to_thread(fn, *args)
+
+		task = asyncio.ensure_future(job())
+		self._jobs.add(task)
+		task.add_done_callback(self._jobs.discard)
+		task.add_done_callback(lambda t: t.cancelled() or t.exception())  # an abandoned call's error is never awaited
+		try:
+			return await asyncio.shield(task)
+		except asyncio.CancelledError:
+			abandoned = True
+			raise
 
 	def _ensure_namespace(self) -> dict[str, Any]:
 		if self._namespace is None:
