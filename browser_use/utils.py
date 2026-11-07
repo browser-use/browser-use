@@ -805,7 +805,7 @@ def _log_pretty_path(path: str | Path | None) -> str:
 	if not path or not str(path).strip():
 		return ''  # always falsy in -> falsy out so it can be used in ternaries
 
-	# dont print anything thats not a path
+	# don't print anything that's not a path
 	if not isinstance(path, (str, Path)):
 		# no other types are safe to just str(path) and log to terminal unless we know what they are
 		# e.g. what if we get storage_date=dict | Path and the dict version could contain real cookies
