@@ -261,7 +261,8 @@ as before. New: `browser-use login` / `logout` (same as `browser-use auth login`
 MCP tool that opens the browser to approve and stores the same key. The old `browser-use --mcp` server (tools like
 `browser_navigate`, `browser_click`) ran the removed engine: `--mcp` now prints a deprecation notice and serves the
 `--cli-mcp` tools (`browser_exec`, `browser_screenshot`). Calls to the old tool names return the removed error with the
-`browser_exec` alternative; switch those clients to `--cli-mcp`. `browser-use init` templates were removed.
+`browser_exec` alternative; switch those clients to `--cli-mcp`. Locally `--mcp` still runs its own Chromium on a temp
+profile, as 0.x did, while `--cli-mcp` drives your own Chrome with your logins. `browser-use init` templates were removed.
 
 Cloud browsers in the CLI and MCP server: after `start_remote_daemon(name)` (anywhere in the code) the rest of that
 call, and every later MCP call, drives that cloud browser. A daemon name that ran a cloud browser never falls back to

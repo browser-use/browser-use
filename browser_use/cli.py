@@ -79,7 +79,7 @@ def _capture_via_harness(
 		pass
 
 
-def _run_mcp_stdio_server(module_name: str) -> None:
+def _run_mcp_stdio_server(module_name: str, **kwargs: bool) -> None:
 	"""Silence all logging"""
 	import asyncio
 	import importlib
@@ -91,18 +91,19 @@ def _run_mcp_stdio_server(module_name: str) -> None:
 	logging.disable(logging.CRITICAL)
 
 	main = importlib.import_module(module_name).main
-	asyncio.run(main())
+	asyncio.run(main(**kwargs))
 
 
 def _run_mcp_server() -> None:
 	# The 0.x --mcp server (browser_navigate, browser_click, ...) ran the removed engine. Its clients now get the
-	# browser-harness exec server (browser_exec, browser_screenshot): a protocol change, see MIGRATING.md.
+	# browser-harness exec server (browser_exec, browser_screenshot): a protocol change, see MIGRATING.md. It keeps the
+	# 0.x server's own Chromium: an old config must not start driving the user's logged-in Chrome.
 	print(
-		'browser-use --mcp is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot); '
-		'switch your MCP config to --cli-mcp.',
+		'browser-use --mcp is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot) on its own '
+		'Chromium; --cli-mcp drives your own Chrome instead.',
 		file=sys.stderr,
 	)
-	_run_cli_mcp_server()
+	_run_mcp_stdio_server('browser_use.mcp.cli_mcp', own_browser=True)
 
 
 def _run_cli_mcp_server() -> None:
@@ -485,7 +486,7 @@ Commands:
   browser-use doctor --fix-snap       how to fix Snap Chromium blocking CDP (Linux)
   browser-use mac-approve             approve Chrome's macOS remote-debugging prompt
   browser-use --reload                restart the daemon
-  browser-use install                 install Chromium for Browser('chromium') (Playwright's build)
+  browser-use install                 install Chromium for the library's Browser('chromium') (Playwright's build)
   browser-use skill [show | install [--target NAME] [--path DIR] [--install-cli]]
                                       print or install the agent skill
   browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login)

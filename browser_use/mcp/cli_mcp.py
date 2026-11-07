@@ -20,7 +20,7 @@ from browser_harness import _ipc as ipc
 from browser_harness.auth import CloudAuthRequired
 from mcp.server import Server
 
-from browser_use import harness_cloud
+from browser_use import Browser, harness_cloud
 from browser_use.auth import harden_login_callback, set_aside_corrupt_store
 from browser_use.exceptions import removed
 from browser_use.harness_cloud import CloudBrowserError
@@ -49,7 +49,7 @@ MCP_GUIDE = f"""# This MCP server
 
 These rules override the skill below where they differ:
 - Code runs in browser_exec; there is no shell, so ignore `BU_NAME=... browser-use <<'PY'` examples.
-- Local: without a cloud browser, browser_exec drives the user's own Chrome (the default daemon).
+- Local: without a cloud browser, browser_exec drives {{local}}.
 - Cloud: `start_remote_daemon()` (call browser_login first if not signed in). Every later browser_exec and
   browser_screenshot drives that cloud browser; never pass BU_NAME. One cloud browser per server, under a name only it
   uses: a name passed to start_remote_daemon / stop_remote_daemon is ignored.
@@ -147,7 +147,9 @@ def _harness_skill_text() -> str:
 class CLIMCPServer:
 	"""Stateful stdio MCP server wrapping the browser-harness exec model."""
 
-	def __init__(self):
+	def __init__(self, own_browser: bool = False):
+		# --mcp (0.x configs): a Chromium of its own on a temp profile, as the 0.x server ran; --cli-mcp: the user's Chrome
+		self._browser = Browser('chromium') if own_browser else None
 		self.server: Server = Server(
 			'browser-use',
 			version=get_browser_use_version(),
@@ -283,7 +285,14 @@ class CLIMCPServer:
 		(anywhere in it: attaching first would attach the user's Chrome)."""
 		self._ensure_namespace()
 		if not harness_cloud.calls_cloud_admin(code):
-			harness_cloud.ensure_daemon()
+			self._attach()
+
+	def _attach(self) -> None:
+		"""Attach what helpers drive: the cloud browser this server started, else its own Chromium (--mcp), else the
+		user's Chrome. Browser.start() launches the Chromium on first use and starts its daemon again if that died."""
+		if self._browser is None or harness_cloud.was_cloud(self._remote):
+			return harness_cloud.ensure_daemon()
+		harness_cloud.route(asyncio.run(self._browser.start())['BU_NAME'], self._namespace)
 
 	def _start_remote(self, name: str = 'remote', profileName: str | None = None, **create_kwargs: Any) -> dict:
 		name = self._remote  # a caller's name could be another server's browser: stopping or driving it hijacks it
@@ -367,13 +376,14 @@ class CLIMCPServer:
 		buffer = StringIO()
 		with _capture(buffer):
 			ns = self._ensure_namespace()
-			harness_cloud.ensure_daemon()
+			self._attach()
 			path = ns['capture_screenshot'](full=full, max_dim=max_dim)
 		with open(path, 'rb') as f:
 			return base64.b64encode(f.read()).decode()
 
 	def _instructions(self) -> str:
-		return MCP_GUIDE + _harness_skill_text()
+		local = "its own Chromium (a temp profile, not the user's Chrome)" if self._browser else "the user's own Chrome"
+		return MCP_GUIDE.format(local=local) + _harness_skill_text()
 
 	async def run(self):
 		if sys.stdin is None:
@@ -395,9 +405,9 @@ class CLIMCPServer:
 				sys.stdout = stdout
 
 
-async def main():
+async def main(own_browser: bool = False):
 	os.environ.setdefault('BH_CLIENT', 'browser-use-mcp')
-	server = CLIMCPServer()
+	server = CLIMCPServer(own_browser)
 	await server.run()
 
 

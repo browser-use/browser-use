@@ -109,6 +109,38 @@ def test_mcp_drives_the_cloud_browser_it_started_wherever_the_start_is_in_the_co
 	assert f'Daemon {name!r} is already running' in out and 'Traceback' not in out and fake_cloud == [name]
 
 
+def test_old_mcp_configs_get_their_own_chromium_never_the_users_chrome(fake_cloud, chrome_binary, monkeypatch):
+	"""C44: the 0.x `--mcp` server ran its own Chromium; 1.0 sent those configs to the --cli-mcp server, which drives the
+	user's logged-in Chrome. `--mcp` keeps a Chromium of its own (until a cloud browser starts); --cli-mcp is unchanged."""
+	import asyncio
+
+	from browser_harness import admin
+
+	from browser_use import Browser, cli
+	from browser_use.mcp import cli_mcp
+
+	runs = []
+	monkeypatch.setattr(cli, '_run_mcp_stdio_server', lambda module, **kwargs: runs.append((module, kwargs)))
+	cli._run_mcp_server()
+	cli._run_cli_mcp_server()
+	assert runs == [('browser_use.mcp.cli_mcp', {'own_browser': True}), ('browser_use.mcp.cli_mcp', {})]
+	assert "the user's own Chrome" in cli_mcp.CLIMCPServer()._instructions()
+
+	mcp = cli_mcp.CLIMCPServer(own_browser=True)
+	assert mcp._browser is not None and mcp._browser.kind == 'chromium'
+	assert "its own Chromium (a temp profile, not the user's Chrome)" in mcp._instructions()
+	mcp._browser = Browser('chromium', executable_path=chrome_binary, headless=True)  # CI has no display
+	try:
+		out, failed = mcp._execute('new_tab("about:blank#own"); print(page_info()["url"])')
+		assert not failed and out.strip().endswith('#own'), out  # no_local_chrome: never the user's Chrome
+		assert admin.NAME == mcp._browser.name and mcp._screenshot(False, None)
+		out = mcp._execute('start_remote_daemon(); print(NAME)')[0]
+		assert fake_cloud == [mcp._remote] and out.strip().endswith(mcp._remote), out
+		assert mcp._execute('print(NAME)')[0].strip() == mcp._remote  # the cloud browser now, not the Chromium
+	finally:
+		asyncio.run(mcp._browser.stop())
+
+
 def test_mcp_never_stops_or_drives_a_cloud_browser_another_server_started(fake_cloud, monkeypatch):
 	"""C22: two MCP servers both following the guide's start_remote_daemon("work"): B's start failed with "stop it
 	first", B's stop_remote_daemon("work") ended A's browser, and A then drove B's new one (its cookies)."""
