@@ -212,6 +212,25 @@ async def test_text_reply_gets_one_delivery_repair_turn(daemon, tmp_path):
 	assert (result.status, result.output) == ('completed', '[1, 2, 3]')
 
 
+async def test_a_tool_call_on_the_delivery_turn_is_not_run(daemon, tmp_path):
+	"""M2: where python is only withheld from the delivery-only turn (Claude), the model still called it (2/2 runs, one
+	ended empty). The call is now refused, unvalidated, and the model delivers on the next request."""
+	from browser_use.agent.loop import NOT_RUN
+
+	model, seen = script(
+		('python', {'code': 'x = 1'}),
+		[('python', {'code': "open('ran.txt', 'w').write('yes')"}), ('python', {})],  # the 2nd lacks 'code'
+		('finish', {'success': True, 'result': 'done'}),
+	)
+	session = Session(repl=Repl(tmp_path, daemon), max_steps=3)
+	try:
+		result = await run(build_agent(model), 'task', session, 'm')
+	finally:
+		await session.repl.close()
+	assert (result.status, result.output) == ('completed', 'done'), result.error
+	assert not (tmp_path / 'ran.txt').exists() and str(seen[2][-1]).count(NOT_RUN) == 2
+
+
 def _choice_recorder(responses):
 	from pydantic_ai.models import ModelRequestParameters
 	from pydantic_ai.models._tool_choice import resolve_tool_choice

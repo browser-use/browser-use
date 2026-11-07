@@ -49,6 +49,7 @@ DELIVERY_REPAIR = (  # bu-pi src/agent.ts:560, verbatim except tool names
 	'the single delivery repair turn.'
 )
 DELIVERY_TOOLS = ['finish_from_repl', 'finish']
+NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
 FILE = re.compile(r'`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`
 
@@ -245,6 +246,13 @@ class BrowserLoop(AbstractCapability[Session]):
 			request_context.model_settings = cast(Any, settings)
 		return request_context
 
+	async def wrap_tool_validate(self, ctx: RunContext[Session], *, call, tool_def, args, handler) -> Any:
+		"""A tool call on a delivery-only turn is not run (wrap_tool_execute), so its arguments are not validated either:
+		a rejected call would use up the tool's one retry and could end the run."""
+		if ctx.deps.finalizing and tool_def.kind == 'function':
+			return args
+		return await handler(args)
+
 	async def on_tool_execute_error(self, ctx: RunContext[Session], *, call, tool_def, args, error: Exception) -> Any:
 		"""A custom tool (Tools) that raises returns the error to the model, which can recover, as a failing 0.x action
 		did (ActionResult(error=...)); it never ends the run. ModelRetry and pydantic-ai's control flow never get here."""
@@ -255,6 +263,10 @@ class BrowserLoop(AbstractCapability[Session]):
 	async def wrap_tool_execute(self, ctx: RunContext[Session], *, call, tool_def, args, handler) -> Any:
 		"""Custom tools (Tools) run in this process, so the worker's redaction never saw their results: redact them
 		(strings, ActionResult and other models, nested values) and their retry messages before the model does."""
+		if ctx.deps.finalizing and tool_def.kind == 'function':
+			# The delivery-only turn withholds python where it cannot force finish (Claude), yet Claude still called it
+			# (2/2 runs, one ended empty): refuse it instead of running more browser actions.
+			return NOT_RUN
 		secrets = ctx.deps.repl.secrets
 		if call.tool_name == 'python' or tool_def.kind != 'function' or not secrets:
 			return await handler(args)
