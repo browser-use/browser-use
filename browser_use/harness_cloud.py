@@ -110,7 +110,15 @@ def ensure_daemon(wait: float | None = None, name: str | None = None, env: dict[
 	"""browser-harness's ensure_daemon, except that a name that ran a cloud browser fails closed once it is gone."""
 	name = name or admin.NAME
 	if env or not was_cloud(name):
-		return admin.ensure_daemon(wait=wait, name=name, env=env)
+		if admin._is_local_chrome_mode(env):  # browser-harness serializes these spawns itself
+			return admin.ensure_daemon(wait=wait, name=name, env=env)
+		# BU_CDP_URL / BU_CDP_WS: browser-harness takes no spawn lock there, so concurrent cold CLI calls each started
+		# a daemon under one name and orphaned all but one. One spawn at a time (its own lock file: a stale daemon's
+		# restart inside ensure_daemon takes browser-harness's).
+		lock = admin._spawn_lock(name, timeout=60.0)
+		lock.path = ipc.pid_path(name).with_suffix('.cdpspawnlock')
+		with lock:
+			return admin.ensure_daemon(wait=wait, name=name, env=env)
 	os.environ.setdefault('BH_TAB_MARKER', '0')  # helpers mark tab titles client side; cloud pages stay untouched
 	if daemon_healthy(name):
 		return

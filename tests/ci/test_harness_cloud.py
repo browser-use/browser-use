@@ -390,3 +390,34 @@ def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
 	lines = [line for line in out.decode().splitlines() if line.strip()]
 	assert len(lines) == 2 and all(json.loads(line)['id'] in (1, 2) for line in lines), out
 	assert b'LATE' in err
+
+
+def test_concurrent_cold_starts_against_a_cdp_url_spawn_one_daemon_at_a_time(monkeypatch):
+	"""M31: with BU_CDP_URL, concurrent CLI cold starts raced (browser-harness takes no spawn lock in CDP mode) and
+	orphaned daemons."""
+	import threading
+	import time
+
+	from browser_harness import admin
+
+	from browser_use import harness_cloud
+
+	monkeypatch.setenv('BU_CDP_URL', 'http://127.0.0.1:1')
+	active, peak, lock = [0], [0], threading.Lock()
+
+	def ensure(wait=None, name=None, env=None):
+		with lock:
+			active[0] += 1
+			peak[0] = max(peak[0], active[0])
+		time.sleep(0.2)
+		with lock:
+			active[0] -= 1
+
+	monkeypatch.setattr(admin, 'ensure_daemon', ensure)
+	name = f'butestcdpspawn{os.getpid()}'
+	threads = [threading.Thread(target=harness_cloud.ensure_daemon, kwargs={'name': name}) for _ in range(3)]
+	for t in threads:
+		t.start()
+	for t in threads:
+		t.join(10)
+	assert peak[0] == 1
