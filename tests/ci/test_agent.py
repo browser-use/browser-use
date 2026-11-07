@@ -67,8 +67,8 @@ async def test_structured_output(chrome, tmp_path):
 
 
 async def test_unfinished_run_has_no_final_result(chrome, tmp_path):
-	model, _ = script(*[('python', {'code': '1'})] * 3)
-	r = await Agent('t', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path).run(max_steps=2)
+	model, _ = script(*[('python', {'code': '1'})] * 4)
+	r = await Agent('t', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path).run(max_steps=3)
 	assert r.final_result() is None and not r.is_done() and r.is_successful() is None
 
 

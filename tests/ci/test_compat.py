@@ -260,7 +260,10 @@ async def test_finish_requires_a_success_verdict(tmp_path):
 	assert (r.status, r.output, r.is_successful()) == ('completed', 'The book does not exist.', False)
 
 
-@pytest.mark.parametrize('budget', [{'max_steps': 0}, {'max_steps': -1}, {'max_steps': 2.5}, {'timeout': 0}, {'timeout': -5}])
+@pytest.mark.parametrize(
+	'budget',
+	[{'max_steps': 0}, {'max_steps': -1}, {'max_steps': 2.5}, {'max_steps': 1}, {'max_steps': 2}, {'timeout': 0}, {'timeout': -5}],
+)
 async def test_impossible_budgets_raise_before_any_browser(budget, no_browser):
 	"""agent-llm: run(max_steps=0) and run(timeout<=0) started (and billed) a browser, then ended in an error."""
 	with pytest.raises(ValueError, match='max_steps' if 'max_steps' in budget else 'timeout'):
@@ -586,6 +589,24 @@ async def test_overlapping_runs_on_one_agent_are_rejected(fake_browser, tmp_path
 	assert isinstance(second, RuntimeError) and 'already running' in str(second)
 	assert first.final_result() == 'one' and len(fake_browser) == 1  # only the first run started and stopped
 	assert (await agent.run()).status == 'error'  # the next run is allowed again (the script has no third turn)
+
+
+@pytest.mark.parametrize('task', [None, '', '   ', 123])
+def test_a_task_that_is_not_text_raises_before_any_browser(task, no_browser):
+	"""M10: Agent(None / '' / 123) was accepted, started Chrome, then failed (a raw TypeError on cloud)."""
+	with pytest.raises((TypeError, ValueError), match='task'):
+		Agent(task, script()[0], browser=Browser(local=True))
+	agent = Agent('t', script()[0], browser=Browser(local=True))
+	with pytest.raises((TypeError, ValueError), match='task'):
+		agent.add_new_task(task)
+
+
+async def test_run_sync_inside_a_running_loop_says_to_await_run(no_browser, recwarn):
+	"""M11: run_sync() inside a running loop gave a raw asyncio error plus a "coroutine never awaited" warning."""
+	agent = Agent('t', script()[0], browser=Browser(local=True))
+	with pytest.raises(RuntimeError, match=r'await agent\.run\(\)'):
+		agent.run_sync()
+	assert not [w for w in recwarn if 'never awaited' in str(w.message)]
 
 
 @pytest.mark.parametrize('reasoning', ['max', 'Medium', True])

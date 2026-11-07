@@ -43,7 +43,7 @@ Kept: works as in 0.x. Every other 0.x argument raises `TypeError` naming it in 
 
 | 0.x | 1.0 |
 |---|---|
-| `await agent.run(max_steps=...)` | kept, but the default changed from 500 to 100: one step is one model request (one Python cell, or the delivery). Also `timeout=1700`: seconds for the agent loop (model requests and cells). Browser start before it and browser stop / cloud download collection after it are not counted. Request `max_steps - 1` is a delivery-only turn and the last is kept for one delivery repair. `max_steps < 1` or `timeout <= 0` raises `ValueError` before any browser starts. `on_step_start` / `on_step_end`: removed |
+| `await agent.run(max_steps=...)` | kept, but the default changed from 500 to 100: one step is one model request (one Python cell, or the delivery). Also `timeout=1700`: seconds for the agent loop (model requests and cells). Browser start before it and browser stop / cloud download collection after it are not counted. Request `max_steps - 1` is a delivery-only turn and the last is kept for one delivery repair. `max_steps < 3` (no step left for the browser) or `timeout <= 0` raises `ValueError` before any browser starts, as does a `task` that is not a non-empty string. `run_sync()` inside a running event loop raises: use `await agent.run()`. `on_step_start` / `on_step_end`: removed |
 | `agent.run_sync()` | kept |
 | `agent.add_new_task(task)` | kept: the next `run()` continues the same conversation |
 | `await agent.close()`, `async with Agent(...)` | kept; after `run_sync()` use `agent.close_sync()` |

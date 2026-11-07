@@ -112,6 +112,17 @@ REMOVED_METHODS = {  # 0.x Agent methods -> the 1.0 alternative
 }
 
 
+MIN_STEPS = 3  # request max_steps-1 is delivery-only and the last a delivery repair: 3 leaves one step for the browser
+
+
+def _check_task_arg(task: Any) -> None:
+	"""Before anything starts: None, '' or a number started (and billed) a browser, then failed."""
+	if not isinstance(task, str):
+		raise TypeError(f'task must be a str, not {type(task).__name__}')
+	if not task.strip():
+		raise ValueError('task is empty: say what the agent should do')
+
+
 def _unsupported(kwargs: dict[str, Any], where: str) -> TypeError:
 	name = next(iter(kwargs))
 	if name in REMOVED:
@@ -153,6 +164,7 @@ class Agent:
 	):
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent')
+		_check_task_arg(task)
 		if reasoning not in REASONING:  # a typo would start (and bill) a browser, then 400 on the first model request
 			raise ValueError(f"reasoning must be 'low', 'medium', 'high' or None, not {reasoning!r}")
 		if browser and browser_session:
@@ -189,6 +201,7 @@ class Agent:
 
 	def add_new_task(self, task: str) -> None:
 		"""The next run() continues this conversation with a new task."""
+		_check_task_arg(task)
 		self.task, self._continue = task, True
 
 	def _check_task(self) -> None:
@@ -241,8 +254,11 @@ class Agent:
 		browser before it and stopping it (with cloud downloads) after it are not counted."""
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent.run')
-		if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
-			raise ValueError(f'max_steps must be a whole number >= 1, not {max_steps!r}')
+		if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < MIN_STEPS:
+			raise ValueError(
+				f'max_steps must be a whole number >= {MIN_STEPS}, not {max_steps!r}: the last two model requests are '
+				'delivery-only, so fewer leaves the agent no step to use the browser'
+			)
 		if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not timeout > 0:
 			raise ValueError(f'timeout must be a number of seconds > 0, not {timeout!r}')
 		if self._running:  # two runs would each start a REPL (one leaks) and stop each other's browser
@@ -322,6 +338,14 @@ class Agent:
 		because the REPL worker's pipes belong to the loop that started it; close_sync() ends it."""
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent.run_sync')
+		try:
+			asyncio.get_running_loop()
+		except RuntimeError:
+			pass  # no loop running here: run_sync() is the right call
+		else:
+			raise RuntimeError(
+				'run_sync() cannot run inside a running event loop (async code, Jupyter): use `await agent.run()` there.'
+			)
 		self._runner = self._runner or asyncio.Runner()
 		try:
 			return self._runner.run(self.run(max_steps=max_steps, timeout=timeout))
