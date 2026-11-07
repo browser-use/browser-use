@@ -246,9 +246,7 @@ class Agent:
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
 		self.web_search = web_search
 		self._search: WebSearch | None = None  # set by _build when search() is on
-		# Default: a new temp dir, kept after the run (the result's files, screenshots, cell output): the caller deletes
-		# it (MIGRATING.md). Not deleted on close(): delivered files and links in the result point into it.
-		self.workspace = Path(workspace or tempfile.mkdtemp(prefix='browser-use-')).resolve()
+		self._workspace = Path(workspace).resolve() if workspace else None  # default: made on first use (workspace)
 		self._agent: Any = None
 		self._gateway: ChatBrowserUse | None = None  # set by _build when the model runs on the Browser Use gateway
 		self._preflighted = False
@@ -261,6 +259,15 @@ class Agent:
 		self._running = False
 		self._custom_workspace = workspace is not None
 		self._downloads: list[Path] = []  # what the last stop() copied from a cloud browser (telemetry counts them)
+
+	@property
+	def workspace(self) -> Path:
+		"""Default: a new temp dir, made on first use (an Agent that never runs leaves none) and kept after the run
+		(the result's files, screenshots, cell output): the caller deletes it (MIGRATING.md). Not deleted on close():
+		delivered files and links in the result point into it."""
+		if self._workspace is None:
+			self._workspace = Path(tempfile.mkdtemp(prefix='browser-use-')).resolve()
+		return self._workspace
 
 	def __getattr__(self, name: str) -> Any:
 		if name in REMOVED_METHODS:

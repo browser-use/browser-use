@@ -183,6 +183,25 @@ def test_openai_settings_unchanged():
 	assert build_agent('openai:gpt-4.1').model_settings == build_agent('openai:gpt-4o').model_settings == {}
 
 
+def test_an_agent_that_never_runs_leaves_no_temp_workspace(monkeypatch, tmp_path):
+	"""C59: every Agent() made a browser-use-* dir in $TMPDIR at construction, so scripts that only build agents (or
+	reject a schema) left thousands of empty dirs. The default workspace is now made on first use, once."""
+	import tempfile
+
+	from browser_use import ChatOpenAI
+
+	monkeypatch.setattr(tempfile, 'tempdir', str(tmp_path))
+	llm = ChatOpenAI('gpt-6-luna', api_key='x')
+	for _ in range(3):
+		Agent('t', llm)
+	assert list(tmp_path.iterdir()) == []
+	agent = Agent('t', llm)
+	assert agent.workspace == agent.workspace and agent.workspace.is_dir() and agent.workspace.parent == tmp_path.resolve()
+	assert len(list(tmp_path.iterdir())) == 1
+	custom = tmp_path / 'mine'
+	assert Agent('t', llm, workspace=custom).workspace == custom.resolve() and not custom.exists()  # made by run()
+
+
 def test_reasoning_on_a_chat_backend_warns_instead_of_silently_doing_nothing(monkeypatch, caplog):
 	"""Fable r2-5: Agent(reasoning='high') with bu-auto or a base_url model changed nothing, without a word."""
 	import logging
