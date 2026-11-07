@@ -643,6 +643,8 @@ def test_openai_reasoning_models_on_chat_completions_get_reasoning_off(monkeypat
 	official = OpenAIChatModel('gpt-6-luna', provider=OpenAIProvider(api_key='k'))
 	assert build_agent(official).model_settings == {'openai_reasoning_effort': 'none'}
 	assert build_agent('openai-chat:gpt-4.1').model_settings == {}
+	for older in ('o1', 'o3', 'o4-mini', 'gpt-5'):  # review: they reject 'none' (400) and take tools with reasoning on
+		assert build_agent(f'openai-chat:{older}').model_settings == {}, older
 	other = ChatOpenAI('gpt-6-luna', base_url='http://127.0.0.1:1/v1', api_key='k').pydantic_model()
 	assert build_agent(other).model_settings == {}
 

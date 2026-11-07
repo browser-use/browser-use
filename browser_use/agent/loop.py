@@ -356,7 +356,8 @@ def reasoning_supported(model: Any) -> bool:
 
 
 def _openai_reasoning_on_chat(model: Any) -> bool:
-	"""An OpenAI reasoning model on api.openai.com's chat completions ('openai-chat:gpt-6-luna')."""
+	"""An OpenAI reasoning model on api.openai.com's chat completions that takes reasoning_effort='none'
+	('openai-chat:gpt-6-luna'). o1, o3, o4-mini and gpt-5 reject 'none' and run function tools with reasoning on."""
 	from urllib.parse import urlparse
 
 	from pydantic_ai.profiles.openai import openai_model_profile
@@ -365,7 +366,10 @@ def _openai_reasoning_on_chat(model: Any) -> bool:
 		name, official = model.split(':', 1)[1], True
 	else:
 		name, official = model.model_name, urlparse(str(getattr(model, 'base_url', '') or '')).hostname == 'api.openai.com'
-	return official and bool((openai_model_profile(name) or {}).get('openai_supports_reasoning', False))
+	profile = openai_model_profile(name) or {}
+	return (
+		official and bool(profile.get('openai_supports_reasoning')) and bool(profile.get('openai_supports_reasoning_effort_none'))
+	)
 
 
 def build_agent(
