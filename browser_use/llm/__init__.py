@@ -19,6 +19,8 @@ import urllib.request
 from typing import Any
 from urllib.parse import urlparse
 
+from pydantic import SecretStr
+
 from browser_use.auth import browser_use_api_key, clean_api_key
 
 GATEWAY_URL = 'https://api.browser-use.com/api/v4/llm/v1'
@@ -33,6 +35,11 @@ CHAT_REMOVED = (
 	"other model settings pass a Pydantic AI Model built with settings=..., e.g. llm=AnthropicModel('claude-...', "
 	'settings={...}).'
 )
+
+
+def _plain(key: str | SecretStr | None) -> str | None:
+	"""A SecretStr key (LangChain-era 0.x code) as the plain string: str() of it is '**********'."""
+	return key.get_secret_value() if isinstance(key, SecretStr) else key
 
 
 def _chat_kwargs(cls: str, kwargs: dict[str, Any]) -> None:
@@ -100,13 +107,15 @@ class ChatBrowserUse:
 
 	provider = 'browser-use'
 
-	def __init__(self, model: str = DEFAULT_MODEL, *, api_key: str | None = None, base_url: Any = GATEWAY_URL, **kwargs: Any):
+	def __init__(
+		self, model: str = DEFAULT_MODEL, *, api_key: str | SecretStr | None = None, base_url: Any = GATEWAY_URL, **kwargs: Any
+	):
 		_chat_kwargs('ChatBrowserUse', kwargs)
 		if isinstance(model, str) and LEGACY_MODEL.match(model):  # the 0.x gateway's models: the new one answers 404
 			raise ValueError(
 				f"{model} needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast with browser-use 1.0."
 			)
-		key = clean_api_key(api_key, 'ChatBrowserUse(api_key=...)', f'The model {model}') if api_key else None
+		key = clean_api_key(_plain(api_key), 'ChatBrowserUse(api_key=...)', f'The model {model}') if api_key else None
 		self.model, self.api_key, self.base_url = model, key, str(base_url)
 
 	def pydantic_model(self) -> Any:
@@ -184,7 +193,7 @@ class ChatOpenAI:
 		self,
 		model: str,
 		*,
-		api_key: str | None = None,
+		api_key: str | SecretStr | None = None,
 		base_url: Any = None,
 		temperature: float | None = None,
 		reasoning_effort: str | None = None,
@@ -192,7 +201,7 @@ class ChatOpenAI:
 	):
 		"""base_url: str or URL object (httpx.URL). reasoning_effort: sent as-is (reasoning_effort on chat backends)."""
 		_chat_kwargs('ChatOpenAI', kwargs)
-		self.model, self.api_key = model, api_key
+		self.model, self.api_key = model, _plain(api_key)
 		self.base_url = None if base_url is None else str(base_url)
 		self.temperature, self.reasoning_effort = temperature, reasoning_effort
 
@@ -238,9 +247,9 @@ class ChatOpenAI:
 class ChatAnthropic:
 	provider = 'anthropic'
 
-	def __init__(self, model: str, *, api_key: str | None = None, **kwargs: Any):
+	def __init__(self, model: str, *, api_key: str | SecretStr | None = None, **kwargs: Any):
 		_chat_kwargs('ChatAnthropic', kwargs)
-		self.model, self.api_key = model, api_key
+		self.model, self.api_key = model, _plain(api_key)
 
 	def pydantic_model(self) -> Any:
 		try:
@@ -257,9 +266,9 @@ class ChatAnthropic:
 class ChatGoogle:
 	provider = 'google'
 
-	def __init__(self, model: str, *, api_key: str | None = None, **kwargs: Any):
+	def __init__(self, model: str, *, api_key: str | SecretStr | None = None, **kwargs: Any):
 		_chat_kwargs('ChatGoogle', kwargs)
-		self.model, self.api_key = model, api_key
+		self.model, self.api_key = model, _plain(api_key)
 
 	def pydantic_model(self) -> Any:
 		try:

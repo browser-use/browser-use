@@ -682,3 +682,15 @@ def test_base_url_accepts_url_objects():
 
 	model, _ = resolve_model(ChatOpenAI('m', api_key='x', base_url=httpx.URL('http://localhost:11434/v1')))
 	assert isinstance(model, OpenAIChatModel) and str(model.client.base_url).rstrip('/') == 'http://localhost:11434/v1'
+
+
+def test_secretstr_api_keys_are_sent_as_the_plain_key():
+	"""C16: LangChain-era code passes SecretStr; the SDKs str() it, so '**********' went out as the key."""
+	from pydantic import SecretStr
+
+	assert resolve_model(ChatOpenAI('m', api_key=SecretStr('k')))[0].client.api_key == 'k'
+	assert resolve_model(ChatOpenAI('m', api_key=SecretStr('k'), base_url='http://localhost:1/v1'))[0].client.api_key == 'k'
+	assert resolve_model(ChatAnthropic('claude-opus-5-5', api_key=SecretStr('k')))[0].client.api_key == 'k'
+	assert ChatGoogle('gemini-3-flash', api_key=SecretStr('k')).api_key == 'k'
+	assert resolve_model(ChatGoogle('gemini-3-flash', api_key=SecretStr('k')))[0].model_name == 'gemini-3-flash'
+	assert ChatBrowserUse(api_key=SecretStr(' bu_k\n')).api_key == 'bu_k'
