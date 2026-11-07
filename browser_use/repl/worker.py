@@ -137,7 +137,8 @@ class CellStats:
 				if key:
 					_log_download({'name': params.get('suggestedFilename'), 'url': params.get('url')})
 			elif method == 'Page.frameNavigated' and not (frame := params.get('frame') or {}).get('parentId'):
-				if frame.get('mimeType') == 'application/json':
+				mime = str(frame.get('mimeType') or '').lower()
+				if mime in ('application/json', 'text/json') or mime.endswith('+json'):  # vnd.api+json, problem+json
 					_log_download({'json_page': frame.get('url')})
 			if key:
 				self.count('events', key)

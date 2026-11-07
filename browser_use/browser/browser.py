@@ -217,19 +217,38 @@ def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
 
 
 def json_page_copies(log: Path) -> set[str]:
-	"""Names of the downloads in a REPL worker's downloads.jsonl that only copy a JSON page the tab displayed: a cloud
-	browser saves https://host/data?q=1, shown as a page, as the download https://host/data.json (with any cookies the
-	page echoed). Real downloads keep their own URL."""
+	"""Names, as the cloud lists them, of the downloads in a REPL worker's downloads.jsonl that only copy a JSON page the
+	tab displayed: a cloud browser saves https://host/data?q=1, shown as a page, as the download https://host/data.json
+	(application/json) or https://host/data (+json types), the query dropped, with any cookies the page echoed. Real
+	downloads keep their own URL. A name used twice is listed as 'name (1).ext' for the later download, so the real
+	file that shares a copy's name is kept, not dropped with it."""
 	try:
 		records = [json.loads(line) for line in log.read_text(encoding='utf-8').splitlines() if line.strip()]
 	except (OSError, ValueError):
 		return set()
-	pages = {
-		urllib.parse.urlsplit(str(r['json_page']))._replace(query='', fragment='').geturl() + '.json'
-		for r in records
-		if isinstance(r, dict) and r.get('json_page')
-	}
-	return {str(r['name']) for r in records if isinstance(r, dict) and r.get('name') and r.get('url') in pages}
+	records = [r for r in records if isinstance(r, dict)]
+	pages = {_no_query(str(r['json_page'])) for r in records if r.get('json_page')}
+	taken: set[str] = set()
+	copies: set[str] = set()
+	for r in records:
+		if not r.get('name'):
+			continue
+		name = str(r['name'])
+		listed, stem, suffix = name, Path(name).stem, Path(name).suffix
+		for i in range(1, 10_000):
+			if listed not in taken:
+				break
+			listed = f'{stem} ({i}){suffix}'
+		taken.add(listed)
+		url = str(r.get('url') or '')
+		base = re.sub(r'%20\(\d+\)$', '', url.removesuffix('.json'))  # the cloud numbers a repeated copy's URL too
+		if '?' not in url and base in pages:
+			copies.add(listed)
+	return copies
+
+
+def _no_query(url: str) -> str:
+	return urllib.parse.urlsplit(url)._replace(query='', fragment='').geturl()
 
 
 def _profile_id(profile: str) -> str:
@@ -817,7 +836,7 @@ class Browser:
 			q = f'/browsers/{browser_id}/downloads?includeUrls=true&limit=100' + (f'&cursor={cursor}' if cursor else '')
 			page = await asyncio.to_thread(_cloud, q)
 			for f in page.get('files', []):
-				if f['path'] in skip or re.sub(r' \(\d+\)(?=\.[^.]*$|$)', '', Path(f['path']).name) in self.json_page_copies:
+				if f['path'] in skip or Path(f['path']).name in self.json_page_copies:
 					continue
 				name = Path(f['path']).name
 				name = name if name not in ('', '.', '..') else 'download'

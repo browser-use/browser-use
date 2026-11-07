@@ -716,21 +716,58 @@ async def test_a_json_page_the_cloud_browser_saved_is_not_copied(cloud, monkeypa
 			for r in [
 				{'name': 'cookies.json', 'url': 'https://httpbin.org/cookies.json'},
 				{'json_page': 'https://httpbin.org/cookies'},
+				{'name': 'cookies.json', 'url': 'https://httpbin.org/cookies.json'},  # shown again: listed as cookies (1).json
 				{'name': 'get.json', 'url': 'https://httpbin.org/get.json'},  # seen on cloud: the query is dropped
 				{'json_page': 'https://httpbin.org/get?a=1'},
 				{'name': 'r.csv', 'url': 'https://httpbin.org/response-headers?x=1'},
 				{'name': 'data.json', 'url': 'https://files.example/data.json'},  # a real JSON download
+				{'json_page': 'https://httpbin.org/json'},
+				{'name': 'json.json', 'url': 'https://httpbin.org/json.json'},
+				{'name': 'json.json', 'url': 'https://httpbin.org/response-headers?filename=json.json'},  # real (M19)
 			]
 		)
 	)
-	files = [{'path': p, 'url': p} for p in ('cookies.json', 'cookies (1).json', 'get.json', 'r.csv', 'data.json')]
+	listed = ('cookies.json', 'cookies (1).json', 'get.json', 'r.csv', 'data.json', 'json.json', 'json (1).json')
+	files = [{'path': p, 'url': p} for p in listed]
 	with_downloads(monkeypatch, files)
 	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(url.encode()))
 	browser = Browser()
 	browser.json_page_copies |= browser_mod.json_page_copies(log)
 	await browser.start()
 	copied = await browser.stop(downloads_dir=tmp_path / 'dl')
-	assert sorted(p.name for p in copied) == ['data.json', 'r.csv']
+	assert sorted(p.name for p in copied) == ['data.json', 'json (1).json', 'r.csv']
+
+
+def test_json_copies_of_every_json_type_are_found_and_a_real_file_sharing_the_name_is_kept(tmp_path):
+	"""M18: only application/json pages counted, so +json and text/json copies were delivered as downloads. M19: the
+	filter matched by name with ' (n)' stripped, so a real download named like a copy ('json (1).json') was dropped."""
+	import json
+
+	from browser_use.repl import worker
+
+	stats, real = worker.CellStats(), 'https://httpbin.org/response-headers?Content-Type=application%2Fjson&x=1'
+	worker.STATE, saved = tmp_path, worker.STATE
+	try:
+		stats.observe(
+			[
+				{'method': 'Page.frameNavigated', 'params': {'frame': {'url': f'https://h/{n}?a=1', 'mimeType': m}}}
+				for n, m in (('api', 'application/vnd.api+json'), ('t', 'text/json'), ('p', 'application/problem+json'))
+			]
+		)
+	finally:
+		worker.STATE = saved
+	log = tmp_path / 'downloads.jsonl'
+	with open(log, 'a') as f:
+		for r in [
+			{'name': 'api', 'url': 'https://h/api'},
+			{'name': 't (1)', 'url': 'https://h/t%20(1)'},
+			{'name': 'p', 'url': 'https://h/p'},
+			{'json_page': 'https://httpbin.org/json'},
+			{'name': 'json.json', 'url': 'https://httpbin.org/json.json'},
+			{'name': 'json.json', 'url': real},  # a real download with the copy's name: listed as json (1).json
+		]:
+			f.write(json.dumps(r) + '\n')
+	assert browser_mod.json_page_copies(log) == {'api', 't (1)', 'p', 'json.json'}
 
 
 def test_worker_logs_downloads_and_json_pages_for_the_parent(tmp_path, monkeypatch):
