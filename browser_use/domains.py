@@ -248,8 +248,8 @@ class Guard:
 	turn it off. Iframes and subresources pass. When the connection drops, Chrome stops intercepting until it
 	reconnects (sweep() still runs after each cell)."""
 
-	def __init__(self, ws_url: str, rules: DomainRules):
-		self.ws_url, self.rules = ws_url, rules
+	def __init__(self, ws_url: str, rules: DomainRules, headers: dict[str, str] | None = None):
+		self.ws_url, self.rules, self.headers = ws_url, rules, headers  # headers: the handshake, as Browser(headers=...)
 		self.pages: dict[str, str] = {}  # page target id (= its main frame id) -> the URL it last showed
 		self.blocks = 0
 		self._notices: list[str] = []
@@ -303,7 +303,9 @@ class Guard:
 	def _connect(self) -> None:
 		from websockets.sync.client import connect
 
-		self._ws = connect(self.ws_url, max_size=None, open_timeout=GUARD_START_S, close_timeout=1)
+		self._ws = connect(
+			self.ws_url, additional_headers=self.headers, max_size=None, open_timeout=GUARD_START_S, close_timeout=1
+		)
 		self.pages.clear()
 		self._replies.clear()
 		self._discovered = False  # until setDiscoverTargets answered: the targets it reports were already open

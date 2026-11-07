@@ -7,6 +7,8 @@ from browser_use import Agent, Browser
 from browser_use.browser import browser as browser_mod
 from browser_use.exceptions import MissingAPIKeyError
 
+REAL_WS_URL = browser_mod._ws_url  # before the cloud fixture replaces it
+
 
 @pytest.fixture
 def cloud(monkeypatch):
@@ -1029,7 +1031,7 @@ async def test_cloud_daemon_knows_its_browser_id(cloud, monkeypatch):
 	assert envs[0]['BU_BROWSER_ID'] == 'b1' and envs[0]['BU_CDP_WS']
 	envs.clear()
 	local = Browser(cdp_url='http://127.0.0.1:9')
-	monkeypatch.setattr(browser_mod, '_ws_url', lambda url: 'ws://127.0.0.1:9/devtools/browser/x')
+	monkeypatch.setattr(browser_mod, '_ws_url', lambda url, headers=None: 'ws://127.0.0.1:9/devtools/browser/x')
 	await local.start()
 	await local.stop()
 	assert 'BU_BROWSER_ID' not in envs[0]
@@ -1084,3 +1086,44 @@ def test_sighup_stops_live_browsers_then_exits():
 
 	r = subprocess.run([sys.executable, '-c', SIGHUP_CHILD], capture_output=True, text=True, timeout=60)
 	assert r.stdout.strip() == 'stopped' and r.returncode == -1, (r.returncode, r.stdout, r.stderr[-2000:])
+
+
+async def test_headers_authenticate_the_cdp_url_connection(monkeypatch):
+	"""C18: 0.x Browser(headers=...) authenticated the cdp_url connect request (AWS Bedrock AgentCore SigV4, ~3% of runs);
+	1.0 raised with advice (Network.setExtraHTTPHeaders) that cannot authenticate a handshake."""
+	import http.server
+	import json
+	import threading
+
+	from browser_harness import admin
+
+	token = 'AWS4-HMAC-SHA256 test'
+
+	class DevTools(http.server.BaseHTTPRequestHandler):
+		def do_GET(self):
+			ok = self.headers.get('Authorization') == token
+			body = json.dumps({'webSocketDebuggerUrl': 'ws://127.0.0.1:9/devtools/browser/x'}).encode()
+			self.send_response(200 if ok else 401)
+			self.end_headers()
+			self.wfile.write(body if ok else b'no auth')
+
+		def log_message(self, *a):
+			pass
+
+	server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), DevTools)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	envs = []
+	monkeypatch.setattr(browser_mod, '_ws_url', REAL_WS_URL)
+	monkeypatch.setattr(admin, 'ensure_daemon', lambda *a, **k: envs.append(k['env']))
+	monkeypatch.setattr(browser_mod, '_shutdown_daemon', lambda name: True)
+	try:
+		browser = Browser(cdp_url=f'http://127.0.0.1:{server.server_port}', headers={'Authorization': token})
+		env = await browser.start()
+		await browser.stop()
+		assert envs[0]['BU_CDP_WS'] == 'ws://127.0.0.1:9/devtools/browser/x'  # /json/version accepted the header
+		assert json.loads(envs[0]['BU_CDP_HEADERS']) == {'Authorization': token}  # the daemon's handshake
+		assert token not in json.dumps(env)  # never in the REPL worker's env
+	finally:
+		server.shutdown()
+	with pytest.raises(ValueError, match='does not take headers='):
+		Browser('chromium', headers={'Authorization': token})
