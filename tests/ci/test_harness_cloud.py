@@ -423,13 +423,18 @@ def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
 		{'jsonrpc': '2.0', 'method': 'notifications/initialized'},
 		{'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': 'browser_exec', 'arguments': {'code': code}}},
 	]
-	assert proc.stdin
+	assert proc.stdin and proc.stdout
 	for m in messages:
 		proc.stdin.write((json.dumps(m) + '\n').encode())
 		proc.stdin.flush()
-	time.sleep(3)
+	lines: list[str] = []
+	while not any(json.loads(line).get('id') == 2 for line in lines):  # a slow runner's first call can take seconds
+		line = proc.stdout.readline().decode()
+		assert line, 'the server ended before it answered the call'
+		lines += [line] if line.strip() else []
+	time.sleep(2)  # the thread prints 0.5 s after the call
 	out, err = proc.communicate(timeout=30)
-	lines = [line for line in out.decode().splitlines() if line.strip()]
+	lines += [line for line in out.decode().splitlines() if line.strip()]
 	assert len(lines) == 2 and all(json.loads(line)['id'] in (1, 2) for line in lines), out
 	assert b'LATE' in err
 
