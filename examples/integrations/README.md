@@ -5,6 +5,7 @@ This directory is for examples that show Browser Use working with external produ
 ## Shipped integrations
 
 - [Anthropic Browser Use](anthropic/README.md) - Run the Anthropic SDK tool runner with Browser Use and Bash.
+- [Mobilebox](mobilebox/README.md) - Give an agent a cloud Android phone next to its browser through two custom actions.
 
 ## Where to put integration contributions
 
