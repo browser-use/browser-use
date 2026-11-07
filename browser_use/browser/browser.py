@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import signal
+import sys
 import tempfile
 import threading
 import time
@@ -339,6 +340,23 @@ def _name_daemon_files() -> None:
 		ipc.BH_RUNTIME_DIR_SHARED = ipc.BH_TMP_DIR_SHARED = True
 
 
+def _check_socket_path(name: str) -> None:
+	"""The daemon listens on an AF_UNIX socket, whose path the OS caps (macOS 104 bytes, Linux 108). A longer one (a
+	long BH_HOME, XDG_CONFIG_HOME or TMPDIR) failed inside the daemon with "AF_UNIX path too long", naming nothing; on
+	cloud it read as a stopped remote browser. Raise before anything starts, naming the path and the fix."""
+	from browser_harness import _ipc as ipc
+
+	if sys.platform == 'win32':  # TCP loopback there
+		return
+	path = str(ipc._sock_path(name))
+	limit = 103 if sys.platform == 'darwin' else 107
+	if len(path.encode()) > limit:
+		raise RuntimeError(
+			f'The browser-harness socket path is {len(path.encode())} bytes, over the {limit}-byte limit of this OS: '
+			f'{path}. Set BH_RUNTIME_DIR to a short directory (e.g. /tmp/bh), or shorten BH_HOME / XDG_CONFIG_HOME / TMPDIR.'
+		)
+
+
 def _check_one_chrome() -> None:
 	"""Browser('chrome') attaches where browser-harness would: the running default daemon, else the first browser
 	with remote debugging on, Google Chrome first. Raises when that choice is a guess: several are on, none Chrome."""
@@ -635,6 +653,11 @@ class Browser:
 		_install_cleanup()
 		_name_daemon_files()
 		self.name = f'bu{uuid.uuid4().hex[:8]}'
+		try:
+			_check_socket_path(self.name)  # before a cloud browser is created and billed
+		except RuntimeError:
+			self.name = None
+			raise
 		_LIVE.add(self)
 		try:
 			if self.cdp_url:

@@ -152,6 +152,23 @@ async def test_keep_alive_cloud_downloads_land_in_the_workspace_on_the_later_sto
 	assert [p.read_bytes() for p in files] == [b'data'] and files[0].parent == tmp_path / 'downloads'
 
 
+async def test_a_socket_path_too_long_for_the_os_names_the_path_before_anything_starts(cloud, monkeypatch, tmp_path):
+	"""M40: a long BH_HOME / XDG_CONFIG_HOME failed inside the daemon with "AF_UNIX path too long", naming no path; on
+	cloud it showed as "stopped remote browser"."""
+	import sys
+
+	from browser_harness import _ipc as ipc
+
+	if sys.platform == 'win32':
+		pytest.skip('Windows uses TCP loopback')
+	long_dir = tmp_path / ('a' * 120)
+	monkeypatch.setattr(ipc, '_sock_path', lambda name: long_dir / f'bu-{name}.sock')
+	with pytest.raises(RuntimeError, match=r'socket path is \d+ bytes, over the 10\d-byte limit.*BH_RUNTIME_DIR') as raised:
+		await Browser().start()
+	assert str(long_dir) in str(raised.value)
+	assert not [c for c in cloud if c[0] == 'POST'] and not browser_mod._LIVE  # no cloud browser created
+
+
 async def test_restarted_browser_is_stopped_again(cloud):
 	"""BUP bug: `stopped` never reset, so a browser started a second time was skipped at cleanup (kept billing)."""
 	browser = Browser()
