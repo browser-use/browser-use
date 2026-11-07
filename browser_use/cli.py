@@ -110,6 +110,39 @@ def _run_cli_mcp_server() -> None:
 	_run_mcp_stdio_server('browser_use.mcp.cli_mcp')
 
 
+def _run_doctor() -> int:
+	"""browser-use --doctor. browser-harness's doctor named itself, showed its own version and failed a stopped daemon
+	(every call starts one) and a missing sign-in (optional), so a healthy fresh install exited 1. Exit 1 only when
+	nothing can run: no local browser and no key."""
+	import platform
+
+	from browser_harness import admin
+
+	from browser_use.auth import browser_use_api_key
+	from browser_use.browser.browser import _name_daemon_files
+	from browser_use.browser.local import find_binary
+
+	_name_daemon_files()  # the daemon this checks is the one the next call would use
+	print(f'browser-use {_browser_use_version()} (browser-harness {admin._version()}), Python {platform.python_version()}')
+	try:
+		local = find_binary()
+	except RuntimeError as e:  # none installed, or only a Snap one
+		local, local_text = None, f'{str(e).splitlines()[0]}  (browser-use install)'
+	else:
+		local_text = local
+	try:
+		key = bool(browser_use_api_key())
+		key_text = 'yes'
+	except RuntimeError:  # MissingAPIKeyError
+		key, key_text = False, 'none: browser-use login (Browser() and the bu-* models need it)'
+	chrome_text = 'yes' if admin._chrome_running() else "no (only Browser('chrome') and the CLI attach to it)"
+	print(f'  local browser   {local_text}')
+	print(f'  Chrome running  {chrome_text}')
+	print(f'  daemon          {"running" if admin.daemon_alive() else "stopped (the next call starts it)"}')
+	print(f'  cloud key       {key_text}')
+	return 0 if (local or key) else 1
+
+
 INSTALL_TEXT = """Pick where the agent's browser runs:
   Browser()                   Browser Use Cloud browser (default). Needs a key: browser-use login
   Browser('chromium')         a fresh local Chrome/Chromium/Edge (or the Chromium just installed) with its own temp profile
@@ -284,6 +317,8 @@ def _patch_browser_harness_cli_text() -> None:
 
 	auth.run_auth_cli = run_auth_cli
 	telemetry.run_telemetry_cli = run_telemetry_cli
+	fix_snap = run.run_doctor_fix_snap  # its text named `browser-harness --doctor`
+	run.run_doctor_fix_snap = lambda: _normalize_captured_cli_output(lambda _argv: fix_snap(), [])
 
 
 _delegated_to_harness = False
@@ -535,6 +570,8 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	if '--mcp' in args:
 		_run_mcp_server()
 		return 0, 'mcp'
+	if args in (['--doctor'], ['doctor']):  # browser-harness's doctor: its name, its version, FAIL for a stopped daemon
+		return _run_doctor(), 'doctor'
 	if args and args[0] == 'install':
 		return _run_install_command(args[1:]), 'install'
 	if args and args[0] == 'login':

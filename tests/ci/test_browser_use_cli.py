@@ -40,6 +40,28 @@ def test_browser_use_doctor_help_prints_browser_use_usage():
 	assert result.stderr == ''
 
 
+def test_browser_use_doctor_names_browser_use_and_passes_without_a_daemon(tmp_path):
+	"""C48: --doctor ran browser-harness's doctor: header `browser-harness doctor`, its version, and exit 1 with
+	[FAIL] rows whenever the daemon was stopped (every call starts it) or nobody was signed in (optional)."""
+	env = {**os.environ, 'BH_HOME': str(tmp_path), 'BU_NAME': f'doctor-test-{os.getpid()}', 'BROWSER_USE_API_KEY': 'k'}
+	env['PYTHONPATH'] = str(ROOT)
+	for argv in (['--doctor'], ['doctor']):
+		result = subprocess.run(
+			[sys.executable, '-m', 'browser_use.cli', *argv], cwd=ROOT, env=env, capture_output=True, text=True, timeout=20
+		)
+		assert result.returncode == 0, result.stdout + result.stderr
+		assert result.stdout.startswith('browser-use ')
+		assert 'stopped (the next call starts it)' in result.stdout
+		assert 'browser-harness doctor' not in result.stdout and 'FAIL' not in result.stdout
+
+
+def test_browser_use_doctor_fix_snap_names_browser_use():
+	result = _run_browser_use_cli('doctor', '--fix-snap')
+
+	assert result.returncode == 0
+	assert 'browser-use --doctor' in result.stdout and 'browser-harness --doctor' not in result.stdout
+
+
 def test_browser_use_module_entrypoint_matches_cli_entrypoint():
 	cli_result = _run_browser_use_cli('doctor', '--help')
 	module_result = _run_browser_use_cli('doctor', '--help', module='browser_use')
