@@ -138,7 +138,7 @@ result = await agent.run()
 | `Browser('chrome')` | the Chrome you have open, with your logins (turn on chrome://inspect/#remote-debugging once) |
 | `Browser('chrome', profile='Work')` | a new Chrome on a temporary copy of your Chrome profile `Work` (sync off); your Chrome can stay open, except on Windows |
 
-Other models: `ChatAnthropic` (`browser-use[anthropic]`), `ChatGoogle` (`browser-use[google]`), or any Pydantic AI model string such as `llm='groq:llama-3.3-70b-versatile'`.
+Other models: `ChatAnthropic`, `ChatGoogle` (both built in), or any Pydantic AI model string such as `llm='groq:llama-3.3-70b-versatile'`.
 
 - **Typed results:** `Agent(task, output_model_schema=MyModel)` then `result.structured_output`.
 - **Secrets:** `Agent(task, sensitive_data={'password': '...'})`, or `{'https://*.example.com': {'password': '...'}}` to type it only on that domain. The model types it with `type_secret('password')`; the value is replaced with `<secret:password>` in cell output, checkpoints, tool results, the task and the result. Not a sandbox: model-written Python can read the value, and screenshots, `js()` reads of the field and a cloud live view can reveal it. See the trust model in MIGRATING.md.

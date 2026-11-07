@@ -3,10 +3,10 @@
 ChatBrowserUse  the gateway: stateless OpenAI Responses (store=false, encrypted reasoning) + server-side compaction
 ChatOpenAI      api.openai.com -> Responses API (the evaluated setup); the gateway URL -> as ChatBrowserUse;
                 any other base_url -> chat completions
-ChatAnthropic   needs `browser-use[anthropic]`
-ChatGoogle      needs `browser-use[google]`
+ChatAnthropic   Anthropic (built in)
+ChatGoogle      Google Gemini (built in)
 
-Any Pydantic AI model string ('openai:gpt-6-luna', 'anthropic:claude-...', 'google-gla:gemini-...') or Model works too.
+Any Pydantic AI model string ('openai:gpt-6-luna', 'anthropic:claude-...', 'google:gemini-...') or Model works too.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ DEFAULT_MODEL = 'bu-fast'  # gpt-6-luna, medium reasoning, default tier (the eva
 GATEWAY_UPSTREAM = {'bu-smart': 'gpt-6.1-sol', 'bu-smart-v1': 'gpt-6.1-sol'}  # other bu-* aliases run gpt-6-luna
 LEGACY_MODEL = re.compile(r'bu-(latest|\d+-\d+)\b')  # bu-2-0, bu-1-0, bu-2-0-mini-preview, bu-latest: the 0.x gateway
 PREFLIGHT_TIMEOUT_S = 15
-EXTRAS = {'anthropic': 'anthropic', 'google-gla': 'google', 'google-vertex': 'google', 'google': 'google'}
+EXTRAS = {'anthropic': 'anthropic', 'google': 'google', 'google-cloud': 'google', 'google-gla': 'google', 'google-vertex': 'google'}
 
 
 def compatible_profile() -> Any:

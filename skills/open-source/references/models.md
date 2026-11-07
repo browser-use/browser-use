@@ -10,8 +10,8 @@
 | Browser Use gateway (default) | `llm=None`, `'bu-fast'`, `'bu-ultrafast'`, `'bu-smart'`, or `ChatBrowserUse(model)` | `BROWSER_USE_API_KEY` |
 | OpenAI | `ChatOpenAI('gpt-6-luna')` | `OPENAI_API_KEY` |
 | OpenAI-compatible server (vLLM, Ollama, DeepSeek, ...) | `ChatOpenAI(model, base_url=..., api_key=...)` | the server's |
-| Anthropic | `ChatAnthropic('claude-opus-5-5')`, needs `pip install 'browser-use[anthropic]'` | `ANTHROPIC_API_KEY` |
-| Google Gemini | `ChatGoogle('gemini-3-flash')`, needs `pip install 'browser-use[google]'` | `GOOGLE_API_KEY` |
+| Anthropic | `ChatAnthropic('claude-opus-5-5')` or `'anthropic:claude-opus-5-5'` | `ANTHROPIC_API_KEY` |
+| Google Gemini | `ChatGoogle('gemini-3.5-flash')` or `'google:gemini-3.5-flash'` | `GOOGLE_API_KEY` |
 | Anything Pydantic AI supports | a model string: `'groq:llama-3.3-70b'`, `'openrouter:anthropic/claude-sonnet-4-6'`, `'mistral:...'`, `'bedrock:...'`, or a Pydantic AI `Model` | the provider's |
 
 ## Browser Use gateway
