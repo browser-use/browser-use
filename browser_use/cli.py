@@ -374,7 +374,7 @@ _CLI3_GUIDE = """Core helpers: new_tab(url), goto_url(url), page_info(), capture
   list_tabs(), switch_tab(target), close_tab(target)
 
 Read the full interface now:   browser-use skill show
-Install the CLI 3.0 skill (upgrades the CLI and replaces any pre-existing browser-use skill):
+Install the skill (replaces any pre-existing browser-use skill):
                                browser-use skill install
 Then load the freshly installed browser-use skill, and follow it to use the latest CLI.
 Skill reference:               https://github.com/browser-use/browser-use/blob/main/browser_use/skills/browser-use/SKILL.md

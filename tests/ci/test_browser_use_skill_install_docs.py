@@ -141,9 +141,7 @@ def test_skill_install_and_show_use_this_packages_skill_and_never_run_browser_ha
 	)
 
 	assert result.returncode == 0, result.stderr
-	# Pinned: unpinned, uv installs the latest stable (0.x) over a 1.0 rc install
-	version = importlib.metadata.version('browser-use')
-	assert uv_args.read_text(encoding='utf-8') == f'tool install --python 3.12 --upgrade --force browser-use=={version}'
+	assert not uv_args.exists()  # M33: the CLI is reinstalled only with --install-cli
 	for installed in (home / path for path in EXPECTED_SKILL_INSTALL_PATHS):
 		assert installed.read_text(encoding='utf-8') == skill_text()
 	shown = subprocess.run(
@@ -151,6 +149,28 @@ def test_skill_install_and_show_use_this_packages_skill_and_never_run_browser_ha
 	)
 	assert shown.returncode == 0 and shown.stdout.decode('utf-8') == skill_text()
 	assert not (tmp_path / 'harness-ran').exists()
+
+
+def test_skill_install_reinstalls_the_cli_only_when_asked(tmp_path):
+	"""M33: `skill install` ran `uv tool install --force browser-use==<version>` by default, replacing the user's own
+	install of the CLI. It is opt-in now (--install-cli), pinned to the running version."""
+	bin_dir = _fake_browser_harness_tools(tmp_path, '')
+	env = _isolated_env(tmp_path, bin_dir, tmp_path / 'home')
+	uv_args = tmp_path / 'uv-args.txt'
+	for args, installs in ((['--target', 'claude'], False), (['--target', 'claude', '--install-cli'], True)):
+		result = subprocess.run(
+			[sys.executable, '-m', 'browser_use.cli', 'skill', 'install', *args],
+			cwd=ROOT,
+			env=env,
+			capture_output=True,
+			text=True,
+			timeout=10,
+		)
+		assert result.returncode == 0, result.stderr
+		assert uv_args.exists() is installs
+	# Pinned: unpinned, uv installs the latest stable (0.x) over a 1.0 rc install
+	version = importlib.metadata.version('browser-use')
+	assert uv_args.read_text(encoding='utf-8') == f'tool install --python 3.12 --upgrade --force browser-use=={version}'
 
 
 def test_browser_use_cli_validates_destination_before_installing_harness(tmp_path):
@@ -162,7 +182,7 @@ def test_browser_use_cli_validates_destination_before_installing_harness(tmp_pat
 	env = _isolated_env(tmp_path, bin_dir, tmp_path / 'home')
 
 	result = subprocess.run(
-		[sys.executable, '-m', 'browser_use.cli', 'skill', 'install', '--path', str(blocking_file / 'nested')],
+		[sys.executable, '-m', 'browser_use.cli', 'skill', 'install', '--install-cli', '--path', str(blocking_file / 'nested')],
 		cwd=ROOT,
 		env=env,
 		capture_output=True,

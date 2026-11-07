@@ -61,7 +61,7 @@ def _install_browser_use_tool() -> None:
 
 	version = get_browser_use_version()
 	if version == 'unknown':
-		raise RuntimeError('Cannot tell which browser-use version is running; rerun with --no-install.')
+		raise RuntimeError('Cannot tell which browser-use version is running; rerun without --install-cli.')
 	# Pinned to the running version: unpinned, uv picks the latest stable, which replaces a 1.0 rc install with 0.x.
 	args = ['tool', 'install', '--python', '3.12', '--upgrade', '--force', f'browser-use=={version}']
 	result = subprocess.run([uv, *args])
@@ -96,10 +96,11 @@ def _build_parser() -> argparse.ArgumentParser:
 		help='Accepted for compatibility; install overwrites existing SKILL.md files by default',
 	)
 	install.add_argument(
-		'--no-install',
+		'--install-cli',
 		action='store_true',
-		help='Skip uv tool install/upgrade and use the existing browser-use command or package',
+		help='Also (re)install this browser-use version as a uv tool (`uv tool install --force`)',
 	)
+	install.add_argument('--no-install', action='store_true', help='Accepted for compatibility; the default now')
 
 	return parser
 
@@ -148,7 +149,7 @@ def handle(argv: list[str]) -> int:
 		try:
 			output_paths = _resolve_output_paths(args.target, args.path)
 			_validate_output_paths(output_paths)
-			if not args.no_install:
+			if args.install_cli:  # opt-in: it replaces the user's own browser-use tool install
 				_install_browser_use_tool()
 			text = _load_skill_text_from_package()
 		except RuntimeError as exc:
