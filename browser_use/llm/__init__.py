@@ -299,6 +299,66 @@ def model_ref(llm: Any) -> Any:
 	return f'{"openai-responses" if provider == "openai" else provider}:{name}'
 
 
+def skip_responses_transform() -> None:
+	"""openai-python rewrites every Responses request body against its TypedDicts before sending it: one async call per
+	node and union member, ~20k calls at 50k tokens (~30 ms on an M5 Pro, more on a slower runner), growing with the
+	history (bu-pi's Node SDK sends the body as is). That pass only renames aliased keys, formats annotated values and
+	drops omitted ones. When the installed openai's create params carry no alias or format, plain JSON bodies are sent
+	minus omitted keys: the same bytes. Anything else, or an openai that moved these internals, keeps the SDK's pass."""
+	try:
+		import openai.resources.responses.responses as responses
+		from openai._utils import is_given
+		from openai.types.responses import response_create_params as params
+
+		transform = getattr(responses, 'async_maybe_transform')  # module-level, not exported
+		create = (params.ResponseCreateParamsNonStreaming, params.ResponseCreateParamsStreaming)
+		if getattr(transform, 'skips_create', False) or responses_params_rewrite(*create):
+			return
+	except (ImportError, AttributeError):
+		return
+
+	async def maybe_transform(data: Any, expected_type: Any) -> Any:
+		if expected_type in create and isinstance(data, dict):
+			body = {k: v for k, v in data.items() if is_given(v)}
+			if _json(body):
+				return body
+		return await transform(data, expected_type)
+
+	maybe_transform.skips_create = True  # type: ignore[attr-defined]
+	setattr(responses, 'async_maybe_transform', maybe_transform)
+
+
+def responses_params_rewrite(*types: Any) -> bool:
+	"""True when any field reachable from these openai TypedDicts has an alias or format, i.e. the SDK pass changes bytes."""
+	import typing
+
+	import typing_extensions
+	from openai._utils import PropertyInfo, _transform, strip_annotated_type
+
+	seen: set[int] = set()
+
+	def walk(t: Any) -> bool:
+		if id(t) in seen:
+			return False
+		seen.add(id(t))
+		if any(isinstance(a, PropertyInfo) and (a.alias or a.format) for a in getattr(t, '__metadata__', ())):
+			return True
+		if any(walk(arg) for arg in typing.get_args(t)):
+			return True
+		t = strip_annotated_type(t)
+		return typing_extensions.is_typeddict(t) and any(map(walk, _transform.get_type_hints(t, include_extras=True).values()))
+
+	return any(map(walk, types))
+
+
+def _json(value: Any) -> bool:
+	if isinstance(value, dict):
+		return all(isinstance(k, str) and _json(v) for k, v in value.items())
+	if isinstance(value, list):
+		return all(map(_json, value))
+	return value is None or isinstance(value, str | int | float | bool)
+
+
 def provider_preflight(model: Any) -> str | None:
 	"""One free GET of the model on its provider (OpenAI, Anthropic, Google; official endpoints only): a rejected key
 	or an unknown model fails here, before a cloud browser is created and billed. Returns the error line, or None when

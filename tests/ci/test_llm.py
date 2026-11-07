@@ -198,6 +198,40 @@ async def test_gateway_models_run_stateless_responses_with_compaction(responses_
 	assert result.cost_usd == pytest.approx(3 * 0.0002)
 
 
+async def test_responses_bodies_skip_the_sdk_transform(responses_server, tmp_path, monkeypatch):
+	"""openai-python rewrote every Responses body against its TypedDicts before sending it: ~20k calls at 50k tokens,
+	~30 ms per request on an M5 Pro, growing with the history (bu-pi's Node SDK sends the body as is). The create params
+	carry no alias or format, so the pass could not change a byte; an openai that adds one keeps its own pass."""
+	from typing import Annotated
+
+	from openai._utils import PropertyInfo, _transform
+	from openai.types.responses import response_create_params as params
+	from typing_extensions import TypedDict
+
+	from browser_use.llm import responses_params_rewrite
+
+	class Aliased(TypedDict, total=False):
+		card_id: Annotated[str, PropertyInfo(alias='cardID')]
+
+	assert responses_params_rewrite(params.ResponseCreateParamsNonStreaming, list[Aliased])
+	assert not responses_params_rewrite(params.ResponseCreateParamsNonStreaming, params.ResponseCreateParamsStreaming)
+
+	calls, real = [], _transform._async_transform_recursive
+
+	async def counted(*args, **kwargs):
+		calls.append(1)
+		return await real(*args, **kwargs)
+
+	monkeypatch.setattr(_transform, '_async_transform_recursive', counted)
+	url, requests, replies = responses_server
+	replies.append([reasoning(1), call('python', {'code': 'print(6 * 7)'}, 1)])
+	model, settings = resolve_model(ChatBrowserUse(api_key='fake-test-key', base_url=url))
+	agent = build_agent(model, model_settings=settings, reasoning_effort=None)
+	result = await run(agent, 'TASK-TEXT', Session(repl=Repl(tmp_path)), model.model_name)
+	assert (result.status, result.output, len(requests)) == ('completed', 'ok', 2)
+	assert '42' in json.dumps(requests[1][1]['input']) and calls == []
+
+
 async def test_text_answer_reaches_the_repair_turn_when_a_compaction_item_ends_the_response(responses_server, tmp_path):
 	"""agent-llm F2: the model answered in text, the response ended with a compaction item, and the delivery repair
 	request was [compaction, retry]: the answer was gone, and the model then said it could not verify anything.

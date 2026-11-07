@@ -43,7 +43,7 @@ from pydantic_core import to_json, to_jsonable_python
 from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
 from browser_use.ax import AX_PROMPT
-from browser_use.llm import model_ref
+from browser_use.llm import model_ref, skip_responses_transform
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import redact_forms, secret_forms
 from browser_use.search import parse_usd
@@ -590,6 +590,7 @@ def build_agent(
 		if not reasoning:  # gpt-4.1, gpt-4o: reasoning params 400, and 32k is above their output cap
 			settings = {}
 		capabilities = [BrowserLoop(), LazyCompaction(token_threshold=compact_at_tokens or 150_000)]
+		skip_responses_transform()  # bu-pi's Node SDK sends the body as is
 	elif kind == 'chat':  # DeepSeek, vLLM, Ollama: no reasoning settings, no output cap they may reject
 		# OpenAI's own reasoning models turn reasoning on by default on chat completions and then reject function tools
 		# (400 "use /v1/responses or set reasoning_effort to 'none'")
