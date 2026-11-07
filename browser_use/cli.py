@@ -312,8 +312,11 @@ def _guard_cloud_browsers(run, code: str | None) -> None:
 def _run_browser_harness(code: str | None = None) -> int | None:
 	from browser_harness import run
 
+	from browser_use.browser.browser import _name_daemon_files
+
 	global _delegated_to_harness
 
+	_name_daemon_files()  # with BH_RUNTIME_DIR set, every BU_NAME would otherwise share one bu.sock
 	_set_harness_client_env()
 	_scrub_harness_telemetry()
 	_patch_browser_harness_cli_text()
