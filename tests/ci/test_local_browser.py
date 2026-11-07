@@ -156,6 +156,25 @@ async def test_browser_chromium_runs_its_own_daemon_and_stop_ends_the_browser(fa
 
 
 @posix_only
+async def test_a_local_browser_that_died_is_named_and_never_blamed_on_a_cloud_websocket(fake_chrome, tmp_path, monkeypatch):
+	"""Night swarm 11-07 (C07): when our own Chrome died, browser-harness's error said 'remote browser WebSocket
+	connection failed ... If you use Browser Use cloud ... start_remote_daemon()' for Browser('chromium')."""
+	from browser_harness import admin
+
+	def ensure_daemon(wait=None, name=None, env=None):  # Chrome dies before the daemon connects to it
+		os.kill(int((tmp_path / 'pid').read_text()), 9)
+		browser._local.proc.wait(5)
+		raise RuntimeError('CDP WS handshake failed -- remote browser WebSocket connection failed. start_remote_daemon()')
+
+	monkeypatch.setattr(admin, 'ensure_daemon', ensure_daemon)
+	browser = Browser('chromium', executable_path=fake_chrome('ok'), headless=True)
+	with pytest.raises(RuntimeError) as e:
+		await browser.start()
+	assert str(e.value) == 'the local browser exited (code -9): it crashed, was killed or closed'
+	assert browser._local is None and not browser_mod._LIVE
+
+
+@posix_only
 async def test_cancelled_start_never_leaves_a_local_browser_running(fake_chrome, tmp_path, no_daemon):
 	browser = Browser('chromium', executable_path=fake_chrome('hang'), headless=True)
 	task = asyncio.create_task(browser.start())
