@@ -11,6 +11,7 @@ from browser_use.browser.events import (
 	TabCreatedEvent,
 )
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.utils import has_unsupported_fnmatch_syntax
 
 if TYPE_CHECKING:
 	pass
@@ -243,6 +244,10 @@ class SecurityWatchdog(BaseWatchdog):
 			else:
 				# Slow path: O(n) pattern matching for lists
 				for pattern in prohibited_domains:
+					if '*' in pattern and has_unsupported_fnmatch_syntax(pattern):
+						# Fail closed: an unsupported glob in a denylist pattern
+						# must not silently allow the URL through.
+						return False
 					if self._is_url_match(url, host, parsed.scheme, pattern):
 						return False
 				return True
@@ -258,6 +263,9 @@ class SecurityWatchdog(BaseWatchdog):
 		# Handle glob patterns
 		if '*' in pattern:
 			self._log_glob_warning()
+			if has_unsupported_fnmatch_syntax(pattern):
+				return False
+
 			import fnmatch
 
 			# Check if pattern matches the host
