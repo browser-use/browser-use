@@ -683,3 +683,39 @@ def test_worker_dies_with_its_parent_mid_cell(tmp_path, how):
 	sizes = [b.stat().st_size for b in beats]
 	time.sleep(0.5)
 	assert [b.stat().st_size for b in beats] == sizes  # both heartbeats stopped
+
+
+async def test_http_get_returns_bytes_for_binary_and_text_for_text(tmp_path):
+	"""C31: browser-harness's http_get ended in data.decode(), so a zip or PDF raised UnicodeDecodeError and the model fell
+	back to raw urllib. Binary comes back as the exact bytes; text (gzip too) as str."""
+	import gzip
+	import threading
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	zip_bytes = b'PK\x03\x04\x14\x00\xd9\x9c\xff\x00binary'
+	bodies = {'/a.zip': (zip_bytes, {}), '/t': (gzip.compress('héllo'.encode()), {'Content-Encoding': 'gzip'})}
+
+	class Handler(BaseHTTPRequestHandler):
+		def do_GET(self):
+			body, headers = bodies[self.path]
+			self.send_response(200)
+			for k, v in headers.items():
+				self.send_header(k, v)
+			self.send_header('Content-Length', str(len(body)))
+			self.end_headers()
+			self.wfile.write(body)
+
+		def log_message(self, *args):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	base = f'http://127.0.0.1:{server.server_address[1]}'
+	repl = Repl(tmp_path)
+	try:
+		r = await repl.call('exec', f'z = http_get({base + "/a.zip"!r}); t = http_get({base + "/t"!r}); (z, t)', 30)
+		assert r['error'] is None, r['error']
+		assert r['output'].strip() == repr((zip_bytes, 'héllo'))
+	finally:
+		await repl.close()
+		server.shutdown()

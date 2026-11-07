@@ -14,6 +14,7 @@ import base64
 import codecs
 import contextlib
 import functools
+import gzip
 import hashlib
 import hmac
 import inspect
@@ -229,6 +230,21 @@ def _check_redirects(check_url) -> None:
 	urllib.request.install_opener(urllib.request.build_opener(CheckedRedirects))
 
 
+def http_get(url, headers=None, timeout=20.0):
+	"""Plain HTTP from this machine, not the browser (no browser IP, cookies or proxy). Returns str, or bytes when the
+	body is not UTF-8 text (zip, pdf, image). browser-harness's own decoded every body (UnicodeDecodeError on binary), and
+	its fetch-use branch never runs here: the worker has no BROWSER_USE_API_KEY."""
+	h = {'User-Agent': 'Mozilla/5.0', 'Accept-Encoding': 'gzip', **(headers or {})}
+	with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout) as r:
+		data = r.read()
+		if r.headers.get('Content-Encoding') == 'gzip':
+			data = gzip.decompress(data)
+	try:
+		return data.decode()
+	except UnicodeDecodeError:
+		return data
+
+
 def _add_image(data: bytes, media_type: str = 'image/png') -> bool:
 	if len(images) >= MAX_IMAGES_PER_CELL:
 		print(f'[image dropped: {MAX_IMAGES_PER_CELL} per call max]')
@@ -353,6 +369,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 
 	cdp.__doc__ = raw_cdp.__doc__
 	helpers.cdp = cdp  # capture_screenshot() and friends go through the wrapper too
+	helpers.http_get = http_get
 	if rules:  # before the * import below, so the agent's names are the checked ones
 		for name in ('new_tab', 'http_get'):  # new_tab: before it opens an empty tab; http_get: plain HTTP from here
 			helpers.__dict__[name] = _checked(getattr(helpers, name), check_url)

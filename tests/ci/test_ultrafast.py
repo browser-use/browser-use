@@ -128,10 +128,11 @@ def static_instructions(agent):
 def test_default_prompt_unchanged():
 	"""Default mode is the evaluated path: its system prompt must stay byte-identical (sha256 from 0.2.0, plus the
 	finish success line that made success required, minus the finish-whole-job and verify-answer paragraphs bu-pi lacks,
-	and the downloads line no longer telling the model to call Browser.setDownloadBehavior: C12)."""
+	and the downloads line no longer telling the model to call Browser.setDownloadBehavior: C12; http_get says it runs
+	from this machine, not the browser, and returns bytes for binary: C31)."""
 	default = static_instructions(build_agent())
 	assert default == [SYSTEM_PROMPT] == static_instructions(build_agent(mode='default'))
-	assert hashlib.sha256(default[0].encode()).hexdigest() == '7c0db3379cd978322ce396a408e593831a26afe868bf00714a13298cdbeda0c5'
+	assert hashlib.sha256(default[0].encode()).hexdigest() == '1d3f6ef6db008795b7eb348f6ef4a73dbd9135cdca65ccc5044336fdca8d7f0f'
 	assert static_instructions(build_agent(instructions='X')) == [f'{SYSTEM_PROMPT}\nX']
 	assert static_instructions(build_agent(mode='ultrafast')) == [(SYSTEM_PROMPT + AX_PROMPT).rstrip()]
 	assert static_instructions(build_agent(mode='ultrafast', instructions='X')) == [f'{SYSTEM_PROMPT}{AX_PROMPT}\nX']

@@ -13,7 +13,7 @@ Browser primitives (browser-harness, pre-imported; one attached tab at a time):
 - cdp('Domain.method', **params) sends a raw CDP command to the attached tab; cdp(method, session_id=sid, ...) targets another session. drain_events() returns buffered CDP events.
 - click_at_xy(x, y) sends real mouse events in viewport coordinates. type_text(text) inserts text into the focused element. press_key('Enter'), scroll(x, y, dy=600).
 - screenshot() captures the viewport and shows it to you as a native image. Never print image bytes. Raw cdp('Page.captureScreenshot') is shown too.
-- wait_for_element(selector), wait_for_network_idle(), upload_file(selector, path), http_get(url) (plain HTTP, no browser).
+- wait_for_element(selector), wait_for_network_idle(), upload_file(selector, path), http_get(url) (plain HTTP from this machine, without the browser's IP, cookies or proxy: if it is blocked, load the page in the browser; returns str, or bytes for binary).
 
 Prefer the accessibility tree for discovery: cdp('Accessibility.getFullAXTree')['nodes'] has role, name and backendDOMNodeId. Filter it in Python before printing; avoid repeated full DOM dumps. Read state, not just labels. For an observed backend node id:
   cdp('DOM.scrollIntoViewIfNeeded', backendNodeId=n)
