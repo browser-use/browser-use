@@ -167,8 +167,10 @@ def _read_api_key_stdin() -> str:
 	key = auth._read_manual_api_key()  # piped stdin, or a hidden prompt on a terminal; rejects empty and short input
 	if not key.startswith('bu_'):
 		raise auth.AuthError(f'that is not a Browser Use API key (they start with bu_); create one at {KEYS_URL}')
-	if any(c.isspace() or not c.isprintable() for c in key):  # stored, it would break every request (and be printed)
-		raise auth.AuthError(f'the key has a space, line break or control character inside it; copy it again from {KEYS_URL}')
+	if not key.isascii() or any(c.isspace() or not c.isprintable() for c in key):  # stored, it would break every request
+		raise auth.AuthError(
+			f'the key has a space, line break, control or non-ASCII character inside it; copy it again from {KEYS_URL}'
+		)
 	return key
 
 

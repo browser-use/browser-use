@@ -12,10 +12,10 @@ def clean_api_key(key: str, source: str, what: str = 'Browser Use Cloud') -> str
 	"""The key without surrounding whitespace (a trailing newline from a file or `echo`). Whitespace or a control
 	character inside it raises without the key in the message: an HTTP client would reject the header and print it."""
 	key = key.strip()
-	if any(c.isspace() or not c.isprintable() for c in key):
+	if not key.isascii() or any(c.isspace() or not c.isprintable() for c in key):
 		raise MissingAPIKeyError(
 			what,
-			f'The key in {source} has a space, line break or control character inside it (not shown); copy the key '
+			f'The key in {source} has a space, line break, control or non-ASCII character inside it (not shown); copy the key '
 			f'again from {KEYS_URL}.',
 		)
 	return key

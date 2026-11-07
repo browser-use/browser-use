@@ -264,6 +264,9 @@ def test_a_key_with_whitespace_inside_never_appears_in_an_error_or_the_store(sto
 
 	monkeypatch.setenv('BROWSER_USE_API_KEY', FAKE_KEY + '\n')  # a trailing newline (echo, a file) is just stripped
 	assert browser_use_api_key() == FAKE_KEY
+	monkeypatch.setenv('BROWSER_USE_API_KEY', FAKE_KEY + '\u00e9')  # http.client would send it as latin-1
+	with pytest.raises(MissingAPIKeyError, match='non-ASCII'):
+		browser_use_api_key()
 	monkeypatch.setenv('BROWSER_USE_API_KEY', bad)
 	for fail in (
 		browser_use_api_key,
