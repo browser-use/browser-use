@@ -263,19 +263,25 @@ def _add_image(data: bytes, media_type: str = 'image/png') -> bool:
 	except Exception as e:
 		print(f'[image dropped: not a decodable image ({type(e).__name__})]')
 		return False
-	if len(data) > 5_000_000 or max(img.size) > MAX_IMAGE_SIDE:
-		img = img.convert('RGB')
-		img.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE))
-		out = io.BytesIO()
-		img.save(out, 'JPEG', quality=80)
-		data, media_type = out.getvalue(), 'image/jpeg'
-	elif img.format not in ('PNG', 'JPEG', 'WEBP') or img.mode not in ('RGB', 'RGBA'):
+	# the decoded format, not the file name; MPO is a camera JPEG with an extra frame
+	media_type = 'image/jpeg' if img.format == 'MPO' else img.get_format_mimetype() or media_type
+	if img.format not in ('PNG', 'JPEG', 'MPO', 'WEBP') or img.mode in ('P', 'PA'):
 		# xAI 400s GIF and palette PNGs ("not a valid JPG, PNG, WebP"; grok bub2-008 showed an EPC graph): plain PNG
+		if img.mode not in ('1', 'L', 'LA', 'I', 'I;16', 'RGB', 'RGBA'):
+			img = img.convert('RGBA' if img.has_transparency_data else 'RGB')
 		out = io.BytesIO()
-		img.convert('RGBA' if img.has_transparency_data else 'RGB').save(out, 'PNG')
+		img.save(out, 'PNG')
 		data, media_type = out.getvalue(), 'image/png'
-	else:  # the decoded format, not the file name
-		media_type = img.get_format_mimetype() or media_type
+	if len(data) > 5_000_000 or max(img.size) > MAX_IMAGE_SIDE:
+		if img.mode.startswith('I'):  # 16-bit gray: convert() clips it to white
+			img = img.point(lambda v: v / 256).convert('L')
+		img = img.convert('RGBA')
+		img.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE))
+		flat = Image.new('RGB', img.size, 'white')  # JPEG has no alpha: transparent pixels go white, not the black they hid
+		flat.paste(img, mask=img)
+		out = io.BytesIO()
+		flat.save(out, 'JPEG', quality=80)
+		data, media_type = out.getvalue(), 'image/jpeg'
 	images.append({'data': base64.b64encode(data).decode(), 'media_type': media_type})
 	return True
 

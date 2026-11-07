@@ -764,3 +764,36 @@ async def test_gif_and_palette_images_reach_the_model_as_plain_png(tmp_path):
 		('image/png', 'PNG', 'RGB'),
 		('image/jpeg', 'JPEG', 'RGB'),
 	]
+
+
+async def test_images_providers_take_are_sent_as_is_and_conversions_fit_the_limits(tmp_path):
+	"""Review of the palette fix: a 16-bit gray PNG came out white and a camera JPEG (Pillow: MPO) grew 4-5x as PNG; both
+	are sent unchanged. A noisy GIF grew past Anthropic's 5 MB as PNG, and a transparent PNG over 2048 px came out black:
+	the first is sized after conversion, the second goes on white."""
+	import base64
+	import io
+
+	from PIL import Image
+
+	code = (
+		'import os\nfrom PIL import Image, ImageDraw\n'
+		"Image.new('I;16', (40, 20), 30000).save('depth.png')\n"
+		"a = Image.new('RGB', (40, 20), 'red')\na.save('camera.jpg', 'MPO', save_all=True, append_images=[a])\n"
+		"noise = Image.frombytes('P', (1500, 1500), os.urandom(1500 * 1500))\nnoise.putpalette(os.urandom(768))\n"
+		"noise.save('noise.gif')\n"
+		"logo = Image.new('RGBA', (3000, 100))\nImageDraw.Draw(logo).text((10, 10), 'ACME', fill='black')\nlogo.save('logo.png')\n"
+		"print(*(show_image(f) for f in ['depth.png', 'camera.jpg', 'noise.gif', 'logo.png']))"
+	)
+	repl = Repl(tmp_path)
+	try:
+		r = await repl.call('exec', code, 60)
+	finally:
+		await repl.close()
+	assert r['error'] is None and r['output'].strip() == 'True True True True', r
+	sent = [base64.b64decode(i['data']) for i in r['images']]
+	assert sent[:2] == [(tmp_path / 'depth.png').read_bytes(), (tmp_path / 'camera.jpg').read_bytes()]
+	assert [i['media_type'] for i in r['images']] == ['image/png', 'image/jpeg', 'image/jpeg', 'image/jpeg']
+	assert len(sent[2]) < 5_000_000
+	logo = Image.open(io.BytesIO(sent[3]))
+	assert logo.size == (2048, 68) and logo.getpixel((1000, 50)) == (255, 255, 255)
+	assert logo.convert('L').crop((0, 0, 60, 30)).getextrema()[0] < 100  # the black text stays
