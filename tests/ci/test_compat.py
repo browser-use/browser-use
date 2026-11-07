@@ -496,6 +496,20 @@ async def test_structured_output_of_a_str_valued_schema(schema, fake_browser, tm
 	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()).structured_output is None
 
 
+async def test_output_model_schema_that_is_not_a_type_raises_at_agent(fake_browser, tmp_path):
+	"""C42: a JSON-schema dict passed Agent() and crashed run() with a raw pydantic SchemaError. StructuredDict, which
+	the error names, delivers a dict."""
+	from pydantic_ai import StructuredDict
+
+	schema = {'type': 'object', 'properties': {'titles': {'type': 'array', 'items': {'type': 'string'}}}}
+	for bad in (schema, 3, 'x'):
+		with pytest.raises(TypeError, match=r'output_model_schema must be a type .*StructuredDict'):
+			Agent('t', script()[0], browser=Browser(local=True), output_model_schema=bad)
+	model, _ = script(('finish', {'success': True, 'result': {'titles': ['a', 'b']}}))
+	agent = Agent('t', model, browser=Browser(local=True), output_model_schema=StructuredDict(schema), workspace=tmp_path)
+	assert (await agent.run()).structured_output == {'titles': ['a', 'b']}
+
+
 async def test_a_tools_own_timeout_is_an_error_not_the_run_budget(tmp_path):
 	"""Fable: socket.timeout is TimeoutError; it was reported as status='timeout', error=None with budget unused. The
 	model now gets it as the tool's error (H2) and the run goes on."""

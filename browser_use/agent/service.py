@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from pydantic import TypeAdapter
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, ToolCallPart
 
 from browser_use.agent.loop import Session, build_agent, reasoning_supported, run
@@ -233,6 +234,13 @@ class Agent:
 		self.mode = check_mode(mode)
 		self.task, self.llm, self.browser, self.tools = task, as_chat_model(llm), browser, tools
 		self.output_model_schema = output_model_schema or str
+		try:  # a JSON-schema dict or an instance failed only in run(), with a raw pydantic SchemaError
+			TypeAdapter(self.output_model_schema).json_schema()
+		except Exception as e:
+			raise TypeError(
+				'output_model_schema must be a type (a Pydantic model, list[Model], Literal[...]), not '
+				f'{output_model_schema!r:.100}. For a JSON-schema dict use pydantic_ai.StructuredDict(schema).'
+			) from e
 		self.sensitive_data = dict(sensitive_data or {})
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
 		self.web_search = web_search
