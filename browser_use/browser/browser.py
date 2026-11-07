@@ -570,32 +570,38 @@ class Browser:
 		"""Attach a browser-harness daemon (idempotent while started; a daemon that died is started again on the same
 		browser); returns the env the REPL worker needs."""
 		async with self._lock:
-			await self._stopped()
-			if self._env is None or not self.name:  # Browser('chrome'): ensuring the shared daemon is idempotent
-				env = await self._start()
-				if self.domains:  # the REPL helpers refuse disallowed URLs (worker.py)
-					if self._user_tabs is None:
-						self._user_tabs = await asyncio.to_thread(self._disallowed_tabs)
-					env['BU_DOMAINS'] = self.domains.to_json()
-					if self._attached():
-						if self._tabs_file is None:
-							fd, self._tabs_file = tempfile.mkstemp(prefix='browser-use-tabs-')
-							os.close(fd)
-						env['BU_TABS_FILE'] = self._tabs_file
-				self._env = env
-			else:
-				await asyncio.to_thread(self._reattach)
-			return self._env
+			return await self._start_locked()
+
+	async def _start_locked(self) -> dict[str, str]:
+		"""start() under self._lock."""
+		await self._stopped()
+		if self._env is None or not self.name:  # Browser('chrome'): ensuring the shared daemon is idempotent
+			env = await self._start()
+			if self.domains:  # the REPL helpers refuse disallowed URLs (worker.py)
+				if self._user_tabs is None:
+					self._user_tabs = await asyncio.to_thread(self._disallowed_tabs)
+				env['BU_DOMAINS'] = self.domains.to_json()
+				if self._attached():
+					if self._tabs_file is None:
+						fd, self._tabs_file = tempfile.mkstemp(prefix='browser-use-tabs-')
+						os.close(fd)
+					env['BU_TABS_FILE'] = self._tabs_file
+			self._env = env
+		else:
+			await asyncio.to_thread(self._reattach)
+		return self._env
 
 	async def reattach(self) -> dict[str, str]:
 		"""For the REPL, after a cell lost the daemon: start it again on the same browser (start()). Raises when this
 		Browser was stopped meanwhile (browser.stop(), or another Agent's run on it): start() would create a new browser,
 		billed, with none of the tabs or logins the agent was using."""
-		if self._env is None:
-			raise RuntimeError(
-				'The browser was stopped while the agent ran (browser.stop(), or another Agent using the same Browser)'
-			)
-		return await self.start()
+		async with self._lock:  # checked under the lock: a stop() that holds it clears _env before this looks
+			await self._stopped()
+			if self._env is None:
+				raise RuntimeError(
+					'The browser was stopped while the agent ran (browser.stop(), or another Agent using the same Browser)'
+				)
+			return await self._start_locked()
 
 	def _reattach(self) -> None:
 		"""Our daemon is gone (crash, OOM, kill) or lost its browser connection: start it again on the same browser.

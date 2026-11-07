@@ -283,6 +283,23 @@ async def test_a_preflight_error_never_shows_a_secret(cloud, monkeypatch, tmp_pa
 	assert secret not in (result.error or '') and secret not in caplog.text
 
 
+async def test_a_reattach_waiting_on_a_stop_never_creates_a_browser(cloud):
+	"""Review: reattach() checked that the browser was started before it took the lock; a stop() holding the lock then
+	cleared it, and start() created a new cloud browser (billed, none of the agent's tabs)."""
+	import asyncio
+
+	browser = Browser()
+	await browser.start()
+	await browser._lock.acquire()  # a stop() is under way
+	reattach = asyncio.ensure_future(browser.reattach())
+	await asyncio.sleep(0.05)
+	await asyncio.to_thread(browser._stop_now)
+	browser._lock.release()
+	with pytest.raises(RuntimeError, match='The browser was stopped while the agent ran'):
+		await reattach
+	assert len([c for c in cloud if c[0] == 'POST']) == 1
+
+
 async def test_restarted_browser_is_stopped_again(cloud):
 	"""BUP bug: `stopped` never reset, so a browser started a second time was skipped at cleanup (kept billing)."""
 	browser = Browser()
