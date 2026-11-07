@@ -11,6 +11,8 @@ because the dropdown closed during the wait between steps.
 
 from unittest.mock import AsyncMock
 
+import pytest
+
 from browser_use.agent.service import Agent
 from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, RerunSummaryAction, StepMetadata
 from browser_use.browser.views import BrowserStateHistory
@@ -556,3 +558,75 @@ def test_is_menu_item_element_returns_false_for_regular_element():
 	)
 
 	assert agent._is_menu_item_element(regular_element) is False
+
+
+@pytest.mark.asyncio
+async def test_empty_ax_name_replay_uses_id_not_unrelated_unnamed_button(httpserver, browser_session):
+	"""Replay must not match AX_NAME when history has ax_name='' but only a different button is unnamed."""
+	from types import SimpleNamespace
+	from typing import Any, cast
+
+	from browser_use.tools.service import Tools
+
+	phase_one = """<!DOCTYPE html><html><body>
+	<div><button id="save" style="width:100px;height:40px"></button></div>
+	</body></html>"""
+	phase_two = """<!DOCTYPE html><html><body>
+	<section><button id="save" aria-label="Save" onclick="window.clicked='save'" style="width:100px;height:40px"></button></section>
+	<aside><button id="other" onclick="window.clicked='other'" style="width:100px;height:40px"></button></aside>
+	</body></html>"""
+
+	httpserver.expect_request('/ax-empty-phase1').respond_with_data(phase_one, content_type='text/html')
+	httpserver.expect_request('/ax-empty-phase2').respond_with_data(phase_two, content_type='text/html')
+	url_one = httpserver.url_for('/ax-empty-phase1')
+	url_two = httpserver.url_for('/ax-empty-phase2')
+
+	await browser_session.navigate_to(url_one)
+	state_one = await browser_session.get_browser_state_summary(include_screenshot=False)
+	assert state_one.dom_state is not None
+
+	save_node = next(
+		elem for elem in state_one.dom_state.selector_map.values() if elem.attributes and elem.attributes.get('id') == 'save'
+	)
+	historical = DOMInteractedElement.load_from_enhanced_dom_tree(save_node)
+	assert historical.ax_name in ('', None)
+	if historical.ax_name is None:
+		historical.ax_name = ''
+
+	historical.element_hash = 1
+	historical.stable_hash = 1
+	historical.x_path = 'html/body/dead'
+
+	await browser_session.navigate_to(url_two)
+	state_two = await browser_session.get_browser_state_summary(include_screenshot=False)
+	assert state_two.dom_state is not None
+
+	class FakeClickAction:
+		def __init__(self) -> None:
+			self.index = 0
+
+		def get_index(self) -> int:
+			return self.index
+
+		def set_index(self, index: int) -> None:
+			self.index = index
+
+	logger = SimpleNamespace(info=lambda *_args, **_kwargs: None, debug=lambda *_args, **_kwargs: None)
+	agent = cast(Any, SimpleNamespace(logger=logger))
+	action = FakeClickAction()
+
+	updated = await Agent._update_action_indices(agent, historical, cast(Any, action), state_two)
+	assert updated is action
+	matched = state_two.dom_state.selector_map[action.index]
+	assert matched.attributes is not None
+	assert matched.attributes.get('id') == 'save'
+
+	tools = Tools()
+	await tools.click(index=action.index, browser_session=browser_session)
+
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	clicked = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': 'window.clicked', 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	assert clicked.get('result', {}).get('value') == 'save'
