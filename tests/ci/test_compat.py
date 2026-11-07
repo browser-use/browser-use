@@ -78,6 +78,20 @@ def test_removed_agent_methods_raise_one_error(method, no_browser):
 		agent.definitely_not_a_method
 
 
+def test_short_or_list_shaped_sensitive_data_is_explained(no_browser, caplog):
+	"""M23 and a low: a short value warns (redacted only where it stands alone); a list of tuples gave a raw dict error."""
+	import logging
+
+	logging.getLogger('browser_use').propagate = True
+	try:
+		Agent('t', script()[0], browser=Browser(local=True), sensitive_data={'pin': '42', 'pw': 'long-enough'})
+	finally:
+		logging.getLogger('browser_use').propagate = False
+	assert 'sensitive_data pin: values under 4 characters' in caplog.text and 'pw' not in caplog.text.split('sensitive_data')[1]
+	with pytest.raises(TypeError, match='sensitive_data must be a dict'):
+		Agent('t', script()[0], browser=Browser(local=True), sensitive_data=[('pw', 'x', 'https://a.com')])
+
+
 def test_domain_scoped_sensitive_data_is_accepted_and_bad_shapes_raise(no_browser):
 	Agent('t', script()[0], sensitive_data={'https://example.com': {'pw': 'x'}, 'pin': '1'})
 	with pytest.raises(TypeError, match='must be a string'):

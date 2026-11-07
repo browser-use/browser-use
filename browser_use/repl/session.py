@@ -46,6 +46,7 @@ ENV_ALLOW = {
 ENV_ALLOW_PREFIXES = ('LC_', 'BU_', 'BH_')  # browser-harness reads BU_NAME, BH_RUNTIME_DIR, BH_TMP_DIR, ...
 ENV_DENY = {'BU_CDP_WS', 'BU_CDP_URL', 'BU_MODE'}  # CDP URLs can carry credentials; only Repl.mode sets BU_MODE
 RESTARTED = '{why}. The REPL restarted: Python variables are lost; files, checkpoints and browser state survive.'
+SHORT_SECRET = 4  # shorter values are redacted only where they stand alone (not inside a longer word or number)
 SECRET_ENV = re.compile(r'KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH', re.I)
 
 
@@ -164,7 +165,10 @@ def redact_forms(text: Any, forms: list[tuple[str, str]]) -> Any:
 	if not isinstance(text, str):
 		return text
 	for form, name in forms:
-		text = text.replace(form, f'<secret:{name}>')
+		if len(form) < SHORT_SECRET:  # a 1-3 character value only as a whole word: '9' must not turn 2019 into 201<secret>
+			text = re.sub(rf'(?<![^\W_]){re.escape(form)}(?![^\W_])', f'<secret:{name}>', text)
+		else:
+			text = text.replace(form, f'<secret:{name}>')
 	return text
 
 

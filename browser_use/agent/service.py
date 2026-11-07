@@ -22,7 +22,7 @@ from browser_use.config import load_env
 from browser_use.exceptions import removed
 from browser_use.llm import ChatBrowserUse, as_chat_model, gateway_llm, resolve_model
 from browser_use.repl import Repl, check_mode, redact
-from browser_use.repl.session import check_loop, scoped_secrets
+from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets
 from browser_use.tools import Tools
 
 logger = logging.getLogger(__name__)
@@ -185,7 +185,17 @@ class Agent:
 		tools = tools or controller
 		if tools is not None and not isinstance(tools, Tools):
 			raise TypeError(f'tools must be browser_use.Tools, not {type(tools).__name__}')
-		scoped_secrets(sensitive_data)  # raises on a non-string value
+		if sensitive_data is not None and not isinstance(sensitive_data, dict):
+			raise TypeError(
+				"sensitive_data must be a dict: {'name': 'value'} or {'https://site.com': {'name': 'value'}}, "
+				f'not {type(sensitive_data).__name__}'
+			)
+		short = sorted({n for n, v, _ in scoped_secrets(sensitive_data) if 0 < len(v) < SHORT_SECRET})  # raises on non-str
+		if short:
+			logger.warning(
+				f'sensitive_data {", ".join(short)}: values under {SHORT_SECRET} characters are redacted only where they '
+				'stand alone, not inside longer words or numbers; a longer value is safer.'
+			)
 		self.mode = check_mode(mode)
 		self.task, self.llm, self.browser, self.tools = task, as_chat_model(llm), browser, tools
 		self.output_model_schema = output_model_schema or str

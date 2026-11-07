@@ -278,7 +278,8 @@ The REPL worker runs model-written Python as your user. 1.0 limits what it can s
   the key events.
 
 Redaction replaces a secret value, its JSON- and `repr()`-escaped forms, and its reversed, base64, hex and URL-encoded
-forms, with `<secret:name>` in exactly these places:
+forms, with `<secret:name>` in exactly these places (a value under 4 characters only where it stands alone, not inside a
+longer word or number; `Agent` warns about such values):
 
 - what a cell returns to the model: its stdout/stderr (subprocesses included), its error, a `finish_from_repl` value,
   and the cell's output file in `workspace/.browser-use/cells/`

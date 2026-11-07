@@ -109,6 +109,15 @@ async def test_secret_values_are_redacted_from_everything_returned(tmp_path):
 		await repl.close()
 
 
+def test_a_short_secret_is_redacted_only_where_it_stands_alone():
+	"""M23: a 1-character pin '9' turned 'year 2019, 9 days, version 1.9.9' into 'year 201<secret:pin>, ...'."""
+	text = 'year 2019, 9 days, version 1.9.9, pin=9, x9y, _9_'
+	assert redact(text, {'pin': '9'}) == (
+		'year 2019, <secret:pin> days, version 1.<secret:pin>.<secret:pin>, pin=<secret:pin>, x9y, _<secret:pin>_'
+	)
+	assert redact('ab12 1234 a1234', {'pin': '1234'}) == 'ab12 <secret:pin> a<secret:pin>'  # 4+: everywhere, as before
+
+
 def test_redact_longest_first():
 	assert redact('abcdef abc', {'short': 'abc', 'long': 'abcdef'}) == '<secret:long> <secret:short>'
 	assert redact(None, {'a': 'b'}) is None
