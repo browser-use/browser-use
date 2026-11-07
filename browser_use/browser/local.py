@@ -361,10 +361,11 @@ class LocalBrowser:
 			raise RuntimeError('the browser was stopped while it started')
 		raise RuntimeError(f'{Path(binary).name} did not open its DevTools port within {START_TIMEOUT_S}s')
 
-	def watch(self, daemon_pid: int | None) -> None:
-		"""Start the watchdog that cleans up after this process if it dies without stopping Chrome (SIGKILL, OOM)."""
+	def watch(self, daemon: str, daemon_pid: int | None) -> None:
+		"""Start the watchdog that cleans up after this process if it dies without stopping Chrome (SIGKILL, OOM).
+		daemon: the browser-harness daemon's name (a reattach replaces the process, never the name)."""
 		if self.proc is not None and self.watchdog is None:
-			self.watchdog = start_watchdog(self.proc.pid, daemon_pid, self.tmp)
+			self.watchdog = start_watchdog(self.proc.pid, self.tmp, daemon, daemon_pid)
 
 	def stop(self) -> None:
 		watchdog, self.watchdog = self.watchdog, None
@@ -392,10 +393,21 @@ class LocalBrowser:
 # Runs detached next to each launched Chrome. Its stdin is a pipe only the Python process that launched Chrome holds:
 # the read returns at EOF, when that process dies however it dies (SIGKILL, OOM), and it then ends the daemon, the
 # Chrome process group and the temp profile they left. A normal stop kills the watchdog first, so it does nothing.
+# A child that process fork()ed without exec holds the pipe too: the cleanup then waits for that child to end.
+# The daemon is the one answering on its name now (a reattach replaces it); else the pid it started with, only while
+# that pid is still the same process (never a process that reused the number).
 WATCHDOG = r"""
-import os, shutil, signal, subprocess, sys, time
+import json, os, shutil, signal, subprocess, sys, time
 sys.stdin.buffer.read()
-chrome, daemon, tmp = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+chrome, tmp, name, first, started = int(sys.argv[1]), sys.argv[2], sys.argv[3], int(sys.argv[4]), json.loads(sys.argv[5])
+daemon = 0
+try:
+    from browser_harness import _ipc, admin
+    daemon = _ipc.identify(name, 2.0) or 0
+    if not daemon and first and started is not None and admin._process_start_time(first) == started:
+        daemon = first
+except Exception:
+    pass
 def kill(pid, group, sig):
     try:
         if sys.platform == 'win32':
@@ -420,11 +432,17 @@ for _ in range(20):
 """
 
 
-def start_watchdog(chrome_pid: int, daemon_pid: int | None, tmp: Path) -> subprocess.Popen | None:
+def start_watchdog(chrome_pid: int, tmp: Path, daemon: str, daemon_pid: int | None) -> subprocess.Popen | None:
 	"""The watchdog for a launched Chrome (WATCHDOG); None when it cannot start."""
+	started = None
+	if daemon_pid:
+		with contextlib.suppress(Exception):
+			from browser_harness import admin
+
+			started = admin._process_start_time(daemon_pid)
 	try:
 		return subprocess.Popen(
-			[sys.executable, '-P', '-c', WATCHDOG, str(chrome_pid), str(daemon_pid or 0), str(tmp)],
+			[sys.executable, '-P', '-c', WATCHDOG, str(chrome_pid), str(tmp), daemon, str(daemon_pid or 0), json.dumps(started)],
 			stdin=subprocess.PIPE,
 			stdout=subprocess.DEVNULL,
 			stderr=subprocess.DEVNULL,

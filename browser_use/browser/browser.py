@@ -703,7 +703,7 @@ class Browser:
 				from browser_harness import _ipc as ipc
 
 				daemon_pid = await asyncio.to_thread(ipc.identify, self.name, 5.0)
-				self._local.watch(daemon_pid)
+				self._local.watch(self.name, daemon_pid)
 			if self.domains:
 				self._guard = Guard(ws, self.domains)
 				await asyncio.to_thread(self._guard.start)

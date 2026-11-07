@@ -580,3 +580,58 @@ asyncio.run(main())
 	while time.monotonic() < deadline and (alive(info['chrome']) or alive(info['daemon']) or Path(info['tmp']).exists()):
 		time.sleep(0.2)
 	assert not alive(info['chrome']) and not alive(info['daemon']) and not Path(info['tmp']).exists()
+
+
+@posix_only
+def test_the_watchdog_ends_a_reattached_daemon_and_never_a_process_that_reused_the_old_pid(chrome_binary, tmp_path, monkeypatch):
+	"""Review: the watchdog kept the daemon pid it started with. After a reattach replaced the daemon, a SIGKILL of
+	Python left the new daemon running, and the old pid (possibly reused by another process) was signalled."""
+	import signal
+	import subprocess
+
+	from browser_use.browser.local import start_watchdog
+
+	code = f"""
+import asyncio, json, os, signal, time
+from browser_harness import _ipc as ipc
+from browser_use import Browser
+async def main():
+    b = Browser('chromium', headless=True, executable_path={chrome_binary!r})
+    await b.start()
+    old = ipc.identify(b.name)
+    os.kill(old, signal.SIGKILL)
+    while ipc.identify(b.name, 0.2):
+        time.sleep(0.1)
+    await b.reattach()
+    print(json.dumps({{'chrome': b._local.proc.pid, 'daemon': ipc.identify(b.name), 'old': old}}), flush=True)
+    await asyncio.sleep(600)
+asyncio.run(main())
+"""
+	proc = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, cwd=tmp_path)
+	assert proc.stdout
+	info = json.loads(proc.stdout.readline())
+	assert info['daemon'] and info['daemon'] != info['old'] and alive(info['daemon']), info
+	proc.send_signal(signal.SIGKILL)
+	proc.wait(10)
+	deadline = time.monotonic() + 15
+	while time.monotonic() < deadline and (alive(info['chrome']) or alive(info['daemon'])):
+		time.sleep(0.2)
+	assert not alive(info['chrome']) and not alive(info['daemon']), info
+
+	# a pid the daemon once had, now another process (its start time differs from the daemon's): never signalled
+	from browser_harness import admin
+
+	chrome = subprocess.Popen(['sleep', '60'], start_new_session=True)
+	other = subprocess.Popen(['sleep', '60'])
+	monkeypatch.setattr(admin, '_process_start_time', lambda pid: 'when the daemon started')
+	try:
+		watchdog = start_watchdog(chrome.pid, tmp_path / 'gone', f'butestnodaemon{os.getpid()}', other.pid)
+		assert watchdog and watchdog.stdin
+		watchdog.stdin.close()  # what the death of the process that started it does
+		watchdog.wait(20)
+		assert chrome.wait(5) is not None
+		time.sleep(0.2)
+		assert other.poll() is None, 'the watchdog signalled a process that is not the daemon'
+	finally:
+		for p in (chrome, other):
+			p.kill()
