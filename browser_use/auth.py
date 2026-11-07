@@ -8,10 +8,23 @@ from browser_use.exceptions import MissingAPIKeyError
 KEYS_URL = 'https://cloud.browser-use.com/settings?tab=api-keys'
 
 
+def clean_api_key(key: str, source: str, what: str = 'Browser Use Cloud') -> str:
+	"""The key without surrounding whitespace (a trailing newline from a file or `echo`). Whitespace or a control
+	character inside it raises without the key in the message: an HTTP client would reject the header and print it."""
+	key = key.strip()
+	if any(c.isspace() or not c.isprintable() for c in key):
+		raise MissingAPIKeyError(
+			what,
+			f'The key in {source} has a space, line break or control character inside it (not shown); copy the key '
+			f'again from {KEYS_URL}.',
+		)
+	return key
+
+
 def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
 	key = os.environ.get('BROWSER_USE_API_KEY')
-	if key:
-		return key
+	if key and key.strip():
+		return clean_api_key(key, 'BROWSER_USE_API_KEY', what)
 	from browser_harness.auth import AuthError, stored_auth_record
 
 	try:
@@ -22,7 +35,7 @@ def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
 		raise MissingAPIKeyError(what)
 	# Scopes are the server's to judge: a key it rejects (an older login's v3 browser-only key) gets a 403 that the
 	# cloud and gateway errors turn into "run `browser-use login` again".
-	return str(record['api_key'])
+	return clean_api_key(str(record['api_key']), 'the key `browser-use login` stored', what)
 
 
 def cloud_error_hint(status: int, detail: str) -> str:

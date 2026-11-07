@@ -19,7 +19,7 @@ import urllib.request
 from typing import Any
 from urllib.parse import urlparse
 
-from browser_use.auth import browser_use_api_key
+from browser_use.auth import browser_use_api_key, clean_api_key
 
 GATEWAY_URL = 'https://api.browser-use.com/api/v4/llm/v1'
 BILLING_URL = 'https://cloud.browser-use.com/settings?tab=billing'
@@ -78,7 +78,8 @@ class ChatBrowserUse:
 	provider = 'browser-use'
 
 	def __init__(self, model: str = DEFAULT_MODEL, *, api_key: str | None = None, base_url: Any = GATEWAY_URL):
-		self.model, self.api_key, self.base_url = model, api_key, str(base_url)
+		key = clean_api_key(api_key, 'ChatBrowserUse(api_key=...)', f'The model {model}') if api_key else None
+		self.model, self.api_key, self.base_url = model, key, str(base_url)
 
 	def pydantic_model(self) -> Any:
 		key = self.api_key or browser_use_api_key(f'The default model ({self.model})')

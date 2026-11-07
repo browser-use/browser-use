@@ -250,6 +250,37 @@ def test_logout_prints_the_real_store_path_and_version_names_both_packages(store
 	assert result.stdout.strip() == f'browser-use {version("browser-use")} (browser-harness {version("browser-harness")})'
 
 
+def test_a_key_with_whitespace_inside_never_appears_in_an_error_or_the_store(store, monkeypatch):
+	"""H4: a key with a newline inside was stored by login and sent as is; urllib/http.client then raised "Invalid
+	header value b'bu_...'" with the whole key, from the cloud browser, the gateway preflight and start_remote_daemon."""
+	from browser_use import Browser, ChatBrowserUse, harness_cloud
+	from browser_use.auth import browser_use_api_key
+	from browser_use.exceptions import MissingAPIKeyError
+
+	bad = FAKE_KEY[:20] + '\nsecond-line' + FAKE_KEY[20:]
+	result = _cli('login', '--api-key-stdin', stdin=bad + '\n')
+	assert result.returncode == 1 and 'line break' in result.stderr and not store.exists()
+	assert FAKE_KEY[:20] not in result.stderr + result.stdout
+
+	monkeypatch.setenv('BROWSER_USE_API_KEY', FAKE_KEY + '\n')  # a trailing newline (echo, a file) is just stripped
+	assert browser_use_api_key() == FAKE_KEY
+	monkeypatch.setenv('BROWSER_USE_API_KEY', bad)
+	for fail in (
+		browser_use_api_key,
+		lambda: ChatBrowserUse(api_key=bad),
+		lambda: ChatBrowserUse().preflight(),
+		lambda: __import__('asyncio').run(Browser().start()),
+	):
+		with pytest.raises(MissingAPIKeyError) as raised:
+			fail()
+		assert 'line break' in str(raised.value) and FAKE_KEY[:20] not in str(raised.value)
+	ns: dict = {}
+	harness_cloud.install(ns)
+	with pytest.raises(harness_cloud.CloudBrowserError) as raised:
+		ns['start_remote_daemon']('bukeynewline')
+	assert 'line break' in str(raised.value) and FAKE_KEY[:20] not in str(raised.value)
+
+
 def test_api_key_stdin_stores_only_a_browser_use_key(store):
 	result = _cli('login', '--api-key-stdin', stdin='sk-' + 'x' * 40)
 	assert result.returncode == 1 and 'start with bu_' in result.stderr and 'Signed in' not in result.stdout

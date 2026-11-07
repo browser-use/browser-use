@@ -26,7 +26,8 @@ from browser_harness import _ipc as ipc
 from browser_harness import admin, helpers
 from browser_harness.auth import AuthError
 
-from browser_use.auth import cloud_error_hint, corrupt_store_message
+from browser_use.auth import clean_api_key, cloud_error_hint, corrupt_store_message
+from browser_use.exceptions import MissingAPIKeyError
 from browser_use.remote_upload import remote_upload
 
 CLOUD_ADMIN = frozenset({'start_remote_daemon', 'stop_remote_daemon'})
@@ -131,8 +132,19 @@ def start(name: str, profile_name: str | None, create_kwargs: dict[str, Any], na
 			f'Cloud browser {previous} ({name!r}) from an earlier start could not be stopped, so no new one was started. '
 			f'Retry start_remote_daemon({name!r}) or stop_remote_daemon({name!r}).'
 		)
+	if key := os.environ.get('BROWSER_USE_API_KEY'):  # browser-harness sends it as is: a newline in it would be printed
+		try:
+			os.environ['BROWSER_USE_API_KEY'] = clean_api_key(key, 'BROWSER_USE_API_KEY')
+		except MissingAPIKeyError as e:
+			raise CloudBrowserError(str(e)) from None
 	try:
 		browser = admin.start_remote_daemon(name, profile_name, **create_kwargs)
+	except ValueError as e:  # http.client: "Invalid header value b'<the key>'" (a key from the store)
+		if 'header' not in str(e).lower():
+			raise
+		raise CloudBrowserError(
+			'The Browser Use API key has characters an HTTP header cannot carry (not shown); run `browser-use login` again.'
+		) from None
 	except urllib.error.HTTPError as e:
 		detail = e.read().decode(errors='replace').strip()[:500]
 		raise CloudBrowserError(
