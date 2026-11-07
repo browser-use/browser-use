@@ -304,6 +304,7 @@ class Agent:
 				explain_error=self._gateway.explain_error if self._gateway else None,
 			)
 			self._history = result.messages
+			result.output_schema = self.output_model_schema
 			if result.status == 'error':
 				logger.error(result.error)
 			return result

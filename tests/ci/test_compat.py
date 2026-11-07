@@ -280,6 +280,25 @@ async def test_structured_final_result_is_the_models_json(tmp_path):
 	assert r.structured_output == Story(title='x', points=3)
 
 
+@pytest.mark.parametrize('schema', ['literal', 'strenum'])
+async def test_structured_output_of_a_str_valued_schema(schema, fake_browser, tmp_path):
+	"""M8: structured_output was None for Literal and StrEnum schemas: it only checked isinstance(output, str)."""
+	from enum import StrEnum
+	from typing import Literal
+
+	class Answer(StrEnum):
+		yes = 'yes'
+		no = 'no'
+
+	output_type = Literal['yes', 'no'] if schema == 'literal' else Answer
+	model, _ = script(('finish', {'success': True, 'result': 'yes'}))
+	agent = Agent('t', model, browser=Browser(local=True), output_model_schema=output_type, workspace=tmp_path)
+	r = await agent.run()
+	assert r.structured_output == 'yes' and r.final_result() == 'yes'
+	model, _ = script(('finish', {'success': True, 'result': 'plain'}))
+	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()).structured_output is None
+
+
 async def test_a_tools_own_timeout_is_an_error_not_the_run_budget(tmp_path):
 	"""Fable: socket.timeout is TimeoutError; it was reported as status='timeout', error=None with budget unused. The
 	model now gets it as the tool's error (H2) and the run goes on."""

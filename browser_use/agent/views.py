@@ -55,6 +55,7 @@ class AgentHistoryList:
 	error: str | None
 	messages: list[ModelMessage]
 	success: bool | None = True  # the agent's own verdict: finish(..., success=False) when it could not do the task
+	output_schema: Any = None  # Agent(output_model_schema=...) (str when none); None: unknown, judged by the output
 
 	def __post_init__(self) -> None:
 		if self.status != 'completed':
@@ -66,8 +67,11 @@ class AgentHistoryList:
 
 	@property
 	def structured_output(self) -> Any:
-		"""The output_model_schema instance, or None."""
-		return self.output if self.status == 'completed' and not isinstance(self.output, str) else None
+		"""The output_model_schema instance, or None. A Literal or StrEnum schema delivers a str: still structured."""
+		if self.status != 'completed':
+			return None
+		structured = self.output_schema is not str if self.output_schema is not None else not isinstance(self.output, str)
+		return self.output if structured else None
 
 	def is_done(self) -> bool:
 		return self.status == 'completed'
