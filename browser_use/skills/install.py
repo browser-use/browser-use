@@ -142,7 +142,11 @@ def handle(argv: list[str]) -> int:
 		except RuntimeError as exc:
 			print(f'Error: {exc}', file=sys.stderr)
 			return 1
-		print(text, end='')
+		# UTF-8 whatever the console's code page: `skill show > SKILL.md` on Windows wrote cp1252 (or raised on a character
+		# it lacks)
+		sys.stdout.flush()
+		sys.stdout.buffer.write(text.encode('utf-8'))
+		sys.stdout.buffer.flush()
 		return 0
 
 	if command == 'install':

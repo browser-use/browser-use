@@ -144,8 +144,12 @@ def test_skill_install_and_show_use_this_packages_skill_and_never_run_browser_ha
 	assert not uv_args.exists()  # M33: the CLI is reinstalled only with --install-cli
 	for installed in (home / path for path in EXPECTED_SKILL_INSTALL_PATHS):
 		assert installed.read_text(encoding='utf-8') == skill_text()
-	shown = subprocess.run(
-		[sys.executable, '-m', 'browser_use.cli', 'skill', 'show'], cwd=ROOT, env=env, capture_output=True, timeout=10
+	shown = subprocess.run(  # cp1252: a Windows console's code page wrote the skill's em dashes as 0x97
+		[sys.executable, '-m', 'browser_use.cli', 'skill', 'show'],
+		cwd=ROOT,
+		env={**env, 'PYTHONIOENCODING': 'cp1252'},
+		capture_output=True,
+		timeout=10,
 	)
 	assert shown.returncode == 0 and shown.stdout.decode('utf-8') == skill_text()
 	assert not (tmp_path / 'harness-ran').exists()
