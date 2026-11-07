@@ -425,9 +425,10 @@ def _projected(s: Session, messages: list[ModelMessage]) -> list[ModelMessage]:
 	return [s.checkpoint, *messages[s.covered :]] if s.checkpoint else messages
 
 
-def _plain(messages: list[ModelMessage]) -> Any:
+def _plain(messages: list[ModelMessage], reasoning: bool = False) -> Any:
 	"""Message content as JSON data (bu-pi's archive and context size): kind, part kind, tool name and call id, content or
-	args. Reasoning, the system prompt, usage, ids, timestamps and provider details are omitted; images become a note."""
+	args. The system prompt, usage, ids, timestamps, signatures and provider details are omitted; images become a note.
+	Reasoning text only with reasoning=True: bu-pi counts it in the context size and leaves it out of the archive."""
 
 	def content(v: Any) -> Any:
 		if isinstance(v, BinaryContent):
@@ -442,7 +443,7 @@ def _plain(messages: list[ModelMessage]) -> Any:
 				'parts': [
 					{'part_kind': p.part_kind, **{k: content(v) for k in keys if (v := getattr(p, k, None)) is not None}}
 					for p in m.parts
-					if not isinstance(p, ThinkingPart | SystemPromptPart)
+					if not isinstance(p, SystemPromptPart) and (reasoning or not isinstance(p, ThinkingPart))
 				],
 			}
 			for m in messages
@@ -452,7 +453,7 @@ def _plain(messages: list[ModelMessage]) -> Any:
 
 
 def _chars(messages: list[ModelMessage]) -> int:  # as bu-pi's JSON.stringify: no spaces, a CJK character counts 1, not 6
-	return len(json.dumps(_plain(messages), ensure_ascii=False, separators=(',', ':')))
+	return len(json.dumps(_plain(messages, reasoning=True), ensure_ascii=False, separators=(',', ':')))
 
 
 def _tokens(s: Session, messages: list[ModelMessage], system: int) -> int:

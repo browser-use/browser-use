@@ -113,12 +113,15 @@ async def test_character_budget_is_bu_pi_default_or_the_agent_setting(tmp_path, 
 
 def test_size_counts_like_bu_pi_json_stringify():
 	"""Kimi bub2-019 (adidas.jp) compacted every 8 steps: json.dumps escaped each Japanese character to 6 (\\uXXXX) and
-	put a space after every ':' and ','. JSON.stringify does neither."""
+	put a space after every ':' and ','. JSON.stringify does neither. Reasoning text counts, its signature does not:
+	bu-pi's contextChars keeps thinking (DeepSeek's added 28% in matrix 1107, so 1.0 compacted later)."""
 	from browser_use.agent.loop import _chars
 
 	text = 'アディダス' * 1000
 	frame = '[{"kind":"request","parts":[{"part_kind":"user-prompt","content":""}]}]'
 	assert _chars([ModelRequest(parts=[UserPromptPart(text)])]) == len(frame) + len(text)
+	frame = '[{"kind":"response","parts":[{"part_kind":"thinking","content":""}]}]'
+	assert _chars([ModelResponse(parts=[ThinkingPart(text, signature='s' * 5000)])]) == len(frame) + len(text)
 
 
 def test_agent_passes_max_context_chars_to_compaction():
