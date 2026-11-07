@@ -498,6 +498,44 @@ async def test_a_launched_browser_downloads_into_the_workspace(chrome_binary, tm
 	assert (tmp_path / 'downloads' / 'report.txt').read_text() == 'hello'
 
 
+def test_the_prompt_says_where_downloads_land_and_never_to_move_them(tmp_path):
+	"""C12: the prompt told the model to call Browser.setDownloadBehavior; it picked /tmp or cwd, and files missed
+	workspace/downloads. Only a Chrome the Browser launched gets the downloads/ line: Browser('chrome') saves to yours."""
+	from browser_use.agent.prompt import LOCAL_PROMPT
+
+	def prompt(browser):
+		agent = Agent('t', 'test', browser=browser, workspace=tmp_path)
+		agent._build()
+		return '\n'.join(i.instruction for i in agent._agent._instructions if isinstance(i.instruction, str))
+
+	for browser, local in ((Browser('chromium'), True), (Browser('chrome', profile='Default'), True), (Browser('chrome'), False)):
+		text = prompt(browser)
+		assert 'never call Browser.setDownloadBehavior' in text and (LOCAL_PROMPT in text) == local
+
+
+async def test_downloads_land_in_the_workspace_after_a_reattach(chrome_binary, tmp_path):
+	"""C12: Chrome drops Browser.setDownloadBehavior when the connection that set it closes. It was sent once per run,
+	so after a mid-run daemon reattach downloads went to the user's real ~/Downloads."""
+	link = 'data:text/html,<a id=a href="data:text/plain,hello" download="after.txt">x</a>'
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
+	browser._downloads_dir = tmp_path / 'downloads'  # what Agent.run sets
+	await browser.start()
+	try:
+		assert browser.name
+		browser_mod._kill_daemon(browser.name)
+		await browser.reattach()
+		target = browser_mod._daemon_cdp(browser.name, 'Target.createTarget', url=link)['targetId']
+		session = browser_mod._daemon_cdp(browser.name, 'Target.attachToTarget', targetId=target, flatten=True)['sessionId']
+		await asyncio.sleep(1)
+		browser_mod._daemon_cdp(
+			browser.name, 'Runtime.evaluate', expression='document.getElementById("a").click()', session_id=session
+		)
+		await asyncio.sleep(2)
+		assert (tmp_path / 'downloads' / 'after.txt').read_text() == 'hello'
+	finally:
+		await browser.stop()
+
+
 async def test_two_fresh_browsers_run_side_by_side(chrome_binary):
 	from browser_harness import _ipc as ipc
 

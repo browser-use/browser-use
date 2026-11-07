@@ -12,7 +12,7 @@ from pydantic_ai.models.function import FunctionModel
 
 from browser_use import Agent, Browser, ChatBrowserUse
 from browser_use.agent.loop import Session, build_agent, run
-from browser_use.agent.prompt import SEARCH_PROMPT, SYSTEM_PROMPT
+from browser_use.agent.prompt import LOCAL_PROMPT, SEARCH_PROMPT, SYSTEM_PROMPT
 from browser_use.exceptions import MissingAPIKeyError
 from browser_use.repl import Repl
 from browser_use.search import SearchError, WebSearch, search_url
@@ -239,7 +239,8 @@ def test_gateway_model_lends_its_key_and_host(monkeypatch, tmp_path):
 
 
 def test_prompt_is_unchanged_when_search_is_off(monkeypatch, tmp_path):
-	"""Off, the system prompt is the evaluated one byte for byte; on, it gains exactly one SEARCH_PROMPT line."""
+	"""Off, the system prompt is the evaluated one byte for byte (plus the launched browser's downloads line); on, it
+	gains exactly one SEARCH_PROMPT line."""
 	off = instructions(built(monkeypatch, tmp_path, KEY, web_search=False))
-	assert off == SYSTEM_PROMPT == instructions(built(monkeypatch, tmp_path, KEY))
-	assert instructions(built(monkeypatch, tmp_path, KEY, web_search=True)) == f'{SYSTEM_PROMPT}\n{SEARCH_PROMPT}'
+	assert off == f'{SYSTEM_PROMPT}\n{LOCAL_PROMPT}' == instructions(built(monkeypatch, tmp_path, KEY))
+	assert instructions(built(monkeypatch, tmp_path, KEY, web_search=True)) == f'{off}\n{SEARCH_PROMPT}'

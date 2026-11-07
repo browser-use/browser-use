@@ -608,7 +608,17 @@ class Browser:
 			return await self._start_locked()
 		else:
 			await asyncio.to_thread(self._reattach)
+		if self._local is not None and self._downloads_dir:  # Chrome forgets it when the connection that set it closes
+			await asyncio.to_thread(self._send_downloads, self._downloads_dir)
 		return self._env
+
+	def _send_downloads(self, downloads: Path) -> None:
+		"""Downloads of a Chrome this Browser launched land in downloads (workspace/downloads), not the real ~/Downloads."""
+		downloads.mkdir(parents=True, exist_ok=True)
+		try:
+			self._cdp()('Browser.setDownloadBehavior', behavior='allow', downloadPath=str(downloads), eventsEnabled=True)
+		except Exception as e:  # - downloads then go where Chrome puts them
+			logger.warning('Could not send downloads to %s: %s', downloads, e)
 
 	async def reattach(self) -> dict[str, str]:
 		"""For the REPL, after a cell lost the daemon: start it again on the same browser (start()). Raises when this

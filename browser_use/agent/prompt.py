@@ -25,7 +25,7 @@ To type, focus an observed input with cdp('DOM.focus', backendNodeId=n), select 
 
 Use js(...) for DOM extraction. Use screenshots for visual questions, canvas and geometry. In-process frames: Page.getFrameTree, Page.createIsolatedWorld(frameId=..., worldName='agent'), then Runtime.evaluate with its executionContextId as contextId. Cross-origin iframe targets: cdp('Target.getTargets'), attach with flatten=True, and send commands with that session_id. Discover targets instead of guessing IDs.
 
-Uploads: upload_file(selector, path) or DOM.setFileInputFiles. Remote browsers may reject local paths; then set the file's bytes through the page (DataTransfer + File in js) and verify. Downloads: Browser.setDownloadBehavior plus Browser.downloadProgress; remote browser files live on the remote host. For other controls use explicit CDP or ordinary page code, and verify changes.
+Uploads: upload_file(selector, path) or DOM.setFileInputFiles. Remote browsers may reject local paths; then set the file's bytes through the page (DataTransfer + File in js) and verify. Downloads: never call Browser.setDownloadBehavior; Browser.downloadProgress events report progress; remote browser files live on the remote host. For other controls use explicit CDP or ordinary page code, and verify changes.
 
 Workspace helpers:
 - checkpoint(filename, value, partial=True) atomically saves JSON and publishes your latest partial result to the caller. Update it after useful progress, especially QA findings and extracted records. Partial values need not satisfy the final schema. They survive timeout or worker loss. Omit partial for ordinary scratch checkpoints. Save small successful batches, not only the final output.
@@ -55,10 +55,10 @@ def secrets_prompt(secrets: list[tuple[str, str, str | None]]) -> str:
 	)
 
 
+LOCAL_PROMPT = 'Files the browser downloads land in downloads/ in the workspace.'  # a Chrome the Browser launched
 CLOUD_PROMPT = (
 	'The browser is a remote Browser Use Cloud browser. upload_file(selector, path) takes local workspace paths. '
-	'Files the browser downloads are copied to downloads/ in the workspace when the session closes; do not change '
-	'the browser download directory.'
+	'Files the browser downloads are copied to downloads/ in the workspace when the session closes.'
 )
 CAPTCHA_PROMPT = (
 	"It solves captchas automatically, usually in 20-60 s. On a captcha or 'verify you are human' check, call "
