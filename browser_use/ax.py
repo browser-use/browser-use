@@ -87,7 +87,7 @@ AX_PROMPT = """
 Ultrafast: the global `bu` in the python REPL. Each model call costs ~1 s, so chain everything you already know into one python call.
 - Look: goto_url(url); bu.state() prints the page in order and returns that text: [id] role "name" = value plus states, ## headings and visible text; * marks ids new since the last look. After a python call whose bu actions reached the page, the state is printed automatically.
   Ids are Chrome backendNodeIds: they work in bu.* and in every CDP DOM command.
-- Act: bu.click(1400); bu.type(812, 'Zurich'); bu.type(830, 'Oct 14', enter=True). type replaces the field's text. bu.type(id, 'Canada') also picks a native select option; don't click it first.
+- Act: bu.click(1400); bu.type(812, 'Zurich'); bu.type(830, 'Oct 14', enter=True). type replaces the field's text. bu.type(id, 'Canada') also picks a native select option; never click a select.
   Each action prints one line: navigated to <url> / page changed / no change. Autocomplete: type, look, then click the suggestion.
 - Raw: upload to a file line with cdp('DOM.setFileInputFiles', backendNodeId=id, files=[os.path.abspath('cv.txt')]); keys cdp('Input.dispatchKeyEvent', type='keyDown', key='Escape', code='Escape', windowsVirtualKeyCode=27) then the same with type='keyUp'; drag with Input.dispatchMouseEvent mousePressed, mouseMoved, mouseReleased.
 - If a helper fails once, do it raw. Read data with js(...), but confirm an outcome with bu.state() (visible text only), not innerText. Never add blind sleeps (time.sleep, wait()): actions and bu.state() wait for the page; for a specific condition use wait_for_element(selector).

@@ -129,10 +129,11 @@ def test_default_prompt_unchanged():
 	"""Default mode is the evaluated path: its system prompt must stay byte-identical (sha256 from 0.2.0, plus the
 	finish success line that made success required, minus the finish-whole-job and verify-answer paragraphs bu-pi lacks,
 	and the downloads line no longer telling the model to call Browser.setDownloadBehavior: C12; http_get says it runs
-	from this machine, not the browser, and returns bytes for binary: C31)."""
+	from this machine, not the browser, and returns bytes for binary: C31; native <select> is set in page code, never
+	clicked: C34)."""
 	default = static_instructions(build_agent())
 	assert default == [SYSTEM_PROMPT] == static_instructions(build_agent(mode='default'))
-	assert hashlib.sha256(default[0].encode()).hexdigest() == '1d3f6ef6db008795b7eb348f6ef4a73dbd9135cdca65ccc5044336fdca8d7f0f'
+	assert hashlib.sha256(default[0].encode()).hexdigest() == '5f207fbaebcf14d58d6b74274e38200a0e4869e172cd821ae25264a8fff240ec'
 	assert static_instructions(build_agent(instructions='X')) == [f'{SYSTEM_PROMPT}\nX']
 	assert static_instructions(build_agent(mode='ultrafast')) == [(SYSTEM_PROMPT + AX_PROMPT).rstrip()]
 	assert static_instructions(build_agent(mode='ultrafast', instructions='X')) == [f'{SYSTEM_PROMPT}{AX_PROMPT}\nX']
