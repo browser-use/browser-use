@@ -645,6 +645,68 @@ asyncio.run(main())
 
 
 @posix_only
+def test_sigkill_of_python_stops_the_cloud_browser_and_its_daemon(chrome, tmp_path):
+	"""C58: SIGKILL (or OOM) of a cloud run left the cloud browser billing until its 60 min timeout and its daemon
+	orphaned: the watchdog ran only next to a launched Chrome. A local Chrome stands in for the cloud browser, a local
+	server for the cloud API."""
+	import http.server
+	import signal
+	import subprocess
+
+	stops = []
+
+	class Api(http.server.BaseHTTPRequestHandler):
+		def do_PATCH(self):
+			stops.append((self.path, json.loads(self.rfile.read(int(self.headers['Content-Length'])))))
+			self.send_response(200)
+			self.end_headers()
+			self.wfile.write(b'{}')
+
+		def log_message(self, *args):
+			pass
+
+	server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Api)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	site = tmp_path / 'site'
+	site.mkdir()  # every Python started below (the watchdog too) sends browser-harness's cloud calls to the server
+	(site / 'sitecustomize.py').write_text(
+		f"from browser_harness import admin\nadmin.BU_API = 'http://127.0.0.1:{server.server_port}'\n"
+	)
+	code = f"""
+import asyncio, json
+from browser_harness import _ipc as ipc
+from browser_use import Browser
+from browser_use.browser import browser as browser_mod
+browser_mod._cloud = lambda path, method='GET', body=None: {{'id': 'c58-browser', 'cdpUrl': {chrome['http']!r}}}
+async def main():
+    b = Browser(use_cloud=True)
+    await b.start()
+    print(json.dumps({{'daemon': ipc.identify(b.name)}}), flush=True)
+    await asyncio.sleep(600)
+asyncio.run(main())
+"""
+	env = {**os.environ, 'PYTHONPATH': str(site), 'BROWSER_USE_API_KEY': 'bu_test'}
+	proc = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, cwd=tmp_path, env=env)
+	daemon = 0
+	try:
+		assert proc.stdout
+		daemon = json.loads(proc.stdout.readline())['daemon']
+		assert daemon and alive(daemon)
+		proc.send_signal(signal.SIGKILL)
+		proc.wait(10)
+		deadline = time.monotonic() + 15
+		while time.monotonic() < deadline and (not stops or alive(daemon)):
+			time.sleep(0.2)
+		assert stops == [('/browsers/c58-browser', {'action': 'stop'})]
+		assert not alive(daemon)
+	finally:
+		proc.kill()
+		if daemon and alive(daemon):
+			os.kill(daemon, signal.SIGKILL)
+		server.shutdown()
+
+
+@posix_only
 def test_the_watchdog_ends_a_reattached_daemon_and_never_a_process_that_reused_the_old_pid(chrome_binary, tmp_path, monkeypatch):
 	"""Review: the watchdog kept the daemon pid it started with. After a reattach replaced the daemon, a SIGKILL of
 	Python left the new daemon running, and the old pid (possibly reused by another process) was signalled."""

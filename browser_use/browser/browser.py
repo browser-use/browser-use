@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import signal
+import subprocess
 import sys
 import tempfile
 import threading
@@ -579,6 +580,7 @@ class Browser:
 		# the handler on the thread that holds it
 		self._stop_mutex = threading.RLock()
 		self._guard: Guard | None = None  # domain restrictions' browser-level block, while started
+		self._watchdog: subprocess.Popen | None = None  # cloud or cdp_url: cleans up if this process dies uncleanly
 		# tab -> the disallowed URL it showed when this Browser first started (yours, in Browser('chrome')): sweep() leaves
 		# it alone while it still shows that URL. Taken once: a follow-up run or a reattach must not exempt a tab the
 		# agent left on a disallowed page.
@@ -740,11 +742,14 @@ class Browser:
 			if self.headers:  # the daemon's handshake; only its env, never the REPL worker's
 				self._daemon_env['BU_CDP_HEADERS'] = json.dumps(self.headers)
 			await asyncio.to_thread(self._ensure_daemon)
-			if self._local is not None:  # this process dying uncleanly (SIGKILL) left Chrome, the daemon and the profile
-				from browser_harness import _ipc as ipc
+			# this process dying uncleanly (SIGKILL, OOM) left the daemon, and Chrome or a cloud browser billing until its timeout
+			from browser_harness import _ipc as ipc
 
-				daemon_pid = await asyncio.to_thread(ipc.identify, self.name, 5.0)
+			daemon_pid = await asyncio.to_thread(ipc.identify, self.name, 5.0)
+			if self._local is not None:
 				self._local.watch(self.name, daemon_pid)
+			else:
+				self._watchdog = _local.start_watchdog(0, '', self.name, daemon_pid, self.id if self.use_cloud else '')
 			if self.domains:
 				self._guard = Guard(ws, self.domains, self.headers)
 				await asyncio.to_thread(self._guard.start)
@@ -827,6 +832,10 @@ class Browser:
 		False when the cloud browser could not be stopped: it stays owned, so stop() again or process exit retries."""
 		with self._stop_mutex:
 			self._env = None
+			watchdog, self._watchdog = self._watchdog, None
+			if watchdog is not None:  # first: a normal stop must not race it
+				with contextlib.suppress(OSError):
+					watchdog.kill()
 			guard, self._guard = self._guard, None
 			if guard is not None:
 				guard.close()

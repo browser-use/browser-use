@@ -391,19 +391,22 @@ class LocalBrowser:
 			time.sleep(0.1)
 
 
-# Runs detached next to each launched Chrome. Its stdin is a pipe only the Python process that launched Chrome holds:
-# the read returns at EOF, when that process dies however it dies (SIGKILL, OOM), and it then ends the daemon, the
-# Chrome process group and the temp profile they left. A normal stop kills the watchdog first, so it does nothing.
+# Runs detached next to each Browser's daemon. Its stdin is a pipe only the Python process that started the Browser
+# holds: the read returns at EOF, when that process dies however it dies (SIGKILL, OOM), and it then stops the cloud
+# browser (else it bills until its timeout) and ends the daemon, and the Chrome process group and temp profile of a
+# launched Chrome. A normal stop kills the watchdog first, so it does nothing.
 # A child that process fork()ed without exec holds the pipe too: the cleanup then waits for that child to end.
 # The daemon is the one answering on its name now (a reattach replaces it); else the pid it started with, only while
 # that pid is still the same process (never a process that reused the number).
 WATCHDOG = r"""
 import json, os, shutil, signal, subprocess, sys, time
 sys.stdin.buffer.read()
-chrome, tmp, name, first, started = int(sys.argv[1]), sys.argv[2], sys.argv[3], int(sys.argv[4]), json.loads(sys.argv[5])
+chrome, tmp, name, first, started, cloud = int(sys.argv[1]), sys.argv[2], sys.argv[3], int(sys.argv[4]), json.loads(sys.argv[5]), sys.argv[6]
 daemon = 0
 try:
     from browser_harness import _ipc, admin
+    if cloud:
+        admin._stop_cloud_browser(cloud)
     daemon = _ipc.identify(name, 2.0) or 0
     if not daemon and first and started is not None and admin._process_start_time(first) == started:
         daemon = first
@@ -419,13 +422,15 @@ def kill(pid, group, sig):
         pass
 if daemon:
     kill(daemon, False, signal.SIGTERM)
-kill(chrome, True, signal.SIGTERM)
+if chrome:  # never 0: killpg(0) is this watchdog's own group
+    kill(chrome, True, signal.SIGTERM)
 time.sleep(3)
 if sys.platform != 'win32':
-    kill(chrome, True, signal.SIGKILL)
+    if chrome:
+        kill(chrome, True, signal.SIGKILL)
     if daemon:
         kill(daemon, False, signal.SIGKILL)
-for _ in range(20):
+for _ in range(20 if tmp else 0):
     shutil.rmtree(tmp, ignore_errors=True)
     if not os.path.exists(tmp):
         break
@@ -433,8 +438,11 @@ for _ in range(20):
 """
 
 
-def start_watchdog(chrome_pid: int, tmp: Path, daemon: str, daemon_pid: int | None) -> subprocess.Popen | None:
-	"""The watchdog for a launched Chrome (WATCHDOG); None when it cannot start."""
+def start_watchdog(
+	chrome_pid: int, tmp: Path | str, daemon: str, daemon_pid: int | None, cloud_id: str = ''
+) -> subprocess.Popen | None:
+	"""The watchdog (WATCHDOG) for a launched Chrome, or for a daemon alone (chrome_pid 0, tmp '') and the cloud browser
+	cloud_id; None when it cannot start."""
 	started = None
 	if daemon_pid:
 		with contextlib.suppress(Exception):
@@ -442,8 +450,9 @@ def start_watchdog(chrome_pid: int, tmp: Path, daemon: str, daemon_pid: int | No
 
 			started = admin._process_start_time(daemon_pid)
 	try:
+		args = (str(chrome_pid), str(tmp), daemon, str(daemon_pid or 0), json.dumps(started), cloud_id)
 		return subprocess.Popen(
-			[sys.executable, '-P', '-c', WATCHDOG, str(chrome_pid), str(tmp), daemon, str(daemon_pid or 0), json.dumps(started)],
+			[sys.executable, '-P', '-c', WATCHDOG, *args],
 			stdin=subprocess.PIPE,
 			stdout=subprocess.DEVNULL,
 			stderr=subprocess.DEVNULL,
@@ -451,7 +460,7 @@ def start_watchdog(chrome_pid: int, tmp: Path, daemon: str, daemon_pid: int | No
 			creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0),
 		)
 	except OSError as e:
-		logger.debug('no watchdog for Chrome %s: %s', chrome_pid, e)
+		logger.debug('no watchdog for %s: %s', daemon, e)
 		return None
 
 
