@@ -194,6 +194,9 @@ LOGIN_DONE = (
 
 def _read_api_key_stdin() -> str:
 	"""The key for `login --api-key-stdin`, checked before anything is stored."""
+	import urllib.error
+	import urllib.request
+
 	from browser_harness import auth
 
 	from browser_use.auth import KEYS_URL
@@ -205,6 +208,14 @@ def _read_api_key_stdin() -> str:
 		raise auth.AuthError(
 			f'the key has a space, line break, control or non-ASCII character inside it; copy it again from {KEYS_URL}'
 		)
+	request = urllib.request.Request(f'{auth.auth_base()}/api/v4/browsers?pageSize=1', headers={'X-Browser-Use-API-Key': key})
+	try:  # one read-only call, so a mistyped or revoked key is never stored and "Signed in" is true
+		urllib.request.urlopen(request, timeout=15).close()
+	except urllib.error.HTTPError as e:
+		if e.code == 401:  # a 403 is a real key without the browser scope: it still works for the bu-* models
+			raise auth.AuthError(f'Browser Use Cloud rejected that key (HTTP 401); create one at {KEYS_URL}') from None
+	except OSError:
+		pass  # offline: store it; the first cloud call reports a bad key
 	return key
 
 

@@ -172,7 +172,12 @@ def _cloud(path: str, method: str = 'GET', body: dict | None = None) -> dict:
 		with urllib.request.urlopen(req, timeout=60) as r:
 			return json.loads(r.read() or b'{}')
 	except urllib.error.HTTPError as e:
-		detail = e.read().decode(errors='replace')[:500]
+		detail = e.read().decode(errors='replace')
+		try:  # {"detail": "..."}: the message itself, without JSON quoting and \u0026 escapes
+			detail = str(json.loads(detail)['detail'])
+		except (ValueError, TypeError, KeyError):
+			pass
+		detail = detail[:500]
 		hint = cloud_error_hint(e.code, detail)
 		raise RuntimeError(f'Browser Use Cloud {method} {path} failed: HTTP {e.code} {detail}.{hint}') from None
 

@@ -49,6 +49,10 @@ class FakeAuthServer:
 				else:
 					self._json(404, {})
 
+			def do_GET(self):  # the key check of `login --api-key-stdin`
+				ok = self.path.startswith('/api/v4/browsers') and self.headers['X-Browser-Use-API-Key'] == FAKE_KEY
+				self._json(200 if ok else 401, {'items': []} if ok else {'detail': 'Invalid API key.'})
+
 			def _json(self, status, data):
 				raw = json.dumps(data).encode()
 				self.send_response(status)
@@ -284,9 +288,14 @@ def test_a_key_with_whitespace_inside_never_appears_in_an_error_or_the_store(sto
 	assert 'line break' in str(raised.value) and FAKE_KEY[:20] not in str(raised.value)
 
 
-def test_api_key_stdin_stores_only_a_browser_use_key(store):
+def test_api_key_stdin_stores_only_a_browser_use_key(store, monkeypatch):
+	_auth_server(monkeypatch, auto_approve=False)
 	result = _cli('login', '--api-key-stdin', stdin='sk-' + 'x' * 40)
 	assert result.returncode == 1 and 'start with bu_' in result.stderr and 'Signed in' not in result.stdout
+	assert not store.exists()
+
+	result = _cli('login', '--api-key-stdin', stdin='bu_' + 'g' * 40)  # shaped right, but the cloud rejects it
+	assert result.returncode == 1 and 'rejected that key' in result.stderr and 'Signed in' not in result.stdout
 	assert not store.exists()
 
 	result = _cli('login', '--api-key-stdin', stdin=FAKE_KEY + '\n')
@@ -294,7 +303,8 @@ def test_api_key_stdin_stores_only_a_browser_use_key(store):
 	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY and FAKE_KEY not in result.stdout
 
 
-def test_a_corrupt_key_store_is_named_and_login_or_logout_repairs_it(store):
+def test_a_corrupt_key_store_is_named_and_login_or_logout_repairs_it(store, monkeypatch):
+	_auth_server(monkeypatch, auto_approve=False)
 	from browser_use.auth import browser_use_api_key
 	from browser_use.exceptions import MissingAPIKeyError
 
@@ -331,14 +341,16 @@ def test_a_rejected_key_names_the_login_command(store, monkeypatch):
 	monkeypatch.setenv('BROWSER_USE_API_KEY', FAKE_KEY)
 
 	def unauthorized(req, timeout=None):
-		raise urllib.error.HTTPError(req.full_url, 401, 'Unauthorized', {}, io.BytesIO(b'{"detail": "Invalid API key"}'))  # type: ignore[arg-type]
+		raise urllib.error.HTTPError(
+			req.full_url, 401, 'Unauthorized', {}, io.BytesIO(b'{"detail": "Invalid API key, see ?tab=api-keys\\u0026new=1"}')
+		)  # type: ignore[arg-type]
 
 	monkeypatch.setattr(urllib.request, 'urlopen', unauthorized)
 	with pytest.raises(RuntimeError, match='HTTP 401') as raised:
 		browser_mod._cloud('/browsers', 'POST', {})
 	message = str(raised.value)
-	assert 'Invalid API key' in message and 'run `browser-use login`' in message
-	assert 'BROWSER_USE_API_KEY is set' in message and FAKE_KEY not in message
+	assert 'Invalid API key, see ?tab=api-keys&new=1.' in message and '{' not in message  # the detail, not raw JSON
+	assert 'run `browser-use login`' in message and 'BROWSER_USE_API_KEY is set' in message and FAKE_KEY not in message
 
 
 def test_a_callback_with_the_wrong_state_neither_completes_nor_aborts_the_login(store, monkeypatch):
