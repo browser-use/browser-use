@@ -55,6 +55,7 @@ _ENGINE = 'it tuned the 0.x DOM engine: delete it.'
 REMOVED = {  # 0.x BrowserSession/BrowserProfile options -> the 1.0 alternative (MIGRATING.md "Browser(...)")
 	'profile_directory': "Browser('chrome', profile='Profile 1') (a copy of that Chrome profile).",
 	'browser_profile': 'pass options to Browser(...).',
+	'config': 'pass options to Browser(...).',
 	'storage_state': _STORAGE,
 	'cookie_whitelist_domains': _STORAGE,
 	'proxy': 'cloud_proxy_country_code on cloud browsers.',
@@ -625,6 +626,16 @@ class Browser:
 			await asyncio.to_thread(self._send_downloads, self._downloads_dir)
 		return self._env
 
+	def _close_launch_tab(self) -> None:
+		"""Our named daemon works in a tab of its own, so the about:blank tab Chrome launched with is left over."""
+		try:
+			own = _daemon_request(self._daemon_name(), {'meta': 'current_tab'})['targetId']
+			for t in self._cdp()('Target.getTargets')['targetInfos']:
+				if t['type'] == 'page' and t['url'] == 'about:blank' and t['targetId'] != own:
+					self._cdp()('Target.closeTarget', targetId=t['targetId'])
+		except Exception as e:  # - a stray blank tab is harmless
+			logger.debug('Could not close the launch tab: %s', e)
+
 	def _send_downloads(self, downloads: Path) -> None:
 		"""Downloads of a Chrome this Browser launched land in downloads (workspace/downloads), not the real ~/Downloads."""
 		downloads.mkdir(parents=True, exist_ok=True)
@@ -748,6 +759,7 @@ class Browser:
 			daemon_pid = await asyncio.to_thread(ipc.identify, self.name, 5.0)
 			if self._local is not None:
 				self._local.watch(self.name, daemon_pid)
+				await asyncio.to_thread(self._close_launch_tab)
 			else:
 				self._watchdog = _local.start_watchdog(0, '', self.name, daemon_pid, self.id if self.use_cloud else '')
 			if self.domains:
@@ -1002,3 +1014,13 @@ class Browser:
 			cursor = page.get('nextCursor')
 			if not page.get('hasMore') or not cursor:
 				return out
+
+
+def __getattr__(name: str):
+	"""from browser_use.browser(.browser) import BrowserConfig (0.x import paths): the removal message, not an ImportError
+	naming site-packages."""
+	from browser_use import _REMOVED
+
+	if name in ('BrowserSession', 'BrowserProfile', 'BrowserConfig'):
+		raise ImportError(removed(f'browser_use.browser.{name}', _REMOVED[name]))
+	raise AttributeError(f'module {__name__!r} has no attribute {name!r}')

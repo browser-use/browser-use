@@ -244,6 +244,9 @@ def test_0x_api_shapes_raise_the_removed_error(no_browser):
 			ImportError,
 			r'Browser\(\.\.\.\)',
 		),
+		# C63: the 0.1.x import path gave a raw ImportError naming site-packages; Browser(config=) a generic message
+		(lambda: exec('from browser_use.browser.browser import BrowserConfig'), ImportError, r'BrowserConfig was removed'),
+		(lambda: Browser(config=object()), TypeError, r'^Browser\(config=\.\.\.\) was removed'),
 	]
 	for fn, error, match in cases:
 		with pytest.raises(error, match=match) as raised:
@@ -252,6 +255,15 @@ def test_0x_api_shapes_raise_the_removed_error(no_browser):
 	assert result and result.usage == usage and result.usage['input'] == 1  # still a plain dict to read
 	with pytest.raises(AttributeError, match="no attribute 'nope'"):
 		Browser(local=True).nope
+
+
+def test_version_is_the_installed_package_version():
+	"""C63: browser_use.__version__ raised AttributeError; only importlib.metadata knew it."""
+	from importlib.metadata import version
+
+	import browser_use
+
+	assert browser_use.__version__ == version('browser-use')
 
 
 def test_docs_say_the_default_workspace_is_kept():
@@ -316,7 +328,7 @@ def test_tools_plain_function_and_param_model():
 @pytest.mark.parametrize('param', ['browser_session', 'page_extraction_llm', 'file_system'])
 def test_tools_injected_params_raise(param):
 	tools = Tools()
-	with pytest.raises(TypeError, match=rf'^Injected action parameters \({param} in @tools\.action act\(\)\) {REMOVED}'):
+	with pytest.raises(TypeError, match=rf'^Injecting {param} into @tools\.action act\(\) {REMOVED}'):
 		exec(f'@tools.action("x")\nasync def act(text: str, {param}=None): pass', {'tools': tools})
 
 

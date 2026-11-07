@@ -480,6 +480,18 @@ async def test_fresh_chromium_end_to_end_has_no_cookies_and_leaves_nothing(chrom
 	assert proc.poll() is not None and not tmp.exists() and not browser_mod._LIVE
 
 
+async def test_a_launched_browser_has_one_tab(chrome_binary):
+	"""C63: Chrome's launch tab stayed next to the tab our named daemon opens: list_tabs() gave 2, headed showed a blank
+	extra tab."""
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
+	try:
+		await browser.start()
+		pages = [t for t in browser._cdp()('Target.getTargets')['targetInfos'] if t['type'] == 'page']
+		assert len(pages) == 1, pages
+	finally:
+		await browser.stop()
+
+
 async def test_a_launched_browser_downloads_into_the_workspace(chrome_binary, tmp_path):
 	"""M14: Browser('chromium') saved downloads to the user's real ~/Downloads. C13: the model was never told a download
 	started (it missed it in drain_events() output and clicked again), and the result listed no downloaded files."""

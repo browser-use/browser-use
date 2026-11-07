@@ -113,7 +113,7 @@ class Tools:
 			if injected:
 				raise TypeError(
 					removed(
-						f'Injected action parameters ({", ".join(injected)} in @tools.action {fn.__name__}())',
+						f'Injecting {", ".join(injected)} into @tools.action {fn.__name__}()',
 						'actions get only the arguments the model passes; the model drives the browser itself in Python.',
 					)
 				)
