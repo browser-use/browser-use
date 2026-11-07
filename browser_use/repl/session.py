@@ -3,7 +3,9 @@
 Transport: the worker connects back to a 127.0.0.1 ephemeral port and proves itself with a random token, so it
 works the same on Windows, macOS and Linux (no inherited file descriptors).
 
-Secrets: the worker gets an allowlisted environment (no API keys or tokens). sensitive_data values travel over the
+Secrets: the worker gets an allowlisted environment (no API keys or tokens), which only keeps keys out of its own
+environment: as your user it can still read the parent's environment (ps -E, /proc/<pid>/environ) and .env file
+(MIGRATING.md "Trust model"). sensitive_data values travel over the
 control channel, are typed with type_secret(name) (domain-scoped ones only into a matching focused frame), and are replaced with
 <secret:name> in the text the worker returns and in its cell files and checkpoints. Not a sandbox: model-written
 Python can read the values and local files, write unredacted files, and screenshots or js() reads of a field can

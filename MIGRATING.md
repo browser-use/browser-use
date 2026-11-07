@@ -265,7 +265,8 @@ browser even after its daemon was killed, and a new `start_remote_daemon(name)` 
 The REPL worker runs model-written Python as your user. 1.0 limits what it can see by default:
 
 - Its environment is an allowlist (`PATH`, `HOME`, locale, temp dirs, `BU_*` / `BH_*` harness settings). Variables
-  whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH` never reach it.
+  whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH` are not in its environment. That
+  is all the allowlist does: see the last bullets below for how the worker can still reach your keys.
 - `sensitive_data` values are sent to the worker over its control channel. The model is told only their names and
   types a value with `type_secret(name)`.
 - A domain-scoped secret (`{'https://site.com': {...}}`) is typed only while the frame that receives the text (the
@@ -294,7 +295,11 @@ Nothing else is redacted. This is not a sandbox:
   password" field) reaches the model in a screenshot. Model-written `js()` can read a field's value back.
 - A cloud browser's live view (`live_view=True`, or anyone with that URL) and any recording of the session show what
   was typed, as in any browser.
-- The worker can read files your user can read (for example `~/.config/browser-harness/auth.json`).
+- The worker can read files your user can read (for example `~/.config/browser-harness/auth.json`, and the `.env`
+  the parent loaded from its working directory).
+- The worker can read the environment of other processes your user runs, including the Python process that runs
+  the agent and the browser-harness daemon (`ps -E -p <pid>` on macOS, `/proc/<pid>/environ` on Linux). Every
+  provider and Browser Use key set there (`OPENAI_API_KEY`, `BROWSER_USE_API_KEY`, ...) is readable that way.
 
 Run untrusted tasks in a container or VM.
 
