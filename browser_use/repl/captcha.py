@@ -36,7 +36,8 @@ class Captcha:
 		"""path: where the state survives a worker restart within one Repl (which deletes it when it is created).
 		off: Browser(captcha_solver=False): solve() never turns the solver on."""
 		self.cdp, self.off = cdp, off
-		self.turned_on = False  # solve() turned the solver on and left it on for a solve still running
+		self.turned_on = False  # solve() turned the solver on and left it on for a solve still running (saved)
+		self._solving = False  # a solve() call is waiting: it turns the solver off itself
 		self.pump: Callable[[], None] = lambda: None  # reads new daemon events into observe(); set by the worker
 		self.active: dict[str, dict] = {}  # targetId -> started params + '_t' (monotonic start)
 		self.finished: list[dict] = []  # every finished event's params, in order
@@ -56,6 +57,7 @@ class Captcha:
 			ago = time.time() - time.monotonic()
 			self.active = {str(t): {**a, '_t': a.pop('_wall') - ago} for t, a in saved['active'].items()}
 			self.finished = list(saved['pending'])
+			self.turned_on = bool(saved.get('turned_on'))
 		except (OSError, ValueError, KeyError, TypeError, AttributeError):  # - unreadable: start empty
 			self.active, self.finished = {}, []
 
@@ -65,7 +67,7 @@ class Captcha:
 			return
 		ago = time.time() - time.monotonic()
 		active = {t: {**{k: v for k, v in a.items() if k != '_t'}, '_wall': a['_t'] + ago} for t, a in self.active.items()}
-		data = {'active': active, 'pending': self.finished[self.reported :]}
+		data = {'active': active, 'pending': self.finished[self.reported :], 'turned_on': self.turned_on}
 		try:
 			tmp = self.path.with_suffix('.tmp')
 			tmp.write_text(json.dumps(data), encoding='utf-8')
@@ -84,6 +86,20 @@ class Captcha:
 				self.active.pop(str(params.get('targetId', '')), None)
 				self.finished.append(params)
 			self._save()
+		if method == FINISHED:
+			self._release()
+
+	def _release(self) -> None:
+		"""Turn the solver off once the solves solve() left it on for have ended, without waiting for another solve()."""
+		with self._lock:
+			if not self.turned_on or self.active or self._solving:
+				return
+			self.turned_on = False
+			self._save()
+		try:
+			self.cdp('BrowserUse.setCaptchaSolverEnabled', enabled=False)
+		except Exception:  # - the browser is gone or restarting: nothing left to turn off
+			pass
 
 	def _prune(self) -> None:
 		"""Close solves whose finished event will not come (tab closed, daemon restarted, event missed) as lost. Hold
@@ -121,7 +137,7 @@ class Captcha:
 			if "wasn't found" in why or '-32601' in why:  # Chrome: method not found
 				why = 'this browser has no captcha solver (Browser Use Cloud browsers do)'
 			return out(False, f'solver unavailable: {why[:300]}')
-		keep_on = was_on
+		keep_on, self._solving = was_on, True
 		with self._lock:  # a solve that ended after the last cell's output, or that its notice showed, is the answer
 			seen = max(self.shown, self.answered)
 		try:
@@ -147,7 +163,9 @@ class Captcha:
 					return out(False, 'the solver found no captcha on the page')
 				time.sleep(PUMP_INTERVAL_S)
 		finally:
-			self.turned_on = keep_on and not was_on
+			with self._lock:
+				self.turned_on, self._solving = keep_on and not was_on, False
+				self._save()
 			if not keep_on:
 				try:
 					self.cdp('BrowserUse.setCaptchaSolverEnabled', enabled=False)
@@ -163,6 +181,7 @@ class Captcha:
 			active = list(self.active.values())
 			if done:
 				self._save()
+		self._release()  # a solve closed as lost, or one that ended while the worker restarted
 		lines = []
 		for f in done:
 			what, s = f.get('vendor') or 'captcha', round((f.get('durationMs') or 0) / 1000)

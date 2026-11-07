@@ -169,6 +169,25 @@ def test_solve_turns_an_off_solver_on_and_back_off_unless_it_is_still_solving():
 	assert [p for m, p in calls if m == 'BrowserUse.setCaptchaSolverEnabled'] == [{'enabled': False}]
 
 
+def test_a_solver_left_on_for_a_running_solve_goes_off_when_it_ends_even_after_a_worker_restart(tmp_path):
+	"""Review: after 'still solving', the solver stayed on until the agent called solve_captcha() again (never, if it
+	moved on), and a worker restarted by a cell timeout forgot that solve() had turned it on, so it stayed on."""
+	c, calls, batches = fake_captcha(enabled=False)
+	c.path = tmp_path / 'captcha.json'
+	batches.append([started()])
+	assert c.solve(start_timeout=0.3, timeout=0.3)['detail'] == 'still solving'
+	calls.clear()
+	c.observe(dict(zip(('method', 'params'), finished(success=True))))  # the agent moved on; the solve ends
+	assert [p for m, p in calls if m == 'BrowserUse.setCaptchaSolverEnabled'] == [{'enabled': False}]
+
+	batches.append([started()])
+	assert c.solve(start_timeout=0.3, timeout=0.3)['detail'] == 'still solving'
+	restarted = Captcha(c.cdp, c.path)  # the next cell timed out: a new worker reads the saved state
+	calls.clear()
+	restarted.observe(dict(zip(('method', 'params'), finished(success=True))))
+	assert [p for m, p in calls if m == 'BrowserUse.setCaptchaSolverEnabled'] == [{'enabled': False}]
+
+
 def test_solve_never_turns_on_a_solver_the_user_turned_off():
 	"""H11: with Browser(captcha_solver=False), solve_captcha() turned the solver on anyway."""
 	c, calls, batches = fake_captcha(enabled=False)
