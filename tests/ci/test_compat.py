@@ -386,7 +386,8 @@ async def test_finish_can_report_a_failed_task(tool, tmp_path):
 )
 async def test_finish_success_verdict_is_optional(tmp_path, call, expected):
 	"""agent-llm F1: a finish without a verdict must never read as success. The verdict is optional (a required one made
-	the model give up early on long tasks: ablation 1107), so an omitted verdict is None, not True."""
+	the model give up early on long tasks: ablation 1107), so an omitted verdict is None, not True. It is described, so
+	the model gives it."""
 	from pydantic_ai.messages import ModelResponse, ToolCallPart
 	from pydantic_ai.models.function import FunctionModel
 
@@ -398,6 +399,8 @@ async def test_finish_success_verdict_is_optional(tmp_path, call, expected):
 
 	r = await run(build_agent(FunctionModel(fn)), 'task', Session(repl=Repl(tmp_path)), 'm')
 	assert len(seen) == 1 and not any('success' in schema.get('required', []) for schema in seen[0].values()), seen
+	# C10: an undescribed verdict was left out on most runs (None on 15/21 correct runs); the description makes it given
+	assert all('description' in seen[0][t]['properties']['success'] for t in ('finish', 'finish_from_repl')), seen
 	assert (r.status, r.output, r.is_successful()) == ('completed', 'The book does not exist.', expected)
 
 

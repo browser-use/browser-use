@@ -15,10 +15,10 @@ import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 from genai_prices import calc_price
-from pydantic import TypeAdapter, ValidationError
+from pydantic import Field, TypeAdapter, ValidationError
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput, ToolOutput
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.exceptions import ToolRetryError
@@ -201,11 +201,17 @@ def _outputs(output_type: Any) -> list[Any]:
 		except ValidationError as e:
 			raise ModelRetry(f'Deliver with finish or finish_from_repl; text does not match the result schema: {str(e)[:2000]}')
 
-	finish.__annotations__ = {'ctx': RunContext[Session], 'result': output_type, 'success': bool | None, 'return': output_type}
+	verdict = Annotated[
+		bool | None,
+		Field(
+			description='true when the result delivers what the task asked for; false when blocked, refused, partial, or not found'
+		),
+	]
+	finish.__annotations__ = {'ctx': RunContext[Session], 'result': output_type, 'success': verdict, 'return': output_type}
 	finish_from_repl.__annotations__ = {
 		'ctx': RunContext[Session],
 		'expression': str,
-		'success': bool | None,
+		'success': verdict,
 		'return': output_type,
 	}
 	on_text.__annotations__ = {'ctx': RunContext[Session], 'text': str, 'return': output_type}
