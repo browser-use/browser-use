@@ -115,7 +115,7 @@ class ChatBrowserUse:
 			raise ValueError(
 				f"{model} needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast with browser-use 1.0."
 			)
-		key = clean_api_key(_plain(api_key), 'ChatBrowserUse(api_key=...)', f'The model {model}') if api_key else None
+		key = clean_api_key(plain, 'ChatBrowserUse(api_key=...)', f'The model {model}') if (plain := _plain(api_key)) else None
 		self.model, self.api_key, self.base_url = model, key, str(base_url)
 
 	def pydantic_model(self) -> Any:

@@ -757,7 +757,7 @@ class Browser:
 				self._local.watch(self.name, daemon_pid)
 				await asyncio.to_thread(self._close_launch_tab)
 			else:
-				self._watchdog = _local.start_watchdog(0, '', self.name, daemon_pid, self.id if self.use_cloud else '')
+				self._watchdog = _local.start_watchdog(0, '', self.name, daemon_pid, (self.id or '') if self.use_cloud else '')
 			if self.domains:
 				self._guard = Guard(ws, self.domains)
 				await asyncio.to_thread(self._guard.start)
@@ -912,11 +912,12 @@ class Browser:
 			completed = await self._finish_downloads() if ending and not cancelled and not dead else 0
 			# before the stop too: the API may not list a stopped session's files. The cloud lists a download about a
 			# second after it completes: retry until it lists them all (a copy that keeps failing gives up after 30)
-			for _ in range(30 if downloads_dir and self.use_cloud else 0):
-				await self._fetch_downloads(downloads_dir, fetched, files, browser_id)
-				if len(fetched) >= completed:
-					break
-				await asyncio.sleep(1)
+			if downloads_dir and self.use_cloud:
+				for _ in range(30):
+					await self._fetch_downloads(downloads_dir, fetched, files, browser_id)
+					if len(fetched) >= completed:
+						break
+					await asyncio.sleep(1)
 		finally:  # even when cancelled mid-download: the stop always starts, and its thread always finishes
 			self._stopping = asyncio.ensure_future(asyncio.to_thread(self._stop_now))
 			stopped = await asyncio.shield(self._stopping)
@@ -934,7 +935,7 @@ class Browser:
 		since. Returns how many downloads of the session completed."""
 		for log in list(self._download_lines):  # what a worker logged after its run's note_downloads, before it closed
 			self.note_downloads(log)
-		state = {r['guid']: 'inProgress' for r in self._download_records if r.get('guid')}
+		state: dict[str, str | None] = {r['guid']: 'inProgress' for r in self._download_records if r.get('guid')}
 		state |= {r['done']: r.get('state') for r in self._download_records if r.get('done')}
 		deadline, waiting = time.monotonic() + DOWNLOADS_TIMEOUT_S, False
 		try:
