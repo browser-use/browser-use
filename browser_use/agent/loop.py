@@ -26,9 +26,9 @@ from pydantic_ai.direct import model_request
 from pydantic_ai.exceptions import ToolRetryError
 from pydantic_ai.messages import (
 	ModelMessage,
-	ModelMessagesTypeAdapter,
 	ModelRequest,
 	ModelResponse,
+	SystemPromptPart,
 	TextPart,
 	ThinkingPart,
 	ToolReturnPart,
@@ -364,17 +364,25 @@ CHECKPOINT = (  # bu-pi src/context.ts, verbatim except Python for JavaScript
 
 @dataclass
 class Compaction(AbstractCapability[Session]):
-	"""bu-pi's RunContext (src/context.ts) for models without server-side compaction. Past min(token_threshold, 65% of the
-	context window), everything before the last two assistant/tool groups is sent as one checkpoint message: a summary by
-	the same model at low effort, a redacted evidence archive, the user messages verbatim. Only the request is projected;
-	the transcript stays whole (usage, follow-ups). A failure keeps the full history and is not retried."""
+	"""bu-pi's RunContext (src/context.ts) for models without server-side compaction. Past 75% of 240k content characters
+	(conversation + system prompt) or 65% of the context window in tokens, everything before the last two assistant/tool
+	groups is sent as one checkpoint message: a summary by the same model at low effort, a redacted evidence archive, the
+	user messages verbatim. Only the request is projected; the transcript stays whole (usage, follow-ups). A failure keeps
+	the full history and is not retried. token_threshold: an extra token trigger (tests)."""
 
-	token_threshold: int
+	token_threshold: int | None = None
+	max_chars: int = 240_000  # bu-pi maxContextChars
 
 	async def before_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
 		s, messages, window = ctx.deps, request_context.messages, request_context.model.context_window
-		limit = min(self.token_threshold, int(0.65 * window)) if window else self.token_threshold
-		if not s.compaction_failed and _tokens(s, messages) >= limit:
+		system = sum(len(p.content) for p in request_context.model_request_parameters.instruction_parts or [])
+		tokens = _tokens(s, messages, system)
+		due = (
+			_chars(_projected(s, messages)) + system > 0.75 * self.max_chars
+			or (window and tokens > 0.65 * window)
+			or (self.token_threshold is not None and tokens >= self.token_threshold)
+		)
+		if not s.compaction_failed and due:
 			try:
 				await _compact(s, messages, request_context)
 			except Exception as e:
@@ -391,28 +399,39 @@ def _projected(s: Session, messages: list[ModelMessage]) -> list[ModelMessage]:
 
 
 def _plain(messages: list[ModelMessage]) -> Any:
-	"""Messages as JSON data, images, reasoning and the system prompt omitted (bu-pi's archive and context size)."""
+	"""Message content as JSON data (bu-pi's archive and context size): kind, part kind, tool name and call id, content or
+	args. Reasoning, the system prompt, usage, ids, timestamps and provider details are omitted; images become a note."""
 
-	def walk(v: Any) -> Any:
-		if isinstance(v, list):
-			return [walk(x) for x in v if not (isinstance(x, dict) and x.get('part_kind') == 'thinking')]
-		if isinstance(v, dict):
-			if v.get('kind') == 'binary':
-				return '[Image omitted from text archive]'
-			return {k: walk(x) for k, x in v.items() if k != 'instructions'}
-		return v
+	def content(v: Any) -> Any:
+		if isinstance(v, BinaryContent):
+			return '[Image omitted from text archive]'
+		return [content(x) for x in v] if isinstance(v, list) else v
 
-	return walk(ModelMessagesTypeAdapter.dump_python(messages, mode='json'))
+	keys = ('tool_name', 'tool_call_id', 'content', 'args')
+	return to_jsonable_python(
+		[
+			{
+				'kind': m.kind,
+				'parts': [
+					{'part_kind': p.part_kind, **{k: content(v) for k in keys if (v := getattr(p, k, None)) is not None}}
+					for p in m.parts
+					if not isinstance(p, ThinkingPart | SystemPromptPart)
+				],
+			}
+			for m in messages
+		],
+		fallback=str,
+	)
 
 
 def _chars(messages: list[ModelMessage]) -> int:
 	return len(json.dumps(_plain(messages)))
 
 
-def _tokens(s: Session, messages: list[ModelMessage]) -> int:
+def _tokens(s: Session, messages: list[ModelMessage], system: int) -> int:
 	"""bu-pi RunContext.tokens: the last response's context plus what came after it, at least the estimate of the request
 	(4 characters per token)."""
-	estimate = _chars(_projected(s, messages)) // 4
+	estimate = (_chars(_projected(s, messages)) + system) // 4
 	for i in range(len(messages) - 1, -1, -1):
 		if isinstance(m := messages[i], ModelResponse):
 			return max(estimate, m.usage.total_tokens + _chars(messages[i + 1 :]) // 4)
@@ -425,11 +444,13 @@ async def _compact(s: Session, messages: list[ModelMessage], request_context: Mo
 		return
 	cut = starts[-2]
 	plain = redact(_plain(([s.checkpoint] if s.checkpoint else []) + messages[s.covered : cut]), s.repl.secrets)
-	settings = {
-		k: v for k, v in (request_context.model_settings or {}).items() if k not in ('tool_choice', 'parallel_tool_calls')
-	}
-	if settings.get('thinking'):
-		settings['thinking'] = 'low'
+	# bu-pi: 12k output tokens, 120 s, low effort; a cache write for a one-off prompt is never read
+	inherited = (request_context.model_settings or {}).items()
+	settings = {k: v for k, v in inherited if k not in ('tool_choice', 'parallel_tool_calls', 'cache')}
+	settings |= {'max_tokens': 12_000, 'request_timeout': 120}
+	for key in ('thinking', 'openai_reasoning_effort'):
+		if settings.get(key) and settings[key] != 'none':
+			settings[key] = 'low'
 	prompt = f'<conversation>\n{json.dumps(plain, ensure_ascii=False)}\n</conversation>\n\n{SUMMARY_PROMPT}'
 	response = await model_request(
 		request_context.model,
@@ -544,13 +565,14 @@ def build_agent(
 	output_type: Any = str,
 	reasoning_effort: str | None = 'medium',
 	instructions: str = '',
-	compact_at_tokens: int = 150_000,
+	compact_at_tokens: int | None = None,
 	mode: str | None = 'default',
 	tools: Sequence[Any] = (),
 	model_settings: dict | None = None,
 ) -> Agent[Session, Any]:
 	"""mode='ultrafast' appends AX_PROMPT (the `bu` helpers) to the system prompt; the Repl needs the same mode.
-	tools: extra Pydantic AI tools (Tools().functions). model_settings: merged over the defaults. reasoning_effort=None
+	tools: extra Pydantic AI tools (Tools().functions). model_settings: merged over the defaults. compact_at_tokens: the
+	server-side compaction threshold (default 150k); elsewhere an extra trigger next to bu-pi's. reasoning_effort=None
 	sends no effort (the gateway then applies the alias's own: bu-fast medium, bu-ultrafast low, bu-smart high)."""
 	mode = check_mode(mode)
 	model = model_ref(model)
@@ -567,7 +589,7 @@ def build_agent(
 			del settings['openai_reasoning_effort']
 		if not reasoning:  # gpt-4.1, gpt-4o: reasoning params 400, and 32k is above their output cap
 			settings = {}
-		capabilities = [BrowserLoop(), LazyCompaction(token_threshold=compact_at_tokens)]
+		capabilities = [BrowserLoop(), LazyCompaction(token_threshold=compact_at_tokens or 150_000)]
 	elif kind == 'chat':  # DeepSeek, vLLM, Ollama: no reasoning settings, no output cap they may reject
 		# OpenAI's own reasoning models turn reasoning on by default on chat completions and then reject function tools
 		# (400 "use /v1/responses or set reasoning_effort to 'none'")

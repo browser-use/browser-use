@@ -256,6 +256,7 @@ class Agent:
 		self._model_name = self._model_ref = self._provider = ''
 		self._repl: Repl | None = None
 		self._history: list[ModelMessage] | None = None
+		self._compacted: dict[str, Any] = {}  # the last run's checkpoint (Compaction): a follow-up keeps sending it
 		self._continue = False
 		self._runner: asyncio.Runner | None = None  # run_sync's event loop, kept while the REPL lives
 		self._running = False
@@ -411,8 +412,9 @@ class Agent:
 					after_cell=self.browser.after_cell if self.browser.domains else None,
 					search=self._search,
 				)
-			session = Session(repl=self._repl, timeout_s=timeout, max_steps=max_steps, vision=self.use_vision)
 			history, self._continue = (self._history if self._continue else None), False
+			compacted = self._compacted if history else {}
+			session = Session(repl=self._repl, timeout_s=timeout, max_steps=max_steps, vision=self.use_vision, **compacted)
 			result = await run(
 				self._agent,
 				self.task,
@@ -422,6 +424,7 @@ class Agent:
 				explain_error=self._gateway.explain_error if self._gateway else None,
 			)
 			self._history = session.messages  # raw: result.messages has secrets redacted
+			self._compacted = {'checkpoint': session.checkpoint, 'covered': session.covered}
 			result.output_schema = self.output_model_schema
 			if result.status == 'error':
 				logger.error(result.error)

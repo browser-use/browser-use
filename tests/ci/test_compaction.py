@@ -5,7 +5,16 @@ import json
 import logging
 
 import pytest
-from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart, UserPromptPart
+from pydantic_ai import BinaryContent
+from pydantic_ai.messages import (
+	ModelRequest,
+	ModelResponse,
+	TextPart,
+	ThinkingPart,
+	ToolCallPart,
+	ToolReturnPart,
+	UserPromptPart,
+)
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.usage import RequestUsage
 
@@ -16,39 +25,41 @@ PNG = base64.b64encode(b'\x89PNG-fake-image-bytes').decode()
 
 
 class FakeRepl:
-	def __init__(self, workspace, secrets=None):
+	def __init__(self, workspace, secrets=None, pad=2000):
 		self.workspace = self.state = workspace
-		self.secrets, self.search = scoped_secrets(secrets), None
+		self.secrets, self.search, self.pad = scoped_secrets(secrets), None, pad
 
 	async def call(self, op, code, timeout):
-		images = [{'data': PNG, 'media_type': 'image/png'}] if code.startswith('step1') else []  # one: never pruned
-		return {'output': f'ran {code}', 'error': None, 'images': images}
+		images = [{'data': PNG, 'media_type': 'image/png'}] if code.startswith('step1 ') else []  # one: never pruned
+		return {'output': f'ran {code} {"." * self.pad}', 'error': None, 'images': images}
 
 
-def scripted(big: set[int], steps: int = 5, fail: bool = False):
+def scripted(big: set[int], steps: int = 5, fail: bool = False, code=lambda i: f'step{i} hunter2-secret'):
 	"""Agent requests call python `steps` times, then finish. Requests in `big` report 5000 input tokens, others 100.
-	The summarizer (a request without tools) answers SUMMARY or raises."""
+	The summarizer (a request without tools) answers SUMMARY or raises; fn.settings has its model settings."""
 	agent_requests, summarizer_requests = [], []
 
 	def fn(messages, info: AgentInfo):
 		if not info.function_tools:
 			summarizer_requests.append(messages)
+			fn.settings.append(info.model_settings)
 			if fail:
 				raise RuntimeError('summarizer down')
 			return ModelResponse(parts=[TextPart('SUMMARY')], usage=RequestUsage(input_tokens=7, output_tokens=3))
 		agent_requests.append(messages)
 		i = len(agent_requests)
-		call = ToolCallPart('python', {'code': f'step{i} hunter2-secret'}, tool_call_id=f'c{i}')
+		call = ToolCallPart('python', {'code': code(i)}, tool_call_id=f'c{i}')
 		if i > steps:
 			call = ToolCallPart('finish', {'result': 'done', 'success': True}, tool_call_id=f'c{i}')
 		return ModelResponse(parts=[call], usage=RequestUsage(input_tokens=5000 if i in big else 100, output_tokens=1))
 
+	fn.settings = []
 	return fn, agent_requests, summarizer_requests
 
 
-async def go(tmp_path, fn, *, window=None, **kw):
+async def go(tmp_path, fn, *, window=None, pad=2000, **kw):
 	agent = build_agent(FunctionModel(fn, profile={'context_window': window}), **kw)
-	session = Session(repl=FakeRepl(tmp_path, {'pw': 'hunter2-secret'}))
+	session = Session(repl=FakeRepl(tmp_path, {'pw': 'hunter2-secret'}, pad))
 	return await run(agent, 'TASK-TEXT', session, 'function:x')
 
 
@@ -57,7 +68,7 @@ def checkpoint_text(request) -> str | None:
 	return first.content if isinstance(first, UserPromptPart) and first.content.startswith('Conversation checkpoint') else None
 
 
-@pytest.mark.parametrize('kw', [{'compact_at_tokens': 4000}, {'window': 6000}])  # 0.65 * 6000 = 3900 < the default 150k
+@pytest.mark.parametrize('kw', [{'compact_at_tokens': 4500}, {'window': 8000}])  # 0.65 * 8000 = 5200 tokens
 async def test_compacts_past_the_threshold_keeping_tool_pairs_and_user_messages(tmp_path, kw):
 	fn, agent_requests, summarizer_requests = scripted(big={3})
 	result = await go(tmp_path, fn, **kw)
@@ -83,9 +94,16 @@ async def test_compacts_past_the_threshold_keeping_tool_pairs_and_user_messages(
 	assert result.usage['input'] == 5 * 100 + 5000 + 7 and result.usage['output'] == 6 + 3
 
 
+async def test_compacts_past_bu_pi_character_budget_without_a_token_trigger(tmp_path):
+	fn, agent_requests, summarizer_requests = scripted(big=set())  # usage stays at 100 tokens; no context window
+	result = await go(tmp_path, fn, pad=70_000)  # 3 tool results pass 0.75 * 240k characters: every request from the 4th
+	assert result.status == 'completed' and result.output == 'done', result.error
+	assert [checkpoint_text(r) is not None for r in agent_requests] == [False] * 3 + [True] * 3
+
+
 async def test_archive_is_written_redacted_and_without_images(tmp_path):
 	fn, agent_requests, _ = scripted(big={3})
-	await go(tmp_path, fn, compact_at_tokens=4000)
+	await go(tmp_path, fn, compact_at_tokens=4500)
 	(archive,) = (tmp_path / '.browser-use' / 'context').glob('*.json')
 	assert json.dumps(str(archive)) in checkpoint_text(agent_requests[3])
 	raw = archive.read_text()
@@ -100,7 +118,7 @@ async def test_summarizer_failure_keeps_the_history_and_warns_once(tmp_path, cap
 	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
 	fn, agent_requests, summarizer_requests = scripted(big={3, 4, 5}, fail=True)  # past the threshold from request 3 on
 	with caplog.at_level(logging.WARNING, logger='browser_use.agent.loop'):
-		result = await go(tmp_path, fn, compact_at_tokens=4000)
+		result = await go(tmp_path, fn, compact_at_tokens=4500)
 	assert result.status == 'completed' and result.output == 'done', result.error
 	assert len(summarizer_requests) == 1 and not any(map(checkpoint_text, agent_requests))
 	assert len(agent_requests[3]) == 7 and agent_requests[3][0].parts[-1].content == 'TASK-TEXT'  # full history
@@ -114,4 +132,71 @@ def test_every_model_without_server_side_compaction_compacts():
 
 	for model in ('openai-chat:deepseek-chat', 'anthropic:claude-sonnet-4-5', 'google-gla:gemini-2.5-flash'):
 		capabilities = build_agent(model)._root_capability.capabilities
-		assert any(isinstance(c, Compaction) and c.token_threshold == 150_000 for c in capabilities), model
+		assert any(isinstance(c, Compaction) and c.token_threshold is None for c in capabilities), model
+
+
+def test_size_and_archive_count_only_message_content():
+	"""bu-pi's archive keeps role, tool name and call id, content or arguments: no usage, ids, timestamps or provider
+	details. Only real images become the note; tool data that looks like one, or has an instructions key, stays."""
+	from browser_use.agent.loop import _plain
+
+	messages = [
+		ModelRequest(parts=[UserPromptPart(['look', BinaryContent(b'png', media_type='image/png')])], instructions='SYSTEM'),
+		ModelResponse(
+			parts=[ThinkingPart('hmm'), ToolCallPart('python', {'code': 'x', 'instructions': 'kept'}, tool_call_id='c1')],
+			usage=RequestUsage(input_tokens=9),
+			provider_details={'p': 1},
+			provider_response_id='r1',
+		),
+		ModelRequest(parts=[ToolReturnPart('python', {'kind': 'binary', 'data': 'tool data'}, tool_call_id='c1')]),
+	]
+	call, ret = {'tool_name': 'python', 'tool_call_id': 'c1'}, {'kind': 'binary', 'data': 'tool data'}
+	assert _plain(messages) == [
+		{'kind': 'request', 'parts': [{'part_kind': 'user-prompt', 'content': ['look', '[Image omitted from text archive]']}]},
+		{'kind': 'response', 'parts': [{'part_kind': 'tool-call', **call, 'args': {'code': 'x', 'instructions': 'kept'}}]},
+		{'kind': 'request', 'parts': [{'part_kind': 'tool-return', **call, 'content': ret}]},
+	]
+
+
+async def test_summarizer_runs_at_low_effort_with_bu_pi_limits_and_no_cache_write(tmp_path):
+	fn, _, _ = scripted(big={3})
+	settings = {'cache': True, 'openai_reasoning_effort': 'high', 'temperature': 0.3}
+	await go(tmp_path, fn, compact_at_tokens=4500, model_settings=settings)
+	(seen,) = fn.settings
+	assert 'cache' not in seen and 'tool_choice' not in seen
+	assert {k: seen.get(k) for k in ('openai_reasoning_effort', 'max_tokens', 'request_timeout', 'temperature')} == {
+		'openai_reasoning_effort': 'low',
+		'max_tokens': 12_000,
+		'request_timeout': 120,
+		'temperature': 0.3,
+	}
+
+
+async def test_follow_up_run_keeps_sending_the_checkpoint(tmp_path, monkeypatch):
+	"""Agent.add_new_task: the next run's Session got the raw transcript without the checkpoint, so it re-sent
+	everything the first run had compacted (bu-pi saves the projected history)."""
+	from functools import partial
+
+	import browser_use.agent.service as service
+	from browser_use import Agent, Browser
+
+	async def start(self):
+		return {}
+
+	async def stop(self, downloads_dir=None):
+		return []
+
+	monkeypatch.setattr(Browser, 'start', start)
+	monkeypatch.setattr(Browser, 'stop', stop)
+	monkeypatch.setattr(service, 'build_agent', partial(build_agent, compact_at_tokens=4500))
+	fn, agent_requests, summarizer_requests = scripted(big={3}, code=lambda i: f'print("step{i}", "." * 2000)')
+	agent = Agent('TASK-1', FunctionModel(fn), browser=Browser(local=True, keep_alive=True), workspace=tmp_path)
+	try:
+		assert (await agent.run()).final_result() == 'done'
+		assert len(summarizer_requests) == 1 and checkpoint_text(agent_requests[-1])
+		agent.add_new_task('TASK-2')
+		assert (await agent.run()).final_result() == 'done'
+	finally:
+		await agent.close()
+	assert len(agent_requests) == 7 and len(summarizer_requests) == 1
+	assert checkpoint_text(agent_requests[-1]) and agent_requests[-1][-1].parts[-1].content == 'TASK-2'
