@@ -245,6 +245,16 @@ def _add_image(data: bytes, media_type: str = 'image/png') -> bool:
 	return True
 
 
+# Run on the focused element in an isolated world: whether typed keys edit it.
+EDITABLE = """function () {
+	if (this.isContentEditable) return true;
+	if (this instanceof HTMLTextAreaElement) return !this.readOnly && !this.disabled;
+	if (!(this instanceof HTMLInputElement)) return false;
+	const keys = !['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'range', 'color', 'hidden'].includes(this.type);
+	return keys && !this.readOnly && !this.disabled;
+}"""
+
+
 def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	env = dict(os.environ)  # the allowlisted env the parent gave us
 	from browser_harness import helpers  # loads .env files and agent_helpers.py into this process
@@ -387,8 +397,21 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 
 	def _focused(session: str | None, frame_id: str) -> dict | None:
 		"""DOM.describeNode of the focused element in a frame's document, through open and closed shadow roots, read
-		in an isolated world: page JS cannot change what document.activeElement reports there. None when none."""
+		in an isolated world: page JS cannot change what document.activeElement reports there. None when none.
+		'_editable': whether typed keys edit it (an enabled, writable text field or contenteditable); None if unknown."""
 		cdp_ = helpers.cdp
+
+		def described(obj: str) -> dict:
+			node = cdp_('DOM.describeNode', session_id=session, objectId=obj)['node']
+			try:  # in the isolated world too: the page cannot fake readOnly or isContentEditable there
+				r = cdp_(
+					'Runtime.callFunctionOn', session_id=session, objectId=obj, functionDeclaration=EDITABLE, returnByValue=True
+				)
+				node['_editable'] = r['result'].get('value') if isinstance(r['result'].get('value'), bool) else None
+			except Exception:  # - unknown: the nodeName check below still applies
+				node['_editable'] = None
+			return node
+
 		world = cdp_('Page.createIsolatedWorld', session_id=session, frameId=frame_id, worldName='browser-use-secrets')
 		ctx = world['executionContextId']
 		obj = cdp_('Runtime.evaluate', session_id=session, expression='document.activeElement', contextId=ctx)['result']
@@ -398,7 +421,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 				return None
 			node = cdp_('DOM.describeNode', session_id=session, objectId=obj)['node']
 			if not node.get('shadowRoots'):
-				return node
+				return described(obj)
 			root = cdp_(
 				'DOM.resolveNode',
 				session_id=session,
@@ -412,7 +435,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 				functionDeclaration='function () { return this.activeElement }',
 			)
 			if not inner['result'].get('objectId'):
-				return node
+				return described(obj)
 			obj = inner['result']['objectId']
 		raise RuntimeError('shadow roots nested too deep')
 
@@ -478,11 +501,18 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			url, node = '', {}
 
 		def type_into_field(value: str) -> None:
-			attrs = (node or {}).get('attributes') or []
-			if node is None or (node.get('nodeName') in ('BODY', 'HTML') and 'contenteditable' not in attrs[::2]):
+			# node {}: focus is in an iframe, whose activeElement can read <body> while keys reach a field it focused
+			attrs, editable = (node or {}).get('attributes') or [], (node or {}).get('_editable')
+			page = node is not None and node.get('nodeName') in ('BODY', 'HTML')
+			if node is None or (page and (not editable if editable is not None else 'contenteditable' not in attrs[::2])):
 				# the keys went to the page itself and type_secret returned None: the agent believed it typed the value
 				where = 'nothing' if node is None else f'the page <{node["nodeName"].lower()}>'
 				raise RuntimeError(f'type_secret({name!r}): no field is focused ({where} is). Click or focus the input first.')
+			if editable is False:  # a button, a read-only or disabled input, contenteditable="false"
+				raise RuntimeError(
+					f'type_secret({name!r}): the focused <{node["nodeName"].lower()}> is not an editable field. Click or focus '
+					'the input first.'
+				)
 			_type_keys(value)
 
 		if scoped:

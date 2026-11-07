@@ -604,6 +604,19 @@ async def test_type_secret_with_no_focused_field_raises(daemon, tmp_path):
 		code = "js('document.getElementById(\"pw\").focus()'); type_secret('pw'); print(len(js('document.getElementById(\"pw\").value')))"
 		r = await repl.call('exec', code, 60)
 		assert r['error'] is None and '11' in r['output'], r
+		# review: a focused button, read-only or disabled-looking input, or contenteditable="false" took the keys too
+		page = (
+			'data:text/html,<button id=b>b</button><input id=ro readonly><div id=no contenteditable=false tabindex=0>x</div>'
+			'<input id=chk type=checkbox><div id=ce contenteditable></div><textarea id=ta></textarea>'
+		)
+		r = await repl.call('exec', f'new_tab({page!r}); wait_for_load()', 60)
+		for el, tag in (('b', 'button'), ('ro', 'input'), ('no', 'div'), ('chk', 'input')):
+			r = await repl.call('exec', f"js('document.getElementById(\"{el}\").focus()'); type_secret('pw')", 60)
+			assert f"type_secret('pw'): the focused <{tag}> is not an editable field" in (r['error'] or ''), (el, r)
+		for el, prop in (('ce', 'textContent'), ('ta', 'value')):
+			code = f"js('document.getElementById(\"{el}\").focus()'); type_secret('pw'); print(len(js('document.getElementById(\"{el}\").{prop}')))"
+			r = await repl.call('exec', code, 60)
+			assert r['error'] is None and '11' in r['output'], (el, r)
 	finally:
 		await repl.close()
 
