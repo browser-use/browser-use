@@ -37,7 +37,7 @@ Kept: works as in 0.x. Every other 0.x argument raises `TypeError` naming it in 
 | `sensitive_data` | kept: `{'name': 'value'}` types anywhere; domain-scoped `{'https://site.com' or '*.site.com': {'name': 'value'}}` types only on matching pages (0.x patterns: no scheme = https only). The model types values with `type_secret('name')`; a name ending in `bu_2fa_code` holds a TOTP seed and types the current 6-digit code, as in 0.x; values are replaced with `<secret:name>` in cell output, checkpoints, tool results, the task and the result. Not a sandbox: see [Trust model](#trust-model-for-secrets) for exactly what is redacted |
 | `extend_system_message` | kept |
 | everything else 0.x took | removed: [Removed in 1.0](#removed-in-10) |
-| new: `reasoning`, `mode`, `workspace` | `reasoning='medium'` (OpenAI reasoning models, the gateway, Anthropic, Google; on the gateway the default is the alias's own effort; OpenAI-compatible chat backends ignore it with a warning: use `ChatOpenAI(..., reasoning_effort=...)`); `mode='ultrafast'`; `workspace` holds the agent's files (default: a new temp dir `browser-use-*`, kept after the run: it holds page text, screenshots and cell output, so delete it when done, or pass your own `workspace=`) |
+| new: `reasoning`, `mode`, `workspace`, `web_search` | `reasoning='medium'` (OpenAI reasoning models, the gateway, Anthropic, Google; on the gateway the default is the alias's own effort; OpenAI-compatible chat backends ignore it with a warning: use `ChatOpenAI(..., reasoning_effort=...)`); `mode='ultrafast'`; `workspace` holds the agent's files (default: a new temp dir `browser-use-*`, kept after the run: it holds page text, screenshots and cell output, so delete it when done, or pass your own `workspace=`); `web_search=None` gives the agent `search()` (Browser Use web search on the gateway host, `POST /api/v4/search`, with the gateway model's key or the Browser Use key; billed per search and added to `result.cost_usd`, which is `None` when a search reports no charge) when a Browser Use key is available and the browser has no `allowed_domains`; `False` turns it off, `True` on (raises without a key). Off, the system prompt is unchanged |
 
 ## Agent methods
 
@@ -270,6 +270,8 @@ The REPL worker runs model-written Python as your user. 1.0 limits what it can s
 - Its environment is an allowlist (`PATH`, `HOME`, locale, temp dirs, `BU_*` / `BH_*` harness settings). Variables
   whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH` are not in its environment. That
   is all the allowlist does: see the last bullets below for how the worker can still reach your keys.
+- `search()` (`web_search`) asks the parent over the control channel; the parent sends the request, so the Browser
+  Use key never enters the worker.
 - `sensitive_data` values are sent to the worker over its control channel. The model is told only their names and
   types a value with `type_secret(name)`.
 - A domain-scoped secret (`{'https://site.com': {...}}`) is typed only while the frame that receives the text (the

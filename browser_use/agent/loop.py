@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-import math
 import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
@@ -35,6 +34,7 @@ from browser_use.ax import AX_PROMPT
 from browser_use.llm import model_ref
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import redact_forms, secret_forms
+from browser_use.search import parse_usd
 from browser_use.telemetry.stats import RunStats
 from browser_use.tools import ActionResult, RemovedField
 
@@ -439,12 +439,7 @@ def build_agent(
 
 def gateway_charge(m: ModelResponse) -> float | None:
 	"""USD the Browser Use gateway charged for this response (browser_use.charge_usd, a decimal string)."""
-	charge = ((m.provider_details or {}).get('browser_use') or {}).get('charge_usd')
-	try:
-		value = float(charge) if isinstance(charge, (str, int, float)) and not isinstance(charge, bool) else None
-	except ValueError:
-		return None
-	return value if value is not None and math.isfinite(value) and value >= 0 else None
+	return parse_usd(((m.provider_details or {}).get('browser_use') or {}).get('charge_usd'))
 
 
 def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[str, int], float | None]:
@@ -512,6 +507,8 @@ async def run(
 	explain_error turns a provider exception into one actionable line (gateway 401/402/403/404)."""
 	status, output, error = 'completed', None, None
 	(session.repl.state / 'partial.json').unlink(missing_ok=True)  # a partial belongs to one run
+	search = session.repl.search
+	searched = len(search.charges) if search else 0
 	budget = asyncio.timeout(session.timeout_s)
 	task = redact(task, session.repl.secrets)  # 0.x: a secret written into the task reaches the model as its name only
 	try:
@@ -539,6 +536,9 @@ async def run(
 	text = redact(as_text(output), session.repl.secrets)
 	error = redact(error, session.repl.secrets)  # provider/tool exceptions can quote a secret; Agent.run logs this
 	usage, cost = usage_and_cost(new, model_ref)
+	charges = search.charges[searched:] if search else []
+	if cost is not None and charges:  # web searches: what each charged; one without a charge makes the cost unknown
+		cost = None if None in charges else cost + sum(c for c in charges if c is not None)
 	steps = sum(isinstance(m, ModelResponse) for m in new)
 	duration = time.monotonic() - session.started
 	success = session.success if status == 'completed' else None

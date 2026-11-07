@@ -1,9 +1,10 @@
 """Persistent Python REPL for one agent. Runs as a child process so a hung cell can be killed.
 
 Namespace = browser-harness helpers + screenshot/show_image/checkpoint/type_secret/solve_captcha (+ bu in ultrafast mode,
-see ax.py).
-Protocol: connect to 127.0.0.1:BU_REPL_PORT, send BU_REPL_TOKEN, read one init line ({"secrets": [[name, value, domain|null], ...]}), then one JSON
-line per message. Cell stdout/stderr (including subprocesses) go to a per-cell file, so a killed cell still leaves its
+see ax.py; + search when web search is on).
+Protocol: connect to 127.0.0.1:BU_REPL_PORT, send BU_REPL_TOKEN, read one init line ({"secrets": [[name, value, domain|null], ...],
+"search": bool}), then one JSON line per message. search() sends {"type": "search", "args": {...}} mid-cell and reads
+the parent's one-line answer. Cell stdout/stderr (including subprocesses) go to a per-cell file, so a killed cell still leaves its
 partial output on disk.
 """
 
@@ -568,6 +569,37 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	return bu, captcha
 
 
+def _search(rfile, wfile):
+	"""search() for the cell: the parent makes the request (browser_use/search.py), so the API key never enters this
+	process. Main thread only: it reads the answer off the control channel, which only the main thread reads (a thread
+	that outlived its cell would take the next cell's message)."""
+
+	def search(query, num_results=None, category=None):
+		"""Search the web (Browser Use): -> {'query', 'count', 'results'}. results has one text entry per hit (title, URL,
+		matching excerpts), [] when nothing matched. num_results: default 8, max 20. category: 'company', 'people',
+		'news' or 'publication'. Raises with the HTTP status on failure (402: out of budget)."""
+		if not isinstance(query, str) or not query.strip():
+			raise ValueError('search(query) needs text.')
+		if num_results is not None and (isinstance(num_results, bool) or not isinstance(num_results, int)):
+			raise TypeError(f'num_results must be an int, not {type(num_results).__name__}')
+		if category is not None and not isinstance(category, str):
+			raise TypeError(f'category must be a str, not {type(category).__name__}')
+		if threading.current_thread() is not threading.main_thread():
+			raise RuntimeError('search() runs on the main thread only: call it in sequence, not from threads.')
+		args = {'query': query, 'num_results': num_results, 'category': category}
+		wfile.write(json.dumps({'type': 'search', 'args': args}).encode() + b'\n')
+		wfile.flush()
+		line = rfile.readline()
+		if not line:
+			raise ConnectionError('the REPL parent closed the channel')
+		answer = json.loads(line)
+		if answer.get('error') is not None:
+			raise RuntimeError(answer['error'])
+		return answer['value']
+
+	return search
+
+
 def _write_atomic(path: Path, text: str) -> None:
 	path.parent.mkdir(parents=True, exist_ok=True)
 	tmp = path.with_name(path.name + '.tmp')
@@ -673,13 +705,16 @@ def main() -> None:
 	rfile, wfile = sock.makefile('rb'), sock.makefile('wb')
 	wfile.write(os.environ.pop('BU_REPL_TOKEN').encode() + b'\n')
 	wfile.flush()
-	secrets = json.loads(rfile.readline())['secrets']
+	init = json.loads(rfile.readline())
+	secrets = init['secrets']
 	cells = STATE / 'cells'
 	cells.mkdir(parents=True, exist_ok=True)
 	sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
 	sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
 	ns: dict = {'__name__': '__main__', '__bu_display': _display}
 	bu, captcha = _install(ns, secrets)
+	if init.get('search'):
+		ns['search'] = _counted('search', _search(rfile, wfile))
 	sys.path.append(os.getcwd())  # after the imports (-P kept it off sys.path[0]): modules the agent writes still import
 	loop = asyncio.new_event_loop()
 	asyncio.set_event_loop(loop)

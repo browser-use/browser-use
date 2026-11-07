@@ -31,6 +31,8 @@ from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from typing import Any, cast
 
+from browser_use import search as web
+
 MODES = ('default', 'ultrafast')
 STREAM_LIMIT = 256 * 1024 * 1024
 MAX_OUTPUT_CHARS = 12_000  # per cell, cut in the worker so a huge print never crosses the channel
@@ -260,7 +262,8 @@ def _job_for(pid: int) -> int | None:
 class Repl:
 	"""mode='ultrafast' adds the `bu` helpers to the worker (BU_MODE=ultrafast). reattach: starts the browser-harness
 	daemon again after a cell lost it (Browser.start). after_cell: runs after each cell, outside the worker; returns
-	(lines appended to the cell's output, blocks counted as domain_blocked) (Browser.after_cell)."""
+	(lines appended to the cell's output, blocks counted as domain_blocked) (Browser.after_cell). search: defines
+	search() in the worker, answered here (the API key stays in this process)."""
 
 	def __init__(
 		self,
@@ -270,9 +273,10 @@ class Repl:
 		secrets: Secrets | None = None,
 		reattach: Callable[[], Awaitable[Any]] | None = None,
 		after_cell: Callable[[], Awaitable[tuple[list[str], int]]] | None = None,
+		search: web.WebSearch | None = None,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
-		self.reattach, self.after_cell = reattach, after_cell
+		self.reattach, self.after_cell, self.search = reattach, after_cell, search
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		self.proc: asyncio.subprocess.Process | None = None
 		self.job: int | None = None  # Windows job object of the worker's process tree
@@ -344,7 +348,7 @@ class Repl:
 			if connected not in done:
 				raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}')
 			self.reader, self.writer = connected.result()
-			self.writer.write(json.dumps({'secrets': self.secrets}).encode() + b'\n')
+			self.writer.write(json.dumps({'secrets': self.secrets, 'search': self.search is not None}).encode() + b'\n')
 			await self.writer.drain()
 			if not await asyncio.wait_for(self.reader.readline(), 60):
 				raise ConnectionError('worker exited')
@@ -403,6 +407,19 @@ class Repl:
 					events['domain_blocked'] = events.get('domain_blocked', 0) + blocks
 		return {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value')}}
 
+	async def _search(self, args: Any) -> dict[str, Any]:
+		"""{'value': the search result} or {'error': the message search() raises in the cell}."""
+		if self.search is None or not isinstance(args, dict):
+			return {'error': 'Web search is not enabled.'}
+		try:  # the total deadline; the socket timeout alone lets a slow trickle run on
+			return {'value': await asyncio.wait_for(asyncio.to_thread(self.search, **args), web.SEARCH_TIMEOUT_S)}
+		except TimeoutError:
+			return {'error': f'Search failed: timed out after {web.SEARCH_TIMEOUT_S:g} s.'}
+		except web.SearchError as e:
+			return {'error': str(e)}
+		except Exception as e:  # - bad arguments: the cell's error says what
+			return {'error': f'Search failed: {type(e).__name__}: {e}'}
+
 	async def _call(self, op: str, code: str, timeout: float) -> dict[str, Any]:
 		try:  # one cleanup boundary: a cancel during startup, the send or the wait never leaves a half-used worker
 			# A worker started on another (finished) event loop cannot be driven from this one: replace it.
@@ -420,6 +437,10 @@ class Repl:
 						if not line:
 							raise ConnectionError('worker exited')
 						msg = json.loads(line)
+						if msg.get('type') == 'search':  # the cell called search(): answered while the cell waits
+							self.writer.write(json.dumps(await self._search(msg.get('args'))).encode() + b'\n')
+							await self.writer.drain()
+							continue
 						if msg.get('n') == n:  # never hand one call another call's answer
 							if moved:
 								msg['output'] = f'[{RESTARTED.format(why="This run uses a new event loop")}]\n{msg["output"]}'

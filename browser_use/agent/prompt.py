@@ -67,3 +67,12 @@ CAPTCHA_PROMPT = (
 	'or click the challenge. Take over only after the solver failed or found no captcha.'
 )
 NO_CAPTCHA_PROMPT = 'Its automatic captcha solver is off: handle captchas yourself.'  # Browser(captcha_solver=False)
+SEARCH_PROMPT = (  # Agent(web_search=...): Browser Use Pi's SEARCH_PROMPT for the Python search()
+	'Web search: search engines in the browser take many steps and trigger anti-bot checks. Prefer search(query, '
+	"num_results=None, category=None) -> {'query', 'count', 'results'} (synchronous, no browser). Describe the page you "
+	"want in natural language rather than keywords. 'results' has one text entry per hit (title, URL, matching "
+	'excerpts) and is [] when nothing matched; it holds little page content, so open the page in the browser for that. '
+	"num_results defaults to 8 (max 20); category: 'company', 'people', 'news', 'publication'. A failed search raises "
+	'with its HTTP status; 402 means the account is out of budget. Each search is billed: batch the work into fewer, '
+	'better queries, not one search per item.'
+)

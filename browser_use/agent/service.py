@@ -15,14 +15,16 @@ from typing import Any
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, ToolCallPart
 
 from browser_use.agent.loop import Session, build_agent, reasoning_supported, run
-from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, NO_CAPTCHA_PROMPT
+from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, NO_CAPTCHA_PROMPT, SEARCH_PROMPT
 from browser_use.agent.views import AgentHistoryList
+from browser_use.auth import browser_use_api_key
 from browser_use.browser import Browser
 from browser_use.config import load_env
-from browser_use.exceptions import removed
-from browser_use.llm import ChatBrowserUse, as_chat_model, gateway_llm, provider_preflight, resolve_model
+from browser_use.exceptions import MissingAPIKeyError, removed
+from browser_use.llm import GATEWAY_URL, ChatBrowserUse, as_chat_model, gateway_llm, provider_preflight, resolve_model
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets
+from browser_use.search import WebSearch, search_url
 from browser_use.tools import Tools
 
 logger = logging.getLogger(__name__)
@@ -153,7 +155,9 @@ class Agent:
 	interaction-heavy tasks. reasoning: 'low'|'medium'|'high' for OpenAI reasoning models, the gateway, Anthropic and
 	Google (default 'medium'; on the gateway the alias's own: bu-fast medium, bu-ultrafast low, bu-smart high).
 	OpenAI-compatible chat backends (base_url servers) ignore it with a warning: pass ChatOpenAI(..., reasoning_effort=...)
-	to send reasoning_effort there."""
+	to send reasoning_effort there. web_search: the agent gets search() (Browser Use web search, billed per search to the
+	Browser Use key). None (default): on when a Browser Use key is available and the browser has no allowed_domains;
+	True: on (raises without a key); False: off."""
 
 	def __init__(
 		self,
@@ -170,11 +174,14 @@ class Agent:
 		reasoning: str | None = None,
 		mode: str | None = 'default',
 		workspace: str | Path | None = None,
+		web_search: bool | None = None,
 		**kwargs: Any,
 	):
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent')
 		_check_task_arg(task)
+		if web_search is not None and not isinstance(web_search, bool):
+			raise TypeError(f'web_search must be True, False or None, not {web_search!r}')
 		if llm is None and os.environ.get('DEFAULT_LLM'):  # 0.x read it; 1.0 runs (and bills) bu-fast instead
 			logger.warning(
 				'DEFAULT_LLM is set but browser-use 1.0 does not read it: this run uses bu-fast. Pass llm=... instead.'
@@ -205,6 +212,8 @@ class Agent:
 		self.output_model_schema = output_model_schema or str
 		self.sensitive_data = dict(sensitive_data or {})
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
+		self.web_search = web_search
+		self._search: WebSearch | None = None  # set by _build when search() is on
 		# Default: a new temp dir, kept after the run (the result's files, screenshots, cell output): the caller deletes
 		# it (MIGRATING.md). Not deleted on close(): delivered files and links in the result point into it.
 		self.workspace = Path(workspace or tempfile.mkdtemp(prefix='browser-use-')).resolve()
@@ -250,6 +259,7 @@ class Agent:
 		if self._gateway:  # cost is only what the gateway charged (charge_usd), never a retail estimate
 			self._model_ref = f'browser-use:{self._model_name}'
 		self._provider = getattr(self.llm, 'provider', None) or getattr(model, 'system', '')
+		self._search = self._web_search()
 		if self.reasoning is not None and not reasoning_supported(model):
 			logger.warning(
 				f'reasoning={self.reasoning!r} is ignored: {self._model_name} gets no reasoning setting. For an '
@@ -266,6 +276,7 @@ class Agent:
 						f'{CLOUD_PROMPT} {CAPTCHA_PROMPT if self.browser.captcha_solver else NO_CAPTCHA_PROMPT}'
 						if self.browser.use_cloud
 						else '',
+						SEARCH_PROMPT if self._search else '',  # off: the default prompt stays byte-identical
 						self.browser.domains.prompt(
 							browser_blocks=not self.browser._attached()
 						),  # '' without restrictions: the default prompt stays byte-identical
@@ -277,6 +288,22 @@ class Agent:
 			tools=self.tools.functions if self.tools else (),
 			model_settings=settings,
 		)
+
+	def _web_search(self) -> WebSearch | None:
+		"""search() with the key and host of the gateway model, else the Browser Use key and the default gateway host.
+		None when off (see web_search in the class docstring)."""
+		if self.web_search is False or (self.web_search is None and self.browser.domains.allowed):
+			return None  # allowed_domains: search would reach sites the browser may not open
+		gateway = self._gateway
+		key = gateway.api_key if gateway else None
+		if not key:
+			try:
+				key = browser_use_api_key('Agent(web_search=True)')
+			except MissingAPIKeyError:
+				if self.web_search:
+					raise
+				return None
+		return WebSearch(key, search_url(gateway.base_url if gateway else GATEWAY_URL))
 
 	async def run(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
 		"""Run the current task. max_steps: model requests; request max_steps-1 is a delivery-only turn and the last
@@ -344,6 +371,7 @@ class Agent:
 					secrets=self.sensitive_data,
 					reattach=self.browser.reattach,
 					after_cell=self.browser.after_cell if self.browser.domains else None,
+					search=self._search,
 				)
 			session = Session(repl=self._repl, timeout_s=timeout, max_steps=max_steps)
 			history, self._continue = (self._history if self._continue else None), False
