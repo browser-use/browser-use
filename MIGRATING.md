@@ -114,7 +114,12 @@ browser-harness default daemon and its one attached tab, so two at once move eac
 | `ChatOpenAI(model, api_key, base_url, temperature, reasoning_effort)` | kept. api.openai.com uses the Responses API; the gateway URL (`https://api.browser-use.com/api/v4/llm/v1`) is served as `ChatBrowserUse` (key: `api_key`, else a `bu_` key in `OPENAI_API_KEY`, else the Browser Use key); any other `base_url` uses plain chat completions. Other 0.x arguments raise `TypeError` |
 | `ChatAnthropic(model, api_key)`, `ChatGoogle(model, api_key)` | kept, built in (no extra needed) |
 | a rejected key or unknown model on OpenAI, Anthropic or Google | with a cloud browser, the agent first reads the model from the provider (free): a 401/403/404 ends the run with `result.error` and no browser created |
-| `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatDeepSeek`, `ChatMistral`, `ChatOpenRouter`, `ChatAWSBedrock`, `ChatAnthropicBedrock`, `ChatCerebras`, `ChatLiteLLM`, `ChatOCIRaw`, `ChatOrcaRouter`, `ChatVercel` | removed (the import raises): use a Pydantic AI model string (`'groq:llama-3.3-70b-versatile'`, `'mistral:...'`, `'bedrock:...'`) or `ChatOpenAI(model, base_url=...)` |
+| `ChatAzureOpenAI(model, api_key, azure_endpoint, api_version)` | removed (the import raises): `llm='azure:<deployment>'` with `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY` and `OPENAI_API_VERSION` set. 0.x's `AZURE_OPENAI_KEY` is not read (renamed `AZURE_OPENAI_API_KEY`), and `OPENAI_API_VERSION` is now required (0.x default: `2024-12-01-preview`) |
+| `ChatAWSBedrock`, `ChatAnthropicBedrock` | removed: `llm='bedrock:<model id>'` (e.g. `'bedrock:us.anthropic.claude-...'`) after `pip install 'pydantic-ai-slim[bedrock]'`; AWS credentials and `AWS_DEFAULT_REGION` |
+| `ChatDeepSeek`, `ChatOpenRouter`, `ChatCerebras`, `ChatVercel` | removed: `llm='deepseek:deepseek-chat'`, `'openrouter:<vendor>/<model>'`, `'cerebras:<model>'`, `'vercel:<vendor>/<model>'` with `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY` set |
+| `ChatGroq`, `ChatMistral` | removed: `llm='groq:<model>'` or `'mistral:<model>'` after `pip install 'pydantic-ai-slim[groq]'` (or `[mistral]`); `GROQ_API_KEY` or `MISTRAL_API_KEY` |
+| `ChatOllama` | removed: `ChatOpenAI('<model>', base_url='http://localhost:11434/v1', api_key='ollama')` |
+| `ChatLiteLLM`, `ChatOCIRaw`, `ChatOrcaRouter` | removed: `ChatOpenAI(model, base_url=...)` for its OpenAI-compatible endpoint |
 
 ## Tools
 
@@ -156,7 +161,7 @@ for result methods, `ImportError` for imports, an MCP tool error for old tool na
 | `skill_ids`, `skills`, `skill_service` (Cloud Skills) | removed | none |
 | tool injected parameters (`browser_session`, `page_url`, `cdp_client`, ...) | removed | actions get only what the model passes |
 | `@tools.action(domains=...)`, `@tools.action(allowed_domains=...)` | removed | `Browser(allowed_domains=...)` |
-| `ChatGroq`, `ChatOllama`, `ChatAzureOpenAI`, `ChatOpenRouter`, `ChatDeepSeek` and the other provider classes (see [Models](#models)) | removed | a Pydantic AI model string (`llm='groq:llama-3.3-70b-versatile'`, `'ollama:qwen3'`) or `ChatOpenAI(model, base_url=...)` |
+| `ChatAzureOpenAI`, `ChatAWSBedrock`, `ChatDeepSeek`, `ChatGroq`, `ChatOllama` and the other provider classes | removed | each import error names its replacement: see [Models](#models) |
 | `browser-use --mcp` tool names (`browser_navigate`, `browser_click`, `browser_type`, `browser_get_state`, `browser_extract_content`, `browser_get_html`, `browser_scroll`, `browser_go_back`, `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab`, `retry_with_browser_use_agent`, `browser_list_sessions`, `browser_close_session`, `browser_close_all`) | removed | `browser_exec` (Python with the browser-harness helpers) and `browser_screenshot` |
 
 ## Domain restrictions

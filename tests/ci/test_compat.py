@@ -1,6 +1,7 @@
 """0.x API compatibility: what is kept, what raises (before any browser or billing starts). No browser needed."""
 
 import logging
+import re
 
 import pytest
 from conftest import script
@@ -161,8 +162,16 @@ def test_removed_classes_raise_with_pointer():
 	for name in ['BrowserSession', 'BrowserProfile', 'ChatGroq', 'DomService']:
 		with pytest.raises(ImportError, match=rf'^browser_use\.{name} {REMOVED}'):
 			getattr(browser_use, name)
-	for name in ['ChatGroq', 'ChatOllama', 'ChatAzureOpenAI', 'ChatOpenRouter', 'ChatDeepSeek']:
-		with pytest.raises(ImportError, match=rf"{REMOVED} In 1\.0: a Pydantic AI model string, e\.g\. llm='groq:"):
+	# C19: each provider class names its own replacement (Azure was 16.7% of external 0.x runs and got a groq example)
+	for name, instead in [
+		('ChatAzureOpenAI', "llm='azure:<deployment>' with AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY and OPENAI_API_VERSION"),
+		('ChatAWSBedrock', "llm='bedrock:<model id>' (pip install 'pydantic-ai-slim[bedrock]'"),
+		('ChatDeepSeek', "llm='deepseek:deepseek-chat' with DEEPSEEK_API_KEY"),
+		('ChatGroq', "llm='groq:<model>' (pip install 'pydantic-ai-slim[groq]'"),
+		('ChatOpenRouter', "llm='openrouter:"),
+		('ChatOllama', "ChatOpenAI('<model>', base_url='http://localhost:11434/v1'"),
+	]:
+		with pytest.raises(ImportError, match=rf'{REMOVED} In 1\.0: {re.escape(instead)}'):
 			exec(f'from browser_use import {name}')
 		with pytest.raises(ImportError, match=rf'^browser_use\.llm\.{name} {REMOVED} In 1\.0: '):
 			exec(f'from browser_use.llm import {name}')  # the common 0.x import path

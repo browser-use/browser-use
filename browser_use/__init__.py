@@ -33,10 +33,22 @@ _LAZY_IMPORTS = {
 	'ChatAnthropic': 'browser_use.llm',
 	'ChatGoogle': 'browser_use.llm',
 }
-_LLM_REMOVED = (
-	"a Pydantic AI model string, e.g. llm='groq:llama-3.3-70b-versatile' or 'ollama:qwen3', or ChatOpenAI(model, base_url=...) "
-	'for any OpenAI-compatible server.'
-)
+_BEDROCK = "llm='bedrock:<model id>' (pip install 'pydantic-ai-slim[bedrock]'; AWS credentials and AWS_DEFAULT_REGION)."
+_LLM_REMOVED = {  # each 0.x provider class -> its Pydantic AI model string, or ChatOpenAI for an OpenAI-compatible server
+	'ChatAzureOpenAI': "llm='azure:<deployment>' with AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY and OPENAI_API_VERSION set.",
+	'ChatAWSBedrock': _BEDROCK,
+	'ChatAnthropicBedrock': _BEDROCK,
+	'ChatDeepSeek': "llm='deepseek:deepseek-chat' with DEEPSEEK_API_KEY set.",
+	'ChatGroq': "llm='groq:<model>' (pip install 'pydantic-ai-slim[groq]'; GROQ_API_KEY).",
+	'ChatMistral': "llm='mistral:<model>' (pip install 'pydantic-ai-slim[mistral]'; MISTRAL_API_KEY).",
+	'ChatOpenRouter': "llm='openrouter:<vendor>/<model>' with OPENROUTER_API_KEY set.",
+	'ChatCerebras': "llm='cerebras:<model>' with CEREBRAS_API_KEY set.",
+	'ChatVercel': "llm='vercel:<vendor>/<model>' with VERCEL_AI_GATEWAY_API_KEY set.",
+	'ChatOllama': "ChatOpenAI('<model>', base_url='http://localhost:11434/v1', api_key='ollama').",
+	**dict.fromkeys(
+		('ChatLiteLLM', 'ChatOCIRaw', 'ChatOrcaRouter'), 'ChatOpenAI(model, base_url=...) for its OpenAI-compatible endpoint.'
+	),
+}
 _REMOVED = {  # 0.x top-level names -> the 1.0 alternative
 	'BrowserSession': 'Browser(...).',
 	'BrowserProfile': 'pass options to Browser(...).',
@@ -46,24 +58,7 @@ _REMOVED = {  # 0.x top-level names -> the 1.0 alternative
 	'ActionModel': 'custom actions are plain functions: @tools.action(...).',
 	'sandbox': '',
 	'models': "a Pydantic AI model string, e.g. llm='openai:gpt-6-luna'.",
-	**{
-		name: _LLM_REMOVED
-		for name in (
-			'ChatAnthropicBedrock',
-			'ChatAWSBedrock',
-			'ChatAzureOpenAI',
-			'ChatCerebras',
-			'ChatDeepSeek',
-			'ChatGroq',
-			'ChatLiteLLM',
-			'ChatMistral',
-			'ChatOCIRaw',
-			'ChatOllama',
-			'ChatOpenRouter',
-			'ChatOrcaRouter',
-			'ChatVercel',
-		)
-	},
+	**_LLM_REMOVED,
 }
 
 
