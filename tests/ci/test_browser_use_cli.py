@@ -26,6 +26,12 @@ def test_console_scripts_avoid_generic_names():
 	assert set(scripts) == {'browser-use', 'browseruse', 'browser-use-tui'}
 
 
+def test_mcp_dependency_is_a_range_not_an_exact_pin():
+	# An exact `mcp==` pin makes projects that need a newer mcp (e.g. pydantic-ai-slim[mcp] via fastmcp) unresolvable.
+	deps = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['dependencies']
+	assert [d for d in deps if d.startswith('mcp')] == ['mcp>=2.1.1,<3']
+
+
 def test_browser_use_doctor_help_prints_browser_use_usage():
 	result = _run_browser_use_cli('doctor', '--help')
 
