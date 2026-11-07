@@ -175,12 +175,13 @@ def test_openai_settings_unchanged():
 	reasoning params on gpt-4.1/gpt-4o, and 32768 is above their output cap)."""
 	agent = build_agent('openai-responses:gpt-6-luna', reasoning_effort='medium')
 	assert agent.model_settings == {
+		'openai_store': False,
 		'openai_reasoning_effort': 'medium',
 		'openai_reasoning_summary': 'auto',
 		'openai_reasoning_context': 'auto',
 		'max_tokens': 32_768,
 	}
-	assert build_agent('openai:gpt-4.1').model_settings == build_agent('openai:gpt-4o').model_settings == {}
+	assert build_agent('openai:gpt-4.1').model_settings == build_agent('openai:gpt-4o').model_settings == {'openai_store': False}
 
 
 def test_an_agent_that_never_runs_leaves_no_temp_workspace(monkeypatch, tmp_path):

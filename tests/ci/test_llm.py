@@ -198,6 +198,21 @@ async def test_gateway_models_run_stateless_responses_with_compaction(responses_
 	assert result.cost_usd == pytest.approx(3 * 0.0002)
 
 
+async def test_openai_responses_requests_are_not_stored(responses_server, tmp_path):
+	"""bu-pi sends store=false; 1.0 sent none, so OpenAI stored every response, and the first byte came 168 ms later at
+	39k tokens, 324 ms at 83k (live A/B on api.openai.com, same body). Nothing reads a stored response back: reasoning
+	round-trips encrypted and no previous_response_id is sent (gateway_violations)."""
+	from pydantic_ai.providers.openai import OpenAIProvider
+
+	url, requests, replies = responses_server
+	replies.append([reasoning(1), call('python', {'code': 'print(6 * 7)'}, 1)])
+	model = OpenAIResponsesModel('gpt-6.1-sol', provider=OpenAIProvider(base_url=url, api_key='fake-test-key'))
+	result = await run(build_agent(model), 'TASK-TEXT', Session(repl=Repl(tmp_path)), model.model_name)
+	assert (result.status, result.output) == ('completed', 'ok'), result.error
+	assert [body['store'] for _, body in requests] == [False, False]
+	assert 'reasoning.encrypted_content' in requests[1][1]['include'] and 'sealed-reasoning-1' in json.dumps(requests[1][1])
+
+
 async def test_responses_bodies_skip_the_sdk_transform(responses_server, tmp_path, monkeypatch):
 	"""openai-python rewrote every Responses body against its TypedDicts before sending it: ~20k calls at 50k tokens,
 	~30 ms per request on an M5 Pro, growing with the history (bu-pi's Node SDK sends the body as is). The create params
@@ -690,7 +705,7 @@ def test_openai_non_reasoning_models_get_no_reasoning_params():
 	"""Fable r2-2: ChatOpenAI('gpt-4.1'/'gpt-4o') got reasoning params and max_output_tokens=32768: OpenAI 400s both."""
 	for name in ('gpt-4.1', 'gpt-4o', 'gpt-4.1-mini'):
 		model, settings = resolve_model(ChatOpenAI(name, api_key='sk-test'))
-		assert build_agent(model, model_settings=settings).model_settings == {}, name
+		assert build_agent(model, model_settings=settings).model_settings == {'openai_store': False}, name
 	model, _ = resolve_model(ChatOpenAI('gpt-6-luna', api_key='sk-test'))
 	assert build_agent(model).model_settings['openai_reasoning_effort'] == 'medium'
 

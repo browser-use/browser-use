@@ -607,8 +607,11 @@ def build_agent(
 	model = model_ref(model)
 	kind = model_kind(model)
 	reasoning = reasoning_supported(model)
-	if kind == 'responses':  # the evaluated configuration (reasoning models); unchanged
+	if kind == 'responses':  # the evaluated configuration (reasoning models)
+		# store=False as bu-pi: a stored response came back 170-320 ms later (time to first byte, 39k-83k tokens). Nothing
+		# reads it back: reasoning and compaction items round-trip encrypted, no previous_response_id (the gateway's rules)
 		settings: OpenAIResponsesModelSettings | dict = {
+			'openai_store': False,
 			'openai_reasoning_effort': reasoning_effort,
 			'openai_reasoning_summary': 'auto',
 			'openai_reasoning_context': 'auto',  # bu-pi sends no context; Pydantic AI would send all_turns
@@ -617,7 +620,7 @@ def build_agent(
 		if reasoning_effort is None:
 			del settings['openai_reasoning_effort']
 		if not reasoning:  # gpt-4.1, gpt-4o: reasoning params 400, and 32k is above their output cap
-			settings = {}
+			settings = {'openai_store': False}
 		capabilities = [BrowserLoop(), LazyCompaction(token_threshold=compact_at_tokens or 150_000)]
 		skip_responses_transform()  # bu-pi's Node SDK sends the body as is
 	elif kind == 'chat':  # DeepSeek, vLLM, Ollama: no reasoning settings, no output cap they may reject
