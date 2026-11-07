@@ -630,6 +630,23 @@ def test_openai_non_reasoning_models_get_no_reasoning_params():
 	assert build_agent(model).model_settings['openai_reasoning_effort'] == 'medium'
 
 
+def test_openai_reasoning_models_on_chat_completions_get_reasoning_off(monkeypatch):
+	"""M1: 'openai-chat:gpt-6-luna' 400ed on the first request ("Function tools with reasoning_effort are not supported
+	... set reasoning_effort to 'none'"): OpenAI turns reasoning on by default there. Other chat backends get nothing."""
+	from pydantic_ai.models.openai import OpenAIChatModel
+	from pydantic_ai.providers.openai import OpenAIProvider
+
+	from browser_use.agent.loop import build_agent
+
+	monkeypatch.setenv('OPENAI_API_KEY', 'sk-test')
+	assert build_agent('openai-chat:gpt-6-luna').model_settings == {'openai_reasoning_effort': 'none'}
+	official = OpenAIChatModel('gpt-6-luna', provider=OpenAIProvider(api_key='k'))
+	assert build_agent(official).model_settings == {'openai_reasoning_effort': 'none'}
+	assert build_agent('openai-chat:gpt-4.1').model_settings == {}
+	other = ChatOpenAI('gpt-6-luna', base_url='http://127.0.0.1:1/v1', api_key='k').pydantic_model()
+	assert build_agent(other).model_settings == {}
+
+
 def test_base_url_accepts_url_objects():
 	"""Roast r2-13: ChatOpenAI(base_url=httpx.URL(...)) crashed with AttributeError; 0.x accepted it."""
 	import httpx

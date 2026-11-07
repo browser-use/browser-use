@@ -355,6 +355,19 @@ def reasoning_supported(model: Any) -> bool:
 	return bool(model.profile.get('openai_supports_reasoning' if kind == 'responses' else 'supports_thinking', False))
 
 
+def _openai_reasoning_on_chat(model: Any) -> bool:
+	"""An OpenAI reasoning model on api.openai.com's chat completions ('openai-chat:gpt-6-luna')."""
+	from urllib.parse import urlparse
+
+	from pydantic_ai.profiles.openai import openai_model_profile
+
+	if isinstance(model, str):
+		name, official = model.split(':', 1)[1], True
+	else:
+		name, official = model.model_name, urlparse(str(getattr(model, 'base_url', '') or '')).hostname == 'api.openai.com'
+	return official and bool((openai_model_profile(name) or {}).get('openai_supports_reasoning', False))
+
+
 def build_agent(
 	model: Any = 'openai-responses:gpt-6-luna',
 	*,
@@ -386,7 +399,10 @@ def build_agent(
 			settings = {}
 		capabilities = [BrowserLoop(), OpenAICompaction(token_threshold=compact_at_tokens)]
 	elif kind == 'chat':  # DeepSeek, vLLM, Ollama: no reasoning settings, no output cap they may reject
-		settings, capabilities = {}, [BrowserLoop()]
+		# OpenAI's own reasoning models turn reasoning on by default on chat completions and then reject function tools
+		# (400 "use /v1/responses or set reasoning_effort to 'none'")
+		settings = {'openai_reasoning_effort': 'none'} if _openai_reasoning_on_chat(model) else {}
+		capabilities = [BrowserLoop()]
 	else:  # other providers: unified thinking (dropped where the profile has none), the provider's own max_tokens
 		settings = {'thinking': reasoning_effort or 'medium'} if reasoning else {}
 		capabilities = [BrowserLoop()]
