@@ -5,6 +5,7 @@ import json
 import logging
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import psutil
 from pydantic import BaseModel
@@ -21,7 +22,7 @@ from browser_use import Agent, Browser  # noqa: E402
 from browser_use.agent.views import ActionResult  # noqa: E402
 from browser_use.browser.events import NavigateToUrlEvent  # noqa: E402
 
-from .artifacts import build_sources, collect_artifacts  # noqa: E402
+from .artifacts import build_sources, collect_artifacts, repair_xhs_links  # noqa: E402
 from .intent import chat_reply, needs_browser  # noqa: E402
 from .providers import PROVIDERS, build_llm, get_saved_key, provider_list, save_key  # noqa: E402
 from .search_tools import build_tools  # noqa: E402
@@ -71,11 +72,20 @@ CURRENT_BROWSER: Browser | None = None
 STOP_REQUESTED = False
 LOGIN_SESSION: Browser | None = None
 LOGIN_SITE: str | None = None
+LOGIN_PREPARE_TASK: asyncio.Task | None = None
+VIEW_SESSION: Browser | None = None
+VIEW_LOCK = asyncio.Lock()
 HUMAN_STATE: dict[str, Any] = {'active': False, 'reason': '', 'cancelled': False, 'event': None}
 LOGIN_URLS = {
 	'taobao': ('淘宝', 'https://login.taobao.com/member/login.jhtml'),
 	'jd': ('京东', 'https://passport.jd.com/new/login.aspx'),
+	'xiaohongshu': ('小红书', 'https://www.xiaohongshu.com/login'),
+	'douyin': ('抖音', 'https://www.douyin.com/'),
 }
+
+# Douyin's /login URL redirects to an SSO callback page with a missing-parameter error.
+# Open the homepage instead and click the login button to show the QR-code dialog.
+LOGIN_PREPARE_CLICKS = {'douyin'}
 
 STATE: dict[str, Any] = {
 	'running': False,
@@ -106,6 +116,10 @@ class LoginRequest(BaseModel):
 	site: str
 
 
+class OpenUrlRequest(BaseModel):
+	url: str
+
+
 def _cleanup_stale_browser_profile() -> None:
 	"""Kill leftover BrowserBuddy Chrome processes and remove stale profile locks."""
 	profile_marker = str(PROFILE_DIR)
@@ -122,6 +136,28 @@ def _cleanup_stale_browser_profile() -> None:
 			(PROFILE_DIR / lock_name).unlink(missing_ok=True)
 		except Exception:
 			pass
+
+
+def _allow_manual_close(browser: Browser) -> None:
+	"""Let the user close the last BrowserBuddy window without watchdog tab recovery."""
+	watchdog = getattr(browser, '_aboutblank_watchdog', None)
+	if watchdog is not None:
+		setattr(watchdog, '_stopping', True)
+
+	manager = getattr(browser, 'session_manager', None)
+	if manager is None or getattr(manager, '_bb_allow_manual_close', False):
+		return
+
+	original_recover = manager._recover_agent_focus
+
+	async def recover_without_reopening(crashed_target_id: str) -> None:
+		if not manager.get_all_page_targets():
+			logger.info('Browser window closed by user; skipping automatic tab recovery')
+			return
+		await original_recover(crashed_target_id)
+
+	manager._recover_agent_focus = recover_without_reopening
+	manager._bb_allow_manual_close = True
 
 
 def _contains_chinese(text: str) -> bool:
@@ -156,9 +192,41 @@ async def _request_human_help(reason: str) -> ActionResult:
 	return ActionResult(extracted_content='用户已完成登录或验证，请继续执行任务。')
 
 
-async def _close_login_browser(cancelled: bool = False) -> None:
-	global LOGIN_SESSION, LOGIN_SITE
+async def _prepare_login_page(site: str, browser: Browser) -> None:
+	if site not in LOGIN_PREPARE_CLICKS:
+		return
+	try:
+		for _ in range(40):
+			try:
+				page = await browser.must_get_current_page()
+				result = await page.evaluate(
+					"""() => {
+						const clickable = Array.from(document.querySelectorAll('button, [role="button"], a'));
+						const target = clickable.find((element) => (element.textContent || '').trim() === '登录');
+						if (!target) return 'missing';
+						target.click();
+						return 'clicked';
+					}"""
+				)
+			except Exception:
+				await asyncio.sleep(0.5)
+				continue
+			if 'clicked' in str(result):
+				return
+			await asyncio.sleep(0.5)
+		logger.info(f'No login button found for {site}; the profile may already be signed in')
+	except asyncio.CancelledError:
+		raise
+	except Exception as e:
+		logger.warning(f'Could not open login panel for {site}: {type(e).__name__}: {e}')
 
+
+async def _close_login_browser(cancelled: bool = False) -> None:
+	global LOGIN_SESSION, LOGIN_SITE, LOGIN_PREPARE_TASK
+
+	if LOGIN_PREPARE_TASK is not None and not LOGIN_PREPARE_TASK.done():
+		LOGIN_PREPARE_TASK.cancel()
+	LOGIN_PREPARE_TASK = None
 	browser = LOGIN_SESSION
 	LOGIN_SESSION = None
 	LOGIN_SITE = None
@@ -298,6 +366,15 @@ async def _run_agent(request: RunRequest) -> None:
 			extend_system_message=(
 				'For web searches, use the `web_search` action instead of navigating directly to a search engine URL. '
 				'The app selects a working search engine and handles regional fallbacks. '
+				'When the task asks to search on a specific site such as 小红书, 抖音, 淘宝, or 京东, '
+				'navigate to that site directly and search inside it instead of using `web_search`. '
+				'When returning 小红书 results, open each note from the search results and copy the full URL shown in the '
+				'address bar. That URL must keep its `xsec_token` and `xsec_source` query parameters '
+				'(for example https://www.xiaohongshu.com/search_result/<id>?xsec_token=...&xsec_source=pc_search). '
+				'Never return a bare https://www.xiaohongshu.com/explore/<id> URL or strip its query string: '
+				'those links show 404 or a mobile QR login wall on desktop. '
+				'When returning 抖音 results, use the canonical video URL https://www.douyin.com/video/<video_id> '
+				'instead of a short link or the homepage. '
 				'If the page requires login, QR code scan, CAPTCHA, SMS verification, or another human action, '
 				'call `request_human_help` with a short Chinese reason instead of guessing or entering credentials. '
 				+ _language_instruction(request.task)
@@ -309,6 +386,7 @@ async def _run_agent(request: RunRequest) -> None:
 
 		history = await agent.run(max_steps=int(request.max_steps))
 		text = history.final_result() or '任务完成，但模型没有返回文本结果。'
+		text = repair_xhs_links(text, history.urls())
 		sources = await build_sources(text, history.urls())
 		files, images = collect_artifacts(history)
 		success = history.is_successful()
@@ -376,7 +454,7 @@ async def state() -> dict:
 
 @app.post('/api/login/start')
 async def login_start(request: LoginRequest) -> dict:
-	global LOGIN_SESSION, LOGIN_SITE
+	global LOGIN_PREPARE_TASK, LOGIN_SESSION, LOGIN_SITE
 
 	if request.site not in LOGIN_URLS:
 		raise HTTPException(status_code=400, detail='不支持的登录站点')
@@ -398,9 +476,11 @@ async def login_start(request: LoginRequest) -> dict:
 	)
 	try:
 		await browser.start()
+		_allow_manual_close(browser)
 		event = browser.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=False))
 		await event
 		await event.event_result(raise_if_any=True, raise_if_none=False)
+		LOGIN_PREPARE_TASK = asyncio.create_task(_prepare_login_page(request.site, browser))
 	except Exception as e:
 		try:
 			await browser.kill()
@@ -424,6 +504,84 @@ async def login_finish() -> dict:
 async def login_cancel() -> dict:
 	await _close_login_browser(cancelled=True)
 	return {'ok': True}
+
+
+async def _navigate_view_browser(browser: Browser, url: str) -> None:
+	page = await browser.must_get_current_page()
+	await page.goto(url)
+
+
+async def _discard_view_browser() -> None:
+	global VIEW_SESSION
+
+	browser = VIEW_SESSION
+	VIEW_SESSION = None
+	if browser is None:
+		return
+
+	manager = getattr(browser, 'session_manager', None)
+	has_pages = bool(manager.get_all_page_targets()) if manager is not None else False
+	if not browser.is_cdp_connected or not has_pages:
+		await asyncio.to_thread(_cleanup_stale_browser_profile)
+		return
+
+	try:
+		await asyncio.wait_for(browser.kill(), timeout=10)
+	except Exception as e:
+		logger.warning(f'Could not close source browser: {type(e).__name__}: {e}')
+		await asyncio.to_thread(_cleanup_stale_browser_profile)
+
+
+@app.post('/api/open-url')
+async def open_url(request: OpenUrlRequest) -> dict:
+	"""Open a source link in the app's logged-in browser profile."""
+	global VIEW_SESSION
+
+	url = request.url.strip()
+	parsed = urlparse(url)
+	if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+		raise HTTPException(status_code=400, detail='仅支持 http 或 https 链接')
+	if CURRENT_TASK is not None and not CURRENT_TASK.done():
+		raise HTTPException(status_code=409, detail='任务运行中，请等任务结束后再打开来源链接')
+	if LOGIN_SESSION is not None:
+		raise HTTPException(status_code=409, detail='请先完成或关闭登录窗口')
+
+	async with VIEW_LOCK:
+		if VIEW_SESSION is not None:
+			manager = getattr(VIEW_SESSION, 'session_manager', None)
+			has_pages = bool(manager.get_all_page_targets()) if manager is not None else False
+			if not VIEW_SESSION.is_cdp_connected or not has_pages:
+				await _discard_view_browser()
+			else:
+				try:
+					await asyncio.wait_for(_navigate_view_browser(VIEW_SESSION, url), timeout=60)
+					return {'ok': True}
+				except Exception as e:
+					logger.warning(f'Could not reuse source browser: {type(e).__name__}: {e}')
+					await _discard_view_browser()
+
+		await asyncio.to_thread(_cleanup_stale_browser_profile)
+		await asyncio.sleep(0.3)
+		browser = Browser(
+			headless=False,
+			user_data_dir=str(PROFILE_DIR),
+			storage_state=str(BROWSER_STATE_FILE),
+			downloads_path=str(DOWNLOADS_DIR),
+			keep_alive=True,
+		)
+		try:
+			await browser.start()
+			_allow_manual_close(browser)
+			await _navigate_view_browser(browser, url)
+		except Exception as e:
+			try:
+				await browser.kill()
+			except Exception:
+				pass
+			raise HTTPException(status_code=500, detail=f'打开来源链接失败: {type(e).__name__}: {e}') from e
+
+		VIEW_SESSION = browser
+		return {'ok': True}
 
 
 @app.post('/api/human/continue')

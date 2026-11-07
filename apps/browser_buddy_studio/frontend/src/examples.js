@@ -80,4 +80,20 @@ export const EXAMPLES = [
     task: '打开京东搜索 "机械键盘"，按销量排序，提取前 5 个商品的标题、价格和链接。如果需要登录、扫码或验证码，请调用 request_human_help 提示我。',
   },
 
+  {
+    id: 'xiaohongshu',
+    tag: '小红书',
+    title: '小红书搜索',
+    subtitle: '搜索笔记并提取结果',
+    icon: 'search',
+    task: '打开小红书搜索 "露营装备"，提取前 5 篇笔记的标题和链接。如果需要登录、扫码或验证码，请调用 request_human_help 提示我。',
+  },
+  {
+    id: 'douyin',
+    tag: '抖音',
+    title: '抖音搜索',
+    subtitle: '搜索视频并提取结果',
+    icon: 'play',
+    task: '打开抖音搜索 "露营装备"，提取前 5 个视频的标题和链接。如果需要登录、扫码或验证码，请调用 request_human_help 提示我。',
+  },
 ]

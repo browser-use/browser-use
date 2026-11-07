@@ -46,6 +46,7 @@ def main() -> None:
 		height=880,
 		min_size=(1040, 720),
 		background_color='#0b0f17',
+		text_select=True,
 	)
 	webview.start(
 		private_mode=False,

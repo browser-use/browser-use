@@ -14,6 +14,7 @@ import {
   getState,
   openDownloads,
   openLogs,
+  openUrl,
   runTask,
   saveChat,
   saveHistoryEntry,
@@ -46,6 +47,10 @@ const SEARCH_ENGINES = [
 
 function searchEngineLabel(value) {
   return SEARCH_ENGINES.find((engine) => engine.value === value)?.label || '自动'
+}
+
+function platformLabel(site) {
+  return { taobao: '淘宝', jd: '京东', xiaohongshu: '小红书', douyin: '抖音' }[site] || ''
 }
 
 function buildPreviousContext(followUp) {
@@ -143,7 +148,7 @@ function Sidebar({ history, activeId, onNew, onSelect, onSettings, onDownloads, 
       </button>
       <button className={`sidebar-action ${loginActive ? 'accent' : ''}`} onClick={onLogin}>
         <Icon name="login" size={16} />
-        {loginActive ? `登录中：${loginSite === 'taobao' ? '淘宝' : '京东'}` : '登录购物网站'}
+        {loginActive ? `登录中：${platformLabel(loginSite)}` : '登录平台'}
       </button>
 
       <div className="sidebar-section">
@@ -369,17 +374,96 @@ function Timeline({ steps, running, result, error }) {
 }
 
 function Markdown({ text }) {
+  const [openError, setOpenError] = useState('')
   const html = useMemo(() => {
     const rendered = marked.parse(text || '')
     return DOMPurify.sanitize(rendered)
   }, [text])
-  return <div className="markdown" dangerouslySetInnerHTML={{ __html: html }} />
+
+  async function handleClick(event) {
+    const anchor = event.target.closest?.('a')
+    if (!anchor) return
+    const href = anchor.getAttribute('href') || ''
+    if (!isLoggedInSource(href)) return
+    event.preventDefault()
+    setOpenError('')
+    if (lacksXiaohongshuToken(href)) {
+      setOpenError('该小红书链接缺少访问令牌 xsec_token，桌面端会显示 404。请重新运行任务，让来源返回带 xsec_token 的完整链接。')
+      return
+    }
+    try {
+      await openUrl(href)
+    } catch (error) {
+      setOpenError(error.message || '打开链接失败')
+    }
+  }
+
+  return (
+    <>
+      <div className="markdown" onClick={handleClick} dangerouslySetInnerHTML={{ __html: html }} />
+      {openError && <div className="markdown-open-error">{openError}</div>}
+    </>
+  )
+}
+
+const LOGGED_IN_SOURCE_HOSTS = ['xiaohongshu.com', 'xhslink.com', 'douyin.com', 'iesdouyin.com']
+
+function isLoggedInSource(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    return LOGGED_IN_SOURCE_HOSTS.some((domain) => host === domain || host.endsWith(`.${domain}`))
+  } catch {
+    return false
+  }
+}
+
+function lacksXiaohongshuToken(url) {
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase()
+    const isXiaohongshu = host === 'xiaohongshu.com' || host.endsWith('.xiaohongshu.com')
+    const isNote = parsed.pathname.startsWith('/explore/') || parsed.pathname.startsWith('/search_result/')
+    return isXiaohongshu && isNote && !parsed.searchParams.get('xsec_token')
+  } catch {
+    return false
+  }
 }
 
 function SourceCard({ source }) {
   const initial = (source.domain || '?').slice(0, 1).toUpperCase()
+  const usesLoggedInBrowser = isLoggedInSource(source.url)
+  const missingToken = usesLoggedInBrowser && lacksXiaohongshuToken(source.url)
+  const [opening, setOpening] = useState(false)
+  const [openError, setOpenError] = useState('')
+
+  async function handleClick(event) {
+    if (!usesLoggedInBrowser) return
+    event.preventDefault()
+    if (opening) return
+    setOpenError('')
+    if (missingToken) {
+      setOpenError('该链接缺少 xsec_token，桌面端会显示 404。请重新运行任务，让来源返回完整链接。')
+      return
+    }
+    setOpening(true)
+    try {
+      await openUrl(source.url)
+    } catch (error) {
+      setOpenError(error.message || '打开失败')
+    } finally {
+      setOpening(false)
+    }
+  }
+
   return (
-    <a className="source-card" href={source.url} target="_blank" rel="noreferrer">
+    <a
+      className="source-card"
+      href={source.url}
+      target="_blank"
+      rel="noreferrer"
+      onClick={handleClick}
+      title={usesLoggedInBrowser ? '用 BrowserBuddy 已登录的浏览器打开' : source.url}
+    >
       <div className="source-image">
         <span className="source-placeholder">{initial}</span>
         {source.image && (
@@ -398,6 +482,16 @@ function SourceCard({ source }) {
         <div className="source-title">{source.title}</div>
         <div className="source-description">{source.description || source.url}</div>
         <div className="source-domain">{source.domain}</div>
+        {usesLoggedInBrowser && (
+          <div className="source-browser-hint">
+            <Icon name="globe" size={11} />
+            {opening ? '正在打开…' : '用已登录浏览器打开'}
+          </div>
+        )}
+        {missingToken && (
+          <div className="source-warning">此链接缺少访问令牌，可能无法直接播放</div>
+        )}
+        {openError && <div className="source-warning">{openError}</div>}
       </div>
       <Icon name="external" size={14} className="source-arrow" />
     </a>
@@ -584,14 +678,14 @@ function RunView({
 
 function LoginDialog({ open, active, site, error, onClose, onStart, onFinish, onCancel }) {
   if (!open) return null
-  const label = site === 'taobao' ? '淘宝' : site === 'jd' ? '京东' : ''
+  const label = platformLabel(site)
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-card login-modal" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <div className="modal-title">登录购物网站</div>
+            <div className="modal-title">登录平台</div>
             <div className="modal-sub">登录一次后，cookies 会保存在 BrowserBuddy 的独立浏览器 profile 中</div>
           </div>
           <button className="icon-button" onClick={onClose}>
@@ -619,7 +713,7 @@ function LoginDialog({ open, active, site, error, onClose, onStart, onFinish, on
           </div>
         ) : (
           <div>
-            <p>选择一个网站。BrowserBuddy 会打开一个可见浏览器，用户自己完成登录，App 不保存账号密码。</p>
+            <p>选择一个平台。BrowserBuddy 会打开一个可见浏览器，用户自己完成登录，App 不保存账号密码。</p>
             <div className="login-options">
               <button className="login-option" onClick={() => onStart('taobao')}>
                 <span className="login-option-icon">
@@ -634,6 +728,20 @@ function LoginDialog({ open, active, site, error, onClose, onStart, onFinish, on
                 </span>
                 <strong>京东</strong>
                 <small>扫码或账号密码登录</small>
+              </button>
+              <button className="login-option" onClick={() => onStart('xiaohongshu')}>
+                <span className="login-option-icon">
+                  <Icon name="search" size={20} />
+                </span>
+                <strong>小红书</strong>
+                <small>扫码登录</small>
+              </button>
+              <button className="login-option" onClick={() => onStart('douyin')}>
+                <span className="login-option-icon">
+                  <Icon name="play" size={20} />
+                </span>
+                <strong>抖音</strong>
+                <small>扫码登录</small>
               </button>
             </div>
           </div>

@@ -1059,6 +1059,17 @@ button {
 .markdown li { margin: 0.18em 0; }
 .markdown a { color: var(--accent-strong); text-decoration: none; }
 .markdown a:hover { text-decoration: underline; }
+
+.markdown-open-error {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 32%, var(--border));
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
 .markdown code {
   font-family: 'SF Mono', 'Menlo', monospace;
   font-size: 0.9em;
@@ -1199,6 +1210,23 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.source-browser-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+
+.source-warning {
+  margin-top: 3px;
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--warning);
 }
 
 .source-arrow {

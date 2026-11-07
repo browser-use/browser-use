@@ -70,6 +70,13 @@ export function openDownloads() {
   return jsonFetch('/api/open-downloads', { method: 'POST' })
 }
 
+export function openUrl(url) {
+  return jsonFetch('/api/open-url', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  })
+}
+
 export function startLogin(site) {
   return jsonFetch('/api/login/start', {
     method: 'POST',

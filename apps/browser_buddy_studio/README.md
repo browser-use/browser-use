@@ -64,6 +64,7 @@ BUNDLE_CHROMIUM=1 ./build_mac.sh  # bundle Chromium for friends without Chrome
   - Google Gemini
 - Per-provider API keys stored in macOS Keychain
 - Configurable search engine with automatic regional fallback (Bing 中国 → 搜狗 → 百度 → 360 → Bing 国际 → Google → DuckDuckGo)
+- Persistent login for Taobao, JD, Xiaohongshu, and Douyin
 - Light/dark themes
 - Keyboard shortcuts:
   - `⌘N` new task
@@ -84,9 +85,9 @@ PyWebView window
                     └── browser-use Agent
 ```
 
-## Shopping login
+## Platform login
 
-Use the sidebar **登录购物网站** button to open Taobao or JD in a visible browser. The user completes QR or password login directly in the browser; the app never stores the password. Cookies are persisted in the dedicated browser profile and exported to `~/Library/Application Support/BrowserBuddy/storage_state.json`, so shopping logins survive task restarts.
+Use the sidebar **登录平台** button to open Taobao, JD, Xiaohongshu, or Douyin in a visible browser. The user completes QR or password login directly in the browser; the app never stores the password. Cookies are persisted in the dedicated browser profile and exported to `~/Library/Application Support/BrowserBuddy/storage_state.json`, so platform logins survive task restarts.
 
 If a task hits login, QR code, CAPTCHA, SMS verification, or payment confirmation, the agent calls `request_human_help`. The UI pauses the task, shows the reason, and waits for **继续任务** or **取消任务**. This requires the browser to be visible (turn off headless mode).
 
@@ -117,6 +118,9 @@ This avoids starting Chromium for messages like “hi” or “你好”.
 - Task history and UI preferences persist across app restarts in `~/Library/Application Support/BrowserBuddy/`.
 - Browser downloads are saved to the macOS default Downloads folder: `~/Downloads`. Open it from the sidebar → 下载文件夹, the result toolbar, or Settings → 打开下载文件夹.
 - For mainland China, choose a search engine in Settings. The default **自动** mode prioritizes Bing 中国, then falls back to 搜狗, 百度, 360, Bing 国际, Google, and DuckDuckGo. Engines that redirect to CAPTCHA pages are skipped.
+- Xiaohongshu and Douyin are not search-engine options. Log in once with **登录平台**, then ask the agent to search directly on the site (for example, "打开小红书搜索露营装备"). The agent uses the saved login state and searches inside the platform.
+- Xiaohongshu and Douyin source cards open in the app's logged-in browser instead of the system browser, so notes and videos play without a mobile QR scan. Xiaohongshu note URLs must keep their `xsec_token`; the app reuses the token from the URLs visited during the task when the model returns a bare `/explore/<id>` link.
+- The source browser is a normal Chrome window: close it with the window's close button when finished. Clicking another Xiaohongshu or Douyin source opens a fresh window, or reuses the current one if it is still open.
 - Unsigned builds require right-click → Open on first launch.
 
 ## API keys
