@@ -56,7 +56,8 @@ REMOVED = {  # 0.x Agent(...) and run() arguments -> the 1.0 alternative ('' whe
 	'page_extraction_llm': 'the agent extracts with Python.',
 	'extraction_schema': 'the agent extracts with Python.',
 	'file_system_path': 'workspace=...',
-	'available_file_paths': 'put the files in the workspace (workspace=...).',
+	'available_file_paths': 'there is no file allowlist: the agent runs Python as your user and can read and upload any file '
+	'you can read. Put task files in the workspace (workspace=...); run untrusted tasks in a container or VM.',
 	'initial_actions': 'describe the first steps in the task.',
 	'directly_open_url': 'the agent opens URLs from the task itself.',
 	'register_new_step_callback': _LIVE,

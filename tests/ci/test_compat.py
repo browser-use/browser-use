@@ -56,6 +56,12 @@ def test_removed_alternative_is_named(no_browser):
 		Agent('t', script()[0], override_system_message='x')
 
 
+def test_available_file_paths_error_says_there_is_no_allowlist(no_browser):
+	"""C30: the agent can upload any file the user can read; the error must not imply the workspace is a boundary."""
+	with pytest.raises(TypeError, match=r'In 1\.0: there is no file allowlist: .* any file you can read\. .* container or VM\.$'):
+		Agent('t', script()[0], available_file_paths=['/tmp/a.pdf'])
+
+
 def test_0x_tuning_knobs_warn_and_construct(no_browser, caplog, monkeypatch):
 	"""use_vision=False alone is on 31% of 0.x devices: a script that only tuned the old loop keeps running."""
 	knobs = dict(use_vision=False, max_actions_per_step=3, flash_mode=True, use_judge=False, use_thinking=True, max_failures=5)
