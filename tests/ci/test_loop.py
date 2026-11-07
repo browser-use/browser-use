@@ -176,6 +176,54 @@ async def test_oversized_and_invalid_images_never_reach_provider(daemon, tmp_pat
 	assert 'not a decodable image' in part.content[0]
 
 
+@pytest.mark.parametrize(
+	'errors, sdk_retries, status, calls, slept',
+	[
+		(['rate'], 0, 'completed', 2, [2]),  # once more, after the provider's Retry-After
+		(['server', 'overloaded'], 0, 'error', 2, [0]),  # once per run, as bu-pi
+		(['rejected'], 0, 'error', 1, []),  # a 400 is not sent again
+		(['rate'], 2, 'error', 1, []),  # the OpenAI/Anthropic SDK client already retried it twice
+	],
+)
+async def test_transient_provider_error_is_retried_once(tmp_path, monkeypatch, errors, sdk_retries, status, calls, slept):
+	"""grok bub2-007: xAI's 429 "model is currently at capacity" ended the run at step 38 with no retry (its gRPC client
+	retries only UNAVAILABLE; pydantic-ai raises ModelRateLimitError). bu-pi retries such a request once per run."""
+	import asyncio
+	from types import SimpleNamespace
+
+	from pydantic_ai import exceptions as x
+
+	make = {
+		'rate': lambda: x.ModelRateLimitError('grok-4.7', 'The model is currently at capacity', retry_after=2),
+		'server': lambda: x.ModelServerError('grok-4.7', 'internal'),
+		'overloaded': lambda: x.ModelOverloadedError('grok-4.7', 'overloaded'),
+		'rejected': lambda: x.ModelRequestRejectedError('grok-4.7', 'invalid_image'),
+	}
+	pending, sleeps, requests, real_sleep = list(errors), [], [], asyncio.sleep
+
+	async def sleep(delay, *args):
+		sleeps.append(delay)
+		await real_sleep(0)
+
+	def fn(messages, info: AgentInfo):
+		requests.append(1)
+		if pending:
+			raise make[pending.pop(0)]()
+		return ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': 'ok'})])
+
+	model = FunctionModel(fn)
+	if sdk_retries:
+		model.client = SimpleNamespace(max_retries=sdk_retries)  # pyright: ignore[reportAttributeAccessIssue]
+	monkeypatch.setattr(asyncio, 'sleep', sleep)
+	agent, session = build_agent(), Session(repl=Repl(tmp_path))
+	try:
+		with agent.override(model=model):
+			result = await run(agent, 'task', session, 'gpt-6-luna')
+	finally:
+		await session.repl.close()
+	assert (result.status, len(requests), sleeps) == (status, calls, slept), result.error
+
+
 async def test_workspace_path_is_in_instructions(daemon, tmp_path):
 	seen = []
 

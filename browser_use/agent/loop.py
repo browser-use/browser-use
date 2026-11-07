@@ -23,7 +23,14 @@ from pydantic import Field, TypeAdapter, ValidationError
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput, ToolOutput
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.direct import model_request
-from pydantic_ai.exceptions import ToolRetryError
+from pydantic_ai.exceptions import (
+	ModelConnectionError,
+	ModelRateLimitError,
+	ModelServerError,
+	ModelUnavailableError,
+	RetryModelRequest,
+	ToolRetryError,
+)
 from pydantic_ai.messages import (
 	ModelMessage,
 	ModelRequest,
@@ -63,6 +70,7 @@ DELIVERY_REPAIR = (  # bu-pi src/agent.ts:560, verbatim except tool names
 	'the single delivery repair turn.'
 )
 DELIVERY_TOOLS = ['finish_from_repl', 'finish']
+TRANSIENT = (ModelRateLimitError, ModelUnavailableError, ModelServerError, ModelConnectionError)
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
 FILE = re.compile(r'`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`
@@ -90,6 +98,7 @@ class Session:
 	checkpoint: ModelRequest | None = None  # Compaction: the message sent in place of messages[:covered]
 	covered: int = 0
 	compaction_failed: bool = False
+	provider_retried: bool = False  # BrowserLoop: bu-pi's one provider retry per run is used
 	summaries: list[ModelResponse] = field(default_factory=list)  # summarizer responses, counted in usage and cost
 
 	def delivery_at(self) -> float:
@@ -259,7 +268,8 @@ def _outputs(output_type: Any) -> list[Any]:
 
 
 class BrowserLoop(AbstractCapability[Session]):
-	"""Keep only recent screenshots; one delivery-only turn near the time/step budget or after a structured text reply."""
+	"""Keep only recent screenshots; one delivery-only turn near the time/step budget or after a structured text reply;
+	one retry of a transient provider error per run."""
 
 	async def before_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
 		s = ctx.deps
@@ -281,6 +291,21 @@ class BrowserLoop(AbstractCapability[Session]):
 			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
 			request_context.model_settings = cast(Any, settings)
 		return request_context
+
+	async def on_model_request_error(self, ctx: RunContext[Session], *, request_context: ModelRequestContext, error: Exception):
+		"""bu-pi's provider retry (src/agent.ts transientModelError): a rate limit, overload, 5xx or dropped connection
+		sends the same request once more per run, after the provider's Retry-After (at most 60 s, pi-ai's cap). Only the
+		inference is repeated: a failed request returned no tool calls. Not where the provider's SDK client has already
+		retried it (OpenAI, Anthropic and OpenAI-compatible clients: max_retries=2 with backoff); xAI's gRPC client retries
+		only UNAVAILABLE, so its 429 "at capacity" ended grok bub2-007 on the first try."""
+		s, client = ctx.deps, getattr(request_context.model, 'client', None)
+		if s.provider_retried or not isinstance(error, TRANSIENT) or getattr(client, 'max_retries', 0):
+			raise error
+		s.provider_retried = True
+		delay = min(error.retry_after or 0, 60)
+		logger.warning(f'{type(error).__name__} from {error.model_name}: retrying once in {delay:g} s')
+		await asyncio.sleep(delay)
+		raise RetryModelRequest()
 
 	async def wrap_tool_validate(self, ctx: RunContext[Session], *, call, tool_def, args, handler) -> Any:
 		"""A tool call on a delivery-only turn is not run (wrap_tool_execute), so its arguments are not validated either:
