@@ -9,6 +9,7 @@ import ipaddress
 import os
 import platform
 import sys
+import warnings
 from collections import Counter
 from dataclasses import dataclass, field
 from functools import cache
@@ -60,7 +61,9 @@ def imported_modules(code: str) -> list[str]:
 	"""Top-level modules a cell imports ('pandas' for `from pandas.io import x`); 'other' for one that is neither in
 	the standard library nor installed (a module the model wrote can have any name). Nothing else of the code."""
 	try:
-		tree = ast.parse(code)
+		with warnings.catch_warnings():  # the worker already showed the model its SyntaxWarnings; not the user's stderr
+			warnings.simplefilter('ignore')
+			tree = ast.parse(code)
 	except (SyntaxError, ValueError):
 		return []
 	names: list[str] = []

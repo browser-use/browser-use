@@ -27,6 +27,7 @@ import signal
 import socket
 import struct
 import sys
+import sysconfig
 import threading
 import time
 import traceback
@@ -56,6 +57,11 @@ MAX_IPC_REQUEST = 65_536 - 128
 # The daemon's error once its websocket to the browser closed: Chrome crashed or quit ("no close frame received or
 # sent"), or the cloud browser was stopped or timed out ("received 1001 (going away) browser session ended").
 BROWSER_GONE = re.compile(r'no close frame|received 10\d\d \(|sent 10\d\d \(|ConnectionClosed|websocket.*closed', re.I)
+# Traceback frame prefixes of installed code: the stdlib, site-packages and browser_use itself (an editable install).
+INSTALLED = tuple(
+	{'File "' + sysconfig.get_path(p) for p in ('stdlib', 'platstdlib', 'purelib', 'platlib')}
+	| {'File "' + str(Path(ax.__file__).parent)}
+)
 
 
 def capture(raw_cdp, current_tab, session_id=None, *, activate=False, **params):
@@ -694,10 +700,9 @@ def _error(e: BaseException) -> str:
 	if isinstance(e, BrowserConnectionLost):  # one line: the frames that hit it say nothing more
 		return f'{type(e).__name__}: {e}'
 	lines = traceback.format_exception(e)
-	# Drop worker and bu frames; keep the user's cell frames and the exception itself.
-	keep = [lines[0]] + [
-		line for line in lines[1:] if not line.lstrip().startswith(('File "' + __file__, 'File "' + ax.__file__))
-	]
+	# Keep the cell's frames, the workspace's own modules and the exception; drop installed code (stdlib, packages,
+	# browser_use): its absolute paths leak the user's home to the provider and cost tokens.
+	keep = [lines[0]] + [line for line in lines[1:] if not line.lstrip().startswith(INSTALLED)]
 	return ''.join(keep).strip()
 
 

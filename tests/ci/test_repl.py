@@ -346,6 +346,23 @@ async def test_domain_scoped_secret_is_refused_on_another_origin(tmp_path):
 	assert 'PermissionError' in r['error'] and '*.site.test' in r['error'] and 'hunter2' not in r['error']
 
 
+async def test_cell_traceback_keeps_cell_and_workspace_frames_but_no_installed_paths(tmp_path):
+	"""C60: stdlib and site-packages frames reached the model with absolute paths (the user's home, the venv) and
+	~4k characters for one urlopen error."""
+	(tmp_path / 'mymod.py').write_text(
+		'import urllib.request\ndef go():\n\turllib.request.urlopen("http://127.0.0.1:9/", timeout=5)\n'
+	)
+	repl = Repl(tmp_path)
+	try:
+		r = await repl.call('exec', 'import mymod\nmymod.go()', 30)
+	finally:
+		await repl.close()
+	error = r['error']
+	assert error.startswith('Traceback') and '<cell' in error and 'mymod.py' in error, error
+	assert '/urllib/' not in error and '/http/' not in error and 'browser_use' not in error, error
+	assert error.splitlines()[-1].startswith('urllib.error.URLError'), error
+
+
 @pytest.mark.parametrize(
 	('url', 'pattern', 'ok'),
 	[

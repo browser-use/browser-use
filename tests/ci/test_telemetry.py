@@ -5,6 +5,7 @@ import json
 import random
 import string
 import threading
+import warnings
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -269,6 +270,15 @@ def test_host_and_imports_keep_no_path_query_or_code(seed):
 	assert host(f'file:///{secret}') is None and host(f'data:text/html,{secret}') is None and host('http://[::1') is None
 	assert imported_modules(f'import os\nprint({secret!r})\nfrom . import {secret}') == ['os']
 	assert imported_modules(f'{secret} (') == []
+
+
+def test_imports_of_a_cell_with_an_invalid_escape_print_nothing_on_the_users_stderr():
+	"""C60: the parent parses each cell for telemetry; a non-raw regex printed '<unknown>:1: SyntaxWarning' to the
+	user's terminal. The worker's compile still shows the model its own warning."""
+	with warnings.catch_warnings(record=True) as caught:
+		warnings.simplefilter('always', SyntaxWarning)
+		assert imported_modules("import re\nre.findall('\\d+', 'a1')") == ['re']
+	assert not [w for w in caught if w.category is SyntaxWarning]
 
 
 @pytest.mark.parametrize('seed', range(5))
