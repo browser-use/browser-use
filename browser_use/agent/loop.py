@@ -467,7 +467,7 @@ def _tokens(s: Session, messages: list[ModelMessage], system: int) -> int:
 
 async def _compact(s: Session, messages: list[ModelMessage], request_context: ModelRequestContext) -> None:
 	starts = [i for i, m in enumerate(messages) if isinstance(m, ModelResponse) and i >= s.covered]
-	if len(starts) < 2 or starts[-2] <= s.covered:  # keep the last two assistant/tool groups: no tool result is orphaned
+	if len(starts) < 3 or starts[-2] <= s.covered:  # keep the last two assistant/tool groups: no tool result is orphaned
 		return
 	cut = starts[-2]
 	plain = redact(_plain(([s.checkpoint] if s.checkpoint else []) + messages[s.covered : cut]), s.repl.secrets)

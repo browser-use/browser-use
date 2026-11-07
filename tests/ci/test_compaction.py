@@ -134,6 +134,16 @@ def test_agent_passes_max_context_chars_to_compaction():
 		Agent('task', max_context_chars=0)
 
 
+async def test_early_threshold_waits_until_a_tool_group_can_be_compacted(tmp_path):
+	fn, agent_requests, summarizer_requests = scripted(big=set())
+	result = await go(tmp_path, fn, window=8000, pad=10_000)
+	assert result.status == 'completed' and result.output == 'done', result.error
+	# With only two groups, the prefix is just the pinned user task: summarizing it cannot reduce the context.
+	# Wait for a third group rather than permanently disabling compaction after that non-reduction.
+	assert [checkpoint_text(r) is not None for r in agent_requests] == [False] * 3 + [True] * 3
+	assert 'step1' in summarizer_requests[0][0].parts[0].content
+
+
 async def test_archive_is_written_redacted_and_without_images(tmp_path):
 	fn, agent_requests, _ = scripted(big={3})
 	await go(tmp_path, fn, compact_at_tokens=4500)
