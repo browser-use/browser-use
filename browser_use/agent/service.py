@@ -321,6 +321,8 @@ class Agent:
 				self.workspace.mkdir(parents=True, exist_ok=True)
 			self.browser._downloads_dir = self.workspace / 'downloads'  # a keep_alive browser's later stop() copies there
 			env = await self.browser.start()  # also on a follow-up: a daemon that died since is started again
+			if self.browser._local is not None:  # a Chrome we launched saved downloads to the real ~/Downloads
+				await self._local_downloads()
 			if self._repl is None or env != self._repl.env:  # or the browser was stopped and started again since
 				if self._repl is None:
 					browser_s = time.monotonic() - started
@@ -357,6 +359,18 @@ class Agent:
 			if not self.browser.keep_alive:
 				await self._shutdown()
 			self._capture(result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started)
+
+	async def _local_downloads(self) -> None:
+		"""Downloads of a Chrome this Browser launched land in workspace/downloads (set on the daemon's connection, which
+		lives as long as the browser)."""
+		downloads = self.workspace / 'downloads'
+		downloads.mkdir(parents=True, exist_ok=True)
+		try:
+			await asyncio.to_thread(
+				self.browser._cdp(), 'Browser.setDownloadBehavior', behavior='allow', downloadPath=str(downloads), eventsEnabled=True
+			)
+		except Exception as e:  # - downloads then go where Chrome puts them
+			logger.warning('Could not send downloads to %s: %s', downloads, e)
 
 	def run_sync(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
 		"""run() without async. One event loop serves every run_sync() while the REPL lives (Browser(keep_alive=True)),

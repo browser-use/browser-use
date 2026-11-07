@@ -446,6 +446,19 @@ async def test_fresh_chromium_end_to_end_has_no_cookies_and_leaves_nothing(chrom
 	assert proc.poll() is not None and not tmp.exists() and not browser_mod._LIVE
 
 
+async def test_a_launched_browser_downloads_into_the_workspace(chrome_binary, tmp_path):
+	"""M14: Browser('chromium') saved downloads to the user's real ~/Downloads."""
+	link = 'data:text/html,<a id=a href="data:text/plain,hello" download="report.txt">x</a>'
+	model, _ = script(
+		('python', {'code': f"new_tab('{link}'); wait_for_load(); js('document.getElementById(\"a\").click()'); import time; time.sleep(2)"}),
+		('finish', {'success': True, 'result': 'ok'}),
+	)
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
+	result = await Agent('t', model, browser=browser, workspace=tmp_path).run()
+	assert result.final_result() == 'ok', result.error
+	assert (tmp_path / 'downloads' / 'report.txt').read_text() == 'hello'
+
+
 async def test_two_fresh_browsers_run_side_by_side(chrome_binary):
 	from browser_harness import _ipc as ipc
 
