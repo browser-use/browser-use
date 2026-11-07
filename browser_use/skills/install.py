@@ -41,7 +41,8 @@ def _all_target_skill_paths() -> list[Path]:
 	legacy_opencode = Path.home() / '.config' / 'opencode' / 'skills' / SKILL_NAME / 'SKILL.md'
 	if legacy_opencode not in paths:
 		paths.append(legacy_opencode)
-	return paths
+	# ~/.agents (the shared skills dir) always; the others only for agents already installed (~/.claude, ~/.codex, ...)
+	return [path for path in paths if path == paths[0] or path.parents[2].is_dir()]
 
 
 def _load_skill_text_from_package() -> str:
@@ -88,7 +89,7 @@ def _build_parser() -> argparse.ArgumentParser:
 	install.add_argument(
 		'--path',
 		type=Path,
-		help='Custom output directory or SKILL.md path',
+		help='Custom output directory or .md file path',
 	)
 	install.add_argument(
 		'--force',
@@ -112,7 +113,7 @@ def _resolve_output_paths(target: str, custom_path: Path | None) -> list[Path]:
 		return [TARGET_DIR_BUILDERS[target]() / 'SKILL.md']
 
 	path = custom_path.expanduser()
-	if path.name == 'SKILL.md':
+	if path.suffix == '.md':
 		return [path]
 	return [path / 'SKILL.md']
 
@@ -161,8 +162,12 @@ def handle(argv: list[str]) -> int:
 			return 1
 
 		for output_path in output_paths:
-			output_path.parent.mkdir(parents=True, exist_ok=True)
-			output_path.write_text(text, encoding='utf-8')
+			try:
+				output_path.parent.mkdir(parents=True, exist_ok=True)
+				output_path.write_text(text, encoding='utf-8')
+			except OSError as exc:
+				print(f'Error: cannot write {output_path}: {exc.strerror}', file=sys.stderr)
+				return 1
 			print(f'Installed Browser Use skill to {output_path}')
 		return 0
 

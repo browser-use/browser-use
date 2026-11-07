@@ -240,3 +240,48 @@ def test_open_source_skill_shows_only_1_0_code():
 			if isinstance(node, ast.ImportFrom) and node.module == 'browser_use':
 				for alias in node.names:
 					assert alias.name in browser_use.__all__, alias.name
+
+
+def test_skill_install_writes_only_installed_agents_and_reports_write_errors(tmp_path):
+	"""C49: with an empty HOME, `skill install` created all 8 agent dirs (~/.cursor, ~/.gemini, ...); `--path x/MY.md` made
+	a directory named MY.md; an unwritable --path crashed with a raw PermissionError traceback."""
+	from browser_use.skills.browser_use import SKILL_DESCRIPTION, skill_text
+
+	assert 'use_cloud' not in SKILL_DESCRIPTION  # 1.0 spelling is Browser()
+	bin_dir = _fake_browser_harness_tools(tmp_path, '')
+	home = tmp_path / 'home'
+	(home / '.codex').mkdir(parents=True)
+	(home / '.config' / 'opencode').mkdir(parents=True)
+	env = _isolated_env(tmp_path, bin_dir, home)
+
+	def install(*args: str) -> subprocess.CompletedProcess[str]:
+		return subprocess.run(
+			[sys.executable, '-m', 'browser_use.cli', 'skill', 'install', *args],
+			cwd=ROOT,
+			env=env,
+			capture_output=True,
+			text=True,
+			timeout=10,
+		)
+
+	result = install()
+	assert result.returncode == 0, result.stderr
+	written = sorted(str(p.relative_to(home)) for p in home.rglob('SKILL.md'))
+	assert written == sorted(
+		str(path) for path in EXPECTED_SKILL_INSTALL_PATHS if path.parts[0] in ('.agents', '.codex', '.config')
+	)
+	assert sorted(p.name for p in home.iterdir()) == ['.agents', '.codex', '.config']
+
+	assert install('--target', 'gemini').returncode == 0  # an explicit target still creates its dir
+	assert (home / '.gemini' / 'skills' / 'browser-use' / 'SKILL.md').is_file()
+
+	custom = tmp_path / 'custom' / 'MYSKILL.md'
+	assert install('--path', str(custom)).returncode == 0
+	assert custom.read_text(encoding='utf-8') == skill_text()
+
+	if sys.platform != 'win32' and os.geteuid() != 0:
+		readonly = tmp_path / 'readonly'
+		readonly.mkdir(mode=0o500)
+		result = install('--path', str(readonly / 'x'))
+		assert result.returncode == 1
+		assert 'Error: cannot write' in result.stderr and 'Traceback' not in result.stderr
