@@ -65,6 +65,7 @@ class Session:
 	timeout_s: float = 1700
 	max_steps: int = 1000
 	cell_timeout_s: float = 120
+	vision: bool = True  # Agent(use_vision=False): screenshot() images are not sent to the model
 	started: float = field(default_factory=time.monotonic)
 	finalizing: bool = False
 	checked_delivery: bool = False  # the delivery guard fires once; a second identical finish is accepted
@@ -110,6 +111,8 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	logger.info(f'step {ctx.run_step}: {line[:120]}' + (f' -> {error[-1][:200]}' if error else ''))
 	if ctx.deps.after_tool:
 		await ctx.deps.after_tool('python', {'code': code}, r)
+	if r['images'] and not ctx.deps.vision:
+		return [f'{text}\n(screenshot not shown: use_vision=False; read the page as text)'.strip()]
 	shots = [BinaryContent(base64.b64decode(i['data']), media_type=i['media_type']) for i in r['images']]
 	return [text or '(no output)', *shots]
 

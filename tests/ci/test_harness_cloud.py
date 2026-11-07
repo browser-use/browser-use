@@ -508,3 +508,45 @@ def test_concurrent_cold_starts_against_a_cdp_url_spawn_one_daemon_at_a_time(mon
 	for t in threads:
 		t.join(10)
 	assert peak[0] == 1
+
+
+def test_mcp_own_chromium_ignores_a_stale_cloud_marker_and_starts_one_at_a_time(monkeypatch):
+	"""Review: --mcp checked was_cloud(f'mcp-{pid}'): a .cloud marker an earlier server with the same pid left sent this
+	one to ensure_daemon() on admin.NAME='default', the user's Chrome (C44). And a cell the client gave up on could run
+	Browser.start() beside the next call's, each on its own event loop."""
+	import asyncio
+	import threading
+
+	from browser_harness import _ipc as ipc
+	from browser_harness import admin, helpers
+
+	from browser_use import harness_cloud
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setattr(admin, 'NAME', admin.NAME)
+	monkeypatch.setattr(helpers, 'NAME', helpers.NAME)
+	mcp = cli_mcp.CLIMCPServer(own_browser=True)
+	marker = ipc.pid_path(mcp._remote).with_suffix('.cloud')
+	marker.parent.mkdir(parents=True, exist_ok=True)
+	marker.write_text('')  # stopped cloud browser of an earlier server with this pid
+	inside, most = [0], [0]
+
+	async def start():
+		inside[0] += 1
+		most[0] = max(most[0], inside[0])
+		await asyncio.sleep(0.2)
+		inside[0] -= 1
+		return {'BU_NAME': 'own-chromium'}
+
+	monkeypatch.setattr(mcp._browser, 'start', start)
+	monkeypatch.setattr(harness_cloud, 'ensure_daemon', lambda *a, **k: pytest.fail("drove the user's Chrome"))
+	mcp._ensure_namespace()
+	try:
+		threads = [threading.Thread(target=mcp._attach) for _ in range(2)]
+		for t in threads:
+			t.start()
+		for t in threads:
+			t.join(10)
+	finally:
+		marker.unlink(missing_ok=True)
+	assert admin.NAME == 'own-chromium' and most[0] == 1

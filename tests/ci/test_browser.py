@@ -7,8 +7,6 @@ from browser_use import Agent, Browser
 from browser_use.browser import browser as browser_mod
 from browser_use.exceptions import MissingAPIKeyError
 
-REAL_WS_URL = browser_mod._ws_url  # before the cloud fixture replaces it
-
 
 @pytest.fixture
 def cloud(monkeypatch):
@@ -606,6 +604,39 @@ async def test_stop_waits_for_a_running_download_and_its_cloud_listing(cloud, mo
 	assert sorted(p.name for p in files) == ['a.pdf', 'b.zip'] and stops(cloud) == ['/browsers/b1']
 
 
+async def test_a_cancelled_run_never_waits_for_a_running_download(cloud, monkeypatch, tmp_path):
+	"""Review: task.cancel() / Ctrl-C with a download still running held the stop (and cloud billing) for
+	DOWNLOADS_TIMEOUT_S, waiting for progress that would never be looked at."""
+	import asyncio
+	import time
+
+	from browser_use.repl import worker
+
+	monkeypatch.setattr(worker, 'STATE', tmp_path)
+	worker.CellStats().observe(
+		[{'method': 'Browser.downloadWillBegin', 'params': {'guid': 'b', 'url': 'https://h/b', 'suggestedFilename': 'b.zip'}}]
+	)
+	monkeypatch.setattr(browser_mod, '_daemon_request', lambda name, req: {'events': []})  # b.zip never finishes
+	monkeypatch.setattr(browser_mod, 'DOWNLOADS_TIMEOUT_S', 20)
+	browser = Browser()
+	await browser.start()
+	browser.note_downloads(tmp_path / 'downloads.jsonl')
+
+	async def run():
+		try:
+			await asyncio.sleep(30)
+		finally:  # as Agent.run's finally
+			await browser.stop(downloads_dir=tmp_path / 'downloads')
+
+	task = asyncio.ensure_future(run())
+	await asyncio.sleep(0.05)
+	t = time.monotonic()
+	task.cancel()
+	with pytest.raises(asyncio.CancelledError):
+		await task
+	assert time.monotonic() - t < 5 and stops(cloud) == ['/browsers/b1']
+
+
 async def test_start_after_a_cancelled_stop_never_overlaps_its_stop_thread(cloud, monkeypatch):
 	"""A stop() cancelled during the PATCH leaves its thread running; a start() right after must not run its own
 	_stop_now beside it (a second PATCH, and the late thread could disown the new browser)."""
@@ -1045,7 +1076,7 @@ async def test_cloud_daemon_knows_its_browser_id(cloud, monkeypatch):
 	assert envs[0]['BU_BROWSER_ID'] == 'b1' and envs[0]['BU_CDP_WS']
 	envs.clear()
 	local = Browser(cdp_url='http://127.0.0.1:9')
-	monkeypatch.setattr(browser_mod, '_ws_url', lambda url, headers=None: 'ws://127.0.0.1:9/devtools/browser/x')
+	monkeypatch.setattr(browser_mod, '_ws_url', lambda url: 'ws://127.0.0.1:9/devtools/browser/x')
 	await local.start()
 	await local.stop()
 	assert 'BU_BROWSER_ID' not in envs[0]
@@ -1102,42 +1133,8 @@ def test_sighup_stops_live_browsers_then_exits():
 	assert r.stdout.strip() == 'stopped' and r.returncode == -1, (r.returncode, r.stdout, r.stderr[-2000:])
 
 
-async def test_headers_authenticate_the_cdp_url_connection(monkeypatch):
-	"""C18: 0.x Browser(headers=...) authenticated the cdp_url connect request (AWS Bedrock AgentCore SigV4, ~3% of runs);
-	1.0 raised with advice (Network.setExtraHTTPHeaders) that cannot authenticate a handshake."""
-	import http.server
-	import json
-	import threading
-
-	from browser_harness import admin
-
-	token = 'AWS4-HMAC-SHA256 test'
-
-	class DevTools(http.server.BaseHTTPRequestHandler):
-		def do_GET(self):
-			ok = self.headers.get('Authorization') == token
-			body = json.dumps({'webSocketDebuggerUrl': 'ws://127.0.0.1:9/devtools/browser/x'}).encode()
-			self.send_response(200 if ok else 401)
-			self.end_headers()
-			self.wfile.write(body if ok else b'no auth')
-
-		def log_message(self, *a):
-			pass
-
-	server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), DevTools)
-	threading.Thread(target=server.serve_forever, daemon=True).start()
-	envs = []
-	monkeypatch.setattr(browser_mod, '_ws_url', REAL_WS_URL)
-	monkeypatch.setattr(admin, 'ensure_daemon', lambda *a, **k: envs.append(k['env']))
-	monkeypatch.setattr(browser_mod, '_shutdown_daemon', lambda name: True)
-	try:
-		browser = Browser(cdp_url=f'http://127.0.0.1:{server.server_port}', headers={'Authorization': token})
-		env = await browser.start()
-		await browser.stop()
-		assert envs[0]['BU_CDP_WS'] == 'ws://127.0.0.1:9/devtools/browser/x'  # /json/version accepted the header
-		assert json.loads(envs[0]['BU_CDP_HEADERS']) == {'Authorization': token}  # the daemon's handshake
-		assert token not in json.dumps(env)  # never in the REPL worker's env
-	finally:
-		server.shutdown()
-	with pytest.raises(ValueError, match='does not take headers='):
-		Browser('chromium', headers={'Authorization': token})
+def test_headers_raise_until_the_daemon_sends_them():
+	"""C18 accepted headers= but the pinned browser-harness daemon never sent them on the WebSocket handshake: an
+	authenticated cdp_url passed /json/version, then failed inside ensure_daemon with a bare 401/403."""
+	with pytest.raises(TypeError, match='WebSocket handshake'):
+		Browser(cdp_url='https://example.invalid', headers={'Authorization': 'AWS4-HMAC-SHA256 x'})

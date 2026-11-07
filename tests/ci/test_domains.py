@@ -602,26 +602,6 @@ async def test_guard_resets_a_tab_that_commits_without_a_request_it_saw(chrome, 
 	assert blocks == 1 and notices[0].endswith('/committed; browser-use navigated it to about:blank]'), notices
 
 
-def test_guard_sends_the_cdp_url_headers_on_its_handshake():
-	"""C18: Browser(cdp_url=..., headers=...): the Guard's own connection authenticates like the daemon's."""
-	from websockets.sync.server import serve
-
-	seen = []
-
-	def reject(conn, request):
-		seen.append(request.headers.get('Authorization'))
-		return conn.respond(401, 'no auth\n')
-
-	with serve(lambda ws: None, '127.0.0.1', 0, process_request=reject) as server:
-		threading.Thread(target=server.serve_forever, daemon=True).start()
-		port = server.socket.getsockname()[1]
-		guard = Guard(f'ws://127.0.0.1:{port}/devtools/browser/x', RULES, {'Authorization': 'AWS4-HMAC-SHA256 test'})
-		with pytest.raises(RuntimeError, match='Domain restrictions could not start'):
-			guard.start()
-		server.shutdown()
-	assert seen and set(seen) == {'AWS4-HMAC-SHA256 test'}
-
-
 def test_guard_start_failure_raises():
 	guard = Guard('ws://127.0.0.1:9/devtools/browser/x', RULES)
 	with pytest.raises(RuntimeError, match='Domain restrictions could not start'):

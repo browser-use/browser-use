@@ -69,10 +69,10 @@ def __getattr__(name: str):
 		attr = getattr(import_module(_LAZY_IMPORTS[name]), name)
 		globals()[name] = attr
 		return attr
-	if name == '__version__':
-		from importlib.metadata import version
+	if name == '__version__':  # 'unknown' from a checkout that is not installed
+		from browser_use.utils import get_browser_use_version
 
-		return version('browser-use')
+		return get_browser_use_version()
 	if name in _REMOVED:
 		from browser_use.exceptions import removed
 

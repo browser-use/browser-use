@@ -78,7 +78,9 @@ _cell = threading.local()  # .buffer: where the cell running on this thread prin
 
 
 class _CellStream:
-	"""Stands in for sys.stdout/sys.stderr: a cell's thread prints into its own buffer, any other thread into stream."""
+	"""Stands in for sys.stdout/sys.stderr: a cell's thread prints into its own buffer, any other thread into stream
+	(while serving: stderr). So prints from threads a cell starts are not in its result (the browser_exec description
+	says so): per-thread capture is what lets a hung cell's prints never land in the next call's result."""
 
 	def __init__(self, stream: Any):
 		self.stream = stream
@@ -161,7 +163,12 @@ class CLIMCPServer:
 		self._exec_lock = asyncio.Lock()
 		self._login: _Login | None = None
 		self._login_lock = threading.Lock()
+		# _attach from a cell the client gave up on and from the next call: one Browser.start() at a time (its asyncio
+		# lock binds to one event loop, and each thread runs its own)
+		self._attach_lock = threading.Lock()
 		self._remote = f'mcp-{os.getpid()}'  # this server's cloud daemon name: no other server or CLI shares it
+		# set once start_remote_daemon ran here; not the .cloud marker, which an earlier server with this pid may have left
+		self._cloud_started = False
 		self._reapers: list[subprocess.Popen] = []  # held open so the pipes close only when this process exits
 		self._register_handlers()
 
@@ -173,7 +180,8 @@ class CLIMCPServer:
 					'Execute Python in the browser-harness session. Helpers like new_tab(url), '
 					'goto_url(url), page_info(), click_at_xy(x, y), type_text(text), js(code), '
 					'cdp(method, ...), wait_for_load(), list_tabs() are pre-imported. The namespace '
-					'persists across calls. Returns whatever the code prints. First navigation '
+					'persists across calls. Returns whatever the code prints (prints from threads it starts are not '
+					'returned: collect their results and print them in the code itself). First navigation '
 					'should be new_tab(url). Drives the local Chrome until start_remote_daemon() starts a '
 					'cloud browser; then every call drives that one until it ends (stopped when this server exits). '
 					"A cloud browser's downloads stay on the remote host, never in ~/Downloads (a file there is not its "
@@ -296,14 +304,16 @@ class CLIMCPServer:
 	def _attach(self) -> None:
 		"""Attach what helpers drive: the cloud browser this server started, else its own Chromium (--mcp), else the
 		user's Chrome. Browser.start() launches the Chromium on first use and starts its daemon again if that died."""
-		if self._browser is None or harness_cloud.was_cloud(self._remote):
+		if self._browser is None or self._cloud_started:
 			return harness_cloud.ensure_daemon()
-		harness_cloud.route(asyncio.run(self._browser.start())['BU_NAME'], self._namespace)
+		with self._attach_lock:
+			harness_cloud.route(asyncio.run(self._browser.start())['BU_NAME'], self._namespace)
 
 	def _start_remote(self, name: str = 'remote', profileName: str | None = None, **create_kwargs: Any) -> dict:
 		name = self._remote  # a caller's name could be another server's browser: stopping or driving it hijacks it
 		create_kwargs.setdefault('timeout', CLOUD_TIMEOUT_MINUTES)
 		browser = harness_cloud.start(name, profileName, create_kwargs, self._namespace)
+		self._cloud_started = True
 		if browser.get('id'):
 			detach: dict[str, Any] = ipc.spawn_kwargs()  # own session: a Ctrl-C to this server's group does not kill it first
 			self._reapers.append(

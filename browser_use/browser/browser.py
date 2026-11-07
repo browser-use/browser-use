@@ -65,6 +65,10 @@ REMOVED = {  # 0.x BrowserSession/BrowserProfile options -> the 1.0 alternative 
 		"Browser('chromium') launches Chrome with fixed flags (--no-sandbox only on Linux as root or in a container).",
 	),
 	'disable_security': 'none: the browser keeps its security features.',
+	# 0.x sent them on the cdp_url connect request (e.g. SigV4); the pinned browser-harness daemon cannot send them on its
+	# WebSocket handshake, so accepting them would fail there with a bare 401/403
+	'headers': 'not yet: the browser daemon cannot send headers on the cdp_url WebSocket handshake. Use a cdp_url that '
+	'needs no headers.',
 	**dict.fromkeys(
 		(
 			'window_size',
@@ -281,11 +285,10 @@ def _profile_id(profile: str) -> str:
 	return ids[0]
 
 
-def _ws_url(cdp_url: str, headers: dict[str, str] | None = None) -> str:
+def _ws_url(cdp_url: str) -> str:
 	if not cdp_url.startswith('http'):
 		return cdp_url
-	request = urllib.request.Request(f'{cdp_url.rstrip("/")}/json/version', headers=headers or {})
-	with urllib.request.urlopen(request, timeout=30) as r:
+	with urllib.request.urlopen(f'{cdp_url.rstrip("/")}/json/version', timeout=30) as r:
 		return json.load(r)['webSocketDebuggerUrl']
 
 
@@ -454,7 +457,6 @@ class Browser:
 		local: bool = False,
 		use_cloud: bool | None = None,
 		cdp_url: str | None = None,
-		headers: dict[str, str] | None = None,
 		keep_alive: bool = False,
 		cloud_profile_id: str | None = None,
 		cloud_proxy_country_code: str | None = US,
@@ -475,8 +477,6 @@ class Browser:
 		proxy off. cloud_timeout: minutes (1-240, default 60). live_view: print and open the interactive live view URL
 		(anyone with that link can drive the browser). captcha_solver=False: the cloud browser's automatic captcha solver
 		is off from the start. The cloud_* options, live_view and captcha_solver=False raise on a local browser.
-		headers (cdp_url only): sent on its connect request (/json/version and the WebSocket handshake), as in 0.x, for
-		endpoints that authenticate it (e.g. AWS Bedrock AgentCore SigV4).
 		allowed_domains / prohibited_domains (0.x patterns: 'example.com', '*.example.com', 'https://example.com') and
 		block_ip_addresses limit where the browser navigates, in every mode (browser_use/domains.py; MIGRATING.md "Domain
 		restrictions" says what is and is not blocked)."""
@@ -530,7 +530,6 @@ class Browser:
 			('cloud_timeout', cloud_timeout is not None, self.kind == 'cloud'),
 			('live_view', live_view, self.kind == 'cloud'),
 			('captcha_solver', captcha_solver is False, self.kind == 'cloud'),
-			('headers', headers, self.kind == 'cdp'),
 		):
 			if value and not ok:
 				fix = {
@@ -541,7 +540,6 @@ class Browser:
 					'cloud_timeout': 'the timeout is for Browser() (a cloud browser)',
 					'live_view': 'live view is for Browser() (a cloud browser)',
 					'captcha_solver': 'only Browser() (a cloud browser) has a captcha solver to turn off',
-					'headers': 'headers authenticate the cdp_url connection: Browser(cdp_url=..., headers=...)',
 				}.get(option, "Browser('chromium', ...) launches a local browser with it")
 				raise ValueError(f'{where} does not take {option}=: {fix}')
 		if user_data_dir and _local.is_default_user_data_dir(user_data_dir):
@@ -551,7 +549,7 @@ class Browser:
 				"Browser('chrome') to attach to the open Chrome, or another dir."
 			)
 		self.local = self.kind in ('chromium', 'chrome')
-		self.cdp_url, self.headers = cdp_url, headers
+		self.cdp_url = cdp_url
 		self.use_cloud = self.kind == 'cloud'
 		self.chrome_profile, self.headless, self.user_data_dir = profile, headless, user_data_dir
 		self.executable_path = executable_path
@@ -735,7 +733,7 @@ class Browser:
 		_LIVE.add(self)
 		try:
 			if self.cdp_url:
-				ws = await asyncio.to_thread(_ws_url, self.cdp_url, self.headers)
+				ws = await asyncio.to_thread(_ws_url, self.cdp_url)
 			elif self.use_cloud:
 				ws = await self._start_cloud()
 			else:  # 'chromium', or 'chrome' with a profile: a browser of our own
@@ -750,8 +748,6 @@ class Browser:
 			# BU_BROWSER_ID: the daemon knows the cloud browser is its own, so it attaches to its visible tab (a background
 			# tab is hidden, and a cloud browser never answers a hidden tab's screenshot) and stops it when it shuts down.
 			self._daemon_env = {'BU_CDP_WS': ws, 'BH_TAB_MARKER': '0', **({'BU_BROWSER_ID': self.id} if self.id else {})}
-			if self.headers:  # the daemon's handshake; only its env, never the REPL worker's
-				self._daemon_env['BU_CDP_HEADERS'] = json.dumps(self.headers)
 			await asyncio.to_thread(self._ensure_daemon)
 			# this process dying uncleanly (SIGKILL, OOM) left the daemon, and Chrome or a cloud browser billing until its timeout
 			from browser_harness import _ipc as ipc
@@ -763,7 +759,7 @@ class Browser:
 			else:
 				self._watchdog = _local.start_watchdog(0, '', self.name, daemon_pid, self.id if self.use_cloud else '')
 			if self.domains:
-				self._guard = Guard(ws, self.domains, self.headers)
+				self._guard = Guard(ws, self.domains)
 				await asyncio.to_thread(self._guard.start)
 			if self.use_cloud and not self.captcha_solver:
 				await asyncio.to_thread(_daemon_cdp, self.name, 'BrowserUse.setCaptchaSolverEnabled', enabled=False)
@@ -909,7 +905,11 @@ class Browser:
 		browser_id = self.id
 		try:
 			ending = self.name and (self.use_cloud or self._local is not None)  # a browser this stop ends
-			completed = await self._finish_downloads() if ending else 0
+			# no wait when cancelled (task.cancel(), Ctrl-C: the stop must be prompt, a cloud browser bills) or when the
+			# Chrome this Browser launched died (its downloads never send progress again)
+			cancelled = (task := asyncio.current_task()) is not None and task.cancelling() > 0
+			dead = self._local is not None and self._local.proc is not None and self._local.proc.poll() is not None
+			completed = await self._finish_downloads() if ending and not cancelled and not dead else 0
 			# before the stop too: the API may not list a stopped session's files. The cloud lists a download about a
 			# second after it completes: retry until it lists them all (a copy that keeps failing gives up after 30)
 			for _ in range(30 if downloads_dir and self.use_cloud else 0):

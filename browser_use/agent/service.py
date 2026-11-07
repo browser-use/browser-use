@@ -110,7 +110,7 @@ REMOVED = {  # 0.x Agent(...) and run() arguments -> the 1.0 alternative ('' whe
 	),
 }
 # REMOVED tuning knobs that cannot change what a run returns: warn and run (0.x scripts set them often), the rest raise.
-IGNORED = {
+IGNORED = {  # use_vision=False is kept (no screenshots reach the model); use_vision=True / 'auto' is ignored
 	'use_vision',
 	'vision_detail_level',
 	'llm_screenshot_size',
@@ -198,10 +198,12 @@ class Agent:
 		web_search: bool = False,
 		**kwargs: Any,
 	):
+		# 0.x use_vision=False: no screenshot reaches the model (privacy, cost, text-only models); kept, not ignored
+		self.use_vision = kwargs.get('use_vision') is not False
 		for name in [n for n in kwargs if n in IGNORED]:
 			hint = REMOVED[name]
-			logger.warning(f'Agent({name}=...) is ignored in browser-use 1.0' + (f': {hint}' if hint else '.'))
-			del kwargs[name]
+			if (name, kwargs.pop(name)) != ('use_vision', False):
+				logger.warning(f'Agent({name}=...) is ignored in browser-use 1.0' + (f': {hint}' if hint else '.'))
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent')
 		_check_task_arg(task)
@@ -409,7 +411,7 @@ class Agent:
 					after_cell=self.browser.after_cell if self.browser.domains else None,
 					search=self._search,
 				)
-			session = Session(repl=self._repl, timeout_s=timeout, max_steps=max_steps)
+			session = Session(repl=self._repl, timeout_s=timeout, max_steps=max_steps, vision=self.use_vision)
 			history, self._continue = (self._history if self._continue else None), False
 			result = await run(
 				self._agent,

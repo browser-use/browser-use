@@ -24,7 +24,8 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 
 ## Agent(...) arguments
 
-Kept: works as in 0.x. The 0.x tuning knobs 1.0 has no use for (`use_vision`, `vision_detail_level`,
+Kept: works as in 0.x. `use_vision=False` is kept: no screenshot reaches the model. The 0.x tuning knobs 1.0 has no
+use for (`use_vision=True` / `'auto'`, `vision_detail_level`,
 `llm_screenshot_size`, `max_actions_per_step`, `flash_mode`, `use_thinking`, `use_judge`, `max_failures`,
 `final_response_after_failure`, `calculate_cost`) log one warning each and are ignored. Every other 0.x argument raises
 `TypeError` naming it in `Agent(...)` itself (listed in [Removed in 1.0](#removed-in-10)); an argument 0.x never had says
@@ -75,7 +76,7 @@ it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=..
 | `Browser.from_system_chrome()`, `profile_directory` | `Browser('chrome')` attaches to the Chrome you have open (enable chrome://inspect/#remote-debugging once, click Allow). `Browser('chrome', profile='Work')` launches a new Chrome on a temporary copy of that profile (display name or directory such as `'Profile 1'`): your logins, Chrome sync off, nothing is written back. Your Chrome can stay open (Windows: quit it first, Chrome locks its cookies there) |
 | `keep_alive=True` | kept |
 | `browser.close()`, `kill()`, `stop_session()` | `await browser.stop()`; `Agent.run()` stops it unless `keep_alive=True` |
-| `cdp_url`, `headers` | kept: `headers` go on the `cdp_url` connect request only (`/json/version` and the WebSocket handshake), as in 0.x, for endpoints that authenticate it (e.g. AWS Bedrock AgentCore SigV4). Signed headers expire: a daemon restarted after that needs a new `Browser` with fresh ones |
+| `cdp_url` | kept. `headers` (0.x: sent on the `cdp_url` connect request, e.g. for AWS Bedrock AgentCore SigV4) raises until the browser daemon can send them on the WebSocket handshake: use a `cdp_url` that needs no headers |
 | `cloud_profile_id`, `cloud_proxy_country_code`, `cloud_timeout` | kept |
 | `cloud_browser_params` | raises: use `cloud_profile_id`, `cloud_proxy_country_code`, `cloud_timeout` |
 
@@ -148,7 +149,7 @@ Each raises the one error above (the tuning knobs marked "ignored" warn instead;
 | history replay: `save_history()`, `load_and_rerun()`, `rerun_history()`, `detect_variables()`, `AgentHistoryList.save_to_file()` / `load_from_file()` | removed | `result.messages` holds the transcript; run the task again |
 | judge: `use_judge` (ignored), `judge_llm`, `ground_truth`, `AgentHistoryList.judgement()` / `is_judged()` / `is_validated()` | removed | `result.success`, the agent's own verdict |
 | `generate_gif`, `demo_mode` | removed | none (`live_view=True` shows a cloud browser live) |
-| planner and vision tuning: `use_vision` (ignored), `vision_detail_level` (ignored), `llm_screenshot_size` (ignored), `sample_images`, `enable_planning`, `planning_replan_on_stall`, `planning_exploration_limit`, `planner_llm`, `planner_interval`, `is_planner_reasoning`, `extend_planner_system_message`, `use_vision_for_planner`, `max_actions_per_step` (ignored), `flash_mode` (ignored) | removed | the agent takes screenshots when it needs them; each step is one Python cell; `mode='ultrafast'` |
+| planner and vision tuning: `use_vision=True` / `'auto'` (ignored; `False` is kept), `vision_detail_level` (ignored), `llm_screenshot_size` (ignored), `sample_images`, `enable_planning`, `planning_replan_on_stall`, `planning_exploration_limit`, `planner_llm`, `planner_interval`, `is_planner_reasoning`, `extend_planner_system_message`, `use_vision_for_planner`, `max_actions_per_step` (ignored), `flash_mode` (ignored) | removed | the agent takes screenshots when it needs them; each step is one Python cell; `mode='ultrafast'` |
 | other 0.x loop tuning: `loop_detection_window`, `loop_detection_enabled`, `message_compaction`, `max_history_items`, `include_attributes`, `max_clickable_elements_length`, `include_recent_events`, `include_tool_call_examples`, `display_files_in_done_text`, `injected_agent_state`, `source`, `task_id`, `enable_signal_handler`, `_url_shortening_limit`, `max_failures` (ignored), `final_response_after_failure` (ignored) | removed | failed cells are retried by the model within `max_steps` |
 | `use_thinking` | ignored | `reasoning='low' / 'medium' / 'high'` |
 | `override_system_message` | removed | `extend_system_message` |

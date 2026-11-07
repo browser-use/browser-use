@@ -270,3 +270,10 @@ async def test_missing_search_endpoint_fails_before_the_browser_starts(endpoint,
 	with pytest.raises(RuntimeError, match='browser started'):
 		await agent.run()
 	assert len(started) == 1
+	# review: a transient outage (429/5xx) failed every web_search run; now the run starts and search() reports it
+	for status in (429, 503):
+		endpoint.reply = (status, b'busy', 0)
+		agent._preflighted = False
+		with pytest.raises(RuntimeError, match='browser started'):
+			await agent.run()
+	assert len(started) == 3

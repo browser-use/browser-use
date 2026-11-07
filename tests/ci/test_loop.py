@@ -124,6 +124,16 @@ async def test_only_last_two_screenshot_results_keep_images(daemon, tmp_path):
 	assert '[older screenshot removed]' in returns[0].content
 
 
+async def test_use_vision_false_sends_no_image(daemon, tmp_path):
+	"""Review: C17 ignored 0.x use_vision=False, so screenshots a user turned off for privacy, cost or a text-only model
+	reached the provider."""
+	shot = ('python', {'code': "new_tab('data:text/html,<h1>x</h1>')\nscreenshot()\n'shot'"})
+	result, seen = await go(daemon, tmp_path, [shot, ('finish', {'success': True, 'result': 'ok'})], vision=False)
+	part = next(p for p in seen[1].parts if isinstance(p, ToolReturnPart))
+	assert result.status == 'completed' and all(isinstance(c, str) for c in part.content)
+	assert 'use_vision=False' in part.content[0]
+
+
 async def test_parallel_python_calls_are_serialized(daemon, tmp_path):
 	# hard-high 0vgnxb/74rs7g/up8ijl: two python calls in one response crashed the run (readuntil race)
 	calls = [0]

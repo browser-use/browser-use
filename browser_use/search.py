@@ -98,16 +98,16 @@ class WebSearch:
 		return {**parsed, 'results': hits}
 
 	def preflight(self) -> str | None:
-		"""POST {} (free: no query, no search, no charge) before the browser starts. A missing endpoint (404) or a
-		rejected key (401) is the error line; 422 means it is there and the key works. Unreachable is None: each
-		search() call reports it."""
+		"""POST {} (free: no query, no search, no charge) before the browser starts. A missing endpoint (404), a
+		rejected key (401/403) or no budget (402) is the error line. Anything else (422: there and the key works; 429,
+		5xx, unreachable: maybe transient) is None: each search() call reports it, and the run goes on without search."""
 		headers = {'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'}
 		try:
 			urllib.request.urlopen(
 				urllib.request.Request(self.url, b'{}', headers, method='POST'), timeout=SEARCH_TIMEOUT_S
 			).close()
 		except urllib.error.HTTPError as e:
-			if e.code not in (400, 422):
+			if e.code in (401, 402, 403, 404):
 				detail = self._clean(e.read().decode('utf-8', 'replace')[:300].strip())
 				return f'Agent(web_search=True): Browser Use web search at {self.url} answered HTTP {e.code}: {detail}'
 		except OSError:

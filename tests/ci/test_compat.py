@@ -69,7 +69,8 @@ def test_0x_tuning_knobs_warn_and_construct(no_browser, caplog, monkeypatch):
 	with caplog.at_level('WARNING', logger='browser_use'):
 		Agent('t', script()[0], **knobs)
 	warnings = [r.getMessage() for r in caplog.records if 'is ignored in browser-use 1.0' in r.getMessage()]
-	assert [w.split('=')[0] for w in warnings] == [f'Agent({k}' for k in knobs]
+	assert [w.split('=')[0] for w in warnings] == [f'Agent({k}' for k in knobs if k != 'use_vision']  # False is kept
+	assert not Agent('t', script()[0], use_vision=False).use_vision and Agent('t', script()[0], use_vision='auto').use_vision
 	assert "Agent(use_thinking=...) is ignored in browser-use 1.0: reasoning='low' | 'medium' | 'high'." in warnings
 	with pytest.raises(TypeError, match=r'^Agent\(initial_actions=\.\.\.\)'):  # a real removed feature still raises
 		Agent('t', script()[0], use_vision=False, initial_actions=[])
@@ -264,6 +265,24 @@ def test_version_is_the_installed_package_version():
 	import browser_use
 
 	assert browser_use.__version__ == version('browser-use')
+
+
+def test_version_of_a_checkout_that_is_not_installed_is_unknown(monkeypatch):
+	"""Review: PackageNotFoundError (an ImportError) escaped __version__, so hasattr(browser_use, '__version__') raised."""
+	from importlib.metadata import PackageNotFoundError
+
+	import browser_use
+	from browser_use import utils
+
+	def missing(name):
+		raise PackageNotFoundError(name)
+
+	monkeypatch.setattr(utils, 'version', missing)
+	utils.get_browser_use_version.cache_clear()
+	try:
+		assert browser_use.__version__ == 'unknown' and hasattr(browser_use, '__version__')
+	finally:
+		utils.get_browser_use_version.cache_clear()
 
 
 def test_docs_say_the_default_workspace_is_kept():

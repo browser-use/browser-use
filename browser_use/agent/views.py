@@ -130,8 +130,9 @@ class AgentHistoryList:
 		return self.status == 'completed'
 
 	def is_successful(self) -> bool | None:
-		"""The agent's verdict: False when it finished but could not do the task; None when the run did not finish
-		(0.x semantics). is_done() only says the run completed."""
+		"""The agent's verdict: True / False from finish(..., success); None when there is no verdict: the run did not
+		finish, or the agent answered in plain text or gave no success (0.x done defaulted it to True). For the 0.x
+		default use `is_done() and success is not False`. is_done() only says the run completed."""
 		return self.success if self.status == 'completed' else None
 
 	def errors(self) -> list[str]:
