@@ -12,7 +12,10 @@ from browser_use.beta.service import _storage_state_value
 
 def test_non_utf8_storage_state_is_treated_as_absent(tmp_path):
 	path = tmp_path / 'state.json'
-	path.write_bytes(b'\xff\xfe\x00')
+	# Valid JSON that only decodes in a legacy single-byte encoding: a loader that uses
+	# the locale codec instead of UTF-8 reads it as text and hands back a value, so this
+	# fails before the fix on any host, not only where decoding raises.
+	path.write_bytes(b'{"value":"\x80"}')
 
 	assert _storage_state_value(str(path)) is None
 
