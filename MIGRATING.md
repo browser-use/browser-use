@@ -74,6 +74,7 @@ it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=..
 | `user_data_dir` | kept with `Browser('chromium', user_data_dir=...)`: a dedicated profile dir kept between runs. Chrome's own default dir raises: Chrome 136+ refuses remote debugging on it |
 | `Browser.from_system_chrome()`, `profile_directory` | `Browser('chrome')` attaches to the Chrome you have open (enable chrome://inspect/#remote-debugging once, click Allow). `Browser('chrome', profile='Work')` launches a new Chrome on a temporary copy of that profile (display name or directory such as `'Profile 1'`): your logins, Chrome sync off, nothing is written back. Your Chrome can stay open (Windows: quit it first, Chrome locks its cookies there) |
 | `keep_alive=True` | kept |
+| `browser.close()`, `kill()`, `stop_session()` | `await browser.stop()`; `Agent.run()` stops it unless `keep_alive=True` |
 | `cdp_url`, `headers` | kept: `headers` go on the `cdp_url` connect request only (`/json/version` and the WebSocket handshake), as in 0.x, for endpoints that authenticate it (e.g. AWS Bedrock AgentCore SigV4). Signed headers expire: a daemon restarted after that needs a new `Browser` with fresh ones |
 | `cloud_profile_id`, `cloud_proxy_country_code`, `cloud_timeout` | kept |
 | `cloud_browser_params` | raises: use `cloud_profile_id`, `cloud_proxy_country_code`, `cloud_timeout` |
@@ -104,7 +105,8 @@ Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` na
 Parallel agents (the 0.x `parallel_agents.py` pattern): give each its own `Browser()` or `Browser('chromium')`; each
 has its own browser and daemon. A second Agent's `run()` on a `Browser` another Agent is running on raises
 `RuntimeError`; one `Browser(keep_alive=True)` can serve several Agents one after another. `Browser('chrome')` is one at a time: every one in a process shares the
-browser-harness default daemon and its one attached tab, so two at once move each other's tab.
+browser-harness default daemon and its one attached tab, so two at once move each other's tab. A server (FastAPI) creates a `Browser()` per request, not one
+at module level.
 
 ## Models
 
@@ -142,7 +144,7 @@ Each raises the one error above (the tuning knobs marked "ignored" warn instead;
 | 0.x | Status | In 1.0 |
 |---|---|---|
 | step callbacks: `register_new_step_callback`, `register_done_callback`, `register_external_agent_status_raise_error_callback`, `register_should_stop_callback`, `run(on_step_start=...)`, `run(on_step_end=...)` | removed | live: each step logs one INFO line (`step N: <first line of the cell> -> <error>`) to `logging.getLogger('browser_use')`, after a `Task: ... (workspace ...)` line and before `completed in N steps`; add a `logging.Handler` to it to stream progress to an MCP client or web UI (`BROWSER_USE_LOGGING_LEVEL=warning` silences it). After the run: `result.messages`; the result `run()` returns; to stop early, cancel the task awaiting `run()` or pass `run(timeout=...)` |
-| `agent.pause()`, `resume()`, `stop()`, `step()`, `take_step()`, `multi_act()` | removed | cancel the task awaiting `run()`, or `run(timeout=..., max_steps=...)` |
+| `agent.pause()`, `resume()`, `stop()`, `step()`, `take_step()`, `multi_act()` | removed | `task = asyncio.create_task(agent.run())`, then `task.cancel()` (from another thread: `loop.call_soon_threadsafe(task.cancel)`); `run()` raises `CancelledError` and the browser stops. For a partial result, bound the run: `run(timeout=..., max_steps=...)` |
 | history replay: `save_history()`, `load_and_rerun()`, `rerun_history()`, `detect_variables()`, `AgentHistoryList.save_to_file()` / `load_from_file()` | removed | `result.messages` holds the transcript; run the task again |
 | judge: `use_judge` (ignored), `judge_llm`, `ground_truth`, `AgentHistoryList.judgement()` / `is_judged()` / `is_validated()` | removed | `result.success`, the agent's own verdict |
 | `generate_gif`, `demo_mode` | removed | none (`live_view=True` shows a cloud browser live) |

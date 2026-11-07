@@ -103,6 +103,14 @@ def test_removed_agent_methods_raise_one_error(method, no_browser):
 		agent.definitely_not_a_method
 
 
+def test_stop_error_gives_the_cancel_recipe(no_browser):
+	"""C56: agent.stop() / state.should_stop end ~13k 0.x runs a week; the error must show how to cancel, not just say so."""
+	agent = Agent('t', script()[0])
+	for attr in ('stop', 'pause', 'state'):
+		with pytest.raises(AttributeError, match=r'asyncio\.create_task\(agent\.run\(\)\).*call_soon_threadsafe\(task\.cancel\)'):
+			getattr(agent, attr)
+
+
 def test_short_or_list_shaped_sensitive_data_is_explained(no_browser, caplog):
 	"""M23 and a low: a short value warns (redacted only where it stands alone); a list of tuples gave a raw dict error."""
 	import logging

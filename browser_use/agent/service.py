@@ -43,7 +43,11 @@ _MESSAGES = 'result.messages holds the whole transcript after the run.'
 _LIVE = (
 	"each step logs one INFO line to logging.getLogger('browser_use'): add a logging.Handler to watch a run live. " + _MESSAGES
 )
-_CANCEL = 'cancel the task that awaits agent.run(), or pass run(timeout=seconds).'
+_CANCEL = (
+	'task = asyncio.create_task(agent.run()), later task.cancel() (from another thread: '
+	'loop.call_soon_threadsafe(task.cancel)). run() then raises CancelledError and the browser stops. '
+	'For a partial result instead, bound the run: run(timeout=seconds, max_steps=n).'
+)
 REMOVED = {  # 0.x Agent(...) and run() arguments -> the 1.0 alternative ('' when there is none). MIGRATING.md lists them.
 	'use_vision': _SCREENSHOTS,
 	'vision_detail_level': _SCREENSHOTS,
@@ -119,7 +123,7 @@ IGNORED = {
 	'calculate_cost',
 }
 REMOVED_ATTRS = {  # 0.x Agent attributes -> the 1.0 alternative
-	'state': 'the result agent.run() returns (status, steps, usage, errors()).',
+	'state': 'the result agent.run() returns (status, steps, usage, errors()). To stop a run (0.x state.should_stop): ' + _CANCEL,
 	'history': 'the result agent.run() returns.',
 	'message_manager': 'result.messages holds the whole transcript.',
 	'settings': 'the Agent(...) arguments are attributes (agent.task, agent.llm, agent.browser, ...).',
