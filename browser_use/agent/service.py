@@ -178,7 +178,9 @@ class Agent:
 	OpenAI-compatible chat backends (base_url servers) ignore it with a warning: pass ChatOpenAI(..., reasoning_effort=...)
 	to send reasoning_effort there. web_search: the agent gets search() (Browser Use web search, billed per search to the
 	Browser Use key). Off by default; True turns it on (raises without a Browser Use key, or with allowed_domains,
-	since search would reach sites the browser may not open)."""
+	since search would reach sites the browser may not open). max_context_chars: past 75% of this many characters of
+	conversation the agent compacts its history into a summary checkpoint (default 4 per token of the model's context
+	window, as Browser Use Pi; not used where the provider compacts server-side, as on OpenAI Responses and the gateway)."""
 
 	def __init__(
 		self,
@@ -196,6 +198,7 @@ class Agent:
 		mode: str | None = 'default',
 		workspace: str | Path | None = None,
 		web_search: bool = False,
+		max_context_chars: int | None = None,
 		**kwargs: Any,
 	):
 		# 0.x use_vision=False: no screenshot reaches the model (privacy, cost, text-only models); kept, not ignored
@@ -209,6 +212,8 @@ class Agent:
 		_check_task_arg(task)
 		if not isinstance(web_search, bool):
 			raise TypeError(f'web_search must be True or False, not {web_search!r}')
+		if max_context_chars is not None and (type(max_context_chars) is not int or max_context_chars < 1):
+			raise ValueError(f'max_context_chars must be a positive int or None, not {max_context_chars!r}')
 		if llm is None and os.environ.get('DEFAULT_LLM'):  # 0.x read it; 1.0 runs (and bills) bu-fast instead
 			logger.warning(
 				'DEFAULT_LLM is set but browser-use 1.0 does not read it: this run uses bu-fast. Pass llm=... instead.'
@@ -246,7 +251,7 @@ class Agent:
 			) from e
 		self.sensitive_data = dict(sensitive_data or {})
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
-		self.web_search = web_search
+		self.web_search, self.max_context_chars = web_search, max_context_chars
 		self._search: WebSearch | None = None  # set by _build when search() is on
 		self._workspace = Path(workspace).resolve() if workspace else None  # default: made on first use (workspace)
 		self._agent: Any = None
@@ -328,6 +333,7 @@ class Agent:
 					],
 				)
 			),
+			max_context_chars=self.max_context_chars,
 			mode=self.mode,
 			tools=self.tools.functions if self.tools else (),
 			model_settings=settings,

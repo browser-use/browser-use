@@ -96,9 +96,42 @@ async def test_compacts_past_the_threshold_keeping_tool_pairs_and_user_messages(
 
 async def test_compacts_past_bu_pi_character_budget_without_a_token_trigger(tmp_path):
 	fn, agent_requests, summarizer_requests = scripted(big=set())  # usage stays at 100 tokens; no context window
-	result = await go(tmp_path, fn, pad=70_000)  # 3 tool results pass 0.75 * 240k characters: every request from the 4th
+	result = await go(tmp_path, fn, pad=70_000)  # unknown window: 240k; 3 tool results pass 0.75 of it from the 4th request
 	assert result.status == 'completed' and result.output == 'done', result.error
 	assert [checkpoint_text(r) is not None for r in agent_requests] == [False] * 3 + [True] * 3
+
+
+@pytest.mark.parametrize('kw', [{'window': 1_000_000}, {'max_context_chars': 1_000_000}])
+async def test_character_budget_is_bu_pi_default_or_the_agent_setting(tmp_path, kw):
+	"""matrix 1107: a fixed 240k budget compacted at 180k characters, 3-6x earlier than bu-pi (4 per token of the window,
+	800k in the eval). The same 210k characters as above stay whole under the window default or max_context_chars."""
+	fn, agent_requests, summarizer_requests = scripted(big=set())
+	result = await go(tmp_path, fn, pad=70_000, **kw)
+	assert result.status == 'completed' and result.output == 'done', result.error
+	assert not summarizer_requests and not any(map(checkpoint_text, agent_requests))
+
+
+def test_size_counts_like_bu_pi_json_stringify():
+	"""Kimi bub2-019 (adidas.jp) compacted every 8 steps: json.dumps escaped each Japanese character to 6 (\\uXXXX) and
+	put a space after every ':' and ','. JSON.stringify does neither."""
+	from browser_use.agent.loop import _chars
+
+	text = 'アディダス' * 1000
+	frame = '[{"kind":"request","parts":[{"part_kind":"user-prompt","content":""}]}]'
+	assert _chars([ModelRequest(parts=[UserPromptPart(text)])]) == len(frame) + len(text)
+
+
+def test_agent_passes_max_context_chars_to_compaction():
+	from browser_use import Agent, Browser
+	from browser_use.agent.loop import Compaction
+
+	agent = Agent(
+		'task', FunctionModel(lambda m, i: ModelResponse(parts=[])), browser=Browser(local=True), max_context_chars=800_000
+	)
+	agent._build()
+	assert any(isinstance(c, Compaction) and c.max_chars == 800_000 for c in agent._agent._root_capability.capabilities)
+	with pytest.raises(ValueError, match='max_context_chars'):
+		Agent('task', max_context_chars=0)
 
 
 async def test_archive_is_written_redacted_and_without_images(tmp_path):

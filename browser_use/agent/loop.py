@@ -364,21 +364,23 @@ CHECKPOINT = (  # bu-pi src/context.ts, verbatim except Python for JavaScript
 
 @dataclass
 class Compaction(AbstractCapability[Session]):
-	"""bu-pi's RunContext (src/context.ts) for models without server-side compaction. Past 75% of 240k content characters
-	(conversation + system prompt) or 65% of the context window in tokens, everything before the last two assistant/tool
-	groups is sent as one checkpoint message: a summary by the same model at low effort, a redacted evidence archive, the
-	user messages verbatim. Only the request is projected; the transcript stays whole (usage, follow-ups). A failure keeps
-	the full history and is not retried. token_threshold: an extra token trigger (tests)."""
+	"""bu-pi's RunContext (src/context.ts) for models without server-side compaction. Past 75% of max_chars content
+	characters (conversation + system prompt) or 65% of the context window in tokens, everything before the last two
+	assistant/tool groups is sent as one checkpoint message: a summary by the same model at low effort, a redacted evidence
+	archive, the user messages verbatim. Only the request is projected; the transcript stays whole (usage, follow-ups). A
+	failure keeps the full history and is not retried. max_chars: bu-pi maxContextChars, default 4 characters per token of
+	the context window (bu-pi), 240k when the window is unknown. token_threshold: an extra token trigger (tests)."""
 
 	token_threshold: int | None = None
-	max_chars: int = 240_000  # bu-pi maxContextChars
+	max_chars: int | None = None
 
 	async def before_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
 		s, messages, window = ctx.deps, request_context.messages, request_context.model.context_window
 		system = sum(len(p.content) for p in request_context.model_request_parameters.instruction_parts or [])
 		tokens = _tokens(s, messages, system)
+		max_chars = self.max_chars or (window * 4 if window else 240_000)
 		due = (
-			_chars(_projected(s, messages)) + system > 0.75 * self.max_chars
+			_chars(_projected(s, messages)) + system > 0.75 * max_chars
 			or (window and tokens > 0.65 * window)
 			or (self.token_threshold is not None and tokens >= self.token_threshold)
 		)
@@ -424,8 +426,8 @@ def _plain(messages: list[ModelMessage]) -> Any:
 	)
 
 
-def _chars(messages: list[ModelMessage]) -> int:
-	return len(json.dumps(_plain(messages)))
+def _chars(messages: list[ModelMessage]) -> int:  # as bu-pi's JSON.stringify: no spaces, a CJK character counts 1, not 6
+	return len(json.dumps(_plain(messages), ensure_ascii=False, separators=(',', ':')))
 
 
 def _tokens(s: Session, messages: list[ModelMessage], system: int) -> int:
@@ -566,13 +568,15 @@ def build_agent(
 	reasoning_effort: str | None = 'medium',
 	instructions: str = '',
 	compact_at_tokens: int | None = None,
+	max_context_chars: int | None = None,
 	mode: str | None = 'default',
 	tools: Sequence[Any] = (),
 	model_settings: dict | None = None,
 ) -> Agent[Session, Any]:
 	"""mode='ultrafast' appends AX_PROMPT (the `bu` helpers) to the system prompt; the Repl needs the same mode.
 	tools: extra Pydantic AI tools (Tools().functions). model_settings: merged over the defaults. compact_at_tokens: the
-	server-side compaction threshold (default 150k); elsewhere an extra trigger next to bu-pi's. reasoning_effort=None
+	server-side compaction threshold (default 150k); elsewhere an extra trigger next to bu-pi's. max_context_chars: bu-pi's
+	character budget for client-side compaction (Compaction.max_chars; no effect with server-side compaction). reasoning_effort=None
 	sends no effort (the gateway then applies the alias's own: bu-fast medium, bu-ultrafast low, bu-smart high)."""
 	mode = check_mode(mode)
 	model = model_ref(model)
@@ -595,7 +599,7 @@ def build_agent(
 		# OpenAI's own reasoning models turn reasoning on by default on chat completions and then reject function tools
 		# (400 "use /v1/responses or set reasoning_effort to 'none'")
 		settings = {'openai_reasoning_effort': 'none'} if _openai_reasoning_on_chat(model) else {}
-		capabilities = [BrowserLoop(), Compaction(compact_at_tokens)]
+		capabilities = [BrowserLoop(), Compaction(compact_at_tokens, max_context_chars)]
 	else:  # other providers: unified thinking (dropped where the profile has none), the provider's own max_tokens
 		settings = {'thinking': reasoning_effort or 'medium'} if reasoning else {}
 		if model.startswith('anthropic:') if isinstance(model, str) else getattr(model, 'system', None) == 'anthropic':
@@ -605,7 +609,7 @@ def build_agent(
 			# a cache setting of the caller's own (on the model or in model_settings) is left alone.
 			if 'cache' not in {**(getattr(model, 'settings', None) or {}), **(model_settings or {})}:
 				settings['cache'] = True
-		capabilities = [BrowserLoop(), Compaction(compact_at_tokens)]
+		capabilities = [BrowserLoop(), Compaction(compact_at_tokens, max_context_chars)]
 	agent = Agent(
 		model,
 		deps_type=Session,
