@@ -95,6 +95,8 @@ class ChatBrowserUse:
 
 	def __init__(self, model: str = DEFAULT_MODEL, *, api_key: str | None = None, base_url: Any = GATEWAY_URL, **kwargs: Any):
 		_chat_kwargs('ChatBrowserUse', kwargs)
+		if isinstance(model, str) and LEGACY_MODEL.match(model):  # the 0.x gateway's models: the new one answers 404
+			raise ValueError(f"{model} needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast with browser-use 1.0.")
 		key = clean_api_key(api_key, 'ChatBrowserUse(api_key=...)', f'The model {model}') if api_key else None
 		self.model, self.api_key, self.base_url = model, key, str(base_url)
 

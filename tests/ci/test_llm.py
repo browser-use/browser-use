@@ -259,8 +259,12 @@ def test_preflight_checks_the_gateway_key_and_model_before_anything_starts(model
 	assert seen[0] == ('/v1/models', 'Bearer fake-test-key')
 	missing = ChatBrowserUse('bu-nonexistent-xyz', api_key='fake-test-key', base_url=url).preflight()
 	assert missing == 'bu-nonexistent-xyz is not on the Browser Use gateway. Listed: bu-auto, bu-fast, bu-ultrafast, gpt-6-luna.'
-	legacy = ChatBrowserUse('bu-2-0', api_key='fake-test-key', base_url=url).preflight()
-	assert legacy and "needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast" in legacy
+	for legacy in ('bu-2-0', 'bu-latest', 'bu-2-0-mini-preview'):  # M4: refused locally, the gateway 404s them
+		with pytest.raises(ValueError, match=r"needs browser-use<1\.0 \(pip install 'browser-use<1\.0'\), or use bu-fast"):
+			ChatBrowserUse(legacy, api_key='fake-test-key', base_url=url)
+		with pytest.raises(ValueError, match='needs browser-use<1.0'):
+			Agent('t', legacy)
+	assert not any(path for path, _ in seen[1:] if 'legacy' in path)
 	reply[:] = [404, '404 page not found', 'text/plain']  # the route itself is missing (Go's default 404)
 	dead = ChatBrowserUse(api_key='fake-test-key', base_url=url).preflight()
 	assert dead and f'gateway is not deployed at {url} (404)' in dead and 'region' not in dead  # H1: no region claim
@@ -300,7 +304,9 @@ def test_gateway_400s_are_one_line_with_the_gateway_message():
 	from pydantic_ai.exceptions import ModelHTTPError
 
 	legacy = {'code': 'legacy_model', 'message': 'This model requires browser-use<1.0. Use bu-auto with the new library.'}
-	line = ChatBrowserUse('bu-2-0', api_key='x').explain_error(ModelHTTPError(400, 'bu-2-0', legacy))
+	llm = ChatBrowserUse(api_key='x')
+	llm.model = 'bu-2-0'  # refused at construction (M4); the gateway's own legacy_model answer still reads the same
+	line = llm.explain_error(ModelHTTPError(400, 'bu-2-0', legacy))
 	assert line == "bu-2-0 needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast with browser-use 1.0."
 	for code in ('invalid_model', 'model_not_on_gateway'):
 		body = {'code': code, 'message': 'Use bu-auto, bu-ultrafast, bu-smart, or a listed OpenAI model.'}
