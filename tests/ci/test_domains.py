@@ -353,6 +353,58 @@ async def test_the_worker_records_the_tabs_it_creates(daemon, tmp_path):
 	assert tabs.read_text().split() == r['output'].split()
 
 
+async def test_attach_mode_sweeps_existing_tabs_selected_within_one_cell(daemon, site, tmp_path, monkeypatch):
+	"""Switching from existing A to B must not lose A from the after-cell sweep, or touch unrelated user tab C."""
+	from functools import partial
+
+	from browser_use.browser.browser import _daemon_cdp
+
+	cdp = partial(_daemon_cdp, daemon['BU_NAME'])
+	urls = [site['allowed'] + '/', site['allowed'] + '/other', site['evil'] + '/user-tab']
+	a, b, yours = (cdp('Target.createTarget', url=url, background=True)['targetId'] for url in urls)
+	browser = Browser('chrome', allowed_domains=['allowed.localhost'])
+
+	async def attach():  # discover only the fixture daemon, never the developer's Chrome
+		return dict(daemon)
+
+	monkeypatch.setattr(browser, '_start', attach)
+	monkeypatch.setattr(browser, '_daemon_name', lambda: daemon['BU_NAME'])
+	repl = None
+	try:
+		env = await browser.start()
+		repl = Repl(tmp_path, env, after_cell=browser.after_cell)
+		r = await repl.call(
+			'exec',
+			f"""
+switch_tab({a!r})
+wait_for_load()
+click_at_xy(*js("(() => {{const r = document.getElementById('link').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]}})()"))
+import time
+deadline = time.monotonic() + 5
+while current_tab()['url'] != {site['evil'] + '/clicked'!r} and time.monotonic() < deadline:
+    time.sleep(0.01)
+assert current_tab()['url'] == {site['evil'] + '/clicked'!r}
+switch_tab({b!r})
+""",
+			30,
+		)
+		assert r['error'] is None, r['error']
+		assert r['stats']['events'].get('domain_blocked') == 1, r
+		for _ in range(100):
+			actual = {t['targetId']: t['url'] for t in cdp('Target.getTargets')['targetInfos']}
+			if actual[a] == 'about:blank':
+				break
+			await asyncio.sleep(0.01)
+		assert actual[a] == 'about:blank'
+		assert actual[b] == urls[1] and actual[yours] == urls[2]
+	finally:
+		if repl:
+			await repl.close()
+		await browser.stop()
+		for target in (a, b, yours):
+			cdp('Target.closeTarget', targetId=target)
+
+
 async def test_the_kept_tabs_are_taken_once_per_browser(monkeypatch):
 	"""Browser('chrome') runs _start() on every start() (each run, each reattach): a tab the agent left on a disallowed
 	page (a late redirect after its last cell) must not become exempt in the next run."""

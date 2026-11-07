@@ -303,6 +303,15 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	os.environ.clear()  # whatever those added (DATABASE_URL, ...) does not survive
 	os.environ.update(env)
 
+	tabs_file = os.environ.get('BU_TABS_FILE')  # Browser('chrome') with domain restrictions
+	recorded_tabs: set[str] = set()
+
+	def record_tab(target_id: str | None) -> None:
+		if tabs_file and target_id and target_id not in recorded_tabs:
+			with contextlib.suppress(OSError), open(tabs_file, 'a') as f:
+				f.write(f'{target_id}\n')
+				recorded_tabs.add(target_id)
+
 	raw_send = helpers._send
 
 	def send(req, *args, **kwargs):  # every drain_events() read, also bu's background one, feeds the event counts
@@ -320,6 +329,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			if BROWSER_GONE.search(str(e)):
 				raise BrowserConnectionLost('the browser ended (crashed, stopped, or a cloud browser hit its timeout)') from None
 			raise
+		if req.get('meta') == 'set_session':  # a selected tab may be left again within the same cell
+			record_tab(req.get('target_id'))
 		if isinstance(req, dict) and req.get('meta') == 'drain_events' and isinstance(r, dict):
 			stats.observe(r.get('events'))
 		return r
@@ -328,7 +339,6 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	raw_cdp = helpers.cdp
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
 	rules = DomainRules.from_json(os.environ.get('BU_DOMAINS'))
-	tabs_file = os.environ.get('BU_TABS_FILE')  # Browser('chrome') with domain restrictions
 
 	def check_url(url) -> None:
 		"""Browser(allowed_domains=...): refuse a disallowed URL before anything navigates (Browser.domains)."""
@@ -375,9 +385,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			# browser-harness defaults to 5s IPC; heavy cloud pages (Maps, TripAdvisor) blew it on navigate/evaluate/input.
 			params.setdefault('_response_timeout', CDP_TIMEOUT_S)
 			result = raw_cdp(method, session_id, **params)
-			if method == 'Target.createTarget' and tabs_file and isinstance(result, dict) and result.get('targetId'):
-				with contextlib.suppress(OSError), open(tabs_file, 'a') as f:  # Browser._touched_tabs: the agent's tabs
-					f.write(f'{result["targetId"]}\n')
+			if method == 'Target.createTarget' and isinstance(result, dict):
+				record_tab(result.get('targetId'))
 			return result
 		result = capture(raw_cdp, helpers.current_tab, session_id, activate=cloud, **params)
 		# Every screenshot the agent takes is shown to the model as a native image.

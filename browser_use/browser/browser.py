@@ -584,8 +584,8 @@ class Browser:
 		# it alone while it still shows that URL. Taken once: a follow-up run or a reattach must not exempt a tab the
 		# agent left on a disallowed page.
 		self._user_tabs: dict[str, str] | None = None
-		# Browser('chrome') with domain restrictions: the tabs the agent created (the worker appends their ids to
-		# _tabs_file), was attached to at the end of a cell, or opened popups from. The sweep touches only these.
+		# Browser('chrome') with domain restrictions: the tabs the agent created or selected (the worker appends their
+		# ids to _tabs_file), was attached to at the end of a cell, or opened popups from. The sweep touches only these.
 		self._agent_tabs: set[str] = set()
 		self._tabs_file: str | None = None
 		self._user: object | None = None  # the Agent whose run() uses this Browser now (one at a time)
