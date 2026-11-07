@@ -381,6 +381,7 @@ class Agent:
 					if error := await asyncio.to_thread(lambda: check() or (search and search.preflight())):
 						error = redact(error, self.sensitive_data)  # a provider's message can quote what it was sent
 						logger.error(error)
+						error_type = 'PreflightError'
 						usage = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
 						duration = time.monotonic() - started
 						result = AgentHistoryList('error', '', None, 0, duration, usage, 0.0, None, error, [], None)

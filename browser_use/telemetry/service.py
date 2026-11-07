@@ -84,7 +84,7 @@ class ProductTelemetry:
 
 			logger.info(
 				'Using anonymized telemetry (no task text, results or page content; ANONYMIZED_TELEMETRY=false turns it off), '
-				'see https://docs.browser-use.com/development/monitoring/telemetry.'
+				'see https://github.com/browser-use/browser-use/blob/main/TELEMETRY.md'
 			)
 			self._posthog_client = Posthog(
 				project_api_key=self.PROJECT_API_KEY,

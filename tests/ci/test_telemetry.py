@@ -130,6 +130,16 @@ async def test_failed_run_sends_the_error_class_not_its_message(sent, tmp_path, 
 	)
 
 
+async def test_a_rejected_key_sends_preflight_error_not_none(sent, tmp_path, monkeypatch):
+	"""C55: a key or model check that failed before the browser started was sent as error_type=None."""
+	secret = 'sk-rejected-Zq9'
+	monkeypatch.setattr('browser_use.agent.service.provider_preflight', lambda model: f'rejected the API key: {secret}')
+	result = await Agent('t', script()[0], browser=Browser(local=True), workspace=tmp_path).run()
+	(props,) = sent
+	assert result.status == 'error' and (props['status'], props['error_type']) == ('error', 'PreflightError')
+	assert_absent(props, secret, 'rejected')
+
+
 async def test_ultrafast_counts_the_agents_bu_calls_not_the_workers_state_print(daemon, tmp_path):
 	repl = Repl(tmp_path, daemon, mode='ultrafast')
 	try:
