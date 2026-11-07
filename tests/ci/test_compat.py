@@ -183,6 +183,27 @@ def test_tools_domain_filters_and_reserved_names_raise():
 			return result
 
 
+def test_tool_names_providers_reject_raise_at_registration():
+	"""M12: a lambda ('<lambda>') registered fine and the provider 400ed the first request. Low: @tools.action without
+	parentheses silently registered nothing."""
+	tools = Tools()
+	with pytest.raises(ValueError, match='not a valid tool name'):
+		tools.action('x')(lambda q: q)
+	with pytest.raises(ValueError, match='not a valid tool name'):
+
+		@tools.action('x')
+		def a_name_much_longer_than_the_sixty_four_characters_that_providers_accept_for_tools(q: str) -> str:
+			return q
+
+	with pytest.raises(TypeError, match='with parentheses'):
+
+		@tools.action
+		def nop(x: int) -> int:
+			return x
+
+	assert tools.functions == []
+
+
 async def test_custom_action_is_a_model_tool(tmp_path):
 	tools = Tools()
 

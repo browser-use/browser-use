@@ -12,6 +12,7 @@ Agent(task, tools=tools)
 from __future__ import annotations
 
 import inspect
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -21,6 +22,7 @@ from pydantic_ai import Tool
 from browser_use.exceptions import removed
 
 RESERVED = {'python', 'finish', 'finish_from_repl'}
+TOOL_NAME = re.compile(r'[a-zA-Z0-9_-]{1,64}')  # what OpenAI, Anthropic and Google accept
 # 0.x injected these into actions. 1.0 actions get only what the model passes; the model drives the browser in Python.
 INJECTED = {
 	'browser_session',
@@ -63,6 +65,8 @@ class Tools:
 		allowed_domains: list[str] | None = None,
 		**kwargs: Any,
 	) -> Callable[[Callable], Callable]:
+		if callable(description):  # @tools.action without parentheses registered nothing
+			raise TypeError("Use @tools.action('what the action does') with parentheses; @tools.action alone registers nothing")
 		if domains or allowed_domains:
 			name = 'domains' if domains else 'allowed_domains'
 			raise TypeError(
@@ -83,6 +87,11 @@ class Tools:
 				)
 			if fn.__name__ in RESERVED:
 				raise ValueError(f'@tools.action: {fn.__name__!r} is a built-in tool name; rename the function')
+			if not TOOL_NAME.fullmatch(fn.__name__):  # a lambda ('<lambda>') failed only at the provider, with a 400
+				raise ValueError(
+					f'@tools.action: {fn.__name__!r} is not a valid tool name (letters, digits, _ and -, at most 64); use a '
+					'named function'
+				)
 			if param_model is not None and params:  # 0.x: def action(params, ...) with param_model=Model; it wins
 				fn.__annotations__[params[0]] = param_model
 			self.functions.append(Tool(fn, takes_ctx=False, name=fn.__name__, description=description or None))
