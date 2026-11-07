@@ -192,7 +192,7 @@ def install(namespace: dict[str, Any]) -> None:
 		return start(name, profileName, create_kwargs, namespace)
 
 	start_remote_daemon.__doc__ = admin.start_remote_daemon.__doc__
-	cloud_upload, checked_upload = remote_upload(helpers.js), local_upload(helpers.upload_file)
+	cloud_upload, checked_upload = remote_upload(helpers.js), local_upload(helpers.cdp)
 
 	def upload_file(selector, path):
 		"""Set local file(s) on a file input; on a cloud browser the bytes go through the page (10MB each max)."""

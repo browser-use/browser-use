@@ -556,7 +556,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		secret_names=secret_names,
 		solve_captcha=captcha.solve,
 	)
-	ns['upload_file'] = remote_upload(ns['js']) if cloud else local_upload(helpers.upload_file)
+	ns['upload_file'] = remote_upload(ns['js']) if cloud else local_upload(helpers.cdp)
 	bu = None
 	if os.environ.get('BU_MODE') != 'ultrafast':
 		# One reader of the daemon's events, so solver events are never lost; wait_for_network_idle() reads through it.

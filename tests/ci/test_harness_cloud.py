@@ -127,17 +127,11 @@ def test_mcp_never_stops_or_drives_a_cloud_browser_another_server_started(fake_c
 	assert fake_cloud == [other, mcp._remote] and not admin.daemon_alive(mcp._remote), out
 
 
-def test_cloud_upload_sends_the_files_bytes_not_a_local_path(fake_cloud, monkeypatch, tmp_path):
+def test_cloud_upload_sends_the_files_bytes_not_a_local_path(fake_cloud, tmp_path):
 	"""Astra r1-2: the CLI and MCP namespaces kept browser-harness's upload_file, which hands the browser a path on this
-	machine; a cloud browser's host has no such file."""
-	from browser_harness import helpers
-
+	machine; a cloud browser's host has no such file. The local path returns None; the bytes path returns the count."""
 	from browser_use.mcp import cli_mcp
 
-	def upload_by_local_path(selector, path):
-		raise AssertionError(f'sent the local path {path} to a cloud browser')
-
-	monkeypatch.setattr(helpers, 'upload_file', upload_by_local_path)
 	mcp = cli_mcp.CLIMCPServer()
 	mcp._execute(f'start_remote_daemon({_name("upload")!r})')[0]
 	(tmp_path / 'cv.txt').write_text('hello cloud')

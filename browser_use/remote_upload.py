@@ -24,13 +24,26 @@ def local_paths(path) -> list[str]:
 	return out
 
 
-def local_upload(upload):
-	"""browser-harness upload_file for a local browser, with every path checked and made absolute first."""
+def find(selector) -> str:
+	"""JS for the first match of selector in the page, its open shadow roots and same-origin frames."""
+	return f"""(() => {{
+		const q = r => {{ let el = r.querySelector({json.dumps(selector)});
+			for (const e of r.querySelectorAll('*')) el ||= (e.shadowRoot && q(e.shadowRoot)) || (e.contentDocument && q(e.contentDocument));
+			return el; }};
+		return q(document);
+	}})()"""
+
+
+def local_upload(cdp):
+	"""upload_file for a local browser, with every path checked and made absolute first."""
 
 	def upload_file(selector, path):
 		"""Set local file(s) on a file input. path: a file path or a list of them (relative to the working directory)."""
 		paths = local_paths(path)
-		return upload(selector, paths[0] if isinstance(path, (str, os.PathLike)) else paths)
+		el = cdp('Runtime.evaluate', expression=find(selector))['result']
+		if 'objectId' not in el:
+			raise RuntimeError(f'no element for {selector}')
+		cdp('DOM.setFileInputFiles', objectId=el['objectId'], files=paths)
 
 	return upload_file
 
@@ -61,7 +74,7 @@ def remote_upload(js):
 				list(pool.map(lambda part: put(*part), parts))
 			meta = json.dumps([[name, mime] for name, mime, _ in files])
 			n = js(f"""(() => {{
-				const el = document.querySelector({json.dumps(selector)});
+				const el = {find(selector)};
 				if (!el) return -1;
 				const dt = new DataTransfer();
 				{meta}.forEach(([name, type], i) => dt.items.add(new File({buf}[i], name, {{type}})));

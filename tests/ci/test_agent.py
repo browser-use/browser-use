@@ -713,3 +713,28 @@ def test_localhost_task_with_a_cloud_browser_warns_instead_of_refusing(monkeypat
 	with caplog.at_level('WARNING', logger='browser_use.agent.service'):
 		agent._check_task()
 	assert "'localhost'" in caplog.text and "Browser('chromium')" in caplog.text
+
+
+@pytest.mark.parametrize('remote', [False, True])
+async def test_upload_reaches_inputs_in_frames_and_shadow_roots(chrome, tmp_path, remote):
+	"""C28: upload_file searched only the top document, so an uploader in a same-origin iframe or an open shadow root
+	raised 'no element for ...' and the agent hand-wrote DataTransfer js for 3-6 steps."""
+	browser = Browser(cdp_url=chrome['http'])
+	repl = Repl(tmp_path, {**await browser.start(), **({'BU_REMOTE_BROWSER': '1'} if remote else {})})
+	page = (
+		'<iframe id=fr srcdoc="<input type=file id=f onchange=top.changed=1>"></iframe><div id=h></div><script>'
+		'document.getElementById(`h`).attachShadow({mode:`open`}).innerHTML=`<input type=file id=s>`</script>'
+	)
+	try:
+		(tmp_path / 'cv.txt').write_text('hello')
+		r = await repl.call(
+			'exec',
+			f'new_tab({"data:text/html," + page!r}); wait_for_load(); upload_file("#f", "cv.txt"); upload_file("#s", "cv.txt")\n'
+			"print(js(\"[fr.contentDocument.getElementById('f').files[0].size, window.changed, "
+			"h.shadowRoot.getElementById('s').files[0].name].join()\"))",
+			60,
+		)
+		assert r['error'] is None and '5,1,cv.txt' in r['output'], r
+	finally:
+		await repl.close()
+		await browser.stop()
