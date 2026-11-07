@@ -46,6 +46,9 @@ PAGES = {
 <script>document.getElementById('host').attachShadow({mode: 'open'}).innerHTML = '<button>Shadow button</button>'</script>
 <iframe src="/inner" style="border:0;padding:10px"></iframe>
 <label class=up>Upload CV<input type=file name=cv style="display:none"></label>""",
+	# Brooklinen: the search field says aria-disabled but takes focus and typing.
+	'/aria': """<title>Aria</title><form action="/next"><input aria-label="Search" name=q aria-disabled=true></form>""",
+	'/hidden': '<title>Hidden</title><main aria-hidden=true><button>Behind popup</button></main>',
 	'/inner': """<title>Inner</title><button onclick="this.textContent = 'Inner done'">Inner button</button>""",
 	# A lone surrogate, as left by text cut in the middle of an emoji.
 	'/emoji': r"""<title>Emoji</title><input aria-label="Note">
@@ -269,11 +272,24 @@ async def test_type_refuses_disabled_inert_and_hidden_native_controls(repl, site
 	)
 	await cell(repl, byid)
 	for i, value, why in [('a', 'B', 'disabled'), ('b', '2026-10-14', 'disabled'), ('c', 'B', 'disabled'),
-						  ('d', 'B', 'hidden'), ('e', '10:30', 'disabled')]:  # fmt: skip
+						  ('d', 'B', 'hidden')]:  # fmt: skip
 		out, err = await cell(repl, f"bu.type(byid('{i}'), '{value}')")
 		assert err and f'Target {why}' in err, (i, err)
+	out, err = await cell(repl, "bu.type(byid('e'), '10:30')")  # aria-disabled is a claim, not enforced: like Chrome
+	assert err is None, err
 	out, err = await cell(repl, "print([js(f\"document.getElementById('{i}').value\") for i in 'abcde'])")
-	assert out.splitlines()[0] == "['A', '', 'A', 'A', '']", out
+	assert out.splitlines()[0] == "['A', '', 'A', 'A', '10:30']", out
+
+
+async def test_aria_disabled_field_is_typable_and_empty_state_says_why(repl, site):
+	"""C35: Brooklinen's search had aria-disabled=true yet accepted typing; ultrafast printed it disabled and refused it,
+	so the model gave up. An aria-hidden page (cross-origin popup) printed an empty state with no hint."""
+	out, err = await cell(repl, f"new_tab('{site}/aria'); bu.state()" + IDOF)
+	assert err is None and re.search(r'^\[\d+\] textbox "Search"$', out, re.M), out
+	out, err = await cell(repl, "bu.type(idof('Search'), 'pillowcase', enter=True)")
+	assert err is None and f'navigated to {site}/next?q=pillowcase' in out, (out, err)
+	out, err = await cell(repl, f"goto_url('{site}/hidden'); bu.state()")
+	assert err is None and out.splitlines()[1].startswith('(nothing in the accessibility tree:'), out
 
 
 async def test_no_change_and_failures(repl, site):

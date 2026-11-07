@@ -163,7 +163,7 @@ VISIBLE_JS = r"""() => {
 POINT_JS = r"""function(editableCover) {
   const e = this.nodeType === Node.ELEMENT_NODE ? this : this.parentElement;
   if (!e || !e.isConnected) throw Error('Target detached');
-  if (e.matches(':disabled') || e.closest('[inert],[aria-disabled="true"]')) throw Error('Target disabled');
+  if (e.matches(':disabled') || e.closest('[inert]')) throw Error('Target disabled');
   if (e.matches('input[type=file]')) throw Error("File input: clicking opens the OS file chooser; upload with DOM.setFileInputFiles instead");
   if (!e.checkVisibility({checkOpacity:true, checkVisibilityCSS:true})) throw Error('Target hidden');
   const r = e.getBoundingClientRect(), x = r.x + r.width/2, y = r.y + r.height/2;
@@ -185,7 +185,7 @@ POINT_JS = r"""function(editableCover) {
 # CSS-hidden only (no opacity check): custom-styled widgets often keep an opacity-0 native select underneath.
 KIND_JS = (
 	"function(){const e=this.nodeType===1?this:this.parentElement;if(!e||!e.isConnected)throw Error('Target detached');"
-	"if(e.matches(':disabled')||e.closest('[inert],[aria-disabled=\"true\"]'))throw Error('Target disabled');"
+	"if(e.matches(':disabled')||e.closest('[inert]'))throw Error('Target disabled');"
 	"if(!e.checkVisibility({checkVisibilityCSS:true}))throw Error('Target hidden');"
 	"return {tag:e.tagName,type:e.type||''};}"
 )
@@ -511,7 +511,10 @@ class AxHelpers:
 					for s in [
 						'' if checked is None else 'unchecked' if checked == 'false' else 'checked',
 						'' if expanded is None else 'expanded' if expanded else 'collapsed',
-						*(p if prop(n, p) else '' for p in ('selected', 'disabled', 'focused')),
+						'selected' if prop(n, 'selected') else '',
+						# Chrome flags aria-disabled too, but only native disabled stops input: those are never focusable.
+						'disabled' if prop(n, 'disabled') and not prop(n, 'focusable') else '',
+						'focused' if prop(n, 'focused') else '',
 					]
 					if s
 				]
@@ -587,7 +590,9 @@ class AxHelpers:
 					return i
 			return len(src)
 
-		body = lines
+		body = lines or [
+			'(nothing in the accessibility tree: the page is blank, or a popup, often in a cross-origin iframe, hides it; screenshot() to see it)'
+		]
 		# Over max, keep the top and the last fifth: a dialog's Done/Submit is usually its last line.
 		if fit(lines, max) < len(lines):
 			head = fit(lines, max * 0.8)
