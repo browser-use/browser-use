@@ -300,6 +300,8 @@ longer word or number; `Agent` warns about such values):
 - the task, follow-up tasks (`add_new_task`) and `extend_system_message`, before the model sees them
 - `result.final_result()`, `result.output` / `result.structured_output` (field by field), `result.partial`,
   `result.error`, and the error `Agent.run` logs. Telemetry never sends these texts at all (TELEMETRY.md)
+- `result.messages`: the model's text, thinking and tool-call arguments (a follow-up task continues the unredacted
+  transcript, since providers reject edited signed thinking; screenshots in it stay unredacted)
 
 Nothing else is redacted. This is not a sandbox:
 

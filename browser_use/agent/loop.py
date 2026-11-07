@@ -557,7 +557,20 @@ async def run(
 	steps = sum(isinstance(m, ModelResponse) for m in new)
 	duration = time.monotonic() - session.started
 	success = session.success if status == 'completed' else None
+	session.messages = messages  # a follow-up continues the raw transcript: providers reject edited signed thinking
+	forms = secret_forms(session.repl.secrets)
+	if forms:  # model text, thinking and tool-call args can quote a secret read off a screenshot
+		messages = [
+			replace(m, parts=[redact_part(p, forms) for p in m.parts]) if isinstance(m, ModelResponse) else m for m in messages
+		]
 	return AgentHistoryList(status, text, output, steps, duration, usage, cost, partial, error, messages, success)
+
+
+def redact_part(part: Any, forms: list[tuple[str, str]]) -> Any:
+	fields = ('content', 'args')  # TextPart/ThinkingPart content, ToolCallPart args (str or dict)
+	return replace(
+		part, **{k: redact_forms(getattr(part, k), forms) for k in fields if isinstance(getattr(part, k, None), (str, dict))}
+	)
 
 
 def thinking_and_text(m: ModelResponse) -> list[tuple[str, str]]:

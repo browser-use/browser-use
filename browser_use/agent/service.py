@@ -413,7 +413,7 @@ class Agent:
 				message_history=history,
 				explain_error=self._gateway.explain_error if self._gateway else None,
 			)
-			self._history = result.messages
+			self._history = session.messages  # raw: result.messages has secrets redacted
 			result.output_schema = self.output_model_schema
 			if result.status == 'error':
 				logger.error(result.error)

@@ -36,6 +36,37 @@ async def test_run_stops_browser_then_follow_up_restarts_it(chrome, tmp_path):
 	assert browser.name is None
 
 
+async def test_secret_the_model_quotes_is_redacted_in_result_messages_but_not_the_follow_up(chrome, tmp_path):
+	"""C43: the model read a secret off a screenshot and quoted it in thinking, text and finish args; every channel was
+	redacted except result.messages. The follow-up still gets the raw transcript: providers reject edited signed thinking."""
+	from pydantic_ai.messages import ModelResponse, TextPart, ThinkingPart, ToolCallPart
+	from pydantic_ai.models.function import FunctionModel
+
+	secret, seen = 'hunter2-Zq9', []
+
+	def fn(messages, info):
+		seen.append(messages)
+		if len(seen) == 1:
+			return ModelResponse(
+				parts=[
+					ThinkingPart(f'the screenshot shows {secret}', signature='sig'),
+					TextPart(f'Password is {secret}'),
+					ToolCallPart('finish', {'success': True, 'result': f'pw {secret}'}),
+				]
+			)
+		return ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': 'second'})])
+
+	agent = Agent('t', FunctionModel(fn), browser=Browser(cdp_url=chrome['http']), workspace=tmp_path,
+				  sensitive_data={'pw': secret})  # fmt: skip
+	first = await agent.run()
+	assert first.final_result() == 'pw <secret:pw>'
+	assert secret not in str(first.messages) and str(first.messages).count('<secret:pw>') == 3, first.messages
+	agent.add_new_task('again')
+	second = await agent.run()
+	assert second.final_result() == 'second' and secret not in str(second.messages)
+	assert f'the screenshot shows {secret}' in str(seen[1])  # the provider gets its own unedited parts back
+
+
 async def test_keep_alive_keeps_browser_and_repl_between_runs(chrome, tmp_path):
 	from browser_harness import admin
 
