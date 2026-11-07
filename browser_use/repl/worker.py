@@ -108,6 +108,7 @@ class CellStats:
 		# Browser('chrome') attaches to a tab the user had open: a page read is only counted once this worker navigated
 		self.navigated = False
 		self.downloads: set[str | None] = set()  # guids seen: one download_started per download, whichever events announce it
+		self.started: list[str] = []  # names of downloads that started since the last cell output
 		self.take()
 
 	def count(self, kind: str, name: str) -> None:
@@ -137,6 +138,8 @@ class CellStats:
 					self.downloads.add(guid)
 				if key:
 					_log_download({'name': params.get('suggestedFilename'), 'url': params.get('url')})
+					with self.lock:
+						self.started.append(str(params.get('suggestedFilename') or params.get('url')))
 			elif method == 'Page.frameNavigated' and not (frame := params.get('frame') or {}).get('parentId'):
 				mime = str(frame.get('mimeType') or '').lower()
 				if mime in ('application/json', 'text/json') or mime.endswith('+json'):  # vnd.api+json, problem+json
@@ -767,6 +770,12 @@ def main() -> None:
 					print(f'[state unavailable: {type(e).__name__}: {e}]')
 			if notice := captcha.report():  # a solve that is running or ended: the agent waits instead of reloading
 				print(notice)
+			with contextlib.suppress(Exception):  # local: nothing else reads the daemon's events between cells
+				captcha.pump()
+			with stats.lock:
+				started, stats.started = stats.started, []
+			if started:  # 0.x told the model too; buried in drain_events() output, it clicked again ('x (1).csv')
+				print(f'[download started: {", ".join(started)}]')
 			sys.stdout.flush()
 			sys.stderr.flush()
 			os.dup2(saved[0], 1)

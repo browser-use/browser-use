@@ -341,6 +341,7 @@ class Agent:
 		follow_up = self._continue
 		prior = len(self._history or []) if follow_up else 0  # messages of earlier tasks, not counted for this run
 		self._downloads = []
+		before = set((self.workspace / 'downloads').glob('*'))
 		try:
 			logger.info(f'Task: {redact(self.task, self.sensitive_data)[:200]} (workspace {self.workspace})')
 			if self._repl is None:
@@ -398,6 +399,14 @@ class Agent:
 			self.browser.note_downloads(self.workspace / '.browser-use' / 'downloads.jsonl')
 			if not self.browser.keep_alive:
 				await self._shutdown()
+			elif self.browser.use_cloud and self.browser.id:  # each run's files land in its own workspace
+				await self.browser._fetch_downloads(
+					self.workspace / 'downloads', self.browser._fetched, self._downloads, self.browser.id
+				)
+			if result is not None:
+				result.downloads = sorted(
+					p for p in set((self.workspace / 'downloads').glob('*')) - before if p.suffix != '.crdownload'
+				)
 			self._capture(result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started)
 
 	def run_sync(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:

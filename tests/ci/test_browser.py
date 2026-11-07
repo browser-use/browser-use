@@ -135,21 +135,27 @@ async def test_keep_alive_leaves_cloud_browser_running(cloud, tmp_path):
 	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
 
 
-async def test_keep_alive_cloud_downloads_land_in_the_workspace_on_the_later_stop(cloud, monkeypatch, tmp_path):
+async def test_keep_alive_cloud_downloads_land_in_each_runs_workspace(cloud, monkeypatch, tmp_path):
 	"""H7: with keep_alive the run skipped the download copy and browser.stop() had no downloads_dir, so the cloud
-	browser's downloads were lost. The later stop copies them to the last Agent's workspace/downloads."""
+	browser's downloads were lost. C13: then stop() put every run's files in the last Agent's workspace. Each run now
+	copies its own downloads when it ends and lists them in result.downloads; stop() never copies a file twice."""
 	import io
 
-	with_downloads(monkeypatch, [{'path': '/d/report.csv', 'url': 'u1'}])
+	files = [{'path': '/d/report.csv', 'url': 'u1'}]
+	with_downloads(monkeypatch, files)
 	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(b'data'))
-	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
 	browser = Browser(keep_alive=True)
-	agent = Agent('t', model, browser=browser, workspace=tmp_path)
-	await agent.run()
-	await agent.close()
-	assert not (tmp_path / 'downloads').exists()
-	files = await browser.stop()
-	assert [p.read_bytes() for p in files] == [b'data'] and files[0].parent == tmp_path / 'downloads'
+	results = []
+	for name in ('a', 'b'):
+		model, _ = script(('finish', {'success': True, 'result': 'ok'}))
+		agent = Agent('t', model, browser=browser, workspace=tmp_path / name)
+		results.append(await agent.run())
+		await agent.close()
+		files.append({'path': '/d/data.pdf', 'url': 'u2'})  # downloaded by the second run
+	assert results[0].downloads == [tmp_path / 'a' / 'downloads' / 'report.csv']
+	assert results[1].downloads == [tmp_path / 'b' / 'downloads' / 'data.pdf']
+	assert (tmp_path / 'a' / 'downloads' / 'report.csv').read_bytes() == b'data'
+	assert await browser.stop() == []
 
 
 async def test_a_socket_path_too_long_for_the_os_names_the_path_before_anything_starts(cloud, monkeypatch, tmp_path):

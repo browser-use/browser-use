@@ -481,9 +481,10 @@ async def test_fresh_chromium_end_to_end_has_no_cookies_and_leaves_nothing(chrom
 
 
 async def test_a_launched_browser_downloads_into_the_workspace(chrome_binary, tmp_path):
-	"""M14: Browser('chromium') saved downloads to the user's real ~/Downloads."""
+	"""M14: Browser('chromium') saved downloads to the user's real ~/Downloads. C13: the model was never told a download
+	started (it missed it in drain_events() output and clicked again), and the result listed no downloaded files."""
 	link = 'data:text/html,<a id=a href="data:text/plain,hello" download="report.txt">x</a>'
-	model, _ = script(
+	model, seen = script(
 		(
 			'python',
 			{
@@ -496,6 +497,8 @@ async def test_a_launched_browser_downloads_into_the_workspace(chrome_binary, tm
 	result = await Agent('t', model, browser=browser, workspace=tmp_path).run()
 	assert result.final_result() == 'ok', result.error
 	assert (tmp_path / 'downloads' / 'report.txt').read_text() == 'hello'
+	assert result.downloads == [tmp_path / 'downloads' / 'report.txt']
+	assert '[download started: report.txt]' in str(seen[1][-1])
 
 
 def test_the_prompt_says_where_downloads_land_and_never_to_move_them(tmp_path):

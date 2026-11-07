@@ -145,7 +145,9 @@ class CLIMCPServer:
 					'cdp(method, ...), wait_for_load(), list_tabs() are pre-imported. The namespace '
 					'persists across calls. Returns whatever the code prints. First navigation '
 					'should be new_tab(url). Drives the local Chrome until start_remote_daemon("<name>") starts a '
-					'cloud browser; then every call drives that one until it ends (stopped when this server exits).'
+					'cloud browser; then every call drives that one until it ends (stopped when this server exits). '
+					"A cloud browser's downloads stay on the remote host, never in ~/Downloads (a file there is not its "
+					'download): GET https://api.browser-use.com/api/v4/browsers/{id}/downloads lists them.'
 				),
 				input_schema={
 					'type': 'object',

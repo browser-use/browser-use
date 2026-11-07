@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from pydantic_ai.messages import ModelMessage
@@ -86,6 +87,7 @@ class AgentHistoryList:
 	messages: list[ModelMessage]
 	success: bool | None = True  # the agent's optional verdict from finish(..., success=...); None when it gave none
 	output_schema: Any = None  # Agent(output_model_schema=...) (str when none); None: unknown, judged by the output
+	downloads: list[Path] = field(default_factory=list)  # files this run downloaded, in agent.workspace/downloads
 
 	def __post_init__(self) -> None:
 		if self.status != 'completed':

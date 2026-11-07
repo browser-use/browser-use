@@ -560,6 +560,7 @@ class Browser:
 		# ('cookies (1).json') across the whole session, not per workspace
 		self._download_records: list[dict] = []
 		self._download_lines: dict[Path, int] = {}  # downloads.jsonl -> lines already read
+		self._fetched: set[str] = set()  # remote paths of this cloud session already copied to a workspace
 		self._lock = asyncio.Lock()  # one start or stop at a time: they never interleave
 		self._creating: concurrent.futures.Future | None = None  # the cloud POST, which outlives a cancelled start
 		self._create_deadline = 0.0  # monotonic time after which start() and stop() stop waiting for that POST
@@ -868,7 +869,7 @@ class Browser:
 
 	async def _stop(self, downloads_dir: str | Path | None = None) -> list[Path]:
 		files: list[Path] = []
-		fetched: set[str] = set()
+		fetched = self._fetched
 		browser_id = self.id
 		try:
 			if downloads_dir and self.use_cloud:  # before the stop too: the API may not list a stopped session's files
@@ -881,7 +882,7 @@ class Browser:
 			await self._fetch_downloads(downloads_dir, fetched, files, browser_id)
 		if stopped and self.id == browser_id:
 			self.id = None
-			self._download_records, self.json_page_copies = [], set()  # the next session numbers its downloads anew
+			self._download_records, self.json_page_copies, self._fetched = [], set(), set()  # the next session starts anew
 		return files
 
 	def note_downloads(self, log: Path) -> None:
