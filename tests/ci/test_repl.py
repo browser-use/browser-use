@@ -736,3 +736,31 @@ async def test_http_get_returns_bytes_for_binary_and_text_for_text(tmp_path):
 	finally:
 		await repl.close()
 		server.shutdown()
+
+
+async def test_gif_and_palette_images_reach_the_model_as_plain_png(tmp_path):
+	"""grok bub2-008: show_image('epc/94017744.png') sent a palette (P) image as image/png and xAI 400'd the run
+	("not a valid JPG, PNG, WebP, or ICO image"). A GIF named .png, a palette PNG and a JPEG named .png all arrive as
+	what their media type says, RGB(A)."""
+	import base64
+	import io
+
+	from PIL import Image
+
+	code = (
+		"from PIL import Image\nImage.new('RGB', (40, 20), 'red').save('graph.png', 'GIF')\n"
+		"Image.new('P', (40, 20)).save('palette.png')\nImage.new('RGB', (40, 20)).save('photo.png', 'JPEG')\n"
+		"print(show_image('graph.png'), show_image('palette.png'), show_image('photo.png'))"
+	)
+	repl = Repl(tmp_path)
+	try:
+		r = await repl.call('exec', code, 30)
+	finally:
+		await repl.close()
+	assert r['error'] is None and r['output'].strip() == 'True True True', r
+	decoded = [(i['media_type'], Image.open(io.BytesIO(base64.b64decode(i['data'])))) for i in r['images']]
+	assert [(t, img.format, img.mode) for t, img in decoded] == [
+		('image/png', 'PNG', 'RGB'),
+		('image/png', 'PNG', 'RGB'),
+		('image/jpeg', 'JPEG', 'RGB'),
+	]

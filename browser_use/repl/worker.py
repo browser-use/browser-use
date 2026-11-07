@@ -269,6 +269,13 @@ def _add_image(data: bytes, media_type: str = 'image/png') -> bool:
 		out = io.BytesIO()
 		img.save(out, 'JPEG', quality=80)
 		data, media_type = out.getvalue(), 'image/jpeg'
+	elif img.format not in ('PNG', 'JPEG', 'WEBP') or img.mode not in ('RGB', 'RGBA'):
+		# xAI 400s GIF and palette PNGs ("not a valid JPG, PNG, WebP"; grok bub2-008 showed an EPC graph): plain PNG
+		out = io.BytesIO()
+		img.convert('RGBA' if img.has_transparency_data else 'RGB').save(out, 'PNG')
+		data, media_type = out.getvalue(), 'image/png'
+	else:  # the decoded format, not the file name
+		media_type = img.get_format_mimetype() or media_type
 	images.append({'data': base64.b64encode(data).decode(), 'media_type': media_type})
 	return True
 
