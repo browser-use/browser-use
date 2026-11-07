@@ -379,6 +379,26 @@ def fake_browser(monkeypatch):
 	return stops
 
 
+async def test_two_agents_never_run_on_one_browser_at_once(fake_browser, tmp_path):
+	"""H5: two Agents on one Browser drove one tab, and the first to finish stopped the browser under the other. The
+	second run now raises before it starts anything; one after another (keep_alive) still works."""
+	import asyncio
+
+	browser = Browser(local=True, keep_alive=True)
+	slow, _ = script(('python', {'code': 'import time; time.sleep(1)'}), ('finish', {'success': True, 'result': 'one'}))
+	quick, _ = script(('finish', {'success': True, 'result': 'two'}), ('finish', {'success': True, 'result': 'three'}))
+	first = Agent('t', slow, browser=browser, workspace=tmp_path / 'a')
+	second = Agent('t', quick, browser=browser, workspace=tmp_path / 'b')
+	try:
+		r1, r2 = await asyncio.gather(first.run(), second.run(), return_exceptions=True)
+		assert isinstance(r2, RuntimeError) and 'in use by another running Agent' in str(r2)
+		assert not isinstance(r1, BaseException) and r1.final_result() == 'one'
+		assert (await second.run()).final_result() == 'two'  # one after another is fine
+	finally:
+		await first.close()
+		await second.close()
+
+
 def test_run_sync_follow_up_keeps_the_repl_with_keep_alive(fake_browser, tmp_path):
 	# 0.x scripts call run_sync() twice; the REPL worker belongs to the first call's event loop.
 	model, _ = script(

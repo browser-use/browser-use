@@ -247,11 +247,16 @@ class Agent:
 			raise ValueError(f'timeout must be a number of seconds > 0, not {timeout!r}')
 		if self._running:  # two runs would each start a REPL (one leaks) and stop each other's browser
 			raise RuntimeError('This Agent is already running; await that run() first, or use one Agent per concurrent task.')
-		self._running = True
+		if self.browser._user is not None:  # two Agents on one browser drive one tab, and the first to end stops it
+			raise RuntimeError(
+				'This Browser is in use by another running Agent. Give each concurrent Agent its own Browser(); '
+				'one Browser(keep_alive=True) can serve several Agents one after another.'
+			)
+		self._running, self.browser._user = True, self
 		try:
 			return await self._run(max_steps, timeout)
 		finally:
-			self._running = False
+			self._running, self.browser._user = False, None
 
 	async def _run(self, max_steps: int, timeout: float) -> AgentHistoryList:
 		self._check_task()
@@ -284,7 +289,7 @@ class Agent:
 					env,
 					mode=self.mode,
 					secrets=self.sensitive_data,
-					reattach=self.browser.start,
+					reattach=self.browser.reattach,
 					after_cell=self.browser.after_cell if self.browser.domains else None,
 				)
 			session = Session(repl=self._repl, timeout_s=timeout, max_steps=max_steps)

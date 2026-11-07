@@ -251,6 +251,29 @@ async def test_a_dead_daemon_is_started_again_on_the_same_browser(chrome, tmp_pa
 		await browser.stop()
 
 
+async def test_a_browser_stopped_mid_run_is_never_replaced_or_retried_forever(chrome_binary, tmp_path):
+	"""H6: once another Agent (or browser.stop()) stopped the Browser, every cell said "started the daemon again: retry"
+	while the REPL kept the dead daemon's env, forever. Agent's reattach refuses (a new browser would bill and lose the
+	tabs); a reattach that does hand back a new browser's env (Browser.start) moves the REPL to it."""
+	browser = Browser('chromium', executable_path=chrome_binary, headless=True)
+	env = await browser.start()
+	repl = Repl(tmp_path, env, reattach=browser.reattach)
+	try:
+		assert (await repl.call('exec', 'print(1)', 60))['error'] is None
+		await browser.stop()
+		r = await repl.call('exec', "print(page_info()['url'])", 60)
+		assert 'The browser was stopped while the agent ran' in r['error'] and 'Finish with what you have' in r['error'], r
+		assert browser.name is None  # nothing started again
+		repl.reattach = browser.start  # a caller that does want a new browser
+		r = await repl.call('exec', "print(page_info()['url'])", 60)
+		assert 'a new one started' in r['error'] and repl.env['BU_NAME'] == browser.name, r
+		r = await repl.call('exec', "new_tab('about:blank'); print(page_info()['url'])", 60)
+		assert r['error'] is None and 'about:blank' in r['output'], r
+	finally:
+		await repl.close()
+		await browser.stop()
+
+
 class _StallingProxy:
 	"""TCP relay to the test Chrome. stall() freezes the connections open now (a stuck browser connection: the browser
 	is fine); connections made later pass."""

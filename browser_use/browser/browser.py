@@ -390,6 +390,7 @@ class Browser:
 		# _tabs_file), was attached to at the end of a cell, or opened popups from. The sweep touches only these.
 		self._agent_tabs: set[str] = set()
 		self._tabs_file: str | None = None
+		self._user: object | None = None  # the Agent whose run() uses this Browser now (one at a time)
 		_install_cleanup()  # here too: the main thread, when start() runs on another
 
 	async def start(self) -> dict[str, str]:
@@ -412,6 +413,16 @@ class Browser:
 			else:
 				await asyncio.to_thread(self._reattach)
 			return self._env
+
+	async def reattach(self) -> dict[str, str]:
+		"""For the REPL, after a cell lost the daemon: start it again on the same browser (start()). Raises when this
+		Browser was stopped meanwhile (browser.stop(), or another Agent's run on it): start() would create a new browser,
+		billed, with none of the tabs or logins the agent was using."""
+		if self._env is None:
+			raise RuntimeError(
+				'The browser was stopped while the agent ran (browser.stop(), or another Agent using the same Browser)'
+			)
+		return await self.start()
 
 	def _reattach(self) -> None:
 		"""Our daemon is gone (crash, OOM, kill) or lost its browser connection: start it again on the same browser.

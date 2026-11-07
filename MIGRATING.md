@@ -98,7 +98,8 @@ Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` na
 | `captcha_solver` | kept for cloud browsers: they solve captchas automatically, and `Browser(captcha_solver=False)` turns the solver off when the browser starts (the agent is told to handle captchas itself). Other browsers have no solver: `captcha_solver=False` raises `ValueError` |
 
 Parallel agents (the 0.x `parallel_agents.py` pattern): give each its own `Browser()` or `Browser('chromium')`; each
-has its own browser and daemon. `Browser('chrome')` is one at a time: every one in a process shares the
+has its own browser and daemon. A second Agent's `run()` on a `Browser` another Agent is running on raises
+`RuntimeError`; one `Browser(keep_alive=True)` can serve several Agents one after another. `Browser('chrome')` is one at a time: every one in a process shares the
 browser-harness default daemon and its one attached tab, so two at once move each other's tab.
 
 ## Models

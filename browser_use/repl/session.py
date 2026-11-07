@@ -374,10 +374,18 @@ class Repl:
 			r = await self._call(op, code, timeout + (10 if self.mode == 'ultrafast' else 0))
 			if r.get('error_type') == 'BrowserConnectionLost' and self.reattach is not None:
 				try:
-					await self.reattach()
-					r['error'] += (
-						'\n[browser-use started the daemon again on the same browser: retry; check the page state first.]'
-					)
+					env = await self.reattach()
+					if isinstance(env, dict) and env != self.env:  # another daemon (a new browser): the worker must use it
+						self.env = env
+						await self.close()
+						r['error'] += (
+							'\n[The browser was stopped and a new one started: its tabs, logins and page state are gone, and '
+							'the REPL restarted (Python variables are lost; files survive).]'
+						)
+					else:
+						r['error'] += (
+							'\n[browser-use started the daemon again on the same browser: retry; check the page state first.]'
+						)
 				except Exception as e:
 					r['error'] += f'\n[{e}. Finish with what you have.]'
 			if self.after_cell is not None and op == 'exec':
