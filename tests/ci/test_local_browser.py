@@ -335,6 +335,19 @@ def test_executable_path_that_is_not_a_file_raises(tmp_path):
 		_local.find_binary(str(tmp_path / 'no-chrome'))
 
 
+def test_a_bh_chrome_path_that_is_not_a_file_warns(tmp_path, monkeypatch, caplog):
+	"""Low: BH_CHROME_PATH=/nonexistent silently fell back to the installed Chrome."""
+	import logging
+
+	monkeypatch.setenv('BH_CHROME_PATH', str(tmp_path / 'nope'))
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)
+	try:
+		_local.find_binary()
+	except RuntimeError:
+		pass  # no browser installed here: the warning still came first
+	assert 'is not a file' in caplog.text and 'nope' in caplog.text
+
+
 def test_bh_chrome_path_is_honored(tmp_path, monkeypatch):
 	binary = tmp_path / 'my-chrome'
 	binary.write_text('')

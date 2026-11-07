@@ -76,6 +76,9 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 			raise RuntimeError(_snap_error(executable_path))
 		return str(Path(executable_path).expanduser())
 	tried = [p for k in ('BH_CHROME_PATH', 'CHROME_PATH') if (p := (os.environ.get(k) or '').strip())]
+	for path in tried:  # it silently fell back to another browser
+		if not Path(path).expanduser().is_file():
+			logger.warning('BH_CHROME_PATH / CHROME_PATH %r is not a file; looking for an installed browser instead', path)
 	if sys.platform == 'darwin':
 		apps = ['Google Chrome'] if chrome_only else ['Google Chrome', 'Chromium', 'Microsoft Edge', 'Google Chrome Canary']
 		tried += [
