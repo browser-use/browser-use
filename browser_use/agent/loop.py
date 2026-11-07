@@ -478,8 +478,11 @@ def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[s
 				cost = None
 				continue
 			# Priced as the model that answered (m.model_name): an alias can be served by another model (requested
-			# gemini-3.5-flash, served and billed as gemini-3.6-flash). The requested name when that one has no price.
-			for name in dict.fromkeys(filter(None, (m.model_name, model_ref))):
+			# gemini-3.5-flash, served and billed as gemini-3.6-flash). The requested name only when the answer names no
+			# model or a snapshot of the requested one (gpt-4.1 -> gpt-4.1-2025-04-14): another model's price is a guess.
+			served = m.model_name
+			names = [served] if served and not served.startswith(model_ref) else [served, model_ref]
+			for name in dict.fromkeys(filter(None, names)):
 				try:
 					cost += float(calc_price(u, model_ref=name, provider_id=provider).total_price)  # cache writes too
 					break
