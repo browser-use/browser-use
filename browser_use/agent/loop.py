@@ -536,9 +536,8 @@ async def run(
 	text = redact(as_text(output), session.repl.secrets)
 	error = redact(error, session.repl.secrets)  # provider/tool exceptions can quote a secret; Agent.run logs this
 	usage, cost = usage_and_cost(new, model_ref)
-	charges = search.charges[searched:] if search else []
-	if cost is not None and charges:  # web searches: what each charged; one without a charge makes the cost unknown
-		cost = None if None in charges else cost + sum(c for c in charges if c is not None)
+	if cost is not None and search:  # web searches that named a charge; an unknown model cost stays unknown
+		cost += sum(search.charges[searched:])
 	steps = sum(isinstance(m, ModelResponse) for m in new)
 	duration = time.monotonic() - session.started
 	success = session.success if status == 'completed' else None

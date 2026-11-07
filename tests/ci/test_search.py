@@ -86,7 +86,7 @@ def test_request_shape_and_result_parsing(endpoint):
 	assert search('q')['results'] == [{'title': 'A', 'url': 'https://a.example'}]  # a list passes through
 	endpoint.reply = (200, {'query': 'q', 'count': 0, 'results': ''}, 0)
 	assert search('q')['results'] == []
-	assert search.charges == [0.007, 0.007, None, None]  # None: the response named no charge
+	assert search.charges == [0.007, 0.007]  # a response naming no charge adds none
 	with pytest.raises(SearchError, match='needs text'):
 		search('  ')
 
@@ -168,7 +168,7 @@ def charged_script(*turns):
 
 
 async def test_search_charges_are_added_to_cost(endpoint, tmp_path):
-	"""result.cost_usd = model cost + what each search charged; a search without a charge makes the cost unknown."""
+	"""result.cost_usd = model cost + what each search charged; a search without a charge adds nothing."""
 	turns = (('python', {'code': "search('a'); search('b')"}), ('finish', {'result': 'done'}))
 	repl = Repl(tmp_path, search=WebSearch(KEY, endpoint.url))
 	try:
@@ -178,6 +178,9 @@ async def test_search_charges_are_added_to_cost(endpoint, tmp_path):
 		assert r.cost_usd == pytest.approx(0.001)  # earlier runs' searches are not counted again
 		endpoint.reply = (200, {'query': 'q', 'count': 0, 'results': []}, 0)  # no browser_use.charge_usd
 		r = await run(build_agent(charged_script(*turns)), 'task', Session(repl=repl), 'browser-use:bu-fast')
+		assert r.cost_usd == pytest.approx(2 * 0.001)  # the model cost stays; never None for an uncharged search
+		endpoint.reply = (200, HITS, 0)  # charged again, but the model cost is unknown (an unpriced model)
+		r = await run(build_agent(script(*turns)[0]), 'task', Session(repl=repl), 'browser-use:bu-fast')
 		assert r.cost_usd is None
 	finally:
 		await repl.close()

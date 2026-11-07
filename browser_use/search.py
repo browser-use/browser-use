@@ -43,12 +43,12 @@ def parse_usd(value: Any) -> float | None:
 
 
 class WebSearch:
-	"""One search per call. charges: what each successful search charged (browser_use.charge_usd), None where the
-	response named no charge; result.cost_usd adds them (agent/loop.py run)."""
+	"""One search per call. charges: the charge of each successful search whose response names one
+	(browser_use.charge_usd); result.cost_usd adds them (agent/loop.py run). A response without one adds nothing."""
 
 	def __init__(self, api_key: str, url: str):
 		self.api_key, self.url = api_key, url
-		self.charges: list[float | None] = []
+		self.charges: list[float] = []
 		self._lock = threading.Lock()  # a cancelled call's thread can still finish while the next one runs
 
 	def __call__(self, query: str, num_results: int | None = None, category: str | None = None) -> dict[str, Any]:
@@ -85,8 +85,9 @@ class WebSearch:
 		if not isinstance(parsed, dict):
 			raise SearchError('Search returned no result object.')
 		meta = parsed.get('browser_use')
-		with self._lock:
-			self.charges.append(parse_usd(meta.get('charge_usd')) if isinstance(meta, dict) else None)
+		if (charge := parse_usd(meta.get('charge_usd')) if isinstance(meta, dict) else None) is not None:
+			with self._lock:
+				self.charges.append(charge)
 		results = parsed.get('results')
 		if isinstance(results, list):
 			hits = results
