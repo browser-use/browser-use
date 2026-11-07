@@ -33,7 +33,8 @@ class Config:
 
 	@property
 	def ANONYMIZED_TELEMETRY(self) -> bool:
-		return os.getenv('ANONYMIZED_TELEMETRY', 'true').lower()[:1] in 'ty1'
+		value = os.getenv('ANONYMIZED_TELEMETRY', 'true').strip().lower()
+		return value != '' and value[0] in 'ty1'  # '' in 'ty1' is True: an empty value left telemetry on
 
 	@property
 	def BROWSER_USE_CONFIG_DIR(self) -> Path:

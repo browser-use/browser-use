@@ -13,4 +13,6 @@ def setup_logging(level: str | None = None) -> logging.Logger:
 		logger.addHandler(handler)
 	logger.setLevel(getattr(logging, level.upper(), logging.INFO))
 	logger.propagate = False
+	if not isinstance(logging.getLevelName(level.upper()), int):  # 0.x 'result', or a typo: says so instead of INFO silently
+		logger.warning(f'BROWSER_USE_LOGGING_LEVEL={level!r} is not a level (debug, info, warning, error); using info.')
 	return logger

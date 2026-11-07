@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import tempfile
 import time
@@ -175,6 +176,8 @@ class Agent:
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent')
 		_check_task_arg(task)
+		if llm is None and os.environ.get('DEFAULT_LLM'):  # 0.x read it; 1.0 runs (and bills) bu-fast instead
+			logger.warning("DEFAULT_LLM is set but browser-use 1.0 does not read it: this run uses bu-fast. Pass llm=... instead.")
 		if reasoning not in REASONING:  # a typo would start (and bill) a browser, then 400 on the first model request
 			raise ValueError(f"reasoning must be 'low', 'medium', 'high' or None, not {reasoning!r}")
 		if browser and browser_session:

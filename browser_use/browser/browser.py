@@ -429,6 +429,11 @@ class Browser:
 				f'Browser({name}=...) is not a browser-use 1.0 option; MIGRATING.md lists the options and what replaced 0.x ones.'
 			)
 		self.kind = _kind(kind, local, use_cloud, cdp_url)
+		if headless is None and os.environ.get('BROWSER_USE_HEADLESS'):
+			logger.warning(
+				'BROWSER_USE_HEADLESS is set but browser-use 1.0 does not read it: pass Browser(headless=...) instead '
+				'(default: headless only without a display).'
+			)
 		# Checked here: the API answered a bad country with a 500-character validation dump, an int raised AttributeError,
 		# cloud_timeout=0 became 60 and True 1 minute, and captcha_solver='no' counted as on.
 		if cloud_proxy_country_code is not None and not (

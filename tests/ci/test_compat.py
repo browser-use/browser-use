@@ -92,6 +92,31 @@ def test_short_or_list_shaped_sensitive_data_is_explained(no_browser, caplog):
 		Agent('t', script()[0], browser=Browser(local=True), sensitive_data=[('pw', 'x', 'https://a.com')])
 
 
+def test_0x_environment_variables_1_0_ignores_say_so(no_browser, monkeypatch, caplog):
+	"""M38: DEFAULT_LLM (runs billed bu-fast), BROWSER_USE_HEADLESS and log level 'result' were silently ignored. Low:
+	ANONYMIZED_TELEMETRY='' left telemetry on."""
+	import logging
+
+	from browser_use.config import CONFIG
+	from browser_use.logging_config import setup_logging
+
+	monkeypatch.setenv('DEFAULT_LLM', 'openai_gpt_4o')
+	monkeypatch.setenv('BROWSER_USE_HEADLESS', 'false')
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)
+	Agent('t', browser=Browser(local=True))
+	logging.getLogger('browser_use').addHandler(caplog.handler)  # setup_logging turns propagation off
+	try:
+		setup_logging('result')
+	finally:
+		logging.getLogger('browser_use').removeHandler(caplog.handler)
+	assert 'DEFAULT_LLM is set' in caplog.text and 'BROWSER_USE_HEADLESS is set' in caplog.text
+	assert "BROWSER_USE_LOGGING_LEVEL='result' is not a level" in caplog.text
+	setup_logging('info')
+	for value, on in (('', False), ('false', False), ('nope', False), ('true', True), ('1', True)):
+		monkeypatch.setenv('ANONYMIZED_TELEMETRY', value)
+		assert CONFIG.ANONYMIZED_TELEMETRY is on, value
+
+
 def test_domain_scoped_sensitive_data_is_accepted_and_bad_shapes_raise(no_browser):
 	Agent('t', script()[0], sensitive_data={'https://example.com': {'pw': 'x'}, 'pin': '1'})
 	with pytest.raises(TypeError, match='must be a string'):
