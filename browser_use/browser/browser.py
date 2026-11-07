@@ -391,6 +391,9 @@ class Browser:
 		self._agent_tabs: set[str] = set()
 		self._tabs_file: str | None = None
 		self._user: object | None = None  # the Agent whose run() uses this Browser now (one at a time)
+		# where stop() copies a cloud browser's downloads when not told: the workspace/downloads of the last Agent that
+		# ran on it (keep_alive leaves the stop, and so the copy, to a later browser.stop())
+		self._downloads_dir: Path | None = None
 		_install_cleanup()  # here too: the main thread, when start() runs on another
 
 	async def start(self) -> dict[str, str]:
@@ -623,10 +626,11 @@ class Browser:
 	async def stop(self, downloads_dir: str | Path | None = None) -> list[Path]:
 		"""Stop the daemon this Browser started, and the cloud browser or local Chrome it started. Never touches the
 		Chrome you have open.
-		downloads_dir: copy what the cloud browser downloaded there. Returns the local paths."""
+		downloads_dir: copy what the cloud browser downloaded there (default: the workspace/downloads of the last Agent
+		that ran on this Browser). Returns the local paths."""
 		async with self._lock:
 			await self._stopped()
-			return await self._stop(downloads_dir)
+			return await self._stop(downloads_dir or self._downloads_dir)
 
 	async def _stop(self, downloads_dir: str | Path | None = None) -> list[Path]:
 		files: list[Path] = []

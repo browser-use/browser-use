@@ -278,6 +278,7 @@ class Agent:
 						return result
 					self._preflighted = True
 				self.workspace.mkdir(parents=True, exist_ok=True)
+			self.browser._downloads_dir = self.workspace / 'downloads'  # a keep_alive browser's later stop() copies there
 			env = await self.browser.start()  # also on a follow-up: a daemon that died since is started again
 			if self._repl is None or env != self._repl.env:  # or the browser was stopped and started again since
 				if self._repl is None:

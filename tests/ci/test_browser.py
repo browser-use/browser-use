@@ -114,6 +114,23 @@ async def test_keep_alive_leaves_cloud_browser_running(cloud, tmp_path):
 	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
 
 
+async def test_keep_alive_cloud_downloads_land_in_the_workspace_on_the_later_stop(cloud, monkeypatch, tmp_path):
+	"""H7: with keep_alive the run skipped the download copy and browser.stop() had no downloads_dir, so the cloud
+	browser's downloads were lost. The later stop copies them to the last Agent's workspace/downloads."""
+	import io
+
+	with_downloads(monkeypatch, [{'path': '/d/report.csv', 'url': 'u1'}])
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(b'data'))
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
+	browser = Browser(keep_alive=True)
+	agent = Agent('t', model, browser=browser, workspace=tmp_path)
+	await agent.run()
+	await agent.close()
+	assert not (tmp_path / 'downloads').exists()
+	files = await browser.stop()
+	assert [p.read_bytes() for p in files] == [b'data'] and files[0].parent == tmp_path / 'downloads'
+
+
 async def test_restarted_browser_is_stopped_again(cloud):
 	"""BUP bug: `stopped` never reset, so a browser started a second time was skipped at cleanup (kept billing)."""
 	browser = Browser()
