@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -9,7 +10,7 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared.chat_model import ChatModel
 from openai.types.shared_params.reasoning_effort import ReasoningEffort
 from openai.types.shared_params.response_format_json_schema import JSONSchema, ResponseFormatJSONSchema
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import BaseChatModel, is_reasoning_model
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
@@ -298,7 +299,23 @@ class ChatOpenAI(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(choice.message.content)
+				try:
+					parsed = output_format.model_validate_json(choice.message.content)
+				except ValidationError as error:
+					# Keep valid JSON validation errors intact and explain invalid JSON from custom endpoints.
+					content = choice.message.content
+					if self.base_url is not None and not self.dont_force_structured_output:
+						try:
+							json.loads(content)
+						except (ValueError, RecursionError):
+							message = (
+								'The custom endpoint returned invalid JSON for a response_format=json_schema request. '
+								'The endpoint may not support structured output.'
+							)
+							if not self.add_schema_to_system_prompt:
+								message += ' Try ChatOpenAI(..., add_schema_to_system_prompt=True).'
+							raise ModelProviderError(message=message, model=self.name) from error
+					raise
 
 				return ChatInvokeCompletion(
 					completion=parsed,
