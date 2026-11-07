@@ -321,9 +321,13 @@ class LazyCompaction(OpenAICompaction):
 	request made each call ~0.8 s slower at 45k tokens (bu-pi sends none)."""
 
 	def get_model_settings(self):
-		resolve = super().get_model_settings()
-		last = lambda ms: next((m.usage.input_tokens for m in reversed(ms) if isinstance(m, ModelResponse)), 0)  # noqa: E731
-		return lambda ctx: resolve(ctx) if last(ctx.messages) >= self.token_threshold else {}
+		resolve, threshold = super().get_model_settings(), self.token_threshold or 0
+
+		def settings(ctx: RunContext[Any]) -> Any:
+			last = next((m.usage.input_tokens for m in reversed(ctx.messages) if isinstance(m, ModelResponse)), 0)
+			return resolve(ctx) if resolve and last >= threshold else {}
+
+		return settings
 
 
 SUMMARY_SYSTEM = (  # Pi pi-coding-agent SUMMARIZATION_SYSTEM_PROMPT, verbatim
