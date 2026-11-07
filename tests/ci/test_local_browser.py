@@ -533,3 +533,33 @@ async def test_a_kept_user_data_dir_keeps_its_cookies_across_a_normal_stop(chrom
 		assert [(c['name'], c['value']) for c in cookies if c['domain'] == 'example.test'] == [('c', 'kept')]
 	finally:
 		await browser.stop()
+
+
+
+@posix_only
+def test_sigkill_of_python_leaves_no_chrome_daemon_or_profile(chrome_binary, tmp_path):
+	"""M16: SIGKILL of the Python process orphaned the launched Chrome, its daemon and the temp profile."""
+	import signal
+	import subprocess
+
+	code = f"""
+import asyncio, json, sys
+from browser_harness import _ipc as ipc
+from browser_use import Browser
+async def main():
+    b = Browser('chromium', headless=True, executable_path={chrome_binary!r})
+    await b.start()
+    print(json.dumps({{'chrome': b._local.proc.pid, 'daemon': ipc.identify(b.name), 'tmp': str(b._local.tmp)}}), flush=True)
+    await asyncio.sleep(600)
+asyncio.run(main())
+"""
+	proc = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, cwd=tmp_path)
+	assert proc.stdout
+	info = json.loads(proc.stdout.readline())
+	assert alive(info['chrome']) and info['daemon'] and alive(info['daemon']) and Path(info['tmp']).exists()
+	proc.send_signal(signal.SIGKILL)
+	proc.wait(10)
+	deadline = time.monotonic() + 15
+	while time.monotonic() < deadline and (alive(info['chrome']) or alive(info['daemon']) or Path(info['tmp']).exists()):
+		time.sleep(0.2)
+	assert not alive(info['chrome']) and not alive(info['daemon']) and not Path(info['tmp']).exists()

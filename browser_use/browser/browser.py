@@ -677,6 +677,11 @@ class Browser:
 			# tab is hidden, and a cloud browser never answers a hidden tab's screenshot) and stops it when it shuts down.
 			self._daemon_env = {'BU_CDP_WS': ws, 'BH_TAB_MARKER': '0', **({'BU_BROWSER_ID': self.id} if self.id else {})}
 			await asyncio.to_thread(admin.ensure_daemon, name=self.name, env=self._daemon_env)
+			if self._local is not None:  # this process dying uncleanly (SIGKILL) left Chrome, the daemon and the profile
+				from browser_harness import _ipc as ipc
+
+				daemon_pid = await asyncio.to_thread(ipc.identify, self.name, 5.0)
+				self._local.watch(daemon_pid)
 			if self.domains:
 				self._guard = Guard(ws, self.domains)
 				await asyncio.to_thread(self._guard.start)

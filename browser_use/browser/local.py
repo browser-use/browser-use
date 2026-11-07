@@ -284,6 +284,7 @@ class LocalBrowser:
 		self.ws: str | None = None  # the browser websocket, once Chrome reported it
 		self._lock = threading.Lock()
 		self._stopped = False
+		self.watchdog: subprocess.Popen | None = None  # set once the daemon is up (Browser._start)
 
 	def start(
 		self,
@@ -357,7 +358,18 @@ class LocalBrowser:
 			raise RuntimeError('the browser was stopped while it started')
 		raise RuntimeError(f'{Path(binary).name} did not open its DevTools port within {START_TIMEOUT_S}s')
 
+	def watch(self, daemon_pid: int | None) -> None:
+		"""Start the watchdog that cleans up after this process if it dies without stopping Chrome (SIGKILL, OOM)."""
+		if self.proc is not None and self.watchdog is None:
+			self.watchdog = start_watchdog(self.proc.pid, daemon_pid, self.tmp)
+
 	def stop(self) -> None:
+		watchdog, self.watchdog = self.watchdog, None
+		if watchdog is not None:  # first: a normal stop must not race it
+			with contextlib.suppress(OSError):
+				watchdog.kill()
+			with contextlib.suppress(Exception):
+				watchdog.wait(5)
 		with self._lock:
 			self._stopped = True
 			proc, self.proc = self.proc, None
@@ -372,6 +384,53 @@ class LocalBrowser:
 			if not self.tmp.exists():
 				return
 			time.sleep(0.1)
+
+
+# Runs detached next to each launched Chrome. Its stdin is a pipe only the Python process that launched Chrome holds:
+# the read returns at EOF, when that process dies however it dies (SIGKILL, OOM), and it then ends the daemon, the
+# Chrome process group and the temp profile they left. A normal stop kills the watchdog first, so it does nothing.
+WATCHDOG = r"""
+import os, shutil, signal, subprocess, sys, time
+sys.stdin.buffer.read()
+chrome, daemon, tmp = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+def kill(pid, group, sig):
+    try:
+        if sys.platform == 'win32':
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], capture_output=True)
+        else:
+            (os.killpg if group else os.kill)(pid, sig)
+    except OSError:
+        pass
+if daemon:
+    kill(daemon, False, signal.SIGTERM)
+kill(chrome, True, signal.SIGTERM)
+time.sleep(3)
+if sys.platform != 'win32':
+    kill(chrome, True, signal.SIGKILL)
+    if daemon:
+        kill(daemon, False, signal.SIGKILL)
+for _ in range(20):
+    shutil.rmtree(tmp, ignore_errors=True)
+    if not os.path.exists(tmp):
+        break
+    time.sleep(0.25)
+"""
+
+
+def start_watchdog(chrome_pid: int, daemon_pid: int | None, tmp: Path) -> subprocess.Popen | None:
+	"""The watchdog for a launched Chrome (WATCHDOG); None when it cannot start."""
+	try:
+		return subprocess.Popen(
+			[sys.executable, '-P', '-c', WATCHDOG, str(chrome_pid), str(daemon_pid or 0), str(tmp)],
+			stdin=subprocess.PIPE,
+			stdout=subprocess.DEVNULL,
+			stderr=subprocess.DEVNULL,
+			start_new_session=sys.platform != 'win32',  # a Ctrl-C to our process group does not end it first
+			creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0),
+		)
+	except OSError as e:
+		logger.debug('no watchdog for Chrome %s: %s', chrome_pid, e)
+		return None
 
 
 def _close_over_cdp(ws: str) -> bool:
