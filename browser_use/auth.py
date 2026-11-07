@@ -29,7 +29,7 @@ def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
 
 	try:
 		record = stored_auth_record() or {}
-	except AuthError:  # the store is not valid JSON: say so, a "no key" message would send the user in circles
+	except (AuthError, AttributeError):  # not valid JSON, or JSON that is not an object (a list): say the store is bad
 		raise MissingAPIKeyError(what, corrupt_store_message()) from None
 	if not record.get('api_key'):
 		raise MissingAPIKeyError(what)
@@ -58,7 +58,7 @@ def corrupt_store_message() -> str:
 	from browser_harness.auth import auth_path
 
 	return (
-		f'The Browser Use key store {auth_path()} is corrupt (not valid JSON). Run `browser-use login` to replace it '
+		f'The Browser Use key store {auth_path()} is corrupt (not a valid JSON object). Run `browser-use login` to replace it '
 		'(the old file is kept next to it as auth.json.corrupt), or `browser-use logout` to remove it.'
 	)
 
@@ -68,10 +68,10 @@ def corrupt_store_path():
 	from browser_harness.auth import AuthError, auth_path, load_auth_file
 
 	try:
-		load_auth_file()
+		data = load_auth_file()
 	except AuthError:
 		return auth_path()
-	return None
+	return None if isinstance(data, dict) else auth_path()
 
 
 def set_aside_corrupt_store() -> str | None:
@@ -81,7 +81,7 @@ def set_aside_corrupt_store() -> str | None:
 		return None
 	backup = path.with_name(path.name + '.corrupt')
 	os.replace(path, backup)
-	return f'The key store {path} was corrupt (not valid JSON); moved it to {backup}.'
+	return f'The key store {path} was corrupt (not a valid JSON object); moved it to {backup}.'
 
 
 def harden_login_callback() -> None:

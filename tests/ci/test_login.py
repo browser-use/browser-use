@@ -306,6 +306,12 @@ def test_a_corrupt_key_store_is_named_and_login_or_logout_repairs_it(store):
 	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY
 	assert store.with_name('auth.json.corrupt').read_text().startswith('{"browser_use"')  # kept, not lost
 
+	store.write_text('["a list, not an object"]')  # low: AttributeError 'list' object has no attribute 'get'
+	with pytest.raises(MissingAPIKeyError, match='is corrupt'):
+		browser_use_api_key()
+	result = _cli('login', '--api-key-stdin', stdin=FAKE_KEY)
+	assert result.returncode == 0, result.stderr
+
 	store.write_text('not json')
 	result = _cli('logout')
 	assert result.returncode == 0, result.stderr
