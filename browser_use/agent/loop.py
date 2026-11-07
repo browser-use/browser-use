@@ -201,10 +201,11 @@ def _outputs(output_type: Any) -> list[Any]:
 		except ValidationError as e:
 			raise ModelRetry(f'Deliver with finish or finish_from_repl; text does not match the result schema: {str(e)[:2000]}')
 
-	verdict = Annotated[
+	verdict = Annotated[  # 0.x done(success) rule: an evidence-free verdict let a strict schema get values from memory
 		bool | None,
 		Field(
-			description='true when the result delivers what the task asked for; false when blocked, refused, partial, or not found'
+			description='true only when the result delivers what the task asked for, every value observed in this session; '
+			'false when blocked, refused, partial, or a requested value was not found (never fill it from memory)'
 		),
 	]
 	finish.__annotations__ = {'ctx': RunContext[Session], 'result': output_type, 'success': verdict, 'return': output_type}

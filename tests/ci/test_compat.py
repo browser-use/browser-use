@@ -401,6 +401,8 @@ async def test_finish_success_verdict_is_optional(tmp_path, call, expected):
 	assert len(seen) == 1 and not any('success' in schema.get('required', []) for schema in seen[0].values()), seen
 	# C10: an undescribed verdict was left out on most runs (None on 15/21 correct runs); the description makes it given
 	assert all('description' in seen[0][t]['properties']['success'] for t in ('finish', 'finish_from_repl')), seen
+	# C11: a verdict not tied to evidence let a strict schema (ISBN pattern) get values from memory with success=True
+	assert all('from memory' in seen[0][t]['properties']['success']['description'] for t in ('finish', 'finish_from_repl'))
 	assert (r.status, r.output, r.is_successful()) == ('completed', 'The book does not exist.', expected)
 
 
