@@ -187,8 +187,9 @@ def _outputs(output_type: Any) -> list[Any]:
 
 	def on_text(ctx: RunContext[Session], text: str):
 		# Plain text keeps tool_choice=auto (as in bu-pi); a forced tool call every turn made finish() the only way to
-		# stop and talk. A text-only reply ends the work: one delivery-only repair turn, then text is accepted.
-		if not ctx.deps.finalizing:
+		# stop and talk. A text reply ends the work. For a str result it is the answer (bu-pi repaired it: one extra
+		# request on ~95% of gpt-6-luna runs). A structured result gets one delivery-only repair turn, then text is accepted.
+		if output_type is not str and not ctx.deps.finalizing:
 			ctx.deps.finalizing = True
 			# Quoted: a compaction item at the end of this response replaces everything before it, this text included,
 			# so the repair turn would otherwise not see the answer it is asked to deliver.
@@ -240,7 +241,7 @@ def _outputs(output_type: Any) -> list[Any]:
 
 
 class BrowserLoop(AbstractCapability[Session]):
-	"""Keep only recent screenshots; one delivery-only turn near the time/step budget or after a text reply."""
+	"""Keep only recent screenshots; one delivery-only turn near the time/step budget or after a structured text reply."""
 
 	async def before_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
 		s = ctx.deps

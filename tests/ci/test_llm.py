@@ -174,14 +174,14 @@ async def test_gateway_models_run_stateless_responses_with_compaction(responses_
 				'content': [{'type': 'output_text', 'text': 'Done.', 'annotations': []}],
 			}
 		],
-	]  # then the delivery repair turn: tool_choice forced to finish/finish_from_repl, answered by the default finish
+	]  # the text reply is the answer (str result): no delivery repair request
 	model, settings = resolve_model(ChatBrowserUse(api_key='fake-test-key', base_url=url))
 	assert isinstance(model, OpenAIResponsesModel)
 	agent = build_agent(model, model_settings=settings, reasoning_effort=None)  # what Agent() passes for the gateway
 	assert compaction(agent)
 	result = await run(agent, 'TASK-TEXT', Session(repl=Repl(tmp_path)), model.model_name)
-	assert (result.status, result.output, result.error) == ('completed', 'ok', None)
-	assert [path for path, _ in requests] == ['/v1/responses'] * 4
+	assert (result.status, result.output, result.error) == ('completed', 'Done.', None)
+	assert [path for path, _ in requests] == ['/v1/responses'] * 3
 	for _, body in requests:
 		assert body['model'] == 'bu-fast' and body['store'] is False and 'reasoning.encrypted_content' in body['include']
 		assert body['context_management'] == [{'type': 'compaction', 'compact_threshold': 150_000}]
@@ -192,13 +192,13 @@ async def test_gateway_models_run_stateless_responses_with_compaction(responses_
 	).items()
 	assert 'TASK-TEXT' in json.dumps(second) and 'TASK-TEXT' not in json.dumps(third)  # compacted away
 	assert any(i.get('type') == 'compaction' and i['encrypted_content'] == 'sealed-compaction-2' for i in third)
-	assert requests[3][1]['tool_choice']['type'] == 'allowed_tools'
-	assert result.cost_usd == pytest.approx(4 * 0.0002)
+	assert result.cost_usd == pytest.approx(3 * 0.0002)
 
 
 async def test_text_answer_reaches_the_repair_turn_when_a_compaction_item_ends_the_response(responses_server, tmp_path):
 	"""agent-llm F2: the model answered in text, the response ended with a compaction item, and the delivery repair
-	request was [compaction, retry]: the answer was gone, and the model then said it could not verify anything."""
+	request was [compaction, retry]: the answer was gone, and the model then said it could not verify anything.
+	Only a structured result gets the repair turn (C33)."""
 	url, requests, replies = responses_server
 	answer = 'There are 120 books; the cheapest is Patience at 10.16.'
 	replies.append(
@@ -209,10 +209,11 @@ async def test_text_answer_reaches_the_repair_turn_when_a_compaction_item_ends_t
 			{'type': 'compaction', 'id': 'cmp_1', 'encrypted_content': 'sealed-compaction-1'},
 		]
 	)  # fmt: skip
+	replies.append([reasoning(2), call('finish', {'success': True, 'result': {'books': 120}}, 2)])
 	model, settings = resolve_model(ChatBrowserUse(api_key='fake-test-key', base_url=url))
-	agent = build_agent(model, model_settings=settings, reasoning_effort=None)
+	agent = build_agent(model, model_settings=settings, reasoning_effort=None, output_type=dict[str, int])
 	result = await run(agent, 'TASK-TEXT', Session(repl=Repl(tmp_path)), model.model_name)
-	assert result.status == 'completed'
+	assert (result.status, result.output) == ('completed', {'books': 120})
 	repair = requests[1][1]['input']
 	assert repair[0]['type'] == 'compaction' and 'TASK-TEXT' not in json.dumps(repair)  # compacted as before
 	assert answer in json.dumps(repair)  # but the answer to deliver is in the repair request itself
@@ -583,11 +584,12 @@ async def test_anthropic_text_reply_reaches_delivery_repair_and_finishes(tmp_pat
 
 	client, bodies = anthropic_mock(
 		[{'type': 'text', 'text': 'I found it: 42.'}],
-		[{'type': 'tool_use', 'id': 'tu_1', 'name': 'finish', 'input': {'result': '42', 'success': True}}],
+		[{'type': 'tool_use', 'id': 'tu_1', 'name': 'finish', 'input': {'result': 42, 'success': True}}],
 	)
 	model = AnthropicModel(name, provider=AnthropicProvider(anthropic_client=client))
-	result = await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), f'anthropic:{name}')
-	assert (result.status, result.output, result.error) == ('completed', '42', None)
+	agent = build_agent(model, output_type=int)  # a str result takes the text reply as the answer (C33)
+	result = await run(agent, 'task', Session(repl=Repl(tmp_path)), f'anthropic:{name}')
+	assert (result.status, result.output, result.error) == ('completed', 42, None)
 	first, repair = bodies
 	assert 'python' in {t['name'] for t in first['tools']}
 	assert {t['name'] for t in repair['tools']} == {'finish', 'finish_from_repl'}  # python withheld
@@ -602,8 +604,13 @@ async def test_compatible_backends_get_plain_required_on_the_delivery_turn(chat_
 		replies.append({'role': 'assistant', 'content': 'Done, it is ok.'})
 		model, settings = resolve_model(llm)
 		session = Session(repl=Repl(tmp_path))
-		result = await run(build_agent(model, model_settings=settings), 'task', session, model.model_name)
-		assert (result.status, result.output) == ('completed', 'ok')
+		agent = build_agent(model, model_settings=settings, output_type=list[str])  # str takes the text reply (C33)
+		replies.append(
+			{'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'c1', 'type': 'function',
+			 'function': {'name': 'finish', 'arguments': json.dumps({'result': ['ok'], 'success': True})}}]}
+		)  # fmt: skip
+		result = await run(agent, 'task', session, model.model_name)
+		assert (result.status, result.output) == ('completed', ['ok'])
 		repair = requests[1][1]
 		assert repair['tool_choice'] == 'required'
 		assert {t['function']['name'] for t in repair['tools']} == {'finish', 'finish_from_repl'}

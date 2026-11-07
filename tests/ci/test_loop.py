@@ -182,9 +182,32 @@ async def test_workspace_path_is_in_instructions(daemon, tmp_path):
 	assert json.dumps(str(tmp_path.resolve())) in seen[0] and 'never `await` them' in seen[0]
 
 
-async def test_text_reply_gets_one_delivery_repair_turn(daemon, tmp_path):
-	# A text-only reply used to be impossible (tool_choice=required every turn). Now it is allowed, and ending the
-	# work in text triggers bu-pi's single delivery-repair turn with delivery tools forced.
+async def test_text_reply_is_the_answer_for_a_str_result(daemon, tmp_path):
+	"""C33: the default str result took the answer only after a delivery-repair request (bu-pi), which gpt-6-luna needed
+	on 21 of 22 runs. Its text reply is now the answer: no extra request, no verdict."""
+	from pydantic_ai.messages import TextPart
+
+	seen = []
+
+	def fn(messages, info: AgentInfo):
+		seen.append(messages[-1])
+		if len(seen) == 1:
+			return ModelResponse(parts=[ToolCallPart('python', {'code': 'rows = [1, 2, 3]'})])
+		return ModelResponse(parts=[TextPart('I found 3 rows.')])
+
+	agent, session = build_agent(), Session(repl=Repl(tmp_path, daemon))
+	try:
+		with agent.override(model=FunctionModel(fn)):
+			result = await run(agent, 'task', session, 'gpt-6-luna')
+	finally:
+		await session.repl.close()
+	assert len(seen) == 2
+	assert (result.status, result.output, session.finish_via, session.success) == ('completed', 'I found 3 rows.', 'text', None)
+
+
+async def test_structured_text_reply_gets_one_delivery_repair_turn(daemon, tmp_path):
+	# A text-only reply used to be impossible (tool_choice=required every turn). Now it is allowed; with a structured
+	# result, ending the work in text triggers bu-pi's single delivery-repair turn with delivery tools forced.
 	from pydantic_ai.messages import RetryPromptPart, TextPart
 	from pydantic_ai.models import ModelRequestParameters
 	from pydantic_ai.models._tool_choice import resolve_tool_choice
@@ -204,7 +227,7 @@ async def test_text_reply_gets_one_delivery_repair_turn(daemon, tmp_path):
 			return ModelResponse(parts=[TextPart('I found 3 rows.')])
 		return ModelResponse(parts=[ToolCallPart('finish_from_repl', {'success': True, 'expression': 'json.dumps(rows)'})])
 
-	agent, session = build_agent(), Session(repl=Repl(tmp_path, daemon))
+	agent, session = build_agent(output_type=list[int]), Session(repl=Repl(tmp_path, daemon))
 	try:
 		with agent.override(model=FunctionModel(fn)):
 			result = await run(agent, 'task', session, 'gpt-6-luna')
@@ -217,7 +240,7 @@ async def test_text_reply_gets_one_delivery_repair_turn(daemon, tmp_path):
 		for p in repair_msg.parts
 	)
 	assert repair_choice == ('required', {'finish', 'finish_from_repl'})
-	assert (result.status, result.output) == ('completed', '[1, 2, 3]')
+	assert (result.status, result.output) == ('completed', [1, 2, 3])
 
 
 async def test_a_tool_call_on_the_delivery_turn_is_not_run(daemon, tmp_path):

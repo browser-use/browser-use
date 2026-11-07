@@ -699,7 +699,8 @@ async def test_failed_run_fallback_output_never_shows_a_secret(tmp_path):
 		raise RuntimeError('provider down')
 
 	session = Session(repl=Repl(tmp_path, secrets={'pw': secret}))
-	r = await run(build_agent(FunctionModel(reply)), 'task', session, 'm')
+	# structured result: the text reply gets a delivery repair turn (a str result would take it as the answer, C33)
+	r = await run(build_agent(FunctionModel(reply), output_type=dict[str, str]), 'task', session, 'm')
 	assert r.status == 'error'
 	assert secret not in str(r.output) and secret not in r.text and '<secret:pw>' in str(r.output)
 
