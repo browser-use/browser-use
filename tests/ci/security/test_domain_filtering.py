@@ -115,6 +115,21 @@ class TestUrlAllowlistSecurity:
 			assert watchdog._is_url_allowed('https://api.example.com') is False
 			assert watchdog._is_url_allowed('https://api.exampla.com') is False
 
+	def test_prohibited_domains_unsupported_glob_fails_closed(self):
+		"""A denylist pattern with unsupported glob syntax must fail closed (block), not allow."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains=['https://exampl[ae].com/*'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=EventBus())
+
+		# The denylist uses unsupported fnmatch syntax; it must block the URL
+		# rather than silently letting it through (fail closed).
+		assert watchdog._is_url_allowed('https://example.com/page') is False
+		assert watchdog._is_url_allowed('https://example.com') is False
+
 	def test_glob_pattern_edge_cases(self):
 		"""Test edge cases for glob pattern matching to ensure proper behavior."""
 		from bubus import EventBus

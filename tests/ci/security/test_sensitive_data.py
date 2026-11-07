@@ -181,6 +181,7 @@ def test_unsafe_domain_patterns():
 	assert match_url_with_domain_pattern('https://api.example.com', '*.exampl[ae].com') is False
 	assert match_url_with_domain_pattern('https://api.exampla.com', '*.exampl[ae].com') is False
 	assert match_url_with_domain_pattern('https://api.example.com', '*.exampl?.com') is False
+	assert match_url_with_domain_pattern('https://api.example.com', '*.exampl].com') is False
 	assert match_url_with_domain_pattern('https://example.com', 'h[tx]tp*://example.com') is False
 	assert has_unsupported_fnmatch_syntax('*.exampl].com') is True
 	assert has_unsupported_fnmatch_syntax('*.example.com') is False
