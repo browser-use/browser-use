@@ -91,11 +91,11 @@ def test_mcp_drives_the_cloud_browser_it_started_wherever_the_start_is_in_the_co
 
 	monkeypatch.delenv('BH_TAB_MARKER')  # cloud pages keep their title without the user setting it
 	monkeypatch.delenv('BH_OPEN_LIVE_URL', raising=False)
-	name = _name('route')
 	mcp = cli_mcp.CLIMCPServer()
+	name = mcp._remote
 
 	# not the first statement: a prefix check would attach the local Chrome before the cloud browser starts
-	out = mcp._execute(f'b = start_remote_daemon({name!r})\nprint(sorted(b))\nprint(b["timeout"])')[0]
+	out = mcp._execute('b = start_remote_daemon("work")\nprint(sorted(b))\nprint(b["timeout"])')[0]
 	assert fake_cloud == [name], out
 	assert 'liveUrl' not in out and 'live.example' not in out  # it grants control of the browser
 	assert 'cdpUrl' not in out and 'cdp.example' not in out  # so does the CDP URL, with no key
@@ -105,11 +105,26 @@ def test_mcp_drives_the_cloud_browser_it_started_wherever_the_start_is_in_the_co
 	assert out.strip().splitlines()[-1] == 'cloud page', out
 	assert mcp._execute('print(NAME)')[0].strip() == name
 
-	other = _name('other')
-	out = mcp._execute(f'start_remote_daemon({other!r})')[0]
-	assert f'already drives cloud browser {name!r}' in out and fake_cloud == [name]
-	out = mcp._execute(f'start_remote_daemon({name!r})')[0]
+	out = mcp._execute('start_remote_daemon("work")')[0]
 	assert f'Daemon {name!r} is already running' in out and 'Traceback' not in out and fake_cloud == [name]
+
+
+def test_mcp_never_stops_or_drives_a_cloud_browser_another_server_started(fake_cloud, monkeypatch):
+	"""C22: two MCP servers both following the guide's start_remote_daemon("work"): B's start failed with "stop it
+	first", B's stop_remote_daemon("work") ended A's browser, and A then drove B's new one (its cookies)."""
+	from browser_harness import admin
+
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.delenv('BH_OPEN_LIVE_URL', raising=False)
+	other = _name('work')
+	admin.start_remote_daemon(other)  # another server's (or the CLI's) cloud browser under the name this server is given
+	mcp = cli_mcp.CLIMCPServer()
+
+	out = mcp._execute(f'start_remote_daemon({other!r})')[0]
+	out += mcp._execute(f'stop_remote_daemon({other!r})')[0]
+	assert admin.daemon_alive(other), out
+	assert fake_cloud == [other, mcp._remote] and not admin.daemon_alive(mcp._remote), out
 
 
 def test_cloud_upload_sends_the_files_bytes_not_a_local_path(fake_cloud, monkeypatch, tmp_path):
@@ -205,9 +220,9 @@ def test_a_cloud_daemon_that_ended_never_falls_back_to_the_local_chrome(fake_clo
 	from browser_use.harness_cloud import CloudBrowserError
 	from browser_use.mcp import cli_mcp
 
-	name = _name('gone')
 	mcp = cli_mcp.CLIMCPServer()
-	mcp._execute(f'start_remote_daemon({name!r})')[0]
+	name = mcp._remote
+	mcp._execute('start_remote_daemon()')[0]
 	admin.restart_daemon(name)  # the cloud browser timed out / its daemon died
 
 	for out in (mcp._execute('print(page_info())')[0], mcp._execute('print(page_info())')[0]):
@@ -297,7 +312,6 @@ def test_mcp_server_exit_stops_the_cloud_browser_it_started_even_when_killed(chr
 	"""The server is SIGKILLed: no handler runs in it. Its reaper still stops the daemon (and so the cloud browser)."""
 	from browser_harness import admin
 
-	name = _name('reap')
 	server = f"""
 import sys, time
 from browser_harness import admin
@@ -308,13 +322,14 @@ def start_remote_daemon(name='remote', profileName=None, **kw):
 	return {{'id': 'no-such-browser'}}
 
 admin.start_remote_daemon = start_remote_daemon
-print(cli_mcp.CLIMCPServer()._execute({f'start_remote_daemon({name!r})'!r}), flush=True)
+print(cli_mcp.CLIMCPServer()._execute('start_remote_daemon()'), flush=True)
 print('ready', flush=True)
 time.sleep(600)
 """
 	env = {**os.environ, 'PYTHONPATH': str(ROOT)}
 	env.pop('BROWSER_USE_API_KEY', None)  # the reaper's cloud stop then fails on "no key" before any request
 	proc = subprocess.Popen([sys.executable, '-c', server], env=env, stdout=subprocess.PIPE, text=True)
+	name = f'mcp-{proc.pid}'  # the server's own cloud daemon name
 	try:
 		assert proc.stdout is not None
 		lines = [proc.stdout.readline() for _ in range(2)]

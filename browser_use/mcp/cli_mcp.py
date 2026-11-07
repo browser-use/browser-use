@@ -17,7 +17,6 @@ from typing import Any
 import mcp.server.stdio
 import mcp.types as types
 from browser_harness import _ipc as ipc
-from browser_harness import admin
 from browser_harness.auth import CloudAuthRequired
 from mcp.server import Server
 
@@ -36,7 +35,7 @@ _NAMESPACE_IMPORTS = (
 
 LOGIN_HINT = 'Not signed in to Browser Use Cloud. Call the browser_login tool (it opens the browser to approve), then retry.'
 LOGIN_WAIT_SECONDS = 45.0
-LOGIN_NEXT = 'Start a cloud browser with start_remote_daemon("<name>") in browser_exec.'
+LOGIN_NEXT = 'Start a cloud browser with start_remote_daemon() in browser_exec.'
 OLD_TOOLS = {  # the 0.x browser-use --mcp server's tools (it ran the removed engine); browser_screenshot is kept
 	'browser_navigate', 'browser_click', 'browser_type', 'browser_get_state', 'browser_extract_content',
 	'browser_get_html', 'browser_scroll', 'browser_go_back', 'browser_list_tabs', 'browser_switch_tab',
@@ -51,8 +50,9 @@ MCP_GUIDE = f"""# This MCP server
 These rules override the skill below where they differ:
 - Code runs in browser_exec; there is no shell, so ignore `BU_NAME=... browser-use <<'PY'` examples.
 - Local: without a cloud browser, browser_exec drives the user's own Chrome (the default daemon).
-- Cloud: `start_remote_daemon("work")` (call browser_login first if not signed in). Every later browser_exec and
-  browser_screenshot drives that cloud browser; never pass BU_NAME. One cloud browser at a time per server.
+- Cloud: `start_remote_daemon()` (call browser_login first if not signed in). Every later browser_exec and
+  browser_screenshot drives that cloud browser; never pass BU_NAME. One cloud browser per server, under a name only it
+  uses: a name passed to start_remote_daemon / stop_remote_daemon is ignored.
 - It lives {CLOUD_TIMEOUT_MINUTES} minutes unless you pass `timeout=<minutes>` (up to 240), and this server stops it when it
   exits. Once it ends, calls fail with an error: start a new one, never fall back to the local Chrome.
 - Code runs in this server's process: it can read the server's environment (BROWSER_USE_API_KEY when set) and files.
@@ -131,7 +131,7 @@ class CLIMCPServer:
 		self._jobs: set[asyncio.Task] = set()  # _locked() calls: kept referenced while they run
 		self._login: _Login | None = None
 		self._login_lock = threading.Lock()
-		self._remote: str | None = None  # the cloud daemon this server started; browser_exec drives it
+		self._remote = f'mcp-{os.getpid()}'  # this server's cloud daemon name: no other server or CLI shares it
 		self._reapers: list[subprocess.Popen] = []  # held open so the pipes close only when this process exits
 		self._register_handlers()
 
@@ -144,7 +144,7 @@ class CLIMCPServer:
 					'goto_url(url), page_info(), click_at_xy(x, y), type_text(text), js(code), '
 					'cdp(method, ...), wait_for_load(), list_tabs() are pre-imported. The namespace '
 					'persists across calls. Returns whatever the code prints. First navigation '
-					'should be new_tab(url). Drives the local Chrome until start_remote_daemon("<name>") starts a '
+					'should be new_tab(url). Drives the local Chrome until start_remote_daemon() starts a '
 					'cloud browser; then every call drives that one until it ends (stopped when this server exits). '
 					"A cloud browser's downloads stay on the remote host, never in ~/Downloads (a file there is not its "
 					'download): GET https://api.browser-use.com/api/v4/browsers/{id}/downloads lists them.'
@@ -265,6 +265,7 @@ class CLIMCPServer:
 			exec(_NAMESPACE_IMPORTS, ns)
 			harness_cloud.install(ns)
 			ns['start_remote_daemon'] = self._start_remote
+			ns['stop_remote_daemon'] = lambda name=None: harness_cloud.stop(self._remote)
 			self._namespace = ns
 		return self._namespace
 
@@ -276,13 +277,9 @@ class CLIMCPServer:
 			harness_cloud.ensure_daemon()
 
 	def _start_remote(self, name: str = 'remote', profileName: str | None = None, **create_kwargs: Any) -> dict:
-		if self._remote and self._remote != name and admin.daemon_alive(self._remote):
-			raise CloudBrowserError(
-				f'This server already drives cloud browser {self._remote!r}: stop_remote_daemon({self._remote!r}) first.'
-			)
+		name = self._remote  # a caller's name could be another server's browser: stopping or driving it hijacks it
 		create_kwargs.setdefault('timeout', CLOUD_TIMEOUT_MINUTES)
 		browser = harness_cloud.start(name, profileName, create_kwargs, self._namespace)
-		self._remote = name
 		if browser.get('id'):
 			detach: dict[str, Any] = ipc.spawn_kwargs()  # own session: a Ctrl-C to this server's group does not kill it first
 			self._reapers.append(
