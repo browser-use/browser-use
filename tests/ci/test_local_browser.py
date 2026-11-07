@@ -501,3 +501,22 @@ async def test_chrome_profile_copy_carries_its_logins(chrome_binary, tmp_path, m
 	finally:
 		await browser.stop()
 	assert not copy.exists() and (src / 'Profile 1' / 'Cookies').exists()
+
+
+async def test_a_kept_user_data_dir_keeps_its_cookies_across_a_normal_stop(chrome_binary, tmp_path):
+	"""H8: stop() sent SIGTERM to Chrome's whole process group, so the network service died before it wrote the
+	cookies: a user_data_dir profile lost them on every normal stop (3/3). Chrome is now closed over CDP first."""
+	cookie = {'name': 'c', 'value': 'kept', 'domain': 'example.test', 'path': '/', 'expires': time.time() + 86_400}
+	udd = tmp_path / 'profile'
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary, user_data_dir=udd)
+	await browser.start()
+	assert browser.name
+	browser_mod._daemon_cdp(browser.name, 'Storage.setCookies', cookies=[cookie])
+	await browser.stop()
+	await browser.start()
+	try:
+		assert browser.name
+		cookies = browser_mod._daemon_cdp(browser.name, 'Storage.getCookies')['cookies']
+		assert [(c['name'], c['value']) for c in cookies if c['domain'] == 'example.test'] == [('c', 'kept')]
+	finally:
+		await browser.stop()

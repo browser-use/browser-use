@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -280,6 +281,7 @@ class LocalBrowser:
 		_try_lock(self._owner)
 		self.user_data_dir: Path | None = None
 		self.proc: subprocess.Popen | None = None
+		self.ws: str | None = None  # the browser websocket, once Chrome reported it
 		self._lock = threading.Lock()
 		self._stopped = False
 
@@ -343,6 +345,7 @@ class LocalBrowser:
 		proc, deadline = self.proc, time.monotonic() + START_TIMEOUT_S
 		while time.monotonic() < deadline and not self._stopped:
 			if ws := _ws_url(self.user_data_dir, log):
+				self.ws = ws
 				return ws
 			if (code := proc.poll()) is not None:
 				tail = log.read_bytes()[-600:].decode(errors='replace').strip()
@@ -359,7 +362,7 @@ class LocalBrowser:
 			self._stopped = True
 			proc, self.proc = self.proc, None
 		if proc is not None:
-			_kill(proc)
+			_kill(proc, self.ws)
 		self._remove_tmp()
 
 	def _remove_tmp(self) -> None:
@@ -371,8 +374,26 @@ class LocalBrowser:
 			time.sleep(0.1)
 
 
-def _kill(proc: subprocess.Popen) -> None:
-	"""SIGTERM (Chrome quits cleanly), SIGKILL after 5 s; on POSIX the whole process group, so no helper survives."""
+def _close_over_cdp(ws: str) -> bool:
+	"""CDP Browser.close: Chrome shuts down as when its last window closes, writing cookies and storage to the profile
+	first. False when it could not be sent."""
+	try:
+		from websockets.sync.client import connect
+
+		with connect(ws, open_timeout=3, close_timeout=1, max_size=None) as c:
+			c.send(json.dumps({'id': 1, 'method': 'Browser.close'}))
+			with contextlib.suppress(Exception):  # Chrome may close the socket before it answers
+				c.recv(timeout=3)
+		return True
+	except Exception as e:  # - fall back to a signal
+		logger.debug('Browser.close over CDP failed: %s', e)
+		return False
+
+
+def _kill(proc: subprocess.Popen, ws: str | None = None) -> None:
+	"""Browser.close over CDP (else SIGTERM to the browser process alone), SIGKILL after 5 s; on POSIX then the whole
+	process group, so no helper survives. A SIGTERM to the whole group killed the network service with the browser, before
+	it wrote the cookies of a user_data_dir profile."""
 	win = sys.platform == 'win32'
 
 	def send(sig: int) -> None:
@@ -382,7 +403,9 @@ def _kill(proc: subprocess.Popen) -> None:
 			pass
 
 	if proc.poll() is None:
-		send(signal.SIGTERM)
+		if not (ws and _close_over_cdp(ws)) and not win:  # Windows: SIGTERM is TerminateProcess, no cleanup at all
+			with contextlib.suppress(OSError):
+				proc.send_signal(signal.SIGTERM)
 		try:
 			proc.wait(5)
 		except subprocess.TimeoutExpired:
