@@ -213,3 +213,26 @@ def test_skill_install_reads_utf8_whatever_the_locale(tmp_path):
 	assert result.returncode == 0, result.stderr.decode('utf-8', 'replace')
 	installed = (home / '.claude' / 'skills' / 'browser-use' / 'SKILL.md').read_text(encoding='utf-8')
 	assert installed == skill_text()
+
+
+def test_open_source_skill_shows_only_1_0_code():
+	"""M7: the bundled open-source skill taught 0.x code that breaks on 1.0 (@sandbox, ChatGroq, BrowserProfile,
+	ChatAnthropic(temperature=...), use_vision=...)."""
+	import ast
+
+	import browser_use
+	from browser_use.agent.service import REMOVED as AGENT_REMOVED
+	from browser_use.browser.browser import REMOVED as BROWSER_REMOVED
+
+	skill_dir = ROOT / 'skills' / 'open-source'
+	assert [p.name for p in skill_dir.rglob('*') if p.is_file()] == ['SKILL.md']
+	text = (skill_dir / 'SKILL.md').read_text(encoding='utf-8')
+	generic = {'timeout', 'id', 'env', 'args', 'headers', 'source', 'skills'}  # also 1.0 words (run(timeout=...))
+	for name in {*AGENT_REMOVED, *BROWSER_REMOVED, 'temperature'} - generic:
+		assert not re.search(rf'(?<![\w.]){name}=', text), name
+	for code in re.findall(r'```python\n(.*?)```', text, flags=re.DOTALL):
+		tree = ast.parse(code)
+		for node in ast.walk(tree):
+			if isinstance(node, ast.ImportFrom) and node.module == 'browser_use':
+				for alias in node.names:
+					assert alias.name in browser_use.__all__, alias.name
