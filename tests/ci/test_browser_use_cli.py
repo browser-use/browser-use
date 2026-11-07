@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,6 +18,12 @@ def _run_browser_use_cli(*args: str, module: str = 'browser_use.cli') -> subproc
 		text=True,
 		timeout=20,
 	)
+
+
+def test_console_scripts_avoid_generic_names():
+	# `uv tool install` aborts if any script name is already taken by another tool's executable.
+	scripts = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['scripts']
+	assert set(scripts) == {'browser-use', 'browseruse', 'browser-use-tui'}
 
 
 def test_browser_use_doctor_help_prints_browser_use_usage():

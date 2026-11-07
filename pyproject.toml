@@ -46,8 +46,6 @@ Telemetry = "https://docs.browser-use.com/development/monitoring/telemetry"
 [project.scripts]
 browser-use = "browser_use.cli:main"  # Browser Use CLI for agents
 browseruse = "browser_use.cli:main"  # Alias for browser-use
-bu = "browser_use.cli:main"  # Alias for browser-use
-browser = "browser_use.cli:main"  # Alias for browser-use
 browser-use-tui = "browser_use.cli:browser_use_tui_main"  # Deprecated alias for browser-use
 
 [build-system]
