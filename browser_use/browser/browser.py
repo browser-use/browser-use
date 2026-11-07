@@ -872,8 +872,15 @@ class Browser:
 		fetched = self._fetched
 		browser_id = self.id
 		try:
-			if downloads_dir and self.use_cloud:  # before the stop too: the API may not list a stopped session's files
+			ending = self.name and (self.use_cloud or self._local is not None)  # a browser this stop ends
+			completed = await self._finish_downloads() if ending else 0
+			# before the stop too: the API may not list a stopped session's files. The cloud lists a download about a
+			# second after it completes: retry until it lists them all (a copy that keeps failing gives up after 30)
+			for _ in range(30 if downloads_dir and self.use_cloud else 0):
 				await self._fetch_downloads(downloads_dir, fetched, files, browser_id)
+				if len(fetched) >= completed:
+					break
+				await asyncio.sleep(1)
 		finally:  # even when cancelled mid-download: the stop always starts, and its thread always finishes
 			self._stopping = asyncio.ensure_future(asyncio.to_thread(self._stop_now))
 			stopped = await asyncio.shield(self._stopping)
@@ -884,6 +891,34 @@ class Browser:
 			self.id = None
 			self._download_records, self.json_page_copies, self._fetched = [], set(), set()  # the next session starts anew
 		return files
+
+	async def _finish_downloads(self) -> int:
+		"""Wait, up to DOWNLOADS_TIMEOUT_S, for downloads still running, which the stop would lose (cloud: never listed;
+		local: a .crdownload). Their state: the REPL workers' logs, then the daemon's Browser.downloadProgress events
+		since. Returns how many downloads of the session completed."""
+		for log in list(self._download_lines):  # what a worker logged after its run's note_downloads, before it closed
+			self.note_downloads(log)
+		state = {r['guid']: 'inProgress' for r in self._download_records if r.get('guid')}
+		state |= {r['done']: r.get('state') for r in self._download_records if r.get('done')}
+		deadline, waiting = time.monotonic() + DOWNLOADS_TIMEOUT_S, False
+		try:
+			while True:
+				r = await asyncio.to_thread(_daemon_request, self._daemon_name(), {'meta': 'drain_events'})
+				for e in r.get('events', []):
+					if e.get('method') == 'Browser.downloadProgress' and (p := e.get('params') or {}).get('guid'):
+						state[p['guid']] = p.get('state')
+				if not (running := sum(s == 'inProgress' for s in state.values())):
+					break
+				if time.monotonic() > deadline:
+					logger.warning('Stopping the browser with %d download(s) unfinished: they are lost', running)
+					break
+				if not waiting:
+					logger.info('Waiting for %d download(s) to finish before stopping the browser', running)
+				waiting = True
+				await asyncio.sleep(1)
+		except Exception as e:  # - the daemon is gone, and its downloads with it
+			logger.debug('Could not wait for downloads: %s', e)
+		return sum(s == 'completed' for s in state.values())
 
 	def note_downloads(self, log: Path) -> None:
 		"""Add what a run's REPL worker logged since the last call (log: its workspace's downloads.jsonl) and update
@@ -929,6 +964,7 @@ class Browser:
 			page = await asyncio.to_thread(_cloud, q)
 			for f in page.get('files', []):
 				if f['path'] in skip or Path(f['path']).name in self.json_page_copies:
+					skip.add(f['path'])  # listed, so stop() stops waiting for it
 					continue
 				name = Path(f['path']).name
 				name = name if name not in ('', '.', '..') else 'download'

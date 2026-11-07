@@ -546,6 +546,50 @@ async def test_failed_download_is_retried_after_the_stop(cloud, monkeypatch, tmp
 	assert len(attempts) == 2
 
 
+async def test_stop_waits_for_a_running_download_and_its_cloud_listing(cloud, monkeypatch, tmp_path):
+	"""C14: a 100 MB download still running when the run ended was lost: stop() never waited for it (cloud: never
+	listed; local: a .crdownload), and the cloud lists a finished download about a second after it completes."""
+	import io
+
+	from browser_use.repl import worker
+
+	monkeypatch.setattr(worker, 'STATE', tmp_path)  # the REPL worker saw a.pdf finish and b.zip start
+	worker.CellStats().observe(
+		[
+			{'method': 'Browser.downloadWillBegin', 'params': {'guid': 'a', 'url': 'https://h/a', 'suggestedFilename': 'a.pdf'}},
+			{'method': 'Browser.downloadProgress', 'params': {'guid': 'a', 'state': 'completed'}},
+			{'method': 'Browser.downloadWillBegin', 'params': {'guid': 'b', 'url': 'https://h/b', 'suggestedFilename': 'b.zip'}},
+		]
+	)
+	polls = ['inProgress', 'completed']  # what the daemon buffered for b.zip since, one drain each
+	monkeypatch.setattr(
+		browser_mod,
+		'_daemon_request',
+		lambda name, req: {
+			'events': [{'method': 'Browser.downloadProgress', 'params': {'guid': 'b', 'state': polls.pop(0)}}] if polls else []
+		},
+	)
+	real, listed_after_b = browser_mod._cloud, []
+
+	def fake(path, method='GET', body=None):
+		if 'downloads' not in path:
+			return real(path, method, body)
+		if browser.stopped:  # a stopped session lists nothing
+			return {'files': [], 'hasMore': False}
+		if not polls:
+			listed_after_b.append(path)
+		names = ['a.pdf', 'b.zip'] if len(listed_after_b) > 1 else ['a.pdf']  # b.zip shows up a listing late
+		return {'files': [{'path': f'/dl/{n}', 'url': f'https://files.test/{n}'} for n in names], 'hasMore': False}
+
+	monkeypatch.setattr(browser_mod, '_cloud', fake)
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(b'x'))
+	browser = Browser()
+	await browser.start()
+	browser.note_downloads(tmp_path / 'downloads.jsonl')
+	files = await browser.stop(downloads_dir=tmp_path / 'downloads')
+	assert sorted(p.name for p in files) == ['a.pdf', 'b.zip'] and stops(cloud) == ['/browsers/b1']
+
+
 async def test_start_after_a_cancelled_stop_never_overlaps_its_stop_thread(cloud, monkeypatch):
 	"""A stop() cancelled during the PATCH leaves its thread running; a start() right after must not run its own
 	_stop_now beside it (a second PATCH, and the late thread could disown the new browser)."""

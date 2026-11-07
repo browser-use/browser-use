@@ -137,9 +137,11 @@ class CellStats:
 					key = None if guid is not None and guid in self.downloads else 'download_started'
 					self.downloads.add(guid)
 				if key:
-					_log_download({'name': params.get('suggestedFilename'), 'url': params.get('url')})
+					_log_download({'name': params.get('suggestedFilename'), 'url': params.get('url'), 'guid': guid})
 					with self.lock:
 						self.started.append(str(params.get('suggestedFilename') or params.get('url')))
+			elif method == 'Browser.downloadProgress' and params.get('state') in ('completed', 'canceled'):
+				_log_download({'done': params.get('guid'), 'state': params['state']})  # Browser.stop() waits for the rest
 			elif method == 'Page.frameNavigated' and not (frame := params.get('frame') or {}).get('parentId'):
 				mime = str(frame.get('mimeType') or '').lower()
 				if mime in ('application/json', 'text/json') or mime.endswith('+json'):  # vnd.api+json, problem+json
