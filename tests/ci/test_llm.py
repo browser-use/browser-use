@@ -9,7 +9,7 @@ import pytest
 from pydantic_ai.exceptions import UserError
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAICompaction, OpenAIResponsesModel
 
-from browser_use import Agent, ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI
+from browser_use import Agent, Browser, ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI
 from browser_use.agent.loop import Session, build_agent, run
 from browser_use.llm import GATEWAY_URL, model_ref, resolve_model
 from browser_use.repl import Repl
@@ -553,6 +553,13 @@ def test_anthropic_and_google_wrappers_build_models():
 def test_unsupported_llm_object_raises():
 	with pytest.raises(TypeError, match='Pydantic AI model string'):
 		resolve_model(object())
+
+
+def test_langchain_llm_raises_in_agent_init_with_qualified_name():
+	"""A LangChain ChatOpenAI shares browser_use.ChatOpenAI's class name: the error names its module, at Agent()."""
+	LangChainChatOpenAI = type('ChatOpenAI', (), {'__module__': 'langchain_openai.chat_models.base'})
+	with pytest.raises(TypeError, match=r'llm=langchain_openai\.chat_models\.base\.ChatOpenAI is not supported'):
+		Agent('t', llm=LangChainChatOpenAI(), browser=Browser('chromium'))
 
 
 def anthropic_mock(*replies):

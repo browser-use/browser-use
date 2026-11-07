@@ -360,12 +360,26 @@ def gateway_llm(model: Any) -> ChatBrowserUse | None:
 
 
 def as_chat_model(llm: Any) -> Any:
-	"""None and 'bu-*' strings -> ChatBrowserUse. Everything else is returned unchanged (validated by resolve_model)."""
+	"""None and 'bu-*' strings -> ChatBrowserUse. Other supported models are returned unchanged; anything else (a
+	LangChain chat model) raises here, in Agent(), not at run()."""
+	from pydantic_ai.models import Model
+
 	if llm is None:
 		return ChatBrowserUse()
 	if isinstance(llm, str) and llm.startswith('bu-'):
 		return ChatBrowserUse(llm)
+	if not isinstance(llm, (*CHAT_MODELS, Model, str)):
+		raise _unsupported_llm(llm)
 	return llm
+
+
+def _unsupported_llm(llm: Any) -> TypeError:
+	cls = f'{type(llm).__module__}.{type(llm).__qualname__}'  # langchain_openai.ChatOpenAI is not browser_use.ChatOpenAI
+	return TypeError(
+		f'llm={cls} is not supported in browser-use 1.0 (LangChain and other third-party chat models are not). Pass '
+		'browser_use.ChatBrowserUse(), ChatOpenAI(...), ChatAnthropic(...), ChatGoogle(...), a Pydantic AI model string like '
+		"'openai:gpt-4o' or a Pydantic AI Model. See MIGRATING.md."
+	)
 
 
 def resolve_model(llm: Any) -> tuple[Any, dict]:
@@ -394,11 +408,7 @@ def _resolve_model(llm: Any) -> tuple[Any, dict]:
 		except ImportError:
 			prefix = str(ref).split(':', 1)[0]
 			raise ImportError(extra_hint(EXTRAS.get(prefix, prefix))) from None
-	raise TypeError(
-		f'llm={type(llm).__name__} is not supported in browser-use 1.0. Pass ChatBrowserUse(), ChatOpenAI(...), '
-		"ChatAnthropic(...), ChatGoogle(...), a Pydantic AI model string like 'groq:llama-3.3-70b-versatile' or a Pydantic AI "
-		'Model. See MIGRATING.md.'
-	)
+	raise _unsupported_llm(llm)
 
 
 def __getattr__(name: str):
