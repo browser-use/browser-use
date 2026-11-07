@@ -90,16 +90,24 @@ async def test_cell_timeout_restarts_worker_keeps_files(daemon, tmp_path):
 
 
 async def test_timeout_returns_partial(daemon, tmp_path):
-	result, _ = await go(
-		daemon,
-		tmp_path,
-		[
-			('python', {'code': "checkpoint('out.json', {'rows': 3}, partial=True)"}),
-			('python', {'code': 'import time\ntime.sleep(30)'}),
-		],
-		timeout_s=4,
-		cell_timeout_s=60,
-	)
+	import asyncio
+
+	turns = [
+		ModelResponse(parts=[ToolCallPart('python', {'code': "checkpoint('out.json', {'rows': 3}, partial=True)"})]),
+		ModelResponse(parts=[ToolCallPart('python', {'code': 'import time\ntime.sleep(30)'})]),  # cut where delivery starts
+	]
+
+	async def fn(messages, info: AgentInfo):
+		if turns:
+			return turns.pop(0)
+		await asyncio.sleep(30)  # the delivery request outlives the budget too
+		raise AssertionError('unreachable')
+
+	session = Session(repl=Repl(tmp_path, daemon), timeout_s=4, cell_timeout_s=60)
+	try:
+		result = await run(build_agent(FunctionModel(fn)), 'task', session, 'gpt-6-luna')
+	finally:
+		await session.repl.close()
 	assert result.status == 'timeout'
 	assert json.loads(result.text) == {'rows': 3}
 
@@ -229,6 +237,23 @@ async def test_a_tool_call_on_the_delivery_turn_is_not_run(daemon, tmp_path):
 		await session.repl.close()
 	assert (result.status, result.output) == ('completed', 'done'), result.error
 	assert not (tmp_path / 'ran.txt').exists() and str(seen[2][-1]).count(NOT_RUN) == 2
+
+
+async def test_a_short_timeout_still_leaves_time_to_deliver(daemon, tmp_path):
+	"""M5: run(timeout=25) returned nothing: a cell could run to the budget's end, and the delivery turn got the last
+	10% (2.5 s). Cells now stop where the delivery turn starts, which a short budget moves earlier."""
+	model, _ = script(
+		('python', {'code': 'import time; time.sleep(30)'}),
+		('finish', {'success': False, 'result': 'ran out of time'}),
+	)
+	session = Session(repl=Repl(tmp_path, daemon), timeout_s=8)
+	try:
+		result = await run(build_agent(model), 'task', session, 'm')
+	finally:
+		await session.repl.close()
+	assert (result.status, result.output) == ('completed', 'ran out of time'), result.error
+	assert result.duration_s < 8 and session.budget_hit == 'timeout'
+	assert Session(repl=session.repl, timeout_s=1700).delivery_at() == pytest.approx(1530)  # default budget unchanged
 
 
 def _choice_recorder(responses):

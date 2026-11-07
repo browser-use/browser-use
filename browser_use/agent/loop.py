@@ -73,6 +73,11 @@ class Session:
 	budget_hit: str | None = None  # max_steps | timeout: the budget that forced the delivery-only turn
 	error_type: str | None = None  # class of the exception that ended the run
 
+	def delivery_at(self) -> float:
+		"""Seconds into the run at which the delivery-only turn starts: 90% of the budget, or earlier on a short budget
+		so the delivery request has up to 30 s (timeout=25 left it 2.5 s: the run ended empty)."""
+		return self.timeout_s - max(0.1 * self.timeout_s, min(30.0, 0.5 * self.timeout_s))
+
 	def partial(self) -> Any:
 		"""The last checkpoint(..., partial=True), secret values redacted. None when missing or unreadable."""
 		try:
@@ -89,7 +94,8 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	applies; checkpoint small batches before it. screenshot() returns native images.
 	"""
 	started = time.monotonic()
-	r = await ctx.deps.repl.call('exec', code, ctx.deps.cell_timeout_s)
+	left = ctx.deps.delivery_at() - (started - ctx.deps.started)  # a cell never runs into the delivery turn's time
+	r = await ctx.deps.repl.call('exec', code, min(ctx.deps.cell_timeout_s, max(left, 1.0)))
 	ctx.deps.stats.add_cell(r, code, time.monotonic() - started)
 	text = r['output']  # already cut to MAX_OUTPUT_CHARS by the worker
 	if r['error']:
@@ -235,7 +241,7 @@ class BrowserLoop(AbstractCapability[Session]):
 		if not s.finalizing:
 			if ctx.run_step >= s.max_steps - 1:
 				s.budget_hit = 'max_steps'
-			elif time.monotonic() - s.started >= 0.9 * s.timeout_s:
+			elif time.monotonic() - s.started >= s.delivery_at():
 				s.budget_hit = 'timeout'
 			if s.budget_hit:
 				s.finalizing = True
