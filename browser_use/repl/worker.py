@@ -412,12 +412,12 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			obj = inner['result']['objectId']
 		raise RuntimeError('shadow roots nested too deep')
 
-	def _recipient_url() -> str:
-		"""URL of the frame typed text reaches: focus followed from the top frame into nested frames, cross-site iframe
-		targets included (the attached tab's own target would type into a focused attacker iframe). Raises when it
-		cannot be established."""
+	def _recipient() -> tuple[str, dict | None]:
+		"""URL of the frame typed text reaches, and the top document's focused node ({} when focus is in an iframe):
+		focus followed from the top frame into nested frames, cross-site iframe targets included (the attached tab's own
+		target would type into a focused attacker iframe). Raises when it cannot be established."""
 		session: str | None = None
-		frame_id = helpers.cdp('Page.getFrameTree')['frameTree']['frame']['id']
+		frame_id = top = helpers.cdp('Page.getFrameTree')['frameTree']['frame']['id']
 		attached: list[str] = []
 		try:
 			for _ in range(16):
@@ -426,7 +426,9 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 					url = _frame_url(session, frame_id)
 					if url is None:
 						raise RuntimeError('focused frame not found')
-					return url
+					# the node only for the top document: inside an iframe activeElement can read <body> while keys reach
+					# a field the frame focused itself
+					return url, (node if frame_id == top else {})
 				child = node.get('frameId')
 				if not child:
 					raise RuntimeError('focused frame has no id')
@@ -466,18 +468,26 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		if not candidates:
 			raise KeyError(f'No secret named {name!r}; secret_names() lists them')
 		scoped = [(v, scope) for v, scope in candidates if scope is not None]
-		url = ''
+		try:  # the browser's own records (frame trees, isolated worlds), never page JS
+			url, node = _recipient()
+		except Exception:  # unknown recipient: scoped secrets fail closed below
+			url, node = '', {}
+
+		def type_into_field(value: str) -> None:
+			attrs = (node or {}).get('attributes') or []
+			if node is None or (node.get('nodeName') in ('BODY', 'HTML') and 'contenteditable' not in attrs[::2]):
+				# the keys went to the page itself and type_secret returned None: the agent believed it typed the value
+				where = 'nothing' if node is None else f'the page <{node["nodeName"].lower()}>'
+				raise RuntimeError(f'type_secret({name!r}): no field is focused ({where} is). Click or focus the input first.')
+			_type_keys(value)
+
 		if scoped:
-			try:  # the browser's own records (frame trees, isolated worlds), never page JS
-				url = _recipient_url()
-			except Exception:  # fail closed: unknown recipient
-				url = ''
 			for value, scope in scoped:
 				if url and domain_matches(url, scope):
-					return _type_keys(value)
+					return type_into_field(value)
 		for value, scope in candidates:
 			if scope is None:
-				return _type_keys(value)
+				return type_into_field(value)
 		raise PermissionError(
 			f'Secret {name!r} may only be typed on {", ".join(sorted({s for _, s in scoped}))}; the focused frame is '
 			f'{url or "unknown"}. Focus a field on the right site first.'

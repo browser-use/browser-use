@@ -594,6 +594,20 @@ async def test_domain_scoped_secret_checks_the_frame_that_receives_it(daemon, tm
 	assert allowed_frame == (False, "'<secret:tok>'"), allowed_frame
 
 
+async def test_type_secret_with_no_focused_field_raises(daemon, tmp_path):
+	"""M35: type_secret() with nothing focused typed the value into <body> and returned None, so the agent believed the
+	field was filled."""
+	repl = Repl(tmp_path, daemon, secrets={'pw': 'hunter2-Zq9'})
+	try:
+		r = await repl.call('exec', "new_tab('data:text/html,<input id=pw>'); wait_for_load(); type_secret('pw')", 60)
+		assert 'type_secret(\'pw\'): no field is focused (the page <body> is)' in (r['error'] or ''), r
+		code = "js('document.getElementById(\"pw\").focus()'); type_secret('pw'); print(len(js('document.getElementById(\"pw\").value')))"
+		r = await repl.call('exec', code, 60)
+		assert r['error'] is None and '11' in r['output'], r
+	finally:
+		await repl.close()
+
+
 async def test_bu_2fa_code_secret_types_the_current_totp_code_not_the_seed(daemon, tmp_path):
 	"""Roast r6-1: 0.x turned sensitive_data={'bu_2fa_code': seed} into a 6-digit TOTP code; 1.0 typed the raw seed, so
 	login failed and the page received the reusable 2FA secret."""
