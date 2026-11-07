@@ -256,10 +256,38 @@ EDITABLE = """function () {
 }"""
 
 
+ADMIN_LOCKED = (
+	'browser-use owns this browser: the agent cannot start, restart, attach or approve browsers or daemons. '
+	'If the browser is gone, finish with what you have.'
+)
+
+
+def _lock_browser_admin() -> None:
+	"""A model must never reach another browser: browser-harness's admin calls can start a daemon on the user's own
+	Chrome (and mac_approve clicks its "Allow remote debugging?" sheet). The worker never needs them."""
+	from browser_harness import admin, macos
+
+	def locked(*_args: object, **_kwargs: object) -> None:
+		raise PermissionError(ADMIN_LOCKED)
+
+	for name in (
+		'ensure_daemon',
+		'restart_daemon',
+		'start_remote_daemon',
+		'stop_remote_daemon',
+		'sync_local_profile',
+		'_launch_browser',
+	):
+		setattr(admin, name, locked)
+	for name in ('approve_remote_debugging', 'run_cli'):
+		setattr(macos, name, locked)
+
+
 def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	env = dict(os.environ)  # the allowlisted env the parent gave us
 	from browser_harness import helpers  # loads .env files and agent_helpers.py into this process
 
+	_lock_browser_admin()  # imports browser_harness.admin, which loads .env files too: before the env is reset
 	os.environ.clear()  # whatever those added (DATABASE_URL, ...) does not survive
 	os.environ.update(env)
 

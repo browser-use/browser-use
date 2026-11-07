@@ -80,6 +80,32 @@ async def test_worker_env_has_no_credentials(tmp_path, monkeypatch):
 	assert 'BH_RUNTIME_DIR_SHARED' in r['output'] and "'PATH'" in r['output']  # what the harness needs survives
 
 
+async def test_cells_cannot_reach_another_browser(tmp_path):
+	"""Night swarm 11-07: after the local browser died, a model imported browser_harness.admin and called
+	ensure_daemon()/restart_daemon(), which reached the user's own Chrome and raised its "Allow remote debugging?"
+	sheet, then looped `browser-harness mac-approve`. In-process admin calls are refused, and any daemon or CLI a cell
+	starts in a subprocess fails closed on a dead port instead of discovering a local Chrome."""
+	repl = Repl(tmp_path)
+	try:
+		code = (
+			'from browser_harness import admin, macos\n'
+			'out = []\n'
+			'for f in (admin.ensure_daemon, admin.restart_daemon, admin.start_remote_daemon, macos.approve_remote_debugging):\n'
+			'    try:\n'
+			'        f()\n'
+			'    except PermissionError as e:\n'
+			'        out.append(str(e)[:24])\n'
+			'import os\n'
+			'print(out, os.environ["BH_REQUIRE_EXISTING_DAEMON"], os.environ["BU_CDP_WS"])'
+		)
+		r = await repl.call('exec', code, 30)
+	finally:
+		await repl.close()
+	assert r['error'] is None, r
+	assert r['output'].count('browser-use owns this br') == 4
+	assert '1 ws://127.0.0.1:9/' in r['output']
+
+
 def test_trust_model_says_the_worker_can_still_reach_the_parents_keys():
 	"""H3: model code read every provider key through the parent's environment (ps -E -p $PPID) and its .env while the
 	trust model said keys "never reach" the worker. Same-user processes cannot be walled off here: the docs say so."""

@@ -312,6 +312,9 @@ class Repl:
 		port = server.sockets[0].getsockname()[1]
 		env = worker_env(self.env)
 		env.update(BH_TAB_MARKER='0', BU_STATE_DIR=str(self.state), BU_REPL_PORT=str(port), BU_REPL_TOKEN=token)
+		# A cell must never reach another browser (the user's own Chrome): a `browser-harness` CLI call reuses this run's
+		# daemon or fails, and any daemon a cell starts dials a dead port instead of discovering a local Chrome.
+		env.update(BH_REQUIRE_EXISTING_DAEMON='1', BU_CDP_WS='ws://127.0.0.1:9/browser-use-owns-the-browser')
 		env['BU_REPL_PARENT_PID'] = str(os.getpid())  # the worker exits when we die (worker._watch_parent)
 		env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')  # page text is Unicode; Windows defaults to cp1252
 		if self.mode == 'ultrafast':
