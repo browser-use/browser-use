@@ -16,7 +16,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic_ai import Tool
 
 from browser_use.exceptions import removed
@@ -40,6 +40,19 @@ INJECTED = {
 }
 
 
+class RemovedField(TypeError):
+	"""A 0.x ActionResult field 1.0 dropped. It ends the run (never handed to the model as a tool error), so the
+	developer sees it."""
+
+
+REMOVED_FIELDS = {  # 0.x ActionResult fields -> the 1.0 alternative
+	'is_done': 'the model ends the run with finish.',
+	'success': "the model gives the verdict in finish(..., success=...); result.success holds it.",
+	'include_in_memory': 'every action result stays in the conversation.',
+	'attachments': 'save files in the workspace; files the agent wrote there are delivered.',
+}
+
+
 class ActionResult(BaseModel):
 	"""0.x return type, kept so existing actions run. The model sees it as JSON."""
 
@@ -47,6 +60,13 @@ class ActionResult(BaseModel):
 
 	extracted_content: str | None = None
 	error: str | None = None
+
+	@model_validator(mode='before')
+	@classmethod
+	def _no_removed_fields(cls, data: Any) -> Any:
+		if isinstance(data, dict) and (name := next((k for k in data if k in REMOVED_FIELDS), None)):
+			raise RemovedField(removed(f'ActionResult({name}=...)', REMOVED_FIELDS[name]))
+		return data
 
 
 class Tools:

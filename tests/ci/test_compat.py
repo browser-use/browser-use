@@ -204,6 +204,24 @@ def test_tool_names_providers_reject_raise_at_registration():
 	assert tools.functions == []
 
 
+async def test_removed_action_result_fields_raise_and_end_the_run(tmp_path):
+	"""M39: ActionResult(is_done=True, success=...) was silently accepted (extra='allow'): the run went on as if the
+	action had ended it. Now the removed error, ending the run so the developer sees it (not the model)."""
+	for field in ('is_done', 'success', 'include_in_memory', 'attachments'):
+		with pytest.raises(TypeError, match=rf'^ActionResult\({field}=\.\.\.\) {REMOVED}'):
+			ActionResult(extracted_content='x', **{field: True})
+	assert ActionResult(extracted_content='x', note='extra fields still pass').note == 'extra fields still pass'
+	tools = Tools()
+
+	@tools.action('Done')
+	def done() -> ActionResult:
+		return ActionResult(is_done=True, extracted_content='all done')
+
+	model, _ = script(('done', {}))
+	r = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert r.status == 'error' and 'ActionResult(is_done=...) was removed in browser-use 1.0' in (r.error or '')
+
+
 async def test_custom_action_is_a_model_tool(tmp_path):
 	tools = Tools()
 
