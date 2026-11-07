@@ -217,17 +217,29 @@ def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
 	return path
 
 
-def json_page_copies(log: Path) -> set[str]:
-	"""Names, as the cloud lists them, of the downloads in a REPL worker's downloads.jsonl that only copy a JSON page the
-	tab displayed: a cloud browser saves https://host/data?q=1, shown as a page, as the download https://host/data.json
-	(application/json) or https://host/data (+json types), the query dropped, with any cookies the page echoed. Real
-	downloads keep their own URL. A name used twice is listed as 'name (1).ext' for the later download, so the real
-	file that shares a copy's name is kept, not dropped with it."""
-	try:
-		records = [json.loads(line) for line in log.read_text(encoding='utf-8').splitlines() if line.strip()]
-	except (OSError, ValueError):
-		return set()
-	records = [r for r in records if isinstance(r, dict)]
+def download_records(lines: list[str]) -> list[dict]:
+	"""The records of downloads.jsonl lines; unreadable lines are skipped."""
+	records = []
+	for line in lines:
+		with contextlib.suppress(ValueError):
+			if isinstance(r := json.loads(line), dict):
+				records.append(r)
+	return records
+
+
+def json_page_copies(log: Path | list[dict]) -> set[str]:
+	"""Names, as the cloud lists them, of the downloads in a REPL worker's downloads.jsonl (or its records, of every
+	worker that used one cloud browser, in order) that only copy a JSON page the tab displayed: a cloud browser saves
+	https://host/data?q=1, shown as a page, as the download https://host/data.json (application/json) or
+	https://host/data (+json types), the query dropped, with any cookies the page echoed. Real downloads keep their own
+	URL. A name used twice is listed as 'name (1).ext' for the later download, so the real file that shares a copy's
+	name is kept, not dropped with it."""
+	if isinstance(log, Path):
+		try:
+			log = download_records(log.read_text(encoding='utf-8').splitlines())
+		except OSError:
+			return set()
+	records = log
 	pages = {_no_query(str(r['json_page'])) for r in records if r.get('json_page')}
 	taken: set[str] = set()
 	copies: set[str] = set()
@@ -544,6 +556,10 @@ class Browser:
 		self._daemon_env: dict[str, str] = {}  # what our daemon was started with, to start it again if it dies
 		# names of the downloads that are a cloud browser's copy of a JSON page it displayed (Agent fills it): not copied
 		self.json_page_copies: set[str] = set()
+		# download records of every Agent that used this cloud session, in run order: the cloud numbers a repeated name
+		# ('cookies (1).json') across the whole session, not per workspace
+		self._download_records: list[dict] = []
+		self._download_lines: dict[Path, int] = {}  # downloads.jsonl -> lines already read
 		self._lock = asyncio.Lock()  # one start or stop at a time: they never interleave
 		self._creating: concurrent.futures.Future | None = None  # the cloud POST, which outlives a cancelled start
 		self._create_deadline = 0.0  # monotonic time after which start() and stop() stop waiting for that POST
@@ -836,7 +852,19 @@ class Browser:
 			await self._fetch_downloads(downloads_dir, fetched, files, browser_id)
 		if stopped and self.id == browser_id:
 			self.id = None
+			self._download_records, self.json_page_copies = [], set()  # the next session numbers its downloads anew
 		return files
+
+	def note_downloads(self, log: Path) -> None:
+		"""Add what a run's REPL worker logged since the last call (log: its workspace's downloads.jsonl) and update
+		json_page_copies. Agents use a Browser one at a time, so appending keeps the session's order."""
+		try:
+			lines = log.read_text(encoding='utf-8').splitlines()
+		except OSError:
+			return
+		seen, self._download_lines[log] = self._download_lines.get(log, 0), len(lines)
+		self._download_records += download_records(lines[seen:])
+		self.json_page_copies |= json_page_copies(self._download_records)
 
 	async def _fetch_downloads(self, dest: str | Path, skip: set[str], out: list[Path], browser_id: str | None) -> None:
 		try:

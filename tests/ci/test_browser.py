@@ -918,6 +918,32 @@ def test_json_copies_of_every_json_type_are_found_and_a_real_file_sharing_the_na
 	assert browser_mod.json_page_copies(log) == {'api', 't (1)', 'p', 'json.json'}
 
 
+def test_json_copies_are_numbered_across_every_agent_on_one_cloud_browser(cloud, tmp_path):
+	"""Review: each workspace's log was numbered on its own, but the cloud numbers a repeated name across the whole
+	session: the second Agent's cookies copy, listed as 'cookies (1).json' (cookies the page echoed), was delivered."""
+	import asyncio
+	import json
+
+	def log(name: str, *records: dict):
+		path = tmp_path / name / 'downloads.jsonl'
+		path.parent.mkdir(exist_ok=True)
+		with open(path, 'a') as f:
+			f.writelines(json.dumps(r) + '\n' for r in records)
+		return path
+
+	page, copy = {'json_page': 'https://httpbin.org/cookies'}, {'name': 'cookies.json', 'url': 'https://httpbin.org/cookies.json'}
+	browser = Browser(keep_alive=True)
+	asyncio.run(browser.start())
+	a = log('a', page, copy)
+	browser.note_downloads(a)
+	browser.note_downloads(log('b', page, copy, {'name': 'data.json', 'url': 'https://files.example/data.json'}))
+	assert browser.json_page_copies == {'cookies.json', 'cookies (1).json'}
+	browser.note_downloads(log('a', copy))  # a follow-up run of the first Agent: only its new line counts
+	assert browser.json_page_copies == {'cookies.json', 'cookies (1).json', 'cookies (2).json'}
+	asyncio.run(browser.stop())
+	assert browser.json_page_copies == set()  # the next cloud session numbers its downloads anew
+
+
 def test_worker_logs_downloads_and_json_pages_for_the_parent(tmp_path, monkeypatch):
 	from browser_use.repl import worker
 

@@ -18,7 +18,6 @@ from browser_use.agent.loop import Session, build_agent, reasoning_supported, ru
 from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, NO_CAPTCHA_PROMPT
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import Browser
-from browser_use.browser.browser import json_page_copies
 from browser_use.config import load_env
 from browser_use.exceptions import removed
 from browser_use.llm import ChatBrowserUse, as_chat_model, gateway_llm, provider_preflight, resolve_model
@@ -365,7 +364,7 @@ class Agent:
 			error_type = type(e).__name__
 			raise
 		finally:
-			self.browser.json_page_copies |= json_page_copies(self.workspace / '.browser-use' / 'downloads.jsonl')
+			self.browser.note_downloads(self.workspace / '.browser-use' / 'downloads.jsonl')
 			if not self.browser.keep_alive:
 				await self._shutdown()
 			self._capture(result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started)
