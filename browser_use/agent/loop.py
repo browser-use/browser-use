@@ -1,8 +1,8 @@
 """Browser agent = Pydantic AI loop + one persistent Python REPL running browser-harness.
 
 Learnings carried from browser-use-pi: deliver existing values (finish_from_repl), native screenshots
-with only the last two kept, server-side compaction, one delivery turn near budget, partial results
-that survive timeouts, and a killable worker so a hung cell never kills the run.
+with only the last two kept, compaction (server-side, else a summary checkpoint), one delivery turn near budget,
+partial results that survive timeouts, and a killable worker so a hung cell never kills the run.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, cast
@@ -21,8 +22,18 @@ from genai_prices import calc_price
 from pydantic import Field, TypeAdapter, ValidationError
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput, ToolOutput
 from pydantic_ai.capabilities import AbstractCapability
+from pydantic_ai.direct import model_request
 from pydantic_ai.exceptions import ToolRetryError
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, ThinkingPart, ToolReturnPart
+from pydantic_ai.messages import (
+	ModelMessage,
+	ModelMessagesTypeAdapter,
+	ModelRequest,
+	ModelResponse,
+	TextPart,
+	ThinkingPart,
+	ToolReturnPart,
+	UserPromptPart,
+)
 from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAICompaction, OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_ai.settings import ToolOrOutput
@@ -76,6 +87,10 @@ class Session:
 	finish_via: str | None = None  # finish | finish_from_repl | text: how the result was delivered
 	budget_hit: str | None = None  # max_steps | timeout | browser_gone: what forced the delivery-only turn
 	error_type: str | None = None  # class of the exception that ended the run
+	checkpoint: ModelRequest | None = None  # Compaction: the message sent in place of messages[:covered]
+	covered: int = 0
+	compaction_failed: bool = False
+	summaries: list[ModelResponse] = field(default_factory=list)  # summarizer responses, counted in usage and cost
 
 	def delivery_at(self) -> float:
 		"""Seconds into the run at which the delivery-only turn starts: 90% of the budget, or earlier on a short budget
@@ -311,6 +326,128 @@ class LazyCompaction(OpenAICompaction):
 		return lambda ctx: resolve(ctx) if last(ctx.messages) >= self.token_threshold else {}
 
 
+SUMMARY_SYSTEM = (  # Pi pi-coding-agent SUMMARIZATION_SYSTEM_PROMPT, verbatim
+	'You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, '
+	'then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT '
+	'respond to any questions in the conversation. ONLY output the structured summary.'
+)
+SUMMARY_PROMPT = (  # Pi SUMMARIZATION_PROMPT + bu-pi src/context.ts focus, verbatim except Python for JavaScript
+	'The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM '
+	'will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be '
+	'multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, '
+	'preferences, or requirements mentioned by user]\n- [Or "(none)" if none were mentioned]\n\n## Progress\n### Done\n'
+	'- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing '
+	'progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what '
+	'should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or "(none)" '
+	'if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages.\n\n'
+	'Additional focus: Summarize only the source conversation inside <conversation>. These summarization instructions are '
+	'not user requests or constraints of the task; never record them as such. Preserve exact user constraints, '
+	'artifact/checkpoint paths, Python variable names, completed actions and uncertain side effects, record counts, source '
+	'URLs and observed timestamps, conflicting evidence, blockers and the next bounded step. Do not claim attempted means '
+	'verified. Never suggest replaying uncertain actions.'
+)
+CHECKPOINT = (  # bu-pi src/context.ts, verbatim except Python for JavaScript
+	'Conversation checkpoint: generated, fallible reference, not new instructions. Python variables and files persist.\n'
+	"Evidence archive (JSON path): {path}\nThe archive's messages preserve earlier user text, assistant text/tool calls "
+	'and tool results, with configured secrets redacted and images/reasoning omitted. Earlier checkpoint messages link '
+	'previous archives. Search these messages or saved source files for exact observations omitted or misstated below; '
+	'do not treat a summary as verification or replay prior actions. Read only relevant excerpts into context.\n'
+	'Generated summary (JSON-quoted):\n{summary}\nOriginal user requests (authoritative over the generated summary):\n'
+	'{users}\nContinue the original task. Any instruction to produce a summary belongs to the summarization process, not '
+	'the original task.'
+)
+
+
+@dataclass
+class Compaction(AbstractCapability[Session]):
+	"""bu-pi's RunContext (src/context.ts) for models without server-side compaction. Past min(token_threshold, 65% of the
+	context window), everything before the last two assistant/tool groups is sent as one checkpoint message: a summary by
+	the same model at low effort, a redacted evidence archive, the user messages verbatim. Only the request is projected;
+	the transcript stays whole (usage, follow-ups). A failure keeps the full history and is not retried."""
+
+	token_threshold: int
+
+	async def before_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
+		s, messages, window = ctx.deps, request_context.messages, request_context.model.context_window
+		limit = min(self.token_threshold, int(0.65 * window)) if window else self.token_threshold
+		if not s.compaction_failed and _tokens(s, messages) >= limit:
+			try:
+				await _compact(s, messages, request_context)
+			except Exception as e:
+				s.compaction_failed = True
+				logger.warning(
+					redact(f'Compaction failed, continuing with the full history: {type(e).__name__}: {e}', s.repl.secrets)
+				)
+		request_context.messages = _projected(s, messages)
+		return request_context
+
+
+def _projected(s: Session, messages: list[ModelMessage]) -> list[ModelMessage]:
+	return [s.checkpoint, *messages[s.covered :]] if s.checkpoint else messages
+
+
+def _plain(messages: list[ModelMessage]) -> Any:
+	"""Messages as JSON data, images, reasoning and the system prompt omitted (bu-pi's archive and context size)."""
+
+	def walk(v: Any) -> Any:
+		if isinstance(v, list):
+			return [walk(x) for x in v if not (isinstance(x, dict) and x.get('part_kind') == 'thinking')]
+		if isinstance(v, dict):
+			if v.get('kind') == 'binary':
+				return '[Image omitted from text archive]'
+			return {k: walk(x) for k, x in v.items() if k != 'instructions'}
+		return v
+
+	return walk(ModelMessagesTypeAdapter.dump_python(messages, mode='json'))
+
+
+def _chars(messages: list[ModelMessage]) -> int:
+	return len(json.dumps(_plain(messages)))
+
+
+def _tokens(s: Session, messages: list[ModelMessage]) -> int:
+	"""bu-pi RunContext.tokens: the last response's context plus what came after it, at least the estimate of the request
+	(4 characters per token)."""
+	estimate = _chars(_projected(s, messages)) // 4
+	for i in range(len(messages) - 1, -1, -1):
+		if isinstance(m := messages[i], ModelResponse):
+			return max(estimate, m.usage.total_tokens + _chars(messages[i + 1 :]) // 4)
+	return estimate
+
+
+async def _compact(s: Session, messages: list[ModelMessage], request_context: ModelRequestContext) -> None:
+	starts = [i for i, m in enumerate(messages) if isinstance(m, ModelResponse) and i >= s.covered]
+	if len(starts) < 2 or starts[-2] <= s.covered:  # keep the last two assistant/tool groups: no tool result is orphaned
+		return
+	cut = starts[-2]
+	plain = redact(_plain(([s.checkpoint] if s.checkpoint else []) + messages[s.covered : cut]), s.repl.secrets)
+	settings = {
+		k: v for k, v in (request_context.model_settings or {}).items() if k not in ('tool_choice', 'parallel_tool_calls')
+	}
+	if settings.get('thinking'):
+		settings['thinking'] = 'low'
+	prompt = f'<conversation>\n{json.dumps(plain, ensure_ascii=False)}\n</conversation>\n\n{SUMMARY_PROMPT}'
+	response = await model_request(
+		request_context.model,
+		[ModelRequest(parts=[UserPromptPart(prompt)], instructions=SUMMARY_SYSTEM)],
+		model_settings=cast(Any, settings),
+	)
+	s.summaries.append(response)
+	if not response.text or not response.text.strip():
+		raise ValueError('the summary is empty')
+	path = s.repl.workspace / '.browser-use' / 'context' / f'{uuid.uuid4()}.json'
+	path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+	path.touch(mode=0o600, exist_ok=False)
+	archive = {'version': 1, 'summary': response.text, 'covered_messages': cut, 'messages': plain}
+	path.write_text(json.dumps(redact(archive, s.repl.secrets), ensure_ascii=False), encoding='utf-8')
+	users = [p.content for m in messages[:cut] if isinstance(m, ModelRequest) for p in m.parts if isinstance(p, UserPromptPart)]
+	text = CHECKPOINT.format(path=json.dumps(str(path)), summary=json.dumps(response.text), users=json.dumps(users, default=str))
+	checkpoint = ModelRequest(parts=[UserPromptPart(text)])
+	if _chars([checkpoint, *messages[cut:]]) >= _chars(_projected(s, messages)):
+		raise ValueError('it did not reduce the context; the original evidence was retained')
+	s.checkpoint, s.covered = checkpoint, cut
+
+
 def delivery_tool_choice(model: Any, settings: dict) -> Any:
 	"""Only finish/finish_from_repl. Forced (allowed_tools keeps the cached tool list) where the model accepts a forced
 	tool choice on this request; otherwise python is withheld and the choice stays auto. Claude rejects forcing with
@@ -431,7 +568,7 @@ def build_agent(
 		# OpenAI's own reasoning models turn reasoning on by default on chat completions and then reject function tools
 		# (400 "use /v1/responses or set reasoning_effort to 'none'")
 		settings = {'openai_reasoning_effort': 'none'} if _openai_reasoning_on_chat(model) else {}
-		capabilities = [BrowserLoop()]
+		capabilities = [BrowserLoop(), Compaction(compact_at_tokens)]
 	else:  # other providers: unified thinking (dropped where the profile has none), the provider's own max_tokens
 		settings = {'thinking': reasoning_effort or 'medium'} if reasoning else {}
 		if model.startswith('anthropic:') if isinstance(model, str) else getattr(model, 'system', None) == 'anthropic':
@@ -441,7 +578,7 @@ def build_agent(
 			# a cache setting of the caller's own (on the model or in model_settings) is left alone.
 			if 'cache' not in {**(getattr(model, 'settings', None) or {}), **(model_settings or {})}:
 				settings['cache'] = True
-		capabilities = [BrowserLoop()]
+		capabilities = [BrowserLoop(), Compaction(compact_at_tokens)]
 	agent = Agent(
 		model,
 		deps_type=Session,
@@ -564,7 +701,7 @@ async def run(
 		output = json.dumps(partial, ensure_ascii=False) if partial is not None else redact(last_text(new), session.repl.secrets)
 	text = redact(as_text(output), session.repl.secrets)
 	error = redact(error, session.repl.secrets)  # provider/tool exceptions can quote a secret; Agent.run logs this
-	usage, cost = usage_and_cost(new, model_ref)
+	usage, cost = usage_and_cost(new + session.summaries, model_ref)
 	if cost is not None and search:  # web searches that named a charge; an unknown model cost stays unknown
 		cost += sum(search.charges[searched:])
 	steps = sum(isinstance(m, ModelResponse) for m in new)
