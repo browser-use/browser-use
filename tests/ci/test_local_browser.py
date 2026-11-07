@@ -463,7 +463,12 @@ async def test_a_launched_browser_downloads_into_the_workspace(chrome_binary, tm
 	"""M14: Browser('chromium') saved downloads to the user's real ~/Downloads."""
 	link = 'data:text/html,<a id=a href="data:text/plain,hello" download="report.txt">x</a>'
 	model, _ = script(
-		('python', {'code': f"new_tab('{link}'); wait_for_load(); js('document.getElementById(\"a\").click()'); import time; time.sleep(2)"}),
+		(
+			'python',
+			{
+				'code': f"new_tab('{link}'); wait_for_load(); js('document.getElementById(\"a\").click()'); import time; time.sleep(2)"
+			},
+		),
 		('finish', {'success': True, 'result': 'ok'}),
 	)
 	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
@@ -546,7 +551,6 @@ async def test_a_kept_user_data_dir_keeps_its_cookies_across_a_normal_stop(chrom
 		assert [(c['name'], c['value']) for c in cookies if c['domain'] == 'example.test'] == [('c', 'kept')]
 	finally:
 		await browser.stop()
-
 
 
 @posix_only

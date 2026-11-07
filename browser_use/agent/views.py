@@ -12,6 +12,7 @@ from browser_use.tools import ActionResult  # 0.x imported it from here
 
 __all__ = ['ActionResult', 'AgentHistoryList']
 
+
 class Usage(dict):
 	"""result.usage: {'input', 'output', 'cache_read', 'cache_write', 'requests'}. 0.x's UsageSummary attributes raise the
 	removed error with their 1.0 key."""

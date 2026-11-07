@@ -377,7 +377,12 @@ def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
 	)
 	code = 'if False: start_remote_daemon()\nimport threading, time\nthreading.Thread(target=lambda: (time.sleep(0.5), print("LATE"))).start()'
 	messages = [
-		{'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 't', 'version': '1'}}},
+		{
+			'jsonrpc': '2.0',
+			'id': 1,
+			'method': 'initialize',
+			'params': {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 't', 'version': '1'}},
+		},
 		{'jsonrpc': '2.0', 'method': 'notifications/initialized'},
 		{'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': 'browser_exec', 'arguments': {'code': code}}},
 	]

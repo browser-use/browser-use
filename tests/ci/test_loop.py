@@ -262,7 +262,9 @@ async def test_an_open_js_dialog_is_named_instead_of_timing_out(daemon, tmp_path
 
 	repl = Repl(tmp_path, daemon)
 	try:
-		r = await repl.call('exec', "new_tab('data:text/html,<p>x'); wait_for_load(); js('setTimeout(() => alert(\"hi\"), 50)')", 60)
+		r = await repl.call(
+			'exec', "new_tab('data:text/html,<p>x'); wait_for_load(); js('setTimeout(() => alert(\"hi\"), 50)')", 60
+		)
 		assert r['error'] is None, r
 		for code in ('import time; time.sleep(1); js("1")', 'screenshot()'):
 			started = time.monotonic()

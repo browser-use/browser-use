@@ -600,7 +600,7 @@ async def test_type_secret_with_no_focused_field_raises(daemon, tmp_path):
 	repl = Repl(tmp_path, daemon, secrets={'pw': 'hunter2-Zq9'})
 	try:
 		r = await repl.call('exec', "new_tab('data:text/html,<input id=pw>'); wait_for_load(); type_secret('pw')", 60)
-		assert 'type_secret(\'pw\'): no field is focused (the page <body> is)' in (r['error'] or ''), r
+		assert "type_secret('pw'): no field is focused (the page <body> is)" in (r['error'] or ''), r
 		code = "js('document.getElementById(\"pw\").focus()'); type_secret('pw'); print(len(js('document.getElementById(\"pw\").value')))"
 		r = await repl.call('exec', code, 60)
 		assert r['error'] is None and '11' in r['output'], r

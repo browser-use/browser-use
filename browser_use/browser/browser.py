@@ -80,7 +80,7 @@ REMOVED = {  # 0.x BrowserSession/BrowserProfile options -> the 1.0 alternative 
 	),
 	**dict.fromkeys(
 		('downloads_path', 'accept_downloads', 'auto_download_pdfs'),
-		"downloads land in agent.workspace/downloads (cloud: copied there when the browser stops).",
+		'downloads land in agent.workspace/downloads (cloud: copied there when the browser stops).',
 	),
 	'permissions': 'say it in the task: the agent can send Browser.grantPermissions.',
 	**dict.fromkeys(

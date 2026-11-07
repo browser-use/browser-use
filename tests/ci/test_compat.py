@@ -198,7 +198,11 @@ def test_0x_api_shapes_raise_the_removed_error(no_browser):
 		(lambda: len(result), TypeError, r'len\(AgentHistoryList\) .*number_of_steps'),
 		(lambda: result.model_dump(), NotImplementedError, r'AgentHistoryList\.model_dump '),
 		(lambda: result.total_input_tokens(), NotImplementedError, r"usage\['input'\]"),
-		(lambda: __import__('browser_use.browser', fromlist=['BrowserSession']).BrowserSession, ImportError, r'Browser\(\.\.\.\)'),
+		(
+			lambda: __import__('browser_use.browser', fromlist=['BrowserSession']).BrowserSession,
+			ImportError,
+			r'Browser\(\.\.\.\)',
+		),
 	]
 	for fn, error, match in cases:
 		with pytest.raises(error, match=match) as raised:
@@ -398,7 +402,15 @@ async def test_finish_requires_a_success_verdict(tmp_path):
 
 @pytest.mark.parametrize(
 	'budget',
-	[{'max_steps': 0}, {'max_steps': -1}, {'max_steps': 2.5}, {'max_steps': 1}, {'max_steps': 2}, {'timeout': 0}, {'timeout': -5}],
+	[
+		{'max_steps': 0},
+		{'max_steps': -1},
+		{'max_steps': 2.5},
+		{'max_steps': 1},
+		{'max_steps': 2},
+		{'timeout': 0},
+		{'timeout': -5},
+	],
 )
 async def test_impossible_budgets_raise_before_any_browser(budget, no_browser):
 	"""agent-llm: run(max_steps=0) and run(timeout<=0) started (and billed) a browser, then ended in an error."""
