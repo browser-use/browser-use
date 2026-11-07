@@ -495,6 +495,24 @@ async def test_failed_run_fallback_output_never_shows_a_secret(tmp_path):
 	assert secret not in str(r.output) and secret not in r.text and '<secret:pw>' in str(r.output)
 
 
+def test_cost_is_the_price_of_the_model_that_answered():
+	"""H12: Gemini was priced as the requested alias (gemini-3.5-flash) while the response came from (and was billed as)
+	gemini-3.6-flash: about 2.3x too high. An unknown served name falls back to the requested one."""
+	from genai_prices import calc_price
+	from pydantic_ai.messages import ModelResponse, TextPart
+	from pydantic_ai.usage import RequestUsage
+
+	from browser_use.agent.loop import usage_and_cost
+
+	u = RequestUsage(input_tokens=1_000_000, output_tokens=100_000)
+	served = float(calc_price(u, model_ref='gemini-2.5-flash', provider_id='google').total_price)
+	requested = float(calc_price(u, model_ref='gemini-2.5-pro', provider_id='google').total_price)
+	answer = ModelResponse(parts=[TextPart('x')], usage=u, model_name='gemini-2.5-flash')
+	assert usage_and_cost([answer], 'google-gla:gemini-2.5-pro')[1] == pytest.approx(served) != pytest.approx(requested)
+	unknown = ModelResponse(parts=[TextPart('x')], usage=u, model_name='gemini-made-up-snapshot-9')
+	assert usage_and_cost([unknown], 'google-gla:gemini-2.5-pro')[1] == pytest.approx(requested)
+
+
 def test_cost_includes_cache_writes():
 	"""Roast r2-9: cache_write_tokens were dropped from pricing, so Anthropic runs were under-reported."""
 	from genai_prices import Usage, calc_price

@@ -432,9 +432,15 @@ def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[s
 			if provider == 'browser-use':
 				cost = None
 				continue
-			try:
-				cost += float(calc_price(u, model_ref=model_ref, provider_id=provider).total_price)  # cache writes too
-			except Exception:  # - unknown price: report tokens, not a made-up cost
+			# Priced as the model that answered (m.model_name): an alias can be served by another model (requested
+			# gemini-3.5-flash, served and billed as gemini-3.6-flash). The requested name when that one has no price.
+			for name in dict.fromkeys(filter(None, (m.model_name, model_ref))):
+				try:
+					cost += float(calc_price(u, model_ref=name, provider_id=provider).total_price)  # cache writes too
+					break
+				except Exception:  # - unknown price: try the next name
+					continue
+			else:  # no known price: report tokens, not a made-up cost
 				cost = None
 	return total, cost
 
