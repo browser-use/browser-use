@@ -1437,8 +1437,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Look for common URL patterns
 		patterns = [
-			r'(?:https?|file)://[^\s<>"\']+',  # Full URLs
-			r'(?:www\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?',  # Domain names with subdomains and optional paths
+			r'(?:https?|file)://[^\s<>"\'\u4e00-\u9fff，。；：！？、]+',  # Full URLs
+			r'(?:www\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}(?:/[^\s<>"\'\u4e00-\u9fff，。；：！？、]*)?',  # Domain names with subdomains and optional paths
 		]
 
 		# File extensions that should be excluded from URL detection
