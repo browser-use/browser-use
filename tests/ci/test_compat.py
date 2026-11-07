@@ -60,7 +60,7 @@ def test_removed_alternative_is_named(no_browser):
 async def test_step_hooks_on_run_raise(no_browser):
 	agent = Agent('t', script()[0], browser=Browser(local=True))
 	for hook in ('on_step_start', 'on_step_end'):
-		with pytest.raises(TypeError, match=rf'^Agent\.run\({hook}=\.\.\.\) {REMOVED} In 1\.0: result\.messages'):
+		with pytest.raises(TypeError, match=rf'^Agent\.run\({hook}=\.\.\.\) {REMOVED} In 1\.0: each step logs one INFO line'):
 			await agent.run(**{hook: lambda a: None})
 	with pytest.raises(TypeError, match=rf'^Agent\.run_sync\(on_step_end=\.\.\.\) {REMOVED}'):
 		agent.run_sync(on_step_end=lambda a: None)

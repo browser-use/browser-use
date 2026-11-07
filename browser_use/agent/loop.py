@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
@@ -38,6 +39,7 @@ from browser_use.search import parse_usd
 from browser_use.telemetry.stats import RunStats
 from browser_use.tools import ActionResult, RemovedField
 
+logger = logging.getLogger(__name__)
 KEEP_IMAGE_RESULTS = 2
 DELIVER_NOW = (
 	'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_repl. '
@@ -102,6 +104,9 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	text = r['output']  # already cut to MAX_OUTPUT_CHARS by the worker
 	if r['error']:
 		text = f'{text}\nError: {r["error"]}'.strip()
+	line = redact(next((x for x in code.splitlines() if x.strip()), ''), ctx.deps.repl.secrets)  # live progress (0.x 'Step N')
+	error = (r['error'] or '').strip().splitlines()  # already redacted by Repl.call
+	logger.info(f'step {ctx.run_step}: {line[:120]}' + (f' -> {error[-1][:200]}' if error else ''))
 	if ctx.deps.after_tool:
 		await ctx.deps.after_tool('python', {'code': code}, r)
 	shots = [BinaryContent(base64.b64decode(i['data']), media_type=i['media_type']) for i in r['images']]

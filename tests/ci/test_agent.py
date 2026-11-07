@@ -1,6 +1,7 @@
 """Public API (Agent, Browser) against a real isolated headless Chrome, scripted model (no provider calls)."""
 
 import os
+import re
 
 import pytest
 from conftest import script
@@ -70,6 +71,27 @@ async def test_unfinished_run_has_no_final_result(chrome, tmp_path):
 	model, _ = script(*[('python', {'code': '1'})] * 4)
 	r = await Agent('t', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path).run(max_steps=3)
 	assert r.final_result() is None and not r.is_done() and r.is_successful() is None
+
+
+async def test_a_run_logs_task_each_step_and_the_end(chrome, tmp_path, monkeypatch, caplog):
+	"""C08: a run printed nothing at INFO or DEBUG, and the 0.x step callbacks have no live replacement."""
+	import logging
+
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
+	model, _ = script(
+		('python', {'code': '\npw = "hunter22"\n1 / 0'}),
+		('finish', {'success': True, 'result': 'done'}),
+	)
+	agent = Agent('Log in with hunter22', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path,
+				  sensitive_data={'pw': 'hunter22'})  # fmt: skip
+	with caplog.at_level('INFO', logger='browser_use'):
+		assert (await agent.run()).final_result() == 'done'
+	lines = [r.getMessage() for r in caplog.records if r.name.startswith('browser_use.agent')]
+	assert lines[:2] == [
+		f'Task: Log in with <secret:pw> (workspace {tmp_path.resolve()})',
+		'step 1: pw = "<secret:pw>" -> ZeroDivisionError: division by zero',
+	], lines
+	assert re.fullmatch(r'completed in 2 steps, \d+s', lines[2]) and len(lines) == 3, lines
 
 
 async def test_your_chrome_end_to_end(chrome, tmp_path, monkeypatch):

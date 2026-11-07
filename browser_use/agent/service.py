@@ -39,6 +39,9 @@ LOCAL_TARGET = re.compile(
 REASONING = (None, 'low', 'medium', 'high')
 _SCREENSHOTS = 'the agent takes screenshots when it needs them.'
 _MESSAGES = 'result.messages holds the whole transcript after the run.'
+_LIVE = (
+	"each step logs one INFO line to logging.getLogger('browser_use'): add a logging.Handler to watch a run live. " + _MESSAGES
+)
 _CANCEL = 'cancel the task that awaits agent.run(), or pass run(timeout=seconds).'
 REMOVED = {  # 0.x Agent(...) and run() arguments -> the 1.0 alternative ('' when there is none). MIGRATING.md lists them.
 	'use_vision': _SCREENSHOTS,
@@ -56,12 +59,12 @@ REMOVED = {  # 0.x Agent(...) and run() arguments -> the 1.0 alternative ('' whe
 	'available_file_paths': 'put the files in the workspace (workspace=...).',
 	'initial_actions': 'describe the first steps in the task.',
 	'directly_open_url': 'the agent opens URLs from the task itself.',
-	'register_new_step_callback': _MESSAGES,
+	'register_new_step_callback': _LIVE,
 	'register_done_callback': 'use the result agent.run() returns.',
 	'register_external_agent_status_raise_error_callback': _CANCEL,
 	'register_should_stop_callback': _CANCEL,
-	'on_step_start': _MESSAGES,
-	'on_step_end': _MESSAGES,
+	'on_step_start': _LIVE,
+	'on_step_end': _LIVE,
 	'save_conversation_path': _MESSAGES,
 	'save_conversation_path_encoding': _MESSAGES,
 	'max_failures': 'failed cells are retried by the model within max_steps.',
@@ -337,6 +340,7 @@ class Agent:
 		prior = len(self._history or []) if follow_up else 0  # messages of earlier tasks, not counted for this run
 		self._downloads = []
 		try:
+			logger.info(f'Task: {redact(self.task, self.sensitive_data)[:200]} (workspace {self.workspace})')
 			if self._repl is None:
 				check_loop()  # before the browser starts: a cloud browser bills from its create
 				# a dead gateway, a rejected key or a bad model fails before a cloud browser is created and billed
@@ -384,6 +388,8 @@ class Agent:
 			result.output_schema = self.output_model_schema
 			if result.status == 'error':
 				logger.error(result.error)
+			else:
+				logger.info(f'{result.status} in {result.steps} steps, {result.duration_s:.0f}s')
 			return result
 		except BaseException as e:
 			error_type = type(e).__name__
