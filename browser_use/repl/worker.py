@@ -34,7 +34,7 @@ from pathlib import Path
 from browser_use import ax
 from browser_use.domains import DomainRules
 from browser_use.exceptions import BrowserConnectionLost
-from browser_use.remote_upload import remote_upload
+from browser_use.remote_upload import local_upload, remote_upload
 from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, domain_matches, redact, redact_forms, secret_forms
 from browser_use.telemetry.stats import error_class, host
@@ -459,8 +459,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		secret_names=secret_names,
 		solve_captcha=captcha.solve,
 	)
-	if cloud:
-		ns['upload_file'] = remote_upload(ns['js'])
+	ns['upload_file'] = remote_upload(ns['js']) if cloud else local_upload(helpers.upload_file)
 	bu = None
 	if os.environ.get('BU_MODE') != 'ultrafast':
 		# One reader of the daemon's events, so solver events are never lost; wait_for_network_idle() reads through it.
@@ -481,7 +480,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 
 		ns['print'] = print_
 	# helpers and the ones above (solve_captcha, drain_events too); not stdlib names the * import brought
-	own = {helpers.__name__, __name__, ax.__name__, Captcha.__module__}
+	own = {helpers.__name__, __name__, ax.__name__, Captcha.__module__, local_upload.__module__}
 	for name, value in list(ns.items()):
 		if name not in ('cdp', 'print') and not name.startswith('_') and inspect.isroutine(value):
 			if getattr(value, '__module__', None) in own:

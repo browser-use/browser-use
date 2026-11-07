@@ -12,6 +12,29 @@ UPLOAD_PART = 24_000  # bytes per js() call: 32,000 base64 characters, well unde
 UPLOAD_MAX = 10_000_000  # bytes per file
 
 
+def local_paths(path) -> list[str]:
+	"""Absolute paths of existing files (relative ones from the working directory, ~ expanded). Raises otherwise:
+	DOM.setFileInputFiles takes any string, and a missing, relative or directory path became a 0-byte upload."""
+	out = []
+	for p in [path] if isinstance(path, (str, os.PathLike)) else path:
+		full = Path(p).expanduser().resolve()
+		if not full.is_file():
+			raise FileNotFoundError(f'upload_file: {str(p)!r} is not a file ({full})')
+		out.append(str(full))
+	return out
+
+
+def local_upload(upload):
+	"""browser-harness upload_file for a local browser, with every path checked and made absolute first."""
+
+	def upload_file(selector, path):
+		"""Set local file(s) on a file input. path: a file path or a list of them (relative to the working directory)."""
+		paths = local_paths(path)
+		return upload(selector, paths[0] if isinstance(path, (str, os.PathLike)) else paths)
+
+	return upload_file
+
+
 def remote_upload(js):
 	"""upload_file for a remote browser: local paths mean nothing on the browser host, so send the bytes through the
 	page, in parts (one browser-harness request takes at most 64 KiB), several at a time."""
@@ -20,8 +43,8 @@ def remote_upload(js):
 	def upload_file(selector, path):
 		"""Set local file(s) on a file input of the remote browser (bytes go through the page, 10MB each max)."""
 		files = []
-		for p in [path] if isinstance(path, (str, Path)) else path:
-			data = Path(p).read_bytes()
+		for p in [path] if isinstance(path, (str, os.PathLike)) else path:
+			data = Path(p).expanduser().read_bytes()
 			if len(data) > UPLOAD_MAX:
 				raise ValueError(f'{p} is over 10MB; remote uploads go through the page')
 			files.append((Path(p).name, mimetypes.guess_type(str(p))[0] or 'application/octet-stream', data))

@@ -166,6 +166,28 @@ async def test_remote_upload_sends_bytes(chrome, tmp_path):
 		await browser.stop()
 
 
+async def test_local_upload_takes_relative_paths_and_refuses_what_is_not_a_file(chrome, tmp_path):
+	"""H9: on a local browser upload_file passed the path to DOM.setFileInputFiles as is, so a relative, missing, ~ or
+	directory path silently set a 0-byte file. Now a relative path is resolved from the workspace, the rest raise."""
+	browser = Browser(cdp_url=chrome['http'])
+	repl = Repl(tmp_path, await browser.start())
+	try:
+		(tmp_path / 'cv.txt').write_text('hello local')
+		r = await repl.call(
+			'exec',
+			"new_tab('data:text/html,<input type=file id=f>'); wait_for_load(); upload_file('#f', 'cv.txt'); "
+			"print(js(\"document.getElementById('f').files[0].name + ':' + document.getElementById('f').files[0].size\"))",
+			60,
+		)
+		assert r['error'] is None and 'cv.txt:11' in r['output'], r
+		for bad in ('missing.txt', '~/browser-use-no-such-file.txt', '.'):
+			r = await repl.call('exec', f'upload_file("#f", {bad!r})', 60)
+			assert r['error'] and 'FileNotFoundError: upload_file:' in r['error'] and 'is not a file' in r['error'], r
+	finally:
+		await repl.close()
+		await browser.stop()
+
+
 async def test_remote_upload_of_a_large_file_arrives_intact(chrome, tmp_path):
 	"""browser-features #1 (P1): the whole file went to the daemon in one js() request, and the daemon reads at most
 	64 KiB per request: every upload over about 48 KB failed with BrokenPipeError. Now it goes in parts."""

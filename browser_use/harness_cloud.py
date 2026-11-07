@@ -28,7 +28,7 @@ from browser_harness.auth import AuthError
 
 from browser_use.auth import clean_api_key, cloud_error_hint, corrupt_store_message
 from browser_use.exceptions import MissingAPIKeyError
-from browser_use.remote_upload import remote_upload
+from browser_use.remote_upload import local_upload, remote_upload
 
 CLOUD_ADMIN = frozenset({'start_remote_daemon', 'stop_remote_daemon'})
 
@@ -184,11 +184,11 @@ def install(namespace: dict[str, Any]) -> None:
 		return start(name, profileName, create_kwargs, namespace)
 
 	start_remote_daemon.__doc__ = admin.start_remote_daemon.__doc__
-	cloud_upload, local_upload = remote_upload(helpers.js), helpers.upload_file
+	cloud_upload, checked_upload = remote_upload(helpers.js), local_upload(helpers.upload_file)
 
 	def upload_file(selector, path):
 		"""Set local file(s) on a file input; on a cloud browser the bytes go through the page (10MB each max)."""
-		return (cloud_upload if was_cloud(admin.NAME) else local_upload)(selector, path)
+		return (cloud_upload if was_cloud(admin.NAME) else checked_upload)(selector, path)
 
 	namespace['ensure_daemon'] = ensure_daemon
 	namespace['upload_file'] = upload_file
