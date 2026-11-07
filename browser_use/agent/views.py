@@ -152,9 +152,9 @@ class AgentHistoryList:
 	@classmethod
 	def load_from_file(cls, *args: Any, **kwargs: Any) -> Any:
 		"""A 0.x classmethod: called on the class, __getattr__ never runs."""
-		raise NotImplementedError(removed('AgentHistoryList.load_from_file', HISTORY_ALTERNATIVE))
+		raise AttributeError(removed('AgentHistoryList.load_from_file', HISTORY_ALTERNATIVE))
 
 	def __getattr__(self, name: str) -> Any:
 		if name in REMOVED:
-			raise NotImplementedError(removed(f'AgentHistoryList.{name}', ALTERNATIVES.get(name, HISTORY_ALTERNATIVE)))
+			raise AttributeError(removed(f'AgentHistoryList.{name}', ALTERNATIVES.get(name, HISTORY_ALTERNATIVE)))
 		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')

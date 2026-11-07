@@ -229,8 +229,8 @@ def test_0x_api_shapes_raise_the_removed_error(no_browser):
 		(lambda: agent.browser_session, AttributeError, r'In 1\.0: agent\.browser\.'),
 		(lambda: result.usage.total_cost, AttributeError, r'In 1\.0: result\.cost_usd\.'),
 		(lambda: len(result), TypeError, r'len\(AgentHistoryList\) .*number_of_steps'),
-		(lambda: result.model_dump(), NotImplementedError, r'AgentHistoryList\.model_dump '),
-		(lambda: result.total_input_tokens(), NotImplementedError, r"usage\['input'\]"),
+		(lambda: result.model_dump(), AttributeError, r'AgentHistoryList\.model_dump '),
+		(lambda: result.total_input_tokens(), AttributeError, r"usage\['input'\]"),
 		(
 			lambda: __import__('browser_use.browser', fromlist=['BrowserSession']).BrowserSession,
 			ImportError,
@@ -266,16 +266,23 @@ def test_result_keeps_common_0x_methods():
 
 
 @pytest.mark.parametrize('name', ['urls', 'screenshots', 'action_names', 'model_thoughts', 'history', 'judgement', 'is_judged'])
-def test_removed_result_methods_raise_not_implemented(name):
-	with pytest.raises(NotImplementedError, match=rf'^AgentHistoryList\.{name} {REMOVED} In 1\.0: '):
+def test_removed_result_methods_raise_attribute_error(name):
+	with pytest.raises(AttributeError, match=rf'^AgentHistoryList\.{name} {REMOVED} In 1\.0: '):
 		getattr(result(), name)
 	with pytest.raises(AttributeError):
 		result().definitely_not_a_method
 
 
+def test_removed_result_methods_work_with_hasattr_and_getattr_default():
+	"""C40: hasattr()/getattr(default) only swallow AttributeError; serializers duck-type on hasattr(obj, 'model_dump')."""
+	r = result()
+	assert not hasattr(r, 'urls')
+	assert getattr(r, 'model_dump', None) is None
+
+
 def test_removed_result_classmethod_raises_on_the_class():
 	"""0.x AgentHistoryList.load_from_file(path) was a classmethod: called on the class, not an instance."""
-	with pytest.raises(NotImplementedError, match=rf'^AgentHistoryList\.load_from_file {REMOVED} In 1\.0: '):
+	with pytest.raises(AttributeError, match=rf'^AgentHistoryList\.load_from_file {REMOVED} In 1\.0: '):
 		AgentHistoryList.load_from_file('history.json')
 
 
