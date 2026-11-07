@@ -256,6 +256,25 @@ async def test_a_short_timeout_still_leaves_time_to_deliver(daemon, tmp_path):
 	assert Session(repl=session.repl, timeout_s=1700).delivery_at() == pytest.approx(1530)  # default budget unchanged
 
 
+async def test_an_open_js_dialog_is_named_instead_of_timing_out(daemon, tmp_path):
+	"""M15: with an alert open, js() took 20 s, click_at_xy 20 s and screenshot() 65 s, with errors that did not say why."""
+	import time
+
+	repl = Repl(tmp_path, daemon)
+	try:
+		r = await repl.call('exec', "new_tab('data:text/html,<p>x'); wait_for_load(); js('setTimeout(() => alert(\"hi\"), 50)')", 60)
+		assert r['error'] is None, r
+		for code in ('import time; time.sleep(1); js("1")', 'screenshot()'):
+			started = time.monotonic()
+			r = await repl.call('exec', code, 60)
+			assert time.monotonic() - started < 8, code
+			assert 'A JavaScript alert is open' in (r['error'] or '') and 'Page.handleJavaScriptDialog' in r['error'], r
+		r = await repl.call('exec', 'cdp("Page.handleJavaScriptDialog", accept=True); print(js("1 + 1"))', 60)
+		assert r['error'] is None and '2' in r['output'], r
+	finally:
+		await repl.close()
+
+
 def _choice_recorder(responses):
 	from pydantic_ai.models import ModelRequestParameters
 	from pydantic_ai.models._tool_choice import resolve_tool_choice

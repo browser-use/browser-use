@@ -44,6 +44,9 @@ MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
 CDP_TIMEOUT_S = 20.0  # bu-pi cdp timeout; 30s/60s waits made each stall cost more (v1b: 114 Hard timeouts)
 SCREENSHOT_TIMEOUT_S = 60.0  # browser-harness's own screenshot timeout: cloud screenshots routinely take longer
+DIALOG_PROBE_S = 2.0  # while the daemon saw a JS dialog open: how long a page call may take before it is blamed
+# What a page frozen by an alert/confirm/prompt never answers (Page.handleJavaScriptDialog is what unfreezes it)
+FROZEN_BY_DIALOG = ('Runtime.evaluate', 'Runtime.callFunctionOn', 'Runtime.awaitPromise', 'Page.captureScreenshot')
 HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless never answers it
 # browser-harness's daemon reads each request as one JSON line with asyncio's default 64 KiB limit; a longer one broke
 # the connection (BrokenPipeError). Characters of JSON (ASCII), less a margin for the token Windows adds.
@@ -281,7 +284,32 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			stats.count('events', 'domain_blocked')
 			raise PermissionError(why)
 
+	def pending_dialog(method, session_id):
+		if session_id is not None or not (method in FROZEN_BY_DIALOG or method.startswith('Input.')):
+			return None
+		try:
+			return raw_send({'meta': 'pending_dialog'}).get('dialog')
+		except Exception:  # - an older daemon, or none: no shortcut
+			return None
+
 	def cdp(method, session_id=None, **params):
+		"""A JS dialog freezes the page: js() then took 20 s, click_at_xy 20 s and screenshot() 65 s, each with a timeout
+		that did not say why. While the daemon saw one open, such a call gets DIALOG_PROBE_S and then says so."""
+		dialog = pending_dialog(method, session_id)
+		if dialog:
+			params['_response_timeout'] = min(params.get('_response_timeout', SCREENSHOT_TIMEOUT_S), DIALOG_PROBE_S)
+		try:
+			return _cdp(method, session_id, **params)
+		except TimeoutError:
+			if not dialog:
+				raise
+			raise RuntimeError(
+				f'A JavaScript {dialog.get("type") or "dialog"} is open ({str(dialog.get("message", ""))[:200]!r}): the page is '
+				'frozen until it is handled. Accept or dismiss it: cdp("Page.handleJavaScriptDialog", accept=True) (or '
+				'accept=False; promptText="..." for a prompt).'
+			) from None
+
+	def _cdp(method, session_id=None, **params):
 		if method in NAVIGATING:
 			check_url(params.get('url', ''))
 			stats.url(params.get('url'), navigation=True)
