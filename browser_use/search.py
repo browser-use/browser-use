@@ -17,7 +17,9 @@ from urllib.parse import urlparse
 
 SEARCH_PATH = '/api/v4/search'
 SEARCH_TIMEOUT_S = 25.0  # under the 120 s cell deadline: a hung endpoint fails the call, not the cell
-HIT_SEPARATOR = re.compile(r'\n\n---\n\n')  # the endpoint can render hits as one text
+HIT_SEPARATOR = re.compile(
+	r'\n\n---\n\n(?=Title: )'
+)  # the endpoint renders hits as one text; '---' also occurs inside highlights
 
 
 class SearchError(RuntimeError):

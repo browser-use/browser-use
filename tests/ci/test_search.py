@@ -21,7 +21,7 @@ KEY = 'bu_test_search_key'
 HITS = {
 	'query': 'q',
 	'count': 2,
-	'results': 'Title A\nhttps://a.example\n\n---\n\nTitle B',
+	'results': 'Title: A\nURL: https://a.example\nHighlights:\nintro\n\n---\n\nmore of A\n\n---\n\nTitle: B',  # a '---' rule inside A's highlights
 	'browser_use': {'charge_usd': '0.007'},
 }
 
@@ -78,7 +78,10 @@ def test_request_shape_and_result_parsing(endpoint):
 	assert sent['headers']['Authorization'] == f'Bearer {KEY}'  # as the gateway LLM sends it
 	assert sent['headers']['Content-Type'] == 'application/json'
 	assert sent['body'] == {'query': 'pages about X', 'num_results': 3, 'category': 'news'}
-	assert r['results'] == ['Title A\nhttps://a.example', 'Title B']  # one entry per hit, as Pi
+	assert r['results'] == [
+		'Title: A\nURL: https://a.example\nHighlights:\nintro\n\n---\n\nmore of A',
+		'Title: B',
+	]  # one entry per hit
 	assert (r['query'], r['count']) == ('q', 2)
 	search('only a query')
 	assert endpoint.seen[-1]['body'] == {'query': 'only a query'}  # unset options are not sent
@@ -122,7 +125,7 @@ async def test_repl_search_is_answered_by_the_parent(endpoint, tmp_path, monkeyp
 	repl = Repl(tmp_path, search=WebSearch(KEY, endpoint.url))
 	try:
 		r = await repl.call('exec', "r = search('x', num_results=2)\nprint(r['count'], r['results'])", 30)
-		assert r['error'] is None and "2 ['Title A\\nhttps://a.example', 'Title B']" in r['output']
+		assert r['error'] is None and "'Title: B']" in r['output'] and r['output'].startswith('2 ')
 		assert endpoint.seen[-1]['body'] == {'query': 'x', 'num_results': 2}
 		assert r['stats']['helpers'] == {'search': 1}  # telemetry counts the helper
 		# the key stays in the parent: not in the worker's environment, globals or search()'s closure
