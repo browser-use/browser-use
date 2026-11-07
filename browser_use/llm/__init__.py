@@ -114,8 +114,8 @@ class ChatBrowserUse:
 			)
 		if status == 404:  # unknown models are 400s: a 404 is the route itself
 			return (
-				f'The Browser Use gateway was not found at {self.base_url} (404): it is not deployed in this region yet, '
-				'or base_url is wrong. Use your own model meanwhile, e.g. llm=ChatOpenAI("gpt-6-luna").'
+				f'The Browser Use gateway is not deployed at {self.base_url} (404), or base_url is wrong. Use your own '
+				'model meanwhile, e.g. llm=ChatOpenAI("gpt-6-luna").'
 			)
 		return None
 

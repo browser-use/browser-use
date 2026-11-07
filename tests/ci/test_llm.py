@@ -263,7 +263,7 @@ def test_preflight_checks_the_gateway_key_and_model_before_anything_starts(model
 	assert legacy and "needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast" in legacy
 	reply[:] = [404, '404 page not found', 'text/plain']  # the route itself is missing (Go's default 404)
 	dead = ChatBrowserUse(api_key='fake-test-key', base_url=url).preflight()
-	assert dead and f'not found at {url} (404)' in dead and 'not deployed in this region' in dead
+	assert dead and f'gateway is not deployed at {url} (404)' in dead and 'region' not in dead  # H1: no region claim
 	assert 'model id' not in dead
 	reply[:] = [401, error('invalid_api_key', 'Invalid API key.'), 'application/json']
 	assert 'API key rejected (401)' in (ChatBrowserUse(api_key='bad', base_url=url).preflight() or '')
@@ -292,7 +292,7 @@ async def test_agent_preflight_failure_never_starts_a_browser(models_server, mon
 	agent = Agent('t', ChatBrowserUse(api_key='fake-test-key', base_url=url), browser=Browser(local=True), workspace=tmp_path)
 	result = await agent.run()
 	assert (result.status, result.steps, result.is_successful()) == ('error', 0, None)
-	assert 'not deployed in this region' in (result.error or '') and started == []
+	assert 'gateway is not deployed at' in (result.error or '') and started == []
 
 
 def test_gateway_400s_are_one_line_with_the_gateway_message():
@@ -458,7 +458,7 @@ async def test_gateway_errors_are_one_actionable_line():
 	assert 'cloud.browser-use.com/settings?tab=billing' in llm.explain_error(ModelHTTPError(402, 'bu-ultrafast'))
 	assert 'browser-use login' in llm.explain_error(ModelHTTPError(401, 'bu-ultrafast'))
 	not_found = llm.explain_error(ModelHTTPError(404, 'bu-ultrafast'))
-	assert f'not found at {GATEWAY_URL} (404)' in not_found and 'model id' not in not_found
+	assert f'gateway is not deployed at {GATEWAY_URL} (404)' in not_found and 'model id' not in not_found
 	assert llm.explain_error(ModelHTTPError(500, 'bu-ultrafast')) is None
 	# 403 has several causes: the gateway's own message (body as the OpenAI SDK passes it) names the actual one
 	policy = {'message': 'This project policy does not permit the new Browser Use LLM gateway.', 'code': 'project_policy'}
