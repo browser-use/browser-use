@@ -628,14 +628,15 @@ class TokenCost:
 				except Exception:
 					pass
 
-			if len(own_files) <= keep_count:
+			if keep_count > 0 and len(own_files) <= keep_count:
 				return
 
 			# Sort by modification time (oldest first)
 			own_files.sort(key=lambda f: f.stat().st_mtime)
 
-			# Remove all but the most recent files
-			for cache_file in own_files[:-keep_count]:
+			# Remove all but the most recent files (keep_count=0 removes all matching caches)
+			files_to_remove = own_files if keep_count <= 0 else own_files[:-keep_count]
+			for cache_file in files_to_remove:
 				try:
 					os.remove(cache_file)
 				except Exception:
