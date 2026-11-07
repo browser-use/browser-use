@@ -411,8 +411,11 @@ def build_agent(
 		settings = {'thinking': reasoning_effort or 'medium'} if reasoning else {}
 		if model.startswith('anthropic:') if isinstance(model, str) else getattr(model, 'system', None) == 'anthropic':
 			# Anthropic caches nothing unless asked: every request re-billed the whole prompt (cache_read was always 0).
-			# The system prompt, the tools and the conversation so far (moving breakpoint) are read from cache.
-			settings |= {'anthropic_cache_instructions': True, 'anthropic_cache_tool_definitions': True, 'anthropic_cache': True}
+			# Pydantic AI's unified cache setting caches the system prompt, the tools and the conversation so far, in the
+			# mode the client supports; any anthropic_cache* setting the caller gave takes precedence over it there, and
+			# a cache setting of the caller's own (on the model or in model_settings) is left alone.
+			if 'cache' not in {**(getattr(model, 'settings', None) or {}), **(model_settings or {})}:
+				settings['cache'] = True
 		capabilities = [BrowserLoop()]
 	agent = Agent(
 		model,

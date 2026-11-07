@@ -650,13 +650,30 @@ def test_openai_reasoning_models_on_chat_completions_get_reasoning_off(monkeypat
 
 
 def test_anthropic_models_use_prompt_caching():
-	"""M6: no Anthropic prompt caching: cache_read and cache_write were 0 in every Claude run."""
+	"""M6: no Anthropic prompt caching: cache_read and cache_write were 0 in every Claude run. Review: the explicit
+	settings it added overrode a caller's anthropic_cache=False, and with anthropic_cache_messages=True every request
+	raised UserError (the two cannot be combined)."""
+	from pydantic_ai.models import ModelRequestParameters
+	from pydantic_ai.models.anthropic import AnthropicModel
+	from pydantic_ai.providers.anthropic import AnthropicProvider
+	from pydantic_ai.settings import merge_model_settings
+
 	from browser_use.agent.loop import build_agent
 
-	cache = {'anthropic_cache_instructions': True, 'anthropic_cache_tool_definitions': True, 'anthropic_cache': True}
-	for model in ('anthropic:claude-haiku-5-5', ChatAnthropic('claude-haiku-5-5', api_key='k').pydantic_model()):
-		assert build_agent(model).model_settings == {'thinking': 'medium', **cache}
-	assert not set(cache) & set(build_agent(ChatGoogle('gemini-2.5-pro', api_key='k').pydantic_model()).model_settings)
+	def sent(model):  # what Pydantic AI prepares for the request: the model's own settings under the agent's
+		agent_settings = build_agent(model).model_settings
+		prepared = model.prepare_request(merge_model_settings(model.settings, agent_settings), ModelRequestParameters())[0]
+		return {k: v for k, v in (prepared or {}).items() if 'cache' in k}
+
+	cache = {'anthropic_cache_instructions': '5m', 'anthropic_cache_tool_definitions': '5m', 'anthropic_cache': '5m'}
+	assert build_agent('anthropic:claude-haiku-5-5').model_settings == {'thinking': 'medium', 'cache': True}
+	assert sent(ChatAnthropic('claude-haiku-5-5', api_key='k').pydantic_model()) == cache
+	for own in ({'anthropic_cache': False}, {'anthropic_cache_messages': True}):
+		model = AnthropicModel('claude-haiku-5-5', provider=AnthropicProvider(api_key='k'), settings=own)
+		assert sent(model) == own, own
+	model = AnthropicModel('claude-haiku-5-5', provider=AnthropicProvider(api_key='k'), settings={'cache': False})
+	assert sent(model) == {}
+	assert 'cache' not in build_agent(ChatGoogle('gemini-2.5-pro', api_key='k').pydantic_model()).model_settings
 
 
 def test_base_url_accepts_url_objects():
