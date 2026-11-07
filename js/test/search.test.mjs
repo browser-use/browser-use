@@ -6,7 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserUse } from '../dist/index.js';
 
-const hit = (n) => `Title: Hit ${n}\nURL: https://example.com/${n}\nHighlights:\nexcerpt ${n}`;
+// Hit 1's highlight holds a markdown rule, which must stay inside the hit.
+const hit = (n) =>
+  `Title: Hit ${n}\nURL: https://example.com/${n}\nHighlights:\nexcerpt ${n}${n === 1 ? '\n\n---\n\nmore of hit 1' : ''}`;
 let agent, server, workspace;
 const requests = [];
 before(async () => {

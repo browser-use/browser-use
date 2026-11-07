@@ -145,11 +145,12 @@ async function search(query: string, options: { num_results?: number; category?:
     throw new Error(`Search returned non-JSON: ${body.slice(0, 300)}`);
   }
   if (!parsed || typeof parsed !== 'object') throw new Error('Search returned no result object.');
-  // The endpoint renders hits as one text, separated by ---; the model gets one entry per hit.
+  // The endpoint renders hits as one text, separated by --- before each Title: line; a markdown
+  // rule inside a highlight is not a separator. The model gets one entry per hit.
   const results = Array.isArray(parsed.results)
     ? parsed.results
     : typeof parsed.results === 'string' && parsed.results.trim()
-      ? parsed.results.split(/\n\n---\n\n/)
+      ? parsed.results.split(/\n\n---\n\n(?=Title: )/)
       : [];
   return { ...parsed, results };
 }
