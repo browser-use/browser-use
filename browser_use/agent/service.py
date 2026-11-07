@@ -321,6 +321,7 @@ class Agent:
 					model = self._model
 					check = self._gateway.preflight if self._gateway else (lambda: provider_preflight(model))
 					if error := await asyncio.to_thread(check):
+						error = redact(error, self.sensitive_data)  # a provider's message can quote what it was sent
 						logger.error(error)
 						usage = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
 						duration = time.monotonic() - started

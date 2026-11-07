@@ -206,6 +206,83 @@ async def test_a_rejected_provider_key_or_unknown_model_never_creates_a_cloud_br
 	assert (await Agent('t', model, browser=Browser(), workspace=tmp_path).run()).final_result() == 'ok'
 
 
+def test_preflight_fails_only_on_a_bad_key_or_model_and_only_asks_google_itself(monkeypatch):
+	"""Review: Google's 400 API_KEY_INVALID passed (browser created and billed); a key that may run the model but not
+	look it up (OpenAI 401 missing scope, Anthropic 403) was refused; an auth_token client sent 'x-api-key: None'; a
+	Google client pointed at a proxy sent the proxy's key to Google; 'models/gemini-2.5-flash' became
+	/models/models/...; an error that quoted the key returned it."""
+	import io
+	import urllib.error
+
+	from anthropic import AsyncAnthropic
+	from google import genai
+	from google.genai import types
+	from pydantic_ai.models.anthropic import AnthropicModel
+	from pydantic_ai.models.google import GoogleModel
+	from pydantic_ai.providers.anthropic import AnthropicProvider
+	from pydantic_ai.providers.google import GoogleProvider
+
+	from browser_use import ChatAnthropic, ChatGoogle, ChatOpenAI
+	from browser_use.llm import provider_preflight, resolve_model
+
+	asked, answers = [], {}
+
+	def urlopen(request, timeout=None):
+		asked.append(request.full_url)
+		code, body = answers[request.full_url]
+		raise urllib.error.HTTPError(request.full_url, code, 'x', {}, io.BytesIO(body.encode()))  # type: ignore[arg-type]
+
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', urlopen)
+	for var in ('ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL'):
+		monkeypatch.delenv(var, raising=False)
+	g = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash'
+	bad_google = '{"error": {"code": 400, "message": "API key not valid.", "status": "INVALID_ARGUMENT", "details": [{"reason": "API_KEY_INVALID"}]}}'
+	answers[g] = (400, bad_google)
+	assert 'google rejected the API key (400): API key not valid.' in provider_preflight(
+		resolve_model(ChatGoogle('gemini-2.5-flash', api_key='bad'))[0]
+	)
+	prefixed = GoogleModel('models/gemini-2.5-flash', provider=GoogleProvider(api_key='bad'))
+	assert 'rejected the API key' in (provider_preflight(prefixed) or '') and asked[-1] == g
+	proxy = genai.Client(api_key='proxy-key', http_options=types.HttpOptions(base_url='https://llm-proxy.example.test/'))
+	n = len(asked)
+	assert provider_preflight(GoogleModel('gemini-2.5-flash', provider=GoogleProvider(client=proxy))) is None
+	token = AnthropicModel('claude-haiku-4-5', provider=AnthropicProvider(anthropic_client=AsyncAnthropic(auth_token='t')))
+	assert provider_preflight(token) is None and len(asked) == n  # neither asked anyone
+
+	answers['https://api.openai.com/v1/models/gpt-6-luna'] = (
+		401,
+		'{"error": {"message": "You have insufficient permissions for this operation. Missing scopes: api.model.read.", "code": null}}',
+	)
+	assert provider_preflight(resolve_model(ChatOpenAI('gpt-6-luna', api_key='sk-restricted'))[0]) is None
+	answers['https://api.anthropic.com/v1/models/claude-haiku-4-5'] = (
+		403,
+		'{"type": "error", "error": {"type": "permission_error", "message": "not allowed"}}',
+	)
+	assert provider_preflight(resolve_model(ChatAnthropic('claude-haiku-4-5', api_key='k'))[0]) is None
+	answers['https://api.openai.com/v1/models/gpt-6-luna'] = (
+		401,
+		'{"error": {"message": "Incorrect API key provided: sk-quoted-XYZ.", "code": "invalid_api_key"}}',
+	)
+	error = provider_preflight(resolve_model(ChatOpenAI('gpt-6-luna', api_key='sk-quoted-XYZ'))[0]) or ''
+	assert 'openai rejected the API key (401)' in error and 'sk-quoted-XYZ' not in error, error
+
+
+async def test_a_preflight_error_never_shows_a_secret(cloud, monkeypatch, tmp_path, caplog):
+	"""Review: the preflight error went to the log and result.error verbatim, past sensitive_data redaction."""
+	from browser_use import ChatOpenAI
+
+	secret = 'hunter2-Zq9-long'
+	monkeypatch.setattr(
+		'browser_use.agent.service.provider_preflight', lambda model: f'openai rejected the API key (401): {secret}'
+	)
+	agent = Agent(
+		't', ChatOpenAI('gpt-6-luna', api_key='sk-x'), browser=Browser(), workspace=tmp_path, sensitive_data={'pw': secret}
+	)
+	result = await agent.run()
+	assert result.status == 'error' and '<secret:pw>' in (result.error or '')
+	assert secret not in (result.error or '') and secret not in caplog.text
+
+
 async def test_restarted_browser_is_stopped_again(cloud):
 	"""BUP bug: `stopped` never reset, so a browser started a second time was skipped at cleanup (kept billing)."""
 	browser = Browser()

@@ -27,6 +27,7 @@ DEFAULT_MODEL = 'bu-fast'  # gpt-6-luna, medium reasoning, default tier (the eva
 GATEWAY_UPSTREAM = {'bu-smart': 'gpt-6.1-sol', 'bu-smart-v1': 'gpt-6.1-sol'}  # other bu-* aliases run gpt-6-luna
 LEGACY_MODEL = re.compile(r'bu-(latest|\d+-\d+)\b')  # bu-2-0, bu-1-0, bu-2-0-mini-preview, bu-latest: the 0.x gateway
 PREFLIGHT_TIMEOUT_S = 15
+GOOGLE_HOST = 'generativelanguage.googleapis.com'
 CHAT_REMOVED = (
 	'1.0 Chat classes take the model and api_key (ChatOpenAI also base_url, temperature and reasoning_effort); for '
 	"other model settings pass a Pydantic AI Model built with settings=..., e.g. llm=AnthropicModel('claude-...', "
@@ -292,22 +293,27 @@ def model_ref(llm: Any) -> Any:
 def provider_preflight(model: Any) -> str | None:
 	"""One free GET of the model on its provider (OpenAI, Anthropic, Google; official endpoints only): a rejected key
 	or an unknown model fails here, before a cloud browser is created and billed. Returns the error line, or None when
-	the model is there or it cannot be told (another endpoint, no key at hand, the provider unreachable)."""
+	the model is there or it cannot be told (another endpoint, no API key at hand, the provider unreachable, or a key
+	that may run the model without being allowed to look it up: 403, a 401 that is not an invalid key)."""
 	system, name = getattr(model, 'system', None), getattr(model, 'model_name', None)
 	try:
 		client = model.client
 		if system == 'openai' and urlparse(str(client.base_url)).hostname == 'api.openai.com':
-			url, headers = f'{str(client.base_url).rstrip("/")}/models/{name}', {'Authorization': f'Bearer {client.api_key}'}
+			key = client.api_key
+			url, headers = f'{str(client.base_url).rstrip("/")}/models/{name}', {'Authorization': f'Bearer {key}'}
 		elif system == 'anthropic' and urlparse(str(client.base_url)).hostname == 'api.anthropic.com':
+			key = client.api_key  # None for a client built with auth_token: nothing to check here
 			url = f'{str(client.base_url).rstrip("/")}/v1/models/{name}'
-			headers = {'x-api-key': str(client.api_key), 'anthropic-version': '2023-06-01'}
-		elif (
-			system in ('google', 'google-gla')
-			and not getattr(client._api_client, 'vertexai', False)
-			and (key := getattr(client._api_client, 'api_key', None))
-		):
-			url, headers = f'https://generativelanguage.googleapis.com/v1beta/models/{name}', {'x-goog-api-key': key}
+			headers = {'x-api-key': str(key), 'anthropic-version': '2023-06-01'}
+		elif system in ('google', 'google-gla') and not getattr(client._api_client, 'vertexai', False):
+			api = client._api_client
+			if urlparse(str(api._http_options.base_url)).hostname != GOOGLE_HOST:  # a proxy: its key is not Google's
+				return None
+			key, path = api.api_key, name if '/' in str(name) else f'models/{name}'  # 'models/gemini-2.5-flash' as is
+			url, headers = f'https://{GOOGLE_HOST}/v1beta/{path}', {'x-goog-api-key': key}
 		else:
+			return None
+		if not key or not isinstance(key, str):
 			return None
 	except Exception:  # - a Model without the client we know
 		return None
@@ -316,15 +322,22 @@ def provider_preflight(model: Any) -> str | None:
 			return None
 	except urllib.error.HTTPError as e:
 		try:
-			detail = str(json.loads(e.read()).get('error') or '')[:300]
+			error = json.loads(e.read()).get('error')
 		except (ValueError, AttributeError):
-			detail = ''
-		if e.code in (401, 403):
-			return f'{system} rejected the API key ({e.code}){f": {detail}" if detail else ""}. No browser was started.'
+			error = None
+		error = error if isinstance(error, dict) else {'message': str(error or '')}
+		detail = str(error.get('message') or '')[:300].replace(key, '<api key>')
+		said = f': {detail.rstrip(".")}' if detail else ''
+		reasons = {d.get('reason') for d in error.get('details') or () if isinstance(d, dict)}
+		if (
+			error.get('code') == 'invalid_api_key'  # OpenAI 401
+			or error.get('type') == 'authentication_error'  # Anthropic 401
+			or 'API_KEY_INVALID' in reasons  # Google answers a bad key with 400
+			or (e.code == 401 and error.get('status') == 'UNAUTHENTICATED')
+		):
+			return f'{system} rejected the API key ({e.code}){said}. No browser was started.'
 		if e.code == 404:
-			return (
-				f'{name} is not a model this {system} key can use (404){f": {detail}" if detail else ""}. No browser was started.'
-			)
+			return f'{name} is not a model this {system} key can use (404){said}. No browser was started.'
 		return None
 	except (OSError, ValueError):  # unreachable: the run itself will say
 		return None
