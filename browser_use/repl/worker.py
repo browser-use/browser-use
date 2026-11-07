@@ -20,6 +20,7 @@ import io
 import json
 import os
 import pprint
+import re
 import signal
 import socket
 import struct
@@ -47,6 +48,9 @@ HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless 
 # browser-harness's daemon reads each request as one JSON line with asyncio's default 64 KiB limit; a longer one broke
 # the connection (BrokenPipeError). Characters of JSON (ASCII), less a margin for the token Windows adds.
 MAX_IPC_REQUEST = 65_536 - 128
+# The daemon's error once its websocket to the browser closed: Chrome crashed or quit ("no close frame received or
+# sent"), or the cloud browser was stopped or timed out ("received 1001 (going away) browser session ended").
+BROWSER_GONE = re.compile(r'no close frame|received 10\d\d \(|sent 10\d\d \(|ConnectionClosed|websocket.*closed', re.I)
 
 
 def capture(raw_cdp, current_tab, session_id=None, *, activate=False, **params):
@@ -257,6 +261,10 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			r = raw_send(req, *args, **kwargs)
 		except (FileNotFoundError, ConnectionRefusedError, ConnectionResetError, BrokenPipeError):
 			raise BrowserConnectionLost() from None
+		except RuntimeError as e:  # the daemon is up but its browser connection closed: the browser crashed or ended
+			if BROWSER_GONE.search(str(e)):
+				raise BrowserConnectionLost('the browser ended (crashed, stopped, or a cloud browser hit its timeout)') from None
+			raise
 		if isinstance(req, dict) and req.get('meta') == 'drain_events' and isinstance(r, dict):
 			stats.observe(r.get('events'))
 		return r

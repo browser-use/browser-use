@@ -15,8 +15,8 @@ class MissingAPIKeyError(RuntimeError):
 class BrowserConnectionLost(ConnectionError):
 	"""The browser-harness daemon that drives the browser is gone (it crashed or was killed)."""
 
-	def __init__(self) -> None:
-		super().__init__('browser connection lost: the browser-harness daemon is not running')
+	def __init__(self, why: str = 'the browser-harness daemon is not running') -> None:
+		super().__init__(f'browser connection lost: {why}')
 
 
 ISSUES_URL = 'https://github.com/browser-use/browser-use/issues'

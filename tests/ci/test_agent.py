@@ -296,6 +296,28 @@ async def test_a_browser_stopped_mid_run_is_never_replaced_or_retried_forever(ch
 		await browser.stop()
 
 
+@pytest.mark.skipif(__import__('sys').platform == 'win32', reason='kills the process group')
+async def test_a_browser_that_ends_mid_run_is_a_lost_connection_not_a_raw_error(chrome_binary, tmp_path):
+	"""M13: Chrome crashing (or a cloud browser ending) mid-run gave the model a raw RuntimeError ("no close frame
+	received or sent" / "received 1001 (going away)"), and the run went on as if the browser were there."""
+	import os
+	import signal
+
+	browser = Browser('chromium', executable_path=chrome_binary, headless=True)
+	repl = Repl(tmp_path, await browser.start(), reattach=browser.reattach)
+	try:
+		assert (await repl.call('exec', "new_tab('about:blank')", 60))['error'] is None
+		assert browser._local and browser._local.proc
+		os.killpg(browser._local.proc.pid, signal.SIGKILL)  # Chrome crashes
+		browser._local.proc.wait(10)
+		r = await repl.call('exec', "print(page_info()['url'])", 60)
+		assert r['error'].startswith('BrowserConnectionLost: browser connection lost: the browser ended'), r
+		assert 'Traceback' not in r['error'] and 'Finish with what you have' in r['error'], r
+	finally:
+		await repl.close()
+		await browser.stop()
+
+
 class _StallingProxy:
 	"""TCP relay to the test Chrome. stall() freezes the connections open now (a stuck browser connection: the browser
 	is fine); connections made later pass."""
