@@ -603,6 +603,9 @@ class Browser:
 						os.close(fd)
 					env['BU_TABS_FILE'] = self._tabs_file
 			self._env = env
+		elif self._local is not None and self._local.proc is not None and self._local.proc.poll() is not None:
+			await self._stop()  # the Chrome this Browser launched died (crash, OOM, kill): launch a new one
+			return await self._start_locked()
 		else:
 			await asyncio.to_thread(self._reattach)
 		return self._env
