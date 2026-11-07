@@ -301,6 +301,16 @@ class BrowserLoop(AbstractCapability[Session]):
 		return result if clean == plain else clean  # untouched (images, types) unless a secret was in it
 
 
+class LazyCompaction(OpenAICompaction):
+	"""Server-side compaction, requested only once the last request was past the threshold. context_management on every
+	request made each call ~0.8 s slower at 45k tokens (bu-pi sends none)."""
+
+	def get_model_settings(self):
+		resolve = super().get_model_settings()
+		last = lambda ms: next((m.usage.input_tokens for m in reversed(ms) if isinstance(m, ModelResponse)), 0)  # noqa: E731
+		return lambda ctx: resolve(ctx) if last(ctx.messages) >= self.token_threshold else {}
+
+
 def delivery_tool_choice(model: Any, settings: dict) -> Any:
 	"""Only finish/finish_from_repl. Forced (allowed_tools keeps the cached tool list) where the model accepts a forced
 	tool choice on this request; otherwise python is withheld and the choice stays auto. Claude rejects forcing with
@@ -416,7 +426,7 @@ def build_agent(
 			del settings['openai_reasoning_effort']
 		if not reasoning:  # gpt-4.1, gpt-4o: reasoning params 400, and 32k is above their output cap
 			settings = {}
-		capabilities = [BrowserLoop(), OpenAICompaction(token_threshold=compact_at_tokens)]
+		capabilities = [BrowserLoop(), LazyCompaction(token_threshold=compact_at_tokens)]
 	elif kind == 'chat':  # DeepSeek, vLLM, Ollama: no reasoning settings, no output cap they may reject
 		# OpenAI's own reasoning models turn reasoning on by default on chat completions and then reject function tools
 		# (400 "use /v1/responses or set reasoning_effort to 'none'")

@@ -178,14 +178,16 @@ async def test_gateway_models_run_stateless_responses_with_compaction(responses_
 	]  # the text reply is the answer (str result): no delivery repair request
 	model, settings = resolve_model(ChatBrowserUse(api_key='fake-test-key', base_url=url))
 	assert isinstance(model, OpenAIResponsesModel)
-	agent = build_agent(model, model_settings=settings, reasoning_effort=None)  # what Agent() passes for the gateway
+	# what Agent() passes for the gateway; threshold = the stub's 10 input tokens: compaction is requested from the 2nd call
+	agent = build_agent(model, model_settings=settings, reasoning_effort=None, compact_at_tokens=10)
 	assert compaction(agent)
 	result = await run(agent, 'TASK-TEXT', Session(repl=Repl(tmp_path)), model.model_name)
 	assert (result.status, result.output, result.error) == ('completed', 'Done.', None)
 	assert [path for path, _ in requests] == ['/v1/responses'] * 3
-	for _, body in requests:
+	for i, (_, body) in enumerate(requests):
 		assert body['model'] == 'bu-fast' and body['store'] is False and 'reasoning.encrypted_content' in body['include']
-		assert body['context_management'] == [{'type': 'compaction', 'compact_threshold': 150_000}]
+		# only once the last request reached the threshold: on every request it cost ~0.8 s per call
+		assert body.get('context_management') == ([{'type': 'compaction', 'compact_threshold': 10}] if i else None)
 		assert 'effort' not in body.get('reasoning', {})  # the gateway applies bu-fast's medium
 	second, third = requests[1][1]['input'], requests[2][1]['input']  # after reply 1, after reply 2 (compaction)
 	assert {'type': 'reasoning', 'encrypted_content': 'sealed-reasoning-1'}.items() <= next(
