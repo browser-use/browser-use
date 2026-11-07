@@ -7,6 +7,7 @@ import base64
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import traceback
 import webbrowser
@@ -24,6 +25,7 @@ from browser_use import Browser, harness_cloud
 from browser_use.auth import harden_login_callback, set_aside_corrupt_store
 from browser_use.exceptions import removed
 from browser_use.harness_cloud import CloudBrowserError
+from browser_use.repl.session import MAX_OUTPUT_CHARS, clip
 from browser_use.utils import get_browser_use_version
 
 _NAMESPACE_IMPORTS = (
@@ -235,6 +237,10 @@ class CLIMCPServer:
 						is_error=True,
 					)
 				output, failed = await self._locked(self._execute, code)
+				if len(output) > MAX_OUTPUT_CHARS:  # same cap as the agent's cells; the full text stays readable on disk
+					with tempfile.NamedTemporaryFile('w', prefix='browser_exec_', suffix='.txt', delete=False) as f:
+						f.write(output)
+					output = clip(output, f.name)
 				return types.CallToolResult(
 					content=[types.TextContent(type='text', text=output or '(no output)')], is_error=failed
 				)

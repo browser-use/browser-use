@@ -846,3 +846,25 @@ async def test_old_mcp_tool_names_return_the_removed_error():
 		assert 'browser_exec runs Python' in text
 	r = await handler(None, types.CallToolRequestParams(name='nope', arguments={}))
 	assert r.content[0].text == 'Unknown tool: nope'  # type: ignore[union-attr]
+
+
+async def test_browser_exec_output_is_capped_like_agent_cells():
+	"""C45: browser_exec returned a 2MB print verbatim into the MCP client's context."""
+	from pathlib import Path
+
+	from mcp import types
+
+	from browser_use.mcp import cli_mcp
+	from browser_use.repl.session import MAX_OUTPUT_CHARS
+
+	mcp = cli_mcp.CLIMCPServer()
+	big = 'A' * 2_000_000
+	mcp._execute = lambda code: (big, False)  # what print("A"*2_000_000) captures, without a browser
+	handler = mcp.server._request_handlers['tools/call'].handler
+	r = await handler(None, types.CallToolRequestParams(name='browser_exec', arguments={'code': 'print(1)'}))
+	text = r.content[0].text  # type: ignore[union-attr]
+	head, _, path = text.rpartition('\n[Truncated. Full captured output: ')
+	assert not r.is_error and head == big[:MAX_OUTPUT_CHARS]
+	full = Path(path.removesuffix(']'))
+	assert full.read_text() == big
+	full.unlink()
