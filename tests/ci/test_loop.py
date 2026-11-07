@@ -273,6 +273,10 @@ async def test_an_open_js_dialog_is_named_instead_of_timing_out(daemon, tmp_path
 			assert 'A JavaScript alert is open' in (r['error'] or '') and 'Page.handleJavaScriptDialog' in r['error'], r
 		r = await repl.call('exec', 'cdp("Page.handleJavaScriptDialog", accept=True); print(js("1 + 1"))', 60)
 		assert r['error'] is None and '2' in r['output'], r
+		# a call that opens the dialog itself times out, then names it
+		r = await repl.call('exec', 'cdp("Runtime.evaluate", expression="alert(1)", _response_timeout=2)', 60)
+		assert 'A JavaScript alert is open' in (r['error'] or ''), r
+		await repl.call('exec', 'cdp("Page.handleJavaScriptDialog", accept=True)', 60)
 	finally:
 		await repl.close()
 

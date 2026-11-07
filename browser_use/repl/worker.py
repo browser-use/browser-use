@@ -295,13 +295,16 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 
 	def cdp(method, session_id=None, **params):
 		"""A JS dialog freezes the page: js() then took 20 s, click_at_xy 20 s and screenshot() 65 s, each with a timeout
-		that did not say why. While the daemon saw one open, such a call gets DIALOG_PROBE_S and then says so."""
+		that did not say why. While the daemon saw one open, such a call gets DIALOG_PROBE_S and then says so; a call that
+		opened the dialog itself says so when it times out."""
 		dialog = pending_dialog(method, session_id)
 		if dialog:
 			params['_response_timeout'] = min(params.get('_response_timeout', SCREENSHOT_TIMEOUT_S), DIALOG_PROBE_S)
 		try:
 			return _cdp(method, session_id, **params)
 		except TimeoutError:
+			# a call that opened the dialog itself (a click on a button that alerts) times out first, then it is there
+			dialog = dialog or pending_dialog(method, session_id)
 			if not dialog:
 				raise
 			raise RuntimeError(
