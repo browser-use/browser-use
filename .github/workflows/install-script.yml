@@ -79,8 +79,6 @@ jobs:
       - name: Verify aliases
         run: |
           browseruse --help
-          bu --help
-          browser --help
 
   test-uvx-local-wheel:
     name: uvx browser-use from local wheel

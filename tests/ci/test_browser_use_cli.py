@@ -142,7 +142,8 @@ def test_0x_agent_task_commands_point_to_agent():
 def test_bh_runtime_dir_keeps_one_socket_per_bu_name(tmp_path):
 	# C47: with BH_RUNTIME_DIR set (the fix our AF_UNIX-too-long error suggests), browser-harness names every daemon's
 	# files plain bu.sock / bu.pid, so `BU_NAME=b browser-use --reload` stopped daemon a and b drove a's browser.
-	for f in ('bu.sock', 'bu.pid', 'bu-a.sock', 'bu-a.pid', 'bu-b.sock', 'bu-b.pid'):
+	ep = 'port' if sys.platform == 'win32' else 'sock'  # the daemon's endpoint file: Windows uses TCP, not AF_UNIX
+	for f in ('bu.' + ep, 'bu.pid', 'bu-a.' + ep, 'bu-a.pid', 'bu-b.' + ep, 'bu-b.pid'):
 		(tmp_path / f).touch()
 	env = {k: v for k, v in os.environ.items() if not k.startswith('BH_')}
 	env.update(BH_RUNTIME_DIR=str(tmp_path), BU_NAME='b', PYTHONPATH=str(ROOT))
@@ -150,4 +151,4 @@ def test_bh_runtime_dir_keeps_one_socket_per_bu_name(tmp_path):
 		[sys.executable, '-m', 'browser_use.cli', '--reload'], cwd=ROOT, env=env, capture_output=True, text=True, timeout=30
 	)
 	assert r.returncode == 0, r.stderr
-	assert sorted(p.name for p in tmp_path.iterdir()) == ['bu-a.pid', 'bu-a.sock', 'bu.pid', 'bu.sock']
+	assert sorted(p.name for p in tmp_path.iterdir()) == sorted(['bu-a.pid', 'bu-a.' + ep, 'bu.pid', 'bu.' + ep])
