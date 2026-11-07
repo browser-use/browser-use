@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 
 from browser_use.auth import browser_use_api_key
 
-GATEWAY_URL = 'https://api.browser-use.com/api/llm/v1'
+GATEWAY_URL = 'https://api.browser-use.com/api/v4/llm/v1'
 BILLING_URL = 'https://cloud.browser-use.com/settings?tab=billing'
 DEFAULT_MODEL = 'bu-fast'  # gpt-6-luna, medium reasoning, default tier (the evaluated setup). bu-ultrafast: low, priority
 GATEWAY_UPSTREAM = {'bu-smart': 'gpt-6.1-sol', 'bu-smart-v1': 'gpt-6.1-sol'}  # other bu-* aliases run gpt-6-luna

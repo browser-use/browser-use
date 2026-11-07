@@ -354,7 +354,7 @@ def test_gateway_detection_https_only_and_openai_key_precedence(monkeypatch):
 	OPENAI_BASE_URL=gateway, a Browser Use key in OPENAI_API_KEY (the 0.x setup) was ignored."""
 	monkeypatch.delenv('OPENAI_BASE_URL', raising=False)
 	monkeypatch.setenv('BROWSER_USE_API_KEY', 'bu-env-key')
-	for url in ('http://api.browser-use.com/api/llm/v1', 'https://api.browser-use.com:8443/api/llm/v1'):
+	for url in ('http://api.browser-use.com/api/v4/llm/v1', 'https://api.browser-use.com:8443/api/v4/llm/v1'):
 		assert not ChatOpenAI('bu-auto', api_key='x', base_url=url).is_gateway
 	assert ChatOpenAI('bu-auto', base_url=GATEWAY_URL + '/').is_gateway
 	monkeypatch.setenv('OPENAI_BASE_URL', GATEWAY_URL)

@@ -31,7 +31,7 @@ agent = Agent('Find the top post on Hacker News', llm='bu-ultrafast')  # same as
 | a listed OpenAI model, e.g. `gpt-6-luna` | that model through the gateway |
 
 `Agent(reasoning='low' | 'medium' | 'high')` overrides the alias's own effort. Prices and the full list:
-`GET https://api.browser-use.com/api/llm/v1/models`. `result.cost_usd` is exactly what the gateway charged.
+`GET https://api.browser-use.com/api/v4/llm/v1/models`. `result.cost_usd` is exactly what the gateway charged.
 
 `bu-2-0`, `bu-2-0-mini-preview`, `bu-1-0` and `bu-latest` were the 0.x models. browser-use 1.0 rejects them before a
 browser starts: keep `browser-use<1.0` for them, or switch to `bu-fast`.
