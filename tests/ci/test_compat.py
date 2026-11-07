@@ -281,16 +281,43 @@ async def test_structured_final_result_is_the_models_json(tmp_path):
 
 
 async def test_a_tools_own_timeout_is_an_error_not_the_run_budget(tmp_path):
-	"""Fable: socket.timeout is TimeoutError; it was reported as status='timeout', error=None with budget unused."""
+	"""Fable: socket.timeout is TimeoutError; it was reported as status='timeout', error=None with budget unused. The
+	model now gets it as the tool's error (H2) and the run goes on."""
 	tools = Tools()
 
 	@tools.action('Fetch a URL')
 	def fetch(url: str) -> str:
 		raise TimeoutError('timed out')
 
-	model, _ = script(('fetch', {'url': 'https://x.test'}))
+	model, seen = script(('fetch', {'url': 'https://x.test'}), ('finish', {'success': False, 'result': 'fetch timed out'}))
 	r = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path)), 'm')
-	assert (r.status, r.error) == ('error', 'TimeoutError: timed out')
+	assert (r.status, r.error, r.output) == ('completed', None, 'fetch timed out')
+	assert 'TimeoutError: timed out' in str(seen[1][-1])
+
+
+async def test_a_custom_tool_that_raises_returns_the_error_to_the_model(tmp_path):
+	"""H2: a custom tool raising an ordinary exception ended the whole run; 0.x returned ActionResult(error=...) to the
+	model. Sync and async tools, with and without sensitive_data."""
+	tools = Tools()
+
+	@tools.action('Look up a price')
+	def price(sku: str) -> str:
+		raise KeyError(f'no such sku {sku}')
+
+	@tools.action('Look up stock')
+	async def stock(sku: str) -> str:
+		raise ValueError('stock service down hunter2-Zq9')
+
+	for secrets in (None, {'pw': 'hunter2-Zq9'}):
+		model, seen = script(
+			('price', {'sku': 'A1'}), ('stock', {'sku': 'A1'}), ('finish', {'success': False, 'result': 'unknown'})
+		)
+		r = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path, secrets=secrets)), 'm')
+		assert (r.status, r.output) == ('completed', 'unknown'), r.error
+		assert "KeyError: 'no such sku A1'" in str(seen[1][-1])
+		assert 'ValueError: stock service down' in str(seen[2][-1])
+		if secrets:
+			assert 'hunter2-Zq9' not in str(seen) and '<secret:pw>' in str(seen[2][-1])
 
 
 @pytest.mark.parametrize(
@@ -416,16 +443,15 @@ async def test_failed_follow_up_never_returns_the_previous_tasks_result(tmp_path
 
 async def test_run_error_never_shows_a_secret(tmp_path):
 	"""Roast r2-8: an exception quoting a registered secret stayed plaintext in result.error, which Agent.run logs."""
-	secret = 'hunter2-Zq9'
-	tools = Tools()
+	from pydantic_ai.models.function import FunctionModel
 
-	@tools.action('Log in')
-	def login() -> str:
+	secret = 'hunter2-Zq9'
+
+	def provider(messages, info):  # a custom tool's exception goes back to the model (H2): the provider's ends the run
 		raise RuntimeError(f'login failed for password {secret}')
 
-	model, _ = script(('login', {}))
 	session = Session(repl=Repl(tmp_path, secrets={'pw': secret}))
-	r = await run(build_agent(model, tools=tools.functions), 'task', session, 'm')
+	r = await run(build_agent(FunctionModel(provider)), 'task', session, 'm')
 	assert r.status == 'error' and r.error == 'RuntimeError: login failed for password <secret:pw>'
 
 

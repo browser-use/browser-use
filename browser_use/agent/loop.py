@@ -36,6 +36,7 @@ from browser_use.llm import model_ref
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import redact_forms, secret_forms
 from browser_use.telemetry.stats import RunStats
+from browser_use.tools import ActionResult
 
 KEEP_IMAGE_RESULTS = 2
 DELIVER_NOW = (
@@ -243,6 +244,13 @@ class BrowserLoop(AbstractCapability[Session]):
 			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
 			request_context.model_settings = cast(Any, settings)
 		return request_context
+
+	async def on_tool_execute_error(self, ctx: RunContext[Session], *, call, tool_def, args, error: Exception) -> Any:
+		"""A custom tool (Tools) that raises returns the error to the model, which can recover, as a failing 0.x action
+		did (ActionResult(error=...)); it never ends the run. ModelRetry and pydantic-ai's control flow never get here."""
+		if call.tool_name == 'python' or tool_def.kind != 'function':
+			raise error
+		return ActionResult(error=f'{type(error).__name__}: {error}')
 
 	async def wrap_tool_execute(self, ctx: RunContext[Session], *, call, tool_def, args, handler) -> Any:
 		"""Custom tools (Tools) run in this process, so the worker's redaction never saw their results: redact them
