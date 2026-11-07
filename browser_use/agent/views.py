@@ -61,6 +61,15 @@ class AgentHistoryList:
 		if self.status != 'completed':
 			self.success = None
 
+	def __repr__(self) -> str:
+		"""Without .messages: the transcript (screenshots included) made print(result) about 565 KB."""
+		text = self.text if len(self.text) <= 500 else f'{self.text[:500]}... ({len(self.text)} chars)'
+		return (
+			f'AgentHistoryList(status={self.status!r}, success={self.success!r}, text={text!r}, steps={self.steps}, '
+			f'duration_s={self.duration_s:.1f}, cost_usd={self.cost_usd!r}, usage={dict(self.usage)!r}, '
+			f'error={self.error!r}, messages=<{len(self.messages)} messages>)'
+		)
+
 	def final_result(self) -> str | None:
 		"""The answer text, or None when the run did not complete."""
 		return self.text if self.status == 'completed' else None

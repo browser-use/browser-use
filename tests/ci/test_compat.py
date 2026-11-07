@@ -123,6 +123,17 @@ def result(status='completed', output='done', error=None):
 	return AgentHistoryList(status, str(output), output, 3, 1.5, {}, None, None, error, [])
 
 
+def test_printing_a_result_leaves_out_the_transcript():
+	"""M41: print(result) dumped about 565 KB, screenshots' JPEG bytes included."""
+	from pydantic_ai.messages import BinaryContent, ModelRequest, ToolReturnPart
+
+	shot = BinaryContent(b'\xff\xd8' + b'x' * 200_000, media_type='image/jpeg')
+	messages = [ModelRequest(parts=[ToolReturnPart('python', ['ok', shot])])]
+	usage = {'input': 1, 'output': 1, 'cache_read': 0, 'cache_write': 0, 'requests': 1}
+	r = AgentHistoryList('completed', 'answer', 'answer', 1, 1.0, usage, 0.01, None, None, messages, True)
+	assert len(repr(r)) < 1000 and "text='answer'" in repr(r) and '<1 messages>' in str(r)
+
+
 def test_result_keeps_common_0x_methods():
 	r = result()
 	assert (r.final_result(), r.is_done(), r.is_successful(), r.errors(), r.has_errors()) == ('done', True, True, [], False)
