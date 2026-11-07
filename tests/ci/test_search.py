@@ -244,3 +244,29 @@ def test_prompt_is_unchanged_when_search_is_off(monkeypatch, tmp_path):
 	off = instructions(built(monkeypatch, tmp_path, KEY, web_search=False))
 	assert off == f'{SYSTEM_PROMPT}\n{LOCAL_PROMPT}' == instructions(built(monkeypatch, tmp_path, KEY))
 	assert instructions(built(monkeypatch, tmp_path, KEY, web_search=True)) == f'{off}\n{SEARCH_PROMPT}'
+
+
+async def test_missing_search_endpoint_fails_before_the_browser_starts(endpoint, monkeypatch, tmp_path):
+	"""C37: with a provider model, a 404 search endpoint only showed up as 'HTTP 404' inside cells, and the agent burned
+	steps on Google's captcha instead. The free POST {} preflight fails the run before any browser starts."""
+	started = []
+
+	async def start(self):
+		started.append(self)
+		raise RuntimeError('browser started')
+
+	monkeypatch.setattr(Browser, 'start', start)
+	agent = built(monkeypatch, tmp_path, KEY, web_search=True)
+	assert agent._search
+	agent._search.url = endpoint.url
+	endpoint.reply = (404, b'404 page not found\n', 0)  # Go's plain-text 404
+	result = await agent.run()
+	assert (result.status, result.steps, started) == ('error', 0, [])
+	assert (
+		result.error == f'Agent(web_search=True): Browser Use web search at {endpoint.url} answered HTTP 404: 404 page not found'
+	)
+	assert endpoint.seen[-1]['body'] == {}  # no query: nothing searched, nothing charged
+	endpoint.reply = (422, {'detail': 'query: Field required'}, 0)  # there, and the key works
+	with pytest.raises(RuntimeError, match='browser started'):
+		await agent.run()
+	assert len(started) == 1

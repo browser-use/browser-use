@@ -97,5 +97,22 @@ class WebSearch:
 			hits = []
 		return {**parsed, 'results': hits}
 
+	def preflight(self) -> str | None:
+		"""POST {} (free: no query, no search, no charge) before the browser starts. A missing endpoint (404) or a
+		rejected key (401) is the error line; 422 means it is there and the key works. Unreachable is None: each
+		search() call reports it."""
+		headers = {'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'}
+		try:
+			urllib.request.urlopen(
+				urllib.request.Request(self.url, b'{}', headers, method='POST'), timeout=SEARCH_TIMEOUT_S
+			).close()
+		except urllib.error.HTTPError as e:
+			if e.code not in (400, 422):
+				detail = self._clean(e.read().decode('utf-8', 'replace')[:300].strip())
+				return f'Agent(web_search=True): Browser Use web search at {self.url} answered HTTP {e.code}: {detail}'
+		except OSError:
+			pass
+		return None
+
 	def _clean(self, text: str) -> str:
 		return text.replace(self.api_key, '<api key>')

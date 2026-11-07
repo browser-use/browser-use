@@ -366,11 +366,11 @@ class Agent:
 			logger.info(f'Task: {redact(self.task, self.sensitive_data)[:200]} (workspace {self.workspace})')
 			if self._repl is None:
 				check_loop()  # before the browser starts: a cloud browser bills from its create
-				# a dead gateway, a rejected key or a bad model fails before a cloud browser is created and billed
-				if not self._preflighted and (self._gateway or self.browser.use_cloud):
-					model = self._model
+				# a dead gateway, a rejected key, a bad model or a missing search endpoint fails before a browser starts
+				if not self._preflighted and (self._gateway or self.browser.use_cloud or self._search):
+					model, search = self._model, self._search
 					check = self._gateway.preflight if self._gateway else (lambda: provider_preflight(model))
-					if error := await asyncio.to_thread(check):
+					if error := await asyncio.to_thread(lambda: check() or (search and search.preflight())):
 						error = redact(error, self.sensitive_data)  # a provider's message can quote what it was sent
 						logger.error(error)
 						usage = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
