@@ -210,7 +210,7 @@ def test_0x_api_shapes_raise_the_removed_error(no_browser):
 		assert 'was removed in browser-use 1.0' in str(raised.value), match
 	assert result and result.usage == usage and result.usage['input'] == 1  # still a plain dict to read
 	with pytest.raises(AttributeError, match="no attribute 'nope'"):
-		Browser(local=True).nope  # noqa: B018
+		Browser(local=True).nope
 
 
 def test_docs_say_the_default_workspace_is_kept():
