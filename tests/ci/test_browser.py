@@ -425,6 +425,20 @@ async def test_failed_stop_keeps_the_browser_owned_for_retry(cloud, monkeypatch)
 	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
 
 
+async def test_a_cloud_browser_start_is_logged_at_info(cloud, caplog, monkeypatch):
+	"""C21: Agent() with no browser= silently started a billed cloud browser; the only log line was DEBUG."""
+	import logging
+
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # setup_logging turns it off
+	caplog.set_level(logging.INFO, logger='browser_use')
+	browser = Browser()
+	await browser.start()
+	await browser.stop()
+	line = next(r for r in caplog.records if r.levelno == logging.INFO and 'b1' in r.getMessage()).getMessage()
+	assert 'us proxy' in line and 'billed' in line and "Browser('chromium')" in line
+	assert 'live.example.test' not in caplog.text  # the live URL grants control of the browser
+
+
 async def test_concurrent_starts_create_one_browser(cloud):
 	"""Roast C4: two concurrent start() calls each created a cloud browser; one leaked."""
 	import asyncio
