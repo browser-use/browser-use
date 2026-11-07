@@ -71,7 +71,7 @@ class ElementSelectedEvent(BaseEvent[T_EventResultType]):
 			is_scrollable=data.is_scrollable,
 			is_visible=data.is_visible,
 			absolute_position=data.absolute_position,
-			# override the circular reference fields in EnhancedDOMTreeNode as they cant be serialized and aren't needed by event handlers
+			# override the circular reference fields in EnhancedDOMTreeNode as they can't be serialized and aren't needed by event handlers
 			# only used internally by the DOM service during DOM tree building process, not intended public API use
 			content_document=None,
 			shadow_root_type=None,
