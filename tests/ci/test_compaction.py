@@ -223,6 +223,39 @@ async def test_summarizer_failure_keeps_the_history_and_is_tried_again(tmp_path,
 	) == 3
 
 
+async def test_a_context_window_error_compacts_once_and_sends_the_request_again(tmp_path):
+	"""Browser Use Pi (agent.ts overflow recovery): a provider that rejects the request as over its context window gets
+	a forced compaction and the same request again; 1.0 ended the run with the error. A second rejection in the same
+	step ends it."""
+	from pydantic_ai.exceptions import ModelContextWindowExceededError
+
+	inner, agent_requests, summarizer_requests = scripted(big=set())
+	rejected = []
+
+	def fn(messages, info: AgentInfo):
+		if info.function_tools and len(agent_requests) >= 3 and not checkpoint_text(messages):
+			rejected.append(messages)
+			raise ModelContextWindowExceededError('x', 'prompt is too long: 210000 tokens > 200000 maximum')
+		return inner(messages, info)
+
+	fn.settings = inner.settings
+	result = await go(tmp_path, fn)  # never past the triggers: only the error compacts
+	assert result.status == 'completed' and result.output == 'done', result.error
+	assert len(rejected) == 1 and len(summarizer_requests) == 1 and checkpoint_text(agent_requests[3])
+
+	def always(messages, info: AgentInfo):
+		if info.function_tools and len(agent_requests) >= 3:
+			rejected.append(messages)
+			raise ModelContextWindowExceededError('x', 'prompt is too long')
+		return inner(messages, info)
+
+	inner, agent_requests, summarizer_requests = scripted(big=set())
+	rejected.clear()
+	always.settings = inner.settings
+	result = await go(tmp_path, always)
+	assert result.status == 'error' and 'prompt is too long' in (result.error or '') and len(rejected) == 2
+
+
 def test_every_model_without_server_side_compaction_compacts():
 	from browser_use.agent.loop import Compaction
 

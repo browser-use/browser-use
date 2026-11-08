@@ -25,6 +25,7 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.direct import model_request
 from pydantic_ai.exceptions import (
 	ModelConnectionError,
+	ModelContextWindowExceededError,
 	ModelRateLimitError,
 	ModelServerError,
 	ModelUnavailableError,
@@ -102,6 +103,7 @@ class Session:
 	checkpoint: ModelRequest | None = None  # Compaction: the message sent in place of messages[:covered]
 	covered: int = 0
 	usage_after: int = 0  # Compaction: responses before this index were measured before the checkpoint
+	overflowed_step: int | None = None  # Compaction: the request step a context-window error forced a compaction in
 	provider_retried: bool = False  # BrowserLoop: bu-pi's one provider retry per run is used
 	summaries: list[ModelResponse] = field(default_factory=list)  # summarizer responses, counted in usage and cost
 
@@ -406,13 +408,14 @@ class Compaction(AbstractCapability[Session]):
 	the last two assistant/tool groups is sent as one checkpoint message: a summary by the same model at low effort, a
 	redacted evidence archive, the user messages verbatim. Only the request is projected; the transcript stays whole
 	(usage, follow-ups). A failure keeps the full history for this request and compaction is tried again on the next
-	(bu-pi agent.ts). max_chars: bu-pi maxContextChars, default 4 characters per token of the context window (bu-pi),
+	(bu-pi agent.ts). A provider's context-window error forces one compaction and the same request again (bu-pi
+	agent.ts overflow recovery); a second one in that step ends the run. max_chars: bu-pi maxContextChars, default 4 characters per token of the context window (bu-pi),
 	240k when the window is unknown. token_threshold: bu-pi compactAtTokens, which replaces both triggers."""
 
 	token_threshold: int | None = None
 	max_chars: int | None = None
 
-	async def before_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
+	async def prepare_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
 		s, messages, window = ctx.deps, request_context.messages, request_context.model.context_window
 		params = request_context.model_request_parameters
 		system = sum(len(p.content) for p in params.instruction_parts or [])
@@ -427,7 +430,9 @@ class Compaction(AbstractCapability[Session]):
 		max_chars = self.max_chars or (window * 4 if window else 240_000)
 		chars = _chars(_projected(s, messages)) + system
 		tokens = _tokens(s, messages, system + tools)
-		if self.token_threshold is not None:
+		if s.overflowed_step == ctx.run_step:  # this attempt follows a context-window error
+			due = True
+		elif self.token_threshold is not None:
 			due = tokens >= self.token_threshold
 		else:
 			due = chars > 0.75 * max_chars or bool(window and tokens > 0.65 * window)
@@ -440,6 +445,14 @@ class Compaction(AbstractCapability[Session]):
 				)
 		request_context.messages = _projected(s, messages)
 		return request_context
+
+	async def on_model_request_error(self, ctx: RunContext[Session], *, request_context: ModelRequestContext, error: Exception):
+		s = ctx.deps
+		if not isinstance(error, ModelContextWindowExceededError) or s.overflowed_step == ctx.run_step:
+			raise error
+		s.overflowed_step = ctx.run_step
+		logger.warning(f'{error.model_name}: the request is over the context window; compacting and sending it again')
+		raise RetryModelRequest()
 
 
 def _projected(s: Session, messages: list[ModelMessage]) -> list[ModelMessage]:
