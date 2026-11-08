@@ -34,7 +34,7 @@ import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from browser_use.auth import browser_use_api_key, cloud_error_hint
+from browser_use.auth import browser_use_api_key, cloud_error_text
 from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
@@ -185,9 +185,7 @@ def _cloud(path: str, method: str = 'GET', body: dict | None = None) -> dict:
 			detail = str(json.loads(detail)['detail'])
 		except (ValueError, TypeError, KeyError):
 			pass
-		detail = detail[:500].rstrip('.')  # the sentence ends below
-		hint = cloud_error_hint(e.code, detail)
-		raise RuntimeError(f'Browser Use Cloud {method} {path} failed: HTTP {e.code} {detail}.{hint}') from None
+		raise RuntimeError(f'Browser Use Cloud {method} {path} failed: {cloud_error_text(e.code, detail)}') from None
 
 
 def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
@@ -694,7 +692,7 @@ class Browser:
 		try:
 			self._ensure_daemon()
 		except Exception as e:
-			raise RuntimeError(f'The browser is gone: its browser-harness daemon stopped and could not reattach ({e})') from None
+			raise RuntimeError(f'The browser is gone: its browser-harness daemon stopped and could not reattach: {e}') from None
 		self._attach_agent_tab()
 
 	def remember_tab(self) -> None:
@@ -765,7 +763,7 @@ class Browser:
 				raise RuntimeError(
 					f"Browser('chrome'): Chrome did not allow remote debugging within {LOCAL_START_WAIT_S:g}s. Click "
 					'Allow on its "Allow remote debugging?" prompt (macOS: or run `browser-harness mac-approve` in another '
-					f'shell), then run again. ({e})'
+					f'shell), then run again. Detail: {e}'
 				) from None
 			return {}
 		if self.use_cloud:

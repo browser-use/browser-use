@@ -166,7 +166,7 @@ class ChatBrowserUse(_Chat):
 		if status == 401:
 			return 'Browser Use API key rejected (401): check api_key=..., or BROWSER_USE_API_KEY / `browser-use login`.'
 		if status == 402:
-			return f'Out of Browser Use credits (402): add credits at {BILLING_URL}'
+			return f'Out of Browser Use credits (402): add credits at {BILLING_URL} and run again'
 		if status == 403:
 			if code == 'insufficient_scope':
 				return f'{message or "This API key cannot use the gateway (403)."} Run `browser-use login` again for a new key.'

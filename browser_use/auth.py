@@ -1,6 +1,7 @@
 """The Browser Use API key: BROWSER_USE_API_KEY, else the key `browser-use login` stored (browser-harness's store)."""
 
 import os
+import re
 import urllib.parse
 
 from browser_use.exceptions import MissingAPIKeyError
@@ -16,7 +17,7 @@ def clean_api_key(key: str, source: str, what: str = 'Browser Use Cloud') -> str
 		raise MissingAPIKeyError(
 			what,
 			f'The key in {source} has a space, line break, control or non-ASCII character inside it (not shown); copy the key '
-			f'again from {KEYS_URL}.',
+			f'again from {KEYS_URL} and paste it without them.',
 		)
 	return key
 
@@ -38,6 +39,14 @@ def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
 	return clean_api_key(str(record['api_key']), 'the key `browser-use login` stored', what)
 
 
+def cloud_error_text(status: int, detail: str) -> str:
+	"""'HTTP 401 <detail>. <hint>' for a Browser Use Cloud error. The detail's own final period is dropped, and none is
+	added after a detail that ends with a link: a terminal would make the period part of it."""
+	detail = detail.strip()[:500].rstrip('.')
+	end = '' if re.search(r'https?://\S+$', detail) else '.'
+	return f'HTTP {status} {detail}{end}{cloud_error_hint(status, detail)}'
+
+
 def cloud_error_hint(status: int, detail: str) -> str:
 	"""The fix for a Browser Use Cloud error, as a sentence to append ('' when the key is not the problem)."""
 	if 'missing required scope' in detail:
@@ -46,7 +55,7 @@ def cloud_error_hint(status: int, detail: str) -> str:
 			f'create one at {KEYS_URL} and set BROWSER_USE_API_KEY.'
 		)
 	elif status == 401:
-		hint = f' The API key was rejected: run `browser-use login`, or create a key at {KEYS_URL}.'
+		hint = f' The API key was rejected: run `browser-use login`, or create a key at {KEYS_URL} and set BROWSER_USE_API_KEY.'
 	else:
 		return ''
 	if os.environ.get('BROWSER_USE_API_KEY'):

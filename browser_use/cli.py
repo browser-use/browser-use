@@ -214,7 +214,7 @@ def _run_install_command(argv: list[str]) -> int:
 
 	if not shutil.which('uvx'):
 		print(
-			'uvx not found. Install uv (https://docs.astral.sh/uv/), or: pip install playwright && playwright install chromium',
+			'uvx not found. Install uv from https://docs.astral.sh/uv/ or run: pip install playwright && playwright install chromium',
 			file=sys.stderr,
 		)
 		return 1
@@ -252,17 +252,19 @@ def _read_api_key_stdin() -> str:
 
 	key = auth._read_manual_api_key()  # piped stdin, or a hidden prompt on a terminal; rejects empty and short input
 	if not key.startswith('bu_'):
-		raise auth.AuthError(f'that is not a Browser Use API key (they start with bu_); create one at {KEYS_URL}')
+		raise auth.AuthError(f'that is not a Browser Use API key (they start with bu_); create one at {KEYS_URL} and paste it')
 	if not key.isascii() or any(c.isspace() or not c.isprintable() for c in key):  # stored, it would break every request
 		raise auth.AuthError(
-			f'the key has a space, line break, control or non-ASCII character inside it; copy it again from {KEYS_URL}'
+			f'the key has a space, line break, control or non-ASCII character inside it; copy it again from {KEYS_URL} and paste it whole'
 		)
 	request = urllib.request.Request(f'{auth.auth_base()}/api/v4/browsers?pageSize=1', headers={'X-Browser-Use-API-Key': key})
 	try:  # one read-only call, so a mistyped or revoked key is never stored and "Signed in" is true
 		urlopen_keyed(request, 15).close()
 	except urllib.error.HTTPError as e:
 		if e.code == 401:  # a 403 is a real key without the browser scope: it still works for the bu-* models
-			raise auth.AuthError(f'Browser Use Cloud rejected that key (HTTP 401); create one at {KEYS_URL}') from None
+			raise auth.AuthError(
+				f'Browser Use Cloud rejected that key (HTTP 401); create one at {KEYS_URL} and paste it'
+			) from None
 	except OSError:
 		pass  # offline: store it; the first cloud call reports a bad key
 	return key
@@ -567,7 +569,7 @@ You can also paste this into your agent to get started:
 
   Install browser-use with `uv tool install browser-use`, run `browser-use skill install`
   to register the skill, and connect it to my browser. If setup or connection fails,
-  follow https://github.com/browser-use/browser-harness/blob/main/install.md.
+  follow https://github.com/browser-use/browser-harness/blob/main/install.md
 
 More:
   browser-use login        sign in once for cloud browsers and the default model
@@ -604,7 +606,7 @@ Commands:
   browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login)
   browser-use --version               print the versions
 Update: uv tool upgrade browser-use (or pip install -U browser-use).
-Library: from browser_use import Agent (https://github.com/browser-use/browser-use)"""
+Library: from browser_use import Agent, see https://github.com/browser-use/browser-use"""
 
 
 def _command_name(args: list[str]) -> str:
