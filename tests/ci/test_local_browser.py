@@ -620,13 +620,15 @@ async def test_chrome_profile_copy_carries_its_logins(chrome_binary, tmp_path, m
 	owner.user_data_dir = src
 	ws = owner._launch(chrome_binary, _local.chrome_args(src, headless=True, fresh=False, profile_directory='Profile 1'))
 	cookie = {'name': 'session', 'value': 'logged-in', 'domain': 'example.test', 'path': '/', 'expires': time.time() + 3600}
-	with connect(ws, max_size=None) as conn:
-		conn.send(json.dumps({'id': 1, 'method': 'Storage.setCookies', 'params': {'cookies': [cookie]}}))
-		assert json.loads(conn.recv())['id'] == 1
-		conn.send(json.dumps({'id': 2, 'method': 'Browser.close'}))  # flushes cookies and Local State to disk
-	assert owner.proc is not None
-	owner.proc.wait(20)
-	owner.stop()
+	try:  # a failed step must not leave the stand-in Chrome running
+		with connect(ws, max_size=None) as conn:
+			conn.send(json.dumps({'id': 1, 'method': 'Storage.setCookies', 'params': {'cookies': [cookie]}}))
+			assert json.loads(conn.recv())['id'] == 1
+			conn.send(json.dumps({'id': 2, 'method': 'Browser.close'}))  # flushes cookies and Local State to disk
+		assert owner.proc is not None
+		owner.proc.wait(20)
+	finally:
+		owner.stop()
 	assert (src / 'Profile 1' / 'Cookies').exists()
 
 	monkeypatch.setattr(_local, 'chrome_user_data_dir', lambda: src)
