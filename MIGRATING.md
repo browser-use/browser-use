@@ -19,7 +19,7 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 | Key | per provider | one Browser Use key: `browser-use login` (stored in `~/.config/browser-harness/auth.json`, shared with the CLI, the MCP server and browser-harness) or `BROWSER_USE_API_KEY` (wins when set). A `.env` in the working directory is read on import, as in 0.x |
 | Python | >= 3.11 | >= 3.11 |
 | Tasks with localhost / private IPs | worked | a cloud browser cannot reach them: one warning, use `Browser('chromium')` |
-| Cloud proxy | off | `us` (`cloud_proxy_country_code=None` turns it off) |
+| Cloud proxy | the API's default, `us` | `us` (`cloud_proxy_country_code=None` turns it off) |
 | Cloud live view | | off (`live_view=True` prints and opens it) |
 
 ## Agent(...) arguments
@@ -118,7 +118,7 @@ at module level.
 | `ChatOpenAI(model, api_key, base_url, temperature, reasoning_effort)` | kept. api.openai.com uses the Responses API; the gateway URL (`https://api.browser-use.com/api/v4/llm/v1`) is served as `ChatBrowserUse` (key: `api_key`, else a `bu_` key in `OPENAI_API_KEY`, else the Browser Use key); any other `base_url` uses plain chat completions. Other 0.x arguments raise `TypeError` |
 | `ChatAnthropic(model, api_key)`, `ChatGoogle(model, api_key)` | kept, built in (no extra needed) |
 | LangChain chat models (`langchain_openai.ChatOpenAI`, `langchain_anthropic.ChatAnthropic`, ...) | not supported: `Agent(llm=...)` raises `TypeError`. Use `from browser_use import ChatOpenAI` (same `model=`), or a Pydantic AI model string like `'openai:gpt-4o'` |
-| a rejected key or unknown model on OpenAI, Anthropic or Google | with a cloud browser, the agent first reads the model from the provider (free): a 401/403/404 ends the run with `result.error` and no browser created |
+| a rejected key or unknown model on OpenAI, Anthropic or Google | before any browser starts, the agent reads the model from the provider (free): a 401/403/404 ends the run with `result.error` and no browser created |
 | `ChatAzureOpenAI(model, api_key, azure_endpoint, api_version)` | removed (the import raises): `llm='azure:<deployment>'` with `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY` and `OPENAI_API_VERSION` set. 0.x's `AZURE_OPENAI_KEY` is not read (renamed `AZURE_OPENAI_API_KEY`), and `OPENAI_API_VERSION` is now required (0.x default: `2024-12-01-preview`) |
 | `ChatAWSBedrock`, `ChatAnthropicBedrock` | removed: `llm='bedrock:<model id>'` (e.g. `'bedrock:us.anthropic.claude-...'`) after `pip install 'pydantic-ai-slim[bedrock]'`; AWS credentials and `AWS_DEFAULT_REGION` |
 | `ChatDeepSeek`, `ChatOpenRouter`, `ChatCerebras`, `ChatVercel` | removed: `llm='deepseek:deepseek-chat'`, `'openrouter:<vendor>/<model>'`, `'cerebras:<model>'`, `'vercel:<vendor>/<model>'` with `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY` set |

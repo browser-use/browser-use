@@ -158,3 +158,19 @@ def test_bh_runtime_dir_keeps_one_socket_per_bu_name(tmp_path):
 	)
 	assert r.returncode == 0, r.stderr
 	assert sorted(p.name for p in tmp_path.iterdir()) == sorted(['bu-a.pid', 'bu-a.' + ep, 'bu.pid', 'bu.' + ep])
+
+
+def test_first_run_text_gives_the_readmes_agent_prompt(monkeypatch, capsys):
+	"""bu1-docs-1107: `browser-use` in a terminal told users to paste a pre-release install (`--prerelease allow
+	'browser-use>=1.0.0rc1'`) and linked a SKILL.md on main. The prompt it prints is the README's, word for word."""
+	import re
+
+	import browser_use.cli as browser_use_cli
+
+	monkeypatch.setattr(sys.stdin, 'isatty', lambda: True)
+	assert browser_use_cli._dispatch([]) == (0, 'quickstart')
+	printed = capsys.readouterr().out
+	pasted = printed.split('paste this into your agent to get started:\n\n', 1)[1].split('\n\n', 1)[0]
+	readme = (ROOT / 'README.md').read_text(encoding='utf-8')
+	assert ' '.join(pasted.split()) in re.findall(r'```text\n(.+?)\n```', readme, re.S)
+	assert 'prerelease' not in printed and 'docs.browser-use.com' in printed

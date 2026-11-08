@@ -95,18 +95,27 @@ New Google, GitHub, or Microsoft signups get **$1 cloud credit**.
 Paste this prompt into Claude Code, Codex, Hermes, OpenClaw, or your favorite agent.
 
 ```text
-Install browser-use 1.0 with uv using Python 3.12 (`uv tool install --prerelease allow 'browser-use>=1.0.0rc1'`), run `browser-use skill install` to register the skill, and connect it to my browser. If setup or connection fails, follow https://github.com/browser-use/browser-harness/blob/main/install.md.
+Install browser-use with `uv tool install browser-use`, run `browser-use skill install` to register the skill, and connect it to my browser. If setup or connection fails, follow https://github.com/browser-use/browser-harness/blob/main/install.md.
 ```
 
 <br/>
 
 ## Path 3: Python Library
 
-> **browser-use 1.0 (pre-release, `v1` branch).** The agent writes Python against raw CDP in a persistent REPL, on [Pydantic AI](https://ai.pydantic.dev). Coming from 0.x? Read [MIGRATING.md](MIGRATING.md).
+> **browser-use 1.0.** The agent writes Python against raw CDP in a persistent REPL, on [Pydantic AI](https://ai.pydantic.dev). Coming from 0.x? Read [MIGRATING.md](MIGRATING.md).
+
+Python 3.11 or newer. With uv, or pip in a venv:
 
 ```bash
-uv add 'browser-use>=1.0.0.dev0'   # pre-release; Python >= 3.11 (plain `uv add browser-use` still gives 0.x)
-browser-use login           # opens your browser; one key runs the default model, the cloud browser, the CLI and MCP
+uv init --python 3.12 my-agent && cd my-agent
+uv add browser-use
+uv run browser-use login    # opens your browser; one key runs the default model, the cloud browser, the CLI and MCP
+```
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install browser-use
+browser-use login
 ```
 
 ```python

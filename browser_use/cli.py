@@ -509,16 +509,15 @@ Recommended: install the skill so your coding agent remembers this:
 
 You can also paste this into your agent to get started:
 
-  Install browser-use 1.0 (`uv tool install --prerelease allow 'browser-use>=1.0.0rc1'`)
-  with Python 3.12, register the skill from `browser-use skill`, and connect it to
-  my browser. Follow https://github.com/browser-use/browser-use if setup or
-  connection fails.
+  Install browser-use with `uv tool install browser-use`, run `browser-use skill install`
+  to register the skill, and connect it to my browser. If setup or connection fails,
+  follow https://github.com/browser-use/browser-harness/blob/main/install.md.
 
 More:
   browser-use login        sign in once for cloud browsers and the default model
   browser-use --doctor     check install, daemon, and browser health
   browser-use --help       full command list
-  docs: https://github.com/browser-use/browser-use/blob/main/browser_use/skills/browser-use/SKILL.md"""
+  docs: https://docs.browser-use.com/open-source/browser-use-cli"""
 
 _EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Python piped on stdin:
   browser-use <<'PY'
