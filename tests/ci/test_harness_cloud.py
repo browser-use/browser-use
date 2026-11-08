@@ -141,7 +141,7 @@ def test_old_mcp_configs_get_their_own_chromium_never_the_users_chrome(fake_clou
 		asyncio.run(mcp._browser.stop())
 
 
-def test_python_m_browser_use_mcp_is_the_mcp_server_with_its_own_chromium(monkeypatch):
+def test_python_m_browser_use_mcp_is_the_mcp_server_with_its_own_chromium(monkeypatch, capsys):
 	"""0.x `python -m browser_use.mcp` ran the --mcp server (own Chromium); 1.0's module form attached to the user's
 	logged-in Chrome (own_browser=False)."""
 	import runpy
@@ -153,6 +153,7 @@ def test_python_m_browser_use_mcp_is_the_mcp_server_with_its_own_chromium(monkey
 	with pytest.raises(SystemExit) as exited:
 		runpy.run_module('browser_use.mcp', run_name='__main__')
 	assert exited.value.code == 0 and runs == [('browser_use.mcp.cli_mcp', {'own_browser': True})]
+	assert capsys.readouterr().err.startswith('python -m browser_use.mcp is deprecated')  # rr-install 3: it named --mcp
 
 
 def test_old_mcp_config_domain_limits_carry_over_and_a_proxy_refuses_to_start(tmp_path, monkeypatch, capsys):

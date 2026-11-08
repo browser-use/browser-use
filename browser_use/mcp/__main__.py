@@ -6,4 +6,4 @@ import sys
 from browser_use.cli import _run_mcp_server
 
 if __name__ == '__main__':
-	sys.exit(_run_mcp_server())
+	sys.exit(_run_mcp_server('python -m browser_use.mcp'))

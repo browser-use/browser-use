@@ -131,14 +131,14 @@ def _mcp_browser_options() -> dict[str, Any]:
 	return options
 
 
-def _run_mcp_server() -> int:
+def _run_mcp_server(command: str = 'browser-use --mcp') -> int:
 	# The 0.x --mcp server (browser_navigate, browser_click, ...) ran the removed engine. Its clients now get the
 	# browser-harness exec server (browser_exec, browser_screenshot): a protocol change, see MIGRATING.md. It keeps the
 	# 0.x server's own Chromium and its domain restrictions: an old config must not start driving the user's logged-in
 	# Chrome, or go to sites it was kept off.
 	print(
-		'browser-use --mcp is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot, '
-		'browser_login) on its own Chromium; --cli-mcp drives your own Chrome instead.',
+		f'{command} is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot, '
+		'browser_login) on its own Chromium; browser-use --cli-mcp drives your own Chrome instead.',
 		file=sys.stderr,
 	)
 	from browser_use.domains import DomainRules
@@ -147,7 +147,7 @@ def _run_mcp_server() -> int:
 		options = _mcp_browser_options()
 		DomainRules.of(options.get('allowed_domains'), options.get('prohibited_domains'))  # a bad pattern: here, not mid-protocol
 	except (TypeError, ValueError) as e:
-		print(f'browser-use --mcp: {e}', file=sys.stderr)
+		print(f'{command}: {e}', file=sys.stderr)
 		return 2
 	_run_mcp_stdio_server('browser_use.mcp.cli_mcp', own_browser=True, **options)
 	return 0
