@@ -109,7 +109,7 @@ needs right-click → Open → Open.
 - Per-provider API keys stored in a private local file
 - Configurable search engine with automatic regional fallback (Bing 中国 → 搜狗 → 百度 → 360 → Bing 国际 → Google → DuckDuckGo)
 - Persistent login for Taobao, JD, Xiaohongshu, and Douyin
-- Light/dark themes
+- ChatGPT-style light/dark themes (neutral gray + green accent, light by default)
 - Keyboard shortcuts:
   - `⌘N` new task
   - `⌘Enter` run

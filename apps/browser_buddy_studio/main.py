@@ -115,7 +115,7 @@ def main() -> None:
 		width=1320,
 		height=880,
 		min_size=(1040, 720),
-		background_color='#0b0f17',
+		background_color='#ffffff',
 		text_select=True,
 		js_api=ClipboardApi(),
 	)

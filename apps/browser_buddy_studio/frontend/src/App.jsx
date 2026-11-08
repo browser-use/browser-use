@@ -28,6 +28,10 @@ import {
 import { EXAMPLES } from './examples'
 import { Icon } from './icons'
 
+// Bump this when the palette changes so existing installs pick up the new
+// default once, while still respecting later manual theme switches.
+const THEME_REVISION = 'chatgpt-2026-11'
+
 const DEFAULT_SETTINGS = {
   provider: 'DeepSeek',
   model: 'deepseek-v4-flash',
@@ -1465,7 +1469,7 @@ export default function App() {
   const [liveSteps, setLiveSteps] = useState([])
   const [error, setError] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [theme, setTheme] = useState('dark')
+  const [theme, setTheme] = useState('light')
   const [loginOpen, setLoginOpen] = useState(false)
   const [loginActive, setLoginActive] = useState(false)
   const [loginBusy, setLoginBusy] = useState(false)
@@ -1522,7 +1526,7 @@ export default function App() {
   useEffect(() => {
     if (!prefsLoadedRef.current) return
     const timer = setTimeout(() => {
-      savePreferences({ settings, theme }).catch(() => {})
+      savePreferences({ settings, theme, themeRevision: THEME_REVISION }).catch(() => {})
     }, 300)
     return () => clearTimeout(timer)
   }, [settings, theme])
@@ -1669,7 +1673,11 @@ export default function App() {
 
         setProviders(providerData)
         if (prefs?.settings) setSettings((prev) => ({ ...prev, ...prefs.settings }))
-        if (prefs?.theme) setTheme(prefs.theme)
+        if (prefs?.themeRevision === THEME_REVISION && prefs?.theme) {
+          setTheme(prefs.theme)
+        } else {
+          setTheme('light')
+        }
         prefsLoadedRef.current = true
 
         let nextThreads = Array.isArray(chatData) ? chatData : []
