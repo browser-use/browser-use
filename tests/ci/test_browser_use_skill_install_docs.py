@@ -315,3 +315,31 @@ def test_repo_skills_teach_no_removed_cli_commands_or_agent_args():
 		if s in path.read_text(encoding='utf-8')
 	]
 	assert found == []
+
+
+def _skill_sync_script():
+	import importlib.util
+
+	spec = importlib.util.spec_from_file_location('skill_sync_under_test', ROOT / 'scripts' / 'sync_browser_harness_skill.py')
+	assert spec and spec.loader
+	module = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(module)
+	return module
+
+
+def test_skill_gate_checks_against_the_pinned_harness_skill_with_no_network(monkeypatch):
+	"""package-8: the gate read browser-harness main from GitHub, so it broke whenever harness main moved."""
+	import socket
+
+	def no_network(*args, **kwargs):
+		raise AssertionError('the skill gate went to the network')
+
+	monkeypatch.setattr(socket, 'create_connection', no_network)
+	assert _skill_sync_script().main(['--check']) == 0
+
+
+def test_skill_gate_refuses_a_harness_that_is_not_the_pinned_version(monkeypatch, capsys):
+	script = _skill_sync_script()
+	monkeypatch.setattr(script.importlib.metadata, 'version', lambda name: '0.0.1')
+	assert script.main(['--check']) == 2
+	assert 'browser-harness 0.0.1 is installed' in capsys.readouterr().err
