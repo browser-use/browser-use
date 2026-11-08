@@ -443,3 +443,51 @@ async def test_a_step_budget_that_forced_the_delivery_is_max_steps_hit(sent, tmp
 		('completed', True, False),
 		('completed', False, True),
 	]
+
+
+async def test_a_browser_harness_cli_call_from_a_cell_sends_no_telemetry(tmp_path, monkeypatch):
+	"""The worker env dropped ANONYMIZED_TELEMETRY, so a `browser-harness` CLI call from a cell sent its piped code and
+	output (page text in a real run) as cli_event, opted out or not. Control: the same call outside the REPL sends one."""
+	import asyncio
+	import os
+	import subprocess
+	import sys
+
+	events, arrived = [], threading.Event()
+
+	class Capture(BaseHTTPRequestHandler):
+		def do_POST(self):
+			events.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
+			arrived.set()
+			self.send_response(200)
+			self.end_headers()
+
+		def log_message(self, *args):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Capture)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	monkeypatch.setenv('BH_POSTHOG_HOST', f'http://127.0.0.1:{server.server_address[1]}')
+	monkeypatch.setenv('BH_CONFIG_DIR', str(tmp_path / 'bh-config'))  # never the developer's own telemetry config
+	cli = [sys.executable, '-c', 'from browser_harness.run import main; main()']
+	repl = Repl(tmp_path / 'ws')
+	try:
+		for opted_out in (True, False):
+			if opted_out:
+				monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+			else:
+				monkeypatch.delenv('ANONYMIZED_TELEMETRY')
+			await repl.close()  # a fresh worker sees this env
+			code = f'import subprocess\nsubprocess.run({cli!r}, input="print(\'PRIVATE-CELL-CODE\')", text=True)'
+			r = await repl.call('exec', code, 60)
+			assert r['error'] is None, r['error']
+	finally:
+		await repl.close()
+		monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+	env = {**os.environ, 'BH_REQUIRE_EXISTING_DAEMON': '1'}
+	env.pop('ANONYMIZED_TELEMETRY')
+	await asyncio.to_thread(subprocess.run, cli, input="print('CONTROL')", text=True, env=env, capture_output=True)
+	await asyncio.to_thread(arrived.wait, 15)
+	await asyncio.sleep(1)  # the cells' detached senders started earlier than the control's
+	server.shutdown()
+	assert [e['properties'].get('task') for e in events] == ["print('CONTROL')"]
