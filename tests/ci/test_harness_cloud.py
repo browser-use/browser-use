@@ -141,6 +141,19 @@ def test_old_mcp_configs_get_their_own_chromium_never_the_users_chrome(fake_clou
 		asyncio.run(mcp._browser.stop())
 
 
+def test_python_m_browser_use_mcp_is_the_mcp_server_with_its_own_chromium(monkeypatch):
+	"""0.x `python -m browser_use.mcp` ran the --mcp server (own Chromium); 1.0's module form attached to the user's
+	logged-in Chrome (own_browser=False)."""
+	import runpy
+
+	from browser_use import cli
+
+	runs = []
+	monkeypatch.setattr(cli, '_run_mcp_stdio_server', lambda module, **kwargs: runs.append((module, kwargs)))
+	runpy.run_module('browser_use.mcp', run_name='__main__')
+	assert runs == [('browser_use.mcp.cli_mcp', {'own_browser': True})]
+
+
 def test_mcp_never_stops_or_drives_a_cloud_browser_another_server_started(fake_cloud, monkeypatch):
 	"""C22: two MCP servers both following the guide's start_remote_daemon("work"): B's start failed with "stop it
 	first", B's stop_remote_daemon("work") ended A's browser, and A then drove B's new one (its cookies)."""

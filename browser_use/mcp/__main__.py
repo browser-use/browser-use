@@ -1,8 +1,7 @@
-"""python -m browser_use.mcp runs the CLI MCP server."""
+"""python -m browser_use.mcp: the 0.x module form of `browser-use --mcp`, with the same own Chromium (never the user's
+Chrome) and quiet stdout."""
 
-import asyncio
-
-from browser_use.mcp.cli_mcp import main
+from browser_use.cli import _run_mcp_server
 
 if __name__ == '__main__':
-	asyncio.run(main())
+	_run_mcp_server()
