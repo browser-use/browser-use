@@ -449,6 +449,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._set_file_system(file_system_path)
 		self._set_screenshot_service()
 
+		# TODO: move this logic to the LLMs
+		# Handle users trying to use use_vision=True with DeepSeek models
+		# Runs before the action models are built, so the screenshot action is never offered
+		# to a model that cannot see, not even as an initial action.
+		if 'deepseek' in self.llm.model.lower():
+			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
+			self.settings.use_vision = False
+
+		# Handle users trying to use use_vision=True with XAI models that don't support it
+		# grok-3 variants and grok-code don't support vision; grok-2 and grok-4 do
+		model_lower = self.llm.model.lower()
+		if 'grok-3' in model_lower or 'grok-code' in model_lower:
+			self.logger.warning('⚠️ This XAI model does not support use_vision=True yet. Setting use_vision=False for now...')
+			self.settings.use_vision = False
+
 		# Action setup
 		self._setup_action_models()
 		self._set_browser_use_version_and_source(source)
@@ -467,19 +482,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
 		# Verify we can connect to the model
 		self._verify_and_setup_llm()
-
-		# TODO: move this logic to the LLMs
-		# Handle users trying to use use_vision=True with DeepSeek models
-		if 'deepseek' in self.llm.model.lower():
-			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
-			self.settings.use_vision = False
-
-		# Handle users trying to use use_vision=True with XAI models that don't support it
-		# grok-3 variants and grok-code don't support vision; grok-2 and grok-4 do
-		model_lower = self.llm.model.lower()
-		if 'grok-3' in model_lower or 'grok-code' in model_lower:
-			self.logger.warning('⚠️ This XAI model does not support use_vision=True yet. Setting use_vision=False for now...')
-			self.settings.use_vision = False
 
 		logger.debug(
 			f'{" +vision" if self.settings.use_vision else ""}'

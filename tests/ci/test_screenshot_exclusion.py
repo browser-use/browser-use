@@ -3,6 +3,7 @@
 from typing import get_args
 
 import pytest
+from pydantic import ValidationError
 
 from browser_use.agent.service import Agent
 from browser_use.browser.profile import BrowserProfile
@@ -230,3 +231,22 @@ async def test_screenshot_exclusion_survives_page_action_model_update():
 
 	assert 'screenshot' not in offered_actions(agent_true)
 	assert 'screenshot' in offered_actions(agent_auto)
+
+
+@pytest.mark.parametrize('model_name', ['deepseek-chat', 'grok-3-mini', 'grok-code-fast'])
+def test_vision_fallback_models_never_offer_screenshot(model_name):
+	"""A model the agent downgrades to use_vision=False must not be offered screenshot at construction.
+
+	The DeepSeek and grok-3 fallbacks run before the action models are built, so a
+	use_vision='auto' agent on such a model never accepts a screenshot initial action.
+	"""
+	llm = create_mock_llm()
+	llm.model = model_name
+
+	agent = Agent(task='test', llm=llm, use_vision='auto')
+
+	assert agent.settings.use_vision is False
+	assert 'screenshot' not in offered_actions(agent)
+
+	with pytest.raises(ValidationError):
+		Agent(task='test', llm=llm, use_vision='auto', initial_actions=[{'screenshot': {}}])
