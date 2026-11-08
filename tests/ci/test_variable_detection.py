@@ -224,6 +224,61 @@ def test_detect_company_from_attributes():
 	assert var_format is None
 
 
+def test_detect_company_name_from_attributes():
+	"""Test company detection for name='company_name' (issue #5635)
+
+	'company_name' must classify as 'company', not fall through to the
+	generic 'name' branch.
+	"""
+	attributes = {'name': 'company_name'}
+	result = _detect_from_attributes(attributes)
+
+	assert result is not None
+	var_name, var_format = result
+	assert var_name == 'company'
+	assert var_format is None
+
+
+def test_detect_organization_name_from_attributes():
+	"""Test company detection for name='organization_name' (issue #5635)"""
+	attributes = {'name': 'organization_name'}
+	result = _detect_from_attributes(attributes)
+
+	assert result is not None
+	var_name, var_format = result
+	assert var_name == 'company'
+	assert var_format is None
+
+
+def test_detect_company_from_placeholder_containing_name_word():
+	"""Company semantics take precedence over the generic name fallback when both keywords appear"""
+	attributes = {'placeholder': 'Enter your company name'}
+	result = _detect_from_attributes(attributes)
+
+	assert result is not None
+	var_name, var_format = result
+	assert var_name == 'company'
+	assert var_format is None
+
+
+def test_detect_generic_name_without_company_keeps_name():
+	"""Non-company name fields keep the generic 'name' classification"""
+	result = _detect_from_attributes({'name': 'username'})
+
+	assert result is not None
+	var_name, _ = result
+	assert var_name == 'name'
+
+
+def test_detect_first_name_unaffected_by_company_precedence():
+	"""Personal name fields are unaffected by company detection ordering"""
+	result = _detect_from_attributes({'name': 'first_name'})
+
+	assert result is not None
+	var_name, _ = result
+	assert var_name == 'first_name'
+
+
 def test_detect_number_from_pattern():
 	"""Test number detection from pattern (pure digits)"""
 	result = _detect_from_value_pattern('12345')
@@ -332,6 +387,22 @@ def test_detect_variables_in_history_with_input_action():
 	assert 'email' in result
 	assert result['email'].original_value == 'test@example.com'
 	assert result['email'].format == 'email'
+
+
+def test_detect_variables_in_history_with_company_name_action():
+	"""History detection binds a value entered into a company_name field to 'company' (issue #5635)"""
+	element = create_test_element(attributes={'name': 'company_name'})
+	history = create_mock_history(
+		[
+			({'input': {'index': 1, 'text': 'OpenAI'}}, element),
+		]
+	)
+
+	result = detect_variables_in_history(history)  # type: ignore[arg-type]
+
+	assert len(result) == 1
+	assert 'company' in result
+	assert result['company'].original_value == 'OpenAI'
 
 
 def test_detect_variables_skips_duplicate_values():
