@@ -316,6 +316,31 @@ async def test_restarted_browser_is_stopped_again(cloud):
 	assert stops(cloud) == ['/browsers/b1', '/browsers/b2']
 
 
+async def test_a_kept_alive_cloud_browser_that_ended_between_runs_is_replaced(cloud, monkeypatch):
+	"""Browser(keep_alive=True) in a service: once the cloud browser ended (cloud_timeout, a dashboard stop), every
+	later run raised 'The browser is gone' until the code called browser.stop(). The next start now creates a new one;
+	a reattach in the middle of a run still raises (a new browser has none of the agent's tabs)."""
+	from browser_harness import admin
+
+	def ensure_daemon(name=None, env=None, **k):
+		if (env or {}).get('BU_BROWSER_ID') == 'b1' and stopped_b1:
+			raise RuntimeError('cdp websocket closed')
+		cloud.append(('daemon', 'start', name))
+
+	stopped_b1 = False
+	monkeypatch.setattr(admin, 'ensure_daemon', ensure_daemon)
+	monkeypatch.setattr(admin, 'daemon_alive', lambda name: False)
+	browser = Browser(keep_alive=True)
+	await browser.start()
+	stopped_b1 = True  # the cloud browser ended; its daemon with it
+	with pytest.raises(RuntimeError, match='The browser is gone'):
+		await browser.reattach()
+	env = await browser.start()
+	assert browser.id == 'b2' and env['BU_NAME'] == browser.name and stops(cloud) == ['/browsers/b1']
+	await browser.stop()
+	assert stops(cloud) == ['/browsers/b1', '/browsers/b2']
+
+
 async def test_start_is_idempotent_while_running(cloud):
 	browser = Browser()
 	assert await browser.start() == await browser.start()

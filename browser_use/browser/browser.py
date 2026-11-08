@@ -601,10 +601,11 @@ class Browser:
 		"""Attach a browser-harness daemon (idempotent while started; a daemon that died is started again on the same
 		browser); returns the env the REPL worker needs."""
 		async with self._lock:
-			return await self._start_locked()
+			return await self._start_locked(replace_gone_cloud=True)
 
-	async def _start_locked(self) -> dict[str, str]:
-		"""start() under self._lock."""
+	async def _start_locked(self, replace_gone_cloud: bool = False) -> dict[str, str]:
+		"""start() under self._lock. replace_gone_cloud: a kept-alive cloud browser that ended between runs (cloud_timeout,
+		a stop from the dashboard) is replaced by a new one, as a dead local Chrome is; mid-run (reattach) it raises."""
 		await self._stopped()
 		if self._env is None or not self.name:  # Browser('chrome'): ensuring the shared daemon is idempotent
 			env = await self._start()
@@ -622,7 +623,14 @@ class Browser:
 			await self._stop()  # the Chrome this Browser launched died (crash, OOM, kill): launch a new one
 			return await self._start_locked()
 		else:
-			await asyncio.to_thread(self._reattach)
+			try:
+				await asyncio.to_thread(self._reattach)
+			except RuntimeError:
+				if not (replace_gone_cloud and self.use_cloud):
+					raise
+				logger.warning(f'The cloud browser {(self.id or "")[:8]} ended since the last run; starting a new one')
+				await self._stop()  # every later start() raised until the caller ran browser.stop()
+				return await self._start_locked()
 		if self._local is not None and self._downloads_dir:  # Chrome forgets it when the connection that set it closes
 			await asyncio.to_thread(self._send_downloads, self._downloads_dir)
 		return self._env

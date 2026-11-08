@@ -74,7 +74,7 @@ it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=..
 | `headless`, `executable_path` | kept for browsers 1.0 launches (`'chromium'`, `'chrome'` with `profile=`). `headless=None` (default) is headless only without a display |
 | `user_data_dir` | kept with `Browser('chromium', user_data_dir=...)`: a dedicated profile dir kept between runs. Chrome's own default dir raises: Chrome 136+ refuses remote debugging on it |
 | `Browser.from_system_chrome()`, `profile_directory` | `Browser('chrome')` attaches to the Chrome you have open (enable chrome://inspect/#remote-debugging once, click Allow). `Browser('chrome', profile='Work')` launches a new Chrome on a temporary copy of that profile (display name or directory such as `'Profile 1'`): your logins, Chrome sync off, nothing is written back. Your Chrome can stay open (Windows: quit it first, Chrome locks its cookies there) |
-| `keep_alive=True` | kept |
+| `keep_alive=True` | kept; a cloud browser that ended between runs (`cloud_timeout`, stopped from the dashboard) is replaced by a new one at the next run, with a warning |
 | `browser.close()`, `kill()`, `stop_session()` | `await browser.stop()`; `Agent.run()` stops it unless `keep_alive=True` |
 | `cdp_url` | kept. `headers` (0.x: sent on the `cdp_url` connect request, e.g. for AWS Bedrock AgentCore SigV4) raises until the browser daemon can send them on the WebSocket handshake: use a `cdp_url` that needs no headers |
 | `cloud_profile_id`, `cloud_proxy_country_code`, `cloud_timeout` | kept |
