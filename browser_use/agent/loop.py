@@ -463,14 +463,31 @@ class Compaction(AbstractCapability[Session]):
 	redacted evidence archive, the user messages verbatim. Only the request is projected; the transcript stays whole
 	(usage, follow-ups). A failure keeps the full history for this request and compaction is tried again on the next
 	(bu-pi agent.ts). A provider's context-window error forces one compaction and the same request again (bu-pi
-	agent.ts overflow recovery); a second one in that step ends the run. max_chars: bu-pi maxContextChars, default 4 characters per token of the context window (bu-pi),
-	240k when the window is unknown. token_threshold: bu-pi compactAtTokens, which replaces both triggers."""
+	agent.ts overflow recovery); a second one in that step ends the run. max_chars: bu-pi maxContextChars, default 4
+	characters per token of the context window (bu-pi), 240k when the window is unknown. token_threshold: bu-pi
+	compactAtTokens, which replaces both triggers. overflow_only: compact on a context-window error alone (Responses
+	models, which the server compacts; it cannot rescue a request already over the window: 400 with or without
+	context_management, live gpt-5-nano)."""
 
 	token_threshold: int | None = None
 	max_chars: int | None = None
+	overflow_only: bool = False
 
 	async def prepare_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
-		s, messages, window = ctx.deps, request_context.messages, request_context.model.context_window
+		s, messages = ctx.deps, request_context.messages
+		overflowed = s.overflowed_step == ctx.run_step  # this attempt follows a context-window error
+		if overflowed or (not self.overflow_only and self._due(s, request_context)):
+			try:
+				await _compact(s, messages, request_context)
+			except Exception as e:
+				logger.warning(
+					redact(f'Compaction failed, continuing with the full history: {type(e).__name__}: {e}', s.repl.secrets)
+				)
+		request_context.messages = _projected(s, messages)
+		return request_context
+
+	def _due(self, s: Session, request_context: ModelRequestContext) -> bool:
+		messages, window = request_context.messages, request_context.model.context_window
 		params = request_context.model_request_parameters
 		system = sum(len(p.content) for p in params.instruction_parts or [])
 		tools = len(
@@ -481,24 +498,12 @@ class Compaction(AbstractCapability[Session]):
 				]
 			)
 		)
+		tokens = _tokens(s, messages, system + tools)
+		if self.token_threshold is not None:
+			return tokens >= self.token_threshold
 		max_chars = self.max_chars or (window * 4 if window else 240_000)
 		chars = _chars(_projected(s, messages)) + system
-		tokens = _tokens(s, messages, system + tools)
-		if s.overflowed_step == ctx.run_step:  # this attempt follows a context-window error
-			due = True
-		elif self.token_threshold is not None:
-			due = tokens >= self.token_threshold
-		else:
-			due = chars > 0.75 * max_chars or bool(window and tokens > 0.65 * window)
-		if due:
-			try:
-				await _compact(s, messages, request_context)
-			except Exception as e:
-				logger.warning(
-					redact(f'Compaction failed, continuing with the full history: {type(e).__name__}: {e}', s.repl.secrets)
-				)
-		request_context.messages = _projected(s, messages)
-		return request_context
+		return chars > 0.75 * max_chars or bool(window and tokens > 0.65 * window)
 
 	async def on_model_request_error(self, ctx: RunContext[Session], *, request_context: ModelRequestContext, error: Exception):
 		s = ctx.deps
@@ -657,14 +662,16 @@ async def _compact(s: Session, messages: list[ModelMessage], request_context: Mo
 	plain = redact(_plain(([s.checkpoint] if s.checkpoint else []) + messages[s.covered : cut]), s.repl.secrets)
 	# bu-pi: 12k output tokens, 120 s, low effort; a cache write for a one-off prompt is never read
 	inherited = (request_context.model_settings or {}).items()
-	settings = {k: v for k, v in inherited if k not in ('tool_choice', 'parallel_tool_calls', 'cache')}
+	dropped = ('tool_choice', 'parallel_tool_calls', 'cache', 'openai_context_management')
+	settings = {k: v for k, v in inherited if k not in dropped}
 	settings |= {'max_tokens': 12_000, 'request_timeout': 120}
 	for key in ('thinking', 'openai_reasoning_effort'):
 		if settings.get(key) and settings[key] != 'none':
 			settings[key] = 'low'
 	prompt = f'<conversation>\n{json.dumps(plain, ensure_ascii=False)}\n</conversation>\n\n{SUMMARY_PROMPT}'
+	model = request_context.model
 	response = await model_request(
-		request_context.model,
+		StreamedRequest(model) if isinstance(model, OpenAIResponsesModel) else model,  # as StreamResponses
 		[ModelRequest(parts=[UserPromptPart(prompt)], instructions=SUMMARY_SYSTEM)],
 		model_settings=cast(Any, settings),
 	)
@@ -801,7 +808,9 @@ def build_agent(
 			del settings['openai_reasoning_effort']
 		if not reasoning:  # gpt-4.1, gpt-4o: reasoning params 400, and 32k is above their output cap
 			settings = {'openai_store': False}
-		capabilities = [BrowserLoop(), LazyCompaction(token_threshold=compact_at_tokens), StreamResponses()]
+		# Compaction: the server cannot compact a request already over the window; that 400 gets a checkpoint instead
+		overflow = Compaction(overflow_only=True)
+		capabilities = [BrowserLoop(), LazyCompaction(token_threshold=compact_at_tokens), StreamResponses(), overflow]
 		skip_responses_transform()  # bu-pi's Node SDK sends the body as is
 	elif kind == 'chat':  # DeepSeek, vLLM, Ollama: no reasoning settings, no output cap they may reject
 		# OpenAI's own reasoning models turn reasoning on by default on chat completions and then reject function tools

@@ -146,8 +146,8 @@ def sse(response: dict) -> bytes:
 
 @pytest.fixture
 def responses_server():
-	"""The gateway's POST /responses: 400 on what it rejects, else the queued `replies` (output item lists, or a dict of
-	response fields such as a failure), then a finish call; streamed when the request asks for it. The response
+	"""The gateway's POST /responses: 400 on what it rejects, else the queued `replies` (output item lists, a dict of
+	response fields such as a failure, or an (HTTP status, body) error), then a finish call; streamed when the request asks for it. The response
 	carries browser_use{resolved_model, service_tier, charge_usd} as the gateway's does. A non-streamed request gets
 	what the gateway answers one past its 300 s window: HTTP 200, status failed, request_timeout."""
 	requests, replies = [], []
@@ -159,6 +159,8 @@ def responses_server():
 			bad = gateway_violations(body) if self.path == '/v1/responses' else ['path']
 			if bad:
 				status, reply = 400, {'error': {'code': 'stateful_request', 'message': '; '.join(bad)}}
+			elif replies and isinstance(replies[0], tuple):  # (HTTP status, error body)
+				status, reply = replies.pop(0)
 			else:
 				n = len(requests)
 				queued = replies.pop(0) if replies else [reasoning(n), call('finish', {'success': True, 'result': 'ok'}, n)]
@@ -277,6 +279,36 @@ async def test_a_responses_failure_inside_http_200_is_retried_once(responses_ser
 	replies += [failed, failed]  # once per run, as every transient error
 	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), 'x')
 	assert (result.status, len(requests)) == ('error', 2) and code in (result.error or '')
+
+
+def text(content: str, n: int) -> dict:
+	return {'type': 'message', 'id': f'msg_{n}', 'role': 'assistant', 'status': 'completed',
+			'content': [{'type': 'output_text', 'text': content, 'annotations': []}]}  # fmt: skip
+
+
+async def test_a_responses_request_over_the_context_window_compacts_once_and_is_sent_again(responses_server, tmp_path):
+	"""rrt-fail t3_context gw_overflow: a gateway/Responses request over the context window ended the run (3/3): server
+	compaction runs only on requests the model accepts (an over-window input is a 400 with or without
+	context_management, live gpt-5-nano). As on chat models, the 400 now gets one checkpoint (summary by the same
+	model, evidence archive, user messages) and the same request again; a second 400 in that step ends the run."""
+	url, requests, replies = responses_server
+	over = (400, {'error': {'message': 'Your input exceeds the context window of this model.', 'type': 'invalid_request_error',
+				  'code': 'context_length_exceeded', 'param': 'input'}})  # fmt: skip
+	steps = [[reasoning(i), call('python', {'code': f"print('row{100 + i} ' * 500)"}, i)] for i in (1, 2, 3)]
+	model, _ = resolve_model(ChatBrowserUse('bu-fast', api_key='fake-test-key', base_url=url))
+	replies += [*steps, over, [text('## Goal\nSUMMARY-TEXT', 5)]]
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), 'x')
+	assert (result.status, result.output, len(requests)) == ('completed', 'ok', 6), result.error
+	summarizer, retried = json.dumps(requests[4][1]), json.dumps(requests[5][1]['input'])
+	assert '<conversation>' in summarizer and 'row101' in summarizer and requests[4][1]['stream'] is True
+	assert 'SUMMARY-TEXT' in retried and 'TASK-TEXT' in retried  # the checkpoint: summary and the user's words
+	assert 'row101' not in retried and 'row103' in retried  # older steps replaced, the last two kept
+	assert result.cost_usd == pytest.approx(5 * 0.0002)  # the summary is charged too; the 400 was not
+
+	requests.clear()
+	replies += [*steps, over, [text('## Goal\nSUMMARY-TEXT', 5)], over]
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), 'x')
+	assert (result.status, len(requests)) == ('error', 6) and 'context window' in (result.error or '')
 
 
 async def test_responses_compaction_threshold_fits_the_model_window(responses_server, tmp_path):
