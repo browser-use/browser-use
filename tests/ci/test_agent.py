@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import sys
 
 import pytest
 from conftest import script
@@ -875,3 +876,26 @@ async def test_upload_reaches_inputs_in_frames_and_shadow_roots(chrome, tmp_path
 	finally:
 		await repl.close()
 		await browser.stop()
+
+
+@pytest.mark.skipif(sys.platform == 'win32' or os.geteuid() == 0, reason='needs a directory this user cannot write')
+async def test_an_unwritable_workspace_fails_before_a_browser_starts(tmp_path, monkeypatch):
+	"""Only workspace.mkdir ran before browser.start(), and it passes on an existing read-only directory: a cloud browser
+	was created and billed for a run that could not work (local raised after Chrome launched, cloud returned error)."""
+	started = []
+
+	async def start(self):
+		started.append(self)
+		raise AssertionError('browser started')
+
+	monkeypatch.setattr(Browser, 'start', start)
+	workspace = tmp_path / 'ro'
+	workspace.mkdir()
+	workspace.chmod(0o555)
+	try:
+		agent = Agent('t', script(('finish', {'result': 'ok', 'success': True}))[0], browser=Browser(), workspace=workspace)
+		with pytest.raises(PermissionError):
+			await agent.run()
+	finally:
+		workspace.chmod(0o755)
+	assert started == []
