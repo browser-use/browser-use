@@ -600,6 +600,31 @@ async def test_repeated_bad_tool_arguments_do_not_end_the_run(tmp_path):
 	assert len(requests) == 5
 
 
+async def test_a_custom_tool_never_runs_with_a_secret_placeholder_for_a_value(tmp_path):
+	"""0.x replaced <secret>name</secret> in action arguments with the value. 1.0 passed the placeholder through: the
+	tool sent '<secret>pw</secret>' as the password and the run reported completed. Now it is refused, loudly."""
+	from browser_use import Tools
+
+	tools, got = Tools(), []
+
+	@tools.action('Log in to the internal API')
+	def api_login(password: str) -> str:
+		got.append(password)
+		return 'ok'
+
+	model, seen = script(
+		('api_login', {'password': '<secret>pw</secret>'}),
+		('api_login', {'password': 'x <secret:pw> y'}),
+		('api_login', {'password': '<secret>not-a-secret-name</secret>'}),
+		('finish', {'result': 'done', 'success': True}),
+	)
+	session = Session(repl=FakeRepl(tmp_path, {'pw': 'hunter2-value'}))
+	result = await run(build_agent(model, tools=tools.functions), 'task', session, 'function:x')
+	assert result.status == 'completed' and got == ['<secret>not-a-secret-name</secret>']
+	for request in seen[1:3]:
+		assert 'api_login was not run: custom tools do not receive secret values' in str(request[-1].parts[0].content)
+
+
 async def test_a_tool_call_written_as_text_is_not_the_answer(tmp_path):
 	"""Matrix v2, Grok bub2-020: the final answer was '<tool_call>{"name": "finish_from_repl", ...}</tool_call>' as text.
 	It ran nothing; it now gets the delivery repair turn (bu-pi's, for any text ending) and the real call delivers."""

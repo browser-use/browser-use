@@ -78,6 +78,7 @@ TOOL_CALL_MARKUP = re.compile(r'</?tool_call>')
 TRANSIENT = (ModelRateLimitError, ModelUnavailableError, ModelServerError, ModelConnectionError)
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
+SECRET_PLACEHOLDER = re.compile(r'<secret>([^<]+)</secret>|<secret:([^>]+)>')  # 0.x's form, and 1.0 redaction's
 FILE = re.compile(r'`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`
 
 
@@ -345,6 +346,13 @@ class BrowserLoop(AbstractCapability[Session]):
 		secrets = ctx.deps.repl.secrets
 		if call.tool_name == 'python' or tool_def.kind != 'function' or not secrets:
 			return await handler(args)
+		names = {name for name, _, _ in secrets}
+		placeholder = next((m for m in SECRET_PLACEHOLDER.finditer(_js(args)) if (m[1] or m[2]) in names), None)
+		if placeholder:  # 0.x replaced it with the value; a tool silently given the placeholder sent it on as the password
+			return ActionResult(
+				error=f'{call.tool_name} was not run: custom tools do not receive secret values ({placeholder[0]} is not '
+				f"replaced). Type secrets in the browser with type_secret('{placeholder[1] or placeholder[2]}')."
+			)
 		forms = secret_forms(secrets)
 		try:
 			result = await handler(args)

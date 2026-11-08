@@ -137,6 +137,7 @@ at module level.
 | an action that raises | kept: the model gets `ActionResult(error='<Type>: <message>')` and can recover; the run goes on (`ModelRetry` asks the model to call it again) |
 | injected parameters (`browser_session`, `page_extraction_llm`, `file_system`, `available_file_paths`, `has_sensitive_data`, `cdp_client`, `page_url`, ...) | removed: actions get only what the model passes; the model drives the browser itself |
 | `domains=`, `allowed_domains=` | removed: `Browser(allowed_domains=...)` limits where the whole browser navigates |
+| `<secret>name</secret>` in an action's arguments, replaced with the value | removed: the action is not run and the model gets an error; secrets are typed in the browser with `type_secret(name)` |
 | `ActionResult(is_done=..., success=..., include_in_memory=..., attachments=...)` | removed (raises, ending the run): the model ends the run with `finish(result)` (optional `success`); every result stays in the conversation; save files in the workspace |
 
 ## Removed in 1.0
