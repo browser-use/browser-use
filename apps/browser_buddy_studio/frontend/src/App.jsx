@@ -70,6 +70,27 @@ function formatTime(value) {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+async function copyToClipboard(text) {
+  if (!text) return false
+  const native = globalThis.pywebview?.api
+  if (native?.copy) {
+    try {
+      if (await native.copy(text)) return true
+    } catch {
+      // Fall through to the browser clipboard.
+    }
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // Ignore and report failure below.
+  }
+  return false
+}
+
 function dayLabel(value) {
   const date = new Date(value)
   const now = new Date()
@@ -676,7 +697,7 @@ function RunView({
   )
 }
 
-function LoginDialog({ open, active, site, error, onClose, onStart, onFinish, onCancel }) {
+function LoginDialog({ open, active, busy, site, error, onClose, onStart, onFinish, onCancel }) {
   if (!open) return null
   const label = platformLabel(site)
 
@@ -714,29 +735,35 @@ function LoginDialog({ open, active, site, error, onClose, onStart, onFinish, on
         ) : (
           <div>
             <p>选择一个平台。BrowserBuddy 会打开一个可见浏览器，用户自己完成登录，App 不保存账号密码。</p>
+            {busy && (
+              <div className="login-opening">
+                <Icon name="loader" size={14} className="spin" />
+                正在打开浏览器…
+              </div>
+            )}
             <div className="login-options">
-              <button className="login-option" onClick={() => onStart('taobao')}>
+              <button className="login-option" disabled={busy} onClick={() => onStart('taobao')}>
                 <span className="login-option-icon">
                   <Icon name="tag" size={20} />
                 </span>
                 <strong>淘宝</strong>
                 <small>扫码或账号密码登录</small>
               </button>
-              <button className="login-option" onClick={() => onStart('jd')}>
+              <button className="login-option" disabled={busy} onClick={() => onStart('jd')}>
                 <span className="login-option-icon">
                   <Icon name="tag" size={20} />
                 </span>
                 <strong>京东</strong>
                 <small>扫码或账号密码登录</small>
               </button>
-              <button className="login-option" onClick={() => onStart('xiaohongshu')}>
+              <button className="login-option" disabled={busy} onClick={() => onStart('xiaohongshu')}>
                 <span className="login-option-icon">
                   <Icon name="search" size={20} />
                 </span>
                 <strong>小红书</strong>
                 <small>扫码登录</small>
               </button>
-              <button className="login-option" onClick={() => onStart('douyin')}>
+              <button className="login-option" disabled={busy} onClick={() => onStart('douyin')}>
                 <span className="login-option-icon">
                   <Icon name="play" size={20} />
                 </span>
@@ -1012,10 +1039,16 @@ function TraceList({ steps, running }) {
   )
 }
 
-function UserMessage({ message }) {
+function UserMessage({ message, onCopy }) {
   return (
     <div className="chat-message user">
-      <div className="user-bubble">{message.text}</div>
+      <div className="user-message-stack">
+        <div className="user-bubble">{message.text}</div>
+        <button className="user-copy-button" onClick={() => onCopy(message.text)} title="复制这条输入">
+          <Icon name="copy" size={12} />
+          复制
+        </button>
+      </div>
     </div>
   )
 }
@@ -1275,7 +1308,7 @@ function ChatView({
         <div className="chat-thread">
           {(thread.messages || []).map((message, index) =>
             message.role === 'user' ? (
-              <UserMessage key={`${message.ts}-${index}`} message={message} />
+              <UserMessage key={`${message.ts}-${index}`} message={message} onCopy={onCopy} />
             ) : (
               <AssistantMessage
                 key={`${message.ts}-${index}`}
@@ -1328,13 +1361,16 @@ export default function App() {
   const [theme, setTheme] = useState('dark')
   const [loginOpen, setLoginOpen] = useState(false)
   const [loginActive, setLoginActive] = useState(false)
+  const [loginBusy, setLoginBusy] = useState(false)
   const [loginSite, setLoginSite] = useState(null)
   const [loginError, setLoginError] = useState('')
   const [humanRequest, setHumanRequest] = useState(null)
+  const [toast, setToast] = useState('')
   const liveStepsRef = useRef([])
   const pendingThreadRef = useRef(null)
   const runMetaRef = useRef(null)
   const prefsLoadedRef = useRef(false)
+  const toastTimerRef = useRef(null)
 
   const activeThread = useMemo(
     () => threads.find((thread) => thread.id === activeThreadId) || null,
@@ -1418,6 +1454,7 @@ export default function App() {
       }
       if (event.type === 'login_finished') {
         setLoginActive(false)
+        setLoginBusy(false)
         setLoginSite(null)
         return
       }
@@ -1682,8 +1719,11 @@ export default function App() {
     }
   }
 
-  function handleCopy(text) {
-    if (text) navigator.clipboard?.writeText(text)
+  async function handleCopy(text) {
+    const copied = await copyToClipboard(text)
+    setToast(copied ? '已复制' : '复制失败')
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => setToast(''), 1500)
   }
 
   function handleDownload(text, ts) {
@@ -1699,13 +1739,16 @@ export default function App() {
 
   async function handleLoginStart(site) {
     setLoginError('')
+    setLoginBusy(true)
     try {
-      await startLogin(site)
+      const result = await startLogin(site)
       setLoginActive(true)
-      setLoginSite(site)
+      setLoginSite(result.site || site)
       setLoginOpen(true)
     } catch (e) {
       setLoginError(e.message)
+    } finally {
+      setLoginBusy(false)
     }
   }
 
@@ -1713,6 +1756,7 @@ export default function App() {
     try {
       await finishLogin()
       setLoginActive(false)
+      setLoginBusy(false)
       setLoginSite(null)
       setLoginOpen(false)
     } catch (e) {
@@ -1724,6 +1768,7 @@ export default function App() {
     try {
       await cancelLogin()
       setLoginActive(false)
+      setLoginBusy(false)
       setLoginSite(null)
       setLoginOpen(false)
     } catch (e) {
@@ -1819,6 +1864,7 @@ export default function App() {
       <LoginDialog
         open={loginOpen}
         active={loginActive}
+        busy={loginBusy}
         site={loginSite}
         error={loginError}
         onClose={() => setLoginOpen(false)}
@@ -1831,6 +1877,7 @@ export default function App() {
         onContinue={handleHumanContinue}
         onCancel={handleHumanCancel}
       />
+      {toast && <div className="app-toast">{toast}</div>}
     </div>
   )
 }

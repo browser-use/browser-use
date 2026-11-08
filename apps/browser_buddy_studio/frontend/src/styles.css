@@ -1583,6 +1583,21 @@ button {
   margin-top: 16px;
 }
 
+.login-opening {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--accent-strong);
+}
+
+.login-option:disabled {
+  opacity: 0.55;
+  cursor: wait;
+  transform: none;
+}
+
 .login-option {
   display: flex;
   flex-direction: column;
@@ -1745,8 +1760,17 @@ button {
   justify-content: flex-end;
 }
 
-.user-bubble {
+.user-message-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
   max-width: min(75%, 720px);
+  min-width: 0;
+}
+
+.user-bubble {
+  max-width: 100%;
   padding: 10px 14px;
   border-radius: 16px 16px 4px 16px;
   background: linear-gradient(180deg, var(--accent-strong), var(--accent));
@@ -1756,6 +1780,30 @@ button {
   white-space: pre-wrap;
   word-break: break-word;
   box-shadow: 0 8px 20px rgba(37, 99, 235, 0.16);
+  user-select: text;
+}
+
+.user-copy-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  opacity: 0.5;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.chat-message.user:hover .user-copy-button {
+  opacity: 1;
+}
+
+.user-copy-button:hover {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
 }
 
 .chat-message.assistant {
@@ -1925,4 +1973,21 @@ button {
   color: var(--accent-strong) !important;
   border-color: color-mix(in srgb, var(--accent) 28%, var(--border)) !important;
   background: var(--accent-soft) !important;
+}
+
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: 8px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
 }

@@ -15,10 +15,63 @@ import webview  # noqa: E402
 from backend.server import app  # noqa: E402
 
 
+class ClipboardApi:
+	"""Native clipboard bridge because WKWebView exposes no navigator.clipboard here."""
+
+	def copy(self, text: str) -> bool:
+		try:
+			from AppKit import NSPasteboard
+
+			pasteboard = NSPasteboard.generalPasteboard()
+			pasteboard.clearContents()
+			return bool(pasteboard.setString_forType_(str(text), 'public.utf8-plain-text'))
+		except Exception:
+			return False
+
+	def paste(self) -> str:
+		try:
+			from AppKit import NSPasteboard
+
+			pasteboard = NSPasteboard.generalPasteboard()
+			return pasteboard.stringForType_('public.utf8-plain-text') or ''
+		except Exception:
+			return ''
+
+
 def _free_port() -> int:
 	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
 		sock.bind(('127.0.0.1', 0))
 		return int(sock.getsockname()[1])
+
+
+def _enable_native_clipboard() -> None:
+	"""Let WKWebView handle Cmd+C/V and the right-click menu natively.
+
+	PyWebView's Cocoa backend intercepts clipboard shortcuts and clears the
+	default context menu, which breaks copy/paste in text inputs on macOS.
+	"""
+	try:
+		from webview.platforms.cocoa import AppKit, BrowserView
+
+		def will_open_menu(self, menu, event):
+			return None
+
+		original_key_down = BrowserView.WebKitHost.keyDown_
+
+		def key_down(self, event):
+			try:
+				if event.modifierFlags() & AppKit.NSCommandKeyMask:
+					char = (event.characters() or '').lower()
+					if char in ('c', 'v', 'x', 'a', 'z'):
+						return super(BrowserView.WebKitHost, self).keyDown_(event)
+			except Exception:
+				pass
+			return original_key_down(self, event)
+
+		BrowserView.WebKitHost.willOpenMenu_withEvent_ = will_open_menu
+		BrowserView.WebKitHost.keyDown_ = key_down
+	except Exception:
+		return
 
 
 def main() -> None:
@@ -39,6 +92,7 @@ def main() -> None:
 			break
 		time.sleep(0.1)
 
+	_enable_native_clipboard()
 	webview.create_window(
 		'BrowserBuddy',
 		f'http://127.0.0.1:{port}',
@@ -47,6 +101,7 @@ def main() -> None:
 		min_size=(1040, 720),
 		background_color='#0b0f17',
 		text_select=True,
+		js_api=ClipboardApi(),
 	)
 	webview.start(
 		private_mode=False,

@@ -73,6 +73,8 @@ STOP_REQUESTED = False
 LOGIN_SESSION: Browser | None = None
 LOGIN_SITE: str | None = None
 LOGIN_PREPARE_TASK: asyncio.Task | None = None
+LOGIN_WATCH_TASK: asyncio.Task | None = None
+LOGIN_LOCK = asyncio.Lock()
 VIEW_SESSION: Browser | None = None
 VIEW_LOCK = asyncio.Lock()
 HUMAN_STATE: dict[str, Any] = {'active': False, 'reason': '', 'cancelled': False, 'event': None}
@@ -123,13 +125,25 @@ class OpenUrlRequest(BaseModel):
 def _cleanup_stale_browser_profile() -> None:
 	"""Kill leftover BrowserBuddy Chrome processes and remove stale profile locks."""
 	profile_marker = str(PROFILE_DIR)
+	victims: list[psutil.Process] = []
 	for proc in psutil.process_iter(['pid', 'cmdline']):
 		try:
 			cmdline = ' '.join(proc.info.get('cmdline') or [])
 			if profile_marker in cmdline and 'Google Chrome' in cmdline:
 				proc.terminate()
+				victims.append(proc)
 		except Exception:
 			continue
+
+	if victims:
+		_, alive = psutil.wait_procs(victims, timeout=5)
+		for proc in alive:
+			try:
+				proc.kill()
+			except Exception:
+				continue
+		if alive:
+			psutil.wait_procs(alive, timeout=2)
 
 	for lock_name in ('SingletonLock', 'SingletonCookie', 'SingletonSocket'):
 		try:
@@ -158,6 +172,18 @@ def _allow_manual_close(browser: Browser) -> None:
 
 	manager._recover_agent_focus = recover_without_reopening
 	manager._bb_allow_manual_close = True
+
+
+def _browser_has_pages(browser: Browser | None) -> bool:
+	if browser is None or not browser.is_cdp_connected:
+		return False
+	manager = getattr(browser, 'session_manager', None)
+	if manager is None:
+		return False
+	try:
+		return bool(manager.get_all_page_targets())
+	except Exception:
+		return False
 
 
 def _contains_chinese(text: str) -> bool:
@@ -222,25 +248,51 @@ async def _prepare_login_page(site: str, browser: Browser) -> None:
 
 
 async def _close_login_browser(cancelled: bool = False) -> None:
-	global LOGIN_SESSION, LOGIN_SITE, LOGIN_PREPARE_TASK
+	global LOGIN_SESSION, LOGIN_SITE, LOGIN_PREPARE_TASK, LOGIN_WATCH_TASK
 
 	if LOGIN_PREPARE_TASK is not None and not LOGIN_PREPARE_TASK.done():
 		LOGIN_PREPARE_TASK.cancel()
 	LOGIN_PREPARE_TASK = None
+	LOGIN_WATCH_TASK = None
 	browser = LOGIN_SESSION
 	LOGIN_SESSION = None
 	LOGIN_SITE = None
 	if browser is not None:
-		if not cancelled:
+		alive = _browser_has_pages(browser)
+		if alive and not cancelled:
 			try:
 				await browser.export_storage_state(BROWSER_STATE_FILE)
 			except Exception as e:
 				logger.warning(f'Could not export login storage state: {type(e).__name__}: {e}')
-		try:
-			await browser.kill()
-		except Exception as e:
-			logger.warning(f'Could not close login browser: {type(e).__name__}: {e}')
+		if alive:
+			try:
+				await asyncio.wait_for(browser.kill(), timeout=10)
+			except Exception as e:
+				logger.warning(f'Could not close login browser: {type(e).__name__}: {e}')
+				await asyncio.to_thread(_cleanup_stale_browser_profile)
+		else:
+			await asyncio.to_thread(_cleanup_stale_browser_profile)
 	HUB.publish({'type': 'login_finished', 'cancelled': cancelled})
+
+
+async def _watch_login_browser(browser: Browser) -> None:
+	"""Publish login_finished when the user closes the login browser manually."""
+	try:
+		while LOGIN_SESSION is browser:
+			await asyncio.sleep(1)
+			if LOGIN_SESSION is not browser:
+				return
+			if _browser_has_pages(browser):
+				continue
+			await asyncio.sleep(1)
+			if LOGIN_SESSION is browser and not _browser_has_pages(browser):
+				logger.info('Login browser was closed by the user')
+				await _close_login_browser(cancelled=True)
+				return
+	except asyncio.CancelledError:
+		raise
+	except Exception as e:
+		logger.warning(f'Login browser watcher failed: {type(e).__name__}: {e}')
 
 
 def _action_names(model_output) -> list[str]:
@@ -443,6 +495,8 @@ async def providers() -> list[dict]:
 
 @app.get('/api/state')
 async def state() -> dict:
+	if LOGIN_SESSION is not None and not _browser_has_pages(LOGIN_SESSION):
+		await _close_login_browser(cancelled=True)
 	return {
 		**STATE,
 		'login_active': LOGIN_SESSION is not None,
@@ -454,44 +508,59 @@ async def state() -> dict:
 
 @app.post('/api/login/start')
 async def login_start(request: LoginRequest) -> dict:
-	global LOGIN_PREPARE_TASK, LOGIN_SESSION, LOGIN_SITE
+	global LOGIN_PREPARE_TASK, LOGIN_SESSION, LOGIN_SITE, LOGIN_WATCH_TASK
 
 	if request.site not in LOGIN_URLS:
 		raise HTTPException(status_code=400, detail='不支持的登录站点')
 	if CURRENT_TASK is not None and not CURRENT_TASK.done():
 		raise HTTPException(status_code=409, detail='请先等待当前任务结束')
-	if LOGIN_SESSION is not None:
-		label, _ = LOGIN_URLS.get(LOGIN_SITE or '', ('登录', ''))
-		return {'ok': True, 'label': label, 'already_open': True}
 
-	await asyncio.to_thread(_cleanup_stale_browser_profile)
-	await asyncio.sleep(0.3)
-	label, url = LOGIN_URLS[request.site]
-	browser = Browser(
-		headless=False,
-		user_data_dir=str(PROFILE_DIR),
-		storage_state=str(BROWSER_STATE_FILE),
-		downloads_path=str(DOWNLOADS_DIR),
-		keep_alive=True,
-	)
-	try:
-		await browser.start()
-		_allow_manual_close(browser)
-		event = browser.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=False))
-		await event
-		await event.event_result(raise_if_any=True, raise_if_none=False)
-		LOGIN_PREPARE_TASK = asyncio.create_task(_prepare_login_page(request.site, browser))
-	except Exception as e:
+	async with LOGIN_LOCK:
+		if LOGIN_SESSION is not None:
+			if _browser_has_pages(LOGIN_SESSION) and LOGIN_SITE == request.site:
+				label, _ = LOGIN_URLS.get(LOGIN_SITE or '', ('登录', ''))
+				return {'ok': True, 'label': label, 'site': request.site, 'already_open': True}
+			# The user closed the previous login window, or chose another platform.
+			await _close_login_browser(cancelled=True)
+
+		await asyncio.to_thread(_cleanup_stale_browser_profile)
+		await asyncio.sleep(0.3)
+		label, url = LOGIN_URLS[request.site]
+		browser = Browser(
+			headless=False,
+			user_data_dir=str(PROFILE_DIR),
+			storage_state=str(BROWSER_STATE_FILE),
+			downloads_path=str(DOWNLOADS_DIR),
+			keep_alive=True,
+		)
 		try:
-			await browser.kill()
-		except Exception:
-			pass
-		raise HTTPException(status_code=500, detail=f'打开登录页失败: {type(e).__name__}: {e}') from e
+			await asyncio.wait_for(browser.start(), timeout=30)
+			_allow_manual_close(browser)
+			event = browser.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=False))
+			await event
+			await asyncio.wait_for(event.event_result(raise_if_any=True, raise_if_none=False), timeout=20)
+			LOGIN_PREPARE_TASK = asyncio.create_task(_prepare_login_page(request.site, browser))
+		except asyncio.TimeoutError as e:
+			try:
+				await asyncio.wait_for(browser.kill(), timeout=10)
+			except Exception:
+				await asyncio.to_thread(_cleanup_stale_browser_profile)
+			raise HTTPException(
+				status_code=500,
+				detail='打开登录窗口超时，请重试；如果反复失败，请确认 Mac 上已安装 Google Chrome。',
+			) from e
+		except Exception as e:
+			try:
+				await asyncio.wait_for(browser.kill(), timeout=10)
+			except Exception:
+				await asyncio.to_thread(_cleanup_stale_browser_profile)
+			raise HTTPException(status_code=500, detail=f'打开登录页失败: {type(e).__name__}: {e}') from e
 
-	LOGIN_SESSION = browser
-	LOGIN_SITE = request.site
-	HUB.publish({'type': 'login_started', 'site': request.site, 'label': label})
-	return {'ok': True, 'label': label}
+		LOGIN_SESSION = browser
+		LOGIN_SITE = request.site
+		LOGIN_WATCH_TASK = asyncio.create_task(_watch_login_browser(browser))
+		HUB.publish({'type': 'login_started', 'site': request.site, 'label': label})
+		return {'ok': True, 'label': label, 'site': request.site}
 
 
 @app.post('/api/login/finish')
