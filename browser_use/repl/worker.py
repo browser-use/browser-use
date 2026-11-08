@@ -50,7 +50,14 @@ CDP_TIMEOUT_S = 20.0  # bu-pi cdp timeout; 30s/60s waits made each stall cost mo
 SCREENSHOT_TIMEOUT_S = 60.0  # browser-harness's own screenshot timeout: cloud screenshots routinely take longer
 DIALOG_PROBE_S = 2.0  # while the daemon saw a JS dialog open: how long a page call may take before it is blamed
 # What a page frozen by an alert/confirm/prompt never answers (Page.handleJavaScriptDialog is what unfreezes it)
-FROZEN_BY_DIALOG = ('Runtime.evaluate', 'Runtime.callFunctionOn', 'Runtime.awaitPromise', 'Page.captureScreenshot')
+FROZEN_BY_DIALOG = (
+	'Runtime.evaluate',
+	'Runtime.callFunctionOn',
+	'Runtime.awaitPromise',
+	'Page.captureScreenshot',
+	'Page.navigate',
+	'Page.reload',
+)
 HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless never answers it
 # browser-harness's daemon reads each request as one JSON line with asyncio's default 64 KiB limit; a longer one broke
 # the connection (BrokenPipeError). Characters of JSON (ASCII), less a margin for the token Windows adds.
