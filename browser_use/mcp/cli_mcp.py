@@ -4,6 +4,7 @@ Run with: browser-use --cli-mcp
 
 import asyncio
 import base64
+import functools
 import os
 import subprocess
 import sys
@@ -24,6 +25,7 @@ from mcp.server import Server
 from browser_use import Browser, harness_cloud
 from browser_use.auth import harden_login_callback, set_aside_corrupt_store
 from browser_use.browser.browser import _name_daemon_files
+from browser_use.domains import DomainRules
 from browser_use.exceptions import removed
 from browser_use.harness_cloud import CloudBrowserError
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip
@@ -143,6 +145,19 @@ class _Login:
 			auth.complete_browser_auth(self.start)
 		except Exception as e:  # AuthError: denied, timed out, exchange failed
 			self.error = str(e)
+
+
+def _refusing(fn: Any, rules: DomainRules) -> Any:
+	"""fn(url, ...) raising the one-line refusal the agent's helpers give (repl/worker.py) for a URL rules block. The
+	browser blocks it anyway, but new_tab() then returned success and the next call failed naming nothing."""
+
+	@functools.wraps(fn)
+	def checked(*args: Any, **kwargs: Any) -> Any:
+		if why := rules.blocked(str(args[0] if args else kwargs.get('url', 'about:blank'))):
+			raise PermissionError(why)
+		return fn(*args, **kwargs)
+
+	return checked
 
 
 def _harness_skill_text() -> str:
@@ -296,6 +311,9 @@ class CLIMCPServer:
 			harness_cloud.install(ns)
 			ns['start_remote_daemon'] = self._start_remote
 			ns['stop_remote_daemon'] = lambda name=None: harness_cloud.stop(self._remote)
+			if self._browser is not None and self._browser.domains:  # --mcp with a 0.x config's allowed_domains
+				for name in ('new_tab', 'goto_url', 'http_get'):
+					ns[name] = _refusing(ns[name], self._browser.domains)
 			self._namespace = ns
 		return self._namespace
 

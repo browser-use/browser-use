@@ -610,3 +610,18 @@ def test_mcp_servers_keep_their_daemons_apart_with_bh_runtime_dir_set(tmp_path):
 	env.update(BH_RUNTIME_DIR=str(tmp_path), BH_UPDATE_CHECK='0', PYTHONPATH=str(ROOT))
 	r = subprocess.run([sys.executable, '-c', code], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
 	assert r.stdout.strip() == 'True True', r.stdout + r.stderr
+
+
+def test_mcp_with_allowed_domains_refuses_a_blocked_url_in_so_many_words():
+	"""rr-climcp 3: --mcp with allowed_domains kept the page on about:blank, but new_tab() returned success and the next
+	page_info() failed with 'Inspected target navigated or closed': the model was never told the domain is blocked."""
+	from browser_use.mcp import cli_mcp
+
+	mcp = cli_mcp.CLIMCPServer(own_browser=True, allowed_domains=['example.com'])
+	for code in (
+		"new_tab('https://blocked.example.org/')",
+		"goto_url('https://blocked.example.org/')",
+		"http_get('https://blocked.example.org/')",
+	):
+		out, failed = mcp._execute(code, connect=False)
+		assert failed and 'blocked: blocked.example.org is not in allowed_domains' in out, out
