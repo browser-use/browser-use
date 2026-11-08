@@ -292,3 +292,13 @@ def test_readme_links_are_absolute_so_they_work_on_pypi():
 	text = (ROOT / 'README.md').read_text(encoding='utf-8')
 	relative = re.findall(r'(?:src|srcset|href)="(?!https?:|#)[^"]*"|\]\((?!https?:|#|mailto:)[^)]*\)', text)
 	assert relative == []
+
+
+def test_mcp_registry_entry_runs_this_version():
+	"""server.json is bumped by hand: it still ran `uvx browser-use==0.13.11 --cli-mcp` three releases later."""
+	import json
+	import tomllib
+
+	version = tomllib.loads((ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
+	server = json.loads((ROOT / 'server.json').read_text(encoding='utf-8'))
+	assert [server['version'], *(p['version'] for p in server['packages'])] == [version, version]
