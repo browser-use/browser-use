@@ -232,6 +232,9 @@ if [[ -z "$MOUNT_POINT" ]]; then
 	exit 1
 fi
 
+# Use the app artwork as the mounted DMG's volume icon.
+/usr/bin/SetFile -a C "$MOUNT_POINT" 2>/dev/null || true
+
 # Cosmetic Finder layout. It is safe to skip when Finder automation is denied.
 osascript >/dev/null 2>&1 <<EOF || echo "    (Finder layout skipped; dragging to Applications still works)"
 tell application "Finder"
@@ -254,6 +257,13 @@ tell application "Finder"
 	end tell
 end tell
 EOF
+
+# Finder prunes a staged .VolumeIcon.icns during the layout pass, so install
+# the volume icon after it. On Apple Silicon the CLT shim may need Rosetta.
+cp "$APP_DIR/assets/AppIcon.icns" "$MOUNT_POINT/.VolumeIcon.icns"
+if ! arch -x86_64 /usr/bin/SetFile -a C "$MOUNT_POINT" 2>/dev/null; then
+	/usr/bin/SetFile -a C "$MOUNT_POINT" 2>/dev/null || true
+fi
 
 sync
 hdiutil detach "$MOUNT_POINT" -quiet || hdiutil detach "$MOUNT_POINT" -force >/dev/null
