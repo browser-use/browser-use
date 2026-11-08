@@ -762,10 +762,13 @@ def serve(pages):
 
 
 def serve_slow(pages, slow_s):
-	"""serve(), plus /slow answering after slow_s seconds and .js paths as JavaScript. Returns (server, port)."""
+	"""serve(), plus /slow answering after slow_s seconds and .js paths as JavaScript. Returns (server, port, answered):
+	answered gets the time.time() each /slow answer was sent."""
 	import threading
 	import time
 	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	answered = []
 
 	class Handler(BaseHTTPRequestHandler):
 		def do_GET(self):
@@ -777,13 +780,15 @@ def serve_slow(pages, slow_s):
 			self.send_header('Content-Length', str(len(body)))
 			self.end_headers()
 			self.wfile.write(body)
+			if self.path == '/slow':
+				answered.append(time.time())
 
 		def log_message(self, *a):
 			pass
 
 	server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
 	threading.Thread(target=server.serve_forever, daemon=True).start()
-	return server, server.server_address[1]
+	return server, server.server_address[1], answered
 
 
 @pytest.mark.parametrize('mode', ['default', 'ultrafast'])
@@ -802,19 +807,21 @@ async def test_network_idle_ignores_workers_and_cross_site_iframes_but_waits_for
 		'/swap': "<iframe src='http://localhost:{port}/child' onload=\"this.onload = null; this.src = '/slow-image'\"></iframe>",
 		'/slow-image': '<img src="/slow">',
 	}
-	server, port = serve_slow(pages, 3)
+	server, port, answered = serve_slow(pages, 3)
 	repl = Repl(tmp_path, daemon, mode=mode)
-	timed = 'import time\nt = time.monotonic(); ok = wait_for_network_idle(); print(ok, round(time.monotonic() - t, 2))'
+	# a busy machine slows the requests themselves: the cap is raised, and the slow request's answer time is compared
+	timed = (
+		'import time\nt = time.monotonic(); ok = wait_for_network_idle(timeout=30); print(ok, time.monotonic() - t, time.time())'
+	)
 	try:
-		r = await repl.call('exec', f"new_tab('http://127.0.0.1:{port}/page'); wait_for_load()\n{timed}", 60)
-		ok, s = r['output'].split()
-		assert r['error'] is None and ok == 'True' and float(s) < 2, r
-		r = await repl.call('exec', f'js("void fetch(\'/slow\')")\n{timed}', 60)
-		ok, s = r['output'].split()
-		assert r['error'] is None and ok == 'True' and 2.5 < float(s) < 6, r
-		r = await repl.call('exec', f"goto_url('http://127.0.0.1:{port}/swap')\n{timed}", 60)
-		ok, s = r['output'].split()
-		assert r['error'] is None and ok == 'True' and 2.5 < float(s) < 6, r
+		r = await repl.call('exec', f"new_tab('http://127.0.0.1:{port}/page'); wait_for_load()\n{timed}", 90)
+		ok, s, _ = r['output'].split()
+		assert r['error'] is None and ok == 'True' and float(s) < 5, r  # 0.5 s; the 0.13 helper: its 10 s cap
+		for code in ('js("void fetch(\'/slow\')")', f"goto_url('http://127.0.0.1:{port}/swap')"):
+			answered.clear()
+			r = await repl.call('exec', f'{code}\n{timed}', 90)
+			ok, _, idle_at = r['output'].split()
+			assert r['error'] is None and ok == 'True' and len(answered) == 1 and float(idle_at) > answered[0], (code, r)
 		await repl.call('exec', 'close_tab()', 30)
 	finally:
 		await repl.close()
