@@ -150,8 +150,38 @@ def test_python_m_browser_use_mcp_is_the_mcp_server_with_its_own_chromium(monkey
 
 	runs = []
 	monkeypatch.setattr(cli, '_run_mcp_stdio_server', lambda module, **kwargs: runs.append((module, kwargs)))
-	runpy.run_module('browser_use.mcp', run_name='__main__')
-	assert runs == [('browser_use.mcp.cli_mcp', {'own_browser': True})]
+	with pytest.raises(SystemExit) as exited:
+		runpy.run_module('browser_use.mcp', run_name='__main__')
+	assert exited.value.code == 0 and runs == [('browser_use.mcp.cli_mcp', {'own_browser': True})]
+
+
+def test_old_mcp_config_domain_limits_carry_over_and_a_proxy_refuses_to_start(tmp_path, monkeypatch, capsys):
+	"""0.x --mcp read allowed_domains from config.json (and BROWSER_USE_ALLOWED_DOMAINS); 1.0 ignored the file, so an MCP
+	client kept to one site got a browser that goes anywhere, and the variable killed the server ('Connection closed')."""
+	import json
+
+	from browser_use import cli
+	from browser_use.mcp import cli_mcp
+
+	runs = []
+	monkeypatch.setattr(cli, '_run_mcp_stdio_server', lambda module, **kwargs: runs.append(kwargs))
+	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(tmp_path))
+	profile = {'id': 'p1', 'default': True, 'allowed_domains': ['example.com'], 'headless': True}
+	(tmp_path / 'config.json').write_text(json.dumps({'browser_profile': {'p0': {'id': 'p0'}, 'p1': profile}}))
+	assert cli._run_mcp_server() == 0
+	monkeypatch.setenv('BROWSER_USE_ALLOWED_DOMAINS', 'example.org, ')
+	assert cli._run_mcp_server() == 0
+	assert runs == [
+		{'own_browser': True, 'allowed_domains': ['example.com']},
+		{'own_browser': True, 'allowed_domains': ['example.org']},
+	]
+	for kwargs in runs:
+		domains = cli_mcp.CLIMCPServer(**kwargs)._browser.domains  # pyright: ignore[reportOptionalMemberAccess]
+		assert domains.blocked('https://www.iana.org/help/example-domains')
+		assert not domains.blocked(f'https://{kwargs["allowed_domains"][0]}/')
+	(tmp_path / 'config.json').write_text(json.dumps({'browser_profile': {'p1': {**profile, 'proxy': {'server': 'http://p:8'}}}}))
+	assert cli._run_mcp_server() == 2 and len(runs) == 2
+	assert 'browser-use --mcp with a proxy' in capsys.readouterr().err
 
 
 def test_mcp_never_stops_or_drives_a_cloud_browser_another_server_started(fake_cloud, monkeypatch):

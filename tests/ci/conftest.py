@@ -21,6 +21,8 @@ os.environ['BH_TAB_MARKER'] = '0'
 os.environ['BU_NAME'] = 'browser-use-tests-no-daemon'
 # The Browser Use key store (`browser-use login`) points at a file that never exists: no test reads the developer's key.
 os.environ['BH_AUTH_PATH'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-auth' / 'auth.json')
+# The 0.x config.json `browser-use --mcp` reads: never the developer's own.
+os.environ['BROWSER_USE_CONFIG_DIR'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-config')
 
 
 def find_chrome() -> str | None:

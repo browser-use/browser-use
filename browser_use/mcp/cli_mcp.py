@@ -151,9 +151,10 @@ def _harness_skill_text() -> str:
 class CLIMCPServer:
 	"""Stateful stdio MCP server wrapping the browser-harness exec model."""
 
-	def __init__(self, own_browser: bool = False):
-		# --mcp (0.x configs): a Chromium of its own on a temp profile, as the 0.x server ran; --cli-mcp: the user's Chrome
-		self._browser = Browser('chromium') if own_browser else None
+	def __init__(self, own_browser: bool = False, **browser_options: Any):
+		# --mcp (0.x configs): a Chromium of its own on a temp profile, as the 0.x server ran, with its config's
+		# allowed_domains / prohibited_domains (cli._mcp_browser_options); --cli-mcp: the user's Chrome
+		self._browser = Browser('chromium', **browser_options) if own_browser else None
 		self.server: Server = Server(
 			'browser-use',
 			version=get_browser_use_version(),
@@ -421,9 +422,9 @@ class CLIMCPServer:
 				sys.stdout = stdout
 
 
-async def main(own_browser: bool = False):
+async def main(own_browser: bool = False, **browser_options: Any):
 	os.environ.setdefault('BH_CLIENT', 'browser-use-mcp')
-	server = CLIMCPServer(own_browser)
+	server = CLIMCPServer(own_browser, **browser_options)
 	await server.run()
 
 

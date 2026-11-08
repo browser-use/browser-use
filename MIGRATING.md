@@ -266,7 +266,9 @@ MCP tool that opens the browser to approve and stores the same key. The old `bro
 `browser_navigate`, `browser_click`) ran the removed engine: `--mcp` now prints a deprecation notice and serves the
 `--cli-mcp` tools (`browser_exec`, `browser_screenshot`). Calls to the old tool names return the removed error with the
 `browser_exec` alternative; switch those clients to `--cli-mcp`. Locally `--mcp` still runs its own Chromium on a temp
-profile, as 0.x did, while `--cli-mcp` drives your own Chrome with your logins. `browser-use init` templates were removed.
+profile, as 0.x did, while `--cli-mcp` drives your own Chrome with your logins. `--mcp` (and `python -m browser_use.mcp`)
+keeps the `allowed_domains` / `prohibited_domains` of the default `browser_profile` in the 0.x `config.json` and
+`BROWSER_USE_ALLOWED_DOMAINS`; a configured proxy (`proxy`, `BROWSER_USE_PROXY_*`) exits 2 instead of being dropped. `browser-use init` templates were removed.
 
 Cloud browsers in the CLI and MCP server: after `start_remote_daemon(name)` (anywhere in the code) the rest of that
 call, and every later MCP call, drives that cloud browser. A daemon name that ran a cloud browser never falls back to

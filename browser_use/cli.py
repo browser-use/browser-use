@@ -7,6 +7,7 @@ import time
 from contextlib import redirect_stderr, redirect_stdout
 from importlib.metadata import PackageNotFoundError, version
 from io import StringIO
+from typing import Any
 
 
 def _browser_use_version() -> str:
@@ -79,7 +80,7 @@ def _capture_via_harness(
 		pass
 
 
-def _run_mcp_stdio_server(module_name: str, **kwargs: bool) -> None:
+def _run_mcp_stdio_server(module_name: str, **kwargs: Any) -> None:
 	"""Silence all logging"""
 	import asyncio
 	import importlib
@@ -94,16 +95,62 @@ def _run_mcp_stdio_server(module_name: str, **kwargs: bool) -> None:
 	asyncio.run(main(**kwargs))
 
 
-def _run_mcp_server() -> None:
+def _mcp_browser_options() -> dict[str, Any]:
+	"""The 0.x --mcp server's browser restrictions (0.x config.py, mcp/server.py): allowed_domains and prohibited_domains
+	of config.json's default browser_profile, BROWSER_USE_ALLOWED_DOMAINS over them. Ignoring them gave an MCP client
+	restricted to one site a browser that goes anywhere. A proxy, which 1.0 cannot run locally, raises."""
+	import json
+	import os
+	from pathlib import Path
+
+	from browser_use.exceptions import removed
+
+	if os.environ.get('BROWSER_USE_CONFIG_PATH'):
+		path = Path(os.environ['BROWSER_USE_CONFIG_PATH']).expanduser()
+	elif os.environ.get('BROWSER_USE_CONFIG_DIR'):
+		path = Path(os.environ['BROWSER_USE_CONFIG_DIR']).expanduser() / 'config.json'
+	else:
+		path = Path(os.environ.get('XDG_CONFIG_HOME') or '~/.config').expanduser() / 'browseruse' / 'config.json'
+	try:
+		profiles = list((json.loads(path.read_text(encoding='utf-8')).get('browser_profile') or {}).values())
+	except (OSError, ValueError, AttributeError):  # no config, or one 0.x itself replaced with a fresh default
+		profiles = []
+	profile = next((p for p in profiles if isinstance(p, dict) and p.get('default')), profiles[0] if profiles else {})
+	profile = profile if isinstance(profile, dict) else {}
+	options = {k: profile[k] for k in ('allowed_domains', 'prohibited_domains') if profile.get(k)}
+	if domains := os.environ.pop('BROWSER_USE_ALLOWED_DOMAINS', '').strip():  # Browser() raises on the variable itself
+		options['allowed_domains'] = [d.strip() for d in domains.split(',') if d.strip()]
+	proxy_env = [
+		k
+		for k in ('BROWSER_USE_PROXY_URL', 'BROWSER_USE_NO_PROXY', 'BROWSER_USE_PROXY_USERNAME', 'BROWSER_USE_PROXY_PASSWORD')
+		if os.environ.get(k)
+	]
+	if profile.get('proxy') or proxy_env:
+		where = proxy_env[0] if proxy_env else f'the proxy of the default browser_profile in {path}'
+		raise ValueError(removed(f'browser-use --mcp with a proxy ({where})', "Browser('chromium') has no proxy yet; remove it."))
+	return options
+
+
+def _run_mcp_server() -> int:
 	# The 0.x --mcp server (browser_navigate, browser_click, ...) ran the removed engine. Its clients now get the
 	# browser-harness exec server (browser_exec, browser_screenshot): a protocol change, see MIGRATING.md. It keeps the
-	# 0.x server's own Chromium: an old config must not start driving the user's logged-in Chrome.
+	# 0.x server's own Chromium and its domain restrictions: an old config must not start driving the user's logged-in
+	# Chrome, or go to sites it was kept off.
 	print(
 		'browser-use --mcp is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot, '
 		'browser_login) on its own Chromium; --cli-mcp drives your own Chrome instead.',
 		file=sys.stderr,
 	)
-	_run_mcp_stdio_server('browser_use.mcp.cli_mcp', own_browser=True)
+	from browser_use.domains import DomainRules
+
+	try:
+		options = _mcp_browser_options()
+		DomainRules.of(options.get('allowed_domains'), options.get('prohibited_domains'))  # a bad pattern: here, not mid-protocol
+	except (TypeError, ValueError) as e:
+		print(f'browser-use --mcp: {e}', file=sys.stderr)
+		return 2
+	_run_mcp_stdio_server('browser_use.mcp.cli_mcp', own_browser=True, **options)
+	return 0
 
 
 def _run_cli_mcp_server() -> None:
@@ -586,8 +633,7 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		_run_cli_mcp_server()
 		return 0, 'cli-mcp'
 	if '--mcp' in args:
-		_run_mcp_server()
-		return 0, 'mcp'
+		return _run_mcp_server(), 'mcp'
 	if args in (['--doctor'], ['doctor']):  # browser-harness's doctor: its name, its version, FAIL for a stopped daemon
 		return _run_doctor(), 'doctor'
 	if args and args[0] == 'install':
