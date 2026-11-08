@@ -52,3 +52,22 @@ async def test_screenshots_never_show_the_brackets(chrome, tmp_path):
 	code = f'import time; new_tab({PAGE!r}); wait_for_load(); js({draw!r}); time.sleep(0.2); path = screenshot()'
 	path = await run(chrome, tmp_path / 'b', code, 'path', highlight_actions=False)
 	assert orange(tmp_path / 'b' / path) > 100
+
+
+IFRAME = (
+	"data:text/html,<body style='margin:0;background:white'><iframe style='position:absolute;left:50px;top:50px;"
+	"width:400px;height:200px;border:0' srcdoc='<input style=position:absolute;left:50px;top:50px;width:200px;height:40px>'>"
+)
+# Two overlays in two documents, the earlier one still up when the screenshot is taken.
+TWO = {
+	# a click into an input in an iframe draws there; typing draws around the iframe element in the top document
+	'iframe': f'import time; new_tab({IFRAME!r}); wait_for_load(); click_at_xy(200, 120); time.sleep(0.3); type_text("hi")',
+	# brackets on tab a; tab b opened and left again (switch_tab attaches a new session)
+	'tab': CLICK + "a = current_tab(); new_tab('data:text/html,b'); wait_for_load(); switch_tab(a)",
+}
+
+
+@pytest.mark.parametrize('case', TWO)
+async def test_screenshots_never_show_an_earlier_overlay_in_another_document(chrome, tmp_path, case):
+	path = await run(chrome, tmp_path, TWO[case] + '; time.sleep(0.3); path = screenshot()', 'path')
+	assert orange(tmp_path / path) == 0

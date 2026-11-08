@@ -2,9 +2,9 @@
 src/highlight.ts). Agent(highlight_actions=False) turns them off.
 
 Cosmetic: drawn on a background thread, so no action waits for it; aria-hidden, in a closed shadow root and
-pointer-transparent, so the accessibility tree, page text and clicks do not see it. A screenshot removes the last
-drawn one first and holds back later draws until it is captured: the model never sees a bracket. Every failure
-(detached node, navigation, CSP) is swallowed.
+pointer-transparent, so the accessibility tree, page text and clicks do not see it. One overlay at a time: a draw
+removes the previous one, also in another frame or tab. A screenshot removes it first and holds back later draws until
+it is captured: the model never sees a bracket. Every failure (detached node, navigation, CSP) is swallowed.
 """
 
 import contextlib
@@ -48,11 +48,15 @@ class Highlighter:
 	"""after(method, session_id, params): call after each successful CDP call; draws for mouseReleased, DOM.focus and
 	Input.insertText. hidden(): wrap a screenshot capture."""
 
-	def __init__(self, cdp: Callable[..., Any]):
+	def __init__(self, cdp: Callable[..., Any], session: Callable[[], str | None], dialog: Callable[[], Any]):
 		self.cdp = cdp  # raw cdp(method, session_id, **params): not counted, no dialog probe
+		# the attached tab's session: an overlay is removed through its own tab's session, also after switch_tab()
+		self.session = session
+		self.dialog = dialog  # a JS dialog is open: the page answers no Runtime call until it is handled
 		self.lock = threading.Lock()  # one draw or one capture at a time
 		self.generation = 0  # a newer action supersedes a draw still resolving its node
-		self.shown: tuple[str | None, str, str] | None = None  # (session, object group, overlay objectId) of the last draw
+		# (session, object group, overlay objectId): the one overlay that can be on a page
+		self.shown: tuple[str | None, str, str] | None = None
 
 	def after(self, method: str, session_id: str | None, params: dict) -> None:
 		if not (
@@ -70,9 +74,10 @@ class Highlighter:
 
 	def _draw(self, generation: int, method: str, session_id: str | None, params: dict) -> None:
 		group = f'browser-use-highlight-{generation}'
-		# released at the end: this draw's objects, or the overlay this draw replaced
-		done: tuple[str | None, str] | None = (session_id, group)
+		done: tuple[str | None, str] | None = None  # this draw's objects, released at the end unless its overlay is shown
 		try:
+			session_id = session_id or self.session()
+			done = (session_id, group)
 			if method == 'Input.dispatchMouseEvent':
 				hit = self._call('DOM.getNodeForLocation', session_id, x=round(params['x']), y=round(params['y']))
 				node = {'backendNodeId': hit['backendNodeId']}
@@ -96,8 +101,10 @@ class Highlighter:
 					objectGroup=group,
 				)
 				if host := r['result'].get('objectId'):  # kept until the next draw or screenshot
-					previous, self.shown = self.shown, (session_id, group, host)
-					done = previous[:2] if previous else None
+					# the draw replaced an overlay in its own document only, not one in an iframe or another tab
+					if self.shown:
+						self._remove(self.shown)
+					self.shown, done = (session_id, group, host), None
 		except Exception:  # detached nodes, navigation, CSP, an unsupported target: the action is not affected
 			pass
 		finally:
@@ -108,15 +115,17 @@ class Highlighter:
 		with contextlib.suppress(Exception):
 			self._call('Runtime.releaseObjectGroup', session_id, objectGroup=group)
 
+	def _remove(self, shown: tuple[str | None, str, str]) -> None:
+		with contextlib.suppress(Exception):
+			self._call('Runtime.callFunctionOn', shown[0], objectId=shown[2], functionDeclaration='function () { this.remove() }')
+		threading.Thread(target=self._release, args=shown[:2], daemon=True).start()  # a screenshot does not wait for it
+
 	@contextlib.contextmanager
 	def hidden(self) -> Iterator[None]:
 		"""For a screenshot: remove the overlay still on screen; draws that finish meanwhile wait until after the capture."""
 		with self.lock:
-			if shown := self.shown:
+			# under a dialog the capture fails too; the overlay is removed before the next one
+			if self.shown and not self.dialog():
+				self._remove(self.shown)
 				self.shown = None
-				with contextlib.suppress(Exception):
-					self._call(
-						'Runtime.callFunctionOn', shown[0], objectId=shown[2], functionDeclaration='function () { this.remove() }'
-					)
-				self._release(*shown[:2])
 			yield

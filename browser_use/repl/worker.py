@@ -330,7 +330,6 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
 	rules = DomainRules.from_json(os.environ.get('BU_DOMAINS'))
 	tabs_file = os.environ.get('BU_TABS_FILE')  # Browser('chrome') with domain restrictions
-	highlight = Highlighter(raw_cdp) if os.environ.get('BU_HIGHLIGHT_ACTIONS') == '1' else None
 
 	def check_url(url) -> None:
 		"""Browser(allowed_domains=...): refuse a disallowed URL before anything navigates (Browser.domains)."""
@@ -345,6 +344,13 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			return raw_send({'meta': 'pending_dialog'}).get('dialog')
 		except Exception:  # - an older daemon, or none: no shortcut
 			return None
+
+	def attached_session():
+		return raw_send({'meta': 'session'}).get('session_id')
+
+	highlight = None
+	if os.environ.get('BU_HIGHLIGHT_ACTIONS') == '1':
+		highlight = Highlighter(raw_cdp, attached_session, lambda: pending_dialog('Runtime.callFunctionOn', None))
 
 	def cdp(method, session_id=None, **params):
 		"""A JS dialog freezes the page: js() then took 20 s, click_at_xy 20 s and screenshot() 65 s, each with a timeout
