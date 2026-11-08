@@ -1,13 +1,16 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Any, ClassVar, Literal
 
 from browser_use.config import is_running_in_docker
 
 
 @dataclass
 class BaseTelemetryEvent(ABC):
+	# New fields must be reviewed before they can leave the process.
+	telemetry_fields: ClassVar[tuple[str, ...]] = ()
+
 	@property
 	@abstractmethod
 	def name(self) -> str:
@@ -15,7 +18,7 @@ class BaseTelemetryEvent(ABC):
 
 	@property
 	def properties(self) -> dict[str, Any]:
-		props = {k: v for k, v in asdict(self).items() if k != 'name'}
+		props = {key: getattr(self, key) for key in self.telemetry_fields}
 		# Add Docker context if running in Docker
 		props['is_docker'] = is_running_in_docker()
 		return props
@@ -23,6 +26,28 @@ class BaseTelemetryEvent(ABC):
 
 @dataclass
 class AgentTelemetryEvent(BaseTelemetryEvent):
+	telemetry_fields: ClassVar[tuple[str, ...]] = (
+		'model',
+		'model_provider',
+		'max_steps',
+		'max_actions_per_step',
+		'use_vision',
+		'version',
+		'source',
+		'agent_type',
+		'steps',
+		'total_input_tokens',
+		'total_output_tokens',
+		'prompt_cached_tokens',
+		'total_tokens',
+		'total_duration_seconds',
+		'success',
+		'judge_verdict',
+		'judge_reached_captcha',
+		'judge_impossible_task',
+	)
+	# Content fields remain constructor-compatible for existing integrations,
+	# but are never included in telemetry properties.
 	# start details
 	task: str
 	model: str
@@ -62,6 +87,8 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 class MCPClientTelemetryEvent(BaseTelemetryEvent):
 	"""Telemetry event for MCP client usage"""
 
+	telemetry_fields: ClassVar[tuple[str, ...]] = ('tools_discovered', 'version', 'action', 'duration_seconds')
+
 	server_name: str
 	command: str
 	tools_discovered: int
@@ -77,6 +104,8 @@ class MCPClientTelemetryEvent(BaseTelemetryEvent):
 @dataclass
 class MCPServerTelemetryEvent(BaseTelemetryEvent):
 	"""Telemetry event for MCP server usage"""
+
+	telemetry_fields: ClassVar[tuple[str, ...]] = ('version', 'action', 'duration_seconds')
 
 	version: str
 	action: str  # 'start', 'stop', 'tool_call'
