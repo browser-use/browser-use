@@ -410,10 +410,11 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			if not dialog and session_id is None and method in ('Page.navigate', 'Page.reload'):
 				return navigate(method, params)
 			return _cdp(method, session_id, **params)
-		except RuntimeError:  # with the dialog open, Chrome may also answer an error ('Unable to capture screenshot')
+		except RuntimeError as e:  # with the dialog open, Chrome may also answer an error ('Unable to capture screenshot')
 			if not dialog:
 				raise
-			raise dialog_open(dialog) from None
+			# the daemon's dialog is browser-wide: it may be in another tab, so the error itself stays
+			raise RuntimeError(f'{e}. {dialog_open(dialog)}') from None
 		except TimeoutError:
 			# a call that opened the dialog itself (a click on a button that alerts) times out first, then it is there
 			dialog = dialog or pending_dialog(method, session_id)

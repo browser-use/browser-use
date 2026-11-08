@@ -399,6 +399,31 @@ async def test_an_open_js_dialog_is_named_instead_of_timing_out(daemon, tmp_path
 		await repl.close()
 
 
+async def test_a_dialog_in_another_tab_keeps_this_tabs_cdp_errors(daemon, tmp_path):
+	"""The daemon's open dialog is browser-wide. With an alert left open in tab B, a CDP error in tab A ('Cannot find
+	context with specified id') was replaced by "A JavaScript alert is open ...: the page is frozen", hiding the error.
+	The error is kept, and the dialog still named."""
+	repl = Repl(tmp_path, daemon)
+	opened = (
+		'import time, browser_harness.helpers as h\n'
+		'deadline = time.monotonic() + 15\n'
+		'while not h._send({"meta": "pending_dialog"}).get("dialog") and time.monotonic() < deadline: time.sleep(0.05)'
+	)
+	try:
+		r = await repl.call('exec', "a = new_tab('data:text/html,<p>a'); wait_for_load()", 60)
+		assert r['error'] is None, r
+		code = "b = new_tab('data:text/html,<p>b'); wait_for_load(); js('setTimeout(() => alert(\"in b\"), 50)')"
+		assert (await repl.call('exec', code, 60))['error'] is None
+		assert (await repl.call('exec', f'{opened}\nswitch_tab(a)', 60))['error'] is None
+		r = await repl.call('exec', 'cdp("Runtime.evaluate", expression="1", contextId=987654)', 60)
+		assert 'Cannot find context with specified id' in (r['error'] or ''), r
+		assert 'A JavaScript alert is open' in r['error'], r
+		gone = 'cdp("Target.closeTarget", targetId=b); time.sleep(0.5); print(h._send({"meta": "pending_dialog"}).get("dialog"))'
+		assert (await repl.call('exec', gone, 60))['output'].strip() == 'None'  # no dialog left for the next test
+	finally:
+		await repl.close()
+
+
 async def test_a_navigation_held_by_a_beforeunload_prompt_names_it(daemon, tmp_path):
 	"""Leaving a dirty form: Page.navigate (goto_url) waits on the beforeunload prompt; every try took 20 s and ended in
 	an opaque '_IPCResponseTimeout Page.navigate timed out'. It now names the prompt within seconds, also the first
