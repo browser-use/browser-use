@@ -669,6 +669,28 @@ async def test_anthropic_text_reply_reaches_delivery_repair_and_finishes(tmp_pat
 	assert repair.get('tool_choice', {'type': 'auto'})['type'] == 'auto' and repair.get('thinking')
 
 
+async def test_claude_returns_its_thinking_text_as_bu_pi_asks_for_it(tmp_path):
+	"""Matrix v2: Haiku 5.5 compacted 0 times (bu-pi 17). Claude models with adaptive thinking default to display
+	'omitted': all 124 thinking blocks of Haiku bub2-001 came back empty, so the history lacked the reasoning text
+	bu-pi's context size counts (112k of its 582k characters there). bu-pi's pi-ai asks for 'summarized'. The effort
+	still applies, and a caller who turns thinking off keeps it off."""
+	from pydantic_ai.models.anthropic import AnthropicModel
+	from pydantic_ai.providers.anthropic import AnthropicProvider
+
+	async def first_body(name, **kwargs):
+		client, bodies = anthropic_mock([{'type': 'text', 'text': 'done'}])
+		model = AnthropicModel(name, provider=AnthropicProvider(anthropic_client=client))
+		result = await run(build_agent(model, **kwargs), 'task', Session(repl=Repl(tmp_path)), f'anthropic:{name}')
+		assert (result.status, result.output) == ('completed', 'done'), result.error
+		return bodies[0]
+
+	body = await first_body('claude-haiku-5-5', reasoning_effort='high')
+	assert body['thinking'] == {'type': 'adaptive', 'display': 'summarized'} and body['output_config']['effort'] == 'high'
+	assert (await first_body('claude-haiku-5-5', model_settings={'thinking': False}))['thinking'] == {'type': 'disabled'}
+	assert body['thinking'] == (await first_body('claude-opus-5-5'))['thinking']
+	assert (await first_body('claude-sonnet-4-5'))['thinking']['type'] == 'enabled'  # summarized is its API default
+
+
 async def test_compatible_backends_get_plain_required_on_the_delivery_turn(chat_server, tmp_path):
 	"""Fable r2-4: chat backends got OpenAI's allowed_tools tool_choice, which vLLM/DeepSeek reject and Ollama ignores."""
 	url, requests, replies = chat_server
@@ -746,7 +768,12 @@ def test_anthropic_models_use_prompt_caching():
 		return {k: v for k, v in (prepared or {}).items() if 'cache' in k}
 
 	cache = {'anthropic_cache_instructions': '5m', 'anthropic_cache_tool_definitions': '5m', 'anthropic_cache': '5m'}
-	assert build_agent('anthropic:claude-haiku-5-5').model_settings == {'thinking': 'medium', 'cache': True}
+	adaptive = {'type': 'adaptive', 'display': 'summarized'}
+	assert build_agent('anthropic:claude-haiku-5-5').model_settings == {
+		'thinking': 'medium',
+		'cache': True,
+		'anthropic_thinking': adaptive,
+	}
 	assert sent(ChatAnthropic('claude-haiku-5-5', api_key='k').pydantic_model()) == cache
 	for own in ({'anthropic_cache': False}, {'anthropic_cache_messages': True}):
 		model = AnthropicModel('claude-haiku-5-5', provider=AnthropicProvider(api_key='k'), settings=own)

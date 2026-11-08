@@ -46,6 +46,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAICompaction, OpenAIResponsesModel, OpenAIResponsesModelSettings
+from pydantic_ai.profiles.anthropic import anthropic_model_profile
 from pydantic_ai.settings import ToolOrOutput
 from pydantic_ai.usage import UsageLimits
 from pydantic_core import to_json, to_jsonable_python
@@ -765,8 +766,16 @@ def build_agent(
 			# Pydantic AI's unified cache setting caches the system prompt, the tools and the conversation so far, in the
 			# mode the client supports; any anthropic_cache* setting the caller gave takes precedence over it there, and
 			# a cache setting of the caller's own (on the model or in model_settings) is left alone.
-			if 'cache' not in {**(getattr(model, 'settings', None) or {}), **(model_settings or {})}:
+			own = {**(getattr(model, 'settings', None) or {}), **(model_settings or {})}
+			if 'cache' not in own:
 				settings['cache'] = True
+			# Claude models with adaptive thinking return no thinking text unless asked (display 'omitted'); bu-pi's pi-ai
+			# asks for 'summarized'. Without it every thinking block came back empty (124 of 124 on Haiku bub2-001), the
+			# history lacked the reasoning bu-pi's context size counts, and Haiku never compacted (matrix v2: 0, bu-pi 17).
+			profile = (anthropic_model_profile(model.split(':', 1)[1]) or {}) if isinstance(model, str) else model.profile
+			adaptive = profile.get('anthropic_supports_adaptive_thinking', False)
+			if reasoning and adaptive and 'anthropic_thinking' not in own and own.get('thinking') is not False:
+				settings = {**settings, 'anthropic_thinking': {'type': 'adaptive', 'display': 'summarized'}}
 		capabilities = [BrowserLoop(), Compaction(compact_at_tokens, max_context_chars)]
 	agent = Agent(
 		model,
