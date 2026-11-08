@@ -591,6 +591,20 @@ async def test_downloads_lists_a_cloud_browsers_finished_files(cloud, monkeypatc
 	assert 'downloads()' in prompt and 'downloadProgress' not in prompt
 
 
+def test_the_upload_advice_never_tells_the_agent_to_make_the_file(cloud):
+	"""t8_files.py, 3 of 5 cloud runs: asked to upload the workspace file upload.bin, the agent first wrote
+	open('upload.bin', 'wb').write(...) (the prompt said upload_file "takes local workspace paths"), uploaded 5-10 bytes
+	instead of the user's 25 B / 3 MB, and reported success. The base prompt also still sent it to hand-written DataTransfer
+	js, which upload_file does itself since remote uploads work."""
+	from browser_use.agent.prompt import SYSTEM_PROMPT
+
+	agent = Agent('t', script()[0], browser=Browser())
+	agent._build()
+	prompt = SYSTEM_PROMPT + '\n'.join(i.instruction for i in agent._agent._instructions if isinstance(i.instruction, str))
+	assert 'never create or overwrite it' in prompt and 'DataTransfer' not in prompt
+	assert 'takes local workspace paths' not in prompt
+
+
 def test_a_download_record_the_worker_is_still_writing_counts_once_complete(tmp_path):
 	"""downloads() reads the worker's downloads.jsonl mid-cell, while bu's background drain may be writing a line: a
 	half-written line was skipped for good, so the cloud's copy of that JSON page would be listed and delivered."""

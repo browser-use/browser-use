@@ -25,7 +25,7 @@ To type, focus an observed input with cdp('DOM.focus', backendNodeId=n), select 
 
 Use js(...) for DOM extraction. Use screenshots for visual questions, canvas and geometry. In-process frames: Page.getFrameTree, Page.createIsolatedWorld(frameId=..., worldName='agent'), then Runtime.evaluate with its executionContextId as contextId. Cross-origin iframe targets: cdp('Target.getTargets'), attach with flatten=True, and send commands with that session_id. Discover targets instead of guessing IDs.
 
-Uploads: upload_file(selector, path) or DOM.setFileInputFiles. Remote browsers may reject local paths; then set the file's bytes through the page (DataTransfer + File in js) and verify. Downloads: never call Browser.setDownloadBehavior; remote browser files live on the remote host. Native <select>: never click it (its option popup is drawn outside the page, so clicks, keys and screenshots miss it); set it in page code: s.value = option.value, then dispatch bubbling 'input' and 'change' events. If the value or the page then stays unchanged, the page rejected the choice: report that as observed. For other controls use explicit CDP or ordinary page code, and verify changes.
+Uploads: upload_file(selector, path) with the path of an existing file (the task's file, e.g. in the workspace); never create or overwrite it, and if it is missing, report that. Verify the input holds it. Downloads: never call Browser.setDownloadBehavior; remote browser files live on the remote host. Native <select>: never click it (its option popup is drawn outside the page, so clicks, keys and screenshots miss it); set it in page code: s.value = option.value, then dispatch bubbling 'input' and 'change' events. If the value or the page then stays unchanged, the page rejected the choice: report that as observed. For other controls use explicit CDP or ordinary page code, and verify changes.
 
 Workspace helpers:
 - checkpoint(filename, value, partial=True) atomically saves JSON and publishes your latest partial result to the caller. Update it after useful progress, especially QA findings and extracted records. Partial values need not satisfy the final schema. They survive timeout or worker loss. Omit partial for ordinary scratch checkpoints. Save small successful batches, not only the final output.
@@ -61,7 +61,7 @@ DOWNLOADS_PROMPT = "downloads() -> [{'name', 'size'}] lists the files it finishe
 # a Chrome the Browser launched
 LOCAL_PROMPT = f'Files the browser downloads land in downloads/ in the workspace; {DOWNLOADS_PROMPT}'
 CLOUD_PROMPT = (
-	'The browser is a remote Browser Use Cloud browser. upload_file(selector, path) takes local workspace paths. '
+	'The browser is a remote Browser Use Cloud browser; upload_file(selector, path) sends it files from this machine. '
 	'Files the browser downloads are copied to downloads/ in the workspace when the session closes; until then '
 	f'{DOWNLOADS_PROMPT} A finished download is listed about a second later.'
 )
