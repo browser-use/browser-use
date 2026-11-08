@@ -35,7 +35,11 @@ jobs:
         python: ['3.11']
         include:
           - os: ubuntu-latest
+            python: '3.12'
+          - os: ubuntu-latest
             python: '3.13'
+          - os: ubuntu-latest
+            python: '3.14'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
