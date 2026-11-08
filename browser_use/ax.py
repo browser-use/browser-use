@@ -41,9 +41,16 @@ SURROGATE = re.compile('[\ud800-\udfff]')  # lone halves of a cut emoji: Python'
 
 
 def norm(s: Any) -> str:
+	"""Text as the page shows it: runs of the whitespace HTML collapses become one space. Non-breaking spaces (U+00A0,
+	U+202F) stay: a user copying the text gets them, and exact-string answers need them."""
 	if isinstance(s, bool):  # JavaScript String(true) is 'true'
 		s = 'true' if s else 'false'
-	return re.sub(r'[\s﻿]+', ' ', '' if s is None else str(s)).strip()
+	return re.sub(r'[ \t\n\r\f﻿]+', ' ', '' if s is None else str(s)).strip(' ')
+
+
+def fold(s: str) -> str:
+	"""For matching only, never printed: every whitespace run one space, lowercased, as VISIBLE_JS folds the page text."""
+	return re.sub(r'[\s﻿]+', ' ', s).lower()
 
 
 def clip(s: str, n: int) -> str:
@@ -477,7 +484,7 @@ class AxHelpers:
 						walk(by_id.get(c), inside)
 					return
 				if role == 'StaticText':
-					t = name.lower()
+					t = fold(name)
 					if t and t not in inside and (visible is None or t in visible):
 						text.append(name)
 					return
@@ -485,7 +492,7 @@ class AxHelpers:
 					flush()
 					lines.append(f'## {name}')
 					for c in kids:
-						walk(by_id.get(c), name.lower())
+						walk(by_id.get(c), fold(name))
 					return
 				id = n.get('backendDOMNodeId')
 				# Focusable wrappers (tabindex=-1 dialogs, <main>) are only controls if they carry a name, value or editing.
@@ -554,7 +561,7 @@ class AxHelpers:
 				if popup or role in NATIVE_INPUTS:
 					return  # their children are the browser's own widget parts
 				# Only what the line showed counts as said: a card link's text past the clipped name still prints.
-				inside = f'{inside} {clip(name, 150)} {value}'.lower()
+				inside = fold(f'{inside} {clip(name, 150)} {value}')
 				for c in kids:
 					walk(by_id.get(c), inside)
 				flush()

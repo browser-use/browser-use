@@ -55,6 +55,8 @@ PAGES = {
 	'/emoji': r"""<title>Emoji</title><input aria-label="Note">
 <button onclick="document.getElementById('out').textContent = 'Tweet text \ud83d'; document.querySelector('input').value = 'x\ud83d'">Cut</button>
 <p id=out></p>""",
+	# Non-breaking spaces (U+00A0, U+202F), as eBay and Airbnb print prices and dates.
+	'/nbsp': '<title>Nbsp</title><p>US&nbsp;$12.99 for 5&#x202F;nights</p><button>Pay&nbsp;now</button>',
 	'/long': '<title>Long</title>' + ''.join(f'<button>Item number {i}</button>' for i in range(60)),
 }
 
@@ -325,6 +327,14 @@ async def test_lone_surrogate_prints_like_pi(repl, site):
 	assert 'Tweet text \ufffd' in out and 'textbox "Note" = "x\\ud83d"' in out, out
 	out, err = await cell(repl, "s = bu.state(); print('\\ud83d' in s)")
 	assert err is None and out.endswith('[/state]\nFalse\n'), out
+
+
+async def test_state_keeps_non_breaking_spaces(repl, site):
+	"""eval-ax-1107 bub2-020: bu.state() turned U+00A0 and U+202F into plain spaces, so prices the model copied from it
+	failed exact-string checks 2 of 3 times. It prints the text as the page has it (what a user copies)."""
+	out, err = await cell(repl, f"new_tab('{site}/nbsp'); bu.state()")
+	assert err is None, err
+	assert '\nUS\u00a0$12.99 for 5\u202fnights\n' in out and 'button "Pay\u00a0now"' in out, ascii(out)
 
 
 async def test_settle_waits_for_requests(repl, site):
