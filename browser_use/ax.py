@@ -42,10 +42,11 @@ SURROGATE = re.compile('[\ud800-\udfff]')  # lone halves of a cut emoji: Python'
 
 def norm(s: Any) -> str:
 	"""Text as the page shows it: runs of the whitespace HTML collapses become one space. Non-breaking spaces (U+00A0,
-	U+202F) stay: a user copying the text gets them, and exact-string answers need them."""
+	U+202F) inside the text stay: a user copying the text gets them, and exact-string answers need them. At the ends
+	they go, as all whitespace does, so a '&nbsp;' spacer is no text."""
 	if isinstance(s, bool):  # JavaScript String(true) is 'true'
 		s = 'true' if s else 'false'
-	return re.sub(r'[ \t\n\r\f﻿]+', ' ', '' if s is None else str(s)).strip(' ')
+	return re.sub(r'[ \t\n\r\f﻿]+', ' ', '' if s is None else str(s)).strip()
 
 
 def fold(s: str) -> str:

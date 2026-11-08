@@ -56,7 +56,8 @@ PAGES = {
 <button onclick="document.getElementById('out').textContent = 'Tweet text \ud83d'; document.querySelector('input').value = 'x\ud83d'">Cut</button>
 <p id=out></p>""",
 	# Non-breaking spaces (U+00A0, U+202F), as eBay and Airbnb print prices and dates.
-	'/nbsp': '<title>Nbsp</title><p>US&nbsp;$12.99 for 5&#x202F;nights</p><button>Pay&nbsp;now</button>',
+	'/nbsp': '<title>Nbsp</title><p>US&nbsp;$12.99 for 5&#x202F;nights</p><button>Pay&nbsp;now</button>'
+	'<table><tr><td>A</td><td>&nbsp;</td><td>B</td></tr></table><a href="#">&nbsp;</a>',
 	'/long': '<title>Long</title>' + ''.join(f'<button>Item number {i}</button>' for i in range(60)),
 }
 
@@ -331,10 +332,12 @@ async def test_lone_surrogate_prints_like_pi(repl, site):
 
 async def test_state_keeps_non_breaking_spaces(repl, site):
 	"""eval-ax-1107 bub2-020: bu.state() turned U+00A0 and U+202F into plain spaces, so prices the model copied from it
-	failed exact-string checks 2 of 3 times. It prints the text as the page has it (what a user copies)."""
+	failed exact-string checks 2 of 3 times. It prints the text as the page has it (what a user copies). A '&nbsp;'
+	spacer is still no text: no stray U+00A0 between cells, and a link named only by one has no name."""
 	out, err = await cell(repl, f"new_tab('{site}/nbsp'); bu.state()")
 	assert err is None, err
 	assert '\nUS\u00a0$12.99 for 5\u202fnights\n' in out and 'button "Pay\u00a0now"' in out, ascii(out)
+	assert '\nA B\n' in out and re.search(r'\] link\n', out), ascii(out)
 
 
 async def test_settle_waits_for_requests(repl, site):
