@@ -38,7 +38,7 @@ from browser_use.auth import browser_use_api_key, cloud_error_text
 from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
-from browser_use.exceptions import removed
+from browser_use.exceptions import BrowserConfigError, removed
 from browser_use.utils import urlopen_keyed
 
 logger = logging.getLogger(__name__)
@@ -281,7 +281,7 @@ def _profile_id(profile: str) -> str:
 	items = _cloud(f'/profiles?pageSize=100&query={urllib.parse.quote(profile)}').get('items', [])
 	ids = [p['id'] for p in items if p.get('name') == profile]
 	if len(ids) != 1:
-		raise ValueError(f'{len(ids)} cloud profiles are named {profile!r}; pass the profile id')
+		raise BrowserConfigError(f'{len(ids)} cloud profiles are named {profile!r}; pass the profile id')
 	return ids[0]
 
 

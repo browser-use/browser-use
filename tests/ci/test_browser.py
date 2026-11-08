@@ -1,5 +1,7 @@
 """Browser lifecycle with the Browser Use Cloud HTTP API and the harness daemon mocked. No network, no browser."""
 
+import json
+
 import pytest
 from conftest import script
 
@@ -358,6 +360,28 @@ async def test_a_cloud_browser_that_fails_to_start_returns_the_preflight_error_s
 	monkeypatch.setattr('browser_use.agent.service.provider_preflight', lambda model: 'openai rejected the API key (401)')
 	preflight = await Agent('t', llm, browser=Browser(), workspace=tmp_path).run()
 	assert _shape(result) == _shape(preflight)
+
+
+@pytest.mark.parametrize('kind', ['chrome', 'cloud'])
+async def test_a_profile_name_that_matches_none_raises_from_run(cloud, monkeypatch, tmp_path, kind):
+	"""Review: since a browser that fails to start returns status='error', Browser('chrome', profile='Gaming') and
+	Browser(cloud_profile_id='Gaming') naming no profile returned status='error' too, while MIGRATING.md says
+	configuration errors raise before any browser starts and a profile name that matches none raises with the list.
+	Nothing is launched or created first."""
+	from browser_use import ChatOpenAI
+	from browser_use.browser import local as _local
+
+	root = tmp_path / 'Chrome'
+	(root / 'Default').mkdir(parents=True)
+	(root / 'Local State').write_text(json.dumps({'profile': {'info_cache': {'Default': {'name': 'Personal'}}}}))
+	monkeypatch.setattr(_local, 'chrome_user_data_dir', lambda: root)
+	monkeypatch.setattr(_local, 'find_binary', lambda *a, **k: '/nonexistent/chrome')
+	monkeypatch.setattr('browser_use.agent.service.provider_preflight', lambda model: None)
+	browser = Browser('chrome', profile='Gaming') if kind == 'chrome' else Browser(cloud_profile_id='Gaming')
+	agent = Agent('t', ChatOpenAI('gpt-6-luna', api_key='sk-x'), browser=browser, workspace=tmp_path / 'w')
+	with pytest.raises(ValueError, match="No Chrome profiles match 'Gaming'.*'Personal'" if kind == 'chrome' else 'Gaming'):
+		await agent.run()
+	assert not [c for c in cloud if c[:2] == ('POST', '/browsers')] and not browser_mod._LIVE
 
 
 async def test_a_reattach_waiting_on_a_stop_never_creates_a_browser(cloud):

@@ -17,6 +17,8 @@ import threading
 import time
 from pathlib import Path
 
+from browser_use.exceptions import BrowserConfigError
+
 logger = logging.getLogger(__name__)
 
 START_TIMEOUT_S = 30  # Chrome start until its DevTools port is open
@@ -170,13 +172,13 @@ def resolve_profile(root: Path, name: str) -> str:
 	except (OSError, ValueError, KeyError, TypeError, AttributeError):
 		profiles = {}
 	if not profiles:
-		raise ValueError(f'No Chrome profiles found in {root}. Open Chrome once, or use Browser("chromium").')
+		raise BrowserConfigError(f'No Chrome profiles found in {root}. Open Chrome once, or use Browser("chromium").')
 	hits = [d for d, n in profiles.items() if name in (d, n)]
 	hits = hits or [d for d, n in profiles.items() if name.casefold() in (d.casefold(), n.casefold())]
 	if len(hits) == 1:
 		return hits[0]
 	listing = ', '.join(f'{n!r} ({d})' for d, n in profiles.items())
-	raise ValueError(f'{"Several" if hits else "No"} Chrome profiles match {name!r}. Your profiles: {listing}')
+	raise BrowserConfigError(f'{"Several" if hits else "No"} Chrome profiles match {name!r}. Your profiles: {listing}')
 
 
 def copy_profile(root: Path, directory: str, dest: Path) -> None:

@@ -25,7 +25,7 @@ from browser_use.agent.views import AgentHistoryList
 from browser_use.auth import browser_use_api_key
 from browser_use.browser import Browser
 from browser_use.config import load_env
-from browser_use.exceptions import MissingAPIKeyError, removed
+from browser_use.exceptions import BrowserConfigError, MissingAPIKeyError, removed
 from browser_use.llm import (
 	GATEWAY_URL,
 	ChatBrowserUse,
@@ -430,8 +430,8 @@ class Agent:
 			self.browser._downloads_dir = self.workspace / 'downloads'  # a keep_alive browser's later stop() copies there
 			try:
 				env = await self.browser.start()  # also on a follow-up: a daemon that died since is started again
-			except MissingAPIKeyError:
-				raise  # a setup error, raised before anything was created
+			except (MissingAPIKeyError, BrowserConfigError):
+				raise  # setup errors (no key, a profile name that matches none), raised before anything was created
 			except Exception as e:  # a failed create (402, 5xx, timeout), or a daemon that could not attach to a billed one
 				error_type = type(e).__name__
 				result = self._failed(str(e) or error_type, started)  # the preflight's shape; finally stops the browser
