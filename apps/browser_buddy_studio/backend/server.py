@@ -57,6 +57,11 @@ from .storage import (  # noqa: E402
 
 # None means "let browser-use find Google Chrome / Chromium on this Mac".
 BROWSER_EXECUTABLE = bundled_browser_executable()
+# Never touch the user's login Keychain. Without this, Chrome/Chromium on macOS
+# asks for the password ("Chrome Safe Storage") when it opens a profile with
+# encrypted cookies. Cookies still persist because the app explicitly restores
+# storage_state.json through CDP.
+BROWSER_ARGS = ['--use-mock-keychain']
 NO_BROWSER_MESSAGE = '未找到可用的浏览器。请先安装 Google Chrome（https://www.google.com/chrome/），然后重新打开 BrowserBuddy。'
 
 logger = logging.getLogger('browser_buddy.server')
@@ -481,6 +486,7 @@ async def _run_agent(request: RunRequest) -> None:
 		browser = Browser(
 			headless=request.headless,
 			executable_path=BROWSER_EXECUTABLE,
+			args=BROWSER_ARGS,
 			user_data_dir=str(PROFILE_DIR),
 			storage_state=str(BROWSER_STATE_FILE),
 			downloads_path=str(DOWNLOADS_DIR),
@@ -639,6 +645,7 @@ async def login_start(request: LoginRequest) -> dict:
 		browser = Browser(
 			headless=False,
 			executable_path=BROWSER_EXECUTABLE,
+			args=BROWSER_ARGS,
 			user_data_dir=str(PROFILE_DIR),
 			storage_state=str(BROWSER_STATE_FILE),
 			downloads_path=str(DOWNLOADS_DIR),
@@ -752,6 +759,7 @@ async def open_url(request: OpenUrlRequest) -> dict:
 		browser = Browser(
 			headless=False,
 			executable_path=BROWSER_EXECUTABLE,
+			args=BROWSER_ARGS,
 			user_data_dir=str(PROFILE_DIR),
 			storage_state=str(BROWSER_STATE_FILE),
 			downloads_path=str(DOWNLOADS_DIR),
