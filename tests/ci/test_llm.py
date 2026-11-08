@@ -893,3 +893,25 @@ async def test_a_models_own_settings_win_over_the_agent_defaults(tmp_path, monke
 	for m in models:
 		await run(build_agent(m), 'task', Session(repl=Repl(tmp_path)), 'x:y')
 	assert [(s.get('thinking'), s.get('max_retries')) for s in sent] == [(False, 0), (False, 0), ('medium', 2)]
+
+
+def test_openai_compatible_backends_are_priced_as_the_provider_at_their_url():
+	"""ChatOpenAI(model, base_url=...) on DeepSeek, OpenRouter or xAI reported cost_usd=None: the model reports
+	system='openai', and OpenAI has no price for 'deepseek-chat'. genai-prices knows them by their API URL."""
+	from pydantic_ai.messages import ModelResponse
+	from pydantic_ai.usage import RequestUsage
+
+	from browser_use.agent.loop import usage_and_cost
+
+	for name, url in (
+		('deepseek-chat', 'https://api.deepseek.com/v1'),
+		('anthropic/claude-sonnet-4.5', 'https://openrouter.ai/api/v1'),
+		('grok-4', 'https://api.x.ai/v1'),
+	):
+		agent = Agent('t', ChatOpenAI(name, api_key='x', base_url=url))
+		agent._build()
+		reply = ModelResponse(parts=[], usage=RequestUsage(input_tokens=100_000, output_tokens=1_000), model_name=name)
+		assert usage_and_cost([reply], agent._model_ref)[1], (name, agent._model_ref)
+	agent = Agent('t', ChatOpenAI('my-model', api_key='x', base_url='http://localhost:11434/v1'))
+	agent._build()
+	assert agent._model_ref == 'openai:my-model'  # unknown backend: unchanged, no made-up price

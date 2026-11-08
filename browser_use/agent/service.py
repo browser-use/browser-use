@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
@@ -11,9 +12,12 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
+from genai_prices import calc_price
 from pydantic import TypeAdapter
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, ToolCallPart
+from pydantic_ai.usage import RequestUsage
 
 from browser_use.agent.loop import Session, build_agent, reasoning_supported, run
 from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, LOCAL_PROMPT, NO_CAPTCHA_PROMPT, SEARCH_PROMPT
@@ -319,6 +323,11 @@ class Agent:
 		self._model = model
 		self._model_name = getattr(model, 'model_name', str(model))
 		system = getattr(model, 'system', None)  # 'anthropic', 'google-gla', ...: prices are looked up per provider
+		base_url = str(getattr(model, 'base_url', '') or '')
+		if system == 'openai' and base_url and urlparse(base_url).hostname != 'api.openai.com':
+			# ChatOpenAI(base_url=...) to DeepSeek, OpenRouter, xAI: the price is the provider's at that URL, not OpenAI's
+			with contextlib.suppress(Exception):  # a backend genai-prices does not know: no price, cost_usd None
+				system = calc_price(RequestUsage(), model_ref=self._model_name, provider_api_url=base_url).provider.id
 		self._model_ref = f'{system}:{self._model_name}' if system and ':' not in self._model_name else self._model_name
 		self._gateway = gateway_llm(model)  # any form: ChatBrowserUse, ChatOpenAI(base_url=gateway), pydantic_model()
 		if self._gateway:  # cost is only what the gateway charged (charge_usd), never a retail estimate
