@@ -3,6 +3,7 @@
 import json
 from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
@@ -204,7 +205,8 @@ def test_agent_does_not_collect_private_history_for_telemetry(make_telemetry, fa
 		source='pip',
 		state=SimpleNamespace(n_steps=2),
 	)
-	Agent._log_agent_event(agent, max_steps=10, agent_run_error=PRIVATE if failed else None)
+	# This isolated test double intentionally avoids initializing a live agent.
+	Agent._log_agent_event(cast(Agent[Any, Any], agent), max_steps=10, agent_run_error=PRIVATE if failed else None)
 	payload = sink.capture.call_args.kwargs
 	assert PRIVATE not in json.dumps(payload)
 	assert payload['properties']['success'] is not failed
@@ -232,7 +234,7 @@ def test_agent_event_has_no_private_content_before_transport():
 		source='pip',
 		state=SimpleNamespace(n_steps=1),
 	)
-	Agent._log_agent_event(agent, max_steps=10, agent_run_error=PRIVATE)
+	Agent._log_agent_event(cast(Agent[Any, Any], agent), max_steps=10, agent_run_error=PRIVATE)
 	assert len(received) == 1
 	assert PRIVATE not in json.dumps(vars(received[0]))
 	assert received[0].task == ''
