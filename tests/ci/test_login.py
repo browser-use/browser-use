@@ -105,6 +105,8 @@ def test_login_stores_the_key_in_the_shared_store_without_printing_it(store, mon
 	assert FAKE_KEY not in result.stdout + result.stderr
 	assert server.starts[0]['client_id'] == 'browser-use-terminal' and server.starts[0]['device_name'] == 'browser-use'
 	assert 'Signed in' in result.stdout and 'browser-use --cli-mcp' in result.stdout
+	# rr-install 2: `python -c` named a command uv projects lack (`uv run browser-use login`); the code is the example
+	assert 'python -c' not in result.stdout and '  from browser_use import Agent\n' in result.stdout
 	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY
 	if sys.platform != 'win32':
 		assert store.stat().st_mode & 0o077 == 0  # owner-only

@@ -143,6 +143,7 @@ def test_0x_agent_task_commands_point_to_agent():
 		assert code == 2 and command == f'legacy:{args[0].split("=")[0]}'
 		message = browser_use_cli._legacy_migration_message(command.removeprefix('legacy:'))
 		assert 'changed in 1.0' in message and 'from browser_use import Agent' in message and '3.0' not in message
+		assert 'python -c' not in message
 
 
 def test_0x_page_commands_name_the_helper_that_replaced_them(capsys):

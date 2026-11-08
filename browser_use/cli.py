@@ -234,8 +234,9 @@ def _run_install_command(argv: list[str]) -> int:
 
 LOGIN_DONE = (
 	'Signed in. One key for the library (default model and cloud browser), this CLI, the MCP server\n'
-	'(browser-use --cli-mcp) and browser-harness. Try it:\n'
-	'  python -c "from browser_use import Agent; print(Agent(\'Find the top story on Hacker News\').run_sync().final_result())"'
+	'(browser-use --cli-mcp) and browser-harness. Try it in Python:\n'
+	'  from browser_use import Agent\n'
+	"  print(Agent('Find the top story on Hacker News').run_sync().final_result())"
 )
 
 
@@ -433,8 +434,8 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 
 
 _AGENT_HINT = (
-	'# the CLI runs Python, not agent tasks; run an agent with the library:\n'
-	'  python -c "from browser_use import Agent; print(Agent(\'<task>\').run_sync().final_result())"'
+	'# the CLI runs Python, not agent tasks; run an agent with the library, in Python:\n'
+	"  from browser_use import Agent\n  print(Agent('<task>').run_sync().final_result())"
 )
 
 # Subcommands and flags from the 0.x CLI; maps to hint
