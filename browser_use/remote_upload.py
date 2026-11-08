@@ -83,10 +83,18 @@ def set_files(cdp, object_id: str, path, remote: bool) -> int:
 	files = [Path(p).read_bytes() for p in paths]
 	key = f'__buUpload{os.urandom(4).hex()}'
 	parts = [(i, n, k) for i, data in enumerate(files) for n, k in enumerate(range(0, len(data), UPLOAD_PART))]
-	put = lambda i, n, k: call(PUT, key, i, n, base64.b64encode(files[i][k : k + UPLOAD_PART]).decode())  # noqa: E731
-	with concurrent.futures.ThreadPoolExecutor(8) as pool:  # each part is one round trip to the browser
-		list(pool.map(lambda part: put(*part), parts))
-	return call(SET, key, [[Path(p).name, mimetypes.guess_type(p)[0] or 'application/octet-stream'] for p in paths])
+
+	def put(part: tuple[int, int, int]) -> None:  # part n of file i, decoded in the page
+		i, n, k = part
+		call(PUT, key, i, n, base64.b64encode(files[i][k : k + UPLOAD_PART]).decode())
+
+	try:
+		with concurrent.futures.ThreadPoolExecutor(8) as pool:  # each part is one round trip to the browser
+			list(pool.map(put, parts))
+		return call(SET, key, [[Path(p).name, mimetypes.guess_type(p)[0] or 'application/octet-stream'] for p in paths])
+	finally:  # SET deletes the parts; a failed part must not leave them in the page either
+		with contextlib.suppress(Exception):
+			call('function (key) { delete this.ownerDocument.defaultView[key] }', key)
 
 
 def uploader(cdp, remote: Callable[[], bool]):
