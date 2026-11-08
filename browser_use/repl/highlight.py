@@ -48,8 +48,9 @@ class Highlighter:
 	"""after(method, session_id, params): call after each successful CDP call; draws for mouseReleased, DOM.focus and
 	Input.insertText. hidden(): wrap a screenshot capture."""
 
-	def __init__(self, cdp: Callable[..., Any]):
+	def __init__(self, cdp: Callable[..., Any], current_session: Callable[[], str | None]):
 		self.cdp = cdp  # raw cdp(method, session_id, **params): not counted, no dialog probe
+		self.current_session = current_session
 		self.lock = threading.Lock()  # one draw or one capture at a time
 		self.generation = 0  # a newer action supersedes a draw still resolving its node
 		self.shown: tuple[str | None, str, str] | None = None  # (session, object group, overlay objectId) of the last draw
@@ -59,6 +60,12 @@ class Highlighter:
 			(method == 'Input.dispatchMouseEvent' and params.get('type') == 'mouseReleased')
 			or method in ('DOM.focus', 'Input.insertText')
 		):
+			return
+		try:  # bind before the background draw: the daemon's selected tab can change meanwhile
+			session_id = session_id or self.current_session()
+		except Exception:
+			return
+		if session_id is None:
 			return
 		with self.lock:
 			self.generation += 1
@@ -70,7 +77,7 @@ class Highlighter:
 
 	def _draw(self, generation: int, method: str, session_id: str | None, params: dict) -> None:
 		group = f'browser-use-highlight-{generation}'
-		# released at the end: this draw's objects, or the overlay this draw replaced
+		# released at the end unless this draw's overlay is kept for the next draw or screenshot
 		done: tuple[str | None, str] | None = (session_id, group)
 		try:
 			if method == 'Input.dispatchMouseEvent':
@@ -97,7 +104,9 @@ class Highlighter:
 				)
 				if host := r['result'].get('objectId'):  # kept until the next draw or screenshot
 					previous, self.shown = self.shown, (session_id, group, host)
-					done = previous[:2] if previous else None
+					if previous:
+						self._remove(previous)
+					done = None
 		except Exception:  # detached nodes, navigation, CSP, an unsupported target: the action is not affected
 			pass
 		finally:
@@ -108,15 +117,16 @@ class Highlighter:
 		with contextlib.suppress(Exception):
 			self._call('Runtime.releaseObjectGroup', session_id, objectGroup=group)
 
+	def _remove(self, shown: tuple[str | None, str, str]) -> None:
+		with contextlib.suppress(Exception):
+			self._call('Runtime.callFunctionOn', shown[0], objectId=shown[2], functionDeclaration='function () { this.remove() }')
+		self._release(*shown[:2])
+
 	@contextlib.contextmanager
 	def hidden(self) -> Iterator[None]:
 		"""For a screenshot: remove the overlay still on screen; draws that finish meanwhile wait until after the capture."""
 		with self.lock:
 			if shown := self.shown:
 				self.shown = None
-				with contextlib.suppress(Exception):
-					self._call(
-						'Runtime.callFunctionOn', shown[0], objectId=shown[2], functionDeclaration='function () { this.remove() }'
-					)
-				self._release(*shown[:2])
+				self._remove(shown)
 			yield

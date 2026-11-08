@@ -52,3 +52,31 @@ async def test_screenshots_never_show_the_brackets(chrome, tmp_path):
 	code = f'import time; new_tab({PAGE!r}); wait_for_load(); js({draw!r}); time.sleep(0.2); path = screenshot()'
 	path = await run(chrome, tmp_path / 'b', code, 'path', highlight_actions=False)
 	assert orange(tmp_path / 'b' / path) > 100
+
+
+@pytest.mark.parametrize('second_click', [False, True])
+async def test_screenshot_removes_a_highlight_from_its_original_tab(chrome, tmp_path, second_click):
+	"""Changing the daemon's selected tab must not redirect cleanup of an existing overlay."""
+	code = f"""
+import base64, time
+from pathlib import Path
+a = new_tab({PAGE!r}); wait_for_load()
+b = new_tab({PAGE!r}); wait_for_load()
+on = lambda: js("!!document.querySelector('[data-browser-use-interaction-highlight]')")
+def click_and_wait():
+    click_at_xy(200, 140)
+    deadline = time.monotonic() + 3
+    while not on() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return on()
+session_a = switch_tab(a)
+shown = click_and_wait()
+switch_tab(b)
+if {second_click!r}:
+    shown = click_and_wait() and shown
+image = cdp('Page.captureScreenshot', session_a, format='jpeg', quality=70)
+path = Path('original-tab.jpg')
+path.write_bytes(base64.b64decode(image['data']))
+"""
+	assert await run(chrome, tmp_path, code, 'str(shown)') == 'True'
+	assert orange(tmp_path / 'original-tab.jpg') == 0

@@ -330,7 +330,11 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
 	rules = DomainRules.from_json(os.environ.get('BU_DOMAINS'))
 	tabs_file = os.environ.get('BU_TABS_FILE')  # Browser('chrome') with domain restrictions
-	highlight = Highlighter(raw_cdp) if os.environ.get('BU_HIGHLIGHT_ACTIONS') == '1' else None
+	highlight = (
+		Highlighter(raw_cdp, lambda: raw_send({'meta': 'session'}).get('session_id'))
+		if os.environ.get('BU_HIGHLIGHT_ACTIONS') == '1'
+		else None
+	)
 
 	def check_url(url) -> None:
 		"""Browser(allowed_domains=...): refuse a disallowed URL before anything navigates (Browser.domains)."""
