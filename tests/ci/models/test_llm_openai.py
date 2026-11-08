@@ -64,3 +64,25 @@ async def test_openai_empty_reasoning_model_patterns_preserve_sampling_parameter
 	assert captured['temperature'] == 0.7
 	assert captured['frequency_penalty'] == 0.4
 	assert 'reasoning_effort' not in captured
+
+
+@pytest.mark.parametrize('provider', ['openai', 'deepseek', 'cerebras'])
+async def test_clients_preserve_httpx_url_and_timeout_settings(provider):
+	import httpx
+
+	from browser_use.llm.cerebras.chat import ChatCerebras
+	from browser_use.llm.deepseek.chat import ChatDeepSeek
+
+	classes = {'openai': ChatOpenAI, 'deepseek': ChatDeepSeek, 'cerebras': ChatCerebras}
+	model = classes[provider](
+		model='test-model',
+		api_key='test-key',
+		base_url=httpx.URL('https://example.com/v1'),
+		timeout=httpx.Timeout(connect=1, read=2, write=3, pool=4),
+	)
+	client = model.get_client() if provider == 'openai' else model._client()
+	try:
+		assert str(client.base_url) == 'https://example.com/v1/'
+		assert client.timeout.as_dict() == {'connect': 1, 'read': 2, 'write': 3, 'pool': 4}
+	finally:
+		await client.close()
