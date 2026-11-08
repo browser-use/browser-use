@@ -73,6 +73,7 @@ DELIVERY_REPAIR = (  # bu-pi src/agent.ts:560, verbatim except tool names
 	'the single delivery repair turn.'
 )
 DELIVERY_TOOLS = ['finish_from_repl', 'finish']
+TOOL_CALL_MARKUP = re.compile(r'</?tool_call>')
 TRANSIENT = (ModelRateLimitError, ModelUnavailableError, ModelServerError, ModelConnectionError)
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
@@ -219,11 +220,15 @@ def _outputs(output_type: Any) -> list[Any]:
 		# Plain text keeps tool_choice=auto (as in bu-pi); a forced tool call every turn made finish() the only way to
 		# stop and talk. A text reply ends the work. For a str result it is the answer (bu-pi repaired it: one extra
 		# request on ~95% of gpt-6-luna runs). A structured result gets one delivery-only repair turn, then text is accepted.
-		if output_type is not str and not ctx.deps.finalizing:
+		# A tool call written as text (Grok bub2-020 ended with '<tool_call>{"name": "finish_from_repl", ...}</tool_call>')
+		# ran nothing and is no answer: it gets the repair turn too, and is never delivered.
+		markup = TOOL_CALL_MARKUP.search(text)
+		if markup or (output_type is not str and not ctx.deps.finalizing):
 			ctx.deps.finalizing = True
 			# Quoted: a compaction item at the end of this response replaces everything before it, this text included,
 			# so the repair turn would otherwise not see the answer it is asked to deliver.
-			raise ModelRetry(f'{DELIVERY_REPAIR}\n\nYour reply, not delivered yet:\n{text}')
+			note = 'That reply wrote a tool call as text; it was not run. ' if markup else ''
+			raise ModelRetry(f'{note}{DELIVERY_REPAIR}\n\nYour reply, not delivered yet:\n{text}')
 		ctx.deps.finish_via = 'text'
 		if output_type is str:
 			check_delivery(ctx, text)

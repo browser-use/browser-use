@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from conftest import script
-from pydantic_ai.messages import ModelResponse, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from test_compaction import FakeRepl
 
@@ -570,3 +570,20 @@ async def test_unknown_tool_names_are_retried_without_ending_the_run(tmp_path):
 	result = await run(build_agent(model), 'task', Session(repl=FakeRepl(tmp_path)), 'function:x')
 	assert result.status == 'completed' and result.output == 'ok', result.error
 	assert "Unknown tool name: 'code'" in str(seen[3][-1].parts[0].content)
+
+
+async def test_a_tool_call_written_as_text_is_not_the_answer(tmp_path):
+	"""Matrix v2, Grok bub2-020: the final answer was '<tool_call>{"name": "finish_from_repl", ...}</tool_call>' as text.
+	It ran nothing; it now gets the delivery repair turn (bu-pi's, for any text ending) and the real call delivers."""
+	markup = '<tool_call>{"name": "finish_from_repl", "arguments": {"expression": "result", "success": true}}</tool_call>'
+	requests = []
+
+	def fn(messages, info: AgentInfo):
+		requests.append(messages)
+		if len(requests) == 1:
+			return ModelResponse(parts=[TextPart(markup)])
+		return ModelResponse(parts=[ToolCallPart('finish', {'result': 'the answer', 'success': True})])
+
+	result = await run(build_agent(FunctionModel(fn)), 'task', Session(repl=FakeRepl(tmp_path)), 'function:x')
+	assert result.status == 'completed' and result.output == 'the answer' and len(requests) == 2, result.error
+	assert 'wrote a tool call as text' in str(requests[1][-1].parts)
