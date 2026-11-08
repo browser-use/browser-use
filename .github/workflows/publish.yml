@@ -106,14 +106,20 @@ jobs:
             echo "::error::Release tag $TAG does not match pyproject.toml version $version"
             exit 1
           fi
-      - run: uv sync
+      - run: uv sync --dev --all-extras
 
       - run: uv run --no-sync ruff check --no-fix --select PLE # quick check for syntax errors to avoid waiting time doing the rest of the build
+      # The dispatched SHA is what reaches PyPI: its tests must pass here (test.yaml's matrix runs the chrome ones)
+      - run: uv run --no-sync pytest tests/ci -m "not chrome" -q
       - run: uv build
+      - name: Smoke test the wheel in a fresh venv
+        run: |
+          set -euo pipefail
+          uv venv --python 3.11 /tmp/wheel-smoke
+          uv pip install --python /tmp/wheel-smoke/bin/python dist/*.whl
+          /tmp/wheel-smoke/bin/browser-use --version
+          /tmp/wheel-smoke/bin/python -c "from browser_use import Agent, Browser, ChatBrowserUse, Tools"
 
-      # TODO: just depend on the other test.yml action for this instead of re-running the tests here
-      # - run: uv run pytest tests/ci/test_tools.py   # final sanity check: run a few of the tests before release
-      
       # publish to PyPI
       - run: uv publish --trusted-publishing always
       - name: Push to stable branch (if stable release)
