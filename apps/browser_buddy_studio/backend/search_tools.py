@@ -25,7 +25,7 @@ def _engine_order(selected: str) -> list[str]:
 	return [selected] + [engine for engine in AUTO_ORDER if engine != selected]
 
 
-def build_tools(search_engine: str = 'auto') -> Tools:
+def build_tools(search_engine: str = 'auto', login_wall_guard=None) -> Tools:
 	if search_engine not in ('auto', *SEARCH_ENGINES):
 		search_engine = 'auto'
 	tools = Tools(exclude_actions=['search'])
@@ -37,6 +37,18 @@ def build_tools(search_engine: str = 'auto') -> Tools:
 		terminates_sequence=True,
 	)
 	async def web_search(query: str, browser_session: BrowserSession) -> ActionResult:
+		if login_wall_guard is not None:
+			try:
+				blocked, _, _ = await login_wall_guard(browser_session)
+			except Exception:
+				blocked = False
+			if blocked:
+				return ActionResult(
+					error=(
+						'当前页面仍然被登录墙阻挡。请调用 request_human_help 等待用户完成登录，不要切换搜索引擎或网站来绕过登录。'
+					)
+				)
+
 		encoded = quote_plus(query)
 		failures: list[str] = []
 

@@ -814,16 +814,20 @@ function LoginDialog({ open, active, busy, site, error, platforms, onClose, onSt
   )
 }
 
-function HumanDialog({ request, onContinue, onCancel }) {
+function HumanDialog({ request, error, onContinue, onCancel }) {
   if (!request) return null
+  const isLogin = Boolean(request.require_login)
+  const label = request.label || platformLabel(request.site)
 
   return (
     <div className="modal-overlay">
       <div className="modal-card human-modal">
         <div className="modal-head">
           <div>
-            <div className="modal-title">需要你操作一下</div>
-            <div className="modal-sub">任务已暂停，等你完成浏览器里的操作</div>
+            <div className="modal-title">{isLogin ? `登录${label}` : '需要你操作一下'}</div>
+            <div className="modal-sub">
+              {isLogin ? '任务已暂停，登录成功后会自动继续' : '任务已暂停，等你完成浏览器里的操作'}
+            </div>
           </div>
           <span className="live-pill">PAUSED</span>
         </div>
@@ -831,14 +835,27 @@ function HumanDialog({ request, onContinue, onCancel }) {
           <Icon name="alert" size={18} />
           <div>{request.reason || '网站要求登录或人工验证'}</div>
         </div>
-        <p>
-          请在弹出的浏览器窗口中完成扫码、登录或验证码。完成后点击“继续任务”。
-          如果看不到浏览器窗口，请取消任务，并在设置中关闭“后台运行浏览器”后重试。
-        </p>
+        {isLogin ? (
+          <p>
+            请在弹出的浏览器窗口中完成扫码/登录。检测到登录成功后会自动继续，不需要手动点击；
+            扫码失败可以直接取消任务。如果看不到浏览器窗口，请取消任务，并在设置中关闭“后台运行浏览器”后重试。
+          </p>
+        ) : (
+          <p>
+            请在弹出的浏览器窗口中完成扫码、登录或验证码。完成后点击“继续任务”。
+            如果看不到浏览器窗口，请取消任务，并在设置中关闭“后台运行浏览器”后重试。
+          </p>
+        )}
+        {error && (
+          <div className="inline-error">
+            <Icon name="alert" size={15} />
+            {error}
+          </div>
+        )}
         <div className="modal-actions">
           <button className="run-button" onClick={onContinue}>
-            <Icon name="play" size={15} />
-            继续任务
+            <Icon name="check" size={15} />
+            {isLogin ? '我已登录' : '继续任务'}
           </button>
           <button className="secondary-button" onClick={onCancel}>
             取消任务
@@ -1477,6 +1494,7 @@ export default function App() {
   const [loginError, setLoginError] = useState('')
   const [platforms, setPlatforms] = useState([])
   const [humanRequest, setHumanRequest] = useState(null)
+  const [humanError, setHumanError] = useState('')
   const [toast, setToast] = useState('')
   const liveStepsRef = useRef([])
   const pendingThreadRef = useRef(null)
@@ -1602,11 +1620,24 @@ export default function App() {
         return
       }
       if (event.type === 'needs_human') {
-        setHumanRequest({ reason: event.reason || '网站要求人工操作' })
+        setHumanError('')
+        setHumanRequest({
+          reason: event.reason || '网站要求人工操作',
+          site: event.site,
+          label: event.label,
+          require_login: Boolean(event.require_login),
+        })
         return
       }
       if (event.type === 'human_resolved') {
         setHumanRequest(null)
+        setHumanError('')
+        if (Array.isArray(event.logins)) setPlatforms(event.logins)
+        if (event.login_success) {
+          showToast(`${event.label || platformLabel(event.site)}登录成功，任务继续`)
+        } else if (event.cancelled) {
+          showToast('已取消任务')
+        }
         return
       }
       if (event.type === 'step') {
@@ -1924,8 +1955,10 @@ export default function App() {
     try {
       await continueHuman()
       setHumanRequest(null)
+      setHumanError('')
     } catch (e) {
-      setError(e.message)
+      // Keep the dialog open: a login wall only clears after a real login.
+      setHumanError(e.message)
     }
   }
 
@@ -1933,8 +1966,9 @@ export default function App() {
     try {
       await cancelHuman()
       setHumanRequest(null)
+      setHumanError('')
     } catch (e) {
-      setError(e.message)
+      setHumanError(e.message)
     }
   }
 
@@ -2030,6 +2064,7 @@ export default function App() {
       />
       <HumanDialog
         request={humanRequest}
+        error={humanError}
         onContinue={handleHumanContinue}
         onCancel={handleHumanCancel}
       />

@@ -37,7 +37,9 @@ from browser_use.browser.events import NavigateToUrlEvent  # noqa: E402
 from .artifacts import build_sources, collect_artifacts, repair_xhs_links  # noqa: E402
 from .intent import chat_reply, needs_browser  # noqa: E402
 from .platform_logins import (  # noqa: E402
+	auth_cookie_signature,
 	has_auth_cookie,
+	invalidate_login,
 	platform_status,
 	read_cookies,
 	record_login,
@@ -104,7 +106,22 @@ LOGIN_WATCH_TASK: asyncio.Task | None = None
 LOGIN_LOCK = asyncio.Lock()
 VIEW_SESSION: Browser | None = None
 VIEW_LOCK = asyncio.Lock()
-HUMAN_STATE: dict[str, Any] = {'active': False, 'reason': '', 'cancelled': False, 'event': None}
+HUMAN_STATE: dict[str, Any] = {
+	'active': False,
+	'reason': '',
+	'cancelled': False,
+	'event': None,
+	'site': None,
+	'label': '',
+	'require_login': False,
+	'auto_resumed': False,
+	'login_verified': False,
+	'ignore_wall_until': 0.0,
+	'verified_site': None,
+	'verified_at': 0.0,
+	'login_baseline': set(),
+	'skip_export': False,
+}
 LOGIN_URLS = {
 	'taobao': ('淘宝', 'https://login.taobao.com/member/login.jhtml'),
 	'jd': ('京东', 'https://passport.jd.com/new/login.aspx'),
@@ -238,20 +255,204 @@ def _language_instruction(task: str) -> str:
 	return instruction
 
 
-async def _request_human_help(reason: str) -> ActionResult:
+PLATFORM_DOMAINS = (
+	('douyin.com', 'douyin'),
+	('xiaohongshu.com', 'xiaohongshu'),
+	('taobao.com', 'taobao'),
+	('tmall.com', 'taobao'),
+	('jd.com', 'jd'),
+)
+
+
+def _site_for_url(url: str | None) -> str | None:
+	host = urlparse(url or '').netloc.lower().lstrip('www.')
+	for domain, site in PLATFORM_DOMAINS:
+		if host == domain or host.endswith(f'.{domain}'):
+			return site
+	return None
+
+
+async def _detect_login_wall(browser: Browser | None) -> tuple[bool, str | None, str]:
+	"""Return (blocked, platform, reason) when the page visibly demands login."""
+	if browser is None:
+		return False, None, ''
+	try:
+		url = await browser.get_current_page_url()
+	except Exception:
+		return False, None, ''
+	site = _site_for_url(url)
+	if site is None:
+		return False, None, ''
+	try:
+		page = await browser.must_get_current_page()
+		result = await page.evaluate(
+			"""() => {
+				const text = (document.body && document.body.innerText) || '';
+				const markers = ['扫码登录','二维码登录','登录后即可','登录后查看','登录后查看更多','登录后推荐','登录后搜索','登录后观看','请先登录','登录/注册','验证码登录','手机号登录','密码登录'];
+				const strong = markers.some((marker) => text.includes(marker));
+				let visible = false;
+				const candidates = Array.from(document.querySelectorAll('[role="dialog"], [class*="login"], [class*="Login"], [class*="modal"], [class*="Modal"]'));
+				for (const element of candidates) {
+					const style = getComputedStyle(element);
+					const rect = element.getBoundingClientRect();
+					const content = element.innerText || '';
+					if (style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 180 && rect.height > 90 && (content.includes('扫码') || content.includes('登录后') || content.includes('请先登录') || content.includes('验证码') || content.includes('手机号'))) {
+						visible = true;
+						break;
+					}
+				}
+				return strong || visible;
+			}"""
+		)
+		# browser-use serializes some evaluate() results as JSON strings.
+		detected = result.strip().lower() == 'true' if isinstance(result, str) else bool(result)
+		if not detected:
+			return False, None, ''
+		label = _label_for(site)
+		reason = f'{label}页面要求登录。请在浏览器中完成扫码/登录，登录成功后任务会自动继续。'
+		return True, site, reason
+	except Exception as e:
+		logger.debug(f'Login wall detection failed: {type(e).__name__}: {e}')
+		return False, None, ''
+
+
+async def _watch_login_until_ready(browser: Browser, site: str, event: asyncio.Event, baseline: set[str]) -> None:
+	"""Auto-resume a paused task as soon as the platform login becomes valid."""
+	while not event.is_set():
+		if STOP_REQUESTED:
+			return
+		try:
+			if not _browser_has_pages(browser):
+				HUMAN_STATE['cancelled'] = True
+				event.set()
+				return
+		except Exception:
+			HUMAN_STATE['cancelled'] = True
+			event.set()
+			return
+
+		try:
+			cookies = await browser.cookies()
+			# A stale cookie may already be in the profile; require a new or
+			# changed login cookie before resuming.
+			if auth_cookie_signature(cookies, site) - baseline:
+				try:
+					await _save_storage_state(browser)
+				except Exception:
+					pass
+				record_login(site, True)
+				HUB.publish({'type': 'logins_updated', 'logins': platform_status()})
+				HUMAN_STATE['login_verified'] = True
+				HUMAN_STATE['auto_resumed'] = True
+				HUMAN_STATE['verified_site'] = site
+				HUMAN_STATE['verified_at'] = time.time()
+				HUMAN_STATE['skip_export'] = False
+				event.set()
+				return
+		except Exception:
+			pass
+
+		await asyncio.sleep(1.5)
+
+
+async def _request_human_help(
+	reason: str,
+	site: str | None = None,
+	require_login: bool = False,
+	browser: Browser | None = None,
+) -> ActionResult:
 	global STOP_REQUESTED
 
+	require_login = bool(require_login and site)
 	event = asyncio.Event()
-	HUMAN_STATE.update({'active': True, 'reason': reason, 'cancelled': False, 'event': event})
-	HUB.publish({'type': 'needs_human', 'reason': reason})
-	await event.wait()
+	baseline: set[str] = set()
+	if require_login and browser is not None:
+		try:
+			baseline = auth_cookie_signature(await browser.cookies(), site)
+		except Exception:
+			baseline = set()
+	HUMAN_STATE.update(
+		{
+			'active': True,
+			'reason': reason,
+			'cancelled': False,
+			'event': event,
+			'site': site,
+			'label': _label_for(site),
+			'require_login': require_login,
+			'auto_resumed': False,
+			'login_verified': False,
+			'login_baseline': baseline,
+		}
+	)
+	HUB.publish(
+		{
+			'type': 'needs_human',
+			'reason': reason,
+			'site': site,
+			'label': _label_for(site),
+			'require_login': require_login,
+		}
+	)
+	watcher = None
+	if require_login and browser is not None:
+		watcher = asyncio.create_task(_watch_login_until_ready(browser, site, event, baseline))
+	try:
+		await event.wait()
+	finally:
+		if watcher is not None and not watcher.done():
+			watcher.cancel()
 	cancelled = bool(HUMAN_STATE.get('cancelled'))
-	HUMAN_STATE.update({'active': False, 'event': None})
-	HUB.publish({'type': 'human_resolved', 'cancelled': cancelled})
+	auto = bool(HUMAN_STATE.get('auto_resumed'))
+	login_success = bool(HUMAN_STATE.get('login_verified'))
+	label = HUMAN_STATE.get('label') or ''
+	HUMAN_STATE.update({'active': False, 'event': None, 'auto_resumed': False, 'login_verified': False})
+	HUB.publish(
+		{
+			'type': 'human_resolved',
+			'cancelled': cancelled,
+			'auto': auto,
+			'login_success': login_success,
+			'site': site,
+			'label': label,
+			'logins': platform_status(),
+		}
+	)
 	if cancelled:
 		STOP_REQUESTED = True
 		return ActionResult(error='用户取消了人工协助')
+	if require_login and not login_success:
+		return ActionResult(error=f'还没有检测到{label}登录成功，请先完成扫码登录。')
 	return ActionResult(extracted_content='用户已完成登录或验证，请继续执行任务。')
+
+
+async def _before_agent_step(agent) -> None:
+	"""Pause before the next LLM call if the page is blocked by a login wall."""
+	if STOP_REQUESTED or HUMAN_STATE.get('active'):
+		return
+	if time.time() < float(HUMAN_STATE.get('ignore_wall_until') or 0):
+		return
+	try:
+		detected, site, reason = await _detect_login_wall(getattr(agent, 'browser_session', None))
+	except Exception:
+		return
+	if not detected:
+		return
+	# A recent successful login may leave a dismissible modal on screen for a
+	# while; do not invalidate the session again immediately.
+	if site and HUMAN_STATE.get('verified_site') == site and time.time() - float(HUMAN_STATE.get('verified_at') or 0) < 300:
+		return
+	try:
+		if site:
+			invalidate_login(site, reason='login wall detected during task')
+			HUMAN_STATE['skip_export'] = True
+			HUB.publish({'type': 'logins_updated', 'logins': platform_status()})
+			await _request_human_help(reason, site=site, require_login=True, browser=agent.browser_session)
+		else:
+			await _request_human_help(reason)
+	finally:
+		# Give the page a moment to close the login modal before checking again.
+		HUMAN_STATE['ignore_wall_until'] = time.time() + 10
 
 
 async def _prepare_login_page(site: str, browser: Browser) -> None:
@@ -422,6 +623,14 @@ async def _run_agent(request: RunRequest) -> None:
 
 	started_at = time.time()
 	STOP_REQUESTED = False
+	HUMAN_STATE.update(
+		{
+			'skip_export': False,
+			'ignore_wall_until': 0.0,
+			'verified_site': None,
+			'verified_at': 0.0,
+		}
+	)
 	STATE.update(
 		{
 			'running': True,
@@ -493,7 +702,7 @@ async def _run_agent(request: RunRequest) -> None:
 			keep_alive=False,
 		)
 		CURRENT_BROWSER = browser
-		tools = build_tools(request.search_engine)
+		tools = build_tools(request.search_engine, login_wall_guard=_detect_login_wall)
 
 		@tools.action(
 			'Ask the user to complete a human action such as login, QR code scan, CAPTCHA, SMS verification, '
@@ -503,6 +712,24 @@ async def _run_agent(request: RunRequest) -> None:
 		async def request_human_help(reason: str) -> ActionResult:
 			if request.headless:
 				return ActionResult(error='当前是后台运行模式，无法进行人工登录。请先取消任务，在设置中关闭后台运行后重试。')
+			# A login wall must wait for a real login, not just a "continue"
+			# click. Other human actions (CAPTCHA, SMS, payment) keep the
+			# existing manual continue behaviour.
+			try:
+				detected, wall_site, wall_reason = await _detect_login_wall(browser)
+			except Exception:
+				detected, wall_site, wall_reason = False, None, ''
+			manual_actions = ('支付', '确认订单', '滑块', '验证码')
+			if detected and wall_site and not any(word in reason for word in manual_actions):
+				invalidate_login(wall_site, reason='login wall detected during task')
+				HUMAN_STATE['skip_export'] = True
+				HUB.publish({'type': 'logins_updated', 'logins': platform_status()})
+				return await _request_human_help(
+					wall_reason or reason,
+					site=wall_site,
+					require_login=True,
+					browser=browser,
+				)
 			return await _request_human_help(reason)
 
 		agent = Agent(
@@ -513,6 +740,9 @@ async def _run_agent(request: RunRequest) -> None:
 			use_vision=request.use_vision,
 			auto_recovery=True,
 			use_judge=False,
+			# A login/QR wait can take several minutes; the default 120s step
+			# timeout would otherwise abort the paused task.
+			step_timeout=600,
 			extend_system_message=(
 				'For web searches, use the `web_search` action instead of navigating directly to a search engine URL. '
 				'The app selects a working search engine and handles regional fallbacks. '
@@ -527,14 +757,17 @@ async def _run_agent(request: RunRequest) -> None:
 				'instead of a short link or the homepage. '
 				'If the page requires login, QR code scan, CAPTCHA, SMS verification, or another human action, '
 				'call `request_human_help` with a short Chinese reason instead of guessing or entering credentials. '
-				+ _language_instruction(request.task)
+				'If a page shows a login wall, QR code, 「登录后即可...」, 「扫码登录」, or 「请先登录」, you MUST call '
+				'`request_human_help` and wait for the user to finish login. NEVER use `web_search`, another search '
+				'engine, or a different website as a workaround for a login wall, and do not continue until the login '
+				'has succeeded. ' + _language_instruction(request.task)
 			),
 			register_new_step_callback=_on_step,
 			register_should_stop_callback=_should_stop,
 		)
 		CURRENT_AGENT = agent
 
-		history = await agent.run(max_steps=int(request.max_steps))
+		history = await agent.run(max_steps=int(request.max_steps), on_step_start=_before_agent_step)
 		text = history.final_result() or '任务完成，但模型没有返回文本结果。'
 		text = repair_xhs_links(text, history.urls())
 		sources = await build_sources(text, history.urls())
@@ -570,10 +803,13 @@ async def _run_agent(request: RunRequest) -> None:
 		if CURRENT_BROWSER is not None:
 			# Keep the exported cookie jar fresh: platforms may rotate session
 			# cookies while the agent works, and the next launch restores them.
-			try:
-				await _save_storage_state(CURRENT_BROWSER)
-			except Exception as e:
-				logger.debug(f'Could not save cookies after task: {type(e).__name__}: {e}')
+			# If a login wall invalidated the session and the user cancelled,
+			# do not write the stale cookies back.
+			if not HUMAN_STATE.get('skip_export'):
+				try:
+					await _save_storage_state(CURRENT_BROWSER)
+				except Exception as e:
+					logger.debug(f'Could not save cookies after task: {type(e).__name__}: {e}')
 			try:
 				HUB.publish({'type': 'logins_updated', 'logins': platform_status()})
 			except Exception:
@@ -782,6 +1018,43 @@ async def open_url(request: OpenUrlRequest) -> dict:
 
 @app.post('/api/human/continue')
 async def human_continue() -> dict:
+	site = HUMAN_STATE.get('site')
+	require_login = bool(HUMAN_STATE.get('require_login'))
+
+	# Do not let "continue" bypass a login wall. Accept either a live auth
+	# cookie or a page where the login prompt has actually disappeared.
+	if require_login and site:
+		verified = False
+		browser = CURRENT_BROWSER
+		if browser is not None:
+			try:
+				if _browser_has_pages(browser):
+					cookies = await browser.cookies()
+					baseline = HUMAN_STATE.get('login_baseline') or set()
+					verified = bool(auth_cookie_signature(cookies, site) - baseline)
+					if not verified:
+						detected, _, _ = await _detect_login_wall(browser)
+						verified = not detected
+			except Exception:
+				verified = False
+		if not verified:
+			label = HUMAN_STATE.get('label') or _label_for(site)
+			raise HTTPException(
+				status_code=400,
+				detail=f'还没有检测到{label}登录成功，请先在浏览器中完成扫码/登录。',
+			)
+		HUMAN_STATE['login_verified'] = True
+		HUMAN_STATE['verified_site'] = site
+		HUMAN_STATE['verified_at'] = time.time()
+		HUMAN_STATE['skip_export'] = False
+		if browser is not None:
+			try:
+				await _save_storage_state(browser)
+			except Exception:
+				pass
+		record_login(site, True)
+		HUB.publish({'type': 'logins_updated', 'logins': platform_status()})
+
 	event = HUMAN_STATE.get('event')
 	if isinstance(event, asyncio.Event):
 		HUMAN_STATE['cancelled'] = False
