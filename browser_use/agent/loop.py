@@ -35,9 +35,11 @@ from pydantic_ai.messages import (
 	ModelMessage,
 	ModelRequest,
 	ModelResponse,
+	RetryPromptPart,
 	SystemPromptPart,
 	TextPart,
 	ThinkingPart,
+	ToolCallPart,
 	ToolReturnPart,
 	UserPromptPart,
 )
@@ -97,7 +99,7 @@ class Session:
 	error_type: str | None = None  # class of the exception that ended the run
 	checkpoint: ModelRequest | None = None  # Compaction: the message sent in place of messages[:covered]
 	covered: int = 0
-	compaction_failed: bool = False
+	usage_after: int = 0  # Compaction: responses before this index were measured before the checkpoint
 	provider_retried: bool = False  # BrowserLoop: bu-pi's one provider retry per run is used
 	summaries: list[ModelResponse] = field(default_factory=list)  # summarizer responses, counted in usage and cost
 
@@ -393,31 +395,40 @@ CHECKPOINT = (  # bu-pi src/context.ts, verbatim except Python for JavaScript
 
 @dataclass
 class Compaction(AbstractCapability[Session]):
-	"""bu-pi's RunContext (src/context.ts) for models without server-side compaction. Past 75% of max_chars content
-	characters (conversation + system prompt) or 65% of the context window in tokens, everything before the last two
-	assistant/tool groups is sent as one checkpoint message: a summary by the same model at low effort, a redacted evidence
-	archive, the user messages verbatim. Only the request is projected; the transcript stays whole (usage, follow-ups). A
-	failure keeps the full history and is not retried. max_chars: bu-pi maxContextChars, default 4 characters per token of
-	the context window (bu-pi), 240k when the window is unknown. token_threshold: an extra token trigger (tests)."""
+	"""bu-pi's RunContext (src/context.ts) for models without server-side compaction. Past 75% of max_chars (bu-pi's
+	contextChars of the conversation plus the system prompt) or 65% of the context window in tokens, everything before
+	the last two assistant/tool groups is sent as one checkpoint message: a summary by the same model at low effort, a
+	redacted evidence archive, the user messages verbatim. Only the request is projected; the transcript stays whole
+	(usage, follow-ups). A failure keeps the full history for this request and compaction is tried again on the next
+	(bu-pi agent.ts). max_chars: bu-pi maxContextChars, default 4 characters per token of the context window (bu-pi),
+	240k when the window is unknown. token_threshold: bu-pi compactAtTokens, which replaces both triggers."""
 
 	token_threshold: int | None = None
 	max_chars: int | None = None
 
 	async def before_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
 		s, messages, window = ctx.deps, request_context.messages, request_context.model.context_window
-		system = sum(len(p.content) for p in request_context.model_request_parameters.instruction_parts or [])
-		tokens = _tokens(s, messages, system)
-		max_chars = self.max_chars or (window * 4 if window else 240_000)
-		due = (
-			_chars(_projected(s, messages)) + system > 0.75 * max_chars
-			or (window and tokens > 0.65 * window)
-			or (self.token_threshold is not None and tokens >= self.token_threshold)
+		params = request_context.model_request_parameters
+		system = sum(len(p.content) for p in params.instruction_parts or [])
+		tools = len(
+			_js(
+				[
+					{'name': t.name, 'description': t.description, 'parameters': t.parameters_json_schema}
+					for t in [*params.function_tools, *params.output_tools]
+				]
+			)
 		)
-		if not s.compaction_failed and due:
+		max_chars = self.max_chars or (window * 4 if window else 240_000)
+		chars = _chars(_projected(s, messages)) + system
+		tokens = _tokens(s, messages, system + tools)
+		if self.token_threshold is not None:
+			due = tokens >= self.token_threshold
+		else:
+			due = chars > 0.75 * max_chars or bool(window and tokens > 0.65 * window)
+		if due:
 			try:
 				await _compact(s, messages, request_context)
 			except Exception as e:
-				s.compaction_failed = True
 				logger.warning(
 					redact(f'Compaction failed, continuing with the full history: {type(e).__name__}: {e}', s.repl.secrets)
 				)
@@ -429,10 +440,9 @@ def _projected(s: Session, messages: list[ModelMessage]) -> list[ModelMessage]:
 	return [s.checkpoint, *messages[s.covered :]] if s.checkpoint else messages
 
 
-def _plain(messages: list[ModelMessage], reasoning: bool = False) -> Any:
-	"""Message content as JSON data (bu-pi's archive and context size): kind, part kind, tool name and call id, content or
-	args. The system prompt, usage, ids, timestamps, signatures and provider details are omitted; images become a note.
-	Reasoning text only with reasoning=True: bu-pi counts it in the context size and leaves it out of the archive."""
+def _plain(messages: list[ModelMessage]) -> Any:
+	"""Message content as JSON data (bu-pi's archive): kind, part kind, tool name and call id, content or args. The system
+	prompt, reasoning, usage, ids, timestamps, signatures and provider details are omitted; images become a note."""
 
 	def content(v: Any) -> Any:
 		if isinstance(v, BinaryContent):
@@ -447,7 +457,7 @@ def _plain(messages: list[ModelMessage], reasoning: bool = False) -> Any:
 				'parts': [
 					{'part_kind': p.part_kind, **{k: content(v) for k in keys if (v := getattr(p, k, None)) is not None}}
 					for p in m.parts
-					if not isinstance(p, SystemPromptPart) and (reasoning or not isinstance(p, ThinkingPart))
+					if not isinstance(p, (SystemPromptPart, ThinkingPart))
 				],
 			}
 			for m in messages
@@ -456,23 +466,119 @@ def _plain(messages: list[ModelMessage], reasoning: bool = False) -> Any:
 	)
 
 
-def _chars(messages: list[ModelMessage]) -> int:  # as bu-pi's JSON.stringify: no spaces, a CJK character counts 1, not 6
-	return len(json.dumps(_plain(messages, reasoning=True), ensure_ascii=False, separators=(',', ':')))
+def _pi(messages: list[ModelMessage]) -> list[dict[str, Any]]:
+	"""The messages as bu-pi holds them (pi-ai UserMessage, AssistantMessage, ToolResultMessage: one per request part)
+	after contextChars' replacer: no signatures, no tool result details, an image as {type: image}. Usage, ids,
+	timestamps and model are wire metadata bu-pi counts too (20-30% of its size in matrix v2). Not reproducible from a
+	Pydantic AI message: cost amounts (0 here) and pi-ai's api name (the provider name here)."""
+
+	def ms(m: ModelMessage) -> int:
+		return int((m.timestamp.timestamp() if m.timestamp else time.time()) * 1000)
+
+	def blocks(content: Any) -> list[dict[str, Any]]:
+		items = content if isinstance(content, list) else [content]
+		return [
+			{'type': 'image'} if _is_image(c) else {'type': 'text', 'text': c if isinstance(c, str) else as_text(c)}
+			for c in items
+		]
+
+	out: list[dict[str, Any]] = []
+	for m in messages:
+		if isinstance(m, ModelResponse):
+			content: list[dict[str, Any]] = []
+			for p in m.parts:
+				if isinstance(p, TextPart):
+					content.append({'type': 'text', 'text': p.content})
+				elif isinstance(p, ThinkingPart):
+					content.append({'type': 'thinking', 'thinking': p.content})
+				elif isinstance(p, ToolCallPart):
+					content.append({'type': 'toolCall', 'id': p.tool_call_id, 'name': p.tool_name, 'arguments': p.args_as_dict()})
+			u, calls = m.usage, any(isinstance(p, ToolCallPart) for p in m.parts)
+			out.append(
+				{
+					'role': 'assistant',
+					'content': content,
+					'api': m.provider_name,
+					'provider': m.provider_name,
+					'model': m.model_name,
+					**({'responseId': m.provider_response_id} if m.provider_response_id else {}),
+					'usage': {
+						'input': max(u.input_tokens - u.cache_read_tokens - u.cache_write_tokens, 0),
+						'output': u.output_tokens,
+						'cacheRead': u.cache_read_tokens,
+						'cacheWrite': u.cache_write_tokens,
+						'totalTokens': u.total_tokens,
+						'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0, 'total': 0},
+					},
+					'stopReason': 'toolUse' if calls else 'length' if m.finish_reason == 'length' else 'stop',
+					'timestamp': ms(m),
+				}
+			)
+			continue
+		for p in m.parts:
+			if isinstance(p, UserPromptPart):
+				user = p.content if isinstance(p.content, str) else blocks(list(p.content))
+				out.append({'role': 'user', 'content': user, 'timestamp': ms(m)})
+			elif isinstance(p, ToolReturnPart) or (isinstance(p, RetryPromptPart) and p.tool_name):
+				error = isinstance(p, RetryPromptPart)
+				out.append(
+					{
+						'role': 'toolResult',
+						'toolCallId': p.tool_call_id,
+						'toolName': p.tool_name,
+						'content': blocks(p.model_response() if isinstance(p, RetryPromptPart) else p.content),
+						'isError': error,
+						'timestamp': ms(m),
+					}
+				)
+			elif isinstance(p, RetryPromptPart):
+				out.append({'role': 'user', 'content': p.model_response(), 'timestamp': ms(m)})
+	return out
 
 
-def _tokens(s: Session, messages: list[ModelMessage], system: int) -> int:
-	"""bu-pi RunContext.tokens: the last response's context plus what came after it, at least the estimate of the request
-	(4 characters per token)."""
-	estimate = (_chars(_projected(s, messages)) + system) // 4
-	for i in range(len(messages) - 1, -1, -1):
-		if isinstance(m := messages[i], ModelResponse):
-			return max(estimate, m.usage.total_tokens + _chars(messages[i + 1 :]) // 4)
+def _js(value: Any) -> str:  # as JSON.stringify: no spaces, a CJK character counts 1, not 6
+	return json.dumps(value, ensure_ascii=False, separators=(',', ':'), default=str)
+
+
+def _chars(messages: list[ModelMessage]) -> int:
+	"""bu-pi contextChars: the length of JSON.stringify of the messages."""
+	return len(_js(_pi(messages)))
+
+
+def _estimate(messages: list[ModelMessage]) -> int:
+	"""pi-coding-agent estimateTokens, summed: content characters / 4 per message, an image 4800 characters."""
+	total = 0
+	for m in _pi(messages):
+		content = m['content']
+		if isinstance(content, str):
+			n = len(content)
+		else:
+			n = 0
+			for b in content:
+				if b['type'] == 'toolCall':
+					n += len(b['name']) + len(_js(b['arguments']))
+				else:
+					n += 4800 if b['type'] == 'image' else len(b.get('text') or b.get('thinking') or '')
+		total += -(-n // 4)
+	return total
+
+
+def _tokens(s: Session, messages: list[ModelMessage], fixed: int) -> int:
+	"""bu-pi RunContext.tokens: the last response's context (measured after the last checkpoint) plus the estimate of
+	what came after it, at least the estimate of the request. fixed: system prompt and tool definition characters."""
+	estimate = _estimate(_projected(s, messages)) + -(-fixed // 4)
+	for i in range(len(messages) - 1, s.usage_after - 1, -1):
+		m = messages[i]
+		if isinstance(m, ModelResponse) and m.finish_reason != 'error' and m.usage.total_tokens > 0:
+			return max(estimate, m.usage.total_tokens + _estimate(messages[i + 1 :]))
 	return estimate
 
 
 async def _compact(s: Session, messages: list[ModelMessage], request_context: ModelRequestContext) -> None:
 	starts = [i for i, m in enumerate(messages) if isinstance(m, ModelResponse) and i >= s.covered]
-	if len(starts) < 2 or starts[-2] <= s.covered:  # keep the last two assistant/tool groups: no tool result is orphaned
+	# Keep the last two assistant/tool groups (no tool result is orphaned) and summarize at least one more: with only
+	# the task before them, the checkpoint repeats the task and cannot be smaller.
+	if len(starts) < 3 or starts[-2] <= s.covered:
 		return
 	cut = starts[-2]
 	plain = redact(_plain(([s.checkpoint] if s.checkpoint else []) + messages[s.covered : cut]), s.repl.secrets)
@@ -502,7 +608,7 @@ async def _compact(s: Session, messages: list[ModelMessage], request_context: Mo
 	checkpoint = ModelRequest(parts=[UserPromptPart(text)])
 	if _chars([checkpoint, *messages[cut:]]) >= _chars(_projected(s, messages)):
 		raise ValueError('it did not reduce the context; the original evidence was retained')
-	s.checkpoint, s.covered = checkpoint, cut
+	s.checkpoint, s.covered, s.usage_after = checkpoint, cut, len(messages)
 
 
 def delivery_tool_choice(model: Any, settings: dict) -> Any:

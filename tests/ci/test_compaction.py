@@ -34,9 +34,10 @@ class FakeRepl:
 		return {'output': f'ran {code} {"." * self.pad}', 'error': None, 'images': images}
 
 
-def scripted(big: set[int], steps: int = 5, fail: bool = False, code=lambda i: f'step{i} hunter2-secret'):
+def scripted(big: set[int], steps: int = 5, fail: bool = False, code=lambda i: f'step{i} hunter2-secret', anthropic=False):
 	"""Agent requests call python `steps` times, then finish. Requests in `big` report 5000 input tokens, others 100.
-	The summarizer (a request without tools) answers SUMMARY or raises; fn.settings has its model settings."""
+	The summarizer (a request without tools) answers SUMMARY or raises; fn.settings has its model settings.
+	anthropic: responses shaped like Claude's (reasoning with a signature, cache usage, a response id)."""
 	agent_requests, summarizer_requests = [], []
 
 	def fn(messages, info: AgentInfo):
@@ -51,7 +52,12 @@ def scripted(big: set[int], steps: int = 5, fail: bool = False, code=lambda i: f
 		call = ToolCallPart('python', {'code': code(i)}, tool_call_id=f'c{i}')
 		if i > steps:
 			call = ToolCallPart('finish', {'result': 'done', 'success': True}, tool_call_id=f'c{i}')
-		return ModelResponse(parts=[call], usage=RequestUsage(input_tokens=5000 if i in big else 100, output_tokens=1))
+		usage = RequestUsage(input_tokens=5000 if i in big else 100, output_tokens=1)
+		if not anthropic:
+			return ModelResponse(parts=[call], usage=usage)
+		usage = RequestUsage(input_tokens=1100, cache_read_tokens=900, cache_write_tokens=100, output_tokens=40)
+		parts = [ThinkingPart('Next step.', signature='E' * 400), call]
+		return ModelResponse(parts=parts, usage=usage, provider_name='anthropic', provider_response_id=f'msg_01{i:022d}')
 
 	fn.settings = []
 	return fn, agent_requests, summarizer_requests
@@ -111,17 +117,70 @@ async def test_character_budget_is_bu_pi_default_or_the_agent_setting(tmp_path, 
 	assert not summarizer_requests and not any(map(checkpoint_text, agent_requests))
 
 
-def test_size_counts_like_bu_pi_json_stringify():
-	"""Kimi bub2-019 (adidas.jp) compacted every 8 steps: json.dumps escaped each Japanese character to 6 (\\uXXXX) and
-	put a space after every ':' and ','. JSON.stringify does neither. Reasoning text counts, its signature does not:
-	bu-pi's contextChars keeps thinking (DeepSeek's added 28% in matrix 1107, so 1.0 compacted later)."""
-	from browser_use.agent.loop import _chars
+def test_size_is_bu_pi_context_chars_of_its_messages():
+	"""Matrix v2: Haiku compacted 0 times (bu-pi 17) and reached 417k tokens. 1.0 counted message content only; bu-pi's
+	contextChars is JSON.stringify of its AgentMessages, whose usage, ids, model and timestamps add 20-30%. Signatures
+	and tool result details are left out, an image is {type: image}, and a CJK character counts 1 (no \\uXXXX)."""
+	from datetime import datetime, timezone
 
-	text = 'アディダス' * 1000
-	frame = '[{"kind":"request","parts":[{"part_kind":"user-prompt","content":""}]}]'
-	assert _chars([ModelRequest(parts=[UserPromptPart(text)])]) == len(frame) + len(text)
-	frame = '[{"kind":"response","parts":[{"part_kind":"thinking","content":""}]}]'
-	assert _chars([ModelResponse(parts=[ThinkingPart(text, signature='s' * 5000)])]) == len(frame) + len(text)
+	from browser_use.agent.loop import _chars, _pi
+
+	t = datetime(2026, 11, 7, tzinfo=timezone.utc)
+	ms = int(t.timestamp() * 1000)
+	messages = [
+		ModelRequest(parts=[UserPromptPart('アディダス')], timestamp=t),
+		ModelResponse(
+			parts=[
+				ThinkingPart('hmm', signature='s' * 5000),
+				TextPart('ok'),
+				ToolCallPart('python', {'code': 'x'}, tool_call_id='toolu_1'),
+			],
+			usage=RequestUsage(input_tokens=1200, cache_read_tokens=1000, cache_write_tokens=100, output_tokens=50),
+			model_name='claude-haiku-5-5',
+			provider_name='anthropic',
+			provider_response_id='msg_1',
+			finish_reason='tool_call',
+			timestamp=t,
+		),
+		ModelRequest(
+			parts=[ToolReturnPart('python', ['out', BinaryContent(b'png', media_type='image/png')], tool_call_id='toolu_1')],
+			timestamp=t,
+		),
+	]
+	expected = (
+		f'[{{"role":"user","content":"アディダス","timestamp":{ms}}},'
+		'{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"ok"},'
+		'{"type":"toolCall","id":"toolu_1","name":"python","arguments":{"code":"x"}}],"api":"anthropic","provider":"anthropic",'
+		'"model":"claude-haiku-5-5","responseId":"msg_1","usage":{"input":100,"output":50,"cacheRead":1000,"cacheWrite":100,'
+		'"totalTokens":1250,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"toolUse",'
+		f'"timestamp":{ms}}},'
+		'{"role":"toolResult","toolCallId":"toolu_1","toolName":"python","content":[{"type":"text","text":"out"},'
+		f'{{"type":"image"}}],"isError":false,"timestamp":{ms}}}]'
+	)
+	assert _pi(messages) == json.loads(expected)
+	assert _chars(messages) == len(expected)
+
+
+async def test_anthropic_history_compacts_at_bu_pi_size(tmp_path):
+	"""Claude-shaped steps with short outputs: each adds ~640 characters as bu-pi counts them, ~320 as message content.
+	Under max_context_chars=14_800 (trigger 11_100 with the ~7k system prompt) bu-pi's count crosses by the 8th
+	request; the content-only count never did in 13 requests."""
+	fn, agent_requests, summarizer_requests = scripted(big=set(), steps=12, anthropic=True)
+	result = await go(tmp_path, fn, pad=0, max_context_chars=14_800)
+	assert result.status == 'completed' and result.output == 'done', result.error
+	first = next((i for i, r in enumerate(agent_requests) if checkpoint_text(r)), None)
+	assert first is not None and first <= 8, first
+
+
+async def test_a_short_early_history_does_not_wedge_later_compaction(tmp_path):
+	"""r266-tech, PR comment 11-07: past the trigger after two steps, the only thing before the two kept groups was the
+	task; its checkpoint repeats the task, so it never got smaller, and that one failure turned compaction off for the
+	run. Now it waits for a step it can summarize."""
+	fn, agent_requests, summarizer_requests = scripted(big=set())
+	result = await go(tmp_path, fn, window=8000, pad=10_000)
+	assert result.status == 'completed' and result.output == 'done', result.error
+	assert [checkpoint_text(r) is not None for r in agent_requests] == [False] * 3 + [True] * 3
+	assert 'step1' in summarizer_requests[0][0].parts[0].content
 
 
 def test_agent_passes_max_context_chars_to_compaction():
@@ -150,17 +209,18 @@ async def test_archive_is_written_redacted_and_without_images(tmp_path):
 	assert PNG not in raw and '[Image omitted from text archive]' in raw
 
 
-async def test_summarizer_failure_keeps_the_history_and_warns_once(tmp_path, caplog, monkeypatch):
+async def test_summarizer_failure_keeps_the_history_and_is_tried_again(tmp_path, caplog, monkeypatch):
+	"""A failure kept compaction off for the rest of the run; bu-pi tries again on the next request."""
 	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
 	fn, agent_requests, summarizer_requests = scripted(big={3, 4, 5}, fail=True)  # past the threshold from request 3 on
 	with caplog.at_level(logging.WARNING, logger='browser_use.agent.loop'):
 		result = await go(tmp_path, fn, compact_at_tokens=4500)
 	assert result.status == 'completed' and result.output == 'done', result.error
-	assert len(summarizer_requests) == 1 and not any(map(checkpoint_text, agent_requests))
+	assert len(summarizer_requests) == 3 and not any(map(checkpoint_text, agent_requests))
 	assert len(agent_requests[3]) == 7 and agent_requests[3][0].parts[-1].content == 'TASK-TEXT'  # full history
 	assert [r.message for r in caplog.records].count(
 		'Compaction failed, continuing with the full history: RuntimeError: summarizer down'
-	) == 1
+	) == 3
 
 
 def test_every_model_without_server_side_compaction_compacts():

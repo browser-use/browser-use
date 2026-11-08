@@ -447,7 +447,7 @@ class Agent:
 				explain_error=self._gateway.explain_error if self._gateway else None,
 			)
 			self._history = session.messages  # raw: result.messages has secrets redacted
-			self._compacted = {'checkpoint': session.checkpoint, 'covered': session.covered}
+			self._compacted = {'checkpoint': session.checkpoint, 'covered': session.covered, 'usage_after': session.usage_after}
 			result.output_schema = self.output_model_schema
 			if result.status == 'error':
 				logger.error(result.error)
