@@ -401,7 +401,8 @@ async def test_an_open_js_dialog_is_named_instead_of_timing_out(daemon, tmp_path
 
 async def test_a_navigation_held_by_a_beforeunload_prompt_names_it(daemon, tmp_path):
 	"""Leaving a dirty form: Page.navigate (goto_url) waits on the beforeunload prompt; every try took 20 s and ended in
-	an opaque '_IPCResponseTimeout Page.navigate timed out'. It now names the prompt, and once open, within seconds."""
+	an opaque '_IPCResponseTimeout Page.navigate timed out'. It now names the prompt within seconds, also the first
+	navigation, the one that opens it (browser-3: that one still took the full 20 s)."""
 	import time
 
 	repl = Repl(tmp_path, daemon)
@@ -410,10 +411,10 @@ async def test_a_navigation_held_by_a_beforeunload_prompt_names_it(daemon, tmp_p
 	try:
 		r = await repl.call('exec', f"new_tab({page!r}); wait_for_load(); click_at_xy(*{box}); type_text('dirty')", 60)
 		assert r['error'] is None, r
-		for code in ("cdp('Page.navigate', url='data:text/html,next', _response_timeout=2)", "goto_url('data:text/html,next')"):
+		for code in ("goto_url('data:text/html,next')", "cdp('Page.navigate', url='data:text/html,next')"):
 			started = time.monotonic()
 			r = await repl.call('exec', code, 60)
-			assert time.monotonic() - started < 8, code
+			assert time.monotonic() - started < 5, (code, time.monotonic() - started)
 			assert 'A JavaScript beforeunload is open' in (r['error'] or ''), r
 		await repl.call('exec', 'cdp("Page.handleJavaScriptDialog", accept=True)', 60)
 	finally:

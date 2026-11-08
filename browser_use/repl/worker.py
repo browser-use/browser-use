@@ -49,6 +49,7 @@ MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (b
 CDP_TIMEOUT_S = 20.0  # bu-pi cdp timeout; 30s/60s waits made each stall cost more (v1b: 114 Hard timeouts)
 SCREENSHOT_TIMEOUT_S = 60.0  # browser-harness's own screenshot timeout: cloud screenshots routinely take longer
 DIALOG_PROBE_S = 2.0  # while the daemon saw a JS dialog open: how long a page call may take before it is blamed
+DIALOG_POLL_S = 0.25  # while a navigation runs: how often to ask whether a beforeunload prompt holds it
 # What a page frozen by an alert/confirm/prompt never answers (Page.handleJavaScriptDialog is what unfreezes it)
 FROZEN_BY_DIALOG = (
 	'Runtime.evaluate',
@@ -382,25 +383,52 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	if os.environ.get('BU_HIGHLIGHT_ACTIONS') == '1':
 		highlight = Highlighter(raw_cdp, attached_session, lambda: pending_dialog('Runtime.callFunctionOn', None))
 
+	def dialog_open(dialog: dict) -> RuntimeError:
+		return RuntimeError(
+			f'A JavaScript {dialog.get("type") or "dialog"} is open ({str(dialog.get("message", ""))[:200]!r}): the page is '
+			'frozen until it is handled. Accept or dismiss it: cdp("Page.handleJavaScriptDialog", accept=True) (or '
+			'accept=False; promptText="..." for a prompt).'
+		)
+
 	def cdp(method, session_id=None, **params):
 		"""A JS dialog freezes the page: js() then took 20 s, click_at_xy 20 s and screenshot() 65 s, each with a timeout
 		that did not say why. While the daemon saw one open, such a call gets DIALOG_PROBE_S and then says so; a call that
-		opened the dialog itself says so when it times out."""
+		opened the dialog itself says so when it times out, or a navigation, which a beforeunload prompt holds, as soon as
+		the prompt opens."""
 		dialog = pending_dialog(method, session_id)
 		if dialog:
 			params['_response_timeout'] = min(params.get('_response_timeout', SCREENSHOT_TIMEOUT_S), DIALOG_PROBE_S)
 		try:
+			if not dialog and session_id is None and method in ('Page.navigate', 'Page.reload'):
+				return navigate(method, params)
 			return _cdp(method, session_id, **params)
 		except TimeoutError:
 			# a call that opened the dialog itself (a click on a button that alerts) times out first, then it is there
 			dialog = dialog or pending_dialog(method, session_id)
 			if not dialog:
 				raise
-			raise RuntimeError(
-				f'A JavaScript {dialog.get("type") or "dialog"} is open ({str(dialog.get("message", ""))[:200]!r}): the page is '
-				'frozen until it is handled. Accept or dismiss it: cdp("Page.handleJavaScriptDialog", accept=True) (or '
-				'accept=False; promptText="..." for a prompt).'
-			) from None
+			raise dialog_open(dialog) from None
+
+	def navigate(method, params):
+		"""Page.navigate/reload, racing a probe for the beforeunload prompt it may open (leaving a dirty form): the call
+		only returns once the prompt is handled, so the first try took the full CDP_TIMEOUT_S (browser-3)."""
+		done, box = threading.Event(), {}
+
+		def call():
+			try:
+				box['result'] = _cdp(method, None, **params)
+			except BaseException as e:  # - handed to the cell below
+				box['error'] = e
+			finally:
+				done.set()
+
+		threading.Thread(target=call, daemon=True, name='browser-use-navigate').start()
+		while not done.wait(DIALOG_POLL_S):
+			if dialog := pending_dialog(method, None):  # the navigation stays queued: accepting the prompt completes it
+				raise dialog_open(dialog)
+		if 'error' in box:
+			raise box['error']
+		return box['result']
 
 	def _cdp(method, session_id=None, **params):
 		if method == 'DOM.setFileInputFiles':  # local paths, also on a remote browser (bu's recipe on the cloud default)
