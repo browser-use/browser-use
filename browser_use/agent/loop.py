@@ -803,6 +803,7 @@ def build_agent(
 			if reasoning and adaptive and 'anthropic_thinking' not in own and own.get('thinking') is not False:
 				settings = {**settings, 'anthropic_thinking': {'type': 'adaptive', 'display': 'summarized'}}
 		capabilities = [BrowserLoop(), Compaction(compact_at_tokens, max_context_chars)]
+	model_own = getattr(model, 'settings', None) or {}
 	agent = Agent(
 		model,
 		deps_type=Session,
@@ -810,7 +811,8 @@ def build_agent(
 		output_type=_outputs(output_type),
 		instructions=f'{SYSTEM_PROMPT}{AX_PROMPT if mode == "ultrafast" else ""}\n{instructions}'.strip(),
 		tools=[Tool(python, max_retries=TOOL_RETRIES), *tools],
-		model_settings=cast(Any, {**settings, **(model_settings or {})}),
+		# a Model's own settings sit below the Agent's in Pydantic AI: a default here would override them (thinking=False)
+		model_settings=cast(Any, {**{k: v for k, v in settings.items() if k not in model_own}, **(model_settings or {})}),
 		# 'tools' is the budget Pydantic AI gives a tool name that does not exist, and that name's count never resets:
 		# two such calls ended DeepSeek bub2-007 at step 140. bu-pi answers "Tool X not found" and goes on (max_steps
 		# bounds it). python and Tools get the same budget (TOOL_RETRIES).

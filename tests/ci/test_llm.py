@@ -865,3 +865,31 @@ async def test_gemini_requests_are_retried_by_the_client_like_openai_and_anthrop
 		server.shutdown()
 	assert (result.status, result.output, result.error) == ('completed', 'ok', None)
 	assert len(calls) == 3
+
+
+async def test_a_models_own_settings_win_over_the_agent_defaults(tmp_path, monkeypatch):
+	"""AnthropicModel/GoogleModel(settings={'thinking': False}) still sent thinking='medium': Pydantic AI puts a Model's
+	settings below the Agent's, and build_agent's defaults went in the Agent's."""
+	from pydantic_ai.messages import ModelResponse, ToolCallPart
+	from pydantic_ai.models.anthropic import AnthropicModel
+	from pydantic_ai.models.google import GoogleModel
+	from pydantic_ai.providers.anthropic import AnthropicProvider
+	from pydantic_ai.providers.google import GoogleProvider
+
+	sent = []
+
+	async def request(self, messages, model_settings, params):
+		sent.append(dict(model_settings or {}))
+		return ModelResponse(parts=[ToolCallPart('finish', {'result': 'ok', 'success': True})])
+
+	monkeypatch.setattr(AnthropicModel, 'request', request)
+	monkeypatch.setattr(GoogleModel, 'request', request)
+	off = {'thinking': False, 'max_retries': 0}
+	models = [
+		AnthropicModel('claude-haiku-5-5', provider=AnthropicProvider(api_key='x'), settings=off),
+		GoogleModel('gemini-3.5-flash', provider=GoogleProvider(api_key='x'), settings=off),
+		GoogleModel('gemini-3.5-flash', provider=GoogleProvider(api_key='x')),
+	]
+	for m in models:
+		await run(build_agent(m), 'task', Session(repl=Repl(tmp_path)), 'x:y')
+	assert [(s.get('thinking'), s.get('max_retries')) for s in sent] == [(False, 0), (False, 0), ('medium', 2)]
