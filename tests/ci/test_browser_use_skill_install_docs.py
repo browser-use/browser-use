@@ -302,3 +302,16 @@ def test_mcp_registry_entry_runs_this_version():
 	version = tomllib.loads((ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
 	server = json.loads((ROOT / 'server.json').read_text(encoding='utf-8'))
 	assert [server['version'], *(p['version'] for p in server['packages'])] == [version, version]
+
+
+def test_repo_skills_teach_no_removed_cli_commands_or_agent_args():
+	"""skills/ (pulled from the repo by `npx skills add`) taught `browser-use cloud ...` (1.0: "'cloud' was removed"),
+	Agent(skills=[...]) (TypeError) and the 0.x key file ~/.browser-use/config.json, which `browser-use login` never writes."""
+	stale = ('browser-use cloud ', 'skills=[', '.browser-use/config.json')
+	found = [
+		f'{path.relative_to(ROOT)}: {s}'
+		for path in (ROOT / 'skills').rglob('*.md')
+		for s in stale
+		if s in path.read_text(encoding='utf-8')
+	]
+	assert found == []

@@ -39,7 +39,7 @@ This is a scripted flow. Follow the steps in order. x402 only works through the 
 **Do:** Look for an existing Browser Use API key, in this order. Don't say anything yet.
 1. `BROWSER_USE_API_KEY` in the environment
 2. a `BROWSER_USE_API_KEY=` line in `./.env`
-3. `~/.browser-use/config.json` (saved by `browser-use cloud login` / `signup`)
+3. the key `browser-use login` stored (`browser-use auth status` says whether there is one)
 4. `browser-use doctor` output, if the CLI is installed
 
 **If no key is found anywhere:**

@@ -49,7 +49,7 @@ Agent(
     sensitive_data=None,         # {'name': 'value'} or {'https://site.com': {'name': 'value'}}
     extend_system_message=None,
     reasoning=None,              # 'low' | 'medium' | 'high'
-    mode='default',              # or 'ultrafast' (accessibility-tree helpers, interaction-heavy tasks)
+    mode=None,                   # default: 'ultrafast' on bu-fast / bu-ultrafast, else 'default'; 'ultrafast' = accessibility-tree helpers
     workspace=None,              # the agent's files; default a temp dir
 )
 await agent.run(max_steps=100, timeout=1700)  # max_steps >= 3; timeout in seconds for the agent loop
