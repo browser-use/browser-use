@@ -705,6 +705,12 @@ class Browser:
 			_daemon_request(self.name, {'meta': 'set_session', 'session_id': sid, 'target_id': self._agent_tab})
 			if own.get('url') == 'about:blank':
 				_daemon_cdp(self.name, 'Target.closeTarget', targetId=own['targetId'])
+				# Chrome closes it after it answers: the run's first list_tabs() still showed it (busy machine)
+				deadline = time.monotonic() + 3
+				while time.monotonic() < deadline and any(
+					t['targetId'] == own['targetId'] for t in _daemon_cdp(self.name, 'Target.getTargets')['targetInfos']
+				):
+					time.sleep(0.05)
 		except Exception as e:  # - the tab is gone (closed): the run starts where the daemon is
 			logger.debug('Could not attach the agent tab again: %s', e)
 

@@ -205,6 +205,11 @@ def _back_to_agent_tab() -> None:
 			helpers.switch_tab(AGENT_TAB['id'])
 			if blank['url'] == 'about:blank':
 				helpers.cdp('Target.closeTarget', targetId=blank['targetId'])
+				deadline = time.monotonic() + 3  # Chrome closes it after it answers: list_tabs() still showed it
+				while time.monotonic() < deadline and any(
+					t['targetId'] == blank['targetId'] for t in helpers.cdp('Target.getTargets')['targetInfos']
+				):
+					time.sleep(0.05)
 
 
 def _counted(name: str, fn):
