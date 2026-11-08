@@ -316,6 +316,54 @@ async def test_composed_constraints_use_json_type_aware_equality(schema, value, 
 
 
 @pytest.mark.asyncio
+async def test_sensitive_data_preserves_omitted_composed_object_fields():
+	client = MCPClient(server_name='test-server', command='test-command')
+	client._telemetry = MagicMock()
+	client._connected = True
+	client.session = MagicMock()
+	client.session.call_tool = AsyncMock(
+		return_value=types.CallToolResult(
+			content=[types.TextContent(type='text', text='success')],
+			is_error=False,
+		)
+	)
+	registry = Registry()
+	tool = types.Tool(
+		name='save_composed_payload',
+		description='Save an object or null',
+		input_schema={
+			'type': 'object',
+			'properties': {
+				'payload': {
+					'anyOf': [
+						{
+							'type': 'object',
+							'properties': {
+								'name': {'type': 'string'},
+								'optional': {'type': 'string'},
+							},
+							'required': ['name'],
+						},
+						{'type': 'null'},
+					]
+				}
+			},
+			'required': ['payload'],
+		},
+	)
+	client._register_tool_as_action(registry, 'save_composed_payload', tool)
+
+	result = await registry.execute_action(
+		'save_composed_payload',
+		{'payload': {'name': 'member'}},
+		sensitive_data={'api_key': 'probe-secret-value'},
+	)
+
+	assert result.error is None
+	client.session.call_tool.assert_awaited_once_with('save_composed_payload', {'payload': {'name': 'member'}})
+
+
+@pytest.mark.asyncio
 async def test_false_boolean_schema_alternative_rejects_values():
 	client = MCPClient(server_name='test-server', command='test-command')
 	client._telemetry = MagicMock()

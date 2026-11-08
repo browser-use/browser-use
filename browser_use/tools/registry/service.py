@@ -515,8 +515,24 @@ class Registry(Generic[Context]):
 				for original_item, processed_item in zip(original, processed):
 					preserve_fields_set(original_item, processed_item)
 
+		def remove_unset_none_fields(original: Any, processed: Any) -> None:
+			if isinstance(original, BaseModel) and isinstance(processed, dict):
+				for field_name in original.__class__.model_fields:
+					original_value = getattr(original, field_name)
+					if field_name not in original.model_fields_set and original_value is None:
+						processed.pop(field_name, None)
+					elif field_name in processed:
+						remove_unset_none_fields(original_value, processed[field_name])
+			elif isinstance(original, dict) and isinstance(processed, dict):
+				for key in original.keys() & processed.keys():
+					remove_unset_none_fields(original[key], processed[key])
+			elif isinstance(original, (list, tuple)) and isinstance(processed, type(original)):
+				for original_item, processed_item in zip(original, processed):
+					remove_unset_none_fields(original_item, processed_item)
+
 		params_dump = params.model_dump()
 		processed_params = recursively_replace_secrets(params_dump)
+		remove_unset_none_fields(params, processed_params)
 
 		# Log sensitive data usage
 		self._log_sensitive_data_usage(replaced_placeholders, current_url)
