@@ -24,6 +24,7 @@ from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.direct import model_request
 from pydantic_ai.exceptions import (
+	ModelAPIError,
 	ModelConnectionError,
 	ModelContextWindowExceededError,
 	ModelRateLimitError,
@@ -45,8 +46,9 @@ from pydantic_ai.messages import (
 	ToolReturnPart,
 	UserPromptPart,
 )
-from pydantic_ai.models import ModelRequestContext
+from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAICompaction, OpenAIResponsesModel, OpenAIResponsesModelSettings
+from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.profiles.anthropic import anthropic_model_profile
 from pydantic_ai.settings import ToolOrOutput
 from pydantic_ai.usage import UsageLimits
@@ -77,6 +79,9 @@ DELIVERY_REPAIR = (  # bu-pi src/agent.ts:560, verbatim except tool names
 DELIVERY_TOOLS = ['finish_from_repl', 'finish']
 TOOL_CALL_MARKUP = re.compile(r'</?tool_call>')
 TRANSIENT = (ModelRateLimitError, ModelUnavailableError, ModelServerError, ModelConnectionError)
+# A Responses failure reported inside an HTTP 200 (a body with status=failed, or a response.failed / error stream event)
+# with one of these codes is transient: the gateway's non-streamed request past 300 s ends with request_timeout.
+TRANSIENT_FAILED_CODES = frozenset({'server_error', 'overloaded', 'request_timeout'})
 MODEL_TIMEOUT_S = 300  # bu-pi modelTimeoutMs: one model request, all its SDK attempts included
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
@@ -315,15 +320,22 @@ class BrowserLoop(AbstractCapability[Session]):
 		retried it: OpenAI, Anthropic and OpenAI-compatible clients (max_retries=2 with backoff), any client given the
 		max_retries setting (build_agent gives Google 2), and xAI's UNAVAILABLE (xai-sdk's gRPC retry policy: 5 attempts).
 		xAI's 429 "at capacity" ended grok bub2-007 on the first try. Bedrock's botocore retries throttling without a
-		max_retries attribute, so it gets this one more."""
+		max_retries attribute, so it gets this one more. A failure inside an HTTP 200 (Responses status=failed or a
+		failed stream) was never retried by the SDK: server_error, overloaded and request_timeout get the retry too."""
 		s, model = ctx.deps, request_context.model
 		if isinstance(error, ModelRequestTimeout):  # a new request step: the delivery turn when its time has come
 			logger.warning(f'{error.model_name}: no answer within {error.timeout:g} s; asking again')
 			raise ModelRetry(f'The model request got no answer within {error.timeout:g} s.')
+		if s.provider_retried or not isinstance(error, ModelAPIError):
+			raise error
 		retries = (request_context.model_settings or {}).get('max_retries')  # the SDK's retries for this request, if set
 		retries = getattr(getattr(model, 'client', None), 'max_retries', 0) if retries is None else retries
-		sdk_retried = retries or (model.system == 'xai' and getattr(error, 'provider_error_code', None) == 'UNAVAILABLE')
-		if s.provider_retried or not isinstance(error, TRANSIENT) or sdk_retried:
+		code, failed = error.provider_error_code, error.provider_error_code in TRANSIENT_FAILED_CODES
+		# The SDK retries HTTP errors only: a failure inside a 200 (stream, or a body without a status) is on its first try
+		in_200 = error.in_stream or (failed and getattr(error, 'status_code', None) is None)
+		transient = isinstance(error, TRANSIENT) or (in_200 and failed)
+		sdk_retried = not in_200 and (retries or (model.system == 'xai' and code == 'UNAVAILABLE'))
+		if not transient or sdk_retried:
 			raise error
 		s.provider_retried = True
 		delay = min(error.retry_after or 0, 60)
@@ -370,6 +382,25 @@ class BrowserLoop(AbstractCapability[Session]):
 		plain = result if isinstance(result, str) else to_jsonable_python(result, fallback=str)
 		clean = redact_forms(plain, forms)
 		return result if clean == plain else clean  # untouched (images, types) unless a secret was in it
+
+
+class StreamResponses(AbstractCapability[Session]):
+	"""Every OpenAI Responses request (the gateway, api.openai.com) goes out with stream=true and comes back as the
+	assembled response, as bu-pi streams every request. The gateway cuts a non-streamed request at 300 s: it answered
+	HTTP 200 status=failed request_timeout and a long bu-smart turn (often the delivery) ended the run. Usage, the
+	gateway's charge (browser_use on response.completed), reasoning and compaction items come from the terminal event
+	as from a body. Hooks still see one non-streamed request, so an error at any point of the stream is retried."""
+
+	def get_wrapper_model(self, model: Model) -> Model | None:
+		return StreamedRequest(model) if isinstance(model, OpenAIResponsesModel) else None
+
+
+class StreamedRequest(WrapperModel):
+	async def request(self, messages: Any, model_settings: Any, model_request_parameters: Any) -> ModelResponse:
+		async with self.wrapped.request_stream(messages, model_settings, model_request_parameters) as stream:
+			async for _ in stream:
+				pass
+		return stream.get()
 
 
 class LazyCompaction(OpenAICompaction):
@@ -770,7 +801,7 @@ def build_agent(
 			del settings['openai_reasoning_effort']
 		if not reasoning:  # gpt-4.1, gpt-4o: reasoning params 400, and 32k is above their output cap
 			settings = {'openai_store': False}
-		capabilities = [BrowserLoop(), LazyCompaction(token_threshold=compact_at_tokens)]
+		capabilities = [BrowserLoop(), LazyCompaction(token_threshold=compact_at_tokens), StreamResponses()]
 		skip_responses_transform()  # bu-pi's Node SDK sends the body as is
 	elif kind == 'chat':  # DeepSeek, vLLM, Ollama: no reasoning settings, no output cap they may reject
 		# OpenAI's own reasoning models turn reasoning on by default on chat completions and then reject function tools

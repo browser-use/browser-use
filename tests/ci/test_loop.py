@@ -185,6 +185,10 @@ async def test_oversized_and_invalid_images_never_reach_provider(daemon, tmp_pat
 		(['rejected'], 0, 'error', 1, []),  # a 400 is not sent again
 		(['rate'], 2, 'error', 1, []),  # the OpenAI/Anthropic SDK client already retried it twice
 		(['grpc_unavailable'], 0, 'error', 1, []),  # xai-sdk's gRPC retry policy already sent it 5 times
+		# inside an HTTP 200 (Responses status=failed, a failed stream): the SDK never retried it
+		(['body_request_timeout'], 2, 'completed', 2, [0]),
+		(['stream_server_error'], 2, 'completed', 2, [0]),
+		(['body_invalid_prompt'], 0, 'error', 1, []),
 	],
 )
 async def test_transient_provider_error_is_retried_once(tmp_path, monkeypatch, errors, sdk_retries, status, calls, slept):
@@ -194,6 +198,7 @@ async def test_transient_provider_error_is_retried_once(tmp_path, monkeypatch, e
 	from types import SimpleNamespace
 
 	from pydantic_ai import exceptions as x
+	from pydantic_ai.models.openai import _response_error  # pyright: ignore[reportPrivateUsage]
 
 	make = {
 		'rate': lambda: x.ModelRateLimitError('grok-4.7', 'The model is currently at capacity', retry_after=2),
@@ -201,6 +206,9 @@ async def test_transient_provider_error_is_retried_once(tmp_path, monkeypatch, e
 		'overloaded': lambda: x.ModelOverloadedError('grok-4.7', 'overloaded'),
 		'rejected': lambda: x.ModelRequestRejectedError('grok-4.7', 'invalid_image'),
 		'grpc_unavailable': lambda: x.ModelUnavailableError('grok-4.7', 'unavailable', provider_error_code='UNAVAILABLE'),
+		'body_request_timeout': lambda: _response_error('bu-smart', 'request_timeout', 'Retry the request.', in_stream=False),
+		'stream_server_error': lambda: _response_error('bu-smart', 'server_error', 'An error occurred.', in_stream=True),
+		'body_invalid_prompt': lambda: _response_error('bu-smart', 'invalid_prompt', 'Flagged.', in_stream=False),
 	}
 	pending, sleeps, requests, real_sleep = list(errors), [], [], asyncio.sleep
 

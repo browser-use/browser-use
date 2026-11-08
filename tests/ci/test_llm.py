@@ -116,10 +116,40 @@ def reasoning(n: int) -> dict:
 	return {'type': 'reasoning', 'id': f'rs_{n}', 'summary': [], 'encrypted_content': f'sealed-reasoning-{n}'}
 
 
+def sse(response: dict) -> bytes:
+	"""The response as OpenAI and the gateway stream it: created, each output item (added, deltas, done), then
+	response.completed (or response.failed) carrying the whole response, usage and browser_use included."""
+	events: list[dict] = []
+
+	def emit(kind: str, **data: Any) -> None:
+		events.append({'type': kind, 'sequence_number': len(events), **data})
+
+	emit('response.created', response={**response, 'status': 'in_progress', 'output': [], 'usage': None})
+	for i, item in enumerate(response['output']):
+		if item['type'] == 'message':
+			emit('response.output_item.added', output_index=i, item={**item, 'status': 'in_progress', 'content': []})
+			for j, part in enumerate(item['content']):
+				where = {'item_id': item['id'], 'output_index': i, 'content_index': j, 'logprobs': []}
+				emit('response.output_text.delta', **where, delta=part['text'])
+				emit('response.output_text.done', **where, text=part['text'])
+		elif item['type'] == 'function_call':
+			emit('response.output_item.added', output_index=i, item={**item, 'status': 'in_progress', 'arguments': ''})
+			where = {'item_id': item['id'], 'output_index': i}
+			emit('response.function_call_arguments.delta', **where, delta=item['arguments'])
+			emit('response.function_call_arguments.done', **where, arguments=item['arguments'], name=item['name'])
+		else:
+			emit('response.output_item.added', output_index=i, item=item)
+		emit('response.output_item.done', output_index=i, item=item)
+	emit('response.failed' if response['status'] == 'failed' else 'response.completed', response=response)
+	return b''.join(f'event: {e["type"]}\ndata: {json.dumps(e)}\n\n'.encode() for e in events)
+
+
 @pytest.fixture
 def responses_server():
-	"""The gateway's POST /responses: 400 on what it rejects, else the queued `replies` (output item lists), then a
-	finish call. The response carries browser_use{resolved_model, service_tier, charge_usd} as the gateway's does."""
+	"""The gateway's POST /responses: 400 on what it rejects, else the queued `replies` (output item lists, or a dict of
+	response fields such as a failure), then a finish call; streamed when the request asks for it. The response
+	carries browser_use{resolved_model, service_tier, charge_usd} as the gateway's does. A non-streamed request gets
+	what the gateway answers one past its 300 s window: HTTP 200, status failed, request_timeout."""
 	requests, replies = [], []
 
 	class Handler(BaseHTTPRequestHandler):
@@ -131,17 +161,26 @@ def responses_server():
 				status, reply = 400, {'error': {'code': 'stateful_request', 'message': '; '.join(bad)}}
 			else:
 				n = len(requests)
-				output = replies.pop(0) if replies else [reasoning(n), call('finish', {'success': True, 'result': 'ok'}, n)]
+				queued = replies.pop(0) if replies else [reasoning(n), call('finish', {'success': True, 'result': 'ok'}, n)]
+				fields = queued if isinstance(queued, dict) else {'output': queued}
+				if not body.get('stream'):
+					fields = {
+						'output': [],
+						'status': 'failed',
+						'error': {'code': 'request_timeout', 'message': 'The request timed out.'},
+					}
 				usage = {'input_tokens': 10, 'output_tokens': 2, 'total_tokens': 12,
 						 'input_tokens_details': {'cached_tokens': 0}, 'output_tokens_details': {'reasoning_tokens': 1}}  # fmt: skip
 				status, reply = 200, {
 					'id': f'resp_{n}', 'object': 'response', 'created_at': 0, 'model': body['model'], 'status': 'completed',
-					'output': output, 'usage': usage, 'parallel_tool_calls': True, 'tool_choice': 'auto', 'tools': [],
+					'output': [], 'usage': usage, 'parallel_tool_calls': True, 'tool_choice': 'auto', 'tools': [],
 					'browser_use': {'resolved_model': 'gpt-6-luna', 'service_tier': 'priority', 'charge_usd': '0.00020000'},
+					**fields,
 				}  # fmt: skip
-			data = json.dumps(reply).encode()
+			streamed = status == 200 and body.get('stream')
+			data = sse(reply) if streamed else json.dumps(reply).encode()
 			self.send_response(status)
-			self.send_header('Content-Type', 'application/json')
+			self.send_header('Content-Type', 'text/event-stream' if streamed else 'application/json')
 			self.send_header('Content-Length', str(len(data)))
 			self.end_headers()
 			self.wfile.write(data)
@@ -197,6 +236,47 @@ async def test_gateway_models_run_stateless_responses_with_compaction(responses_
 	assert 'TASK-TEXT' in json.dumps(second) and 'TASK-TEXT' not in json.dumps(third)  # compacted away
 	assert any(i.get('type') == 'compaction' and i['encrypted_content'] == 'sealed-compaction-2' for i in third)
 	assert result.cost_usd == pytest.approx(3 * 0.0002)
+
+
+async def test_responses_requests_stream_so_the_gateway_never_cuts_a_long_turn(responses_server, tmp_path, monkeypatch):
+	"""C5: the gateway cuts a non-streamed request at 300 s with HTTP 200 status=failed request_timeout (the stub
+	answers every non-streamed request that way) and a long bu-smart turn, often the delivery, ended the run. Gateway
+	and OpenAI Responses models (a Model, or a model string) now stream every request; usage, the gateway's charge
+	and encrypted reasoning come through as from a body."""
+	from pydantic_ai.providers.openai import OpenAIProvider
+
+	url, requests, replies = responses_server
+	monkeypatch.setenv('OPENAI_BASE_URL', url)
+	monkeypatch.setenv('OPENAI_API_KEY', 'fake-test-key')
+	gateway, _ = resolve_model(ChatBrowserUse('bu-smart', api_key='fake-test-key', base_url=url))
+	direct = OpenAIResponsesModel('gpt-6-luna', provider=OpenAIProvider(base_url=url, api_key='fake-test-key'))
+	for model, ref in ((gateway, 'browser-use:bu-smart'), (direct, 'openai:gpt-6-luna'), ('openai-responses:gpt-6-luna', 'x')):
+		requests.clear()
+		replies.append([reasoning(1), call('python', {'code': 'print(6 * 7)'}, 1)])
+		result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
+		assert (result.status, result.output) == ('completed', 'ok'), (model, result.error)
+		assert [body['stream'] for _, body in requests] == [True, True], model
+		assert (result.usage['input'], result.usage['output'], result.usage['requests']) == (20, 4, 2)
+		assert 'sealed-reasoning-1' in json.dumps(requests[1][1]['input']) and '42' in json.dumps(requests[1][1]['input'])
+		if model is gateway:
+			assert result.cost_usd == pytest.approx(2 * 0.0002)
+
+
+@pytest.mark.parametrize('code', ['server_error', 'overloaded', 'request_timeout'])
+async def test_a_responses_failure_inside_http_200_is_retried_once(responses_server, tmp_path, code):
+	"""C5 stopgap: a Responses failure the gateway reports inside HTTP 200 (status=failed: server_error, overloaded,
+	request_timeout) ended the run: the OpenAI client retries HTTP errors only, and BrowserLoop skipped it because that
+	client has max_retries. It now gets the one transient retry per run like a 5xx."""
+	url, requests, replies = responses_server
+	failed = {'status': 'failed', 'error': {'code': code, 'message': 'The request failed. Retry the request.'}}
+	model, _ = resolve_model(ChatBrowserUse('bu-smart', api_key='fake-test-key', base_url=url))
+	replies.append(failed)
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), 'x')
+	assert (result.status, result.output, len(requests)) == ('completed', 'ok', 2), result.error
+	requests.clear()
+	replies += [failed, failed]  # once per run, as every transient error
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), 'x')
+	assert (result.status, len(requests)) == ('error', 2) and code in (result.error or '')
 
 
 async def test_responses_compaction_threshold_fits_the_model_window(responses_server, tmp_path):
