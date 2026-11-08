@@ -139,6 +139,7 @@ at module level.
 | `domains=`, `allowed_domains=` | removed: `Browser(allowed_domains=...)` limits where the whole browser navigates |
 | `<secret>name</secret>` in an action's arguments, replaced with the value | removed: the action is not run and the model gets an error; secrets are typed in the browser with `type_secret(name)` |
 | `ActionResult(is_done=..., success=..., include_in_memory=..., attachments=...)` | removed (raises, ending the run): the model ends the run with `finish(result)` (optional `success`); every result stays in the conversation; save files in the workspace |
+| `ActionResult(include_extracted_content_only_once=...)` | ignored (warns once): every result stays in the conversation; `long_term_memory` is passed to the model next to `extracted_content` |
 
 ## Removed in 1.0
 

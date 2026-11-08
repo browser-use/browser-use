@@ -12,6 +12,7 @@ Agent(task, tools=tools)
 from __future__ import annotations
 
 import inspect
+import logging
 import re
 from collections.abc import Callable
 from typing import Any
@@ -21,6 +22,7 @@ from pydantic_ai import Tool
 
 from browser_use.exceptions import removed
 
+logger = logging.getLogger(__name__)
 RESERVED = {'python', 'finish', 'finish_from_repl'}
 # Retries of one tool's rejected calls (invalid or truncated arguments, ModelRetry). bu-pi returns the error and goes on;
 # max_steps bounds it. A budget of 1 ended the run on two bad python calls in a row (a truncated cell, a JSON slip).
@@ -52,6 +54,8 @@ REMOVED_FIELDS = {  # 0.x ActionResult fields -> the 1.0 alternative
 	'include_in_memory': 'every action result stays in the conversation.',
 	'attachments': 'save files in the workspace; files the agent wrote there are delivered.',
 }
+IGNORED_FIELDS = {'include_extracted_content_only_once': 'every action result stays in the conversation.'}
+_warned: set[str] = set()
 
 
 class ActionResult(BaseModel):
@@ -67,6 +71,11 @@ class ActionResult(BaseModel):
 	def _no_removed_fields(cls, data: Any) -> Any:
 		if isinstance(data, dict) and (name := next((k for k in data if k in REMOVED_FIELDS), None)):
 			raise RemovedField(removed(f'ActionResult({name}=...)', REMOVED_FIELDS[name]))
+		if isinstance(data, dict) and (name := next((k for k in data if k in IGNORED_FIELDS), None)):
+			if name not in _warned:  # once: an action returns it on every call
+				_warned.add(name)
+				logger.warning(f'ActionResult({name}=...) is ignored in browser-use 1.0: {IGNORED_FIELDS[name]}')
+			data = {k: v for k, v in data.items() if k != name}
 		return data
 
 

@@ -433,6 +433,15 @@ async def test_removed_action_result_fields_raise_and_end_the_run(tmp_path):
 	assert r.status == 'error' and 'ActionResult(is_done=...) was removed in browser-use 1.0' in (r.error or '')
 
 
+def test_action_result_include_extracted_content_only_once_says_it_is_ignored(monkeypatch, caplog):
+	"""rr-legacy 4: ActionResult(include_extracted_content_only_once=True) (the 0.x way to keep a big extract out of
+	later steps) was accepted without a word, and the content stayed in context."""
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
+	result = ActionResult(extracted_content='x', long_term_memory='short', include_extracted_content_only_once=True)
+	assert 'ActionResult(include_extracted_content_only_once=...) is ignored in browser-use 1.0' in caplog.text
+	assert result.model_dump(exclude_none=True) == {'extracted_content': 'x', 'long_term_memory': 'short'}
+
+
 async def test_custom_action_is_a_model_tool(tmp_path):
 	tools = Tools()
 
