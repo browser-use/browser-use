@@ -89,7 +89,7 @@ def test_chromes_default_profile_dir_is_refused_as_user_data_dir():
 		('window_size', 'Emulation.setDeviceMetricsOverride'),
 		('downloads_path', 'agent.workspace/downloads'),
 		('record_video_dir', 'result.messages'),
-		('highlight_elements', '0.x DOM engine'),
+		('highlight_elements', 'highlight_actions=False'),
 		('cloud_browser_params', 'cloud_profile_id'),
 		('proxy_country_code', 'cloud_proxy_country_code'),
 		('args', "Browser('chromium')"),

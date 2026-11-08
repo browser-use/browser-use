@@ -148,6 +148,7 @@ Other models: `ChatAnthropic`, `ChatGoogle` (both built in), or any Pydantic AI 
 - **Follow-ups:** `agent.add_new_task('...')` then `await agent.run()`; use `Browser(keep_alive=True)` to keep the same page between runs.
 - **Custom tools:** plain functions with `@tools.action('description')`, then `Agent(task, tools=tools)`.
 - **Ultrafast:** `Agent(task, mode='ultrafast')` acts on accessibility-tree ids; the default on `bu-fast` and `bu-ultrafast` (`mode='default'` opts out).
+- **Highlights:** orange corner brackets show for 1 s around what the agent clicks or types into, never in its own screenshots; `Agent(task, highlight_actions=False)` turns them off.
 - **Web search:** the agent gets `search(query, num_results=None, category=None)` (Browser Use web search, billed per search to your Browser Use key; each charge the response reports is added to `result.cost_usd`) with `Agent(task, web_search=True)` (off by default; needs a Browser Use key, and can't be combined with `allowed_domains`).
 
 <br/>

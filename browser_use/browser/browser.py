@@ -102,12 +102,9 @@ REMOVED = {  # 0.x BrowserSession/BrowserProfile options -> the 1.0 alternative 
 	),
 	**dict.fromkeys(
 		(
-			'highlight_elements',
 			'dom_highlight_elements',
 			'filter_highlight_ids',
 			'paint_order_filtering',
-			'interaction_highlight_color',
-			'interaction_highlight_duration',
 			'cross_origin_iframes',
 			'max_iframes',
 			'max_iframe_depth',
@@ -118,6 +115,10 @@ REMOVED = {  # 0.x BrowserSession/BrowserProfile options -> the 1.0 alternative 
 			'demo_mode',
 		),
 		_ENGINE,
+	),
+	**dict.fromkeys(
+		('highlight_elements', 'interaction_highlight_color', 'interaction_highlight_duration'),
+		'actions are highlighted by default; Agent(highlight_actions=False) turns it off.',
 	),
 	'cloud_browser': 'Browser() is a cloud browser (the default).',
 	'cloud_browser_params': 'cloud_profile_id, cloud_proxy_country_code, cloud_timeout.',

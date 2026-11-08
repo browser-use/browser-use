@@ -189,7 +189,9 @@ class Agent:
 	Browser Use key). Off by default; True turns it on (raises without a Browser Use key, or with allowed_domains,
 	since search would reach sites the browser may not open). max_context_chars: past 75% of this many characters of
 	conversation the agent compacts its history into a summary checkpoint (default 4 per token of the model's context
-	window, as Browser Use Pi; not used where the provider compacts server-side, as on OpenAI Responses and the gateway)."""
+	window, as Browser Use Pi; not used where the provider compacts server-side, as on OpenAI Responses and the gateway).
+	highlight_actions: orange corner brackets show for 1 s around what the agent clicks or types into (as 0.x); never in
+	the agent's screenshots. False turns them off."""
 
 	def __init__(
 		self,
@@ -208,6 +210,7 @@ class Agent:
 		workspace: str | Path | None = None,
 		web_search: bool = False,
 		max_context_chars: int | None = None,
+		highlight_actions: bool = True,
 		**kwargs: Any,
 	):
 		# 0.x use_vision=False: no screenshot reaches the model (privacy, cost, text-only models); kept, not ignored
@@ -221,6 +224,8 @@ class Agent:
 		_check_task_arg(task)
 		if not isinstance(web_search, bool):
 			raise TypeError(f'web_search must be True or False, not {web_search!r}')
+		if not isinstance(highlight_actions, bool):
+			raise TypeError(f'highlight_actions must be True or False, not {highlight_actions!r}')
 		if max_context_chars is not None and (type(max_context_chars) is not int or max_context_chars < 1):
 			raise ValueError(f'max_context_chars must be a positive int or None, not {max_context_chars!r}')
 		if llm is None and os.environ.get('DEFAULT_LLM'):  # 0.x read it; 1.0 runs (and bills) bu-fast instead
@@ -262,7 +267,7 @@ class Agent:
 			) from e
 		self.sensitive_data = dict(sensitive_data or {})
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
-		self.web_search, self.max_context_chars = web_search, max_context_chars
+		self.web_search, self.max_context_chars, self.highlight_actions = web_search, max_context_chars, highlight_actions
 		self._search: WebSearch | None = None  # set by _build when search() is on
 		self._workspace = Path(workspace).resolve() if workspace else None  # default: made on first use (workspace)
 		self._agent: Any = None
@@ -428,6 +433,7 @@ class Agent:
 					reattach=self.browser.reattach,
 					after_cell=self.browser.after_cell if self.browser.domains else None,
 					search=self._search,
+					highlight_actions=self.highlight_actions,
 				)
 			history, self._continue = (self._history if self._continue else None), False
 			compacted = self._compacted if history else {}

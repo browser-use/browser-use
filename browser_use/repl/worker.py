@@ -40,6 +40,7 @@ from browser_use.domains import DomainRules
 from browser_use.exceptions import BrowserConnectionLost
 from browser_use.remote_upload import local_upload, remote_upload
 from browser_use.repl.captcha import Captcha, EventPump
+from browser_use.repl.highlight import Highlighter
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, domain_matches, redact, redact_forms, secret_forms
 from browser_use.telemetry.stats import error_class, host
 
@@ -329,6 +330,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
 	rules = DomainRules.from_json(os.environ.get('BU_DOMAINS'))
 	tabs_file = os.environ.get('BU_TABS_FILE')  # Browser('chrome') with domain restrictions
+	highlight = Highlighter(raw_cdp) if os.environ.get('BU_HIGHLIGHT_ACTIONS') == '1' else None
 
 	def check_url(url) -> None:
 		"""Browser(allowed_domains=...): refuse a disallowed URL before anything navigates (Browser.domains)."""
@@ -375,11 +377,14 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			# browser-harness defaults to 5s IPC; heavy cloud pages (Maps, TripAdvisor) blew it on navigate/evaluate/input.
 			params.setdefault('_response_timeout', CDP_TIMEOUT_S)
 			result = raw_cdp(method, session_id, **params)
+			if highlight:
+				highlight.after(method, session_id, params)
 			if method == 'Target.createTarget' and tabs_file and isinstance(result, dict) and result.get('targetId'):
 				with contextlib.suppress(OSError), open(tabs_file, 'a') as f:  # Browser._touched_tabs: the agent's tabs
 					f.write(f'{result["targetId"]}\n')
 			return result
-		result = capture(raw_cdp, helpers.current_tab, session_id, activate=cloud, **params)
+		with highlight.hidden() if highlight else contextlib.nullcontext():  # the model never sees a highlight
+			result = capture(raw_cdp, helpers.current_tab, session_id, activate=cloud, **params)
 		# Every screenshot the agent takes is shown to the model as a native image.
 		if isinstance(result, dict) and result.get('data'):
 			fmt = params.get('format', 'png')

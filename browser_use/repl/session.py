@@ -46,7 +46,7 @@ ENV_ALLOW = {
 	'CURL_CA_BUNDLE',
 }  # fmt: skip
 ENV_ALLOW_PREFIXES = ('LC_', 'BU_', 'BH_')  # browser-harness reads BU_NAME, BH_RUNTIME_DIR, BH_TMP_DIR, ...
-ENV_DENY = {'BU_CDP_WS', 'BU_CDP_URL', 'BU_MODE'}  # CDP URLs can carry credentials; only Repl.mode sets BU_MODE
+ENV_DENY = {'BU_CDP_WS', 'BU_CDP_URL', 'BU_MODE', 'BU_HIGHLIGHT_ACTIONS'}  # CDP URLs can carry credentials; Repl sets the rest
 RESTARTED = '{why}. The REPL restarted: Python variables are lost; files, checkpoints and browser state survive.'
 SHORT_SECRET = 4  # shorter values are redacted only where they stand alone (not inside a longer word or number)
 SECRET_ENV = re.compile(r'KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH', re.I)
@@ -263,7 +263,8 @@ class Repl:
 	"""mode='ultrafast' adds the `bu` helpers to the worker (BU_MODE=ultrafast). reattach: starts the browser-harness
 	daemon again after a cell lost it (Browser.start). after_cell: runs after each cell, outside the worker; returns
 	(lines appended to the cell's output, blocks counted as domain_blocked) (Browser.after_cell). search: defines
-	search() in the worker, answered here (the API key stays in this process)."""
+	search() in the worker, answered here (the API key stays in this process). highlight_actions: orange corner brackets
+	around what the agent clicks or types into (repl/highlight.py)."""
 
 	def __init__(
 		self,
@@ -274,8 +275,10 @@ class Repl:
 		reattach: Callable[[], Awaitable[Any]] | None = None,
 		after_cell: Callable[[], Awaitable[tuple[list[str], int]]] | None = None,
 		search: web.WebSearch | None = None,
+		highlight_actions: bool = False,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
+		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search = reattach, after_cell, search
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		self.proc: asyncio.subprocess.Process | None = None
@@ -319,6 +322,8 @@ class Repl:
 		env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')  # page text is Unicode; Windows defaults to cp1252
 		if self.mode == 'ultrafast':
 			env['BU_MODE'] = 'ultrafast'
+		if self.highlight_actions:
+			env['BU_HIGHLIGHT_ACTIONS'] = '1'
 		log = open(self.state / 'worker.log', 'ab')  # noqa: ASYNC230 - handed to the child process
 		try:
 			self.proc = await asyncio.create_subprocess_exec(
