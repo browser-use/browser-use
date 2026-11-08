@@ -1393,7 +1393,7 @@ class BrowserSession(BaseModel):
 		return page
 
 	async def get_pages(self) -> list['Page']:
-		"""Get all available pages using SessionManager (source of truth)."""
+		"""Get available page targets, excluding Chrome extension pages."""
 		# Import here to avoid circular import
 		from browser_use.actor.page import Page as PageActor
 
@@ -1416,10 +1416,10 @@ class BrowserSession(BaseModel):
 		return self.session_manager.get_focused_target()
 
 	def get_page_targets(self) -> list['Target']:
-		"""Get all page/tab targets (excludes iframes, workers, etc.).
+		"""Get page/tab targets, excluding extensions, iframes, and workers.
 
 		Returns:
-			List of Target objects for all page/tab targets.
+			List of non-extension page/tab targets.
 		"""
 		if not self.session_manager:
 			return []

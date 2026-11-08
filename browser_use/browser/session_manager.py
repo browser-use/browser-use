@@ -183,6 +183,9 @@ class SessionManager:
 	def get_all_page_targets(self, *, include_extensions: bool = False) -> list:
 		"""Get page/tab targets, excluding extension pages unless explicitly requested.
 
+		Args:
+			include_extensions: Include Chrome extension targets for internal extension management.
+
 		Returns:
 			List of Target objects for page/tab targets matching the extension filter.
 		"""
