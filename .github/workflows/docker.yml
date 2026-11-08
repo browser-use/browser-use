@@ -15,12 +15,59 @@ on:
       - '*'
   release:
     types: [published]
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'pyproject.toml'
+      - 'browser_use/**'
+      - 'docker/smoke.py'
+      - '.github/workflows/docker.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  smoke:
+    # Every image is built and run before anything is pushed: --version, then one Agent run on the image's Chromium
+    # with a scripted model (docker/smoke.py: no provider, no cloud). Native runners per arch, no QEMU. Never pushes.
+    name: smoke (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          load: true
+          push: false
+          tags: browser-use-smoke:ci
+      - name: browser-use --version
+        run: docker run --rm browser-use-smoke:ci --version
+      - name: Scripted Agent run on the image's Chromium
+        run: |
+          docker run --rm -e ANONYMIZED_TELEMETRY=false \
+            -v "$PWD/docker/smoke.py:/tmp/smoke.py:ro" \
+            --entrypoint python browser-use-smoke:ci /tmp/smoke.py
+
   build_publish_image:
-    # Release candidates (X.Y.ZrcN tags, GitHub pre-releases) get no image: none is smoke-tested before it is pushed.
-    if: ${{ !(startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, 'rc')) && !(github.event_name == 'release' && github.event.release.prerelease) }}
+    needs: smoke
+    # Release candidates (X.Y.ZrcN tags, GitHub pre-releases) get no image.
+    # Pull requests only run the smoke job.
+    if: ${{ github.event_name != 'pull_request' && !(startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, 'rc')) && !(github.event_name == 'release' && github.event.release.prerelease) }}
     runs-on: ubuntu-latest
     permissions:
       packages: write
