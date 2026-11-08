@@ -346,12 +346,18 @@ async def test_an_open_js_dialog_is_named_instead_of_timing_out(daemon, tmp_path
 	import time
 
 	repl = Repl(tmp_path, daemon)
+	opened = (  # a background tab's timers are throttled: wait until the daemon reports the alert, not a fixed second
+		'import time, browser_harness.helpers as h\n'
+		'deadline = time.monotonic() + 15\n'
+		'while not h._send({"meta": "pending_dialog"}).get("dialog") and time.monotonic() < deadline: time.sleep(0.05)'
+	)
 	try:
 		r = await repl.call(
 			'exec', "new_tab('data:text/html,<p>x'); wait_for_load(); js('setTimeout(() => alert(\"hi\"), 50)')", 60
 		)
 		assert r['error'] is None, r
-		for code in ('import time; time.sleep(1); js("1")', 'screenshot()'):
+		assert (await repl.call('exec', opened, 60))['error'] is None
+		for code in ('js("1")', 'screenshot()'):
 			started = time.monotonic()
 			r = await repl.call('exec', code, 60)
 			assert time.monotonic() - started < 8, code
@@ -359,7 +365,7 @@ async def test_an_open_js_dialog_is_named_instead_of_timing_out(daemon, tmp_path
 		r = await repl.call('exec', 'cdp("Page.handleJavaScriptDialog", accept=True); print(js("1 + 1"))', 60)
 		assert r['error'] is None and '2' in r['output'], r
 		# a call that opens the dialog itself times out, then names it
-		r = await repl.call('exec', 'cdp("Runtime.evaluate", expression="alert(1)", _response_timeout=2)', 60)
+		r = await repl.call('exec', 'cdp("Runtime.evaluate", expression="alert(1)", _response_timeout=5)', 60)
 		assert 'A JavaScript alert is open' in (r['error'] or ''), r
 		await repl.call('exec', 'cdp("Page.handleJavaScriptDialog", accept=True)', 60)
 	finally:
