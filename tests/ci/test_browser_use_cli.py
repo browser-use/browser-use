@@ -145,6 +145,21 @@ def test_0x_agent_task_commands_point_to_agent():
 		assert 'changed in 1.0' in message and 'from browser_use import Agent' in message and '3.0' not in message
 
 
+def test_0x_page_commands_name_the_helper_that_replaced_them(capsys):
+	"""rr-climcp 4: the docs say the 0.x subcommands print what replaced them; `browser-use click 5` (and type, input,
+	keys, scroll, back, hover) printed browser-harness's generic usage and exit 1."""
+	import browser_use.cli as browser_use_cli
+
+	for args, helper in (
+		(['click', '5'], 'click_at_xy('), (['type', 'hi'], 'type_text('), (['input', '3', 'hi'], 'fill_input('),
+		(['keys', 'Enter'], 'press_key('), (['scroll', 'down'], 'scroll('), (['back'], 'history.back()'),
+		(['hover', '4'], 'mouseMoved'),
+	):  # fmt: skip
+		assert browser_use_cli._dispatch(args) == (2, f'legacy:{args[0]}')
+		err = capsys.readouterr().err
+		assert f"'{args[0]}' was removed" in err and helper in err, err
+
+
 def test_bh_runtime_dir_keeps_one_socket_per_bu_name(tmp_path):
 	# C47: with BH_RUNTIME_DIR set (the fix our AF_UNIX-too-long error suggests), browser-harness names every daemon's
 	# files plain bu.sock / bu.pid, so `BU_NAME=b browser-use --reload` stopped daemon a and b drove a's browser.
