@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import contextvars
 import fnmatch
 import hmac
 import json
@@ -27,6 +28,7 @@ import signal
 import subprocess
 import sys
 import urllib.parse
+import weakref
 from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from typing import Any, cast
@@ -209,6 +211,11 @@ def _kill_tree(pid: int, job: int | None = None) -> None:
 _WORKERS: dict[int, int | None] = {}  # pid -> Windows job of every live worker this process started
 
 
+def _end_worker(pid: int, job: int | None) -> None:
+	_WORKERS.pop(pid, None)
+	_kill_tree(pid, job)
+
+
 def kill_workers() -> None:
 	"""Kill every live REPL worker and the processes its cells started (atexit, SIGTERM): a cell left running after
 	this process exits could keep driving the browser, its timeout gone with us."""
@@ -285,6 +292,7 @@ class Repl:
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		self.proc: asyncio.subprocess.Process | None = None
 		self.job: int | None = None  # Windows job object of the worker's process tree
+		self._reaper: weakref.finalize | None = None  # ends the worker of a Repl dropped without close()
 		self.loop: asyncio.AbstractEventLoop | None = None
 		self.state = workspace / '.browser-use'
 		(self.state / 'captcha.json').unlink(missing_ok=True)  # solver state of an earlier browser session; restarts keep it
@@ -296,6 +304,11 @@ class Repl:
 		self._lock_loop: asyncio.AbstractEventLoop | None = None  # the loop self.lock serves (a lock binds to one)
 
 	async def start(self) -> None:
+		# In a context of its own: the worker's socket reader holds the context it was opened in while it is open, and the
+		# run's (Pydantic AI's RunContext -> Session -> this Repl) kept an Agent dropped without close() from being freed
+		await asyncio.create_task(self._start(), context=contextvars.Context())
+
+	async def _start(self) -> None:
 		check_loop()
 		await self.close()  # a dead previous worker's cell processes may still run: kill its group/job before replacing it
 		self.state.mkdir(parents=True, exist_ok=True)
@@ -350,6 +363,10 @@ class Repl:
 			)
 			self.job = _job_for(self.proc.pid)  # before the first cell: every process a cell starts joins it
 			_WORKERS[self.proc.pid] = self.job
+			# An Agent on a keep_alive Browser keeps its REPL until close(): one dropped without it (a service running
+			# many Agents on one Browser) left a ~35 MB worker each until exit
+			self._reaper = weakref.finalize(self, _end_worker, self.proc.pid, self.job)
+			self._reaper.atexit = False  # exit: kill_workers, before browsers stop
 			from browser_use.browser.browser import _install_cleanup
 
 			_install_cleanup()  # atexit and SIGTERM kill the worker (kill_workers) before they stop browsers
@@ -380,8 +397,9 @@ class Repl:
 		job, self.job = self.job, None
 		if proc is None:
 			return
-		_WORKERS.pop(proc.pid, None)
-		_kill_tree(proc.pid, job)  # also when the worker already exited: processes its cells started may still run
+		if self._reaper is not None:
+			self._reaper.detach()
+		_end_worker(proc.pid, job)  # also when the worker already exited: processes its cells started may still run
 		if proc.returncode is None:
 			with contextlib.suppress(OSError):  # already gone
 				proc.kill()

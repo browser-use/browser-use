@@ -2,6 +2,7 @@
 
 import logging
 import re
+import sys
 
 import pytest
 from conftest import script
@@ -715,6 +716,27 @@ def test_run_sync_follow_up_keeps_the_repl_with_keep_alive(fake_browser, tmp_pat
 	asyncio.run(agent.close())  # from another loop: kills the worker without awaiting it
 	assert agent._repl is None and not fake_browser
 	assert agent._runner is None and runner_loop.is_closed()  # Fable r2-9: run_sync's loop leaked
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='reads the process state with ps')
+def test_an_agent_dropped_without_close_ends_its_repl_worker(fake_browser, tmp_path):
+	"""rr-failure 1: with Browser(keep_alive=True) each Agent kept its REPL worker (~35 MB) until close() or exit, also
+	once nothing referenced it; a service running one keep_alive Browser for many Agents (MIGRATING) grew by one
+	process per Agent."""
+	import gc
+	import subprocess
+
+	from browser_use.repl.session import _WORKERS
+
+	model, _ = script(('python', {'code': 'x = 1'}), ('finish', {'success': True, 'result': 'one'}))
+	agent = Agent('t', model, browser=Browser(local=True, keep_alive=True), workspace=tmp_path)
+	assert agent.run_sync().final_result() == 'one'
+	assert agent._repl and agent._repl.proc
+	pid = agent._repl.proc.pid
+	del agent
+	gc.collect()
+	state = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True).stdout.strip()
+	assert pid not in _WORKERS and state[:1] in ('', 'Z'), state  # killed (a zombie until asyncio reaps it)
 
 
 def test_close_sync_ends_run_sync_follow_ups(fake_browser, tmp_path):
