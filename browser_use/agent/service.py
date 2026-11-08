@@ -63,6 +63,7 @@ REMOVED = {  # 0.x Agent(...) and run() arguments -> the 1.0 alternative ('' whe
 	'sample_images': _SCREENSHOTS,
 	'max_actions_per_step': 'each step is one Python cell.',
 	'flash_mode': "mode='ultrafast'.",
+	'highlight_elements': 'Agent(highlight_actions=True | False) turns the action highlights on or off.',
 	'use_thinking': "reasoning='low' | 'medium' | 'high'.",
 	'override_system_message': 'extend_system_message=... (the core prompt is fixed).',
 	'browser_profile': 'pass options to Browser(...).',
@@ -124,6 +125,7 @@ IGNORED = {  # use_vision=False is kept (no screenshots reach the model); use_vi
 	'llm_screenshot_size',
 	'max_actions_per_step',
 	'flash_mode',
+	'highlight_elements',  # 0.x Agent took it in **kwargs and did nothing with it (a BrowserProfile option)
 	'use_thinking',
 	'use_judge',
 	'max_failures',

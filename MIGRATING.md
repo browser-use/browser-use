@@ -27,7 +27,7 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 Kept: works as in 0.x. `use_vision=False` is kept: no screenshot reaches the model. The 0.x tuning knobs 1.0 has no
 use for (`use_vision=True` / `'auto'`, `vision_detail_level`,
 `llm_screenshot_size`, `max_actions_per_step`, `flash_mode`, `use_thinking`, `use_judge`, `max_failures`,
-`final_response_after_failure`, `calculate_cost`) log one warning each and are ignored. Every other 0.x argument raises
+`final_response_after_failure`, `calculate_cost`, `highlight_elements`: use `highlight_actions`) log one warning each and are ignored. Every other 0.x argument raises
 `TypeError` naming it in `Agent(...)` itself (listed in [Removed in 1.0](#removed-in-10)); an argument 0.x never had says
 it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=...)`).
 

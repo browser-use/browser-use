@@ -56,6 +56,15 @@ def test_removed_alternative_is_named(no_browser):
 		Agent('t', script()[0], override_system_message='x')
 
 
+def test_agent_highlight_elements_names_highlight_actions(no_browser, caplog, monkeypatch):
+	"""C7: the cloud dashboard snippet's Agent(highlight_elements=...) raised a generic 'not a 1.0 option'. 0.x Agent took
+	it in **kwargs and ignored it: 1.0 ignores it too, with a warning naming highlight_actions."""
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
+	with caplog.at_level('WARNING', logger='browser_use'):
+		Agent('t', script()[0], highlight_elements=True)
+	assert 'Agent(highlight_elements=...) is ignored in browser-use 1.0: Agent(highlight_actions=True | False)' in caplog.text
+
+
 def test_available_file_paths_error_says_there_is_no_allowlist(no_browser):
 	"""C30: the agent can upload any file the user can read; the error must not imply the workspace is a boundary."""
 	with pytest.raises(TypeError, match=r'In 1\.0: there is no file allowlist: .* any file you can read\. .* container or VM\.$'):
