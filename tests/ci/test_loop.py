@@ -625,6 +625,28 @@ async def test_a_custom_tool_never_runs_with_a_secret_placeholder_for_a_value(tm
 		assert 'api_login was not run: custom tools do not receive secret values' in str(request[-1].parts[0].content)
 
 
+async def test_a_stalled_model_request_still_leaves_the_delivery_turn(tmp_path):
+	"""A provider that accepts a request and never answers held the run until its timeout: status=timeout, output ''.
+	Each request now has a deadline (bu-pi deadlineStream, 300 s) that ends at the delivery turn's start."""
+	import asyncio
+
+	requests = []
+
+	async def fn(messages, info: AgentInfo):
+		requests.append(info.model_settings)
+		if len(requests) == 1:
+			return ModelResponse(parts=[ToolCallPart('python', {'code': 'x = 1'})])
+		if len(requests) == 2:
+			await asyncio.sleep(3600)  # accepted, never answered
+		return ModelResponse(parts=[ToolCallPart('finish', {'result': 'delivered', 'success': True})])
+
+	session = Session(repl=FakeRepl(tmp_path), timeout_s=6)  # the delivery turn starts at 3 s
+	result = await run(build_agent(FunctionModel(fn)), 'task', session, 'function:x')
+	assert (result.status, result.output, session.budget_hit) == ('completed', 'delivered', 'timeout'), result.error
+	assert len(requests) == 3 and requests[2]['tool_choice'] == ['finish_from_repl', 'finish']
+	assert 2 < requests[1]['request_timeout'] <= 3 and requests[0]['request_timeout'] <= 3
+
+
 async def test_a_tool_call_written_as_text_is_not_the_answer(tmp_path):
 	"""Matrix v2, Grok bub2-020: the final answer was '<tool_call>{"name": "finish_from_repl", ...}</tool_call>' as text.
 	It ran nothing; it now gets the delivery repair turn (bu-pi's, for any text ending) and the real call delivers."""

@@ -27,6 +27,7 @@ from pydantic_ai.exceptions import (
 	ModelConnectionError,
 	ModelContextWindowExceededError,
 	ModelRateLimitError,
+	ModelRequestTimeout,
 	ModelServerError,
 	ModelUnavailableError,
 	RetryModelRequest,
@@ -76,6 +77,7 @@ DELIVERY_REPAIR = (  # bu-pi src/agent.ts:560, verbatim except tool names
 DELIVERY_TOOLS = ['finish_from_repl', 'finish']
 TOOL_CALL_MARKUP = re.compile(r'</?tool_call>')
 TRANSIENT = (ModelRateLimitError, ModelUnavailableError, ModelServerError, ModelConnectionError)
+MODEL_TIMEOUT_S = 300  # bu-pi modelTimeoutMs: one model request, all its SDK attempts included
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
 SECRET_PLACEHOLDER = re.compile(r'<secret>([^<]+)</secret>|<secret:([^>]+)>')  # 0.x's form, and 1.0 redaction's
@@ -280,7 +282,7 @@ def _outputs(output_type: Any) -> list[Any]:
 
 class BrowserLoop(AbstractCapability[Session]):
 	"""Keep only recent screenshots; one delivery-only turn near the time/step budget or after a structured text reply;
-	one retry of a transient provider error per run."""
+	one retry of a transient provider error per run; a deadline per model request."""
 
 	async def before_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
 		s = ctx.deps
@@ -297,10 +299,13 @@ class BrowserLoop(AbstractCapability[Session]):
 			if s.budget_hit:
 				s.finalizing = True
 				ctx.enqueue(DELIVER_NOW)
-		if s.finalizing:  # step settings were resolved before this hook: restrict this very request
-			settings = dict(request_context.model_settings or {})
+		settings: dict[str, Any] = dict(request_context.model_settings or {})  # resolved before this hook
+		# bu-pi deadlineStream: a request that never answers must not hold the run past the delivery turn's start
+		left = (s.timeout_s if s.finalizing else s.delivery_at()) - (time.monotonic() - s.started)
+		settings['request_timeout'] = max(1.0, min(settings.get('request_timeout') or MODEL_TIMEOUT_S, left))
+		if s.finalizing:  # restrict this very request
 			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
-			request_context.model_settings = cast(Any, settings)
+		request_context.model_settings = cast(Any, settings)
 		return request_context
 
 	async def on_model_request_error(self, ctx: RunContext[Session], *, request_context: ModelRequestContext, error: Exception):
@@ -311,6 +316,9 @@ class BrowserLoop(AbstractCapability[Session]):
 		(xai-sdk's gRPC retry policy: 5 attempts). xAI's 429 "at capacity" ended grok bub2-007 on the first try. Bedrock's
 		botocore retries throttling without a max_retries attribute, so it gets this one more."""
 		s, model = ctx.deps, request_context.model
+		if isinstance(error, ModelRequestTimeout):  # a new request step: the delivery turn when its time has come
+			logger.warning(f'{error.model_name}: no answer within {error.timeout:g} s; asking again')
+			raise ModelRetry(f'The model request got no answer within {error.timeout:g} s.')
 		sdk_retried = getattr(getattr(model, 'client', None), 'max_retries', 0) or (
 			model.system == 'xai' and getattr(error, 'provider_error_code', None) == 'UNAVAILABLE'
 		)
