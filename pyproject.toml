@@ -19,6 +19,7 @@ dependencies = [
     "browser-harness==0.1.13",
     "pydantic>=2.11",
     "pydantic-ai-slim[openai,anthropic,google]>=2.64.0,<3",
+    "google-genai>=2.30.0,<3",
     "genai-prices>=0.1.13",
     "idna>=3.7",
     "pillow>=11",
@@ -32,6 +33,8 @@ dependencies = [
 # pillow: the REPL worker validates and downsizes images before they reach the model
 # posthog, python-dotenv, uuid7: anonymized telemetry (ANONYMIZED_TELEMETRY=false turns it off)
 # mcp: `browser-use --cli-mcp` (the biggest CLI surface) must work without extras
+# google-genai<3: 3.0.0 calls the Gemini API on v1, which rejects tools, so every Gemini run fails on its first request.
+# Pydantic AI caps it the same way (pydantic/pydantic-ai#12700, unreleased on 11-08); lift with pydantic-ai#12732.
 
 [project.optional-dependencies]
 anthropic = []  # kept so `browser-use[anthropic]` installs resolve; Anthropic is a core dependency

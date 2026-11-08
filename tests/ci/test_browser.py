@@ -179,6 +179,7 @@ async def test_a_rejected_provider_key_or_unknown_model_never_creates_a_cloud_br
 	"""M3: a bad OpenAI key or an unknown Anthropic model failed only on the first model request, after a cloud browser
 	had been created and billed. One free GET of the model on its provider now fails first."""
 	import io
+	import re
 	import urllib.error
 
 	from browser_use import ChatAnthropic, ChatGoogle, ChatOpenAI
@@ -191,7 +192,7 @@ async def test_a_rejected_provider_key_or_unknown_model_never_creates_a_cloud_br
 		if 'api.openai.com/v1/models/gpt-6-luna' in url:
 			body = b'{"error": {"message": "Incorrect API key provided", "code": "invalid_api_key"}}'
 			raise urllib.error.HTTPError(url, 401, 'Unauthorized', {}, io.BytesIO(body))  # type: ignore[arg-type]
-		if 'generativelanguage.googleapis.com/v1/models/gemini-nonexistent-9' in url:
+		if re.search(r'generativelanguage\.googleapis\.com/v1\w*/models/gemini-nonexistent-9', url):  # any API version
 			raise urllib.error.HTTPError(url, 404, 'Not Found', {}, io.BytesIO(b'{"error": "Model is not found"}'))  # type: ignore[arg-type]
 		if 'api.anthropic.com/v1/models/claude-nonexistent-9' in url:
 			raise urllib.error.HTTPError(url, 404, 'Not Found', {}, io.BytesIO(b'{"error": "model: claude-nonexistent-9"}'))  # type: ignore[arg-type]
@@ -241,7 +242,8 @@ def test_preflight_fails_only_on_a_bad_key_or_model_and_only_asks_google_itself(
 	monkeypatch.setattr('browser_use.llm.urlopen_keyed', urlopen)
 	for var in ('ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL'):
 		monkeypatch.delenv(var, raising=False)
-	g = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash'
+	version = resolve_model(ChatGoogle('gemini-2.5-flash', api_key='bad'))[0].client._api_client._http_options.api_version
+	g = f'https://generativelanguage.googleapis.com/{version}/models/gemini-2.5-flash'
 	bad_google = '{"error": {"code": 400, "message": "API key not valid.", "status": "INVALID_ARGUMENT", "details": [{"reason": "API_KEY_INVALID"}]}}'
 	answers[g] = (400, bad_google)
 	assert 'google rejected the API key (400): API key not valid.' in provider_preflight(
@@ -276,7 +278,7 @@ def test_preflight_fails_only_on_a_bad_key_or_model_and_only_asks_google_itself(
 def test_google_preflight_asks_the_api_version_the_model_runs_on(monkeypatch):
 	"""rr-legacy 1: the 0.x quickstart's ChatGoogle('gemini-flash-latest') passed the preflight (it asked v1beta, where
 	the model exists), a cloud browser started and was billed, then the first request 404'd on v1, where the client
-	runs."""
+	ran (google-genai 3, now capped below 3). The preflight asks the version the client sends requests to."""
 	import io
 	import urllib.error
 
@@ -285,16 +287,17 @@ def test_google_preflight_asks_the_api_version_the_model_runs_on(monkeypatch):
 
 	asked = []
 
-	def urlopen(request, timeout=None):  # Google today: the alias is on v1beta only
-		asked.append(request.full_url)
-		if '/v1beta/' in request.full_url:
-			return io.BytesIO(b'{}')
-		body = b'{"error": {"code": 404, "message": "models/gemini-flash-latest is not found for API version v1"}}'
-		raise urllib.error.HTTPError(request.full_url, 404, 'x', {}, io.BytesIO(body))  # type: ignore[arg-type]
-
-	monkeypatch.setattr('browser_use.llm.urlopen_keyed', urlopen)
 	model = resolve_model(ChatGoogle('gemini-flash-latest', api_key='k'))[0]
 	version = model.client._api_client._http_options.api_version
+
+	def urlopen(request, timeout=None):  # the model is on every version except the one the client runs on
+		asked.append(request.full_url)
+		if f'/{version}/' not in request.full_url:
+			return io.BytesIO(b'{}')
+		body = f'{{"error": {{"code": 404, "message": "models/gemini-flash-latest is not found for API version {version}"}}}}'
+		raise urllib.error.HTTPError(request.full_url, 404, 'x', {}, io.BytesIO(body.encode()))  # type: ignore[arg-type]
+
+	monkeypatch.setattr('browser_use.llm.urlopen_keyed', urlopen)
 	assert 'gemini-flash-latest is not a model this google key can use (404)' in (provider_preflight(model) or ''), asked
 	assert asked == [f'https://generativelanguage.googleapis.com/{version}/models/gemini-flash-latest']
 

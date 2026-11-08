@@ -729,6 +729,17 @@ def test_anthropic_and_google_wrappers_build_models():
 	assert resolve_model(ChatGoogle('gemini-3-flash', api_key='x'))[0].model_name == 'gemini-3-flash'
 
 
+def test_google_models_call_the_gemini_api_version_that_has_function_calling(monkeypatch):
+	"""Live retry check 11-08: google-genai 3.0.0 (2026-11-06) moved the Gemini API default from v1beta to v1, which
+	rejects tools (400 "Function calling is not enabled for api version v1"). Fresh installs resolved it, so every
+	ChatGoogle or 'google:' run failed on its first request. pyproject.toml caps google-genai<3."""
+	monkeypatch.delenv('GOOGLE_GENAI_API_VERSION', raising=False)
+	monkeypatch.setenv('GOOGLE_API_KEY', 'x')
+	for llm in (ChatGoogle('gemini-2.5-flash', api_key='x'), 'google:gemini-2.5-flash'):
+		api = resolve_model(llm)[0].client._api_client
+		assert api._http_options.api_version == 'v1beta', llm
+
+
 def test_unsupported_llm_object_raises():
 	with pytest.raises(TypeError, match='Pydantic AI model string'):
 		resolve_model(object())
