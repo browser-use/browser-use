@@ -84,7 +84,7 @@ class ProductTelemetry:
 		else:
 			from posthog import Posthog
 
-			logger.info('Using anonymized telemetry, see https://docs.browser-use.com/development/monitoring/telemetry.')
+			logger.info('Using anonymized telemetry, see https://docs.browser-use.com/development/monitoring/telemetry')
 			self._posthog_client = Posthog(
 				project_api_key=self.PROJECT_API_KEY,
 				host=self.HOST,
