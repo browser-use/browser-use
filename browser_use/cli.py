@@ -638,10 +638,10 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		return _run_doctor(), 'doctor'
 	if args and args[0] == 'install':
 		return _run_install_command(args[1:]), 'install'
-	if args and args[0] == 'login':
-		return _run_login_command(args[1:]), 'login'
-	if args and args[0] == 'logout':
-		return _run_logout_command(args[1:]), 'logout'
+	if args[:1] in (['login'], ['logout']) or args[:2] in (['auth', 'login'], ['auth', 'logout']):
+		# `auth login` is browser-harness's spelling (the skill teaches it): the same checks as `login`
+		command, rest = (args[1], args[2:]) if args[0] == 'auth' else (args[0], args[1:])
+		return (_run_login_command if command == 'login' else _run_logout_command)(rest), command
 	if args and args[0] == 'init':
 		return _run_init_command(args[1:]), 'init'
 	if '--template' in args or '-t' in args:

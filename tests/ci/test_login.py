@@ -303,6 +303,20 @@ def test_api_key_stdin_stores_only_a_browser_use_key(store, monkeypatch):
 	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY and FAKE_KEY not in result.stdout
 
 
+def test_auth_login_checks_the_key_like_login(store, monkeypatch):
+	"""rr-climcp 2: `browser-use auth login --api-key-stdin` (the form the bundled SKILL.md teaches) went straight to
+	browser-harness: a key the cloud rejects was stored, 'authenticated', exit 0."""
+	_auth_server(monkeypatch, auto_approve=False)
+	result = _cli('auth', 'login', '--api-key-stdin', stdin='bu_' + 'g' * 40)
+	assert result.returncode == 1 and 'rejected that key' in result.stderr, result.stdout + result.stderr
+	assert not store.exists()
+	result = _cli('auth', 'login', '--api-key-stdin', stdin=FAKE_KEY)
+	assert result.returncode == 0 and 'Signed in' in result.stdout, result.stderr
+	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY
+	result = _cli('auth', 'logout')
+	assert result.returncode == 0 and not store.exists()
+
+
 def test_a_corrupt_key_store_is_named_and_login_or_logout_repairs_it(store, monkeypatch):
 	_auth_server(monkeypatch, auto_approve=False)
 	from browser_use.auth import browser_use_api_key
