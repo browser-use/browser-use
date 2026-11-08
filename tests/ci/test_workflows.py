@@ -71,3 +71,14 @@ def test_the_docker_smoke_script_runs_an_agent_on_local_chromium(chrome_binary):
 		[sys.executable, str(WORKFLOWS.parents[1] / 'docker' / 'smoke.py')], env=env, capture_output=True, text=True, timeout=180
 	)
 	assert r.returncode == 0 and "status=completed result='docker smoke'" in r.stdout, r.stdout + r.stderr
+
+
+def test_ci_test_tools_are_a_standard_dependency_group():
+	"""publish.yml dry run: every `uv sync --dev` warned that tool.uv.dev-dependencies is deprecated and will be removed;
+	a uv release without it installs no pytest, and test.yaml (unpinned uv) and publish.yml go red."""
+	import tomllib
+
+	pyproject = tomllib.loads((WORKFLOWS.parents[1] / 'pyproject.toml').read_text())
+	assert 'dev-dependencies' not in pyproject['tool'].get('uv', {})
+	dev = pyproject['dependency-groups']['dev']
+	assert any(req.startswith('pytest==') for req in dev) and any(req.startswith('pytest-asyncio==') for req in dev)

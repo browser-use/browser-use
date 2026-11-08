@@ -117,8 +117,8 @@ filterwarnings = ["ignore::DeprecationWarning"]
 [tool.hatch.metadata]
 allow-direct-references = true
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "ruff==0.14.14",
     "build==1.4.0",
     "pytest==9.0.2",
