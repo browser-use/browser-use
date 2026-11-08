@@ -963,8 +963,8 @@ class Browser:
 	def note_downloads(self, log: Path) -> None:
 		"""Add what a run's REPL worker logged since the last call (log: its workspace's downloads.jsonl) and update
 		json_page_copies. Agents use a Browser one at a time, so appending keeps the session's order."""
-		try:
-			lines = log.read_text(encoding='utf-8').splitlines()
+		try:  # complete lines only: downloads() reads it while the worker may be writing one
+			lines = log.read_text(encoding='utf-8').split('\n')[:-1]
 		except OSError:
 			return
 		seen, self._download_lines[log] = self._download_lines.get(log, 0), len(lines)

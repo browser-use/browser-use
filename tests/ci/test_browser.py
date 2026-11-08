@@ -461,6 +461,19 @@ async def test_downloads_lists_a_cloud_browsers_finished_files(cloud, monkeypatc
 	assert 'downloads()' in prompt and 'downloadProgress' not in prompt
 
 
+def test_a_download_record_the_worker_is_still_writing_counts_once_complete(tmp_path):
+	"""downloads() reads the worker's downloads.jsonl mid-cell, while bu's background drain may be writing a line: a
+	half-written line was skipped for good, so the cloud's copy of that JSON page would be listed and delivered."""
+	log = tmp_path / 'downloads.jsonl'
+	page = '{"json_page": "https://api.test/data?q=1"}\n'
+	log.write_text(page + '{"name": "data.json", "url": "https://api.te')
+	browser = Browser()
+	browser.note_downloads(log)
+	log.write_text(page + '{"name": "data.json", "url": "https://api.test/data.json"}\n')
+	browser.note_downloads(log)
+	assert browser.json_page_copies == {'data.json'}
+
+
 async def test_concurrent_starts_create_one_browser(cloud):
 	"""Roast C4: two concurrent start() calls each created a cloud browser; one leaked."""
 	import asyncio
