@@ -10,10 +10,9 @@ A product-style macOS desktop UI for browser-use.
 - **browser-use** agent runtime
 - **PyInstaller** `.app` + DMG packaging
 
-No Node.js or Python is required on the user's Mac at runtime. React is built
-into static files and CPython plus all dependencies are embedded by PyInstaller.
-Chrome is used when present; set `BUNDLE_CHROMIUM=1` to ship Chromium inside the
-app for Macs that don't have any Chromium-based browser.
+No Node.js, Python, or Chrome is required on the user's Mac at runtime. React is
+built into static files, CPython plus all dependencies are embedded by
+PyInstaller, and the default build also ships Chromium inside the app.
 
 ## Development
 
@@ -45,11 +44,12 @@ What the build guarantees:
 
 - **No Python on the user's Mac.** PyInstaller embeds CPython and every Python
   dependency inside `BrowserBuddy.app`; the build fails if `libpython` is missing.
-- **Chrome is detected, not blindly bundled.** `BUNDLE_CHROMIUM=auto` (default)
-  checks this Mac for Chrome/Chromium/Brave/Edge and skips the 185 MB Chromium
-  download when one is found. Set `BUNDLE_CHROMIUM=1` to force Chromium into
-  `Contents/Frameworks/ms-playwright` (a build that works on any Mac), or
-  `BUNDLE_CHROMIUM=0` to never bundle it.
+- **Chromium is bundled by default.** `BUNDLE_CHROMIUM=1` (default) puts Chromium
+  into `Contents/Frameworks/ms-playwright`, so the DMG works on a Mac with no
+  browser installed. Use `BUNDLE_CHROMIUM=auto` to skip the 185 MB download when
+  the build Mac already has Chrome/Chromium/Brave/Edge, or `BUNDLE_CHROMIUM=0` to
+  never bundle it. Existing downloads in `ms-playwright/` are reused unless
+  `FORCE_CHROMIUM_DOWNLOAD=1` is set.
 - **Drag-to-install.** The DMG contains the app plus an `Applications` symlink and
   a Finder layout, so installing is: open DMG → drag the icon into Applications.
 - **No installer, no daemons, no root prompt.** The app runs as a normal user
@@ -62,8 +62,9 @@ Useful variants:
 
 ```bash
 CONSOLE=1 ./build_mac.sh            # keep a terminal for debugging
-BUNDLE_CHROMIUM=1 ./build_mac.sh    # always ship Chromium (works on any Mac)
+BUNDLE_CHROMIUM=auto ./build_mac.sh # smaller DMG; use the build Mac's Chrome
 BUNDLE_CHROMIUM=0 ./build_mac.sh    # never bundle; require the target Mac's Chrome
+FORCE_CHROMIUM_DOWNLOAD=1 ./build_mac.sh  # re-download Chromium
 SKIP_SMOKE_TEST=1 ./build_mac.sh    # skip the frozen-app health check
 APP_VERSION=1.2.0 ./build_mac.sh    # set CFBundleShortVersionString
 ```

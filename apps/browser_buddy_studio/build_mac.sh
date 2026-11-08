@@ -20,10 +20,11 @@ DIST_DIR="$APP_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 DMG_PATH="$DIST_DIR/$APP_NAME.dmg"
 
-# auto = skip the Chromium download when this Mac already has Chrome/Chromium
-# 1    = force shipping Chromium inside the app (universal build)
-# 0    = never ship Chromium (smaller build, requires Chrome on the target Mac)
-BUNDLE_CHROMIUM="${BUNDLE_CHROMIUM:-auto}"
+# 1    = ship Chromium inside the app (default, works on any Mac)
+# auto = skip the download when this Mac has Chrome/Chromium (smaller DMG,
+#        but the target Mac then needs Chrome)
+# 0    = never ship Chromium (smallest DMG, requires Chrome on the target Mac)
+BUNDLE_CHROMIUM="${BUNDLE_CHROMIUM:-1}"
 SKIP_SMOKE_TEST="${SKIP_SMOKE_TEST:-0}"
 APP_VERSION="${APP_VERSION:-1.0.0}"
 # The official CDN redirects to storage.googleapis.com, which is unreachable in
@@ -121,19 +122,26 @@ if [[ "$BUNDLE_CHROMIUM" == "0" ]]; then
 fi
 
 if [[ "$BUNDLE_CHROMIUM" != "0" ]]; then
-	echo "==> Downloading Chromium for the app bundle"
-	echo "    host: $CHROMIUM_HOST"
-	rm -rf "$APP_DIR/ms-playwright"
-	if ! PLAYWRIGHT_BROWSERS_PATH="$APP_DIR/ms-playwright" \
-		PLAYWRIGHT_DOWNLOAD_HOST="$CHROMIUM_HOST" \
-		PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=30000 \
-		python -m playwright install --no-shell chromium; then
-		echo "==> Mirror failed; retrying the official Playwright CDN"
+	if [[ "${FORCE_CHROMIUM_DOWNLOAD:-0}" != "1" ]] && compgen -G "$APP_DIR/ms-playwright/chromium-*" >/dev/null; then
+		echo "==> Reusing the Chromium already in ms-playwright"
+	else
+		echo "==> Downloading Chromium for the app bundle"
+		echo "    host: $CHROMIUM_HOST"
 		rm -rf "$APP_DIR/ms-playwright"
-		PLAYWRIGHT_BROWSERS_PATH="$APP_DIR/ms-playwright" \
+		if ! PLAYWRIGHT_BROWSERS_PATH="$APP_DIR/ms-playwright" \
+			PLAYWRIGHT_DOWNLOAD_HOST="$CHROMIUM_HOST" \
 			PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=30000 \
-			python -m playwright install --no-shell chromium
+			python -m playwright install --no-shell chromium; then
+			echo "==> Mirror failed; retrying the official Playwright CDN"
+			rm -rf "$APP_DIR/ms-playwright"
+			PLAYWRIGHT_BROWSERS_PATH="$APP_DIR/ms-playwright" \
+				PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=30000 \
+				python -m playwright install --no-shell chromium
+		fi
 	fi
+	# Playwright's install bookkeeping (a directory named .links) makes
+	# `codesign --deep` fail with "bundle format unrecognized".
+	rm -rf "$APP_DIR/ms-playwright/.links" "$APP_DIR/ms-playwright/__dirlock"
 fi
 
 echo "==> Building .app (embedded CPython, no system Python needed)"
