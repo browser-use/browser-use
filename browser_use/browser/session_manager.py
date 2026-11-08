@@ -180,15 +180,15 @@ class SessionManager:
 			return None
 		return self._sessions.get(next(iter(session_ids)))
 
-	def get_all_page_targets(self) -> list:
-		"""Get all page/tab targets using owned data.
+	def get_all_page_targets(self, *, include_extensions: bool = False) -> list:
+		"""Get page/tab targets, excluding extension pages unless explicitly requested.
 
 		Returns:
-			List of Target objects for all page/tab targets
+			List of Target objects for page/tab targets matching the extension filter.
 		"""
 		page_targets = []
 		for target in self._targets.values():
-			if target.target_type in ('page', 'tab'):
+			if target.target_type in ('page', 'tab') and (include_extensions or not target.url.startswith('chrome-extension://')):
 				page_targets.append(target)
 		return page_targets
 
