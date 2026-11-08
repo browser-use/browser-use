@@ -320,10 +320,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
 			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
 
-		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
-		if use_vision != 'auto':
-			self.tools.exclude_action('screenshot')
-
 		# Enable coordinate clicking for models that support it
 		model_name = getattr(llm, 'model', '').lower()
 		supports_coordinate_clicking = any(
@@ -453,6 +449,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._set_file_system(file_system_path)
 		self._set_screenshot_service()
 
+		# TODO: move this logic to the LLMs
+		# Handle users trying to use use_vision=True with DeepSeek models
+		# Runs before the action models are built, so the screenshot action is never offered
+		# to a model that cannot see, not even as an initial action.
+		if 'deepseek' in self.llm.model.lower():
+			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
+			self.settings.use_vision = False
+
+		# Handle users trying to use use_vision=True with XAI models that don't support it
+		# grok-3 variants and grok-code don't support vision; grok-2 and grok-4 do
+		model_lower = self.llm.model.lower()
+		if 'grok-3' in model_lower or 'grok-code' in model_lower:
+			self.logger.warning('⚠️ This XAI model does not support use_vision=True yet. Setting use_vision=False for now...')
+			self.settings.use_vision = False
+
 		# Action setup
 		self._setup_action_models()
 		self._set_browser_use_version_and_source(source)
@@ -471,19 +482,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
 		# Verify we can connect to the model
 		self._verify_and_setup_llm()
-
-		# TODO: move this logic to the LLMs
-		# Handle users trying to use use_vision=True with DeepSeek models
-		if 'deepseek' in self.llm.model.lower():
-			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
-			self.settings.use_vision = False
-
-		# Handle users trying to use use_vision=True with XAI models that don't support it
-		# grok-3 variants and grok-code don't support vision; grok-2 and grok-4 do
-		model_lower = self.llm.model.lower()
-		if 'grok-3' in model_lower or 'grok-code' in model_lower:
-			self.logger.warning('⚠️ This XAI model does not support use_vision=True yet. Setting use_vision=False for now...')
-			self.settings.use_vision = False
 
 		logger.debug(
 			f'{" +vision" if self.settings.use_vision else ""}'
@@ -778,10 +776,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.version = version
 		self.source = source
 
+	def _offered_actions(self) -> list[str] | None:
+		"""Action names this agent offers the LLM, or None for all registered actions.
+
+		Screenshot is only offered when use_vision='auto'. It is filtered here, per agent, rather than
+		excluded from self.tools, because the caller's Tools may be shared with other agents.
+		"""
+		if self.settings.use_vision == 'auto':
+			return None
+		return [name for name in self.tools.registry.registry.actions if name != 'screenshot']
+
 	def _setup_action_models(self) -> None:
 		"""Setup dynamic action models from tools registry"""
 		# Initially only include actions with no filters
-		self.ActionModel = self.tools.registry.create_action_model()
+		self.ActionModel = self.tools.registry.create_action_model(include_actions=self._offered_actions())
 		# Create output model with the dynamic actions
 		if self.settings.flash_mode:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
@@ -4049,7 +4057,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _update_action_models_for_page(self, page_url: str) -> None:
 		"""Update action models with page-specific actions"""
 		# Create new action model with current page's filtered actions
-		self.ActionModel = self.tools.registry.create_action_model(page_url=page_url)
+		self.ActionModel = self.tools.registry.create_action_model(include_actions=self._offered_actions(), page_url=page_url)
 		# Update output model with the new actions
 		if self.settings.flash_mode:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
