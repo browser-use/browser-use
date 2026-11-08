@@ -398,9 +398,18 @@ class StreamResponses(AbstractCapability[Session]):
 class StreamedRequest(WrapperModel):
 	async def request(self, messages: Any, model_settings: Any, model_request_parameters: Any) -> ModelResponse:
 		async with self.wrapped.request_stream(messages, model_settings, model_request_parameters) as stream:
-			async for _ in stream:
-				pass
-		return stream.get()
+			try:
+				async for _ in stream:
+					pass
+			except ModelAPIError as e:  # the SDK retries a request until its stream opens, never a stream that broke off
+				e.in_stream = True  # BrowserLoop's one retry, as for any failure inside an HTTP 200
+				raise
+		response = stream.get()
+		# A stream closed before its terminal event (response.completed, .incomplete, .failed) is cut off, as a body
+		# that ended early: a half answer taken as the result, a half summary as the checkpoint, no usage or charge
+		if response.state != 'complete':
+			raise ModelConnectionError(self.model_name, 'The response stream ended before the response did.', in_stream=True)
+		return response
 
 
 class LazyCompaction(OpenAICompaction):

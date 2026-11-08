@@ -140,7 +140,8 @@ def sse(response: dict) -> bytes:
 		else:
 			emit('response.output_item.added', output_index=i, item=item)
 		emit('response.output_item.done', output_index=i, item=item)
-	emit('response.failed' if response['status'] == 'failed' else 'response.completed', response=response)
+	if response['status'] not in ('cut', 'drop'):  # the stream ends before its terminal event (cut: cleanly)
+		emit('response.failed' if response['status'] == 'failed' else 'response.completed', response=response)
 	return b''.join(f'event: {e["type"]}\ndata: {json.dumps(e)}\n\n'.encode() for e in events)
 
 
@@ -183,7 +184,8 @@ def responses_server():
 			data = sse(reply) if streamed else json.dumps(reply).encode()
 			self.send_response(status)
 			self.send_header('Content-Type', 'text/event-stream' if streamed else 'application/json')
-			self.send_header('Content-Length', str(len(data)))
+			dropped = reply.get('status') == 'drop'  # the connection breaks: the body is shorter than its Content-Length
+			self.send_header('Content-Length', str(len(data) + (1000 if dropped else 0)))
 			self.end_headers()
 			self.wfile.write(data)
 
@@ -284,6 +286,27 @@ async def test_a_responses_failure_inside_http_200_is_retried_once(responses_ser
 def text(content: str, n: int) -> dict:
 	return {'type': 'message', 'id': f'msg_{n}', 'role': 'assistant', 'status': 'completed',
 			'content': [{'type': 'output_text', 'text': content, 'annotations': []}]}  # fmt: skip
+
+
+@pytest.mark.parametrize(('end', 'error'), [('cut', 'stream ended'), ('drop', 'ModelConnectionError')])
+async def test_a_responses_stream_that_ends_early_is_retried_once(responses_server, tmp_path, end, error):
+	"""Review: a stream that closed cleanly before response.completed (a proxy or the gateway ending it) was taken as a
+	whole response: its half text the run's answer with status completed, and cost_usd None (no charge). A stream whose
+	connection broke was never retried: BrowserLoop counted it as retried by the OpenAI client, which retries a request
+	only until its stream opens. A non-streamed body cut short was a connection error the client retried; both now get
+	the one transient retry per run."""
+	url, requests, replies = responses_server
+	cut = {'status': end, 'output': [text('The answer is 4', 1)]}
+	model, _ = resolve_model(ChatBrowserUse('bu-smart', api_key='fake-test-key', base_url=url))
+	replies += [cut, [text('The answer is 42', 2)]]
+	ref = 'browser-use:bu-smart'
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
+	assert (result.status, result.output, len(requests)) == ('completed', 'The answer is 42', 2), result.error
+	assert result.cost_usd == pytest.approx(0.0002)
+	requests.clear()
+	replies += [cut, cut]
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
+	assert (result.status, len(requests)) == ('error', 2) and error in (result.error or ''), result
 
 
 async def test_a_responses_request_over_the_context_window_compacts_once_and_is_sent_again(responses_server, tmp_path):
