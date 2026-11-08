@@ -165,7 +165,7 @@ function Sidebar({ history, activeId, onNew, onSelect, onSettings, onDownloads, 
       <button className="sidebar-action" onClick={onDownloads}>
         <Icon name="folder" size={16} />
         下载文件夹
-        <span className="sidebar-action-hint">~/Downloads</span>
+        <span className="sidebar-action-hint">应用内</span>
       </button>
       <button className={`sidebar-action ${loginActive ? 'accent' : ''}`} onClick={onLogin}>
         <Icon name="login" size={16} />
@@ -326,7 +326,7 @@ function Home({ task, setTask, onRun, running, settings, onSettings, error, foll
 
         <div className="home-footnote">
           <Icon name="key" size={14} />
-          API Key 保存在 macOS Keychain，不会写进代码或日志。
+          API Key 保存在本机私有配置（仅当前用户可读），不会写进代码或日志。
         </div>
       </div>
     </div>
@@ -905,7 +905,7 @@ function SettingsDrawer({
           </label>
           <div className={`key-status ${providerInfo?.has_key ? 'ready' : ''}`}>
             <span className="api-dot" />
-            {providerInfo?.has_key ? 'Key 已保存到 macOS Keychain' : '还没有保存这个提供商的 Key'}
+            {providerInfo?.has_key ? 'Key 已保存在本机' : '还没有保存这个提供商的 Key'}
           </div>
         </div>
 
@@ -1248,7 +1248,7 @@ function WelcomeView({ draft, setDraft, onSend, running, disabled, settings, onS
 
         <div className="home-footnote">
           <Icon name="key" size={14} />
-          API Key 保存在 macOS Keychain，不会写进代码或日志。
+          API Key 保存在本机私有配置（仅当前用户可读），不会写进代码或日志。
         </div>
       </div>
     </div>

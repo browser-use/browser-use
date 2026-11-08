@@ -11,7 +11,7 @@ PROFILE_DIR = APP_SUPPORT_DIR / 'browser-profile'
 ARTIFACT_DIR = APP_SUPPORT_DIR / 'artifacts'
 HISTORY_DIR = APP_SUPPORT_DIR / 'history'
 BROWSER_STATE_FILE = APP_SUPPORT_DIR / 'storage_state.json'
-DOWNLOADS_DIR = Path.home() / 'Downloads'
+DOWNLOADS_DIR = APP_SUPPORT_DIR / 'downloads'
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 

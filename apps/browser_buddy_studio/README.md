@@ -62,7 +62,7 @@ BUNDLE_CHROMIUM=1 ./build_mac.sh  # bundle Chromium for friends without Chrome
   - OpenAI
   - Anthropic
   - Google Gemini
-- Per-provider API keys stored in macOS Keychain
+- Per-provider API keys stored in a private local file
 - Configurable search engine with automatic regional fallback (Bing 中国 → 搜狗 → 百度 → 360 → Bing 国际 → Google → DuckDuckGo)
 - Persistent login for Taobao, JD, Xiaohongshu, and Douyin
 - Light/dark themes
@@ -112,11 +112,11 @@ This avoids starting Chromium for messages like “hi” or “你好”.
 
 ## Notes
 
-- The app is macOS-only because it uses `sips` for PDF previews and macOS Keychain.
+- The app is macOS-only because it uses macOS-specific paths and `sips` for PDF previews.
 - The backend binds to loopback only.
 - API keys are never written to the frontend bundle.
 - Task history and UI preferences persist across app restarts in `~/Library/Application Support/BrowserBuddy/`.
-- Browser downloads are saved to the macOS default Downloads folder: `~/Downloads`. Open it from the sidebar → 下载文件夹, the result toolbar, or Settings → 打开下载文件夹.
+- Browser downloads are saved inside the app data folder: `~/Library/Application Support/BrowserBuddy/downloads`. Open it from the sidebar → 下载文件夹, the result toolbar, or Settings → 打开下载文件夹. The app does not touch the system `~/Downloads` folder, so macOS does not ask for Downloads permission.
 - For mainland China, choose a search engine in Settings. The default **自动** mode prioritizes Bing 中国, then falls back to 搜狗, 百度, 360, Bing 国际, Google, and DuckDuckGo. Engines that redirect to CAPTCHA pages are skipped.
 - Xiaohongshu and Douyin are not search-engine options. Log in once with **登录平台**, then ask the agent to search directly on the site (for example, "打开小红书搜索露营装备"). The agent uses the saved login state and searches inside the platform.
 - Xiaohongshu and Douyin source cards open in the app's logged-in browser instead of the system browser, so notes and videos play without a mobile QR scan. Xiaohongshu note URLs must keep their `xsec_token`; the app reuses the token from the URLs visited during the task when the model returns a bare `/explore/<id>` link.
@@ -125,6 +125,6 @@ This avoids starting Chromium for messages like “hi” or “你好”.
 
 ## API keys
 
-API keys are stored per provider in macOS Keychain. The backend caches keys in memory so a key is read from Keychain once per app session, not on every task.
+API keys are stored per provider in `~/Library/Application Support/BrowserBuddy/secrets.json` with `0600` permissions. They are kept out of the frontend bundle and logs. The backend caches keys in memory so the file is read once per app session.
 
-On the first read, macOS may ask for Keychain access. Choose **Always Allow** to avoid future prompts for the same signed build. Ad-hoc signed development builds may prompt again after rebuilding because their code signature changes.
+This local storage avoids macOS Keychain access prompts, which are unreliable for unsigned or ad-hoc signed development builds.

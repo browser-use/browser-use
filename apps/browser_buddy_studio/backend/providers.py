@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import json
 import logging
-import subprocess
-
-import keyring
+import os
+import threading
 
 from browser_use import ChatAnthropic, ChatBrowserUse, ChatDeepSeek, ChatGoogle, ChatOpenAI
 
-KEYRING_SERVICE = 'BrowserBuddy'
+from .config import APP_SUPPORT_DIR
+
 DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
+SECRETS_FILE = APP_SUPPORT_DIR / 'secrets.json'
 
 PROVIDERS = {
 	'DeepSeek': {
@@ -40,25 +42,41 @@ PROVIDERS = {
 
 logger = logging.getLogger('browser_buddy.providers')
 _KEY_CACHE: dict[str, str] = {}
+_SECRETS_LOCK = threading.Lock()
 
 
-def _keychain_has_item(service: str, account: str) -> bool:
+def _load_secrets() -> dict[str, str]:
 	try:
-		result = subprocess.run(
-			['security', 'find-generic-password', '-s', service, '-a', account],
-			capture_output=True,
-			timeout=5,
-		)
-		return result.returncode == 0
+		data = json.loads(SECRETS_FILE.read_text(encoding='utf-8'))
 	except Exception:
-		return False
+		return {}
+	if not isinstance(data, dict):
+		return {}
+	return {str(key): str(value) for key, value in data.items() if isinstance(value, str) and value}
+
+
+def _write_secrets(data: dict[str, str]) -> None:
+	SECRETS_FILE.parent.mkdir(parents=True, exist_ok=True)
+	temp = SECRETS_FILE.with_suffix(SECRETS_FILE.suffix + '.tmp')
+	temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+	try:
+		os.chmod(temp, 0o600)
+	except Exception:
+		pass
+	temp.replace(SECRETS_FILE)
+	try:
+		os.chmod(SECRETS_FILE, 0o600)
+	except Exception:
+		pass
 
 
 def get_saved_key(provider: str) -> str:
 	if provider in _KEY_CACHE:
 		return _KEY_CACHE[provider]
 	try:
-		key = keyring.get_password(KEYRING_SERVICE, PROVIDERS[provider]['key_name']) or ''
+		key_name = PROVIDERS[provider]['key_name']
+		with _SECRETS_LOCK:
+			key = _load_secrets().get(key_name, '')
 		if key:
 			_KEY_CACHE[provider] = key
 		return key
@@ -68,11 +86,22 @@ def get_saved_key(provider: str) -> str:
 
 
 def save_key(provider: str, api_key: str) -> None:
+	api_key = (api_key or '').strip()
 	if _KEY_CACHE.get(provider) == api_key:
 		return
 	try:
-		keyring.set_password(KEYRING_SERVICE, PROVIDERS[provider]['key_name'], api_key)
-		_KEY_CACHE[provider] = api_key
+		key_name = PROVIDERS[provider]['key_name']
+		with _SECRETS_LOCK:
+			data = _load_secrets()
+			if api_key:
+				data[key_name] = api_key
+			else:
+				data.pop(key_name, None)
+			_write_secrets(data)
+		if api_key:
+			_KEY_CACHE[provider] = api_key
+		else:
+			_KEY_CACHE.pop(provider, None)
 	except Exception as e:
 		logger.warning(f'Could not save API key for {provider}: {type(e).__name__}: {e}')
 
@@ -92,6 +121,8 @@ def build_llm(provider: str, model: str, api_key: str):
 
 
 def provider_list() -> list[dict]:
+	with _SECRETS_LOCK:
+		saved_keys = _load_secrets()
 	result = []
 	for name, config in PROVIDERS.items():
 		result.append(
@@ -99,7 +130,7 @@ def provider_list() -> list[dict]:
 				'name': name,
 				'default_model': config['default_model'],
 				'placeholder': config['placeholder'],
-				'has_key': name in _KEY_CACHE or _keychain_has_item(KEYRING_SERVICE, config['key_name']),
+				'has_key': name in _KEY_CACHE or bool(saved_keys.get(config['key_name'])),
 			}
 		)
 	return result
