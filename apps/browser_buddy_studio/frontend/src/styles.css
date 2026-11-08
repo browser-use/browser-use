@@ -2049,3 +2049,54 @@ button {
 .danger-button:disabled {
   opacity: 0.6;
 }
+
+.login-count {
+  margin-left: auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--success-soft);
+  color: var(--success);
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.login-option small.ready {
+  color: var(--success);
+}
+
+.login-persist-note {
+  margin: 14px 0 0;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.platform-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+}
+
+.platform-name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.platform-status {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.platform-status.ready {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.platform-note {
+  font-size: 9px;
+  color: var(--muted);
+}

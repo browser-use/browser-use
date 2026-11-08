@@ -10,6 +10,7 @@ import {
   finishLogin,
   getChats,
   getHistory,
+  getLogins,
   getPreferences,
   getProviders,
   getState,
@@ -70,6 +71,11 @@ function buildPreviousContext(followUp) {
 
 function formatTime(value) {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatLoginDate(value) {
+  if (!value) return ''
+  return new Date(value * 1000).toLocaleDateString([], { month: '2-digit', day: '2-digit' })
 }
 
 async function copyToClipboard(text) {
@@ -142,10 +148,11 @@ function StatusPill({ running, result, error }) {
   return null
 }
 
-function Sidebar({ history, activeId, onNew, onSelect, onSettings, onDownloads, onLogin, loginActive, loginSite, theme, setTheme, providers, settings }) {
+function Sidebar({ history, activeId, onNew, onSelect, onSettings, onDownloads, onLogin, loginActive, loginSite, platforms, theme, setTheme, providers, settings }) {
   const groups = groupHistory(history)
   const providerInfo = providers.find((item) => item.name === settings.provider)
   const apiReady = Boolean(providerInfo?.has_key)
+  const loggedInCount = (platforms || []).filter((item) => item.logged_in).length
 
   return (
     <aside className="sidebar">
@@ -172,6 +179,7 @@ function Sidebar({ history, activeId, onNew, onSelect, onSettings, onDownloads, 
       <button className={`sidebar-action ${loginActive ? 'accent' : ''}`} onClick={onLogin}>
         <Icon name="login" size={16} />
         {loginActive ? `登录中：${platformLabel(loginSite)}` : '登录平台'}
+        {loggedInCount > 0 && <span className="login-count">{loggedInCount} 已登录</span>}
       </button>
 
       <div className="sidebar-section">
@@ -699,9 +707,15 @@ function RunView({
   )
 }
 
-function LoginDialog({ open, active, busy, site, error, onClose, onStart, onFinish, onCancel }) {
+function loginOptionHint(status, fallback) {
+  if (!status?.logged_in) return fallback
+  return status.account ? `已登录：${status.account}` : '已登录，无需重复登录'
+}
+
+function LoginDialog({ open, active, busy, site, error, platforms, onClose, onStart, onFinish, onCancel }) {
   if (!open) return null
   const label = platformLabel(site)
+  const statusFor = (key) => (platforms || []).find((item) => item.site === key)
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
@@ -722,8 +736,8 @@ function LoginDialog({ open, active, busy, site, error, onClose, onStart, onFini
               <Icon name="login" size={18} />
               {label} 登录页已打开
             </div>
-            <p>请在弹出的浏览器窗口中完成扫码或账号密码登录。完成后点击“已完成登录”。</p>
-            <div className="login-note">不要在这里输入密码。只在你自己的浏览器窗口中登录。</div>
+            <p>请在弹出的浏览器窗口中完成扫码或账号密码登录。检测到登录成功后会自动关闭登录窗口；扫码失败时直接关闭浏览器窗口即可。</p>
+            <div className="login-note">不要在这里输入密码。只在你自己的浏览器窗口中登录。登录状态会保存在本机，下次不需要重复扫码。</div>
             <div className="modal-actions">
               <button className="run-button" onClick={onFinish}>
                 <Icon name="check" size={15} />
@@ -749,30 +763,39 @@ function LoginDialog({ open, active, busy, site, error, onClose, onStart, onFini
                   <Icon name="tag" size={20} />
                 </span>
                 <strong>淘宝</strong>
-                <small>扫码或账号密码登录</small>
+                <small className={statusFor('taobao')?.logged_in ? 'ready' : ''}>
+                  {loginOptionHint(statusFor('taobao'), '扫码或账号密码登录')}
+                </small>
               </button>
               <button className="login-option" disabled={busy} onClick={() => onStart('jd')}>
                 <span className="login-option-icon">
                   <Icon name="tag" size={20} />
                 </span>
                 <strong>京东</strong>
-                <small>扫码或账号密码登录</small>
+                <small className={statusFor('jd')?.logged_in ? 'ready' : ''}>
+                  {loginOptionHint(statusFor('jd'), '扫码或账号密码登录')}
+                </small>
               </button>
               <button className="login-option" disabled={busy} onClick={() => onStart('xiaohongshu')}>
                 <span className="login-option-icon">
                   <Icon name="search" size={20} />
                 </span>
                 <strong>小红书</strong>
-                <small>扫码登录</small>
+                <small className={statusFor('xiaohongshu')?.logged_in ? 'ready' : ''}>
+                  {loginOptionHint(statusFor('xiaohongshu'), '扫码登录')}
+                </small>
               </button>
               <button className="login-option" disabled={busy} onClick={() => onStart('douyin')}>
                 <span className="login-option-icon">
                   <Icon name="play" size={20} />
                 </span>
                 <strong>抖音</strong>
-                <small>扫码登录</small>
+                <small className={statusFor('douyin')?.logged_in ? 'ready' : ''}>
+                  {loginOptionHint(statusFor('douyin'), '扫码登录')}
+                </small>
               </button>
             </div>
+            <p className="login-persist-note">登录一次后，App 会保存登录状态，重启后不需要重复扫码。</p>
           </div>
         )}
 
@@ -836,6 +859,8 @@ function SettingsDrawer({
   onDownloads,
   onOpenData,
   onDeleteData,
+  platforms,
+  onLoginSite,
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
@@ -966,6 +991,28 @@ function SettingsDrawer({
               onChange={(event) => setSettings((prev) => ({ ...prev, maxSteps: Number(event.target.value) }))}
             />
           </label>
+        </div>
+
+        <div className="drawer-section">
+          <div className="drawer-section-title">平台登录</div>
+          {(platforms || []).map((item) => (
+            <div className="platform-row" key={item.site}>
+              <span className="platform-name">{item.label}</span>
+              {item.logged_in ? (
+                <>
+                  <span className="platform-note">{formatLoginDate(item.last_login_at)}</span>
+                  <span className="platform-status ready">已登录</span>
+                </>
+              ) : (
+                <button className="soft-chip" onClick={() => onLoginSite(item.site)}>
+                  登录
+                </button>
+              )}
+            </div>
+          ))}
+          <p className="drawer-hint" style={{ marginTop: 10 }}>
+            登录状态保存在本机，重启 App 后不需要重复扫码。
+          </p>
         </div>
 
         <div className="drawer-section">
@@ -1424,6 +1471,7 @@ export default function App() {
   const [loginBusy, setLoginBusy] = useState(false)
   const [loginSite, setLoginSite] = useState(null)
   const [loginError, setLoginError] = useState('')
+  const [platforms, setPlatforms] = useState([])
   const [humanRequest, setHumanRequest] = useState(null)
   const [toast, setToast] = useState('')
   const liveStepsRef = useRef([])
@@ -1431,6 +1479,21 @@ export default function App() {
   const runMetaRef = useRef(null)
   const prefsLoadedRef = useRef(false)
   const toastTimerRef = useRef(null)
+
+  const showToast = useCallback((message) => {
+    setToast(message)
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => setToast(''), 2600)
+  }, [])
+
+  const refreshLogins = useCallback(async () => {
+    try {
+      const data = await getLogins()
+      if (Array.isArray(data.platforms)) setPlatforms(data.platforms)
+    } catch {
+      // Login status is cosmetic; keep the last known values.
+    }
+  }, [])
 
   const activeThread = useMemo(
     () => threads.find((thread) => thread.id === activeThreadId) || null,
@@ -1512,10 +1575,26 @@ export default function App() {
         setLoginError('')
         return
       }
+      if (event.type === 'logins_updated') {
+        if (Array.isArray(event.logins)) setPlatforms(event.logins)
+        return
+      }
       if (event.type === 'login_finished') {
+        if (Array.isArray(event.logins)) setPlatforms(event.logins)
         setLoginActive(false)
         setLoginBusy(false)
         setLoginSite(null)
+        if (event.success) {
+          setLoginOpen(false)
+          setLoginError('')
+          showToast(`${event.label || platformLabel(event.site)}登录成功`)
+        } else if (event.cancelled) {
+          setLoginOpen(false)
+          setLoginError('')
+          showToast('已关闭登录窗口')
+        } else {
+          setLoginError(`还没有检测到${event.label || '该平台'}登录成功，请先在浏览器里完成扫码。`)
+        }
         return
       }
       if (event.type === 'needs_human') {
@@ -1566,7 +1645,7 @@ export default function App() {
         setRunning(false)
       }
     },
-    [appendAssistant],
+    [appendAssistant, showToast],
   )
 
   useEffect(() => {
@@ -1643,6 +1722,7 @@ export default function App() {
           liveStepsRef.current = state.steps || []
         }
 
+        if (Array.isArray(state.logins)) setPlatforms(state.logins)
         if (state.login_active) {
           setLoginActive(true)
           setLoginSite(state.login_site)
@@ -1802,6 +1882,7 @@ export default function App() {
     setLoginBusy(true)
     try {
       const result = await startLogin(site)
+      if (Array.isArray(result.logins)) setPlatforms(result.logins)
       setLoginActive(true)
       setLoginSite(result.site || site)
       setLoginOpen(true)
@@ -1814,11 +1895,9 @@ export default function App() {
 
   async function handleLoginFinish() {
     try {
+      // The backend validates the cookies and publishes login_finished; the
+      // SSE handler decides whether to close the dialog or show an error.
       await finishLogin()
-      setLoginActive(false)
-      setLoginBusy(false)
-      setLoginSite(null)
-      setLoginOpen(false)
     } catch (e) {
       setLoginError(e.message)
     }
@@ -1826,11 +1905,8 @@ export default function App() {
 
   async function handleLoginCancel() {
     try {
+      // Closing the login window is always allowed; the SSE handler reports it.
       await cancelLogin()
-      setLoginActive(false)
-      setLoginBusy(false)
-      setLoginSite(null)
-      setLoginOpen(false)
     } catch (e) {
       setLoginError(e.message)
     }
@@ -1865,10 +1941,12 @@ export default function App() {
         onDownloads={openDownloads}
         onLogin={() => {
           setLoginError('')
+          refreshLogins()
           setLoginOpen(true)
         }}
         loginActive={loginActive}
         loginSite={loginSite}
+        platforms={platforms}
         theme={theme}
         setTheme={setTheme}
         providers={providers}
@@ -1922,6 +2000,13 @@ export default function App() {
         onDownloads={openDownloads}
         onOpenData={openDataFolder}
         onDeleteData={deleteLocalData}
+        platforms={platforms}
+        onLoginSite={(site) => {
+          setSettingsOpen(false)
+          setLoginError('')
+          setLoginOpen(true)
+          handleLoginStart(site)
+        }}
       />
       <LoginDialog
         open={loginOpen}
@@ -1929,6 +2014,7 @@ export default function App() {
         busy={loginBusy}
         site={loginSite}
         error={loginError}
+        platforms={platforms}
         onClose={() => setLoginOpen(false)}
         onStart={handleLoginStart}
         onFinish={handleLoginFinish}

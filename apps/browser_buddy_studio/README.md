@@ -125,13 +125,22 @@ PyWebView window
               ├── /api/stop
               ├── /api/events (SSE)
               ├── /api/state
+              ├── /api/logins
               └── /artifacts
                     └── browser-use Agent
 ```
 
 ## Platform login
 
-Use the sidebar **登录平台** button to open Taobao, JD, Xiaohongshu, or Douyin in a visible browser. The user completes QR or password login directly in the browser; the app never stores the password. Cookies are persisted in the dedicated browser profile and exported to `~/Library/Application Support/BrowserBuddy/storage_state.json`, so platform logins survive task restarts.
+Use the sidebar **登录平台** button to open Taobao, JD, Xiaohongshu, or Douyin in a visible browser. The user completes QR or password login directly in the browser; the app never stores the password.
+
+Login detection and status:
+
+- The backend watches the browser's cookies every second. As soon as a real login cookie appears (`unb` for Taobao, `thor` for JD, `web_session` for Xiaohongshu, `sessionid` for Douyin), it exports the cookie jar, closes the login window automatically, and shows **“淘宝登录成功”**.
+- If the scan fails, the user can simply close the browser window; the app treats it as cancelled and never blocks the UI.
+- Platforms are considered signed in only while a live auth cookie exists, so expired sessions show **未登录** instead of a stale success.
+- Login status is shown in the login dialog, as a badge on the sidebar button, and in **设置 → 平台登录**.
+- Cookies are saved to `~/Library/Application Support/BrowserBuddy/storage_state.json`, and login timestamps to `platform_logins.json`. Cookies are also re-exported after every browser task and source-link view, so refreshed sessions are not lost and users do not have to scan again after restarting the app.
 
 If a task hits login, QR code, CAPTCHA, SMS verification, or payment confirmation, the agent calls `request_human_help`. The UI pauses the task, shows the reason, and waits for **继续任务** or **取消任务**. This requires the browser to be visible (turn off headless mode).
 

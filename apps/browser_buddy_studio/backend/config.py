@@ -19,6 +19,7 @@ PROFILE_DIR = APP_SUPPORT_DIR / 'browser-profile'
 ARTIFACT_DIR = APP_SUPPORT_DIR / 'artifacts'
 HISTORY_DIR = APP_SUPPORT_DIR / 'history'
 BROWSER_STATE_FILE = APP_SUPPORT_DIR / 'storage_state.json'
+PLATFORM_LOGINS_FILE = APP_SUPPORT_DIR / 'platform_logins.json'
 DOWNLOADS_DIR = APP_SUPPORT_DIR / 'downloads'
 
 # Older builds wrote logs outside the shared folder. Keep upgrading users clean.

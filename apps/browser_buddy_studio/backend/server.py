@@ -36,6 +36,12 @@ from browser_use.browser.events import NavigateToUrlEvent  # noqa: E402
 
 from .artifacts import build_sources, collect_artifacts, repair_xhs_links  # noqa: E402
 from .intent import chat_reply, needs_browser  # noqa: E402
+from .platform_logins import (  # noqa: E402
+	has_auth_cookie,
+	platform_status,
+	read_cookies,
+	record_login,
+)
 from .providers import PROVIDERS, build_llm, get_saved_key, provider_list, save_key  # noqa: E402
 from .search_tools import build_tools  # noqa: E402
 from .storage import (  # noqa: E402
@@ -51,10 +57,7 @@ from .storage import (  # noqa: E402
 
 # None means "let browser-use find Google Chrome / Chromium on this Mac".
 BROWSER_EXECUTABLE = bundled_browser_executable()
-NO_BROWSER_MESSAGE = (
-	'未找到可用的浏览器。请先安装 Google Chrome（https://www.google.com/chrome/），'
-	'然后重新打开 BrowserBuddy。'
-)
+NO_BROWSER_MESSAGE = '未找到可用的浏览器。请先安装 Google Chrome（https://www.google.com/chrome/），然后重新打开 BrowserBuddy。'
 
 logger = logging.getLogger('browser_buddy.server')
 logger.setLevel(logging.INFO)
@@ -275,7 +278,33 @@ async def _prepare_login_page(site: str, browser: Browser) -> None:
 		logger.warning(f'Could not open login panel for {site}: {type(e).__name__}: {e}')
 
 
-async def _close_login_browser(cancelled: bool = False) -> None:
+def _label_for(site: str | None) -> str:
+	if not site:
+		return ''
+	return LOGIN_URLS.get(site, (site, ''))[0]
+
+
+async def _save_storage_state(browser: Browser) -> None:
+	"""Write the cookie jar atomically so status reads never see a half file."""
+	temp = BROWSER_STATE_FILE.with_suffix(BROWSER_STATE_FILE.suffix + '.tmp')
+	try:
+		await browser.export_storage_state(temp)
+		temp.replace(BROWSER_STATE_FILE)
+	finally:
+		temp.unlink(missing_ok=True)
+
+
+async def _login_succeeded(browser: Browser, site: str | None) -> bool:
+	if not site:
+		return False
+	try:
+		cookies = await browser.cookies()
+	except Exception:
+		return False
+	return has_auth_cookie(cookies, site)
+
+
+async def _close_login_browser(cancelled: bool = False, reason: str = 'manual') -> None:
 	global LOGIN_SESSION, LOGIN_SITE, LOGIN_PREPARE_TASK, LOGIN_WATCH_TASK
 
 	if LOGIN_PREPARE_TASK is not None and not LOGIN_PREPARE_TASK.done():
@@ -283,13 +312,17 @@ async def _close_login_browser(cancelled: bool = False) -> None:
 	LOGIN_PREPARE_TASK = None
 	LOGIN_WATCH_TASK = None
 	browser = LOGIN_SESSION
+	site = LOGIN_SITE
 	LOGIN_SESSION = None
 	LOGIN_SITE = None
+
+	success = False
 	if browser is not None:
 		alive = _browser_has_pages(browser)
 		if alive and not cancelled:
+			success = await _login_succeeded(browser, site)
 			try:
-				await browser.export_storage_state(BROWSER_STATE_FILE)
+				await _save_storage_state(browser)
 			except Exception as e:
 				logger.warning(f'Could not export login storage state: {type(e).__name__}: {e}')
 		if alive:
@@ -300,23 +333,50 @@ async def _close_login_browser(cancelled: bool = False) -> None:
 				await asyncio.to_thread(_cleanup_stale_browser_profile)
 		else:
 			await asyncio.to_thread(_cleanup_stale_browser_profile)
-	HUB.publish({'type': 'login_finished', 'cancelled': cancelled})
+
+	# The browser may already be gone when the user clicks "已完成登录"; fall
+	# back to the last exported cookie jar so a successful scan is not lost.
+	if not success and site is not None and not cancelled:
+		success = has_auth_cookie(read_cookies(), site)
+	if success and site is not None:
+		record_login(site, True)
+
+	logins = platform_status()
+	if success:
+		logger.info(f'Platform login succeeded: {site}')
+	HUB.publish(
+		{
+			'type': 'login_finished',
+			'cancelled': cancelled,
+			'success': success,
+			'site': site,
+			'label': _label_for(site),
+			'reason': reason,
+			'logins': logins,
+		}
+	)
 
 
-async def _watch_login_browser(browser: Browser) -> None:
-	"""Publish login_finished when the user closes the login browser manually."""
+async def _watch_login_browser(browser: Browser, site: str) -> None:
+	"""Auto-close the login window after a successful scan, or when closed."""
 	try:
+		await asyncio.sleep(0.8)
 		while LOGIN_SESSION is browser:
-			await asyncio.sleep(1)
-			if LOGIN_SESSION is not browser:
-				return
-			if _browser_has_pages(browser):
-				continue
-			await asyncio.sleep(1)
-			if LOGIN_SESSION is browser and not _browser_has_pages(browser):
-				logger.info('Login browser was closed by the user')
-				await _close_login_browser(cancelled=True)
-				return
+			if not _browser_has_pages(browser):
+				await asyncio.sleep(0.5)
+				if LOGIN_SESSION is browser and not _browser_has_pages(browser):
+					logger.info('Login browser was closed by the user')
+					await _close_login_browser(cancelled=True, reason='closed')
+					return
+			if await _login_succeeded(browser, site):
+				# Confirm on the next poll: some flows set a cookie before a
+				# second factor (SMS/slider) is finished.
+				await asyncio.sleep(1.0)
+				if LOGIN_SESSION is browser and await _login_succeeded(browser, site):
+					logger.info(f'Detected successful login for {site}')
+					await _close_login_browser(cancelled=False, reason='detected')
+					return
+			await asyncio.sleep(1.0)
 	except asyncio.CancelledError:
 		raise
 	except Exception as e:
@@ -502,6 +562,16 @@ async def _run_agent(request: RunRequest) -> None:
 		STATE['running'] = False
 		CURRENT_AGENT = None
 		if CURRENT_BROWSER is not None:
+			# Keep the exported cookie jar fresh: platforms may rotate session
+			# cookies while the agent works, and the next launch restores them.
+			try:
+				await _save_storage_state(CURRENT_BROWSER)
+			except Exception as e:
+				logger.debug(f'Could not save cookies after task: {type(e).__name__}: {e}')
+			try:
+				HUB.publish({'type': 'logins_updated', 'logins': platform_status()})
+			except Exception:
+				pass
 			try:
 				await CURRENT_BROWSER.kill()
 			except Exception:
@@ -535,7 +605,13 @@ async def state() -> dict:
 		'login_site': LOGIN_SITE,
 		'human_active': bool(HUMAN_STATE.get('active')),
 		'human_reason': HUMAN_STATE.get('reason') or '',
+		'logins': platform_status(),
 	}
+
+
+@app.get('/api/logins')
+async def logins() -> dict:
+	return {'platforms': platform_status()}
 
 
 @app.post('/api/login/start')
@@ -593,21 +669,21 @@ async def login_start(request: LoginRequest) -> dict:
 
 		LOGIN_SESSION = browser
 		LOGIN_SITE = request.site
-		LOGIN_WATCH_TASK = asyncio.create_task(_watch_login_browser(browser))
+		LOGIN_WATCH_TASK = asyncio.create_task(_watch_login_browser(browser, request.site))
 		HUB.publish({'type': 'login_started', 'site': request.site, 'label': label})
-		return {'ok': True, 'label': label, 'site': request.site}
+		return {'ok': True, 'label': label, 'site': request.site, 'logins': platform_status()}
 
 
 @app.post('/api/login/finish')
 async def login_finish() -> dict:
-	await _close_login_browser(cancelled=False)
-	return {'ok': True}
+	await _close_login_browser(cancelled=False, reason='manual')
+	return {'ok': True, 'logins': platform_status()}
 
 
 @app.post('/api/login/cancel')
 async def login_cancel() -> dict:
-	await _close_login_browser(cancelled=True)
-	return {'ok': True}
+	await _close_login_browser(cancelled=True, reason='cancel')
+	return {'ok': True, 'logins': platform_status()}
 
 
 async def _navigate_view_browser(browser: Browser, url: str) -> None:
@@ -630,10 +706,15 @@ async def _discard_view_browser() -> None:
 		return
 
 	try:
+		await _save_storage_state(browser)
+	except Exception as e:
+		logger.debug(f'Could not save cookies from source browser: {type(e).__name__}: {e}')
+	try:
 		await asyncio.wait_for(browser.kill(), timeout=10)
 	except Exception as e:
 		logger.warning(f'Could not close source browser: {type(e).__name__}: {e}')
 		await asyncio.to_thread(_cleanup_stale_browser_profile)
+	HUB.publish({'type': 'logins_updated', 'logins': platform_status()})
 
 
 @app.post('/api/open-url')

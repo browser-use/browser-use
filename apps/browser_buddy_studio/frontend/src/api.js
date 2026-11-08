@@ -18,6 +18,10 @@ export function getState() {
   return jsonFetch('/api/state')
 }
 
+export function getLogins() {
+  return jsonFetch('/api/logins')
+}
+
 export function getHistory() {
   return jsonFetch('/api/history')
 }
