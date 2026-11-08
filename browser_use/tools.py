@@ -54,10 +54,13 @@ class RemovedField(TypeError):
 REMOVED_FIELDS = {  # 0.x ActionResult fields -> the 1.0 alternative
 	'is_done': 'the model ends the run with finish.',
 	'success': 'the model may give a verdict in finish(..., success=...); result.success holds it (None when omitted).',
-	'include_in_memory': 'every action result stays in the conversation.',
 	'attachments': 'save files in the workspace; files the agent wrote there are delivered.',
 }
-IGNORED_FIELDS = {'include_extracted_content_only_once': 'every action result stays in the conversation.'}
+# Ignored with a warning, never raised: an action runs after the browser started (and a cloud browser is billed), and
+# 1.0 keeps every result in the conversation anyway
+IGNORED_FIELDS: dict[str, str] = dict.fromkeys(
+	('include_in_memory', 'include_extracted_content_only_once'), 'every action result stays in the conversation.'
+)
 _warned: set[str] = set()
 
 

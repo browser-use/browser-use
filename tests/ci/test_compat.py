@@ -497,7 +497,7 @@ def test_tool_names_providers_reject_raise_at_registration():
 async def test_removed_action_result_fields_raise_and_end_the_run(tmp_path):
 	"""M39: ActionResult(is_done=True, success=...) was silently accepted (extra='allow'): the run went on as if the
 	action had ended it. Now the removed error, ending the run so the developer sees it (not the model)."""
-	for field in ('is_done', 'success', 'include_in_memory', 'attachments'):
+	for field in ('is_done', 'success', 'attachments'):
 		with pytest.raises(TypeError, match=rf'^ActionResult\({field}=\.\.\.\) {REMOVED}'):
 			ActionResult(extracted_content='x', **{field: True})
 	assert ActionResult(extracted_content='x', note='extra fields still pass').note == 'extra fields still pass'
@@ -519,6 +519,24 @@ def test_action_result_include_extracted_content_only_once_says_it_is_ignored(mo
 	result = ActionResult(extracted_content='x', long_term_memory='short', include_extracted_content_only_once=True)
 	assert 'ActionResult(include_extracted_content_only_once=...) is ignored in browser-use 1.0' in caplog.text
 	assert result.model_dump(exclude_none=True) == {'extracted_content': 'x', 'long_term_memory': 'short'}
+
+
+async def test_action_result_include_in_memory_warns_and_the_run_goes_on(tmp_path, monkeypatch, caplog):
+	"""rr-legacy L08 / error contract: a 0.x action returning ActionResult(include_in_memory=True) (examples/custom-functions
+	style) ended the run with status 'error' after the browser had started and was billed. 1.0 keeps every result in the
+	conversation, so the field is ignored with a warning and the model gets the result."""
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
+	tools = Tools()
+
+	@tools.action('Stock level of a product')
+	def stock_level(product: str) -> ActionResult:
+		return ActionResult(extracted_content=f'{product}: 7 in stock', include_in_memory=True)
+
+	model, seen = script(('stock_level', {'product': 'Red Mug'}), ('finish', {'result': '7', 'success': True}))
+	r = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert r.status == 'completed' and r.final_result() == '7', r.error
+	assert 'Red Mug: 7 in stock' in str(seen[1][-1])
+	assert 'ActionResult(include_in_memory=...) is ignored in browser-use 1.0' in caplog.text
 
 
 async def test_custom_action_is_a_model_tool(tmp_path):
