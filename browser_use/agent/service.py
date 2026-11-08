@@ -578,8 +578,14 @@ class Agent:
 			)
 			usage = result.usage if result else {}
 			messages = result.messages[prior:] if result else []
+			# a tool name the model made up can carry task or page text (TELEMETRY.md: only names browser-use or you chose)
+			known = {'python', 'finish', 'finish_from_repl', *(t.name for t in (self.tools.functions if self.tools else ()))}
 			tools = Counter(
-				p.tool_name for m in messages if isinstance(m, ModelResponse) for p in m.parts if isinstance(p, ToolCallPart)
+				p.tool_name if p.tool_name in known else 'invalid'
+				for m in messages
+				if isinstance(m, ModelResponse)
+				for p in m.parts
+				if isinstance(p, ToolCallPart)
 			)
 			retries = sum(isinstance(p, RetryPromptPart) for m in messages if isinstance(m, ModelRequest) for p in m.parts)
 			schema = self.output_model_schema

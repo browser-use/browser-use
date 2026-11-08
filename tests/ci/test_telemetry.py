@@ -111,6 +111,25 @@ async def test_agent_event_never_has_task_secrets_typed_text_code_or_url_paths(s
 	assert (props['browser_mode'], props['cdp_url'], props['keep_alive']) == ('cdp', 'localhost', False)
 
 
+async def test_a_made_up_tool_name_is_sent_as_invalid(sent, chrome, tmp_path):
+	"""tool_calls counted every tool name the model wrote, verbatim and uncapped: a hallucinated name carrying task or
+	page text reached PostHog. Names outside the agent's tools are now 'invalid'."""
+	from browser_use import Tools
+
+	tools = Tools()
+
+	@tools.action('Look up a price')
+	def price(sku: str) -> str:
+		return '7'
+
+	made_up = 'send_acme_payroll_to_jane_doe_ssn_123_45_6789_' + 'x' * 100
+	model = script((made_up, {'a': 1}), ('price', {'sku': 'a'}), ('finish', {'success': True, 'result': 'ok'}))[0]
+	await Agent('t', model, browser=Browser(cdp_url=chrome['http']), tools=tools, workspace=tmp_path).run()
+	(props,) = sent
+	assert props['tool_calls'] == {'invalid': 1, 'price': 1, 'finish': 1}
+	assert_absent(props, 'ssn', 'payroll')
+
+
 async def test_failed_run_sends_the_error_class_not_its_message(sent, tmp_path, monkeypatch):
 	secret = 'Zq9-unreachable-token-77'
 
