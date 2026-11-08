@@ -10,7 +10,19 @@ from urllib.parse import urlparse
 import psutil
 from pydantic import BaseModel
 
-from .config import ARTIFACT_DIR, BROWSER_STATE_FILE, DOWNLOADS_DIR, LOG_DIR, PROFILE_DIR, frontend_dist, prepare_runtime
+from .config import (
+	APP_SUPPORT_DIR,
+	ARTIFACT_DIR,
+	BROWSER_STATE_FILE,
+	DOWNLOADS_DIR,
+	LOG_DIR,
+	PROFILE_DIR,
+	browser_is_available,
+	bundled_browser_executable,
+	delete_local_data,
+	frontend_dist,
+	prepare_runtime,
+)
 
 prepare_runtime()
 
@@ -35,6 +47,13 @@ from .storage import (  # noqa: E402
 	load_preferences,
 	save_chat,
 	save_preferences,
+)
+
+# None means "let browser-use find Google Chrome / Chromium on this Mac".
+BROWSER_EXECUTABLE = bundled_browser_executable()
+NO_BROWSER_MESSAGE = (
+	'未找到可用的浏览器。请先安装 Google Chrome（https://www.google.com/chrome/），'
+	'然后重新打开 BrowserBuddy。'
 )
 
 logger = logging.getLogger('browser_buddy.server')
@@ -122,14 +141,23 @@ class OpenUrlRequest(BaseModel):
 	url: str
 
 
+class ConfirmRequest(BaseModel):
+	confirm: bool = False
+
+
 def _cleanup_stale_browser_profile() -> None:
-	"""Kill leftover BrowserBuddy Chrome processes and remove stale profile locks."""
+	"""Kill leftover BrowserBuddy browser processes and remove stale profile locks.
+
+	Matches both a system Google Chrome and the Chromium shipped inside the app.
+	"""
 	profile_marker = str(PROFILE_DIR)
 	victims: list[psutil.Process] = []
 	for proc in psutil.process_iter(['pid', 'cmdline']):
 		try:
 			cmdline = ' '.join(proc.info.get('cmdline') or [])
-			if profile_marker in cmdline and 'Google Chrome' in cmdline:
+			if profile_marker not in cmdline:
+				continue
+			if any(name in cmdline for name in ('Google Chrome', 'Chromium', 'chrome')):
 				proc.terminate()
 				victims.append(proc)
 		except Exception:
@@ -378,6 +406,9 @@ async def _run_agent(request: RunRequest) -> None:
 			HUB.publish({'type': 'result', **result})
 			return
 
+		if not browser_is_available():
+			raise RuntimeError(NO_BROWSER_MESSAGE)
+
 		agent_task = request.task
 		if request.previous_context:
 			agent_task = (
@@ -389,6 +420,7 @@ async def _run_agent(request: RunRequest) -> None:
 		await asyncio.sleep(0.3)
 		browser = Browser(
 			headless=request.headless,
+			executable_path=BROWSER_EXECUTABLE,
 			user_data_dir=str(PROFILE_DIR),
 			storage_state=str(BROWSER_STATE_FILE),
 			downloads_path=str(DOWNLOADS_DIR),
@@ -512,6 +544,8 @@ async def login_start(request: LoginRequest) -> dict:
 
 	if request.site not in LOGIN_URLS:
 		raise HTTPException(status_code=400, detail='不支持的登录站点')
+	if not browser_is_available():
+		raise HTTPException(status_code=400, detail=NO_BROWSER_MESSAGE)
 	if CURRENT_TASK is not None and not CURRENT_TASK.done():
 		raise HTTPException(status_code=409, detail='请先等待当前任务结束')
 
@@ -528,6 +562,7 @@ async def login_start(request: LoginRequest) -> dict:
 		label, url = LOGIN_URLS[request.site]
 		browser = Browser(
 			headless=False,
+			executable_path=BROWSER_EXECUTABLE,
 			user_data_dir=str(PROFILE_DIR),
 			storage_state=str(BROWSER_STATE_FILE),
 			downloads_path=str(DOWNLOADS_DIR),
@@ -610,6 +645,8 @@ async def open_url(request: OpenUrlRequest) -> dict:
 	parsed = urlparse(url)
 	if parsed.scheme not in ('http', 'https') or not parsed.netloc:
 		raise HTTPException(status_code=400, detail='仅支持 http 或 https 链接')
+	if not browser_is_available():
+		raise HTTPException(status_code=400, detail=NO_BROWSER_MESSAGE)
 	if CURRENT_TASK is not None and not CURRENT_TASK.done():
 		raise HTTPException(status_code=409, detail='任务运行中，请等任务结束后再打开来源链接')
 	if LOGIN_SESSION is not None:
@@ -633,6 +670,7 @@ async def open_url(request: OpenUrlRequest) -> dict:
 		await asyncio.sleep(0.3)
 		browser = Browser(
 			headless=False,
+			executable_path=BROWSER_EXECUTABLE,
 			user_data_dir=str(PROFILE_DIR),
 			storage_state=str(BROWSER_STATE_FILE),
 			downloads_path=str(DOWNLOADS_DIR),
@@ -760,6 +798,48 @@ async def open_downloads() -> dict:
 	DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 	await asyncio.create_subprocess_exec('open', str(DOWNLOADS_DIR))
 	return {'ok': True, 'path': str(DOWNLOADS_DIR)}
+
+
+@app.post('/api/open-data')
+async def open_data() -> dict:
+	APP_SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
+	await asyncio.create_subprocess_exec('open', str(APP_SUPPORT_DIR))
+	return {'ok': True, 'path': str(APP_SUPPORT_DIR)}
+
+
+@app.post('/api/delete-data')
+async def delete_data(request: ConfirmRequest) -> dict:
+	"""Remove every local trace of the app. The UI quits right afterwards."""
+	global STOP_REQUESTED
+
+	if not request.confirm:
+		raise HTTPException(status_code=400, detail='请先确认删除本地数据')
+
+	STOP_REQUESTED = True
+	if CURRENT_AGENT is not None:
+		try:
+			CURRENT_AGENT.stop()
+		except Exception:
+			pass
+	await asyncio.to_thread(_cleanup_stale_browser_profile)
+	await asyncio.to_thread(delete_local_data)
+	return {'ok': True}
+
+
+def shutdown_runtime() -> None:
+	"""Stop the agent and any browser this app spawned before the process exits."""
+	global STOP_REQUESTED
+
+	STOP_REQUESTED = True
+	if CURRENT_AGENT is not None:
+		try:
+			CURRENT_AGENT.stop()
+		except Exception:
+			pass
+	try:
+		_cleanup_stale_browser_profile()
+	except Exception:
+		pass
 
 
 @app.get('/api/events')

@@ -12,7 +12,7 @@ prepare_runtime()
 
 import uvicorn  # noqa: E402
 import webview  # noqa: E402
-from backend.server import app  # noqa: E402
+from backend.server import app, shutdown_runtime  # noqa: E402
 
 
 class ClipboardApi:
@@ -37,11 +37,24 @@ class ClipboardApi:
 		except Exception:
 			return ''
 
+	def quit(self) -> bool:
+		"""Quit the app after in-app data cleanup, without leaving helpers behind."""
+		threading.Thread(target=webview.destroy_window, daemon=True).start()
+		return True
+
 
 def _free_port() -> int:
 	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
 		sock.bind(('127.0.0.1', 0))
 		return int(sock.getsockname()[1])
+
+
+def _resolve_port() -> int:
+	"""Allow the build script's smoke test (and debugging) to pin a port."""
+	raw = os.environ.get('BROWSER_BUDDY_PORT')
+	if raw:
+		return int(raw)
+	return _free_port()
 
 
 def _enable_native_clipboard() -> None:
@@ -75,13 +88,16 @@ def _enable_native_clipboard() -> None:
 
 
 def main() -> None:
-	port = _free_port()
+	port = _resolve_port()
 	config = uvicorn.Config(app, host='127.0.0.1', port=port, log_level='warning')
 	server = uvicorn.Server(config)
 
 	if os.environ.get('BROWSER_BUDDY_SERVER_ONLY') == '1':
 		print(f'BrowserBuddy Studio running at http://127.0.0.1:{port}')
-		server.run()
+		try:
+			server.run()
+		finally:
+			shutdown_runtime()
 		return
 
 	thread = threading.Thread(target=server.run, daemon=True)
@@ -103,11 +119,14 @@ def main() -> None:
 		text_select=True,
 		js_api=ClipboardApi(),
 	)
-	webview.start(
-		private_mode=False,
-		storage_path=str(APP_SUPPORT_DIR / 'webview'),
-	)
-	server.should_exit = True
+	try:
+		webview.start(
+			private_mode=False,
+			storage_path=str(APP_SUPPORT_DIR / 'webview'),
+		)
+	finally:
+		server.should_exit = True
+		shutdown_runtime()
 
 
 if __name__ == '__main__':

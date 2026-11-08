@@ -70,6 +70,17 @@ export function openDownloads() {
   return jsonFetch('/api/open-downloads', { method: 'POST' })
 }
 
+export function openDataFolder() {
+  return jsonFetch('/api/open-data', { method: 'POST' })
+}
+
+export function deleteLocalData() {
+  return jsonFetch('/api/delete-data', {
+    method: 'POST',
+    body: JSON.stringify({ confirm: true }),
+  })
+}
+
 export function openUrl(url) {
   return jsonFetch('/api/open-url', {
     method: 'POST',

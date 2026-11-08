@@ -10,7 +10,10 @@ A product-style macOS desktop UI for browser-use.
 - **browser-use** agent runtime
 - **PyInstaller** `.app` + DMG packaging
 
-No Node.js is required at runtime. React is built into static files and served by FastAPI inside the app.
+No Node.js or Python is required on the user's Mac at runtime. React is built
+into static files and CPython plus all dependencies are embedded by PyInstaller.
+Chrome is used when present; set `BUNDLE_CHROMIUM=1` to ship Chromium inside the
+app for Macs that don't have any Chromium-based browser.
 
 ## Development
 
@@ -38,12 +41,53 @@ dist/BrowserBuddy.app
 dist/BrowserBuddy.dmg
 ```
 
+What the build guarantees:
+
+- **No Python on the user's Mac.** PyInstaller embeds CPython and every Python
+  dependency inside `BrowserBuddy.app`; the build fails if `libpython` is missing.
+- **Chrome is detected, not blindly bundled.** `BUNDLE_CHROMIUM=auto` (default)
+  checks this Mac for Chrome/Chromium/Brave/Edge and skips the 185 MB Chromium
+  download when one is found. Set `BUNDLE_CHROMIUM=1` to force Chromium into
+  `Contents/Frameworks/ms-playwright` (a build that works on any Mac), or
+  `BUNDLE_CHROMIUM=0` to never bundle it.
+- **Drag-to-install.** The DMG contains the app plus an `Applications` symlink and
+  a Finder layout, so installing is: open DMG → drag the icon into Applications.
+- **No installer, no daemons, no root prompt.** The app runs as a normal user
+  process and cleans up the browser it spawned when it quits.
+- **Smoke test.** After packaging, the build launches the frozen binary with a
+  clean data directory and waits for `/api/health`; a broken bundle fails the build
+  instead of shipping.
+
 Useful variants:
 
 ```bash
-CONSOLE=1 ./build_mac.sh          # keep a terminal for debugging
-BUNDLE_CHROMIUM=1 ./build_mac.sh  # bundle Chromium for friends without Chrome
+CONSOLE=1 ./build_mac.sh            # keep a terminal for debugging
+BUNDLE_CHROMIUM=1 ./build_mac.sh    # always ship Chromium (works on any Mac)
+BUNDLE_CHROMIUM=0 ./build_mac.sh    # never bundle; require the target Mac's Chrome
+SKIP_SMOKE_TEST=1 ./build_mac.sh    # skip the frozen-app health check
+APP_VERSION=1.2.0 ./build_mac.sh    # set CFBundleShortVersionString
 ```
+
+Chromium is downloaded from `cdn.npmmirror.com` by default because the official
+Playwright CDN redirects to Google storage, which is unreachable in mainland
+China. Use the official host when you prefer it:
+
+```bash
+PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev ./build_mac.sh
+```
+
+Signing and notarization:
+
+```bash
+APPLE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+APPLE_ID="you@example.com" \
+APPLE_TEAM_ID="TEAMID" \
+APPLE_APP_PASSWORD="app-specific-password" \
+./build_mac.sh
+```
+
+Without an identity the build is ad-hoc signed; on another Mac the first launch
+needs right-click → Open → Open.
 
 ## Features
 
@@ -110,18 +154,36 @@ Before each message, the backend classifies intent:
 
 This avoids starting Chromium for messages like “hi” or “你好”.
 
+## Install and uninstall
+
+Install:
+
+1. Open `BrowserBuddy.dmg`.
+2. Drag **BrowserBuddy** onto the **Applications** shortcut.
+
+Uninstall:
+
+1. Quit the app (⌘Q). The browser window it opened is closed automatically.
+2. Drag `BrowserBuddy.app` from Applications to the Trash.
+3. Optional: open 设置 → 数据与卸载 → **彻底删除本地数据**, or drag
+   `~/Library/Application Support/BrowserBuddy` to the Trash.
+
+Everything the app writes lives in that one folder (`logs`, chat history,
+downloads, browser profile, saved API keys). There is no installer, no launch
+agent, no kernel extension, and no system-wide state.
+
 ## Notes
 
 - The app is macOS-only because it uses macOS-specific paths and `sips` for PDF previews.
 - The backend binds to loopback only.
 - API keys are never written to the frontend bundle.
-- Task history and UI preferences persist across app restarts in `~/Library/Application Support/BrowserBuddy/`.
+- Task history, logs, UI preferences, downloads, and the browser profile all persist under a single root: `~/Library/Application Support/BrowserBuddy/`. Set `BROWSER_BUDDY_DATA_DIR=/some/path` to relocate it (useful for portable builds).
 - Browser downloads are saved inside the app data folder: `~/Library/Application Support/BrowserBuddy/downloads`. Open it from the sidebar → 下载文件夹, the result toolbar, or Settings → 打开下载文件夹. The app does not touch the system `~/Downloads` folder, so macOS does not ask for Downloads permission.
 - For mainland China, choose a search engine in Settings. The default **自动** mode prioritizes Bing 中国, then falls back to 搜狗, 百度, 360, Bing 国际, Google, and DuckDuckGo. Engines that redirect to CAPTCHA pages are skipped.
 - Xiaohongshu and Douyin are not search-engine options. Log in once with **登录平台**, then ask the agent to search directly on the site (for example, "打开小红书搜索露营装备"). The agent uses the saved login state and searches inside the platform.
 - Xiaohongshu and Douyin source cards open in the app's logged-in browser instead of the system browser, so notes and videos play without a mobile QR scan. Xiaohongshu note URLs must keep their `xsec_token`; the app reuses the token from the URLs visited during the task when the model returns a bare `/explore/<id>` link.
 - The source browser is a normal Chrome window: close it with the window's close button when finished. Clicking another Xiaohongshu or Douyin source opens a fresh window, or reuses the current one if it is still open.
-- Unsigned builds require right-click → Open on first launch.
+- Unsigned (ad-hoc signed) builds require right-click → Open on first launch. Signed and notarized builds open normally.
 
 ## API keys
 

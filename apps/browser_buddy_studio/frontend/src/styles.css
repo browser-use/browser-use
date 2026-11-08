@@ -1991,3 +1991,61 @@ button {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
   pointer-events: none;
 }
+
+.drawer-hint {
+  margin: 0 0 12px;
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.secondary-button.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+}
+
+.secondary-button.danger:hover {
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+}
+
+.delete-confirm {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border));
+  border-radius: 8px;
+  background: var(--danger-soft);
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--text-soft);
+}
+
+.delete-confirm > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.danger-button:disabled {
+  opacity: 0.6;
+}

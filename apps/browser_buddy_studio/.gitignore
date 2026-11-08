@@ -7,6 +7,7 @@ frontend/node_modules/
 frontend/dist/
 *.dmg
 *.spec
+!BrowserBuddy.spec
 *.log
 __pycache__/
 !frontend/package.json

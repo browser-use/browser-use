@@ -6,12 +6,14 @@ import {
   cancelLogin,
   connectEvents,
   continueHuman,
+  deleteLocalData,
   finishLogin,
   getChats,
   getHistory,
   getPreferences,
   getProviders,
   getState,
+  openDataFolder,
   openDownloads,
   openLogs,
   openUrl,
@@ -832,9 +834,29 @@ function SettingsDrawer({
   setTheme,
   onLogs,
   onDownloads,
+  onOpenData,
+  onDeleteData,
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+
   if (!open) return null
   const providerInfo = providers.find((item) => item.name === settings.provider)
+
+  async function handleDeleteData() {
+    setDeleteBusy(true)
+    setDeleteError('')
+    try {
+      await onDeleteData()
+      if (globalThis.pywebview?.api?.quit) {
+        await globalThis.pywebview.api.quit()
+      }
+    } catch (event) {
+      setDeleteError(event.message)
+      setDeleteBusy(false)
+    }
+  }
 
   return (
     <div className="drawer-overlay" onMouseDown={onClose}>
@@ -958,6 +980,44 @@ function SettingsDrawer({
               深色
             </button>
           </div>
+        </div>
+
+        <div className="drawer-section">
+          <div className="drawer-section-title">数据与卸载</div>
+          <p className="drawer-hint">
+            浏览器、任务记录、登录状态和下载文件都保存在一个文件夹内。把 BrowserBuddy 拖到废纸篓即可删除应用本身；下面的按钮会清除全部本地数据。
+          </p>
+          <button className="secondary-button wide" onClick={onOpenData}>
+            <Icon name="folder" size={15} />
+            打开数据文件夹
+          </button>
+          {confirmDelete ? (
+            <div className="delete-confirm">
+              <div>
+                <Icon name="alert" size={15} />
+                将删除任务记录、登录状态、下载文件、浏览器配置和设置，且无法恢复。
+              </div>
+              <div className="delete-actions">
+                <button className="soft-chip" onClick={() => setConfirmDelete(false)} disabled={deleteBusy}>
+                  取消
+                </button>
+                <button className="danger-button" onClick={handleDeleteData} disabled={deleteBusy}>
+                  <Icon name="trash" size={14} />
+                  {deleteBusy ? '正在删除…' : '确认彻底删除'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              className="secondary-button wide danger"
+              onClick={() => setConfirmDelete(true)}
+              style={{ marginTop: 8 }}
+            >
+              <Icon name="trash" size={15} />
+              彻底删除本地数据
+            </button>
+          )}
+          {deleteError ? <div className="inline-error">{deleteError}</div> : null}
         </div>
 
         <button className="secondary-button wide" onClick={onLogs}>
@@ -1860,6 +1920,8 @@ export default function App() {
         setTheme={setTheme}
         onLogs={openLogs}
         onDownloads={openDownloads}
+        onOpenData={openDataFolder}
+        onDeleteData={deleteLocalData}
       />
       <LoginDialog
         open={loginOpen}
