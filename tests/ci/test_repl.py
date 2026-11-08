@@ -96,7 +96,7 @@ async def test_a_browser_harness_call_from_a_cell_fails_closed(tmp_path):
 def test_trust_model_says_the_worker_can_still_reach_the_parents_keys():
 	"""H3: model code read every provider key through the parent's environment (ps -E -p $PPID) and its .env while the
 	trust model said keys "never reach" the worker. Same-user processes cannot be walled off here: the docs say so."""
-	trust = (Path(browser_use.__file__).parents[1] / 'MIGRATING.md').read_text(encoding='utf-8').split('## Trust model')[1]
+	trust = (Path(__file__).resolve().parents[2] / 'MIGRATING.md').read_text(encoding='utf-8').split('## Trust model')[1]
 	assert 'never reach it' not in trust
 	assert 'ps -E -p <pid>' in trust and '/proc/<pid>/environ' in trust and '`.env`' in trust
 

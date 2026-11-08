@@ -302,9 +302,7 @@ def test_docs_say_the_default_workspace_is_kept():
 	screenshots); the docs said only "a temp dir"."""
 	from pathlib import Path
 
-	import browser_use
-
-	migrating = (Path(browser_use.__file__).parents[1] / 'MIGRATING.md').read_text(encoding='utf-8')
+	migrating = (Path(__file__).resolve().parents[2] / 'MIGRATING.md').read_text(encoding='utf-8')
 	assert 'kept after the run: it holds page text, screenshots and cell output' in migrating
 
 
