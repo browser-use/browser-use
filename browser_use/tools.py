@@ -22,6 +22,9 @@ from pydantic_ai import Tool
 from browser_use.exceptions import removed
 
 RESERVED = {'python', 'finish', 'finish_from_repl'}
+# Retries of one tool's rejected calls (invalid or truncated arguments, ModelRetry). bu-pi returns the error and goes on;
+# max_steps bounds it. A budget of 1 ended the run on two bad python calls in a row (a truncated cell, a JSON slip).
+TOOL_RETRIES = 1_000_000
 TOOL_NAME = re.compile(r'[a-zA-Z0-9_-]{1,64}')  # what OpenAI, Anthropic and Google accept
 # 0.x injected these into actions. 1.0 actions get only what the model passes; the model drives the browser in Python.
 INJECTED = {
@@ -126,7 +129,9 @@ class Tools:
 				)
 			if param_model is not None and params:  # 0.x: def action(params, ...) with param_model=Model; it wins
 				fn.__annotations__[params[0]] = param_model
-			self.functions.append(Tool(fn, takes_ctx=False, name=fn.__name__, description=description or None, max_retries=1))
+			self.functions.append(
+				Tool(fn, takes_ctx=False, name=fn.__name__, description=description or None, max_retries=TOOL_RETRIES)
+			)
 			return fn
 
 		return decorator

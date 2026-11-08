@@ -59,11 +59,10 @@ from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import redact_forms, secret_forms
 from browser_use.search import parse_usd
 from browser_use.telemetry.stats import RunStats
-from browser_use.tools import ActionResult, RemovedField
+from browser_use.tools import TOOL_RETRIES, ActionResult, RemovedField
 
 logger = logging.getLogger(__name__)
 KEEP_IMAGE_RESULTS = 2
-UNKNOWN_TOOL_RETRIES = 1_000_000
 DELIVER_NOW = (
 	'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_repl. '
 	'Reference saved files; explicitly list missing evidence. Do not perform more browser actions. '
@@ -324,7 +323,7 @@ class BrowserLoop(AbstractCapability[Session]):
 
 	async def wrap_tool_validate(self, ctx: RunContext[Session], *, call, tool_def, args, handler) -> Any:
 		"""A tool call on a delivery-only turn is not run (wrap_tool_execute), so its arguments are not validated either:
-		a rejected call would use up the tool's one retry and could end the run."""
+		a rejected call would cost a retry turn instead of the refusal."""
 		if ctx.deps.finalizing and tool_def.kind == 'function':
 			return args
 		return await handler(args)
@@ -789,12 +788,12 @@ def build_agent(
 		defer_model_check=True,
 		output_type=_outputs(output_type),
 		instructions=f'{SYSTEM_PROMPT}{AX_PROMPT if mode == "ultrafast" else ""}\n{instructions}'.strip(),
-		tools=[Tool(python, max_retries=1), *tools],
+		tools=[Tool(python, max_retries=TOOL_RETRIES), *tools],
 		model_settings=cast(Any, {**settings, **(model_settings or {})}),
 		# 'tools' is the budget Pydantic AI gives a tool name that does not exist, and that name's count never resets:
 		# two such calls ended DeepSeek bub2-007 at step 140. bu-pi answers "Tool X not found" and goes on (max_steps
-		# bounds it). Real tools keep one retry of their own (python here, Tools in tools.py).
-		retries={'tools': UNKNOWN_TOOL_RETRIES, 'output': 5},
+		# bounds it). python and Tools get the same budget (TOOL_RETRIES).
+		retries={'tools': TOOL_RETRIES, 'output': 5},
 		capabilities=capabilities,
 	)
 
