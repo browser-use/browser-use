@@ -50,6 +50,10 @@ def _read_source(source: str | None) -> str:
 
 def _to_browser_use_skill(text: str) -> str:
 	module_path = ROOT / 'browser_use' / 'skills' / 'browser_use.py'
+	if not module_path.exists():  # tests run against an installed wheel: the package's own copy
+		from browser_use.skills.browser_use import as_browser_use_skill
+
+		return as_browser_use_skill(text)
 	spec = importlib.util.spec_from_file_location('browser_use_skill_rewriter', module_path)
 	if spec is None or spec.loader is None:
 		raise RuntimeError(f'Could not load Browser Use skill rewriter from {module_path}')
@@ -81,7 +85,10 @@ def main(argv: list[str] | None = None) -> int:
 	except HarnessMismatch as exc:
 		print(exc, file=sys.stderr)
 		return 2
-	output_paths = args.output or [DEFAULT_REPO_OUTPUT_PATH, DEFAULT_PACKAGE_OUTPUT_PATH]
+	package_copy = DEFAULT_PACKAGE_OUTPUT_PATH
+	if not (ROOT / 'browser_use').is_dir():  # tests run against an installed wheel: check the copy it ships
+		package_copy = Path(str(importlib.resources.files('browser_use').joinpath('skills/browser-use/SKILL.md')))
+	output_paths = args.output or [DEFAULT_REPO_OUTPUT_PATH, package_copy]
 
 	if args.check:
 		stale = False
