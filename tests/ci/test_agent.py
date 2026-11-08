@@ -336,7 +336,8 @@ async def test_a_request_too_large_for_the_daemon_raises_one_clear_error(chrome,
 async def test_a_dead_daemon_is_started_again_on_the_same_browser(chrome, tmp_path):
 	"""Lifecycle F2: once the daemon died every cell failed with a raw ipc.connect traceback, start() handed back the
 	dead daemon's env, and a keep_alive cloud browser kept billing. Now the cell says so in one line, the daemon is
-	started again on the same browser, and the next cell works."""
+	started again on the same browser, and the next cell works in the agent's tab (the new daemon's own blank tab is
+	closed): it was on about:blank, the agent's page and form state out of reach."""
 	import os
 	import signal
 
@@ -346,8 +347,9 @@ async def test_a_dead_daemon_is_started_again_on_the_same_browser(chrome, tmp_pa
 	env = await browser.start()
 	repl = Repl(tmp_path, env, reattach=browser.start)
 	try:
-		r = await repl.call('exec', "new_tab('data:text/html,<title>kept</title>'); wait_for_load(); print('ok')", 60)
+		r = await repl.call('exec', "new_tab('data:text/html,<title>kept</title>'); wait_for_load(); print(len(list_tabs()))", 60)
 		assert r['error'] is None, r
+		tabs = r['output'].strip()
 		assert browser.name
 		pid = ipc.identify(browser.name)
 		assert pid
@@ -356,8 +358,8 @@ async def test_a_dead_daemon_is_started_again_on_the_same_browser(chrome, tmp_pa
 		assert r['error'].startswith('BrowserConnectionLost: browser connection lost'), r
 		assert 'Traceback' not in r['error'] and 'started the daemon again' in r['error'], r
 		assert ipc.identify(browser.name) not in (None, pid)
-		r = await repl.call('exec', "print([t['title'] for t in list_tabs()])", 60)
-		assert r['error'] is None and 'kept' in r['output'], r  # the same browser
+		r = await repl.call('exec', "print(page_info()['title'], len(list_tabs()))", 60)
+		assert r['error'] is None and r['output'].strip() == f'kept {tabs}', r  # the agent's tab, no extra blank tab
 		os.kill(ipc.identify(browser.name), signal.SIGKILL)
 		assert await browser.start() == env and ipc.ping(browser.name)  # a follow-up run's start() too
 	finally:

@@ -178,6 +178,23 @@ def _log_download(record: dict) -> None:
 
 
 stats = CellStats()
+# The tab the agent works in. A daemon browser-use started again (Browser.reattach) attaches a new blank tab of its own;
+# the next cell attaches this one again, page and form state intact, and closes that blank tab.
+AGENT_TAB: dict = {'id': None, 'lost': False}
+
+
+def _back_to_agent_tab() -> None:
+	if not (AGENT_TAB['lost'] and AGENT_TAB['id']):
+		return
+	AGENT_TAB['lost'] = False
+	from browser_harness import helpers
+
+	with contextlib.suppress(Exception):  # the tab is gone (closed, a new browser): the cell starts where the daemon is
+		blank = helpers.current_tab()
+		if blank['targetId'] != AGENT_TAB['id']:
+			helpers.switch_tab(AGENT_TAB['id'])
+			if blank['url'] == 'about:blank':
+				helpers.cdp('Target.closeTarget', targetId=blank['targetId'])
 
 
 def _counted(name: str, fn):
@@ -316,16 +333,22 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		try:
 			r = raw_send(req, *args, **kwargs)
 		except (FileNotFoundError, ConnectionRefusedError, ConnectionResetError, BrokenPipeError):
+			AGENT_TAB['lost'] = True
 			raise BrowserConnectionLost() from None
 		except RuntimeError as e:  # the daemon is up but its browser connection closed: the browser crashed or ended
 			if BROWSER_GONE.search(str(e)):
+				AGENT_TAB['lost'] = True
 				raise BrowserConnectionLost('the browser ended (crashed, stopped, or a cloud browser hit its timeout)') from None
 			raise
+		if isinstance(req, dict) and req.get('meta') == 'set_session' and req.get('target_id'):
+			AGENT_TAB['id'] = req['target_id']
 		if isinstance(req, dict) and req.get('meta') == 'drain_events' and isinstance(r, dict):
 			stats.observe(r.get('events'))
 		return r
 
 	helpers._send = send
+	with contextlib.suppress(Exception):  # no daemon yet
+		AGENT_TAB['id'] = raw_send({'meta': 'current_tab'})['targetId']
 	raw_cdp = helpers.cdp
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
 	rules = DomainRules.from_json(os.environ.get('BU_DOMAINS'))
@@ -827,6 +850,7 @@ def main() -> None:
 		os.dup2(wfd, 2)
 		os.close(wfd)
 		try:
+			_back_to_agent_tab()
 			if msg['op'] == 'exec':
 				_run(_compile(msg['code'], msg['n']), ns, loop)
 			else:  # 'eval': read an existing value for delivery
