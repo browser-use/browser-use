@@ -761,6 +761,66 @@ def serve(pages):
 	return server, server.server_address[1]
 
 
+def serve_slow(pages, slow_s):
+	"""serve(), plus /slow answering after slow_s seconds and .js paths as JavaScript. Returns (server, port)."""
+	import threading
+	import time
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	class Handler(BaseHTTPRequestHandler):
+		def do_GET(self):
+			if self.path == '/slow':
+				time.sleep(slow_s)
+			body = pages.get(self.path, 'done').format(port=self.server.server_address[1]).encode()
+			self.send_response(200)
+			self.send_header('Content-Type', 'text/javascript' if self.path.endswith('.js') else 'text/html')
+			self.send_header('Content-Length', str(len(body)))
+			self.end_headers()
+			self.wfile.write(body)
+
+		def log_message(self, *a):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	return server, server.server_address[1]
+
+
+@pytest.mark.parametrize('mode', ['default', 'ultrafast'])
+async def test_network_idle_ignores_workers_and_cross_site_iframes_but_waits_for_requests(daemon, tmp_path, mode):
+	"""browser-4: browser-harness 0.1.13's wait_for_network_idle() waited for a worker's script and an out-of-process
+	iframe's document, which start on the tab but finish on their own target: it ran to its 10 s cap on any page with a
+	Web Worker or a cross-site (ad, captcha, chat) iframe. A real request still holds it until it finishes, also one of
+	an iframe that came back in process."""
+	blob = "URL.createObjectURL(new Blob(['1'], {{type: 'text/javascript'}}))"
+	pages = {  # localhost is another site than 127.0.0.1: Chrome loads that iframe in its own process
+		'/page': f"<h1>page</h1><iframe src='http://localhost:{{port}}/child'></iframe><script>new Worker({blob}); "
+		"new Worker('/w.js'); new SharedWorker(" + blob + ')</script>',
+		'/child': '<p>child</p>',
+		'/w.js': '1',
+		# the iframe starts out of process, then comes back in process and loads a slow image
+		'/swap': "<iframe src='http://localhost:{port}/child' onload=\"this.onload = null; this.src = '/slow-image'\"></iframe>",
+		'/slow-image': '<img src="/slow">',
+	}
+	server, port = serve_slow(pages, 3)
+	repl = Repl(tmp_path, daemon, mode=mode)
+	timed = 'import time\nt = time.monotonic(); ok = wait_for_network_idle(); print(ok, round(time.monotonic() - t, 2))'
+	try:
+		r = await repl.call('exec', f"new_tab('http://127.0.0.1:{port}/page'); wait_for_load()\n{timed}", 60)
+		ok, s = r['output'].split()
+		assert r['error'] is None and ok == 'True' and float(s) < 2, r
+		r = await repl.call('exec', f'js("void fetch(\'/slow\')")\n{timed}', 60)
+		ok, s = r['output'].split()
+		assert r['error'] is None and ok == 'True' and 2.5 < float(s) < 6, r
+		r = await repl.call('exec', f"goto_url('http://127.0.0.1:{port}/swap')\n{timed}", 60)
+		ok, s = r['output'].split()
+		assert r['error'] is None and ok == 'True' and 2.5 < float(s) < 6, r
+		await repl.call('exec', 'close_tab()', 30)
+	finally:
+		await repl.close()
+		server.shutdown()
+
+
 async def test_domain_scoped_secret_checks_the_frame_that_receives_it(daemon, tmp_path):
 	"""Roast r4-3: type_secret checked the top page's URL, but the text goes to the focused frame: an allowed page with a
 	focused attacker iframe (cross-site: its own process; or same-site, other port) received the credential."""

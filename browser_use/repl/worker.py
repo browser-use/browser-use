@@ -41,6 +41,7 @@ from browser_use.exceptions import BrowserConnectionLost
 from browser_use.remote_upload import set_files, uploader
 from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.highlight import Highlighter
+from browser_use.repl.network_idle import wait_for_network_idle
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, domain_matches, redact, redact_forms, secret_forms
 from browser_use.telemetry.stats import error_class, host
 
@@ -476,6 +477,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	cdp.__doc__ = raw_cdp.__doc__
 	helpers.cdp = cdp  # capture_screenshot() and friends go through the wrapper too
 	helpers.http_get = http_get
+	helpers.wait_for_network_idle = wait_for_network_idle  # browser-4; delete with network_idle.py at harness >= 0.1.14
 	if rules:  # before the * import below, so the agent's names are the checked ones
 		for name in ('new_tab', 'http_get'):  # new_tab: before it opens an empty tab; http_get: plain HTTP from here
 			helpers.__dict__[name] = _checked(getattr(helpers, name), check_url)
@@ -700,7 +702,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 
 		ns['print'] = print_
 	# helpers and the ones above (solve_captcha, drain_events too); not stdlib names the * import brought
-	own = {helpers.__name__, __name__, ax.__name__, Captcha.__module__, uploader.__module__}
+	own = {helpers.__name__, __name__, ax.__name__, Captcha.__module__, uploader.__module__, wait_for_network_idle.__module__}
 	for name, value in list(ns.items()):
 		if name not in ('cdp', 'print') and not name.startswith('_') and inspect.isroutine(value):
 			if getattr(value, '__module__', None) in own:
