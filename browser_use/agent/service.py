@@ -25,7 +25,7 @@ from browser_use.agent.views import AgentHistoryList
 from browser_use.auth import browser_use_api_key
 from browser_use.browser import Browser
 from browser_use.config import load_env
-from browser_use.exceptions import removed
+from browser_use.exceptions import MissingAPIKeyError, removed
 from browser_use.llm import (
 	GATEWAY_URL,
 	ChatBrowserUse,
@@ -420,19 +420,22 @@ class Agent:
 					model, search = self._model, self._search
 					check = self._gateway.preflight if self._gateway else (lambda: provider_preflight(model))
 					if error := await asyncio.to_thread(lambda: check() or (search and search.preflight())):
-						error = redact(error, self.sensitive_data)  # a provider's message can quote what it was sent
-						logger.error(error)
 						error_type = 'PreflightError'
-						usage = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
-						duration = time.monotonic() - started
-						result = AgentHistoryList('error', '', None, 0, duration, usage, 0.0, None, error, [], None)
+						result = self._failed(error, started)
 						return result
 					self._preflighted = True
 				self.workspace.mkdir(parents=True, exist_ok=True)
 				for sub in ('.browser-use', 'downloads'):  # an unwritable workspace fails here, before a browser is billed
 					(self.workspace / sub).mkdir(exist_ok=True)
 			self.browser._downloads_dir = self.workspace / 'downloads'  # a keep_alive browser's later stop() copies there
-			env = await self.browser.start()  # also on a follow-up: a daemon that died since is started again
+			try:
+				env = await self.browser.start()  # also on a follow-up: a daemon that died since is started again
+			except MissingAPIKeyError:
+				raise  # a setup error, raised before anything was created
+			except Exception as e:  # a failed create (402, 5xx, timeout), or a daemon that could not attach to a billed one
+				error_type = type(e).__name__
+				result = self._failed(str(e) or error_type, started)  # the preflight's shape; finally stops the browser
+				return result
 			if self._repl is None or env != self._repl.env:  # or the browser was stopped and started again since
 				if self._repl is None:
 					browser_s = time.monotonic() - started
@@ -486,6 +489,13 @@ class Agent:
 					p for p in set((self.workspace / 'downloads').glob('*')) - before if p.suffix != '.crdownload'
 				)
 			self._capture(result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started)
+
+	def _failed(self, error: str, started: float) -> AgentHistoryList:
+		"""The result of a run that failed before the agent loop (preflight, browser start): status 'error', no steps."""
+		error = redact(error, self.sensitive_data)  # a provider's or the cloud's message can quote what it was sent
+		logger.error(error)
+		usage = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
+		return AgentHistoryList('error', '', None, 0, time.monotonic() - started, usage, 0.0, None, error, [], None)
 
 	def run_sync(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
 		"""run() without async. One event loop serves every run_sync() while the REPL lives (Browser(keep_alive=True)),

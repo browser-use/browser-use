@@ -315,6 +315,48 @@ async def test_a_preflight_error_never_shows_a_secret(cloud, monkeypatch, tmp_pa
 	assert secret not in (result.error or '') and secret not in caplog.text
 
 
+def _shape(result):
+	"""Everything but the message and the duration."""
+	return (result.status, result.text, result.output, result.steps, result.usage, result.cost_usd, result.partial,
+		result.messages, result.success, result.downloads)  # fmt: skip
+
+
+@pytest.mark.parametrize('fails', ['create', 'attach'])
+async def test_a_cloud_browser_that_fails_to_start_returns_the_preflight_error_shape(cloud, monkeypatch, tmp_path, fails):
+	"""Error contract: a failed cloud create (402 out of credits, 5xx, timeout) or a daemon that could not attach to the
+	created (billed) browser raised out of run(), while a preflight failure returns status='error'. Both now return the
+	same result shape, the browser is stopped, and run() never raises after a billed browser started."""
+	from browser_harness import admin
+
+	from browser_use import ChatOpenAI
+
+	secret = 'hunter2-Zq9-long'
+	if fails == 'create':
+		fake_cloud = browser_mod._cloud
+
+		def cloud_402(path, method='GET', body=None):
+			if method == 'POST' and path == '/browsers':
+				raise RuntimeError(f'Browser Use Cloud POST /browsers failed: HTTP 402 out of credits ({secret}).')
+			return fake_cloud(path, method, body)
+
+		monkeypatch.setattr(browser_mod, '_cloud', cloud_402)
+	else:
+
+		def no_daemon(*a, **k):
+			raise RuntimeError(f'daemon could not attach ({secret})')
+
+		monkeypatch.setattr(admin, 'ensure_daemon', no_daemon)
+	monkeypatch.setattr('browser_use.agent.service.provider_preflight', lambda model: None)
+	llm = ChatOpenAI('gpt-6-luna', api_key='sk-x')
+	result = await Agent('t', llm, browser=Browser(), workspace=tmp_path, sensitive_data={'pw': secret}).run()
+	assert result.status == 'error' and ('HTTP 402' if fails == 'create' else 'could not attach') in (result.error or '')
+	assert secret not in (result.error or '') and '<secret:pw>' in (result.error or '')
+	assert stops(cloud) == ([] if fails == 'create' else ['/browsers/b1']) and not browser_mod._LIVE
+	monkeypatch.setattr('browser_use.agent.service.provider_preflight', lambda model: 'openai rejected the API key (401)')
+	preflight = await Agent('t', llm, browser=Browser(), workspace=tmp_path).run()
+	assert _shape(result) == _shape(preflight)
+
+
 async def test_a_reattach_waiting_on_a_stop_never_creates_a_browser(cloud):
 	"""Review: reattach() checked that the browser was started before it took the lock; a stop() holding the lock then
 	cleared it, and start() created a new cloud browser (billed, none of the agent's tabs)."""

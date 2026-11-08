@@ -138,8 +138,8 @@ async def test_failed_run_sends_the_error_class_not_its_message(sent, tmp_path, 
 
 	browser = Browser(local=True)
 	monkeypatch.setattr(browser, 'start', boom)
-	with pytest.raises(ConnectionError):
-		await Agent(f'task {secret}', script()[0], browser=browser, workspace=tmp_path).run()
+	result = await Agent(f'task {secret}', script()[0], browser=browser, workspace=tmp_path).run()
+	assert result.status == 'error'  # a failed browser start is a result, never raised (error contract)
 	(props,) = sent
 	assert_absent(props, secret, 'intranet', 'cannot reach')
 	assert (props['status'], props['error_type'], props['browser_mode'], props['cells']) == (

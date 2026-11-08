@@ -270,13 +270,11 @@ async def test_missing_search_endpoint_fails_before_the_browser_starts(endpoint,
 	)
 	assert endpoint.seen[-1]['body'] == {}  # no query: nothing searched, nothing charged
 	endpoint.reply = (422, {'detail': 'query: Field required'}, 0)  # there, and the key works
-	with pytest.raises(RuntimeError, match='browser started'):
-		await agent.run()
+	assert (await agent.run()).error == 'browser started'  # past the preflight: a failed start is a result too
 	assert len(started) == 1
 	# review: a transient outage (429/5xx) failed every web_search run; now the run starts and search() reports it
 	for status in (429, 503):
 		endpoint.reply = (status, b'busy', 0)
 		agent._preflighted = False
-		with pytest.raises(RuntimeError, match='browser started'):
-			await agent.run()
+		assert (await agent.run()).error == 'browser started'
 	assert len(started) == 3

@@ -865,8 +865,8 @@ async def test_failed_follow_up_still_stops_the_browser(fake_browser, monkeypatc
 
 	monkeypatch.setattr(Browser, 'start', broken)
 	agent.add_new_task('again')
-	with pytest.raises(RuntimeError, match='browser failed'):
-		await agent.run()
+	result = await agent.run()  # error contract: a failed browser start returns status='error', never raises
+	assert (result.status, result.error) == ('error', 'browser failed')
 	assert len(fake_browser) == 2  # a pending follow-up no longer keeps a failed run's browser alive
 
 
