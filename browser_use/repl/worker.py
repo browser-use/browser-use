@@ -385,9 +385,14 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			result = raw_cdp(method, session_id, **params)
 			if highlight:
 				highlight.after(method, session_id, params)
-			if method == 'Target.createTarget' and tabs_file and isinstance(result, dict) and result.get('targetId'):
-				with contextlib.suppress(OSError), open(tabs_file, 'a') as f:  # Browser._touched_tabs: the agent's tabs
-					f.write(f'{result["targetId"]}\n')
+			# Browser._touched_tabs: the agent's tabs are the ones it created or attached to (switch_tab), even one it
+			# left within the same cell; a tab of yours it never touched is not swept
+			tab = params.get('targetId') if method == 'Target.attachToTarget' else None
+			if method == 'Target.createTarget' and isinstance(result, dict):
+				tab = result.get('targetId')
+			if tab and tabs_file:
+				with contextlib.suppress(OSError), open(tabs_file, 'a') as f:
+					f.write(f'{tab}\n')
 			return result
 		with highlight.hidden() if highlight else contextlib.nullcontext():  # the model never sees a highlight
 			result = capture(raw_cdp, helpers.current_tab, session_id, activate=cloud, **params)

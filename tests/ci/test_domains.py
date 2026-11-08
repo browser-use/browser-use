@@ -350,7 +350,43 @@ async def test_the_worker_records_the_tabs_it_creates(daemon, tmp_path):
 		assert r['error'] is None, r['error']
 	finally:
 		await repl.close()
-	assert tabs.read_text().split() == r['output'].split()
+	assert set(tabs.read_text().split()) == set(r['output'].split())  # new_tab also attaches (switch_tab)
+
+
+async def test_attach_mode_sweeps_a_tab_the_agent_used_and_left_in_one_cell(daemon, site, tmp_path, monkeypatch):
+	"""r266-tech, PR comment 11-06: in one cell the agent switched to your existing tab A, sent it to a disallowed page,
+	and switched on to B. Only created tabs and the tab attached at the end of the cell were swept, so A stayed on the
+	disallowed page. A tab you opened (C) and the agent never touched stays as it is."""
+	from functools import partial
+
+	from browser_use.browser.browser import _daemon_cdp
+
+	cdp = partial(_daemon_cdp, daemon['BU_NAME'])
+	a, b, c = (
+		cdp('Target.createTarget', url=url)['targetId']
+		for url in (f'{site["allowed"]}/a', f'{site["allowed"]}/b', f'{site["evil"]}/c')
+	)
+	tabs = tmp_path / 'tabs'
+	repl = Repl(tmp_path, {**daemon, 'BU_DOMAINS': RULES.to_json(), 'BU_TABS_FILE': str(tabs)})
+	try:
+		code = f'switch_tab({a!r}); js("location.href = {site["evil"] + "/escaped"!r}"); wait(1); switch_tab({b!r}); print(page_info()["url"])'
+		r = await repl.call('exec', code, 30)
+		assert r['error'] is None and '/b' in r['output'], r
+		monkeypatch.setenv('BU_NAME', daemon['BU_NAME'])
+		browser = Browser('chrome', allowed_domains=['allowed.localhost'])
+		browser._tabs_file, browser._user_tabs = str(tabs), {}
+		notes = await asyncio.to_thread(browser._sweep)
+		for _ in range(50):  # the reset commits shortly after Page.navigate returns
+			urls = {t['targetId']: t['url'] for t in cdp('Target.getTargets')['targetInfos']}
+			if urls[a] == 'about:blank':
+				break
+			await asyncio.sleep(0.1)
+	finally:
+		await repl.close()
+		for tab in (a, b, c):  # the browser is shared with later tests
+			cdp('Target.closeTarget', targetId=tab)
+	assert urls[a] == 'about:blank' and len(notes) == 1 and a[:8] in notes[0]
+	assert urls[c] == f'{site["evil"]}/c' and urls[b] == f'{site["allowed"]}/b'
 
 
 async def test_the_kept_tabs_are_taken_once_per_browser(monkeypatch):
