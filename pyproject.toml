@@ -33,6 +33,7 @@ dependencies = [
 anthropic = []  # kept so `browser-use[anthropic]` installs resolve; Anthropic is a core dependency
 google = []  # same for Google
 mcp = []  # kept so existing `browser-use[mcp]` installs resolve; mcp is a core dependency
+cli = []  # same for `browser-use[cli]` (0.x docs, install-script.yml); the CLI is part of the package
 all = ["browser-use[anthropic,google]"]
 
 [project.urls]

@@ -32,6 +32,12 @@ def test_mcp_dependency_is_a_range_not_an_exact_pin():
 	assert [d for d in deps if d.startswith('mcp')] == ['mcp>=2.1.1,<3']
 
 
+def test_the_cli_extra_still_resolves():
+	# 0.x docs and install-script.yml install `browser-use[cli]`; without the extra uv and pip warn on every install.
+	extras = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['optional-dependencies']
+	assert extras['cli'] == []
+
+
 def test_browser_use_doctor_help_prints_browser_use_usage():
 	result = _run_browser_use_cli('doctor', '--help')
 
