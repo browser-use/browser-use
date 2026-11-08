@@ -750,7 +750,9 @@ def test_openai_non_reasoning_models_get_no_reasoning_params():
 
 def test_openai_reasoning_models_on_chat_completions_get_reasoning_off(monkeypatch):
 	"""M1: 'openai-chat:gpt-6-luna' 400ed on the first request ("Function tools with reasoning_effort are not supported
-	... set reasoning_effort to 'none'"): OpenAI turns reasoning on by default there. Other chat backends get nothing."""
+	... set reasoning_effort to 'none'"): OpenAI turns reasoning on by default there. ChatOpenAI('gpt-6-luna',
+	base_url=proxy) still 400ed 5/5 on step 1: 'none' went to api.openai.com only. It is decided by the model name now;
+	models OpenAI's profile does not know (DeepSeek, Grok, OpenRouter names) get nothing on any host."""
 	from pydantic_ai.models.openai import OpenAIChatModel
 	from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -763,8 +765,29 @@ def test_openai_reasoning_models_on_chat_completions_get_reasoning_off(monkeypat
 	assert build_agent('openai-chat:gpt-4.1').model_settings == {}
 	for older in ('o1', 'o3', 'o4-mini', 'gpt-5'):  # review: they reject 'none' (400) and take tools with reasoning on
 		assert build_agent(f'openai-chat:{older}').model_settings == {}, older
-	other = ChatOpenAI('gpt-6-luna', base_url='http://127.0.0.1:1/v1', api_key='k').pydantic_model()
-	assert build_agent(other).model_settings == {}
+	proxy = ChatOpenAI('gpt-6-luna', base_url='http://127.0.0.1:1/v1', api_key='k').pydantic_model()
+	assert build_agent(proxy).model_settings == {'openai_reasoning_effort': 'none'}
+	for name, url in (
+		('deepseek-reasoner', 'https://api.deepseek.com/v1'),
+		('grok-4', 'https://api.x.ai/v1'),
+		('openai/gpt-6-luna', 'https://openrouter.ai/api/v1'),
+		('gpt-oss-120b', 'http://127.0.0.1:1/v1'),
+		('gpt-5', 'http://127.0.0.1:1/v1'),
+	):
+		other = ChatOpenAI(name, base_url=url, api_key='k').pydantic_model()
+		assert build_agent(other).model_settings == {}, name
+
+
+async def test_gpt_6_luna_behind_a_proxy_is_sent_reasoning_none(chat_server, tmp_path):
+	"""ChatOpenAI('gpt-6-luna', base_url=proxy) failed 5/5 on step 1 (400: function tools need reasoning_effort
+	'none'): the request carried no effort. A model the proxy serves under another name gets none."""
+	url, requests, _ = chat_server
+	for name, effort in (('gpt-6-luna', 'none'), ('my-vllm-model', None)):
+		requests.clear()
+		model, settings = resolve_model(ChatOpenAI(name, api_key='x', base_url=url))
+		result = await run(build_agent(model, model_settings=settings), 'task', Session(repl=Repl(tmp_path)), name)
+		assert result.status == 'completed', result.error
+		assert requests[0][1].get('reasoning_effort') == effort, name
 
 
 def test_anthropic_models_use_prompt_caching():

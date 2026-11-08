@@ -723,20 +723,16 @@ def reasoning_supported(model: Any) -> bool:
 
 
 def _openai_reasoning_on_chat(model: Any) -> bool:
-	"""An OpenAI reasoning model on api.openai.com's chat completions that takes reasoning_effort='none'
-	('openai-chat:gpt-6-luna'). o1, o3, o4-mini and gpt-5 reject 'none' and run function tools with reasoning on."""
-	from urllib.parse import urlparse
-
+	"""An OpenAI reasoning model on chat completions that takes reasoning_effort='none' ('openai-chat:gpt-6-luna', or
+	ChatOpenAI('gpt-6-luna', base_url=proxy)). Judged by the model name, not the host: a proxy or Azure in front of
+	gpt-6-luna turns reasoning on by default too and 400s every request with function tools. Names OpenAI's profile
+	does not know (DeepSeek, Grok, OpenRouter's 'openai/...', local models) get nothing. o1, o3, o4-mini and gpt-5
+	reject 'none' and run function tools with reasoning on."""
 	from pydantic_ai.profiles.openai import openai_model_profile
 
-	if isinstance(model, str):
-		name, official = model.split(':', 1)[1], True
-	else:
-		name, official = model.model_name, urlparse(str(getattr(model, 'base_url', '') or '')).hostname == 'api.openai.com'
+	name = model.split(':', 1)[1] if isinstance(model, str) else model.model_name
 	profile = openai_model_profile(name) or {}
-	return (
-		official and bool(profile.get('openai_supports_reasoning')) and bool(profile.get('openai_supports_reasoning_effort_none'))
-	)
+	return bool(profile.get('openai_supports_reasoning')) and bool(profile.get('openai_supports_reasoning_effort_none'))
 
 
 def build_agent(
