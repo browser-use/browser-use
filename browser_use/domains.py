@@ -73,9 +73,13 @@ def canonical_host(host: str) -> str:
 	return h
 
 
+C0_AND_SPACE = ''.join(map(chr, range(0x21)))  # '\x01https://evil\\@ok/' kept its backslash: urlsplit read the host 'ok'
+
+
 def parse_url(url: str) -> Url | None:
-	"""None for a URL without a host. Backslashes count as slashes in http(s) URLs, as in the browser."""
-	url = re.sub(r'[\t\n\r]', '', url.strip())
+	"""None for a URL without a host. Read as the browser does (WHATWG): leading and trailing C0 controls and spaces
+	stripped, tabs and newlines removed, backslashes as slashes in http(s) URLs."""
+	url = re.sub(r'[\t\n\r]', '', url.strip(C0_AND_SPACE))
 	if url.split(':', 1)[0].lower() in WEB:
 		url = url.replace('\\', '/')
 	try:

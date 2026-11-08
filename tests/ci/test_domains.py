@@ -231,7 +231,8 @@ def test_scheme_patterns_compare_hosts_not_string_prefixes():
 def test_lookalikes_case_trailing_dot_backslash_and_idn():
 	a = ['example.com']
 	for url in ('https://example.com.evil.com/', 'https://evil-example.com/', 'https://example.co/', 'https://xexample.com/',
-				'https://evil.com\\@example.com/', 'https://evil.com\\.example.com/'):  # fmt: skip
+				'https://evil.com\\@example.com/', 'https://evil.com\\.example.com/',
+				'\x01https://evil.com\\@example.com/', ' \x1f\x00https://evil.com\\@example.com/\x7f '):  # fmt: skip
 		assert not ok(url, a), url
 	assert ok('HTTPS://EXAMPLE.COM/A', a) and ok('https://example.com./', a) and ok('https://ex%61mple.com/', a)
 	assert not ok('https://example.com./', prohibited=a)  # the trailing dot is the same host for a blocklist too
