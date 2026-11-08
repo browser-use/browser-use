@@ -285,3 +285,10 @@ def test_skill_install_writes_only_installed_agents_and_reports_write_errors(tmp
 		result = install('--path', str(readonly / 'x'))
 		assert result.returncode == 1
 		assert 'Error: cannot write' in result.stderr and 'Traceback' not in result.stderr
+
+
+def test_readme_links_are_absolute_so_they_work_on_pypi():
+	"""README.md is the PyPI long_description, where a relative link (MIGRATING.md, LICENSE, static/ images) is dead."""
+	text = (ROOT / 'README.md').read_text(encoding='utf-8')
+	relative = re.findall(r'(?:src|srcset|href)="(?!https?:|#)[^"]*"|\]\((?!https?:|#|mailto:)[^)]*\)', text)
+	assert relative == []

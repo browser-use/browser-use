@@ -68,10 +68,10 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 # Which Browser Use do I need?
 
 <picture>
-  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="static/readme/which-product-dark-mobile.svg">
-  <source media="(max-width: 600px)" srcset="static/readme/which-product-light-mobile.svg">
-  <source media="(prefers-color-scheme: dark)" srcset="static/readme/which-product-dark.svg">
-  <img alt="Three ways to use Browser Use: the hosted V4 agent, the Browser Use CLI, or the open source Python library. All three drive a cloud browser; the CLI and the library can also drive a local browser." src="static/readme/which-product-light.svg" width="100%">
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/browser-use/browser-use/main/static/readme/which-product-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/browser-use/browser-use/main/static/readme/which-product-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/browser-use/browser-use/main/static/readme/which-product-dark.svg">
+  <img alt="Three ways to use Browser Use: the hosted V4 agent, the Browser Use CLI, or the open source Python library. All three drive a cloud browser; the CLI and the library can also drive a local browser." src="https://raw.githubusercontent.com/browser-use/browser-use/main/static/readme/which-product-light.svg" width="100%">
 </picture>
 
 - **[Path 1: Fully Hosted Cloud](#path-1-fully-hosted-cloud):** Scale up with a fully hosted agent and browser.
@@ -102,7 +102,7 @@ Install browser-use with `uv tool install browser-use`, run `browser-use skill i
 
 ## Path 3: Python Library
 
-> **browser-use 1.0.** The agent writes Python against raw CDP in a persistent REPL, on [Pydantic AI](https://ai.pydantic.dev). Coming from 0.x? Read [MIGRATING.md](MIGRATING.md).
+> **browser-use 1.0.** The agent writes Python against raw CDP in a persistent REPL, on [Pydantic AI](https://ai.pydantic.dev). Coming from 0.x? Read [MIGRATING.md](https://github.com/browser-use/browser-use/blob/main/MIGRATING.md).
 
 Python 3.11 or newer. With uv, or pip in a venv:
 
@@ -164,7 +164,7 @@ Other models: `ChatAnthropic`, `ChatGoogle` (both built in), or any Pydantic AI 
 
 # Browser Use Benchmark v2
 
-<img alt="Browser Use Benchmark v2 - Mean rubric score by model and cost per task" src="static/hard_benchmark_v2.jpg" width="100%">
+<img alt="Browser Use Benchmark v2 - Mean rubric score by model and cost per task" src="https://raw.githubusercontent.com/browser-use/browser-use/main/static/hard_benchmark_v2.jpg" width="100%">
 
 This [very hard benchmark](https://github.com/browser-use/benchmark) targets the hardest browser tasks. On easier tasks, even smaller models can achieve very high success rates. Results shown are from a 60-task subset of BU Bench V2.
 
@@ -193,7 +193,7 @@ The default, `bu-fast` on the Browser Use gateway, is `gpt-6-luna` at medium rea
 <details>
 <summary><b>Can I use this for free?</b></summary>
 
-The Python library is free and [MIT-licensed](LICENSE). Model inference and hosted browsers are separate: API providers, including `ChatBrowserUse`, and Browser Use Cloud charge for usage. You can also use `Browser('chromium')` with a local model, e.g. Ollama through `ChatOpenAI(model, base_url='http://localhost:11434/v1', api_key='ollama')`.
+The Python library is free and [MIT-licensed](https://github.com/browser-use/browser-use/blob/main/LICENSE). Model inference and hosted browsers are separate: API providers, including `ChatBrowserUse`, and Browser Use Cloud charge for usage. You can also use `Browser('chromium')` with a local model, e.g. Ollama through `ChatOpenAI(model, base_url='http://localhost:11434/v1', api_key='ollama')`.
 </details>
 
 <details>
@@ -225,7 +225,7 @@ Results depend on the site and challenge; no browser configuration guarantees th
 
 `Browser(allowed_domains=['example.com', '*.example.org'])`, `Browser(prohibited_domains=['evil.com'])` or `Browser(block_ip_addresses=True)`, with the 0.x patterns, on any browser. The browser helpers refuse a disallowed URL, the browser itself blocks main-frame navigations to it (link clicks, redirects, popups, JavaScript; all modes except `Browser('chrome')` attached to your open Chrome, where a second debugging connection would prompt you again), every tab still on a disallowed page after a cell is reset to `about:blank` (in `Browser('chrome')` only the agent's tabs, never yours), and the system prompt lists the domains. A bare domain in `prohibited_domains` also covers its subdomains.
 
-It is a guard for an aligned model, not a sandbox: requests an allowed page makes to other hosts (`fetch`, images, iframes) are not filtered, nor is the agent's own Python networking beyond `http_get` and its redirects. Run untrusted tasks in a container or VM. [MIGRATING.md](MIGRATING.md#domain-restrictions) lists exactly what is blocked in each mode.
+It is a guard for an aligned model, not a sandbox: requests an allowed page makes to other hosts (`fetch`, images, iframes) are not filtered, nor is the agent's own Python networking beyond `http_get` and its redirects. Run untrusted tasks in a container or VM. [MIGRATING.md](https://github.com/browser-use/browser-use/blob/main/MIGRATING.md#domain-restrictions) lists exactly what is blocked in each mode.
 </details>
 
 <details>
