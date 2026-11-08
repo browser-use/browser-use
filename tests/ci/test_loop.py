@@ -384,10 +384,10 @@ async def test_an_open_js_dialog_is_named_instead_of_timing_out(daemon, tmp_path
 		)
 		assert r['error'] is None, r
 		assert (await repl.call('exec', opened, 60))['error'] is None
-		for code in ('js("1")', 'screenshot()'):
+		for code in ('js("1")', 'screenshot()'):  # failure-9: screenshot() took 7 s of an 8 s margin, 5 s of it a probe
 			started = time.monotonic()
 			r = await repl.call('exec', code, 60)
-			assert time.monotonic() - started < 8, code
+			assert time.monotonic() - started < 5, (code, time.monotonic() - started)
 			assert 'A JavaScript alert is open' in (r['error'] or '') and 'Page.handleJavaScriptDialog' in r['error'], r
 		r = await repl.call('exec', 'cdp("Page.handleJavaScriptDialog", accept=True); print(js("1 + 1"))', 60)
 		assert r['error'] is None and '2' in r['output'], r

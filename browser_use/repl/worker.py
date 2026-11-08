@@ -74,15 +74,16 @@ INSTALLED = tuple(
 )
 
 
-def capture(raw_cdp, current_tab, session_id=None, *, activate=False, **params):
+def capture(raw_cdp, current_tab, session_id=None, *, activate=False, frozen=False, **params):
 	"""Page.captureScreenshot. new_tab()/switch_tab() never activate a tab, and on Linux headless a hidden tab renders
 	no frames, so its capture hangs. A hidden attached tab gets a short first try; only when that times out is it
 	activated (made Chrome's visible tab) and captured again. A hidden tab that captures (macOS, headful Chrome) is
 	never activated: local mode does not switch the user's visible tab. activate=True (a cloud browser: ours, and it
-	never answers a hidden tab's capture) activates a hidden tab without the first try."""
+	never answers a hidden tab's capture) activates a hidden tab without the first try. frozen: a JS dialog is open (cdp()),
+	so the page answers no visibility probe either (its 5 s took screenshot() to 7 s): capture as is."""
 	timeout = params.pop('_response_timeout', SCREENSHOT_TIMEOUT_S)
 	hidden = False
-	if session_id is None:  # the attached tab; another session's target is unknown here
+	if session_id is None and not frozen:  # the attached tab; another session's target is unknown here
 		try:
 			r = raw_cdp('Runtime.evaluate', expression='document.visibilityState', returnByValue=True, _response_timeout=5)
 			hidden = r['result'].get('value') == 'hidden'
@@ -399,10 +400,15 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		dialog = pending_dialog(method, session_id)
 		if dialog:
 			params['_response_timeout'] = min(params.get('_response_timeout', SCREENSHOT_TIMEOUT_S), DIALOG_PROBE_S)
+			params['_frozen'] = True
 		try:
 			if not dialog and session_id is None and method in ('Page.navigate', 'Page.reload'):
 				return navigate(method, params)
 			return _cdp(method, session_id, **params)
+		except RuntimeError:  # with the dialog open, Chrome may also answer an error ('Unable to capture screenshot')
+			if not dialog:
+				raise
+			raise dialog_open(dialog) from None
 		except TimeoutError:
 			# a call that opened the dialog itself (a click on a button that alerts) times out first, then it is there
 			dialog = dialog or pending_dialog(method, session_id)
@@ -432,6 +438,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		return box['result']
 
 	def _cdp(method, session_id=None, **params):
+		frozen = params.pop('_frozen', False)
 		if method == 'DOM.setFileInputFiles':  # local paths, also on a remote browser (bu's recipe on the cloud default)
 			set_input_files(session_id, params)
 			return {}
@@ -457,7 +464,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 					f.write(f'{tab}\n')
 			return result
 		with highlight.hidden() if highlight else contextlib.nullcontext():  # the model never sees a highlight
-			result = capture(raw_cdp, helpers.current_tab, session_id, activate=cloud, **params)
+			result = capture(raw_cdp, helpers.current_tab, session_id, activate=cloud, frozen=frozen, **params)
 		# Every screenshot the agent takes is shown to the model as a native image.
 		if isinstance(result, dict) and result.get('data'):
 			fmt = params.get('format', 'png')
