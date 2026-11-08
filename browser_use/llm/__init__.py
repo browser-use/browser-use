@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 from pydantic import SecretStr
 
 from browser_use.auth import browser_use_api_key, clean_api_key
+from browser_use.utils import urlopen_keyed
 
 GATEWAY_URL = 'https://api.browser-use.com/api/v4/llm/v1'
 BILLING_URL = 'https://cloud.browser-use.com/settings?tab=billing'
@@ -164,7 +165,7 @@ class ChatBrowserUse:
 		url = f'{self.base_url.rstrip("/")}/models'
 		request = urllib.request.Request(url, headers={'Authorization': f'Bearer {key}'})
 		try:
-			with urllib.request.urlopen(request, timeout=PREFLIGHT_TIMEOUT_S) as r:
+			with urlopen_keyed(request, PREFLIGHT_TIMEOUT_S) as r:
 				listed = {m.get('id') for m in json.loads(r.read()).get('data') or [] if isinstance(m, dict)}
 		except urllib.error.HTTPError as e:
 			try:
@@ -387,7 +388,7 @@ def provider_preflight(model: Any) -> str | None:
 	except Exception:  # - a Model without the client we know
 		return None
 	try:
-		with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=PREFLIGHT_TIMEOUT_S):
+		with urlopen_keyed(urllib.request.Request(url, headers=headers), PREFLIGHT_TIMEOUT_S):
 			return None
 	except urllib.error.HTTPError as e:
 		try:

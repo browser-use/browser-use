@@ -39,6 +39,7 @@ from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
 from browser_use.exceptions import removed
+from browser_use.utils import urlopen_keyed
 
 logger = logging.getLogger(__name__)
 load_env()  # 0.x read .env on import; credentials below resolve from it
@@ -176,7 +177,7 @@ def _cloud(path: str, method: str = 'GET', body: dict | None = None) -> dict:
 		headers={'X-Browser-Use-API-Key': browser_use_api_key(), 'Content-Type': 'application/json'},
 	)
 	try:
-		with urllib.request.urlopen(req, timeout=60) as r:
+		with urlopen_keyed(req, 60) as r:
 			return json.loads(r.read() or b'{}')
 	except urllib.error.HTTPError as e:
 		detail = e.read().decode(errors='replace')

@@ -1,8 +1,24 @@
 import logging
+import urllib.request
 from functools import cache
 from importlib.metadata import PackageNotFoundError, version
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+	def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+		return None  # urllib then raises the 3xx as an HTTPError
+
+
+_keyed_opener = urllib.request.build_opener(_NoRedirect)
+
+
+def urlopen_keyed(request: urllib.request.Request, timeout: float) -> Any:
+	"""urlopen for a request that carries an API key. It never follows a redirect: urllib copies every header to the new
+	URL, so a redirect to another origin would hand it the key. A 3xx raises HTTPError, as httpx does for the model calls."""
+	return _keyed_opener.open(request, timeout=timeout)
 
 
 def singleton(cls):

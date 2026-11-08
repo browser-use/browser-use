@@ -197,7 +197,7 @@ async def test_a_rejected_provider_key_or_unknown_model_never_creates_a_cloud_br
 			raise urllib.error.HTTPError(url, 404, 'Not Found', {}, io.BytesIO(b'{"error": "model: claude-nonexistent-9"}'))  # type: ignore[arg-type]
 		return io.BytesIO(b'{}')
 
-	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', urlopen)
+	monkeypatch.setattr('browser_use.llm.urlopen_keyed', urlopen)
 	for var in ('ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL'):  # the official endpoints, whatever this machine points at
 		monkeypatch.delenv(var, raising=False)
 	for llm, expect in (
@@ -238,7 +238,7 @@ def test_preflight_fails_only_on_a_bad_key_or_model_and_only_asks_google_itself(
 		code, body = answers[request.full_url]
 		raise urllib.error.HTTPError(request.full_url, code, 'x', {}, io.BytesIO(body.encode()))  # type: ignore[arg-type]
 
-	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', urlopen)
+	monkeypatch.setattr('browser_use.llm.urlopen_keyed', urlopen)
 	for var in ('ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL'):
 		monkeypatch.delenv(var, raising=False)
 	g = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash'

@@ -173,7 +173,7 @@ def test_a_stored_key_goes_to_the_server_whatever_its_scopes_and_a_scope_403_ask
 		raise urllib.error.HTTPError(req.full_url, 403, 'Forbidden', {}, body)  # type: ignore[arg-type]
 
 	save_auth_record(AuthRecord(api_key=FAKE_KEY, scopes=['v3:browsers:create']))
-	monkeypatch.setattr(urllib.request, 'urlopen', forbidden)
+	monkeypatch.setattr(browser_mod, 'urlopen_keyed', forbidden)
 	with pytest.raises(RuntimeError, match='HTTP 403') as raised:
 		browser_mod._cloud('/browsers', 'POST', {})
 	assert 'Run `browser-use login` again' in str(raised.value) and FAKE_KEY not in str(raised.value)
@@ -345,7 +345,7 @@ def test_a_rejected_key_names_the_login_command(store, monkeypatch):
 			req.full_url, 401, 'Unauthorized', {}, io.BytesIO(b'{"detail": "Invalid API key, see ?tab=api-keys\\u0026new=1"}')
 		)  # type: ignore[arg-type]
 
-	monkeypatch.setattr(urllib.request, 'urlopen', unauthorized)
+	monkeypatch.setattr(browser_mod, 'urlopen_keyed', unauthorized)
 	with pytest.raises(RuntimeError, match='HTTP 401') as raised:
 		browser_mod._cloud('/browsers', 'POST', {})
 	message = str(raised.value)

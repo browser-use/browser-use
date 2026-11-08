@@ -200,6 +200,7 @@ def _read_api_key_stdin() -> str:
 	from browser_harness import auth
 
 	from browser_use.auth import KEYS_URL
+	from browser_use.utils import urlopen_keyed
 
 	key = auth._read_manual_api_key()  # piped stdin, or a hidden prompt on a terminal; rejects empty and short input
 	if not key.startswith('bu_'):
@@ -210,7 +211,7 @@ def _read_api_key_stdin() -> str:
 		)
 	request = urllib.request.Request(f'{auth.auth_base()}/api/v4/browsers?pageSize=1', headers={'X-Browser-Use-API-Key': key})
 	try:  # one read-only call, so a mistyped or revoked key is never stored and "Signed in" is true
-		urllib.request.urlopen(request, timeout=15).close()
+		urlopen_keyed(request, 15).close()
 	except urllib.error.HTTPError as e:
 		if e.code == 401:  # a 403 is a real key without the browser scope: it still works for the bu-* models
 			raise auth.AuthError(f'Browser Use Cloud rejected that key (HTTP 401); create one at {KEYS_URL}') from None

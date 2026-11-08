@@ -15,6 +15,8 @@ import urllib.request
 from typing import Any
 from urllib.parse import urlparse
 
+from browser_use.utils import urlopen_keyed
+
 SEARCH_PATH = '/api/v4/search'
 SEARCH_TIMEOUT_S = 25.0  # under the 120 s cell deadline: a hung endpoint fails the call, not the cell
 HIT_SEPARATOR = re.compile(
@@ -68,7 +70,7 @@ class WebSearch:
 			headers={'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'},
 		)
 		try:
-			with urllib.request.urlopen(request, timeout=SEARCH_TIMEOUT_S) as r:
+			with urlopen_keyed(request, SEARCH_TIMEOUT_S) as r:
 				text = r.read().decode('utf-8', 'replace')
 		except urllib.error.HTTPError as e:
 			detail = self._clean(e.read().decode('utf-8', 'replace')[:300])
@@ -105,9 +107,7 @@ class WebSearch:
 		5xx, unreachable: maybe transient) is None: each search() call reports it, and the run goes on without search."""
 		headers = {'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'}
 		try:
-			urllib.request.urlopen(
-				urllib.request.Request(self.url, b'{}', headers, method='POST'), timeout=SEARCH_TIMEOUT_S
-			).close()
+			urlopen_keyed(urllib.request.Request(self.url, b'{}', headers, method='POST'), SEARCH_TIMEOUT_S).close()
 		except urllib.error.HTTPError as e:
 			if e.code in (401, 402, 403, 404):
 				detail = self._clean(e.read().decode('utf-8', 'replace')[:300].strip())
