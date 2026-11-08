@@ -380,7 +380,9 @@ def provider_preflight(model: Any) -> str | None:
 			if urlparse(str(api._http_options.base_url)).hostname != GOOGLE_HOST:  # a proxy: its key is not Google's
 				return None
 			key, path = api.api_key, name if '/' in str(name) else f'models/{name}'  # 'models/gemini-2.5-flash' as is
-			url, headers = f'https://{GOOGLE_HOST}/v1beta/{path}', {'x-goog-api-key': key}
+			# the version the requests go to: 'gemini-flash-latest' is on v1beta, not on v1 (google-genai 3's default)
+			version = api._http_options.api_version or 'v1beta'
+			url, headers = f'https://{GOOGLE_HOST}/{version}/{path}', {'x-goog-api-key': key}
 		else:
 			return None
 		if not key or not isinstance(key, str):

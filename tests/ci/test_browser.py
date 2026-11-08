@@ -191,7 +191,7 @@ async def test_a_rejected_provider_key_or_unknown_model_never_creates_a_cloud_br
 		if 'api.openai.com/v1/models/gpt-6-luna' in url:
 			body = b'{"error": {"message": "Incorrect API key provided", "code": "invalid_api_key"}}'
 			raise urllib.error.HTTPError(url, 401, 'Unauthorized', {}, io.BytesIO(body))  # type: ignore[arg-type]
-		if 'generativelanguage.googleapis.com/v1beta/models/gemini-nonexistent-9' in url:
+		if 'generativelanguage.googleapis.com/v1/models/gemini-nonexistent-9' in url:
 			raise urllib.error.HTTPError(url, 404, 'Not Found', {}, io.BytesIO(b'{"error": "Model is not found"}'))  # type: ignore[arg-type]
 		if 'api.anthropic.com/v1/models/claude-nonexistent-9' in url:
 			raise urllib.error.HTTPError(url, 404, 'Not Found', {}, io.BytesIO(b'{"error": "model: claude-nonexistent-9"}'))  # type: ignore[arg-type]
@@ -241,7 +241,7 @@ def test_preflight_fails_only_on_a_bad_key_or_model_and_only_asks_google_itself(
 	monkeypatch.setattr('browser_use.llm.urlopen_keyed', urlopen)
 	for var in ('ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL'):
 		monkeypatch.delenv(var, raising=False)
-	g = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash'
+	g = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash'
 	bad_google = '{"error": {"code": 400, "message": "API key not valid.", "status": "INVALID_ARGUMENT", "details": [{"reason": "API_KEY_INVALID"}]}}'
 	answers[g] = (400, bad_google)
 	assert 'google rejected the API key (400): API key not valid.' in provider_preflight(
@@ -271,6 +271,32 @@ def test_preflight_fails_only_on_a_bad_key_or_model_and_only_asks_google_itself(
 	)
 	error = provider_preflight(resolve_model(ChatOpenAI('gpt-6-luna', api_key='sk-quoted-XYZ'))[0]) or ''
 	assert 'openai rejected the API key (401)' in error and 'sk-quoted-XYZ' not in error, error
+
+
+def test_google_preflight_asks_the_api_version_the_model_runs_on(monkeypatch):
+	"""rr-legacy 1: the 0.x quickstart's ChatGoogle('gemini-flash-latest') passed the preflight (it asked v1beta, where
+	the model exists), a cloud browser started and was billed, then the first request 404'd on v1, where the client
+	runs."""
+	import io
+	import urllib.error
+
+	from browser_use import ChatGoogle
+	from browser_use.llm import provider_preflight, resolve_model
+
+	asked = []
+
+	def urlopen(request, timeout=None):  # Google today: the alias is on v1beta only
+		asked.append(request.full_url)
+		if '/v1beta/' in request.full_url:
+			return io.BytesIO(b'{}')
+		body = b'{"error": {"code": 404, "message": "models/gemini-flash-latest is not found for API version v1"}}'
+		raise urllib.error.HTTPError(request.full_url, 404, 'x', {}, io.BytesIO(body))  # type: ignore[arg-type]
+
+	monkeypatch.setattr('browser_use.llm.urlopen_keyed', urlopen)
+	model = resolve_model(ChatGoogle('gemini-flash-latest', api_key='k'))[0]
+	version = model.client._api_client._http_options.api_version
+	assert 'gemini-flash-latest is not a model this google key can use (404)' in (provider_preflight(model) or ''), asked
+	assert asked == [f'https://generativelanguage.googleapis.com/{version}/models/gemini-flash-latest']
 
 
 async def test_a_preflight_error_never_shows_a_secret(cloud, monkeypatch, tmp_path, caplog):
