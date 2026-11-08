@@ -20,7 +20,7 @@ from typing import Annotated, Any, cast
 
 from genai_prices import calc_price
 from pydantic import Field, TypeAdapter, ValidationError
-from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput, ToolOutput
+from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput, Tool, ToolOutput
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.direct import model_request
 from pydantic_ai.exceptions import (
@@ -61,6 +61,7 @@ from browser_use.tools import ActionResult, RemovedField
 
 logger = logging.getLogger(__name__)
 KEEP_IMAGE_RESULTS = 2
+UNKNOWN_TOOL_RETRIES = 1_000_000
 DELIVER_NOW = (
 	'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_repl. '
 	'Reference saved files; explicitly list missing evidence. Do not perform more browser actions. '
@@ -755,9 +756,12 @@ def build_agent(
 		defer_model_check=True,
 		output_type=_outputs(output_type),
 		instructions=f'{SYSTEM_PROMPT}{AX_PROMPT if mode == "ultrafast" else ""}\n{instructions}'.strip(),
-		tools=[python, *tools],
+		tools=[Tool(python, max_retries=1), *tools],
 		model_settings=cast(Any, {**settings, **(model_settings or {})}),
-		retries={'tools': 1, 'output': 5},
+		# 'tools' is the budget Pydantic AI gives a tool name that does not exist, and that name's count never resets:
+		# two such calls ended DeepSeek bub2-007 at step 140. bu-pi answers "Tool X not found" and goes on (max_steps
+		# bounds it). Real tools keep one retry of their own (python here, Tools in tools.py).
+		retries={'tools': UNKNOWN_TOOL_RETRIES, 'output': 5},
 		capabilities=capabilities,
 	)
 

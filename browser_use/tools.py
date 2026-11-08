@@ -126,7 +126,7 @@ class Tools:
 				)
 			if param_model is not None and params:  # 0.x: def action(params, ...) with param_model=Model; it wins
 				fn.__annotations__[params[0]] = param_model
-			self.functions.append(Tool(fn, takes_ctx=False, name=fn.__name__, description=description or None))
+			self.functions.append(Tool(fn, takes_ctx=False, name=fn.__name__, description=description or None, max_retries=1))
 			return fn
 
 		return decorator

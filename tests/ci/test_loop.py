@@ -7,6 +7,7 @@ import pytest
 from conftest import script
 from pydantic_ai.messages import ModelResponse, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from test_compaction import FakeRepl
 
 from browser_use.agent.loop import Session, build_agent, run
 from browser_use.repl import Repl
@@ -554,3 +555,18 @@ async def test_a_browser_that_cannot_be_reattached_ends_the_cells(tmp_path):
 	assert 'Finish with what you have' in str(seen[1][-1]) and DELIVER_NOW in str(seen[1][-1])
 	assert NOT_RUN in str(seen[2][-1]) and not (tmp_path / 'hijack.txt').exists()
 	assert session.budget_hit == 'browser_gone'
+
+
+async def test_unknown_tool_names_are_retried_without_ending_the_run(tmp_path):
+	"""Matrix v2, DeepSeek bub2-007: a second call to the made-up tool 'code' ended the run at step 140 (Pydantic AI
+	never resets the retry count of a name that does not exist). bu-pi answers "Tool code not found" and goes on."""
+	model, seen = script(
+		('code', {'src': '1'}),
+		('python', {'code': 'x = 1'}),
+		('code', {'src': '2'}),
+		('code', {}),
+		('finish', {'result': 'ok', 'success': True}),
+	)
+	result = await run(build_agent(model), 'task', Session(repl=FakeRepl(tmp_path)), 'function:x')
+	assert result.status == 'completed' and result.output == 'ok', result.error
+	assert "Unknown tool name: 'code'" in str(seen[3][-1].parts[0].content)
