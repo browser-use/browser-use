@@ -135,7 +135,7 @@ at module level.
 | `param_model=Model` | kept |
 | returning `ActionResult(extracted_content=...)` or any value | kept: the model sees it |
 | an action that raises | kept: the model gets `ActionResult(error='<Type>: <message>')` and can recover; the run goes on (`ModelRetry` asks the model to call it again) |
-| injected parameters (`browser_session`, `page_extraction_llm`, `file_system`, `available_file_paths`, `sensitive_data`, `has_sensitive_data`, `cdp_client`, `page_url`, ...) | removed: actions get only what the model passes; the model drives the browser itself |
+| injected parameters (`browser_session`, `page_extraction_llm`, `file_system`, `available_file_paths`, `has_sensitive_data`, `cdp_client`, `page_url`, ...) | removed: actions get only what the model passes; the model drives the browser itself |
 | `domains=`, `allowed_domains=` | removed: `Browser(allowed_domains=...)` limits where the whole browser navigates |
 | `ActionResult(is_done=..., success=..., include_in_memory=..., attachments=...)` | removed (raises, ending the run): the model ends the run with `finish(result)` (optional `success`); every result stays in the conversation; save files in the workspace |
 

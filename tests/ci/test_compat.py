@@ -351,6 +351,27 @@ def test_tools_injected_params_raise(param):
 		exec(f'@tools.action("x")\nasync def act(text: str, {param}=None): pass', {'tools': tools})
 
 
+async def test_tools_params_0x_never_injected_come_from_the_model(tmp_path):
+	"""0.13.14 passed `page` and `browser` through from the model; 1.0 refused to register such actions."""
+	from conftest import script
+	from test_compaction import FakeRepl
+
+	from browser_use.agent.loop import Session, build_agent, run
+
+	tools, got = Tools(), []
+
+	@tools.action('Search the catalog')
+	def search_catalog(query: str, page: int = 1, browser: str = 'any') -> str:
+		got.append((query, page, browser))
+		return 'found'
+
+	model, _ = script(
+		('search_catalog', {'query': 'shoes', 'page': 3, 'browser': 'firefox'}), ('finish', {'result': 'ok', 'success': True})
+	)
+	result = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=FakeRepl(tmp_path)), 'function:x')
+	assert result.status == 'completed' and got == [('shoes', 3, 'firefox')]
+
+
 def test_tools_domain_filters_and_reserved_names_raise():
 	tools = Tools()
 	for name in ('domains', 'allowed_domains'):

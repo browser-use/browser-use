@@ -26,11 +26,10 @@ RESERVED = {'python', 'finish', 'finish_from_repl'}
 # max_steps bounds it. A budget of 1 ended the run on two bad python calls in a row (a truncated cell, a JSON slip).
 TOOL_RETRIES = 1_000_000
 TOOL_NAME = re.compile(r'[a-zA-Z0-9_-]{1,64}')  # what OpenAI, Anthropic and Google accept
-# 0.x injected these into actions. 1.0 actions get only what the model passes; the model drives the browser in Python.
+# 0.13.14 injected these into actions (registry _get_special_param_types); any other name, `page` or `browser` too,
+# came from the model and still does. 1.0 actions get only what the model passes; the model drives the browser in Python.
 INJECTED = {
 	'browser_session',
-	'browser',
-	'page',
 	'context',
 	'cdp_client',
 	'page_url',
@@ -38,7 +37,6 @@ INJECTED = {
 	'file_system',
 	'available_file_paths',
 	'has_sensitive_data',
-	'sensitive_data',
 	'extraction_schema',
 }
 
