@@ -593,3 +593,20 @@ def test_mcp_own_chromium_ignores_a_stale_cloud_marker_and_starts_one_at_a_time(
 	finally:
 		marker.unlink(missing_ok=True)
 	assert admin.NAME == 'own-chromium' and most[0] == 1
+
+
+def test_mcp_servers_keep_their_daemons_apart_with_bh_runtime_dir_set(tmp_path):
+	"""rr-climcp 1: with BH_RUNTIME_DIR set (what our socket-path error tells users to do), browser-harness named every
+	daemon's files plain bu.sock / bu.pid / bu.cloud inside the MCP server: server B drove server A's cloud browser, a
+	stopped cloud browser left a bu.cloud that failed every later server's local calls, and start_remote_daemon() after
+	a local call found 'Daemon mcp-<pid> is already running' (the local one)."""
+	code = (
+		'from browser_harness import _ipc as ipc, admin\n'
+		'from browser_use.mcp import cli_mcp\n'
+		's = cli_mcp.CLIMCPServer()\n'
+		'print(ipc._sock_path(s._remote) != ipc._sock_path(admin.NAME), ipc.pid_path(s._remote) != ipc.pid_path(admin.NAME))\n'
+	)
+	env = {k: v for k, v in os.environ.items() if not k.startswith('BH_')}
+	env.update(BH_RUNTIME_DIR=str(tmp_path), BH_UPDATE_CHECK='0', PYTHONPATH=str(ROOT))
+	r = subprocess.run([sys.executable, '-c', code], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
+	assert r.stdout.strip() == 'True True', r.stdout + r.stderr

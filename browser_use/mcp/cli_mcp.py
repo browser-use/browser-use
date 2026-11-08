@@ -23,6 +23,7 @@ from mcp.server import Server
 
 from browser_use import Browser, harness_cloud
 from browser_use.auth import harden_login_callback, set_aside_corrupt_store
+from browser_use.browser.browser import _name_daemon_files
 from browser_use.exceptions import removed
 from browser_use.harness_cloud import CloudBrowserError
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip
@@ -154,6 +155,7 @@ class CLIMCPServer:
 	"""Stateful stdio MCP server wrapping the browser-harness exec model."""
 
 	def __init__(self, own_browser: bool = False, **browser_options: Any):
+		_name_daemon_files()  # with BH_RUNTIME_DIR set, its cloud daemon and the local one would share one bu.sock
 		# --mcp (0.x configs): a Chromium of its own on a temp profile, as the 0.x server ran, with its config's
 		# allowed_domains / prohibited_domains (cli._mcp_browser_options); --cli-mcp: the user's Chrome
 		self._browser = Browser('chromium', **browser_options) if own_browser else None
