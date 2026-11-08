@@ -185,7 +185,7 @@ def _cloud(path: str, method: str = 'GET', body: dict | None = None) -> dict:
 			detail = str(json.loads(detail)['detail'])
 		except (ValueError, TypeError, KeyError):
 			pass
-		detail = detail[:500]
+		detail = detail[:500].rstrip('.')  # the sentence ends below
 		hint = cloud_error_hint(e.code, detail)
 		raise RuntimeError(f'Browser Use Cloud {method} {path} failed: HTTP {e.code} {detail}.{hint}') from None
 

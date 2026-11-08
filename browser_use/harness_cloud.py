@@ -154,7 +154,7 @@ def start(name: str, profile_name: str | None, create_kwargs: dict[str, Any], na
 			'The Browser Use API key has characters an HTTP header cannot carry (not shown); run `browser-use login` again.'
 		) from None
 	except urllib.error.HTTPError as e:
-		detail = e.read().decode(errors='replace').strip()[:500]
+		detail = e.read().decode(errors='replace').strip()[:500].rstrip('.')  # the sentence ends below
 		raise CloudBrowserError(
 			f'Browser Use Cloud refused to start a browser: HTTP {e.code} {detail}.{cloud_error_hint(e.code, detail)}'
 		) from None

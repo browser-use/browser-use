@@ -368,6 +368,13 @@ def test_a_rejected_key_names_the_login_command(store, monkeypatch):
 	assert 'Invalid API key, see ?tab=api-keys&new=1.' in message and '{' not in message  # the detail, not raw JSON
 	assert 'run `browser-use login`' in message and 'BROWSER_USE_API_KEY is set' in message and FAKE_KEY not in message
 
+	def sentence(req, timeout=None):  # rr-failure 7: a detail that ends its sentence printed '..'
+		raise urllib.error.HTTPError(req.full_url, 401, 'x', {}, io.BytesIO(b'{"detail": "Sign in first."}'))  # type: ignore[arg-type]
+
+	monkeypatch.setattr(browser_mod, 'urlopen_keyed', sentence)
+	with pytest.raises(RuntimeError, match=r'HTTP 401 Sign in first\. The API key was rejected'):
+		browser_mod._cloud('/browsers', 'POST', {})
+
 
 def test_a_callback_with_the_wrong_state_neither_completes_nor_aborts_the_login(store, monkeypatch):
 	import urllib.error
