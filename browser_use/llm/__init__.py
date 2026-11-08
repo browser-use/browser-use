@@ -12,6 +12,7 @@ Any Pydantic AI model string ('openai:gpt-6-luna', 'anthropic:claude-...', 'goog
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import urllib.error
@@ -24,6 +25,7 @@ from pydantic import SecretStr
 from browser_use.auth import browser_use_api_key, clean_api_key
 from browser_use.utils import urlopen_keyed
 
+logger = logging.getLogger(__name__)
 GATEWAY_URL = 'https://api.browser-use.com/api/v4/llm/v1'
 BILLING_URL = 'https://cloud.browser-use.com/settings?tab=billing'
 DEFAULT_MODEL = 'bu-fast'  # gpt-6-luna, medium reasoning, default tier (the evaluated setup). bu-ultrafast: low, priority
@@ -118,6 +120,11 @@ class ChatBrowserUse:
 			)
 		key = clean_api_key(plain, 'ChatBrowserUse(api_key=...)', f'The model {model}') if (plain := _plain(api_key)) else None
 		self.model, self.api_key, self.base_url = model, key, str(base_url)
+		if base_url == GATEWAY_URL and os.environ.get('BROWSER_USE_LLM_URL'):  # 0.x read it: a staging or private gateway
+			logger.warning(
+				'BROWSER_USE_LLM_URL is set but browser-use 1.0 does not read it: this model uses the production gateway. '
+				'Pass ChatBrowserUse(base_url=...) instead.'
+			)
 
 	def pydantic_model(self) -> Any:
 		key = self.api_key or browser_use_api_key(f'The default model ({self.model})')
