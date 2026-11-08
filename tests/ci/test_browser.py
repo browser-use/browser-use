@@ -437,6 +437,30 @@ async def test_a_cloud_browser_start_is_logged_at_info(cloud, caplog, monkeypatc
 	assert 'live.example.test' not in caplog.text  # the live URL grants control of the browser
 
 
+async def test_downloads_lists_a_cloud_browsers_finished_files(cloud, monkeypatch, tmp_path):
+	"""Docs runs, 3 of 3 on a cloud browser: the model looked for the Browser.downloadProgress events the prompt promised,
+	drained them before they arrived, found downloads/ empty (cloud files are copied at the end) and clicked again
+	('sample (1).txt'). downloads() lists what the cloud API lists, without the cloud's copy of a JSON page the tab
+	displayed, and the prompt points to it instead of the events."""
+	import io
+
+	from browser_use.agent.prompt import SYSTEM_PROMPT
+
+	files = [{'path': 'report.csv', 'size': 4, 'url': 'u1'}, {'path': 'data.json', 'size': 2, 'url': 'u2'}]
+	with_downloads(monkeypatch, files)
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(b'data'))
+	log = tmp_path / '.browser-use' / 'downloads.jsonl'  # what the worker logs when the tab shows a JSON page
+	log.parent.mkdir(parents=True)
+	log.write_text('{"json_page": "https://api.test/data?q=1"}\n{"name": "data.json", "url": "https://api.test/data.json"}\n')
+	model, seen = script(('python', {'code': 'print(downloads())'}), ('finish', {'success': True, 'result': 'ok'}))
+	agent = Agent('t', model, browser=Browser(), workspace=tmp_path)
+	result = await agent.run()
+	assert result.final_result() == 'ok', result.error
+	assert "[{'name': 'report.csv', 'size': 4}]" in str(seen[1][-1])
+	prompt = SYSTEM_PROMPT + '\n'.join(i.instruction for i in agent._agent._instructions if isinstance(i.instruction, str))
+	assert 'downloads()' in prompt and 'downloadProgress' not in prompt
+
+
 async def test_concurrent_starts_create_one_browser(cloud):
 	"""Roast C4: two concurrent start() calls each created a cloud browser; one leaked."""
 	import asyncio

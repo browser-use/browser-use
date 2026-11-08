@@ -971,6 +971,26 @@ class Browser:
 		self._download_records += download_records(lines[seen:])
 		self.json_page_copies |= json_page_copies(self._download_records)
 
+	async def list_downloads(self) -> list[dict]:
+		"""The files the browser finished downloading so far, [{'name', 'size'}]: the REPL's downloads(). A cloud browser:
+		as the API lists them, about a second after each completes (names in json_page_copies left out). A Chrome this
+		Browser launched: its downloads dir (workspace/downloads), without Chrome's unfinished .crdownload files."""
+		if not self.use_cloud:
+			d = self._downloads_dir
+			files = sorted(p for p in d.iterdir() if p.is_file() and p.suffix != '.crdownload') if d and d.is_dir() else []
+			return [{'name': p.name, 'size': p.stat().st_size} for p in files]
+		out, cursor = [], None
+		while self.id:
+			q = f'/browsers/{self.id}/downloads?limit=100' + (f'&cursor={cursor}' if cursor else '')
+			page = await asyncio.to_thread(_cloud, q)
+			for f in page.get('files', []):
+				if (name := Path(f['path']).name) not in self.json_page_copies:
+					out.append({'name': name, 'size': f.get('size')})
+			cursor = page.get('nextCursor')
+			if not page.get('hasMore') or not cursor:
+				break
+		return out
+
 	async def _fetch_downloads(self, dest: str | Path, skip: set[str], out: list[Path], browser_id: str | None) -> None:
 		try:
 			async with asyncio.timeout(DOWNLOADS_TIMEOUT_S):

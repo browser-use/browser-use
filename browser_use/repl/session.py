@@ -263,8 +263,9 @@ class Repl:
 	"""mode='ultrafast' adds the `bu` helpers to the worker (BU_MODE=ultrafast). reattach: starts the browser-harness
 	daemon again after a cell lost it (Browser.start). after_cell: runs after each cell, outside the worker; returns
 	(lines appended to the cell's output, blocks counted as domain_blocked) (Browser.after_cell). search: defines
-	search() in the worker, answered here (the API key stays in this process). highlight_actions: orange corner brackets
-	around what the agent clicks or types into (repl/highlight.py)."""
+	search() in the worker, answered here (the API key stays in this process). downloads: defines downloads() in the
+	worker, answered here (Browser.list_downloads). highlight_actions: orange corner brackets around what the agent
+	clicks or types into (repl/highlight.py)."""
 
 	def __init__(
 		self,
@@ -275,11 +276,12 @@ class Repl:
 		reattach: Callable[[], Awaitable[Any]] | None = None,
 		after_cell: Callable[[], Awaitable[tuple[list[str], int]]] | None = None,
 		search: web.WebSearch | None = None,
+		downloads: Callable[[], Awaitable[list[dict]]] | None = None,
 		highlight_actions: bool = False,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
 		self.highlight_actions = highlight_actions
-		self.reattach, self.after_cell, self.search = reattach, after_cell, search
+		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		self.proc: asyncio.subprocess.Process | None = None
 		self.job: int | None = None  # Windows job object of the worker's process tree
@@ -356,7 +358,8 @@ class Repl:
 			if connected not in done:
 				raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}')
 			self.reader, self.writer = connected.result()
-			self.writer.write(json.dumps({'secrets': self.secrets, 'search': self.search is not None}).encode() + b'\n')
+			init = {'secrets': self.secrets, 'search': self.search is not None, 'downloads': self.downloads is not None}
+			self.writer.write(json.dumps(init).encode() + b'\n')
 			await self.writer.drain()
 			if not await asyncio.wait_for(self.reader.readline(), 60):
 				raise ConnectionError('worker exited')
@@ -429,6 +432,15 @@ class Repl:
 		except Exception as e:  # - bad arguments: the cell's error says what
 			return {'error': f'Search failed: {type(e).__name__}: {e}'}
 
+	async def _downloads(self) -> dict[str, Any]:
+		"""{'value': the downloaded files} or {'error': the message downloads() raises in the cell}."""
+		if self.downloads is None:
+			return {'error': 'downloads() is not available for this browser.'}
+		try:
+			return {'value': await asyncio.wait_for(self.downloads(), 60)}
+		except Exception as e:  # - the API failed or timed out: the cell's error says what
+			return {'error': f'downloads() failed: {type(e).__name__}: {e}'}
+
 	async def _call(self, op: str, code: str, timeout: float) -> dict[str, Any]:
 		try:  # one cleanup boundary: a cancel during startup, the send or the wait never leaves a half-used worker
 			# A worker started on another (finished) event loop cannot be driven from this one: replace it.
@@ -446,8 +458,9 @@ class Repl:
 						if not line:
 							raise ConnectionError('worker exited')
 						msg = json.loads(line)
-						if msg.get('type') == 'search':  # the cell called search(): answered while the cell waits
-							self.writer.write(json.dumps(await self._search(msg.get('args'))).encode() + b'\n')
+						if msg.get('type') in ('search', 'downloads'):  # the cell called one: answered while it waits
+							answer = await (self._search(msg.get('args')) if msg['type'] == 'search' else self._downloads())
+							self.writer.write(json.dumps(answer).encode() + b'\n')
 							await self.writer.drain()
 							continue
 						if msg.get('n') == n:  # never hand one call another call's answer

@@ -94,7 +94,7 @@ Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` na
 | other launch options: `channel`, `args`, `ignore_default_args`, `env`, `chromium_sandbox`, `devtools`, `enable_default_extensions`, `disable_security`, `is_local` | raise. `channel`: pass `executable_path=`. `--no-sandbox` is added on Linux as root or in a container, and once more if Chrome reports no usable sandbox |
 | servers / Docker / CI (`browser-use install`, the 0.x Dockerfile) | `Browser('chromium')` is headless there by default (no display); or `Browser()` (cloud). `browser-use install` still downloads Playwright's Chromium (with system deps on Linux), which `Browser('chromium')` finds when no Chrome is installed; or point `BH_CHROME_PATH` / `CHROME_PATH` at a binary |
 | window and identity: `window_size`, `window_width`, `window_height`, `window_position`, `viewport`, `no_viewport`, `screen`, `device_scale_factor`, `user_agent` | say it in the task: the agent can send `Emulation.setDeviceMetricsOverride`, `Network.setUserAgentOverride` itself. Headless launches use 1440x900. Viewport emulation does not work on cloud browsers yet: `Emulation.setDeviceMetricsOverride` is accepted there but the page keeps its 1440 px width; use `Browser('chromium')` for another viewport |
-| downloads: `downloads_path`, `accept_downloads`, `auto_download_pdfs` | cloud: files the browser downloaded are copied to `agent.workspace/downloads` when the run ends (also with `keep_alive=True`). `Browser('chromium')` and `Browser('chrome', profile=...)`: downloads land in `agent.workspace/downloads` directly. `result.downloads` lists the files the run added there. `Browser('chrome')` (your Chrome) and `cdp_url`: the browser's own download folder |
+| downloads: `downloads_path`, `accept_downloads`, `auto_download_pdfs` | cloud: files the browser downloaded are copied to `agent.workspace/downloads` when the run ends (also with `keep_alive=True`). `Browser('chromium')` and `Browser('chrome', profile=...)`: downloads land in `agent.workspace/downloads` directly. `result.downloads` lists the files the run added there. Mid-run the agent checks finished downloads with `downloads()` (cloud: the API's list). `Browser('chrome')` (your Chrome) and `cdp_url`: the browser's own download folder, no `downloads()` |
 | `permissions` | say it in the task: the agent can send `Browser.grantPermissions` |
 | `proxy` (`server`, `bypass`, `username`, `password`) | cloud: `cloud_proxy_country_code`. Local: not yet |
 | `storage_state`, `cookie_whitelist_domains` | cloud: `cloud_profile_id` keeps logins. Local: `Browser('chrome')` / `Browser('chrome', profile=...)` have yours; `Browser('chromium', user_data_dir=...)` keeps its own |
@@ -284,8 +284,8 @@ The REPL worker runs model-written Python as your user. 1.0 limits what it can s
 - Its environment is an allowlist (`PATH`, `HOME`, locale, temp dirs, `BU_*` / `BH_*` harness settings). Variables
   whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH` are not in its environment. That
   is all the allowlist does: see the last bullets below for how the worker can still reach your keys.
-- `search()` (`web_search`) asks the parent over the control channel; the parent sends the request, so the Browser
-  Use key never enters the worker.
+- `search()` (`web_search`) and `downloads()` ask the parent over the control channel; the parent sends the request,
+  so the Browser Use key never enters the worker.
 - `sensitive_data` values are sent to the worker over its control channel. The model is told only their names and
   types a value with `type_secret(name)`.
 - A domain-scoped secret (`{'https://site.com': {...}}`) is typed only while the frame that receives the text (the

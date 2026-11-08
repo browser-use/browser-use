@@ -134,10 +134,11 @@ def test_default_prompt_unchanged():
 	finish success line that made success required, minus the finish-whole-job and verify-answer paragraphs bu-pi lacks,
 	and the downloads line no longer telling the model to call Browser.setDownloadBehavior: C12; http_get says it runs
 	from this machine, not the browser, and returns bytes for binary: C31; native <select> is set in page code, never
-	clicked: C34)."""
+	clicked: C34; downloads are checked with downloads(), not Browser.downloadProgress events, which a cell drained
+	before they arrived, so the model clicked again)."""
 	default = static_instructions(build_agent())
 	assert default == [SYSTEM_PROMPT] == static_instructions(build_agent(mode='default'))
-	assert hashlib.sha256(default[0].encode()).hexdigest() == '5f207fbaebcf14d58d6b74274e38200a0e4869e172cd821ae25264a8fff240ec'
+	assert hashlib.sha256(default[0].encode()).hexdigest() == 'b83b9621bc47edc3e531550c351ecc015e27c7bc978a514f6b49624b3997b64e'
 	assert static_instructions(build_agent(instructions='X')) == [f'{SYSTEM_PROMPT}\nX']
 	assert static_instructions(build_agent(mode='ultrafast')) == [(SYSTEM_PROMPT + AX_PROMPT).rstrip()]
 	assert static_instructions(build_agent(mode='ultrafast', instructions='X')) == [f'{SYSTEM_PROMPT}{AX_PROMPT}\nX']

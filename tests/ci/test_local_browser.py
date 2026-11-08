@@ -513,6 +513,44 @@ async def test_a_launched_browser_downloads_into_the_workspace(chrome_binary, tm
 	assert '[download started: report.txt]' in str(seen[1][-1])
 
 
+async def test_downloads_lists_the_files_a_launched_browser_finished(chrome_binary, tmp_path):
+	"""Docs runs: the model clicked a download, drained events before the download's arrived and clicked again
+	('sample (1).txt'). downloads() lists what the browser finished."""
+	import http.server
+
+	class Files(http.server.BaseHTTPRequestHandler):
+		def do_GET(self):
+			if self.path == '/f':
+				body, headers = b'hello', {'Content-Disposition': 'attachment; filename="report.txt"'}
+			else:
+				body, headers = b'<a id=a href="/f">report</a>', {'Content-Type': 'text/html'}
+			self.send_response(200)
+			for k, v in {**headers, 'Content-Length': str(len(body))}.items():
+				self.send_header(k, v)
+			self.end_headers()
+			self.wfile.write(body)
+
+		def log_message(self, *args):
+			pass
+
+	server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Files)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	page = f'http://127.0.0.1:{server.server_address[1]}/'
+	code = (
+		f"new_tab('{page}'); wait_for_load(); print('before', downloads())\n"
+		"js('document.getElementById(\"a\").click()'); import time; time.sleep(2); print('after', downloads())"
+	)
+	model, seen = script(('python', {'code': code}), ('finish', {'success': True, 'result': 'ok'}))
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
+	try:
+		result = await Agent('t', model, browser=browser, workspace=tmp_path).run()
+	finally:
+		server.shutdown()
+	assert result.final_result() == 'ok', result.error
+	output = str(seen[1][-1])
+	assert 'before []' in output and "after [{'name': 'report.txt', 'size': 5}]" in output, output
+
+
 def test_the_prompt_says_where_downloads_land_and_never_to_move_them(tmp_path):
 	"""C12: the prompt told the model to call Browser.setDownloadBehavior; it picked /tmp or cwd, and files missed
 	workspace/downloads. Only a Chrome the Browser launched gets the downloads/ line: Browser('chrome') saves to yours."""

@@ -339,7 +339,7 @@ class Agent:
 						f'{CLOUD_PROMPT} {CAPTCHA_PROMPT if self.browser.captcha_solver else NO_CAPTCHA_PROMPT}'
 						if self.browser.use_cloud
 						else LOCAL_PROMPT
-						if self.browser.local and not self.browser._attached()
+						if self._launched()
 						else '',
 						SEARCH_PROMPT if self._search else '',  # off: the default prompt stays byte-identical
 						self.browser.domains.prompt(
@@ -433,6 +433,7 @@ class Agent:
 					reattach=self.browser.reattach,
 					after_cell=self.browser.after_cell if self.browser.domains else None,
 					search=self._search,
+					downloads=self._list_downloads if self.browser.use_cloud or self._launched() else None,
 					highlight_actions=self.highlight_actions,
 				)
 			history, self._continue = (self._history if self._continue else None), False
@@ -491,6 +492,17 @@ class Agent:
 			if self._repl is None:
 				self._runner.close()
 				self._runner = None
+
+	def _launched(self) -> bool:
+		"""A local Chrome the Browser launches, whose downloads land in workspace/downloads (Browser('chrome') saves to
+		yours)."""
+		return self.browser.local and not self.browser._attached()
+
+	async def _list_downloads(self) -> list[dict]:
+		"""downloads() in the REPL. A cloud browser's copies of JSON pages the tab displayed are left out, so the worker's
+		log so far is read first."""
+		self.browser.note_downloads(self.workspace / '.browser-use' / 'downloads.jsonl')
+		return await self.browser.list_downloads()
 
 	async def _shutdown(self) -> None:
 		"""Stop the REPL and the browser; a cloud browser's downloads land in workspace/downloads. The browser stops
