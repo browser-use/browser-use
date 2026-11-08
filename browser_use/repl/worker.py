@@ -38,7 +38,7 @@ from pathlib import Path
 from browser_use import ax
 from browser_use.domains import DomainRules
 from browser_use.exceptions import BrowserConnectionLost
-from browser_use.remote_upload import local_upload, remote_upload
+from browser_use.remote_upload import set_files, uploader
 from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.highlight import Highlighter
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, domain_matches, redact, redact_forms, secret_forms
@@ -396,6 +396,9 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			) from None
 
 	def _cdp(method, session_id=None, **params):
+		if method == 'DOM.setFileInputFiles':  # local paths, also on a remote browser (bu's recipe on the cloud default)
+			set_input_files(session_id, params)
+			return {}
 		if method in NAVIGATING:
 			check_url(params.get('url', ''))
 			stats.url(params.get('url'), navigation=True)
@@ -424,6 +427,16 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			fmt = params.get('format', 'png')
 			_add_image(base64.b64decode(result['data']), f'image/{"jpeg" if fmt == "jpeg" else fmt}')
 		return result
+
+	def plain(method, session_id=None, **params):
+		return raw_cdp(method, session_id, _response_timeout=params.pop('_response_timeout', CDP_TIMEOUT_S), **params)
+
+	def set_input_files(session_id, params) -> int:
+		object_id = params.get('objectId')
+		if not object_id:
+			node = {k: params[k] for k in ('backendNodeId', 'nodeId') if k in params}
+			object_id = plain('DOM.resolveNode', session_id, **node)['object']['objectId']
+		return set_files(functools.partial(plain, session_id=session_id), object_id, params.get('files') or [], cloud)
 
 	cdp.__doc__ = raw_cdp.__doc__
 	helpers.cdp = cdp  # capture_screenshot() and friends go through the wrapper too
@@ -631,7 +644,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		secret_names=secret_names,
 		solve_captcha=captcha.solve,
 	)
-	ns['upload_file'] = remote_upload(ns['js']) if cloud else local_upload(helpers.cdp)
+	ns['upload_file'] = uploader(plain, lambda: cloud)
 	bu = None
 	if os.environ.get('BU_MODE') != 'ultrafast':
 		# One reader of the daemon's events, so solver events are never lost; wait_for_network_idle() reads through it.
@@ -652,7 +665,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 
 		ns['print'] = print_
 	# helpers and the ones above (solve_captcha, drain_events too); not stdlib names the * import brought
-	own = {helpers.__name__, __name__, ax.__name__, Captcha.__module__, local_upload.__module__}
+	own = {helpers.__name__, __name__, ax.__name__, Captcha.__module__, uploader.__module__}
 	for name, value in list(ns.items()):
 		if name not in ('cdp', 'print') and not name.startswith('_') and inspect.isroutine(value):
 			if getattr(value, '__module__', None) in own:

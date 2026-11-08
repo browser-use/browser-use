@@ -1,12 +1,15 @@
-"""upload_file for a remote browser (cloud): a local path means nothing on the browser host, so the bytes go through
-the page. Used by the agent's REPL worker and by the CLI / MCP server while they drive a cloud browser."""
+"""upload_file and DOM.setFileInputFiles with local paths, also on a remote browser (cloud, a remote cdp_url), where a
+local path means nothing on the browser host and the bytes go through the page. Used by the agent's REPL worker and by
+the CLI / MCP server."""
 
 import base64
 import concurrent.futures
 import contextlib
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 UPLOAD_PART = 24_000  # bytes per js() call: 32,000 base64 characters, well under browser-harness's 64 KiB per request
 
@@ -33,58 +36,68 @@ def find(selector) -> str:
 	}})()"""
 
 
-def local_upload(cdp):
-	"""upload_file for a local browser, with every path checked and made absolute first."""
+SIZES = 'function () { return Array.from(this.files || [], f => f.size) }'
+PUT = """function (key, i, n, b64) {
+	const w = this.ownerDocument.defaultView;
+	((w[key] ||= [])[i] ||= [])[n] = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}"""
+SET = """function (key, meta) {
+	const w = this.ownerDocument.defaultView, parts = w[key] || [];
+	delete w[key];
+	const dt = new DataTransfer();
+	meta.forEach(([name, type], i) => dt.items.add(new File(parts[i] || [], name, {type})));
+	this.files = dt.files;
+	this.dispatchEvent(new Event('input', {bubbles: true}));
+	this.dispatchEvent(new Event('change', {bubbles: true}));
+	return this.files.length;
+}"""
+
+
+def set_files(cdp, object_id: str, path, remote: bool) -> int:
+	"""Set local file(s) on the file input object_id; returns how many it holds. A remote browser cannot read a local
+	path: Browser Use cloud rejects it ('Files must exist in the downloads directory'), another host's Chrome sets empty
+	or missing files. There, and whenever the input does not then hold files of the local sizes (Browser(cdp_url=) to a
+	remote host), the bytes go through the page, in parts (one browser-harness request takes at most 64 KiB), several
+	at a time. cdp(method, **params) runs on the element's session."""
+	import mimetypes
+
+	paths = local_paths(path)
+
+	def call(fn: str, *args) -> Any:
+		r = cdp(
+			'Runtime.callFunctionOn',
+			objectId=object_id,
+			functionDeclaration=fn,
+			arguments=[{'value': a} for a in args],
+			returnByValue=True,
+		)
+		if r.get('exceptionDetails'):
+			raise RuntimeError(f'upload_file: {r["exceptionDetails"].get("text", "the page refused the files")}')
+		return r.get('result', {}).get('value')
+
+	if not remote:
+		with contextlib.suppress(RuntimeError):  # rejected: a remote browser behind cdp_url
+			cdp('DOM.setFileInputFiles', objectId=object_id, files=paths)
+			if call(SIZES) == [os.path.getsize(p) for p in paths]:
+				return len(paths)
+	files = [Path(p).read_bytes() for p in paths]
+	key = f'__buUpload{os.urandom(4).hex()}'
+	parts = [(i, n, k) for i, data in enumerate(files) for n, k in enumerate(range(0, len(data), UPLOAD_PART))]
+	put = lambda i, n, k: call(PUT, key, i, n, base64.b64encode(files[i][k : k + UPLOAD_PART]).decode())  # noqa: E731
+	with concurrent.futures.ThreadPoolExecutor(8) as pool:  # each part is one round trip to the browser
+		list(pool.map(lambda part: put(*part), parts))
+	return call(SET, key, [[Path(p).name, mimetypes.guess_type(p)[0] or 'application/octet-stream'] for p in paths])
+
+
+def uploader(cdp, remote: Callable[[], bool]):
+	"""upload_file(selector, path) on the attached tab; remote(): whether the browser is a cloud browser."""
 
 	def upload_file(selector, path):
-		"""Set local file(s) on a file input. path: a file path or a list of them (relative to the working directory)."""
-		paths = local_paths(path)
+		"""Set local file(s) on a file input. path: a file path or a list of them (relative to the working directory).
+		On a remote browser the bytes go through the page."""
 		el = cdp('Runtime.evaluate', expression=find(selector))['result']
 		if 'objectId' not in el:
 			raise RuntimeError(f'no element for {selector}')
-		cdp('DOM.setFileInputFiles', objectId=el['objectId'], files=paths)
-
-	return upload_file
-
-
-def remote_upload(js):
-	"""upload_file for a remote browser: local paths mean nothing on the browser host, so send the bytes through the
-	page, in parts (one browser-harness request takes at most 64 KiB), several at a time."""
-	import mimetypes
-
-	def upload_file(selector, path):
-		"""Set local file(s) on a file input of the remote browser (bytes go through the page)."""
-		files = []
-		for p in [path] if isinstance(path, (str, os.PathLike)) else path:
-			data = Path(p).expanduser().read_bytes()
-			files.append((Path(p).name, mimetypes.guess_type(str(p))[0] or 'application/octet-stream', data))
-		buf = f'window.__buUpload{os.urandom(4).hex()}'
-		js(f'{buf} = {json.dumps([[] for _ in files])}; 0')
-		try:
-
-			def put(i: int, n: int, k: int) -> None:  # part n of file i, decoded in the page
-				b64 = json.dumps(base64.b64encode(files[i][2][k : k + UPLOAD_PART]).decode())
-				js(f'{buf}[{i}][{n}] = Uint8Array.from(atob({b64}), c => c.charCodeAt(0)); 0')
-
-			parts = [(i, n, k) for i, f in enumerate(files) for n, k in enumerate(range(0, len(f[2]), UPLOAD_PART))]
-			with concurrent.futures.ThreadPoolExecutor(8) as pool:  # each js() is one round trip to the browser
-				list(pool.map(lambda part: put(*part), parts))
-			meta = json.dumps([[name, mime] for name, mime, _ in files])
-			n = js(f"""(() => {{
-				const el = {find(selector)};
-				if (!el) return -1;
-				const dt = new DataTransfer();
-				{meta}.forEach(([name, type], i) => dt.items.add(new File({buf}[i], name, {{type}})));
-				el.files = dt.files;
-				el.dispatchEvent(new Event('input', {{bubbles: true}}));
-				el.dispatchEvent(new Event('change', {{bubbles: true}}));
-				return el.files.length;
-			}})()""")
-		finally:
-			with contextlib.suppress(Exception):
-				js(f'delete {buf}; 0')
-		if n == -1:
-			raise RuntimeError(f'no element for {selector}')
-		return n
+		return set_files(cdp, el['objectId'], path, remote())
 
 	return upload_file

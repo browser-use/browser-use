@@ -1,5 +1,6 @@
 """Public API (Agent, Browser) against a real isolated headless Chrome, scripted model (no provider calls)."""
 
+import json
 import os
 import re
 
@@ -234,6 +235,70 @@ async def test_remote_upload_sends_bytes(chrome, tmp_path):
 			60,
 		)
 		assert r['error'] is None and '1 cv.txt:11' in r['output'], r
+	finally:
+		await repl.close()
+		await browser.stop()
+
+
+@pytest.fixture
+def remote_host(chrome):
+	"""A CDP endpoint that rejects local file paths as Browser Use cloud does: the browser runs on another host."""
+	import contextlib
+	import threading
+
+	from websockets.sync.client import connect
+	from websockets.sync.server import serve
+
+	def relay(client):
+		with connect(chrome['ws'], max_size=None) as upstream:
+
+			def down():
+				with contextlib.suppress(Exception):  # either side closed
+					for message in upstream:
+						client.send(message)
+
+			threading.Thread(target=down, daemon=True).start()
+			for message in client:
+				msg = json.loads(message)
+				if msg.get('method') == 'DOM.setFileInputFiles' and msg.get('params', {}).get('files'):
+					error = {'code': -32602, 'message': 'Files must exist in the downloads directory'}
+					client.send(
+						json.dumps(
+							{'id': msg['id'], 'error': error, **({'sessionId': msg['sessionId']} if 'sessionId' in msg else {})}
+						)
+					)
+				else:
+					upstream.send(message)
+
+	server = serve(relay, '127.0.0.1', 0, max_size=None)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	yield f'ws://127.0.0.1:{server.socket.getsockname()[1]}/devtools/browser/remote'
+	server.shutdown()
+
+
+@pytest.mark.parametrize('cloud', [False, True])
+async def test_local_paths_upload_on_a_browser_on_another_host(remote_host, tmp_path, cloud):
+	"""Browser(cdp_url=<remote>) used DOM.setFileInputFiles with the local path, which the host rejects: upload_file
+	failed. On the cloud default, bu's recipe cdp('DOM.setFileInputFiles', backendNodeId=...) failed the same way.
+	Both now send the bytes through the page."""
+	browser = Browser(cdp_url=remote_host)
+	env = await browser.start()
+	repl = Repl(tmp_path, {**env, 'BU_REMOTE_BROWSER': '1'} if cloud else env)
+	size = "js(\"[...document.getElementById('f').files].map(f => f.name + ':' + f.size).join()\")"
+	try:
+		(tmp_path / 'cv.txt').write_text('hello remote')
+		r = await repl.call(
+			'exec',
+			"import os\nnew_tab('data:text/html,<input type=file id=f multiple>'); wait_for_load()\n"
+			f"print(upload_file('#f', 'cv.txt'), {size})\n"
+			"node = cdp('DOM.getDocument')['root']['nodeId']\n"
+			"node = cdp('DOM.querySelector', nodeId=node, selector='#f')['nodeId']\n"
+			"backend = cdp('DOM.describeNode', nodeId=node)['node']['backendNodeId']\n"
+			"cdp('DOM.setFileInputFiles', backendNodeId=backend, files=[os.path.abspath('cv.txt'), 'cv.txt'])\n"
+			f'print({size})',
+			60,
+		)
+		assert r['error'] is None and r['output'].split() == ['1', 'cv.txt:12', 'cv.txt:12,cv.txt:12'], r
 	finally:
 		await repl.close()
 		await browser.stop()
