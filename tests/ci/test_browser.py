@@ -638,6 +638,31 @@ async def test_hung_download_never_holds_the_stop(cloud, monkeypatch, tmp_path):
 	assert time.monotonic() - t < 3 and stops(cloud) == ['/browsers/b1']
 
 
+async def test_a_download_that_keeps_failing_holds_the_stop_one_deadline_in_all(cloud, monkeypatch, tmp_path):
+	"""Before the stop, up to 30 passes retried a finished download that could not be copied, each with a fresh
+	DOWNLOADS_TIMEOUT_S: a blocked file host held the stop (and the billed browser) ~15 min. One deadline covers them."""
+	import time
+
+	with_downloads(monkeypatch, [{'path': '/dl/a.pdf', 'url': 'https://files.test/a'}])
+	monkeypatch.setattr(browser_mod, 'DOWNLOADS_TIMEOUT_S', 1.5)
+
+	def blocked(*a, **k):
+		time.sleep(0.2)
+		raise TimeoutError('timed out')
+
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', blocked)
+	browser = Browser()
+	await browser.start()
+
+	async def one_completed():
+		return 1
+
+	monkeypatch.setattr(browser, '_finish_downloads', one_completed)
+	t = time.monotonic()
+	await browser.stop(downloads_dir=tmp_path)
+	assert time.monotonic() - t < 5 and stops(cloud) == ['/browsers/b1']
+
+
 async def test_failed_download_is_retried_after_the_stop(cloud, monkeypatch, tmp_path):
 	"""Roast r2-7: a download was marked done before it was copied; one pre-stop connection reset lost the file."""
 	import io

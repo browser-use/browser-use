@@ -155,7 +155,7 @@ REMOVED_METHODS = {  # 0.x BrowserSession methods and attributes -> the 1.0 alte
 }
 CREATE_TIMEOUT_S = 120  # total for the cloud create; start() fails past it, and a browser that lands later is stopped
 LOCAL_START_WAIT_S = 120  # Browser('chrome'): Chrome start plus the user clicking Allow on its remote-debugging prompt
-DOWNLOADS_TIMEOUT_S = 300  # per download pass; a slow or huge download never holds the stop (and billing) longer
+DOWNLOADS_TIMEOUT_S = 300  # all download passes before a stop (and one after); a slow download never holds the billing longer
 _LIVE: set[Browser] = set()  # browsers this process owns that still need stopping
 _POOL = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='browser-use-cloud')  # joined at exit
 _atexit_installed = _signals_installed = False
@@ -923,13 +923,15 @@ class Browser:
 			dead = self._local is not None and self._local.proc is not None and self._local.proc.poll() is not None
 			completed = await self._finish_downloads() if ending and not cancelled and not dead else 0
 			# before the stop too: the API may not list a stopped session's files. The cloud lists a download about a
-			# second after it completes: retry until it lists them all (a copy that keeps failing gives up after 30)
+			# second after it completes: retry until it lists them all, within one DOWNLOADS_TIMEOUT_S for all passes (a
+			# copy that kept failing, each pass with a deadline of its own, held the stop and the billing ~15 min)
 			if downloads_dir and self.use_cloud:
+				deadline = time.monotonic() + DOWNLOADS_TIMEOUT_S
 				for _ in range(30):
-					await self._fetch_downloads(downloads_dir, fetched, files, browser_id)
-					if len(fetched) >= completed:
+					await self._fetch_downloads(downloads_dir, fetched, files, browser_id, deadline)
+					if len(fetched) >= completed or time.monotonic() >= deadline:
 						break
-					await asyncio.sleep(1)
+					await asyncio.sleep(min(1, max(deadline - time.monotonic(), 0)))
 		finally:  # even when cancelled mid-download: the stop always starts, and its thread always finishes
 			self._stopping = asyncio.ensure_future(asyncio.to_thread(self._stop_now))
 			stopped = await asyncio.shield(self._stopping)
@@ -1000,10 +1002,12 @@ class Browser:
 				break
 		return out
 
-	async def _fetch_downloads(self, dest: str | Path, skip: set[str], out: list[Path], browser_id: str | None) -> None:
+	async def _fetch_downloads(
+		self, dest: str | Path, skip: set[str], out: list[Path], browser_id: str | None, deadline: float | None = None
+	) -> None:
+		deadline = deadline or time.monotonic() + DOWNLOADS_TIMEOUT_S  # the transfer threads stop on it too
 		try:
-			async with asyncio.timeout(DOWNLOADS_TIMEOUT_S):
-				deadline = time.monotonic() + DOWNLOADS_TIMEOUT_S  # the transfer threads stop on it too
+			async with asyncio.timeout(max(deadline - time.monotonic(), 0)):
 				await self.download_files(dest, skip, out=out, browser_id=browser_id, deadline=deadline)
 		except Exception as e:  # - the result is already delivered
 			logger.warning('Could not fetch cloud browser downloads: %s', e or type(e).__name__)
