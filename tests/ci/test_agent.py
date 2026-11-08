@@ -90,6 +90,38 @@ async def test_keep_alive_keeps_browser_and_repl_between_runs(chrome, tmp_path):
 	assert browser.name is None and not admin.daemon_alive(name)
 
 
+async def test_a_keep_alive_browser_whose_daemon_died_between_runs_starts_in_the_agents_tab(chrome, tmp_path):
+	"""browser-1 follow-up: the daemon of a Browser(keep_alive=True) died between runs; start() started it again, its new
+	blank tab became the attached one, and the next run (the same Agent's follow-up, or a new Agent) saw about:blank:
+	the agent's page and form state out of reach. The Browser remembers the agent's tab and attaches it again."""
+	import signal
+
+	from browser_harness import _ipc as ipc
+
+	where = 'f"{page_info()[\'title\']} {len(list_tabs())}"'
+	model, _ = script(
+		('python', {'code': "new_tab('data:text/html,<title>kept</title>'); wait_for_load()"}),
+		('finish_from_repl', {'success': True, 'expression': where}),
+		('finish_from_repl', {'success': True, 'expression': where}),
+		('finish_from_repl', {'success': True, 'expression': where}),
+	)
+	browser = Browser(cdp_url=chrome['http'], keep_alive=True)
+	agent = Agent('t', model, browser=browser, workspace=tmp_path)
+	try:
+		first = (await agent.run()).final_result()
+		assert first and first.startswith('kept '), first
+		os.kill(ipc.identify(browser.name), signal.SIGKILL)
+		agent.add_new_task('again')
+		assert (await agent.run()).final_result() == first  # the same Agent's follow-up
+		await agent.close()
+		os.kill(ipc.identify(browser.name), signal.SIGKILL)
+		agent = Agent('t', model, browser=browser, workspace=tmp_path / 'b')
+		assert (await agent.run()).final_result() == first  # a new Agent on the same Browser
+	finally:
+		await agent.close()
+		await browser.stop()
+
+
 async def test_structured_output(chrome, tmp_path):
 	class Story(BaseModel):
 		title: str

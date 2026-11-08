@@ -294,12 +294,12 @@ def _ws_url(cdp_url: str) -> str:
 		return json.load(r)['webSocketDebuggerUrl']
 
 
-def _daemon_request(name: str, request: dict) -> dict:
+def _daemon_request(name: str, request: dict, timeout: float = 30) -> dict:
 	from browser_harness import _ipc as ipc
 
 	c, token = ipc.connect(name, timeout=5.0)
 	try:
-		c.settimeout(30)
+		c.settimeout(timeout)
 		return ipc.request(c, token, request)
 	finally:
 		c.close()
@@ -592,6 +592,8 @@ class Browser:
 		self._agent_tabs: set[str] = set()
 		self._tabs_file: str | None = None
 		self._user: object | None = None  # the Agent whose run() uses this Browser now (one at a time)
+		# the tab the last Agent run left attached (remember_tab): a daemon started again between runs attaches it again
+		self._agent_tab: str | None = None
 		# where stop() copies a cloud browser's downloads when not told: the workspace/downloads of the last Agent that
 		# ran on it (keep_alive leaves the stop, and so the copy, to a later browser.stop())
 		self._downloads_dir: Path | None = None
@@ -682,6 +684,29 @@ class Browser:
 			self._ensure_daemon()
 		except Exception as e:
 			raise RuntimeError(f'The browser is gone: its browser-harness daemon stopped and could not reattach ({e})') from None
+		self._attach_agent_tab()
+
+	def remember_tab(self) -> None:
+		"""At the end of an Agent run on a keep_alive Browser: the tab the agent works in, for a daemon started again."""
+		if self.name:
+			with contextlib.suppress(Exception):  # the daemon is gone: the last tab known stays
+				self._agent_tab = _daemon_request(self.name, {'meta': 'current_tab'}, timeout=5)['targetId']
+
+	def _attach_agent_tab(self) -> None:
+		"""A daemon started again attaches a new blank tab of its own, so the next run saw about:blank, the agent's page
+		and form state out of reach. Attach the agent's tab instead and close that blank one."""
+		if not (self.name and self._agent_tab):
+			return
+		try:
+			own = _daemon_request(self.name, {'meta': 'current_tab'}, timeout=5)
+			if own.get('targetId') in (None, self._agent_tab):
+				return
+			sid = _daemon_cdp(self.name, 'Target.attachToTarget', targetId=self._agent_tab, flatten=True)['sessionId']
+			_daemon_request(self.name, {'meta': 'set_session', 'session_id': sid, 'target_id': self._agent_tab})
+			if own.get('url') == 'about:blank':
+				_daemon_cdp(self.name, 'Target.closeTarget', targetId=own['targetId'])
+		except Exception as e:  # - the tab is gone (closed): the run starts where the daemon is
+			logger.debug('Could not attach the agent tab again: %s', e)
 
 	def _ensure_daemon(self) -> None:
 		"""Start our daemon on self._daemon_env. browser-harness blames any BU_CDP_WS failure on a remote browser and
@@ -865,7 +890,7 @@ class Browser:
 					self._agent_tabs.update(Path(tabs_file).read_text().split())  # a follow-up run's sweep still knows them
 				with contextlib.suppress(OSError):
 					os.unlink(tabs_file)
-			name, self.name = self.name, None
+			name, self.name, self._agent_tab = self.name, None, None
 			if name and _shutdown_daemon(name) and self.id and self._daemon_env.get('BU_BROWSER_ID') == self.id:
 				self.stopped = True  # the daemon stopped it before it acknowledged
 			launched, self._local = self._local, None
