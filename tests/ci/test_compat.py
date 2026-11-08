@@ -251,6 +251,32 @@ def test_0x_module_paths_name_their_replacement(path, instead):
 		importlib.import_module('browser_use.not_a_0x_module')  # a path 0.x never had is left to Python
 
 
+@pytest.mark.parametrize(
+	'package, module',
+	[
+		('browser_use', 'dom'),
+		('browser_use', 'controller'),
+		('browser_use.browser', 'session'),
+		('browser_use.llm', 'openai'),
+		('browser_use.agent', 'message_manager'),
+		('browser_use.tools', 'registry'),  # browser_use.tools is a module in 1.0
+		('browser_use.mcp', 'client'),
+	],
+)
+def test_0x_submodules_imported_from_their_package_name_their_replacement(package, module):
+	"""`from browser_use.browser import session`: Python's from-import asks the package for the name first and swallows
+	the import hook's ModuleNotFoundError for a missing submodule, so it raised a bare "cannot import name 'session'"."""
+	import subprocess
+
+	with pytest.raises(ModuleNotFoundError, match=rf'^{re.escape(package)}\.{module} {REMOVED}.*{GUIDE}'):
+		exec(f'from {package} import {module}')
+	# real 1.0 modules under a 0.x prefix the hook knows (browser_use.tools, browser_use.llm) still import, in a fresh
+	# interpreter where no package has them as attributes yet
+	code = 'from browser_use import tools, llm, agent, skills; from browser_use.mcp import cli_mcp; from browser_use.skills import install'
+	r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=60)
+	assert r.returncode == 0, r.stderr
+
+
 def test_0x_names_and_members_name_their_replacement():
 	"""rr-legacy: ProxySettings, AgentOutput/AgentState, BaseChatModel, Browser.list_chrome_profiles() and llm.ainvoke()
 	gave a bare ImportError / AttributeError."""

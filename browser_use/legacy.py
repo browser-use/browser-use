@@ -6,7 +6,7 @@ kept (browser_use.agent.views.AgentOutput, ...): the module's __getattr__ calls 
 from __future__ import annotations
 
 import sys
-from importlib.machinery import ModuleSpec
+from importlib.machinery import ModuleSpec, PathFinder
 
 _LLM = (
 	'from browser_use import ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle, or a Pydantic AI model string such as '
@@ -126,7 +126,13 @@ def _modules() -> dict[str, str]:
 				'browser_use.browser.python_highlights': 'Agent(highlight_actions=True) marks each click and keypress on the page.',
 				'browser_use.browser.video_recorder': 'none (live_view=True shows a cloud browser live).',
 				'browser_use.controller': 'from browser_use import Tools (Controller is the same class).',
-				'browser_use.tools': 'from browser_use import Tools, ActionResult.',
+				**dict.fromkeys(  # each 0.x submodule by name too: `from browser_use.tools import registry` asks for it
+					(
+						'browser_use.tools',
+						*(f'browser_use.tools.{m}' for m in ('registry', 'service', 'views', 'extraction', 'utils')),
+					),
+					'from browser_use import Tools, ActionResult.',
+				),
 				'browser_use.filesystem': 'Agent(workspace=...) is a plain directory the agent reads and writes.',
 				'browser_use.screenshots': 'the agent calls screenshot() in its REPL.',
 				'browser_use.init_cmd': 'none (browser-use init templates were removed).',
@@ -339,7 +345,21 @@ def removed_name(module: str, name: str) -> ImportError | AttributeError:
 		from browser_use.exceptions import removed  # here: this module is imported from modules exceptions imports
 
 		return ImportError(removed(f'{module}.{name}', names[name]), name=module)
+	if not name.startswith('_') and (message := _removed_submodule(module, name)):
+		return ModuleNotFoundError(message, name=f'{module}.{name}')
 	return AttributeError(f'module {module!r} has no attribute {name!r}')
+
+
+def _removed_submodule(package: str, name: str) -> str | None:
+	"""`from browser_use.browser import session`: from-import asks the package's __getattr__ before it imports the
+	submodule, and swallows the finder's ModuleNotFoundError for a missing one ("cannot import name 'session'"). A
+	real 1.0 module under a 0.x prefix (browser_use.tools) is None: the import system loads it."""
+	fullname = f'{package}.{name}'
+	if fullname not in _modules():  # a 0.x module itself, not a name under one (from browser_use.llm import NotAThing)
+		return None
+	if PathFinder.find_spec(fullname, getattr(sys.modules.get(package), '__path__', None) or []) is not None:
+		return None
+	return removed_module(fullname)
 
 
 def removed_names(module: str):

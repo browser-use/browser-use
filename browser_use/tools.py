@@ -15,7 +15,7 @@ import inspect
 import logging
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic_ai import Tool
@@ -151,3 +151,9 @@ class Tools:
 
 
 Controller = Tools  # 0.x alias
+
+
+if not TYPE_CHECKING:  # pyright would accept any name imported from here
+	from browser_use.legacy import removed_names
+
+	__getattr__ = removed_names(__name__)  # from browser_use.tools import registry (0.x): the removed error naming Tools

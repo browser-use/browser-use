@@ -84,7 +84,9 @@ def __getattr__(name: str):
 		from browser_use.exceptions import removed
 
 		raise ImportError(removed(f'browser_use.{name}', _REMOVED[name]))
-	raise AttributeError(f"module 'browser_use' has no attribute {name!r}")
+	from browser_use.legacy import removed_name
+
+	raise removed_name(__name__, name)  # from browser_use import dom (a 0.x module): the removed error naming the 1.0 answer
 
 
 __all__ = [
