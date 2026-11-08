@@ -84,7 +84,9 @@ class AgentHistoryList:
 	steps: int
 	duration_s: float
 	usage: dict[str, int]
-	cost_usd: float | None  # None when a model's price is unknown
+	# model + web search charges only (None when a model's price is unknown); a cloud browser and its proxy are billed
+	# apart: GET /api/v4/browsers/{browser.id} has browserCost and proxyCost
+	cost_usd: float | None
 	partial: Any  # last checkpoint(..., partial=True) when unfinished
 	error: str | None
 	messages: list[ModelMessage]
