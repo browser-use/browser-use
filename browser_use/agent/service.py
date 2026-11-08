@@ -2235,7 +2235,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				prompt_cached_tokens=token_summary.prompt_cached_tokens,
 				total_tokens=token_summary.total_tokens,
 				total_duration_seconds=self.history.total_duration_seconds(),
-				success=self.history.is_successful(),
+				success=False if agent_run_error is not None else self.history.is_successful(),
 				final_result_response=None,
 				error_message=None,
 				judge_verdict=judge_verdict,

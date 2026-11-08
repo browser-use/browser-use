@@ -5001,18 +5001,20 @@ async def test_beta_agent_exposes_logging_helper_methods(monkeypatch):
 	assert captured_events[0].model == 'gpt-test'
 	assert captured_events[0].model_provider == 'test-provider'
 	assert captured_events[0].agent_type == 'rust_core'
-	assert captured_events[0].cdp_url == 'browser.example'
-	assert captured_events[0].action_history == [[{'done': {'text': 'done', 'success': True}}]]
-	assert captured_events[0].urls_visited == ['https://example.com']
+	assert captured_events[0].task == ''
+	assert captured_events[0].cdp_url is None
+	assert captured_events[0].action_history == []
+	assert captured_events[0].urls_visited == []
 	assert captured_events[0].steps == 1
 	assert captured_events[0].total_input_tokens == 11
 	assert captured_events[0].total_output_tokens == 7
 	assert captured_events[0].prompt_cached_tokens == 3
-	assert captured_events[0].final_result_response == '"done"'
-	assert captured_events[0].error_message == 'manual-error'
+	assert captured_events[0].final_result_response is None
+	assert captured_events[0].error_message is None
+	assert captured_events[0].success is False
 
 
-def test_beta_agent_telemetry_filters_empty_reconstructed_urls():
+def test_beta_agent_telemetry_excludes_reconstructed_urls():
 	import browser_use.beta.service as beta_service
 	from browser_use.beta import Agent
 
@@ -5049,10 +5051,10 @@ def test_beta_agent_telemetry_filters_empty_reconstructed_urls():
 	agent._log_agent_event(max_steps=3)
 
 	assert captured_events[0].agent_type == 'rust_core'
-	assert captured_events[0].urls_visited == ['https://example.com']
+	assert captured_events[0].urls_visited == []
 
 
-def test_beta_agent_telemetry_records_cloud_cdp_hostname():
+def test_beta_agent_telemetry_excludes_cloud_cdp_hostname():
 	import browser_use.beta.service as beta_service
 	from browser_use.beta import Agent
 
@@ -5091,8 +5093,8 @@ def test_beta_agent_telemetry_records_cloud_cdp_hostname():
 
 	assert captured_events[0].name == 'agent_event'
 	assert captured_events[0].agent_type == 'rust_core'
-	assert captured_events[0].cdp_url == 'cloud-browser.example'
-	assert captured_events[0].urls_visited == ['https://example.com']
+	assert captured_events[0].cdp_url is None
+	assert captured_events[0].urls_visited == []
 
 
 async def test_beta_agent_run_metadata_logs_match_browser_use(monkeypatch):

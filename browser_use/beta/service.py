@@ -4740,7 +4740,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.logger.info(judge_log)
 
 	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
-		"""Emit Browser Use telemetry for a Rust-backed run."""
+		"""Emit operational metrics only, without collecting task or browser content."""
 		usage = self.history.usage
 		if usage is None:
 			total_input_tokens = 0
@@ -4753,24 +4753,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			prompt_cached_tokens = usage.total_prompt_cached_tokens
 			total_tokens = usage.total_tokens
 
-		action_history_data = []
-		for item in self.history.history:
-			if item.model_output and item.model_output.action:
-				action_history_data.append(
-					[action.model_dump(exclude_unset=True) for action in item.model_output.action if action]
-				)
-			else:
-				action_history_data.append(None)
-
-		final_result = self.history.final_result()
-		final_result_str = json.dumps(final_result) if final_result is not None else None
-		cdp_url = getattr(self.browser_session, 'cdp_url', None) if self.browser_session else None
 		model = getattr(self.llm, 'model', None) or self.model
 		provider = getattr(self.llm, 'provider', None) or 'rust-terminal'
 
 		self.telemetry.capture(
 			AgentTelemetryEvent(
-				task=self.task,
+				task='',
 				model=model,
 				model_provider=provider,
 				max_steps=max_steps,
@@ -4778,20 +4766,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				use_vision=self.settings.use_vision,
 				version=self.version or '',
 				source=self.source,
-				cdp_url=urlparse(cdp_url).hostname if cdp_url else None,
+				cdp_url=None,
 				agent_type='rust_core',
-				action_errors=self.history.errors(),
-				action_history=action_history_data,
-				urls_visited=[url for url in self.history.urls() if url],
+				action_errors=[],
+				action_history=[],
+				urls_visited=[],
 				steps=self.history.number_of_steps(),
 				total_input_tokens=total_input_tokens,
 				total_output_tokens=total_output_tokens,
 				prompt_cached_tokens=prompt_cached_tokens,
 				total_tokens=total_tokens,
 				total_duration_seconds=self.history.total_duration_seconds(),
-				success=self.history.is_successful(),
-				final_result_response=final_result_str,
-				error_message=agent_run_error,
+				success=False if agent_run_error is not None else self.history.is_successful(),
+				final_result_response=None,
+				error_message=None,
 			)
 		)
 

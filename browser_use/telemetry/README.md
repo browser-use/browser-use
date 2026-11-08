@@ -12,7 +12,9 @@ text. Automatic exception capture is disabled.
 Event serialization uses an allowlist. Adding a dataclass field does not add it
 to an outgoing event. Legacy content fields remain accepted by event
 constructors for compatibility, but are excluded from outgoing properties.
-The agent itself does not populate these content fields.
+Neither the classic agent nor the beta agent populates these content fields.
+If a run reports an error, its telemetry outcome is `success=False` even when
+the history has no final result. The error text remains excluded.
 
 To disable product telemetry entirely, set `ANONYMIZED_TELEMETRY=false` before
 initializing Browser Use. There is no diagnostic-content upload option in this

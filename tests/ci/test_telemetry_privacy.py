@@ -9,6 +9,7 @@ from unittest.mock import Mock
 import pytest
 
 from browser_use import Agent
+from browser_use.beta import Agent as BetaAgent
 from browser_use.telemetry import ProductTelemetry
 from browser_use.telemetry.views import (
 	AgentTelemetryEvent,
@@ -171,19 +172,41 @@ def test_automatic_exception_capture_is_disabled(make_telemetry):
 	assert constructor.call_args.kwargs['enable_exception_autocapture'] is False
 
 
-@pytest.mark.parametrize('failed', [False, True])
-def test_agent_does_not_collect_private_history_for_telemetry(make_telemetry, failed):
+@pytest.mark.parametrize('agent_kind', ['classic', 'beta'])
+@pytest.mark.parametrize(
+	'history_success, run_error, expected_success',
+	[
+		(True, None, True),
+		(False, None, False),
+		(None, None, None),
+		(None, PRIVATE, False),
+		(True, PRIVATE, False),
+		(False, PRIVATE, False),
+		(None, '', False),
+		(None, f'SIGINT: {PRIVATE}', False),
+		(None, f'Maximum steps: {PRIVATE}', False),
+	],
+)
+def test_agent_does_not_collect_private_history_for_telemetry(
+	make_telemetry, monkeypatch, agent_kind, history_success, run_error, expected_success
+):
 	telemetry, sink, _ = make_telemetry()
+	capture = Mock(wraps=telemetry.capture)
+	monkeypatch.setattr(telemetry, 'capture', capture)
 	history = Mock()
 	history.judgement.return_value = {
-		'verdict': not failed,
+		'verdict': history_success,
 		'reasoning': PRIVATE,
 		'failure_reason': PRIVATE,
 		'reached_captcha': False,
 		'impossible_task': False,
 	}
 	history.total_duration_seconds.return_value = 1.5
-	history.is_successful.return_value = not failed
+	history.is_successful.return_value = history_success
+	history.number_of_steps.return_value = 2
+	history.usage = SimpleNamespace(
+		total_prompt_tokens=100, total_completion_tokens=20, total_prompt_cached_tokens=30, total_tokens=120
+	)
 	# Reading these values at all for telemetry is a regression, even if an
 	# eventual serializer would remove them.
 	history.final_result.side_effect = AssertionError('Do not collect the final response')
@@ -206,10 +229,26 @@ def test_agent_does_not_collect_private_history_for_telemetry(make_telemetry, fa
 		state=SimpleNamespace(n_steps=2),
 	)
 	# This isolated test double intentionally avoids initializing a live agent.
-	Agent._log_agent_event(cast(Agent[Any, Any], agent), max_steps=10, agent_run_error=PRIVATE if failed else None)
+	if agent_kind == 'classic':
+		Agent._log_agent_event(cast(Agent[Any, Any], agent), max_steps=10, agent_run_error=run_error)
+	else:
+		BetaAgent._log_agent_event(cast(BetaAgent, agent), max_steps=10, agent_run_error=run_error)
+	capture.assert_called_once()
+	event = capture.call_args.args[0]
+	assert PRIVATE not in json.dumps(vars(event))
+	assert event.judge_reasoning is None
+	assert event.judge_failure_reason is None
+	assert event.task == ''
+	assert event.cdp_url is None
+	assert event.action_history == []
+	assert event.action_errors == []
+	assert event.urls_visited == []
+	assert event.final_result_response is None
+	assert event.error_message is None
+	assert event.success is expected_success
 	payload = sink.capture.call_args.kwargs
 	assert PRIVATE not in json.dumps(payload)
-	assert payload['properties']['success'] is not failed
+	assert payload['properties']['success'] is expected_success
 	assert payload['properties']['total_tokens'] == 120
 
 
