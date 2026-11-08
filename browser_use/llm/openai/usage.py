@@ -14,6 +14,7 @@ def get_chat_usage(response: ChatCompletion) -> ChatInvokeUsage | None:
 	cached_tokens = usage.prompt_tokens_details.cached_tokens if usage.prompt_tokens_details is not None else None
 	if cached_tokens is None:
 		cached_tokens = getattr(usage, 'prompt_cache_hit_tokens', None)
+	# OpenAI includes reasoning tokens in completion_tokens; do not count them twice.
 	return ChatInvokeUsage(
 		prompt_tokens=usage.prompt_tokens,
 		prompt_cached_tokens=cached_tokens,
