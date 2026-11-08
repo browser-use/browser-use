@@ -228,6 +228,25 @@ async def test_transient_provider_error_is_retried_once(tmp_path, monkeypatch, e
 	assert (result.status, len(requests), sleeps) == (status, calls, slept), result.error
 
 
+async def test_gemini_requests_the_sdk_already_retried_are_not_sent_again(tmp_path, monkeypatch):
+	"""rr-failure 5: a persistent Gemini 500 took 6 requests, the other providers 3: google-genai retries twice
+	(build_agent's max_retries=2), and BrowserLoop, looking for max_retries on the client, sent it once more."""
+	from pydantic_ai import exceptions as x
+	from pydantic_ai.models.google import GoogleModel
+	from pydantic_ai.providers.google import GoogleProvider
+
+	sent = []
+
+	async def request(self, messages, model_settings, params):  # in place of google-genai and its own retries
+		sent.append((model_settings or {}).get('max_retries'))
+		raise x.ModelServerError('gemini-3.5-flash', 'internal')
+
+	monkeypatch.setattr(GoogleModel, 'request', request)
+	model = GoogleModel('gemini-3.5-flash', provider=GoogleProvider(api_key='x'))
+	result = await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'google:gemini-3.5-flash')
+	assert result.status == 'error' and sent == [2], sent
+
+
 async def test_workspace_path_is_in_instructions(daemon, tmp_path):
 	seen = []
 
