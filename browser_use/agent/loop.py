@@ -358,14 +358,20 @@ class BrowserLoop(AbstractCapability[Session]):
 
 class LazyCompaction(OpenAICompaction):
 	"""Server-side compaction, requested only once the last request was past the threshold. context_management on every
-	request made each call ~0.8 s slower at 45k tokens (bu-pi sends none)."""
+	request made each call ~0.8 s slower at 45k tokens (bu-pi sends none). Threshold: token_threshold, else 150k capped
+	at 65% of the model's context window (Compaction's trigger): gpt-4o's 128k window rejected every request before a
+	fixed 150k was reached, and the run ended on the context-window error."""
 
 	def get_model_settings(self):
-		resolve, threshold = super().get_model_settings(), self.token_threshold or 0
-
 		def settings(ctx: RunContext[Any]) -> Any:
+			if (ctx.model_settings or {}).get('openai_context_management'):  # the caller's own, as OpenAICompaction
+				return {}
+			window = ctx.model.context_window
+			threshold = self.token_threshold or (min(150_000, int(0.65 * window)) if window else 150_000)
 			last = next((m.usage.input_tokens for m in reversed(ctx.messages) if isinstance(m, ModelResponse)), 0)
-			return resolve(ctx) if resolve and last >= threshold else {}
+			if last < threshold:
+				return {}
+			return {'openai_context_management': [{'type': 'compaction', 'compact_threshold': threshold}]}
 
 		return settings
 
@@ -731,8 +737,8 @@ def build_agent(
 ) -> Agent[Session, Any]:
 	"""mode='ultrafast' appends AX_PROMPT (the `bu` helpers) to the system prompt; the Repl needs the same mode.
 	tools: extra Pydantic AI tools (Tools().functions). model_settings: merged over the defaults. compact_at_tokens: the
-	server-side compaction threshold (default 150k); elsewhere an extra trigger next to bu-pi's. max_context_chars: bu-pi's
-	character budget for client-side compaction (Compaction.max_chars; no effect with server-side compaction). reasoning_effort=None
+	server-side compaction threshold (default 150k, at most 65% of the window); elsewhere an extra trigger next to
+	bu-pi's. max_context_chars: bu-pi's character budget for client-side compaction (Compaction.max_chars; no effect with server-side compaction). reasoning_effort=None
 	sends no effort (the gateway then applies the alias's own: bu-fast medium, bu-ultrafast low, bu-smart high)."""
 	mode = check_mode(mode)
 	model = model_ref(model)
@@ -752,7 +758,7 @@ def build_agent(
 			del settings['openai_reasoning_effort']
 		if not reasoning:  # gpt-4.1, gpt-4o: reasoning params 400, and 32k is above their output cap
 			settings = {'openai_store': False}
-		capabilities = [BrowserLoop(), LazyCompaction(token_threshold=compact_at_tokens or 150_000)]
+		capabilities = [BrowserLoop(), LazyCompaction(token_threshold=compact_at_tokens)]
 		skip_responses_transform()  # bu-pi's Node SDK sends the body as is
 	elif kind == 'chat':  # DeepSeek, vLLM, Ollama: no reasoning settings, no output cap they may reject
 		# OpenAI's own reasoning models turn reasoning on by default on chat completions and then reject function tools

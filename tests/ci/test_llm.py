@@ -4,6 +4,7 @@ import json
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any, cast
 
 import pytest
 from pydantic_ai.exceptions import UserError
@@ -196,6 +197,21 @@ async def test_gateway_models_run_stateless_responses_with_compaction(responses_
 	assert 'TASK-TEXT' in json.dumps(second) and 'TASK-TEXT' not in json.dumps(third)  # compacted away
 	assert any(i.get('type') == 'compaction' and i['encrypted_content'] == 'sealed-compaction-2' for i in third)
 	assert result.cost_usd == pytest.approx(3 * 0.0002)
+
+
+async def test_responses_compaction_threshold_fits_the_model_window(responses_server, tmp_path):
+	"""gpt-4o (128k window) never compacted: the fixed 150k threshold was above its window, so the run ended on the
+	context-window error. The default is now capped at 65% of the window (here 15 tokens -> 9; the stub reports 10)."""
+	from pydantic_ai.profiles.openai import openai_model_profile
+	from pydantic_ai.providers.openai import OpenAIProvider
+
+	url, requests, replies = responses_server
+	replies += [[call('python', {'code': 'print(1)'}, 1)]]
+	profile = {**openai_model_profile('gpt-4o'), 'context_window': 15}
+	model = OpenAIResponsesModel('gpt-4o', provider=OpenAIProvider(base_url=url, api_key='x'), profile=cast(Any, profile))
+	result = await run(build_agent(model), 'TASK-TEXT', Session(repl=Repl(tmp_path)), 'openai:gpt-4o')
+	assert result.status == 'completed'
+	assert [body.get('context_management') for _, body in requests] == [None, [{'type': 'compaction', 'compact_threshold': 9}]]
 
 
 async def test_openai_responses_requests_are_not_stored(responses_server, tmp_path):
