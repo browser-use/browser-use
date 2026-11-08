@@ -419,6 +419,15 @@ def gateway_llm(model: Any) -> ChatBrowserUse | None:
 	return llm if isinstance(llm, ChatBrowserUse) else None
 
 
+def gateway_alias(llm: Any) -> str | None:
+	"""The gateway model name of any gateway form (ChatBrowserUse, ChatOpenAI(base_url=gateway), their pydantic_model()),
+	before any key is needed; None for any other model."""
+	if isinstance(llm, ChatOpenAI) and llm.is_gateway:
+		return llm.model
+	llm = gateway_llm(llm) or llm
+	return llm.model if isinstance(llm, ChatBrowserUse) else None
+
+
 def as_chat_model(llm: Any) -> Any:
 	"""None and 'bu-*' strings -> ChatBrowserUse. Other supported models are returned unchanged; anything else (a
 	LangChain chat model) raises here, in Agent(), not at run()."""

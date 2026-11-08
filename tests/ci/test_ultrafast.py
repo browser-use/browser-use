@@ -10,10 +10,11 @@ import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from browser_use import Agent, Browser
+from browser_use import Agent, Browser, ChatBrowserUse, ChatOpenAI
 from browser_use.agent.loop import build_agent
 from browser_use.agent.prompt import SYSTEM_PROMPT
 from browser_use.ax import AX_PROMPT
+from browser_use.llm import GATEWAY_URL
 from browser_use.repl import Repl
 
 PAGES = {
@@ -373,6 +374,36 @@ async def test_state_printed_once_per_cell(repl, site):
 
 
 # --- the public API end to end ---
+
+
+async def test_bu_fast_and_bu_ultrafast_default_to_ultrafast_mode(monkeypatch, tmp_path):
+	"""Google Flights on bu-ultrafast (local Chrome, 3 runs each): default mode 0/3, ultrafast 3/3 in 21 s. Any gateway
+	model form gets it; mode='default' opts out; other models keep the default mode."""
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
+	monkeypatch.setattr(ChatBrowserUse, 'preflight', lambda self: None)
+	repls = []
+
+	async def start(self):
+		return {}
+
+	def repl(*args, mode, **kwargs):  # the mode the worker would start in; stops the run before any model request
+		repls.append(mode)
+		raise RuntimeError('stop')
+
+	monkeypatch.setattr(Browser, 'start', start)
+	monkeypatch.setattr('browser_use.agent.service.Repl', repl)
+	for llm, mode, expected in [
+		('bu-fast', None, 'ultrafast'),
+		(ChatBrowserUse('bu-ultrafast'), None, 'ultrafast'),
+		(ChatBrowserUse('bu-fast').pydantic_model(), None, 'ultrafast'),
+		(ChatOpenAI('bu-ultrafast', base_url=GATEWAY_URL), None, 'ultrafast'),
+		('bu-fast', 'default', 'default'),
+		('bu-smart', None, 'default'),
+	]:
+		agent = Agent('t', llm, mode=mode, browser=Browser(local=True), workspace=tmp_path)
+		with pytest.raises(RuntimeError, match='stop'):
+			await agent.run()
+		assert (AX_PROMPT.strip() in static_instructions(agent._agent)[0], repls.pop()) == (expected == 'ultrafast', expected)
 
 
 async def test_agent_ultrafast_end_to_end(chrome, site, tmp_path):

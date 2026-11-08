@@ -147,7 +147,7 @@ Other models: `ChatAnthropic`, `ChatGoogle` (both built in), or any Pydantic AI 
 - **Domain restrictions:** `Browser(allowed_domains=['example.com', '*.example.org'])` (or `prohibited_domains=`, `block_ip_addresses=True`) with the 0.x patterns, in every browser mode. A guard for an aligned model, not a sandbox: see the FAQ.
 - **Follow-ups:** `agent.add_new_task('...')` then `await agent.run()`; use `Browser(keep_alive=True)` to keep the same page between runs.
 - **Custom tools:** plain functions with `@tools.action('description')`, then `Agent(task, tools=tools)`.
-- **Ultrafast:** `Agent(task, mode='ultrafast')` acts on accessibility-tree ids for interaction-heavy tasks.
+- **Ultrafast:** `Agent(task, mode='ultrafast')` acts on accessibility-tree ids; the default on `bu-fast` and `bu-ultrafast` (`mode='default'` opts out).
 - **Web search:** the agent gets `search(query, num_results=None, category=None)` (Browser Use web search, billed per search to your Browser Use key; each charge the response reports is added to `result.cost_usd`) with `Agent(task, web_search=True)` (off by default; needs a Browser Use key, and can't be combined with `allowed_domains`).
 
 <br/>

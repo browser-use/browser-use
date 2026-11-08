@@ -22,7 +22,15 @@ from browser_use.auth import browser_use_api_key
 from browser_use.browser import Browser
 from browser_use.config import load_env
 from browser_use.exceptions import removed
-from browser_use.llm import GATEWAY_URL, ChatBrowserUse, as_chat_model, gateway_llm, provider_preflight, resolve_model
+from browser_use.llm import (
+	GATEWAY_URL,
+	ChatBrowserUse,
+	as_chat_model,
+	gateway_alias,
+	gateway_llm,
+	provider_preflight,
+	resolve_model,
+)
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets
 from browser_use.search import WebSearch, search_url
@@ -172,8 +180,9 @@ class Agent:
 	for a fresh local one, Browser('chrome') for the Chrome you have open. sensitive_data={'name': 'value'} (or {'https://site': {'name': 'value'}} to type it only on that
 	domain): the model types values with type_secret('name'); values become <secret:name> in cell output, checkpoints,
 	tool results, the task and the result (MIGRATING.md "Trust model" lists exactly where). Not a sandbox: model-written
-	Python can read them; screenshots, page JS and a cloud live view or recording can reveal a typed value. mode='ultrafast' adds accessibility-tree helpers for
-	interaction-heavy tasks. reasoning: 'low'|'medium'|'high' for OpenAI reasoning models, the gateway, Anthropic and
+	Python can read them; screenshots, page JS and a cloud live view or recording can reveal a typed value. mode='ultrafast'
+	adds accessibility-tree helpers; the default (None) is 'ultrafast' on bu-fast and bu-ultrafast, else 'default'
+	(mode='default' opts out). reasoning: 'low'|'medium'|'high' for OpenAI reasoning models, the gateway, Anthropic and
 	Google (default 'medium'; on the gateway the alias's own: bu-fast medium, bu-ultrafast low, bu-smart high).
 	OpenAI-compatible chat backends (base_url servers) ignore it with a warning: pass ChatOpenAI(..., reasoning_effort=...)
 	to send reasoning_effort there. web_search: the agent gets search() (Browser Use web search, billed per search to the
@@ -195,7 +204,7 @@ class Agent:
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		extend_system_message: str | None = None,
 		reasoning: str | None = None,
-		mode: str | None = 'default',
+		mode: str | None = None,
 		workspace: str | Path | None = None,
 		web_search: bool = False,
 		max_context_chars: int | None = None,
@@ -239,8 +248,10 @@ class Agent:
 				f'sensitive_data {", ".join(short)}: values under {SHORT_SECRET} characters are redacted only where they '
 				'stand alone, not inside longer words or numbers; a longer value is safer.'
 			)
-		self.mode = check_mode(mode)
 		self.task, self.llm, self.browser, self.tools = task, as_chat_model(llm), browser, tools
+		# bu-fast and bu-ultrafast are evaluated in ultrafast mode (Google Flights: 0/3 in default mode, 3/3)
+		fast = gateway_alias(self.llm) in ('bu-fast', 'bu-ultrafast')
+		self.mode = check_mode(mode if mode is not None else 'ultrafast' if fast else 'default')
 		self.output_model_schema = output_model_schema or str
 		try:  # a JSON-schema dict or an instance failed only in run(), with a raw pydantic SchemaError
 			TypeAdapter(self.output_model_schema).json_schema()
