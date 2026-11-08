@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai.messages import ModelMessage
 
@@ -161,3 +161,9 @@ class AgentHistoryList:
 		if name in REMOVED:
 			raise AttributeError(removed(f'AgentHistoryList.{name}', ALTERNATIVES.get(name, HISTORY_ALTERNATIVE)))
 		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')
+
+
+if not TYPE_CHECKING:  # pyright would accept any name imported from here
+	from browser_use.legacy import removed_names
+
+	__getattr__ = removed_names(__name__)  # a 0.x name raises the removed error naming its 1.0 answer

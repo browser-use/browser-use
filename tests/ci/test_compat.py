@@ -24,6 +24,7 @@ def no_browser(monkeypatch):
 REMOVED = (
 	r'was removed in browser-use 1\.0\. Open an issue at https://github\.com/browser-use/browser-use/issues if you need it\.'
 )
+GUIDE = r' Migration guide: https://github\.com/browser-use/browser-use/blob/main/MIGRATING\.md$'
 
 
 @pytest.mark.parametrize(
@@ -53,7 +54,7 @@ def test_unknown_agent_kwarg_is_not_called_removed(no_browser):
 
 
 def test_removed_alternative_is_named(no_browser):
-	with pytest.raises(TypeError, match=r'In 1\.0: extend_system_message=\.\.\. \(the core prompt is fixed\)\.$'):
+	with pytest.raises(TypeError, match=rf'In 1\.0: extend_system_message=\.\.\. \(the core prompt is fixed\)\.{GUIDE}'):
 		Agent('t', script()[0], override_system_message='x')
 
 
@@ -68,7 +69,9 @@ def test_agent_highlight_elements_names_highlight_actions(no_browser, caplog, mo
 
 def test_available_file_paths_error_says_there_is_no_allowlist(no_browser):
 	"""C30: the agent can upload any file the user can read; the error must not imply the workspace is a boundary."""
-	with pytest.raises(TypeError, match=r'In 1\.0: there is no file allowlist: .* any file you can read\. .* container or VM\.$'):
+	with pytest.raises(
+		TypeError, match=rf'In 1\.0: there is no file allowlist: .* any file you can read\. .* container or VM\.{GUIDE}'
+	):
 		Agent('t', script()[0], available_file_paths=['/tmp/a.pdf'])
 
 
@@ -204,6 +207,82 @@ def test_removed_classes_raise_with_pointer():
 			exec(f'from browser_use.llm import {name}')  # the common 0.x import path
 	with pytest.raises(ImportError, match='cannot import name'):
 		exec('from browser_use.llm import NotAThing')
+
+
+@pytest.mark.parametrize(
+	'path, instead',
+	[
+		('browser_use.browser.events', "logging.getLogger('browser_use')"),  # the 0.x hooks docs, verbatim
+		('browser_use.browser.session', 'from browser_use import Browser'),
+		('browser_use.browser.watchdogs.dom_watchdog', 'from browser_use import Browser'),
+		('browser_use.mcp.client', '@tools.action'),
+		('browser_use.controller.service', 'from browser_use import Tools'),
+		('browser_use.tools.service', 'from browser_use import Tools'),  # browser_use.tools is a module in 1.0
+		('browser_use.tools.registry.views', 'from browser_use import Tools'),
+		('browser_use.llm.openai.chat', 'from browser_use import ChatOpenAI'),
+		('browser_use.llm.google.chat', 'from browser_use import ChatGoogle'),
+		('browser_use.llm.aws.chat_bedrock', "llm='bedrock:<model id>'"),
+		('browser_use.llm.azure.chat', "llm='azure:<deployment>'"),
+		('browser_use.llm.base', 'pydantic_ai.Agent(llm.pydantic_model())'),
+		('browser_use.llm.messages', 'pydantic_ai.Agent(llm.pydantic_model())'),
+		('browser_use.observability', 'pydantic_ai.Agent.instrument_all()'),
+		('browser_use.dom.service', 'Python and raw CDP'),
+		('browser_use.actor.page', 'Python and raw CDP'),
+		('browser_use.agent.message_manager.service', 'result.messages'),
+		('browser_use.tokens.service', 'result.cost_usd'),
+		('browser_use.filesystem.file_system', 'Agent(workspace=...)'),
+		('browser_use.sandbox', ''),
+		('browser_use.browser.context', 'from browser_use import Browser'),  # 0.1.x-0.5.x
+		('browser_use.agent.memory.service', 'compacted'),
+		('browser_use.code_use.service', 'writes Python itself'),  # 0.8.x-0.11.x
+		('browser_use.skill_cli.main', 'browser-harness'),  # 0.11.x-0.12.x
+	],
+)
+def test_0x_module_paths_name_their_replacement(path, instead):
+	"""rr-legacy: 157 of 178 0.13.14 module paths (and older 0.x ones) gave a bare ModuleNotFoundError (the 0.x hooks docs,
+	MCPClient, every deep import); each names its 1.0 replacement and links MIGRATING.md. Still an ImportError, for
+	`except ImportError` fallbacks."""
+	import importlib
+
+	with pytest.raises(ModuleNotFoundError, match=rf'^browser_use\.[\w.]+ {REMOVED}.*{GUIDE}') as raised:
+		importlib.import_module(path)
+	assert instead in str(raised.value) and path.startswith(raised.value.name or '-')
+	with pytest.raises(ModuleNotFoundError, match=r"^No module named 'browser_use\.not_a_0x_module'$"):
+		importlib.import_module('browser_use.not_a_0x_module')  # a path 0.x never had is left to Python
+
+
+def test_0x_names_and_members_name_their_replacement():
+	"""rr-legacy: ProxySettings, AgentOutput/AgentState, BaseChatModel, Browser.list_chrome_profiles() and llm.ainvoke()
+	gave a bare ImportError / AttributeError."""
+	import browser_use.utils
+	from browser_use import ChatOpenAI
+
+	for module, name, instead in [
+		('browser_use.browser', 'ProxySettings', 'cloud_proxy_country_code'),
+		('browser_use.agent.views', 'AgentOutput', 'result.messages'),
+		('browser_use.agent.views', 'AgentState', 'AgentHistoryList'),
+		('browser_use.llm', 'BaseChatModel', 'pydantic_ai.models.Model'),
+		('browser_use.llm', 'UserMessage', 'pydantic_ai.Agent(llm.pydantic_model())'),
+		('browser_use.mcp', 'MCPClient', '@tools.action'),
+		('browser_use.utils', 'time_execution_async', 'internal helper'),
+		('browser_use', 'BrowserContextConfig', 'Browser(...)'),  # 0.1.x-0.5.x
+		('browser_use.browser.browser', 'BrowserContextConfig', 'Browser(...)'),
+		('browser_use', 'CodeAgent', 'writes Python itself'),
+		('browser_use.cli', 'BrowserUseApp', 'browser-harness'),
+	]:
+		with pytest.raises(ImportError, match=rf'^{re.escape(module)}\.{name} {REMOVED} In 1\.0: .*{GUIDE}') as raised:
+			exec(f'from {module} import {name}')
+		assert instead in str(raised.value), name
+	for fn, match in [
+		(
+			lambda: ChatOpenAI('gpt-4.1-mini', api_key='x').ainvoke,
+			r'^ChatOpenAI\.ainvoke .*pydantic_ai\.Agent\(llm\.pydantic_model\(\)\)',
+		),
+		(lambda: Browser.list_chrome_profiles(), r"^Browser\.list_chrome_profiles\(\) .*Browser\('chrome', profile='Work'\)"),
+	]:
+		with pytest.raises(AttributeError, match=rf'{match}.*{GUIDE}'):
+			fn()
+	assert not hasattr(browser_use.utils, 'not_a_0x_name') and not hasattr(ChatOpenAI('m', api_key='x'), 'nope')
 
 
 def test_browser_session_alias_and_controller_alias():

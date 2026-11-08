@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 SCHEMA_VERSION = 2  # 2: no task, result, code, typed text, URLs or error messages (TELEMETRY.md)
 
@@ -99,3 +99,9 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	download_exts: dict[str, int] = field(default_factory=dict)
 
 	name: str = 'agent_event'
+
+
+if not TYPE_CHECKING:  # pyright would accept any name imported from here
+	from browser_use.legacy import removed_names
+
+	__getattr__ = removed_names(__name__)  # a 0.x name raises the removed error naming its 1.0 answer

@@ -5,8 +5,9 @@ persistent REPL with [browser-harness](https://github.com/browser-use/browser-ha
 [Pydantic AI](https://ai.pydantic.dev). The common 0.x surface (`Agent`, `Browser`, `Tools`, `run()`,
 `final_result()`) still works. Anything 1.0 cannot honor raises a clear error before a browser starts or anything is
 billed, never a silent no-op. A 0.x feature 1.0 dropped raises one error: "`<feature>` was removed in browser-use 1.0.
-Open an issue at https://github.com/browser-use/browser-use/issues if you need it.", plus the 1.0 alternative when
-there is one; [Removed in 1.0](#removed-in-10) lists them all.
+Open an issue at https://github.com/browser-use/browser-use/issues if you need it. In 1.0: `<the alternative>`
+Migration guide: https://github.com/browser-use/browser-use/blob/main/MIGRATING.md" (the "In 1.0" part when there is
+one); [Removed in 1.0](#removed-in-10) and [Other removed modules](#other-removed-modules) list them all.
 
 Need 0.x? Pin it: `pip install 'browser-use<1'`.
 
@@ -245,20 +246,43 @@ Domain-scoped `sensitive_data` still limits where each secret is typed, independ
 
 ## Other removed modules
 
-`browser_use.dom`, `browser_use.actor`, `browser_use.beta`, `browser_use.sandbox`, `browser_use.sync`,
-`browser_use.filesystem`, `browser_use.screenshots`, `browser_use.tokens`, `browser_use.mcp.client` and the
-Anthropic / OpenAI hosted-browser integrations (`browser_use.integrations`). The integrations come back on the new
-`Browser` in a later release.
+Every 0.x module path (0.1 to 0.13) 1.0 does not have, and every public name of a 0.x module 1.0 kept, raises the
+removed error naming its replacement (`ModuleNotFoundError` for a module, `ImportError` for a name; both are
+`ImportError`, so `except ImportError` fallbacks still work). Import from the top level: `from browser_use import Agent, Browser, Tools,
+ActionResult, ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle`.
 
-Deep imports of 0.x internals raise `ModuleNotFoundError`; import from the top level instead:
-
-| 0.x import | 1.0 |
+| 0.x | 1.0 |
 |---|---|
-| `browser_use.llm.openai.chat`, `browser_use.llm.anthropic.chat`, `browser_use.llm.google.chat`, `browser_use.llm.browser_use.chat`, `browser_use.llm.messages`, `browser_use.llm.base` | `from browser_use import ChatOpenAI, ChatAnthropic, ChatGoogle, ChatBrowserUse` (or `browser_use.llm`) |
-| `browser_use.browser.session`, `browser_use.browser.profile`, `browser_use.browser.events`, `browser_use.browser.watchdogs` | `from browser_use import Browser` (BrowserSession / BrowserProfile are gone) |
-| `browser_use.controller`, `browser_use.tools.service`, `browser_use.tools.registry` | `from browser_use import Tools, Controller` |
-| `browser_use.agent.views` | kept for `AgentHistoryList` and `ActionResult`; `AgentState`, `AgentOutput`, `AgentStepInfo`, ... are gone |
-| `browser_use.agent.prompts`, `browser_use.agent.message_manager`, `browser_use.agent.judge` | removed: the 0.x loop internals |
+| `browser_use.llm.openai`, `.anthropic`, `.google`, `.browser_use` (`.chat`) | `from browser_use import ChatOpenAI, ChatAnthropic, ChatGoogle, ChatBrowserUse` |
+| `browser_use.llm.aws` (`ChatAWSBedrock`, `ChatAnthropicBedrock`), `.azure`, `.deepseek`, `.groq`, `.mistral`, `.openrouter`, `.cerebras`, `.vercel`, `.ollama`, `.litellm`, `.oci_raw`, `.orcarouter` | each names its model string, as in [Models](#models): e.g. `llm='bedrock:<model id>'`, `llm='azure:<deployment>'` |
+| `browser_use.llm.messages` (`UserMessage`, `SystemMessage`, ...), `.base` (`BaseChatModel`), `.views`, `.schema`, `.exceptions`, `llm.ainvoke(...)`, `llm.get_client()` | the agent calls the model itself. To call one directly: `await pydantic_ai.Agent(llm.pydantic_model()).run(prompt)` (`output_type=YourModel` for structured output). `llm.model_name` / `llm.name`: `llm.model` |
+| `browser_use.llm.models` | a Pydantic AI model string, e.g. `llm='openai:gpt-6-luna'` |
+| `browser_use.browser.session`, `.profile`, `.views`, `.watchdogs`, `.session_manager`, `.context` (`BrowserContext`, `BrowserContextConfig`), `ProxySettings` | `from browser_use import Browser`, options passed to `Browser(...)`; a proxy is `cloud_proxy_country_code` on cloud browsers (`Browser('chromium')` has no proxy yet) |
+| `Browser.list_chrome_profiles()` | `Browser('chrome', profile='Work')` takes a profile's display or directory name; a name that matches none raises with the list of your profiles |
+| `browser_use.browser.events` (`ScreenshotEvent`, ...), `agent.service.AgentHookFunc` | each step logs one INFO line to `logging.getLogger('browser_use')`; add a `logging.Handler` to stream progress, and read `result.messages` after the run |
+| `browser_use.browser.cloud` | `Browser()` is a cloud browser (`cloud_profile_id=`, `cloud_proxy_country_code=`, `cloud_timeout=`) |
+| `browser_use.controller`, `browser_use.tools.service`, `.registry`, `.views` | `from browser_use import Tools, ActionResult` (`Controller` is the same class) |
+| `browser_use.agent.views`: `AgentOutput`, `AgentBrain`, `AgentState`, `AgentHistory`, `AgentStepInfo`, `StepMetadata`, `AgentError`, `AgentStructuredOutput` | `AgentHistoryList` and `ActionResult` are kept. The rest: the result `run()` returns (`status`, `text`, `output`, `error`, `usage`, `number_of_steps()`, `messages`); `Agent(output_model_schema=...)` for structured output |
+| `CodeAgent`, `browser_use.code_use` | `Agent(...)`: the 1.0 agent writes Python itself |
+| `browser_use.skill_cli` | the `browser-use` CLI (Python piped to browser-harness) and `browser-use --cli-mcp` |
+| `browser_use.agent.prompts`, `.message_manager`, `.memory`, `.judge`, `.gif`, `.variable_detector` | removed: the 0.x loop internals. `Agent(extend_system_message=...)` adds to the fixed prompt; `result.success` is the agent's verdict |
+| `browser_use.observability` (`observe`, `observe_debug`, Laminar) | see [Observability](#observability) |
+| `browser_use.mcp.client` (`MCPClient`), `browser_use.mcp.controller` | call the MCP server from a plain `@tools.action` function |
+| `browser_use.mcp.server` (`BrowserUseServer`) | `browser-use --cli-mcp` (see [CLI and MCP](#cli-and-mcp)) |
+| `browser_use.dom`, `browser_use.actor` (`Page`, `Element`, `Mouse`) | the agent drives the page with Python and raw CDP in its REPL |
+| `browser_use.filesystem` | `Agent(workspace=...)`, a plain directory |
+| `browser_use.tokens` | `result.usage` and `result.cost_usd` |
+| `browser_use.config` (`load_browser_use_config`, ...), `browser_use.utils` (`time_execution_async`, ...), `browser_use.logging_config` (`addLoggingLevel`, ...) | 0.x internals: `Agent(...)` / `Browser(...)` arguments, `BROWSER_USE_LOGGING_LEVEL`; copy a helper you need |
+| `browser_use.beta`, `browser_use.sandbox`, `browser_use.sync`, `browser_use.screenshots`, `browser_use.skills.service`, `browser_use.init_cmd` | removed (`screenshot()` in the agent's REPL replaces `screenshots`) |
+| `browser_use.integrations` (Anthropic / OpenAI hosted-browser tools, Gmail) | none yet: they come back on the new `Browser` in a later release |
+
+### Observability
+
+0.x traced its own functions with Laminar (`browser_use.observability.observe`). 1.0 runs on Pydantic AI, which emits
+OpenTelemetry spans for every model request and tool call (`invoke_agent`, `chat <model>`, `execute_tool python`) once
+instrumentation is on: `pydantic_ai.Agent.instrument_all()` sends them to the global OpenTelemetry tracer provider
+(Laminar, Langfuse, Datadog and others accept OTLP), and `logfire.instrument_pydantic_ai()` sends them to Logfire.
+Spans carry prompts and cell output; pass `InstrumentationSettings(include_content=False)` to leave those out.
 
 ## CLI and MCP
 

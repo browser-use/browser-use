@@ -1,3 +1,6 @@
+from typing import TYPE_CHECKING
+
+
 class MissingAPIKeyError(RuntimeError):
 	"""No usable Browser Use API key for the default model or the default cloud browser."""
 
@@ -20,10 +23,19 @@ class BrowserConnectionLost(ConnectionError):
 
 
 ISSUES_URL = 'https://github.com/browser-use/browser-use/issues'
+MIGRATING_URL = 'https://github.com/browser-use/browser-use/blob/main/MIGRATING.md'
 
 
 def removed(feature: str, instead: str = '') -> str:
 	"""The one error text for a 0.x feature 1.0 dropped (MIGRATING.md "Removed in 1.0"), with the 1.0 alternative."""
-	return f'{feature} was removed in browser-use 1.0. Open an issue at {ISSUES_URL} if you need it.' + (
-		f' In 1.0: {instead}' if instead else ''
+	return (
+		f'{feature} was removed in browser-use 1.0. Open an issue at {ISSUES_URL} if you need it.'
+		+ (f' In 1.0: {instead}' if instead else '')
+		+ f' Migration guide: {MIGRATING_URL}'
 	)
+
+
+if not TYPE_CHECKING:  # pyright would accept any name imported from here
+	from browser_use.legacy import removed_names
+
+	__getattr__ = removed_names(__name__)  # a 0.x name raises the removed error naming its 1.0 answer

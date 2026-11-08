@@ -54,6 +54,24 @@ def _chat_kwargs(cls: str, kwargs: dict[str, Any]) -> None:
 		raise TypeError(removed(f'{cls}({name}=...)', instead))
 
 
+class _Chat:
+	"""0.x BaseChatModel members 1.0's Chat classes dropped raise the removed error naming the 1.0 answer."""
+
+	REMOVED_ATTRS = {
+		'ainvoke': '',  # browser_use.legacy.CALL_MODEL
+		'get_client': 'llm.pydantic_model() is the Pydantic AI model; its client is model.client.',
+		**dict.fromkeys(('name', 'model_name'), 'llm.model.'),
+	}
+
+	def __getattr__(self, name: str) -> Any:
+		if name in self.REMOVED_ATTRS:
+			from browser_use.exceptions import removed
+			from browser_use.legacy import CALL_MODEL
+
+			raise AttributeError(removed(f'{type(self).__name__}.{name}', self.REMOVED_ATTRS[name] or CALL_MODEL))
+		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')
+
+
 EXTRAS = {
 	'anthropic': 'anthropic',
 	'google': 'google',
@@ -104,7 +122,7 @@ def gateway_model(model: str, api_key: str, base_url: str) -> Any:
 	return resolved
 
 
-class ChatBrowserUse:
+class ChatBrowserUse(_Chat):
 	"""Browser Use gateway models ('bu-fast', 'bu-ultrafast', 'bu-smart', or a listed OpenAI model such as 'gpt-6.1-sol').
 	Key: BROWSER_USE_API_KEY or `browser-use login`. Without Agent(reasoning=...) the alias's own effort applies."""
 
@@ -192,7 +210,7 @@ class ChatBrowserUse:
 		return f'{self.model} is not on the Browser Use gateway. Listed: {", ".join(sorted(str(m) for m in listed))}.'
 
 
-class ChatOpenAI:
+class ChatOpenAI(_Chat):
 	"""OpenAI, or any OpenAI-compatible server via base_url (DeepSeek, vLLM, Ollama, OpenRouter, ...)."""
 
 	provider = 'openai'
@@ -252,7 +270,7 @@ class ChatOpenAI:
 		return settings
 
 
-class ChatAnthropic:
+class ChatAnthropic(_Chat):
 	provider = 'anthropic'
 
 	def __init__(self, model: str, *, api_key: str | SecretStr | None = None, **kwargs: Any):
@@ -271,7 +289,7 @@ class ChatAnthropic:
 		return {}
 
 
-class ChatGoogle:
+class ChatGoogle(_Chat):
 	provider = 'google'
 
 	def __init__(self, model: str, *, api_key: str | SecretStr | None = None, **kwargs: Any):
@@ -498,7 +516,9 @@ def __getattr__(name: str):
 		from browser_use.exceptions import removed
 
 		raise ImportError(removed(f'browser_use.llm.{name}', _REMOVED[name]))
-	raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+	from browser_use.legacy import removed_name
+
+	raise removed_name(__name__, name)  # BaseChatModel, UserMessage, ...: the removed error naming the 1.0 answer
 
 
 __all__ = ['ChatAnthropic', 'ChatBrowserUse', 'ChatGoogle', 'ChatOpenAI', 'GATEWAY_URL', 'model_ref', 'resolve_model']

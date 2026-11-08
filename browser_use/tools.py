@@ -23,6 +23,9 @@ from pydantic_ai import Tool
 from browser_use.exceptions import removed
 
 logger = logging.getLogger(__name__)
+# 0.x's browser_use.tools was a package (tools.service, tools.registry.views, ...): an empty __path__ lets those imports
+# reach the 0.x import hook (browser_use/legacy.py), which names Tools; without it Python stops at "not a package"
+__path__: list[str] = []
 RESERVED = {'python', 'finish', 'finish_from_repl'}
 # Retries of one tool's rejected calls (invalid or truncated arguments, ModelRetry). bu-pi returns the error and goes on;
 # max_steps bounds it. A budget of 1 ended the run on two bad python calls in a row (a truncated cell, a JSON slip).

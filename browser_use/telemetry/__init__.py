@@ -29,8 +29,9 @@ def __getattr__(name: str):
 			return attr
 		except ImportError as e:
 			raise ImportError(f'Failed to import {name} from {module_path}: {e}') from e
+	from browser_use.legacy import removed_name
 
-	raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+	raise removed_name(__name__, name)  # 0.x names: the removed error naming the 1.0 answer
 
 
 __all__ = ['AgentTelemetryEvent', 'BaseTelemetryEvent', 'ProductTelemetry']

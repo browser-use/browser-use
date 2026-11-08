@@ -15,6 +15,10 @@ if os.environ.get('BROWSER_USE_SETUP_LOGGING', 'true').lower() != 'false':
 
 	setup_logging()
 
+from browser_use.legacy import install as _install_0x_import_errors
+
+_install_0x_import_errors()  # import browser_use.dom (any 0.x module path) names its 1.0 answer
+
 if TYPE_CHECKING:
 	from browser_use.agent import Agent, AgentHistoryList
 	from browser_use.browser import Browser
@@ -53,6 +57,9 @@ _REMOVED = {  # 0.x top-level names -> the 1.0 alternative
 	'BrowserSession': 'Browser(...).',
 	'BrowserProfile': 'pass options to Browser(...).',
 	'BrowserConfig': 'pass options to Browser(...).',
+	'BrowserContext': 'pass options to Browser(...).',
+	'BrowserContextConfig': 'pass options to Browser(...).',
+	'CodeAgent': 'Agent(...): the 1.0 agent writes Python itself.',
 	'DomService': 'the agent reads pages with Python.',
 	'SystemPrompt': 'Agent(extend_system_message=...).',
 	'ActionModel': 'custom actions are plain functions: @tools.action(...).',

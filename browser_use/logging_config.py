@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from typing import TYPE_CHECKING
 
 
 def setup_logging(level: str | None = None) -> logging.Logger:
@@ -16,3 +17,9 @@ def setup_logging(level: str | None = None) -> logging.Logger:
 	if not isinstance(logging.getLevelName(level.upper()), int):  # 0.x 'result', or a typo: says so instead of INFO silently
 		logger.warning(f'BROWSER_USE_LOGGING_LEVEL={level!r} is not a level (debug, info, warning, error); using info.')
 	return logger
+
+
+if not TYPE_CHECKING:  # pyright would accept any name imported from here
+	from browser_use.legacy import removed_names
+
+	__getattr__ = removed_names(__name__)  # a 0.x name raises the removed error naming its 1.0 answer

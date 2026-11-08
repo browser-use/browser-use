@@ -32,7 +32,7 @@ import urllib.request
 import uuid
 import webbrowser
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from browser_use.auth import browser_use_api_key, cloud_error_hint
 from browser_use.browser import local as _local
@@ -442,6 +442,17 @@ class Browser:
 	def from_system_chrome(cls, *args, **kwargs) -> Browser:
 		"""0.x: the Chrome installed on this machine."""
 		raise AttributeError(removed('Browser.from_system_chrome()', "Browser('chrome') attaches to the Chrome you have open."))
+
+	@classmethod
+	def list_chrome_profiles(cls) -> list[dict[str, str]]:
+		"""0.x: the profiles of the Chrome installed on this machine."""
+		raise AttributeError(
+			removed(
+				'Browser.list_chrome_profiles()',
+				"Browser('chrome', profile='Work') runs on a copy of that Chrome profile (display or directory name); a name "
+				'that matches none raises with the list of your profiles.',
+			)
+		)
 
 	def __getattr__(self, name: str):
 		if name in REMOVED_METHODS:
@@ -1084,11 +1095,7 @@ class Browser:
 				return out
 
 
-def __getattr__(name: str):
-	"""from browser_use.browser(.browser) import BrowserConfig (0.x import paths): the removal message, not an ImportError
-	naming site-packages."""
-	from browser_use import _REMOVED
+if not TYPE_CHECKING:  # pyright would accept any name imported from here
+	from browser_use.legacy import removed_names
 
-	if name in ('BrowserSession', 'BrowserProfile', 'BrowserConfig'):
-		raise ImportError(removed(f'browser_use.browser.{name}', _REMOVED[name]))
-	raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+	__getattr__ = removed_names(__name__)  # 0.1.x: from browser_use.browser.browser import BrowserConfig (removed error)

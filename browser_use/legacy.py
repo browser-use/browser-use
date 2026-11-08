@@ -1,0 +1,379 @@
+"""0.x import paths and names 1.0 removed: each raises the removed error naming its 1.0 answer (MIGRATING.md).
+
+Modules: a finder at the end of sys.meta_path, so it only sees paths no real module answers. Names in modules 1.0
+kept (browser_use.agent.views.AgentOutput, ...): the module's __getattr__ calls removed_name()."""
+
+from __future__ import annotations
+
+import sys
+from importlib.machinery import ModuleSpec
+
+_LLM = (
+	'from browser_use import ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle, or a Pydantic AI model string such as '
+	"llm='openai:gpt-6-luna'."
+)
+CALL_MODEL = (
+	'the agent calls the model itself. To call one directly use Pydantic AI: '
+	'await pydantic_ai.Agent(llm.pydantic_model()).run(prompt) (output_type=YourModel for structured output).'
+)
+_LOOP = 'the 0.x loop internals are gone: the model writes Python cells, result.messages holds the transcript.'
+_BROWSER = 'from browser_use import Browser; pass options to Browser(...) (BrowserSession and BrowserProfile are gone).'
+_IN_PYTHON = 'the agent drives the page with Python and raw CDP in its REPL; there is no DOM, Page or Element API.'
+_EVENTS = (
+	"each step logs one INFO line to logging.getLogger('browser_use'); add a logging.Handler to stream progress, and "
+	'read result.messages after the run.'
+)
+_MCP_CLIENT = 'call the MCP server from a plain @tools.action function.'
+_MCP_SERVER = 'browser-use --cli-mcp (browser-use --mcp now serves the same browser_exec and browser_screenshot tools).'
+_CODE_AGENT = 'from browser_use import Agent: the 1.0 agent writes Python itself.'
+_CLI = 'the browser-use CLI pipes Python to browser-harness (browser-use --help), and browser-use --cli-mcp serves it over MCP.'
+_USAGE = 'result.usage (tokens) and result.cost_usd.'
+_LLM_ERROR = "result.error (run() returns status='error' for provider failures)."
+_TELEMETRY = 'telemetry is internal (TELEMETRY.md); ANONYMIZED_TELEMETRY=false turns it off.'
+_SKILLS = 'none (Cloud Skills were removed).'
+_UTILS = 'none: it was a 0.x internal helper; copy what you need.'
+_OBSERVABILITY = (
+	"Pydantic AI's OpenTelemetry tracing: pydantic_ai.Agent.instrument_all() (or logfire.instrument_pydantic_ai()) "
+	'traces every model request and tool call of every run.'
+)
+
+
+def _llm_modules() -> dict[str, str]:
+	from browser_use import _LLM_REMOVED
+
+	providers = {
+		'aws': 'ChatAWSBedrock',
+		'azure': 'ChatAzureOpenAI',
+		'cerebras': 'ChatCerebras',
+		'deepseek': 'ChatDeepSeek',
+		'groq': 'ChatGroq',
+		'litellm': 'ChatLiteLLM',
+		'mistral': 'ChatMistral',
+		'oci_raw': 'ChatOCIRaw',
+		'ollama': 'ChatOllama',
+		'openrouter': 'ChatOpenRouter',
+		'orcarouter': 'ChatOrcaRouter',
+		'vercel': 'ChatVercel',
+	}
+	kept = {'openai': 'ChatOpenAI', 'anthropic': 'ChatAnthropic', 'google': 'ChatGoogle', 'browser_use': 'ChatBrowserUse'}
+	return {
+		**{f'browser_use.llm.{m}': _LLM_REMOVED[cls] for m, cls in providers.items()},
+		**{f'browser_use.llm.{m}': f'from browser_use import {cls}.' for m, cls in kept.items()},
+	}
+
+
+# 0.x module (and everything under it) -> the 1.0 answer. Longest match wins. Built on first use: it reads browser_use.
+_MODULES: dict[str, str] = {}
+
+
+def _modules() -> dict[str, str]:
+	if not _MODULES:
+		_MODULES.update(
+			{
+				'browser_use.actor': _IN_PYTHON,
+				'browser_use.dom': _IN_PYTHON,
+				'browser_use.agent.message_manager': _LOOP,
+				'browser_use.agent.memory': 'none: every result stays in the conversation; long runs are compacted on their own.',
+				'browser_use.agent.playwright_script_generator': _LOOP,
+				'browser_use.agent.playwright_script_helpers': _LOOP,
+				'browser_use.agent.tests': '',
+				'browser_use.browser.tests': '',
+				'browser_use.browser.context': _BROWSER,
+				'browser_use.browser.types': _BROWSER,
+				'browser_use.browser.utils': _BROWSER,
+				'browser_use.browser.extensions': _BROWSER,
+				'browser_use.browser.dolphin_service': "Browser(cdp_url=...) attaches to another browser's CDP endpoint.",
+				'browser_use.code_use': _CODE_AGENT,
+				'browser_use.skill_cli': _CLI,
+				'browser_use.agent.variable_detector': _LOOP,
+				'browser_use.agent.cloud_events': _LOOP,
+				'browser_use.agent.prompts': 'Agent(extend_system_message=...) adds to the fixed system prompt.',
+				'browser_use.agent.system_prompts': 'Agent(extend_system_message=...) adds to the fixed system prompt.',
+				'browser_use.agent.gif': 'none (live_view=True shows a cloud browser live).',
+				'browser_use.agent.judge': "result.success, the agent's own verdict.",
+				'browser_use.beta': 'from browser_use import Agent.',
+				'browser_use.browser.session': _BROWSER,
+				'browser_use.browser.session_manager': _BROWSER,
+				'browser_use.browser.profile': _BROWSER,
+				'browser_use.browser.views': _BROWSER,
+				'browser_use.browser.chrome': "Browser('chrome') (your open Chrome) or Browser('chromium') (a fresh one).",
+				'browser_use.browser.cloud': 'Browser() is a cloud browser (cloud_profile_id=, cloud_proxy_country_code=, cloud_timeout=).',
+				'browser_use.browser.events': _EVENTS,
+				'browser_use.browser.watchdog_base': _BROWSER,
+				'browser_use.browser.watchdogs': _BROWSER,
+				**dict.fromkeys(  # 0.6.0 kept the watchdogs next to the session
+					(
+						f'browser_use.browser.{w}_watchdog'
+						for w in (
+							'aboutblank',
+							'crash',
+							'default_action',
+							'dom',
+							'downloads',
+							'local_browser',
+							'permissions',
+							'popups',
+							'screenshot',
+							'security',
+							'storage_state',
+						)
+					),
+					_BROWSER,
+				),
+				'browser_use.browser.service': _BROWSER,  # 0.1.0
+				'browser_use.browser._cdp_timeout': _BROWSER,
+				'browser_use.browser.demo_mode': 'Agent(highlight_actions=True) marks each click and keypress on the page.',
+				'browser_use.browser.python_highlights': 'Agent(highlight_actions=True) marks each click and keypress on the page.',
+				'browser_use.browser.video_recorder': 'none (live_view=True shows a cloud browser live).',
+				'browser_use.controller': 'from browser_use import Tools (Controller is the same class).',
+				'browser_use.tools': 'from browser_use import Tools, ActionResult.',
+				'browser_use.filesystem': 'Agent(workspace=...) is a plain directory the agent reads and writes.',
+				'browser_use.screenshots': 'the agent calls screenshot() in its REPL.',
+				'browser_use.init_cmd': 'none (browser-use init templates were removed).',
+				'browser_use.cli_templates': 'none (browser-use init templates were removed).',
+				'browser_use.integrations': 'none yet: the hosted-browser integrations come back on the new Browser later.',
+				'browser_use.llm': _LLM,
+				**dict.fromkeys(
+					(f'browser_use.llm.{m}' for m in ('messages', 'base', 'views', 'schema', 'exceptions')), CALL_MODEL
+				),
+				'browser_use.llm.models': "a Pydantic AI model string, e.g. llm='openai:gpt-6-luna'.",
+				'browser_use.llm.tests': '',
+				**_llm_modules(),
+				'browser_use.mcp.client': _MCP_CLIENT,
+				'browser_use.mcp.controller': _MCP_CLIENT,
+				'browser_use.mcp.server': _MCP_SERVER,
+				'browser_use.observability': _OBSERVABILITY,
+				'browser_use.sandbox': '',
+				'browser_use.skills.service': _SKILLS,
+				'browser_use.skills.utils': _SKILLS,
+				'browser_use.skills.views': _SKILLS,
+				'browser_use.sync': 'none (cloud sync of local runs was removed).',
+				'browser_use.tokens': _USAGE,
+			}
+		)
+	return _MODULES
+
+
+# names 0.x had in modules 1.0 kept -> the 1.0 answer (a name not listed is a plain AttributeError)
+_AGENT_VIEWS = {
+	**dict.fromkeys(('AgentOutput', 'AgentBrain'), 'the model writes Python cells; result.messages holds them.'),
+	'AgentState': 'the result run() returns (AgentHistoryList): status, text, output, steps, usage, messages.',
+	'AgentHistory': 'AgentHistoryList, the result run() returns; per-step detail is result.messages.',
+	**dict.fromkeys(('AgentStepInfo', 'StepMetadata'), 'result.number_of_steps(), result.usage and result.messages.'),
+	'AgentSettings': 'pass options to Agent(...).',
+	'AgentError': "result.error (run() returns status='error' instead of raising).",
+	'AgentStructuredOutput': 'Agent(output_model_schema=...); result.output holds the parsed value.',
+	**dict.fromkeys(('JudgementResult', 'SimpleJudgeResult'), "result.success, the agent's own verdict."),
+	**dict.fromkeys(('ModelPricingCatalog', 'Pricing', 'TokenDetails', 'TokenUsage'), _USAGE),
+	'REQUIRED_LLM_API_ENV_VARS': "each model takes api_key=... or reads its provider's environment variable.",
+	**dict.fromkeys(
+		(
+			'ActionLoopDetector',
+			'DetectedVariable',
+			'MessageCompactionSettings',
+			'PageFingerprint',
+			'PlanItem',
+			'RerunSummaryAction',
+			'ToolCallingMethod',
+			'AgentOnlyAction',
+			'AskHumanAgentAction',
+			'ClickElementControllerHistoryItem',
+			'InputTextControllerHistoryItem',
+			'Output',
+			'VariableMetadata',
+			'compute_action_hash',
+		),
+		_LOOP,
+	),
+}
+_NAMES: dict[str, dict[str, str]] = {
+	'browser_use.agent': {'BetaAgentError': ''},
+	'browser_use.agent.service': {
+		'AgentHookFunc': _EVENTS,
+		'AgentService': 'from browser_use import Agent.',  # 0.1.0
+		'SKIP_LLM_API_KEY_VERIFICATION': 'none: a free request checks the key and model before the browser starts.',
+		**dict.fromkeys(('Context', 'log_response'), _LOOP),
+	},
+	'browser_use.agent.views': _AGENT_VIEWS,
+	'browser_use.browser': {
+		'BrowserSession': 'Browser(...).',
+		**dict.fromkeys(
+			('BrowserProfile', 'BrowserConfig', 'BrowserContext', 'BrowserContextConfig'), 'pass options to Browser(...).'
+		),
+		'ProxySettings': "Browser(cloud_proxy_country_code='us') on cloud browsers; Browser('chromium') has no proxy yet.",
+	},
+	'browser_use.config': dict.fromkeys(
+		(
+			'AgentEntry',
+			'BrowserProfileEntry',
+			'DBStyleConfigJSON',
+			'DBStyleEntry',
+			'FlatEnvConfig',
+			'LLMEntry',
+			'OldConfig',
+			'create_default_config',
+			'get_default_llm',
+			'get_default_profile',
+			'load_and_migrate_config',
+			'load_browser_use_config',
+		),
+		'Agent(...) and Browser(...) arguments; 1.0 reads no config.json (browser-use --mcp keeps its domain limits).',
+	),
+	'browser_use.exceptions': {'LLMException': _LLM_ERROR},
+	'browser_use.llm': {
+		**dict.fromkeys(
+			(
+				'AssistantMessage',
+				'BaseMessage',
+				'ContentImage',
+				'ContentRefusal',
+				'ContentText',
+				'SystemMessage',
+				'UserMessage',
+			),
+			CALL_MODEL,
+		),
+		'BaseChatModel': (
+			'ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle, a Pydantic AI model string or a pydantic_ai.models.Model.'
+		),
+	},
+	'browser_use.logging_config': dict.fromkeys(
+		('FIFOHandler', 'addLoggingLevel', 'setup_log_pipes'),
+		"logging.getLogger('browser_use') and BROWSER_USE_LOGGING_LEVEL=debug|info|warning|error.",
+	),
+	'browser_use.mcp': {
+		'BrowserUseServer': _MCP_SERVER,
+		**dict.fromkeys(('MCPClient', 'MCPToolWrapper'), _MCP_CLIENT),
+	},
+	'browser_use.skills': dict.fromkeys(('MissingCookieException', 'SkillService'), _SKILLS),
+	'browser_use.cli': dict.fromkeys(
+		(
+			'auth',
+			'BROWSER_LOGO',
+			'BrowserUseApp',
+			'CHROME_PROFILES_DIR',
+			'get_default_config',
+			'get_llm',
+			'init',
+			'INIT_TEMPLATES',
+			'install',
+			'load_user_config',
+			'MAX_HISTORY_LENGTH',
+			'RichLogHandler',
+			'run_auth_command',
+			'run_main_interface',
+			'run_prompt_mode',
+			'save_user_config',
+			'setup_readline_history',
+			'TEXTUAL_BORDER_STYLES',
+			'textual_interface',
+			'update_config_with_click_args',
+			'USER_CONFIG_DIR',
+			'USER_CONFIG_FILE',
+			'USER_DATA_DIR',
+		),
+		_CLI,
+	),
+	**dict.fromkeys(
+		('browser_use.telemetry', 'browser_use.telemetry.views'),
+		dict.fromkeys(
+			(
+				'MCPClientTelemetryEvent',
+				'MCPServerTelemetryEvent',
+				'CLITelemetryEvent',
+				'ControllerRegisteredFunctionsTelemetryEvent',
+				'RegisteredFunction',
+				'AgentEndTelemetryEvent',
+				'AgentRunTelemetryEvent',
+				'AgentStepErrorTelemetryEvent',
+				'AgentStepTelemetryEvent',
+			),
+			_TELEMETRY,
+		),
+	),
+	'browser_use.telemetry.service': {'xdg_cache_home': _TELEMETRY},
+	'browser_use.utils': {
+		**dict.fromkeys(
+			(
+				'SignalHandler',
+				'GLOBAL_RETRY_SEMAPHORES',
+				'GLOBAL_RETRY_SEMAPHORE_LOCK',
+				'MULTIPROCESS_SEMAPHORES',
+				'MULTIPROCESS_SEMAPHORE_DIR',
+				'MULTIPROCESS_SEMAPHORE_LOCK',
+				'retry',
+				'BROWSER_USE_CONFIG_DIR',
+				'handle_llm_error',
+				'URL_NEGATION_PATTERN',
+				'URL_PATTERN',
+				'check_env_variables',
+				'check_latest_browser_use_version',
+				'collect_sensitive_data_values',
+				'create_task_with_error_handling',
+				'get_git_info',
+				'has_url_negation',
+				'is_new_tab_page',
+				'is_placeholder_url',
+				'is_unsafe_pattern',
+				'match_url_with_domain_pattern',
+				'merge_dicts',
+				'redact_sensitive_string',
+				'sanitize_surrogates',
+				'sanitize_url_candidate',
+				'time_execution_async',
+				'time_execution_sync',
+			),
+			_UTILS,
+		),
+		'LLMException': _LLM_ERROR,
+	},
+}
+# 0.1.x-0.5.x: from browser_use.browser.browser import ...
+_NAMES['browser_use.browser.browser'] = {**_NAMES['browser_use.browser'], 'IN_DOCKER': _UTILS}
+
+
+def removed_name(module: str, name: str) -> ImportError | AttributeError:
+	"""For a module's __getattr__: the removed error for a 0.x name (ImportError, so `from module import name` shows
+	it), else the plain AttributeError."""
+	if name in (names := _NAMES.get(module, {})):
+		from browser_use.exceptions import removed  # here: this module is imported from modules exceptions imports
+
+		return ImportError(removed(f'{module}.{name}', names[name]), name=module)
+	return AttributeError(f'module {module!r} has no attribute {name!r}')
+
+
+def removed_names(module: str):
+	"""A module's __getattr__ that raises removed_name()."""
+
+	def __getattr__(name: str):
+		raise removed_name(module, name)
+
+	return __getattr__
+
+
+def removed_module(fullname: str) -> str | None:
+	"""The removed error for a 0.x module path, or None for a path 0.x did not have."""
+	from browser_use.exceptions import removed
+
+	modules = _modules()
+	parts = fullname.split('.')
+	for i in range(len(parts), 1, -1):
+		if (prefix := '.'.join(parts[:i])) in modules:
+			return removed(fullname, modules[prefix])
+	return None
+
+
+class Removed0xModules:
+	"""Last on sys.meta_path: a browser_use.* path no real module answered. A 0.x path raises ModuleNotFoundError (an
+	ImportError, so `except ImportError` fallbacks still work) naming its 1.0 answer; any other path is left to Python."""
+
+	@classmethod
+	def find_spec(cls, fullname: str, path: object = None, target: object = None) -> ModuleSpec | None:
+		if fullname.startswith('browser_use.') and (message := removed_module(fullname)):
+			raise ModuleNotFoundError(message, name=fullname)
+		return None
+
+
+def install() -> None:
+	if Removed0xModules not in sys.meta_path:
+		sys.meta_path.append(Removed0xModules)  # type: ignore[arg-type]  # a finder class with find_spec, like PathFinder
