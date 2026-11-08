@@ -795,9 +795,10 @@ class Browser:
 	def _create(self, body: dict) -> None:
 		info = _cloud('/browsers', 'POST', body)
 		self.id, self.live_url, self.cloud_cdp_url, self.stopped = info['id'], info.get('liveUrl'), info['cdpUrl'], False
-		proxy = f'{self.proxy} proxy' if self.proxy else 'no proxy'  # never log live_url: it grants control of the browser
+		# Never log live_url or the whole id: each grants control of the browser (the id is its CDP hostname)
+		proxy = f'{self.proxy} proxy' if self.proxy else 'no proxy'
 		logger.info(
-			f"Browser Use cloud browser {self.id} ({proxy}, billed until it stops). Browser('chromium') runs a local one."
+			f"Browser Use cloud browser {info['id'][:8]} ({proxy}, billed until it stops). Browser('chromium') runs a local one."
 		)
 
 	def _daemon_name(self) -> str:

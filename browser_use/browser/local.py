@@ -401,7 +401,8 @@ class LocalBrowser:
 WATCHDOG = r"""
 import json, os, shutil, signal, subprocess, sys, time
 sys.stdin.buffer.read()
-chrome, tmp, name, first, started, cloud = int(sys.argv[1]), sys.argv[2], sys.argv[3], int(sys.argv[4]), json.loads(sys.argv[5]), sys.argv[6]
+chrome, tmp, name, first, started = int(sys.argv[1]), sys.argv[2], sys.argv[3], int(sys.argv[4]), json.loads(sys.argv[5])
+cloud = os.environ.get('BU_CLEANUP_BROWSER_ID', '')
 daemon = 0
 try:
     from browser_harness import _ipc, admin
@@ -442,7 +443,8 @@ def start_watchdog(
 	chrome_pid: int, tmp: Path | str, daemon: str, daemon_pid: int | None, cloud_id: str = ''
 ) -> subprocess.Popen | None:
 	"""The watchdog (WATCHDOG) for a launched Chrome, or for a daemon alone (chrome_pid 0, tmp '') and the cloud browser
-	cloud_id; None when it cannot start."""
+	cloud_id; None when it cannot start. The id drives the browser without a key (its CDP hostname): it goes in the
+	environment, which only this user can read, never argv (any local user's ps)."""
 	started = None
 	if daemon_pid:
 		with contextlib.suppress(Exception):
@@ -450,9 +452,10 @@ def start_watchdog(
 
 			started = admin._process_start_time(daemon_pid)
 	try:
-		args = (str(chrome_pid), str(tmp), daemon, str(daemon_pid or 0), json.dumps(started), cloud_id)
+		args = (str(chrome_pid), str(tmp), daemon, str(daemon_pid or 0), json.dumps(started))
 		return subprocess.Popen(
 			[sys.executable, '-P', '-c', WATCHDOG, *args],
+			env={**os.environ, 'BU_CLEANUP_BROWSER_ID': cloud_id},
 			stdin=subprocess.PIPE,
 			stdout=subprocess.DEVNULL,
 			stderr=subprocess.DEVNULL,

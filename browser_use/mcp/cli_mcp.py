@@ -66,11 +66,13 @@ These rules override the skill below where they differ:
 
 # Runs detached for each cloud browser this server starts. Its stdin is a pipe only this server holds: the read
 # returns at EOF, when the server exits however it ends (stdin closed, SIGTERM, SIGKILL), and it stops that browser.
+# The browser id comes in the environment, never argv: it drives the browser without a key, and argv is in any local
+# user's ps.
 _REAPER = (
-	'import sys\n'
+	'import os, sys\n'
 	'sys.stdin.buffer.read()\n'
 	'from browser_use.harness_cloud import stop_cloud\n'
-	'stop_cloud(sys.argv[1], sys.argv[2])\n'
+	"stop_cloud(sys.argv[1], os.environ['BU_CLEANUP_BROWSER_ID'])\n"
 )
 
 
@@ -319,7 +321,8 @@ class CLIMCPServer:
 			detach: dict[str, Any] = ipc.spawn_kwargs()  # own session: a Ctrl-C to this server's group does not kill it first
 			self._reapers.append(
 				subprocess.Popen(
-					[sys.executable, '-P', '-c', _REAPER, name, browser['id']],  # -P: never import from the cwd
+					[sys.executable, '-P', '-c', _REAPER, name],  # -P: never import from the cwd
+					env={**os.environ, 'BU_CLEANUP_BROWSER_ID': browser['id']},
 					stdin=subprocess.PIPE,
 					stdout=subprocess.DEVNULL,
 					stderr=subprocess.DEVNULL,

@@ -437,6 +437,43 @@ async def test_a_cloud_browser_start_is_logged_at_info(cloud, caplog, monkeypatc
 	assert 'live.example.test' not in caplog.text  # the live URL grants control of the browser
 
 
+async def test_the_cloud_browser_id_is_never_logged_whole_or_put_in_a_command_line(cloud, caplog, monkeypatch):
+	"""The id is the cloud browser's CDP hostname and drives it without a key (TELEMETRY.md). Every default Browser()
+	logged it at INFO and handed it to the watchdog and the MCP reaper as argv, which any local user's ps shows."""
+	import logging
+	import subprocess
+	from types import SimpleNamespace
+
+	from browser_use.mcp import cli_mcp
+
+	secret_id = '0a1b2c3d-4e5f-6789-abcd-ef0123456789'
+	monkeypatch.setattr(
+		browser_mod,
+		'_cloud',
+		lambda path, method='GET', body=None: {'id': secret_id, 'cdpUrl': 'https://x.test'} if method == 'POST' else {},
+	)
+	spawned = []
+
+	def popen(args, **kwargs):
+		spawned.append((args, kwargs.get('env') or {}))
+		return SimpleNamespace(kill=lambda: None, poll=lambda: None, stdin=None)
+
+	monkeypatch.setattr(subprocess, 'Popen', popen)
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # setup_logging turns it off
+	caplog.set_level(logging.DEBUG, logger='browser_use')
+	browser = Browser()
+	await browser.start()
+	await browser.stop()
+	server = cli_mcp.CLIMCPServer()
+	server._namespace = {}
+	monkeypatch.setattr(cli_mcp.harness_cloud, 'start', lambda *a, **k: {'id': secret_id})
+	server._start_remote()
+	assert 'Browser Use cloud browser 0a1b2c3d (us proxy' in caplog.text and secret_id not in caplog.text
+	assert len(spawned) == 2  # the watchdog, the reaper
+	for args, env in spawned:
+		assert secret_id not in ' '.join(args) and env['BU_CLEANUP_BROWSER_ID'] == secret_id
+
+
 async def test_downloads_lists_a_cloud_browsers_finished_files(cloud, monkeypatch, tmp_path):
 	"""Docs runs, 3 of 3 on a cloud browser: the model looked for the Browser.downloadProgress events the prompt promised,
 	drained them before they arrived, found downloads/ empty (cloud files are copied at the end) and clicked again
