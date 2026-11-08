@@ -817,3 +817,51 @@ def test_secretstr_api_keys_are_sent_as_the_plain_key():
 	assert ChatGoogle('gemini-3-flash', api_key=SecretStr('k')).api_key == 'k'
 	assert resolve_model(ChatGoogle('gemini-3-flash', api_key=SecretStr('k')))[0].model_name == 'gemini-3-flash'
 	assert ChatBrowserUse(api_key=SecretStr(' bu_k\n')).api_key == 'bu_k'
+
+
+async def test_gemini_requests_are_retried_by_the_client_like_openai_and_anthropic(tmp_path):
+	"""google-genai retries nothing unless asked (OpenAI and Anthropic SDKs retry twice), so two 503 'overloaded' in a
+	run ended a Gemini run: BrowserLoop's one retry per run was all it had. Two 503s in a row now pass."""
+	from google.genai.types import HttpRetryOptions
+	from pydantic_ai.models.google import GoogleModel
+	from pydantic_ai.providers.google import GoogleProvider
+
+	calls = []
+
+	class Gemini(BaseHTTPRequestHandler):
+		def do_POST(self):
+			self.rfile.read(int(self.headers['Content-Length']))
+			calls.append(self.path)
+			if len(calls) <= 2:
+				status, reply = 503, {'error': {'code': 503, 'message': 'The model is overloaded.', 'status': 'UNAVAILABLE'}}
+			else:
+				part = {'functionCall': {'name': 'finish', 'args': {'result': 'ok', 'success': True}}}
+				status, reply = (
+					200,
+					{
+						'candidates': [{'content': {'role': 'model', 'parts': [part]}, 'finishReason': 'STOP'}],
+						'usageMetadata': {'promptTokenCount': 10, 'candidatesTokenCount': 2, 'totalTokenCount': 12},
+					},
+				)
+			data = json.dumps(reply).encode()
+			self.send_response(status)
+			self.send_header('Content-Type', 'application/json')
+			self.send_header('Content-Length', str(len(data)))
+			self.end_headers()
+			self.wfile.write(data)
+
+		def log_message(self, *args):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Gemini)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	# attempts=1: google-genai's default (no retry); its delays are kept, shortened here
+	fast = HttpRetryOptions(attempts=1, initial_delay=0.01, max_delay=0.02, jitter=0)
+	provider = GoogleProvider(api_key='x', base_url=f'http://127.0.0.1:{server.server_address[1]}', retry_options=fast)
+	try:
+		agent = build_agent(GoogleModel('gemini-3.5-flash', provider=provider))
+		result = await run(agent, 'task', Session(repl=Repl(tmp_path)), 'google-gla:gemini-3.5-flash')
+	finally:
+		server.shutdown()
+	assert (result.status, result.output, result.error) == ('completed', 'ok', None)
+	assert len(calls) == 3

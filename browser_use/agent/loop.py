@@ -774,12 +774,17 @@ def build_agent(
 		capabilities = [BrowserLoop(), Compaction(compact_at_tokens, max_context_chars)]
 	else:  # other providers: unified thinking (dropped where the profile has none), the provider's own max_tokens
 		settings = {'thinking': reasoning_effort or 'medium'} if reasoning else {}
-		if model.startswith('anthropic:') if isinstance(model, str) else getattr(model, 'system', None) == 'anthropic':
+		system = model.split(':', 1)[0] if isinstance(model, str) else str(getattr(model, 'system', ''))
+		own = {**(getattr(model, 'settings', None) or {}), **(model_settings or {})}
+		if system.startswith('google') and 'max_retries' not in own:
+			# google-genai retries nothing unless asked; the OpenAI and Anthropic SDKs retry each request twice. Gemini's
+			# second 503 'overloaded' of a run ended it (BrowserLoop's one retry per run was spent).
+			settings['max_retries'] = 2
+		if system == 'anthropic':
 			# Anthropic caches nothing unless asked: every request re-billed the whole prompt (cache_read was always 0).
 			# Pydantic AI's unified cache setting caches the system prompt, the tools and the conversation so far, in the
 			# mode the client supports; any anthropic_cache* setting the caller gave takes precedence over it there, and
 			# a cache setting of the caller's own (on the model or in model_settings) is left alone.
-			own = {**(getattr(model, 'settings', None) or {}), **(model_settings or {})}
 			if 'cache' not in own:
 				settings['cache'] = True
 			# Claude models with adaptive thinking return no thinking text unless asked (display 'omitted'); bu-pi's pi-ai
