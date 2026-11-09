@@ -381,6 +381,16 @@ def _patch_browser_harness_cli_text() -> None:
 	telemetry.run_telemetry_cli = run_telemetry_cli
 	fix_snap = run.run_doctor_fix_snap  # its text named `browser-harness --doctor`
 	run.run_doctor_fix_snap = lambda: _normalize_captured_cli_output(lambda _argv: fix_snap(), [])
+	from browser_harness import macos
+
+	if not getattr(macos.run_cli, '__bu_rebranded__', False):  # its answers said to run `browser-harness mac-approve`
+		mac_approve = macos.run_cli
+
+		def run_mac_approve(argv: list[str]) -> int:
+			return _normalize_captured_cli_output(mac_approve, argv)  # one line at the end: nothing to stream
+
+		run_mac_approve.__bu_rebranded__ = True  # type: ignore[attr-defined]
+		macos.run_cli = run_mac_approve
 
 
 _delegated_to_harness = False

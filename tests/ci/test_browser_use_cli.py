@@ -242,3 +242,27 @@ def test_browser_harness_hints_name_commands_this_install_has(monkeypatch, capsy
 		'browser-use: fatal: see ~/.config/browser-harness/tmp/bu-w.log',
 		'cell output names browser-harness',
 	]
+
+
+def test_mac_approve_names_browser_use(monkeypatch, capsys):
+	"""Live: `browser-use mac-approve --help` printed `usage: browser-harness mac-approve`, and its setup / not-found
+	answers said to run `browser-harness mac-approve` again: not on PATH for `uv tool install browser-use`."""
+	import pytest
+	from browser_harness import macos
+
+	from browser_use import cli
+
+	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
+	monkeypatch.setattr(
+		macos,
+		'approve_remote_debugging',
+		lambda: ('not-found', 'retry the browser command and run `browser-harness mac-approve` when the prompt appears'),
+	)
+	for argv, code, out in (
+		(['mac-approve', '--help'], 2, 'usage: browser-use mac-approve\n'),
+		(['mac-approve'], 1, 'not-found: retry the browser command and run `browser-use mac-approve` when the prompt appears\n'),
+	):
+		monkeypatch.setattr(sys, 'argv', ['browser-use', *argv])
+		with pytest.raises(SystemExit) as exited:
+			cli.main()
+		assert exited.value.code == code and capsys.readouterr().out == out
