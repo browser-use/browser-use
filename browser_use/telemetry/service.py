@@ -154,10 +154,10 @@ class ProductTelemetry:
 	"""One per process (telemetry()). Reads ANONYMIZED_TELEMETRY on every call."""
 
 	def __init__(self) -> None:
-		self._lock = threading.Lock()
 		self._reset()
 
 	def _reset(self) -> None:
+		self._lock = threading.Lock()  # a forked child's copy may be held by a parent thread that does not exist there
 		self._pid = os.getpid()
 		self._q: queue.Queue = queue.Queue()
 		self._thread: threading.Thread | None = None
@@ -171,9 +171,14 @@ class ProductTelemetry:
 	def enabled(self) -> bool:
 		return CONFIG.ANONYMIZED_TELEMETRY
 
-	def _start(self) -> None:
-		if self._pid != os.getpid():  # a forked child: the thread did not come along
+	def _own(self) -> None:
+		"""A forked child (a multiprocessing pool on Linux) starts with none of the parent's thread, queue, runs or
+		events. Called before a public method changes any state: resetting later wiped the run or event it had just added."""
+		if self._pid != os.getpid():
 			self._reset()
+
+	def _start(self) -> None:
+		self._own()
 		if self._thread is not None and self._thread.is_alive():
 			return
 		with self._lock:
@@ -196,6 +201,7 @@ class ProductTelemetry:
 		if not self.enabled:
 			return
 		try:
+			self._own()
 			self._active[run_id] = (props, progress, time.time())
 			self._start()
 			self._q.put_nowait(('mark', run_id))
@@ -207,6 +213,7 @@ class ProductTelemetry:
 			self._active.pop(job.run_id, None)
 			return
 		try:
+			self._own()
 			if len(self._pending) >= 100:  # a sender that cannot keep up: drop the oldest
 				oldest = next(iter(self._pending))
 				self._pending.pop(oldest, None)
@@ -220,6 +227,7 @@ class ProductTelemetry:
 
 	def forget(self, run_id: str) -> None:
 		"""A run whose event could not be built: drop its crash marker, so it is not reported as crashed."""
+		self._own()
 		if self._active.pop(run_id, None) is not None:
 			self._q.put_nowait(('unmark', run_id))
 

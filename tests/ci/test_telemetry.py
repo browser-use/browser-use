@@ -1467,3 +1467,46 @@ def test_a_crash_report_whose_sender_died_mid_send_is_sent_by_the_next_process(p
 	(event,) = posthog.events()
 	assert (event['properties']['status'], event['uuid']) == ('crashed', str(uuid.UUID(run_id)))
 	assert not list(inflight.iterdir())
+
+
+def _in_forked_child(body) -> int:
+	"""Run body() in a forked child (a multiprocessing pool on Linux forks so); its exit code: 0 when body() returned
+	True."""
+	pid = os.fork()
+	if pid == 0:  # the child: never back into pytest
+		code = 1
+		try:
+			with warnings.catch_warnings():
+				warnings.simplefilter('ignore')
+				code = 0 if body() else 1
+		finally:
+			os._exit(code)
+	_, status = os.waitpid(pid, 0)
+	return os.waitstatus_to_exitcode(status)
+
+
+@pytest.mark.skipif(not hasattr(os, 'fork'), reason='fork() is POSIX')
+def test_a_forked_childs_first_run_and_first_event_are_not_wiped(posthog):
+	"""A child forked after the parent used telemetry reset the inherited state on its first call, after that call had
+	registered its run or queued its event: the child's run got no crash marker (a pool worker killed mid-run was never
+	reported) and an event sent first was dropped."""
+	from browser_use.telemetry.service import Job
+
+	t, inflight = posthog.telemetry, posthog.config / 'telemetry' / 'inflight'
+	_marked(t, inflight, 1)  # the parent ran: its thread and pid are what a forked child inherits
+	run_id, event_id = uuid.uuid4().hex, uuid.uuid4().hex
+
+	def marks() -> bool:
+		t.run_started(run_id, lambda: {'timeout_s': 60}, lambda: {'steps': 0})
+		deadline = time.monotonic() + 10
+		while not (inflight / f'{run_id}.json').exists() and time.monotonic() < deadline:
+			time.sleep(0.02)
+		return (inflight / f'{run_id}.json').exists()
+
+	def sends() -> bool:
+		t.capture_run(Job('agent_event', lambda steps, keys: {'model': 'm'}, run_id=event_id))
+		return t.flush(10)
+
+	assert _in_forked_child(marks) == 0, "the forked child's run got no crash marker"
+	assert _in_forked_child(sends) == 0
+	assert str(uuid.UUID(event_id)) in {e['uuid'] for e in posthog.events(1)}, "the forked child's first event was dropped"
