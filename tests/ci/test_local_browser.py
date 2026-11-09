@@ -213,6 +213,30 @@ def chrome_root(tmp_path: Path, profiles: dict[str, str]) -> Path:
 	return root
 
 
+def test_start_returns_after_the_launch_tab_is_gone(monkeypatch):
+	"""Linux Chrome lists a tab for a moment after Target.closeTarget answered: start() returned with the launch tab
+	still in Target.getTargets, so list_tabs() right after start() gave 2 (CI, about 1 launch in 8)."""
+	tabs = {'own': True, 'launch': True}
+	gone_after = {}  # targetId -> getTargets calls it is still listed for after closeTarget
+
+	def cdp(name, method, **params):
+		if method == 'Target.getTargets':
+			for t, n in list(gone_after.items()):
+				gone_after[t] = n - 1
+				if n == 0:
+					del tabs[t], gone_after[t]
+			return {'targetInfos': [{'type': 'page', 'targetId': t, 'url': 'about:blank'} for t in tabs]}
+		if method == 'Target.closeTarget':
+			gone_after[params['targetId']] = 3
+			return {'success': True}
+		return {}
+
+	monkeypatch.setattr(browser_mod, '_daemon_cdp', cdp)
+	monkeypatch.setattr(browser_mod, '_daemon_request', lambda name, req: {'targetId': 'own'})
+	Browser('chromium')._close_launch_tab()
+	assert [t['targetId'] for t in cdp('launchtab', 'Target.getTargets')['targetInfos']] == ['own']
+
+
 def test_profile_is_found_by_display_name_or_directory(tmp_path):
 	root = chrome_root(tmp_path, {'Default': 'Personal', 'Profile 1': 'Work', 'Profile 2': 'work stuff'})
 	assert _local.resolve_profile(root, 'Work') == 'Profile 1'  # exact display name beats the case-folded one

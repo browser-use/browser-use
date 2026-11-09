@@ -707,9 +707,17 @@ class Browser:
 		"""Our named daemon works in a tab of its own, so the about:blank tab Chrome launched with is left over."""
 		try:
 			own = _daemon_request(self._daemon_name(), {'meta': 'current_tab'})['targetId']
+			closed = set()
 			for t in self._cdp()('Target.getTargets')['targetInfos']:
 				if t['type'] == 'page' and t['url'] == 'about:blank' and t['targetId'] != own:
 					self._cdp()('Target.closeTarget', targetId=t['targetId'])
+					closed.add(t['targetId'])
+			# Linux Chrome still lists a tab for a moment after closeTarget answered: list_tabs() right after start() gave 2.
+			deadline = time.monotonic() + 2
+			while closed and time.monotonic() < deadline:
+				closed &= {t['targetId'] for t in self._cdp()('Target.getTargets')['targetInfos']}
+				if closed:
+					time.sleep(0.02)
 		except Exception as e:  # - a stray blank tab is harmless
 			logger.debug('Could not close the launch tab: %s', e)
 
