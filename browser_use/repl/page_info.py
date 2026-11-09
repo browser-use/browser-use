@@ -6,7 +6,8 @@ waits for or null-guards document.documentElement.
 new_tab(url) and goto_url(url) return when Page.navigate does: the new document has committed, but until its first bytes
 are parsed it has no <html> element. browser-harness 0.1.13's page_info() reads document.documentElement.scrollWidth, so
 the documented first example `new_tab(url); print(page_info())` failed about half the time on local Chromium with
-"Cannot read properties of null (reading 'scrollWidth')" (every time on a server slow to send the body).
+"Cannot read properties of null (reading 'scrollWidth')" (every time on a server slow to send the body). This waits up
+to ROOT_WAIT_S for <html>; a body later than that still raises the same error, and calling page_info() again retries.
 """
 
 import functools

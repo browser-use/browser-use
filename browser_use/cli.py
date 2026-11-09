@@ -313,18 +313,18 @@ def _run_login_command(argv: list[str]) -> int:
 	command = ['login', *argv]
 	if any(arg in {'-h', '--help'} for arg in argv):
 		return _normalize_captured_cli_output(auth.run_auth_cli, command)
-	if '--api-key-stdin' in argv:
-		try:
-			sys.stdin = StringIO(_read_api_key_stdin())
-		except auth.AuthError as e:
-			print(e, file=sys.stderr)
-			return 1
-	harden_login_callback()
-	if notice := set_aside_corrupt_store():
-		print(notice, file=sys.stderr)
-	try:
+	try:  # Ctrl-C at the hidden key prompt, during the key check or while it waits for the approval: nothing stored
+		if '--api-key-stdin' in argv:
+			try:
+				sys.stdin = StringIO(_read_api_key_stdin())
+			except auth.AuthError as e:
+				print(e, file=sys.stderr)
+				return 1
+		harden_login_callback()
+		if notice := set_aside_corrupt_store():
+			print(notice, file=sys.stderr)
 		code = auth.run_auth_cli(command)
-	except KeyboardInterrupt:  # Ctrl-C while it waits for the approval: nothing is stored, so no traceback
+	except KeyboardInterrupt:
 		print('Login cancelled.', file=sys.stderr)
 		return 130
 	if code == 0 and '--json' not in argv:

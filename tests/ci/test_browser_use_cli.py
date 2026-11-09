@@ -105,6 +105,7 @@ def test_browser_use_doctor_names_browser_use_install_once_for_snap_and_for_no_b
 		assert cli._run_doctor() == 0
 		line = next(line for line in capsys.readouterr().out.splitlines() if 'local browser' in line)
 		assert line.count('browser-use install') == 1, line
+		assert 'browser-harness' not in line, line  # `browser-harness doctor --fix-snap` is not on a uv tool install's PATH
 
 
 def test_browser_use_doctor_fix_snap_names_browser_use():
@@ -347,7 +348,8 @@ async def test_the_documented_first_example_waits_for_the_new_document(daemon, t
 	code = f'new_tab({url!r})\ninfo = page_info()\nprint(info["title"], info["pw"] > 0)\nclose_tab()'
 	try:
 		if surface == 'cli':
-			env = {**os.environ, 'PYTHONPATH': str(ROOT), **daemon}
+			pythonpath = os.pathsep.join(p for p in (str(ROOT), os.environ.get('PYTHONPATH', '')) if p)
+			env = {**os.environ, 'PYTHONPATH': pythonpath, **daemon}
 			cmd = [sys.executable, '-m', 'browser_use.cli']
 			r = await asyncio.to_thread(subprocess.run, cmd, input=code, env=env, capture_output=True, text=True, timeout=60)
 			out, failed = r.stdout + r.stderr, r.returncode != 0
