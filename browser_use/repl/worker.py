@@ -453,6 +453,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	os.environ.update(env)
 
 	raw_send = helpers._send
+	unmark_sessions: dict[str, str] = {}
 
 	def send(req, *args, **kwargs):  # every drain_events() read, also bu's background one, feeds the event counts
 		if (size := len(json.dumps(req))) > MAX_IPC_REQUEST:
@@ -482,9 +483,32 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		"""Keep the attached tab's title free of a shared daemon's horse (UNMARK_JS), on this page and the next ones."""
 		if os.environ.get('BU_SHARED_DAEMON') == '1':
 			with contextlib.suppress(Exception):  # a tab that closed meanwhile; titles stay as they are
-				raw_cdp(
-					'Page.addScriptToEvaluateOnNewDocument', source=UNMARK_JS, worldName='browser-use-unmark', runImmediately=True
-				)
+				target = AGENT_TAB['id']
+				session = unmark_sessions.get(target)
+				if session is None:
+					frame = raw_cdp('Page.getFrameTree')['frameTree']['frame']['id']
+					world = raw_cdp('Page.createIsolatedWorld', frameId=frame, worldName='browser-use-unmark')[
+						'executionContextId'
+					]
+					session = raw_cdp(
+						'Runtime.evaluate', contextId=world, expression='globalThis.__browserUseUnmarkSession', returnByValue=True
+					)['result'].get('value')
+				if session:
+					try:
+						# switch_tab creates a new CDP session each time. Keep the original registration while its session
+						# lives, including across worker restarts; a detached session or a new daemon needs a new one.
+						raw_cdp('Page.getFrameTree', session_id=session)
+					except Exception:
+						session = None
+				if not session:
+					session = raw_send({'meta': 'session'})['session_id']
+					raw_cdp(
+						'Page.addScriptToEvaluateOnNewDocument',
+						source=f'globalThis.__browserUseUnmarkSession = {json.dumps(session)};\n{UNMARK_JS}',
+						worldName='browser-use-unmark',
+						runImmediately=True,
+					)
+				unmark_sessions[target] = session
 
 	helpers._send = send
 	raw_cdp = helpers.cdp
