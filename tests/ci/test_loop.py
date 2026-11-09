@@ -216,8 +216,10 @@ async def test_oversized_and_invalid_images_never_reach_provider(daemon, tmp_pat
 		(['rate'], 0, 'completed', 2, [2]),  # once more, after the provider's Retry-After
 		(['server', 'overloaded'], 0, 'error', 2, [0]),  # once per run, as bu-pi
 		(['rejected'], 0, 'error', 1, []),  # a 400 is not sent again
-		(['rate'], 2, 'error', 1, []),  # the OpenAI/Anthropic SDK client already retried it twice
-		(['grpc_unavailable'], 0, 'error', 1, []),  # xai-sdk's gRPC retry policy already sent it 5 times
+		# rc2, as bu-pi: once more after the SDK gave up too (OpenAI/Anthropic client: 3 tries; xai-sdk gRPC: 5)
+		(['rate'], 2, 'completed', 2, [2]),
+		(['server', 'overloaded'], 2, 'error', 2, [0]),
+		(['grpc_unavailable'], 0, 'completed', 2, [0]),
 		# inside an HTTP 200 (Responses status=failed, a failed stream): the SDK never retried it
 		(['body_request_timeout'], 2, 'completed', 2, [0]),
 		(['stream_server_error'], 2, 'completed', 2, [0]),
@@ -269,9 +271,9 @@ async def test_transient_provider_error_is_retried_once(tmp_path, monkeypatch, e
 	assert (result.status, len(requests), sleeps) == (status, calls, slept), result.error
 
 
-async def test_gemini_requests_the_sdk_already_retried_are_not_sent_again(tmp_path, monkeypatch):
-	"""rr-failure 5: a persistent Gemini 500 took 6 requests, the other providers 3: google-genai retries twice
-	(build_agent's max_retries=2), and BrowserLoop, looking for max_retries on the client, sent it once more."""
+async def test_gemini_requests_get_the_sdk_retries_and_one_run_retry(tmp_path, monkeypatch):
+	"""rr-failure 5 capped a persistent Gemini 500 at google-genai's 3 tries (build_agent's max_retries=2). rc2: bu-pi
+	sends a transient failure once more per run whatever the SDK did, so every provider gets 2 x 3 tries."""
 	from pydantic_ai import exceptions as x
 	from pydantic_ai.models.google import GoogleModel
 	from pydantic_ai.providers.google import GoogleProvider
@@ -285,7 +287,7 @@ async def test_gemini_requests_the_sdk_already_retried_are_not_sent_again(tmp_pa
 	monkeypatch.setattr(GoogleModel, 'request', request)
 	model = GoogleModel('gemini-3.5-flash', provider=GoogleProvider(api_key='x'))
 	result = await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'google:gemini-3.5-flash')
-	assert result.status == 'error' and sent == [2], sent
+	assert result.status == 'error' and sent == [2, 2], sent
 
 
 @pytest.mark.parametrize('provider', ['anthropic', 'google'])

@@ -20,7 +20,6 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, cast
 
-import httpx2
 from genai_prices import calc_price
 from pydantic import Field, TypeAdapter, ValidationError
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput, Tool, ToolOutput
@@ -71,11 +70,6 @@ from browser_use.telemetry.recorder import CURRENT, RunRecorder, now
 from browser_use.telemetry.stats import RunStats
 from browser_use.tools import TOOL_RETRIES, ActionResult, RemovedField
 
-try:
-	import httpx
-except ImportError:  # optional: Pydantic AI needs only httpx2
-	httpx = None
-
 logger = logging.getLogger(__name__)
 KEEP_IMAGE_RESULTS = 2
 DELIVER_NOW = (
@@ -90,10 +84,8 @@ DELIVERY_REPAIR = (  # bu-pi src/agent.ts:560, verbatim except tool names
 )
 DELIVERY_TOOLS = ['finish_from_repl', 'finish']
 TOOL_CALL_MARKUP = re.compile(r'</?tool_call>')
-TRANSIENT = (ModelRateLimitError, ModelUnavailableError, ModelServerError, ModelConnectionError)
-_HTTPX = [httpx2, *([httpx] if httpx else [])]  # Pydantic AI's providers use httpx2; a caller's own client may be httpx
-_HTTP_ERRORS = tuple(m.TransportError for m in _HTTPX)
-_HTTP_RETRIED = tuple(c for m in _HTTPX for c in (m.ConnectError, m.TimeoutException))  # what google-genai retries
+# bu-pi TRANSIENT_MODEL_ERRORS (src/agent.ts): 5xx, rate limit, unavailable, dropped connection, its own deadline
+TRANSIENT = (ModelRateLimitError, ModelUnavailableError, ModelServerError, ModelConnectionError, ModelRequestTimeout)
 # A Responses failure reported inside an HTTP 200 (a body with status=failed, or a response.failed / error stream event)
 # with one of these codes is transient: the gateway's non-streamed request past 300 s ends with request_timeout, and its
 # error frame for an upstream stream that failed (openaistream ErrorSSE: OpenAI silent 30 s while compacting) carries
@@ -101,12 +93,11 @@ _HTTP_RETRIED = tuple(c for m in _HTTPX for c in (m.ConnectError, m.TimeoutExcep
 TRANSIENT_FAILED_CODES = frozenset(
 	{'server_error', 'overloaded', 'request_timeout', 'upstream_stream_failed', 'model_request_failed'}
 )
-MODEL_TIMEOUT_S = 300  # bu-pi modelTimeoutMs: one model request, all its SDK attempts included
-# A streamed request (StreamResponses) gets MODEL_TIMEOUT_S for its first event, then runs while events flow, up to the
-# gateway's stream limit (15 min, llmGatewayStreamTimeout) plus 30 s, so the gateway's own end arrives first. 300 s in
-# all cut bu-smart turns that were still streaming and asked again; the gateway billed every cut attempt in full, and
-# cost_usd counted none of them (staging: 5 cuts, $1.84 billed, cost_usd $0.0074).
-STREAM_TIMEOUT_S = 930
+# bu-pi modelTimeoutMs (src/agent.ts, deadlineStream in src/model-stream.ts): one model request, streamed or not, all
+# its SDK attempts included. A turn still streaming at 300 s is cut too, as in bu-pi; the gateway bills a cut stream in
+# full and cost_usd does not count it (L1 staging: 5 cuts, $1.84 billed, cost_usd $0.0074), but the cut is now the
+# run's one transient retry, so a run pays for at most one.
+MODEL_TIMEOUT_S = 300
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 NO_TIME = 'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_repl with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
@@ -137,7 +128,7 @@ class Session:
 	covered: int = 0
 	usage_after: int = 0  # Compaction: responses before this index were measured before the checkpoint
 	overflowed_step: int | None = None  # Compaction: the request step a context-window error forced a compaction in
-	provider_retried: bool = False  # BrowserLoop: bu-pi's one provider retry per run is used
+	provider_retried: bool = False  # BrowserLoop: bu-pi's one transient retry per run (src/agent.ts) is used
 	summaries: list[ModelResponse] = field(default_factory=list)  # summarizer responses, counted in usage and cost
 	rec: RunRecorder = field(default_factory=RunRecorder)  # telemetry, step by step (TELEMETRY.md)
 
@@ -417,39 +408,32 @@ class BrowserLoop(AbstractCapability[Session]):
 				s.rec.delivery()
 				ctx.enqueue(DELIVER_NOW)
 		settings: dict[str, Any] = dict(request_context.model_settings or {})  # resolved before this hook
-		_deadlines(s, settings, request_context.model, MODEL_TIMEOUT_S)
+		_deadlines(s, settings, MODEL_TIMEOUT_S)
 		if s.finalizing:  # restrict this very request
 			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
 		request_context.model_settings = cast(Any, settings)
 		return request_context
 
 	async def on_model_request_error(self, ctx: RunContext[Session], *, request_context: ModelRequestContext, error: Exception):
-		"""bu-pi's provider retry (src/agent.ts transientModelError): a rate limit, overload, 5xx or dropped connection
-		sends the same request once more per run, after the provider's Retry-After (at most 60 s, pi-ai's cap). Only the
-		inference is repeated: a failed request returned no tool calls. Not where the provider's SDK client has already
-		retried it: OpenAI, Anthropic and OpenAI-compatible clients (max_retries=2 with backoff), any client given the
-		max_retries setting (build_agent gives Google 2), and xAI's UNAVAILABLE (xai-sdk's gRPC retry policy: 5 attempts).
-		xAI's 429 "at capacity" ended grok bub2-007 on the first try. Bedrock's botocore retries throttling without a
-		max_retries attribute, so it gets this one more. A failure inside an HTTP 200 (Responses status=failed or a
-		failed stream) was never retried by the SDK: server_error, overloaded and request_timeout get the retry too."""
-		s, model = ctx.deps, request_context.model
-		if isinstance(error, ModelRequestTimeout):  # a new request step: the delivery turn when its time has come
+		"""bu-pi's transient retry (src/agent.ts transientModelError): a rate limit, overload, 5xx, dropped connection or
+		a request past MODEL_TIMEOUT_S sends the same request once more per run, after the provider's Retry-After (at
+		most 60 s). Only the inference is repeated: a failed request returned no tool calls. As in bu-pi, the retry
+		comes on top of whatever the provider's SDK already tried (OpenAI/Anthropic clients: 3 tries, Google 3 via
+		build_agent's max_retries, xai-sdk's gRPC UNAVAILABLE 5): a 503 burst longer than the SDK's backoff ended the
+		run. A failure inside an HTTP 200 (Responses status=failed or a failed stream) with a transient code counts too.
+		A request the run's own deadline cut is not a stall: the next request step is the delivery-only turn."""
+		s = ctx.deps
+		if isinstance(error, ModelRequestTimeout) and time.monotonic() - s.started >= s.delivery_at():
 			s.rec.retry('model_timeout')
-			logger.warning(f'{error.model_name}: no answer within {error.timeout:.1f} s; asking again')
+			logger.warning(f'{error.model_name}: no answer within {error.timeout:.1f} s; asking for the delivery')
 			raise ModelRetry(f'The model request got no answer within {error.timeout:.1f} s.')
 		if s.provider_retried or not isinstance(error, ModelAPIError):
 			raise error
-		retries = (request_context.model_settings or {}).get('max_retries')  # the SDK's retries for this request, if set
-		retries = getattr(getattr(model, 'client', None), 'max_retries', 0) if retries is None else retries
-		code, failed = error.provider_error_code, error.provider_error_code in TRANSIENT_FAILED_CODES
-		# The SDK retries HTTP errors only: a failure inside a 200 (stream, or a body without a status) is on its first try
-		in_200 = error.in_stream or (failed and getattr(error, 'status_code', None) is None) or _cut_after_response(error, model)
-		transient = isinstance(error, TRANSIENT) or (in_200 and failed)
-		sdk_retried = not in_200 and (retries or (model.system == 'xai' and code == 'UNAVAILABLE'))
-		if not transient or sdk_retried:
+		failed = error.provider_error_code in TRANSIENT_FAILED_CODES and getattr(error, 'status_code', None) is None
+		if not (isinstance(error, TRANSIENT) or failed):
 			raise error
 		s.provider_retried = True
-		s.rec.retry('provider_transient')
+		s.rec.retry('model_timeout' if isinstance(error, ModelRequestTimeout) else 'provider_transient')
 		delay = min(error.retry_after or 0, 60)
 		logger.warning(f'{type(error).__name__} from {error.model_name}: retrying once in {delay:g} s')
 		slept = now()
@@ -533,17 +517,6 @@ def _sendable(result: Any) -> Any:
 	return result
 
 
-def _cut_after_response(error: ModelAPIError, model: Model) -> bool:
-	"""A connection that broke while the response was read: no SDK retried it. The OpenAI and Anthropic SDKs wrap what
-	they retry in their own APIConnectionError; a bare httpx error came from a response the SDK had already returned
-	(Claude's stream: live 'peer closed connection without sending complete message body' ended the run on its first
-	try). google-genai never wraps them and retries only connect errors and timeouts (a cut JSON body, live, too)."""
-	cause = error.__cause__
-	if not isinstance(error, ModelConnectionError) or not isinstance(cause, _HTTP_ERRORS):
-		return False
-	return not (model.system.startswith('google') and isinstance(cause, _HTTP_RETRIED))
-
-
 class StreamResponses(AbstractCapability[Session]):
 	"""Every OpenAI Responses request (the gateway, api.openai.com) goes out with stream=true and comes back as the
 	assembled response, as bu-pi streams every request. The gateway cuts a non-streamed request at 300 s: it answered
@@ -583,7 +556,7 @@ class StreamedRequest(WrapperModel):
 
 	async def _request(self, messages: Any, model_settings: Any, model_request_parameters: Any) -> ModelResponse:
 		terminal: list[Any] = []
-		# first_event_timeout (_deadlines) is enforced here: the agent sees a non-streamed request, so Pydantic AI skips it
+		# a caller's first_event_timeout is enforced here: the agent sees a non-streamed request, so Pydantic AI skips it
 		wait = (model_settings or {}).get('first_event_timeout')
 		async with AsyncExitStack() as stack:
 			first_event = asyncio.timeout(wait)
@@ -657,18 +630,14 @@ async def _in_stream(stream: AsyncIterable[Any]) -> AsyncGenerator[Any]:
 		async for event in stream:
 			yield event
 	except ModelAPIError as e:  # the SDK retries a request until its stream opens, never a stream that broke off
-		e.in_stream = True  # BrowserLoop's one retry, as for any failure inside an HTTP 200
+		e.in_stream = True
 		raise
 
 
-def _deadlines(s: Session, settings: dict[str, Any], model: Model, wait_s: float) -> None:
-	"""request_timeout of one model request, and first_event_timeout of a streamed one (OpenAI Responses, streamed by
-	StreamResponses). A non-streamed request gets wait_s in all; a streamed one gets wait_s until its first event, then
-	STREAM_TIMEOUT_S in all. bu-pi deadlineStream: neither holds the run past the delivery turn's start."""
+def _deadlines(s: Session, settings: dict[str, Any], wait_s: float) -> None:
+	"""request_timeout of one model request: wait_s in all, streamed (OpenAI Responses, by StreamResponses) or not, as
+	bu-pi deadlineStream. It never holds the run past the delivery turn's start."""
 	left = max(1.0, (s.timeout_s if s.finalizing else s.delivery_at()) - (time.monotonic() - s.started))
-	if isinstance(model, OpenAIResponsesModel):
-		settings['first_event_timeout'] = min(settings.get('first_event_timeout') or wait_s, left)
-		wait_s = STREAM_TIMEOUT_S
 	settings['request_timeout'] = min(settings.get('request_timeout') or wait_s, left)
 
 
@@ -950,7 +919,7 @@ async def _compact(s: Session, messages: list[ModelMessage], request_context: Mo
 	settings = {k: v for k, v in inherited if k not in dropped}
 	settings['max_tokens'] = 12_000
 	model = request_context.model
-	_deadlines(s, settings, model, 120)
+	_deadlines(s, settings, 120)
 	for key in ('thinking', 'openai_reasoning_effort'):
 		if settings.get(key) and settings[key] != 'none':
 			settings[key] = 'low'

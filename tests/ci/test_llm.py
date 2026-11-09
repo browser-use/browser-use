@@ -161,7 +161,7 @@ def sse(response: dict) -> list[bytes]:
 def responses_server():
 	"""The gateway's POST /responses: 400 on what it rejects, else the queued `replies` (output item lists, a dict of
 	response fields such as a failure, or an (HTTP status, body) error), then a finish call; streamed when the request asks for it,
-	slowly with pace=(s after response.created, s after each later event). The response
+	slowly with pace=(s after response.created, s after each later event) or [s after each event]. The response
 	carries browser_use{resolved_model, service_tier, charge_usd} as the gateway's does. A non-streamed request gets
 	what the gateway answers one past its 300 s window: HTTP 200, status failed, request_timeout. A compaction item sent
 	back must be one a response carried (encrypted_content included), its id without 'unreadable', else OpenAI's 400; a
@@ -205,8 +205,9 @@ def responses_server():
 				}  # fmt: skip
 				issued.update((i['id'], i['encrypted_content']) for i in reply['output'] if i['type'] == 'compaction')
 			streamed = status == 200 and body.get('stream')
-			head, gap = reply.pop('pace', (0, 0))
+			pace: Any = reply.pop('pace', (0, 0))
 			frames = sse(reply) if streamed else [json.dumps(reply).encode()]
+			waits = pace if isinstance(pace, list) else [pace[0], *[pace[1]] * len(frames)]
 			self.send_response(status)
 			self.send_header('Content-Type', 'text/event-stream' if streamed else 'application/json')
 			dropped = reply.get('status') == 'drop'  # the connection breaks: the body is shorter than its Content-Length
@@ -216,7 +217,7 @@ def responses_server():
 				for i, frame in enumerate(frames):
 					self.wfile.write(frame)
 					self.wfile.flush()
-					time.sleep(head if i == 0 else gap)
+					time.sleep(waits[i] if i < len(waits) else 0)
 			except (BrokenPipeError, ConnectionResetError):  # the client gave up on a slow stream
 				pass
 
@@ -385,25 +386,55 @@ async def test_a_responses_stream_that_ends_early_is_retried_once(responses_serv
 	assert (result.status, len(requests)) == ('error', 2) and error in (result.error or ''), result
 
 
-async def test_a_streamed_turn_past_the_model_timeout_runs_while_events_flow(responses_server, tmp_path, monkeypatch):
-	"""L1 (gateway scale test): a streamed request had 300 s in all, as a non-streamed one. A bu-smart turn still
-	streaming at 300 s was cut and asked again; the gateway billed every cut attempt in full and cost_usd counted none
-	(staging: 5 cuts, $1.84 billed, cost_usd $0.0074). A streamed request now has the 300 s for its first event and runs
-	on while events flow. One that sends nothing is still cut at 300 s and asked again."""
+async def test_a_responses_503_burst_past_the_sdk_retries_is_retried_once_per_run(responses_server, tmp_path):
+	"""rc2: three 503s in a row ended the run: the OpenAI client tried 3 times and BrowserLoop skipped its retry because
+	the client had retried. bu-pi (src/agent.ts transientModelError) sends a transient failure once more per run,
+	whatever happened below it. A second burst in the same run ends it."""
+	url, requests, replies = responses_server
+	unavailable = (503, {'error': {'code': 'service_unavailable', 'message': 'The service is temporarily unavailable.'}})
+	model, _ = resolve_model(ChatBrowserUse('bu-fast', api_key='fake-test-key', base_url=url))
+	ref = 'browser-use:bu-fast'
+	replies += [unavailable] * 3  # the SDK's 3 attempts
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
+	assert (result.status, result.output, len(requests)) == ('completed', 'ok', 4), result.error
+	requests.clear()
+	replies += [unavailable] * 6
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
+	assert (result.status, len(requests)) == ('error', 6) and '503' in (result.error or ''), result
+
+
+async def test_a_streamed_turn_is_cut_at_the_model_timeout_and_asked_once_more(responses_server, tmp_path, monkeypatch):
+	"""rc2, bu-pi deadlineStream (src/model-stream.ts, modelTimeoutMs 300 s): one deadline for the whole request,
+	streamed or not. A stream that went silent after its first output held the run for up to 930 s. Now it is cut at
+	MODEL_TIMEOUT_S and sent again, as bu-pi's one transient retry per run ('Model stream exceeded'); a second cut in
+	the same run ends it. Trade-off kept from bu-pi: a turn still streaming at 300 s is cut too (L1 staging)."""
 	from browser_use.agent import loop
 
 	monkeypatch.setattr(loop, 'MODEL_TIMEOUT_S', 1.0)  # stands in for 300 s
 	url, requests, replies = responses_server
 	model, _ = resolve_model(ChatBrowserUse('bu-smart', api_key='fake-test-key', base_url=url))
 	ref = 'browser-use:bu-smart'
-	replies.append({'output': [text('The answer is 42', 1)], 'pace': (0, 0.5)})  # first output at 0.5 s, done at 2 s
-	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
-	assert (result.status, result.output, len(requests)) == ('completed', 'The answer is 42', 1), result.error
-	assert result.cost_usd == pytest.approx(0.0002)
-	requests.clear()
-	replies.append({'output': [text('late', 1)], 'pace': (3, 0)})  # nothing after response.created for 3 s
+	stall = {'output': [text('late', 1)], 'pace': [0, 0, 3]}  # its text at once, then 3 s of nothing
+	replies.append(stall)
+	started = time.monotonic()
 	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
 	assert (result.status, result.output, len(requests)) == ('completed', 'ok', 2), result.error
+	assert time.monotonic() - started < 5
+	requests.clear()
+	replies += [stall, stall]
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
+	assert (result.status, len(requests)) == ('error', 2) and 'ModelRequestTimeout' in (result.error or ''), result
+
+
+async def test_a_streamed_request_cut_by_the_run_budget_gets_the_delivery_turn(responses_server, tmp_path):
+	"""A request the run's own deadline cuts (not a stall) is not the transient retry: the next step is the
+	delivery-only turn, as before."""
+	url, requests, replies = responses_server
+	model, _ = resolve_model(ChatBrowserUse('bu-smart', api_key='fake-test-key', base_url=url))
+	replies.append({'output': [text('late', 1)], 'pace': (0, 3)})
+	session = Session(repl=Repl(tmp_path), timeout_s=10)  # delivery turn at 5 s
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', session, 'browser-use:bu-smart')
+	assert (result.status, result.output, len(requests), session.budget_hit) == ('completed', 'ok', 2, 'timeout'), result
 
 
 async def test_a_responses_request_over_the_context_window_compacts_once_and_is_sent_again(responses_server, tmp_path):
