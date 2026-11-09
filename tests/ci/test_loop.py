@@ -928,6 +928,31 @@ async def test_a_stalled_model_request_still_leaves_the_delivery_turn(tmp_path):
 	assert 2 < requests[1]['request_timeout'] <= 3 and requests[0]['request_timeout'] <= 3
 
 
+async def test_a_model_request_deadline_is_logged_in_tenths_of_a_second(tmp_path, caplog, monkeypatch):
+	"""Live run (retest3 clean install, run(timeout=25)): the log read 'bu-fast: no answer within 5.71706 s'. The deadline
+	is the time left before the delivery turn, so it is rarely round: show one decimal, to the user and to the model."""
+	import asyncio
+	import logging
+	import re
+
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
+	requests = []
+
+	async def fn(messages, info: AgentInfo):
+		requests.append(messages)
+		if len(requests) == 1:
+			await asyncio.sleep(3600)  # accepted, never answered
+		return ModelResponse(parts=[ToolCallPart('finish', {'result': 'delivered', 'success': True})])
+
+	session = Session(repl=FakeRepl(tmp_path), timeout_s=6)
+	with caplog.at_level('WARNING', logger='browser_use.agent.loop'):
+		result = await run(build_agent(FunctionModel(fn)), 'task', session, 'function:x')
+	assert result.status == 'completed', result.error
+	(line,) = [r.getMessage() for r in caplog.records if 'no answer within' in r.getMessage()]
+	assert re.search(r'no answer within \d+\.\d s;', line), line
+	assert re.search(r'got no answer within \d+\.\d s\.', str(requests[1])), str(requests[1])[-400:]
+
+
 async def test_a_tool_call_written_as_text_is_not_the_answer(tmp_path):
 	"""Matrix v2, Grok bub2-020: the final answer was '<tool_call>{"name": "finish_from_repl", ...}</tool_call>' as text.
 	It ran nothing; it now gets the delivery repair turn (bu-pi's, for any text ending) and the real call delivers."""
