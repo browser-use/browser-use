@@ -4,12 +4,14 @@ Run with: browser-use --cli-mcp
 
 import asyncio
 import base64
+import contextvars
 import functools
 import os
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import traceback
 import webbrowser
 from contextlib import contextmanager
@@ -80,6 +82,20 @@ _REAPER = (
 
 
 _cell = threading.local()  # .buffer: where the cell running on this thread prints
+# The exception classes of the tool call in progress (telemetry): asyncio.to_thread runs _execute in a copy of the
+# call's context, which holds this same list
+_call_errors: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar('browser_use_mcp_errors', default=None)
+TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login')
+
+
+def _error_class(e: BaseException) -> str:
+	from browser_use.telemetry.stats import error_class
+
+	errors = _call_errors.get()
+	name = error_class(e)
+	if errors is not None:
+		errors.append(name)
+	return name
 
 
 class _CellStream:
@@ -190,6 +206,7 @@ class CLIMCPServer:
 		# set once start_remote_daemon ran here; not the .cloud marker, which an earlier server with this pid may have left
 		self._cloud_started = False
 		self._reapers: list[subprocess.Popen] = []  # held open so the pipes close only when this process exits
+		self._calls = 0  # tool calls served (telemetry call_n)
 		self._register_handlers()
 
 	def _tool_definitions(self) -> list[types.Tool]:
@@ -255,8 +272,20 @@ class CLIMCPServer:
 			return types.ListToolsResult(tools=self._tool_definitions())
 
 		async def handle_call_tool(_context: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
-			name = params.name
-			arguments = params.arguments or {}
+			errors: list[str] = []
+			token = _call_errors.set(errors)
+			started, result = time.monotonic(), None
+			try:
+				result = await call_tool(params.name, params.arguments or {})
+				return result
+			except BaseException as e:  # a cancelled call (the client's timeout): CancelledError
+				_error_class(e)
+				raise
+			finally:
+				_call_errors.reset(token)
+				self._record_call(params.name, result, errors, time.monotonic() - started)
+
+		async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
 			if name == 'browser_exec':
 				code = arguments.get('code')
 				if not isinstance(code, str) or not code.strip():
@@ -282,6 +311,7 @@ class CLIMCPServer:
 				try:
 					png = await self._locked(self._screenshot, bool(arguments.get('full', False)), max_dim)
 				except Exception as e:  # a tool result the model reads, never a JSON-RPC error
+					_error_class(e)
 					return types.CallToolResult(content=[types.TextContent(type='text', text=self._error(e))], is_error=True)
 				content: list[types.ContentBlock] = [types.ImageContent(type='image', data=png, mime_type='image/png')]
 				return types.CallToolResult(content=content)
@@ -296,6 +326,35 @@ class CLIMCPServer:
 
 		self.server.add_request_handler('tools/list', types.PaginatedRequestParams, handle_list_tools)
 		self.server.add_request_handler('tools/call', types.CallToolRequestParams, handle_call_tool)
+
+	def _record_call(self, name: str, result: types.CallToolResult | None, errors: list[str], seconds: float) -> None:
+		"""One mcp_server_event per tool call (TELEMETRY.md): queued, sent by the telemetry thread; never fails a call."""
+		self._calls += 1
+		try:
+			from browser_harness import telemetry as harness_telemetry
+
+			from browser_use.telemetry.service import telemetry
+			from browser_use.telemetry.stats import is_internal
+			from browser_use.telemetry.views import MCPToolCallEvent
+
+			if not telemetry().enabled:
+				return
+			detect = getattr(harness_telemetry, '_detect_agent_client', None)
+			event = MCPToolCallEvent(
+				version=get_browser_use_version(),
+				tool_name=name if name in TOOLS or name in OLD_TOOLS else 'invalid',
+				duration_seconds=round(seconds, 3),
+				ok=result is not None and not result.is_error,
+				error_type=errors[0] if errors else None,
+				server='mcp' if self._browser is not None else 'cli-mcp',
+				browser='cloud' if self._cloud_started else 'chromium' if self._browser is not None else 'chrome',
+				agent_client=detect() if detect else None,
+				call_n=self._calls,
+				is_internal=is_internal(),
+			)
+			telemetry().capture(event)
+		except Exception:  # - telemetry never breaks a tool call
+			pass
 
 	async def _locked(self, fn: Any, *args: Any) -> Any:
 		"""fn(*args) in a thread, one at a time. A call the client cancels (its timeout) lets go of the lock at once: its
@@ -365,12 +424,14 @@ class CLIMCPServer:
 				if connect:
 					self._ensure_daemon(code)
 			except Exception as e:  # attaching the browser, before any of the code ran: one line, not harness internals
+				_error_class(e)
 				print(self._error(e), file=buffer)
 				return buffer.getvalue(), failed
 			try:
 				exec(code, ns)
 				failed = False
 			except BaseException as e:
+				_error_class(e)
 				if isinstance(e, CloudAuthRequired | CloudBrowserError):
 					print(self._error(e), file=buffer)
 				else:
