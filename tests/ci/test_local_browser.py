@@ -415,6 +415,20 @@ def test_playwright_chromium_from_browser_use_install_is_found_last(tmp_path, mo
 		_local.find_binary(chrome_only=True)  # a copied Chrome profile needs real Chrome
 
 
+def test_a_file_named_like_a_browser_in_the_working_directory_is_never_launched(tmp_path, monkeypatch):
+	"""cubic: the Linux names not on PATH stayed in the list as bare names, which is_file() read in the working directory:
+	a file named ./chromium there was launched as the browser."""
+	monkeypatch.setattr(sys, 'platform', 'linux')
+	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+	monkeypatch.delenv('BH_CHROME_PATH', raising=False)
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', str(tmp_path / 'pw'))
+	(tmp_path / 'chromium').write_text('')
+	monkeypatch.chdir(tmp_path)
+	with pytest.raises(RuntimeError, match='No Chrome, Chromium or Edge found .*chromium on PATH'):
+		_local.find_binary()
+
+
 @pytest.fixture
 def debug_dirs(tmp_path, monkeypatch):
 	"""Three browsers' default dirs (Chrome first, as in browser-harness); live(name) turns remote debugging on."""

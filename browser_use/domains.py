@@ -89,7 +89,33 @@ def parse_url(url: str) -> Url | None:
 		return None
 	if not u.hostname:
 		return None
-	return Url(u.scheme.lower(), canonical_host(u.hostname), port, (u.path or '/') + (f'?{u.query}' if u.query else ''))
+	return Url(
+		u.scheme.lower(), canonical_host(u.hostname), port, _dot_segments(u.path or '/') + (f'?{u.query}' if u.query else '')
+	)
+
+
+DOUBLE_DOT = ('..', '.%2e', '%2e.', '%2e%2e')
+
+
+def _dot_segments(path: str) -> str:
+	"""The path as the browser requests it (WHATWG): '.' and '..' segments, also as %2e, resolved. A path prefix pattern
+	'https://host/docs' matched https://host/docs/../admin, which the browser loads as /admin."""
+	if not path.startswith('/'):
+		return path
+	segments, out = path[1:].split('/'), []
+	for i, segment in enumerate(segments):
+		last, low = i == len(segments) - 1, segment.lower()
+		if low in DOUBLE_DOT:
+			if out:
+				out.pop()
+			if last:
+				out.append('')
+		elif low in ('.', '%2e'):
+			if last:
+				out.append('')
+		else:
+			out.append(segment)
+	return '/' + '/'.join(out)
 
 
 def _split_port(host: str) -> tuple[str, str]:

@@ -228,6 +228,17 @@ def test_scheme_patterns_compare_hosts_not_string_prefixes():
 	assert ok('https://a.example.com/x', glob) and not ok('https://evil.com/.example.com/', glob)
 
 
+def test_dot_segments_cannot_escape_a_path_prefix():
+	"""cubic: 'https://example.com/docs' matched https://example.com/docs/../admin, which the browser loads as /admin."""
+	a = ['https://example.com/docs']
+	for url in ('https://example.com/docs/../admin', 'https://example.com/docs/%2e%2E/admin', 'https://example.com/docs/.%2e/x',
+				'https://example.com/docs\\..\\admin', 'https://example.com/docs/a/../../admin'):  # fmt: skip
+		assert not ok(url, a), url
+	assert ok('https://example.com/docs/a/../b', a) and ok('https://example.com/x/../docs/a', a)
+	assert ok('https://example.com/docs/./a', ['https://example.com/docs/a'])
+	assert not ok('https://example.com/a/../evil', prohibited=['https://example.com/evil'])
+
+
 def test_lookalikes_case_trailing_dot_backslash_and_idn():
 	a = ['example.com']
 	for url in ('https://example.com.evil.com/', 'https://evil-example.com/', 'https://example.co/', 'https://xexample.com/',
@@ -404,6 +415,33 @@ async def test_the_kept_tabs_are_taken_once_per_browser(monkeypatch):
 	await browser.start()
 	await browser.start()
 	assert browser._user_tabs == {'yours': 'https://other.com/'}
+
+
+async def test_only_your_open_chrome_keeps_its_tabs_on_disallowed_pages(monkeypatch):
+	"""cubic: every mode took the start snapshot, so Browser(cdp_url=...) never reset a tab that was already on a
+	disallowed page. Only Browser('chrome') attached to your open Chrome keeps your tabs."""
+	urls = {'theirs': 'https://evil.com/'}
+	reset = []
+
+	def cdp(method, session_id=None, **params):
+		if method == 'Target.getTargets':
+			return {'targetInfos': [{'type': 'page', 'targetId': t, 'url': u} for t, u in urls.items()]}
+		if method == 'Target.attachToTarget':
+			reset.append(params['targetId'])
+		return {'sessionId': 's'}
+
+	async def start():
+		return {}
+
+	for browser, kept in ((Browser(cdp_url='http://127.0.0.1:9', allowed_domains=['allowed.localhost']), False),
+						  (Browser('chrome', allowed_domains=['allowed.localhost']), True)):  # fmt: skip
+		monkeypatch.setattr(browser, '_start', start)
+		monkeypatch.setattr(browser, '_cdp', lambda: cdp)
+		monkeypatch.setattr(browser, '_touched_tabs', lambda: {'theirs'})
+		reset.clear()
+		await browser.start()
+		browser._sweep()
+		assert reset == ([] if kept else ['theirs'])
 
 
 def test_browser_takes_domain_options_in_every_mode():

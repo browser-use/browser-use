@@ -308,6 +308,27 @@ def test_a_failed_cloud_stop_keeps_the_browser_id_for_a_retry(monkeypatch):
 		harness_cloud.forget(name)
 
 
+def test_reload_stops_the_recorded_cloud_browser_before_forgetting_it(monkeypatch):
+	"""cubic: `BU_NAME=<name> browser-use --reload` deleted the only record of a cloud browser whose daemon was killed; it
+	billed until its timeout with nothing left to stop it."""
+	from browser_harness import admin
+
+	stops: list[str] = []
+	stopped = [False]
+	monkeypatch.setattr(admin, '_stop_cloud_browser', lambda browser_id, strict=False: stops.append(browser_id) or stopped[0])
+	name = _name('reload')
+	harness_cloud = _recorded(name, 'browser-a')
+	try:
+		with pytest.raises(harness_cloud.CloudBrowserError, match='Could not stop cloud browser browser-a'):
+			harness_cloud.forget(name)
+		assert harness_cloud._recorded_id(name) == 'browser-a'  # kept for the retry
+		stopped[0] = True
+		harness_cloud.forget(name)
+		assert stops == ['browser-a', 'browser-a'] and harness_cloud._recorded_id(name) is None
+	finally:
+		harness_cloud._marker(name).unlink(missing_ok=True)
+
+
 def test_stop_remote_daemon_stops_the_cloud_browser_after_its_daemon_was_killed(monkeypatch):
 	"""Fable r1: browser-harness's stop needs a live daemon ('unavailable for required clean shutdown'); the browser
 	billed until its timeout."""
@@ -465,7 +486,7 @@ time.sleep(600)
 			pass
 		from browser_use import harness_cloud
 
-		harness_cloud.forget(name)
+		harness_cloud._marker(name).unlink(missing_ok=True)  # its fake id cannot be stopped: forget() would keep it
 
 
 async def test_mcp_exec_reports_failures_and_a_cancelled_call_never_bleeds_into_the_next(monkeypatch):

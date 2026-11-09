@@ -855,6 +855,49 @@ async def test_stop_waits_for_a_running_download_and_its_cloud_listing(cloud, mo
 	assert sorted(p.name for p in files) == ['a.pdf', 'b.zip'] and stops(cloud) == ['/browsers/b1']
 
 
+async def test_stop_waits_for_a_download_only_the_daemon_saw_begin(cloud, monkeypatch, tmp_path):
+	"""cubic: a downloadWillBegin the worker never logged (it began after the worker closed) recorded only the name: with
+	its first downloadProgress in the next drain, nothing counted as running and the stop lost the download."""
+	import io
+
+	drains = [
+		[{'method': 'Browser.downloadWillBegin', 'params': {'guid': 'b', 'url': 'https://h/b', 'suggestedFilename': 'b.zip'}}],
+		[{'method': 'Browser.downloadProgress', 'params': {'guid': 'b', 'state': 'completed'}}],
+	]
+	monkeypatch.setattr(browser_mod, '_daemon_request', lambda name, req: {'events': drains.pop(0) if drains else []})
+	real = browser_mod._cloud
+
+	def fake(path, method='GET', body=None):
+		if 'downloads' not in path:
+			return real(path, method, body)
+		done = not drains and not browser.stopped  # a stopped session lists nothing
+		return {'files': [{'path': '/dl/b.zip', 'url': 'https://files.test/b'}] if done else [], 'hasMore': False}
+
+	monkeypatch.setattr(browser_mod, '_cloud', fake)
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(b'x'))
+	browser = Browser()
+	await browser.start()
+	files = await browser.stop(downloads_dir=tmp_path / 'downloads')
+	assert [p.name for p in files] == ['b.zip'] and stops(cloud) == ['/browsers/b1']
+
+
+def test_a_cdp_url_with_a_query_keeps_it_after_the_version_path(monkeypatch):
+	"""cubic: 'http://host:9222/?token=t' asked http://host:9222/?token=t/json/version."""
+	import io
+
+	asked = []
+
+	def urlopen(url, timeout=None):
+		asked.append(url)
+		return io.BytesIO(b'{"webSocketDebuggerUrl": "ws://host:9222/devtools/browser/x"}')
+
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', urlopen)
+	assert browser_mod._ws_url('http://host:9222/?token=t') == 'ws://host:9222/devtools/browser/x'
+	browser_mod._ws_url('https://host/cdp/')
+	browser_mod._ws_url('http://host:9222')
+	assert asked == ['http://host:9222/json/version?token=t', 'https://host/cdp/json/version', 'http://host:9222/json/version']
+
+
 async def test_a_cancelled_run_never_waits_for_a_running_download(cloud, monkeypatch, tmp_path):
 	"""Review: task.cancel() / Ctrl-C with a download still running held the stop (and cloud billing) for
 	DOWNLOADS_TIMEOUT_S, waiting for progress that would never be looked at."""
