@@ -741,7 +741,20 @@ class Agent:
 				result.status if result else 'cancelled' if error_type in ('CancelledError', 'KeyboardInterrupt') else 'error'
 			)
 			usage = dict(result.usage) if result else {}
-			messages = list(result.messages[prior:]) if result else []
+			# names only, not the messages: the event waits in the sender (seconds with PostHog slow or down, up to 100
+			# events), and a closure over the messages kept every run's history, screenshots included, alive that long
+			called: list[str] = []  # tool names the model wrote, mapped to 'invalid' in build() unless ours
+			retried: list[str | None] = []  # the tool name of each retry prompt (None for a text reply)
+			for m in result.messages[prior:] if result else ():
+				if isinstance(m, ModelResponse):
+					called += [p.tool_name for p in m.parts if isinstance(p, ToolCallPart)]
+				elif isinstance(m, ModelRequest):
+					# Pydantic AI 2.66 sends a retry as the call's ToolReturnPart(outcome='retried'); RetryPromptPart is the old form
+					retried += [
+						p.tool_name
+						for p in m.parts
+						if isinstance(p, RetryPromptPart) or (isinstance(p, ToolReturnPart) and p.outcome == 'retried')
+					]
 			downloads = list(self._downloads)
 			budget_hit = session.budget_hit if session else None
 			phase = meta['phase']
@@ -790,23 +803,9 @@ class Agent:
 				from collections import Counter
 
 				# a tool name the model made up can carry task or page text (TELEMETRY.md: only names browser-use or you chose)
-				tools = Counter(
-					p.tool_name if p.tool_name in known else 'invalid'
-					for m in messages
-					if isinstance(m, ModelResponse)
-					for p in m.parts
-					if isinstance(p, ToolCallPart)
-				)
-				# Pydantic AI 2.66 sends a retry as the call's ToolReturnPart(outcome='retried'); RetryPromptPart is the old form
-				retry_parts = [
-					p
-					for m in messages
-					if isinstance(m, ModelRequest)
-					for p in m.parts
-					if isinstance(p, RetryPromptPart) or (isinstance(p, ToolReturnPart) and p.outcome == 'retried')
-				]
+				tools = Counter(name if name in known else 'invalid' for name in called)
 				v3 = rec.build(stats, total_ms, steps, keys)
-				if tool_args := sum(p.tool_name in function_tools for p in retry_parts):
+				if tool_args := sum(name in function_tools for name in retried):
 					v3['retries']['tool_args'] = tool_args
 				repairs = ('delivery_placeholder', 'delivery_missing_files', 'text_repair', 'text_tool_markup')
 				event = AgentTelemetryEvent(
@@ -815,7 +814,7 @@ class Agent:
 					**fields,
 					**v3,
 					tool_calls=top(tools, keys),
-					retry_prompts=len(retry_parts),
+					retry_prompts=len(retried),
 					invalid_tool_calls=tools['invalid'],
 					delivery_repairs=sum(v3['retries'].get(k, 0) for k in repairs),
 					cells=stats.cells,

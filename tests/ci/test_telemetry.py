@@ -664,7 +664,7 @@ async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, sit
 		3,
 		'completed',
 		5,
-		False,
+		True,  # conftest: every test event is internal
 		'browser-use',
 	)
 	arrays = {k: v for k, v in p.items() if k.startswith('s_')}
@@ -1150,7 +1150,7 @@ def test_struggle_metrics_and_step_kinds():
 		'click_at_xy',
 	)
 	assert (out['repeat_fail_steps'], out['repeat_code_steps'], out['last_progress_step'], out['wasted_steps']) == (2, 1, 8, 0)
-	assert out['max_host_streak'] == 8 and out['s_ev'][2] & 256 and out['host_stats'] == {'a.com': [8, 3, 0, 0, 0, 1]}
+	assert out['max_host_streak'] == 8 and out['s_ev'][2] & 256 and out['host_stats'] == {'a.com': [8, 3, 0, 0, 0, 1, 0]}
 
 
 def test_model_names_and_provider_codes_never_carry_free_text():
@@ -1195,10 +1195,134 @@ def test_a_cell_does_not_pay_for_the_installed_package_and_cdp_method_lists():
 	distribution and every CDP method (~300 ms on the agent path). The check now runs when the event is built."""
 	code = (
 		'import time\n'
-		'from browser_use.telemetry.stats import RunStats, _cdp_methods, _known_modules\n'
+		'from browser_use.telemetry.stats import RunStats, known_cdp_method, known_module\n'
 		't = time.perf_counter()\n'
 		"RunStats().add_cell({'stats': {'cdp': {'Page.navigate': 1}}}, 'import pandas\\nimport json', 0.1)\n"
-		'print(round((time.perf_counter() - t) * 1000, 2), _known_modules.cache_info().currsize, _cdp_methods.cache_info().currsize)'
+		'print(round((time.perf_counter() - t) * 1000, 2), known_module.cache_info().currsize, known_cdp_method.cache_info().currsize)'
 	)
 	out = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=True).stdout.split()
 	assert out[1:] == ['0', '0'] and float(out[0]) < 5, out
+
+
+def test_the_telemetry_thread_does_not_list_every_package_or_cdp_method():
+	"""The thread listed every installed distribution and CDP method when it started (~120 ms of CPU, importing all of
+	cdp-use). Holding the GIL, that slowed the first run of a process by ~40 ms (a local Chromium run: 2153 -> 2192 ms).
+	Names are now checked one at a time: the same answers, without importing cdp-use."""
+	code = (
+		'import sys, time\n'
+		'import browser_use.telemetry.service as s\n'
+		'from browser_use.telemetry.stats import known_cdp_method, known_module\n'
+		't = time.perf_counter()\n'
+		's.telemetry()._warm()\n'
+		"names = [known_module(n) for n in ('json', 'PIL', 'pydantic_ai', 'zqnotinstalled', 'os.path')]\n"
+		"names += [known_cdp_method(m) for m in ('Page.navigate', 'page.navigate', 'DOM.getBoxModel', 'Page.zq', 'Zq.navigate',"
+		" 'BrowserUse.setCaptchaSolverEnabled', '../x.navigate', 'Page.navigate(')]\n"
+		"print(round((time.perf_counter() - t) * 1000, 2), 'cdp_use' in sys.modules, names)"
+	)
+	out = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=True).stdout
+	ms, imported, names = out.split(' ', 2)
+	assert imported == 'False' and float(ms) < 60, out
+	assert names.strip() == str([True, True, True, False, False, True, False, True, False, False, True, False, False])
+
+
+def test_cdp_methods_and_modules_allowed_are_the_protocols_and_the_installed_ones():
+	"""The per-name checks accept every method cdp-use's clients define and every module of an installed distribution."""
+	from importlib.metadata import packages_distributions
+
+	from cdp_use.cdp.library import CDPLibrary
+
+	from browser_use.telemetry.stats import known_cdp_method, known_module
+
+	lib = CDPLibrary(None)  # type: ignore[arg-type]
+	methods = {
+		f'{d}.{m}'
+		for d, c in vars(lib).items()
+		if not d.startswith('_')
+		for m in dir(c)
+		if m[:1].isupper() is False and not m.startswith('_') and callable(getattr(c, m))
+	}
+	assert len(methods) > 500 and all(known_cdp_method(m) for m in methods)
+	assert all(known_module(m) for m in packages_distributions() if m.isidentifier())
+
+
+def test_no_test_can_send_to_the_real_posthog():
+	"""The suite sent a real event per run: a send to a dead host was still retrying when the fixture restored the real
+	host. Tests now start from a host where nothing listens, and their events are marked internal."""
+	import browser_use.telemetry.service as service
+
+	assert service.POSTHOG_HOST == 'http://127.0.0.1:9' and os.environ['BROWSER_USE_TELEMETRY_INTERNAL'] == '1'
+
+
+async def test_a_queued_event_does_not_keep_the_runs_messages_alive(posthog, tmp_path, monkeypatch):
+	"""The event waits in the sender while PostHog is slow or down (7 s per event unreachable, up to 100 events). Its
+	build closure held the run's whole message history, screenshots included, and the thread's loop variable held the
+	last one even after it was sent: 1.6 MiB more per 200-step run here, measured with tracemalloc."""
+	import gc
+	import weakref
+
+	from pydantic_ai.messages import ModelResponse, ToolCallPart
+	from pydantic_ai.models.function import FunctionModel
+
+	import browser_use.telemetry.service as service
+
+	monkeypatch.setattr(service, 'POSTHOG_HOST', 'http://10.255.255.1')  # never answers: the event stays queued
+	no_browser(monkeypatch)
+	refs = []
+
+	def fn(messages, info):
+		done = len(refs) >= 2
+		r = ModelResponse(
+			parts=[
+				ToolCallPart('finish', {'success': True, 'result': 'ok'}) if done else ToolCallPart('python', {'code': 'x = 1'})
+			]
+		)
+		refs.append(weakref.ref(r))
+		return r
+
+	r = await Agent('t', FunctionModel(fn), browser=Browser(local=True), workspace=tmp_path / 'ws').run()
+	assert r.status == 'completed' and posthog.telemetry._pending
+	del r
+	gc.collect()
+	assert [ref() for ref in refs] == [None, None, None]
+	(job,) = posthog.telemetry._pending.values()
+	props = job.build(200, 50)
+	assert props['tool_calls'] == {'python': 2, 'finish': 1} and props['retry_prompts'] == 0
+
+
+async def test_a_failed_navigation_counts_on_the_host_that_failed_not_on_chromes_error_page(chrome, sent, tmp_path):
+	"""Live run 4 went to an unresolvable host: goto_url returned, no error showed anywhere, and both steps were booked
+	on 'chromewebdata', the host of Chrome's error page. The failed navigation now counts, with Chrome's net error code
+	and never the URL, on the host that failed."""
+	model, _ = script(
+		('python', {'code': "goto_url('http://zq-nowhere.invalid/zqpath?zq=1'); print(page_info())"}),
+		('finish', {'success': False, 'result': 'unreachable'}),
+	)
+	assert (await Agent('t', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path).run()).status == 'completed'
+	(props,) = sent
+	assert props['nav_failures'] == 1 and props['nav_errors'] == {'ERR_NAME_NOT_RESOLVED': 1}
+	assert 'chromewebdata' not in props['domains'] + props['s_host'] and 'chromewebdata' not in props['host_stats']
+	assert props['host_stats']['zq-nowhere.invalid'][5:] == [1, 1] and props['s_ev'][0] & 1024
+	assert_absent(props, 'zqpath')
+
+
+def test_a_step_whose_navigation_failed_is_not_progress():
+	from browser_use.telemetry.recorder import EV_NAV_FAILED, EV_NEW_PAGE, Step, _struggle
+
+	ok, failed = Step(0, 1, 1), Step(1, 1, 1)
+	ok.tools = failed.tools = ['python']
+	ok.ev, failed.ev = EV_NEW_PAGE, EV_NEW_PAGE | EV_NAV_FAILED
+	assert _struggle([ok, failed])['last_progress_step'] == 1 and _struggle([ok, failed])['wasted_steps'] == 1
+
+
+def test_a_run_delivered_as_a_text_reply_wastes_no_steps():
+	"""Live runs on bu-fast delivered as a plain text reply (finish_via text) in 6 of 11: a 4-step run that read,
+	clicked and answered reported wasted_steps 3, because only the finish tool counted as delivering."""
+	from browser_use.telemetry.recorder import EV_NEW_PAGE, Step, _struggle
+
+	steps = [Step(i, 1, 1) for i in range(4)]
+	for s in steps[:3]:
+		s.tools = ['python']
+	steps[0].ev = EV_NEW_PAGE  # nav, then read, interact, and a text reply
+	assert (_struggle(steps)['last_progress_step'], _struggle(steps)['wasted_steps']) == (4, 0)
+	steps[1].tools = []  # a text reply mid-run (sent back for repair) is not the delivery
+	assert (_struggle(steps[:3])['last_progress_step'], _struggle(steps[:3])['wasted_steps']) == (1, 2)

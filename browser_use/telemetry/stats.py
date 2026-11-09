@@ -5,17 +5,20 @@ methods) are kept only when Python, an installed package or the CDP protocol def
 from __future__ import annotations
 
 import ast
+import importlib.machinery
+import importlib.util
 import ipaddress
 import os
 import platform
 import re
 import sys
+import sysconfig
 import warnings
 from collections import Counter
 from dataclasses import dataclass, field
 from functools import cache
-from importlib.metadata import PackageNotFoundError, packages_distributions, version
-from pathlib import PurePath
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path, PurePath
 from typing import Any
 
 from browser_use.domains import parse_url
@@ -100,15 +103,27 @@ def cdp_category(hostname: str | None) -> str | None:
 
 
 @cache
-def _known_modules() -> frozenset[str]:
-	"""Top-level modules of the standard library, browser-use and every installed distribution."""
-	return frozenset(sys.stdlib_module_names) | frozenset(packages_distributions()) | {'browser_use'}
+def _site_dirs() -> tuple[str, ...]:
+	"""Where installed distributions live: this interpreter's site-packages (never the working directory)."""
+	paths = sysconfig.get_paths()
+	dirs = {paths.get('purelib'), paths.get('platlib')}
+	dirs |= {p for p in sys.path if p and os.path.basename(os.path.normpath(p)) in ('site-packages', 'dist-packages')}
+	return tuple(sorted(d for d in dirs if d))
 
 
+@cache
 def known_module(name: str) -> bool:
-	"""In the standard library, browser-use or an installed distribution. The stdlib check comes first: listing the
-	installed distributions takes ~130 ms the first time in a process."""
-	return name in sys.stdlib_module_names or name == 'browser_use' or name in _known_modules()
+	"""In the standard library, browser-use or an installed distribution (found in site-packages; a module the model or
+	the developer wrote elsewhere is not). Checked per name, cached: ~50 us, where listing every installed distribution
+	took ~70 ms and, in the telemetry thread, slowed the first run by holding the GIL."""
+	if name in sys.stdlib_module_names or name == 'browser_use':
+		return True
+	if not name.isidentifier():
+		return False
+	try:
+		return importlib.machinery.PathFinder.find_spec(name, list(_site_dirs())) is not None
+	except (ImportError, ValueError, OSError):
+		return False
 
 
 def imported_modules(code: str) -> list[str]:
@@ -140,17 +155,32 @@ def error_class(e: BaseException | type) -> str:
 	return cls.__name__[:MAX_NAME] if known else 'custom'
 
 
-@cache
-def _cdp_methods() -> frozenset[str]:
-	"""Every CDP protocol method (cdp-use's generated clients), plus Browser Use cloud's own."""
-	try:
-		from cdp_use.cdp.library import CDPLibrary
+CDP_PART = re.compile(r'[A-Za-z][A-Za-z0-9]{0,63}')
+CLOUD_METHODS = frozenset({'BrowserUse.setCaptchaSolverEnabled', 'BrowserUse.getCaptchaSolverEnabled'})
 
-		lib = CDPLibrary(None)  # type: ignore[arg-type]  # builds one client per domain; no connection
-		methods = {f'{d}.{m}' for d, c in vars(lib).items() if not d.startswith('_') for m in dir(c) if not m.startswith('_')}
-	except Exception:  # cdp-use changed its layout: count nothing rather than anything
-		methods = set()
-	return frozenset(methods | {'BrowserUse.setCaptchaSolverEnabled', 'BrowserUse.getCaptchaSolverEnabled'})
+
+@cache
+def known_cdp_method(method: str) -> bool:
+	"""A CDP protocol method (cdp-use's generated client for the domain defines it), or Browser Use cloud's own. Read
+	from the domain's source per name, cached: importing every cdp-use client took ~50 ms."""
+	if method in CLOUD_METHODS:
+		return True
+	domain, _, name = method.partition('.')
+	return bool(CDP_PART.fullmatch(domain) and CDP_PART.fullmatch(name)) and name in _domain_methods(domain)
+
+
+@cache
+def _domain_methods(domain: str) -> frozenset[str]:
+	try:
+		spec = importlib.util.find_spec('cdp_use')  # finds the package without importing it
+		if spec is None or spec.origin is None:
+			return frozenset()
+		text = (Path(spec.origin).parent / 'cdp' / domain.lower() / 'library.py').read_text(encoding='utf-8')
+	except (ImportError, ValueError, OSError):  # cdp-use changed its layout: count nothing rather than anything
+		return frozenset()
+	if not re.search(rf'^class {domain}Client\b', text, re.M):  # 'page.navigate' is not a method: case matters
+		return frozenset()
+	return frozenset(re.findall(r'^    async def ([A-Za-z][A-Za-z0-9]*)\(', text, re.M))
 
 
 def _version(*dists: str) -> str | None:
@@ -197,7 +227,7 @@ def fold(into: dict[str, list[int]], timings: dict) -> None:
 class RunStats:
 	"""Counters for one Agent.run(), filled from each REPL cell's result (worker.py `stats`). add_cell runs on the agent
 	path, so it only appends and adds; names the model's code chooses (imports, cdp() methods) are checked when read,
-	in the telemetry thread (that check lists the installed packages and CDP methods: ~300 ms the first time)."""
+	in the telemetry thread (one name at a time, cached: microseconds each)."""
 
 	cells: int = 0
 	cell_errors: int = 0
@@ -212,6 +242,7 @@ class RunStats:
 	cdp_t: dict[str, list[int]] = field(default_factory=dict)  # every CDP method the worker sent, unchecked, same shape
 	codes: list[str] = field(default_factory=list)  # cell code, parsed for imports when read; never sent
 	cdp_raw: Counter = field(default_factory=Counter)  # the agent's own cdp() calls by method, unchecked
+	nav_errors: Counter = field(default_factory=Counter)  # Chrome net error code of each failed navigation
 
 	def add_cell(self, result: dict, code: str, seconds: float) -> None:
 		self.cells += 1
@@ -228,6 +259,7 @@ class RunStats:
 		fold(self.cdp_t, s.get('cdp_t') or {})
 		self.domains.update(s.get('hosts') or [])
 		self.events.update(s.get('events') or {})
+		self.nav_errors.update(s.get('nav_errors') or {})
 		self.navigations += int(s.get('navigations') or 0)
 
 	@property
@@ -244,14 +276,14 @@ class RunStats:
 		"""Every CDP method the worker sent: [calls, errors, ns total, ns max], unknown names folded into 'invalid'."""
 		out: dict[str, list[int]] = {}
 		for method, s in self.cdp_t.items():
-			fold(out, {method if method in _cdp_methods() else 'invalid': s})
+			fold(out, {method if known_cdp_method(method) else 'invalid': s})
 		return out
 
 
 def checked_methods(counts: Counter) -> Counter:
 	out: Counter = Counter()
 	for method, n in counts.items():  # the model can pass anything as the method: a URL, code
-		out[method if method in _cdp_methods() else 'invalid'] += int(n)
+		out[method if known_cdp_method(method) else 'invalid'] += int(n)
 	return out
 
 

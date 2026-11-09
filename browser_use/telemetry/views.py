@@ -158,6 +158,8 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	first_nav_ms: int | None = None
 	first_ok_action_ms: int | None = None
 	revisit_navs: int = 0
+	nav_failures: int = 0
+	nav_errors: dict[str, int] = field(default_factory=dict)
 	helper_stats: dict[str, list[int]] = field(default_factory=dict)
 	cdp_stats: dict[str, list[int]] = field(default_factory=dict)
 	host_stats: dict[str, list[int]] = field(default_factory=dict)

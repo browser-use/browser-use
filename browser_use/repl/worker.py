@@ -114,6 +114,7 @@ STATE = Path(os.environ.get('BU_STATE_DIR', '.browser-use'))
 images: list[dict] = []
 NAVIGATING = ('Page.navigate', 'Target.createTarget')
 STAT_EVENTS = {'BrowserUse.captchaSolverStarted': 'captcha_started'}
+NET_ERROR = re.compile(r'net::(ERR_[A-Z0-9_]{1,40})')  # Page.navigate's errorText: Chrome's net error names
 DOWNLOAD_EVENTS = ('Browser.downloadWillBegin', 'Page.downloadWillBegin')  # cloud browsers send both for one download
 
 
@@ -151,7 +152,10 @@ class CellStats:
 
 	def url(self, url, navigation: bool = False) -> None:
 		"""A navigation's hostname, or (navigation=False) the hostname of a page the agent read. A URL never seen before
-		counts as a new page, a navigation to one already seen as a revisit (by hash; the URL is not kept)."""
+		counts as a new page, a navigation to one already seen as a revisit (by hash; the URL is not kept). Chrome's own
+		error page (chrome-error://chromewebdata/) is not a host: the page stays on the host that failed to load."""
+		if str(url).startswith('chrome-error:'):
+			return
 		if h := host(url):
 			with self.lock:
 				self.navigated = self.navigated or navigation
@@ -165,6 +169,13 @@ class CellStats:
 						self.seen.add(key)
 						self.new_pages += 1
 				self.navigations += navigation
+
+	def nav_failed(self, error_text) -> None:
+		"""Page.navigate answered errorText (DNS, TLS, refused, aborted): the Chrome net error code, never the URL."""
+		m = NET_ERROR.fullmatch(str(error_text))
+		with self.lock:
+			self.events['nav_failed'] += 1
+			self.nav_errors[m[1] if m else 'other'] += 1
 
 	def observe(self, events) -> None:
 		for e in events if isinstance(events, list) else ():
@@ -204,9 +215,11 @@ class CellStats:
 				'host': getattr(self, 'host', None),  # the last hostname this cell saw
 				'new_pages': getattr(self, 'new_pages', 0),
 				'revisits': getattr(self, 'revisits', 0),
+				'nav_errors': dict(getattr(self, 'nav_errors', {})),
 			}
 			self.helpers, self.cdp, self.events, self.hosts, self.navigations = Counter(), Counter(), Counter(), set(), 0
 			self.helper_t, self.cdp_t, self.host, self.new_pages, self.revisits = {}, {}, None, 0, 0
+			self.nav_errors = Counter()
 		return out
 
 
@@ -502,6 +515,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			# browser-harness defaults to 5s IPC; heavy cloud pages (Maps, TripAdvisor) blew it on navigate/evaluate/input.
 			params.setdefault('_response_timeout', CDP_TIMEOUT_S)
 			result = raw_cdp(method, session_id, **params)
+			if method == 'Page.navigate' and isinstance(result, dict) and result.get('errorText'):
+				stats.nav_failed(result['errorText'])
 			if highlight:
 				highlight.after(method, session_id, params)
 			# Browser._touched_tabs: the agent's tabs are the ones it created or attached to (switch_tab), even one it

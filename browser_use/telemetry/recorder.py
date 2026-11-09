@@ -33,6 +33,7 @@ MODEL_NAME = re.compile(r'[A-Za-z0-9._:-]{1,64}')
 # s_ev bits
 EV_SERVER_COMPACTION, EV_CLIENT_COMPACTION, EV_RETRIED, EV_DELIVERY = 1, 2, 4, 8
 EV_CAPTCHA, EV_BLOCKED, EV_CUT, EV_NEW_PAGE, EV_SAME_CODE, EV_RESTART = 16, 32, 64, 128, 256, 512
+EV_NAV_FAILED = 1024  # a navigation got Chrome's error page (DNS, TLS, refused): the page did not load
 COMPACTION_KIND = {'client': 1, 'server': 2, 'overflow': 3}
 # The run's recorder, for code with no RunContext (StreamedRequest: time to first event). Each run sets it in its own task.
 CURRENT: ContextVar[RunRecorder | None] = ContextVar('browser_use_recorder', default=None)
@@ -65,13 +66,14 @@ class Step:
 		'code',
 		'captchas',
 		'blocks',
+		'nav_fails',
 		'checkpoint',
 	)
 
 	def __init__(self, t: int, model_ms: int, ttft: int) -> None:
 		self.t, self.model_ms, self.ttft = t, model_ms, ttft
 		self.inp = self.out = self.cached = self.cells = self.cell_ms = self.wait_ms = self.cdp_ms = 0
-		self.nav = self.out_chars = self.imgs = self.ev = self.captchas = self.blocks = 0
+		self.nav = self.out_chars = self.imgs = self.ev = self.captchas = self.blocks = self.nav_fails = 0
 		self.reason = -1
 		self.finish = self.err = self.host = ''
 		self.tools: list[str] = []
@@ -226,6 +228,9 @@ class RunRecorder:
 		if blocks := int(events.get('domain_blocked') or 0):
 			s.ev |= EV_BLOCKED
 			s.blocks += blocks
+		if fails := int(events.get('nav_failed') or 0):
+			s.ev |= EV_NAV_FAILED
+			s.nav_fails += fails
 		if stats.get('cut'):
 			s.ev |= EV_CUT
 		if stats.get('new_pages'):
@@ -287,6 +292,8 @@ class RunRecorder:
 			'first_nav_ms': self.first_nav[1] if self.first_nav else None,
 			'first_ok_action_ms': self.first_ok_ms,
 			'revisit_navs': self.revisits,
+			'nav_failures': sum(stats.nav_errors.values()),
+			'nav_errors': dict(stats.nav_errors.most_common(min(top_n, 20))),
 			'delivery_turn': any(s.ev & EV_DELIVERY for s in steps),
 			'helper_stats': _timings(stats.helper_t, top_n),
 			'cdp_stats': _timings(stats.cdp_stats(), top_n),
@@ -329,20 +336,22 @@ def _timings(timings: dict[str, list[int]], n: int) -> dict[str, list[int]]:
 
 
 def _hosts(steps: list[Step]) -> dict[str, list[int]]:
-	"""{host: [steps, err_steps, cell_ms, captchas, blocks, navs]}. A step that saw no URL is on the previous one's host."""
+	"""{host: [steps, err_steps, cell_ms, captchas, blocks, navs, failed navs]}. A step that saw no URL is on the
+	previous one's host."""
 	out: dict[str, list[int]] = {}
 	current = ''
 	for s in steps:
 		s.host = current = s.host or current
 		if not current:
 			continue
-		h = out.setdefault(current, [0, 0, 0, 0, 0, 0])
+		h = out.setdefault(current, [0, 0, 0, 0, 0, 0, 0])
 		h[0] += 1
 		h[1] += bool(s.err)
 		h[2] += s.cell_ms
 		h[3] += s.captchas
 		h[4] += s.blocks
 		h[5] += s.nav
+		h[6] += s.nav_fails
 	return out
 
 
@@ -366,10 +375,13 @@ def _struggle(steps: list[Step]) -> dict[str, Any]:
 		if prev is not None and s.code is not None and s.code == prev.code:
 			s.ev |= EV_SAME_CODE
 			repeat_code += 1
-		new = bool(s.ev & EV_NEW_PAGE)
+		new = bool(s.ev & EV_NEW_PAGE) and not s.ev & EV_NAV_FAILED  # an error page is not progress
 		host_streak = 1 if (prev is None or new or s.host != prev.host or not s.host) else host_streak + 1
 		max_host = max(max_host, host_streak if s.host else 0)
-		if not s.err and (new or s.checkpoint or DELIVER.intersection(s.tools)):
+		# a final text reply is the delivery too (finish_via text): live runs on bu-fast delivered so in 6 of 11, and
+		# each counted every step after its last new page as wasted
+		delivered = DELIVER.intersection(s.tools) or (not s.tools and i == len(steps) - 1)
+		if not s.err and (new or s.checkpoint or delivered):
 			last_progress = i + 1
 		prev = s
 	streaks3 += streak >= 3

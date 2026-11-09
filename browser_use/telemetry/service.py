@@ -227,17 +227,17 @@ class ProductTelemetry:
 					self._unmark(run_id)
 				elif (job := self._pending.get(run_id)) is not None:
 					self._send(job)
+					job = None  # this frame would keep the last run's job (its recorder and stats) until the next event
 			except Exception as e:  # - never let one event stop the thread
 				logger.debug('telemetry: %s', e)
 				self._pending.pop(run_id, None)
 
 	def _warm(self) -> None:
-		"""The slow first calls (installed packages, CDP methods: ~300 ms) happen here, not when an event is built."""
-		from browser_use.telemetry.stats import _cdp_methods, _known_modules, environment
+		"""Cheap per-process facts, once. (Listing every installed distribution and CDP method here cost ~120 ms of CPU
+		that, holding the GIL, slowed the first run by ~40 ms: the name checks are per name now, stats.py.)"""
+		from browser_use.telemetry.stats import environment
 		from browser_use.utils import get_browser_use_version, get_install_source
 
-		_known_modules()
-		_cdp_methods()
 		environment()
 		get_browser_use_version()
 		get_install_source()
