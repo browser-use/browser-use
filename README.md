@@ -137,7 +137,7 @@ agent = Agent(
     llm=ChatOpenAI('gpt-6-luna'),        # OPENAI_API_KEY; or ChatOpenAI(model, base_url=...) for any compatible server
     browser=Browser('chromium'),         # a fresh local Chrome with its own temp profile
 )
-result = await agent.run()
+print(agent.run_sync().final_result())  # in async code: result = await agent.run()
 ```
 
 | Browser | What the agent drives |

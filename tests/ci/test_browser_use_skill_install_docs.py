@@ -303,6 +303,16 @@ def test_readme_links_are_absolute_so_they_work_on_pypi():
 	assert relative == []
 
 
+def test_readme_python_blocks_run_as_scripts():
+	"""The README's local-browser example ended in a top-level `result = await agent.run()`: pasted into agent.py it
+	is a SyntaxError ('await' outside function). Every block must compile as a plain script, as the docs' do."""
+	text = (ROOT / 'README.md').read_text(encoding='utf-8')
+	blocks = re.findall(r'```python\n(.*?)```', text, re.S)
+	assert blocks
+	for block in blocks:
+		compile(block, 'README.md', 'exec')
+
+
 def test_mcp_registry_entry_runs_this_version():
 	"""server.json is bumped by hand: it still ran `uvx browser-use==0.13.11 --cli-mcp` three releases later."""
 	import json
