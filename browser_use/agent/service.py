@@ -813,7 +813,7 @@ class Agent:
 				v3 = rec.build(stats, total_ms, steps, keys)
 				if tool_args := sum(name in function_tools for name in retried):
 					v3['retries']['tool_args'] = tool_args
-				repairs = ('delivery_placeholder', 'delivery_missing_files', 'text_repair', 'text_tool_markup')
+				repairs = ('delivery_placeholder', 'delivery_missing_files', 'delivery_split', 'text_repair', 'text_tool_markup')
 				event = AgentTelemetryEvent(
 					get_browser_use_version(),
 					get_install_source(),

@@ -124,6 +124,7 @@ class Session:
 	started: float = field(default_factory=time.monotonic)
 	finalizing: bool = False
 	checked_delivery: bool = False  # the delivery guard fires once; a second identical finish is accepted
+	split_delivery_step: int | None = None  # the request step whose response check_split_delivery refused (once per run)
 	success: bool | None = None  # the verdict finish/finish_from_repl must give; None for a plain-text delivery
 	messages: list[ModelMessage] = field(default_factory=list)
 	after_tool: Callable[[str, dict, dict], Awaitable[None]] | None = None  # observer hook (evals)
@@ -191,13 +192,50 @@ def as_text(value: Any) -> str:
 	return value if isinstance(value, str) else to_json(value, fallback=str).decode()
 
 
+def _holds_nothing(v: Any) -> bool:
+	"""JSON with no value: empty lists, objects and strings, null. A number or a boolean is a value."""
+	if isinstance(v, dict):
+		return all(_holds_nothing(x) for x in v.values())
+	if isinstance(v, list):
+		return all(_holds_nothing(x) for x in v)
+	return v is None or (isinstance(v, str) and not re.search(r'[^\W_]', v))
+
+
+def check_split_delivery(ctx: RunContext[Session]) -> None:
+	"""A delivery that shares its response with another delivery call, or with any call after it, is not taken: Pydantic
+	AI ends the run with the first one. Sonnet 5.5 sent a stub finish(success=False) first and the real
+	finish_from_repl, or a python call, after it (2 of 3 runs of one customer task): the run completed with the stub. A
+	python call before the delivery still delivers in the same response. Refused in one response per run; never on the
+	delivery-only turn, where nothing else runs."""
+	s = ctx.deps
+	if s.finalizing or s.split_delivery_step not in (None, ctx.run_step):
+		return
+	response = next((m for m in reversed(ctx.messages) if isinstance(m, ModelResponse)), None)
+	calls = [p for p in response.parts if isinstance(p, ToolCallPart)] if response else []
+	at = next((i for i, p in enumerate(calls) if p.tool_call_id == ctx.tool_call_id), None)
+	if at is None:
+		return
+	others = [p.tool_name for i, p in enumerate(calls) if i > at or (i < at and p.tool_name in DELIVERY_TOOLS)]
+	if not others:
+		return
+	s.split_delivery_step = ctx.run_step
+	s.rec.retry('delivery_split')
+	raise ModelRetry(
+		f'Not delivered: {", ".join(others)} came in the same response as this {ctx.tool_name}, so it was not the final '
+		'answer. Deliver once, in a response with no tool call after the delivery: finish_from_repl with the existing '
+		'records, or finish with the full answer.'
+	)
+
+
 def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 	"""One-shot repair: a placeholder or links to unwritten files."""
 	s = ctx.deps
 	text = as_text(value)
 	if not s.checked_delivery:
 		problem = None
-		if not re.search(r'[^\W_]', text):  # '...', '' (a one-character answer like '7' is fine)
+		# '...', '' (a one-character answer like '7' is fine); a structured result with no value in it: Sonnet 5.5 sent
+		# finish({"authors": []}, success=False) with 34 authors in the REPL
+		if not re.search(r'[^\W_]', text) or (not isinstance(value, str) and _holds_nothing(json.loads(text))):
 			problem = f'The result {text[:20]!r} is a placeholder, not the answer.'
 			s.rec.retry('delivery_placeholder')
 		else:
@@ -256,6 +294,7 @@ def _outputs(output_type: Any) -> list[Any]:
 			return redacted
 
 	async def finish_from_repl(ctx: RunContext[Session], expression: str, success: bool | None = None):
+		check_split_delivery(ctx)
 		r = await ctx.deps.repl.call('eval', expression, ctx.deps.cell_timeout_s)
 		if r['error']:
 			ctx.deps.rec.retry('finish_expr_error')
@@ -276,6 +315,7 @@ def _outputs(output_type: Any) -> list[Any]:
 		return clean(ctx, value)
 
 	def finish(ctx: RunContext[Session], result, success: bool | None = None):
+		check_split_delivery(ctx)
 		check_delivery(ctx, result)
 		ctx.deps.success, ctx.deps.finish_via = success, 'finish'
 		return clean(ctx, result)
