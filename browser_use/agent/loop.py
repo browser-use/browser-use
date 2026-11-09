@@ -40,6 +40,7 @@ from pydantic_ai.messages import (
 	ModelMessage,
 	ModelRequest,
 	ModelResponse,
+	RetryFeedbackPart,
 	RetryPromptPart,
 	SystemPromptPart,
 	TextPart,
@@ -722,18 +723,20 @@ def _pi(messages: list[ModelMessage]) -> list[dict[str, Any]]:
 				user = p.content if isinstance(p.content, str) else blocks(list(p.content))
 				out.append({'role': 'user', 'content': user, 'timestamp': ms(m)})
 			elif isinstance(p, ToolReturnPart) or (isinstance(p, RetryPromptPart) and p.tool_name):
-				error = isinstance(p, RetryPromptPart)
+				# Pydantic AI 2.x: a rejected call (schema error, ModelRetry) is a ToolReturnPart with outcome 'retried'
+				error = isinstance(p, RetryPromptPart) or p.outcome in ('failed', 'retried')
+				text = p.model_response() if isinstance(p, RetryPromptPart) else p.model_response_str() if error else None
 				out.append(
 					{
 						'role': 'toolResult',
 						'toolCallId': p.tool_call_id,
 						'toolName': p.tool_name,
-						'content': blocks(p.model_response() if isinstance(p, RetryPromptPart) else p.content),
+						'content': blocks(p.content if text is None else text),
 						'isError': error,
 						'timestamp': ms(m),
 					}
 				)
-			elif isinstance(p, RetryPromptPart):
+			elif isinstance(p, (RetryPromptPart, RetryFeedbackPart)):  # 2.x: RetryFeedbackPart, e.g. the delivery repair
 				out.append({'role': 'user', 'content': p.model_response(), 'timestamp': ms(m)})
 	return out
 

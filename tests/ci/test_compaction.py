@@ -161,6 +161,22 @@ def test_size_is_bu_pi_context_chars_of_its_messages():
 	assert _chars(messages) == len(expected)
 
 
+def test_retries_count_toward_the_size_as_bu_pi_counts_them():
+	"""Pydantic AI 2.x sends a retry as RetryFeedbackPart (the delivery repair turn, which quotes the whole reply) or a
+	ToolReturnPart with outcome='retried' (a schema error). _pi knew only the old RetryPromptPart: the feedback was left
+	out of the size and a rejected call counted as a success."""
+	from pydantic_ai.messages import RetryFeedbackPart, RetryInfo
+
+	from browser_use.agent.loop import _pi
+
+	retry = RetryInfo(cause='model_retry', attempt=1, max_retries=5)
+	feedback = RetryFeedbackPart('reply ' * 500, retry=retry)
+	rejected = ToolReturnPart('finish', [{'msg': 'bad'}], tool_call_id='c1', outcome='retried', retry=retry)
+	user, result = _pi([ModelRequest(parts=[feedback, rejected])])
+	assert user['role'] == 'user' and 'reply ' * 500 in user['content']
+	assert result['isError'] is True and 'bad' in result['content'][0]['text']
+
+
 async def test_anthropic_history_compacts_at_bu_pi_size(tmp_path):
 	"""Claude-shaped steps with short outputs: each adds ~640 characters as bu-pi counts them, ~320 as message content.
 	Under max_context_chars=14_800 (trigger 11_100 with the ~7k system prompt) bu-pi's count crosses by the 8th
