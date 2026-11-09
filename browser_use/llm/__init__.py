@@ -492,6 +492,7 @@ def resolve_model(llm: Any) -> tuple[Any, dict]:
 
 
 def _resolve_model(llm: Any) -> tuple[Any, dict]:
+	from pydantic_ai.exceptions import UserError
 	from pydantic_ai.models import Model, infer_model
 
 	if isinstance(llm, CHAT_MODELS):
@@ -505,7 +506,30 @@ def _resolve_model(llm: Any) -> tuple[Any, dict]:
 		except ImportError:
 			prefix = str(ref).split(':', 1)[0]
 			raise ImportError(extra_hint(EXTRAS.get(prefix, prefix))) from None
+		except UserError:
+			if hint := _bare_name_hint(ref):
+				raise UserError(f'Unknown model {ref!r}: a model string names its provider. Use {hint}.') from None
+			raise
 	raise _unsupported_llm(llm)
+
+
+BARE_NAMES = {  # name prefix -> (Chat class, Pydantic AI provider prefix)
+	('gpt-', 'o1', 'o3', 'o4', 'chatgpt-'): ('ChatOpenAI', 'openai'),
+	('claude-',): ('ChatAnthropic', 'anthropic'),
+	('gemini-',): ('ChatGoogle', 'google'),
+}
+
+
+def _bare_name_hint(name: Any) -> str | None:
+	"""The 1.0 form of a bare model name ('gpt-6-luna'). Pydantic AI's own suggestion degrades it: 'openai-chat:gpt-6-luna'
+	is chat completions (reasoning sent as 'none', not the evaluated Responses setup), 'google-cloud:gemini-...' is
+	Vertex, where a GOOGLE_API_KEY gets 403 after the browser started."""
+	if not isinstance(name, str) or ':' in name:
+		return None
+	for prefixes, (cls, provider) in BARE_NAMES.items():
+		if name.lower().startswith(prefixes):
+			return f'llm={cls}({name!r}) or llm={f"{provider}:{name}"!r}'
+	return None
 
 
 def __getattr__(name: str):

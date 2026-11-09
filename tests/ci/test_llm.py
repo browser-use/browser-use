@@ -870,6 +870,25 @@ def test_model_strings_pass_through(monkeypatch):
 	assert isinstance(model, OpenAIResponsesModel) and model.model_name == 'gpt-6-luna'
 
 
+@pytest.mark.parametrize(
+	('name', 'hint'),
+	[
+		('gpt-6-luna', "llm=ChatOpenAI('gpt-6-luna') or llm='openai:gpt-6-luna'"),
+		('o4-mini', "llm=ChatOpenAI('o4-mini') or llm='openai:o4-mini'"),
+		('claude-haiku-5-5', "llm=ChatAnthropic('claude-haiku-5-5') or llm='anthropic:claude-haiku-5-5'"),
+		('gemini-3.5-flash', "llm=ChatGoogle('gemini-3.5-flash') or llm='google:gemini-3.5-flash'"),
+	],
+)
+def test_a_bare_model_name_names_the_1_0_form_not_a_degraded_one(name, hint):
+	"""Live: Pydantic AI answered llm='gpt-6-luna' with "Did you mean 'openai-chat:gpt-6-luna'?" (chat completions:
+	reasoning sent as 'none', not the evaluated Responses setup) and llm='gemini-3.5-flash' with 'google-cloud:...'
+	(Vertex: a GOOGLE_API_KEY got 403 API_KEY_SERVICE_BLOCKED after the browser had started)."""
+	with pytest.raises(UserError) as e:
+		resolve_model(name)
+	assert str(e.value) == f'Unknown model {name!r}: a model string names its provider. Use {hint}.'
+	assert 'openai-chat:' not in str(e.value) and 'google-cloud:' not in str(e.value)
+
+
 def test_missing_extra_gives_install_hint(monkeypatch):
 	import pydantic_ai.models
 
