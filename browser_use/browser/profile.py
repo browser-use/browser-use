@@ -1193,7 +1193,6 @@ async function initialize(checkInitialized, magic) {{
 	def _extract_extension(self, crx_path: Path, extract_dir: Path) -> None:
 		"""Extract .crx file to directory."""
 		import io
-		import os
 		import zipfile
 
 		# Remove existing directory

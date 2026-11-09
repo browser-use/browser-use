@@ -42,4 +42,3 @@ def test_extract_extension_valid_crx(tmp_path: pathlib.Path):
 	prof._extract_extension(crx, out_dir)
 	assert (out_dir / 'manifest.json').exists()
 	assert (out_dir / 'manifest.json').read_text() == '{"manifest_version": 3, "name": "test"}'
-
