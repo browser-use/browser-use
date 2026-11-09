@@ -108,13 +108,18 @@ def name_download(path: Path, name: str | None) -> Path | None:
 			continue
 		except FileNotFoundError:
 			return None
-		except OSError:  # a filesystem without hard links
-			if dest.exists():
+		except OSError:  # a filesystem without hard links: claim dest atomically, then move over the claim
+			try:
+				os.close(os.open(dest, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+			except FileExistsError:  # an exists() check let two downloads take one name, the second replacing the first
 				continue
 			try:
-				path.rename(dest)
-			except FileNotFoundError:
-				return None
+				os.replace(path, dest)
+			except OSError as e:
+				dest.unlink(missing_ok=True)
+				if isinstance(e, FileNotFoundError):
+					return None
+				raise
 			return dest
 		path.unlink(missing_ok=True)
 		return dest

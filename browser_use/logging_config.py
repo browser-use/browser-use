@@ -16,6 +16,12 @@ def setup_logging(level: str | None = None) -> logging.Logger:
 	logger.propagate = False
 	if not isinstance(logging.getLevelName(level.upper()), int):  # 0.x 'result', or a typo: says so instead of INFO silently
 		logger.warning(f'BROWSER_USE_LOGGING_LEVEL={level!r} is not a level (debug, info, warning, error); using info.')
+	for var in ('BROWSER_USE_DEBUG_LOG_FILE', 'BROWSER_USE_INFO_LOG_FILE'):  # 0.x wrote a log file there
+		if os.getenv(var):
+			logger.warning(
+				f'{var} is set but browser-use 1.0 does not read it: no log file is written. Add a logging.FileHandler '
+				"to logging.getLogger('browser_use') instead."
+			)
 	return logger
 
 

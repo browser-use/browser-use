@@ -120,6 +120,35 @@ def test_error_text_never_carries_the_key(endpoint):
 	assert KEY not in str(e.value) and '<api key>' in str(e.value)
 
 
+@pytest.mark.parametrize(
+	('raw', 'expected'),
+	[
+		(b'garbage, not HTTP\r\n\r\n', None),  # http.client.BadStatusLine: not an OSError, escaped Agent.run()
+		(  # a 401 whose body breaks off: IncompleteRead from e.read() escaped the except block
+			b'HTTP/1.1 401 Unauthorized\r\nContent-Length: 100\r\n\r\nshort',
+			'answered HTTP 401: Unauthorized',
+		),
+	],
+)
+def test_preflight_never_raises_on_a_broken_response(raw, expected):
+	import socket
+
+	server = socket.create_server(('127.0.0.1', 0))
+
+	def answer():
+		conn, _ = server.accept()
+		with conn:
+			conn.recv(65536)
+			conn.sendall(raw)
+
+	threading.Thread(target=answer, daemon=True).start()
+	try:
+		line = WebSearch(KEY, f'http://127.0.0.1:{server.getsockname()[1]}/api/v4/search').preflight()
+	finally:
+		server.close()
+	assert line is None if expected is None else (line and line.endswith(expected)), line
+
+
 async def test_repl_search_is_answered_by_the_parent(endpoint, tmp_path, monkeypatch):
 	monkeypatch.setattr('browser_use.search.SEARCH_TIMEOUT_S', 0.5)
 	repl = Repl(tmp_path, search=WebSearch(KEY, endpoint.url))

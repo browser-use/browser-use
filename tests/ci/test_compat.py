@@ -151,6 +151,7 @@ def test_0x_environment_variables_1_0_ignores_say_so(no_browser, monkeypatch, ca
 	monkeypatch.setenv('DEFAULT_LLM', 'openai_gpt_4o')
 	monkeypatch.setenv('BROWSER_USE_HEADLESS', 'false')
 	monkeypatch.setenv('BROWSER_USE_LLM_URL', 'https://llm.staging.example.test/v1')  # rr-legacy 6: sent to production
+	monkeypatch.setenv('BROWSER_USE_DEBUG_LOG_FILE', 'debug.log')  # review: 0.x wrote it; 1.0 wrote nothing, silently
 	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)
 	Agent('t', browser=Browser(local=True))
 	logging.getLogger('browser_use').addHandler(caplog.handler)  # setup_logging turns propagation off
@@ -161,6 +162,7 @@ def test_0x_environment_variables_1_0_ignores_say_so(no_browser, monkeypatch, ca
 	assert 'DEFAULT_LLM is set' in caplog.text and 'BROWSER_USE_HEADLESS is set' in caplog.text
 	assert 'BROWSER_USE_LLM_URL is set but browser-use 1.0 does not read it' in caplog.text
 	assert "BROWSER_USE_LOGGING_LEVEL='result' is not a level" in caplog.text
+	assert 'BROWSER_USE_DEBUG_LOG_FILE is set but browser-use 1.0 does not read it' in caplog.text
 	setup_logging('info')
 	for value, on in (('', False), ('false', False), ('nope', False), ('true', True), ('1', True)):
 		monkeypatch.setenv('ANONYMIZED_TELEMETRY', value)

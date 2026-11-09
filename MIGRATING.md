@@ -277,6 +277,7 @@ ActionResult, ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle`.
 | `browser_use.dom`, `browser_use.actor` (`Page`, `Element`, `Mouse`) | the agent drives the page with Python and raw CDP in its REPL |
 | `browser_use.filesystem` | `Agent(workspace=...)`, a plain directory |
 | `browser_use.tokens` | `result.usage` and `result.cost_usd` |
+| `browser_use.exceptions.LLMException` | `result.error`: `run()` returns `status='error'` for a provider failure instead of raising |
 | `browser_use.config` (`load_browser_use_config`, ...), `browser_use.utils` (`time_execution_async`, ...), `browser_use.logging_config` (`addLoggingLevel`, ...) | 0.x internals: `Agent(...)` / `Browser(...)` arguments, `BROWSER_USE_LOGGING_LEVEL`; copy a helper you need |
 | `browser_use.beta`, `browser_use.sandbox`, `browser_use.sync`, `browser_use.screenshots`, `browser_use.skills.service`, `browser_use.init_cmd` | removed (`screenshot()` in the agent's REPL replaces `screenshots`) |
 | `browser_use.integrations` (Anthropic / OpenAI hosted-browser tools, Gmail) | none yet: they come back on the new `Browser` in a later release |

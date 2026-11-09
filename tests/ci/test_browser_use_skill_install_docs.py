@@ -294,6 +294,13 @@ def test_skill_install_writes_only_installed_agents_and_reports_write_errors(tmp
 		result = install('--path', str(readonly / 'x'))
 		assert result.returncode == 1
 		assert 'Error: cannot write' in result.stderr and 'Traceback' not in result.stderr
+		# review: the first unwritable target (~/.agents, written first) skipped every agent after it
+		shared, codex = (home / p / 'skills' / 'browser-use' / 'SKILL.md' for p in ('.agents', '.codex'))
+		shared.chmod(0o400)
+		codex.unlink()
+		result = install()
+		assert result.returncode == 1 and f'Error: cannot write {shared}' in result.stderr
+		assert codex.read_text(encoding='utf-8') == skill_text()
 
 
 def test_readme_links_are_absolute_so_they_work_on_pypi():
