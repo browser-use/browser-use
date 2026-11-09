@@ -5,6 +5,7 @@ from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING, Any
 
 logger = logging.getLogger(__name__)
+FD_LIMIT = 10240  # ~3 fds per live Agent (model connection, REPL socket, worker pipe): thousands of concurrent Agents
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -19,6 +20,23 @@ def urlopen_keyed(request: urllib.request.Request, timeout: float) -> Any:
 	"""urlopen for a request that carries an API key. It never follows a redirect: urllib copies every header to the new
 	URL, so a redirect to another origin would hand it the key. A 3xx raises HTTPError, as httpx does for the model calls."""
 	return _keyed_opener.open(request, timeout=timeout)
+
+
+def raise_fd_limit() -> None:
+	"""Raise the soft open-file limit toward the hard one (no privileges needed). macOS starts processes at 256, and
+	100 concurrent Agents in one process use ~300: connects and binds failed with EMFILE, DNS failed (a model call then
+	read 'Connection error.'). Never lowers a limit; a no-op on Windows."""
+	try:
+		import resource
+	except ImportError:
+		return
+	soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+	want = FD_LIMIT if hard == resource.RLIM_INFINITY else min(hard, FD_LIMIT)
+	if soft != resource.RLIM_INFINITY and soft < want:
+		try:
+			resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+		except (ValueError, OSError) as e:
+			logger.debug(f'Could not raise the open-file limit from {soft} to {want}: {e}')
 
 
 def singleton(cls):

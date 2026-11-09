@@ -39,6 +39,7 @@ from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets
 from browser_use.search import WebSearch, search_url
 from browser_use.tools import Tools
+from browser_use.utils import raise_fd_limit
 
 logger = logging.getLogger(__name__)
 load_env()  # 0.x read .env on import; credentials below resolve from it
@@ -404,6 +405,7 @@ class Agent:
 
 	async def _run(self, max_steps: int, timeout: float) -> AgentHistoryList:
 		self._check_task()
+		raise_fd_limit()  # before the first socket: many concurrent Agents exceed macOS's default 256 open files
 		if self._agent is None:
 			self._build()
 		started, result, error_type, session, browser_s = time.monotonic(), None, None, None, None
