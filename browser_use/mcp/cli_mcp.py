@@ -177,6 +177,25 @@ def _refusing(fn: Any, rules: DomainRules) -> Any:
 	return checked
 
 
+def _checked_http_get(rules: DomainRules) -> Any:
+	"""The agent's http_get (repl/worker.py) with every redirect hop checked against rules. browser-harness's followed a
+	redirect from an allowed host to any host, and with BROWSER_USE_API_KEY set sent the URL and headers to the fetch-use
+	proxy. Its own opener, not install_opener: this process's cloud, login and telemetry calls use urllib too."""
+	from browser_use.repl import worker
+
+	def check(url: str) -> None:
+		if why := rules.blocked(str(url)):
+			raise PermissionError(why)
+
+	opener = worker.redirect_checking_opener(check)
+
+	def http_get(url: str, headers: dict | None = None, timeout: float = 20.0) -> str | bytes:
+		return worker.http_get(url, headers, timeout, _urlopen=opener.open)
+
+	http_get.__doc__ = worker.http_get.__doc__
+	return _refusing(http_get, rules)
+
+
 def _harness_skill_text() -> str:
 	from browser_use.skills.browser_use import skill_text
 
@@ -373,8 +392,9 @@ class CLIMCPServer:
 			ns['start_remote_daemon'] = self._start_remote
 			ns['stop_remote_daemon'] = lambda name=None: harness_cloud.stop(self._remote)
 			if self._browser is not None and self._browser.domains:  # --mcp with a 0.x config's allowed_domains
-				for name in ('new_tab', 'goto_url', 'http_get'):
+				for name in ('new_tab', 'goto_url'):
 					ns[name] = _refusing(ns[name], self._browser.domains)
+				ns['http_get'] = _checked_http_get(self._browser.domains)
 			self._namespace = ns
 		return self._namespace
 

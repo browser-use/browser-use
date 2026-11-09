@@ -373,3 +373,8 @@ cookies and (attached) your open tabs. `Browser('chromium')` and the cloud brows
 still runs as your user and can attach to any browser on this machine with a debugging port open: other runs'
 `Browser('chromium')` need no approval, your Chrome asks "Allow remote debugging?". Once the browser is gone and
 cannot be reattached, the agent runs no more cells and delivers what it has.
+
+Other users on the same machine can attach too: `Browser('chromium')` and `Browser('chrome', profile=...)` listen on
+a 127.0.0.1 debugging port with no authentication, so any local account can attach to that browser, read its cookies
+and drive it for as long as it runs (with `keep_alive=True`, after the run too). On a shared machine, use a container, a
+VM or Browser Use Cloud.

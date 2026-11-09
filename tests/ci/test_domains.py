@@ -577,6 +577,24 @@ async def test_helpers_refuse_disallowed_urls(daemon, site, tmp_path):
 	assert evil_hits() == []
 
 
+def test_mcp_http_get_checks_every_redirect_and_stays_local(site, monkeypatch):
+	"""NET-4: --mcp with allowed_domains checked only http_get's first URL, so a redirect from an allowed host fetched
+	any host, and with BROWSER_USE_API_KEY set the URL and headers went to the fetch-use proxy instead."""
+	import fetch_use
+
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'bu_test')
+	monkeypatch.setattr(fetch_use, 'fetch_sync', lambda *a, **k: pytest.fail('http_get went through fetch-use'))
+	mcp = cli_mcp.CLIMCPServer(own_browser=True, allowed_domains=['allowed.localhost'])
+	Site.hits.clear()
+	out, failed = mcp._execute(f'print(http_get({site["allowed"] + "/ok"!r}))', connect=False)
+	assert not failed and '<title>allowed.localhost/ok</title>' in out, out
+	out, failed = mcp._execute(f'http_get({site["allowed"] + "/redirect"!r})', connect=False)
+	assert failed and 'PermissionError: blocked: evil.localhost is not in allowed_domains' in out, out
+	assert evil_hits() == []
+
+
 async def test_guard_blocks_navigations_the_helpers_never_see(chrome, daemon, site, tmp_path):
 	"""Layer 2 (Guard): link clicks, redirects, target=_blank, window.open, meta refresh, JS location and a raw
 	Target.createTarget(url=...) never reach the disallowed host."""
