@@ -66,6 +66,8 @@ PAGES = {
 	'/footer': """<title>Footer</title><div style="height:calc(100vh - 60px)"></div>
 <button onclick="this.textContent = 'Saved'">Save</button><div style="height:2000px"></div>
 <footer style="position:fixed;bottom:0;left:0;right:0;height:120px;background:#eee">Site footer</footer>""",
+	# the-internet.herokuapp.com/basic_auth: a 401 Basic Auth challenge fails the navigation to a blank error page.
+	'/dead': '<title>Dead</title><a href="/auth">Staging site</a>',
 	'/long': '<title>Long</title>' + ''.join(f'<button>Item number {i}</button>' for i in range(60)),
 }
 
@@ -73,6 +75,12 @@ PAGES = {
 class Handler(BaseHTTPRequestHandler):
 	def do_GET(self):
 		path = self.path.split('?')[0]
+		if path == '/auth':
+			self.send_response(401)
+			self.send_header('WWW-Authenticate', 'Basic realm="staging"')
+			self.send_header('Content-Length', '0')
+			self.end_headers()
+			return
 		if path == '/slow':
 			time.sleep(0.5)  # longer than the 80 ms quiet window: settle must wait on the request
 			body = b'Loaded'
@@ -242,6 +250,24 @@ async def test_a_change_inside_a_same_origin_iframe_is_reported(repl, site):
 	assert 'December' in out.split('[state]')[1]
 	out, err = await cell(repl, "bu.click(idof('Idle'))")
 	assert err is None and re.match(r'\[ok\] click \[\d+\] button "Idle" -> no change\n', out), out
+
+
+async def test_a_failed_navigation_names_the_net_error(repl, site):
+	"""Customer task (the-internet.herokuapp.com, 40 examples, bu-fast on a cloud browser): the Basic Auth link printed
+	"navigated to chrome-error://chromewebdata/" and a state that blamed a blank page or a popup in a cross-origin
+	iframe. The page had failed to load (net::ERR_INVALID_AUTH_CREDENTIALS); the agent could not tell why."""
+	await cell(repl, f"new_tab('{site}/dead'); s = bu.state()" + IDOF)
+	out, err = await cell(repl, "bu.click(idof('Staging site'))")
+	assert err is None, err
+	assert re.match(
+		r'\[ok\] click \[\d+\] link "Staging site" -> navigated to chrome-error://chromewebdata/ '
+		r'\(net::ERR_INVALID_AUTH_CREDENTIALS\)\n',
+		out,
+	), out
+	assert '(the page did not load: net::ERR_INVALID_AUTH_CREDENTIALS' in out.split('[state]')[1], out
+	assert 'popup' not in out.split('[state]')[1], out
+	out, err = await cell(repl, f"goto_url('{site}/next'); print(bu.state())")  # a later page that loads: no stale error
+	assert err is None and 'Second page' in out and 'net::' not in out, out
 
 
 async def test_a_target_under_a_fixed_footer_is_scrolled_clear_and_clicked(repl, site):
