@@ -620,6 +620,13 @@ def error(code: str, message: str) -> dict:
 	return {'error': {'code': code, 'message': message, 'type': code}}
 
 
+def test_an_openai_prefixed_gateway_model_is_sent_without_the_prefix():
+	"""Live (0.13 README: ChatBrowserUse(model='openai/gpt-5.5')): the preflight accepted the prefixed name, then the
+	gateway answered 400 "not on the Browser Use gateway" to the first request, after the browser had started."""
+	llm = ChatBrowserUse('openai/gpt-5.5', api_key='fake-test-key')
+	assert llm.model == 'gpt-5.5' and llm.pydantic_model().model_name == 'gpt-5.5'
+
+
 def test_preflight_checks_the_gateway_key_and_model_before_anything_starts(models_server):
 	"""agent-llm F4/F6: a gateway that is not deployed, a rejected key or a model the gateway does not serve failed only
 	after a cloud browser had been created and billed."""
@@ -629,6 +636,9 @@ def test_preflight_checks_the_gateway_key_and_model_before_anything_starts(model
 	assert seen[0] == ('/v1/models', 'Bearer fake-test-key')
 	missing = ChatBrowserUse('bu-nonexistent-xyz', api_key='fake-test-key', base_url=url).preflight()
 	assert missing == 'bu-nonexistent-xyz is not on the Browser Use gateway. Listed: bu-auto, bu-fast, bu-ultrafast, gpt-6-luna.'
+	# the 0.13 README's ChatBrowserUse('anthropic/claude-sonnet-4-6'): the 0.x gateway served it, the error named no class
+	vendor = ChatBrowserUse('anthropic/claude-sonnet-4-6', api_key='fake-test-key', base_url=url).preflight()
+	assert vendor and "in 1.0 use ChatAnthropic('claude-sonnet-4-6') with your own anthropic key" in vendor, vendor
 	for legacy in ('bu-2-0', 'bu-latest', 'bu-2-0-mini-preview'):  # M4: refused locally, the gateway 404s them
 		with pytest.raises(ValueError, match=r"needs browser-use<1\.0 \(pip install 'browser-use<1\.0'\), or use bu-fast"):
 			ChatBrowserUse(legacy, api_key='fake-test-key', base_url=url)
