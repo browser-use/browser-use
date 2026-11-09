@@ -407,6 +407,8 @@ def _guard_cloud_browsers(run, code: str | None) -> None:
 
 
 def _run_browser_harness(code: str | None = None) -> int | None:
+	import os
+
 	from browser_harness import run
 
 	from browser_use.browser.browser import _name_daemon_files
@@ -414,6 +416,9 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	global _delegated_to_harness
 
 	_name_daemon_files()  # with BH_RUNTIME_DIR set, every BU_NAME would otherwise share one bu.sock
+	# browser-harness's daily "agents: run `browser-harness --update -y`": browser-use pins it exactly, so that command
+	# is not on PATH (uv tool install) or upgrades it past the pin (a venv). It updates with browser-use (--update).
+	os.environ['BH_UPDATE_CHECK'] = '0'
 	_set_harness_client_env()
 	_scrub_harness_telemetry()
 	_patch_browser_harness_cli_text()

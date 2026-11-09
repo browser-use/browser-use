@@ -190,3 +190,27 @@ def test_first_run_text_gives_the_readmes_agent_prompt(monkeypatch, capsys):
 	readme = (ROOT / 'README.md').read_text(encoding='utf-8')
 	assert ' '.join(pasted.split()) in re.findall(r'```text\n(.+?)\n```', readme, re.S)
 	assert 'prerelease' not in printed and 'docs.browser-use.com' in printed
+
+
+def test_piped_code_never_tells_the_agent_to_update_browser_harness(tmp_path):
+	"""Live: once browser-harness has a newer release on PyPI, every piped call printed (daily) `[browser-harness] agents:
+	run browser-harness --update -y`. browser-use pins browser-harness exactly: that command is not on PATH for
+	`uv tool install browser-use`, and in a venv it upgrades browser-harness past the pin. Updates come with browser-use."""
+	import json
+	import time
+
+	(tmp_path / 'version-cache.json').write_text(json.dumps({'tag': '99.0.0', 'fetched_at': time.time()}))
+	env = {k: v for k, v in os.environ.items() if not k.startswith(('BH_', 'BU_'))}
+	env.update(BH_HOME=str(tmp_path), BU_NAME=f'update-test-{os.getpid()}', BU_CDP_URL='http://127.0.0.1:1')
+	env.update(PYTHONPATH=str(ROOT), ANONYMIZED_TELEMETRY='false')
+	r = subprocess.run(
+		[sys.executable, '-m', 'browser_use.cli'],
+		input='print("ran")\nif False: start_remote_daemon()',  # a cloud call anywhere in the code: no local attach first
+		cwd=ROOT,
+		env=env,
+		capture_output=True,
+		text=True,
+		timeout=60,
+	)
+	assert 'update available' not in r.stderr and '--update' not in r.stderr, r.stderr
+	assert (r.returncode, r.stdout) == (0, 'ran\n'), r.stderr
