@@ -393,6 +393,9 @@ class Repl:
 			server.close()
 
 	async def close(self) -> None:
+		if (writer := getattr(self, 'writer', None)) is not None:  # our end of the worker connection; idempotent
+			with contextlib.suppress(RuntimeError):  # its event loop is closed (a finished run_sync's)
+				writer.close()  # left open, it lingered (CLOSE_WAIT) until a garbage collection freed it
 		proc, self.proc = self.proc, None
 		job, self.job = self.job, None
 		if proc is None:

@@ -2,6 +2,9 @@
 
 import ast
 import asyncio
+import gc
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -61,6 +64,25 @@ async def test_worker_after_timeout_restarts(tmp_path):
 		assert (await repl.call('exec', 'print(1 + 1)', 30))['output'].strip() == '2'
 	finally:
 		await repl.close()
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='counts open file descriptors in /dev/fd')
+async def test_close_and_a_timeout_restart_release_the_worker_socket(tmp_path):
+	"""live/scale: close() left this process's end of the worker connection open (CLOSE_WAIT) until a garbage
+	collection freed it: 20 concurrent Agents left 20 sockets, and every cell timeout restart one more."""
+	gc.disable()  # a collection would free the socket and hide the leak
+	try:
+		before = len(os.listdir('/dev/fd'))
+		repl = Repl(tmp_path)
+		r = await repl.call('exec', 'import time\ntime.sleep(30)', 1)
+		assert r['error_type'] == 'CellTimeout'  # the restart closes the first worker
+		assert (await repl.call('exec', 'print(2)', 30))['output'].strip() == '2'
+		await repl.close()
+		for _ in range(3):  # the transport closes its socket on a later loop iteration
+			await asyncio.sleep(0)
+		assert len(os.listdir('/dev/fd')) == before
+	finally:
+		gc.enable()
 
 
 async def test_worker_env_has_no_credentials(tmp_path, monkeypatch):
