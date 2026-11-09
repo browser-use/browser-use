@@ -106,7 +106,7 @@ jobs:
             echo "::error::Release tag $TAG does not match pyproject.toml version $version"
             exit 1
           fi
-      - run: uv sync --dev --all-extras
+      - run: uv sync --locked --dev --all-extras
 
       - run: uv run --no-sync ruff check --no-fix --select PLE # quick check for syntax errors to avoid waiting time doing the rest of the build
       # The dispatched SHA is what reaches PyPI: its tests must pass here (test.yaml's matrix runs the chrome ones)

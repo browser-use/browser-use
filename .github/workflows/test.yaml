@@ -45,7 +45,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --dev --all-extras --python ${{ matrix.python }}
+      - run: uv sync --locked --dev --all-extras --python ${{ matrix.python }}
       - run: uv run --no-sync pytest tests -m "not chrome"
 
   chrome:
@@ -58,5 +58,5 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --dev --all-extras --python 3.11
+      - run: uv sync --locked --dev --all-extras --python 3.11
       - run: CHROME="$(command -v google-chrome)" uv run --no-sync pytest tests -m chrome

@@ -40,7 +40,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv python install 3.11
-      - run: uv sync --dev --all-extras --python 3.11
+      - run: uv sync --locked --dev --all-extras --python 3.11
       - run: uv run --no-sync pre-commit run --all-files --show-diff-on-failure
 
   lint-typecheck:
@@ -51,5 +51,5 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --dev --all-extras  # install extras for examples to avoid pyright missing imports errors-
+      - run: uv sync --locked --dev --all-extras  # install extras for examples to avoid pyright missing imports errors-
       - run: uv run --no-sync pyright

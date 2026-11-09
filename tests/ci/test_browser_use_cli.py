@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -26,10 +27,14 @@ def test_console_scripts_avoid_generic_names():
 	assert set(scripts) == {'browser-use', 'browseruse', 'browser-use-tui'}
 
 
-def test_mcp_dependency_is_a_range_not_an_exact_pin():
-	# An exact `mcp==` pin makes projects that need a newer mcp (e.g. pydantic-ai-slim[mcp] via fastmcp) unresolvable.
-	deps = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['dependencies']
-	assert [d for d in deps if d.startswith('mcp')] == ['mcp>=2.1.1,<3']
+def test_every_dependency_is_an_exact_pin():
+	# Supply-chain policy: a compromised release of any direct dependency must never reach users via a range.
+	# Bump pins on purpose, together with uv.lock and [tool.uv] exclude-newer.
+	project = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']
+	deps = project['dependencies'] + [d for extra in project['optional-dependencies'].values() for d in extra]
+	specs = {d: re.sub(r'\[[^\]]*\]', '', d) for d in deps if not d.startswith('browser-use[')}
+	loose = [d for d, spec in specs.items() if spec.count('==') != 1 or any(c in spec for c in '<>~!,*;')]
+	assert loose == []
 
 
 def test_the_cli_extra_still_resolves():

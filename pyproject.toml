@@ -17,15 +17,15 @@ classifiers = [
 ]
 dependencies = [
     "browser-harness==0.1.13",
-    "pydantic>=2.11",
-    "pydantic-ai-slim[openai,anthropic,google]>=2.64.0,<3",
-    "google-genai>=2.30.0,<3",
-    "genai-prices>=0.1.13",
-    "idna>=3.7",
-    "pillow>=11",
-    "python-dotenv>=1.0",
+    "pydantic==2.14.3",
+    "pydantic-ai-slim[openai,anthropic,google]==2.66.0",
+    "google-genai==2.34.0",
+    "genai-prices==0.2.1",
+    "idna==3.20",
+    "pillow==12.3.0",
+    "python-dotenv==1.2.4",
     "uuid7==0.1.0",
-    "mcp>=2.1.1,<3",
+    "mcp==2.3.0",
 ]
 # browser-harness: CDP daemon, browser helpers, CLI, auth (also pulls cdp-use, fetch-use, websockets)
 # genai-prices: cost per run (imported directly). pydantic-ai-slim[openai,anthropic,google]: agent loop (Anthropic and Google built in so model strings just work) (bounded <3: the engine uses its capabilities API); OpenAI Responses (official API, gateway) and chat completions (base_url)
@@ -118,6 +118,11 @@ filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.uv]
+# Supply-chain freeze: uv.lock resolves only packages published before this time.
+# Move it forward on purpose (uv lock --upgrade), never implicitly.
+exclude-newer = "2026-11-09T09:48:30Z"
 
 [dependency-groups]
 dev = [
