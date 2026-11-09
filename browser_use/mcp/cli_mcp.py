@@ -190,7 +190,7 @@ def _checked_http_get(rules: DomainRules) -> Any:
 	opener = worker.redirect_checking_opener(check)
 
 	def http_get(url: str, headers: dict | None = None, timeout: float = 20.0) -> str | bytes:
-		return worker.http_get(url, headers, timeout, _urlopen=opener.open)
+		return worker._http_get(url, headers, timeout, opener.open)
 
 	http_get.__doc__ = worker.http_get.__doc__
 	return _refusing(http_get, rules)

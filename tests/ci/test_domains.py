@@ -570,6 +570,12 @@ async def test_helpers_refuse_disallowed_urls(daemon, site, tmp_path):
 				and 'PermissionError: blocked: evil.localhost is not in allowed_domains (allowed.localhost)' in r['error']
 			), code
 			assert r['stats']['events'] == {'domain_blocked': 1}
+		# http_get took the opener to call (_urlopen=): a fresh one followed the redirect to evil unchecked
+		redirect = site['allowed'] + '/redirect'
+		r = await repl.call(
+			'exec', f'import urllib.request; http_get({redirect!r}, _urlopen=urllib.request.build_opener().open)', 30
+		)
+		assert r['error'], r['output']
 		r = await repl.call('exec', 'len(list_tabs()) == n', 30)
 		assert r['output'].strip() == 'True'
 	finally:
