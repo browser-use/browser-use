@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import warnings
 from pathlib import Path
 
 import pytest
@@ -71,9 +72,11 @@ def chrome():
 			time.sleep(0.1)
 	if ws is None:
 		proc.kill()
+		proc.wait()
 		pytest.skip('Chrome did not start')
 	yield {'http': f'http://127.0.0.1:{port}', 'ws': ws}
 	proc.kill()
+	proc.wait()  # reaped before its profile is removed
 	shutil.rmtree(profile, ignore_errors=True)
 
 
@@ -87,8 +90,8 @@ def daemon(chrome):
 	yield {'BU_NAME': name}
 	try:
 		admin.restart_daemon(name)
-	except Exception:
-		pass
+	except Exception as e:  # a daemon left running shows in the test output
+		warnings.warn(f'browser-harness daemon {name} did not stop: {e!r}', stacklevel=1)
 
 
 def script(*turns):

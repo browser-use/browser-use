@@ -134,4 +134,5 @@ dev = [
     "pre-commit==4.5.1",
     "codespell==2.4.1",
     "pyright==1.1.408",
+    "pyyaml==6.0.3",  # tests/ci/test_workflows.py reads the workflow files
 ]

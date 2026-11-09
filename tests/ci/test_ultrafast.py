@@ -102,6 +102,7 @@ def site():
 	threading.Thread(target=server.serve_forever, daemon=True).start()
 	yield f'http://127.0.0.1:{server.server_address[1]}'
 	server.shutdown()
+	server.server_close()
 
 
 @pytest.fixture
