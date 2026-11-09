@@ -810,7 +810,7 @@ async def test_every_field_sent_is_documented_and_every_documented_field_exists(
 		*'cell delivery budget shutdown browser_gone responses chat anthropic google other server client edge custom'.split(),
 		*'invalid screenshot type_secret search downloads wait wait_for_load wait_for_network_idle wait_for_element'.split(),
 		*'solve_captcha checkpoint provider_transient model_timeout context_overflow compaction_unreadable'.split(),
-		*'delivery_placeholder'.split(),
+		*'delivery_placeholder delivery_split'.split(),
 		*'delivery_missing_files finish_expr_error finish_schema text_repair text_tool_markup text_schema tool_args'.split(),
 		*'custom_tool stop tool_call length content_filter captcha nav interact files read compute none deliver'.split(),
 		*'rate_limit_exceeded executable_path allowed_domains prohibited_domains device_id type_text fill_input'.split(),

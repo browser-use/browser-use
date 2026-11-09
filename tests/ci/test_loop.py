@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from conftest import script
+from pydantic import BaseModel
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from test_compaction import FakeRepl
@@ -653,6 +654,76 @@ async def test_placeholder_or_missing_file_delivery_gets_one_repair(daemon, tmp_
 	retry = [p.content for p in seen[1][0][-1].parts if getattr(p, 'outcome', None) == 'retried']
 	assert retry and ('placeholder' in retry[0] or 'leads.csv' in retry[0])
 	assert (len(seen), result.status, result.output) == (2, 'completed', first)  # second identical finish accepted
+
+
+@pytest.mark.parametrize(
+	'second',
+	[
+		# rc Sonnet 5.5, customer task (34 authors in the REPL): a stub finish, then the real finish_from_repl
+		[('finish', {'success': False, 'result': 'stub'}), ('finish_from_repl', {'expression': 'x', 'success': True})],
+		# the same task: a stub finish, then a python call after it
+		[('finish', {'success': False, 'result': 'stub'}), ('python', {'code': 'print(1)'})],
+	],
+)
+async def test_a_delivery_sharing_its_response_with_a_later_call_is_not_taken(daemon, tmp_path, second):
+	"""Pydantic AI takes the first output tool call of a response. Sonnet 5.5 sent a stub finish (success=False) and
+	the real delivery, or a python call, after it in the same response (2 of 3 runs): the run completed with the stub."""
+	result, seen = await go(
+		daemon,
+		tmp_path,
+		[('python', {'code': "x = 'all 34 authors'"}), second, ('finish_from_repl', {'expression': 'x', 'success': True})],
+	)
+	assert (len(seen), result.status, result.output, result.success) == (3, 'completed', 'all 34 authors', True)
+	retry = [p.content for p in seen[2].parts if getattr(p, 'outcome', None) == 'retried']
+	assert retry and 'same response' in str(retry[0]), seen[2]
+
+
+class _Author(BaseModel):
+	author: str
+
+
+class _Authors(BaseModel):
+	authors: list[_Author]
+
+
+async def test_an_empty_structured_finish_gets_one_repair(daemon, tmp_path):
+	"""rc Sonnet 5.5, customer task: with 34 authors in the REPL it sent finish({"authors": []}, success=False) alone;
+	the run completed with nothing. A structured result holding no value gets the placeholder repair once; the same
+	empty result again is accepted (nothing found is a real answer)."""
+
+	async def go_structured(steps):
+		model, seen = script(*steps)
+		agent, session = build_agent(output_type=_Authors), Session(repl=Repl(tmp_path, daemon))
+		try:
+			with agent.override(model=model):
+				return await run(agent, 'task', session, 'gpt-6-luna'), seen
+		finally:
+			await session.repl.close()
+
+	empty = ('finish', {'success': False, 'result': {'authors': []}})
+	result, seen = await go_structured(
+		[
+			('python', {'code': "x = {'authors': [{'author': 'Albert Einstein'}]}"}),
+			empty,
+			('finish_from_repl', {'expression': 'json.dumps(x)', 'success': True}),
+		]
+	)
+	assert (len(seen), result.status, result.output, result.success) == (
+		3,
+		'completed',
+		_Authors(authors=[_Author(author='Albert Einstein')]),
+		True,
+	)
+	assert 'placeholder' in str(seen[2][-1])
+	result, seen = await go_structured([empty, empty])
+	assert (len(seen), result.status, result.output, result.success) == (2, 'completed', _Authors(authors=[]), False)
+
+
+async def test_python_then_finish_from_repl_in_one_response_still_delivers(daemon, tmp_path):
+	result, seen = await go(
+		daemon, tmp_path, [[('python', {'code': "x = 'done'"}), ('finish_from_repl', {'expression': 'x', 'success': True})]]
+	)
+	assert (len(seen), result.status, result.output) == (1, 'completed', 'done')
 
 
 async def test_existing_file_link_and_short_answer_pass(daemon, tmp_path):
