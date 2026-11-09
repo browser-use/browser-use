@@ -1,175 +1,103 @@
+"""Browser Use 1.0: a browser agent on Pydantic AI that writes Python against raw CDP.
+
+from browser_use import Agent
+result = Agent('Find the top story on Hacker News').run_sync()
+print(result.final_result())
+"""
+
 import os
 from typing import TYPE_CHECKING
 
-from browser_use.logging_config import setup_logging
+os.environ.setdefault('PYDANTIC_AI_NO_BANNER', '1')  # a library should not print an ad on every run
 
-# Only set up logging if not in MCP mode or if explicitly requested
 if os.environ.get('BROWSER_USE_SETUP_LOGGING', 'true').lower() != 'false':
-	from browser_use.config import CONFIG
+	from browser_use.logging_config import setup_logging
 
-	# Get log file paths from config/environment
-	debug_log_file = getattr(CONFIG, 'BROWSER_USE_DEBUG_LOG_FILE', None)
-	info_log_file = getattr(CONFIG, 'BROWSER_USE_INFO_LOG_FILE', None)
+	setup_logging()
 
-	# Set up logging with file handlers if specified
-	logger = setup_logging(debug_log_file=debug_log_file, info_log_file=info_log_file)
-else:
-	import logging
+from browser_use.legacy import install as _install_0x_import_errors
 
-	logger = logging.getLogger('browser_use')
+_install_0x_import_errors()  # import browser_use.dom (any 0.x module path) names its 1.0 answer
 
-# Monkeypatch BaseSubprocessTransport.__del__ to handle closed event loops gracefully
-from asyncio import base_subprocess
-
-_original_del = base_subprocess.BaseSubprocessTransport.__del__
-
-
-def _patched_del(self):
-	"""Patched __del__ that handles closed event loops without throwing noisy red-herring errors like RuntimeError: Event loop is closed"""
-	try:
-		# Check if the event loop is closed before calling the original
-		if hasattr(self, '_loop') and self._loop and self._loop.is_closed():
-			# Event loop is closed, skip cleanup that requires the loop
-			return
-		_original_del(self)
-	except RuntimeError as e:
-		if 'Event loop is closed' in str(e):
-			# Silently ignore this specific error
-			pass
-		else:
-			raise
-
-
-base_subprocess.BaseSubprocessTransport.__del__ = _patched_del
-
-
-# Type stubs for lazy imports - fixes linter warnings
 if TYPE_CHECKING:
-	from browser_use.agent.prompts import SystemPrompt
-	from browser_use.agent.service import Agent
-	from browser_use.agent.views import ActionModel, ActionResult, AgentHistoryList
-	from browser_use.browser import BrowserProfile, BrowserSession
-	from browser_use.browser import BrowserSession as Browser
-	from browser_use.dom.service import DomService
-	from browser_use.llm import models
-	from browser_use.llm.anthropic.chat import ChatAnthropic
-	from browser_use.llm.aws.chat_anthropic import ChatAnthropicBedrock
-	from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
-	from browser_use.llm.azure.chat import ChatAzureOpenAI
-	from browser_use.llm.browser_use.chat import ChatBrowserUse
-	from browser_use.llm.cerebras.chat import ChatCerebras
-	from browser_use.llm.deepseek.chat import ChatDeepSeek
-	from browser_use.llm.google.chat import ChatGoogle
-	from browser_use.llm.groq.chat import ChatGroq
-	from browser_use.llm.litellm.chat import ChatLiteLLM
-	from browser_use.llm.mistral.chat import ChatMistral
-	from browser_use.llm.oci_raw.chat import ChatOCIRaw
-	from browser_use.llm.ollama.chat import ChatOllama
-	from browser_use.llm.openai.chat import ChatOpenAI
-	from browser_use.llm.openrouter.chat import ChatOpenRouter
-	from browser_use.llm.orcarouter.chat import ChatOrcaRouter
-	from browser_use.llm.vercel.chat import ChatVercel
-	from browser_use.sandbox import sandbox
-	from browser_use.tools.service import Controller, Tools
+	from browser_use.agent import Agent, AgentHistoryList
+	from browser_use.browser import Browser
+	from browser_use.llm import ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI
+	from browser_use.tools import ActionResult, Controller, Tools
 
-	# Lazy imports mapping - only import when actually accessed
 _LAZY_IMPORTS = {
-	# Agent service (heavy due to dependencies)
-	'Agent': ('browser_use.agent.service', 'Agent'),
-	# System prompt (moderate weight due to agent.views imports)
-	'SystemPrompt': ('browser_use.agent.prompts', 'SystemPrompt'),
-	# Agent views (very heavy - over 1 second!)
-	'ActionModel': ('browser_use.agent.views', 'ActionModel'),
-	'ActionResult': ('browser_use.agent.views', 'ActionResult'),
-	'AgentHistoryList': ('browser_use.agent.views', 'AgentHistoryList'),
-	'BrowserSession': ('browser_use.browser', 'BrowserSession'),
-	'Browser': ('browser_use.browser', 'BrowserSession'),  # Alias for BrowserSession
-	'BrowserProfile': ('browser_use.browser', 'BrowserProfile'),
-	# Tools (moderate weight)
-	'Tools': ('browser_use.tools.service', 'Tools'),
-	'Controller': ('browser_use.tools.service', 'Controller'),  # alias
-	# DOM service (moderate weight)
-	'DomService': ('browser_use.dom.service', 'DomService'),
-	# Chat models (very heavy imports)
-	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
-	'ChatGoogle': ('browser_use.llm.google.chat', 'ChatGoogle'),
-	'ChatAnthropic': ('browser_use.llm.anthropic.chat', 'ChatAnthropic'),
-	'ChatAnthropicBedrock': ('browser_use.llm.aws.chat_anthropic', 'ChatAnthropicBedrock'),
-	'ChatAWSBedrock': ('browser_use.llm.aws.chat_bedrock', 'ChatAWSBedrock'),
-	'ChatBrowserUse': ('browser_use.llm.browser_use.chat', 'ChatBrowserUse'),
-	'ChatCerebras': ('browser_use.llm.cerebras.chat', 'ChatCerebras'),
-	'ChatDeepSeek': ('browser_use.llm.deepseek.chat', 'ChatDeepSeek'),
-	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
-	'ChatLiteLLM': ('browser_use.llm.litellm.chat', 'ChatLiteLLM'),
-	'ChatMistral': ('browser_use.llm.mistral.chat', 'ChatMistral'),
-	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
-	'ChatOCIRaw': ('browser_use.llm.oci_raw.chat', 'ChatOCIRaw'),
-	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
-	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
-	'ChatOrcaRouter': ('browser_use.llm.orcarouter.chat', 'ChatOrcaRouter'),
-	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
-	# LLM models module
-	'models': ('browser_use.llm.models', None),
-	# Sandbox execution
-	'sandbox': ('browser_use.sandbox', 'sandbox'),
+	'Agent': 'browser_use.agent',
+	'AgentHistoryList': 'browser_use.agent',
+	'Browser': 'browser_use.browser',
+	'Tools': 'browser_use.tools',
+	'Controller': 'browser_use.tools',
+	'ActionResult': 'browser_use.tools',
+	'ChatBrowserUse': 'browser_use.llm',
+	'ChatOpenAI': 'browser_use.llm',
+	'ChatAnthropic': 'browser_use.llm',
+	'ChatGoogle': 'browser_use.llm',
+}
+_BEDROCK = "llm='bedrock:<model id>' (pip install 'pydantic-ai-slim[bedrock]'; AWS credentials and AWS_DEFAULT_REGION)."
+_LLM_REMOVED = {  # each 0.x provider class -> its Pydantic AI model string, or ChatOpenAI for an OpenAI-compatible server
+	'ChatAzureOpenAI': "llm='azure:<deployment>' with AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY and OPENAI_API_VERSION set.",
+	'ChatAWSBedrock': _BEDROCK,
+	'ChatAnthropicBedrock': _BEDROCK,
+	'ChatDeepSeek': "llm='deepseek:deepseek-chat' with DEEPSEEK_API_KEY set.",
+	'ChatGroq': "llm='groq:<model>' (pip install 'pydantic-ai-slim[groq]'; GROQ_API_KEY).",
+	'ChatMistral': "llm='mistral:<model>' (pip install 'pydantic-ai-slim[mistral]'; MISTRAL_API_KEY).",
+	'ChatOpenRouter': "llm='openrouter:<vendor>/<model>' with OPENROUTER_API_KEY set.",
+	'ChatCerebras': "llm='cerebras:<model>' with CEREBRAS_API_KEY set.",
+	'ChatVercel': "llm='vercel:<vendor>/<model>' with VERCEL_AI_GATEWAY_API_KEY set.",
+	'ChatOllama': "ChatOpenAI('<model>', base_url='http://localhost:11434/v1', api_key='ollama').",
+	**dict.fromkeys(
+		('ChatLiteLLM', 'ChatOCIRaw', 'ChatOrcaRouter'), 'ChatOpenAI(model, base_url=...) for its OpenAI-compatible endpoint.'
+	),
+}
+_REMOVED = {  # 0.x top-level names -> the 1.0 alternative
+	'BrowserSession': 'Browser(...).',
+	'BrowserProfile': 'pass options to Browser(...).',
+	'BrowserConfig': 'pass options to Browser(...).',
+	'BrowserContext': 'pass options to Browser(...).',
+	'BrowserContextConfig': 'pass options to Browser(...).',
+	'CodeAgent': 'Agent(...): the 1.0 agent writes Python itself.',
+	'DomService': 'the agent reads pages with Python.',
+	'SystemPrompt': 'Agent(extend_system_message=...).',
+	'ActionModel': 'custom actions are plain functions: @tools.action(...).',
+	'sandbox': '',
+	'models': "a Pydantic AI model string, e.g. llm='openai:gpt-6-luna'.",
+	**_LLM_REMOVED,
 }
 
 
 def __getattr__(name: str):
-	"""Lazy import mechanism - only import modules when they're actually accessed."""
 	if name in _LAZY_IMPORTS:
-		module_path, attr_name = _LAZY_IMPORTS[name]
-		try:
-			from importlib import import_module
+		from importlib import import_module
 
-			module = import_module(module_path)
-			if attr_name is None:
-				# For modules like 'models', return the module itself
-				attr = module
-			else:
-				attr = getattr(module, attr_name)
-			# Cache the imported attribute in the module's globals
-			globals()[name] = attr
-			return attr
-		except ImportError as e:
-			raise ImportError(f'Failed to import {name} from {module_path}: {e}') from e
+		attr = getattr(import_module(_LAZY_IMPORTS[name]), name)
+		globals()[name] = attr
+		return attr
+	if name == '__version__':  # 'unknown' from a checkout that is not installed
+		from browser_use.utils import get_browser_use_version
 
-	raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+		return get_browser_use_version()
+	if name in _REMOVED:
+		from browser_use.exceptions import removed
+
+		raise ImportError(removed(f'browser_use.{name}', _REMOVED[name]))
+	from browser_use.legacy import removed_name
+
+	raise removed_name(__name__, name)  # from browser_use import dom (a 0.x module): the removed error naming the 1.0 answer
 
 
 __all__ = [
 	'Agent',
-	'BrowserSession',
-	'Browser',  # Alias for BrowserSession
-	'BrowserProfile',
-	'Controller',
-	'DomService',
-	'SystemPrompt',
-	'ActionResult',
-	'ActionModel',
 	'AgentHistoryList',
-	# Chat models
-	'ChatOpenAI',
-	'ChatGoogle',
-	'ChatAnthropic',
-	'ChatAnthropicBedrock',
-	'ChatAWSBedrock',
-	'ChatBrowserUse',
-	'ChatCerebras',
-	'ChatDeepSeek',
-	'ChatGroq',
-	'ChatLiteLLM',
-	'ChatMistral',
-	'ChatAzureOpenAI',
-	'ChatOCIRaw',
-	'ChatOllama',
-	'ChatOpenRouter',
-	'ChatOrcaRouter',
-	'ChatVercel',
+	'Browser',
 	'Tools',
 	'Controller',
-	# LLM models module
-	'models',
-	# Sandbox execution
-	'sandbox',
+	'ActionResult',
+	'ChatBrowserUse',
+	'ChatOpenAI',
+	'ChatAnthropic',
+	'ChatGoogle',
 ]
