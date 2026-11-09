@@ -120,6 +120,17 @@ def require_debug_port() -> None:
 	)
 
 
+def require_debug_port_unless_attached(name: str | None = None) -> None:
+	"""require_debug_port(), except for daemon name when it already reaches its browser (one BU_CDP_WS started, an
+	orchestrator's): browser-harness reuses it and discovers nothing. The CLI, --cli-mcp and Browser('chrome')."""
+	from browser_harness import admin
+
+	try:
+		admin.require_existing_daemon(name)
+	except RuntimeError:
+		require_debug_port()
+
+
 def find_binary(executable_path: str | None = None, *, chrome_only: bool = False) -> str:
 	"""executable_path, then BH_CHROME_PATH / CHROME_PATH (browser-harness's names), then the platform's Chrome,
 	Chromium and Edge. chrome_only: Google Chrome only (a copied Chrome profile's cookies decrypt only in Chrome)."""
