@@ -64,7 +64,7 @@ from browser_use.agent.views import AgentHistoryList
 from browser_use.ax import AX_PROMPT
 from browser_use.llm import model_ref, skip_responses_transform
 from browser_use.repl import Repl, check_mode, redact
-from browser_use.repl.session import redact_forms, secret_forms
+from browser_use.repl.session import SECRET_PLACEHOLDER, redact_forms, secret_forms
 from browser_use.search import parse_usd
 from browser_use.telemetry.recorder import CURRENT, RunRecorder, now
 from browser_use.telemetry.stats import RunStats
@@ -109,7 +109,6 @@ STREAM_TIMEOUT_S = 930
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 NO_TIME = 'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_repl with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
-SECRET_PLACEHOLDER = re.compile(r'<secret>([^<]+)</secret>|<secret:([^>]+)>')  # 0.x's form, and 1.0 redaction's
 FILE = re.compile(r'`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`
 
 

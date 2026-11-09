@@ -35,9 +35,16 @@ PREFLIGHT_TIMEOUT_S = 15
 GOOGLE_HOST = 'generativelanguage.googleapis.com'
 CHAT_REMOVED = (
 	'1.0 Chat classes take the model and api_key (ChatOpenAI also base_url, temperature and reasoning_effort); for '
-	"other model settings pass a Pydantic AI Model built with settings=..., e.g. llm=AnthropicModel('claude-...', "
-	'settings={...}).'
+	'other model settings pass a Pydantic AI Model built with settings=..., e.g. {example}.'
 )
+# The example in the error is the class's own Pydantic AI model. Anthropic answers 400 "temperature: Extra inputs are not
+# permitted" on Claude 4.x (live 11-09, claude-sonnet-4-0 / 4-5, haiku-4-5, opus-4-1; Pydantic AI drops it on 5.x), so a
+# 0.x ChatAnthropic(temperature=...) moved into settings failed on the first request, after the browser started.
+_SETTINGS_EXAMPLE = {
+	'ChatAnthropic': "llm=AnthropicModel('claude-...', settings={'max_tokens': 8000}) (from pydantic_ai.models.anthropic)",
+	'ChatGoogle': "llm=GoogleModel('gemini-...', settings={'temperature': 0.5}) (from pydantic_ai.models.google)",
+}
+_CHAT_DROP = {('ChatAnthropic', 'temperature'): "delete it: Anthropic's API rejects temperature on Claude 4.x models."}
 
 
 def _plain(key: str | SecretStr | None) -> str | None:
@@ -50,7 +57,11 @@ def _chat_kwargs(cls: str, kwargs: dict[str, Any]) -> None:
 		from browser_use.exceptions import removed
 
 		name = next(iter(kwargs))
-		instead = "model='bu-ultrafast' (the same model, low reasoning, priority tier)." if name == 'fast' else CHAT_REMOVED
+		if name == 'fast':
+			instead = "model='bu-ultrafast' (the same model, low reasoning, priority tier)."
+		else:
+			example = _SETTINGS_EXAMPLE.get(cls, "llm=OpenAIResponsesModel('gpt-...', settings={'max_tokens': 8000})")
+			instead = _CHAT_DROP.get((cls, name)) or CHAT_REMOVED.format(example=example)
 		raise TypeError(removed(f'{cls}({name}=...)', instead))
 
 
@@ -138,6 +149,9 @@ class ChatBrowserUse(_Chat):
 				f"{model} needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast with browser-use 1.0."
 			)
 		key = clean_api_key(plain, 'ChatBrowserUse(api_key=...)', f'The model {model}') if (plain := _plain(api_key)) else None
+		# 0.13 README: ChatBrowserUse(model='openai/gpt-5.5'). The gateway lists and serves 'gpt-5.5' and answers 400 to
+		# the prefixed name, so it is sent without it.
+		model = model.removeprefix('openai/') if isinstance(model, str) else model
 		self.model, self.api_key, self.base_url = model, key, str(base_url)
 		if base_url == GATEWAY_URL and os.environ.get('BROWSER_USE_LLM_URL'):  # 0.x read it: a staging or private gateway
 			logger.warning(
@@ -208,7 +222,15 @@ class ChatBrowserUse(_Chat):
 			return None
 		if LEGACY_MODEL.match(self.model):
 			return self._explain(400, 'legacy_model', None)
-		return f'{self.model} is not on the Browser Use gateway. Listed: {", ".join(sorted(str(m) for m in listed))}.'
+		vendor, _, name = self.model.partition('/')
+		own = {'anthropic': 'ChatAnthropic', 'google': 'ChatGoogle'}.get(vendor) if name else None
+		hint = (  # the 0.x gateway served other vendors' models (0.13 README: ChatBrowserUse('anthropic/claude-sonnet-4-6'))
+			f' The 0.x gateway served {vendor} models; in 1.0 use {own}({name!r}) with your own {vendor} key, or a model '
+			'listed here.'
+			if own
+			else ''
+		)
+		return f'{self.model} is not on the Browser Use gateway.{hint} Listed: {", ".join(sorted(str(m) for m in listed))}.'
 
 
 class ChatOpenAI(_Chat):

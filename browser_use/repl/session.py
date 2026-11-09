@@ -53,6 +53,7 @@ ENV_DENY = {'BU_CDP_WS', 'BU_CDP_URL', 'BU_MODE', 'BU_HIGHLIGHT_ACTIONS'}  # CDP
 RESTARTED = '{why}. The REPL restarted: Python variables are lost; files, checkpoints and browser state survive.'
 SHORT_SECRET = 4  # shorter values are redacted only where they stand alone (not inside a longer word or number)
 SECRET_ENV = re.compile(r'KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH', re.I)
+SECRET_PLACEHOLDER = re.compile(r'<secret>([^<]+)</secret>|<secret:([^>]+)>')  # 0.x's form, and 1.0 redaction's
 
 
 def check_mode(mode: str | None) -> str:

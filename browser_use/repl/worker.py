@@ -43,7 +43,15 @@ from browser_use.remote_upload import set_files, uploader
 from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.highlight import Highlighter
 from browser_use.repl.network_idle import wait_for_network_idle
-from browser_use.repl.session import MAX_OUTPUT_CHARS, clip, domain_matches, redact, redact_forms, secret_forms
+from browser_use.repl.session import (
+	MAX_OUTPUT_CHARS,
+	SECRET_PLACEHOLDER,
+	clip,
+	domain_matches,
+	redact,
+	redact_forms,
+	secret_forms,
+)
 from browser_use.telemetry.stats import error_class, host
 
 MAX_IMAGES_PER_CELL = 4
@@ -520,8 +528,25 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		finally:
 			stats.timed('cdp_t', str(method)[:200], time.perf_counter_ns() - started, failed)
 
+	known_secrets = {n for n, _, _ in secrets}
+
+	def refuse_placeholder(method, params) -> None:
+		"""0.x replaced <secret>name</secret> with the value, and cell output shows a typed value as <secret:name>: the
+		model typed that text into the form, read it back (redacted the same way) and reported "Wrong credentials"."""
+		text = json.dumps(params, default=str)
+		if '<secret' not in text:
+			return
+		for m in SECRET_PLACEHOLDER.finditer(text):
+			if (name := m[1] or m[2]) in known_secrets:
+				raise ValueError(
+					f'{method}: {m[0]} is not replaced with the secret: type it with type_secret({name!r}, id) (the '
+					f"input's backendNodeId), or type_secret({name!r}) into the focused input. Nothing was sent."
+				)
+
 	def _cdp(method, session_id=None, **params):
 		frozen = params.pop('_frozen', False)
+		if known_secrets:
+			refuse_placeholder(method, params)
 		if method == 'DOM.setFileInputFiles':  # local paths, also on a remote browser (bu's recipe on the cloud default)
 			set_input_files(session_id, params)
 			return {}

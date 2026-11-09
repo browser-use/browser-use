@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from browser_use import ActionResult, Agent, AgentHistoryList, Browser, ChatAnthropic, ChatGoogle, Controller, Tools
 from browser_use.agent.loop import Session, build_agent, run
 from browser_use.repl import Repl
+from browser_use.tools import RemovedField
 
 
 @pytest.fixture
@@ -311,6 +312,45 @@ def test_0x_names_and_members_name_their_replacement():
 	assert not hasattr(browser_use.utils, 'not_a_0x_name') and not hasattr(ChatOpenAI('m', api_key='x'), 'nope')
 
 
+def test_0x_names_from_every_tag_name_their_replacement():
+	"""Live migration survey (ast over all 152 0.x tags, 20 popular GitHub files): 0.1-0.13 Agent arguments and
+	methods, BrowserSession/BrowserContext members, Controller and @action arguments and the llm.<model> instances gave
+	a bare AttributeError or "not a browser-use 1.0 option" with no answer; ActionResult(images=...) went to the model
+	as base64 JSON text."""
+	from browser_use import llm
+
+	usage = {'input': 1, 'output': 1, 'cache_read': 0, 'cache_write': 0, 'requests': 1}
+	result = AgentHistoryList('completed', 't', 't', 1, 1.0, usage, 0.0, None, None, [], True)
+	agent = Agent('t', script()[0], browser=Browser(local=True))
+	tools = Tools()
+	cases = [
+		(lambda: Agent('t', script()[0], validate_output=True), TypeError, r'Agent\(validate_output=\.\.\.\) .*result\.success'),
+		(lambda: Agent('t', script()[0], browser_context=object()), TypeError, r'In 1\.0: pass a Browser'),
+		(lambda: Agent('t', script()[0], tool_calling_method='auto'), TypeError, r'Agent\(tool_calling_method=\.\.\.\)'),
+		(lambda: agent.logger, AttributeError, r"Agent\.logger\(\) .*getLogger\('browser_use'\)"),
+		(lambda: agent.get_model_output, AttributeError, r'Agent\.get_model_output\(\) .*Python cells'),
+		(lambda: Browser(local=True).new_context, AttributeError, r'Browser\.new_context .*raw CDP'),
+		(lambda: Browser().get_or_create_cdp_session, AttributeError, r'Browser\.get_or_create_cdp_session '),
+		(lambda: result.load_from_dict, AttributeError, r'AgentHistoryList\.load_from_dict '),
+		(lambda: Controller(headless=True), TypeError, r'Tools\(headless=\.\.\.\) .*Browser\(\.\.\.\)'),
+		(lambda: tools.action('d', terminates_sequence=True), TypeError, r'@tools\.action\(terminates_sequence='),
+		(lambda: tools.action('d', page_filter=len), TypeError, r'allowed_domains'),
+		(lambda: tools.exclude_action, AttributeError, r'Tools\.exclude_action\(\) .*no built-in actions'),
+		(lambda: ActionResult(images=[{'name': 'a.png', 'data': 'iVBORw0KGgo'}]), RemovedField, r'ActionResult\(images=\.\.\.\)'),
+		(lambda: llm.openai_gpt_4o, ImportError, r"llm\.openai_gpt_4o .*ChatOpenAI\('gpt-4o'\)"),
+		(lambda: exec('from browser_use.llm import google_gemini_2_5_flash'), ImportError, r'ChatGoogle'),
+		(lambda: exec('from browser_use.llm import get_llm_by_name'), ImportError, r"llm='openai:gpt-4o'"),
+		# the settings= answer for temperature failed live: Anthropic 400s it on Claude 4.x, after the browser started
+		(lambda: ChatAnthropic('claude-sonnet-4-0', temperature=0.0), TypeError, r"In 1\.0: delete it: Anthropic's API rejects"),
+		(lambda: ChatGoogle('gemini-flash-latest', temperature=1.0), TypeError, r"GoogleModel\('gemini-\.\.\.', settings="),
+	]
+	for fn, error, match in cases:
+		with pytest.raises(error, match=match) as raised:
+			fn()
+		assert 'was removed in browser-use 1.0' in str(raised.value), match
+	assert not hasattr(llm, 'not_a_model') and not hasattr(Browser(local=True), 'not_a_0x_member')
+
+
 def test_browser_session_alias_and_controller_alias():
 	browser = Browser(local=True)
 	assert Agent('t', script()[0], browser_session=browser).browser is browser
@@ -347,7 +387,7 @@ def test_0x_api_shapes_raise_the_removed_error(no_browser):
 		(lambda: ChatBrowserUse(fast=True), TypeError, r"In 1\.0: model='bu-ultrafast'"),
 		(lambda: Tools(exclude_actions=['x']), TypeError, r'Tools\(exclude_actions='),
 		(lambda: Controller(output_model=int), TypeError, r'In 1\.0: Agent\(output_model_schema=\.\.\.\)'),
-		(lambda: Browser(local=True).kill, AttributeError, r'Browser\.kill .*await browser\.stop\(\)'),
+		(lambda: Browser(local=True).stop_session, AttributeError, r'Browser\.stop_session .*await browser\.stop\(\)'),
 		(lambda: Browser(local=True).get_current_page, AttributeError, r'Browser\.get_current_page '),
 		(lambda: Browser.from_system_chrome(), AttributeError, r"Browser\('chrome'\)"),
 		(lambda: agent.state, AttributeError, r'Agent\.state '),
@@ -538,19 +578,56 @@ def test_tool_names_providers_reject_raise_at_registration():
 async def test_removed_action_result_fields_raise_and_end_the_run(tmp_path):
 	"""M39: ActionResult(is_done=True, success=...) was silently accepted (extra='allow'): the run went on as if the
 	action had ended it. Now the removed error, ending the run so the developer sees it (not the model)."""
-	for field in ('is_done', 'success', 'attachments'):
+	for field, value in (('is_done', True), ('attachments', ['a.pdf']), ('images', [{'name': 'a', 'data': 'x'}])):
 		with pytest.raises(TypeError, match=rf'^ActionResult\({field}=\.\.\.\) {REMOVED}'):
-			ActionResult(extracted_content='x', **{field: True})
+			ActionResult(extracted_content='x', **{field: value})
 	assert ActionResult(extracted_content='x', note='extra fields still pass').note == 'extra fields still pass'
 	tools = Tools()
-
-	@tools.action('Done')
-	def done() -> ActionResult:
-		return ActionResult(is_done=True, extracted_content='all done')
-
+	ns: dict = {'ActionResult': ActionResult}
+	exec("def done():\n\treturn ActionResult(is_done=True, extracted_content='all done')", ns)
+	tools.action('Done')(ns['done'])  # no source to read at registration: refused when the action returns it
 	model, _ = script(('done', {}))
 	r = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path)), 'm')
 	assert r.status == 'error' and 'ActionResult(is_done=...) was removed in browser-use 1.0' in (r.error or '')
+
+
+async def test_0x_action_result_defaults_never_end_the_run_and_done_actions_are_refused_when_registered(tmp_path):
+	"""Live migration (0.13.14 examples/custom-functions/notification.py; GitHub: ActionResult(is_done=False,
+	success=True, ...) in 0.x tool code): spelled-out 0.x defaults ended a billed run with the removed error, and a done
+	action (return ActionResult(is_done=True, ...)) failed only once it ran, after the browser had started."""
+	assert ActionResult(extracted_content='x', is_done=False, success=False, attachments=None, images=[]).model_dump(
+		exclude_none=True
+	) == {'extracted_content': 'x'}
+	tools = Tools()
+
+	@tools.action('Click')
+	def click(index: int) -> ActionResult:
+		return ActionResult(is_done=False, success=True, extracted_content=f'clicked {index}')
+
+	model, _ = script(('click', {'index': 3}), ('finish', {'result': 'ok', 'success': True}))
+	r = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert (r.status, r.text) == ('completed', 'ok'), r.error
+	for source in (
+		"return ActionResult(is_done=True, extracted_content='Email sent!')",
+		'return ActionResult(is_done=True, success=params.success, extracted_content=params.text)',
+		"return ActionResult(extracted_content='saved', attachments=['report.pdf'])",
+	):
+		ns: dict = {'ActionResult': ActionResult}
+		exec(f'def done(params=None):\n\t{source}', ns)
+		with pytest.raises(
+			TypeError, match=rf'ActionResult\((is_done|attachments)=\.\.\.\) in @tools\.action done\(\) {REMOVED}'
+		):
+			Tools().action('Done')(_with_source(ns['done'], f'def done(params=None):\n\t{source}'))
+
+
+def _with_source(fn, source: str):
+	"""exec'd functions have no file: give inspect.getsource what a module function has."""
+	import linecache
+
+	name = f'<test-action-{id(fn)}>'
+	linecache.cache[name] = (len(source), None, [line + '\n' for line in source.splitlines()], name)
+	fn.__code__ = fn.__code__.replace(co_filename=name)
+	return fn
 
 
 def test_action_result_include_extracted_content_only_once_says_it_is_ignored(monkeypatch, caplog):

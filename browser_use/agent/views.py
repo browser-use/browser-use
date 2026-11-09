@@ -60,11 +60,15 @@ REMOVED = {
 	'model_dump',
 	'model_dump_json',
 	'total_input_tokens',
+	'input_token_usage',
+	'load_from_dict',
+	'save_as_playwright_script',
 }
 ALTERNATIVES = {  # removed names with a direct 1.0 equivalent
 	'model_dump': 'dataclasses.asdict(result), or result.final_result() / result.structured_output.',
 	'model_dump_json': 'result.final_result() (structured output as JSON).',
 	'total_input_tokens': "result.usage['input'].",
+	'input_token_usage': "result.usage['input'].",
 	'history': 'result.messages (the full transcript) and result.number_of_steps().',
 }
 HISTORY_ALTERNATIVE = (

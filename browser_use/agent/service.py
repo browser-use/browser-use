@@ -99,6 +99,20 @@ REMOVED = {  # 0.x Agent(...) and run() arguments -> the 1.0 alternative ('' whe
 	'pricing_url': 'result.cost_usd is computed whenever the price is known.',
 	**dict.fromkeys(('generate_gif', 'demo_mode', 'fallback_llm', 'use_judge', 'judge_llm', 'ground_truth'), ''),
 	**dict.fromkeys(('skill_ids', 'skills', 'skill_service'), ''),  # Cloud Skills
+	# 0.1-0.8 arguments (every tag's Agent.__init__); they raised "not a browser-use 1.0 option" without an answer
+	**dict.fromkeys(('browser_context', 'context', 'page'), 'pass a Browser(...) as browser=...'),
+	'validate_output': "result.success, the agent's own verdict.",
+	'system_prompt_class': 'extend_system_message=... (the core prompt is fixed).',
+	'message_context': 'put the context in the task or extend_system_message=...',
+	**dict.fromkeys(('enable_memory', 'memory_config', 'memory_interval'), 'long runs compact their history on their own.'),
+	'max_input_tokens': 'max_context_chars=... (history is compacted past 75% of it).',
+	'images_per_step': 'the agent takes screenshots when it needs them.',
+	'retry_delay': 'model requests are retried by Pydantic AI.',
+	'save_playwright_script_path': _MESSAGES,
+	**dict.fromkeys(
+		('cloud_sync', 'preload', 'max_error_length', 'tool_calling_method', 'tool_call_in_content'),
+		'',
+	),
 	**dict.fromkeys(  # the 0.x planner and loop tuning
 		(
 			'enable_planning',
@@ -148,6 +162,7 @@ REMOVED_ATTRS = {  # 0.x Agent attributes -> the 1.0 alternative
 	'settings': 'the Agent(...) arguments are attributes (agent.task, agent.llm, agent.browser, ...).',
 	'browser_session': 'agent.browser.',
 	'browser_profile': 'agent.browser.',
+	'browser_context': 'agent.browser.',
 	'controller': 'agent.tools.',
 	'file_system': 'agent.workspace (a directory).',
 }
@@ -162,6 +177,12 @@ REMOVED_METHODS = {  # 0.x Agent methods -> the 1.0 alternative
 	'load_and_rerun': 'run the task again.',
 	'rerun_history': 'run the task again.',
 	'detect_variables': '',
+	'set_task': 'agent.add_new_task(task) continues the conversation; Agent(task) starts a new one.',
+	'wait_until_resumed': _CANCEL,
+	**dict.fromkeys(('get_next_action', 'get_model_output', 'set_tool_calling_method'), 'the model acts in Python cells.'),
+	**dict.fromkeys(('create_history_gif', 'get_trace_object', 'authenticate_cloud_sync', 'save_file_system_state'), ''),
+	**dict.fromkeys(('log_completion', 'logger'), "logging.getLogger('browser_use')."),
+	**dict.fromkeys(('current_llm_model', 'is_using_fallback_llm'), 'agent.llm (there is no fallback model).'),
 }
 
 
