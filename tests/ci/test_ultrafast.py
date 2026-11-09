@@ -58,6 +58,14 @@ PAGES = {
 	# Non-breaking spaces (U+00A0, U+202F), as eBay and Airbnb print prices and dates.
 	'/nbsp': '<title>Nbsp</title><p>US&nbsp;$12.99 for 5&#x202F;nights</p><button>Pay&nbsp;now</button>'
 	'<table><tr><td>A</td><td>&nbsp;</td><td>B</td></tr></table><a href="#">&nbsp;</a>',
+	# jqueryui.com/datepicker: the calendar lives in a same-origin iframe; each click there changes only the iframe.
+	'/picker': '<title>Picker</title><h1>Demo</h1><iframe src="/month" style="border:0;height:200px"></iframe>',
+	'/month': """<title>Month</title><p id=m>November</p>
+<button onclick="document.getElementById('m').textContent = 'December'">Next month</button><button>Idle</button>""",
+	# demoqa.com: a fixed footer covers the bottom of the viewport, and a field sits right above the fold under it.
+	'/footer': """<title>Footer</title><div style="height:calc(100vh - 60px)"></div>
+<button onclick="this.textContent = 'Saved'">Save</button><div style="height:2000px"></div>
+<footer style="position:fixed;bottom:0;left:0;right:0;height:120px;background:#eee">Site footer</footer>""",
 	'/long': '<title>Long</title>' + ''.join(f'<button>Item number {i}</button>' for i in range(60)),
 }
 
@@ -220,9 +228,30 @@ async def test_state_shadow_dom_iframe_and_hidden_file_input(repl, site):
 	# Ids inside a same-origin iframe click at top-level coordinates (frame offset + padding added).
 	out, err = await cell(repl, "bu.click(idof('Inner button'))")
 	assert err is None, err
-	# As in Pi, the change probe watches the top document, so a change inside the iframe reads "no change".
-	assert re.search(r'\[ok\] click \[\d+\] button "Inner button" -> no change', out), out
+	assert re.search(r'\[ok\] click \[\d+\] button "Inner button" -> page changed', out), out
 	assert 'button "Inner done"' in out
+
+
+async def test_a_change_inside_a_same_origin_iframe_is_reported(repl, site):
+	"""Customer task (jqueryui.com datepicker, bu-fast): Pi's probe watched only the top document, so every click in
+	the demo iframe printed "no change" while the calendar moved a month; the agent distrusted bu and spent 10 steps on
+	frame trees and screenshots. A click there that changes nothing still says so."""
+	await cell(repl, f"new_tab('{site}/picker'); s = bu.state()" + IDOF)
+	out, err = await cell(repl, "bu.click(idof('Next month'))")
+	assert err is None and re.match(r'\[ok\] click \[\d+\] button "Next month" -> page changed\n', out), out
+	assert 'December' in out.split('[state]')[1]
+	out, err = await cell(repl, "bu.click(idof('Idle'))")
+	assert err is None and re.match(r'\[ok\] click \[\d+\] button "Idle" -> no change\n', out), out
+
+
+async def test_a_target_under_a_fixed_footer_is_scrolled_clear_and_clicked(repl, site):
+	"""Customer task (demoqa.com practice form, bu-fast): a field just above the fold sat under the site's fixed
+	footer. It counted as visible, so scrollIntoViewIfNeeded did not move it, and bu.type/bu.click failed "covered by
+	contentinfo" 3 times; the agent took 6 steps to click by coordinates."""
+	await cell(repl, f"new_tab('{site}/footer'); s = bu.state()" + IDOF)
+	out, err = await cell(repl, "bu.click(idof('Save'))")
+	assert err is None and re.match(r'\[ok\] click \[\d+\] button "Save" -> page changed\n', out), (out, err)
+	assert 'button "Saved"' in out
 
 
 # --- actions ---

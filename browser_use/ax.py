@@ -102,18 +102,25 @@ Ultrafast: the global `bu` in the python REPL. Each model call costs ~1 s, so ch
 - alert/confirm/prompt/beforeunload dialogs are accepted automatically; their text is printed as [dialog ...].
 """
 
-# URL, title, document identity, a counter of DOM mutations (style aside) and form input/change events.
+# URL, title, document identity, a counter of DOM mutations (style aside) and form input/change events. Same-origin
+# iframes (any depth) count as the page: Pi watched only the top document, so a click in jqueryui.com's datepicker iframe
+# printed "no change" while the calendar moved. A frame document the probe has not seen yet (a frame navigated) is a
+# change too. Cross-origin frames cannot be watched from here.
 PROBE_JS = r"""() => {
   const w = window;
-  if (!w.__buObs) {
-    w.__buLast = performance.now();
-    w.__buN = 0;
-    w.__buDoc = Math.random();
+  const watch = (win, counted) => {
+    const doc = win.document;
+    if (doc.__buWatched) return;
+    doc.__buWatched = true;
+    if (counted) {
+      w.__buLast = performance.now();
+      w.__buN++;
+    }
     // The action highlight's own overlay is not the page reacting. A style change counts only as the first
     // on its element in 200 ms: a menu shown via style.display is a change, an animation loop goes quiet.
     const own = (n) => n.hasAttribute?.('data-browser-use-interaction-highlight');
     const styled = new WeakMap();
-    w.__buObs = new MutationObserver((records) => {
+    new MutationObserver((records) => {
       const now = performance.now();
       let real = false;
       for (const r of records) {
@@ -128,10 +135,31 @@ PROBE_JS = r"""() => {
         w.__buLast = now;
         w.__buN++;
       }
-    });
-    w.__buObs.observe(document, {subtree: true, childList: true, attributes: true, attributeOldValue: true, characterData: true});
-    for (const type of ['input', 'change']) addEventListener(type, () => w.__buN++, true);
+    }).observe(doc, {subtree: true, childList: true, attributes: true, attributeOldValue: true, characterData: true});
+    for (const type of ['input', 'change']) win.addEventListener(type, () => w.__buN++, true);
+  };
+  const first = !w.__buObs;
+  if (first) {
+    w.__buObs = true;
+    w.__buLast = performance.now();
+    w.__buN = 0;
+    w.__buDoc = Math.random();
+    watch(w, false);
   }
+  const frames = (win) => {
+    for (let i = 0; i < win.frames.length; i++) {
+      let f;
+      try {
+        f = win.frames[i];
+        if (!f.document) continue;
+      } catch {
+        continue; // cross-origin
+      }
+      watch(f, !first);
+      frames(f);
+    }
+  };
+  frames(w);
   return {
     idle: performance.now() - w.__buLast,
     ready: document.readyState,
@@ -188,6 +216,8 @@ POINT_JS = r"""function(editableCover) {
   }
   return {x: px, y: py, covered};
 }"""
+
+CENTER_JS = "function(){const e=this.nodeType===1?this:this.parentElement;e.scrollIntoView({block:'center',inline:'center',behavior:'instant'});}"
 
 # Runs before every type branch: native selects and date inputs are set directly, so they never reach POINT_JS's checks.
 # CSS-hidden only (no opacity check): custom-styled widgets often keep an opacity-0 native select underneath.
@@ -655,6 +685,15 @@ class AxHelpers:
 		except Exception:
 			pass
 		p = self._on_node(id, POINT_JS, editable_cover)
+		if not p['covered']:
+			return p
+		# A fixed header or footer over a target near the viewport edge: the target counts as visible, so
+		# scrollIntoViewIfNeeded leaves it there (demoqa.com's footer). Centered, it is usually clear.
+		try:
+			self._on_node(id, CENTER_JS)
+			p = self._on_node(id, POINT_JS, editable_cover)
+		except Exception:
+			pass
 		if not p['covered']:
 			return p
 		try:
