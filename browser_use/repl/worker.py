@@ -486,26 +486,32 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			raise
 		if isinstance(req, dict) and req.get('meta') == 'set_session' and req.get('target_id'):
 			AGENT_TAB['id'] = req['target_id']
-			unmark()
+			unmark(req.get('session_id'))
 		if isinstance(req, dict) and req.get('meta') == 'drain_events' and isinstance(r, dict):
 			stats.observe(r.get('events'))
 		return r
 
-	def unmark() -> None:
+	def unmark(session_id: str | None = None) -> None:
 		"""Keep the attached tab's title free of a shared daemon's horse (UNMARK_JS), on this page and the next ones."""
 		if os.environ.get('BU_SHARED_DAEMON') == '1':
 			with contextlib.suppress(Exception):  # a tab that closed meanwhile; titles stay as they are
 				target = AGENT_TAB['id']
+				# The shared daemon's implicit session can change between these requests.
+				selected_session: str = session_id or raw_send({'meta': 'session'})['session_id']
 				session = unmark_sessions.get(target)
 				if session is None:
 					for attempt in range(3):
 						try:
-							frame = raw_cdp('Page.getFrameTree')['frameTree']['frame']['id']
-							world = raw_cdp('Page.createIsolatedWorld', frameId=frame, worldName='browser-use-unmark')[
-								'executionContextId'
-							]
+							frame = raw_cdp('Page.getFrameTree', session_id=selected_session)['frameTree']['frame']['id']
+							world = raw_cdp(
+								'Page.createIsolatedWorld',
+								session_id=selected_session,
+								frameId=frame,
+								worldName='browser-use-unmark',
+							)['executionContextId']
 							session = raw_cdp(
 								'Runtime.evaluate',
+								session_id=selected_session,
 								contextId=world,
 								expression='globalThis.__browserUseUnmarkSession',
 								returnByValue=True,
@@ -525,9 +531,10 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 							raise  # an uncertain probe must not create a duplicate registration
 						session = None
 				if not session:
-					session = raw_send({'meta': 'session'})['session_id']
+					session = selected_session
 					raw_cdp(
 						'Page.addScriptToEvaluateOnNewDocument',
+						session_id=session,
 						source=f'globalThis.__browserUseUnmarkSession = {json.dumps(session)};\n{UNMARK_JS}',
 						worldName='browser-use-unmark',
 						runImmediately=True,

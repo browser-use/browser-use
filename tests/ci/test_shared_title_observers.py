@@ -180,3 +180,56 @@ print(cdp('Runtime.evaluate', expression={mark_title_js!r}, awaitPromise=True, r
 	finally:
 		await repl.close()
 		_shutdown_daemon(name)
+
+
+@pytest.mark.parametrize('phase', ['discovery', 'registration'])
+async def test_title_registration_keeps_its_session_when_another_client_switches_tabs(chrome, tmp_path, phase):
+	name = f'butesttitlerace{os.getpid()}{phase}'
+	admin.ensure_daemon(name=name, env={'BU_CDP_WS': chrome['ws'], 'BH_TAB_MARKER': '1'})
+	repl = Repl(tmp_path, env={'BU_NAME': name, 'BU_SHARED_DAEMON': '1'})
+	mark_title_js = """(async () => {
+  document.title = '\\u{1F434} Selected';
+  await Promise.resolve();
+  return document.title;
+})()"""
+	try:
+		r = await repl.call(
+			'exec',
+			f"""import json
+import browser_harness.helpers as _helpers
+from browser_use.browser.browser import _daemon_request as outside_request
+selected = cdp('Target.createTarget', url='about:blank')['targetId']
+other = cdp('Target.createTarget', url='about:blank')['targetId']
+other_session = cdp('Target.attachToTarget', targetId=other, flatten=True)['sessionId']
+original_send = _helpers._send
+switched = False
+def switch_before_registration(req, *args, **kwargs):
+    global switched
+    method = 'Page.getFrameTree' if {phase!r} == 'discovery' else 'Page.addScriptToEvaluateOnNewDocument'
+    discovering = {phase!r} == 'discovery' or req.get('params', {{}}).get('worldName') == 'browser-use-unmark'
+    if not switched and req.get('method') == method and discovering:
+        switched = True
+        # A separate client changes the daemon's implicit session during discovery or just before registration.
+        outside_request({name!r}, {{'meta': 'set_session', 'session_id': other_session, 'target_id': other}})
+    return original_send(req, *args, **kwargs)
+_helpers._send = switch_before_registration
+try:
+    selected_session = switch_tab(selected)
+finally:
+    _helpers._send = original_send
+assert switched
+# Restore the selection without running unmark() again: it must have registered on the selected session already.
+outside_request({name!r}, {{'meta': 'set_session', 'session_id': selected_session, 'target_id': selected}})
+goto_url('data:text/html,<title>Selected</title>'); wait_for_load()
+title = cdp('Runtime.evaluate', expression={mark_title_js!r}, awaitPromise=True, returnByValue=True)['result']['value']
+frame = cdp('Page.getFrameTree', session_id=other_session)['frameTree']['frame']['id']
+world = cdp('Page.createIsolatedWorld', session_id=other_session, frameId=frame, worldName='browser-use-unmark')['executionContextId']
+owner = cdp('Runtime.evaluate', session_id=other_session, contextId=world, expression='globalThis.__browserUseUnmarkSession', returnByValue=True)['result'].get('value')
+print(json.dumps({{'title': title, 'other_owner': owner}}))""",
+			30,
+		)
+		assert r['error'] is None, r
+		assert json.loads(r['output']) == {'title': 'Selected', 'other_owner': None}, r
+	finally:
+		await repl.close()
+		_shutdown_daemon(name)
