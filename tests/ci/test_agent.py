@@ -180,6 +180,36 @@ async def test_your_chrome_end_to_end(chrome, tmp_path, monkeypatch):
 		_shutdown_daemon(name)  # Browser('chrome') never stops the shared local daemon itself
 
 
+async def test_your_chrome_reads_page_titles_unmarked(chrome, tmp_path, monkeypatch):
+	"""Retest2 clean install: Browser('chrome') answered 'What is the title of https://example.com?' with '🐴 Example
+	Domain'. The shared daemon it started inherited browser-harness's default BH_TAB_MARKER, so every page load got the
+	horse prefix in document.title, page_info() and js(). This user environment has no BH_TAB_MARKER (conftest sets 0)."""
+	from browser_harness import admin
+
+	name = f'butestmark{os.getpid()}'
+	monkeypatch.setenv('BU_NAME', name)
+	monkeypatch.setattr(admin, 'NAME', name)
+	monkeypatch.setenv('BU_CDP_WS', chrome['ws'])
+	monkeypatch.delenv('BH_TAB_MARKER')
+	# The daemon marks a tab fire-and-forget after its load event: poll 2 s for a mark that, before the fix, always came.
+	code = (
+		"new_tab('data:text/html,<title>Local</title><h1>ok</h1>'); wait_for_load()\n"
+		'import time\n'
+		'deadline = time.time() + 2\n'
+		"while time.time() < deadline and not js('document.title').startswith('\\U0001F434'):\n"
+		'    time.sleep(0.05)\n'
+		"titles = [page_info()['title'], js('document.title')]"
+	)
+	model, _ = script(('python', {'code': code}), ('finish_from_repl', {'success': True, 'expression': 'titles'}))
+	try:
+		result = await Agent('Read the title', model, browser=Browser('chrome'), workspace=tmp_path).run()
+		assert (result.status, result.final_result()) == ('completed', '["Local", "Local"]')
+	finally:
+		from browser_use.browser.browser import _shutdown_daemon
+
+		_shutdown_daemon(name)
+
+
 async def test_type_secret_types_value_and_output_is_redacted(chrome, tmp_path):
 	model, seen = script(
 		(
