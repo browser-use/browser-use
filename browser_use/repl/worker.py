@@ -498,7 +498,9 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 						# switch_tab creates a new CDP session each time. Keep the original registration while its session
 						# lives, including across worker restarts; a detached session or a new daemon needs a new one.
 						raw_cdp('Page.getFrameTree', session_id=session)
-					except Exception:
+					except RuntimeError as e:
+						if 'Session with given id not found' not in str(e):
+							raise  # an uncertain probe must not create a duplicate registration
 						session = None
 				if not session:
 					session = raw_send({'meta': 'session'})['session_id']

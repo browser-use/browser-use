@@ -81,6 +81,26 @@ print(page_info()['title'])""",
 			try:
 				await measure(repl)
 				if worker == 0:  # a new document needs a new observer, while a new worker on that document does not
+					await measure(
+						repl,
+						f"""import browser_harness.helpers as _helpers
+owner_session = cdp('Runtime.evaluate', contextId=world, expression='globalThis.__browserUseUnmarkSession', returnByValue=True)['result']['value']
+original_send = _helpers._send
+probe_pending = True
+def fail_one_probe(req, *args, **kwargs):
+    global probe_pending
+    if probe_pending and req.get('method') == 'Page.getFrameTree' and req.get('session_id') == owner_session:
+        probe_pending = False
+        raise TimeoutError('synthetic session probe timeout')
+    return original_send(req, *args, **kwargs)
+_helpers._send = fail_one_probe
+try:
+    switch_tab({tab!r})
+finally:
+    _helpers._send = original_send
+assert not probe_pending
+""",
+					)
 					await measure(repl, "goto_url('data:text/html,<title>Next</title><body>after</body>'); wait_for_load()\n")
 				else:
 					# A still-open page can lose the session that owns its registration. The replacement must survive
