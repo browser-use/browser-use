@@ -76,6 +76,16 @@ HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless 
 # browser-harness's daemon reads each request as one JSON line with asyncio's default 64 KiB limit; a longer one broke
 # the connection (BrokenPipeError). Characters of JSON (ASCII), less a margin for the token Windows adds.
 MAX_IPC_REQUEST = 65_536 - 128
+# Browser('chrome') shares a daemon it did not start; one started with browser-harness's default BH_TAB_MARKER prefixes
+# the attached tab's document.title with a horse after every load, and the agent read it back as the title. In an
+# isolated world (the page never sees it), strip that prefix as soon as it is set: a mutation observer's callback runs
+# before the next CDP command, so page_info(), js(), current_tab(), list_tabs() and bu all read the page's own title.
+UNMARK_JS = """(() => {
+  const mark = '\\u{1F434} ';
+  const strip = () => { if (document.title.startsWith(mark)) document.title = document.title.slice(mark.length); };
+  new MutationObserver(strip).observe(document, {subtree: true, childList: true, characterData: true});
+  strip();
+})()"""
 # The daemon's error once its websocket to the browser closed: Chrome crashed or quit ("no close frame received or
 # sent"), or the cloud browser was stopped or timed out ("received 1001 (going away) browser session ended").
 BROWSER_GONE = re.compile(r'no close frame|received 10\d\d \(|sent 10\d\d \(|ConnectionClosed|websocket.*closed', re.I)
@@ -431,14 +441,24 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			raise
 		if isinstance(req, dict) and req.get('meta') == 'set_session' and req.get('target_id'):
 			AGENT_TAB['id'] = req['target_id']
+			unmark()
 		if isinstance(req, dict) and req.get('meta') == 'drain_events' and isinstance(r, dict):
 			stats.observe(r.get('events'))
 		return r
 
+	def unmark() -> None:
+		"""Keep the attached tab's title free of a shared daemon's horse (UNMARK_JS), on this page and the next ones."""
+		if os.environ.get('BU_SHARED_DAEMON') == '1':
+			with contextlib.suppress(Exception):  # a tab that closed meanwhile; titles stay as they are
+				raw_cdp(
+					'Page.addScriptToEvaluateOnNewDocument', source=UNMARK_JS, worldName='browser-use-unmark', runImmediately=True
+				)
+
 	helpers._send = send
+	raw_cdp = helpers.cdp
 	with contextlib.suppress(Exception):  # no daemon yet
 		AGENT_TAB['id'] = raw_send({'meta': 'current_tab'})['targetId']
-	raw_cdp = helpers.cdp
+		unmark()
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
 	rules = DomainRules.from_json(os.environ.get('BU_DOMAINS'))
 	tabs_file = os.environ.get('BU_TABS_FILE')  # Browser('chrome') with domain restrictions

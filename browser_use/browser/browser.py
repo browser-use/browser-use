@@ -825,7 +825,9 @@ class Browser:
 					'Allow on its "Allow remote debugging?" prompt (macOS: or run `browser-harness mac-approve` in another '
 					f'shell), then run again. Detail: {e}'
 				) from None
-			return {}
+			# A daemon that was already running (started by `browser-use`, the MCP server, browser-harness itself or an
+			# older browser-use) keeps its own BH_TAB_MARKER: the worker strips the horse it adds to the agent's tabs.
+			return {'BU_SHARED_DAEMON': '1'}
 		if self.use_cloud:
 			browser_use_api_key('Browser() (a Browser Use Cloud browser)')  # fail before anything starts
 			if ((self.id and not self.stopped) or self._creating is not None) and not await asyncio.to_thread(self._stop_now):
