@@ -95,6 +95,7 @@ MODEL_TIMEOUT_S = 300  # bu-pi modelTimeoutMs: one model request, all its SDK at
 # cost_usd counted none of them (staging: 5 cuts, $1.84 billed, cost_usd $0.0074).
 STREAM_TIMEOUT_S = 930
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
+NO_TIME = 'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_repl with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
 SECRET_PLACEHOLDER = re.compile(r'<secret>([^<]+)</secret>|<secret:([^>]+)>')  # 0.x's form, and 1.0 redaction's
 FILE = re.compile(r'`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`
@@ -146,8 +147,10 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	Browser helpers are synchronous (do not await them); variables survive calls; the last expression is printed. Cell deadline
 	applies; checkpoint small batches before it. screenshot() returns native images.
 	"""
-	started = time.monotonic()
+	started = time.monotonic()  # python is sequential (one cell at a time, as bu-pi): this cell starts now
 	left = ctx.deps.delivery_at() - (started - ctx.deps.started)  # a cell never runs into the delivery turn's time
+	if left <= 0:  # a later call of the same response, after an earlier one used the time up
+		return [NO_TIME]
 	r = await ctx.deps.repl.call('exec', code, min(ctx.deps.cell_timeout_s, max(left, 1.0)))
 	ctx.deps.stats.add_cell(r, code, time.monotonic() - started)
 	if r.get('browser_gone'):  # a model left without a browser went looking for another one (the user's own Chrome)
@@ -961,7 +964,10 @@ def build_agent(
 		defer_model_check=True,
 		output_type=_outputs(output_type),
 		instructions=f'{SYSTEM_PROMPT}{AX_PROMPT if mode == "ultrafast" else ""}\n{instructions}'.strip(),
-		tools=[Tool(python, max_retries=TOOL_RETRIES), *tools],
+		# sequential: parallel python calls of one response run one after another, each timed from its own start (bu-pi
+		# executionMode 'sequential'). Timed at the call, a queued cell waited for the REPL on its stale budget and ran past
+		# the delivery point (rc1 Sonnet bub2-002 hit the hard timeout).
+		tools=[Tool(python, max_retries=TOOL_RETRIES, sequential=True), *tools],
 		# a Model's own settings sit below the Agent's in Pydantic AI: a default here would override them (thinking=False)
 		model_settings=cast(Any, {**{k: v for k, v in settings.items() if k not in model_own}, **(model_settings or {})}),
 		# 'tools' is the budget Pydantic AI gives a tool name that does not exist, and that name's count never resets:

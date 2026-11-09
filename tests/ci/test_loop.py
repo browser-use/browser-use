@@ -159,6 +159,38 @@ async def test_parallel_python_calls_are_serialized(daemon, tmp_path):
 	assert (result.status, result.output, result.error) == ('completed', '3', None)
 
 
+async def test_parallel_python_calls_take_their_time_when_they_start(daemon, tmp_path):
+	"""rc1 gate, Sonnet bub2-002 (hard 3600 s timeout, score 24): python() computed its time left before it waited for
+	the REPL lock, so a queued cell ran past the delivery point on a stale budget. As bu-pi (executionMode
+	'sequential'): each cell gets its own cell timeout from when it starts, capped at the delivery point; a cell that
+	would start past it is not run."""
+	import asyncio
+	import time
+
+	asked: list[float] = []
+
+	async def fn(messages, info: AgentInfo):
+		asked.append(time.monotonic() - session.started)
+		if len(asked) == 1:
+			sleep = [3, 3, 30, 30]
+			return ModelResponse(parts=[ToolCallPart('python', {'code': f'import time; time.sleep({s}); {s}'}) for s in sleep])
+		await asyncio.sleep(0)
+		return ModelResponse(parts=[ToolCallPart('finish', {'success': False, 'result': 'out of time'})])
+
+	# delivery_at = 12 s; each cell gets up to 8 s
+	session = Session(repl=Repl(tmp_path, daemon), timeout_s=24, cell_timeout_s=8)
+	try:
+		result = await run(build_agent(FunctionModel(fn)), 'task', session, 'gpt-6-luna')
+	finally:
+		await session.repl.close()
+	assert (result.status, result.output) == ('completed', 'out of time'), result.error
+	returns = [p.content[0] for p in result.messages[2].parts if isinstance(p, ToolReturnPart)]
+	assert [r.strip() for r in returns[:2]] == ['3', '3']  # the second got its own 8 s, not 8 s minus the first's 3
+	assert 'timed out' in returns[2]  # cut at the delivery point (12 s), not 8 s after it started (14 s)
+	assert returns[3].startswith('Not run:')  # it would have started at the delivery point
+	assert session.delivery_at() <= asked[1] < session.delivery_at() + 3
+
+
 async def test_oversized_and_invalid_images_never_reach_provider(daemon, tmp_path):
 	# v2 bub2-002 (43200 patches > 30000) and hard y0bvr6 (invalid image data) 400'd the whole run
 	code = (
