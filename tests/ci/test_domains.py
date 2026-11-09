@@ -266,6 +266,20 @@ def test_ports_schemes_and_hostless_urls():
 	assert not ok('ftp://example.com/', ['example.com'])  # no scheme in the pattern = http and https
 
 
+def test_file_urls_blocked_under_every_rule():
+	# Chrome reads file://localhost/<path> (and file://<any host>/) from the local disk, keeping that URL
+	file_urls = ('file:///etc/passwd', 'file://localhost/etc/hosts', 'FILE://LOCALHOST/proc/self/environ', ' file://h/x')
+	for rules in (
+		DomainRules.of(['example.com']),
+		DomainRules.of(prohibited=['evil.com']),
+		DomainRules.of(block_ips=True),
+		DomainRules.of(['file://*', 'localhost']),
+	):
+		for url in file_urls:
+			assert (why := rules.blocked(url)) and 'is a file: URL or has no host' in why, (rules, url)
+	assert DomainRules.of().blocked('file://localhost/etc/hosts') is None  # no rules: no restriction
+
+
 def test_rules_messages_prompt_and_env():
 	rules = DomainRules.of(['example.com', '*.example.org'])
 	assert rules.blocked('https://evil.com/x') == 'blocked: evil.com is not in allowed_domains (example.com, *.example.org)'
