@@ -82,10 +82,13 @@ MAX_IPC_REQUEST = 65_536 - 128
 # the attached tab's document.title with a horse after every load, and the agent read it back as the title. In an
 # isolated world (the page never sees it), strip that prefix as soon as it is set: a mutation observer's callback runs
 # before the next CDP command, so page_info(), js(), current_tab(), list_tabs() and bu all read the page's own title.
+# Selecting a tab again or restarting the worker can install this script again: keep one observer per document.
 UNMARK_JS = """(() => {
+  if (globalThis.__browserUseUnmarkTitle) return;
   const mark = '\\u{1F434} ';
   const strip = () => { if (document.title.startsWith(mark)) document.title = document.title.slice(mark.length); };
   new MutationObserver(strip).observe(document, {subtree: true, childList: true, characterData: true});
+  globalThis.__browserUseUnmarkTitle = true;
   strip();
 })()"""
 # The daemon's error once its websocket to the browser closed: Chrome crashed or quit ("no close frame received or
@@ -462,6 +465,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	os.environ.update(env)
 
 	raw_send = helpers._send
+	unmark_sessions: dict[str, str] = {}
 
 	def send(req, *args, **kwargs):  # every drain_events() read, also bu's background one, feeds the event counts
 		if (size := len(json.dumps(req))) > MAX_IPC_REQUEST:
@@ -491,9 +495,44 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		"""Keep the attached tab's title free of a shared daemon's horse (UNMARK_JS), on this page and the next ones."""
 		if os.environ.get('BU_SHARED_DAEMON') == '1':
 			with contextlib.suppress(Exception):  # a tab that closed meanwhile; titles stay as they are
-				raw_cdp(
-					'Page.addScriptToEvaluateOnNewDocument', source=UNMARK_JS, worldName='browser-use-unmark', runImmediately=True
-				)
+				target = AGENT_TAB['id']
+				session = unmark_sessions.get(target)
+				if session is None:
+					for attempt in range(3):
+						try:
+							frame = raw_cdp('Page.getFrameTree')['frameTree']['frame']['id']
+							world = raw_cdp('Page.createIsolatedWorld', frameId=frame, worldName='browser-use-unmark')[
+								'executionContextId'
+							]
+							session = raw_cdp(
+								'Runtime.evaluate',
+								contextId=world,
+								expression='globalThis.__browserUseUnmarkSession',
+								returnByValue=True,
+							)['result'].get('value')
+							break
+						except RuntimeError as e:
+							# Navigation can destroy the frame/world between these calls. Rediscover it before registering.
+							if attempt == 2 or not ax.CONTEXT_LOSS.search(str(e)):
+								raise
+				if session:
+					try:
+						# switch_tab creates a new CDP session each time. Keep the original registration while its session
+						# lives, including across worker restarts; a detached session or a new daemon needs a new one.
+						raw_cdp('Page.getFrameTree', session_id=session)
+					except RuntimeError as e:
+						if 'Session with given id not found' not in str(e):
+							raise  # an uncertain probe must not create a duplicate registration
+						session = None
+				if not session:
+					session = raw_send({'meta': 'session'})['session_id']
+					raw_cdp(
+						'Page.addScriptToEvaluateOnNewDocument',
+						source=f'globalThis.__browserUseUnmarkSession = {json.dumps(session)};\n{UNMARK_JS}',
+						worldName='browser-use-unmark',
+						runImmediately=True,
+					)
+				unmark_sessions[target] = session
 
 	helpers._send = send
 	raw_cdp = helpers.cdp
