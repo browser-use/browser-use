@@ -303,7 +303,7 @@ name drive a local Chrome again). The MCP server stops the cloud browsers it sta
 and starts them with a 30-minute timeout unless `timeout=` is passed. The live view and CDP URLs (each grants control
 of the browser) are neither opened nor returned unless `BH_OPEN_LIVE_URL=1`, and cloud tabs get no title marker.
 `upload_file` sends the file's bytes through the page on a cloud browser. `stop_remote_daemon(name)` stops the cloud
-browser even after its daemon was killed, and a new `start_remote_daemon(name)` first stops one still recorded.
+browser even after its daemon was killed (again on a stopped one: a no-op), and a new `start_remote_daemon(name)` first stops one still recorded.
 
 ## Trust model for secrets
 
