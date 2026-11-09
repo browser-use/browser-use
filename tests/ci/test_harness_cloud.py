@@ -275,8 +275,9 @@ def test_a_runtime_dir_other_users_can_write_is_refused_and_the_cloud_marker_is_
 	shared.chmod(0o700)
 	getuid = os.getuid
 	monkeypatch.setattr(os, 'getuid', lambda: getuid() + 1)  # the same dir, owned by someone else
-	with pytest.raises(harness_cloud.CloudBrowserError, match='owned by another user'):
+	with pytest.raises(harness_cloud.CloudBrowserError, match='owned by another user') as raised:
 		ns['ensure_daemon']()
+	assert 'chmod' not in str(raised.value) and 'BH_RUNTIME_DIR to a new path' in str(raised.value)  # not theirs to chmod
 	assert created == []
 	monkeypatch.setattr(os, 'getuid', getuid)  # now a private dir of our own
 	name = _name('private')

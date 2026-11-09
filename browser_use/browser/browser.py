@@ -421,10 +421,11 @@ def _check_runtime_dir() -> None:
 	for var, path in (('BH_RUNTIME_DIR', ipc._RUNTIME), ('BH_TMP_DIR', ipc._TMP)):
 		st = os.stat(path)
 		if st.st_uid != os.getuid() or st.st_mode & 0o022:
-			who = 'owned by another user' if st.st_uid != os.getuid() else 'writable by other users'
+			other = st.st_uid != os.getuid()  # only its owner can chmod it
 			raise RuntimeError(
-				f'The browser-harness dir {path} is {who} (mode {st.st_mode & 0o7777:o}), who could take over its daemon. '
-				f'Use a dir only you can write to: chmod 700 {path}, or set {var} to a new path such as ~/.bh.'
+				f'The browser-harness dir {path} is {"owned by another user" if other else "writable by other users"} '
+				f'(mode {st.st_mode & 0o7777:o}), who could take over its daemon. Use a dir only you can write to: '
+				f'{"" if other else f"chmod 700 {path}, or "}set {var} to a new path such as ~/.bh.'
 			)
 		if os.environ.get(var):  # child daemons and workers use this checked path, never a symlink swapped after it
 			os.environ[var] = str(path)
