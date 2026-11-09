@@ -532,10 +532,9 @@ class ProductTelemetry:
 			self._handed = {job.run_id for job in jobs}
 			if locked:
 				self._lock.release()
-			if not jobs:
-				return
-			backlog = self._outbox()
+			backlog = self._outbox()  # also with nothing queued: a run killed before its event still hands the outbox on
 			files = [self._to_outbox(self._body([self._event(job)]), job.run_id) for job in jobs]
+			self._handed = {job.run_id for job, f in zip(jobs, files) if f is not None}  # one not written: the thread's
 			for job in jobs:
 				self._unmark(job.run_id)
 			files = [str(f) for f in files if f is not None]
