@@ -177,6 +177,7 @@ class ProductTelemetry:
 		self._active: dict[str, tuple[Callable[[], dict], Callable[[], dict], float]] = {}
 		self.send_failures = 0  # failed sends since the last success (outbox files left at start included)
 		self.dropped = 0
+		self._exiting = False  # set at exit: the thread claims no more files (_claim)
 
 	@property
 	def enabled(self) -> bool:
@@ -414,16 +415,27 @@ class ProductTelemetry:
 			if path.stem in self._pending:  # this process's own queued event, written at exit: the exit sender sends it
 				continue
 			try:
-				claimed = path.with_suffix(f'.{os.getpid()}.sending')
-				os.replace(path, claimed)  # another process may be sending the same box
+				claimed = self._claim(path, 'sending')  # another process may be sending the same box
 			except OSError:
 				continue
+			if claimed is None:
+				return
 			if self._post(claimed.read_bytes()):
 				claimed.unlink(missing_ok=True)
 			else:  # offline: the rest waits for the next process
 				os.replace(claimed, path)
 				self.send_failures += len(files) - i
 				return
+
+	def _claim(self, path: Path, kind: str) -> Path | None:
+		"""path renamed to <stem>.<pid>.<kind>, or None once the process is exiting: a claim made then froze mid-send
+		with the process (RC test: the CLI's thread took the outbox's oldest file on every call, so it was never sent)."""
+		with self._lock:
+			if self._exiting:
+				return None
+			claimed = path.with_suffix(f'.{os.getpid()}.{kind}')
+			os.replace(path, claimed)
+			return claimed
 
 	def _marker(self, run_id: str) -> Path:
 		return telemetry_dir() / 'inflight' / f'{run_id}.json'
@@ -470,10 +482,11 @@ class ProductTelemetry:
 				pid = int(marker.get('pid') or 0)
 				if pid == os.getpid() or (_alive(pid) and age < float(props.get('timeout_s') or 0) + CRASH_GRACE_S):
 					continue
-				claimed = path.with_suffix(f'.{os.getpid()}.crashed')
-				os.replace(path, claimed)  # one process sends it
+				claimed = self._claim(path, 'crashed')  # one process sends it
 			except (OSError, ValueError, KeyError, TypeError):
 				continue
+			if claimed is None:
+				return
 			updated = float(marker.get('updated') or marker.get('started') or 0)
 			props.update(
 				status='crashed',
@@ -490,8 +503,14 @@ class ProductTelemetry:
 		"""Events still queued go to a detached sender, so exit does not wait for the network (~10 ms to spawn). The
 		outbox earlier processes left goes with them: a short-lived process (the CLI) exits before its thread sends it."""
 		try:
+			if os.getpid() != self._pid:
+				return
+			locked = self._lock.acquire(timeout=0.5)  # held by the thread for one rename at most
+			self._exiting = True
+			if locked:
+				self._lock.release()
 			jobs = list(self._pending.values())
-			if not jobs or os.getpid() != self._pid:
+			if not jobs:
 				return
 			backlog = self._outbox()
 			files = [self._to_outbox(self._body([self._event(job)]), job.run_id) for job in jobs]

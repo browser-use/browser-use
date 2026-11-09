@@ -1278,6 +1278,33 @@ def test_a_one_shot_process_sends_the_outbox_it_finds_and_a_full_outbox_keeps_it
 	assert not list(box.iterdir())
 
 
+def test_once_the_process_exits_its_thread_claims_no_outbox_file_or_crash_report(posthog, monkeypatch):
+	"""RC test 11-09, Linux: a CLI call's thread reached the outbox while the exit handler ran, claimed the oldest file
+	and froze mid-send with the process; the next call put it back and its thread claimed it again: never sent."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+	dead.wait()
+	spawned = []
+	monkeypatch.setattr(service.subprocess, 'Popen', lambda *a, **k: spawned.append(a))  # the exit sender
+	t = posthog.telemetry
+	box, inflight = posthog.config / 'telemetry' / 'outbox', posthog.config / 'telemetry' / 'inflight'
+	box.mkdir(parents=True)
+	inflight.mkdir(parents=True)
+	(box / f'{uuid.uuid4().hex}.gz').write_bytes(t._body([t._event(Job('agent_event', lambda s, k: {'model': 'old'}))]))
+	marker = {'pid': dead.pid, 'started': time.time() - 60, 'steps': 1, 'props': {'model': 'crashed'}}
+	(inflight / f'{uuid.uuid4().hex}.json').write_text(json.dumps(marker))
+	own = Job('agent_event', lambda s, k: {'model': 'own'})
+	t._pending[own.run_id] = own
+	t._at_exit()
+	before = sorted(p.name for p in posthog.config.rglob('*'))
+	t._send_outbox()  # what the thread does next, while the interpreter finalizes
+	t._send_crashed()
+	assert len(spawned) == 1 and posthog.state.attempts == 0
+	assert sorted(p.name for p in posthog.config.rglob('*')) == before
+
+
 def test_a_send_that_fails_goes_to_the_outbox_and_is_counted(posthog, monkeypatch):
 	import browser_use.telemetry.service as service
 	from browser_use.telemetry.views import AgentTelemetryEvent
