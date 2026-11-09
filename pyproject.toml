@@ -47,7 +47,7 @@ dependencies = [
     "markdownify==1.2.2",
     "python-docx==1.2.0",
     "browser-use-sdk>=3.10.0,<4",
-    "browser-harness==0.1.13",
+    "browser-harness @ git+https://github.com/keang/browser-harness.git@1883dde08648dfd1fe432aec8c8b254c09657ca0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
