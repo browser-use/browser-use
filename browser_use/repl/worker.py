@@ -31,6 +31,7 @@ import sysconfig
 import threading
 import time
 import traceback
+import urllib.parse
 import urllib.request
 from collections import Counter
 from pathlib import Path
@@ -60,6 +61,8 @@ FROZEN_BY_DIALOG = (
 	'Page.navigate',
 	'Page.reload',
 )
+# Of those, the calls that can open a dialog themselves and are then held until it is handled (plus Input.*)
+HELD_BY_DIALOG = tuple(m for m in FROZEN_BY_DIALOG if m != 'Page.captureScreenshot')
 HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless never answers it
 # browser-harness's daemon reads each request as one JSON line with asyncio's default 64 KiB limit; a longer one broke
 # the connection (BrokenPipeError). Characters of JSON (ASCII), less a margin for the token Windows adds.
@@ -130,6 +133,7 @@ class CellStats:
 		self.downloads: set[str | None] = set()  # guids seen: one download_started per download, whichever events announce it
 		self.started: list[str] = []  # names of downloads that started since the last cell output
 		self.seen: set[int] = set()  # hashes of URLs this worker saw (loop detection); never leave this process
+		self.json_pages: set[str] = set()  # top-frame JSON pages, without query: a cloud browser saves each as a download
 		self.take()
 
 	def count(self, kind: str, name: str) -> None:
@@ -178,7 +182,13 @@ class CellStats:
 			self.nav_errors[m[1] if m else 'other'] += 1
 
 	def observe(self, events) -> None:
-		for e in events if isinstance(events, list) else ():
+		events = events if isinstance(events, list) else []
+		for e in events:  # first: the cloud browser's copy of a JSON page may come before the page's own event
+			params = (e.get('params') if isinstance(e, dict) else None) or {}
+			if isinstance(e, dict) and e.get('method') == 'Page.frameNavigated' and _json_page(params):
+				with self.lock:
+					self.json_pages.add(urllib.parse.urlsplit(params['frame'].get('url') or '')._replace(query='').geturl())
+		for e in events:
 			method = e.get('method') if isinstance(e, dict) else None
 			params = (e.get('params') if isinstance(e, dict) else None) or {}
 			key = STAT_EVENTS.get(method or '')
@@ -191,14 +201,15 @@ class CellStats:
 					self.downloads.add(guid)
 				if key:
 					_log_download({'name': params.get('suggestedFilename'), 'url': params.get('url'), 'guid': guid})
+					url = str(params.get('url') or '')  # the copy's URL: the page's + '.json', ' (n)' for a repeat
+					copy = '?' not in url and re.sub(r'%20\(\d+\)$', '', url.removesuffix('.json')) in self.json_pages
 					with self.lock:
-						self.started.append(str(params.get('suggestedFilename') or params.get('url')))
+						if not copy:  # the model never downloaded a page it only opened (Browser.json_page_copies)
+							self.started.append(str(params.get('suggestedFilename') or params.get('url')))
 			elif method == 'Browser.downloadProgress' and params.get('state') in ('completed', 'canceled'):
 				_log_download({'done': params.get('guid'), 'state': params['state']})  # Browser.stop() waits for the rest
-			elif method == 'Page.frameNavigated' and not (frame := params.get('frame') or {}).get('parentId'):
-				mime = str(frame.get('mimeType') or '').lower()
-				if mime in ('application/json', 'text/json') or mime.endswith('+json'):  # vnd.api+json, problem+json
-					_log_download({'json_page': frame.get('url')})
+			elif method == 'Page.frameNavigated' and _json_page(params):
+				_log_download({'json_page': params['frame'].get('url')})
 			if key:
 				self.count('events', key)
 
@@ -221,6 +232,13 @@ class CellStats:
 			self.helper_t, self.cdp_t, self.host, self.new_pages, self.revisits = {}, {}, None, 0, 0
 			self.nav_errors = Counter()
 		return out
+
+
+def _json_page(params: dict) -> bool:
+	"""A Page.frameNavigated of a top frame that shows JSON (vnd.api+json, problem+json too)."""
+	frame = params.get('frame') or {}
+	mime = str(frame.get('mimeType') or '').lower()
+	return not frame.get('parentId') and (mime in ('application/json', 'text/json') or mime.endswith('+json'))
 
 
 def _log_download(record: dict) -> None:
@@ -447,15 +465,15 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	def cdp(method, session_id=None, **params):
 		"""A JS dialog freezes the page: js() then took 20 s, click_at_xy 20 s and screenshot() 65 s, each with a timeout
 		that did not say why. While the daemon saw one open, such a call gets DIALOG_PROBE_S and then says so; a call that
-		opened the dialog itself says so when it times out, or a navigation, which a beforeunload prompt holds, as soon as
-		the prompt opens."""
+		opens one itself (a click on a confirm button, js("alert(1)"), a navigation a beforeunload prompt holds) says so
+		as soon as it opens."""
 		dialog = pending_dialog(method, session_id)
 		if dialog:
 			params['_response_timeout'] = min(params.get('_response_timeout', SCREENSHOT_TIMEOUT_S), DIALOG_PROBE_S)
 			params['_frozen'] = True
 		try:
-			if not dialog and session_id is None and method in ('Page.navigate', 'Page.reload'):
-				return navigate(method, params)
+			if not dialog and session_id is None and (method in HELD_BY_DIALOG or method.startswith('Input.')):
+				return raced(method, params)
 			return _cdp(method, session_id, **params)
 		except RuntimeError as e:  # with the dialog open, Chrome may also answer an error ('Unable to capture screenshot')
 			if not dialog:
@@ -469,9 +487,11 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 				raise
 			raise dialog_open(dialog) from None
 
-	def navigate(method, params):
-		"""Page.navigate/reload, racing a probe for the beforeunload prompt it may open (leaving a dirty form): the call
-		only returns once the prompt is handled, so the first try took the full CDP_TIMEOUT_S (browser-3)."""
+	def raced(method, params):
+		"""A call on the attached tab that a dialog it opens would hold, racing a probe for that dialog: the call only
+		returns once the dialog is handled, so a click on a confirm button, js("alert(1)") or a navigation that a
+		beforeunload prompt holds (browser-3) took the full CDP_TIMEOUT_S, every time. Only a call that takes longer
+		than DIALOG_POLL_S asks the daemon."""
 		done, box = threading.Event(), {}
 
 		def call():
@@ -482,9 +502,9 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			finally:
 				done.set()
 
-		threading.Thread(target=call, daemon=True, name='browser-use-navigate').start()
+		threading.Thread(target=call, daemon=True, name='browser-use-cdp').start()
 		while not done.wait(DIALOG_POLL_S):
-			if dialog := pending_dialog(method, None):  # the navigation stays queued: accepting the prompt completes it
+			if dialog := pending_dialog(method, None):  # the call stays queued: handling the dialog completes it
 				raise dialog_open(dialog)
 		if 'error' in box:
 			raise box['error']

@@ -478,6 +478,32 @@ async def test_a_navigation_held_by_a_beforeunload_prompt_names_it(daemon, tmp_p
 		await repl.close()
 
 
+async def test_a_click_or_script_that_opens_a_dialog_names_it_within_seconds(daemon, tmp_path):
+	"""A click on a "Delete? OK/Cancel" button: Input.dispatchMouseEvent only returns once the confirm is handled, so
+	click_at_xy (and js("alert(1)")) waited the full 20 s CDP timeout before naming the dialog, on every such button.
+	The call that opens the dialog names it within seconds; the queued click completes when the dialog is handled."""
+	import time
+
+	repl = Repl(tmp_path, daemon)
+	page = "data:text/html,<button id=b onclick=\"document.title = 'ok:' + confirm('Delete?')\">del</button>"
+	box = "js(\"[document.getElementById('b').getBoundingClientRect().x + 5, document.getElementById('b').getBoundingClientRect().y + 5]\")"
+	try:
+		r = await repl.call('exec', f'new_tab({page!r}); wait_for_load(); xy = {box}', 60)
+		assert r['error'] is None, r
+		for code in ('click_at_xy(*xy)', 'js("alert(1)")'):
+			started = time.monotonic()
+			r = await repl.call('exec', code, 60)
+			assert time.monotonic() - started < 5, (code, time.monotonic() - started)
+			assert 'A JavaScript' in (r['error'] or '') and 'Page.handleJavaScriptDialog' in r['error'], r
+			r = await repl.call(
+				'exec', 'cdp("Page.handleJavaScriptDialog", accept=True); wait(0.3); print(js("document.title"))', 60
+			)
+			assert r['error'] is None, r
+		assert r['output'].strip() == 'ok:true', r  # the click went through: confirm() returned the accept
+	finally:
+		await repl.close()
+
+
 def _choice_recorder(responses):
 	from pydantic_ai.models import ModelRequestParameters
 	from pydantic_ai.models._tool_choice import resolve_tool_choice

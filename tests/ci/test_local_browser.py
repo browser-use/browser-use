@@ -480,6 +480,27 @@ async def test_fresh_chromium_end_to_end_has_no_cookies_and_leaves_nothing(chrom
 	assert proc.poll() is not None and not tmp.exists() and not browser_mod._LIVE
 
 
+async def test_a_launched_browsers_pages_run_at_full_speed_out_of_sight(chrome_binary, tmp_path):
+	"""1.0 dropped 0.x's (and Playwright's) --disable-background-timer-throttling, --disable-renderer-backgrounding and
+	--disable-backgrounding-occluded-windows. A page the agent is not looking at ran its timers ~15x slower: a tab in the
+	background, and on a headed Chrome (the macOS default) every tab once the window was covered or the screen locked
+	(live: 3 of 60 setInterval ticks, 1 of ~130 animation frames, document hidden)."""
+	model, _ = script(
+		(
+			'python',
+			{
+				'code': "a = new_tab('data:text/html,<p>a'); wait_for_load(); js('(window.t = 0, setInterval(() => window.t++, 50), 1)'); "
+				"new_tab('data:text/html,<p>b'); wait_for_load(); wait(3); switch_tab(a); ticks = js('window.t')"
+			},
+		),
+		('finish_from_repl', {'success': True, 'expression': 'ticks'}),
+	)
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
+	result = await Agent('Count', model, browser=browser, workspace=tmp_path).run()
+	assert result.status == 'completed', result.error
+	assert int(result.final_result() or 0) > 30, result.final_result()  # 60 at full speed; throttled: 1 per second
+
+
 async def test_a_launched_browser_has_one_tab(chrome_binary):
 	"""C63: Chrome's launch tab stayed next to the tab our named daemon opens: list_tabs() gave 2, headed showed a blank
 	extra tab."""
@@ -759,6 +780,31 @@ asyncio.run(main())
 
 
 @posix_only
+def test_the_watchdog_never_signals_a_process_group_that_reused_the_chrome_pid(tmp_path, monkeypatch):
+	"""The watchdog SIGTERMed, then SIGKILLed, the process group of the Chrome pid it started with, unchecked. A Chrome
+	that already exited (crashed, quit by the user) before its Python died left that number free: the group that reused
+	it (another Chrome, a shell's job) was killed. Only the process with the Chrome's start time is signalled."""
+	import subprocess
+
+	from browser_harness import admin
+
+	from browser_use.browser.local import start_watchdog
+
+	reused = subprocess.Popen(['sleep', '60'], start_new_session=True)  # a group leader now holding the Chrome's pid
+	real = admin._process_start_time
+	monkeypatch.setattr(admin, '_process_start_time', lambda pid: 'when Chrome started' if pid == reused.pid else real(pid))
+	try:
+		watchdog = start_watchdog(reused.pid, tmp_path / 'gone', f'butestnodaemon{os.getpid()}', None)
+		assert watchdog and watchdog.stdin
+		watchdog.stdin.close()  # what the death of the process that started it does
+		watchdog.wait(20)
+		time.sleep(0.2)
+		assert reused.poll() is None, 'the watchdog signalled a process group that is not its Chrome'
+	finally:
+		reused.kill()
+
+
+@posix_only
 def test_the_watchdog_ends_a_reattached_daemon_and_never_a_process_that_reused_the_old_pid(chrome_binary, tmp_path, monkeypatch):
 	"""Review: the watchdog kept the daemon pid it started with. After a reattach replaced the daemon, a SIGKILL of
 	Python left the new daemon running, and the old pid (possibly reused by another process) was signalled."""
@@ -799,7 +845,8 @@ asyncio.run(main())
 
 	chrome = subprocess.Popen(['sleep', '60'], start_new_session=True)
 	other = subprocess.Popen(['sleep', '60'])
-	monkeypatch.setattr(admin, '_process_start_time', lambda pid: 'when the daemon started')
+	real = admin._process_start_time
+	monkeypatch.setattr(admin, '_process_start_time', lambda pid: 'when the daemon started' if pid == other.pid else real(pid))
 	try:
 		watchdog = start_watchdog(chrome.pid, tmp_path / 'gone', f'butestnodaemon{os.getpid()}', other.pid)
 		assert watchdog and watchdog.stdin
