@@ -347,10 +347,14 @@ class Agent:
 				f'reasoning={self.reasoning!r} is ignored: {self._model_name} gets no reasoning setting. For an '
 				'OpenAI-compatible server pass ChatOpenAI(..., reasoning_effort=...) instead.'
 			)
+		# A bu-* alias carries its own effort (bu-fast medium, bu-ultrafast low, bu-smart high): send none. A listed OpenAI
+		# model on the gateway has none of its own: without 'medium' it ran at the upstream default (live: gpt-6-luna
+		# high, gpt-6.1-sol xhigh), not at the 'medium' ChatOpenAI sends for the same model.
+		alias = bool(self._gateway and self._gateway.model.startswith('bu-'))
 		self._agent = build_agent(
 			model,
 			output_type=self.output_model_schema,
-			reasoning_effort=self.reasoning or (None if self._gateway else 'medium'),
+			reasoning_effort=self.reasoning or (None if alias else 'medium'),
 			instructions='\n'.join(
 				filter(
 					None,

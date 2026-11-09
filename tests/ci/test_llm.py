@@ -803,6 +803,28 @@ def test_agent_treats_every_gateway_model_form_alike(monkeypatch):
 	assert agent._agent.model_settings['openai_reasoning_effort'] == 'medium' and agent._gateway is None
 
 
+def test_a_listed_openai_model_on_the_gateway_gets_medium_like_on_openai(monkeypatch):
+	"""Live: ChatBrowserUse('gpt-6-luna') sent no effort and ran at 'high', ChatBrowserUse('gpt-6.1-sol') at 'xhigh' (the
+	upstream default), while ChatOpenAI('gpt-6-luna') runs at the documented 'medium'. Only a bu-* alias has an effort of
+	its own; Agent(reasoning=...) still wins."""
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
+	for llm in (
+		ChatBrowserUse('gpt-6-luna'),
+		ChatOpenAI('gpt-6.1-sol', base_url=GATEWAY_URL),
+		ChatBrowserUse('gpt-6.1-sol').pydantic_model(),
+	):
+		agent = Agent('t', llm, browser=None)
+		agent._build()
+		assert agent._gateway and agent._agent.model_settings['openai_reasoning_effort'] == 'medium'
+	agent = Agent('t', ChatBrowserUse('gpt-6.1-sol'), browser=None, reasoning='low')
+	agent._build()
+	assert agent._agent.model_settings['openai_reasoning_effort'] == 'low'
+	for alias in ('bu-fast', 'bu-ultrafast', 'bu-smart', 'bu-auto'):
+		agent = Agent('t', alias, browser=None)
+		agent._build()
+		assert 'openai_reasoning_effort' not in agent._agent.model_settings, alias
+
+
 def test_gateway_cost_is_the_charge_or_none_never_a_retail_estimate():
 	"""Roast: a gateway response without charge_usd (e.g. a listed gpt-4.1) was priced at OpenAI retail and summed
 	with real charges into one authoritative-looking total."""
@@ -890,6 +912,25 @@ def test_model_strings_pass_through(monkeypatch):
 	assert model_ref('openai-responses:gpt-6-luna') == 'openai-responses:gpt-6-luna'
 	model, _ = resolve_model('openai:gpt-6-luna')
 	assert isinstance(model, OpenAIResponsesModel) and model.model_name == 'gpt-6-luna'
+
+
+@pytest.mark.parametrize(
+	('name', 'hint'),
+	[
+		('gpt-6-luna', "llm=ChatOpenAI('gpt-6-luna') or llm='openai:gpt-6-luna'"),
+		('o4-mini', "llm=ChatOpenAI('o4-mini') or llm='openai:o4-mini'"),
+		('claude-haiku-5-5', "llm=ChatAnthropic('claude-haiku-5-5') or llm='anthropic:claude-haiku-5-5'"),
+		('gemini-3.5-flash', "llm=ChatGoogle('gemini-3.5-flash') or llm='google:gemini-3.5-flash'"),
+	],
+)
+def test_a_bare_model_name_names_the_1_0_form_not_a_degraded_one(name, hint):
+	"""Live: Pydantic AI answered llm='gpt-6-luna' with "Did you mean 'openai-chat:gpt-6-luna'?" (chat completions:
+	reasoning sent as 'none', not the evaluated Responses setup) and llm='gemini-3.5-flash' with 'google-cloud:...'
+	(Vertex: a GOOGLE_API_KEY got 403 API_KEY_SERVICE_BLOCKED after the browser had started)."""
+	with pytest.raises(UserError) as e:
+		resolve_model(name)
+	assert str(e.value) == f'Unknown model {name!r}: a model string names its provider. Use {hint}.'
+	assert 'openai-chat:' not in str(e.value) and 'google-cloud:' not in str(e.value)
 
 
 def test_missing_extra_gives_install_hint(monkeypatch):
