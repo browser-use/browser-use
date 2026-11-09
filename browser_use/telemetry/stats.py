@@ -57,6 +57,12 @@ def _known_modules() -> frozenset[str]:
 	return frozenset(sys.stdlib_module_names) | frozenset(packages_distributions()) | {'browser_use'}
 
 
+def known_module(name: str) -> bool:
+	"""In the standard library, browser-use or an installed distribution. The stdlib check comes first: listing the
+	installed distributions takes ~130 ms the first time in a process."""
+	return name in sys.stdlib_module_names or name == 'browser_use' or name in _known_modules()
+
+
 def imported_modules(code: str) -> list[str]:
 	"""Top-level modules a cell imports ('pandas' for `from pandas.io import x`); 'other' for one that is neither in
 	the standard library nor installed (a module the model wrote can have any name). Nothing else of the code."""
@@ -72,15 +78,17 @@ def imported_modules(code: str) -> list[str]:
 			names += [a.name.split('.')[0] for a in node.names]
 		elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
 			names.append(node.module.split('.')[0])
-	return [n if n in _known_modules() else 'other' for n in names]
+	return [n if known_module(n) else 'other' for n in names]
 
 
-def error_class(e: BaseException) -> str:
-	"""The exception's class name when Python, the standard library or an installed package defines it; 'custom' for
-	a class the model's code defined, which could be named anything."""
-	cls = type(e)
+def error_class(e: BaseException | type) -> str:
+	"""The exception's (or class's) name when Python, the standard library or an installed package defines it; 'custom'
+	for a class the model's code defined, which could be named anything."""
+	cls = e if isinstance(e, type) else type(e)
 	module = sys.modules.get(cls.__module__ or '')
-	known = (cls.__module__ or '').split('.')[0] in _known_modules() and getattr(module, cls.__name__, None) is cls
+	# Pydantic AI raises classes it combines at runtime (ModelServerError + ModelHTTPError, named ModelServerError):
+	# the module's class of that name is one of its bases
+	known = known_module((cls.__module__ or '').split('.')[0]) and getattr(module, cls.__name__, None) in cls.__mro__
 	return cls.__name__[:MAX_NAME] if known else 'custom'
 
 
@@ -124,9 +132,24 @@ def environment() -> dict[str, Any]:
 	}
 
 
+def fold(into: dict[str, list[int]], timings: dict) -> None:
+	"""Adds one cell's [calls, errors, ns total, ns max] per name into a run's."""
+	for name, (calls, errors, total, peak) in timings.items():
+		s = into.get(name)
+		if s is None:
+			into[name] = [calls, errors, total, peak]
+		else:
+			s[0] += calls
+			s[1] += errors
+			s[2] += total
+			s[3] = max(s[3], peak)
+
+
 @dataclass
 class RunStats:
-	"""Counters for one Agent.run(), filled from each REPL cell's result (worker.py `stats`)."""
+	"""Counters for one Agent.run(), filled from each REPL cell's result (worker.py `stats`). add_cell runs on the agent
+	path, so it only appends and adds; names the model's code chooses (imports, cdp() methods) are checked when read,
+	in the telemetry thread (that check lists the installed packages and CDP methods: ~300 ms the first time)."""
 
 	cells: int = 0
 	cell_errors: int = 0
@@ -134,11 +157,13 @@ class RunStats:
 	images: int = 0
 	navigations: int = 0
 	helpers: Counter = field(default_factory=Counter)  # helper name -> calls, e.g. goto_url, bu.click
-	cdp_methods: Counter = field(default_factory=Counter)  # raw cdp() calls the agent made, by method
 	domains: Counter = field(default_factory=Counter)  # hostname -> cells that saw it
-	imports: Counter = field(default_factory=Counter)  # top-level modules cells imported
 	error_types: Counter = field(default_factory=Counter)  # exception class of each failed cell
 	events: Counter = field(default_factory=Counter)  # captcha_started, captcha_solved, captcha_failed, download_started
+	helper_t: dict[str, list[int]] = field(default_factory=dict)  # helper -> [calls, errors, ns total, ns max]
+	cdp_t: dict[str, list[int]] = field(default_factory=dict)  # every CDP method the worker sent, unchecked, same shape
+	codes: list[str] = field(default_factory=list)  # cell code, parsed for imports when read; never sent
+	cdp_raw: Counter = field(default_factory=Counter)  # the agent's own cdp() calls by method, unchecked
 
 	def add_cell(self, result: dict, code: str, seconds: float) -> None:
 		self.cells += 1
@@ -147,14 +172,39 @@ class RunStats:
 		if result.get('error'):
 			self.cell_errors += 1
 			self.error_types[str(result.get('error_type') or 'unknown')[:MAX_NAME]] += 1
-		self.imports.update(imported_modules(code))
+		self.codes.append(code)
 		s = result.get('stats') or {}
 		self.helpers.update({str(k)[:MAX_NAME]: n for k, n in (s.get('helpers') or {}).items()})
-		for method, n in (s.get('cdp') or {}).items():  # the model can pass anything as the method: a URL, code
-			self.cdp_methods[method if method in _cdp_methods() else 'invalid'] += int(n)
+		self.cdp_raw.update(s.get('cdp') or {})
+		fold(self.helper_t, s.get('helper_t') or {})
+		fold(self.cdp_t, s.get('cdp_t') or {})
 		self.domains.update(s.get('hosts') or [])
 		self.events.update(s.get('events') or {})
 		self.navigations += int(s.get('navigations') or 0)
+
+	@property
+	def imports(self) -> Counter:
+		"""Top-level modules cells imported ('other' for one neither in the standard library nor installed)."""
+		return Counter(m for code in self.codes for m in imported_modules(code))
+
+	@property
+	def cdp_methods(self) -> Counter:
+		"""The agent's cdp() calls by method; anything that is not a CDP protocol method counts as 'invalid'."""
+		return checked_methods(self.cdp_raw)
+
+	def cdp_stats(self) -> dict[str, list[int]]:
+		"""Every CDP method the worker sent: [calls, errors, ns total, ns max], unknown names folded into 'invalid'."""
+		out: dict[str, list[int]] = {}
+		for method, s in self.cdp_t.items():
+			fold(out, {method if method in _cdp_methods() else 'invalid': s})
+		return out
+
+
+def checked_methods(counts: Counter) -> Counter:
+	out: Counter = Counter()
+	for method, n in counts.items():  # the model can pass anything as the method: a URL, code
+		out[method if method in _cdp_methods() else 'invalid'] += int(n)
+	return out
 
 
 def scrub_cli_event(payload: dict) -> dict:

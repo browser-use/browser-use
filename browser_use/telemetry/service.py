@@ -1,27 +1,62 @@
+"""Sends telemetry to PostHog from one background thread (TELEMETRY.md). Nothing on the agent path waits on the network
+or the disk: run_started() and capture_run() are a dict update and a queue.put. The thread builds each event, gzips it
+and POSTs it (3 s timeout, one retry); a failed send goes to an outbox the next process sends. At exit, events still
+queued go to a detached sender process, so a one-shot script neither waits for the network nor loses its event.
+ANONYMIZED_TELEMETRY=false: no thread, no network, no files."""
+
+from __future__ import annotations
+
+import atexit
+import gzip
+import json
 import logging
 import os
-from typing import TYPE_CHECKING
+import queue
+import subprocess
+import sys
+import threading
+import time
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from uuid_extensions import uuid7str
-
-from browser_use.config import CONFIG, load_env
+from browser_use.config import CONFIG
 from browser_use.telemetry.views import BaseTelemetryEvent
-from browser_use.utils import singleton
-
-load_env()
 
 logger = logging.getLogger(__name__)
 
-
-POSTHOG_EVENT_SETTINGS = {
-	'process_person_profile': True,
-}
-
 POSTHOG_PROJECT_API_KEY = 'phc_F8JMNjW1i2KbGUTaW1unnDdLSPCoyc52SGRU0JecaUh'
 POSTHOG_HOST = 'https://eu.i.posthog.com'
-DEVICE_ID_PATH = str(CONFIG.BROWSER_USE_CONFIG_DIR / 'device_id')
+SEND_TIMEOUT_S = 3.0
+MAX_BYTES = 64 * 1024  # per event, serialized; build levels shrink the per-step arrays and maps until it fits
+LEVELS = ((200, 50), (100, 50), (50, 20), (0, 20))  # (steps kept, keys per map)
+OUTBOX_FILES, OUTBOX_BYTES, OUTBOX_DAYS = 20, 512 * 1024, 7
+MARKER_REFRESH_S = 30.0
+CRASH_GRACE_S = 15 * 60  # a marker older than the run's timeout plus this is a crashed run, whatever its pid
+EXIT_SENDER = (  # the detached process that sends what was still queued at exit: files in, deleted once sent
+	'import sys, os, urllib.request\n'
+	'url = sys.argv[1]\n'
+	'for path in sys.argv[2:]:\n'
+	'    try:\n'
+	'        claimed = path + ".sending"\n'
+	'        os.replace(path, claimed)\n'
+	'        data = open(claimed, "rb").read()\n'
+	'        headers = {"Content-Type": "application/json", "Content-Encoding": "gzip"}\n'
+	'        urllib.request.urlopen(urllib.request.Request(url, data, headers), timeout=10).read()\n'
+	'        os.remove(claimed)\n'
+	'    except Exception:\n'
+	'        try: os.replace(claimed, path)\n'
+	'        except Exception: pass\n'
+)
 
 _device_id: str | None = None
+
+
+def telemetry_dir() -> Path:
+	return CONFIG.BROWSER_USE_CONFIG_DIR / 'telemetry'
 
 
 def get_or_create_device_id() -> str:
@@ -29,21 +64,23 @@ def get_or_create_device_id() -> str:
 	global _device_id
 	if _device_id:
 		return _device_id
-	_device_id = os.environ.get('BROWSER_USE_DEVICE_ID') or _persisted_device_id() or _machine_fingerprint() or uuid7str()
+	_device_id = os.environ.get('BROWSER_USE_DEVICE_ID') or _persisted_device_id() or _machine_fingerprint() or uuid.uuid4().hex
 	return _device_id
 
 
 def _persisted_device_id() -> str | None:
 	try:
-		if os.path.exists(DEVICE_ID_PATH):
-			with open(DEVICE_ID_PATH, encoding='utf-8') as f:
+		from uuid_extensions import uuid7str
+
+		path = str(CONFIG.BROWSER_USE_CONFIG_DIR / 'device_id')
+		if os.path.exists(path):
+			with open(path, encoding='utf-8') as f:
 				return f.read().strip() or None
-		os.makedirs(os.path.dirname(DEVICE_ID_PATH), exist_ok=True)
 		new_device_id = uuid7str()
-		tmp_path = f'{DEVICE_ID_PATH}.{os.getpid()}.tmp'
+		tmp_path = f'{path}.{os.getpid()}.tmp'
 		with open(tmp_path, 'w', encoding='utf-8') as f:
 			f.write(new_device_id)
-		os.replace(tmp_path, DEVICE_ID_PATH)
+		os.replace(tmp_path, path)
 		return new_device_id
 	except Exception:
 		return None
@@ -53,7 +90,6 @@ def _machine_fingerprint() -> str | None:
 	"""Hashed hardware-derived id"""
 	import hashlib
 	import socket
-	import uuid
 
 	node = uuid.getnode()
 	if (node >> 40) & 0x01:  # multicast bit set: getnode() failed and returned a random id
@@ -61,88 +97,330 @@ def _machine_fingerprint() -> str | None:
 	return 'bu_' + hashlib.sha256(f'browser-use:{node}:{socket.gethostname()}'.encode()).hexdigest()[:32]
 
 
-@singleton
+@dataclass
+class Job:
+	"""One event to send. build(steps_kept, keys_per_map) returns its properties; it runs in the thread (or at exit)."""
+
+	name: str
+	build: Callable[[int, int], dict[str, Any]]
+	run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+	timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+	event: dict[str, Any] | None = None  # built
+
+
+def _alive(pid: int) -> bool:
+	if sys.platform == 'win32':  # os.kill(pid, 0) terminates the process on Windows: rely on the marker's age
+		return True
+	try:
+		os.kill(pid, 0)
+	except ProcessLookupError:
+		return False
+	except OSError:  # exists, owned by someone else
+		return True
+	return True
+
+
 class ProductTelemetry:
-	"""
-	Service for capturing anonymized telemetry data.
-
-	If the environment variable `ANONYMIZED_TELEMETRY=False`, anonymized telemetry will be disabled.
-	"""
-
-	PROJECT_API_KEY = POSTHOG_PROJECT_API_KEY
-	HOST = POSTHOG_HOST
-
-	_curr_user_id = None
+	"""One per process (telemetry()). Reads ANONYMIZED_TELEMETRY on every call."""
 
 	def __init__(self) -> None:
-		telemetry_disabled = not CONFIG.ANONYMIZED_TELEMETRY
-		self.debug_logging = CONFIG.BROWSER_USE_LOGGING_LEVEL == 'debug'
+		self._lock = threading.Lock()
+		self._reset()
 
-		if telemetry_disabled:
-			self._posthog_client = None
-		else:
-			from posthog import Posthog
-
-			logger.info(
-				'Using anonymized telemetry (no task text, results or page content; ANONYMIZED_TELEMETRY=false turns it off), '
-				'see https://github.com/browser-use/browser-use/blob/main/TELEMETRY.md'
-			)
-			self._posthog_client = Posthog(
-				project_api_key=self.PROJECT_API_KEY,
-				host=self.HOST,
-				disable_geoip=False,
-				# off: it sent every uncaught exception in the process with its message and source lines (task text,
-				# URLs, typed values); agent_event.error_type carries the class only
-				enable_exception_autocapture=False,
-			)
-
-			# Silence posthog's logging
-			if not self.debug_logging:
-				posthog_logger = logging.getLogger('posthog')
-				posthog_logger.disabled = True
-
-		if self._posthog_client is None:
-			logger.debug('Telemetry disabled')
-
-	def capture(self, event: BaseTelemetryEvent) -> None:
-		if self._posthog_client is None:
-			return
-
-		self._direct_capture(event)
-
-	def _direct_capture(self, event: BaseTelemetryEvent) -> None:
-		"""
-		Should not be thread blocking because posthog magically handles it
-		"""
-		if self._posthog_client is None:
-			return
-
-		try:
-			self._posthog_client.capture(
-				distinct_id=self.user_id,
-				event=event.name,
-				properties={**event.properties, **POSTHOG_EVENT_SETTINGS},
-			)
-		except Exception as e:
-			logger.error(f'Failed to send telemetry event {event.name}: {e}')
-
-	def flush(self) -> None:
-		if self._posthog_client:
-			try:
-				self._posthog_client.flush()
-				logger.debug('PostHog client telemetry queue flushed.')
-			except Exception as e:
-				logger.error(f'Failed to flush PostHog client: {e}')
-		else:
-			logger.debug('PostHog client not available, skipping flush.')
+	def _reset(self) -> None:
+		self._pid = os.getpid()
+		self._q: queue.Queue = queue.Queue()
+		self._thread: threading.Thread | None = None
+		self._pending: dict[str, Job] = {}  # queued or being sent
+		# run_id -> (marker props, progress(), start time) of the runs in progress
+		self._active: dict[str, tuple[Callable[[], dict], Callable[[], dict], float]] = {}
+		self.send_failures = 0  # failed sends since the last success (outbox files left at start included)
+		self.dropped = 0
 
 	@property
-	def user_id(self) -> str:
-		if self._curr_user_id:
-			return self._curr_user_id
+	def enabled(self) -> bool:
+		return CONFIG.ANONYMIZED_TELEMETRY
 
-		self._curr_user_id = get_or_create_device_id()
-		return self._curr_user_id
+	def _start(self) -> None:
+		if self._pid != os.getpid():  # a forked child: the thread did not come along
+			self._reset()
+		if self._thread is not None and self._thread.is_alive():
+			return
+		with self._lock:
+			if self._thread is None or not self._thread.is_alive():
+				self._thread = threading.Thread(target=self._loop, name='browser-use-telemetry', daemon=True)
+				self._thread.start()
+				if not getattr(self, '_atexit', False):
+					logger.info(
+						'Using anonymized telemetry (no task text, results or page content; ANONYMIZED_TELEMETRY=false turns '
+						'it off), see https://github.com/browser-use/browser-use/blob/main/TELEMETRY.md'
+					)
+					atexit.register(self._at_exit)
+					self._atexit = True
+
+	# --- the agent path: never blocks, never raises ---
+
+	def run_started(self, run_id: str, props: Callable[[], dict], progress: Callable[[], dict]) -> None:
+		"""A crash marker for this run, written by the thread: a process killed mid-run still reports it (status crashed)
+		the next time browser-use runs. props() is the event as known at the start, progress() adds the step count."""
+		if not self.enabled:
+			return
+		try:
+			self._active[run_id] = (props, progress, time.time())
+			self._start()
+			self._q.put_nowait(('mark', run_id))
+		except Exception as e:  # - telemetry never breaks a run
+			logger.debug('telemetry: %s', e)
+
+	def capture_run(self, job: Job) -> None:
+		if not self.enabled:
+			self._active.pop(job.run_id, None)
+			return
+		try:
+			if len(self._pending) >= 100:  # a sender that cannot keep up: drop the oldest
+				self._pending.pop(next(iter(self._pending)), None)
+				self.dropped += 1
+			self._pending[job.run_id] = job
+			self._start()
+			self._q.put_nowait(('event', job.run_id))
+		except Exception as e:  # - telemetry never breaks a run
+			logger.debug('telemetry: %s', e)
+
+	def forget(self, run_id: str) -> None:
+		"""A run whose event could not be built: drop its crash marker, so it is not reported as crashed."""
+		if self._active.pop(run_id, None) is not None:
+			self._q.put_nowait(('unmark', run_id))
+
+	def capture(self, event: BaseTelemetryEvent) -> None:
+		self.capture_run(Job(event.name, lambda steps, keys: event.properties))
+
+	def flush(self, timeout: float = 5.0) -> bool:
+		"""Wait until everything queued was sent or given up (tests). Never called on the agent path."""
+		deadline = time.monotonic() + timeout
+		while self._pending and time.monotonic() < deadline:
+			time.sleep(0.01)
+		return not self._pending
+
+	# --- the thread ---
+
+	def _loop(self) -> None:
+		try:
+			self._warm()
+			self._send_outbox()
+			self._send_crashed()
+			from browser_use.telemetry import flags
+
+			flags.refresh(POSTHOG_HOST, POSTHOG_PROJECT_API_KEY, get_or_create_device_id())
+		except Exception as e:  # - a read-only disk, no network: carry on with the queue
+			logger.debug('telemetry start: %s', e)
+		while True:
+			try:
+				kind, run_id = self._q.get(timeout=MARKER_REFRESH_S)
+			except queue.Empty:
+				for run_id in list(self._active):
+					self._mark(run_id)
+				continue
+			try:
+				if kind == 'mark':
+					self._mark(run_id)
+				elif kind == 'unmark':
+					self._unmark(run_id)
+				elif (job := self._pending.get(run_id)) is not None:
+					self._send(job)
+			except Exception as e:  # - never let one event stop the thread
+				logger.debug('telemetry: %s', e)
+				self._pending.pop(run_id, None)
+
+	def _warm(self) -> None:
+		"""The slow first calls (installed packages, CDP methods: ~300 ms) happen here, not when an event is built."""
+		from browser_use.telemetry.stats import _cdp_methods, _known_modules, environment
+		from browser_use.utils import get_browser_use_version, get_install_source
+
+		_known_modules()
+		_cdp_methods()
+		environment()
+		get_browser_use_version()
+		get_install_source()
+
+	def _event(self, job: Job) -> dict[str, Any]:
+		"""job.event, built once: properties at the first level that fits MAX_BYTES."""
+		if job.event is not None:
+			return job.event
+		from browser_use.utils import get_browser_use_version
+
+		started = time.perf_counter_ns()
+		props: dict[str, Any] = {}
+		size = 0
+		for steps, keys in LEVELS:
+			props = job.build(steps, keys)
+			size = len(json.dumps(props, separators=(',', ':'), default=str))
+			if size <= MAX_BYTES:
+				break
+		if 'tel_build_us' in props:
+			props.update(
+				tel_build_us=(time.perf_counter_ns() - started) // 1000, tel_bytes=size, tel_prev_send_fail=self.send_failures
+			)
+		props.update({'$lib': 'browser-use', '$lib_version': get_browser_use_version()})
+		job.event = {
+			'event': job.name,
+			'distinct_id': get_or_create_device_id(),
+			'uuid': str(uuid.UUID(job.run_id)) if len(job.run_id) == 32 else job.run_id,
+			'timestamp': job.timestamp,
+			'properties': props,
+		}
+		return job.event
+
+	@staticmethod
+	def _body(events: list[dict]) -> bytes:
+		body = {'api_key': POSTHOG_PROJECT_API_KEY, 'batch': events}
+		return gzip.compress(json.dumps(body, separators=(',', ':'), default=str).encode(), compresslevel=6)
+
+	@staticmethod
+	def _post(data: bytes, timeout: float = SEND_TIMEOUT_S) -> bool:
+		import urllib.request
+
+		headers = {'Content-Type': 'application/json', 'Content-Encoding': 'gzip'}
+		try:
+			with urllib.request.urlopen(urllib.request.Request(f'{POSTHOG_HOST}/batch/', data, headers), timeout=timeout) as r:
+				return 200 <= r.status < 300
+		except Exception:
+			return False
+
+	def _send(self, job: Job) -> None:
+		data = self._body([self._event(job)])
+		ok = self._post(data)
+		if not ok:
+			time.sleep(1)
+			ok = self._post(data)
+		if ok:
+			self.send_failures = 0
+		else:
+			self.send_failures += 1
+			self._to_outbox(data, job.run_id)
+		self._pending.pop(job.run_id, None)
+		self._unmark(job.run_id)
+
+	# --- outbox, crash markers (all disk IO is in the thread or at exit; failures are ignored) ---
+
+	def _to_outbox(self, data: bytes, name: str) -> Path | None:
+		try:
+			box = telemetry_dir() / 'outbox'
+			box.mkdir(parents=True, exist_ok=True)
+			files = list(box.glob('*.gz'))
+			if len(files) >= OUTBOX_FILES or sum(f.stat().st_size for f in files) + len(data) > OUTBOX_BYTES:
+				return None
+			path = box / f'{name}.gz'
+			path.write_bytes(data)
+			return path
+		except OSError:
+			return None
+
+	def _send_outbox(self) -> None:
+		box = telemetry_dir() / 'outbox'
+		if not box.is_dir():
+			return
+		files = sorted(box.glob('*.gz'), key=lambda p: p.stat().st_mtime)
+		for i, path in enumerate(files):
+			try:
+				if time.time() - path.stat().st_mtime > OUTBOX_DAYS * 86400:
+					path.unlink()
+					continue
+				claimed = path.with_suffix(f'.{os.getpid()}.sending')
+				os.replace(path, claimed)  # another process may be sending the same box
+			except OSError:
+				continue
+			if self._post(claimed.read_bytes()):
+				claimed.unlink(missing_ok=True)
+			else:  # offline: the rest waits for the next process
+				os.replace(claimed, path)
+				self.send_failures += len(files) - i
+				return
+
+	def _marker(self, run_id: str) -> Path:
+		return telemetry_dir() / 'inflight' / f'{run_id}.json'
+
+	def _mark(self, run_id: str) -> None:
+		entry = self._active.get(run_id)
+		if entry is None:
+			return
+		props, progress, started = entry
+		try:
+			path = self._marker(run_id)
+			path.parent.mkdir(parents=True, exist_ok=True)
+			marker = {'pid': os.getpid(), 'started': started, 'updated': time.time(), **progress()}
+			tmp = path.with_suffix('.tmp')
+			tmp.write_text(json.dumps({**marker, 'props': props()}, default=str), encoding='utf-8')
+			os.replace(tmp, path)
+		except OSError:
+			pass
+
+	def _unmark(self, run_id: str) -> None:
+		self._active.pop(run_id, None)
+		try:
+			self._marker(run_id).unlink(missing_ok=True)
+		except OSError:
+			pass
+
+	def _send_crashed(self) -> None:
+		"""Runs whose process died (killed, out of memory, a kernel restart) left a marker: send each as status crashed."""
+		folder = telemetry_dir() / 'inflight'
+		if not folder.is_dir():
+			return
+		for path in folder.glob('*.json'):
+			try:
+				marker = json.loads(path.read_text(encoding='utf-8'))
+				props = dict(marker['props'])
+				age = time.time() - float(marker.get('started') or 0)
+				pid = int(marker.get('pid') or 0)
+				if pid == os.getpid() or (_alive(pid) and age < float(props.get('timeout_s') or 0) + CRASH_GRACE_S):
+					continue
+				claimed = path.with_suffix(f'.{os.getpid()}.crashed')
+				os.replace(path, claimed)  # one process sends it
+			except (OSError, ValueError, KeyError, TypeError):
+				continue
+			updated = float(marker.get('updated') or marker.get('started') or 0)
+			props.update(
+				status='crashed',
+				steps=int(marker.get('steps') or 0),
+				ms_total=max(0, int((updated - float(marker.get('started') or updated)) * 1000)),
+			)
+			job = Job('agent_event', lambda steps, keys, props=props: props, run_id=path.stem)
+			if self._post(self._body([self._event(job)])):
+				claimed.unlink(missing_ok=True)
+			else:
+				os.replace(claimed, path)
+
+	def _at_exit(self) -> None:
+		"""Events still queued go to a detached sender, so exit does not wait for the network (~10 ms to spawn)."""
+		try:
+			jobs = list(self._pending.values())
+			if not jobs or os.getpid() != self._pid:
+				return
+			files = [self._to_outbox(self._body([self._event(job)]), job.run_id) for job in jobs]
+			for job in jobs:
+				self._unmark(job.run_id)
+			files = [str(f) for f in files if f is not None]
+			if not files:
+				return
+			flags: dict[str, Any] = {'stdin': subprocess.DEVNULL, 'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}
+			if sys.platform == 'win32':
+				flags['creationflags'] = 0x00000008 | 0x00000200 | 0x08000000  # DETACHED, NEW_PROCESS_GROUP, NO_WINDOW
+			else:
+				flags['start_new_session'] = True
+			# if this fails (no subprocesses here), the files stay in the outbox and the next process sends them
+			subprocess.Popen([sys.executable, '-I', '-c', EXIT_SENDER, f'{POSTHOG_HOST}/batch/', *files], **flags)
+		except Exception as e:  # - exit must never fail because of telemetry
+			logger.debug('telemetry at exit: %s', e)
+
+
+_instance: ProductTelemetry | None = None
+
+
+def telemetry() -> ProductTelemetry:
+	global _instance
+	if _instance is None:
+		_instance = ProductTelemetry()
+	return _instance
 
 
 if not TYPE_CHECKING:  # pyright would accept any name imported from here

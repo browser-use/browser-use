@@ -118,8 +118,9 @@ DOWNLOAD_EVENTS = ('Browser.downloadWillBegin', 'Page.downloadWillBegin')  # clo
 
 
 class CellStats:
-	"""Telemetry counts of one cell (TELEMETRY.md): helper and cdp() method names, hostnames, captcha and download
-	events. Never arguments, URLs, page text or values. Sent with the cell's result, then reset."""
+	"""Telemetry counts of one cell (TELEMETRY.md): helper and cdp() method names with call counts, errors and time,
+	hostnames, captcha and download events. Never arguments, URLs, page text or values. Sent with the cell's result,
+	then reset. Each update is a few dict operations under one lock (~1 us); helpers and CDP calls take milliseconds."""
 
 	def __init__(self) -> None:
 		self.lock = threading.Lock()  # ultrafast reads CDP events on a background thread
@@ -127,19 +128,42 @@ class CellStats:
 		self.navigated = False
 		self.downloads: set[str | None] = set()  # guids seen: one download_started per download, whichever events announce it
 		self.started: list[str] = []  # names of downloads that started since the last cell output
+		self.seen: set[int] = set()  # hashes of URLs this worker saw (loop detection); never leave this process
 		self.take()
 
 	def count(self, kind: str, name: str) -> None:
 		with self.lock:
 			getattr(self, kind)[name] += 1
 
+	def timed(self, kind: str, name: str, ns: int, failed: bool) -> None:
+		"""One helper ('helper_t') or CDP ('cdp_t') call: [calls, errors, ns total, ns max] per name."""
+		with self.lock:
+			if kind == 'helper_t':
+				self.helpers[name] += 1
+			s = getattr(self, kind).get(name)
+			if s is None:
+				getattr(self, kind)[name] = [1, int(failed), ns, ns]
+			else:
+				s[0] += 1
+				s[1] += failed
+				s[2] += ns
+				s[3] = max(s[3], ns)
+
 	def url(self, url, navigation: bool = False) -> None:
-		"""A navigation's hostname, or (navigation=False) the hostname of a page the agent read."""
+		"""A navigation's hostname, or (navigation=False) the hostname of a page the agent read. A URL never seen before
+		counts as a new page, a navigation to one already seen as a revisit (by hash; the URL is not kept)."""
 		if h := host(url):
 			with self.lock:
 				self.navigated = self.navigated or navigation
 				if self.navigated:
 					self.hosts.add(h)
+					self.host = h
+					key = hash(str(url).split('#', 1)[0])
+					if key in self.seen:
+						self.revisits += navigation
+					else:
+						self.seen.add(key)
+						self.new_pages += 1
 				self.navigations += navigation
 
 	def observe(self, events) -> None:
@@ -175,8 +199,14 @@ class CellStats:
 				'events': dict(getattr(self, 'events', {})),
 				'hosts': sorted(getattr(self, 'hosts', ())),
 				'navigations': getattr(self, 'navigations', 0),
+				'helper_t': getattr(self, 'helper_t', {}),
+				'cdp_t': getattr(self, 'cdp_t', {}),
+				'host': getattr(self, 'host', None),  # the last hostname this cell saw
+				'new_pages': getattr(self, 'new_pages', 0),
+				'revisits': getattr(self, 'revisits', 0),
 			}
 			self.helpers, self.cdp, self.events, self.hosts, self.navigations = Counter(), Counter(), Counter(), set(), 0
+			self.helper_t, self.cdp_t, self.host, self.new_pages, self.revisits = {}, {}, None, 0, 0
 		return out
 
 
@@ -218,8 +248,12 @@ def _counted(name: str, fn):
 
 	@functools.wraps(fn)
 	def counted(*args, **kwargs):
-		stats.count('helpers', name)
-		result = fn(*args, **kwargs)
+		started, failed = time.perf_counter_ns(), True
+		try:
+			result = fn(*args, **kwargs)
+			failed = False
+		finally:  # an error counts even when the model's code catches it
+			stats.timed('helper_t', name, time.perf_counter_ns() - started, failed)
 		if name in ('page_info', 'current_tab') and isinstance(result, dict):
 			stats.url(result.get('url'))
 		return result
@@ -443,6 +477,16 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			raise box['error']
 		return box['result']
 
+	def timed(method, session_id=None, **params):
+		"""Every CDP call from the worker (helpers, bu, the agent's cdp()), timed per method for telemetry."""
+		started, failed = time.perf_counter_ns(), True
+		try:
+			result = dialog_aware(method, session_id, **params)
+			failed = False
+			return result
+		finally:
+			stats.timed('cdp_t', str(method)[:200], time.perf_counter_ns() - started, failed)
+
 	def _cdp(method, session_id=None, **params):
 		frozen = params.pop('_frozen', False)
 		if method == 'DOM.setFileInputFiles':  # local paths, also on a remote browser (bu's recipe on the cloud default)
@@ -487,7 +531,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			object_id = plain('DOM.resolveNode', session_id, **node)['object']['objectId']
 		return set_files(functools.partial(plain, session_id=session_id), object_id, params.get('files') or [], cloud)
 
-	cdp.__doc__ = raw_cdp.__doc__
+	dialog_aware, cdp = cdp, functools.wraps(raw_cdp)(timed)
 	helpers.cdp = cdp  # capture_screenshot() and friends go through the wrapper too
 	helpers.http_get = http_get
 	helpers.wait_for_network_idle = wait_for_network_idle  # browser-4; delete with network_idle.py at harness >= 0.1.14
@@ -949,7 +993,10 @@ def main() -> None:
 			os.close(saved[1])
 		pump.join(5)  # a background subprocess may hold the pipe open; its later output still lands in the file
 		with open(out_path, encoding='utf-8', errors='replace') as f:
-			output = clip(f.read(MAX_OUTPUT_CHARS + 1), out_path)
+			raw = f.read(MAX_OUTPUT_CHARS + 1)
+		output = clip(raw, out_path)
+		cell_stats = stats.take()
+		cell_stats['cut'] = len(raw) > MAX_OUTPUT_CHARS
 		send(
 			{
 				'type': 'result',
@@ -960,7 +1007,7 @@ def main() -> None:
 				'images': list(images),
 				'output_file': str(out_path),
 				'error_type': error_type,
-				'stats': stats.take(),
+				'stats': cell_stats,
 			}
 		)
 

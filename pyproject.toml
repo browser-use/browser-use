@@ -23,7 +23,6 @@ dependencies = [
     "genai-prices>=0.1.13",
     "idna>=3.7",
     "pillow>=11",
-    "posthog>=7.7.0",
     "python-dotenv>=1.0",
     "uuid7==0.1.0",
     "mcp>=2.1.1,<3",
@@ -31,7 +30,7 @@ dependencies = [
 # browser-harness: CDP daemon, browser helpers, CLI, auth (also pulls cdp-use, fetch-use, websockets)
 # genai-prices: cost per run (imported directly). pydantic-ai-slim[openai,anthropic,google]: agent loop (Anthropic and Google built in so model strings just work) (bounded <3: the engine uses its capabilities API); OpenAI Responses (official API, gateway) and chat completions (base_url)
 # pillow: the REPL worker validates and downsizes images before they reach the model
-# posthog, python-dotenv, uuid7: anonymized telemetry (ANONYMIZED_TELEMETRY=false turns it off)
+# python-dotenv: .env loading; uuid7: the anonymous telemetry device id (telemetry is sent with the standard library)
 # mcp: `browser-use --cli-mcp` (the biggest CLI surface) must work without extras
 # google-genai<3: 3.0.0 calls the Gemini API on v1, which rejects tools, so every Gemini run fails on its first request.
 # Pydantic AI caps it the same way (pydantic/pydantic-ai#12700, unreleased on 11-08); lift with pydantic-ai#12732.

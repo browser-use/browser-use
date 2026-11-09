@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
-SCHEMA_VERSION = 2  # 2: no task, result, code, typed text, URLs or error messages (TELEMETRY.md)
+SCHEMA_VERSION = 3  # 2: no task, result, code, typed text, URLs or error messages; 3: timings, per-step arrays (TELEMETRY.md)
 
 
 @dataclass
@@ -23,7 +23,8 @@ class BaseTelemetryEvent(ABC):
 @dataclass
 class AgentTelemetryEvent(BaseTelemetryEvent):
 	"""One per Agent.run(). Every field is a number, a bool, an enum, a name chosen by browser-use or the developer
-	(model, helper, tool, module, exception class) or a hostname. TELEMETRY.md lists each one."""
+	(model, helper, tool, module, exception class) or a hostname, or a list or map of those. TELEMETRY.md lists each
+	one; tests/ci/test_telemetry.py checks that the two match."""
 
 	# install
 	version: str
@@ -97,6 +98,107 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	downloads_started: int = 0
 	downloads: int = 0
 	download_exts: dict[str, int] = field(default_factory=dict)
+	# --- schema 3 ---
+	is_internal: bool = False  # BROWSER_USE_TELEMETRY_INTERNAL: our own evals and tests
+	# configuration
+	web_search: bool = False
+	use_vision: bool = True
+	highlight_actions: bool = True
+	max_context_chars_set: bool = False
+	captcha_solver: bool | None = None
+	headless: bool | None = None
+	chrome_profile: bool = False
+	user_data_dir: bool = False
+	browser_exe: str | None = None  # chrome | chromium | edge | other: from the path's file name, never the path
+	allowed_domains_n: int = 0
+	prohibited_domains_n: int = 0
+	block_ip_addresses: bool = False
+	gateway: bool = False
+	model_api: str = ''  # responses | chat | anthropic | google | other
+	compaction_mode: str = ''  # server | client
+	context_window: int | None = None
+	sync: bool = False
+	run_in_process: int = 0
+	concurrent_runs: int = 0
+	flags: dict[str, str] = field(default_factory=dict)
+	flags_src: dict[str, str] = field(default_factory=dict)
+	# where the time went, in ms
+	ms_total: int = 0
+	ms_preflight: int = 0
+	ms_browser_start: int | None = None
+	ms_repl_start: int = 0
+	ms_model: int = 0
+	ms_ttft: int = 0
+	ms_cells: int = 0
+	ms_helpers: int = 0
+	ms_waits: int = 0
+	ms_cdp: int = 0
+	ms_compaction: int = 0
+	ms_retry_sleep: int = 0
+	ms_delivery: int = 0
+	ms_shutdown: int = 0
+	ms_other: int = 0
+	# how it ended
+	error_phase: str | None = None
+	budget_hit: str | None = None
+	delivery_turn: bool = False
+	delivery_repairs: int = 0
+	# model
+	model_attempts: int = 0
+	length_finishes: int = 0
+	invalid_tool_calls: int = 0
+	response_models: dict[str, int] = field(default_factory=dict)
+	cost_search_usd: float | None = None
+	cost_compaction_usd: float | None = None
+	retries: dict[str, int] = field(default_factory=dict)
+	model_fails: list[list[Any]] = field(default_factory=list)
+	compactions: list[list[int]] = field(default_factory=list)
+	# browsing
+	first_nav_step: int | None = None
+	first_nav_ms: int | None = None
+	first_ok_action_ms: int | None = None
+	revisit_navs: int = 0
+	helper_stats: dict[str, list[int]] = field(default_factory=dict)
+	cdp_stats: dict[str, list[int]] = field(default_factory=dict)
+	host_stats: dict[str, list[int]] = field(default_factory=dict)
+	# struggle
+	max_err_streak: int = 0
+	err_streaks_3: int = 0
+	streak_err: str | None = None
+	streak_kind: str | None = None
+	streak_helper: str | None = None
+	repeat_fail_steps: int = 0
+	repeat_code_steps: int = 0
+	max_host_streak: int = 0
+	last_progress_step: int = 0
+	wasted_steps: int = 0
+	# per step (parallel arrays, one entry per model response)
+	s_t: list[int] = field(default_factory=list)
+	s_model_ms: list[int] = field(default_factory=list)
+	s_ttft_ms: list[int] = field(default_factory=list)
+	s_in: list[int] = field(default_factory=list)
+	s_out: list[int] = field(default_factory=list)
+	s_cached: list[int] = field(default_factory=list)
+	s_reason: list[int] = field(default_factory=list)
+	s_finish: list[str] = field(default_factory=list)
+	s_tools: list[str] = field(default_factory=list)
+	s_cells: list[int] = field(default_factory=list)
+	s_cell_ms: list[int] = field(default_factory=list)
+	s_wait_ms: list[int] = field(default_factory=list)
+	s_cdp_ms: list[int] = field(default_factory=list)
+	s_err: list[str] = field(default_factory=list)
+	s_helpers: list[str] = field(default_factory=list)
+	s_kind: list[str] = field(default_factory=list)
+	s_host: list[str] = field(default_factory=list)
+	s_nav: list[int] = field(default_factory=list)
+	s_out_chars: list[int] = field(default_factory=list)
+	s_imgs: list[int] = field(default_factory=list)
+	s_ev: list[int] = field(default_factory=list)
+	# telemetry itself
+	tel_build_us: int = 0
+	tel_bytes: int = 0
+	tel_steps_dropped: int = 0
+	tel_prev_send_fail: int = 0
 
 	name: str = 'agent_event'
 

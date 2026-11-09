@@ -311,6 +311,28 @@ async def test_a_responses_failure_inside_http_200_is_retried_once(responses_ser
 	assert (result.status, len(requests)) == ('error', 2) and code in (result.error or '')
 
 
+async def test_streamed_requests_record_time_to_first_event_and_each_failed_attempt(responses_server, tmp_path):
+	"""Telemetry v3: a streamed request's time to its first event, the failed attempt before it (class and provider code,
+	never the message) and the retry's cause, from the real Responses path."""
+	from browser_use.telemetry.recorder import RunRecorder
+	from browser_use.telemetry.stats import RunStats
+
+	url, requests, replies = responses_server
+	model, _ = resolve_model(ChatBrowserUse('bu-fast', api_key='fake-test-key', base_url=url))
+	replies.append({'status': 'failed', 'error': {'code': 'server_error', 'message': 'Zq-provider-message'}})
+	session = Session(repl=Repl(tmp_path), rec=RunRecorder(model='bu-fast', gateway=True))
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', session, 'browser-use:bu-fast')
+	assert result.status == 'completed', result.error
+	rec = session.rec
+	(step,) = rec.steps
+	assert 0 <= step.ttft <= step.model_ms and step.ev & 4 and (step.inp, step.out, step.reason) == (10, 2, 1)
+	assert (dict(rec.retries), rec.attempts, rec.ms['ttft'] > 0) == ({'provider_transient': 1}, 2, True)
+	out = rec.build(RunStats(), 1000)
+	(fail,) = out['model_fails']
+	assert fail[0] == 1 and fail[2] == 'ModelServerError' and fail[3] == 'server_error'
+	assert out['response_models'] == {'bu-fast': 1} and out['s_ttft_ms'][0] >= 0 and 'Zq-provider' not in json.dumps(out)
+
+
 @pytest.mark.parametrize('code', ['upstream_stream_failed', 'model_request_failed'])
 async def test_a_gateway_stream_error_before_any_output_is_retried_once(responses_server, tmp_path, code):
 	"""gw3 (live, prod gateway, 4 of 8 streamed compactions): the gateway gave up on OpenAI ~32 s in, before its first

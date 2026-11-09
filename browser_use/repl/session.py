@@ -27,6 +27,7 @@ import secrets
 import signal
 import subprocess
 import sys
+import time
 import urllib.parse
 import weakref
 from collections.abc import Awaitable, Callable, Iterable
@@ -301,12 +302,17 @@ class Repl:
 		cells = (p.stem for p in (self.state / 'cells').glob('*.txt'))
 		self.n = max((int(c) for c in cells if c.isdigit()), default=0)
 		self.lock = asyncio.Lock()  # the model may emit parallel python calls; the worker runs one cell at a time
+		self.start_ns = 0  # time spent starting workers (telemetry ms_repl_start)
 		self._lock_loop: asyncio.AbstractEventLoop | None = None  # the loop self.lock serves (a lock binds to one)
 
 	async def start(self) -> None:
 		# In a context of its own: the worker's socket reader holds the context it was opened in while it is open, and the
 		# run's (Pydantic AI's RunContext -> Session -> this Repl) kept an Agent dropped without close() from being freed
-		await asyncio.create_task(self._start(), context=contextvars.Context())
+		started = time.perf_counter_ns()
+		try:
+			await asyncio.create_task(self._start(), context=contextvars.Context())
+		finally:
+			self.start_ns += time.perf_counter_ns() - started
 
 	async def _start(self) -> None:
 		check_loop()
