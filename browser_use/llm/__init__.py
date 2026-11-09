@@ -48,8 +48,33 @@ _CHAT_DROP = {('ChatAnthropic', 'temperature'): "delete it: Anthropic's API reje
 
 
 def _plain(key: str | SecretStr | None) -> str | None:
-	"""A SecretStr key (LangChain-era 0.x code) as the plain string: str() of it is '**********'."""
-	return key.get_secret_value() if isinstance(key, SecretStr) else key
+	"""A SecretStr key (LangChain-era 0.x code) as the plain string (str() of it is '**********'), without surrounding
+	whitespace (a trailing newline from a file or `echo`)."""
+	key = key.get_secret_value() if isinstance(key, SecretStr) else key
+	return key.strip() if isinstance(key, str) else key
+
+
+def _env_key(*names: str) -> str | None:
+	"""The provider key from the first of these variables that is set, as _plain() cleans it; None when none is."""
+	return next((_plain(os.environ[n]) for n in names if os.environ.get(n, '').strip()), None)
+
+
+def _model_key(model: Any) -> str | None:
+	"""The API key a resolved model's client sends (OpenAI, Anthropic, Google SDKs); None when unknown."""
+	client = getattr(model, 'client', None)
+	keys = (getattr(client, 'api_key', None), getattr(client, 'auth_token', None))
+	return next((k for k in (*keys, getattr(getattr(client, '_api_client', None), 'api_key', None)) if isinstance(k, str)), None)
+
+
+def check_key(model: Any) -> None:
+	"""A key with whitespace, a control or a non-ASCII character in it raises here, without the key: the HTTP client
+	rejects such a header with the whole key in its error, which became result.error and the error log line."""
+	key = _model_key(model)
+	if key and (key != key.strip() or not key.isascii() or any(c.isspace() or not c.isprintable() for c in key)):
+		raise ValueError(
+			f'The API key for {getattr(model, "model_name", "the model")} has a space, line break, control or non-ASCII '
+			'character in it (not shown). Copy the key again and set it without them.'
+		)
 
 
 def _chat_kwargs(cls: str, kwargs: dict[str, Any]) -> None:
@@ -279,7 +304,7 @@ class ChatOpenAI(_Chat):
 			env = os.environ.get('OPENAI_API_KEY', '')
 			key = self.api_key or (env if env.startswith('bu_') else None)
 			return ChatBrowserUse(self.model, api_key=key, base_url=self.url).pydantic_model()
-		provider = OpenAIProvider(api_key=self.api_key, base_url=self.base_url)
+		provider = OpenAIProvider(api_key=self.api_key or _env_key('OPENAI_API_KEY'), base_url=self.base_url)
 		if self.is_official:  # Responses API + server-side compaction: what we evaluate
 			return OpenAIResponsesModel(self.model, provider=provider)
 		return OpenAIChatModel(self.model, provider=provider, profile=compatible_profile())  # no OpenAI-only settings
@@ -306,7 +331,7 @@ class ChatAnthropic(_Chat):
 			from pydantic_ai.providers.anthropic import AnthropicProvider
 		except ImportError:
 			raise ImportError(extra_hint('anthropic')) from None
-		return AnthropicModel(self.model, provider=AnthropicProvider(api_key=self.api_key))
+		return AnthropicModel(self.model, provider=AnthropicProvider(api_key=self.api_key or _env_key('ANTHROPIC_API_KEY')))
 
 	def model_settings(self) -> dict:
 		return {}
@@ -325,7 +350,8 @@ class ChatGoogle(_Chat):
 			from pydantic_ai.providers.google import GoogleProvider
 		except ImportError:
 			raise ImportError(extra_hint('google')) from None
-		return GoogleModel(self.model, provider=GoogleProvider(api_key=self.api_key))
+		key = self.api_key or _env_key('GOOGLE_API_KEY', 'GEMINI_API_KEY')  # GoogleProvider's order
+		return GoogleModel(self.model, provider=GoogleProvider(api_key=key))
 
 	def model_settings(self) -> dict:
 		return {}
@@ -507,7 +533,9 @@ def resolve_model(llm: Any) -> tuple[Any, dict]:
 	from pydantic_ai.exceptions import UserError
 
 	try:
-		return _resolve_model(llm)
+		model, settings = _resolve_model(llm)
+		check_key(model)
+		return model, settings
 	except UserError as e:  # Pydantic AI's missing-key text names its provider classes and suggests Agent('test')
 		if not (env := re.match(r'Set the `(\w+)` environment variable', str(e))):
 			raise

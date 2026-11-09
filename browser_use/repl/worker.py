@@ -10,6 +10,7 @@ partial output on disk.
 
 import ast
 import asyncio
+import atexit
 import base64
 import codecs
 import contextlib
@@ -884,14 +885,14 @@ def _write_atomic(path: Path, text: str) -> None:
 	os.replace(tmp, path)  # a kill mid-write leaves the old file, never a truncated one
 
 
-def _pump(rfd: int, path: Path, secrets: list) -> None:
+def _pump(rfd: int, path: Path, secrets: list, mode: str = 'w') -> None:
 	"""Copy a cell's output pipe into its file, redacting on the way, so secret values never reach the disk even
 	when the cell is killed. Holds back only the tail that could be the start of a secret."""
 	forms = secret_forms(secrets)
 	keep = max((len(f) for f, _ in forms), default=1) - 1
 	by_line = not any('\n' in f for f, _ in forms)  # then a secret never spans a newline
 	decoder, buf = codecs.getincrementaldecoder('utf-8')('replace'), ''
-	with open(path, 'w', encoding='utf-8', newline='') as out:  # Windows: the cell already wrote \r\n; no \r\r\n
+	with open(path, mode, encoding='utf-8', newline='') as out:  # Windows: the cell already wrote \r\n; no \r\r\n
 		while True:
 			chunk = os.read(rfd, 65536)
 			buf = redact_forms(buf + decoder.decode(chunk, final=not chunk), forms)
@@ -969,6 +970,28 @@ def _watch_parent(parent: int) -> None:
 _OWN_JOB = None  # Windows: the worker's own kill-on-close job, held open for the worker's lifetime
 
 
+def _redact_between_cells(secrets: list) -> None:
+	"""Output written between cells (a thread or subprocess a cell left running, a warning) goes to worker.log through
+	the redacting pump too: it went there raw, with any secret value a background thread printed."""
+	rfd, wfd = os.pipe()
+	pump = threading.Thread(target=_pump, args=(rfd, STATE / 'worker.log', secrets, 'a'), daemon=True)
+	pump.start()
+	log = os.dup(1), os.dup(2)
+	os.dup2(wfd, 1)
+	os.dup2(wfd, 2)
+	os.close(wfd)
+
+	def drain() -> None:  # exit: close the pipe so the pump writes what it holds (a crash traceback) and ends
+		with contextlib.suppress(Exception):
+			sys.stdout.flush()
+			sys.stderr.flush()
+			os.dup2(log[0], 1)
+			os.dup2(log[1], 2)
+			pump.join(2)
+
+	atexit.register(drain)
+
+
 def main() -> None:
 	global _OWN_JOB
 	if sys.platform == 'win32':  # processes a cell starts join this job, so they die with the worker however it dies
@@ -987,6 +1010,7 @@ def main() -> None:
 	cells.mkdir(parents=True, exist_ok=True)
 	sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
 	sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
+	_redact_between_cells(secrets)  # after reconfigure(): it seeks, which a pipe refuses
 	ns: dict = {'__name__': '__main__', '__bu_display': _display}
 	bu, captcha = _install(ns, secrets)
 	ask = _ask_parent(rfile, wfile)

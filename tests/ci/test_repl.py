@@ -2,6 +2,7 @@
 
 import ast
 import asyncio
+import time
 from pathlib import Path
 
 import pytest
@@ -279,6 +280,36 @@ async def test_interrupted_cell_never_writes_a_secret_to_disk(tmp_path):
 	assert 'got <secret:pw>' in text and 'hunter2' not in text
 
 
+async def test_output_between_cells_never_writes_a_secret_to_disk(tmp_path):
+	"""Live: a thread a cell left running printed the value after the cell ended; fd 1 was worker.log again, raw."""
+	repl = Repl(tmp_path, secrets={'pw': 'hunter2-Zq9'})
+	log = tmp_path / '.browser-use' / 'worker.log'
+	try:
+		code = DIG + (
+			'import os, threading, time, warnings\n'
+			'def later():\n'
+			"\twhile not os.path.exists('go'):  # created once the cell's result arrived: the cell is over\n"
+			'\t\ttime.sleep(0.01)\n'
+			"\tprint('thread', v['pw'], flush=True)\n"
+			"\twarnings.warn('warn ' + v['pw'])\n"
+			'threading.Thread(target=later, daemon=True).start()'
+		)
+		r = await repl.call('exec', code, 30)
+		assert r['error'] is None, r
+		(tmp_path / 'go').touch()
+
+		def logged() -> None:  # the thread's lines reach worker.log (a 10 s deadline)
+			deadline = time.monotonic() + 10
+			while 'warn' not in log.read_text(encoding='utf-8') and time.monotonic() < deadline:
+				time.sleep(0.05)
+
+		await asyncio.to_thread(logged)
+	finally:
+		await repl.close()
+	text = log.read_text(encoding='utf-8')
+	assert 'thread <secret:pw>' in text and 'warn <secret:pw>' in text and 'hunter2' not in text, text
+
+
 async def test_common_encodings_of_a_secret_are_redacted(tmp_path):
 	"""Fable: btoa(value), value[::-1], hex and URL-encoding walked the value past plain-text redaction."""
 	repl = Repl(tmp_path, secrets={'pw': 'hunter2 Zq9/'})
@@ -292,6 +323,41 @@ async def test_common_encodings_of_a_secret_are_redacted(tmp_path):
 	finally:
 		await repl.close()
 	assert r['output'].split() == ['<secret:pw>'] * 4
+
+
+async def test_a_secret_as_the_page_shows_it_is_redacted(tmp_path):
+	"""Live run: a login page showed the email lowercased, outerHTML showed the password HTML-escaped, and base64 of
+	'user:' + password (Basic auth) or of a JSON blob holding it started mid-group: all four reached result.messages."""
+	pw, email = 'P@ss&w0rd<Zq9>!x"', 'Jane.Doe-Q7@Example.COM'
+	repl = Repl(tmp_path, secrets={'pw': pw, 'email': email})
+	try:
+		code = (
+			'import base64, html, json\n'
+			f'pw, email = {pw!r}, {email!r}\n'
+			'b64 = lambda s: base64.b64encode(s.encode()).decode()\n'
+			'print(email.lower(), email.upper())\n'
+			"print(js_text := pw.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'))\n"
+			"print(js_text.replace('\"', '&quot;'), pw.replace('&', '&amp;').replace('\"', '&quot;'), html.escape(pw))\n"
+			"for prefix in ('', 'a', 'a:', 'ab:'):\n\tprint('Basic', b64(prefix + pw), b64(prefix + pw + '\\n'))\n"
+			"print(b64(json.dumps({'password': pw})), base64.urlsafe_b64encode(json.dumps({'pw': pw}).encode()).decode())\n"
+		)
+		r = await repl.call('exec', code, 30)
+	finally:
+		await repl.close()
+	lines = r['output'].strip().splitlines()
+	assert r['error'] is None and len(lines) == 8, r
+	assert lines[0] == '<secret:email> <secret:email>'
+	for line in lines[1:3]:
+		assert set(line.split()) == {'<secret:pw>'}, line
+	for line in lines[3:]:
+		assert all('<secret:pw>' in word for word in line.split() if word != 'Basic'), line
+	assert 'w0rd' not in r['output'] and 'Example' not in r['output']
+
+
+async def test_ordinary_base64_is_not_redacted_by_a_short_secret(tmp_path):
+	"""The base64 cores of a 4-5 character value are 4-6 characters long and would match by chance in any blob."""
+	blob = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk'
+	assert redact(blob, {'pin': '4821', 'code': 'x9Kq2'}) == blob
 
 
 async def test_checkpoints_and_partial_results_are_redacted(tmp_path):

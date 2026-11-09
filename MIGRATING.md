@@ -314,9 +314,11 @@ browser even after its daemon was killed (again on a stopped one: a no-op), and 
 
 The REPL worker runs model-written Python as your user. 1.0 limits what it can see by default:
 
-- Its environment is an allowlist (`PATH`, `HOME`, locale, temp dirs, `BU_*` / `BH_*` harness settings). Variables
-  whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH` are not in its environment. That
-  is all the allowlist does: see the last bullets below for how the worker can still reach your keys.
+- Its environment is an allowlist (`PATH`, `HOME`, locale, temp dirs, `BU_*` / `BH_*` harness settings, and the proxy
+  and CA settings `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `SSL_CERT_FILE`, ... that `http_get()` needs, with any
+  password a proxy URL holds). Variables whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH`
+  are not in its environment. That is all the allowlist does: see the last bullets below for how the worker can still
+  reach your keys.
 - `search()` (`web_search`) and `downloads()` ask the parent over the control channel; the parent sends the request,
   so the Browser Use key never enters the worker.
 - `sensitive_data` values are sent to the worker over its control channel. The model is told only their names and
@@ -327,8 +329,9 @@ The REPL worker runs model-written Python as your user. 1.0 limits what it can s
   another site, or into another site's iframe on the right page. The page can still move focus between that check and
   the key events.
 
-Redaction replaces a secret value, its JSON- and `repr()`-escaped forms, and its reversed, base64, hex and URL-encoded
-forms, with `<secret:name>` in exactly these places (a value under 4 characters only where it stands alone, not inside a
+Redaction replaces a secret value, its JSON-, `repr()`- and HTML-escaped forms, its lower- and upper-case forms, and its
+reversed, base64 (also inside a longer base64 string, such as a Basic auth header), hex and URL-encoded forms, with
+`<secret:name>` in exactly these places (a value under 4 characters only where it stands alone, not inside a
 longer word or number; `Agent` warns about such values):
 
 - what a cell returns to the model: its stdout/stderr (subprocesses included), its error, a `finish_from_repl` value,
