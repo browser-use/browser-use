@@ -998,3 +998,48 @@ async def test_an_unwritable_workspace_fails_before_a_browser_starts(tmp_path, m
 	finally:
 		workspace.chmod(0o755)
 	assert started == []
+
+
+FD_LIMIT_CHILD = """
+import asyncio, os, resource, sys
+from conftest import script
+from browser_use import Agent, Browser
+
+soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+resource.setrlimit(resource.RLIMIT_NOFILE, (256, hard))  # macOS's default (launchctl limit maxfiles)
+
+
+async def start(self):
+	raise RuntimeError('no browser in this test')
+
+
+Browser.start = start
+model, _ = script(('finish', {'success': True, 'result': 'ok'}))
+asyncio.run(Agent('t', model, browser=Browser(local=True), workspace=sys.argv[1]).run())
+fds = []
+try:
+	for _ in range(400):  # ~3 per live Agent: what 100+ concurrent Agents hold
+		fds.append(os.open(os.devnull, os.O_RDONLY))
+except OSError as e:
+	print(f'{len(fds)} {e}')
+else:
+	print(len(fds))
+"""
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='no RLIMIT_NOFILE on Windows')
+def test_agent_raises_a_low_open_file_limit(tmp_path):
+	"""gwscale F1: 100 concurrent Agents in one process on macOS (soft limit 256) need ~300 fds; 27-33 of 100 failed
+	with EMFILE, failed binds, or 'ModelConnectionError: Connection error.' (DNS without a free fd)."""
+	import subprocess
+	from pathlib import Path
+
+	r = subprocess.run(
+		[sys.executable, '-c', FD_LIMIT_CHILD, str(tmp_path)],
+		capture_output=True,
+		text=True,
+		timeout=120,
+		cwd=Path(__file__).parent,
+	)
+	assert r.returncode == 0, r.stderr[-3000:]
+	assert r.stdout.strip().splitlines()[-1] == '400', r.stdout[-500:]
