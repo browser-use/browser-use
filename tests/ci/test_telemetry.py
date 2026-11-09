@@ -73,6 +73,9 @@ def sent(monkeypatch):
 		def capture_run(self, job):
 			events.append(job.build(200, 50))
 
+		def capture(self, event):
+			events.append({'event': event.name, **event.properties})
+
 	monkeypatch.setattr(service, 'telemetry', FakeTelemetry)
 	return events
 
@@ -510,13 +513,12 @@ def test_cli_event_drops_piped_code_output_step_args_and_errors(seed):
 	assert (props['task_length'], props['step_count'], props['command'], props['schema_version']) == (20, 3, 'script', 2)
 
 
-def test_browser_use_cli_scrubs_what_browser_harness_sends(monkeypatch):
+def test_browser_use_cli_scrubs_what_browser_harness_sends(monkeypatch, sent):
 	from browser_harness import telemetry as harness
 
 	import browser_use.cli as cli
 
-	sent_payloads = []
-	monkeypatch.setattr(harness, '_send_detached', sent_payloads.append)
+	monkeypatch.setattr(harness, '_send_detached', harness._send_detached)  # restored after the test, wrapper and all
 	monkeypatch.setattr(harness, 'is_enabled', lambda: True)
 	monkeypatch.setattr(harness, '_install_id', lambda *a, **k: 'test-install')  # never writes the real config
 	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
@@ -525,10 +527,90 @@ def test_browser_use_cli_scrubs_what_browser_harness_sends(monkeypatch):
 	harness.capture_cli_event(
 		action='completed', command='script', task='type_text("Zq9-typed")', output='Zq9-out', steps=[{'helper': 'js'}]
 	)
-	(payload,) = sent_payloads
-	assert_absent(payload, 'Zq9-typed', 'Zq9-out')
-	assert payload['properties']['task_length'] == len('type_text("Zq9-typed")')
-	assert payload['properties']['helper_counts'] == {'js': 1}
+	(props,) = sent
+	assert_absent(props, 'Zq9-typed', 'Zq9-out')
+	assert props['task_length'] == len('type_text("Zq9-typed")')
+	assert props['helper_counts'] == {'js': 1}
+
+
+def test_cli_event_goes_to_the_library_project_under_the_device_id(posthog, monkeypatch, tmp_path, caplog):
+	"""Retest 11-09: the browser-use CLI's cli_event (`--cli-mcp` and `--mcp` included) went to the browser-harness
+	PostHog project under a browser-harness install id, agent_event to the library project under the browser-use device
+	id: CLI and MCP usage never showed next to the same machine's library runs, and BROWSER_USE_DEVICE_ID did not apply."""
+	from browser_harness import telemetry as harness
+
+	import browser_use.cli as cli
+	import browser_use.telemetry.service as service
+
+	harness_sends = []
+	monkeypatch.setenv('BH_CONFIG_DIR', str(tmp_path / 'bh'))  # never the developer's own browser-harness config
+	for name in ('BH_TELEMETRY', 'BROWSER_HARNESS_TELEMETRY'):
+		monkeypatch.delenv(name, raising=False)
+	monkeypatch.setattr(harness, '_send_detached', harness_sends.append)
+	monkeypatch.setattr(harness, '_install_id', harness._install_id)  # restored after the test, wrapper and all
+	cli._scrub_harness_telemetry()
+	harness.capture_cli_event(action='completed', command='cli-mcp', task='print("Zq9-code")', steps=[{'helper': 'js'}])
+	(event,) = posthog.events()
+	assert not harness_sends
+	assert json.loads(posthog.bodies[0])['api_key'] == service.POSTHOG_PROJECT_API_KEY
+	assert (event['event'], event['distinct_id']) == ('cli_event', 'bu-test-device')
+	props = event['properties']
+	assert (props['command'], props['helper_counts'], props['is_internal'], props['$lib']) == (
+		'cli-mcp',
+		{'js': 1},
+		True,
+		'browser-use',
+	)
+	assert_absent(props, 'Zq9-code')
+	assert not [p for p in tmp_path.joinpath('bh').rglob('*') if p.is_file()]  # nor a browser-harness install id
+	assert 'anonymized telemetry' not in caplog.text  # the CLI's stderr: no notice on every command
+
+
+async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
+	"""Retest 11-09: 0.x's MCP server sent one mcp_server_event per tool call (tool, duration) to the library project;
+	1.0's --cli-mcp sent one cli_event, to the browser-harness project, when the session ended: which tools MCP clients
+	call, how long they take and how often they fail went unmeasured, and a server its client killed sent nothing."""
+	from mcp import types
+
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setenv('BROWSER_USE_TELEMETRY_INTERNAL', '1')
+	monkeypatch.setenv('CLAUDECODE', '1')
+	mcp = cli_mcp.CLIMCPServer()
+	mcp._ensure_daemon = lambda code: None  # the cells below need no browser
+	handler = mcp.server._request_handlers['tools/call'].handler
+	calls = [
+		('browser_exec', {'code': 'print("Zq9-out")'}),
+		('browser_exec', {'code': 'raise KeyError("Zq9-secret")'}),
+		('browser_exec', {'code': ''}),
+		('browser_navigate', {'url': 'https://zq9.test/'}),
+		('Zq9-made-up', {}),
+	]
+	for name, arguments in calls:
+		await handler(None, types.CallToolRequestParams(name=name, arguments=arguments))  # pyright: ignore[reportArgumentType]
+	assert_absent({'events': sent}, 'Zq9')
+	got = [(e['event'], e['action'], e['tool_name'], e['ok'], e['error_type'], e['call_n']) for e in sent]
+	assert got == [
+		('mcp_server_event', 'tool_call', 'browser_exec', True, None, 1),
+		('mcp_server_event', 'tool_call', 'browser_exec', False, 'KeyError', 2),
+		('mcp_server_event', 'tool_call', 'browser_exec', False, None, 3),
+		('mcp_server_event', 'tool_call', 'browser_navigate', False, None, 4),
+		('mcp_server_event', 'tool_call', 'invalid', False, None, 5),
+	]
+	first = sent[0]
+	assert (first['server'], first['browser'], first['agent_client'], first['is_internal']) == (
+		'cli-mcp',
+		'chrome',
+		'claude-code',
+		True,
+	)
+	assert 0 <= first['duration_seconds'] < 30 and first['version'] and first['os']
+	text = (Path(__file__).parents[2] / 'TELEMETRY.md').read_text(encoding='utf-8')
+	section = text.split('## mcp_server_event', 1)[1].split('\n## ', 1)[0]
+	from browser_use.telemetry.stats import environment
+
+	undocumented = set(first) - {'event', *environment()} - set(re.findall(r'`([$\w-]+)`', section))
+	assert not undocumented, f'sent, not in TELEMETRY.md: {sorted(undocumented)}'
 
 
 @pytest.mark.parametrize('internal', ['1', ''])
@@ -541,24 +623,23 @@ def test_cli_event_is_marked_internal_like_the_agent_event(monkeypatch, internal
 
 
 @pytest.mark.parametrize('value, sends', [('n', False), ('disable', False), ('on', False), ('0', False), ('yes', True)])
-def test_cli_opt_out_values_match_the_library(monkeypatch, value, sends):
+def test_cli_opt_out_values_match_the_library(monkeypatch, sent, value, sends):
 	"""TELEMETRY.md: any value not starting with t, y or 1 turns it off. browser-harness alone sent with n, disable."""
 	from browser_harness import telemetry as harness
 
 	import browser_use.cli as cli
 
-	sent_payloads = []
-	monkeypatch.setattr(harness, '_send_detached', sent_payloads.append)
+	monkeypatch.setattr(harness, '_send_detached', harness._send_detached)
 	monkeypatch.setattr(harness, '_install_id', lambda *a, **k: 'test-install')
 	monkeypatch.setattr(harness, 'is_enabled', lambda: not harness._env_disabled())  # never reads the real config
 	monkeypatch.setenv('ANONYMIZED_TELEMETRY', value)
 	cli._scrub_harness_telemetry()
 	harness.capture_cli_event(action='completed', command='version')
-	assert bool(sent_payloads) is sends
+	assert bool(sent) is sends
 
 
 @pytest.mark.parametrize('value', ['n', 'disable'])
-def test_cli_opt_out_writes_no_browser_harness_install_id(monkeypatch, tmp_path, value):
+def test_cli_opt_out_writes_no_browser_harness_install_id(monkeypatch, sent, tmp_path, value):
 	"""Clean-install smoke 11-09: ANONYMIZED_TELEMETRY=n (off per TELEMETRY.md) sent nothing, but `browser-use --version`
 	still wrote ~/.config/browser-harness/telemetry.json with a new install id: browser-harness only knows 0, false, no
 	and off, and built the event (creating the id) before the browser-use wrapper dropped the send. Off means no file."""
@@ -566,16 +647,18 @@ def test_cli_opt_out_writes_no_browser_harness_install_id(monkeypatch, tmp_path,
 
 	import browser_use.cli as cli
 
-	sent_payloads = []
 	monkeypatch.setenv('BH_CONFIG_DIR', str(tmp_path / 'bh'))
+	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(tmp_path / 'bu'))
 	monkeypatch.setenv('ANONYMIZED_TELEMETRY', value)
 	for name in ('BH_TELEMETRY', 'BROWSER_HARNESS_TELEMETRY'):
 		monkeypatch.delenv(name, raising=False)
-	monkeypatch.setattr(harness, '_send_detached', sent_payloads.append)
-	monkeypatch.setattr(harness, 'is_enabled', harness.is_enabled)  # restored after the test, wrapper and all
+	# restored after the test, wrappers and all
+	monkeypatch.setattr(harness, '_send_detached', harness._send_detached)
+	monkeypatch.setattr(harness, '_install_id', harness._install_id)
+	monkeypatch.setattr(harness, 'is_enabled', harness.is_enabled)
 	cli._scrub_harness_telemetry()
 	harness.capture_cli_event(action='completed', command='version')
-	assert not sent_payloads
+	assert not sent
 	assert not [p for p in tmp_path.rglob('*') if p.is_file()]
 
 

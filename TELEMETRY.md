@@ -79,11 +79,31 @@ text. The browser-use CLI removes those before the event is sent and keeps `comm
 `duration_seconds`, `task_length`, `output_length`, `step_count`, `browser`, `cdp_url` (its kind, as above), `client`,
 `client_version`, `agent_client`, `model`, `model_provider`, the browser-harness environment fields, plus
 `helper_counts` (helper name -> calls), `helper_errors`, `is_internal` (as in `agent_event`) and `schema_version` (2).
-browser-harness sends it, to the browser-harness PostHog project, under browser-harness's install id (`install_id` in
-`~/.config/browser-harness/telemetry.json`, created only when telemetry is on), not the device id below.
+It goes where `agent_event` goes, sent the same way under the same id: browser-harness's own project and install id are
+not used, and the browser-use CLI creates no browser-harness install id. `browser-use --cli-mcp` and `--mcp` send one
+when the server exits.
+
+## mcp_server_event (one per MCP tool call)
+
+`browser-use --cli-mcp` and `--mcp` send one per tool call, with the environment fields of `agent_event`, `version`,
+`schema_version`, `is_internal`, and:
+
+| field | value |
+|---|---|
+| `action` | `tool_call` |
+| `tool_name` | `browser_exec`, `browser_screenshot`, `browser_login`, a 0.x tool name (answered with the removed error), else `invalid` |
+| `duration_seconds` | the call's wall time |
+| `ok` | the result was not an error |
+| `error_type` | exception class, as in `cell_error_types` (`custom` for a class the code defined); `CancelledError` when the client cancelled the call |
+| `server` | `cli-mcp` or `mcp` |
+| `browser` | `chrome` (the user's), `chromium` (`--mcp`'s own) or `cloud` |
+| `agent_client` | the coding agent the server runs under, from its environment (`claude-code`, `codex`, `cursor`, ...) |
+| `call_n` | the call's number in this server process |
+
+Never the code, its output, the arguments or error text.
 
 ## Identity
 
-`agent_event`s carry one anonymous id per machine: `BROWSER_USE_DEVICE_ID` if set, else a random id stored in
+Events carry one anonymous id per machine: `BROWSER_USE_DEVICE_ID` if set, else a random id stored in
 `~/.config/browseruse/device_id`, else (that file cannot be written) a hash of the machine's MAC address and hostname.
 PostHog derives a location from the request IP (GeoIP).

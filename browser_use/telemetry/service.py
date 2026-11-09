@@ -153,6 +153,8 @@ def _alive(pid: int) -> bool:
 class ProductTelemetry:
 	"""One per process (telemetry()). Reads ANONYMIZED_TELEMETRY on every call."""
 
+	notice = True  # the one-line notice when the first event is queued; the browser-use CLI's stderr stays its own
+
 	def __init__(self) -> None:
 		self._reset()
 
@@ -186,10 +188,11 @@ class ProductTelemetry:
 				self._thread = threading.Thread(target=self._loop, name='browser-use-telemetry', daemon=True)
 				self._thread.start()
 				if not getattr(self, '_atexit', False):
-					logger.info(
-						'Using anonymized telemetry (no task text, results or page content; ANONYMIZED_TELEMETRY=false turns '
-						'it off), see https://github.com/browser-use/browser-use/blob/main/TELEMETRY.md'
-					)
+					if self.notice:
+						logger.info(
+							'Using anonymized telemetry (no task text, results or page content; ANONYMIZED_TELEMETRY=false '
+							'turns it off), see https://github.com/browser-use/browser-use/blob/main/TELEMETRY.md'
+						)
 					atexit.register(self._at_exit)
 					self._atexit = True
 

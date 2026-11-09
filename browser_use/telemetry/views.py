@@ -203,6 +203,26 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	name: str = 'agent_event'
 
 
+@dataclass
+class MCPToolCallEvent(BaseTelemetryEvent):
+	"""One per tool call to the browser-use MCP server (--cli-mcp, --mcp), under 0.x's event name and its tool_name and
+	duration_seconds fields. Never the code, its output, arguments or error text: TELEMETRY.md."""
+
+	version: str
+	tool_name: str  # browser_exec, browser_screenshot, browser_login, a 0.x tool name, or 'invalid'
+	duration_seconds: float
+	ok: bool  # the result was not an error
+	error_type: str | None  # exception class (as in agent_event's cell_error_types), CancelledError for a cancelled call
+	server: str  # cli-mcp | mcp
+	browser: str  # chrome (the user's) | chromium (--mcp's own) | cloud
+	agent_client: str | None  # the coding agent the server runs under (claude-code, codex, cursor, ...), from its env
+	call_n: int  # this call's number in the server process
+	is_internal: bool
+	action: str = 'tool_call'
+
+	name: str = 'mcp_server_event'
+
+
 if not TYPE_CHECKING:  # pyright would accept any name imported from here
 	from browser_use.legacy import removed_names
 

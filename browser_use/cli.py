@@ -35,10 +35,11 @@ def _set_harness_client_env() -> None:
 
 def _scrub_harness_telemetry() -> None:
 	"""browser-harness's cli_event carries the piped code, its output, helper arguments and error text. In the
-	browser-use CLI those never leave the machine: every event is scrubbed right before it is sent (TELEMETRY.md).
-	ANONYMIZED_TELEMETRY turns it off as in the library (browser-harness alone only knows 0, false, no and off): its
-	is_enabled() says so too, else it built the event, writing a new install id to its telemetry.json, before the send
-	was dropped."""
+	browser-use CLI those never leave the machine: every event is scrubbed (TELEMETRY.md), then sent by the library's
+	sender to the library's PostHog project under its device id, next to the same machine's agent_events (browser-harness
+	would send it to its own project under its own install id, and create that id). ANONYMIZED_TELEMETRY turns it off as
+	in the library (browser-harness alone only knows 0, false, no and off): its is_enabled() says so too, else it built the
+	event before the send was dropped."""
 	from browser_harness import telemetry
 
 	from browser_use.config import CONFIG
@@ -51,14 +52,30 @@ def _scrub_harness_telemetry() -> None:
 
 		is_enabled.__bu_scrubbed__ = True  # type: ignore[attr-defined]
 		telemetry.is_enabled = is_enabled
-	send = telemetry._send_detached
-	if getattr(send, '__bu_scrubbed__', False):
+	if not getattr(telemetry._install_id, '__bu_scrubbed__', False):
+
+		def install_id(config: dict | None = None, *, create: bool = True) -> str | None:
+			"""The id `browser-use telemetry status` shows: the one cli_event is sent under."""
+			from browser_use.telemetry.service import get_or_create_device_id
+
+			return get_or_create_device_id() if create and CONFIG.ANONYMIZED_TELEMETRY else None
+
+		install_id.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry._install_id = install_id
+	if getattr(telemetry._send_detached, '__bu_scrubbed__', False):
 		return
-	from browser_use.telemetry.stats import scrub_cli_event
 
 	def scrubbed(payload: dict) -> None:
-		if CONFIG.ANONYMIZED_TELEMETRY:
-			send(scrub_cli_event(payload))
+		if not CONFIG.ANONYMIZED_TELEMETRY:
+			return
+		from browser_use.telemetry.service import Job
+		from browser_use.telemetry.service import telemetry as product_telemetry
+		from browser_use.telemetry.stats import scrub_cli_event
+
+		event = scrub_cli_event(payload)
+		props = event.get('properties') or {}
+		product_telemetry().notice = False  # no log line on the CLI's stderr each call (it never had one)
+		product_telemetry().capture_run(Job(str(event.get('event') or 'cli_event'), lambda steps, keys: props))
 
 	scrubbed.__bu_scrubbed__ = True  # type: ignore[attr-defined]
 	telemetry._send_detached = scrubbed
