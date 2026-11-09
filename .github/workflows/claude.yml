@@ -12,7 +12,7 @@ on:
 
 jobs:
   claude:
-    # Only people with write access (as eval-on-pr.yml): anyone else's @claude would run with the repository secrets
+    # Only people with write access: anyone else's @claude would run with the repository secrets
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') &&
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)) ||
