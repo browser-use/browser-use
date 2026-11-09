@@ -285,6 +285,9 @@ class AxHelpers:
 		self.cdp, self.log, self._ipc, self._on_event = pi_cdp, log, helpers._send, on_event
 		self.inflight: dict[str, dict[str, float]] = {}
 		self.last_net: dict[str, float] = {}
+		# The net error of each session's last failed document load (a 401 Basic Auth challenge, DNS, TLS): Chrome then
+		# shows chrome-error://chromewebdata/, often with an empty accessibility tree that says nothing about why.
+		self.nav_errors: dict[str, str] = {}
 		self.dialogs: list[str] = []
 		# Role and name of every id in the last print: marks new ids and names targets in action lines.
 		self.last: dict[int, tuple[str, str]] = {}
@@ -337,9 +340,15 @@ class AxHelpers:
 			gone = params.get('sessionId')
 			self.inflight.pop(gone, None)
 			self.last_net.pop(gone, None)
+			self.nav_errors.pop(gone, None)
 			return
 		if not session or not method.startswith('Network.'):
 			return
+		if params.get('type') == 'Document':
+			if method == 'Network.requestWillBeSent':
+				self.nav_errors.pop(session, None)
+			elif method == 'Network.loadingFailed' and params.get('errorText'):
+				self.nav_errors[session] = str(params['errorText'])
 		m = self.inflight.setdefault(session, {})
 		if method == 'Network.requestWillBeSent':
 			if params.get('type', '') not in ('WebSocket', 'EventSource', 'Media', 'Ping', 'Manifest'):
@@ -365,6 +374,17 @@ class AxHelpers:
 		"""In-flight requests of the attached session (the daemon enables Network on it). Returns its session id."""
 		self._pump()
 		return self._ipc({'meta': 'session'}).get('session_id')
+
+	def _nav_error(self, url: Any) -> str | None:
+		"""The net error behind Chrome's error page at url (None for any other page or when unknown)."""
+		if not str(url).startswith('chrome-error:'):
+			return None
+		try:
+			session = self._track_network()
+		except Exception:
+			return None
+		with self._lock:
+			return self.nav_errors.get(session) if session else None
 
 	# --- page probes ---
 
@@ -628,8 +648,11 @@ class AxHelpers:
 					return i
 			return len(src)
 
+		failed = self._nav_error(info['url'])
 		body = lines or [
-			'(nothing in the accessibility tree: the page is blank, or a popup, often in a cross-origin iframe, hides it; screenshot() to see it)'
+			f'(the page did not load: {failed})'
+			if failed
+			else '(nothing in the accessibility tree: the page is blank, or a popup, often in a cross-origin iframe, hides it; screenshot() to see it)'
 		]
 		# Over max, keep the top and the last fifth: a dialog's Done/Submit is usually its last line.
 		if fit(lines, max) < len(lines):
@@ -775,7 +798,8 @@ class AxHelpers:
 		if not before or not after:
 			return 'page changed'
 		if after['doc'] != before['doc'] or after['url'] != before['url']:
-			return f'navigated to {after["url"]}'
+			failed = self._nav_error(after['url'])
+			return f'navigated to {after["url"]}' + (f' ({failed})' if failed else '')
 		return 'page changed' if after['n'] != before['n'] else 'no change'
 
 	def click(self, id: int) -> Printed:
