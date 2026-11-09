@@ -194,7 +194,9 @@ def stop(name: str = 'remote') -> None:
 
 
 def forget(name: str) -> None:
-	"""Let name drive a local Chrome again (`BU_NAME=<name> browser-use --reload`)."""
+	"""Stop any recorded cloud browser before letting name drive a local Chrome again (`browser-use --reload`)."""
+	if _recorded_id(name):
+		stop(name)
 	_marker(name).unlink(missing_ok=True)
 
 
