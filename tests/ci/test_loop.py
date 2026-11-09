@@ -800,3 +800,96 @@ async def test_a_tool_call_written_as_text_is_not_the_answer(tmp_path):
 	result = await run(build_agent(FunctionModel(fn)), 'task', Session(repl=FakeRepl(tmp_path)), 'function:x')
 	assert result.status == 'completed' and result.output == 'the answer' and len(requests) == 2, result.error
 	assert 'wrote a tool call as text' in str(requests[1][-1].parts)
+
+
+async def test_a_secret_the_model_quoted_is_redacted_where_browser_use_quotes_it_back(tmp_path):
+	"""The model can read a secret off a screenshot and write it. result.messages redacted the model's own parts, but
+	browser-use quotes model output back to it: the delivery repair turn ('Your reply, not delivered yet: ...') and a
+	schema error (pydantic echoes the rejected 'input'). Those request parts kept the value in result.messages."""
+	from pydantic import BaseModel
+
+	class Count(BaseModel):
+		n: int
+
+	secret = 'hunter2-Zq9-secret'
+	model, seen = script(
+		('finish', {'result': {'n': f'pw {secret}'}, 'success': True}),  # schema error echoing the input
+		('finish', {'result': {'n': 3}, 'success': True}),
+	)
+
+	def fn(messages, info):  # first a plain-text reply quoting the secret: the structured repair turn quotes it back
+		if not any(isinstance(m, ModelResponse) for m in messages):
+			return ModelResponse(parts=[TextPart(f'The password on screen is {secret}')])
+		return model.function(messages, info)
+
+	session = Session(repl=FakeRepl(tmp_path, {'pw': secret}))
+	result = await run(build_agent(FunctionModel(fn), output_type=Count), 'task', session, 'function:x')
+	assert (result.status, result.output) == ('completed', Count(n=3))
+	assert secret in str(seen)  # the provider still gets the conversation as it was
+	assert secret not in str(result.messages) and '<secret:pw>' in str(result.messages), result.messages
+
+
+@pytest.mark.parametrize('schema', ['literal', 'enum'])
+async def test_finish_from_repl_delivers_a_plain_string_for_a_string_schema(tmp_path, schema):
+	"""finish_from_repl(expression='answer') with answer = 'no' and output_model_schema=Literal['yes', 'no'] (or a
+	StrEnum): the REPL hands a str back as is, and it was parsed as JSON text: 'Invalid JSON', one model turn lost on
+	every such delivery (live: gpt-6-luna on bu-fast, 2/2 runs)."""
+	import enum
+	from typing import Literal
+
+	class Answer(enum.StrEnum):
+		yes = 'yes'
+		no = 'no'
+
+	class Repl(FakeRepl):
+		async def call(self, op, code, timeout):
+			return (
+				{'output': '', 'error': None, 'images': [], 'value': 'no'}
+				if op == 'eval'
+				else await super().call(op, code, timeout)
+			)
+
+	model, seen = script(('finish_from_repl', {'expression': 'answer', 'success': True}))
+	output_type = Literal['yes', 'no'] if schema == 'literal' else Answer
+	result = await run(build_agent(model, output_type=output_type), 'task', Session(repl=Repl(tmp_path)), 'function:x')
+	assert (result.status, result.output, len(seen)) == ('completed', 'no', 1)
+
+
+async def test_a_downloaded_file_named_in_the_answer_is_not_called_missing(tmp_path):
+	"""Downloads land in workspace/downloads. An answer naming one ('`report.csv`: north revenue 1200') got the
+	missing-file repair turn ('These linked files do not exist in the workspace: report.csv'): one more request, and the
+	model told its true answer was wrong (live: bu-fast, local Chrome download)."""
+	(tmp_path / 'downloads').mkdir()
+	(tmp_path / 'downloads' / 'report.csv').write_text('region,revenue\nnorth,1200\n')
+	requests = []
+
+	def fn(messages, info):
+		requests.append(messages)
+		return ModelResponse(parts=[TextPart('`report.csv`: north revenue 1200')])
+
+	result = await run(build_agent(FunctionModel(fn)), 'task', Session(repl=FakeRepl(tmp_path)), 'function:x')
+	assert (result.status, result.output, len(requests)) == ('completed', '`report.csv`: north revenue 1200', 1)
+
+
+@pytest.mark.parametrize('secrets', [None, {'pw': 'hunter2-value'}])
+async def test_a_custom_tool_returning_an_object_pydantic_cannot_serialize_does_not_end_the_run(tmp_path, secrets):
+	"""MIGRATING: an action may return any value and the model sees it. One returning an object pydantic cannot
+	serialize (an SDK response, a client object) ended the run after the browser started: 'PydanticSerializationError:
+	Unable to serialize unknown type' (live: bu-fast). The model now gets its str()."""
+	from browser_use import Tools
+
+	class Response:
+		def __str__(self):
+			return 'Response(status=ok, rows=3)'
+
+	tools = Tools()
+
+	@tools.action('Query the API')
+	def query() -> object:
+		return {'response': Response(), 'n': 1}
+
+	model, seen = script(('query', {}), ('finish', {'result': 'ok', 'success': True}))
+	session = Session(repl=FakeRepl(tmp_path, secrets))
+	result = await run(build_agent(model, tools=tools.functions), 'task', session, 'function:x')
+	assert (result.status, result.error) == ('completed', None)
+	assert 'Response(status=ok, rows=3)' in str(seen[1][-1].parts[0].content)

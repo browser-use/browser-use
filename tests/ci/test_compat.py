@@ -459,6 +459,21 @@ def test_tools_plain_function_and_param_model():
 	assert get_price('a') == 'a: 9.99'  # the decorator returns the function unchanged
 
 
+def test_registering_an_action_name_again_replaces_it_as_in_0x():
+	"""0.x kept actions in a dict: running a notebook cell with @tools.action again replaced the action. 1.0 kept both,
+	and the next run raised pydantic-ai's 'UserError: Tool name conflicts with existing tool'."""
+	tools = Tools()
+	for version in ('old', 'new'):
+
+		@tools.action('Price of a product')
+		def get_price(sku: str, v=version) -> str:
+			return f'{v} {sku}'
+
+	assert [t.name for t in tools.functions] == ['get_price']
+	assert tools.functions[0].function('a') == 'new a'
+	build_agent('test', tools=tools.functions)  # no name conflict
+
+
 @pytest.mark.parametrize('param', ['browser_session', 'page_extraction_llm', 'file_system'])
 def test_tools_injected_params_raise(param):
 	tools = Tools()

@@ -40,6 +40,7 @@ from pydantic_ai.messages import (
 	ModelMessage,
 	ModelRequest,
 	ModelResponse,
+	RetryFeedbackPart,
 	RetryPromptPart,
 	SystemPromptPart,
 	TextPart,
@@ -47,6 +48,7 @@ from pydantic_ai.messages import (
 	ToolCallPart,
 	ToolReturnPart,
 	UserPromptPart,
+	tool_return_ta,
 )
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAICompaction, OpenAIResponsesModel, OpenAIResponsesModelSettings
@@ -54,7 +56,7 @@ from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.profiles.anthropic import anthropic_model_profile
 from pydantic_ai.settings import ToolOrOutput
 from pydantic_ai.usage import UsageLimits
-from pydantic_core import to_json, to_jsonable_python
+from pydantic_core import PydanticSerializationError, to_json, to_jsonable_python
 
 from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
@@ -194,7 +196,9 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 				{
 					t
 					for t in LINK.findall(text) + FILE.findall(text)
-					if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I) and not (s.repl.workspace / t.split('#')[0]).exists()
+					if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I)
+					# downloads land in workspace/downloads; an answer names them by file name
+					and not any((d / t.split('#')[0]).exists() for d in (s.repl.workspace, s.repl.workspace / 'downloads'))
 				}
 			)
 			if missing:
@@ -240,8 +244,11 @@ def _outputs(output_type: Any) -> list[Any]:
 			try:
 				value = adapter.validate_json(r['value'])
 			except ValidationError as e:
-				ctx.deps.rec.retry('finish_schema')
-				raise ModelRetry(f'Value does not match the result schema: {str(e)[:2000]}')
+				try:  # a str comes back as is, not as JSON text: answer = 'no' for Literal['yes', 'no'] or a StrEnum
+					value = adapter.validate_python(r['value'])
+				except ValidationError:
+					ctx.deps.rec.retry('finish_schema')
+					raise ModelRetry(f'Value does not match the result schema: {str(e)[:2000]}') from None
 		ctx.deps.success, ctx.deps.finish_via = success, 'finish_from_repl'
 		return clean(ctx, value)
 
@@ -396,8 +403,10 @@ class BrowserLoop(AbstractCapability[Session]):
 			# (2/2 runs, one ended empty): refuse it instead of running more browser actions.
 			return NOT_RUN
 		secrets = ctx.deps.repl.secrets
-		if call.tool_name == 'python' or tool_def.kind != 'function' or not secrets:
+		if call.tool_name == 'python' or tool_def.kind != 'function':
 			return await handler(args)
+		if not secrets:
+			return _sendable(await handler(args))
 		names = {name for name, _, _ in secrets}
 		placeholder = next((m for m in SECRET_PLACEHOLDER.finditer(_js(args)) if (m[1] or m[2]) in names), None)
 		if placeholder:  # 0.x replaced it with the value; a tool silently given the placeholder sent it on as the password
@@ -407,7 +416,7 @@ class BrowserLoop(AbstractCapability[Session]):
 			)
 		forms = secret_forms(secrets)
 		try:
-			result = await handler(args)
+			result = _sendable(await handler(args))
 		except ToolRetryError as e:  # the tool's ModelRetry, already turned into the retry part
 			raise ToolRetryError(replace(e.tool_retry, content=redact_forms(e.tool_retry.content, forms))) from None
 		plain = result if isinstance(result, str) else to_jsonable_python(result, fallback=str)
@@ -432,6 +441,16 @@ class Recording(AbstractCapability[Session]):
 	async def on_model_request_error(self, ctx: RunContext[Session], *, request_context: ModelRequestContext, error: Exception):
 		ctx.deps.rec.attempt_failed(error)
 		raise error
+
+
+def _sendable(result: Any) -> Any:
+	"""A custom tool's result as Pydantic AI can send it to the model. An object it cannot serialize (an SDK response, a
+	client object) ended the run with PydanticSerializationError; MIGRATING promises the model sees any value: its str()."""
+	try:
+		tool_return_ta.dump_json(result)
+	except PydanticSerializationError:
+		return to_jsonable_python(result, fallback=str, bytes_mode='base64')
+	return result
 
 
 class StreamResponses(AbstractCapability[Session]):
@@ -755,18 +774,20 @@ def _pi(messages: list[ModelMessage]) -> list[dict[str, Any]]:
 				user = p.content if isinstance(p.content, str) else blocks(list(p.content))
 				out.append({'role': 'user', 'content': user, 'timestamp': ms(m)})
 			elif isinstance(p, ToolReturnPart) or (isinstance(p, RetryPromptPart) and p.tool_name):
-				error = isinstance(p, RetryPromptPart)
+				# Pydantic AI 2.x: a rejected call (schema error, ModelRetry) is a ToolReturnPart with outcome 'retried'
+				error = isinstance(p, RetryPromptPart) or p.outcome in ('failed', 'retried')
+				text = p.model_response() if isinstance(p, RetryPromptPart) else p.model_response_str() if error else None
 				out.append(
 					{
 						'role': 'toolResult',
 						'toolCallId': p.tool_call_id,
 						'toolName': p.tool_name,
-						'content': blocks(p.model_response() if isinstance(p, RetryPromptPart) else p.content),
+						'content': blocks(p.content if text is None else text),
 						'isError': error,
 						'timestamp': ms(m),
 					}
 				)
-			elif isinstance(p, RetryPromptPart):
+			elif isinstance(p, (RetryPromptPart, RetryFeedbackPart)):  # 2.x: RetryFeedbackPart, e.g. the delivery repair
 				out.append({'role': 'user', 'content': p.model_response(), 'timestamp': ms(m)})
 	return out
 
@@ -1171,17 +1192,18 @@ async def run(
 	success = session.success if status == 'completed' else None
 	session.messages = messages  # a follow-up continues the raw transcript: providers reject edited signed thinking
 	forms = secret_forms(session.repl.secrets)
-	if forms:  # model text, thinking and tool-call args can quote a secret read off a screenshot
-		messages = [
-			replace(m, parts=[redact_part(p, forms) for p in m.parts]) if isinstance(m, ModelResponse) else m for m in messages
-		]
+	if forms:  # model text, thinking and tool-call args can quote a secret read off a screenshot, and browser-use quotes
+		# them back in requests: the delivery repair turn quotes the reply, a schema error echoes the rejected input
+		messages = [replace(m, parts=[redact_part(p, forms) for p in m.parts]) for m in messages]
 	return AgentHistoryList(status, text, output, steps, duration, usage, cost, partial, error, messages, success)
 
 
 def redact_part(part: Any, forms: list[tuple[str, str]]) -> Any:
-	fields = ('content', 'args')  # TextPart/ThinkingPart content, ToolCallPart args (str or dict)
+	# content of text, thinking, retry and tool-return parts (str, or a list of str, error dicts and images), tool-call args
+	fields = ('content', 'args')
 	return replace(
-		part, **{k: redact_forms(getattr(part, k), forms) for k in fields if isinstance(getattr(part, k, None), (str, dict))}
+		part,
+		**{k: redact_forms(getattr(part, k), forms) for k in fields if isinstance(getattr(part, k, None), (str, dict, list))},
 	)
 
 
