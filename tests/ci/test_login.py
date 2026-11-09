@@ -154,12 +154,15 @@ def test_ctrl_c_during_device_login_cancels_without_a_traceback(store, monkeypat
 		stderr=subprocess.PIPE,
 		text=True,
 	)
-	assert proc.stdout is not None
-	for line in proc.stdout:
-		if line.startswith('Waiting for login'):
-			break
-	proc.send_signal(signal.SIGINT)
-	out, err = proc.communicate(timeout=30)
+	try:
+		assert proc.stdout is not None
+		for line in proc.stdout:
+			if line.startswith('Waiting for login'):
+				break
+		proc.send_signal(signal.SIGINT)
+		out, err = proc.communicate(timeout=30)
+	finally:
+		proc.kill()  # never leave it polling the fake server
 	assert proc.returncode == 130, err
 	assert err.strip() == 'Login cancelled.' and 'Signed in' not in out
 	assert not store.exists()

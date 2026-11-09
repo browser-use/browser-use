@@ -201,8 +201,10 @@ def _run_doctor() -> int:
 	print(f'browser-use {_browser_use_version()} (browser-harness {admin._version()}), Python {platform.python_version()}')
 	try:
 		local = find_binary()
-	except RuntimeError as e:  # none installed, or only a Snap one
+	except RuntimeError as e:  # none installed (its error names `browser-use install`), or only a Snap one (it does not)
 		local, local_text = None, str(e).splitlines()[0]
+		if 'browser-use install' not in local_text:  # Playwright's Chromium is found past a Snap one
+			local_text += '  (or: browser-use install)'
 	else:
 		local_text = local
 	try:

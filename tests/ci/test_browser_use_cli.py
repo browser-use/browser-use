@@ -66,6 +66,33 @@ def test_browser_use_doctor_names_browser_use_and_passes_without_a_daemon(tmp_pa
 		assert 'browser-harness doctor' not in result.stdout and 'FAIL' not in result.stdout
 
 
+def test_browser_use_doctor_names_browser_use_install_once_for_snap_and_for_no_browser(monkeypatch, capsys):
+	"""rc5 local-2: the find_binary error now names `browser-use install`, so doctor stopped adding it; a Snap-only
+	Ubuntu (its default chromium) then lost the hint, though `browser-use install` fixes it there too."""
+	from browser_harness import admin
+
+	import browser_use.browser.browser as browser_module
+	import browser_use.browser.local as local_module
+	from browser_use import cli
+
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'k')
+	monkeypatch.setattr(browser_module, '_name_daemon_files', lambda: None)
+	monkeypatch.setattr(admin, '_chrome_running', lambda: False)
+	monkeypatch.setattr(admin, 'daemon_alive', lambda: False)
+	for error in (
+		local_module._snap_error('/usr/bin/chromium-browser'),
+		"No Chrome, Chromium or Edge found (tried x). Install one or run `browser-use install` (Playwright's Chromium).",
+	):
+
+		def find_binary(*_a, error=error, **_k):
+			raise RuntimeError(error)
+
+		monkeypatch.setattr(local_module, 'find_binary', find_binary)
+		assert cli._run_doctor() == 0
+		line = next(line for line in capsys.readouterr().out.splitlines() if 'local browser' in line)
+		assert line.count('browser-use install') == 1, line
+
+
 def test_browser_use_doctor_fix_snap_names_browser_use():
 	result = _run_browser_use_cli('doctor', '--fix-snap')
 
