@@ -309,9 +309,11 @@ browser even after its daemon was killed, and a new `start_remote_daemon(name)` 
 
 The REPL worker runs model-written Python as your user. 1.0 limits what it can see by default:
 
-- Its environment is an allowlist (`PATH`, `HOME`, locale, temp dirs, `BU_*` / `BH_*` harness settings). Variables
-  whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH` are not in its environment. That
-  is all the allowlist does: see the last bullets below for how the worker can still reach your keys.
+- Its environment is an allowlist (`PATH`, `HOME`, locale, temp dirs, `BU_*` / `BH_*` harness settings, and the proxy
+  and CA settings `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `SSL_CERT_FILE`, ... that `http_get()` needs, with any
+  password a proxy URL holds). Variables whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH`
+  are not in its environment. That is all the allowlist does: see the last bullets below for how the worker can still
+  reach your keys.
 - `search()` (`web_search`) and `downloads()` ask the parent over the control channel; the parent sends the request,
   so the Browser Use key never enters the worker.
 - `sensitive_data` values are sent to the worker over its control channel. The model is told only their names and
