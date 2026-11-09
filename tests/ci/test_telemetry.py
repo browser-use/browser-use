@@ -1555,6 +1555,26 @@ def test_a_run_whose_event_cannot_be_built_is_not_reported_as_crashed(posthog):
 	assert not list(inflight.glob('*.json')) and not t._active
 
 
+def test_a_marker_refresh_that_raises_does_not_end_the_telemetry_thread(posthog, monkeypatch):
+	"""The periodic marker refresh ran outside the loop's try: a progress() that raised killed the thread."""
+	import browser_use.telemetry.service as service
+
+	monkeypatch.setattr(service, 'MARKER_REFRESH_S', 0.05)
+	calls: list[int] = []
+
+	def progress() -> dict:
+		calls.append(1)
+		raise ValueError('a bug in progress()')
+
+	t = posthog.telemetry
+	t.run_started(uuid.uuid4().hex, lambda: {'timeout_s': 60}, progress)
+	thread = t._thread
+	deadline = time.monotonic() + 10
+	while len(calls) < 4 and time.monotonic() < deadline:
+		time.sleep(0.02)
+	assert thread is not None and thread.is_alive() and len(calls) >= 4
+
+
 def test_a_crash_report_whose_sender_died_mid_send_is_sent_by_the_next_process(posthog):
 	"""_send_crashed claims a marker as <run_id>.<pid>.crashed while it posts; a process killed in that window left the
 	claim, and no later process ever sent it or cleaned it up."""

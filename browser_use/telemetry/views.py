@@ -49,7 +49,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	task_chars: int = 0  # the length only; the task text is never sent
 	# browser
 	browser_mode: str = ''  # cloud | chromium | chrome | cdp (Browser.kind)
-	cdp_url: str | None = None  # hostname only, for Browser(cdp_url=...)
+	cdp_url: str | None = None  # cdp mode only, its kind: browser-use-cloud | localhost | private | public-other (cdp_category)
 	keep_alive: bool = False
 	cloud_profile: bool = False
 	cloud_proxy_country: str | None = None
