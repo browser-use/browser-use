@@ -408,6 +408,9 @@ class TokenCost:
 		# OrcaRouter is a gateway with its own pricing; never attribute upstream prices to it.
 		if llm.provider == 'orcarouter' or base_url == 'https://api.orcarouter.ai/v1':
 			return f'orcarouter/{model}'
+		# Runcrate serves its own catalog of model ids; never attribute upstream prices to them.
+		if llm.provider == 'runcrate' or base_url == 'https://api.runcrate.ai/v1':
+			return f'runcrate/{model}'
 
 		return model
 

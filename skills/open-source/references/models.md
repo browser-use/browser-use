@@ -18,6 +18,7 @@ Browser Use natively supports 15+ LLM providers. Most providers accept any model
 | Cerebras | `ChatCerebras` | `CEREBRAS_API_KEY` |
 | Ollama | `ChatOllama` | — |
 | OpenRouter | `ChatOpenRouter` | `OPENROUTER_API_KEY` |
+| Runcrate | `ChatRuncrate` | `RUNCRATE_API_KEY` |
 | Vercel AI Gateway | `ChatVercel` | `AI_GATEWAY_API_KEY` |
 | OCI (Oracle) | `ChatOCIRaw` | OCI config file |
 | LiteLLM | `ChatLiteLLM` | Provider-specific |
@@ -45,6 +46,7 @@ Based on our [benchmark of real-world browser tasks](https://browser-use.com/pos
 - [Cerebras](#cerebras)
 - [Ollama (Local)](#ollama-local)
 - [OpenRouter](#openrouter)
+- [Runcrate](#runcrate)
 - [Vercel AI Gateway](#vercel-ai-gateway)
 - [OCI (Oracle)](#oci-oracle)
 - [LiteLLM (100+ Providers)](#litellm-100-providers)
@@ -227,6 +229,18 @@ llm = ChatOpenRouter(model="anthropic/claude-sonnet-4-6")
 ```
 
 **Env:** `OPENROUTER_API_KEY` | [Available models](https://openrouter.ai/models)
+
+## Runcrate
+
+Open models through one OpenAI-compatible API.
+
+```python
+from browser_use import Agent, ChatRuncrate
+
+llm = ChatRuncrate(model="deepseek-ai/DeepSeek-V4.1-Flash")
+```
+
+**Env:** `RUNCRATE_API_KEY` | [Available models](https://api.runcrate.ai/v1/models) (pick one with `tools` in `supported_features`)
 
 ## Vercel AI Gateway
 
