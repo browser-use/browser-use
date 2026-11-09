@@ -958,6 +958,8 @@ class Browser:
 			if watchdog is not None:  # first: a normal stop must not race it
 				with contextlib.suppress(OSError):
 					watchdog.kill()
+				with contextlib.suppress(Exception):  # reaped, as LocalBrowser.stop does: else a zombie until GC
+					watchdog.wait(5)
 			guard, self._guard = self._guard, None
 			if guard is not None:
 				guard.close()

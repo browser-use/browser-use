@@ -237,6 +237,12 @@ def _kill_tree(pid: int, job: int | None = None) -> None:
 			pass
 
 
+async def _exited(proc: subprocess.Popen) -> None:
+	"""Wait for the process to exit, and reap it."""
+	while proc.poll() is None:  # noqa: ASYNC110 - polled: an asyncio child watcher would tie it to one event loop
+		await asyncio.sleep(0.02)
+
+
 _WORKERS: dict[int, int | None] = {}  # pid -> Windows job of every live worker this process started
 
 
@@ -319,7 +325,10 @@ class Repl:
 		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
-		self.proc: asyncio.subprocess.Process | None = None
+		# a plain Popen, not an asyncio subprocess: asyncio's child watcher belongs to the loop that started the worker,
+		# which a keep_alive Agent outlives (asyncio.run per run); killed after that loop closed, the worker was never
+		# reaped on Linux (pidfd watcher) and logged "Loop ... that handles pid ... is closed" on macOS
+		self.proc: subprocess.Popen[bytes] | None = None
 		self.job: int | None = None  # Windows job object of the worker's process tree
 		self._reaper: weakref.finalize | None = None  # ends the worker of a Repl dropped without close()
 		self.loop: asyncio.AbstractEventLoop | None = None
@@ -378,13 +387,11 @@ class Repl:
 			env['BU_HIGHLIGHT_ACTIONS'] = '1'
 		log = open(self.state / 'worker.log', 'ab')  # noqa: ASYNC230 - handed to the child process
 		try:
-			self.proc = await asyncio.create_subprocess_exec(
-				sys.executable,
-				'-P',  # the workspace is not sys.path[0]: a json.py there must not shadow the stdlib (worker.py appends it)
-				'-m',
-				'browser_use.repl.worker',
+			self.proc = subprocess.Popen(  # noqa: ASYNC220 - asyncio forks synchronously too; see self.proc
+				# -P: the workspace is not sys.path[0]: a json.py there must not shadow the stdlib (worker.py appends it)
+				[sys.executable, '-P', '-m', 'browser_use.repl.worker'],
 				cwd=self.workspace,
-				stdin=asyncio.subprocess.DEVNULL,
+				stdin=subprocess.DEVNULL,
 				stdout=log,
 				stderr=log,
 				env=env,
@@ -404,7 +411,7 @@ class Repl:
 			from browser_use.browser.browser import _install_cleanup
 
 			_install_cleanup()  # atexit and SIGTERM kill the worker (kill_workers) before they stop browsers
-			exited = asyncio.ensure_future(self.proc.wait())
+			exited = asyncio.ensure_future(_exited(self.proc))
 			try:
 				done, _ = await asyncio.wait({connected, exited}, timeout=60, return_when=asyncio.FIRST_COMPLETED)
 			finally:
@@ -427,6 +434,9 @@ class Repl:
 			server.close()
 
 	async def close(self) -> None:
+		if (writer := getattr(self, 'writer', None)) is not None:  # our end of the worker connection; idempotent
+			with contextlib.suppress(RuntimeError):  # its event loop is closed (a finished run_sync's)
+				writer.close()  # left open, it lingered (CLOSE_WAIT) until a garbage collection freed it
 		proc, self.proc = self.proc, None
 		job, self.job = self.job, None
 		if proc is None:
@@ -434,11 +444,11 @@ class Repl:
 		if self._reaper is not None:
 			self._reaper.detach()
 		_end_worker(proc.pid, job)  # also when the worker already exited: processes its cells started may still run
-		if proc.returncode is None:
+		if proc.poll() is None:
 			with contextlib.suppress(OSError):  # already gone
 				proc.kill()
-			if self.loop is asyncio.get_running_loop():  # a process can only be awaited on the loop that started it
-				await proc.wait()
+			with contextlib.suppress(TimeoutError):  # reaped from any loop: SIGKILL ends it in milliseconds
+				await asyncio.wait_for(_exited(proc), 5)
 
 	async def call(self, op: str, code: str, timeout: float) -> dict[str, Any]:
 		# Ultrafast prints the page state after the cell's code, so its cells may run up to 10 s past the timeout.
@@ -500,7 +510,7 @@ class Repl:
 		try:  # one cleanup boundary: a cancel during startup, the send or the wait never leaves a half-used worker
 			# A worker started on another (finished) event loop cannot be driven from this one: replace it.
 			moved = self.proc is not None and self.loop is not asyncio.get_running_loop()
-			if moved or self.proc is None or self.proc.returncode is not None:
+			if moved or self.proc is None or self.proc.poll() is not None:
 				await self.start()
 			self.n += 1
 			n = self.n
