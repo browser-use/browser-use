@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import itertools
 import logging
 import os
 import re
@@ -16,10 +17,10 @@ from urllib.parse import urlparse
 
 from genai_prices import calc_price
 from pydantic import TypeAdapter
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, ToolCallPart
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.usage import RequestUsage
 
-from browser_use.agent.loop import Session, build_agent, reasoning_supported, run
+from browser_use.agent.loop import Session, build_agent, model_kind, reasoning_supported, run
 from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, LOCAL_PROMPT, NO_CAPTCHA_PROMPT, SEARCH_PROMPT
 from browser_use.agent.views import AgentHistoryList
 from browser_use.auth import browser_use_api_key
@@ -38,6 +39,7 @@ from browser_use.llm import (
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets
 from browser_use.search import WebSearch, search_url
+from browser_use.telemetry.recorder import RunRecorder, now
 from browser_use.tools import Tools
 from browser_use.utils import raise_fd_limit
 
@@ -51,6 +53,8 @@ LOCAL_TARGET = re.compile(
 	re.I,
 )
 REASONING = (None, 'low', 'medium', 'high')
+_RUNS = itertools.count(1)  # Agent.run() calls in this process (telemetry run_in_process)
+_ACTIVE = [0]  # runs in progress in this process (telemetry concurrent_runs)
 _SCREENSHOTS = 'the agent takes screenshots when it needs them.'
 _MESSAGES = 'result.messages holds the whole transcript after the run.'
 _LIVE = (
@@ -292,6 +296,7 @@ class Agent:
 		self._running = False
 		self._custom_workspace = workspace is not None
 		self._downloads: list[Path] = []  # what the last stop() copied from a cloud browser (telemetry counts them)
+		self._sync = False  # the current run came from run_sync()
 
 	@property
 	def workspace(self) -> Path:
@@ -411,10 +416,15 @@ class Agent:
 		if self._agent is None:
 			self._build()
 		started, result, error_type, session, browser_s = time.monotonic(), None, None, None, None
+		tools = frozenset(t.name for t in self.tools.functions) if self.tools else frozenset()
+		rec = RunRecorder(tools, self._model_name, bool(self._gateway))
+		run_id, number, concurrent, phase = uuid.uuid4().hex, next(_RUNS), _ACTIVE[0], 'preflight'
 		follow_up = self._continue
 		prior = len(self._history or []) if follow_up else 0  # messages of earlier tasks, not counted for this run
 		self._downloads = []
 		before = set((self.workspace / 'downloads').glob('*'))
+		self._telemetry_started(run_id, rec, max_steps, timeout)
+		_ACTIVE[0] += 1
 		try:
 			logger.info(f'Task: {redact(self.task, self.sensitive_data)[:200]} (workspace {self.workspace})')
 			if self._repl is None:
@@ -423,7 +433,10 @@ class Agent:
 				if not self._preflighted:
 					model, search = self._model, self._search
 					check = self._gateway.preflight if self._gateway else (lambda: provider_preflight(model))
-					if error := await asyncio.to_thread(lambda: check() or (search and search.preflight())):
+					t = now()
+					error = await asyncio.to_thread(lambda: check() or (search and search.preflight()))
+					rec.phase('preflight', now() - t)
+					if error:
 						error_type = 'PreflightError'
 						result = self._failed(error, started)
 						return result
@@ -432,11 +445,15 @@ class Agent:
 				for sub in ('.browser-use', 'downloads'):  # an unwritable workspace fails here, before a browser is billed
 					(self.workspace / sub).mkdir(exist_ok=True)
 			self.browser._downloads_dir = self.workspace / 'downloads'  # a keep_alive browser's later stop() copies there
+			phase, t = 'browser_start', now()
 			try:
 				env = await self.browser.start()  # also on a follow-up: a daemon that died since is started again
+				if self._repl is None:  # a browser started for this run, not one a keep_alive Agent reuses
+					rec.phase('browser_start', now() - t)
 			except (MissingAPIKeyError, BrowserConfigError):
 				raise  # setup errors (no key, a profile name that matches none), raised before anything was created
 			except Exception as e:  # a failed create (402, 5xx, timeout), or a daemon that could not attach to a billed one
+				rec.phase('browser_start', now() - t)
 				error_type = type(e).__name__
 				result = self._failed(str(e) or error_type, started)  # the preflight's shape; finally stops the browser
 				return result
@@ -458,7 +475,10 @@ class Agent:
 				)
 			history, self._continue = (self._history if self._continue else None), False
 			compacted = self._compacted if history else {}
-			session = Session(repl=self._repl, timeout_s=timeout, max_steps=max_steps, vision=self.use_vision, **compacted)
+			session = Session(
+				repl=self._repl, timeout_s=timeout, max_steps=max_steps, vision=self.use_vision, rec=rec, **compacted
+			)
+			phase = 'loop'
 			result = await run(
 				self._agent,
 				self.task,
@@ -479,20 +499,28 @@ class Agent:
 			error_type = type(e).__name__
 			raise
 		finally:
-			self.browser.note_downloads(self.workspace / '.browser-use' / 'downloads.jsonl')
-			if not self.browser.keep_alive:
-				await self._shutdown()
-			else:
-				await asyncio.to_thread(self.browser.remember_tab)  # a daemon that dies before the next run reattaches it
-				if self.browser.use_cloud and self.browser.id:  # each run's files land in its own workspace
-					await self.browser._fetch_downloads(
-						self.workspace / 'downloads', self.browser._fetched, self._downloads, self.browser.id
+			_ACTIVE[0] -= 1
+			t, loop_phase = now(), phase
+			try:
+				phase = 'shutdown'
+				self.browser.note_downloads(self.workspace / '.browser-use' / 'downloads.jsonl')
+				if not self.browser.keep_alive:
+					await self._shutdown()
+				else:
+					await asyncio.to_thread(self.browser.remember_tab)  # a daemon that dies before the next run reattaches it
+					if self.browser.use_cloud and self.browser.id:  # each run's files land in its own workspace
+						await self.browser._fetch_downloads(
+							self.workspace / 'downloads', self.browser._fetched, self._downloads, self.browser.id
+						)
+				if result is not None:
+					result.downloads = sorted(
+						p for p in set((self.workspace / 'downloads').glob('*')) - before if p.suffix != '.crdownload'
 					)
-			if result is not None:
-				result.downloads = sorted(
-					p for p in set((self.workspace / 'downloads').glob('*')) - before if p.suffix != '.crdownload'
-				)
-			self._capture(result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started)
+				phase = loop_phase
+			finally:
+				rec.phase('shutdown', now() - t)
+				meta = {'run_id': run_id, 'rec': rec, 'phase': phase, 'number': number, 'concurrent': concurrent}
+				self._capture(result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started, meta)
 
 	def _failed(self, error: str, started: float) -> AgentHistoryList:
 		"""The result of a run that failed before the agent loop (preflight, browser start): status 'error', no steps."""
@@ -515,9 +543,11 @@ class Agent:
 				'run_sync() cannot run inside a running event loop (async code, Jupyter): use `await agent.run()` there.'
 			)
 		self._runner = self._runner or asyncio.Runner()
+		self._sync = True
 		try:
 			return self._runner.run(self.run(max_steps=max_steps, timeout=timeout))
 		finally:
+			self._sync = False
 			if self._repl is None:
 				self._runner.close()
 				self._runner = None
@@ -576,6 +606,95 @@ class Agent:
 	async def __aexit__(self, *exc: object) -> None:
 		await self.close()
 
+	def _config(self, max_steps: int, timeout: float) -> dict[str, Any]:
+		"""The run's configuration fields (TELEMETRY.md): counts, bools, enums and names, never values or paths."""
+		from browser_use.telemetry.stats import cdp_category, host, model_id, provider_name
+
+		schema = self.output_model_schema
+		fields = getattr(schema, 'model_fields', None)
+		secrets = scoped_secrets(self.sensitive_data)
+		browser = self.browser
+		mode = browser.kind  # cloud | chromium | chrome | cdp
+		kind = model_kind(self._model)
+		system = str(getattr(self._model, 'system', '') or '')
+		window = getattr(self._model, 'context_window', None)
+		exe = Path(str(browser.executable_path)).name.lower() if browser.executable_path else None
+		return {
+			'model': model_id(self._model_name),
+			'model_provider': provider_name(self._provider),
+			'reasoning': self.reasoning,
+			'mode': self.mode,
+			'max_steps': max_steps,
+			'timeout_s': timeout,
+			'structured_output': schema is not str,
+			'output_schema_fields': len(fields) if isinstance(fields, dict) else None,
+			'custom_tools': sorted(t.name for t in self.tools.functions)[:50] if self.tools else [],
+			'sensitive_data_count': len({n for n, _, _ in secrets}),
+			'sensitive_data_domain_scoped': sum(d is not None for _, _, d in secrets),
+			'extend_system_message': bool(self.extend_system_message),
+			'custom_workspace': self._custom_workspace,
+			'task_chars': len(self.task),
+			'browser_mode': mode,
+			'cdp_url': cdp_category(host(browser.cdp_url)) if mode == 'cdp' else None,
+			'keep_alive': browser.keep_alive,
+			'cloud_profile': bool(browser.use_cloud and browser.profile),
+			'cloud_proxy_country': browser.proxy if browser.use_cloud else None,
+			'cloud_timeout_min': browser.timeout if browser.use_cloud else None,
+			'live_view': bool(browser.live_view),
+			'domain_restrictions': bool(browser.domains),
+			'is_internal': os.getenv('BROWSER_USE_TELEMETRY_INTERNAL', '').strip().lower()[:1] in ('t', 'y', '1'),
+			'web_search': self.web_search,
+			'use_vision': self.use_vision,
+			'highlight_actions': self.highlight_actions,
+			'max_context_chars_set': self.max_context_chars is not None,
+			'captcha_solver': browser.captcha_solver if browser.use_cloud else None,
+			'headless': browser.headless,
+			'chrome_profile': bool(browser.chrome_profile),
+			'user_data_dir': bool(browser.user_data_dir),
+			'browser_exe': None
+			if exe is None
+			else 'edge'
+			if 'edge' in exe
+			else 'chromium'
+			if 'chromium' in exe
+			else 'chrome'
+			if 'chrome' in exe
+			else 'other',
+			'allowed_domains_n': len(browser.domains.allowed),
+			'prohibited_domains_n': len(browser.domains.prohibited),
+			'block_ip_addresses': bool(browser.domains.block_ips),
+			'gateway': self._gateway is not None,
+			'model_api': kind
+			if kind != 'other'
+			else 'anthropic'
+			if system == 'anthropic'
+			else 'google'
+			if system.startswith('google')
+			else 'other',
+			'compaction_mode': 'server' if kind == 'responses' else 'client',
+			'context_window': window if isinstance(window, int) and not isinstance(window, bool) else None,
+			'sync': self._sync,
+		}
+
+	def _telemetry_started(self, run_id: str, rec: RunRecorder, max_steps: int, timeout: float) -> None:
+		"""A crash marker, so a run whose process dies is still reported (status crashed). Built in the telemetry thread."""
+		try:
+			from browser_use.telemetry.service import telemetry
+			from browser_use.telemetry.views import AgentTelemetryEvent
+			from browser_use.utils import get_browser_use_version, get_install_source
+
+			if not telemetry().enabled:
+				return
+			snapshot = self._config(max_steps, timeout)  # now: the Agent may change before the thread reads it
+
+			def props() -> dict[str, Any]:
+				version, source = get_browser_use_version(), get_install_source()
+				return AgentTelemetryEvent(version, source, **snapshot, run_id=run_id).properties
+
+			telemetry().run_started(run_id, props, lambda: {'steps': len(rec.steps)})
+		except Exception as e:  # - telemetry never breaks a run
+			logger.debug('telemetry failed: %s', e)
+
 	def _capture(
 		self,
 		result: AgentHistoryList | None,
@@ -586,111 +705,127 @@ class Agent:
 		prior: int,
 		browser_s: float | None,
 		duration: float,
+		meta: dict[str, Any],
 	) -> None:
 		"""One agent_event per run. Counts, names, hostnames and classes only: never the task, the result, code, typed
-		text, secrets, page content, URLs or error messages (TELEMETRY.md)."""
+		text, secrets, page content, URLs or error messages (TELEMETRY.md). Here, on the run's path, only what can change
+		after the run is copied; the event is built in the telemetry thread (build())."""
 		try:
-			from collections import Counter
-
-			from browser_use.telemetry import ProductTelemetry
-			from browser_use.telemetry.stats import RunStats, cdp_category, host, top
+			from browser_use.telemetry.service import Job, telemetry
+			from browser_use.telemetry.stats import RunStats, download_ext, top
 			from browser_use.telemetry.views import AgentTelemetryEvent
 			from browser_use.utils import get_browser_use_version, get_install_source
 
+			if not telemetry().enabled:
+				return
+			rec: RunRecorder = meta['rec']
 			stats = session.stats if session else RunStats()
 			status = (
 				result.status if result else 'cancelled' if error_type in ('CancelledError', 'KeyboardInterrupt') else 'error'
 			)
-			usage = result.usage if result else {}
-			messages = result.messages[prior:] if result else []
-			# a tool name the model made up can carry task or page text (TELEMETRY.md: only names browser-use or you chose)
-			known = {'python', 'finish', 'finish_from_repl', *(t.name for t in (self.tools.functions if self.tools else ()))}
-			tools = Counter(
-				p.tool_name if p.tool_name in known else 'invalid'
-				for m in messages
-				if isinstance(m, ModelResponse)
-				for p in m.parts
-				if isinstance(p, ToolCallPart)
-			)
-			retries = sum(isinstance(p, RetryPromptPart) for m in messages if isinstance(m, ModelRequest) for p in m.parts)
-			schema = self.output_model_schema
-			fields = getattr(schema, 'model_fields', None)
-			secrets = scoped_secrets(self.sensitive_data)
-			browser = self.browser
-			mode = browser.kind  # cloud | chromium | chrome | cdp
-			downloads = self._downloads
-			telemetry = ProductTelemetry()
-			telemetry.capture(
-				AgentTelemetryEvent(
-					version=get_browser_use_version(),
-					source=get_install_source(),
-					run_id=uuid.uuid4().hex,
-					model=self._model_name,
-					model_provider=self._provider,
-					reasoning=self.reasoning,
-					mode=self.mode,
-					max_steps=max_steps,
-					timeout_s=timeout,
-					structured_output=schema is not str,
-					output_schema_fields=len(fields) if isinstance(fields, dict) else None,
-					custom_tools=sorted(t.name for t in self.tools.functions)[:50] if self.tools else [],
-					sensitive_data_count=len({n for n, _, _ in secrets}),
-					sensitive_data_domain_scoped=sum(d is not None for _, _, d in secrets),
-					extend_system_message=bool(self.extend_system_message),
-					custom_workspace=self._custom_workspace,
-					follow_up=prior > 0,
-					task_chars=len(self.task),
-					browser_mode=mode,
-					cdp_url=cdp_category(host(browser.cdp_url)) if mode == 'cdp' else None,
-					keep_alive=browser.keep_alive,
-					cloud_profile=bool(browser.use_cloud and browser.profile),
-					cloud_proxy_country=browser.proxy if browser.use_cloud else None,
-					cloud_timeout_min=browser.timeout if browser.use_cloud else None,
-					live_view=bool(browser.live_view),
-					browser_start_seconds=browser_s,
-					status=status,
-					success=result.is_successful() if result else None,
-					max_steps_hit=status == 'max_steps' or bool(session and session.budget_hit == 'max_steps'),
-					timed_out=status == 'timeout',
-					finish_via=session.finish_via if session and status == 'completed' else None,
-					partial_used=bool(result and status != 'completed' and result.partial is not None),
-					error_type=error_type or (session.error_type if session and status == 'error' else None),
-					output_chars=len(result.text) if result else 0,
-					total_duration_seconds=duration,
-					steps=result.steps if result else 0,
-					model_requests=usage.get('requests', 0),
-					total_input_tokens=usage.get('input', 0),
-					total_output_tokens=usage.get('output', 0),
-					prompt_cached_tokens=usage.get('cache_read', 0),
-					cache_write_tokens=usage.get('cache_write', 0),
-					total_tokens=usage.get('input', 0) + usage.get('output', 0),
-					cost_usd=result.cost_usd if result else None,
-					tool_calls=top(tools),
-					retry_prompts=retries,
+			usage = dict(result.usage) if result else {}
+			# names only, not the messages: the event waits in the sender (seconds with PostHog slow or down, up to 100
+			# events), and a closure over the messages kept every run's history, screenshots included, alive that long
+			called: list[str] = []  # tool names the model wrote, mapped to 'invalid' in build() unless ours
+			retried: list[str | None] = []  # the tool name of each retry prompt (None for a text reply)
+			for m in result.messages[prior:] if result else ():
+				if isinstance(m, ModelResponse):
+					called += [p.tool_name for p in m.parts if isinstance(p, ToolCallPart)]
+				elif isinstance(m, ModelRequest):
+					# Pydantic AI 2.66 sends a retry as the call's ToolReturnPart(outcome='retried'); RetryPromptPart is the old form
+					retried += [
+						p.tool_name
+						for p in m.parts
+						if isinstance(p, RetryPromptPart) or (isinstance(p, ToolReturnPart) and p.outcome == 'retried')
+					]
+			downloads = list(self._downloads)
+			budget_hit = session.budget_hit if session else None
+			phase = meta['phase']
+			if status == 'completed':
+				phase = None
+			elif status in ('timeout', 'max_steps'):
+				phase = 'budget'
+			elif phase == 'loop':
+				phase = rec.where or ('delivery' if session and session.finalizing else 'model')
+			config = self._config(max_steps, timeout)
+			fields = {
+				**config,
+				'run_id': meta['run_id'],
+				'follow_up': prior > 0,
+				'browser_start_seconds': browser_s,
+				'status': status,
+				'success': result.is_successful() if result else None,
+				'max_steps_hit': status == 'max_steps' or budget_hit == 'max_steps',
+				'timed_out': status == 'timeout',
+				'finish_via': session.finish_via if session and status == 'completed' else None,
+				'partial_used': bool(result and status != 'completed' and result.partial is not None),
+				'error_type': error_type or (session.error_type if session and status == 'error' else None),
+				'output_chars': len(result.text) if result else 0,
+				'total_duration_seconds': duration,
+				'steps': result.steps if result else 0,
+				'model_requests': usage.get('requests', 0),
+				'total_input_tokens': usage.get('input', 0),
+				'total_output_tokens': usage.get('output', 0),
+				'prompt_cached_tokens': usage.get('cache_read', 0),
+				'cache_write_tokens': usage.get('cache_write', 0),
+				'total_tokens': usage.get('input', 0) + usage.get('output', 0),
+				'cost_usd': result.cost_usd if result else None,
+				'run_in_process': meta['number'],
+				'concurrent_runs': meta['concurrent'],
+				'error_phase': phase,
+				'budget_hit': budget_hit,
+			}
+			known = rec.known
+			function_tools = known - {'finish', 'finish_from_repl'}
+			total_ms = int(duration * 1000)
+
+			def build(steps: int, keys: int) -> dict[str, Any]:
+				"""In the telemetry thread: the names the model's code chose are checked here (imports, cdp methods)."""
+				from collections import Counter
+
+				# a tool name the model made up can carry task or page text (TELEMETRY.md: only names browser-use or you chose)
+				tools = Counter(name if name in known else 'invalid' for name in called)
+				v3 = rec.build(stats, total_ms, steps, keys)
+				if tool_args := sum(name in function_tools for name in retried):
+					v3['retries']['tool_args'] = tool_args
+				repairs = ('delivery_placeholder', 'delivery_missing_files', 'text_repair', 'text_tool_markup')
+				event = AgentTelemetryEvent(
+					get_browser_use_version(),
+					get_install_source(),
+					**fields,
+					**v3,
+					tool_calls=top(tools, keys),
+					retry_prompts=len(retried),
+					invalid_tool_calls=tools['invalid'],
+					delivery_repairs=sum(v3['retries'].get(k, 0) for k in repairs),
 					cells=stats.cells,
 					cell_errors=stats.cell_errors,
 					cell_seconds=round(stats.cell_seconds, 3),
-					cell_error_types=top(stats.error_types),
-					helper_counts=top(stats.helpers),
-					cdp_method_counts=top(stats.cdp_methods),
-					imports=top(stats.imports),
+					cell_error_types=top(stats.error_types, keys),
+					helper_counts=top(stats.helpers, keys),
+					cdp_method_counts=top(stats.cdp_methods, keys),
+					imports=top(stats.imports, keys),
 					screenshots=stats.images,
-					domains=list(top(stats.domains)),
+					domains=list(top(stats.domains, keys)),
 					domain_count=len(stats.domains),
 					navigations=stats.navigations,
 					captcha_started=stats.events['captcha_started'],
 					captcha_solved=stats.events['captcha_solved'],
 					captcha_failed=stats.events['captcha_failed'],
 					downloads_started=stats.events['download_started'],
-					domain_restrictions=bool(browser.domains),
 					domain_blocks=stats.events['domain_blocked'],
 					downloads=len(downloads),
-					download_exts=top(Counter(p.suffix.lower().lstrip('.')[:10] or 'none' for p in downloads)),
+					download_exts=top(Counter(download_ext(p) for p in downloads), keys),
 				)
-			)
-			telemetry.flush()
+				return event.properties
+
+			telemetry().capture_run(Job('agent_event', build, run_id=meta['run_id']))
 		except Exception as e:  # - telemetry never breaks a run
 			logger.debug('telemetry failed: %s', e)
+			with contextlib.suppress(Exception):
+				from browser_use.telemetry.service import telemetry
+
+				telemetry().forget(meta['run_id'])
 
 
 if not TYPE_CHECKING:  # pyright would accept any name imported from here

@@ -1,12 +1,27 @@
-"""Telemetry v2 (TELEMETRY.md): counts, names, hostnames and classes are sent; task text, results, code, typed text,
-secrets, page content, URL paths/queries/fragments and error messages never are."""
+"""Telemetry v3 (TELEMETRY.md): counts, names, timings, hostnames and classes are sent; task text, results, code, typed
+text, secrets, page content, URL paths/queries/fragments and error messages never are. Recording costs microseconds,
+sending happens off the agent path, ANONYMIZED_TELEMETRY=false sends and writes nothing."""
 
+import atexit
+import gzip
+import importlib.util
 import json
+import os
 import random
+import re
+import socket
+import statistics
 import string
+import subprocess
+import sys
 import threading
+import time
+import uuid
 import warnings
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from types import SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from conftest import script
@@ -22,7 +37,8 @@ def rand(rng: random.Random, n: int = 16) -> str:
 
 class Page(BaseHTTPRequestHandler):
 	def do_GET(self):
-		body = b'<title>form</title><input id=f>'
+		title = parse_qs(urlsplit(self.path).query).get('t', ['form'])[0]  # a page title the agent reads
+		body = f'<title>{title}</title><input id=f>'.encode()
 		self.send_response(200)
 		self.send_header('Content-Type', 'text/html')
 		self.send_header('Content-Length', str(len(body)))
@@ -43,21 +59,99 @@ def site():
 
 @pytest.fixture
 def sent(monkeypatch):
-	"""The properties each event would send to PostHog."""
-	import browser_use.telemetry as telemetry
+	"""The properties each agent_event would send, built as the telemetry thread builds them."""
 	import browser_use.telemetry.service as service
 
 	events = []
 
 	class FakeTelemetry:
-		def capture(self, event):
-			events.append({**event.properties, **service.POSTHOG_EVENT_SETTINGS})
+		enabled = True
 
-		def flush(self):
+		def run_started(self, run_id, props, progress):
 			pass
 
-	monkeypatch.setattr(telemetry, 'ProductTelemetry', FakeTelemetry, raising=False)
+		def capture_run(self, job):
+			events.append(job.build(200, 50))
+
+	monkeypatch.setattr(service, 'telemetry', FakeTelemetry)
 	return events
+
+
+@pytest.fixture
+def posthog(monkeypatch, tmp_path):
+	"""A local PostHog: the real sender (thread, gzip, /batch/) posts here. events() waits for n agent_events. With
+	down set it answers 503 and keeps nothing; attempts counts the /batch/ posts either way."""
+	import browser_use.telemetry.service as service
+
+	bodies: list[str] = []
+	state = SimpleNamespace(down=False, attempts=0)
+
+	class Capture(BaseHTTPRequestHandler):
+		def do_POST(self):
+			raw = self.rfile.read(int(self.headers['Content-Length']))
+			if self.path.startswith('/batch/'):
+				state.attempts += 1
+			if state.down:
+				self.send_response(503)
+				self.end_headers()
+				return
+			bodies.append((gzip.decompress(raw) if self.headers.get('Content-Encoding') == 'gzip' else raw).decode())
+			self.send_response(200)
+			self.end_headers()
+			self.wfile.write(b'{"status": 1}')
+
+		def log_message(self, *args):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Capture)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	config = tmp_path / 'config'
+	monkeypatch.setattr(service, 'POSTHOG_HOST', f'http://127.0.0.1:{server.server_address[1]}')
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
+	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(config))
+	monkeypatch.setenv('BROWSER_USE_DEVICE_ID', 'bu-test-device')
+	monkeypatch.setattr(service, '_device_id', None)
+	instance = service.ProductTelemetry()
+	monkeypatch.setattr(service, '_instance', instance)
+
+	def events(n: int = 1, timeout: float = 15) -> list[dict]:
+		deadline = time.monotonic() + timeout
+		while time.monotonic() < deadline:
+			got = [e for b in list(bodies) for e in json.loads(b)['batch']]
+			if len(got) >= n:
+				return got
+			time.sleep(0.02)
+		raise AssertionError(f'{len(bodies)} bodies arrived, wanted {n} events')
+
+	yield SimpleNamespace(bodies=bodies, events=events, telemetry=instance, config=config, server=server, state=state)
+	instance._pending.clear()
+	atexit.unregister(instance._at_exit)
+	# a thread left running wrote its failed send into the next test's outbox and retried to the next test's PostHog
+	stopped = instance.stop()
+	server.shutdown()
+	assert stopped, 'the telemetry thread outlived its test'
+
+
+@pytest.fixture
+def dead_posthog(posthog, monkeypatch):
+	"""A PostHog that accepts and never answers: an event stays queued. Closed at teardown, before posthog waits for the
+	thread, which ends the sends in flight."""
+	import browser_use.telemetry.service as service
+
+	with socket.create_server(('127.0.0.1', 0)) as server:
+		monkeypatch.setattr(service, 'POSTHOG_HOST', f'http://127.0.0.1:{server.getsockname()[1]}')
+		yield posthog
+
+
+def no_browser(monkeypatch) -> None:
+	async def start(self):
+		return {}
+
+	async def stop(self, downloads_dir=None):
+		return []
+
+	monkeypatch.setattr(Browser, 'start', start)
+	monkeypatch.setattr(Browser, 'stop', stop)
 
 
 def assert_absent(props: dict, *values: str) -> None:
@@ -98,7 +192,7 @@ async def test_agent_event_never_has_task_secrets_typed_text_code_or_url_paths(s
 	assert r.status == 'completed', r.error
 	(props,) = sent
 	assert_absent(props, task, secret, typed, result, error, path, query, value, fragment, 'type_text(', 'wait_for_load()')
-	assert props['schema_version'] == 2 and props['agent_type'] == 'pydantic' and props['os']
+	assert props['schema_version'] == 3 and props['agent_type'] == 'pydantic' and props['os']
 	assert 'task' not in props and 'final_result_response' not in props and 'error_message' not in props
 	assert set(props['domains']) == {'127.0.0.1', f'{other_host}.invalid'} and props['domain_count'] == 2
 	h = props['helper_counts']
@@ -227,6 +321,8 @@ def test_names_the_models_code_chooses_are_kept_only_when_python_or_a_package_de
 	assert error_class(json.JSONDecodeError('x', 'y', 0)) == 'JSONDecodeError'
 	fake = type(secret, (ValueError,), {'__module__': 'json'})  # claims a stdlib module it is not in
 	assert error_class(fake()) == 'custom'
+	double = type(secret, (fake,), {'__module__': 'json'})  # a subclass named after it: still not json's
+	assert error_class(double()) == 'custom'
 
 
 async def test_a_cells_custom_exception_class_is_sent_as_custom(tmp_path):
@@ -289,6 +385,94 @@ def test_host_and_imports_keep_no_path_query_or_code(seed):
 	assert host(f'file:///{secret}') is None and host(f'data:text/html,{secret}') is None and host('http://[::1') is None
 	assert imported_modules(f'import os\nprint({secret!r})\nfrom . import {secret}') == ['os']
 	assert imported_modules(f'{secret} (') == []
+
+
+@pytest.mark.parametrize(
+	'url',
+	[
+		'https://zq best flights for jane doe/',  # a weak model passes the task as the URL
+		'https://zq%20jane%20doe.example.com/',
+		'javascript://zqalert(document.cookie)',
+		'chrome-extension://zqextensionid/popup.html',
+		'https://zq\u00e9|jane!.com/',
+	],
+)
+def test_a_navigation_to_text_that_is_not_a_hostname_records_no_host(url):
+	"""Privacy red team: urlsplit() returns any text between // and the next / as the hostname, so goto_url() with the
+	task in place of a URL put that text into domains, host_stats and s_host."""
+	from browser_use.repl.worker import CellStats
+
+	assert host(url) is None
+	s = CellStats()
+	s.url(url, navigation=True)
+	assert s.take()['hosts'] == []
+
+
+def test_host_keeps_real_hostnames_and_ips():
+	assert host('https://Shop.Example.com:8443/a') == 'shop.example.com'
+	assert host('https://b\u00fccher.example/') == 'xn--bcher-kva.example'
+	assert host('https://x.com\\@zqother.example/') == 'x.com'  # Chrome reads a backslash as a slash
+	assert host('http://[::1]:9222/json') == '::1' and host('ws://chrome:9222/devtools') == 'chrome'
+	assert host('http://192.168.1.20/') == '192.168.1.20' and host('https://my_host.internal/') == 'my_host.internal'
+
+
+@pytest.mark.parametrize(
+	'url, sent',
+	[
+		('https://zq-quiet-river.trycloudflare.com/admin', '*.trycloudflare.com'),
+		('https://zq1a2b3c.ngrok-free.app/', '*.ngrok-free.app'),
+		('https://zq1a2b3c.ngrok.io/', '*.ngrok.io'),
+		('https://zq1a2b3c.ngrok.app/', '*.ngrok.app'),
+		('https://zq-tidy-cat.loca.lt/', '*.loca.lt'),
+		('https://zqabc123def.lambda-url.us-east-1.on.aws/', '*.lambda-url.us-east-1.on.aws'),
+		('https://zqshop-k3j2h1g0f-acme.vercel.app/', '*.vercel.app'),
+		('https://zqshop-git-fix-login-acme.vercel.app/', '*.vercel.app'),
+		('https://deploy-preview-42--zqsite.netlify.app/', '*.netlify.app'),
+		('https://zq-user-repo-5x7.github.dev/', '*.github.dev'),
+		('https://zq-user-repo-5x7-3000.app.github.dev/', '*.app.github.dev'),
+		('https://8080-zquser-repo-ab12.ws-eu110.gitpod.io/', '*.gitpod.io'),
+		('https://zqapp.zquser.repl.co/', '*.repl.co'),
+		('https://zq4f9k2.csb.app/', '*.csb.app'),
+		('https://myapp.vercel.app/', 'myapp.vercel.app'),  # a production deploy: public
+		('https://mysite.netlify.app/', 'mysite.netlify.app'),
+		('https://github.dev/', 'github.dev'),
+	],
+)
+def test_a_hostname_that_alone_grants_access_is_sent_as_its_provider(url, sent):
+	"""Privacy red team: a tunnel to the developer's machine, a cloud IDE's forwarded port, a Lambda function URL or a
+	preview deploy is reachable by whoever knows its name, and domains, host_stats and s_host sent that name."""
+	from browser_use.repl.worker import CellStats
+
+	assert host(url) == sent
+	s = CellStats()
+	s.url(url, navigation=True)
+	assert s.take()['hosts'] == [sent]
+	assert cdp_category(host(url.replace('https', 'wss'))) == 'public-other'
+
+
+def test_a_custom_endpoint_sends_the_provider_name_not_its_base_url_and_a_local_model_path_as_its_last_segment():
+	"""Privacy red team: a Pydantic AI model passed as llm= put its Provider object in model_provider. asdict() could not
+	copy it (an RLock), so the run sent no event; a Provider that copies would send 'OpenAIProvider(name=openai,
+	base_url=https://...)'. A vLLM model named by its path sent the path (a user name)."""
+	from pydantic_ai.models.openai import OpenAIChatModel
+	from pydantic_ai.providers.openai import OpenAIProvider
+
+	from browser_use.telemetry.views import AgentTelemetryEvent
+
+	provider = OpenAIProvider(base_url='https://zqtenant.internal.example/v1/zqaccount', api_key='sk-zqsecret')
+	agent = Agent('t', llm=OpenAIChatModel('/home/zqjane/ckpt/Llama-3-8B', provider=provider))
+	agent._build()
+	props = AgentTelemetryEvent('1.0', 'pip', **agent._config(10, 60)).properties
+	assert (props['model'], props['model_provider']) == ('Llama-3-8B', 'openai')
+	assert_absent(props, 'zqtenant', 'zqaccount', 'zqsecret', 'zqjane', 'ckpt')
+
+
+def test_a_download_extension_is_sent_only_when_it_is_a_common_file_type():
+	"""Privacy red team: a downloaded file's name is the site's, and 'Statement.Jane Doe 2026' sent 'jane doe '."""
+	from browser_use.telemetry.stats import download_ext
+
+	assert [download_ext(Path(n)) for n in ('a.PDF', 'b.tar.gz', 'c', 'd.xlsx')] == ['pdf', 'gz', 'none', 'xlsx']
+	assert download_ext(Path('Statement.Zqjane Doe 2026')) == 'other' and download_ext(Path('x.zqsecret')) == 'other'
 
 
 def test_imports_of_a_cell_with_an_invalid_escape_print_nothing_on_the_users_stderr():
@@ -362,33 +546,6 @@ def test_cli_opt_out_values_match_the_library(monkeypatch, value, sends):
 	cli._scrub_harness_telemetry()
 	harness.capture_cli_event(action='completed', command='version')
 	assert bool(sent_payloads) is sends
-
-
-def test_posthog_client_sends_no_exceptions_and_respects_opt_out(monkeypatch):
-	import posthog
-
-	import browser_use.telemetry.service as service
-	from browser_use.telemetry.views import AgentTelemetryEvent
-
-	cls = type(service.ProductTelemetry())  # the singleton's class: build fresh instances
-	made, captured = [], []
-
-	class FakePosthog:
-		def __init__(self, **kwargs):
-			made.append(kwargs)
-
-		def capture(self, **kwargs):
-			captured.append(kwargs)
-
-	monkeypatch.setattr(posthog, 'Posthog', FakePosthog)
-	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
-	cls().capture(AgentTelemetryEvent(version='1', source='pip', model='m'))
-	assert made[0]['enable_exception_autocapture'] is False
-	assert captured[0]['event'] == 'agent_event' and captured[0]['properties']['model'] == 'm'
-	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
-	off = cls()
-	off.capture(AgentTelemetryEvent(version='1', source='pip'))
-	assert off._posthog_client is None and len(captured) == 1
 
 
 def test_install_source_reads_package_metadata(monkeypatch):
@@ -510,3 +667,636 @@ async def test_a_browser_harness_cli_call_from_a_cell_sends_no_telemetry(tmp_pat
 	await asyncio.sleep(1)  # the cells' detached senders started earlier than the control's
 	server.shutdown()
 	assert [e['properties'].get('task') for e in events] == ["print('CONTROL')"]
+
+
+# --- v3: what is sent, end to end ---
+
+
+async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, site, posthog, tmp_path):
+	"""Every text the task, the code, a typed value, a secret, a page title, a URL path or query, an error message, a
+	class, module or cdp() method name the model's code chose, a made-up tool name and the result carry is a canary;
+	none may appear anywhere in what reaches PostHog (the gzip body as received). The v3 fields say what happened."""
+	rng = random.Random(7)
+	c = SimpleNamespace(
+		**{
+			k: rand(rng, 12).lower()
+			for k in 'task secret typed result error error2 path query title var js cdp cls mod tool'.split()
+		}
+	)
+	url = f'{site}/{c.path}?{c.query}=1&t={c.title}'
+	code = (
+		f'{c.var} = 1\n'
+		f'new_tab({url!r}); wait_for_load()\n'
+		'js(\'document.getElementById("f").focus()\')\n'
+		f'type_text({c.typed!r}); type_secret("pw")\n'
+		'print(page_info())\n'
+		f"cdp('Runtime.evaluate', expression={('1 + ' + repr(c.js))!r})\n"
+		f'try:\n    cdp({c.cdp!r})\nexcept Exception as e:\n    print(e)'
+	)
+	model, _ = script(
+		('python', {'code': code}),
+		('python', {'code': f'class {c.cls}(Exception): pass\nraise {c.cls}({c.error!r})'}),
+		('python', {'code': f'import {c.mod}'}),
+		(c.tool, {'x': c.error2}),
+		('finish', {'success': True, 'result': f'{c.result} {c.task} {c.secret} {c.title}'}),
+	)
+	agent = Agent(
+		f'{c.task} with {c.secret}',
+		model,
+		browser=Browser(cdp_url=chrome['http']),
+		sensitive_data={'pw': c.secret},
+		workspace=tmp_path / 'ws',
+	)
+	r = await agent.run()
+	assert r.status == 'completed', r.error
+	(event,) = posthog.events()
+	raw = '\n'.join(posthog.bodies)
+	leaked = [k for k, v in vars(c).items() if v in raw]
+	assert not leaked, f'leaked {leaked}'
+	assert 'type_text(' not in raw and 'Runtime.evaluate' in raw
+	p = event['properties']
+	assert (event['event'], event['distinct_id'], event['uuid']) == ('agent_event', 'bu-test-device', str(uuid.UUID(p['run_id'])))
+	assert (p['schema_version'], p['status'], p['steps'], p['is_internal'], p['$lib']) == (
+		3,
+		'completed',
+		5,
+		True,  # conftest: every test event is internal
+		'browser-use',
+	)
+	arrays = {k: v for k, v in p.items() if k.startswith('s_')}
+	assert len(arrays) == 21 and {len(v) for v in arrays.values()} == {5}
+	assert p['s_kind'] == ['nav', 'compute', 'compute', 'none', 'deliver'], p['s_kind']
+	assert p['s_err'] == ['', 'custom', 'ModuleNotFoundError', '', ''] and p['s_tools'][3] == 'invalid'
+	assert p['s_host'] == ['127.0.0.1'] * 5 and p['s_helpers'][0].startswith('new_tab,wait_for_load,js,type_text')
+	assert p['s_ev'][0] & 128 and p['s_nav'][0] >= 1 and p['s_cells'] == [1, 1, 1, 0, 0]
+	assert (p['max_err_streak'], p['streak_err'], p['last_progress_step'], p['wasted_steps']) == (2, 'custom', 5, 0)
+	h = p['helper_stats']
+	assert h['new_tab'][0] == 1 and h['type_text'][:2] == [1, 0] and h['wait_for_load'][0] == 1
+	assert p['cdp_stats']['Runtime.evaluate'][0] >= 1 and p['cdp_stats']['invalid'][:2] == [1, 1]
+	assert p['cdp_method_counts'] == {'Runtime.evaluate': 1, 'invalid': 1} and p['invalid_tool_calls'] == 1
+	assert p['host_stats']['127.0.0.1'][:2] == [5, 2] and p['imports'] == {'other': 1}
+	assert p['ms_total'] >= p['ms_cells'] > 0 and p['ms_cells'] >= p['ms_helpers'] > 0 and p['ms_cdp'] > 0
+	assert p['ms_model'] >= 0 and p['ms_other'] >= 0 and p['model_attempts'] == 5 and p['s_ttft_ms'] == [-1] * 5
+	assert p['first_nav_step'] == 1 and p['first_nav_ms'] >= 0 and p['first_ok_action_ms'] is not None
+	assert 0 < p['tel_bytes'] < 64 * 1024 and p['tel_build_us'] > 0 and p['tel_steps_dropped'] == 0
+	assert not list(posthog.config.glob('telemetry/inflight/*')) and not list(posthog.config.glob('telemetry/outbox/*'))
+
+
+async def test_task_text_passed_as_a_url_and_exception_classes_made_at_runtime_never_reach_posthog(
+	chrome, site, posthog, tmp_path
+):
+	"""Privacy red team: new_tab('https://<task text>/') and cdp('Page.navigate', url=...) with text sent that text as a
+	hostname in domains. Exception classes the model's code made with type() or a borrowed __module__ are 'custom'."""
+	rng = random.Random(11)
+	c = SimpleNamespace(**{k: rand(rng, 10).lower() for k in 'nav1 nav2 nav3 cls1 cls2 cls3 out'.split()})
+	code = (
+		f"try:\n    new_tab('https://{c.nav1} best flights/')\nexcept Exception: pass\n"
+		f"try:\n    cdp('Page.navigate', url='https://{c.nav2} x/')\nexcept Exception: pass\n"
+		f"try:\n    goto_url('{c.nav3} words here')\nexcept Exception: pass\n"
+		f'new_tab({site!r}); wait_for_load(); print(page_info(), {c.out!r})'
+	)
+	model, _ = script(
+		('python', {'code': code}),
+		('python', {'code': f"import json\nraise type({c.cls1!r}, (ValueError,), {{'__module__': 'json'}})('x')"}),
+		('python', {'code': f"raise type({c.cls2!r}, (KeyError,), {{}})('y')"}),
+		('python', {'code': f"class {c.cls3}(OSError):\n    __module__ = 'builtins'\nraise {c.cls3}()"}),
+		('finish', {'success': True, 'result': 'done'}),
+	)
+	r = await Agent('t', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path / 'ws').run()
+	assert r.status == 'completed', r.error
+	(event,) = posthog.events()
+	raw = '\n'.join(posthog.bodies)
+	assert not [k for k, v in vars(c).items() if v in raw], raw
+	p = event['properties']
+	assert p['domains'] == ['127.0.0.1'] and list(p['host_stats']) == ['127.0.0.1']
+	assert p['s_err'] == ['', 'custom', 'custom', 'custom', ''] and p['cell_error_types'] == {'custom': 3}
+
+
+def documented() -> set[str]:
+	text = (Path(__file__).parents[2] / 'TELEMETRY.md').read_text(encoding='utf-8')
+	section = text.split('## agent_event', 1)[1].split('## How it is sent', 1)[0]
+	return set(re.findall(r'`([$\w/<>-]+)`', section))
+
+
+async def test_every_field_sent_is_documented_and_every_documented_field_exists(sent, tmp_path, monkeypatch):
+	"""TELEMETRY.md is the contract: a field the code sends and the doc does not list fails, and so does a doc field the
+	event does not have."""
+	from browser_use.telemetry.stats import environment
+	from browser_use.telemetry.views import AgentTelemetryEvent
+
+	no_browser(monkeypatch)
+	model, _ = script(('python', {'code': 'x = 1'}), ('finish', {'success': True, 'result': 'ok'}))
+	await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()
+	(props,) = sent
+	docs = documented()
+	sent_keys = set(props) | {'$lib', '$lib_version'}  # added by the sender
+	assert not sent_keys - docs, f'sent, not documented: {sorted(sent_keys - docs)}'
+	fields = {f for f in AgentTelemetryEvent.__dataclass_fields__ if f != 'name'} | set(environment()) | {'schema_version'}
+	assert fields <= sent_keys
+	extra = {d for d in docs if re.fullmatch(r'[a-z][a-z0-9_]*', d)} - fields
+	# enum values, helper names and other words in backticks that are not fields
+	words = {
+		*'pip uv editable git unknown pydantic default ultrafast cloud chromium chrome cdp localhost private browser-use'.split(),
+		*'completed timeout max_steps error cancelled crashed finish finish_from_repl text preflight browser_start model'.split(),
+		*'cell delivery budget shutdown browser_gone responses chat anthropic google other server client edge custom'.split(),
+		*'invalid screenshot type_secret search downloads wait wait_for_load wait_for_network_idle wait_for_element'.split(),
+		*'solve_captcha checkpoint provider_transient model_timeout context_overflow compaction_unreadable'.split(),
+		*'delivery_placeholder'.split(),
+		*'delivery_missing_files finish_expr_error finish_schema text_repair text_tool_markup text_schema tool_args'.split(),
+		*'custom_tool stop tool_call length content_filter captcha nav interact files read compute none deliver'.split(),
+		*'rate_limit_exceeded executable_path allowed_domains prohibited_domains device_id type_text fill_input'.split(),
+		*'bu-auto gpt-6-luna CellTimeout WorkerExited PreflightError ValueError ModelHTTPError Tools'.split(),
+	}
+	assert not extra - words, f'documented, not a field: {sorted(extra - words)}'
+	assert not [k for k in props if k.startswith(('$feature', 'flag'))]  # no feature flags in 1.0
+
+
+async def test_telemetry_off_sends_fetches_and_writes_nothing(tmp_path, monkeypatch):
+	"""ANONYMIZED_TELEMETRY=false: no network call, no subprocess, no thread, no file (no device_id, inflight marker or
+	outbox)."""
+	import urllib.request
+
+	import browser_use.telemetry.service as service
+
+	config = tmp_path / 'config'
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(config))
+	monkeypatch.setattr(service, '_device_id', None)
+	instance = service.ProductTelemetry()
+	monkeypatch.setattr(service, '_instance', instance)
+
+	def forbidden(*args, **kwargs):
+		raise AssertionError(f'called with telemetry off: {args[:1]}')
+
+	monkeypatch.setattr(urllib.request, 'urlopen', forbidden)
+	monkeypatch.setattr(subprocess, 'Popen', forbidden)
+	no_browser(monkeypatch)
+	threads = {t.name for t in threading.enumerate()}
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
+	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path / 'ws').run()).status == 'completed'
+	instance._at_exit()
+	assert 'browser-use-telemetry' not in {t.name for t in threading.enumerate()} - threads
+	assert instance._thread is None and not instance._pending
+	assert not [p for p in config.rglob('*') if p.is_file()]
+
+
+# --- performance ---
+
+
+def test_recording_hooks_cost_microseconds():
+	"""Contract: under 20 us per recorded event (p50 of 20 batches). Real numbers are printed for the PR."""
+	from pydantic_ai.messages import ModelResponse, ToolCallPart
+	from pydantic_ai.usage import RequestUsage
+
+	from browser_use.repl.worker import CellStats
+	from browser_use.telemetry.recorder import RunRecorder
+
+	rec = RunRecorder()
+	response = ModelResponse(
+		parts=[ToolCallPart('python', {'code': 'x'}), ToolCallPart('python', {'code': 'y'})],
+		usage=RequestUsage(input_tokens=1000, output_tokens=50, details={'reasoning_tokens': 10}),
+		finish_reason='tool_call',
+	)
+	ms = 1_000_000
+	cell = {
+		'output': 'x' * 500,
+		'images': [],
+		'error': None,
+		'stats': {
+			'helper_t': {'goto_url': [1, 0, 50 * ms, 50 * ms], 'wait_for_load': [1, 0, 300 * ms, 300 * ms], 'js': [2, 0, ms, ms]},
+			'cdp_t': {'Page.navigate': [1, 0, 40 * ms, 40 * ms], 'Runtime.evaluate': [3, 0, 3 * ms, ms]},
+			'events': {},
+			'navigations': 1,
+			'host': 'example.com',
+			'new_pages': 1,
+		},
+	}
+	stats = CellStats()
+
+	def per_call(fn, n=5000) -> float:
+		batches = []
+		for _ in range(20):
+			t = time.perf_counter_ns()
+			for _ in range(n):
+				fn()
+			batches.append((time.perf_counter_ns() - t) / n / 1000)
+		return statistics.median(batches)
+
+	def model_step():
+		rec.attempt_start()
+		rec.attempt_ok(response, False)
+
+	results = {
+		'attempt_start+attempt_ok': per_call(model_step),
+		'cell': per_call(lambda: rec.cell(cell, 'x = 1', 5 * ms)),
+		'retry': per_call(lambda: rec.retry('tool_args')),
+		'phase': per_call(lambda: rec.phase('preflight', 1000)),
+		'worker CellStats.timed': per_call(lambda: stats.timed('cdp_t', 'Runtime.evaluate', 1000, False)),
+	}
+	print('\nrecording cost, us per call (p50 of 20 batches):', {k: round(v, 2) for k, v in results.items()})
+	assert max(results.values()) < 20, results
+
+
+def test_a_1000_step_run_builds_under_50_ms_and_fits_64_kb():
+	"""Build runs in the telemetry thread, but it must stay cheap at exit too: 1000 steps, 50 helpers, 50 CDP methods
+	and 30 hosts build in well under 50 ms and the sent event fits 64 KB (steps capped at 200)."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.recorder import RunRecorder, Step
+	from browser_use.telemetry.stats import RunStats
+	from browser_use.telemetry.views import AgentTelemetryEvent
+
+	rec = RunRecorder()
+	for i in range(1000):
+		s = Step(i * 1000, 900, 300)
+		s.inp, s.out, s.cells, s.cell_ms, s.nav = 50_000 + i * 100, 200, 1, 80, i % 3 == 0
+		s.tools, s.helpers, s.host, s.err = (
+			['python'],
+			['goto_url', 'js', 'wait_for_load'],
+			f'h{i % 30}.example.com',
+			'ValueError' if i % 7 == 0 else '',
+		)
+		s.code = i % 5
+		rec.steps.append(s)
+	stats = RunStats()
+	stats.helper_t = {f'helper_{i}': [10, 1, 10**8, 10**7] for i in range(60)}
+	stats.cdp_t = {'Runtime.evaluate': [100, 2, 10**9, 10**8], **{f'X{i}.y': [1, 0, 1, 1] for i in range(60)}}
+	times = []
+	for _ in range(50):
+		t = time.perf_counter_ns()
+		v3 = rec.build(stats, 1_000_000)
+		times.append((time.perf_counter_ns() - t) / 1e6)
+	event = AgentTelemetryEvent('1', 'pip', **v3)
+	job = service.Job('agent_event', lambda steps, keys: {**event.properties, **rec.build(stats, 1_000_000, steps, keys)})
+	built = service.ProductTelemetry()._event(job)
+	size = len(json.dumps(built['properties'], separators=(',', ':')))
+	gz = len(service.ProductTelemetry._body([built]))
+	print(f'\nbuild of 1000 steps: p50 {statistics.median(times):.2f} ms; event {size} B, gzipped batch {gz} B')
+	assert statistics.median(times) < 50 and size <= 64 * 1024
+	assert len(built['properties']['s_t']) == 200 and built['properties']['tel_steps_dropped'] == 800
+	assert built['properties']['s_t'][49] == 49_000 and built['properties']['s_t'][50] == 850_000  # first 50, last 150
+
+
+async def test_run_end_does_not_wait_for_a_dead_posthog(dead_posthog, tmp_path, monkeypatch):
+	"""v2 called posthog's flush() in run()'s finally: up to 10 s with PostHog unreachable, plus a 65 ms import. Now the
+	end of a run only queues the event: _capture and the run-start marker take well under 50 ms, PostHog dead or not."""
+	no_browser(monkeypatch)
+	took = {}
+	for name in ('_capture', '_telemetry_started'):
+		original = getattr(Agent, name)
+
+		def timed(self, *args, original=original, name=name):
+			t = time.perf_counter()
+			original(self, *args)
+			took[name] = max(took.get(name, 0), (time.perf_counter() - t) * 1000)
+
+		monkeypatch.setattr(Agent, name, timed)
+	for _ in range(2):  # the first in a process included
+		model, _ = script(('python', {'code': 'x = 1'}), ('finish', {'success': True, 'result': 'ok'}))
+		t = time.perf_counter()
+		r = await Agent('t', model, browser=Browser(local=True), workspace=tmp_path / 'ws').run()
+		assert r.status == 'completed'
+	print(
+		f'\nrun end with a dead PostHog: _capture {took["_capture"]:.2f} ms, run start marker {took["_telemetry_started"]:.2f} ms'
+	)
+	assert took['_capture'] < 50 and took['_telemetry_started'] < 50, took
+
+
+EXIT_SCRIPT = """
+import atexit, os, sys, time
+atexit.register(lambda: print(f'EXIT {(time.perf_counter() - marks[0]) * 1000:.1f}', flush=True))  # runs last
+marks = []
+import browser_use.telemetry.service as service
+service.POSTHOG_HOST = sys.argv[1]
+from browser_use.telemetry.views import AgentTelemetryEvent
+service.ProductTelemetry._loop = lambda self: None  # only the exit path: the thread racing it is tested apart
+t = service.telemetry()
+t.capture(AgentTelemetryEvent(version='1', source='pip', model='exit-test', run_id=os.urandom(16).hex()))
+atexit.register(lambda: marks.append(time.perf_counter()))  # runs first: before telemetry's own handler
+"""
+
+
+@pytest.mark.parametrize('live', [False, True])
+def test_a_one_shot_script_exits_fast_and_its_event_still_arrives(posthog, live, tmp_path):
+	"""A script that runs one Agent and exits: telemetry's exit handler hands the queued event to a detached sender
+	(< 150 ms), and the event reaches PostHog after the process is gone. With PostHog down it waits in the outbox for
+	the next process."""
+	import browser_use.telemetry.service as service
+
+	posthog.state.down = not live
+	env = {**os.environ, 'ANONYMIZED_TELEMETRY': 'true', 'BROWSER_USE_CONFIG_DIR': str(posthog.config)}
+	cmd = [sys.executable, '-c', EXIT_SCRIPT, service.POSTHOG_HOST]
+	out = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
+	assert 'EXIT' in out.stdout, (out.stdout, out.stderr[-3000:])
+	exit_ms = float(re.search(r'EXIT ([\d.]+)', out.stdout)[1])
+	print(f'\nexit handler with a queued event: {exit_ms:.1f} ms')
+	assert exit_ms < 150, out
+	if live:
+		(event,) = posthog.events()
+		assert event['properties']['model'] == 'exit-test'
+		deadline = time.monotonic() + 10
+		while list(posthog.config.glob('telemetry/outbox/*')) and time.monotonic() < deadline:
+			time.sleep(0.05)
+		assert not list(posthog.config.glob('telemetry/outbox/*'))
+	else:
+		outbox = posthog.config / 'telemetry' / 'outbox'
+		deadline = time.monotonic() + 15  # the detached sender tried (the only poster) and put the file back
+		while time.monotonic() < deadline and not (posthog.state.attempts and not list(outbox.glob('*.sending'))):
+			time.sleep(0.05)
+		assert posthog.state.attempts == 1 and len(list(outbox.glob('*.gz'))) == 1, (posthog.state, list(outbox.iterdir()))
+		posthog.state.down = False
+		posthog.telemetry._send_outbox()  # what the next process's telemetry thread does first
+		(event,) = posthog.events()
+		assert event['properties']['model'] == 'exit-test' and not list(posthog.config.glob('telemetry/outbox/*'))
+
+
+def test_an_outbox_file_a_dead_sender_claimed_is_sent_and_one_this_process_still_owns_is_not(posthog):
+	"""CI (ubuntu, windows): a one-shot script's telemetry thread, starting while the exit handler wrote the outbox, claimed
+	the file (<run_id>.<pid>.sending) and died at exit mid-send; the detached sender found nothing, and nothing ever sent
+	a .sending file again: the event was lost. Now a dead sender's claim goes back to the box, a live one's is left, and
+	the thread leaves the files of this process's own queued events to the exit sender."""
+	from browser_use.telemetry.service import Job
+
+	dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+	dead.wait()
+	box = posthog.config / 'telemetry' / 'outbox'
+	box.mkdir(parents=True)
+	t = posthog.telemetry
+	body = lambda model: t._body([t._event(Job('agent_event', lambda s, k: {'model': model}))])  # noqa: E731
+	(box / f'{uuid.uuid4().hex}.{dead.pid}.sending').write_bytes(body('stranded'))
+	live = box / f'{uuid.uuid4().hex}.{os.getppid()}.sending'  # a sender still running: its send, not ours
+	live.write_bytes(body('in-flight'))
+	own = Job('agent_event', lambda s, k: {'model': 'own'})
+	t._pending[own.run_id] = own
+	(box / f'{own.run_id}.gz').write_bytes(body('own'))
+	t._send_outbox()
+	assert [e['properties']['model'] for e in posthog.events()] == ['stranded']
+	assert sorted(p.name for p in box.iterdir()) == sorted([live.name, f'{own.run_id}.gz'])
+
+
+def test_a_send_that_fails_goes_to_the_outbox_and_is_counted(posthog, monkeypatch):
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.views import AgentTelemetryEvent
+
+	live = service.POSTHOG_HOST
+	monkeypatch.setattr(service, 'POSTHOG_HOST', 'http://127.0.0.1:9')
+	t = posthog.telemetry
+	t.capture(AgentTelemetryEvent(version='1', source='pip', model='first'))
+	assert t.flush(10)
+	assert t.send_failures == 1 and len(list(posthog.config.glob('telemetry/outbox/*.gz'))) == 1
+	monkeypatch.setattr(service, 'POSTHOG_HOST', live)
+	t._send_outbox()
+	assert [e['properties']['model'] for e in posthog.events()] == ['first']
+
+
+def test_a_run_whose_process_died_is_sent_as_crashed(posthog):
+	"""A marker written while a run was in progress, by a process that no longer exists, is sent once as status
+	crashed with the step count the marker last had."""
+	from browser_use.telemetry.views import AgentTelemetryEvent
+
+	dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+	dead.wait()
+	run_id = uuid.uuid4().hex
+	marker = posthog.config / 'telemetry' / 'inflight' / f'{run_id}.json'
+	marker.parent.mkdir(parents=True)
+	props = AgentTelemetryEvent(version='1', source='pip', model='m', run_id=run_id, timeout_s=1700).properties
+	started = time.time() - 120
+	marker.write_text(json.dumps({'pid': dead.pid, 'started': started, 'updated': started + 90, 'steps': 7, 'props': props}))
+	alive = posthog.config / 'telemetry' / 'inflight' / 'alive.json'  # a run of a process still running: left alone
+	alive.write_text(json.dumps({'pid': os.getppid(), 'started': time.time(), 'props': props}))
+	posthog.telemetry._send_crashed()
+	(event,) = posthog.events()
+	p = event['properties']
+	assert (p['status'], p['steps'], p['ms_total'], event['uuid']) == ('crashed', 7, 90_000, str(uuid.UUID(run_id)))
+	assert not marker.exists() and alive.exists()
+
+
+async def test_a_run_in_progress_has_a_marker_that_goes_away_when_its_event_is_sent(posthog, tmp_path, monkeypatch):
+	"""The crash marker exists while the run does (the thread writes it), holds no task text, and is gone once the
+	run's event is sent."""
+	from pydantic_ai.messages import ModelResponse, ToolCallPart
+	from pydantic_ai.models.function import FunctionModel
+
+	no_browser(monkeypatch)
+	markers = []
+
+	def slow(messages, info):
+		time.sleep(0.5)  # the telemetry thread writes the marker meanwhile
+		markers.extend(p.read_text() for p in posthog.config.glob('telemetry/inflight/*.json'))
+		return ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': 'ok'})])
+
+	await Agent('Zq-marker-task-text', FunctionModel(slow), browser=Browser(local=True), workspace=tmp_path / 'ws').run()
+	(event,) = posthog.events()
+	assert posthog.telemetry.flush(5)
+	(marker,) = markers
+	assert 'Zq-marker-task-text' not in marker and json.loads(marker)['props']['run_id'] == event['properties']['run_id']
+	assert not list(posthog.config.glob('telemetry/inflight/*'))
+
+
+# --- what the recorder derives ---
+
+
+def test_struggle_metrics_and_step_kinds():
+	from browser_use.telemetry.recorder import EV_NEW_PAGE, RunRecorder, Step
+	from browser_use.telemetry.stats import RunStats
+
+	def step(err='', helpers=(), nav=0, host='a.com', ev=0, code=None, tools=('python',)):
+		s = Step(0, 1, -1)
+		s.err, s.helpers, s.nav, s.host, s.ev, s.code, s.tools, s.cells = err, list(helpers), nav, host, ev, code, list(tools), 1
+		return s
+
+	rec = RunRecorder()
+	rec.steps = [
+		step(helpers=['goto_url'], nav=1, ev=EV_NEW_PAGE, code=1),
+		step('TimeoutError', ['click_at_xy'], code=2),
+		step('TimeoutError', ['click_at_xy'], code=2),
+		step('TimeoutError', ['click_at_xy'], code=3),
+		step(helpers=['wait_for_load'], code=4),
+		step(helpers=['js'], code=5),
+		step(code=6),
+		step(tools=('finish',), helpers=[]),
+	]
+	out = rec.build(RunStats(), 1000)
+	assert out['s_kind'] == ['nav', 'interact', 'interact', 'interact', 'wait', 'read', 'compute', 'deliver']
+	assert (out['max_err_streak'], out['err_streaks_3'], out['streak_err'], out['streak_kind'], out['streak_helper']) == (
+		3,
+		1,
+		'TimeoutError',
+		'interact',
+		'click_at_xy',
+	)
+	assert (out['repeat_fail_steps'], out['repeat_code_steps'], out['last_progress_step'], out['wasted_steps']) == (2, 1, 8, 0)
+	assert out['max_host_streak'] == 8 and out['s_ev'][2] & 256 and out['host_stats'] == {'a.com': [8, 3, 0, 0, 0, 1, 0]}
+
+
+def test_model_names_and_provider_codes_never_carry_free_text():
+	from browser_use.telemetry.recorder import RunRecorder, _code
+
+	assert _code('rate_limit_exceeded') == 'rate_limit_exceeded' and _code(429) == '429'
+	assert _code('Your key sk-123 was rejected') == 'other' and _code(None) == ''
+	rec = RunRecorder(model='openai:gpt-6-luna')
+	assert rec._model_name('gpt-6-luna-2026-10-01') == 'gpt-6-luna-2026-10-01'
+	assert rec._model_name('/home/jane/models/acme-payroll.gguf') == 'other'
+	assert rec._model_name('llama-3-70b') == 'other'  # a different model than configured: a custom endpoint's text
+	assert RunRecorder(model='bu-auto', gateway=True)._model_name('claude-opus-5') == 'claude-opus-5'
+
+
+async def test_delivery_repairs_and_retries_are_counted_at_their_raise_sites(sent, tmp_path, monkeypatch):
+	no_browser(monkeypatch)
+	model, _ = script(
+		('finish', {'success': True, 'result': '...'}),  # a placeholder: one repair
+		('python', {}),  # missing code: a tool argument retry
+		('finish', {'success': True, 'result': 'done'}),
+	)
+	await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()
+	(p,) = sent
+	assert p['retries'] == {'delivery_placeholder': 1, 'tool_args': 1} and p['delivery_repairs'] == 1, p
+	assert p['retry_prompts'] == 2 and p['status'] == 'completed' and p['error_phase'] is None
+
+
+async def test_why_a_run_ended(sent, tmp_path, monkeypatch):
+	"""error_phase: where a failed run stopped; budget for a run its limits ended."""
+	no_browser(monkeypatch)
+	model, _ = script(('python', {'code': 'x = 1'}), ('python', {'code': 'x = 2'}))
+	await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run(max_steps=1)
+	monkeypatch.setattr('browser_use.agent.service.provider_preflight', lambda model: 'rejected the API key')
+	await Agent('t', script()[0], browser=Browser(local=True), workspace=tmp_path).run()
+	assert [(e['status'], e['error_phase']) for e in sent] == [('max_steps', 'budget'), ('error', 'preflight')]
+	assert sent[0]['budget_hit'] == 'max_steps' and sent[0]['delivery_turn'] is True and sent[0]['s_ev'][0] & 8
+	assert sent[1]['ms_preflight'] >= 0 and sent[1]['steps'] == 0 and sent[1]['s_t'] == []
+
+
+def test_a_cell_does_not_pay_for_the_installed_package_and_cdp_method_lists():
+	"""v2 checked each cell's imports and cdp() methods as it ran: the first cell of a process listed every installed
+	distribution and every CDP method (~300 ms on the agent path). The check now runs when the event is built."""
+	code = (
+		'import time\n'
+		'from browser_use.telemetry.stats import RunStats, known_cdp_method, known_module\n'
+		't = time.perf_counter()\n'
+		"RunStats().add_cell({'stats': {'cdp': {'Page.navigate': 1}}}, 'import pandas\\nimport json', 0.1)\n"
+		'print(round((time.perf_counter() - t) * 1000, 2), known_module.cache_info().currsize, known_cdp_method.cache_info().currsize)'
+	)
+	out = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=True).stdout.split()
+	assert out[1:] == ['0', '0'] and float(out[0]) < 5, out
+
+
+def test_the_telemetry_thread_does_not_list_every_package_or_cdp_method():
+	"""The thread listed every installed distribution and CDP method when it started (~120 ms of CPU, importing all of
+	cdp-use). Holding the GIL, that slowed the first run of a process by ~40 ms (a local Chromium run: 2153 -> 2192 ms).
+	Names are now checked one at a time: the same answers, without importing cdp-use."""
+	code = (
+		'import sys, time\n'
+		'import browser_use.telemetry.service as s\n'
+		'from browser_use.telemetry.stats import known_cdp_method, known_module\n'
+		't = time.perf_counter()\n'
+		's.telemetry()._warm()\n'
+		"names = [known_module(n) for n in ('json', 'PIL', 'pydantic_ai', 'zqnotinstalled', 'os.path')]\n"
+		"names += [known_cdp_method(m) for m in ('Page.navigate', 'page.navigate', 'DOM.getBoxModel', 'Page.zq', 'Zq.navigate',"
+		" 'BrowserUse.setCaptchaSolverEnabled', '../x.navigate', 'Page.navigate(')]\n"
+		"print(round((time.perf_counter() - t) * 1000, 2), 'cdp_use' in sys.modules, names)"
+	)
+	out = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=True).stdout
+	ms, imported, names = out.split(' ', 2)
+	assert imported == 'False' and float(ms) < 60, out
+	assert names.strip() == str([True, True, True, False, False, True, False, True, False, False, True, False, False])
+
+
+def test_cdp_methods_and_modules_allowed_are_the_protocols_and_the_installed_ones():
+	"""The per-name checks accept every method cdp-use's clients define and every module of an installed distribution."""
+	from importlib.metadata import packages_distributions
+
+	from cdp_use.cdp.library import CDPLibrary
+
+	from browser_use.telemetry.stats import known_cdp_method, known_module
+
+	lib = CDPLibrary(None)  # type: ignore[arg-type]
+	methods = {
+		f'{d}.{m}'
+		for d, c in vars(lib).items()
+		if not d.startswith('_')
+		for m in dir(c)
+		if m[:1].isupper() is False and not m.startswith('_') and callable(getattr(c, m))
+	}
+	assert len(methods) > 500 and all(known_cdp_method(m) for m in methods)
+	# top_level.txt also lists names no import finds (pywin32's adsi lives in win32comext): those are not modules
+	importable = [m for m in packages_distributions() if m.isidentifier() and importlib.util.find_spec(m) is not None]
+	assert len(importable) > 50 and [m for m in importable if not known_module(m)] == []
+
+
+def test_no_test_can_send_to_the_real_posthog():
+	"""The suite sent a real event per run: a send to a dead host was still retrying when the fixture restored the real
+	host. Tests now start from a host where nothing listens, and their events are marked internal."""
+	import browser_use.telemetry.service as service
+
+	assert service.POSTHOG_HOST == 'http://127.0.0.1:9' and os.environ['BROWSER_USE_TELEMETRY_INTERNAL'] == '1'
+
+
+async def test_a_queued_event_does_not_keep_the_runs_messages_alive(dead_posthog, tmp_path, monkeypatch):
+	"""The event waits in the sender while PostHog is slow or down (7 s per event unreachable, up to 100 events). Its
+	build closure held the run's whole message history, screenshots included, and the thread's loop variable held the
+	last one even after it was sent: 1.6 MiB more per 200-step run here, measured with tracemalloc."""
+	import gc
+	import weakref
+
+	from pydantic_ai.messages import ModelResponse, ToolCallPart
+	from pydantic_ai.models.function import FunctionModel
+
+	no_browser(monkeypatch)
+	refs = []
+
+	def fn(messages, info):
+		done = len(refs) >= 2
+		r = ModelResponse(
+			parts=[
+				ToolCallPart('finish', {'success': True, 'result': 'ok'}) if done else ToolCallPart('python', {'code': 'x = 1'})
+			]
+		)
+		refs.append(weakref.ref(r))
+		return r
+
+	r = await Agent('t', FunctionModel(fn), browser=Browser(local=True), workspace=tmp_path / 'ws').run()
+	assert r.status == 'completed' and dead_posthog.telemetry._pending
+	del r
+	gc.collect()
+	assert [ref() for ref in refs] == [None, None, None]
+	(job,) = dead_posthog.telemetry._pending.values()
+	props = job.build(200, 50)
+	assert props['tool_calls'] == {'python': 2, 'finish': 1} and props['retry_prompts'] == 0
+
+
+async def test_a_failed_navigation_counts_on_the_host_that_failed_not_on_chromes_error_page(chrome, sent, tmp_path):
+	"""Live run 4 went to an unresolvable host: goto_url returned, no error showed anywhere, and both steps were booked
+	on 'chromewebdata', the host of Chrome's error page. The failed navigation now counts, with Chrome's net error code
+	and never the URL, on the host that failed."""
+	model, _ = script(
+		('python', {'code': "goto_url('http://zq-nowhere.invalid/zqpath?zq=1'); print(page_info())"}),
+		('finish', {'success': False, 'result': 'unreachable'}),
+	)
+	assert (await Agent('t', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path).run()).status == 'completed'
+	(props,) = sent
+	assert props['nav_failures'] == 1 and props['nav_errors'] == {'ERR_NAME_NOT_RESOLVED': 1}
+	assert 'chromewebdata' not in props['domains'] + props['s_host'] and 'chromewebdata' not in props['host_stats']
+	assert props['host_stats']['zq-nowhere.invalid'][5:] == [1, 1] and props['s_ev'][0] & 1024
+	assert_absent(props, 'zqpath')
+
+
+def test_a_step_whose_navigation_failed_is_not_progress():
+	from browser_use.telemetry.recorder import EV_NAV_FAILED, EV_NEW_PAGE, Step, _struggle
+
+	ok, failed = Step(0, 1, 1), Step(1, 1, 1)
+	ok.tools = failed.tools = ['python']
+	ok.ev, failed.ev = EV_NEW_PAGE, EV_NEW_PAGE | EV_NAV_FAILED
+	assert _struggle([ok, failed])['last_progress_step'] == 1 and _struggle([ok, failed])['wasted_steps'] == 1
+
+
+def test_a_run_delivered_as_a_text_reply_wastes_no_steps():
+	"""Live runs on bu-fast delivered as a plain text reply (finish_via text) in 6 of 11: a 4-step run that read,
+	clicked and answered reported wasted_steps 3, because only the finish tool counted as delivering."""
+	from browser_use.telemetry.recorder import EV_NEW_PAGE, Step, _struggle
+
+	steps = [Step(i, 1, 1) for i in range(4)]
+	for s in steps[:3]:
+		s.tools = ['python']
+	steps[0].ev = EV_NEW_PAGE  # nav, then read, interact, and a text reply
+	assert (_struggle(steps)['last_progress_step'], _struggle(steps)['wasted_steps']) == (4, 0)
+	steps[1].tools = []  # a text reply mid-run (sent back for repair) is not the delivery
+	assert (_struggle(steps[:3])['last_progress_step'], _struggle(steps[:3])['wasted_steps']) == (1, 2)

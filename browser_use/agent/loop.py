@@ -63,6 +63,7 @@ from browser_use.llm import model_ref, skip_responses_transform
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import redact_forms, secret_forms
 from browser_use.search import parse_usd
+from browser_use.telemetry.recorder import CURRENT, RunRecorder, now
 from browser_use.telemetry.stats import RunStats
 from browser_use.tools import TOOL_RETRIES, ActionResult, RemovedField
 
@@ -126,6 +127,7 @@ class Session:
 	overflowed_step: int | None = None  # Compaction: the request step a context-window error forced a compaction in
 	provider_retried: bool = False  # BrowserLoop: bu-pi's one provider retry per run is used
 	summaries: list[ModelResponse] = field(default_factory=list)  # summarizer responses, counted in usage and cost
+	rec: RunRecorder = field(default_factory=RunRecorder)  # telemetry, step by step (TELEMETRY.md)
 
 	def delivery_at(self) -> float:
 		"""Seconds into the run at which the delivery-only turn starts: 90% of the budget, or earlier on a short budget
@@ -147,12 +149,16 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	Browser helpers are synchronous (do not await them); variables survive calls; the last expression is printed. Cell deadline
 	applies; checkpoint small batches before it. screenshot() returns native images.
 	"""
-	started = time.monotonic()  # python is sequential (one cell at a time, as bu-pi): this cell starts now
+	started, t0, repl = time.monotonic(), now(), ctx.deps.repl  # python is sequential (one cell at a time, as bu-pi): this cell starts now
 	left = ctx.deps.delivery_at() - (started - ctx.deps.started)  # a cell never runs into the delivery turn's time
 	if left <= 0:  # a later call of the same response, after an earlier one used the time up
 		return [NO_TIME]
-	r = await ctx.deps.repl.call('exec', code, min(ctx.deps.cell_timeout_s, max(left, 1.0)))
+	ctx.deps.rec.cell_start()
+	starts = getattr(repl, 'start_ns', 0)  # test doubles have none
+	r = await repl.call('exec', code, min(ctx.deps.cell_timeout_s, max(left, 1.0)))
 	ctx.deps.stats.add_cell(r, code, time.monotonic() - started)
+	ctx.deps.rec.phase('repl_start', getattr(repl, 'start_ns', 0) - starts)
+	ctx.deps.rec.cell(r, code, now() - t0, ctx.deps.vision)
 	if r.get('browser_gone'):  # a model left without a browser went looking for another one (the user's own Chrome)
 		ctx.deps.budget_hit = 'browser_gone'
 	text = r['output']  # already cut to MAX_OUTPUT_CHARS by the worker
@@ -182,6 +188,7 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 		problem = None
 		if not re.search(r'[^\W_]', text):  # '...', '' (a one-character answer like '7' is fine)
 			problem = f'The result {text[:20]!r} is a placeholder, not the answer.'
+			s.rec.retry('delivery_placeholder')
 		else:
 			missing = sorted(
 				{
@@ -192,6 +199,7 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 			)
 			if missing:
 				problem = f'These linked files do not exist in the workspace: {", ".join(missing[:10])}.'
+				s.rec.retry('delivery_missing_files')
 		if problem:
 			s.checked_delivery = True
 			raise ModelRetry(
@@ -223,6 +231,7 @@ def _outputs(output_type: Any) -> list[Any]:
 	async def finish_from_repl(ctx: RunContext[Session], expression: str, success: bool | None = None):
 		r = await ctx.deps.repl.call('eval', expression, ctx.deps.cell_timeout_s)
 		if r['error']:
+			ctx.deps.rec.retry('finish_expr_error')
 			raise ModelRetry(f'Expression failed: {r["error"][-2000:]}')
 		if output_type is str:
 			check_delivery(ctx, r['value'])
@@ -231,6 +240,7 @@ def _outputs(output_type: Any) -> list[Any]:
 			try:
 				value = adapter.validate_json(r['value'])
 			except ValidationError as e:
+				ctx.deps.rec.retry('finish_schema')
 				raise ModelRetry(f'Value does not match the result schema: {str(e)[:2000]}')
 		ctx.deps.success, ctx.deps.finish_via = success, 'finish_from_repl'
 		return clean(ctx, value)
@@ -249,6 +259,8 @@ def _outputs(output_type: Any) -> list[Any]:
 		markup = TOOL_CALL_MARKUP.search(text)
 		if markup or (output_type is not str and not ctx.deps.finalizing):
 			ctx.deps.finalizing = True
+			ctx.deps.rec.delivery()
+			ctx.deps.rec.retry('text_tool_markup' if markup else 'text_repair')
 			# Quoted: a compaction item at the end of this response replaces everything before it, this text included,
 			# so the repair turn would otherwise not see the answer it is asked to deliver.
 			note = 'That reply wrote a tool call as text; it was not run. ' if markup else ''
@@ -260,6 +272,7 @@ def _outputs(output_type: Any) -> list[Any]:
 		try:
 			return clean(ctx, adapter.validate_json(text))
 		except ValidationError as e:
+			ctx.deps.rec.retry('text_schema')
 			raise ModelRetry(f'Deliver with finish or finish_from_repl; text does not match the result schema: {str(e)[:2000]}')
 
 	verdict = Annotated[  # 0.x done(success) rule: an evidence-free verdict let a strict schema get values from memory
@@ -317,6 +330,7 @@ class BrowserLoop(AbstractCapability[Session]):
 				s.budget_hit = 'timeout'
 			if s.budget_hit:
 				s.finalizing = True
+				s.rec.delivery()
 				ctx.enqueue(DELIVER_NOW)
 		settings: dict[str, Any] = dict(request_context.model_settings or {})  # resolved before this hook
 		_deadlines(s, settings, request_context.model, MODEL_TIMEOUT_S)
@@ -336,6 +350,7 @@ class BrowserLoop(AbstractCapability[Session]):
 		failed stream) was never retried by the SDK: server_error, overloaded and request_timeout get the retry too."""
 		s, model = ctx.deps, request_context.model
 		if isinstance(error, ModelRequestTimeout):  # a new request step: the delivery turn when its time has come
+			s.rec.retry('model_timeout')
 			logger.warning(f'{error.model_name}: no answer within {error.timeout:g} s; asking again')
 			raise ModelRetry(f'The model request got no answer within {error.timeout:g} s.')
 		if s.provider_retried or not isinstance(error, ModelAPIError):
@@ -350,9 +365,12 @@ class BrowserLoop(AbstractCapability[Session]):
 		if not transient or sdk_retried:
 			raise error
 		s.provider_retried = True
+		s.rec.retry('provider_transient')
 		delay = min(error.retry_after or 0, 60)
 		logger.warning(f'{type(error).__name__} from {error.model_name}: retrying once in {delay:g} s')
+		slept = now()
 		await asyncio.sleep(delay)
+		s.rec.phase('retry_sleep', now() - slept)
 		raise RetryModelRequest()
 
 	async def wrap_tool_validate(self, ctx: RunContext[Session], *, call, tool_def, args, handler) -> Any:
@@ -367,6 +385,7 @@ class BrowserLoop(AbstractCapability[Session]):
 		did (ActionResult(error=...)); it never ends the run. ModelRetry and pydantic-ai's control flow never get here."""
 		if call.tool_name == 'python' or tool_def.kind != 'function' or isinstance(error, RemovedField):
 			raise error
+		ctx.deps.rec.retry('custom_tool')
 		return ActionResult(error=f'{type(error).__name__}: {error}')
 
 	async def wrap_tool_execute(self, ctx: RunContext[Session], *, call, tool_def, args, handler) -> Any:
@@ -396,6 +415,25 @@ class BrowserLoop(AbstractCapability[Session]):
 		return result if clean == plain else clean  # untouched (images, types) unless a secret was in it
 
 
+class Recording(AbstractCapability[Session]):
+	"""Telemetry of every model request attempt (RunRecorder). Last in the capability list: its prepare hook runs after
+	compaction (timed apart), and its error hook sees each failure first, as the provider raised it."""
+
+	async def prepare_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
+		ctx.deps.rec.attempt_start()
+		return request_context
+
+	async def after_model_request(
+		self, ctx: RunContext[Session], *, request_context: ModelRequestContext, response: ModelResponse
+	):
+		ctx.deps.rec.attempt_ok(response, ctx.deps.finalizing)
+		return response
+
+	async def on_model_request_error(self, ctx: RunContext[Session], *, request_context: ModelRequestContext, error: Exception):
+		ctx.deps.rec.attempt_failed(error)
+		raise error
+
+
 class StreamResponses(AbstractCapability[Session]):
 	"""Every OpenAI Responses request (the gateway, api.openai.com) goes out with stream=true and comes back as the
 	assembled response, as bu-pi streams every request. The gateway cuts a non-streamed request at 300 s: it answered
@@ -421,6 +459,8 @@ class StreamedRequest(WrapperModel):
 				if not (item := _unreadable_compaction(e, messages, guessed)):
 					raise
 				guessed = guessed or e.provider_error_code != 'invalid_encrypted_content'
+				if rec := CURRENT.get():
+					rec.retry('compaction_unreadable')
 				logger.warning(f'{self.model_name} could not read compaction item {item}; sending the history it replaced')
 				messages = [_without_part(m, item) if isinstance(m, ModelResponse) else m for m in messages]
 
@@ -442,6 +482,8 @@ class StreamedRequest(WrapperModel):
 					events = _in_stream(stream)
 					stack.push_async_callback(events.aclose)
 					await anext(events, None)
+					if rec := CURRENT.get():
+						rec.first_event()
 			except TimeoutError:
 				if not first_event.expired():
 					raise
@@ -586,12 +628,18 @@ class Compaction(AbstractCapability[Session]):
 		s, messages = ctx.deps, request_context.messages
 		overflowed = s.overflowed_step == ctx.run_step  # this attempt follows a context-window error
 		if overflowed or (not self.overflow_only and self._due(s, request_context)):
+			started, covered, summaries, failed = now(), s.covered, len(s.summaries), False
+			before = _estimate(_projected(s, messages))
 			try:
 				await _compact(s, messages, request_context)
 			except Exception as e:
+				failed = True
 				logger.warning(
 					redact(f'Compaction failed, continuing with the full history: {type(e).__name__}: {e}', s.repl.secrets)
 				)
+			if failed or len(s.summaries) > summaries:  # a summary was asked for (not: too little history to compact)
+				after = _estimate(_projected(s, messages))
+				s.rec.compaction('overflow' if overflowed else 'client', now() - started, before, after, s.covered != covered)
 		request_context.messages = _projected(s, messages)
 		return request_context
 
@@ -927,13 +975,19 @@ def build_agent(
 			settings = {'openai_store': False}
 		# Compaction: the server cannot compact a request already over the window; that 400 gets a checkpoint instead
 		overflow = Compaction(overflow_only=True)
-		capabilities = [BrowserLoop(), LazyCompaction(token_threshold=compact_at_tokens), StreamResponses(), overflow]
+		capabilities = [
+			BrowserLoop(),
+			LazyCompaction(token_threshold=compact_at_tokens),
+			StreamResponses(),
+			overflow,
+			Recording(),
+		]
 		skip_responses_transform()  # bu-pi's Node SDK sends the body as is
 	elif kind == 'chat':  # DeepSeek, vLLM, Ollama: no reasoning settings, no output cap they may reject
 		# OpenAI's own reasoning models turn reasoning on by default on chat completions and then reject function tools
 		# (400 "use /v1/responses or set reasoning_effort to 'none'")
 		settings = {'openai_reasoning_effort': 'none'} if _openai_reasoning_on_chat(model) else {}
-		capabilities = [BrowserLoop(), Compaction(compact_at_tokens, max_context_chars)]
+		capabilities = [BrowserLoop(), Compaction(compact_at_tokens, max_context_chars), Recording()]
 	else:  # other providers: unified thinking (dropped where the profile has none), the provider's own max_tokens
 		settings = {'thinking': reasoning_effort or 'medium'} if reasoning else {}
 		system = model.split(':', 1)[0] if isinstance(model, str) else str(getattr(model, 'system', ''))
@@ -956,7 +1010,7 @@ def build_agent(
 			adaptive = profile.get('anthropic_supports_adaptive_thinking', False)
 			if reasoning and adaptive and 'anthropic_thinking' not in own and own.get('thinking') is not False:
 				settings = {**settings, 'anthropic_thinking': {'type': 'adaptive', 'display': 'summarized'}}
-		capabilities = [BrowserLoop(), Compaction(compact_at_tokens, max_context_chars)]
+		capabilities = [BrowserLoop(), Compaction(compact_at_tokens, max_context_chars), Recording()]
 	model_own = getattr(model, 'settings', None) or {}
 	agent = Agent(
 		model,
@@ -1078,6 +1132,7 @@ async def run(
 	searched = len(search.charges) if search else 0
 	budget = asyncio.timeout(session.timeout_s)
 	task = redact(task, session.repl.secrets)  # 0.x: a secret written into the task reaches the model as its name only
+	recording = CURRENT.set(session.rec)  # this task's context: StreamedRequest reaches the recorder through it
 	try:
 		async with budget:
 			result = await agent.run(
@@ -1095,6 +1150,7 @@ async def run(
 		name = session.error_type = type(e).__name__
 		status = 'max_steps' if name == 'UsageLimitExceeded' else 'error'
 		error, messages = (explain_error and explain_error(e)) or described(e), session.messages
+	CURRENT.reset(recording)
 	partial = session.partial()
 	new = messages[len(message_history or []) :]  # an earlier task's text is never this run's fallback
 	if output is None:
@@ -1102,7 +1158,12 @@ async def run(
 		output = json.dumps(partial, ensure_ascii=False) if partial is not None else redact(last_text(new), session.repl.secrets)
 	text = redact(as_text(output), session.repl.secrets)
 	error = redact(error, session.repl.secrets)  # provider/tool exceptions can quote a secret; Agent.run logs this
+	session.rec.loop_ended()
 	usage, cost = usage_and_cost(new + session.summaries, model_ref)
+	if search:
+		session.rec.cost_search = sum(search.charges[searched:])
+	if session.summaries:
+		session.rec.cost_compaction = usage_and_cost(list(session.summaries), model_ref)[1]
 	if cost is not None and search:  # web searches that named a charge; an unknown model cost stays unknown
 		cost += sum(search.charges[searched:])
 	steps = sum(isinstance(m, ModelResponse) for m in new)

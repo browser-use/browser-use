@@ -23,6 +23,13 @@ os.environ['BU_NAME'] = 'browser-use-tests-no-daemon'
 os.environ['BH_AUTH_PATH'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-auth' / 'auth.json')
 # The 0.x config.json `browser-use --mcp` reads: never the developer's own.
 os.environ['BROWSER_USE_CONFIG_DIR'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-config')
+os.environ['BROWSER_USE_TELEMETRY_INTERNAL'] = '1'
+
+# No test reaches the real PostHog: a test that points telemetry at a dead host left a send in flight, and its retry went
+# to the module's host once the fixture had restored it (an event from bu-test-device in production per suite run).
+import browser_use.telemetry.service as _telemetry_service  # noqa: E402
+
+_telemetry_service.POSTHOG_HOST = 'http://127.0.0.1:9'  # nothing listens on port 9
 
 
 def find_chrome() -> str | None:
