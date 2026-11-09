@@ -239,6 +239,22 @@ def test_first_run_text_gives_the_readmes_agent_prompt(monkeypatch, capsys):
 	assert 'prerelease' not in printed and 'docs.browser-use.com' in printed
 
 
+def test_stdin_from_the_null_device_is_empty_stdin_not_the_quickstart():
+	"""win-cli-8: on Windows NUL is a character device, so isatty() is True: `browser-use < NUL` (and a coding agent's
+	subprocess with stdin=DEVNULL) printed the quickstart with exit 0 instead of the empty-stdin error."""
+	r = subprocess.run(
+		[sys.executable, '-m', 'browser_use.cli'],
+		cwd=ROOT,
+		env={**os.environ, 'PYTHONPATH': str(ROOT)},
+		stdin=subprocess.DEVNULL,
+		capture_output=True,
+		text=True,
+		timeout=60,
+	)
+	assert r.returncode == 1, (r.stdout, r.stderr)
+	assert 'received empty stdin' in r.stderr and 'Welcome' not in r.stdout
+
+
 def test_every_install_line_pins_the_released_version_exactly():
 	"""Users and their agents copy these lines: each pins browser-use with == to this release, never >=."""
 	import tomllib
