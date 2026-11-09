@@ -26,15 +26,16 @@ def install() -> None:
 
 	@functools.wraps(original)
 	def page_info():
-		try:
-			return original()
-		except RuntimeError as e:
-			if NO_ROOT not in str(e):
-				raise
+		# Retry page_info() itself, not a probe of our own: each try checks for a dialog first, so a page that opens an
+		# alert() as it loads returns {dialog} instead of timing out on an evaluate the open dialog blocks.
 		deadline = time.monotonic() + ROOT_WAIT_S
-		while time.monotonic() < deadline and helpers.js('document.documentElement === null'):
+		while True:
+			try:
+				return original()
+			except RuntimeError as e:
+				if NO_ROOT not in str(e) or time.monotonic() >= deadline:
+					raise
 			time.sleep(0.05)
-		return original()
 
 	page_info.__bu_waits_for_root__ = True  # type: ignore[attr-defined]
 	helpers.page_info = page_info
