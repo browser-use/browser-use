@@ -112,14 +112,22 @@ def _check_done_results(fn: Callable) -> None:
 			for kw in node.keywords:
 				if kw.arg is None:  # ActionResult(**fields)
 					continue
-				done = kw.arg == 'is_done' and not (isinstance(kw.value, ast.Constant) and not kw.value.value)
-				listed = kw.arg in ('attachments', 'images') and not (
-					isinstance(kw.value, ast.Constant) and kw.value.value is None
-				)
+				done = kw.arg == 'is_done' and not _empty_literal(kw.value)
+				# an empty list is the 0.x default spelled out: ActionResult drops it at runtime, so it runs
+				listed = kw.arg in ('attachments', 'images') and not _empty_literal(kw.value)
 				if done or listed:
 					raise TypeError(
 						removed(f'ActionResult({kw.arg}=...) in @tools.action {fn.__name__}()', REMOVED_FIELDS[kw.arg])
 					)
+
+
+def _empty_literal(node: ast.expr) -> bool:
+	"""None, False, 0, '' or an empty list/tuple/set/dict written as a literal: a value ActionResult drops as a default."""
+	if isinstance(node, ast.Constant):
+		return not node.value
+	if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+		return not node.elts
+	return isinstance(node, ast.Dict) and not node.keys
 
 
 TOOLS_REMOVED = {  # 0.x Tools(...) / Controller(...) arguments -> the 1.0 alternative

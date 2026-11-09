@@ -620,6 +620,22 @@ async def test_0x_action_result_defaults_never_end_the_run_and_done_actions_are_
 			Tools().action('Done')(_with_source(ns['done'], f'def done(params=None):\n\t{source}'))
 
 
+def test_an_action_that_spells_out_empty_0x_defaults_registers():
+	"""ActionResult(images=[], attachments=[]) runs (an empty list is the 0.x default spelled out, dropped at runtime), so
+	registering the action that returns it must not refuse it before the run."""
+	for source in (
+		"return ActionResult(extracted_content='x', images=[])",
+		"return ActionResult(extracted_content='x', attachments=[], images=())",
+		"return ActionResult(extracted_content='x', attachments=None, is_done=False, success=True)",
+	):
+		ns: dict = {'ActionResult': ActionResult}
+		exec(f'def act():\n\t{source}', ns)
+		tools = Tools()
+		tools.action('Act')(_with_source(ns['act'], f'def act():\n\t{source}'))
+		assert [t.name for t in tools.functions] == ['act']
+		assert ns['act']().extracted_content == 'x'
+
+
 def _with_source(fn, source: str):
 	"""exec'd functions have no file: give inspect.getsource what a module function has."""
 	import linecache
