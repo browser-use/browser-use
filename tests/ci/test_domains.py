@@ -431,6 +431,15 @@ def test_system_prompt_line_only_with_restrictions(tmp_path):
 	)
 	attached = prompt(Browser('chrome', allowed_domains=['example.com']))  # no browser-level block in attach mode
 	assert attached.endswith('example.com. Other pages are reset to about:blank after each step; do not try to get around it.')
+	# Live: 'must not open these domains: evil.com. Other navigation is blocked by the browser' told the model every
+	# other site was blocked too
+	prohibited = prompt(Browser('chromium', prohibited_domains=['evil.com'], block_ip_addresses=True))
+	assert prohibited.endswith(
+		'must not open these domains: evil.com. IP-address URLs are blocked. The browser blocks them; do not try to get around it.'
+	)
+	assert prompt(Browser('chrome', prohibited_domains=['evil.com'])).endswith(
+		'evil.com. A tab that opens one is reset to about:blank after each step; do not try to get around it.'
+	)
 
 
 # Against a real Chrome: one test per layer, each failing without its layer

@@ -226,9 +226,19 @@ class DomainRules:
 			parts.append(f'The browser must not open these domains: {self._list(self.prohibited)}.')
 		if self.block_ips:
 			parts.append('IP-address URLs are blocked.')
-		if not browser_blocks:
-			return ' '.join(parts) + ' Other pages are reset to about:blank after each step; do not try to get around it.'
-		return ' '.join(parts) + ' Other navigation is blocked by the browser; do not try to get around it.'
+		if not self.allowed:  # only the listed domains (or IP URLs) are off limits: 'Other navigation is blocked' said all were
+			rest = (
+				'A tab that opens one is reset to about:blank after each step'
+				if not browser_blocks
+				else 'The browser blocks them'
+			)
+		else:
+			rest = (
+				'Other pages are reset to about:blank after each step'
+				if not browser_blocks
+				else 'Other navigation is blocked by the browser'
+			)
+		return ' '.join(parts) + f' {rest}; do not try to get around it.'
 
 	def to_json(self) -> str:
 		return json.dumps({'allowed': self.allowed, 'prohibited': self.prohibited, 'block_ips': self.block_ips})
