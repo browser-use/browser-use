@@ -19,6 +19,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, cast
 
+import httpx2
 from genai_prices import calc_price
 from pydantic import Field, TypeAdapter, ValidationError
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput, Tool, ToolOutput
@@ -69,6 +70,11 @@ from browser_use.telemetry.recorder import CURRENT, RunRecorder, now
 from browser_use.telemetry.stats import RunStats
 from browser_use.tools import TOOL_RETRIES, ActionResult, RemovedField
 
+try:
+	import httpx
+except ImportError:  # optional: Pydantic AI needs only httpx2
+	httpx = None
+
 logger = logging.getLogger(__name__)
 KEEP_IMAGE_RESULTS = 2
 DELIVER_NOW = (
@@ -84,6 +90,9 @@ DELIVERY_REPAIR = (  # bu-pi src/agent.ts:560, verbatim except tool names
 DELIVERY_TOOLS = ['finish_from_repl', 'finish']
 TOOL_CALL_MARKUP = re.compile(r'</?tool_call>')
 TRANSIENT = (ModelRateLimitError, ModelUnavailableError, ModelServerError, ModelConnectionError)
+_HTTPX = [httpx2, *([httpx] if httpx else [])]  # Pydantic AI's providers use httpx2; a caller's own client may be httpx
+_HTTP_ERRORS = tuple(m.TransportError for m in _HTTPX)
+_HTTP_RETRIED = tuple(c for m in _HTTPX for c in (m.ConnectError, m.TimeoutException))  # what google-genai retries
 # A Responses failure reported inside an HTTP 200 (a body with status=failed, or a response.failed / error stream event)
 # with one of these codes is transient: the gateway's non-streamed request past 300 s ends with request_timeout, and its
 # error frame for an upstream stream that failed (openaistream ErrorSSE: OpenAI silent 30 s while compacting) carries
@@ -212,6 +221,20 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 			)
 
 
+def _unquoted(value: str) -> str:
+	"""A str result delivered as the JSON literal of a string, the text itself. The tool says 'for a string result use
+	json.dumps(records) or an existing text variable', and gpt-6-luna sent finish_from_repl('json.dumps(final_text)'):
+	result.text began with a quote and read '\\n' for every line break (live longrun, 2 of ~45 runs)."""
+	if len(value) > 1 and value[0] == value[-1] == '"':
+		try:
+			text = json.loads(value)
+		except ValueError:
+			return value
+		if isinstance(text, str):
+			return text
+	return value
+
+
 def _outputs(output_type: Any) -> list[Any]:
 	adapter = TypeAdapter(output_type)
 
@@ -238,8 +261,8 @@ def _outputs(output_type: Any) -> list[Any]:
 			ctx.deps.rec.retry('finish_expr_error')
 			raise ModelRetry(f'Expression failed: {r["error"][-2000:]}')
 		if output_type is str:
-			check_delivery(ctx, r['value'])
-			value = r['value']
+			value = _unquoted(r['value'])
+			check_delivery(ctx, value)
 		else:
 			try:
 				value = adapter.validate_json(r['value'])
@@ -366,7 +389,7 @@ class BrowserLoop(AbstractCapability[Session]):
 		retries = getattr(getattr(model, 'client', None), 'max_retries', 0) if retries is None else retries
 		code, failed = error.provider_error_code, error.provider_error_code in TRANSIENT_FAILED_CODES
 		# The SDK retries HTTP errors only: a failure inside a 200 (stream, or a body without a status) is on its first try
-		in_200 = error.in_stream or (failed and getattr(error, 'status_code', None) is None)
+		in_200 = error.in_stream or (failed and getattr(error, 'status_code', None) is None) or _cut_after_response(error, model)
 		transient = isinstance(error, TRANSIENT) or (in_200 and failed)
 		sdk_retried = not in_200 and (retries or (model.system == 'xai' and code == 'UNAVAILABLE'))
 		if not transient or sdk_retried:
@@ -453,6 +476,17 @@ def _sendable(result: Any) -> Any:
 	return result
 
 
+def _cut_after_response(error: ModelAPIError, model: Model) -> bool:
+	"""A connection that broke while the response was read: no SDK retried it. The OpenAI and Anthropic SDKs wrap what
+	they retry in their own APIConnectionError; a bare httpx error came from a response the SDK had already returned
+	(Claude's stream: live 'peer closed connection without sending complete message body' ended the run on its first
+	try). google-genai never wraps them and retries only connect errors and timeouts (a cut JSON body, live, too)."""
+	cause = error.__cause__
+	if not isinstance(error, ModelConnectionError) or not isinstance(cause, _HTTP_ERRORS):
+		return False
+	return not (model.system.startswith('google') and isinstance(cause, _HTTP_RETRIED))
+
+
 class StreamResponses(AbstractCapability[Session]):
 	"""Every OpenAI Responses request (the gateway, api.openai.com) goes out with stream=true and comes back as the
 	assembled response, as bu-pi streams every request. The gateway cuts a non-streamed request at 300 s: it answered
@@ -469,7 +503,8 @@ class StreamedRequest(WrapperModel):
 		"""bub2-010 (gpt-6-luna, 1 of 5 streamed compactions): the next request got 400 invalid_encrypted_content on the
 		compaction item and the run ended. The messages still hold the history that item replaced, so the request goes
 		out again without it and the server compacts that history again; never more often than there are such items, and
-		once for the gateway's 400, which does not say which item."""
+		once for the gateway's 400, which does not say which item. A reasoning item OpenAI names so (live, one changed
+		character: the run ended) is left out the same way: the request loses that turn's reasoning, not the run."""
 		guessed = False
 		while True:
 			try:
@@ -480,8 +515,14 @@ class StreamedRequest(WrapperModel):
 				guessed = guessed or e.provider_error_code != 'invalid_encrypted_content'
 				if rec := CURRENT.get():
 					rec.retry('compaction_unreadable')
-				logger.warning(f'{self.model_name} could not read compaction item {item}; sending the history it replaced')
-				messages = [_without_part(m, item) if isinstance(m, ModelResponse) else m for m in messages]
+				what = 'reasoning item' if item.startswith('rs_') else 'compaction item'
+				logger.warning(f'{self.model_name} could not read {what} {item}; sending the request without it')
+				if item.startswith('rs_'):  # in place: the run's history, which every later request sends, too
+					for m in messages:
+						if isinstance(m, ModelResponse):
+							m.parts = _without_part(m, item).parts
+				else:  # the history keeps it: the next compaction item supersedes it
+					messages = [_without_part(m, item) if isinstance(m, ModelResponse) else m for m in messages]
 
 	async def _request(self, messages: Any, model_settings: Any, model_request_parameters: Any) -> ModelResponse:
 		terminal: list[Any] = []
@@ -541,15 +582,16 @@ def _unreadable_compaction(error: ModelAPIError, messages: Sequence[ModelMessage
 	publicError), so there it is the newest item, the only one a request carries, once (`guessed`: already tried)."""
 	sent = [p.id for m in messages if isinstance(m, ModelResponse) for p in m.parts if isinstance(p, CompactionPart)]
 	if error.provider_error_code == 'invalid_encrypted_content':
-		ids = re.findall(r'\bcmp_\w+', error.body if isinstance(error.body, str) else json.dumps(error.body, default=str))
-		return next((i for i in ids if i in sent), None)
+		ids = re.findall(r'\b(?:cmp|rs)_\w+', error.body if isinstance(error.body, str) else json.dumps(error.body, default=str))
+		thoughts = {p.id for m in messages if isinstance(m, ModelResponse) for p in m.parts if isinstance(p, ThinkingPart)}
+		return next((i for i in ids if i in sent or i in thoughts), None)
 	if error.provider_error_code == 'invalid_request' and getattr(error, 'status_code', None) == 400 and sent and not guessed:
 		return sent[-1]
 	return None
 
 
 def _without_part(message: ModelResponse, item: str) -> ModelResponse:
-	parts = [p for p in message.parts if not (isinstance(p, CompactionPart) and p.id == item)]
+	parts = [p for p in message.parts if not (isinstance(p, (CompactionPart, ThinkingPart)) and p.id == item)]
 	return message if len(parts) == len(message.parts) else replace(message, parts=parts)
 
 
