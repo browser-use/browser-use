@@ -8,26 +8,74 @@ import ast
 import ipaddress
 import os
 import platform
+import re
 import sys
 import warnings
 from collections import Counter
 from dataclasses import dataclass, field
 from functools import cache
 from importlib.metadata import PackageNotFoundError, packages_distributions, version
+from pathlib import PurePath
 from typing import Any
-from urllib.parse import urlsplit
+
+from browser_use.domains import parse_url
 
 MAX_KEYS = 50  # per map or list: a run that visits 10k hosts sends the 50 most frequent
 MAX_NAME = 64  # characters per name
 CLI_CONTENT = ('task', 'output', 'steps', 'error_message')  # browser-harness cli_event fields that carry text
 
 
+HOSTNAME = re.compile(r'(?:[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?\.)*[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?')
+HOST_SCHEMES = ('http', 'https', 'ws', 'wss')
+# a download's extension is sent when it is one of these, else 'other': the rest of a file name is the site's text
+DOWNLOAD_EXTS = frozenset(
+	'pdf csv tsv txt json xml html htm md rtf doc docx odt xls xlsx xlsm ods ppt pptx odp key numbers pages epub ics vcf '
+	'eml msg zip gz tgz tar bz2 xz 7z rar dmg pkg exe msi deb rpm apk iso bin png jpg jpeg gif webp svg bmp tif tiff ico '
+	'heic avif psd mp3 wav ogg m4a flac mp4 mov webm avi mkv js css py ipynb sql log yaml yml toml parquet ofx qfx qif '
+	'torrent ttf otf woff woff2 pem crt'.split()
+)
+
+
 def host(url: Any) -> str | None:
-	"""The hostname of a URL, lowercased, without user, password, port, path, query or fragment. None without one."""
+	"""The hostname of an http(s) or ws(s) URL as the browser reads it (lowercase, punycode, IPs as addresses), without
+	user, password, port, path, query or fragment. None without one, and None when it is not a DNS name or an IP:
+	urlsplit() returns any text between // and the next / ('https://the task as text/') as the hostname."""
 	try:
-		return urlsplit(str(url)).hostname or None
-	except ValueError:
+		u = parse_url(str(url))
+	except Exception:  # - a host idna cannot read: no host
 		return None
+	if u is None or u.scheme not in HOST_SCHEMES or not u.host:
+		return None
+	try:
+		ipaddress.ip_address(u.host)
+		return u.host
+	except ValueError:
+		return u.host if len(u.host) <= 253 and HOSTNAME.fullmatch(u.host) else None
+
+
+def download_ext(path: Any) -> str:
+	"""A downloaded file's extension, lowercased, when it is a common file type; 'other' for any other, 'none'."""
+	ext = PurePath(str(path)).suffix.lower().lstrip('.')
+	return ext if ext in DOWNLOAD_EXTS else 'other' if ext else 'none'
+
+
+def model_id(name: Any) -> str:
+	"""The model id as passed, except a local path (vLLM, llama.cpp serve a model by its path): its last segment,
+	without the directories (a user name). 'other' for a URL."""
+	text = str(name or '')
+	if '://' in text:
+		return 'other'
+	if text.startswith(('/', '~', '.')) or '\\' in text or re.match(r'[A-Za-z]:[\\/]', text):
+		text = re.split(r'[\\/]', text.rstrip('/\\'))[-1]
+	return text[:MAX_NAME]
+
+
+def provider_name(provider: Any) -> str:
+	"""A provider's name: a Pydantic AI Provider object's repr holds its base_url (an account or tenant in the URL)."""
+	if isinstance(provider, str):
+		return provider[:MAX_NAME]
+	name = getattr(provider, 'name', None)
+	return name[:MAX_NAME] if isinstance(name, str) else 'other'
 
 
 def top(counter: Counter, n: int = MAX_KEYS) -> dict[str, int]:

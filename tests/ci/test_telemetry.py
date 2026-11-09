@@ -365,6 +365,60 @@ def test_host_and_imports_keep_no_path_query_or_code(seed):
 	assert imported_modules(f'{secret} (') == []
 
 
+@pytest.mark.parametrize(
+	'url',
+	[
+		'https://zq best flights for jane doe/',  # a weak model passes the task as the URL
+		'https://zq%20jane%20doe.example.com/',
+		'javascript://zqalert(document.cookie)',
+		'chrome-extension://zqextensionid/popup.html',
+		'https://zq\u00e9|jane!.com/',
+	],
+)
+def test_a_navigation_to_text_that_is_not_a_hostname_records_no_host(url):
+	"""Privacy red team: urlsplit() returns any text between // and the next / as the hostname, so goto_url() with the
+	task in place of a URL put that text into domains, host_stats and s_host."""
+	from browser_use.repl.worker import CellStats
+
+	assert host(url) is None
+	s = CellStats()
+	s.url(url, navigation=True)
+	assert s.take()['hosts'] == []
+
+
+def test_host_keeps_real_hostnames_and_ips():
+	assert host('https://Shop.Example.com:8443/a') == 'shop.example.com'
+	assert host('https://b\u00fccher.example/') == 'xn--bcher-kva.example'
+	assert host('https://x.com\\@zqother.example/') == 'x.com'  # Chrome reads a backslash as a slash
+	assert host('http://[::1]:9222/json') == '::1' and host('ws://chrome:9222/devtools') == 'chrome'
+	assert host('http://192.168.1.20/') == '192.168.1.20' and host('https://my_host.internal/') == 'my_host.internal'
+
+
+def test_a_custom_endpoint_sends_the_provider_name_not_its_base_url_and_a_local_model_path_as_its_last_segment():
+	"""Privacy red team: a Pydantic AI model passed as llm= put its Provider object in model_provider. asdict() could not
+	copy it (an RLock), so the run sent no event; a Provider that copies would send 'OpenAIProvider(name=openai,
+	base_url=https://...)'. A vLLM model named by its path sent the path (a user name)."""
+	from pydantic_ai.models.openai import OpenAIChatModel
+	from pydantic_ai.providers.openai import OpenAIProvider
+
+	from browser_use.telemetry.views import AgentTelemetryEvent
+
+	provider = OpenAIProvider(base_url='https://zqtenant.internal.example/v1/zqaccount', api_key='sk-zqsecret')
+	agent = Agent('t', llm=OpenAIChatModel('/home/zqjane/ckpt/Llama-3-8B', provider=provider))
+	agent._build()
+	props = AgentTelemetryEvent('1.0', 'pip', **agent._config(10, 60)).properties
+	assert (props['model'], props['model_provider']) == ('Llama-3-8B', 'openai')
+	assert_absent(props, 'zqtenant', 'zqaccount', 'zqsecret', 'zqjane', 'ckpt')
+
+
+def test_a_download_extension_is_sent_only_when_it_is_a_common_file_type():
+	"""Privacy red team: a downloaded file's name is the site's, and 'Statement.Jane Doe 2026' sent 'jane doe '."""
+	from browser_use.telemetry.stats import download_ext
+
+	assert [download_ext(Path(n)) for n in ('a.PDF', 'b.tar.gz', 'c', 'd.xlsx')] == ['pdf', 'gz', 'none', 'xlsx']
+	assert download_ext(Path('Statement.Zqjane Doe 2026')) == 'other' and download_ext(Path('x.zqsecret')) == 'other'
+
+
 def test_imports_of_a_cell_with_an_invalid_escape_print_nothing_on_the_users_stderr():
 	"""C60: the parent parses each cell for telemetry; a non-raw regex printed '<unknown>:1: SyntaxWarning' to the
 	user's terminal. The worker's compile still shows the model its own warning."""
@@ -631,6 +685,36 @@ async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, sit
 	assert p['flags']['cell_timeout_s'] == '120.0' and set(p['flags_src'].values()) == {'d'}
 	assert 0 < p['tel_bytes'] < 64 * 1024 and p['tel_build_us'] > 0 and p['tel_steps_dropped'] == 0
 	assert not list(posthog.config.glob('telemetry/inflight/*')) and not list(posthog.config.glob('telemetry/outbox/*'))
+
+
+async def test_task_text_passed_as_a_url_and_exception_classes_made_at_runtime_never_reach_posthog(
+	chrome, site, posthog, tmp_path
+):
+	"""Privacy red team: new_tab('https://<task text>/') and cdp('Page.navigate', url=...) with text sent that text as a
+	hostname in domains. Exception classes the model's code made with type() or a borrowed __module__ are 'custom'."""
+	rng = random.Random(11)
+	c = SimpleNamespace(**{k: rand(rng, 10).lower() for k in 'nav1 nav2 nav3 cls1 cls2 cls3 out'.split()})
+	code = (
+		f"try:\n    new_tab('https://{c.nav1} best flights/')\nexcept Exception: pass\n"
+		f"try:\n    cdp('Page.navigate', url='https://{c.nav2} x/')\nexcept Exception: pass\n"
+		f"try:\n    goto_url('{c.nav3} words here')\nexcept Exception: pass\n"
+		f'new_tab({site!r}); wait_for_load(); print(page_info(), {c.out!r})'
+	)
+	model, _ = script(
+		('python', {'code': code}),
+		('python', {'code': f"import json\nraise type({c.cls1!r}, (ValueError,), {{'__module__': 'json'}})('x')"}),
+		('python', {'code': f"raise type({c.cls2!r}, (KeyError,), {{}})('y')"}),
+		('python', {'code': f"class {c.cls3}(OSError):\n    __module__ = 'builtins'\nraise {c.cls3}()"}),
+		('finish', {'success': True, 'result': 'done'}),
+	)
+	r = await Agent('t', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path / 'ws').run()
+	assert r.status == 'completed', r.error
+	(event,) = posthog.events()
+	raw = '\n'.join(posthog.bodies)
+	assert not [k for k, v in vars(c).items() if v in raw], raw
+	p = event['properties']
+	assert p['domains'] == ['127.0.0.1'] and list(p['host_stats']) == ['127.0.0.1']
+	assert p['s_err'] == ['', 'custom', 'custom', 'custom', ''] and p['cell_error_types'] == {'custom': 3}
 
 
 def documented() -> set[str]:

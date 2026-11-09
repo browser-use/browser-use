@@ -624,7 +624,7 @@ class Agent:
 
 	def _config(self, max_steps: int, timeout: float) -> dict[str, Any]:
 		"""The run's configuration fields (TELEMETRY.md): counts, bools, enums and names, never values or paths."""
-		from browser_use.telemetry.stats import cdp_category, host
+		from browser_use.telemetry.stats import cdp_category, host, model_id, provider_name
 
 		schema = self.output_model_schema
 		fields = getattr(schema, 'model_fields', None)
@@ -636,8 +636,8 @@ class Agent:
 		window = getattr(self._model, 'context_window', None)
 		exe = Path(str(browser.executable_path)).name.lower() if browser.executable_path else None
 		return {
-			'model': self._model_name,
-			'model_provider': self._provider,
+			'model': model_id(self._model_name),
+			'model_provider': provider_name(self._provider),
 			'reasoning': self.reasoning,
 			'mode': self.mode,
 			'max_steps': max_steps,
@@ -729,7 +729,7 @@ class Agent:
 		after the run is copied; the event is built in the telemetry thread (build())."""
 		try:
 			from browser_use.telemetry.service import Job, telemetry
-			from browser_use.telemetry.stats import RunStats, top
+			from browser_use.telemetry.stats import RunStats, download_ext, top
 			from browser_use.telemetry.views import AgentTelemetryEvent
 			from browser_use.utils import get_browser_use_version, get_install_source
 
@@ -835,7 +835,7 @@ class Agent:
 					downloads_started=stats.events['download_started'],
 					domain_blocks=stats.events['domain_blocked'],
 					downloads=len(downloads),
-					download_exts=top(Counter(p.suffix.lower().lstrip('.')[:10] or 'none' for p in downloads), keys),
+					download_exts=top(Counter(download_ext(p) for p in downloads), keys),
 				)
 				return {**event.properties, **{f'$feature/{k}': v for k, v in assigned.items()}}
 
