@@ -9,7 +9,8 @@ Patterns follow 0.x (browser_use/browser/watchdogs/security_watchdog.py, _is_url
                           prohibited_domains on every port
   'https://*.example.com', 'http*://example.com/*', 'brave://*'   globs on scheme, host and path
   'localhost:8080'        a host with a port (new in 1.0; 0.x never matched it)
-about:blank, the new tab page, data: and blob: are always allowed. A URL without a host (file:, javascript:) is not.
+about:blank, the new tab page, data: and blob: are always allowed. A URL without a host (javascript:) or any file: URL
+(file://localhost/... included) is not.
 When allowed_domains is set, prohibited_domains is ignored, as in 0.x. block_ip_addresses blocks IP-literal hosts first.
 
 Enforcement (MIGRATING.md "Domain restrictions"): the REPL helpers refuse a disallowed URL (worker.py), Guard fails
@@ -218,8 +219,8 @@ class DomainRules:
 		if url.split(':', 1)[0].strip().lower() in NO_HOST_ALLOWED:
 			return None
 		u = parse_url(url)
-		if u is None:
-			return f'blocked: {url[:100]!r} has no host, and the browser is limited to {self._scope()}'
+		if u is None or u.scheme == 'file':  # Chrome opens file://localhost/etc/passwd (any host) from the local disk
+			return f'blocked: {url[:100]!r} is a file: URL or has no host, and the browser is limited to {self._scope()}'
 		if self.block_ips and is_ip(u.host):
 			return f'blocked: {u.host} is an IP address (block_ip_addresses=True)'
 		if self.allowed:
