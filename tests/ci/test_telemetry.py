@@ -1379,3 +1379,69 @@ def test_a_run_delivered_as_a_text_reply_wastes_no_steps():
 	assert (_struggle(steps)['last_progress_step'], _struggle(steps)['wasted_steps']) == (4, 0)
 	steps[1].tools = []  # a text reply mid-run (sent back for repair) is not the delivery
 	assert (_struggle(steps[:3])['last_progress_step'], _struggle(steps[:3])['wasted_steps']) == (1, 2)
+
+
+def _marked(t, inflight, n: int) -> list:
+	ids = [uuid.uuid4().hex for _ in range(n)]
+	for run_id in ids:
+		t.run_started(run_id, lambda: {'timeout_s': 60}, lambda: {'steps': 0})
+	deadline = time.monotonic() + 10
+	while len(list(inflight.glob('*.json'))) < n and time.monotonic() < deadline:
+		time.sleep(0.02)
+	assert len(list(inflight.glob('*.json'))) == n
+	return ids
+
+
+def test_a_run_whose_queued_event_was_dropped_is_not_reported_as_crashed(posthog, monkeypatch):
+	"""Past 100 queued events the oldest is dropped. Its run ended: its crash marker goes too, else the next process
+	sent it as status crashed (more 'crashes' exactly while PostHog is slow)."""
+	import browser_use.telemetry.service as service
+
+	t, inflight = posthog.telemetry, posthog.config / 'telemetry' / 'inflight'
+	release = threading.Event()
+	real = service.ProductTelemetry._post
+	monkeypatch.setattr(
+		service.ProductTelemetry, '_post', staticmethod(lambda data, timeout=3.0: release.wait(30) and real(data, timeout))
+	)
+	ids = _marked(t, inflight, 105)
+	for run_id in ids:
+		t.capture_run(service.Job('agent_event', lambda steps, keys: {'model': 'm'}, run_id=run_id))
+	release.set()
+	assert t.flush(60) and t.dropped > 0
+	t.stop()
+	assert not list(inflight.glob('*.json')) and not t._active
+
+
+def test_a_run_whose_event_cannot_be_built_is_not_reported_as_crashed(posthog):
+	t, inflight = posthog.telemetry, posthog.config / 'telemetry' / 'inflight'
+	from browser_use.telemetry.service import Job
+
+	(run_id,) = _marked(t, inflight, 1)
+
+	def broken(steps, keys):
+		raise KeyError('a bug in build()')
+
+	t.capture_run(Job('agent_event', broken, run_id=run_id))
+	assert t.flush(10)
+	t.stop()
+	assert not list(inflight.glob('*.json')) and not t._active
+
+
+def test_a_crash_report_whose_sender_died_mid_send_is_sent_by_the_next_process(posthog):
+	"""_send_crashed claims a marker as <run_id>.<pid>.crashed while it posts; a process killed in that window left the
+	claim, and no later process ever sent it or cleaned it up."""
+	from browser_use.telemetry.views import AgentTelemetryEvent
+
+	dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+	dead.wait()
+	run_id = uuid.uuid4().hex
+	inflight = posthog.config / 'telemetry' / 'inflight'
+	inflight.mkdir(parents=True)
+	props = AgentTelemetryEvent(version='1', source='pip', model='m', run_id=run_id, timeout_s=60).properties
+	started = time.time() - 3600
+	marker = {'pid': dead.pid, 'started': started, 'updated': started + 5, 'steps': 3, 'props': props}
+	(inflight / f'{run_id}.{dead.pid}.crashed').write_text(json.dumps(marker))
+	posthog.telemetry._send_crashed()
+	(event,) = posthog.events()
+	assert (event['properties']['status'], event['uuid']) == ('crashed', str(uuid.UUID(run_id)))
+	assert not list(inflight.iterdir())

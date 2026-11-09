@@ -208,8 +208,10 @@ class ProductTelemetry:
 			return
 		try:
 			if len(self._pending) >= 100:  # a sender that cannot keep up: drop the oldest
-				self._pending.pop(next(iter(self._pending)), None)
+				oldest = next(iter(self._pending))
+				self._pending.pop(oldest, None)
 				self.dropped += 1
+				self.forget(oldest)  # its run ended: a marker left behind was reported as crashed by the next process
 			self._pending[job.run_id] = job
 			self._start()
 			self._q.put_nowait(('event', job.run_id))
@@ -270,6 +272,8 @@ class ProductTelemetry:
 			except Exception as e:  # - never let one event stop the thread
 				logger.debug('telemetry: %s', e)
 				self._pending.pop(run_id, None)
+				if kind == 'event':  # the run ended; its event could not be built or sent: not a crash
+					self._unmark(run_id)
 
 	def _warm(self) -> None:
 		"""Cheap per-process facts, once. (Listing every installed distribution and CDP method here cost ~120 ms of CPU
@@ -414,6 +418,13 @@ class ProductTelemetry:
 		folder = telemetry_dir() / 'inflight'
 		if not folder.is_dir():
 			return
+		for claim in folder.glob('*.crashed'):  # <run_id>.<pid>.crashed: a process killed while it sent this report
+			try:
+				pid = int(claim.name.split('.')[1])
+				if pid != os.getpid() and not _alive(pid):
+					os.replace(claim, folder / (claim.name.split('.')[0] + '.json'))
+			except (OSError, ValueError, IndexError):
+				continue
 		for path in folder.glob('*.json'):
 			try:
 				marker = json.loads(path.read_text(encoding='utf-8'))
