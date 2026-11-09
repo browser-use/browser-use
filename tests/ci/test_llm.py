@@ -781,6 +781,28 @@ def test_agent_treats_every_gateway_model_form_alike(monkeypatch):
 	assert agent._agent.model_settings['openai_reasoning_effort'] == 'medium' and agent._gateway is None
 
 
+def test_a_listed_openai_model_on_the_gateway_gets_medium_like_on_openai(monkeypatch):
+	"""Live: ChatBrowserUse('gpt-6-luna') sent no effort and ran at 'high', ChatBrowserUse('gpt-6.1-sol') at 'xhigh' (the
+	upstream default), while ChatOpenAI('gpt-6-luna') runs at the documented 'medium'. Only a bu-* alias has an effort of
+	its own; Agent(reasoning=...) still wins."""
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
+	for llm in (
+		ChatBrowserUse('gpt-6-luna'),
+		ChatOpenAI('gpt-6.1-sol', base_url=GATEWAY_URL),
+		ChatBrowserUse('gpt-6.1-sol').pydantic_model(),
+	):
+		agent = Agent('t', llm, browser=None)
+		agent._build()
+		assert agent._gateway and agent._agent.model_settings['openai_reasoning_effort'] == 'medium'
+	agent = Agent('t', ChatBrowserUse('gpt-6.1-sol'), browser=None, reasoning='low')
+	agent._build()
+	assert agent._agent.model_settings['openai_reasoning_effort'] == 'low'
+	for alias in ('bu-fast', 'bu-ultrafast', 'bu-smart', 'bu-auto'):
+		agent = Agent('t', alias, browser=None)
+		agent._build()
+		assert 'openai_reasoning_effort' not in agent._agent.model_settings, alias
+
+
 def test_gateway_cost_is_the_charge_or_none_never_a_retail_estimate():
 	"""Roast: a gateway response without charge_usd (e.g. a listed gpt-4.1) was priced at OpenAI retail and summed
 	with real charges into one authoritative-looking total."""

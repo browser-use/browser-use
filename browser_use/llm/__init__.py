@@ -124,7 +124,8 @@ def gateway_model(model: str, api_key: str, base_url: str) -> Any:
 
 class ChatBrowserUse(_Chat):
 	"""Browser Use gateway models ('bu-fast', 'bu-ultrafast', 'bu-smart', or a listed OpenAI model such as 'gpt-6.1-sol').
-	Key: BROWSER_USE_API_KEY or `browser-use login`. Without Agent(reasoning=...) the alias's own effort applies."""
+	Key: BROWSER_USE_API_KEY or `browser-use login`. Without Agent(reasoning=...) a bu-* alias's own effort applies; a
+	listed OpenAI model gets 'medium', as with ChatOpenAI."""
 
 	provider = 'browser-use'
 
