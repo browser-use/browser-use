@@ -206,6 +206,20 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 			)
 
 
+def _unquoted(value: str) -> str:
+	"""A str result delivered as the JSON literal of a string, the text itself. The tool says 'for a string result use
+	json.dumps(records) or an existing text variable', and gpt-6-luna sent finish_from_repl('json.dumps(final_text)'):
+	result.text began with a quote and read '\\n' for every line break (live longrun, 2 of ~45 runs)."""
+	if len(value) > 1 and value[0] == value[-1] == '"':
+		try:
+			text = json.loads(value)
+		except ValueError:
+			return value
+		if isinstance(text, str):
+			return text
+	return value
+
+
 def _outputs(output_type: Any) -> list[Any]:
 	adapter = TypeAdapter(output_type)
 
@@ -231,8 +245,8 @@ def _outputs(output_type: Any) -> list[Any]:
 		if r['error']:
 			raise ModelRetry(f'Expression failed: {r["error"][-2000:]}')
 		if output_type is str:
-			check_delivery(ctx, r['value'])
-			value = r['value']
+			value = _unquoted(r['value'])
+			check_delivery(ctx, value)
 		else:
 			try:
 				value = adapter.validate_json(r['value'])

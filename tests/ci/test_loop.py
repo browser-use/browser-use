@@ -317,6 +317,16 @@ async def test_a_response_cut_off_mid_way_is_retried_once(tmp_path, provider):
 	assert (result.status, result.output, len(sent)) == ('completed', 'ok', 2), result.error
 
 
+async def test_a_str_result_delivered_as_json_dumps_of_the_text_is_the_text(tmp_path):
+	"""Live (longrun a1, a2f, gpt-6-luna): finish_from_repl('json.dumps(final_text)') on a str result made result.text the
+	JSON literal: a leading quote and '\\n' in place of every line break. A JSON-encoded list stays as it is."""
+	text = 'Adleman, Leonard — 1945\nAiken, Howard — 1900'
+	steps = [('python', {'code': f'final_text = {text!r}; rows = [1, 2]'})]
+	for expression, expected in (('json.dumps(final_text, ensure_ascii=False)', text), ('json.dumps(rows)', '[1, 2]')):
+		result, _ = await go(None, tmp_path, [*steps, ('finish_from_repl', {'success': True, 'expression': expression})])
+		assert (result.status, result.output, result.text) == ('completed', expected, expected)
+
+
 async def test_workspace_path_is_in_instructions(daemon, tmp_path):
 	seen = []
 
