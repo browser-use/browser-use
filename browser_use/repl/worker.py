@@ -231,9 +231,9 @@ class CellStats:
 						if not copy:  # the model never downloaded a page it only opened (Browser.json_page_copies)
 							self.started.append(str(params.get('suggestedFilename') or params.get('url')))
 			elif method in PROGRESS_EVENTS and params.get('state') in ('completed', 'canceled'):
-				if method == 'Browser.downloadProgress':  # Browser.stop() waits for the rest
-					_log_download({'done': params.get('guid'), 'state': params['state']})
-				if params['state'] == 'completed':  # either event: a tab another client attached sends only Page's
+				# either event: a tab another client attached sends only Page's. Browser.stop() waits for the rest
+				_log_download({'done': params.get('guid'), 'state': params['state']})
+				if params['state'] == 'completed':
 					self.name_download(params)
 			elif method == 'Page.frameNavigated' and _json_page(params):
 				_log_download({'json_page': params['frame'].get('url')})
