@@ -79,9 +79,11 @@ text. The browser-use CLI removes those before the event is sent and keeps `comm
 `duration_seconds`, `task_length`, `output_length`, `step_count`, `browser`, `cdp_url` (its kind, as above), `client`,
 `client_version`, `agent_client`, `model`, `model_provider`, the browser-harness environment fields, plus
 `helper_counts` (helper name -> calls), `helper_errors`, `is_internal` (as in `agent_event`) and `schema_version` (2).
+browser-harness sends it, to the browser-harness PostHog project, under browser-harness's install id (`install_id` in
+`~/.config/browser-harness/telemetry.json`, created only when telemetry is on), not the device id below.
 
 ## Identity
 
-Events carry one anonymous id per machine: `BROWSER_USE_DEVICE_ID` if set, else a random id stored in
+`agent_event`s carry one anonymous id per machine: `BROWSER_USE_DEVICE_ID` if set, else a random id stored in
 `~/.config/browseruse/device_id`, else (that file cannot be written) a hash of the machine's MAC address and hostname.
 PostHog derives a location from the request IP (GeoIP).

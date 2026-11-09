@@ -557,6 +557,28 @@ def test_cli_opt_out_values_match_the_library(monkeypatch, value, sends):
 	assert bool(sent_payloads) is sends
 
 
+@pytest.mark.parametrize('value', ['n', 'disable'])
+def test_cli_opt_out_writes_no_browser_harness_install_id(monkeypatch, tmp_path, value):
+	"""Clean-install smoke 11-09: ANONYMIZED_TELEMETRY=n (off per TELEMETRY.md) sent nothing, but `browser-use --version`
+	still wrote ~/.config/browser-harness/telemetry.json with a new install id: browser-harness only knows 0, false, no
+	and off, and built the event (creating the id) before the browser-use wrapper dropped the send. Off means no file."""
+	from browser_harness import telemetry as harness
+
+	import browser_use.cli as cli
+
+	sent_payloads = []
+	monkeypatch.setenv('BH_CONFIG_DIR', str(tmp_path / 'bh'))
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', value)
+	for name in ('BH_TELEMETRY', 'BROWSER_HARNESS_TELEMETRY'):
+		monkeypatch.delenv(name, raising=False)
+	monkeypatch.setattr(harness, '_send_detached', sent_payloads.append)
+	monkeypatch.setattr(harness, 'is_enabled', harness.is_enabled)  # restored after the test, wrapper and all
+	cli._scrub_harness_telemetry()
+	harness.capture_cli_event(action='completed', command='version')
+	assert not sent_payloads
+	assert not [p for p in tmp_path.rglob('*') if p.is_file()]
+
+
 def test_install_source_reads_package_metadata(monkeypatch):
 	import importlib.metadata
 
