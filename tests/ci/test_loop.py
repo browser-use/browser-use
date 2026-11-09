@@ -742,3 +742,30 @@ async def test_a_tool_call_written_as_text_is_not_the_answer(tmp_path):
 	result = await run(build_agent(FunctionModel(fn)), 'task', Session(repl=FakeRepl(tmp_path)), 'function:x')
 	assert result.status == 'completed' and result.output == 'the answer' and len(requests) == 2, result.error
 	assert 'wrote a tool call as text' in str(requests[1][-1].parts)
+
+
+async def test_a_secret_the_model_quoted_is_redacted_where_browser_use_quotes_it_back(tmp_path):
+	"""The model can read a secret off a screenshot and write it. result.messages redacted the model's own parts, but
+	browser-use quotes model output back to it: the delivery repair turn ('Your reply, not delivered yet: ...') and a
+	schema error (pydantic echoes the rejected 'input'). Those request parts kept the value in result.messages."""
+	from pydantic import BaseModel
+
+	class Count(BaseModel):
+		n: int
+
+	secret = 'hunter2-Zq9-secret'
+	model, seen = script(
+		('finish', {'result': {'n': f'pw {secret}'}, 'success': True}),  # schema error echoing the input
+		('finish', {'result': {'n': 3}, 'success': True}),
+	)
+
+	def fn(messages, info):  # first a plain-text reply quoting the secret: the structured repair turn quotes it back
+		if not any(isinstance(m, ModelResponse) for m in messages):
+			return ModelResponse(parts=[TextPart(f'The password on screen is {secret}')])
+		return model.function(messages, info)
+
+	session = Session(repl=FakeRepl(tmp_path, {'pw': secret}))
+	result = await run(build_agent(FunctionModel(fn), output_type=Count), 'task', session, 'function:x')
+	assert (result.status, result.output) == ('completed', Count(n=3))
+	assert secret in str(seen)  # the provider still gets the conversation as it was
+	assert secret not in str(result.messages) and '<secret:pw>' in str(result.messages), result.messages
