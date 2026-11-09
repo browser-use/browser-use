@@ -233,3 +233,62 @@ print(json.dumps({{'title': title, 'other_owner': owner}}))""",
 	finally:
 		await repl.close()
 		_shutdown_daemon(name)
+
+
+async def test_startup_does_not_cache_another_tabs_session(chrome, tmp_path, monkeypatch):
+	from browser_use.repl import session as repl_session
+
+	name = f'butesttitlestartup{os.getpid()}'
+	admin.ensure_daemon(name=name, env={'BU_CDP_WS': chrome['ws'], 'BH_TAB_MARKER': '1'})
+	cdp = lambda method, **params: _daemon_cdp(name, method, **params)
+	selected = cdp('Target.createTarget', url='about:blank')['targetId']
+	other = cdp('Target.createTarget', url='about:blank')['targetId']
+	selected_session = cdp('Target.attachToTarget', targetId=selected, flatten=True)['sessionId']
+	other_session = cdp('Target.attachToTarget', targetId=other, flatten=True)['sessionId']
+	_daemon_request(name, {'meta': 'set_session', 'session_id': selected_session, 'target_id': selected})
+	marker = tmp_path / 'startup-interleaving'
+	bootstrap = f"""import runpy
+from pathlib import Path
+from browser_harness import helpers
+from browser_use.browser.browser import _daemon_request
+original_send = helpers._send
+switched = False
+def switch_after_snapshot(req, *args, **kwargs):
+    global switched
+    result = original_send(req, *args, **kwargs)
+    if not switched and req.get('meta') in ('current_tab', 'connection_status'):
+        switched = True
+        _daemon_request({name!r}, {{'meta': 'set_session', 'session_id': {other_session!r}, 'target_id': {other!r}}})
+        Path({str(marker)!r}).write_text(req['meta'])
+    return result
+helpers._send = switch_after_snapshot
+runpy.run_module('browser_use.repl.worker', run_name='__main__')
+"""
+	original_popen = repl_session.subprocess.Popen
+
+	def launch(command, *args, **kwargs):
+		if command[1:] == ['-P', '-m', 'browser_use.repl.worker']:
+			command = [command[0], '-P', '-c', bootstrap]
+		return original_popen(command, *args, **kwargs)
+
+	# Run the normal worker entrypoint with an interleaving hook installed before _install() reads its first snapshot.
+	monkeypatch.setattr(repl_session.subprocess, 'Popen', launch)
+	repl = Repl(tmp_path, env={'BU_NAME': name, 'BU_SHARED_DAEMON': '1'})
+	mark_title_js = """(async () => {
+  document.title = '\\u{1F434} Selected';
+  await Promise.resolve();
+  return document.title;
+})()"""
+	try:
+		r = await repl.call(
+			'exec',
+			f"""switch_tab({selected!r})
+goto_url('data:text/html,<title>Selected</title>'); wait_for_load()
+print(cdp('Runtime.evaluate', expression={mark_title_js!r}, awaitPromise=True, returnByValue=True)['result']['value'])""",
+			30,
+		)
+		assert marker.read_text() in {'current_tab', 'connection_status'}
+		assert r['error'] is None and r['output'].strip() == 'Selected', r
+	finally:
+		await repl.close()
+		_shutdown_daemon(name)

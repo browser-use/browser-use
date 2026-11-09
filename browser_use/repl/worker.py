@@ -486,18 +486,17 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			raise
 		if isinstance(req, dict) and req.get('meta') == 'set_session' and req.get('target_id'):
 			AGENT_TAB['id'] = req['target_id']
-			unmark(req.get('session_id'))
+			if req.get('session_id'):
+				unmark(req['session_id'])
 		if isinstance(req, dict) and req.get('meta') == 'drain_events' and isinstance(r, dict):
 			stats.observe(r.get('events'))
 		return r
 
-	def unmark(session_id: str | None = None) -> None:
+	def unmark(selected_session: str) -> None:
 		"""Keep the attached tab's title free of a shared daemon's horse (UNMARK_JS), on this page and the next ones."""
 		if os.environ.get('BU_SHARED_DAEMON') == '1':
 			with contextlib.suppress(Exception):  # a tab that closed meanwhile; titles stay as they are
 				target = AGENT_TAB['id']
-				# The shared daemon's implicit session can change between these requests.
-				selected_session: str = session_id or raw_send({'meta': 'session'})['session_id']
 				session = unmark_sessions.get(target)
 				if session is None:
 					for attempt in range(3):
@@ -544,8 +543,10 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	helpers._send = send
 	raw_cdp = helpers.cdp
 	with contextlib.suppress(Exception):  # no daemon yet
-		AGENT_TAB['id'] = raw_send({'meta': 'current_tab'})['targetId']
-		unmark()
+		attached = raw_send({'meta': 'connection_status'})  # one response keeps the target/session pair consistent
+		AGENT_TAB['id'] = attached['target_id']
+		if attached.get('session_id'):
+			unmark(attached['session_id'])
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
 	rules = DomainRules.from_json(os.environ.get('BU_DOMAINS'))
 	tabs_file = os.environ.get('BU_TABS_FILE')  # Browser('chrome') with domain restrictions
