@@ -142,6 +142,8 @@ class Tools:
 				)
 			if param_model is not None and params:  # 0.x: def action(params, ...) with param_model=Model; it wins
 				fn.__annotations__[params[0]] = param_model
+			# 0.x kept actions by name: registering one again (a notebook cell run twice) replaces it
+			self.functions = [t for t in self.functions if t.name != fn.__name__]
 			self.functions.append(
 				Tool(fn, takes_ctx=False, name=fn.__name__, description=description or None, max_retries=TOOL_RETRIES)
 			)
