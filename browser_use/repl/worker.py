@@ -371,23 +371,28 @@ def _checked(fn, check_url):
 	return checked
 
 
-def _check_redirects(check_url) -> None:
-	"""http_get (urllib) follows redirects: every hop is checked too, for any urllib.request.urlopen in the worker."""
+def redirect_checking_opener(check_url) -> urllib.request.OpenerDirector:
+	"""An opener that calls check_url on every redirect hop before following it."""
 
 	class CheckedRedirects(urllib.request.HTTPRedirectHandler):
 		def redirect_request(self, req, fp, code, msg, headers, newurl):
 			check_url(newurl)
 			return super().redirect_request(req, fp, code, msg, headers, newurl)
 
-	urllib.request.install_opener(urllib.request.build_opener(CheckedRedirects))
+	return urllib.request.build_opener(CheckedRedirects)
 
 
-def http_get(url, headers=None, timeout=20.0):
+def _check_redirects(check_url) -> None:
+	"""http_get (urllib) follows redirects: every hop is checked too, for any urllib.request.urlopen in the worker."""
+	urllib.request.install_opener(redirect_checking_opener(check_url))
+
+
+def http_get(url, headers=None, timeout=20.0, *, _urlopen=None):
 	"""Plain HTTP from this machine, not the browser (no browser IP, cookies or proxy). Returns str, or bytes when the
 	body is not UTF-8 text (zip, pdf, image). browser-harness's own decoded every body (UnicodeDecodeError on binary), and
 	its fetch-use branch never runs here: the worker has no BROWSER_USE_API_KEY."""
 	h = {'User-Agent': 'Mozilla/5.0', 'Accept-Encoding': 'gzip', **(headers or {})}
-	with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout) as r:
+	with (_urlopen or urllib.request.urlopen)(urllib.request.Request(url, headers=h), timeout=timeout) as r:
 		data = r.read()
 		if r.headers.get('Content-Encoding') == 'gzip':
 			data = gzip.decompress(data)
