@@ -81,8 +81,12 @@ DELIVERY_TOOLS = ['finish_from_repl', 'finish']
 TOOL_CALL_MARKUP = re.compile(r'</?tool_call>')
 TRANSIENT = (ModelRateLimitError, ModelUnavailableError, ModelServerError, ModelConnectionError)
 # A Responses failure reported inside an HTTP 200 (a body with status=failed, or a response.failed / error stream event)
-# with one of these codes is transient: the gateway's non-streamed request past 300 s ends with request_timeout.
-TRANSIENT_FAILED_CODES = frozenset({'server_error', 'overloaded', 'request_timeout'})
+# with one of these codes is transient: the gateway's non-streamed request past 300 s ends with request_timeout, and its
+# error frame for an upstream stream that failed (openaistream ErrorSSE: OpenAI silent 30 s while compacting) carries
+# upstream_stream_failed. Neither is charged: the gateway bills a Responses stream only after its terminal event.
+TRANSIENT_FAILED_CODES = frozenset(
+	{'server_error', 'overloaded', 'request_timeout', 'upstream_stream_failed', 'model_request_failed'}
+)
 MODEL_TIMEOUT_S = 300  # bu-pi modelTimeoutMs: one model request, all its SDK attempts included
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets

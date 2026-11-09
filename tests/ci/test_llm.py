@@ -128,6 +128,9 @@ def sse(response: dict) -> bytes:
 	streamed = {item['id']: item['streamed'] for item in response['output'] if 'streamed' in item}
 	response = {**response, 'output': [{k: v for k, v in item.items() if k != 'streamed'} for item in response['output']]}
 	emit('response.created', response={**response, 'status': 'in_progress', 'output': [], 'usage': None})
+	if response['status'] == 'error':  # the gateway's frame for an upstream that failed mid-stream (openaistream ErrorSSE)
+		events.append({'type': 'error', 'sequence_number': 0, 'error': response['error']})
+		return b''.join(f'event: {e["type"]}\ndata: {json.dumps(e)}\n\n'.encode() for e in events)
 	for i, item in enumerate(response['output']):
 		if item['type'] == 'message':
 			emit('response.output_item.added', output_index=i, item={**item, 'status': 'in_progress', 'content': []})
@@ -297,6 +300,29 @@ async def test_a_responses_failure_inside_http_200_is_retried_once(responses_ser
 	replies += [failed, failed]  # once per run, as every transient error
 	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), 'x')
 	assert (result.status, len(requests)) == ('error', 2) and code in (result.error or '')
+
+
+@pytest.mark.parametrize('code', ['upstream_stream_failed', 'model_request_failed'])
+async def test_a_gateway_stream_error_before_any_output_is_retried_once(responses_server, tmp_path, code):
+	"""gw3 (live, prod gateway, 4 of 8 streamed compactions): the gateway gave up on OpenAI ~32 s in, before its first
+	keepalive at 30 s, and sent an error frame (upstream_error / upstream_stream_failed: 'The model request timed out.
+	Retry the request.') that ended the run. It now gets the one transient retry per run; the failed request has no
+	charge (the gateway bills a Responses stream only after its terminal event), so the run costs one charge."""
+	url, requests, replies = responses_server
+	frame = {
+		'status': 'error',
+		'error': {'type': 'upstream_error', 'code': code, 'message': 'The model request timed out. Retry the request.'},
+	}
+	model, _ = resolve_model(ChatBrowserUse('bu-fast', api_key='fake-test-key', base_url=url))
+	replies.append(frame)
+	ref = 'browser-use:bu-fast'
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
+	assert (result.status, result.output, len(requests)) == ('completed', 'ok', 2), result.error
+	assert result.cost_usd == pytest.approx(0.0002) and result.usage['requests'] == 1
+	requests.clear()
+	replies += [frame, frame]  # once per run, as every transient error
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
+	assert (result.status, len(requests)) == ('error', 2) and 'timed out' in (result.error or ''), result
 
 
 def text(content: str, n: int) -> dict:
