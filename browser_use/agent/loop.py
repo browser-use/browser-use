@@ -47,6 +47,7 @@ from pydantic_ai.messages import (
 	ToolCallPart,
 	ToolReturnPart,
 	UserPromptPart,
+	tool_return_ta,
 )
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAICompaction, OpenAIResponsesModel, OpenAIResponsesModelSettings
@@ -54,7 +55,7 @@ from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.profiles.anthropic import anthropic_model_profile
 from pydantic_ai.settings import ToolOrOutput
 from pydantic_ai.usage import UsageLimits
-from pydantic_core import to_json, to_jsonable_python
+from pydantic_core import PydanticSerializationError, to_json, to_jsonable_python
 
 from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
@@ -379,8 +380,10 @@ class BrowserLoop(AbstractCapability[Session]):
 			# (2/2 runs, one ended empty): refuse it instead of running more browser actions.
 			return NOT_RUN
 		secrets = ctx.deps.repl.secrets
-		if call.tool_name == 'python' or tool_def.kind != 'function' or not secrets:
+		if call.tool_name == 'python' or tool_def.kind != 'function':
 			return await handler(args)
+		if not secrets:
+			return _sendable(await handler(args))
 		names = {name for name, _, _ in secrets}
 		placeholder = next((m for m in SECRET_PLACEHOLDER.finditer(_js(args)) if (m[1] or m[2]) in names), None)
 		if placeholder:  # 0.x replaced it with the value; a tool silently given the placeholder sent it on as the password
@@ -390,12 +393,22 @@ class BrowserLoop(AbstractCapability[Session]):
 			)
 		forms = secret_forms(secrets)
 		try:
-			result = await handler(args)
+			result = _sendable(await handler(args))
 		except ToolRetryError as e:  # the tool's ModelRetry, already turned into the retry part
 			raise ToolRetryError(replace(e.tool_retry, content=redact_forms(e.tool_retry.content, forms))) from None
 		plain = result if isinstance(result, str) else to_jsonable_python(result, fallback=str)
 		clean = redact_forms(plain, forms)
 		return result if clean == plain else clean  # untouched (images, types) unless a secret was in it
+
+
+def _sendable(result: Any) -> Any:
+	"""A custom tool's result as Pydantic AI can send it to the model. An object it cannot serialize (an SDK response, a
+	client object) ended the run with PydanticSerializationError; MIGRATING promises the model sees any value: its str()."""
+	try:
+		tool_return_ta.dump_json(result)
+	except PydanticSerializationError:
+		return to_jsonable_python(result, fallback=str, bytes_mode='base64')
+	return result
 
 
 class StreamResponses(AbstractCapability[Session]):

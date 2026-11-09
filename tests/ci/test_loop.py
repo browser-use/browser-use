@@ -811,3 +811,27 @@ async def test_a_downloaded_file_named_in_the_answer_is_not_called_missing(tmp_p
 
 	result = await run(build_agent(FunctionModel(fn)), 'task', Session(repl=FakeRepl(tmp_path)), 'function:x')
 	assert (result.status, result.output, len(requests)) == ('completed', '`report.csv`: north revenue 1200', 1)
+
+
+@pytest.mark.parametrize('secrets', [None, {'pw': 'hunter2-value'}])
+async def test_a_custom_tool_returning_an_object_pydantic_cannot_serialize_does_not_end_the_run(tmp_path, secrets):
+	"""MIGRATING: an action may return any value and the model sees it. One returning an object pydantic cannot
+	serialize (an SDK response, a client object) ended the run after the browser started: 'PydanticSerializationError:
+	Unable to serialize unknown type' (live: bu-fast). The model now gets its str()."""
+	from browser_use import Tools
+
+	class Response:
+		def __str__(self):
+			return 'Response(status=ok, rows=3)'
+
+	tools = Tools()
+
+	@tools.action('Query the API')
+	def query() -> object:
+		return {'response': Response(), 'n': 1}
+
+	model, seen = script(('query', {}), ('finish', {'result': 'ok', 'success': True}))
+	session = Session(repl=FakeRepl(tmp_path, secrets))
+	result = await run(build_agent(model, tools=tools.functions), 'task', session, 'function:x')
+	assert (result.status, result.error) == ('completed', None)
+	assert 'Response(status=ok, rows=3)' in str(seen[1][-1].parts[0].content)
