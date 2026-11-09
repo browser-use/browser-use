@@ -1,6 +1,8 @@
 """Browser lifecycle with the Browser Use Cloud HTTP API and the harness daemon mocked. No network, no browser."""
 
 import json
+import subprocess
+import sys
 
 import pytest
 from conftest import script
@@ -971,6 +973,19 @@ async def test_cloud_create_past_its_deadline_stays_owned_and_is_stopped_when_it
 			break
 		await asyncio.sleep(0.05)
 	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='reads the process state with ps')
+async def test_stop_reaps_the_cloud_watchdog(cloud):
+	"""live/scale: stop() killed a cloud browser's watchdog without waiting for it, so each one stayed a zombie until
+	its Popen was garbage collected: 20 concurrent Agents left 20 zombies."""
+	b = Browser()
+	await b.start()
+	watchdog = b._watchdog
+	assert watchdog is not None
+	await b.stop()
+	state = subprocess.run(['ps', '-o', 'stat=', '-p', str(watchdog.pid)], capture_output=True, text=True).stdout.strip()  # noqa: ASYNC221
+	assert state == ''  # gone, not a zombie (Z)
 
 
 async def test_cancel_while_the_repl_closes_still_stops_the_cloud_browser(cloud, tmp_path):
