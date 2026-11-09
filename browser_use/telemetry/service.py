@@ -406,6 +406,13 @@ class ProductTelemetry:
 		folder = telemetry_dir() / 'inflight'
 		if not folder.is_dir():
 			return
+		for claim in folder.glob('*.crashed'):  # <run_id>.<pid>.crashed: a process killed while it sent this report
+			try:
+				pid = int(claim.name.split('.')[1])
+				if pid != os.getpid() and not _alive(pid):
+					os.replace(claim, folder / (claim.name.split('.')[0] + '.json'))
+			except (OSError, ValueError, IndexError):
+				continue
 		for path in folder.glob('*.json'):
 			try:
 				marker = json.loads(path.read_text(encoding='utf-8'))

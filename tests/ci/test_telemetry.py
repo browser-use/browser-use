@@ -1346,3 +1346,23 @@ def test_a_run_whose_event_cannot_be_built_is_not_reported_as_crashed(posthog):
 	assert t.flush(10)
 	t.stop()
 	assert not list(inflight.glob('*.json')) and not t._active
+
+
+def test_a_crash_report_whose_sender_died_mid_send_is_sent_by_the_next_process(posthog):
+	"""_send_crashed claims a marker as <run_id>.<pid>.crashed while it posts; a process killed in that window left the
+	claim, and no later process ever sent it or cleaned it up."""
+	from browser_use.telemetry.views import AgentTelemetryEvent
+
+	dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+	dead.wait()
+	run_id = uuid.uuid4().hex
+	inflight = posthog.config / 'telemetry' / 'inflight'
+	inflight.mkdir(parents=True)
+	props = AgentTelemetryEvent(version='1', source='pip', model='m', run_id=run_id, timeout_s=60).properties
+	started = time.time() - 3600
+	marker = {'pid': dead.pid, 'started': started, 'updated': started + 5, 'steps': 3, 'props': props}
+	(inflight / f'{run_id}.{dead.pid}.crashed').write_text(json.dumps(marker))
+	posthog.telemetry._send_crashed()
+	(event,) = posthog.events()
+	assert (event['properties']['status'], event['uuid']) == ('crashed', str(uuid.UUID(run_id)))
+	assert not list(inflight.iterdir())
