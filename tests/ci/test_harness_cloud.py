@@ -554,10 +554,11 @@ async def test_mcp_server_stops_its_cloud_browser_itself_when_the_client_closes_
 
 	stops = tmp_path / 'stops.txt'
 	params = StdioServerParameters(command=sys.executable, args=['-c', _FAKE_CLOUD_SERVER, '', str(stops)], env=_server_env())
-	async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
-		await session.initialize()
-		result = await session.call_tool('browser_exec', {'code': 'start_remote_daemon()'})
-		assert not result.is_error, result.content
+	with (tmp_path / 'server.err').open('w') as errlog:  # sys.stderr: an earlier test may have left one with no fileno()
+		async with stdio_client(params, errlog) as (read, write), ClientSession(read, write) as session:
+			await session.initialize()
+			result = await session.call_tool('browser_exec', {'code': 'start_remote_daemon()'})
+			assert not result.is_error, result.content
 	assert stops.read_text().startswith('mcp-')  # read once the client is done with the server: it exited
 
 
