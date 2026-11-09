@@ -20,6 +20,7 @@ import contextlib
 import contextvars
 import fnmatch
 import hmac
+import html
 import json
 import os
 import re
@@ -134,23 +135,49 @@ def domain_matches(url: str, pattern: str) -> bool:
 		return False
 
 
+def _html_escaped(value: str) -> tuple[str, ...]:
+	"""value as page HTML shows it: Chrome's outerHTML escapes & < > in text and & " < > in attributes (older Chrome
+	only & "), Python's html.escape also '."""
+	text = value.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+	return text, text.replace('"', '&quot;'), value.replace('&', '&amp;').replace('"', '&quot;'), html.escape(value)
+
+
+def _base64_cores(b: bytes) -> list[str]:
+	"""The base64 text of b inside a longer encoded string ('Basic ' + b64('user:' + password), a base64 JSON blob),
+	at each of the 3 byte offsets it can start at: only the characters that b's own bits decide."""
+	cores = []
+	for k in range(3):
+		start, end = -(-8 * k // 6), 8 * (k + len(b)) // 6  # characters whose 6 bits all fall inside b
+		for encode in (base64.b64encode, base64.urlsafe_b64encode):
+			cores.append(encode(bytes(k) + b).decode()[start:end])
+	return cores
+
+
 def secret_forms(values: Secrets) -> list[tuple[str, str]]:
-	"""(form, name) for each secret value; its JSON- and repr()-escaped forms (a value with quotes, backslashes, newlines
-	or non-ASCII text no longer matches once serialized); and its reversed, base64, hex and URL-encoded forms. Longest
+	"""(form, name) for each secret value; its JSON-, repr()- and HTML-escaped forms (a value with quotes, backslashes,
+	newlines, & or < no longer matches once serialized); its lower- and upper-case forms (a site shows an email
+	lowercased); and its reversed, base64 (also inside a longer base64 string), hex and URL-encoded forms. Longest
 	first."""
 	forms: dict[str, str] = {}
 	for name, value, _ in scoped_secrets(values):
 		if not value:
 			continue
 		forms[value] = name
-		for form in (json.dumps(value)[1:-1], json.dumps(value, ensure_ascii=False)[1:-1], repr(value)[1:-1]):
+		escaped = (json.dumps(value)[1:-1], json.dumps(value, ensure_ascii=False)[1:-1], repr(value)[1:-1], *_html_escaped(value))
+		for form in escaped:
 			forms.setdefault(form, name)  # escapes only make a value longer: never a shorter, over-matching form
+		for form in (value.lower(), value.upper()):  # same length; a 1-3 character one only as a whole word (redact_forms)
+			forms.setdefault(form, name)
 		if len(value) >= 4:  # encodings of a 1-3 character value would redact ordinary text
 			b = value.encode()
 			b64 = base64.b64encode(b).decode()
 			for form in (value[::-1], b64, b64.rstrip('='), base64.urlsafe_b64encode(b).decode(), b.hex(), b.hex().upper(),
 						 urllib.parse.quote(value, safe=''), urllib.parse.quote_plus(value)):  # fmt: skip
 				forms.setdefault(form, name)
+		if len(value) >= 6:  # shorter values give cores of 4-6 characters, which occur by chance in any base64 blob
+			for text in dict.fromkeys((value, escaped[0])):  # as is, and as it sits in base64 of JSON
+				for form in _base64_cores(text.encode()):
+					forms.setdefault(form, name)
 	return sorted(forms.items(), key=lambda kv: -len(kv[0]))
 
 
