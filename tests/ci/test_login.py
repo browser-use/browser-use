@@ -83,10 +83,20 @@ def store(tmp_path, monkeypatch):
 	return path
 
 
-def _auth_server(monkeypatch, auto_approve: bool) -> FakeAuthServer:
-	server = FakeAuthServer(auto_approve)
-	monkeypatch.setenv('BROWSER_USE_CLOUD_API_URL', server.url)
-	return server
+@pytest.fixture
+def auth_server(monkeypatch):
+	"""auth_server(auto_approve) starts a FakeAuthServer the CLI talks to; it is shut down after the test."""
+	servers: list[FakeAuthServer] = []
+
+	def start(auto_approve: bool) -> FakeAuthServer:
+		servers.append(FakeAuthServer(auto_approve))
+		monkeypatch.setenv('BROWSER_USE_CLOUD_API_URL', servers[-1].url)
+		return servers[-1]
+
+	yield start
+	for server in servers:
+		server.server.shutdown()
+		server.server.server_close()
 
 
 def _cli(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -98,8 +108,8 @@ def _cli(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess[st
 	)
 
 
-def test_login_stores_the_key_in_the_shared_store_without_printing_it(store, monkeypatch):
-	server = _auth_server(monkeypatch, auto_approve=True)
+def test_login_stores_the_key_in_the_shared_store_without_printing_it(store, monkeypatch, auth_server):
+	server = auth_server(auto_approve=True)
 	result = _cli('login', '--no-open')
 	assert result.returncode == 0, result.stderr
 	assert FAKE_KEY not in result.stdout + result.stderr
@@ -181,10 +191,10 @@ def test_a_stored_key_goes_to_the_server_whatever_its_scopes_and_a_scope_403_ask
 	assert 'Run `browser-use login` again' in str(raised.value) and FAKE_KEY not in str(raised.value)
 
 
-def test_mcp_browser_login_finishes_across_calls_and_never_returns_the_key(store, monkeypatch):
+def test_mcp_browser_login_finishes_across_calls_and_never_returns_the_key(store, monkeypatch, auth_server):
 	from browser_use.mcp import cli_mcp
 
-	server = _auth_server(monkeypatch, auto_approve=False)
+	server = auth_server(auto_approve=False)
 	opened: list[str] = []
 	monkeypatch.setattr(cli_mcp, '_open_url', lambda url: opened.append(url) or True)  # never a real browser
 	monkeypatch.setenv('BH_DEVICE_NAME', 'placeholder')
@@ -213,10 +223,10 @@ def test_mcp_browser_login_finishes_across_calls_and_never_returns_the_key(store
 	assert again.startswith('Signed in') and str(store) in again and len(server.starts) == 1
 
 
-def test_mcp_browser_login_reports_a_denied_approval(store, monkeypatch):
+def test_mcp_browser_login_reports_a_denied_approval(store, monkeypatch, auth_server):
 	from browser_use.mcp import cli_mcp
 
-	server = _auth_server(monkeypatch, auto_approve=False)
+	server = auth_server(auto_approve=False)
 	monkeypatch.setattr(cli_mcp, '_open_url', lambda url: False)
 	mcp = cli_mcp.CLIMCPServer()
 	pending = mcp._sign_in(force=False, wait=0.2)
@@ -290,8 +300,8 @@ def test_a_key_with_whitespace_inside_never_appears_in_an_error_or_the_store(sto
 	assert 'line break' in str(raised.value) and FAKE_KEY[:20] not in str(raised.value)
 
 
-def test_api_key_stdin_stores_only_a_browser_use_key(store, monkeypatch):
-	_auth_server(monkeypatch, auto_approve=False)
+def test_api_key_stdin_stores_only_a_browser_use_key(store, auth_server):
+	auth_server(auto_approve=False)
 	result = _cli('login', '--api-key-stdin', stdin='sk-' + 'x' * 40)
 	assert result.returncode == 1 and 'start with bu_' in result.stderr and 'Signed in' not in result.stdout
 	assert not store.exists()
@@ -305,10 +315,10 @@ def test_api_key_stdin_stores_only_a_browser_use_key(store, monkeypatch):
 	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY and FAKE_KEY not in result.stdout
 
 
-def test_auth_login_checks_the_key_like_login(store, monkeypatch):
+def test_auth_login_checks_the_key_like_login(store, auth_server):
 	"""rr-climcp 2: `browser-use auth login --api-key-stdin` (the form the bundled SKILL.md teaches) went straight to
 	browser-harness: a key the cloud rejects was stored, 'authenticated', exit 0."""
-	_auth_server(monkeypatch, auto_approve=False)
+	auth_server(auto_approve=False)
 	result = _cli('auth', 'login', '--api-key-stdin', stdin='bu_' + 'g' * 40)
 	assert result.returncode == 1 and 'rejected that key' in result.stderr, result.stdout + result.stderr
 	assert not store.exists()
@@ -319,8 +329,8 @@ def test_auth_login_checks_the_key_like_login(store, monkeypatch):
 	assert result.returncode == 0 and not store.exists()
 
 
-def test_a_corrupt_key_store_is_named_and_login_or_logout_repairs_it(store, monkeypatch):
-	_auth_server(monkeypatch, auto_approve=False)
+def test_a_corrupt_key_store_is_named_and_login_or_logout_repairs_it(store, auth_server):
+	auth_server(auto_approve=False)
 	from browser_use.auth import browser_use_api_key
 	from browser_use.exceptions import MissingAPIKeyError
 
@@ -376,12 +386,12 @@ def test_a_rejected_key_names_the_login_command(store, monkeypatch):
 		browser_mod._cloud('/browsers', 'POST', {})
 
 
-def test_a_callback_with_the_wrong_state_neither_completes_nor_aborts_the_login(store, monkeypatch):
+def test_a_callback_with_the_wrong_state_neither_completes_nor_aborts_the_login(store, monkeypatch, auth_server):
 	import urllib.error
 
 	from browser_use.mcp import cli_mcp
 
-	server = _auth_server(monkeypatch, auto_approve=False)
+	server = auth_server(auto_approve=False)
 	monkeypatch.setattr(cli_mcp, '_open_url', lambda url: True)
 	mcp = cli_mcp.CLIMCPServer()
 	assert 'Waiting for the user to approve' in mcp._sign_in(force=False, wait=0.2)

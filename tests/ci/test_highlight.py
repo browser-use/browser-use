@@ -58,16 +58,20 @@ IFRAME = (
 	"data:text/html,<body style='margin:0;background:white'><iframe style='position:absolute;left:50px;top:50px;"
 	"width:400px;height:200px;border:0' srcdoc='<input style=position:absolute;left:50px;top:50px;width:200px;height:40px>'>"
 )
-# Two overlays in two documents, the earlier one still up when the screenshot is taken.
+# Two overlays in two documents, the earlier one still up when the screenshot is taken; `drawn`: it was on its page.
+IN_IFRAME = "js(\"!!document.querySelector('iframe').contentDocument.querySelector('[data-browser-use-interaction-highlight]')\")"
 TWO = {
 	# a click into an input in an iframe draws there; typing draws around the iframe element in the top document
-	'iframe': f'import time; new_tab({IFRAME!r}); wait_for_load(); click_at_xy(200, 120); time.sleep(0.3); type_text("hi")',
+	'iframe': f'import time; new_tab({IFRAME!r}); wait_for_load(); click_at_xy(200, 120); time.sleep(0.3); drawn = {IN_IFRAME}; type_text("hi")',
 	# brackets on tab a; tab b opened and left again (switch_tab attaches a new session)
-	'tab': CLICK + "a = current_tab(); new_tab('data:text/html,b'); wait_for_load(); switch_tab(a)",
+	'tab': CLICK + "a = current_tab(); new_tab('data:text/html,b'); wait_for_load(); switch_tab(a); drawn = on()",
 }
 
 
 @pytest.mark.parametrize('case', TWO)
 async def test_screenshots_never_show_an_earlier_overlay_in_another_document(chrome, tmp_path, case):
-	path = await run(chrome, tmp_path, TWO[case] + '; time.sleep(0.3); path = screenshot()', 'path')
+	drawn, path = (await run(chrome, tmp_path, TWO[case] + '; time.sleep(0.3); path = screenshot()', 'f"{drawn} {path}"')).split(
+		' ', 1
+	)
+	assert drawn == 'True'  # else no overlay was up and the check below passes for nothing
 	assert orange(tmp_path / path) == 0
