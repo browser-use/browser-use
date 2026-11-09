@@ -59,4 +59,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked --dev --all-extras --python 3.11
-      - run: CHROME="$(command -v google-chrome)" uv run --no-sync pytest tests -m chrome
+      # Without google-chrome every chrome test would skip and the job would pass: fail instead, and list skips (-rs)
+      - run: |
+          CHROME="$(command -v google-chrome)" || { echo "google-chrome not found on PATH" >&2; exit 1; }
+          CHROME="$CHROME" uv run --no-sync pytest tests -m chrome -rs
