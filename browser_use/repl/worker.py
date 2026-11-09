@@ -388,12 +388,18 @@ def _check_redirects(check_url) -> None:
 	urllib.request.install_opener(redirect_checking_opener(check_url))
 
 
-def http_get(url, headers=None, timeout=20.0, *, _urlopen=None):
+def http_get(url, headers=None, timeout=20.0):
 	"""Plain HTTP from this machine, not the browser (no browser IP, cookies or proxy). Returns str, or bytes when the
 	body is not UTF-8 text (zip, pdf, image). browser-harness's own decoded every body (UnicodeDecodeError on binary), and
 	its fetch-use branch never runs here: the worker has no BROWSER_USE_API_KEY."""
+	return _http_get(url, headers, timeout, urllib.request.urlopen)
+
+
+def _http_get(url, headers, timeout, urlopen):
+	"""http_get through urlopen. Not on http_get itself: the agent calls that, and passing its own opener skipped the
+	redirect check (--cli-mcp passes its checked opener here)."""
 	h = {'User-Agent': 'Mozilla/5.0', 'Accept-Encoding': 'gzip', **(headers or {})}
-	with (_urlopen or urllib.request.urlopen)(urllib.request.Request(url, headers=h), timeout=timeout) as r:
+	with urlopen(urllib.request.Request(url, headers=h), timeout=timeout) as r:
 		data = r.read()
 		if r.headers.get('Content-Encoding') == 'gzip':
 			data = gzip.decompress(data)
