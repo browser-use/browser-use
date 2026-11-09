@@ -639,7 +639,7 @@ Recommended: install the skill so your coding agent remembers this:
 
 You can also paste this into your agent to get started:
 
-  Install browser-use with `uv tool install browser-use`, run `browser-use skill install`
+  Install browser-use with `uv tool install browser-use=={version}`, run `browser-use skill install`
   to register the skill, and connect it to my browser. If setup or connection fails,
   follow https://github.com/browser-use/browser-harness/blob/main/install.md
 
@@ -742,7 +742,7 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	code = None
 	if not args:
 		if sys.stdin.isatty():
-			print(_QUICKSTART)
+			print(_QUICKSTART.replace('{version}', _browser_use_version()))
 			return 0, 'quickstart'
 		code = sys.stdin.read()
 		if not code.strip():

@@ -239,6 +239,17 @@ def test_first_run_text_gives_the_readmes_agent_prompt(monkeypatch, capsys):
 	assert 'prerelease' not in printed and 'docs.browser-use.com' in printed
 
 
+def test_every_install_line_pins_the_released_version_exactly():
+	"""Users and their agents copy these lines: each pins browser-use with == to this release, never >=."""
+	import tomllib
+
+	v = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['version']
+	for f in ('README.md', 'examples/simple.py', 'skills/open-source/SKILL.md'):
+		text = (ROOT / f).read_text(encoding='utf-8')
+		assert f'browser-use=={v}' in text, f
+		assert not re.search(r'browser-use\s*>=', text), f
+
+
 def test_piped_code_never_tells_the_agent_to_update_browser_harness(tmp_path):
 	"""Live: once browser-harness has a newer release on PyPI, every piped call printed (daily) `[browser-harness] agents:
 	run browser-harness --update -y`. browser-use pins browser-harness exactly: that command is not on PATH for
