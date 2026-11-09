@@ -194,7 +194,12 @@ def stop(name: str = 'remote') -> None:
 
 
 def forget(name: str) -> None:
-	"""Let name drive a local Chrome again (`BU_NAME=<name> browser-use --reload`)."""
+	"""Let name drive a local Chrome again (`BU_NAME=<name> browser-use --reload`). A cloud browser still recorded there is
+	stopped first: the record is the only way to stop it once its daemon is gone, so it stays when the stop fails."""
+	if (recorded := _recorded_id(name)) and not stop_cloud(name):
+		raise CloudBrowserError(
+			f'Could not stop cloud browser {recorded} ({name!r}); retry `BU_NAME={name} browser-use --reload`'
+		)
 	_marker(name).unlink(missing_ok=True)
 
 

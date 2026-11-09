@@ -81,6 +81,7 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 	for path in tried:  # it silently fell back to another browser
 		if not Path(path).expanduser().is_file():
 			logger.warning('BH_CHROME_PATH / CHROME_PATH %r is not a file; looking for an installed browser instead', path)
+	on_path: list[str] = []
 	if sys.platform == 'darwin':
 		apps = ['Google Chrome'] if chrome_only else ['Google Chrome', 'Chromium', 'Microsoft Edge', 'Google Chrome Canary']
 		tried += [
@@ -94,9 +95,9 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 		roots = [r for k in ('PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA') if (r := os.environ.get(k))]
 		tried += [str(Path(root) / rel) for rel in rels for root in roots]
 	else:
-		names = ['google-chrome-stable', 'google-chrome']
-		names += [] if chrome_only else ['chromium', 'chromium-browser', 'microsoft-edge-stable', 'microsoft-edge']
-		tried += [shutil.which(n) or n for n in names]
+		on_path = ['google-chrome-stable', 'google-chrome']
+		on_path += [] if chrome_only else ['chromium', 'chromium-browser', 'microsoft-edge-stable', 'microsoft-edge']
+		tried += [p for n in on_path if (p := shutil.which(n))]  # a bare name would be a file in the working directory
 	if not chrome_only:
 		tried += playwright_chromium()  # `browser-use install` (Playwright's Chromium), last: an installed Chrome wins
 	snaps = []
@@ -109,6 +110,7 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 	if snaps:
 		raise RuntimeError(_snap_error(snaps[0]))
 	kind = 'Google Chrome' if chrome_only else 'Chrome, Chromium or Edge'
+	tried += [f'{n} on PATH' for n in on_path]
 	raise RuntimeError(
 		f'No {kind} found (tried {", ".join(tried)}). Install one, or pass executable_path=... or set BH_CHROME_PATH.'
 	)

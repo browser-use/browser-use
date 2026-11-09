@@ -323,7 +323,8 @@ def _profile_id(profile: str) -> str:
 def _ws_url(cdp_url: str) -> str:
 	if not cdp_url.startswith('http'):
 		return cdp_url
-	with urllib.request.urlopen(f'{cdp_url.rstrip("/")}/json/version', timeout=30) as r:
+	u = urllib.parse.urlsplit(cdp_url)  # a token in the query stays after /json/version
+	with urllib.request.urlopen(u._replace(path=u.path.rstrip('/') + '/json/version').geturl(), timeout=30) as r:
 		return json.load(r)['webSocketDebuggerUrl']
 
 
@@ -671,7 +672,7 @@ class Browser:
 		if self._env is None or not self.name:  # Browser('chrome'): ensuring the shared daemon is idempotent
 			env = await self._start()
 			if self.domains:  # the REPL helpers refuse disallowed URLs (worker.py)
-				if self._user_tabs is None:
+				if self._user_tabs is None and self._attached():  # a browser of our own or cdp_url: every tab is swept
 					self._user_tabs = await asyncio.to_thread(self._disallowed_tabs)
 				env['BU_DOMAINS'] = self.domains.to_json()
 				if self._attached():
@@ -1079,10 +1080,13 @@ class Browser:
 						continue
 					if method in ('Browser.downloadWillBegin', 'Page.downloadWillBegin'):  # began after the worker closed
 						names.setdefault(p['guid'], p.get('suggestedFilename'))
-					if method == 'Browser.downloadProgress':
+						state.setdefault(p['guid'], 'inProgress')  # its first downloadProgress may come in a later drain
+					# either event (a tab the daemon attached sends only Page's); a finished download never runs again
+					progress = method in ('Browser.downloadProgress', 'Page.downloadProgress')
+					if progress and state.get(p['guid']) in (None, 'inProgress'):
 						state[p['guid']] = p.get('state')
 					# finished after the worker closed: only this read saw the event, so no one else renames it
-					if method in ('Browser.downloadProgress', 'Page.downloadProgress') and p.get('state') == 'completed':
+					if progress and p.get('state') == 'completed':
 						path = Path(p['filePath']) if p.get('filePath') else (self._downloads_dir or Path()) / p['guid']
 						if self._local is not None and path.name == p['guid']:  # a cloud browser's files are remote
 							name_download(path, names.get(p['guid']))
