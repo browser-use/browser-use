@@ -227,6 +227,31 @@ def _recorded(name: str, browser_id: str):
 	return harness_cloud
 
 
+def test_a_socket_path_too_long_for_the_os_is_one_line_before_a_cloud_browser_is_created(monkeypatch, tmp_path):
+	"""Live: with a long HOME (socket path over macOS's 104 bytes) `start_remote_daemon()` in the CLI created and billed a
+	cloud browser, then failed with a traceback ending "RuntimeError: stopped remote browser <id>"; local calls printed
+	"fatal: AF_UNIX path too long". Neither named the path or the fix, which Browser() already does."""
+	from browser_harness import _ipc as ipc
+	from browser_harness import admin
+
+	from browser_use import harness_cloud
+
+	if sys.platform == 'win32':
+		pytest.skip('Windows uses TCP loopback')
+	long_dir = tmp_path / ('a' * 120)
+	monkeypatch.setattr(ipc, '_sock_path', lambda name: long_dir / f'bu-{name}.sock')
+	created = []
+	monkeypatch.setattr(admin, 'start_remote_daemon', lambda *a, **k: created.append(a))
+	monkeypatch.setattr(admin, 'ensure_daemon', lambda *a, **k: created.append(a))
+	ns: dict = {}
+	harness_cloud.install(ns)
+	for call in (lambda: ns['start_remote_daemon'](_name('long')), lambda: ns['ensure_daemon']()):
+		with pytest.raises(harness_cloud.CloudBrowserError, match=r'socket path is \d+ bytes.*BH_RUNTIME_DIR') as raised:
+			call()
+		assert str(long_dir) in str(raised.value)
+	assert created == []
+
+
 def test_stopping_a_cloud_browser_twice_is_a_no_op_and_an_unknown_name_is_one_line():
 	"""Live: a second stop_remote_daemon(name) after a successful stop (the skill says to stop when done; the agent cannot
 	tell a timeout from a stop) raised a 20-line traceback ending in "daemon 'x' is unavailable for required clean

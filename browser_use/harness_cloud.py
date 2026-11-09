@@ -106,9 +106,21 @@ def stop_cloud(name: str, browser_id: str | None = None) -> bool:
 	return stopped
 
 
+def _check_socket_path(name: str) -> None:
+	"""The OS caps the daemon's AF_UNIX socket path (macOS 104 bytes): a longer one created and billed a cloud browser
+	before failing ("stopped remote browser <id>"), or failed locally with "AF_UNIX path too long". Say so first."""
+	from browser_use.browser.browser import _check_socket_path
+
+	try:
+		_check_socket_path(name)
+	except RuntimeError as e:
+		raise CloudBrowserError(str(e)) from None
+
+
 def ensure_daemon(wait: float | None = None, name: str | None = None, env: dict[str, str] | None = None) -> None:
 	"""browser-harness's ensure_daemon, except that a name that ran a cloud browser fails closed once it is gone."""
 	name = name or admin.NAME
+	_check_socket_path(name)
 	if env or not was_cloud(name):
 		if admin._is_local_chrome_mode(env):  # browser-harness serializes these spawns itself
 			return admin.ensure_daemon(wait=wait, name=name, env=env)
@@ -132,6 +144,7 @@ def ensure_daemon(wait: float | None = None, name: str | None = None, env: dict[
 def start(name: str, profile_name: str | None, create_kwargs: dict[str, Any], namespace: dict[str, Any] | None) -> dict:
 	"""browser-harness's start_remote_daemon with one-line errors, then route this process to the new daemon."""
 	os.environ.setdefault('BH_TAB_MARKER', '0')  # the daemon spawned below inherits it
+	_check_socket_path(name)
 	if admin.daemon_alive(name):
 		raise CloudBrowserError(f'Daemon {name!r} is already running: stop_remote_daemon({name!r}) first, or use another name')
 	previous = _recorded_id(name)
