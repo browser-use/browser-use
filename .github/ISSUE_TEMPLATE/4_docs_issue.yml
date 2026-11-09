@@ -49,7 +49,7 @@ body:
         e.g. The documentation could be improved by adding one more line here:
         ```diff
         Use `Browser('chromium', headless=False)` to open the browser window (aka headful mode).
-        + Without a display it runs headless.
+        + Leave `headless` unset to run headless only when there is no display.
         ```
     validations:
       required: false

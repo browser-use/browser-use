@@ -27,6 +27,17 @@ def test_console_scripts_avoid_generic_names():
 	assert set(scripts) == {'browser-use', 'browseruse', 'browser-use-tui'}
 
 
+def test_migrating_names_every_removed_0x_script_and_extra():
+	"""0.x shipped `bu` / `browser` and extras 1.0 dropped; MIGRATING.md is the map of every removed surface."""
+	migrating = (ROOT / 'MIGRATING.md').read_text(encoding='utf-8')
+	project = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']
+	scripts_0x = {'browser-use', 'browseruse', 'bu', 'browser', 'browser-use-tui'}
+	extras_0x = {'openai-tools', 'cli', 'core', 'aws', 'oci', 'video', 'examples', 'eval', 'cli-oci', 'all'}
+	removed = sorted((scripts_0x - set(project['scripts'])) | (extras_0x - set(project['optional-dependencies'])))
+	assert {'bu', 'browser', 'aws', 'core'} <= set(removed)
+	assert [name for name in removed if f'`{name}`' not in migrating and f'`[{name}]`' not in migrating] == []
+
+
 def test_every_dependency_is_an_exact_pin():
 	# Supply-chain policy: a compromised release of any direct dependency must never reach users via a range.
 	# Bump pins on purpose, together with uv.lock and [tool.uv] exclude-newer.

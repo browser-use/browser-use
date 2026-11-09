@@ -1,6 +1,9 @@
 """Release workflows: which events build and push Docker images. Evaluates the job's `if:` expression in Python."""
 
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -58,6 +61,38 @@ def test_every_docker_image_is_built_and_run_on_pull_requests_before_one_is_push
 	runs = '\n'.join(step.get('run', '') for step in smoke['steps'])
 	assert '--version' in runs and 'docker/smoke.py' in runs
 	assert workflow['jobs']['build_publish_image']['needs'] == 'smoke'
+
+
+def test_lock_only_dependency_updates_rebuild_the_docker_image_on_pull_requests():
+	"""The Dockerfile installs from uv.lock (`uv sync --locked`): a lock-only bump must run the smoke build."""
+	assert 'uv.lock' in (WORKFLOWS.parents[1] / 'Dockerfile').read_text()
+	assert 'uv.lock' in yaml.safe_load((WORKFLOWS / 'docker.yml').read_text())[True]['pull_request']['paths']
+
+
+def test_the_wheel_smoke_test_imports_the_wheel_not_the_checkout():
+	"""`python -c` puts the cwd first on sys.path: run from the repo root it imports ./browser_use, not the wheel."""
+	steps = yaml.safe_load((WORKFLOWS / 'publish.yml').read_text())['jobs']['publish_to_pypi']['steps']
+	script = next(step['run'] for step in steps if step.get('name') == 'Smoke test the wheel in a fresh venv')
+	lines = script.splitlines()
+	first_import = next(i for i, line in enumerate(lines) if 'python -c' in line and not line.lstrip().startswith('#'))
+	assert any(line.strip().startswith('cd ') for line in lines[:first_import])
+
+
+@pytest.mark.skipif(sys.platform == 'win32' or shutil.which('bash') is None, reason='runs the step with bash')
+def test_the_chrome_job_fails_when_google_chrome_is_missing(tmp_path):
+	"""Without google-chrome every chrome test skipped and the job still went green."""
+	steps = yaml.safe_load((WORKFLOWS / 'test.yaml').read_text())['jobs']['chrome']['steps']
+	script = next(step['run'] for step in steps if 'pytest' in step.get('run', ''))
+	(tmp_path / 'uv').write_text('#!/bin/sh\nexit 0\n')  # pytest would pass with every test skipped
+	(tmp_path / 'uv').chmod(0o755)
+	env = {'PATH': str(tmp_path), 'HOME': str(tmp_path)}
+	bash = shutil.which('bash') or 'bash'  # found before PATH is narrowed to tmp_path
+	r = subprocess.run([bash, '-e', '-c', script], env=env, capture_output=True, text=True, timeout=30)
+	assert r.returncode != 0 and 'google-chrome not found' in r.stderr
+	(tmp_path / 'google-chrome').write_text('#!/bin/sh\n')
+	(tmp_path / 'google-chrome').chmod(0o755)
+	r = subprocess.run([bash, '-e', '-c', script], env=env, capture_output=True, text=True, timeout=30)
+	assert r.returncode == 0, r.stderr
 
 
 def test_the_docker_smoke_script_runs_an_agent_on_local_chromium(chrome_binary):

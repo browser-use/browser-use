@@ -12,7 +12,9 @@ on:
 
 jobs:
   claude:
-    # Only people with write access: anyone else's @claude would run with the repository secrets
+    # Pre-filter: owners, org members and collaborators (MEMBER and COLLABORATOR can be read-only). The write-access gate is
+    # claude-code-action itself: its prepare step fails unless the actor has write or admin permission
+    # (src/github/validation/permissions.ts), so Claude never runs with the repository secrets for anyone else
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') &&
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)) ||

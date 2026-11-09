@@ -301,6 +301,12 @@ profile, as 0.x did, while `--cli-mcp` drives your own Chrome with your logins. 
 keeps the `allowed_domains` / `prohibited_domains` of the default `browser_profile` in the 0.x `config.json` and
 `BROWSER_USE_ALLOWED_DOMAINS`; a configured proxy (`proxy`, `BROWSER_USE_PROXY_*`) exits 2 instead of being dropped. `browser-use init` templates were removed.
 
+The `bu` and `browser` command aliases were removed (`uv tool install` aborts when another tool already owns a name):
+run `browser-use` or `browseruse`. Extras: `browser-use[cli]`, `[mcp]`, `[anthropic]`, `[google]` and `[all]` still
+resolve (everything they added is now a core dependency). `[core]`, `[aws]`, `[oci]`, `[cli-oci]`, `[video]`,
+`[examples]`, `[eval]` and `[openai-tools]` were removed: pip and uv warn that the extra does not exist and install
+browser-use without it. For Bedrock install `pydantic-ai-slim[bedrock]` (see [Models](#models)).
+
 Cloud browsers in the CLI and MCP server: after `start_remote_daemon(name)` (anywhere in the code) the rest of that
 call, and every later MCP call, drives that cloud browser. A daemon name that ran a cloud browser never falls back to
 your local Chrome once it ends: calls fail and say to start a new one (`BU_NAME=<name> browser-use --reload` lets the
