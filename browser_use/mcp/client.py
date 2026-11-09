@@ -466,6 +466,24 @@ class MCPClient:
 		"""
 		json_type = schema.get('type', 'string')
 
+		# JSON Schema allows `type` to be a list of types (e.g. ["string", "null"]).
+		# Resolve each member and combine them into a union instead of treating the
+		# list as a single (unhashable) key in the mapping below.
+		if isinstance(json_type, list):
+			union_types = [
+				self._json_schema_to_python_type(
+					{**schema, 'type': member, 'nullable': False},
+					f'{model_name}_{member}' if member != 'null' else model_name,
+				)
+				for member in json_type
+			]
+			if not union_types:
+				return str
+			combined_type = union_types[0]
+			for extra_type in union_types[1:]:
+				combined_type = combined_type | extra_type
+			return combined_type
+
 		# Basic type mapping
 		type_mapping = {
 			'string': str,
