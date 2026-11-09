@@ -1616,3 +1616,13 @@ def test_a_forked_childs_first_run_and_first_event_are_not_wiped(posthog):
 	assert _in_forked_child(marks) == 0, "the forked child's run got no crash marker"
 	assert _in_forked_child(sends) == 0
 	assert str(uuid.UUID(event_id)) in {e['uuid'] for e in posthog.events(1)}, "the forked child's first event was dropped"
+
+
+def test_units_rule_names_every_field_not_in_ms_or_seconds():
+	"""Review 11-09: "Times are integer milliseconds unless the name ends in `_seconds`" was wrong for `tel_build_us`,
+	`timeout_s` and `cloud_timeout_min`; a field with another unit suffix must be named in the rule."""
+	text = (Path(__file__).parents[2] / 'TELEMETRY.md').read_text(encoding='utf-8')
+	rule = ' '.join(text.split('Times are integer milliseconds', 1)[1].split('\n\n', 1)[0].split())
+	other_units = {f for f in documented() if re.fullmatch(r'[a-z][a-z0-9_]*_(us|s|min|sec|secs|minutes)', f)}
+	assert other_units >= {'tel_build_us', 'timeout_s', 'cloud_timeout_min'}
+	assert not [f for f in other_units if f'`{f}`' not in rule], rule

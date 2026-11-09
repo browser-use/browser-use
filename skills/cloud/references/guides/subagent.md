@@ -61,7 +61,9 @@ curl https://api.browser-use.com/api/v4/runs/RUN_ID/status -H "X-Browser-Use-API
 curl https://api.browser-use.com/api/v4/runs/RUN_ID -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY"
 ```
 
-Only `completed` means success; the result is a string to parse and validate (see [API v4](../api-v4.md)). The
+Only `completed` means success; the result is a string to parse and validate (see [API v4](../api-v4.md)). Polling
+has no built-in limit: if you stop polling, the run keeps going and billing, so cancel it through the runs cancel
+route; do not blindly retry the POST after an ambiguous failure, which can start a second paid run. The
 `browser-use` CLI (1.0) drives a browser itself: `browser-use login` stores the key, and `start_remote_daemon()` in
 the piped Python starts a cloud browser.
 

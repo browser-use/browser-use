@@ -141,7 +141,7 @@ print(agent.run_sync().final_result())  # in async code: result = await agent.ru
 | `Browser('chrome')` | the Chrome you have open, with your logins (turn on chrome://inspect/#remote-debugging once) |
 | `Browser('chrome', profile='Work')` | a new Chrome on a temporary copy of your Chrome profile `Work` (sync off); your Chrome can stay open, except on Windows |
 
-Other models: `ChatAnthropic`, `ChatGoogle` (both built in), or any Pydantic AI model string such as `llm='groq:llama-3.3-70b-versatile'`.
+Other models: `ChatAnthropic`, `ChatGoogle` (both built in), or any Pydantic AI model string such as `llm='groq:llama-3.3-70b-versatile'` (after `pip install 'pydantic-ai-slim[groq]'`).
 
 - **Typed results:** `Agent(task, output_model_schema=MyModel)` then `result.structured_output`.
 - **Uploads:** put files in `Agent(task, workspace=...)` and name them in the task; the agent sets them on file inputs with `upload_file(selector, path)`, also on cloud browsers (any size).
@@ -181,7 +181,7 @@ The CLI and Python library can each connect to a local or cloud browser. A cloud
 <details>
 <summary><b>What's the best model to use?</b></summary>
 
-The default, `bu-fast` on the Browser Use gateway, is `gpt-6-luna` at medium reasoning: the configuration we evaluate. `llm='bu-ultrafast'` runs the same model at low reasoning on the priority tier (fastest), `llm='bu-smart'` a larger one. `ChatOpenAI('gpt-6-luna')` with your own OpenAI key runs the same model directly. See the [benchmark](https://github.com/browser-use/benchmark).
+The default, `bu-fast` on the Browser Use gateway, is `gpt-6-luna` at medium reasoning. `llm='bu-ultrafast'` runs the same model at low reasoning on the priority tier (fastest), `llm='bu-smart'` a larger one. `ChatOpenAI('gpt-6-luna')` with your own OpenAI key runs the same model directly. See the [benchmark](https://github.com/browser-use/benchmark).
 </details>
 
 <details>
