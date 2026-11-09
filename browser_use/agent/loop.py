@@ -19,6 +19,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, cast
 
+import httpx2
 from genai_prices import calc_price
 from pydantic import Field, TypeAdapter, ValidationError
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput, Tool, ToolOutput
@@ -66,6 +67,11 @@ from browser_use.search import parse_usd
 from browser_use.telemetry.stats import RunStats
 from browser_use.tools import TOOL_RETRIES, ActionResult, RemovedField
 
+try:
+	import httpx
+except ImportError:  # optional: Pydantic AI needs only httpx2
+	httpx = None
+
 logger = logging.getLogger(__name__)
 KEEP_IMAGE_RESULTS = 2
 DELIVER_NOW = (
@@ -81,6 +87,9 @@ DELIVERY_REPAIR = (  # bu-pi src/agent.ts:560, verbatim except tool names
 DELIVERY_TOOLS = ['finish_from_repl', 'finish']
 TOOL_CALL_MARKUP = re.compile(r'</?tool_call>')
 TRANSIENT = (ModelRateLimitError, ModelUnavailableError, ModelServerError, ModelConnectionError)
+_HTTPX = [httpx2, *([httpx] if httpx else [])]  # Pydantic AI's providers use httpx2; a caller's own client may be httpx
+_HTTP_ERRORS = tuple(m.TransportError for m in _HTTPX)
+_HTTP_RETRIED = tuple(c for m in _HTTPX for c in (m.ConnectError, m.TimeoutException))  # what google-genai retries
 # A Responses failure reported inside an HTTP 200 (a body with status=failed, or a response.failed / error stream event)
 # with one of these codes is transient: the gateway's non-streamed request past 300 s ends with request_timeout, and its
 # error frame for an upstream stream that failed (openaistream ErrorSSE: OpenAI silent 30 s while compacting) carries
@@ -341,7 +350,7 @@ class BrowserLoop(AbstractCapability[Session]):
 		retries = getattr(getattr(model, 'client', None), 'max_retries', 0) if retries is None else retries
 		code, failed = error.provider_error_code, error.provider_error_code in TRANSIENT_FAILED_CODES
 		# The SDK retries HTTP errors only: a failure inside a 200 (stream, or a body without a status) is on its first try
-		in_200 = error.in_stream or (failed and getattr(error, 'status_code', None) is None)
+		in_200 = error.in_stream or (failed and getattr(error, 'status_code', None) is None) or _cut_after_response(error, model)
 		transient = isinstance(error, TRANSIENT) or (in_200 and failed)
 		sdk_retried = not in_200 and (retries or (model.system == 'xai' and code == 'UNAVAILABLE'))
 		if not transient or sdk_retried:
@@ -391,6 +400,17 @@ class BrowserLoop(AbstractCapability[Session]):
 		plain = result if isinstance(result, str) else to_jsonable_python(result, fallback=str)
 		clean = redact_forms(plain, forms)
 		return result if clean == plain else clean  # untouched (images, types) unless a secret was in it
+
+
+def _cut_after_response(error: ModelAPIError, model: Model) -> bool:
+	"""A connection that broke while the response was read: no SDK retried it. The OpenAI and Anthropic SDKs wrap what
+	they retry in their own APIConnectionError; a bare httpx error came from a response the SDK had already returned
+	(Claude's stream: live 'peer closed connection without sending complete message body' ended the run on its first
+	try). google-genai never wraps them and retries only connect errors and timeouts (a cut JSON body, live, too)."""
+	cause = error.__cause__
+	if not isinstance(error, ModelConnectionError) or not isinstance(cause, _HTTP_ERRORS):
+		return False
+	return not (model.system.startswith('google') and isinstance(cause, _HTTP_RETRIED))
 
 
 class StreamResponses(AbstractCapability[Session]):

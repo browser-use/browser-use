@@ -255,6 +255,68 @@ async def test_gemini_requests_the_sdk_already_retried_are_not_sent_again(tmp_pa
 	assert result.status == 'error' and sent == [2], sent
 
 
+@pytest.mark.parametrize('provider', ['anthropic', 'google'])
+async def test_a_response_cut_off_mid_way_is_retried_once(tmp_path, provider):
+	"""Live (longrun c6c/c6d): a connection that broke while Claude's stream or Gemini's JSON body was read ended the
+	run on its first try ('peer closed connection without sending complete message body'): BrowserLoop counted it as
+	retried by the SDK, but the Anthropic SDK retries a request only until its response starts, and google-genai only
+	connect errors and timeouts. bu-pi retries it once. OpenAI's chat SDK reads a body inside its retries (not here)."""
+	import httpx2
+	from anthropic import AsyncAnthropic
+	from pydantic_ai.models.anthropic import AnthropicModel
+	from pydantic_ai.models.google import GoogleModel
+	from pydantic_ai.providers.anthropic import AnthropicProvider
+	from pydantic_ai.providers.google import GoogleProvider
+
+	sent = []
+	finish = {'result': 'ok', 'success': True}
+
+	class Cut(httpx2.AsyncByteStream):
+		def __init__(self, data: bytes):
+			self.data = data
+
+		async def __aiter__(self):
+			yield self.data[: len(self.data) // 2]
+			raise httpx2.RemoteProtocolError('peer closed connection without sending complete message body')
+
+	def handler(request):
+		body = json.loads(request.content)
+		sent.append(body)
+		if provider == 'anthropic':
+			message = {'id': 'msg_1', 'type': 'message', 'role': 'assistant', 'model': body['model'], 'content': [],
+					   'stop_reason': None, 'stop_sequence': None, 'usage': {'input_tokens': 10, 'output_tokens': 2}}  # fmt: skip
+			events = [
+				('message_start', {'message': message}),
+				(
+					'content_block_start',
+					{'index': 0, 'content_block': {'type': 'tool_use', 'id': 't1', 'name': 'finish', 'input': {}}},
+				),
+				('content_block_delta', {'index': 0, 'delta': {'type': 'input_json_delta', 'partial_json': json.dumps(finish)}}),
+				('content_block_stop', {'index': 0}),
+				('message_delta', {'delta': {'stop_reason': 'tool_use', 'stop_sequence': None}, 'usage': {'output_tokens': 2}}),
+				('message_stop', {}),
+			]
+			data = ''.join(f'event: {e}\ndata: {json.dumps({"type": e, **d})}\n\n' for e, d in events).encode()
+			headers = {'content-type': 'text/event-stream'}
+		else:
+			part = {'functionCall': {'name': 'finish', 'args': finish}}
+			reply = {'candidates': [{'content': {'role': 'model', 'parts': [part]}, 'finishReason': 'STOP'}],
+					 'usageMetadata': {'promptTokenCount': 10, 'candidatesTokenCount': 2, 'totalTokenCount': 12}}  # fmt: skip
+			data, headers = json.dumps(reply).encode(), {'content-type': 'application/json'}
+		if len(sent) == 1:
+			return httpx2.Response(200, headers=headers, stream=Cut(data))
+		return httpx2.Response(200, headers=headers, content=data)
+
+	client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler), timeout=60)
+	if provider == 'anthropic':
+		anthropic = AsyncAnthropic(api_key='fake-test-key', http_client=client)
+		model = AnthropicModel('claude-haiku-5-5', provider=AnthropicProvider(anthropic_client=anthropic))
+	else:
+		model = GoogleModel('gemini-3.5-flash', provider=GoogleProvider(api_key='x', http_client=client))  # pyright: ignore[reportAssignmentType]
+	result = await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), f'{provider}:x')
+	assert (result.status, result.output, len(sent)) == ('completed', 'ok', 2), result.error
+
+
 async def test_workspace_path_is_in_instructions(daemon, tmp_path):
 	seen = []
 
