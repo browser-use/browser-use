@@ -63,15 +63,16 @@ print(json.dumps(counts))"""
 			assert counts == {'observers': 1, 'callbacks': 30, 'scripts': 1}, counts
 
 		async def navigate(repl, title, prefix=''):
+			mark_title_js = """(async () => {
+  document.title = '\\u{1F434} ' + document.title;
+  await Promise.resolve();
+  return document.title;
+})()"""
 			r = await repl.call(
 				'exec',
 				prefix
 				+ f"""goto_url('data:text/html,<title>{title}</title><body>after</body>'); wait_for_load()
-import time
-deadline = time.time() + 2
-while time.time() < deadline and not page_info()['title'].startswith('\\U0001F434'):
-    time.sleep(0.05)
-print(page_info()['title'])""",
+print(cdp('Runtime.evaluate', expression={mark_title_js!r}, awaitPromise=True, returnByValue=True)['result']['value'])""",
 				30,
 			)
 			assert r['error'] is None and r['output'].strip() == title, r
@@ -119,7 +120,7 @@ switch_tab({tab!r})
 				await repl.close()
 
 		# A new daemon has no sessions from the previous connection, while the page and its isolated world survive.
-		_shutdown_daemon(name)
+		admin.restart_daemon(name)  # wait for the old endpoint to close before starting its replacement
 		admin.ensure_daemon(name=name, env={'BU_CDP_WS': chrome['ws'], 'BH_TAB_MARKER': '1'})
 		sid = cdp('Target.attachToTarget', targetId=tab, flatten=True)['sessionId']
 		_daemon_request(name, {'meta': 'set_session', 'session_id': sid, 'target_id': tab})
