@@ -123,6 +123,9 @@ def ensure_daemon(wait: float | None = None, name: str | None = None, env: dict[
 	_check_socket_path(name)
 	if env or not was_cloud(name):
 		if admin._is_local_chrome_mode(env):  # browser-harness serializes these spawns itself
+			from browser_use.browser.local import require_debug_port
+
+			require_debug_port()  # never the 127.0.0.1:9222 guess (local.py)
 			return admin.ensure_daemon(wait=wait, name=name, env=env)
 		# BU_CDP_URL / BU_CDP_WS: browser-harness takes no spawn lock there, so concurrent cold CLI calls each started
 		# a daemon under one name and orphaned all but one. One spawn at a time (its own lock file: a stale daemon's

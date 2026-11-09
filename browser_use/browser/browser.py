@@ -827,6 +827,7 @@ class Browser:
 			# run(timeout=) only starts counting after the browser started. BH_TAB_MARKER=0: browser-harness's default
 			# prefixes every loaded page's document.title with a horse, which the agent then reads back as the title.
 			try:
+				await asyncio.to_thread(_local.require_debug_port)
 				await asyncio.to_thread(admin.ensure_daemon, wait=LOCAL_START_WAIT_S, env={'BH_TAB_MARKER': '0'})
 			except RuntimeError as e:
 				if not str(e).startswith('permission-blocked'):
