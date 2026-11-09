@@ -170,9 +170,12 @@ def start(name: str, profile_name: str | None, create_kwargs: dict[str, Any], na
 def stop(name: str = 'remote') -> None:
 	"""stop_remote_daemon: stops the recorded cloud browser even when its daemon is gone (killed, OOM)."""
 	recorded = _recorded_id(name)
-	if not recorded:  # no cloud browser recorded here: browser-harness's own stop
-		admin.stop_remote_daemon(name)
-		return
+	if not recorded:  # no cloud browser recorded here: browser-harness's own stop, which needs a live daemon
+		if admin.daemon_alive(name):
+			admin.stop_remote_daemon(name)
+		elif recorded is None:
+			raise CloudBrowserError(f'No cloud browser {name!r} is running here: nothing to stop')
+		return  # '': stopped already (a second stop after the first one, or after a timeout was noticed)
 	if not stop_cloud(name):
 		raise CloudBrowserError(f'Could not stop cloud browser {recorded} ({name!r}); retry stop_remote_daemon({name!r})')
 

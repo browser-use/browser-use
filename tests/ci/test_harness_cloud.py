@@ -227,6 +227,27 @@ def _recorded(name: str, browser_id: str):
 	return harness_cloud
 
 
+def test_stopping_a_cloud_browser_twice_is_a_no_op_and_an_unknown_name_is_one_line():
+	"""Live: a second stop_remote_daemon(name) after a successful stop (the skill says to stop when done; the agent cannot
+	tell a timeout from a stop) raised a 20-line traceback ending in "daemon 'x' is unavailable for required clean
+	shutdown", exit 1. So did a name nothing started."""
+	from browser_harness import admin
+
+	name = _name('twice')
+	harness_cloud = _recorded(name, '')  # what a successful stop leaves
+	ns: dict = {}
+	harness_cloud.install(ns)
+	try:
+		assert not admin.daemon_alive(name)
+		ns['stop_remote_daemon'](name)
+		assert harness_cloud._recorded_id(name) == ''
+		harness_cloud.forget(name)
+		with pytest.raises(harness_cloud.CloudBrowserError, match=f'No cloud browser {name!r} is running here'):
+			ns['stop_remote_daemon'](name)
+	finally:
+		harness_cloud.forget(name)
+
+
 def test_a_new_start_under_a_name_stops_the_browser_still_recorded_there_first(fake_cloud, monkeypatch):
 	"""Astra r1-3: the new browser's id overwrote the only record of the old one, which billed until its timeout."""
 	from browser_harness import admin
