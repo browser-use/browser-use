@@ -53,6 +53,7 @@ EXIT_SENDER = (  # the detached process that sends what was still queued at exit
 )
 
 _device_id: str | None = None
+_device_id_lock = threading.Lock()
 
 
 def telemetry_dir() -> Path:
@@ -64,7 +65,12 @@ def get_or_create_device_id() -> str:
 	global _device_id
 	if _device_id:
 		return _device_id
-	_device_id = os.environ.get('BROWSER_USE_DEVICE_ID') or _persisted_device_id() or _machine_fingerprint() or uuid.uuid4().hex
+	# the telemetry thread and the exit handler build a one-shot script's event at once: one id per process
+	with _device_id_lock:
+		if not _device_id:
+			_device_id = (
+				os.environ.get('BROWSER_USE_DEVICE_ID') or _persisted_device_id() or _machine_fingerprint() or uuid.uuid4().hex
+			)
 	return _device_id
 
 
@@ -72,16 +78,22 @@ def _persisted_device_id() -> str | None:
 	try:
 		from uuid_extensions import uuid7str
 
-		path = str(CONFIG.BROWSER_USE_CONFIG_DIR / 'device_id')
-		if os.path.exists(path):
-			with open(path, encoding='utf-8') as f:
-				return f.read().strip() or None
+		path = CONFIG.BROWSER_USE_CONFIG_DIR / 'device_id'
+		if path.exists():
+			return path.read_text(encoding='utf-8').strip() or None
 		new_device_id = uuid7str()
-		tmp_path = f'{path}.{os.getpid()}.tmp'
-		with open(tmp_path, 'w', encoding='utf-8') as f:
-			f.write(new_device_id)
-		os.replace(tmp_path, path)
-		return new_device_id
+		tmp = path.with_name(f'device_id.{os.getpid()}.tmp')
+		tmp.write_text(new_device_id, encoding='utf-8')
+		try:
+			os.link(tmp, path)  # fails if another process stored its id first: every process keeps the first one
+		except FileExistsError:
+			pass
+		except OSError:  # a filesystem without hard links
+			if not path.exists():
+				os.replace(tmp, path)
+		finally:
+			tmp.unlink(missing_ok=True)
+		return path.read_text(encoding='utf-8').strip() or new_device_id
 	except Exception:
 		return None
 

@@ -1009,6 +1009,76 @@ def test_a_one_shot_script_exits_fast_and_its_event_still_arrives(posthog, live,
 		assert event['properties']['model'] == 'exit-test' and not list(posthog.config.glob('telemetry/outbox/*'))
 
 
+FIRST_RUN_SCRIPT = """
+import sys
+import browser_use.telemetry.service as service
+service.POSTHOG_HOST = sys.argv[1]
+from browser_use.telemetry.views import AgentTelemetryEvent
+service.telemetry().capture(AgentTelemetryEvent(version='1', source='pip', model='first-run'))
+"""
+
+
+def test_a_fresh_installs_first_run_is_sent_under_the_device_id_it_keeps(posthog, monkeypatch):
+	"""Release smoke 11-09: a new user's first `Agent(...).run_sync()` arrived in PostHog under a device id that was
+	never stored. The telemetry thread and the exit handler built the event at once, each made its own id, and the file
+	kept the other: the first run of every install was an orphan, not the start of the user's history."""
+	import browser_use.telemetry.service as service
+
+	monkeypatch.delenv('BROWSER_USE_DEVICE_ID')
+	for i in range(3):
+		config = posthog.config.parent / f'fresh{i}'
+		posthog.bodies.clear()
+		env = {**os.environ, 'ANONYMIZED_TELEMETRY': 'true', 'BROWSER_USE_CONFIG_DIR': str(config)}
+		cmd = [sys.executable, '-c', FIRST_RUN_SCRIPT, service.POSTHOG_HOST]
+		subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60, check=True)
+		posthog.events()
+		deadline = time.monotonic() + 10  # the detached exit sender, if it got the event, is done when the outbox is empty
+		while list(config.glob('telemetry/outbox/*')) and time.monotonic() < deadline:
+			time.sleep(0.05)
+		ids = {e['distinct_id'] for b in list(posthog.bodies) for e in json.loads(b)['batch']}
+		assert ids == {(config / 'device_id').read_text()}, (i, ids)
+
+
+def test_one_device_id_per_machine_when_two_callers_create_it_at_once(tmp_path, monkeypatch):
+	"""Two callers in one process (the telemetry thread, the exit handler) and two processes (parallel first runs) that
+	find no device_id file each made an id: the first caller's file write is the id every caller returns."""
+	import uuid_extensions
+
+	import browser_use.telemetry.service as service
+
+	monkeypatch.delenv('BROWSER_USE_DEVICE_ID', raising=False)
+	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(tmp_path))
+	monkeypatch.setattr(service, '_device_id', None)
+	got = {}
+	made = iter(['id-a', 'id-b'])
+
+	def other_caller_while_this_one_makes_its_id():
+		if 'exit' not in got:  # the first caller: the second starts now and gets as far as it can
+			other = threading.Thread(target=lambda: got.update(exit=service.get_or_create_device_id()))
+			got['exit'] = None
+			other.start()
+			other.join(0.5)  # it either finished (no lock: its own id) or waits for this caller
+			got['other'] = other
+		return next(made)
+
+	monkeypatch.setattr(uuid_extensions, 'uuid7str', other_caller_while_this_one_makes_its_id)
+	got['thread'] = service.get_or_create_device_id()
+	got['other'].join(5)
+	assert got['thread'] == got['exit'] == (tmp_path / 'device_id').read_text(), got
+
+	# another process wrote the file after this one looked and before it wrote: the file's id wins
+	(tmp_path / 'device_id').unlink()
+	monkeypatch.setattr(service, '_device_id', None)
+
+	def another_process_writes_first():
+		(tmp_path / 'device_id').write_text('id-other-process')
+		return 'id-this-process'
+
+	monkeypatch.setattr(uuid_extensions, 'uuid7str', another_process_writes_first)
+	assert service.get_or_create_device_id() == 'id-other-process' == (tmp_path / 'device_id').read_text()
+	assert not list(tmp_path.glob('*.tmp'))
+
+
 def test_an_outbox_file_a_dead_sender_claimed_is_sent_and_one_this_process_still_owns_is_not(posthog):
 	"""CI (ubuntu, windows): a one-shot script's telemetry thread, starting while the exit handler wrote the outbox, claimed
 	the file (<run_id>.<pid>.sending) and died at exit mid-send; the detached sender found nothing, and nothing ever sent
