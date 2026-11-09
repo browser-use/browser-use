@@ -325,6 +325,7 @@ def _outputs(output_type: Any) -> list[Any]:
 				except ValidationError:
 					ctx.deps.rec.retry('finish_schema')
 					raise ModelRetry(f'Value does not match the result schema: {str(e)[:2000]}') from None
+			check_delivery(ctx, value)  # as finish: an empty structured value or links to unwritten files get the repair
 		ctx.deps.success, ctx.deps.finish_via = success, 'finish_from_repl'
 		return clean(ctx, value)
 
@@ -1276,7 +1277,7 @@ async def run(
 	CURRENT.reset(recording)
 	partial = session.partial()
 	new = messages[len(message_history or []) :]  # an earlier task's text is never this run's fallback
-	if output is None:
+	if output is None and status != 'completed':  # a completed run delivered it: None from a nullable schema is the answer
 		# the fallback text is model output that may quote a secret (e.g. read off a screenshot): redact it like .text
 		output = json.dumps(partial, ensure_ascii=False) if partial is not None else redact(last_text(new), session.repl.secrets)
 	text = redact(as_text(output), session.repl.secrets)

@@ -1132,3 +1132,37 @@ async def test_an_empty_structured_result_on_the_last_request_is_delivered(tmp_p
 	session = Session(repl=FakeRepl(tmp_path, pad=10), max_steps=2)
 	result = await run(build_agent(model, output_type=_Authors), 'task', session, 'function:x')
 	assert (len(seen), result.status, result.output) == (3, 'completed', _Authors(authors=[]))
+
+
+class _EvalRepl(FakeRepl):
+	"""finish_from_repl reads these REPL values; python cells save x as the run's partial (checkpoint(partial=True))."""
+
+	values = {'empty': '{"authors": []}', 'x': '{"authors": [{"author": "Albert Einstein"}]}'}
+
+	async def call(self, op, code, timeout):
+		if op == 'eval':
+			return {'output': '', 'error': None, 'images': [], 'value': self.values[code]}
+		(self.state / 'partial.json').write_text(json.dumps({'file': 'x.json', 'value': {'authors': ['partial']}}))
+		return await super().call(op, code, timeout)
+
+
+async def test_an_empty_structured_finish_from_repl_gets_one_repair(tmp_path):
+	"""finish got the empty-result repair, finish_from_repl skipped it for a structured schema: an empty REPL variable
+	delivered with the records in another one completed the run with nothing."""
+	model, seen = script(
+		('finish_from_repl', {'expression': 'empty'}), ('finish_from_repl', {'expression': 'x', 'success': True})
+	)
+	result = await run(build_agent(model, output_type=_Authors), 'task', Session(repl=_EvalRepl(tmp_path)), 'function:x')
+	assert (len(seen), result.status, result.output) == (2, 'completed', _Authors(authors=[_Author(author='Albert Einstein')]))
+	assert 'placeholder' in str(seen[1][-1].parts[0].content)
+
+
+async def test_a_none_delivered_for_a_nullable_schema_is_the_result(tmp_path):
+	"""output None meant nothing was delivered, so a completed run with None from an Optional schema got the partial
+	checkpoint (or the model's last text) as its result instead."""
+	empty = ('finish', {'result': None, 'success': False})
+	model, seen = script(('python', {'code': 'step1'}), empty, empty)  # an empty result: one repair, then accepted
+	session = Session(repl=_EvalRepl(tmp_path, pad=10))
+	result = await run(build_agent(model, output_type=_Authors | None), 'task', session, 'function:x')
+	assert (len(seen), result.status, result.output, result.text, result.success) == (3, 'completed', None, 'null', False)
+	assert result.partial == {'authors': ['partial']}  # still there to read, never the result

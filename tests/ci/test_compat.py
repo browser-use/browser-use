@@ -453,7 +453,10 @@ def test_docs_say_the_default_workspace_is_kept():
 
 def test_result_keeps_common_0x_methods():
 	r = result()
-	assert (r.final_result(), r.is_done(), r.is_successful(), r.errors(), r.has_errors()) == ('done', True, True, [], False)
+	assert (r.final_result(), r.is_done(), r.is_successful(), r.errors(), r.has_errors()) == ('done', True, None, [], False)
+	# a result built without a verdict is not a success (it defaulted to True): MIGRATING.md, a missing verdict is None
+	r.success = True
+	assert r.is_successful() is True
 	assert (r.total_duration_seconds(), r.number_of_steps(), r.structured_output) == (1.5, 3, None)
 	failed = result('error', '', 'boom')
 	assert (failed.final_result(), failed.is_done(), failed.is_successful(), failed.errors()) == (None, False, None, ['boom'])
