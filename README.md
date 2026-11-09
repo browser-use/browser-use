@@ -102,13 +102,13 @@ Python 3.11 or newer. With uv, or pip in a venv:
 
 ```bash
 uv init --python 3.12 my-agent && cd my-agent
-uv add browser-use
+uv add 'browser-use>=1.0.0rc4'    # release candidate: plain `uv add browser-use` still gives 0.x until 1.0.0
 export BROWSER_USE_API_KEY=bu_...    # get one at https://cloud.browser-use.com/new-api-key
 ```
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install browser-use
+pip install 'browser-use>=1.0.0rc4'
 export BROWSER_USE_API_KEY=bu_...
 ```
 
