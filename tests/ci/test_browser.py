@@ -1251,6 +1251,34 @@ def test_json_copies_of_every_json_type_are_found_and_a_real_file_sharing_the_na
 	assert browser_mod.json_page_copies(log) == {'api', 't (1)', 'p', 'json.json'}
 
 
+@pytest.mark.parametrize('order', ['page first', 'download first'])
+def test_a_json_page_the_cloud_browser_saved_is_not_announced_as_a_download(tmp_path, order):
+	"""Live: opening https://ipinfo.io/json on a cloud browser printed '[download started: json.json]' to the model,
+	which never downloaded anything (downloads() and result.downloads leave the copy out). A real download still is."""
+	from browser_use.repl import worker
+
+	page = {
+		'method': 'Page.frameNavigated',
+		'params': {'frame': {'url': 'https://ipinfo.io/json', 'mimeType': 'application/json'}},
+	}
+	copy = {
+		'method': 'Browser.downloadWillBegin',
+		'params': {'guid': 'g1', 'url': 'https://ipinfo.io/json.json', 'suggestedFilename': 'json.json'},
+	}
+	real = {
+		'method': 'Browser.downloadWillBegin',
+		'params': {'guid': 'g2', 'url': 'https://h/r.csv', 'suggestedFilename': 'r.csv'},
+	}
+	stats = worker.CellStats()
+	worker.STATE, saved = tmp_path, worker.STATE
+	try:
+		stats.observe([page, copy, real] if order == 'page first' else [copy, page, real])
+	finally:
+		worker.STATE = saved
+	assert stats.started == ['r.csv']
+	assert '"json.json"' in (tmp_path / 'downloads.jsonl').read_text()  # still logged: Browser.json_page_copies reads it
+
+
 def test_json_copies_are_numbered_across_every_agent_on_one_cloud_browser(cloud, tmp_path):
 	"""Review: each workspace's log was numbered on its own, but the cloud numbers a repeated name across the whole
 	session: the second Agent's cookies copy, listed as 'cookies (1).json' (cookies the page echoed), was delivered."""

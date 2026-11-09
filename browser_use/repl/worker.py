@@ -31,6 +31,7 @@ import sysconfig
 import threading
 import time
 import traceback
+import urllib.parse
 import urllib.request
 from collections import Counter
 from pathlib import Path
@@ -129,6 +130,7 @@ class CellStats:
 		self.navigated = False
 		self.downloads: set[str | None] = set()  # guids seen: one download_started per download, whichever events announce it
 		self.started: list[str] = []  # names of downloads that started since the last cell output
+		self.json_pages: set[str] = set()  # top-frame JSON pages, without query: a cloud browser saves each as a download
 		self.take()
 
 	def count(self, kind: str, name: str) -> None:
@@ -145,7 +147,13 @@ class CellStats:
 				self.navigations += navigation
 
 	def observe(self, events) -> None:
-		for e in events if isinstance(events, list) else ():
+		events = events if isinstance(events, list) else []
+		for e in events:  # first: the cloud browser's copy of a JSON page may come before the page's own event
+			params = (e.get('params') if isinstance(e, dict) else None) or {}
+			if isinstance(e, dict) and e.get('method') == 'Page.frameNavigated' and _json_page(params):
+				with self.lock:
+					self.json_pages.add(urllib.parse.urlsplit(params['frame'].get('url') or '')._replace(query='').geturl())
+		for e in events:
 			method = e.get('method') if isinstance(e, dict) else None
 			params = (e.get('params') if isinstance(e, dict) else None) or {}
 			key = STAT_EVENTS.get(method or '')
@@ -158,14 +166,15 @@ class CellStats:
 					self.downloads.add(guid)
 				if key:
 					_log_download({'name': params.get('suggestedFilename'), 'url': params.get('url'), 'guid': guid})
+					url = str(params.get('url') or '')  # the copy's URL: the page's + '.json', ' (n)' for a repeat
+					copy = '?' not in url and re.sub(r'%20\(\d+\)$', '', url.removesuffix('.json')) in self.json_pages
 					with self.lock:
-						self.started.append(str(params.get('suggestedFilename') or params.get('url')))
+						if not copy:  # the model never downloaded a page it only opened (Browser.json_page_copies)
+							self.started.append(str(params.get('suggestedFilename') or params.get('url')))
 			elif method == 'Browser.downloadProgress' and params.get('state') in ('completed', 'canceled'):
 				_log_download({'done': params.get('guid'), 'state': params['state']})  # Browser.stop() waits for the rest
-			elif method == 'Page.frameNavigated' and not (frame := params.get('frame') or {}).get('parentId'):
-				mime = str(frame.get('mimeType') or '').lower()
-				if mime in ('application/json', 'text/json') or mime.endswith('+json'):  # vnd.api+json, problem+json
-					_log_download({'json_page': frame.get('url')})
+			elif method == 'Page.frameNavigated' and _json_page(params):
+				_log_download({'json_page': params['frame'].get('url')})
 			if key:
 				self.count('events', key)
 
@@ -180,6 +189,13 @@ class CellStats:
 			}
 			self.helpers, self.cdp, self.events, self.hosts, self.navigations = Counter(), Counter(), Counter(), set(), 0
 		return out
+
+
+def _json_page(params: dict) -> bool:
+	"""A Page.frameNavigated of a top frame that shows JSON (vnd.api+json, problem+json too)."""
+	frame = params.get('frame') or {}
+	mime = str(frame.get('mimeType') or '').lower()
+	return not frame.get('parentId') and (mime in ('application/json', 'text/json') or mime.endswith('+json'))
 
 
 def _log_download(record: dict) -> None:
