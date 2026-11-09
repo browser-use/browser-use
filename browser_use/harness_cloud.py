@@ -56,6 +56,15 @@ def _marker(name: str) -> Path:
 	return ipc.pid_path(name).with_suffix('.cloud')
 
 
+def _record(name: str, browser_id: str) -> None:
+	"""The id alone drives the cloud browser: 0600, never readable by other local users (Path.write_text made it 0644)."""
+	fd = os.open(_marker(name), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+	with os.fdopen(fd, 'w') as f:
+		if os.name != 'nt':
+			os.fchmod(fd, 0o600)  # a marker an older version wrote keeps its mode through O_CREAT
+		f.write(browser_id)
+
+
 def _recorded_id(name: str) -> str | None:
 	"""The cloud browser id recorded for name: None when name never ran one here, '' once it was stopped."""
 	try:
@@ -102,7 +111,7 @@ def stop_cloud(name: str, browser_id: str | None = None) -> bool:
 		return True
 	stopped = admin._stop_cloud_browser(browser_id)  # a no-op on a stopped browser; the only way once the daemon is gone
 	if stopped and browser_id == recorded:
-		_marker(name).write_text('')
+		_record(name, '')
 	return stopped
 
 
@@ -176,7 +185,7 @@ def start(name: str, profile_name: str | None, create_kwargs: dict[str, Any], na
 		raise CloudBrowserError(f'Could not reach Browser Use Cloud: {e.reason}') from None
 	except AuthError:
 		raise CloudBrowserError(corrupt_store_message()) from None
-	_marker(name).write_text(str(browser.get('id') or ''))
+	_record(name, str(browser.get('id') or ''))
 	route(name, namespace)
 	if not admin._should_show_remote_live_view():
 		browser = {k: v for k, v in browser.items() if k not in ('liveUrl', 'cdpUrl')}

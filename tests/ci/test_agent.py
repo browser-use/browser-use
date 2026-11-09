@@ -161,6 +161,29 @@ async def test_a_run_logs_task_each_step_and_the_end(chrome, tmp_path, monkeypat
 	assert re.fullmatch(r'completed in 2 steps, \d+s', lines[2]) and len(lines) == 3, lines
 
 
+async def test_a_page_exception_in_the_step_log_cannot_drive_the_terminal(chrome, tmp_path, monkeypatch, caplog):
+	"""INJ-1: a page's JS exception text reached the step log line raw, so ESC sequences in it erased or faked terminal
+	lines, set the window title or (OSC 52) wrote the clipboard. Control characters are shown escaped instead."""
+	import logging
+
+	root = logging.getLogger('browser_use')
+	monkeypatch.setattr(root, 'propagate', True)  # caplog listens on the root logger
+	# what a page's own script throws (any DOM method the agent calls can be overridden to): ESC ]0; sets the title,
+	# ESC [2K erases the line. The model's code holds no escape: the page builds it.
+	esc = "String.fromCharCode(27) + ']0;PWNED' + String.fromCharCode(7) + String.fromCharCode(27) + '[2KFAKE'"
+	model, _ = script(
+		('python', {'code': f'new_tab("about:blank")\njs("throw {esc}")'}), ('finish', {'success': True, 'result': 'done'})
+	)
+	agent = Agent('t', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path)
+	with caplog.at_level('INFO', logger='browser_use'):
+		await agent.run()
+	(record,) = (r for r in caplog.records if r.getMessage().startswith('step 1:'))
+	assert '\\x1b]0;PWNED\\x07\\x1b[2KFAKE' in record.getMessage() and '\x1b' not in record.getMessage(), record.getMessage()
+	(handler,) = (h for h in root.handlers if isinstance(h, logging.StreamHandler) and h is not caplog.handler)
+	raw = logging.makeLogRecord({'name': 'browser_use.x', 'levelname': 'INFO', 'msg': 'page said \x1b]52;c;ZWNobw==\x07\x9b2K'})
+	assert handler.format(raw).endswith('page said \\x1b]52;c;ZWNobw==\\x07\\x9b2K')  # any browser_use line, C1 too
+
+
 async def test_your_chrome_reads_titles_unmarked_on_a_daemon_that_marks_them(chrome, tmp_path, monkeypatch):
 	"""Retest round 2: after `browser-use` (CLI) or an older wheel started the shared daemon with browser-harness's
 	default BH_TAB_MARKER, Browser('chrome') reused it (it cannot change a running daemon's env) and answered 'What is

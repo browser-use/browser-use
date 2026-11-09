@@ -1,7 +1,21 @@
 import logging
 import os
+import re
 import sys
 from typing import TYPE_CHECKING
+
+_CONTROL = re.compile(r'[\x00-\x08\x0b-\x1f\x7f-\x9f]')  # C0 but tab and newline, DEL, C1
+
+
+def printable(text: str) -> str:
+	"""Text with control characters escaped (ESC as \\x1b): page and model text logged raw could rewrite the terminal
+	(erase or fake log lines, set its title, write the clipboard over OSC 52)."""
+	return _CONTROL.sub(lambda m: m[0].encode('unicode_escape').decode(), text)
+
+
+class _PrintableFormatter(logging.Formatter):
+	def format(self, record: logging.LogRecord) -> str:
+		return printable(super().format(record))
 
 
 def setup_logging(level: str | None = None) -> logging.Logger:
@@ -10,7 +24,7 @@ def setup_logging(level: str | None = None) -> logging.Logger:
 	logger = logging.getLogger('browser_use')
 	if not logger.handlers:
 		handler = logging.StreamHandler(sys.stderr)
-		handler.setFormatter(logging.Formatter('%(levelname)-8s [%(name)s] %(message)s'))
+		handler.setFormatter(_PrintableFormatter('%(levelname)-8s [%(name)s] %(message)s'))
 		logger.addHandler(handler)
 	logger.setLevel(getattr(logging, level.upper(), logging.INFO))
 	logger.propagate = False
