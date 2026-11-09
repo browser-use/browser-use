@@ -60,6 +60,8 @@ FROZEN_BY_DIALOG = (
 	'Page.navigate',
 	'Page.reload',
 )
+# Of those, the calls that can open a dialog themselves and are then held until it is handled (plus Input.*)
+HELD_BY_DIALOG = tuple(m for m in FROZEN_BY_DIALOG if m != 'Page.captureScreenshot')
 HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless never answers it
 # browser-harness's daemon reads each request as one JSON line with asyncio's default 64 KiB limit; a longer one broke
 # the connection (BrokenPipeError). Characters of JSON (ASCII), less a margin for the token Windows adds.
@@ -400,15 +402,15 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	def cdp(method, session_id=None, **params):
 		"""A JS dialog freezes the page: js() then took 20 s, click_at_xy 20 s and screenshot() 65 s, each with a timeout
 		that did not say why. While the daemon saw one open, such a call gets DIALOG_PROBE_S and then says so; a call that
-		opened the dialog itself says so when it times out, or a navigation, which a beforeunload prompt holds, as soon as
-		the prompt opens."""
+		opens one itself (a click on a confirm button, js("alert(1)"), a navigation a beforeunload prompt holds) says so
+		as soon as it opens."""
 		dialog = pending_dialog(method, session_id)
 		if dialog:
 			params['_response_timeout'] = min(params.get('_response_timeout', SCREENSHOT_TIMEOUT_S), DIALOG_PROBE_S)
 			params['_frozen'] = True
 		try:
-			if not dialog and session_id is None and method in ('Page.navigate', 'Page.reload'):
-				return navigate(method, params)
+			if not dialog and session_id is None and (method in HELD_BY_DIALOG or method.startswith('Input.')):
+				return raced(method, params)
 			return _cdp(method, session_id, **params)
 		except RuntimeError as e:  # with the dialog open, Chrome may also answer an error ('Unable to capture screenshot')
 			if not dialog:
@@ -422,9 +424,11 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 				raise
 			raise dialog_open(dialog) from None
 
-	def navigate(method, params):
-		"""Page.navigate/reload, racing a probe for the beforeunload prompt it may open (leaving a dirty form): the call
-		only returns once the prompt is handled, so the first try took the full CDP_TIMEOUT_S (browser-3)."""
+	def raced(method, params):
+		"""A call on the attached tab that a dialog it opens would hold, racing a probe for that dialog: the call only
+		returns once the dialog is handled, so a click on a confirm button, js("alert(1)") or a navigation that a
+		beforeunload prompt holds (browser-3) took the full CDP_TIMEOUT_S, every time. Only a call that takes longer
+		than DIALOG_POLL_S asks the daemon."""
 		done, box = threading.Event(), {}
 
 		def call():
@@ -435,9 +439,9 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			finally:
 				done.set()
 
-		threading.Thread(target=call, daemon=True, name='browser-use-navigate').start()
+		threading.Thread(target=call, daemon=True, name='browser-use-cdp').start()
 		while not done.wait(DIALOG_POLL_S):
-			if dialog := pending_dialog(method, None):  # the navigation stays queued: accepting the prompt completes it
+			if dialog := pending_dialog(method, None):  # the call stays queued: handling the dialog completes it
 				raise dialog_open(dialog)
 		if 'error' in box:
 			raise box['error']
