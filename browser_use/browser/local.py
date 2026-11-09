@@ -399,11 +399,13 @@ class LocalBrowser:
 # launched Chrome. A normal stop kills the watchdog first, so it does nothing.
 # A child that process fork()ed without exec holds the pipe too: the cleanup then waits for that child to end.
 # The daemon is the one answering on its name now (a reattach replaces it); else the pid it started with, only while
-# that pid is still the same process (never a process that reused the number).
+# that pid is still the same process (never a process that reused the number). The same for Chrome: one that exited
+# first (crashed, quit by the user) left its pid free, and the group that reused it was killed.
 WATCHDOG = r"""
 import json, os, shutil, signal, subprocess, sys, time
 sys.stdin.buffer.read()
 chrome, tmp, name, first, started = int(sys.argv[1]), sys.argv[2], sys.argv[3], int(sys.argv[4]), json.loads(sys.argv[5])
+chrome_started = json.loads(sys.argv[6])
 cloud = os.environ.get('BU_CLEANUP_BROWSER_ID', '')
 daemon = 0
 try:
@@ -413,6 +415,8 @@ try:
     daemon = _ipc.identify(name, 2.0) or 0
     if not daemon and first and started is not None and admin._process_start_time(first) == started:
         daemon = first
+    if chrome and chrome_started is not None and admin._process_start_time(chrome) != chrome_started:
+        chrome = 0  # exited before us: the number may be another process group's now
 except Exception:
     pass
 def kill(pid, group, sig):
@@ -447,14 +451,14 @@ def start_watchdog(
 	"""The watchdog (WATCHDOG) for a launched Chrome, or for a daemon alone (chrome_pid 0, tmp '') and the cloud browser
 	cloud_id; None when it cannot start. The id drives the browser without a key (its CDP hostname): it goes in the
 	environment, which only this user can read, never argv (any local user's ps)."""
-	started = None
-	if daemon_pid:
-		with contextlib.suppress(Exception):
-			from browser_harness import admin
+	started = chrome_started = None
+	with contextlib.suppress(Exception):
+		from browser_harness import admin
 
-			started = admin._process_start_time(daemon_pid)
+		started = admin._process_start_time(daemon_pid) if daemon_pid else None
+		chrome_started = admin._process_start_time(chrome_pid) if chrome_pid else None
 	try:
-		args = (str(chrome_pid), str(tmp), daemon, str(daemon_pid or 0), json.dumps(started))
+		args = (str(chrome_pid), str(tmp), daemon, str(daemon_pid or 0), json.dumps(started), json.dumps(chrome_started))
 		return subprocess.Popen(
 			[sys.executable, '-P', '-c', WATCHDOG, *args],
 			env={**os.environ, 'BU_CLEANUP_BROWSER_ID': cloud_id},
