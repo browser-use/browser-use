@@ -102,11 +102,18 @@ def download_ext(path: Any) -> str:
 	return ext if ext in DOWNLOAD_EXTS else 'other' if ext else 'none'
 
 
+# An API key where the model name goes (ChatOpenAI(os.environ['OPENAI_API_KEY'])): a key prefix, or a random run of 32+
+# letters and digits no model id has. The run then fails on that model, and its event would carry the key.
+CREDENTIAL = re.compile(
+	r'(?:^|[:/])(?:sk-|sk_|gsk_|xai-|hf_|ghp_|github_pat_|nvapi-|pplx-|r8_|bu_|AIza|AQ\.|eyJ)|[A-Za-z0-9]{32}'
+)
+
+
 def model_id(name: Any) -> str:
 	"""The model id as passed, except a local path (vLLM, llama.cpp serve a model by its path): its last segment,
-	without the directories (a user name). 'other' for a URL."""
+	without the directories (a user name). 'other' for a URL or an API key."""
 	text = str(name or '')
-	if '://' in text:
+	if '://' in text or CREDENTIAL.search(text):
 		return 'other'
 	if text.startswith(('/', '~', '.')) or '\\' in text or re.match(r'[A-Za-z]:[\\/]', text):
 		text = re.split(r'[\\/]', text.rstrip('/\\'))[-1]
@@ -345,6 +352,8 @@ def scrub_cli_event(payload: dict) -> dict:
 	clean = {k: v for k, v in props.items() if k not in CLI_CONTENT}
 	clean['helper_counts'] = top(Counter(str(s['helper']) for s in steps if s.get('helper'))) or None
 	clean['helper_errors'] = sum(1 for s in steps if s.get('error')) if steps else None
+	if clean.get('model'):
+		clean['model'] = model_id(clean['model'])  # BROWSER_USE_AGENT_MODEL, as the agent's model
 	if 'cdp_url' in clean:
 		clean['cdp_url'] = cdp_category(clean['cdp_url'])  # a cloud browser's CDP hostname drives it
 	clean['is_internal'] = is_internal()
