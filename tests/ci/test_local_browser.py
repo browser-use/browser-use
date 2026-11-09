@@ -449,6 +449,9 @@ def debug_dirs(tmp_path, monkeypatch):
 		s.bind(('127.0.0.1', 0))
 		s.listen()
 		servers.append(s)
+		lock = dirs[name] / 'SingletonLock'  # the running browser (this process) took the dir before writing the port
+		if sys.platform != 'win32' and not lock.is_symlink():
+			lock.symlink_to(f'{socket.gethostname()}-{os.getpid()}')
 		(dirs[name] / 'DevToolsActivePort').write_text(f'{s.getsockname()[1]}\n/devtools/browser/{name}\n')
 
 	yield live
@@ -522,6 +525,30 @@ async def test_attach_never_lets_browser_harness_guess_port_9222(attaches):
 	with pytest.raises(RuntimeError, match=r'(?s)remote-debugging-setup.*chrome://inspect.*BU_CDP_URL'):
 		harness_cloud.ensure_daemon(name=f'butestattach{os.getpid()}')  # the CLI's and --cli-mcp's attach
 	assert calls == [] and opened == [True, True]
+
+
+@posix_only
+@pytest.mark.parametrize('state', ['restarted', 'closed'])
+async def test_attach_refuses_a_left_over_debug_port_another_process_now_holds(attaches, debug_dirs, state):
+	"""Chrome leaves DevToolsActivePort behind when it quits. Whoever then listens on that port got the attach
+	(browser-harness reads the file first), or, answering as no browser, sent browser-harness on to 9222 / 9223."""
+	from browser_harness import daemon
+
+	from browser_use import harness_cloud
+
+	calls, opened = attaches
+	debug_dirs('chrome')
+	port_file, lock = daemon.PROFILES[0] / 'DevToolsActivePort', daemon.PROFILES[0] / 'SingletonLock'
+	if state == 'restarted':
+		os.utime(port_file, (time.time() - 3600, time.time() - 3600))  # written by the Chrome before this one
+	else:
+		lock.unlink()
+	debug_dirs('edge')  # another browser that does have remote debugging on: browser-harness still reads Chrome's first
+	with pytest.raises(RuntimeError, match=r'(?s)could not attach.*left from an earlier browser session'):
+		await Browser('chrome').start()
+	with pytest.raises(RuntimeError, match=r'remote-debugging-setup: .*DevToolsActivePort is left'):
+		harness_cloud.ensure_daemon(name=f'butestleftover{os.getpid()}')
+	assert calls == [] and opened == []
 
 
 async def test_attach_starts_the_daemon_once_your_chrome_has_remote_debugging_on(attaches, debug_dirs, monkeypatch):

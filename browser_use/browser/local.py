@@ -65,7 +65,22 @@ def live_debug_dirs() -> list[Path]:
 	"""Default user-data-dirs whose browser has remote debugging on right now (harness discovery order)."""
 	from browser_harness import daemon
 
-	return [base for base in daemon.PROFILES if daemon._devtools_port_live(base)]
+	return [base for base in daemon.PROFILES if daemon._devtools_port_live(base) and not _left_over(base)]
+
+
+def _left_over(base: Path) -> bool:
+	"""DevToolsActivePort was written before the browser now holding this dir started, or no browser holds it: Chrome
+	leaves the file when it quits, so its port is free for any process. POSIX only (Windows has no SingletonLock)."""
+	from browser_harness import daemon
+
+	if sys.platform == 'win32':
+		return False
+	try:
+		written = (base / 'DevToolsActivePort').stat().st_mtime
+		started = os.lstat(base / 'SingletonLock').st_mtime
+	except OSError:
+		return True
+	return written < started or not daemon.browser_running_for_profile(base)
 
 
 def require_debug_port() -> None:
@@ -75,7 +90,19 @@ def require_debug_port() -> None:
 	A Chrome that is closed is launched as browser-harness does; else chrome://inspect opens and this raises."""
 	from browser_harness import admin, daemon
 
-	if not admin._is_local_chrome_mode() or live_debug_dirs():
+	if not admin._is_local_chrome_mode():
+		return
+	# browser-harness reads every dir's DevToolsActivePort in turn and attaches to whatever answers on its port, or
+	# falls through to 9222 / 9223 when that is not a browser: a left-over file whose port someone now holds is both.
+	for base in daemon.PROFILES:
+		if daemon._devtools_port_live(base) and _left_over(base):
+			port = (base / 'DevToolsActivePort').read_text(errors='replace').split()[0]
+			raise RuntimeError(
+				f'remote-debugging-setup: {base / "DevToolsActivePort"} is left from an earlier browser session and '
+				f'another process now listens on its port {port}; browser-harness would attach to that process. Delete '
+				'that file (Chrome writes a new one when remote debugging starts), then run again.'
+			)
+	if live_debug_dirs():
 		return
 	if not daemon.supported_browser_running() and admin._launch_browser():
 		deadline = time.monotonic() + (daemon.TOGGLE_BOOT_GRACE if daemon.remote_debugging_toggle_profiles() else 3)
