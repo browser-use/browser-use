@@ -47,9 +47,10 @@ load_env()  # 0.x read .env on import; credentials below resolve from it
 CLOUD_API = 'https://api.browser-use.com/api/v4'
 KINDS = ('cloud', 'chromium', 'chrome')
 _STORAGE = "cloud_profile_id (cloud), Browser('chrome', profile=...) or Browser('chromium', user_data_dir=...)."
-_IN_TASK = (
-	'say it in the task: the agent can send Emulation.setDeviceMetricsOverride or Network.setUserAgentOverride '
-	'itself. Headless launches use 1440x900.'
+_IN_TASK = (  # measured: a cloud browser answers {} to device metrics and Network's UA override and changes nothing
+	'say it in the task: the agent can send Emulation.setUserAgentOverride and, on a local browser, '
+	"Emulation.setDeviceMetricsOverride itself; a cloud browser keeps its own viewport (Browser('chromium') for "
+	'another one). Headless launches use a 1440x900 window.'
 )
 _RECORDING = 'result.messages is the transcript; live_view=True shows a cloud browser live.'
 _ENGINE = 'it tuned the 0.x DOM engine: delete it.'

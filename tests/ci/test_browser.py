@@ -89,6 +89,9 @@ def test_chromes_default_profile_dir_is_refused_as_user_data_dir():
 	[
 		('channel', 'executable_path'),
 		('window_size', 'Emulation.setDeviceMetricsOverride'),
+		# a cloud browser (the default) ignores Network.setUserAgentOverride and device metrics; Emulation's UA works
+		('user_agent', 'Emulation.setUserAgentOverride'),
+		('viewport', 'a cloud browser keeps its own viewport'),
 		('downloads_path', 'agent.workspace/downloads'),
 		('record_video_dir', 'result.messages'),
 		('highlight_elements', 'highlight_actions=False'),
