@@ -1,9 +1,11 @@
 """Public API (Agent, Browser) against a real isolated headless Chrome, scripted model (no provider calls)."""
 
+import asyncio
 import json
 import os
 import re
 import sys
+import time
 
 import pytest
 from conftest import script
@@ -157,6 +159,51 @@ async def test_a_run_logs_task_each_step_and_the_end(chrome, tmp_path, monkeypat
 		'step 1: pw = "<secret:pw>" -> ZeroDivisionError: division by zero',
 	], lines
 	assert re.fullmatch(r'completed in 2 steps, \d+s', lines[2]) and len(lines) == 3, lines
+
+
+async def test_your_chrome_reads_titles_unmarked_on_a_daemon_that_marks_them(chrome, tmp_path, monkeypatch):
+	"""Retest round 2: after `browser-use` (CLI) or an older wheel started the shared daemon with browser-harness's
+	default BH_TAB_MARKER, Browser('chrome') reused it (it cannot change a running daemon's env) and answered 'What is
+	the title of https://example.com?' with '🐴 Example Domain'. The daemon re-marks the attached tab after every load."""
+	from browser_harness import admin
+
+	name = f'butestmarked{os.getpid()}'
+	monkeypatch.setenv('BU_NAME', name)
+	monkeypatch.setattr(admin, 'NAME', name)
+	monkeypatch.setenv('BU_CDP_WS', chrome['ws'])
+	from browser_use.browser.browser import _daemon_cdp, _daemon_request, _shutdown_daemon
+
+	admin.ensure_daemon(name=name, env={'BH_TAB_MARKER': '1'})  # what the CLI / MCP / browser-harness itself start
+	# The tab that daemon already drives and marked (a CLI call left it there): the agent starts on it.
+	tab = _daemon_cdp(name, 'Target.createTarget', url='data:text/html,<title>Before</title><h1>ok</h1>')['targetId']
+	sid = _daemon_cdp(name, 'Target.attachToTarget', targetId=tab, flatten=True)['sessionId']
+	_daemon_request(name, {'meta': 'set_session', 'session_id': sid, 'target_id': tab})
+	deadline = time.time() + 5
+	while not _daemon_cdp(name, 'Runtime.evaluate', expression='document.title')['result']['value'].startswith('\U0001f434'):
+		assert time.time() < deadline, 'the daemon never marked the tab'
+		await asyncio.sleep(0.05)
+	# The daemon marks fire-and-forget after each load event: poll 2 s for a mark that, before the fix, always came.
+	code = (
+		"titles = [page_info()['title'], js('document.title')]\n"  # the page it started on
+		"new_tab('data:text/html,<title>Local</title><h1>ok</h1>'); wait_for_load()\n"
+		'import time\n'
+		'deadline = time.time() + 2\n'
+		"while time.time() < deadline and not js('document.title').startswith('\\U0001F434'):\n"
+		'    time.sleep(0.05)\n'
+		"goto_url('data:text/html,<title>Next</title><h1>ok</h1>'); wait_for_load()\n"  # a later load in the same tab
+		'deadline = time.time() + 2\n'
+		"while time.time() < deadline and not js('document.title').startswith('\\U0001F434'):\n"
+		'    time.sleep(0.05)\n'
+		"tab = current_tab()['targetId']\n"
+		"titles += [page_info()['title'], js('document.title'), current_tab()['title'],\n"
+		"           [t['title'] for t in list_tabs() if t['targetId'] == tab][0]]"
+	)
+	model, _ = script(('python', {'code': code}), ('finish_from_repl', {'success': True, 'expression': 'titles'}))
+	try:
+		result = await Agent('Read the title', model, browser=Browser('chrome'), workspace=tmp_path).run()
+		assert (result.status, json.loads(result.final_result() or '')) == ('completed', ['Before'] * 2 + ['Next'] * 4)
+	finally:
+		_shutdown_daemon(name)
 
 
 async def test_your_chrome_end_to_end(chrome, tmp_path, monkeypatch):
