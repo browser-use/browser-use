@@ -360,6 +360,17 @@ async def test_a_str_result_delivered_as_json_dumps_of_the_text_is_the_text(tmp_
 		assert (result.status, result.output, result.text) == ('completed', expected, expected)
 
 
+async def test_a_str_result_that_is_a_quotation_keeps_its_quotes(tmp_path):
+	"""The json.dumps repair above also stripped the quotes off an answer that is a quotation: asked for the exact quote
+	on a page, finish_from_repl('quote') with quote = '"Be yourself; everyone else is already taken."' delivered it
+	without them. Only text that is a JSON string literal (an escape inside, or a json.dumps(...) expression) is decoded."""
+	quote = '"Be yourself; everyone else is already taken."'
+	steps = [('python', {'code': f'quote = {quote!r}; final_text = "a\\nb"; dumped = json.dumps(final_text)'})]
+	for expression, expected in (('quote', quote), ('dumped', 'a\nb'), ('json.dumps(quote)', quote)):
+		result, _ = await go(None, tmp_path, [*steps, ('finish_from_repl', {'success': True, 'expression': expression})])
+		assert (result.status, result.text) == ('completed', expected), expression
+
+
 async def test_workspace_path_is_in_instructions(daemon, tmp_path):
 	seen = []
 

@@ -7,6 +7,7 @@ partial results that survive timeouts, and a killable worker so a hung cell neve
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import base64
 import json
@@ -261,11 +262,12 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 			)
 
 
-def _unquoted(value: str) -> str:
+def _unquoted(value: str, expression: str) -> str:
 	"""A str result delivered as the JSON literal of a string, the text itself. The tool says 'for a string result use
 	json.dumps(records) or an existing text variable', and gpt-6-luna sent finish_from_repl('json.dumps(final_text)'):
-	result.text began with a quote and read '\\n' for every line break (live longrun, 2 of ~45 runs)."""
-	if len(value) > 1 and value[0] == value[-1] == '"':
+	result.text began with a quote and read '\\n' for every line break (live longrun, 2 of ~45 runs). Only when it is
+	one: a json.dumps(...) expression, or an escape inside. An answer that is a quotation keeps its quotes."""
+	if len(value) > 1 and value[0] == value[-1] == '"' and ('\\' in value or _dumps_call(expression)):
 		try:
 			text = json.loads(value)
 		except ValueError:
@@ -273,6 +275,16 @@ def _unquoted(value: str) -> str:
 		if isinstance(text, str):
 			return text
 	return value
+
+
+def _dumps_call(expression: str) -> bool:
+	"""Whether the expression is a call to json.dumps (or a dumps imported by name)."""
+	try:
+		node = ast.parse(expression.strip(), mode='eval').body
+	except (SyntaxError, ValueError):
+		return False
+	func = node.func if isinstance(node, ast.Call) else None
+	return (isinstance(func, ast.Attribute) and func.attr == 'dumps') or (isinstance(func, ast.Name) and func.id == 'dumps')
 
 
 def _outputs(output_type: Any) -> list[Any]:
@@ -302,7 +314,7 @@ def _outputs(output_type: Any) -> list[Any]:
 			ctx.deps.rec.retry('finish_expr_error')
 			raise ModelRetry(f'Expression failed: {r["error"][-2000:]}')
 		if output_type is str:
-			value = _unquoted(r['value'])
+			value = _unquoted(r['value'], expression)
 			check_delivery(ctx, value)
 		else:
 			try:
