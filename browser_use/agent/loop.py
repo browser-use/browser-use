@@ -184,7 +184,9 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 				{
 					t
 					for t in LINK.findall(text) + FILE.findall(text)
-					if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I) and not (s.repl.workspace / t.split('#')[0]).exists()
+					if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I)
+					# downloads land in workspace/downloads; an answer names them by file name
+					and not any((d / t.split('#')[0]).exists() for d in (s.repl.workspace, s.repl.workspace / 'downloads'))
 				}
 			)
 			if missing:

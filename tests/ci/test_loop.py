@@ -795,3 +795,19 @@ async def test_finish_from_repl_delivers_a_plain_string_for_a_string_schema(tmp_
 	output_type = Literal['yes', 'no'] if schema == 'literal' else Answer
 	result = await run(build_agent(model, output_type=output_type), 'task', Session(repl=Repl(tmp_path)), 'function:x')
 	assert (result.status, result.output, len(seen)) == ('completed', 'no', 1)
+
+
+async def test_a_downloaded_file_named_in_the_answer_is_not_called_missing(tmp_path):
+	"""Downloads land in workspace/downloads. An answer naming one ('`report.csv`: north revenue 1200') got the
+	missing-file repair turn ('These linked files do not exist in the workspace: report.csv'): one more request, and the
+	model told its true answer was wrong (live: bu-fast, local Chrome download)."""
+	(tmp_path / 'downloads').mkdir()
+	(tmp_path / 'downloads' / 'report.csv').write_text('region,revenue\nnorth,1200\n')
+	requests = []
+
+	def fn(messages, info):
+		requests.append(messages)
+		return ModelResponse(parts=[TextPart('`report.csv`: north revenue 1200')])
+
+	result = await run(build_agent(FunctionModel(fn)), 'task', Session(repl=FakeRepl(tmp_path)), 'function:x')
+	assert (result.status, result.output, len(requests)) == ('completed', '`report.csv`: north revenue 1200', 1)
