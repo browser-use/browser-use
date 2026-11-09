@@ -1001,6 +1001,7 @@ async def test_local_start_is_bounded_when_chrome_never_allows_remote_debugging(
 
 	monkeypatch.setattr(admin, 'ensure_daemon', ensure_daemon)
 	monkeypatch.setattr(admin, 'daemon_alive', lambda name=None: True)  # skip discovery of this machine's Chromes
+	monkeypatch.setattr(browser_mod._local, 'require_debug_port', lambda: None)  # your Chrome has remote debugging on
 	with pytest.raises(RuntimeError, match='did not allow remote debugging within 120s'):
 		await Browser('chrome').start()
 	assert calls == [browser_mod.LOCAL_START_WAIT_S]

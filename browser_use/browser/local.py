@@ -68,6 +68,31 @@ def live_debug_dirs() -> list[Path]:
 	return [base for base in daemon.PROFILES if daemon._devtools_port_live(base)]
 
 
+def require_debug_port() -> None:
+	"""Before a browser-harness daemon discovers your Chrome: one of your browsers must have remote debugging on. With
+	none, browser-harness 0.1.13 attached to whatever answered on 127.0.0.1:9222 / 9223, which any local user or
+	process can open (another user's Chrome, a fake one): the agent then typed your secrets into their browser.
+	A Chrome that is closed is launched as browser-harness does; else chrome://inspect opens and this raises."""
+	from browser_harness import admin, daemon
+
+	if not admin._is_local_chrome_mode() or live_debug_dirs():
+		return
+	if not daemon.supported_browser_running() and admin._launch_browser():
+		deadline = time.monotonic() + (daemon.TOGGLE_BOOT_GRACE if daemon.remote_debugging_toggle_profiles() else 3)
+		while time.monotonic() < deadline:
+			if live_debug_dirs():
+				return
+			time.sleep(0.3)
+	admin._open_chrome_inspect_once()
+	raise RuntimeError(
+		'remote-debugging-setup: none of your browsers has remote debugging on (no live DevToolsActivePort in '
+		f'{", ".join(map(str, daemon.PROFILES))}). In Chrome, open chrome://inspect/#remote-debugging, tick "Allow remote '
+		'debugging for this browser instance", then run again and click Allow. Ports 9222/9223 are never guessed: for '
+		'a Chrome you started with --remote-debugging-port=PORT, set BU_CDP_URL to http://127.0.0.1:PORT or pass '
+		'Browser(cdp_url=...).'
+	)
+
+
 def find_binary(executable_path: str | None = None, *, chrome_only: bool = False) -> str:
 	"""executable_path, then BH_CHROME_PATH / CHROME_PATH (browser-harness's names), then the platform's Chrome,
 	Chromium and Edge. chrome_only: Google Chrome only (a copied Chrome profile's cookies decrypt only in Chrome)."""
