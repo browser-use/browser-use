@@ -469,9 +469,10 @@ class _HarnessStderr:
 def _run_browser_harness(code: str | None = None) -> int | None:
 	import os
 
-	from browser_harness import run
+	from browser_harness import helpers, run
 
 	from browser_use.browser.browser import _name_daemon_files
+	from browser_use.repl.page_info import install as install_page_info
 
 	global _delegated_to_harness
 
@@ -483,6 +484,8 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	_scrub_harness_telemetry()
 	_patch_browser_harness_cli_text()
 	_guard_cloud_browsers(run, code)
+	install_page_info()  # cli-1: run.py star-imported the helpers already, so rebind its name too
+	run.page_info = helpers.page_info
 	args = sys.argv[1:]
 	if args == ['--reload']:  # restarting a name on purpose is how it may drive a local Chrome again after a cloud one
 		from browser_use import harness_cloud

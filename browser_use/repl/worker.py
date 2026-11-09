@@ -44,6 +44,7 @@ from browser_use.remote_upload import set_files, uploader
 from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.highlight import Highlighter
 from browser_use.repl.network_idle import wait_for_network_idle
+from browser_use.repl.page_info import install as install_page_info
 from browser_use.repl.session import (
 	MAX_OUTPUT_CHARS,
 	SECRET_PLACEHOLDER,
@@ -645,6 +646,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	helpers.cdp = cdp  # capture_screenshot() and friends go through the wrapper too
 	helpers.http_get = http_get
 	helpers.wait_for_network_idle = wait_for_network_idle  # browser-4; delete with network_idle.py at harness >= 0.1.14
+	install_page_info()  # cli-1: waits for a new document's <html>; delete with page_info.py
 	if rules:  # before the * import below, so the agent's names are the checked ones
 		for name in ('new_tab', 'http_get'):  # new_tab: before it opens an empty tab; http_get: plain HTTP from here
 			helpers.__dict__[name] = _checked(getattr(helpers, name), check_url)

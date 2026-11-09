@@ -30,6 +30,7 @@ from browser_use.browser.browser import _name_daemon_files
 from browser_use.domains import DomainRules
 from browser_use.exceptions import removed
 from browser_use.harness_cloud import CloudBrowserError
+from browser_use.repl.page_info import install as install_page_info
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip
 from browser_use.utils import get_browser_use_version
 
@@ -366,6 +367,7 @@ class CLIMCPServer:
 	def _ensure_namespace(self) -> dict[str, Any]:
 		if self._namespace is None:
 			ns: dict[str, Any] = {}
+			install_page_info()  # cli-1: before the * import binds page_info
 			exec(_NAMESPACE_IMPORTS, ns)
 			harness_cloud.install(ns)
 			ns['start_remote_daemon'] = self._start_remote

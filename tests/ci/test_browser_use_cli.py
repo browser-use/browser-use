@@ -1,9 +1,12 @@
+import asyncio
 import os
 import re
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -309,3 +312,82 @@ def test_mac_approve_names_browser_use(monkeypatch, capsys):
 		with pytest.raises(SystemExit) as exited:
 			cli.main()
 		assert exited.value.code == code and capsys.readouterr().out == out
+
+
+def _serve_body_late(delay_s: float, body: bytes = b'<title>late body</title><p>hi</p>'):
+	"""A local page whose server sends the headers at once and the HTML delay_s later. Returns (server, url)."""
+	import threading
+	import time
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	class Handler(BaseHTTPRequestHandler):
+		def do_GET(self):
+			self.send_response(200)
+			self.send_header('Content-Type', 'text/html')
+			self.send_header('Content-Length', str(len(body)))
+			self.end_headers()
+			self.wfile.flush()
+			time.sleep(delay_s)
+			self.wfile.write(body)
+
+		def log_message(self, *a):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	return server, f'http://127.0.0.1:{server.server_address[1]}/page'
+
+
+@pytest.mark.parametrize('surface', ['cli', 'mcp', 'repl'])
+async def test_the_documented_first_example_waits_for_the_new_document(daemon, tmp_path, monkeypatch, surface):
+	"""cli-1: `new_tab(url); print(page_info())`, the first example of the CLI help, the docs and the MCP tool, failed
+	about half the time on local Chromium with "Cannot read properties of null (reading 'scrollWidth')": new_tab()
+	returns once the new document commits, before its parser has made <html>. A body sent late makes that every time."""
+	server, url = _serve_body_late(0.5)
+	code = f'new_tab({url!r})\ninfo = page_info()\nprint(info["title"], info["pw"] > 0)\nclose_tab()'
+	try:
+		if surface == 'cli':
+			env = {**os.environ, 'PYTHONPATH': str(ROOT), **daemon}
+			cmd = [sys.executable, '-m', 'browser_use.cli']
+			r = await asyncio.to_thread(subprocess.run, cmd, input=code, env=env, capture_output=True, text=True, timeout=60)
+			out, failed = r.stdout + r.stderr, r.returncode != 0
+		elif surface == 'mcp':
+			from browser_harness import admin, helpers
+
+			from browser_use.mcp import cli_mcp
+
+			monkeypatch.setattr(admin, 'NAME', daemon['BU_NAME'])
+			monkeypatch.setattr(helpers, 'NAME', daemon['BU_NAME'])
+			monkeypatch.setattr(helpers, 'page_info', helpers.page_info)  # the server wraps it for this process
+			out, failed = cli_mcp.CLIMCPServer()._execute(code)
+		else:
+			from browser_use.repl import Repl
+
+			repl = Repl(tmp_path, daemon)
+			try:
+				r = await repl.call('exec', code, 60)
+			finally:
+				await repl.close()
+			out, failed = r['output'] + (r['error'] or ''), r['error'] is not None
+	finally:
+		server.shutdown()
+	assert not failed and 'late body True' in out, out
+
+
+async def test_page_info_waiting_for_the_document_still_reports_a_dialog(daemon, monkeypatch):
+	"""cli-1: a page that alert()s as it loads opens the dialog while page_info() waits for <html>. page_info() returns
+	{dialog}, as browser-harness documents, instead of timing out on an evaluate the open dialog blocks."""
+	from browser_harness import admin, helpers
+
+	from browser_use.mcp import cli_mcp
+
+	server, url = _serve_body_late(0.5, b'<script>alert("hi")</script><p>x</p>')
+	monkeypatch.setattr(admin, 'NAME', daemon['BU_NAME'])
+	monkeypatch.setattr(helpers, 'NAME', daemon['BU_NAME'])
+	monkeypatch.setattr(helpers, 'page_info', helpers.page_info)  # the server wraps it for this process
+	code = f'new_tab({url!r})\ninfo = page_info()\ncdp("Page.handleJavaScriptDialog", accept=True)\nclose_tab()\nprint(info)'
+	try:
+		out, failed = cli_mcp.CLIMCPServer()._execute(code)
+	finally:
+		server.shutdown()
+	assert not failed and "'dialog'" in out and "'hi'" in out, out
