@@ -55,7 +55,7 @@ from browser_use.repl.session import (
 	secret_forms,
 )
 from browser_use.telemetry.stats import error_class, host
-from browser_use.utils import name_download
+from browser_use.utils import TLSHandler, install_tls_opener, name_download
 
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
@@ -380,7 +380,7 @@ def redirect_checking_opener(check_url) -> urllib.request.OpenerDirector:
 			check_url(newurl)
 			return super().redirect_request(req, fp, code, msg, headers, newurl)
 
-	return urllib.request.build_opener(CheckedRedirects)
+	return urllib.request.build_opener(CheckedRedirects, TLSHandler)
 
 
 def _check_redirects(check_url) -> None:
@@ -662,6 +662,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		for name in ('new_tab', 'http_get'):  # new_tab: before it opens an empty tab; http_get: plain HTTP from here
 			helpers.__dict__[name] = _checked(getattr(helpers, name), check_url)
 		_check_redirects(check_url)
+	else:
+		install_tls_opener()  # http_get and urllib in cells verify as the OS does, as with rules
 	if os.environ.get('BU_OWN_BROWSER') == '1':  # a browser we launched or were given: the agent's tab is the visible one,
 		# as in 0.x. A hidden tab never paints, so scroll() timed out and keys and clicks were dropped.
 		helpers.switch_tab = functools.partial(helpers.switch_tab, activate=True)  # new_tab() calls it too

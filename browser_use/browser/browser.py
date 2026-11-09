@@ -39,7 +39,7 @@ from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
 from browser_use.exceptions import BrowserConfigError, removed
-from browser_use.utils import file_names, name_download, urlopen_keyed
+from browser_use.utils import file_names, name_download, tls_context, urlopen_keyed
 
 logger = logging.getLogger(__name__)
 load_env()  # 0.x read .env on import; credentials below resolve from it
@@ -235,7 +235,7 @@ def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
 	A transfer that fails or runs out of time leaves no file."""
 	if (left := deadline - time.monotonic()) <= 0:
 		raise TimeoutError('download deadline passed')
-	with urllib.request.urlopen(url, timeout=min(30.0, left)) as r:  # the timeout bounds each read
+	with urllib.request.urlopen(url, timeout=min(30.0, left), context=tls_context()) as r:  # the timeout bounds each read
 		dest.mkdir(parents=True, exist_ok=True)
 		for path in file_names(dest, name):
 			try:
@@ -324,7 +324,9 @@ def _ws_url(cdp_url: str) -> str:
 	if not cdp_url.startswith('http'):
 		return cdp_url
 	u = urllib.parse.urlsplit(cdp_url)  # a token in the query stays after /json/version
-	with urllib.request.urlopen(u._replace(path=u.path.rstrip('/') + '/json/version').geturl(), timeout=30) as r:
+	with urllib.request.urlopen(
+		u._replace(path=u.path.rstrip('/') + '/json/version').geturl(), timeout=30, context=tls_context()
+	) as r:
 		return json.load(r)['webSocketDebuggerUrl']
 
 

@@ -37,7 +37,11 @@ OUTBOX_FILES, OUTBOX_BYTES, OUTBOX_DAYS = 20, 512 * 1024, 7
 MARKER_REFRESH_S = 30.0
 CRASH_GRACE_S = 15 * 60  # a marker older than the run's timeout plus this is a crashed run, whatever its pid
 EXIT_SENDER = (  # the detached process that sends what was still queued at exit: files in, deleted once sent
-	'import sys, os, urllib.request\n'
+	'import sys, os, ssl, urllib.request\n'
+	'try:\n'  # the OS verifier, as tls_context() in the sending process
+	'    import truststore; ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)\n'
+	'except Exception:\n'
+	'    ctx = None\n'
 	'url = sys.argv[1]\n'
 	'for path in sys.argv[2:]:\n'
 	'    claimed = path[:-3] + f".{os.getpid()}.sending"\n'
@@ -46,7 +50,7 @@ EXIT_SENDER = (  # the detached process that sends what was still queued at exit
 	'    try:\n'
 	'        data = open(claimed, "rb").read()\n'
 	'        headers = {"Content-Type": "application/json", "Content-Encoding": "gzip"}\n'
-	'        urllib.request.urlopen(urllib.request.Request(url, data, headers), timeout=10).read()\n'
+	'        urllib.request.urlopen(urllib.request.Request(url, data, headers), timeout=10, context=ctx).read()\n'
 	'        os.remove(claimed)\n'
 	'    except Exception:\n'
 	'        try: os.replace(claimed, path)\n'
@@ -362,10 +366,10 @@ class ProductTelemetry:
 			if self._exiting:
 				return False
 			if _tls is None:
-				import ssl
+				from browser_use.utils import tls_context
 
 				try:
-					_tls = ssl.create_default_context()
+					_tls = tls_context()
 				except Exception:  # - urlopen makes its own, as before
 					pass
 			return True
