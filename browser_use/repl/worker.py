@@ -486,13 +486,23 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 				target = AGENT_TAB['id']
 				session = unmark_sessions.get(target)
 				if session is None:
-					frame = raw_cdp('Page.getFrameTree')['frameTree']['frame']['id']
-					world = raw_cdp('Page.createIsolatedWorld', frameId=frame, worldName='browser-use-unmark')[
-						'executionContextId'
-					]
-					session = raw_cdp(
-						'Runtime.evaluate', contextId=world, expression='globalThis.__browserUseUnmarkSession', returnByValue=True
-					)['result'].get('value')
+					for attempt in range(3):
+						try:
+							frame = raw_cdp('Page.getFrameTree')['frameTree']['frame']['id']
+							world = raw_cdp('Page.createIsolatedWorld', frameId=frame, worldName='browser-use-unmark')[
+								'executionContextId'
+							]
+							session = raw_cdp(
+								'Runtime.evaluate',
+								contextId=world,
+								expression='globalThis.__browserUseUnmarkSession',
+								returnByValue=True,
+							)['result'].get('value')
+							break
+						except RuntimeError as e:
+							# Navigation can destroy the frame/world between these calls. Rediscover it before registering.
+							if attempt == 2 or not ax.CONTEXT_LOSS.search(str(e)):
+								raise
 				if session:
 					try:
 						# switch_tab creates a new CDP session each time. Keep the original registration while its session
