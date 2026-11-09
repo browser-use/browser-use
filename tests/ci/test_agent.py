@@ -929,6 +929,33 @@ async def test_type_secret_with_no_focused_field_raises(daemon, tmp_path):
 		await repl.close()
 
 
+async def test_a_secret_placeholder_typed_into_the_page_raises_and_names_type_secret(daemon, tmp_path):
+	"""Live (0.x sensitive-data template, gpt-4.1-mini, 2 of 3 runs): the model typed the literal '<secret:x_user>' into
+	the form, read the field back (redacted output shows the real value the same way) and reported "Wrong credentials".
+	0.x replaced <secret>name</secret> with the value; 1.0 sent the placeholder to the page as the password."""
+	page = 'data:text/html,<input id=u><input id=p type=password>'
+	repl = Repl(tmp_path, daemon, secrets={'x_user': 'alice@example.com', 'x_pass': 'hunter2-Secret!'})
+	try:
+		await repl.call('exec', f'new_tab({page!r}); wait_for_load(); js(\'document.getElementById("u").focus()\')', 60)
+		for code in (
+			"cdp('Input.insertText', text='<secret:x_user>')",
+			"type_text('<secret>x_pass</secret>')",
+			'js(\'document.getElementById("p").value = "<secret:x_pass>"\')',
+		):
+			r = await repl.call('exec', code, 60)
+			assert "is not replaced with the secret: type it with type_secret('x_" in (r['error'] or ''), (code, r)
+		typed = await repl.call(
+			'exec', 'print(js(\'[document.getElementById("u").value, document.getElementById("p").value]\'))', 60
+		)
+		assert typed['output'].strip() == "['', '']", typed
+		r = await repl.call(
+			'exec', "type_text('<secret:other> stays literal'); print(js('document.getElementById(\"u\").value'))", 60
+		)
+		assert r['error'] is None and '<secret:other> stays literal' in r['output'], r  # not a secret name: plain text
+	finally:
+		await repl.close()
+
+
 async def test_bu_2fa_code_secret_types_the_current_totp_code_not_the_seed(daemon, tmp_path):
 	"""Roast r6-1: 0.x turned sensitive_data={'bu_2fa_code': seed} into a 6-digit TOTP code; 1.0 typed the raw seed, so
 	login failed and the page received the reusable 2FA secret."""
