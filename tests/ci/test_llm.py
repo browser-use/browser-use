@@ -1154,6 +1154,33 @@ def test_secretstr_api_keys_are_sent_as_the_plain_key():
 	assert ChatBrowserUse(api_key=SecretStr(' bu_k\n')).api_key == 'bu_k'
 
 
+def test_a_provider_key_with_whitespace_never_reaches_an_error_message(monkeypatch):
+	"""Live: ChatOpenAI/ChatGoogle/ChatAnthropic keys with a line break went to the SDK, httpx rejected the header with
+	the whole key in its error, and result.error and the ERROR log line printed it. Surrounding whitespace is stripped;
+	whitespace inside raises before any browser starts, without the key."""
+	for var in ('OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'GEMINI_API_KEY'):
+		monkeypatch.delenv(var, raising=False)
+	assert resolve_model(ChatOpenAI('m', api_key=' sk-k\n'))[0].client.api_key == 'sk-k'
+	assert resolve_model(ChatAnthropic('claude-opus-5-5', api_key='sk-ant-k\n'))[0].client.api_key == 'sk-ant-k'
+	assert resolve_model(ChatGoogle('gemini-3-flash', api_key='AIza-k\n'))[0].client._api_client.api_key == 'AIza-k'
+	monkeypatch.setenv('OPENAI_API_KEY', 'sk-env\n')
+	monkeypatch.setenv('GEMINI_API_KEY', ' AIza-env ')
+	assert resolve_model(ChatOpenAI('m'))[0].client.api_key == 'sk-env'
+	assert resolve_model(ChatOpenAI('m', base_url='http://localhost:1/v1'))[0].client.api_key == 'sk-env'
+	assert resolve_model(ChatGoogle('gemini-3-flash'))[0].client._api_client.api_key == 'AIza-env'
+	monkeypatch.setenv('OPENAI_API_KEY', 'sk-proj-abc\nSECRETPART')
+	for llm in (
+		ChatOpenAI('m', api_key='sk-proj-abc SECRETPART'),
+		ChatGoogle('g', api_key='AIza\tSECRETPART'),
+		'openai:gpt-5-mini',
+	):
+		with pytest.raises(ValueError, match='line break') as e:
+			resolve_model(llm)
+		assert 'SECRETPART' not in str(e.value)
+	with pytest.raises(ValueError, match='line break'):  # in run(), before the browser starts
+		Agent('t', llm='openai:gpt-5-mini', browser=Browser('chromium')).run_sync()
+
+
 async def test_gemini_requests_are_retried_by_the_client_like_openai_and_anthropic(tmp_path):
 	"""google-genai retries nothing unless asked (OpenAI and Anthropic SDKs retry twice), so two 503 'overloaded' in a
 	run ended a Gemini run: BrowserLoop's one retry per run was all it had. Two 503s in a row now pass."""
