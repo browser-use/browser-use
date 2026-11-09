@@ -437,6 +437,25 @@ async def test_a_streamed_request_cut_by_the_run_budget_gets_the_delivery_turn(r
 	assert (result.status, result.output, len(requests), session.budget_hit) == ('completed', 'ok', 2, 'timeout'), result
 
 
+async def test_the_retry_after_a_stall_never_runs_past_the_delivery_turn(responses_server, tmp_path, monkeypatch):
+	"""rc2 review: the transient retry (RetryModelRequest) does not re-run before_model_request, so the retried attempt
+	kept the first attempt's request_timeout. A stall cut at 300 s was retried with 300 s more, past the delivery turn
+	and, from 1100 s into a 1700 s run, past the run's own limit: no delivery at all. The retry gets the time left."""
+	from browser_use.agent import loop
+
+	monkeypatch.setattr(loop, 'MODEL_TIMEOUT_S', 3.0)  # stands in for 300 s
+	url, requests, replies = responses_server
+	model, _ = resolve_model(ChatBrowserUse('bu-smart', api_key='fake-test-key', base_url=url))
+	stall = {'output': [text('late', 1)], 'pace': [0, 0, 6]}
+	replies += [stall, stall]
+	session = Session(repl=Repl(tmp_path), timeout_s=8)  # delivery turn at 4 s
+	started = time.monotonic()
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', session, 'browser-use:bu-smart')
+	took = time.monotonic() - started
+	assert (result.status, result.output, len(requests), session.budget_hit) == ('completed', 'ok', 3, 'timeout'), result
+	assert took < 5, took  # cut at 3 s, the retry at 4 s (the delivery turn), not at 6 s
+
+
 async def test_a_responses_request_over_the_context_window_compacts_once_and_is_sent_again(responses_server, tmp_path):
 	"""rrt-fail t3_context gw_overflow: a gateway/Responses request over the context window ended the run (3/3): server
 	compaction runs only on requests the model accepts (an over-window input is a 400 with or without

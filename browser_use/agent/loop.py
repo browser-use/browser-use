@@ -408,9 +408,16 @@ class BrowserLoop(AbstractCapability[Session]):
 				s.rec.delivery()
 				ctx.enqueue(DELIVER_NOW)
 		settings: dict[str, Any] = dict(request_context.model_settings or {})  # resolved before this hook
-		_deadlines(s, settings, MODEL_TIMEOUT_S)
 		if s.finalizing:  # restrict this very request
 			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
+		request_context.model_settings = cast(Any, settings)
+		return request_context
+
+	async def prepare_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
+		"""The deadline, per attempt: the transient retry (RetryModelRequest) does not re-run before_model_request, and
+		a retried attempt with the first one's request_timeout ran up to MODEL_TIMEOUT_S past the delivery turn."""
+		settings: dict[str, Any] = dict(request_context.model_settings or {})
+		_deadlines(ctx.deps, settings, MODEL_TIMEOUT_S)
 		request_context.model_settings = cast(Any, settings)
 		return request_context
 
