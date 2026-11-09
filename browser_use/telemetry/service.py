@@ -1,4 +1,4 @@
-"""Sends telemetry to PostHog from one background thread (TELEMETRY.md). Nothing on the agent path waits on the network
+"""Sends telemetry to PostHog from one background thread. Nothing on the agent path waits on the network
 or the disk: run_started() and capture_run() are a dict update and a queue.put. The thread builds each event, gzips it
 and POSTs it (3 s timeout, one retry); a failed send goes to an outbox the next process sends. At exit, events still
 queued go to a detached sender process, so a one-shot script neither waits for the network nor loses its event.
@@ -203,7 +203,7 @@ class ProductTelemetry:
 					if self.notice:
 						logger.info(
 							'Using anonymized telemetry (no task text, results or page content; ANONYMIZED_TELEMETRY=false '
-							'turns it off), see https://github.com/browser-use/browser-use/blob/main/TELEMETRY.md'
+							'turns it off)'
 						)
 					atexit.register(self._at_exit)
 					self._atexit = True

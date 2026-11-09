@@ -144,7 +144,7 @@ PROGRESS_EVENTS = ('Browser.downloadProgress', 'Page.downloadProgress')
 
 
 class CellStats:
-	"""Telemetry counts of one cell (TELEMETRY.md): helper and cdp() method names with call counts, errors and time,
+	"""Telemetry counts of one cell: helper and cdp() method names with call counts, errors and time,
 	hostnames, captcha and download events. Never arguments, URLs, page text or values. Sent with the cell's result,
 	then reset. Each update is a few dict operations under one lock (~1 us); helpers and CDP calls take milliseconds."""
 

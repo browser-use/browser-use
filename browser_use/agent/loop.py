@@ -130,7 +130,7 @@ class Session:
 	success: bool | None = None  # the verdict finish/finish_from_repl must give; None for a plain-text delivery
 	messages: list[ModelMessage] = field(default_factory=list)
 	after_tool: Callable[[str, dict, dict], Awaitable[None]] | None = None  # observer hook (evals)
-	stats: RunStats = field(default_factory=RunStats)  # telemetry counts (TELEMETRY.md)
+	stats: RunStats = field(default_factory=RunStats)  # telemetry counts
 	finish_via: str | None = None  # finish | finish_from_repl | text: how the result was delivered
 	budget_hit: str | None = None  # max_steps | timeout | browser_gone: what forced the delivery-only turn
 	error_type: str | None = None  # class of the exception that ended the run
@@ -140,7 +140,7 @@ class Session:
 	overflowed_step: int | None = None  # Compaction: the request step a context-window error forced a compaction in
 	provider_retried: bool = False  # BrowserLoop: bu-pi's one provider retry per run is used
 	summaries: list[ModelResponse] = field(default_factory=list)  # summarizer responses, counted in usage and cost
-	rec: RunRecorder = field(default_factory=RunRecorder)  # telemetry, step by step (TELEMETRY.md)
+	rec: RunRecorder = field(default_factory=RunRecorder)  # telemetry, step by step
 
 	def delivery_at(self) -> float:
 		"""Seconds into the run at which the delivery-only turn starts: 90% of the budget, or earlier on a short budget

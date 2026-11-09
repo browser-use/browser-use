@@ -1,4 +1,4 @@
-"""What one Agent.run() did, step by step, for telemetry (TELEMETRY.md, schema 3).
+"""What one Agent.run() did, step by step, for telemetry (schema 3).
 
 Every hook runs on the agent path and is an O(1) in-memory update (perf_counter_ns, an append, an add). build() turns
 the record into the event's fields once, in the telemetry thread after the run. Never text: no task, code, output,

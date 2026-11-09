@@ -632,7 +632,7 @@ class Agent:
 		await self.close()
 
 	def _config(self, max_steps: int, timeout: float) -> dict[str, Any]:
-		"""The run's configuration fields (TELEMETRY.md): counts, bools, enums and names, never values or paths."""
+		"""The run's configuration fields: counts, bools, enums and names, never values or paths."""
 		from browser_use.telemetry.stats import cdp_category, host, is_internal, model_id, provider_name
 
 		schema = self.output_model_schema
@@ -733,7 +733,7 @@ class Agent:
 		meta: dict[str, Any],
 	) -> None:
 		"""One agent_event per run. Counts, names, hostnames and classes only: never the task, the result, code, typed
-		text, secrets, page content, URLs or error messages (TELEMETRY.md). Here, on the run's path, only what can change
+		text, secrets, page content, URLs or error messages. Here, on the run's path, only what can change
 		after the run is copied; the event is built in the telemetry thread (build())."""
 		try:
 			from browser_use.telemetry.service import Job, telemetry
@@ -808,7 +808,7 @@ class Agent:
 				"""In the telemetry thread: the names the model's code chose are checked here (imports, cdp methods)."""
 				from collections import Counter
 
-				# a tool name the model made up can carry task or page text (TELEMETRY.md: only names browser-use or you chose)
+				# a tool name the model made up can carry task or page text (only names browser-use or you chose)
 				tools = Counter(name if name in known else 'invalid' for name in called)
 				v3 = rec.build(stats, total_ms, steps, keys)
 				if tool_args := sum(name in function_tools for name in retried):

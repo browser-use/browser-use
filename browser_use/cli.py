@@ -35,7 +35,7 @@ def _set_harness_client_env() -> None:
 
 def _scrub_harness_telemetry() -> None:
 	"""browser-harness's cli_event carries the piped code, its output, helper arguments and error text. In the
-	browser-use CLI those never leave the machine: every event is scrubbed (TELEMETRY.md), then sent by the library's
+	browser-use CLI those never leave the machine: every event is scrubbed, then sent by the library's
 	sender to the library's PostHog project under its device id, next to the same machine's agent_events (browser-harness
 	would send it to its own project under its own install id, and create that id). ANONYMIZED_TELEMETRY turns it off as
 	in the library (browser-harness alone only knows 0, false, no and off): its is_enabled() says so too, else it built the

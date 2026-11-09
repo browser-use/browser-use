@@ -586,7 +586,7 @@ async def test_a_cloud_browser_start_is_logged_at_info(cloud, caplog, monkeypatc
 
 
 async def test_the_cloud_browser_id_is_never_logged_whole_or_put_in_a_command_line(cloud, caplog, monkeypatch):
-	"""The id is the cloud browser's CDP hostname and drives it without a key (TELEMETRY.md). Every default Browser()
+	"""The id is the cloud browser's CDP hostname and drives it without a key. Every default Browser()
 	logged it at INFO and handed it to the watchdog and the MCP reaper as argv, which any local user's ps shows."""
 	import logging
 	import subprocess

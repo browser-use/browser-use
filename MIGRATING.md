@@ -347,7 +347,7 @@ longer word or number; `Agent` warns about such values):
 - results and retry messages of your own `Tools` actions
 - the task, follow-up tasks (`add_new_task`) and `extend_system_message`, before the model sees them
 - `result.final_result()`, `result.output` / `result.structured_output` (field by field), `result.partial`,
-  `result.error`, and the error `Agent.run` logs. Telemetry never sends these texts at all (TELEMETRY.md)
+  `result.error`, and the error `Agent.run` logs. Telemetry never sends these texts at all
 - `result.messages`: the model's text, thinking and tool-call arguments, and the retry messages that quote them back (a follow-up task continues the unredacted
   transcript, since providers reject edited signed thinking; screenshots in it stay unredacted)
 

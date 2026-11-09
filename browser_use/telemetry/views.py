@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
-SCHEMA_VERSION = 3  # 2: no task, result, code, typed text, URLs or error messages; 3: timings, per-step arrays (TELEMETRY.md)
+SCHEMA_VERSION = 3  # 2: no task, result, code, typed text, URLs or error messages; 3: timings, per-step arrays
 
 
 @dataclass
@@ -23,8 +23,7 @@ class BaseTelemetryEvent(ABC):
 @dataclass
 class AgentTelemetryEvent(BaseTelemetryEvent):
 	"""One per Agent.run(). Every field is a number, a bool, an enum, a name chosen by browser-use or the developer
-	(model, helper, tool, module, exception class) or a hostname, or a list or map of those. TELEMETRY.md lists each
-	one; tests/ci/test_telemetry.py checks that the two match."""
+	(model, helper, tool, module, exception class) or a hostname, or a list or map of those."""
 
 	# install
 	version: str
@@ -206,7 +205,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 @dataclass
 class MCPToolCallEvent(BaseTelemetryEvent):
 	"""One per tool call to the browser-use MCP server (--cli-mcp, --mcp), under 0.x's event name and its tool_name and
-	duration_seconds fields. Never the code, its output, arguments or error text: TELEMETRY.md."""
+	duration_seconds fields. Never the code, its output, arguments or error text."""
 
 	version: str
 	tool_name: str  # browser_exec, browser_screenshot, browser_login, a 0.x tool name, or 'invalid'

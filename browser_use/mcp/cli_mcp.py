@@ -348,7 +348,7 @@ class CLIMCPServer:
 		self.server.add_request_handler('tools/call', types.CallToolRequestParams, handle_call_tool)
 
 	def _record_call(self, name: str, result: types.CallToolResult | None, errors: list[str], seconds: float) -> None:
-		"""One mcp_server_event per tool call (TELEMETRY.md): queued, sent by the telemetry thread; never fails a call."""
+		"""One mcp_server_event per tool call: queued, sent by the telemetry thread; never fails a call."""
 		self._calls += 1
 		try:
 			from browser_harness import telemetry as harness_telemetry
