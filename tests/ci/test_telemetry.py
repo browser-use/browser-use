@@ -1280,7 +1280,9 @@ def test_a_one_shot_process_sends_the_outbox_it_finds_and_a_full_outbox_keeps_it
 
 def test_once_the_process_exits_its_thread_claims_no_outbox_file_or_crash_report(posthog, monkeypatch):
 	"""RC test 11-09, Linux: a CLI call's thread reached the outbox while the exit handler ran, claimed the oldest file
-	and froze mid-send with the process; the next call put it back and its thread claimed it again: never sent."""
+	and froze mid-send with the process; the next call put it back and its thread claimed it again: never sent. Nor does
+	it send the event the exit handler took: its TLS setup ran in OpenSSL while the exit freed OpenSSL, a segfault in 2-4%
+	of online CLI calls on macOS, and the event went out twice."""
 	import browser_use.telemetry.service as service
 	from browser_use.telemetry.service import Job
 
@@ -1301,6 +1303,7 @@ def test_once_the_process_exits_its_thread_claims_no_outbox_file_or_crash_report
 	before = sorted(p.name for p in posthog.config.rglob('*'))
 	t._send_outbox()  # what the thread does next, while the interpreter finalizes
 	t._send_crashed()
+	t._send(own)
 	assert len(spawned) == 1 and posthog.state.attempts == 0
 	assert sorted(p.name for p in posthog.config.rglob('*')) == before
 

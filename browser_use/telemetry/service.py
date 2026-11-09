@@ -56,6 +56,7 @@ EXIT_SENDER = (  # the detached process that sends what was still queued at exit
 
 _device_id: str | None = None
 _device_id_lock = threading.Lock()
+_tls: Any = None  # the thread's TLS context, made once under ProductTelemetry._lock (_online)
 
 
 def telemetry_dir() -> Path:
@@ -177,7 +178,8 @@ class ProductTelemetry:
 		self._active: dict[str, tuple[Callable[[], dict], Callable[[], dict], float]] = {}
 		self.send_failures = 0  # failed sends since the last success (outbox files left at start included)
 		self.dropped = 0
-		self._exiting = False  # set at exit: the thread claims no more files (_claim)
+		self._exiting = False  # set at exit: the thread claims no more files (_claim) and sends nothing (_online)
+		self._handed: set[str] = set()  # run_ids of the events the exit handler wrote for its sender
 
 	@property
 	def enabled(self) -> bool:
@@ -344,23 +346,42 @@ class ProductTelemetry:
 		import urllib.request
 
 		headers = {'Content-Type': 'application/json', 'Content-Encoding': 'gzip'}
+		request = urllib.request.Request(f'{POSTHOG_HOST}/batch/', data, headers)
 		try:
-			with urllib.request.urlopen(urllib.request.Request(f'{POSTHOG_HOST}/batch/', data, headers), timeout=timeout) as r:
+			with urllib.request.urlopen(request, timeout=timeout, context=_tls) as r:
 				return 200 <= r.status < 300
 		except Exception:
 			return False
 
+	def _online(self) -> bool:
+		"""False once the process is exiting: the exit handler sends what is left. Else the TLS context exists: made here,
+		under the lock the exit handler takes. Made by urlopen, its certificate loading ran in OpenSSL while the exit freed
+		OpenSSL: a CLI call that exited as its thread began its first send segfaulted (0.6% of offline calls on macOS)."""
+		global _tls
+		with self._lock:
+			if self._exiting:
+				return False
+			if _tls is None:
+				import ssl
+
+				try:
+					_tls = ssl.create_default_context()
+				except Exception:  # - urlopen makes its own, as before
+					pass
+			return True
+
 	def _send(self, job: Job) -> None:
 		data = self._body([self._event(job)])
-		ok = self._post(data)
-		if not ok:
+		ok = self._online() and self._post(data)
+		if not ok and not self._exiting:
 			time.sleep(1)
-			ok = self._post(data)
+			ok = self._online() and self._post(data)
 		if ok:
 			self.send_failures = 0
 		else:
 			self.send_failures += 1
-			self._to_outbox(data, job.run_id)
+			if job.run_id not in self._handed:  # else written again after the exit sender took it: sent twice
+				self._to_outbox(data, job.run_id)
 		self._pending.pop(job.run_id, None)
 		self._unmark(job.run_id)
 
@@ -415,7 +436,7 @@ class ProductTelemetry:
 			if path.stem in self._pending:  # this process's own queued event, written at exit: the exit sender sends it
 				continue
 			try:
-				claimed = self._claim(path, 'sending')  # another process may be sending the same box
+				claimed = self._claim(path, 'sending') if self._online() else None  # another process may be sending the box
 			except OSError:
 				continue
 			if claimed is None:
@@ -482,7 +503,7 @@ class ProductTelemetry:
 				pid = int(marker.get('pid') or 0)
 				if pid == os.getpid() or (_alive(pid) and age < float(props.get('timeout_s') or 0) + CRASH_GRACE_S):
 					continue
-				claimed = self._claim(path, 'crashed')  # one process sends it
+				claimed = self._claim(path, 'crashed') if self._online() else None  # one process sends it
 			except (OSError, ValueError, KeyError, TypeError):
 				continue
 			if claimed is None:
@@ -505,11 +526,12 @@ class ProductTelemetry:
 		try:
 			if os.getpid() != self._pid:
 				return
-			locked = self._lock.acquire(timeout=0.5)  # held by the thread for one rename at most
+			locked = self._lock.acquire(timeout=0.5)  # held by the thread for one rename or its TLS setup (~10 ms)
 			self._exiting = True
+			jobs = list(self._pending.values())
+			self._handed = {job.run_id for job in jobs}
 			if locked:
 				self._lock.release()
-			jobs = list(self._pending.values())
 			if not jobs:
 				return
 			backlog = self._outbox()
