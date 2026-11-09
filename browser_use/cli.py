@@ -406,6 +406,22 @@ def _guard_cloud_browsers(run, code: str | None) -> None:
 		vars(run)['ensure_daemon'] = skip_pre_run_attach
 
 
+class _HarnessStderr:
+	"""sys.stderr while browser-harness runs piped code. Its own lines ("browser-harness: ...", the macOS Allow-popup
+	hint `run browser-harness mac-approve`) named a command `uv tool install browser-use` does not put on PATH."""
+
+	def __init__(self, wrapped):
+		self._wrapped = wrapped
+
+	def write(self, text):
+		if text.startswith('browser-harness: '):  # not the cell's own output
+			text = _as_browser_use_cli_text(text)
+		return self._wrapped.write(text)
+
+	def __getattr__(self, name):
+		return getattr(self._wrapped, name)
+
+
 def _run_browser_harness(code: str | None = None) -> int | None:
 	import os
 
@@ -436,7 +452,11 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 			print('usage: browser-use doctor [--fix-snap]', file=sys.stderr)
 			sys.exit(2)
 	_delegated_to_harness = True
-	run.main()
+	stderr, sys.stderr = sys.stderr, _HarnessStderr(sys.stderr)
+	try:
+		run.main()
+	finally:
+		sys.stderr = stderr
 	return None
 
 

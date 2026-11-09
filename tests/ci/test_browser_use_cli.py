@@ -214,3 +214,31 @@ def test_piped_code_never_tells_the_agent_to_update_browser_harness(tmp_path):
 	)
 	assert 'update available' not in r.stderr and '--update' not in r.stderr, r.stderr
 	assert (r.returncode, r.stdout) == (0, 'ran\n'), r.stderr
+
+
+def test_browser_harness_hints_name_commands_this_install_has(monkeypatch, capsys):
+	"""Live: piped code printed browser-harness's own lines, e.g. its macOS Allow-popup hint `run BU_NAME=x
+	browser-harness mac-approve in another shell`. `uv tool install browser-use` puts no browser-harness on PATH, so the
+	agent's next command failed; `browser-use mac-approve` is the same helper. The cell's own output is left alone."""
+	from browser_harness import run
+
+	from browser_use import cli
+
+	def harness_main():
+		print('browser-harness: Chrome is asking "Allow remote debugging?" — run `BU_NAME=w browser-harness mac-approve` '
+			'in another shell or click Allow to continue.', file=sys.stderr)  # fmt: skip
+		print('browser-harness: fatal: see ~/.config/browser-harness/tmp/bu-w.log', file=sys.stderr)
+		print('cell output names browser-harness', file=sys.stderr)
+
+	monkeypatch.setattr(run, 'main', harness_main)
+	monkeypatch.setattr(sys, 'argv', ['browser-use'])
+	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
+	stderr = sys.stderr
+	cli._run_browser_harness('print(1)')
+	assert sys.stderr is stderr
+	assert capsys.readouterr().err.splitlines() == [
+		'browser-use: Chrome is asking "Allow remote debugging?" — run `BU_NAME=w browser-use mac-approve` in another '
+		'shell or click Allow to continue.',
+		'browser-use: fatal: see ~/.config/browser-harness/tmp/bu-w.log',
+		'cell output names browser-harness',
+	]
