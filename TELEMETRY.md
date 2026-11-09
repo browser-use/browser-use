@@ -78,7 +78,7 @@ The CLI runs browser-harness, whose `cli_event` would include the piped code, it
 text. The browser-use CLI removes those before the event is sent and keeps `command`, `action`, `exit_code`,
 `duration_seconds`, `task_length`, `output_length`, `step_count`, `browser`, `cdp_url` (its kind, as above), `client`,
 `client_version`, `agent_client`, `model`, `model_provider`, the browser-harness environment fields, plus
-`helper_counts` (helper name -> calls), `helper_errors` and `schema_version` (2).
+`helper_counts` (helper name -> calls), `helper_errors`, `is_internal` (as in `agent_event`) and `schema_version` (2).
 
 ## Identity
 
