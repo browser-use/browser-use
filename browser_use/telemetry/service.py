@@ -414,8 +414,8 @@ class ProductTelemetry:
 			tmp = path.with_suffix('.tmp')
 			tmp.write_text(json.dumps({**marker, 'props': props()}, default=str), encoding='utf-8')
 			os.replace(tmp, path)
-		except OSError:
-			pass
+		except Exception as e:  # - a read-only disk, or a props()/progress() that raises: never ends the thread
+			logger.debug('telemetry marker: %s', e)
 
 	def _unmark(self, run_id: str) -> None:
 		self._active.pop(run_id, None)
