@@ -528,6 +528,88 @@ time.sleep(600)
 		harness_cloud._marker(name).unlink(missing_ok=True)  # its fake id cannot be stopped: forget() would keep it
 
 
+# An MCP server whose cloud start is faked (no Browser Use Cloud): start_remote_daemon() returns browser id argv[1]
+_FAKE_CLOUD_SERVER = """
+import asyncio, sys
+from browser_use import harness_cloud
+from browser_use.mcp import cli_mcp
+harness_cloud.start = lambda name, profile, kwargs, namespace: {'id': sys.argv[1]}
+if len(sys.argv) > 2:  # record the stops this process makes
+	harness_cloud.stop_cloud = lambda name, browser_id=None: open(sys.argv[2], 'a').write(name + chr(10)) > 0
+asyncio.run(cli_mcp.main())
+"""
+
+
+def _server_env(**extra: str) -> dict[str, str]:
+	env = {**os.environ, 'PYTHONPATH': os.pathsep.join(p for p in (str(ROOT), os.environ.get('PYTHONPATH', '')) if p)}
+	env.pop('BROWSER_USE_API_KEY', None)
+	return {**env, **extra}
+
+
+async def test_mcp_server_stops_its_cloud_browser_itself_when_the_client_closes_it(tmp_path):
+	"""win-cli-1: on Windows the official mcp client kills the server's whole Job Object right after the server exits,
+	reaper included, and the cloud browser billed on. The server now stops it itself before it exits."""
+	from mcp import ClientSession, StdioServerParameters
+	from mcp.client.stdio import stdio_client
+
+	stops = tmp_path / 'stops.txt'
+	params = StdioServerParameters(command=sys.executable, args=['-c', _FAKE_CLOUD_SERVER, '', str(stops)], env=_server_env())
+	async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+		await session.initialize()
+		result = await session.call_tool('browser_exec', {'code': 'start_remote_daemon()'})
+		assert not result.is_error, result.content
+	assert stops.read_text().startswith('mcp-')  # read once the client is done with the server: it exited
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='the mcp client kills a Job Object on Windows only')
+def test_mcp_cloud_browser_is_stopped_when_the_mcp_client_is_killed_on_windows():
+	"""win-cli-1: a killed client closes its Job Object, which kills the server and every process in it at once. The
+	reaper runs outside it and still stops the browser: its PATCH goes through a local proxy that records the CONNECT."""
+	import socket
+	import threading
+
+	seen: list[bytes] = []
+	proxy = socket.create_server(('127.0.0.1', 0))
+
+	def serve() -> None:
+		while True:
+			try:
+				conn, _ = proxy.accept()
+			except OSError:
+				return
+			with conn:
+				seen.append(conn.recv(4096).split(b'\r\n', 1)[0])
+
+	threading.Thread(target=serve, daemon=True).start()
+	client = f"""
+import anyio, os, sys
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+async def main():
+	params = StdioServerParameters(command=sys.executable, args=['-c', {_FAKE_CLOUD_SERVER!r}, 'test-browser'], env=dict(os.environ))
+	async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+		await session.initialize()
+		print((await session.call_tool('browser_exec', {{'code': 'start_remote_daemon()'}})).is_error, flush=True)
+		await anyio.sleep(600)
+anyio.run(main)
+"""
+	env = _server_env(BROWSER_USE_API_KEY='bu_' + 'x' * 40, HTTPS_PROXY=f'http://127.0.0.1:{proxy.getsockname()[1]}')
+	env.pop('NO_PROXY', None)
+	proc = subprocess.Popen([sys.executable, '-c', client], env=env, stdout=subprocess.PIPE, text=True)
+	try:
+		assert proc.stdout is not None and proc.stdout.readline().strip() == 'False'
+		assert not seen  # nothing stopped it while the server runs
+		proc.kill()
+		proc.wait(10)
+		deadline = time.monotonic() + 20
+		while not seen and time.monotonic() < deadline:
+			time.sleep(0.2)
+		assert seen and seen[0].startswith(b'CONNECT api.browser-use.com:443'), seen
+	finally:
+		proc.kill()
+		proxy.close()
+
+
 async def test_mcp_exec_reports_failures_and_a_cancelled_call_never_bleeds_into_the_next(monkeypatch):
 	"""M28: browser_exec never set is_error, a traceback came back as a success. M27: a call the client timed out kept
 	running and its prints showed up in the next call's result."""
