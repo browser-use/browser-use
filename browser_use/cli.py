@@ -201,8 +201,10 @@ def _run_doctor() -> int:
 	print(f'browser-use {_browser_use_version()} (browser-harness {admin._version()}), Python {platform.python_version()}')
 	try:
 		local = find_binary()
-	except RuntimeError as e:  # none installed, or only a Snap one
-		local, local_text = None, f'{str(e).splitlines()[0]}  (browser-use install)'
+	except RuntimeError as e:  # none installed (its error names `browser-use install`), or only a Snap one (it does not)
+		local, local_text = None, str(e).splitlines()[0]
+		if 'browser-use install' not in local_text:  # Playwright's Chromium is found past a Snap one
+			local_text += '  (or: browser-use install)'
 	else:
 		local_text = local
 	try:
@@ -320,7 +322,11 @@ def _run_login_command(argv: list[str]) -> int:
 	harden_login_callback()
 	if notice := set_aside_corrupt_store():
 		print(notice, file=sys.stderr)
-	code = auth.run_auth_cli(command)
+	try:
+		code = auth.run_auth_cli(command)
+	except KeyboardInterrupt:  # Ctrl-C while it waits for the approval: nothing is stored, so no traceback
+		print('Login cancelled.', file=sys.stderr)
+		return 130
 	if code == 0 and '--json' not in argv:
 		print(LOGIN_DONE)
 		if os.environ.get('BROWSER_USE_API_KEY'):
