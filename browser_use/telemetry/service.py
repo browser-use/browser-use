@@ -40,9 +40,10 @@ EXIT_SENDER = (  # the detached process that sends what was still queued at exit
 	'import sys, os, urllib.request\n'
 	'url = sys.argv[1]\n'
 	'for path in sys.argv[2:]:\n'
+	'    claimed = path[:-3] + f".{os.getpid()}.sending"\n'
+	'    try: os.replace(path, claimed)\n'
+	'    except OSError: continue\n'  # another sender has it
 	'    try:\n'
-	'        claimed = path[:-3] + f".{os.getpid()}.sending"\n'
-	'        os.replace(path, claimed)\n'
 	'        data = open(claimed, "rb").read()\n'
 	'        headers = {"Content-Type": "application/json", "Content-Encoding": "gzip"}\n'
 	'        urllib.request.urlopen(urllib.request.Request(url, data, headers), timeout=10).read()\n'
@@ -50,6 +51,7 @@ EXIT_SENDER = (  # the detached process that sends what was still queued at exit
 	'    except Exception:\n'
 	'        try: os.replace(claimed, path)\n'
 	'        except Exception: pass\n'
+	'        break\n'  # offline: one timeout, the rest waits for the next process
 )
 
 _device_id: str | None = None
@@ -148,6 +150,13 @@ def _alive(pid: int) -> bool:
 	except OSError:  # exists, owned by someone else
 		return True
 	return True
+
+
+def _size(path: Path) -> int:
+	try:
+		return path.stat().st_size
+	except OSError:  # claimed or sent meanwhile
+		return 0
 
 
 class ProductTelemetry:
@@ -360,8 +369,14 @@ class ProductTelemetry:
 		try:
 			box = telemetry_dir() / 'outbox'
 			box.mkdir(parents=True, exist_ok=True)
-			files = list(box.glob('*.gz'))
-			if len(files) >= OUTBOX_FILES or sum(f.stat().st_size for f in files) + len(data) > OUTBOX_BYTES:
+			files = self._outbox()
+			claims = list(box.glob('*.sending'))  # being sent: back in the box if the send fails
+			size = sum(map(_size, files + claims)) + len(data)
+			while files and (len(files) + len(claims) >= OUTBOX_FILES or size > OUTBOX_BYTES):  # full: the oldest goes
+				oldest = files.pop(0)
+				size -= _size(oldest)
+				oldest.unlink(missing_ok=True)
+			if len(files) + len(claims) >= OUTBOX_FILES or size > OUTBOX_BYTES:
 				return None
 			path = box / f'{name}.gz'
 			path.write_bytes(data)
@@ -369,10 +384,11 @@ class ProductTelemetry:
 		except OSError:
 			return None
 
-	def _send_outbox(self) -> None:
+	def _outbox(self) -> list[Path]:
+		"""The outbox's files to send, oldest first: a dead sender's claims are back, files past OUTBOX_DAYS deleted."""
 		box = telemetry_dir() / 'outbox'
 		if not box.is_dir():
-			return
+			return []
 		for claim in box.glob('*.sending'):  # <run_id>.<pid>.sending: a sender that died mid-send (killed, or this
 			try:  # thread at exit) left its claim, and nothing else would ever send it
 				pid = int(claim.name.split('.')[1])
@@ -380,14 +396,24 @@ class ProductTelemetry:
 					os.replace(claim, box / (claim.name.split('.')[0] + '.gz'))
 			except (OSError, ValueError, IndexError):
 				continue
-		files = sorted(box.glob('*.gz'), key=lambda p: p.stat().st_mtime)
+		files: list[tuple[float, Path]] = []
+		for path in box.glob('*.gz'):
+			try:
+				mtime = path.stat().st_mtime
+				if time.time() - mtime > OUTBOX_DAYS * 86400:
+					path.unlink()
+				else:
+					files.append((mtime, path))
+			except OSError:  # another process claimed it
+				continue
+		return [path for _, path in sorted(files, key=lambda e: e[0])]
+
+	def _send_outbox(self) -> None:
+		files = self._outbox()
 		for i, path in enumerate(files):
 			if path.stem in self._pending:  # this process's own queued event, written at exit: the exit sender sends it
 				continue
 			try:
-				if time.time() - path.stat().st_mtime > OUTBOX_DAYS * 86400:
-					path.unlink()
-					continue
 				claimed = path.with_suffix(f'.{os.getpid()}.sending')
 				os.replace(path, claimed)  # another process may be sending the same box
 			except OSError:
@@ -461,15 +487,18 @@ class ProductTelemetry:
 				os.replace(claimed, path)
 
 	def _at_exit(self) -> None:
-		"""Events still queued go to a detached sender, so exit does not wait for the network (~10 ms to spawn)."""
+		"""Events still queued go to a detached sender, so exit does not wait for the network (~10 ms to spawn). The
+		outbox earlier processes left goes with them: a short-lived process (the CLI) exits before its thread sends it."""
 		try:
 			jobs = list(self._pending.values())
 			if not jobs or os.getpid() != self._pid:
 				return
+			backlog = self._outbox()
 			files = [self._to_outbox(self._body([self._event(job)]), job.run_id) for job in jobs]
 			for job in jobs:
 				self._unmark(job.run_id)
 			files = [str(f) for f in files if f is not None]
+			files += [str(f) for f in backlog]
 			if not files:
 				return
 			kw: dict[str, Any] = {'stdin': subprocess.DEVNULL, 'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}
