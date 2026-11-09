@@ -39,7 +39,6 @@ from browser_use.llm import (
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets
 from browser_use.search import WebSearch, search_url
-from browser_use.telemetry import flags
 from browser_use.telemetry.recorder import RunRecorder, now
 from browser_use.tools import Tools
 from browser_use.utils import raise_fd_limit
@@ -298,7 +297,6 @@ class Agent:
 		self._custom_workspace = workspace is not None
 		self._downloads: list[Path] = []  # what the last stop() copied from a cloud browser (telemetry counts them)
 		self._sync = False  # the current run came from run_sync()
-		self._flags: dict[str, Any] = {}  # knob values of the current run (telemetry/flags.py)
 
 	@property
 	def workspace(self) -> Path:
@@ -371,7 +369,6 @@ class Agent:
 				)
 			),
 			max_context_chars=self.max_context_chars,
-			**({'compact_at_tokens': t} if (t := self._flags.get('compact_at_tokens')) is not None else {}),  # a knob, when set
 			mode=self.mode,
 			tools=self.tools.functions if self.tools else (),
 			model_settings=settings,
@@ -416,7 +413,6 @@ class Agent:
 	async def _run(self, max_steps: int, timeout: float) -> AgentHistoryList:
 		self._check_task()
 		raise_fd_limit()  # before the first socket: many concurrent Agents exceed macOS's default 256 open files
-		self._flags, flag_src, assigned = flags.resolve()  # fixed for this run
 		if self._agent is None:
 			self._build()
 		started, result, error_type, session, browser_s = time.monotonic(), None, None, None, None
@@ -479,19 +475,8 @@ class Agent:
 				)
 			history, self._continue = (self._history if self._continue else None), False
 			compacted = self._compacted if history else {}
-			knobs = self._flags
 			session = Session(
-				repl=self._repl,
-				timeout_s=timeout,
-				max_steps=max_steps,
-				vision=self.use_vision,
-				rec=rec,
-				cell_timeout_s=knobs['cell_timeout_s'],
-				keep_images=knobs['keep_image_results'],
-				model_timeout_s=knobs['model_timeout_s'],
-				delivery_frac=knobs['delivery_frac'],
-				compact_frac=knobs['client_compact_frac'],
-				**compacted,
+				repl=self._repl, timeout_s=timeout, max_steps=max_steps, vision=self.use_vision, rec=rec, **compacted
 			)
 			phase = 'loop'
 			result = await run(
@@ -535,7 +520,6 @@ class Agent:
 			finally:
 				rec.phase('shutdown', now() - t)
 				meta = {'run_id': run_id, 'rec': rec, 'phase': phase, 'number': number, 'concurrent': concurrent}
-				meta.update(flag_src=flag_src, assigned=assigned)
 				self._capture(result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started, meta)
 
 	def _failed(self, error: str, started: float) -> AgentHistoryList:
@@ -690,7 +674,6 @@ class Agent:
 			'compaction_mode': 'server' if kind == 'responses' else 'client',
 			'context_window': window if isinstance(window, int) and not isinstance(window, bool) else None,
 			'sync': self._sync,
-			'flags': {k: 'auto' if v is None else str(v) for k, v in self._flags.items()},
 		}
 
 	def _telemetry_started(self, run_id: str, rec: RunRecorder, max_steps: int, timeout: float) -> None:
@@ -789,13 +772,11 @@ class Agent:
 				'cost_usd': result.cost_usd if result else None,
 				'run_in_process': meta['number'],
 				'concurrent_runs': meta['concurrent'],
-				'flags_src': meta['flag_src'],
 				'error_phase': phase,
 				'budget_hit': budget_hit,
 			}
 			known = rec.known
 			function_tools = known - {'finish', 'finish_from_repl'}
-			assigned = meta['assigned']
 			total_ms = int(duration * 1000)
 
 			def build(steps: int, keys: int) -> dict[str, Any]:
@@ -836,7 +817,7 @@ class Agent:
 					downloads=len(downloads),
 					download_exts=top(Counter(download_ext(p) for p in downloads), keys),
 				)
-				return {**event.properties, **{f'$feature/{k}': v for k, v in assigned.items()}}
+				return event.properties
 
 			telemetry().capture_run(Job('agent_event', build, run_id=meta['run_id']))
 		except Exception as e:  # - telemetry never breaks a run

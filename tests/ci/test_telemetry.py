@@ -4,10 +4,12 @@ sending happens off the agent path, ANONYMIZED_TELEMETRY=false sends and writes 
 
 import atexit
 import gzip
+import importlib.util
 import json
 import os
 import random
 import re
+import socket
 import statistics
 import string
 import subprocess
@@ -77,15 +79,22 @@ def sent(monkeypatch):
 
 @pytest.fixture
 def posthog(monkeypatch, tmp_path):
-	"""A local PostHog: the real sender (thread, gzip, /batch/) posts here. events() waits for n agent_events."""
+	"""A local PostHog: the real sender (thread, gzip, /batch/) posts here. events() waits for n agent_events. With
+	down set it answers 503 and keeps nothing; attempts counts the /batch/ posts either way."""
 	import browser_use.telemetry.service as service
-	from browser_use.telemetry import flags
 
 	bodies: list[str] = []
+	state = SimpleNamespace(down=False, attempts=0)
 
 	class Capture(BaseHTTPRequestHandler):
 		def do_POST(self):
 			raw = self.rfile.read(int(self.headers['Content-Length']))
+			if self.path.startswith('/batch/'):
+				state.attempts += 1
+			if state.down:
+				self.send_response(503)
+				self.end_headers()
+				return
 			bodies.append((gzip.decompress(raw) if self.headers.get('Content-Encoding') == 'gzip' else raw).decode())
 			self.send_response(200)
 			self.end_headers()
@@ -102,7 +111,6 @@ def posthog(monkeypatch, tmp_path):
 	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(config))
 	monkeypatch.setenv('BROWSER_USE_DEVICE_ID', 'bu-test-device')
 	monkeypatch.setattr(service, '_device_id', None)
-	monkeypatch.setattr(flags, '_cache', None)
 	instance = service.ProductTelemetry()
 	monkeypatch.setattr(service, '_instance', instance)
 
@@ -115,10 +123,24 @@ def posthog(monkeypatch, tmp_path):
 			time.sleep(0.02)
 		raise AssertionError(f'{len(bodies)} bodies arrived, wanted {n} events')
 
-	yield SimpleNamespace(bodies=bodies, events=events, telemetry=instance, config=config, server=server)
+	yield SimpleNamespace(bodies=bodies, events=events, telemetry=instance, config=config, server=server, state=state)
 	instance._pending.clear()
 	atexit.unregister(instance._at_exit)
+	# a thread left running wrote its failed send into the next test's outbox and retried to the next test's PostHog
+	stopped = instance.stop()
 	server.shutdown()
+	assert stopped, 'the telemetry thread outlived its test'
+
+
+@pytest.fixture
+def dead_posthog(posthog, monkeypatch):
+	"""A PostHog that accepts and never answers: an event stays queued. Closed at teardown, before posthog waits for the
+	thread, which ends the sends in flight."""
+	import browser_use.telemetry.service as service
+
+	with socket.create_server(('127.0.0.1', 0)) as server:
+		monkeypatch.setattr(service, 'POSTHOG_HOST', f'http://127.0.0.1:{server.getsockname()[1]}')
+		yield posthog
 
 
 def no_browser(monkeypatch) -> None:
@@ -392,6 +414,40 @@ def test_host_keeps_real_hostnames_and_ips():
 	assert host('https://x.com\\@zqother.example/') == 'x.com'  # Chrome reads a backslash as a slash
 	assert host('http://[::1]:9222/json') == '::1' and host('ws://chrome:9222/devtools') == 'chrome'
 	assert host('http://192.168.1.20/') == '192.168.1.20' and host('https://my_host.internal/') == 'my_host.internal'
+
+
+@pytest.mark.parametrize(
+	'url, sent',
+	[
+		('https://zq-quiet-river.trycloudflare.com/admin', '*.trycloudflare.com'),
+		('https://zq1a2b3c.ngrok-free.app/', '*.ngrok-free.app'),
+		('https://zq1a2b3c.ngrok.io/', '*.ngrok.io'),
+		('https://zq1a2b3c.ngrok.app/', '*.ngrok.app'),
+		('https://zq-tidy-cat.loca.lt/', '*.loca.lt'),
+		('https://zqabc123def.lambda-url.us-east-1.on.aws/', '*.lambda-url.us-east-1.on.aws'),
+		('https://zqshop-k3j2h1g0f-acme.vercel.app/', '*.vercel.app'),
+		('https://zqshop-git-fix-login-acme.vercel.app/', '*.vercel.app'),
+		('https://deploy-preview-42--zqsite.netlify.app/', '*.netlify.app'),
+		('https://zq-user-repo-5x7.github.dev/', '*.github.dev'),
+		('https://zq-user-repo-5x7-3000.app.github.dev/', '*.app.github.dev'),
+		('https://8080-zquser-repo-ab12.ws-eu110.gitpod.io/', '*.gitpod.io'),
+		('https://zqapp.zquser.repl.co/', '*.repl.co'),
+		('https://zq4f9k2.csb.app/', '*.csb.app'),
+		('https://myapp.vercel.app/', 'myapp.vercel.app'),  # a production deploy: public
+		('https://mysite.netlify.app/', 'mysite.netlify.app'),
+		('https://github.dev/', 'github.dev'),
+	],
+)
+def test_a_hostname_that_alone_grants_access_is_sent_as_its_provider(url, sent):
+	"""Privacy red team: a tunnel to the developer's machine, a cloud IDE's forwarded port, a Lambda function URL or a
+	preview deploy is reachable by whoever knows its name, and domains, host_stats and s_host sent that name."""
+	from browser_use.repl.worker import CellStats
+
+	assert host(url) == sent
+	s = CellStats()
+	s.url(url, navigation=True)
+	assert s.take()['hosts'] == [sent]
+	assert cdp_category(host(url.replace('https', 'wss'))) == 'public-other'
 
 
 def test_a_custom_endpoint_sends_the_provider_name_not_its_base_url_and_a_local_model_path_as_its_last_segment():
@@ -682,7 +738,6 @@ async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, sit
 	assert p['ms_total'] >= p['ms_cells'] > 0 and p['ms_cells'] >= p['ms_helpers'] > 0 and p['ms_cdp'] > 0
 	assert p['ms_model'] >= 0 and p['ms_other'] >= 0 and p['model_attempts'] == 5 and p['s_ttft_ms'] == [-1] * 5
 	assert p['first_nav_step'] == 1 and p['first_nav_ms'] >= 0 and p['first_ok_action_ms'] is not None
-	assert p['flags']['cell_timeout_s'] == '120.0' and set(p['flags_src'].values()) == {'d'}
 	assert 0 < p['tel_bytes'] < 64 * 1024 and p['tel_build_us'] > 0 and p['tel_steps_dropped'] == 0
 	assert not list(posthog.config.glob('telemetry/inflight/*')) and not list(posthog.config.glob('telemetry/outbox/*'))
 
@@ -730,7 +785,6 @@ async def test_every_field_sent_is_documented_and_every_documented_field_exists(
 	from browser_use.telemetry.views import AgentTelemetryEvent
 
 	no_browser(monkeypatch)
-	monkeypatch.setenv('BROWSER_USE_FLAG_KEEP_IMAGE_RESULTS', '3')
 	model, _ = script(('python', {'code': 'x = 1'}), ('finish', {'success': True, 'result': 'ok'}))
 	await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()
 	(props,) = sent
@@ -746,31 +800,27 @@ async def test_every_field_sent_is_documented_and_every_documented_field_exists(
 		*'completed timeout max_steps error cancelled crashed finish finish_from_repl text preflight browser_start model'.split(),
 		*'cell delivery budget shutdown browser_gone responses chat anthropic google other server client edge custom'.split(),
 		*'invalid screenshot type_secret search downloads wait wait_for_load wait_for_network_idle wait_for_element'.split(),
-		*'solve_captcha checkpoint keep_image_results cell_timeout_s compact_at_tokens client_compact_frac delivery_frac'.split(),
-		*'model_timeout_s provider_transient model_timeout context_overflow compaction_unreadable delivery_placeholder'.split(),
+		*'solve_captcha checkpoint provider_transient model_timeout context_overflow compaction_unreadable'.split(),
+		*'delivery_placeholder'.split(),
 		*'delivery_missing_files finish_expr_error finish_schema text_repair text_tool_markup text_schema tool_args'.split(),
 		*'custom_tool stop tool_call length content_filter captcha nav interact files read compute none deliver'.split(),
 		*'rate_limit_exceeded executable_path allowed_domains prohibited_domains device_id type_text fill_input'.split(),
 		*'bu-auto gpt-6-luna CellTimeout WorkerExited PreflightError ValueError ModelHTTPError Tools'.split(),
 	}
 	assert not extra - words, f'documented, not a field: {sorted(extra - words)}'
-	assert props['flags']['keep_image_results'] == '3' and props['flags_src']['keep_image_results'] == 'e'
-	assert not any(k.startswith('$feature/') for k in props)
+	assert not [k for k in props if k.startswith(('$feature', 'flag'))]  # no feature flags in 1.0
 
 
 async def test_telemetry_off_sends_fetches_and_writes_nothing(tmp_path, monkeypatch):
-	"""ANONYMIZED_TELEMETRY=false: no network call, no subprocess, no thread, no file (no device_id, flags.json,
-	inflight marker or outbox), not even with remote flags asked for."""
+	"""ANONYMIZED_TELEMETRY=false: no network call, no subprocess, no thread, no file (no device_id, inflight marker or
+	outbox)."""
 	import urllib.request
 
 	import browser_use.telemetry.service as service
-	from browser_use.telemetry import flags
 
 	config = tmp_path / 'config'
 	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
 	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(config))
-	monkeypatch.setenv('BROWSER_USE_REMOTE_FLAGS', 'true')
-	monkeypatch.setattr(flags, '_cache', None)
 	monkeypatch.setattr(service, '_device_id', None)
 	instance = service.ProductTelemetry()
 	monkeypatch.setattr(service, '_instance', instance)
@@ -785,7 +835,6 @@ async def test_telemetry_off_sends_fetches_and_writes_nothing(tmp_path, monkeypa
 	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
 	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path / 'ws').run()).status == 'completed'
 	instance._at_exit()
-	assert flags.resolve()[1] == dict.fromkeys(flags.KNOBS, 'd')
 	assert 'browser-use-telemetry' not in {t.name for t in threading.enumerate()} - threads
 	assert instance._thread is None and not instance._pending
 	assert not [p for p in config.rglob('*') if p.is_file()]
@@ -887,12 +936,9 @@ def test_a_1000_step_run_builds_under_50_ms_and_fits_64_kb():
 	assert built['properties']['s_t'][49] == 49_000 and built['properties']['s_t'][50] == 850_000  # first 50, last 150
 
 
-async def test_run_end_does_not_wait_for_a_dead_posthog(posthog, tmp_path, monkeypatch):
+async def test_run_end_does_not_wait_for_a_dead_posthog(dead_posthog, tmp_path, monkeypatch):
 	"""v2 called posthog's flush() in run()'s finally: up to 10 s with PostHog unreachable, plus a 65 ms import. Now the
 	end of a run only queues the event: _capture and the run-start marker take well under 50 ms, PostHog dead or not."""
-	import browser_use.telemetry.service as service
-
-	monkeypatch.setattr(service, 'POSTHOG_HOST', 'http://10.255.255.1')  # never answers
 	no_browser(monkeypatch)
 	took = {}
 	for name in ('_capture', '_telemetry_started'):
@@ -922,6 +968,7 @@ marks = []
 import browser_use.telemetry.service as service
 service.POSTHOG_HOST = sys.argv[1]
 from browser_use.telemetry.views import AgentTelemetryEvent
+service.ProductTelemetry._loop = lambda self: None  # only the exit path: the thread racing it is tested apart
 t = service.telemetry()
 t.capture(AgentTelemetryEvent(version='1', source='pip', model='exit-test', run_id=os.urandom(16).hex()))
 atexit.register(lambda: marks.append(time.perf_counter()))  # runs first: before telemetry's own handler
@@ -931,13 +978,14 @@ atexit.register(lambda: marks.append(time.perf_counter()))  # runs first: before
 @pytest.mark.parametrize('live', [False, True])
 def test_a_one_shot_script_exits_fast_and_its_event_still_arrives(posthog, live, tmp_path):
 	"""A script that runs one Agent and exits: telemetry's exit handler hands the queued event to a detached sender
-	(< 150 ms), and the event reaches PostHog after the process is gone. With PostHog unreachable it waits in the
-	outbox for the next process."""
+	(< 150 ms), and the event reaches PostHog after the process is gone. With PostHog down it waits in the outbox for
+	the next process."""
 	import browser_use.telemetry.service as service
 
-	host = service.POSTHOG_HOST if live else 'http://127.0.0.1:9'  # port 9: nothing listens
+	posthog.state.down = not live
 	env = {**os.environ, 'ANONYMIZED_TELEMETRY': 'true', 'BROWSER_USE_CONFIG_DIR': str(posthog.config)}
-	out = subprocess.run([sys.executable, '-c', EXIT_SCRIPT, host], env=env, capture_output=True, text=True, timeout=60)
+	cmd = [sys.executable, '-c', EXIT_SCRIPT, service.POSTHOG_HOST]
+	out = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
 	assert 'EXIT' in out.stdout, (out.stdout, out.stderr[-3000:])
 	exit_ms = float(re.search(r'EXIT ([\d.]+)', out.stdout)[1])
 	print(f'\nexit handler with a queued event: {exit_ms:.1f} ms')
@@ -950,14 +998,39 @@ def test_a_one_shot_script_exits_fast_and_its_event_still_arrives(posthog, live,
 			time.sleep(0.05)
 		assert not list(posthog.config.glob('telemetry/outbox/*'))
 	else:
-		deadline = time.monotonic() + 15  # the detached sender tried and put it back
-		while time.monotonic() < deadline and not list(posthog.config.glob('telemetry/outbox/*.gz')):
+		outbox = posthog.config / 'telemetry' / 'outbox'
+		deadline = time.monotonic() + 15  # the detached sender tried (the only poster) and put the file back
+		while time.monotonic() < deadline and not (posthog.state.attempts and not list(outbox.glob('*.sending'))):
 			time.sleep(0.05)
-		time.sleep(0.5)
-		assert len(list(posthog.config.glob('telemetry/outbox/*.gz'))) == 1
+		assert posthog.state.attempts == 1 and len(list(outbox.glob('*.gz'))) == 1, (posthog.state, list(outbox.iterdir()))
+		posthog.state.down = False
 		posthog.telemetry._send_outbox()  # what the next process's telemetry thread does first
 		(event,) = posthog.events()
 		assert event['properties']['model'] == 'exit-test' and not list(posthog.config.glob('telemetry/outbox/*'))
+
+
+def test_an_outbox_file_a_dead_sender_claimed_is_sent_and_one_this_process_still_owns_is_not(posthog):
+	"""CI (ubuntu, windows): a one-shot script's telemetry thread, starting while the exit handler wrote the outbox, claimed
+	the file (<run_id>.<pid>.sending) and died at exit mid-send; the detached sender found nothing, and nothing ever sent
+	a .sending file again: the event was lost. Now a dead sender's claim goes back to the box, a live one's is left, and
+	the thread leaves the files of this process's own queued events to the exit sender."""
+	from browser_use.telemetry.service import Job
+
+	dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+	dead.wait()
+	box = posthog.config / 'telemetry' / 'outbox'
+	box.mkdir(parents=True)
+	t = posthog.telemetry
+	body = lambda model: t._body([t._event(Job('agent_event', lambda s, k: {'model': model}))])  # noqa: E731
+	(box / f'{uuid.uuid4().hex}.{dead.pid}.sending').write_bytes(body('stranded'))
+	live = box / f'{uuid.uuid4().hex}.{os.getppid()}.sending'  # a sender still running: its send, not ours
+	live.write_bytes(body('in-flight'))
+	own = Job('agent_event', lambda s, k: {'model': 'own'})
+	t._pending[own.run_id] = own
+	(box / f'{own.run_id}.gz').write_bytes(body('own'))
+	t._send_outbox()
+	assert [e['properties']['model'] for e in posthog.events()] == ['stranded']
+	assert sorted(p.name for p in box.iterdir()) == sorted([live.name, f'{own.run_id}.gz'])
 
 
 def test_a_send_that_fails_goes_to_the_outbox_and_is_counted(posthog, monkeypatch):
@@ -1017,104 +1090,6 @@ async def test_a_run_in_progress_has_a_marker_that_goes_away_when_its_event_is_s
 	(marker,) = markers
 	assert 'Zq-marker-task-text' not in marker and json.loads(marker)['props']['run_id'] == event['properties']['run_id']
 	assert not list(posthog.config.glob('telemetry/inflight/*'))
-
-
-# --- flags ---
-
-
-def test_flags_env_wins_values_are_clamped_and_bad_values_fall_back(monkeypatch):
-	from browser_use.telemetry import flags
-
-	monkeypatch.setenv('BROWSER_USE_FLAG_CELL_TIMEOUT_S', '9999')
-	monkeypatch.setenv('BROWSER_USE_FLAG_KEEP_IMAGE_RESULTS', 'lots')
-	monkeypatch.setenv('BROWSER_USE_FLAG_DELIVERY_FRAC', 'nan')
-	values, src, assigned = flags.resolve()
-	assert (values['cell_timeout_s'], src['cell_timeout_s']) == (300.0, 'e')
-	assert (values['keep_image_results'], src['keep_image_results']) == (2, 'd')
-	assert (values['delivery_frac'], values['compact_at_tokens'], assigned) == (0.9, None, {})
-
-
-def test_remote_flags_come_from_the_cache_only_when_turned_on(monkeypatch, tmp_path):
-	from browser_use.telemetry import flags
-
-	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
-	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(tmp_path))
-	(tmp_path / 'flags.json').write_text(
-		json.dumps({'fetched': time.time(), 'flags': {'bu1-keep-image-results': '4', 'bu1-model-timeout-s': 5}})
-	)
-	monkeypatch.setattr(flags, '_cache', None)
-	assert flags.resolve()[1]['keep_image_results'] == 'd'  # off by default (REMOTE)
-	monkeypatch.setenv('BROWSER_USE_REMOTE_FLAGS', 'true')
-	values, src, assigned = flags.resolve()
-	assert (values['keep_image_results'], src['keep_image_results']) == (4, 'r')
-	assert values['model_timeout_s'] == 120.0  # clamped up to its minimum
-	assert assigned == {'bu1-keep-image-results': '4', 'bu1-model-timeout-s': '5'}
-	monkeypatch.setenv('BROWSER_USE_FLAG_KEEP_IMAGE_RESULTS', '1')
-	assert flags.resolve()[0]['keep_image_results'] == 1  # env beats remote
-
-
-def test_remote_flag_fetch_runs_once_per_ttl_and_a_failure_is_not_retried(monkeypatch, tmp_path):
-	import urllib.request
-
-	from browser_use.telemetry import flags
-
-	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
-	monkeypatch.setenv('BROWSER_USE_REMOTE_FLAGS', 'true')
-	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(tmp_path))
-	monkeypatch.setattr(flags, '_cache', None)
-	calls = []
-
-	class Answer:
-		def __init__(self, body):
-			self.body = body
-
-		def read(self):
-			return json.dumps(self.body).encode()
-
-		def __enter__(self):
-			return self
-
-		def __exit__(self, *a):
-			pass
-
-	def urlopen(request, timeout):
-		calls.append((request.full_url, json.loads(request.data), timeout))
-		if len(calls) == 1:
-			raise OSError('offline')
-		flag = {'enabled': True, 'variant': 'test', 'metadata': {'payload': '3'}}
-		return Answer({'flags': {'bu1-keep-image-results': flag, 'other-flag': flag, 'bu1-off': {'enabled': False}}})
-
-	monkeypatch.setattr(urllib.request, 'urlopen', urlopen)
-	flags.refresh('https://ph.example', 'phc_key', 'dev')
-	flags.refresh('https://ph.example', 'phc_key', 'dev')  # within the TTL after a failure: no second request
-	assert len(calls) == 1 and calls[0] == ('https://ph.example/flags?v=2', {'api_key': 'phc_key', 'distinct_id': 'dev'}, 1.5)
-	cache = json.loads((tmp_path / 'flags.json').read_text())
-	cache['fetched'] -= flags.TTL_S + 1
-	(tmp_path / 'flags.json').write_text(json.dumps(cache))
-	monkeypatch.setattr(flags, '_cache', None)
-	flags.refresh('https://ph.example', 'phc_key', 'dev')
-	assert len(calls) == 2 and flags.cached()['flags'] == {'bu1-keep-image-results': 3}
-	assert flags.resolve()[0]['keep_image_results'] == 3
-
-
-async def test_a_flag_value_reaches_the_run(sent, tmp_path, monkeypatch):
-	"""BROWSER_USE_FLAG_CELL_TIMEOUT_S sets the cell deadline the run uses (frozen at its start) and the event says so."""
-	from browser_use.agent import loop
-
-	no_browser(monkeypatch)
-	monkeypatch.setenv('BROWSER_USE_FLAG_CELL_TIMEOUT_S', '45')
-	used = []
-	original = loop.run
-
-	async def spy(agent, task, session, *args, **kwargs):
-		used.append(session.cell_timeout_s)
-		return await original(agent, task, session, *args, **kwargs)
-
-	monkeypatch.setattr('browser_use.agent.service.run', spy)
-	await Agent(
-		't', script(('finish', {'success': True, 'result': 'ok'}))[0], browser=Browser(local=True), workspace=tmp_path
-	).run()
-	assert used == [45.0] and sent[0]['flags']['cell_timeout_s'] == '45.0' and sent[0]['flags_src']['cell_timeout_s'] == 'e'
 
 
 # --- what the recorder derives ---
@@ -1242,7 +1217,9 @@ def test_cdp_methods_and_modules_allowed_are_the_protocols_and_the_installed_one
 		if m[:1].isupper() is False and not m.startswith('_') and callable(getattr(c, m))
 	}
 	assert len(methods) > 500 and all(known_cdp_method(m) for m in methods)
-	assert all(known_module(m) for m in packages_distributions() if m.isidentifier())
+	# top_level.txt also lists names no import finds (pywin32's adsi lives in win32comext): those are not modules
+	importable = [m for m in packages_distributions() if m.isidentifier() and importlib.util.find_spec(m) is not None]
+	assert len(importable) > 50 and [m for m in importable if not known_module(m)] == []
 
 
 def test_no_test_can_send_to_the_real_posthog():
@@ -1253,7 +1230,7 @@ def test_no_test_can_send_to_the_real_posthog():
 	assert service.POSTHOG_HOST == 'http://127.0.0.1:9' and os.environ['BROWSER_USE_TELEMETRY_INTERNAL'] == '1'
 
 
-async def test_a_queued_event_does_not_keep_the_runs_messages_alive(posthog, tmp_path, monkeypatch):
+async def test_a_queued_event_does_not_keep_the_runs_messages_alive(dead_posthog, tmp_path, monkeypatch):
 	"""The event waits in the sender while PostHog is slow or down (7 s per event unreachable, up to 100 events). Its
 	build closure held the run's whole message history, screenshots included, and the thread's loop variable held the
 	last one even after it was sent: 1.6 MiB more per 200-step run here, measured with tracemalloc."""
@@ -1263,9 +1240,6 @@ async def test_a_queued_event_does_not_keep_the_runs_messages_alive(posthog, tmp
 	from pydantic_ai.messages import ModelResponse, ToolCallPart
 	from pydantic_ai.models.function import FunctionModel
 
-	import browser_use.telemetry.service as service
-
-	monkeypatch.setattr(service, 'POSTHOG_HOST', 'http://10.255.255.1')  # never answers: the event stays queued
 	no_browser(monkeypatch)
 	refs = []
 
@@ -1280,11 +1254,11 @@ async def test_a_queued_event_does_not_keep_the_runs_messages_alive(posthog, tmp
 		return r
 
 	r = await Agent('t', FunctionModel(fn), browser=Browser(local=True), workspace=tmp_path / 'ws').run()
-	assert r.status == 'completed' and posthog.telemetry._pending
+	assert r.status == 'completed' and dead_posthog.telemetry._pending
 	del r
 	gc.collect()
 	assert [ref() for ref in refs] == [None, None, None]
-	(job,) = posthog.telemetry._pending.values()
+	(job,) = dead_posthog.telemetry._pending.values()
 	props = job.build(200, 50)
 	assert props['tool_calls'] == {'python': 2, 'finish': 1} and props['retry_prompts'] == 0
 

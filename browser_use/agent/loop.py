@@ -127,16 +127,11 @@ class Session:
 	provider_retried: bool = False  # BrowserLoop: bu-pi's one provider retry per run is used
 	summaries: list[ModelResponse] = field(default_factory=list)  # summarizer responses, counted in usage and cost
 	rec: RunRecorder = field(default_factory=RunRecorder)  # telemetry, step by step (TELEMETRY.md)
-	# knobs (telemetry/flags.py); None: the module default
-	keep_images: int | None = None  # KEEP_IMAGE_RESULTS
-	model_timeout_s: float | None = None  # MODEL_TIMEOUT_S
-	delivery_frac: float = 0.9
-	compact_frac: float = 0.75  # client compaction past this share of max_chars
 
 	def delivery_at(self) -> float:
 		"""Seconds into the run at which the delivery-only turn starts: 90% of the budget, or earlier on a short budget
 		so the delivery request has up to 30 s (timeout=25 left it 2.5 s: the run ended empty)."""
-		return self.timeout_s - max(round(1 - self.delivery_frac, 6) * self.timeout_s, min(30.0, 0.5 * self.timeout_s))
+		return self.timeout_s - max(0.1 * self.timeout_s, min(30.0, 0.5 * self.timeout_s))
 
 	def partial(self) -> Any:
 		"""The last checkpoint(..., partial=True), secret values redacted. None when missing or unreadable."""
@@ -321,7 +316,7 @@ class BrowserLoop(AbstractCapability[Session]):
 	async def before_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
 		s = ctx.deps
 		s.messages = ctx.messages
-		pruned = _prune_images(ctx.messages, KEEP_IMAGE_RESULTS if s.keep_images is None else s.keep_images)
+		pruned = _prune_images(ctx.messages)
 		if pruned is not None:  # same pattern as ProcessHistory: new objects, persisted
 			ctx.messages[:] = pruned
 			request_context.messages = pruned.copy()
@@ -335,7 +330,7 @@ class BrowserLoop(AbstractCapability[Session]):
 				s.rec.delivery()
 				ctx.enqueue(DELIVER_NOW)
 		settings: dict[str, Any] = dict(request_context.model_settings or {})  # resolved before this hook
-		_deadlines(s, settings, request_context.model, s.model_timeout_s or MODEL_TIMEOUT_S)
+		_deadlines(s, settings, request_context.model, MODEL_TIMEOUT_S)
 		if s.finalizing:  # restrict this very request
 			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
 		request_context.model_settings = cast(Any, settings)
@@ -662,7 +657,7 @@ class Compaction(AbstractCapability[Session]):
 			return tokens >= self.token_threshold
 		max_chars = self.max_chars or (window * 4 if window else 240_000)
 		chars = _chars(_projected(s, messages)) + system
-		return chars > s.compact_frac * max_chars or bool(window and tokens > 0.65 * window)
+		return chars > 0.75 * max_chars or bool(window and tokens > 0.65 * window)
 
 	async def on_model_request_error(self, ctx: RunContext[Session], *, request_context: ModelRequestContext, error: Exception):
 		s = ctx.deps
@@ -882,8 +877,8 @@ def _is_image(c: Any) -> bool:
 	return isinstance(c, BinaryContent) and c.is_image
 
 
-def _prune_images(messages: list[ModelMessage], keep: int = KEEP_IMAGE_RESULTS) -> list[ModelMessage] | None:
-	"""Keep images only in the last `keep` tool results. Returns None when nothing changes."""
+def _prune_images(messages: list[ModelMessage]) -> list[ModelMessage] | None:
+	"""Keep images only in the last KEEP_IMAGE_RESULTS tool results. Returns None when nothing changes."""
 	out, seen, changed = list(messages), 0, False
 	for i in range(len(out) - 1, -1, -1):
 		m = out[i]
@@ -893,7 +888,7 @@ def _prune_images(messages: list[ModelMessage], keep: int = KEEP_IMAGE_RESULTS) 
 		for j, part in enumerate(parts):
 			if isinstance(part, ToolReturnPart) and isinstance(part.content, list) and any(map(_is_image, part.content)):
 				seen += 1
-				if seen > keep:
+				if seen > KEEP_IMAGE_RESULTS:
 					content = [('[older screenshot removed]' if _is_image(c) else c) for c in part.content]
 					parts[j] = replace(part, content=content)
 					out[i] = m = replace(m, parts=parts)

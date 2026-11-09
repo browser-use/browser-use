@@ -120,8 +120,6 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	sync: bool = False
 	run_in_process: int = 0
 	concurrent_runs: int = 0
-	flags: dict[str, str] = field(default_factory=dict)
-	flags_src: dict[str, str] = field(default_factory=dict)
 	# where the time went, in ms
 	ms_total: int = 0
 	ms_preflight: int = 0

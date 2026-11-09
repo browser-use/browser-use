@@ -2,8 +2,8 @@
 
 browser-use sends anonymized usage telemetry to PostHog so we can see which models, browsers and helpers work, where
 runs spend their time and where they fail. Turn it off with `ANONYMIZED_TELEMETRY=false` (any value not starting with
-`t`, `y` or `1`), for the library and the `browser-use` CLI alike. Off means off: no event, no feature-flag request, no
-background thread, no file written.
+`t`, `y` or `1`), for the library and the `browser-use` CLI alike. Off means off: no event, no background thread, no file
+written.
 
 ## Never sent
 
@@ -16,6 +16,10 @@ background thread, no file written.
 - full URLs: only the hostname of an http(s) URL is kept, and only when it is a DNS name or an IP address (a
   navigation to `https://the task as text/` records no host); paths, queries, fragments, ports, users and passwords
   are dropped. Revisited pages are detected by URL hashes kept inside the REPL worker; only counts leave it
+- hostnames that alone grant access: tunnels (`*.trycloudflare.com`, `*.ngrok-free.app`, `*.ngrok.io`, `*.ngrok.app`,
+  `*.loca.lt`, `*.devtunnels.ms`), cloud IDE ports (`*.github.dev`, `*.app.github.dev`, `*.gitpod.io`, `*.repl.co`,
+  `*.replit.dev`, `*.csb.app`), Lambda function URLs (`*.lambda-url.<region>.on.aws`) and preview deploys
+  (`*.vercel.app` names with a deploy id or `-git-`, `*.netlify.app` names with `--`) are sent as that provider pattern
 - CDP endpoints: only their kind (`browser-use-cloud`, `localhost`, `private`, `public-other`), never the hostname. A
   Browser Use cloud browser's CDP hostname is its id, and that alone can drive the browser
 - names the model's code chooses: a module that is neither in the standard library nor installed counts as `other`, an
@@ -47,7 +51,6 @@ cut at 64 characters. Times are integer milliseconds unless the name ends in `_s
 | browsing | `domains` (hostnames of pages the agent navigated to, or read with `page_info()`/`current_tab()` after its first navigation; never the tab `Browser('chrome')` attaches to before that, nor your other tabs), `domain_count`, `host_stats` (hostname -> `[steps, steps with an error, cell ms, captcha events, domain blocks, navigations, failed navigations]`, top 30), `navigations`, `revisit_navs` (navigations to a URL already seen), `nav_failures` (navigations that got Chrome's error page; that page, chrome-error://chromewebdata, is never counted as a host), `nav_errors` (Chrome net error code, such as ERR_NAME_NOT_RESOLVED, -> count, top 20; never the URL), `captcha_started`, `captcha_solved`, `captcha_failed` (Browser Use Cloud solver events), `domain_blocks` (navigations refused or blocked and tabs reset by `allowed_domains`/`prohibited_domains`), `downloads_started` (one per download, however many events announce it), `downloads` (cloud files copied; a cloud browser's copy of a JSON page it displayed is not copied), `download_exts` (extension -> count; `other` for one that is not a common file type, `none`) |
 | struggle | `max_err_streak` (longest run of consecutive steps with a failing cell), `err_streaks_3` (runs of 3 or more), `streak_err`, `streak_kind`, `streak_helper` (most common error class, step kind and first helper in the longest streak), `repeat_fail_steps` (a failing step with the same error class and helpers as the previous failing one), `repeat_code_steps` (a step whose code equals the previous step's), `max_host_streak` (consecutive steps on one host without a new page), `last_progress_step` (last step without an error that opened a new page that loaded, called `checkpoint()` or delivered: finish, or the run's final text reply), `wasted_steps` (steps after it) |
 | per step | parallel lists, one entry per model response, the first 50 and the last 150 of a longer run: `s_t` (ms from the run's start), `s_model_ms`, `s_ttft_ms` (-1 when not streamed), `s_in`, `s_out`, `s_cached`, `s_reason` (reasoning tokens, -1 when unknown), `s_finish` (stop, tool_call, length, content_filter, error, or empty), `s_tools` (comma-joined tool names), `s_cells`, `s_cell_ms`, `s_wait_ms`, `s_cdp_ms`, `s_err` (class of the step's last failing cell, or empty), `s_helpers` (up to 6 helpers, comma-joined, in first-use order), `s_kind` (deliver, captcha, nav, interact, search, files, wait, read, compute, none; a text reply is deliver), `s_host` (hostname the step ended on, as for `domains`), `s_nav`, `s_out_chars` (cell output length), `s_imgs` (screenshots sent to the model), `s_ev` (bits: 1 server compaction, 2 client compaction before the step, 4 after a failed attempt, 8 delivery-only turn, 16 captcha event, 32 domain block, 64 cell output cut, 128 new page, 256 same code as the previous step, 512 cell timeout or worker restart, 1024 failed navigation) |
-| flags | `flags` (knob -> value used, as text), `flags_src` (knob -> d default, e env, r remote), `$feature/bu1-<knob>` (a remotely assigned value; see Flags) |
 | telemetry | `tel_build_us` (time to build this event, in the telemetry thread), `tel_bytes` (its size), `tel_steps_dropped` (steps left out of the per-step lists), `tel_prev_send_fail` (sends that failed since the last success) |
 
 Maps and lists keep their 50 largest keys. An event over 64 KB keeps fewer steps (100, then 50, then none) and 20 keys
@@ -67,20 +70,7 @@ at its default).
 - Files, all under `~/.config/browseruse` (`BROWSER_USE_CONFIG_DIR` moves it), and only when telemetry is on:
   `device_id`; `telemetry/inflight/<run_id>.json` while a run is in progress (its configuration fields and step count,
   rewritten every 30 s, deleted when the event is sent; left behind only by a process that died); `telemetry/outbox/`
-  (events that could not be sent yet: at most 20 files and 512 KB, sent by the next process, deleted after 7 days);
-  `flags.json` (only with remote flags on).
-
-## Flags
-
-A few agent defaults are knobs an experiment can tune (`browser_use/telemetry/flags.py`): `keep_image_results`,
-`cell_timeout_s`, `compact_at_tokens`, `client_compact_frac`, `delivery_frac`, `model_timeout_s`. Only typed numbers,
-clamped to a range in the code; never strings, prompts, domains, URLs, secrets or telemetry settings. Per knob,
-`BROWSER_USE_FLAG_<NAME>` (e.g. `BROWSER_USE_FLAG_CELL_TIMEOUT_S=180`) wins, then a remote value, then the default.
-Values are fixed when a run starts.
-
-Remote values are off in this release (`BROWSER_USE_REMOTE_FLAGS=true` turns them on). When on, the telemetry thread
-asks PostHog for the device's `bu1-<knob>` flags (`POST https://eu.i.posthog.com/flags?v=2` with the device id) at
-most once per 24 hours, with a 1.5 s timeout, and caches them in `flags.json`; a run reads only that cache.
+  (events that could not be sent yet: at most 20 files and 512 KB, sent by the next process, deleted after 7 days).
 
 ## cli_event (the `browser-use` CLI)
 

@@ -39,10 +39,50 @@ DOWNLOAD_EXTS = frozenset(
 )
 
 
+# Hostnames that alone open something private: a tunnel to the developer's machine, a cloud IDE's forwarded port, a
+# Lambda function URL, a preview deploy. Sent as their provider ('*.trycloudflare.com'), never the name.
+CAPABILITY_SUFFIXES = (
+	'trycloudflare.com',
+	'ngrok-free.app',
+	'ngrok-free.dev',
+	'ngrok.io',
+	'ngrok.app',
+	'ngrok.dev',
+	'loca.lt',
+	'devtunnels.ms',
+	'app.github.dev',
+	'github.dev',
+	'gitpod.io',
+	'repl.co',
+	'replit.dev',
+	'csb.app',
+)
+# preview deploys only: a production site's name (myapp.vercel.app) is public and kept
+PREVIEW_HOSTS = {
+	'vercel.app': re.compile(r'.+-(?:git-|[a-z0-9]{9}-).+'),  # project-<9 char id>-team, project-git-<branch>-team
+	'netlify.app': re.compile(r'.+--.+'),  # deploy-preview-42--site, <deploy id>--site, <branch>--site
+}
+LAMBDA_URL = re.compile(r'.+\.lambda-url\.([a-z0-9-]+)\.on\.aws')
+
+
+def capability_host(hostname: str) -> str:
+	"""A hostname as sent: a tunnel, cloud IDE, Lambda function URL or preview deploy as '*.' + its provider's domain."""
+	for suffix in CAPABILITY_SUFFIXES:
+		if hostname.endswith('.' + suffix):
+			return '*.' + suffix
+	if m := LAMBDA_URL.fullmatch(hostname):
+		return f'*.lambda-url.{m[1]}.on.aws'
+	label, _, rest = hostname.partition('.')
+	if (preview := PREVIEW_HOSTS.get(rest)) and preview.fullmatch(label):
+		return '*.' + rest
+	return hostname
+
+
 def host(url: Any) -> str | None:
 	"""The hostname of an http(s) or ws(s) URL as the browser reads it (lowercase, punycode, IPs as addresses), without
-	user, password, port, path, query or fragment. None without one, and None when it is not a DNS name or an IP:
-	urlsplit() returns any text between // and the next / ('https://the task as text/') as the hostname."""
+	user, password, port, path, query or fragment; a capability hostname as its provider (capability_host). None without
+	one, and None when it is not a DNS name or an IP: urlsplit() returns any text between // and the next / ('https://the
+	task as text/') as the hostname."""
 	try:
 		u = parse_url(str(url))
 	except Exception:  # - a host idna cannot read: no host
@@ -53,7 +93,7 @@ def host(url: Any) -> str | None:
 		ipaddress.ip_address(u.host)
 		return u.host
 	except ValueError:
-		return u.host if len(u.host) <= 253 and HOSTNAME.fullmatch(u.host) else None
+		return capability_host(u.host) if len(u.host) <= 253 and HOSTNAME.fullmatch(u.host) else None
 
 
 def download_ext(path: Any) -> str:
@@ -104,10 +144,13 @@ def cdp_category(hostname: str | None) -> str | None:
 
 @cache
 def _site_dirs() -> tuple[str, ...]:
-	"""Where installed distributions live: this interpreter's site-packages (never the working directory)."""
+	"""Where installed distributions live: this interpreter's site-packages, and the folders inside it a .pth file put on
+	sys.path (pywin32: win32, win32/lib, pythonwin hold win32api, pywintypes, win32ui). Never the working directory."""
 	paths = sysconfig.get_paths()
 	dirs = {paths.get('purelib'), paths.get('platlib')}
 	dirs |= {p for p in sys.path if p and os.path.basename(os.path.normpath(p)) in ('site-packages', 'dist-packages')}
+	roots = [os.path.normcase(os.path.abspath(d)) + os.sep for d in dirs if d]
+	dirs |= {p for p in sys.path if p and os.path.normcase(os.path.abspath(p)).startswith(tuple(roots))}
 	return tuple(sorted(d for d in dirs if d))
 
 

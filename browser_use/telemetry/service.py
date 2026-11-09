@@ -41,7 +41,7 @@ EXIT_SENDER = (  # the detached process that sends what was still queued at exit
 	'url = sys.argv[1]\n'
 	'for path in sys.argv[2:]:\n'
 	'    try:\n'
-	'        claimed = path + ".sending"\n'
+	'        claimed = path[:-3] + f".{os.getpid()}.sending"\n'
 	'        os.replace(path, claimed)\n'
 	'        data = open(claimed, "rb").read()\n'
 	'        headers = {"Content-Type": "application/json", "Content-Encoding": "gzip"}\n'
@@ -109,8 +109,26 @@ class Job:
 
 
 def _alive(pid: int) -> bool:
-	if sys.platform == 'win32':  # os.kill(pid, 0) terminates the process on Windows: rely on the marker's age
-		return True
+	if sys.platform == 'win32':  # os.kill(pid, 0) would terminate it: ask Windows for its exit code instead
+		try:
+			import ctypes
+			from ctypes import wintypes
+
+			k = ctypes.WinDLL('kernel32', use_last_error=True)
+			k.OpenProcess.restype = wintypes.HANDLE
+			k.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+			k.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+			k.CloseHandle.argtypes = (wintypes.HANDLE,)
+			handle = k.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+			if not handle:
+				return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: someone else's; otherwise no such process
+			try:
+				code = wintypes.DWORD()
+				return not k.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value == 259  # STILL_ACTIVE
+			finally:
+				k.CloseHandle(handle)
+		except Exception:  # - unknown: alive, and the marker's age decides
+			return True
 	try:
 		os.kill(pid, 0)
 	except ProcessLookupError:
@@ -194,6 +212,16 @@ class ProductTelemetry:
 	def capture(self, event: BaseTelemetryEvent) -> None:
 		self.capture_run(Job(event.name, lambda steps, keys: event.properties))
 
+	def stop(self, timeout: float = 15.0) -> bool:
+		"""End the thread once it has done what it was doing (tests: no thread outlives the config dir and host of the
+		test that started it). Never called on the agent path."""
+		thread = self._thread
+		if thread is None or not thread.is_alive():
+			return True
+		self._q.put_nowait(('stop', ''))
+		thread.join(timeout)
+		return not thread.is_alive()
+
 	def flush(self, timeout: float = 5.0) -> bool:
 		"""Wait until everything queued was sent or given up (tests). Never called on the agent path."""
 		deadline = time.monotonic() + timeout
@@ -208,9 +236,6 @@ class ProductTelemetry:
 			self._warm()
 			self._send_outbox()
 			self._send_crashed()
-			from browser_use.telemetry import flags
-
-			flags.refresh(POSTHOG_HOST, POSTHOG_PROJECT_API_KEY, get_or_create_device_id())
 		except Exception as e:  # - a read-only disk, no network: carry on with the queue
 			logger.debug('telemetry start: %s', e)
 		while True:
@@ -220,6 +245,8 @@ class ProductTelemetry:
 				for run_id in list(self._active):
 					self._mark(run_id)
 				continue
+			if kind == 'stop':
+				return
 			try:
 				if kind == 'mark':
 					self._mark(run_id)
@@ -319,8 +346,17 @@ class ProductTelemetry:
 		box = telemetry_dir() / 'outbox'
 		if not box.is_dir():
 			return
+		for claim in box.glob('*.sending'):  # <run_id>.<pid>.sending: a sender that died mid-send (killed, or this
+			try:  # thread at exit) left its claim, and nothing else would ever send it
+				pid = int(claim.name.split('.')[1])
+				if pid != os.getpid() and not _alive(pid):
+					os.replace(claim, box / (claim.name.split('.')[0] + '.gz'))
+			except (OSError, ValueError, IndexError):
+				continue
 		files = sorted(box.glob('*.gz'), key=lambda p: p.stat().st_mtime)
 		for i, path in enumerate(files):
+			if path.stem in self._pending:  # this process's own queued event, written at exit: the exit sender sends it
+				continue
 			try:
 				if time.time() - path.stat().st_mtime > OUTBOX_DAYS * 86400:
 					path.unlink()
@@ -402,13 +438,13 @@ class ProductTelemetry:
 			files = [str(f) for f in files if f is not None]
 			if not files:
 				return
-			flags: dict[str, Any] = {'stdin': subprocess.DEVNULL, 'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}
+			kw: dict[str, Any] = {'stdin': subprocess.DEVNULL, 'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}
 			if sys.platform == 'win32':
-				flags['creationflags'] = 0x00000008 | 0x00000200 | 0x08000000  # DETACHED, NEW_PROCESS_GROUP, NO_WINDOW
+				kw['creationflags'] = 0x00000008 | 0x00000200 | 0x08000000  # DETACHED, NEW_PROCESS_GROUP, NO_WINDOW
 			else:
-				flags['start_new_session'] = True
+				kw['start_new_session'] = True
 			# if this fails (no subprocesses here), the files stay in the outbox and the next process sends them
-			subprocess.Popen([sys.executable, '-I', '-c', EXIT_SENDER, f'{POSTHOG_HOST}/batch/', *files], **flags)
+			subprocess.Popen([sys.executable, '-I', '-c', EXIT_SENDER, f'{POSTHOG_HOST}/batch/', *files], **kw)
 		except Exception as e:  # - exit must never fail because of telemetry
 			logger.debug('telemetry at exit: %s', e)
 
