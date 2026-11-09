@@ -3,6 +3,7 @@
 import json
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, cast
 
@@ -116,9 +117,9 @@ def reasoning(n: int) -> dict:
 	return {'type': 'reasoning', 'id': f'rs_{n}', 'summary': [], 'encrypted_content': f'sealed-reasoning-{n}'}
 
 
-def sse(response: dict) -> bytes:
-	"""The response as OpenAI and the gateway stream it: created, each output item (added, deltas, done), then
-	response.completed (or response.failed) carrying the whole response, usage and browser_use included."""
+def sse(response: dict) -> list[bytes]:
+	"""The response as OpenAI and the gateway stream it, one frame per event: created, each output item (added,
+	deltas, done), then response.completed (or response.failed) carrying the whole response, usage and browser_use."""
 	events: list[dict] = []
 
 	def emit(kind: str, **data: Any) -> None:
@@ -130,7 +131,7 @@ def sse(response: dict) -> bytes:
 	emit('response.created', response={**response, 'status': 'in_progress', 'output': [], 'usage': None})
 	if response['status'] == 'error':  # the gateway's frame for an upstream that failed mid-stream (openaistream ErrorSSE)
 		events.append({'type': 'error', 'sequence_number': 0, 'error': response['error']})
-		return b''.join(f'event: {e["type"]}\ndata: {json.dumps(e)}\n\n'.encode() for e in events)
+		return [f'event: {e["type"]}\ndata: {json.dumps(e)}\n\n'.encode() for e in events]
 	for i, item in enumerate(response['output']):
 		if item['type'] == 'message':
 			emit('response.output_item.added', output_index=i, item={**item, 'status': 'in_progress', 'content': []})
@@ -153,13 +154,14 @@ def sse(response: dict) -> bytes:
 		emit('response.output_item.done', output_index=i, item=item)
 	if response['status'] not in ('cut', 'drop'):  # the stream ends before its terminal event (cut: cleanly)
 		emit('response.failed' if response['status'] == 'failed' else 'response.completed', response=response)
-	return b''.join(f'event: {e["type"]}\ndata: {json.dumps(e)}\n\n'.encode() for e in events)
+	return [f'event: {e["type"]}\ndata: {json.dumps(e)}\n\n'.encode() for e in events]
 
 
 @pytest.fixture
 def responses_server():
 	"""The gateway's POST /responses: 400 on what it rejects, else the queued `replies` (output item lists, a dict of
-	response fields such as a failure, or an (HTTP status, body) error), then a finish call; streamed when the request asks for it. The response
+	response fields such as a failure, or an (HTTP status, body) error), then a finish call; streamed when the request asks for it,
+	slowly with pace=(s after response.created, s after each later event). The response
 	carries browser_use{resolved_model, service_tier, charge_usd} as the gateway's does. A non-streamed request gets
 	what the gateway answers one past its 300 s window: HTTP 200, status failed, request_timeout. A compaction item sent
 	back must be one a response carried (encrypted_content included), its id without 'unreadable', else OpenAI's 400."""
@@ -200,13 +202,20 @@ def responses_server():
 				}  # fmt: skip
 				issued.update((i['id'], i['encrypted_content']) for i in reply['output'] if i['type'] == 'compaction')
 			streamed = status == 200 and body.get('stream')
-			data = sse(reply) if streamed else json.dumps(reply).encode()
+			head, gap = reply.pop('pace', (0, 0))
+			frames = sse(reply) if streamed else [json.dumps(reply).encode()]
 			self.send_response(status)
 			self.send_header('Content-Type', 'text/event-stream' if streamed else 'application/json')
 			dropped = reply.get('status') == 'drop'  # the connection breaks: the body is shorter than its Content-Length
-			self.send_header('Content-Length', str(len(data) + (1000 if dropped else 0)))
+			self.send_header('Content-Length', str(sum(map(len, frames)) + (1000 if dropped else 0)))
 			self.end_headers()
-			self.wfile.write(data)
+			try:
+				for i, frame in enumerate(frames):
+					self.wfile.write(frame)
+					self.wfile.flush()
+					time.sleep(head if i == 0 else gap)
+			except (BrokenPipeError, ConnectionResetError):  # the client gave up on a slow stream
+				pass
 
 		def log_message(self, *args):
 			pass
@@ -349,6 +358,27 @@ async def test_a_responses_stream_that_ends_early_is_retried_once(responses_serv
 	replies += [cut, cut]
 	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
 	assert (result.status, len(requests)) == ('error', 2) and error in (result.error or ''), result
+
+
+async def test_a_streamed_turn_past_the_model_timeout_runs_while_events_flow(responses_server, tmp_path, monkeypatch):
+	"""L1 (gateway scale test): a streamed request had 300 s in all, as a non-streamed one. A bu-smart turn still
+	streaming at 300 s was cut and asked again; the gateway billed every cut attempt in full and cost_usd counted none
+	(staging: 5 cuts, $1.84 billed, cost_usd $0.0074). A streamed request now has the 300 s for its first event and runs
+	on while events flow. One that sends nothing is still cut at 300 s and asked again."""
+	from browser_use.agent import loop
+
+	monkeypatch.setattr(loop, 'MODEL_TIMEOUT_S', 1.0)  # stands in for 300 s
+	url, requests, replies = responses_server
+	model, _ = resolve_model(ChatBrowserUse('bu-smart', api_key='fake-test-key', base_url=url))
+	ref = 'browser-use:bu-smart'
+	replies.append({'output': [text('The answer is 42', 1)], 'pace': (0, 0.5)})  # first output at 0.5 s, done at 2 s
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
+	assert (result.status, result.output, len(requests)) == ('completed', 'The answer is 42', 1), result.error
+	assert result.cost_usd == pytest.approx(0.0002)
+	requests.clear()
+	replies.append({'output': [text('late', 1)], 'pace': (3, 0)})  # nothing after response.created for 3 s
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), ref)
+	assert (result.status, result.output, len(requests)) == ('completed', 'ok', 2), result.error
 
 
 async def test_a_responses_request_over_the_context_window_compacts_once_and_is_sent_again(responses_server, tmp_path):

@@ -14,7 +14,8 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable, Sequence
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, cast
 
@@ -88,6 +89,11 @@ TRANSIENT_FAILED_CODES = frozenset(
 	{'server_error', 'overloaded', 'request_timeout', 'upstream_stream_failed', 'model_request_failed'}
 )
 MODEL_TIMEOUT_S = 300  # bu-pi modelTimeoutMs: one model request, all its SDK attempts included
+# A streamed request (StreamResponses) gets MODEL_TIMEOUT_S for its first event, then runs while events flow, up to the
+# gateway's stream limit (15 min, llmGatewayStreamTimeout) plus 30 s, so the gateway's own end arrives first. 300 s in
+# all cut bu-smart turns that were still streaming and asked again; the gateway billed every cut attempt in full, and
+# cost_usd counted none of them (staging: 5 cuts, $1.84 billed, cost_usd $0.0074).
+STREAM_TIMEOUT_S = 930
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
 SECRET_PLACEHOLDER = re.compile(r'<secret>([^<]+)</secret>|<secret:([^>]+)>')  # 0.x's form, and 1.0 redaction's
@@ -310,9 +316,7 @@ class BrowserLoop(AbstractCapability[Session]):
 				s.finalizing = True
 				ctx.enqueue(DELIVER_NOW)
 		settings: dict[str, Any] = dict(request_context.model_settings or {})  # resolved before this hook
-		# bu-pi deadlineStream: a request that never answers must not hold the run past the delivery turn's start
-		left = (s.timeout_s if s.finalizing else s.delivery_at()) - (time.monotonic() - s.started)
-		settings['request_timeout'] = max(1.0, min(settings.get('request_timeout') or MODEL_TIMEOUT_S, left))
+		_deadlines(s, settings, request_context.model, MODEL_TIMEOUT_S)
 		if s.finalizing:  # restrict this very request
 			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
 		request_context.model_settings = cast(Any, settings)
@@ -419,15 +423,28 @@ class StreamedRequest(WrapperModel):
 
 	async def _request(self, messages: Any, model_settings: Any, model_request_parameters: Any) -> ModelResponse:
 		terminal: list[Any] = []
-		async with self.wrapped.request_stream(messages, model_settings, model_request_parameters) as stream:
-			if handle := getattr(stream, '_handle_terminal_response', None):  # Responses: the Response a terminal event carries
-				setattr(stream, '_handle_terminal_response', lambda r: (terminal.append(r), handle(r))[1])
+		# first_event_timeout (_deadlines) is enforced here: the agent sees a non-streamed request, so Pydantic AI skips it
+		wait = (model_settings or {}).get('first_event_timeout')
+		async with AsyncExitStack() as stack:
+			first_event = asyncio.timeout(wait)
 			try:
-				async for _ in stream:
-					pass
-			except ModelAPIError as e:  # the SDK retries a request until its stream opens, never a stream that broke off
-				e.in_stream = True  # BrowserLoop's one retry, as for any failure inside an HTTP 200
-				raise
+				async with first_event:  # opening the stream counts, as in Pydantic AI
+					stream = await stack.enter_async_context(
+						self.wrapped.request_stream(messages, model_settings, model_request_parameters)
+					)
+					if handle := getattr(
+						stream, '_handle_terminal_response', None
+					):  # Responses: the Response a terminal event carries
+						setattr(stream, '_handle_terminal_response', lambda r: (terminal.append(r), handle(r))[1])
+					events = _in_stream(stream)
+					stack.push_async_callback(events.aclose)
+					await anext(events, None)
+			except TimeoutError:
+				if not first_event.expired():
+					raise
+				raise ModelRequestTimeout(self.model_name, cast(float, wait), setting='first_event_timeout') from None
+			async for _ in events:
+				pass
 		response = stream.get()
 		# A stream closed before its terminal event (response.completed, .incomplete, .failed) is cut off, as a body
 		# that ended early: a half answer taken as the result, a half summary as the checkpoint, no usage or charge
@@ -470,6 +487,26 @@ def _unreadable_compaction(error: ModelAPIError, messages: Sequence[ModelMessage
 def _without_part(message: ModelResponse, item: str) -> ModelResponse:
 	parts = [p for p in message.parts if not (isinstance(p, CompactionPart) and p.id == item)]
 	return message if len(parts) == len(message.parts) else replace(message, parts=parts)
+
+
+async def _in_stream(stream: AsyncIterable[Any]) -> AsyncGenerator[Any]:
+	try:
+		async for event in stream:
+			yield event
+	except ModelAPIError as e:  # the SDK retries a request until its stream opens, never a stream that broke off
+		e.in_stream = True  # BrowserLoop's one retry, as for any failure inside an HTTP 200
+		raise
+
+
+def _deadlines(s: Session, settings: dict[str, Any], model: Model, wait_s: float) -> None:
+	"""request_timeout of one model request, and first_event_timeout of a streamed one (OpenAI Responses, streamed by
+	StreamResponses). A non-streamed request gets wait_s in all; a streamed one gets wait_s until its first event, then
+	STREAM_TIMEOUT_S in all. bu-pi deadlineStream: neither holds the run past the delivery turn's start."""
+	left = max(1.0, (s.timeout_s if s.finalizing else s.delivery_at()) - (time.monotonic() - s.started))
+	if isinstance(model, OpenAIResponsesModel):
+		settings['first_event_timeout'] = min(settings.get('first_event_timeout') or wait_s, left)
+		wait_s = STREAM_TIMEOUT_S
+	settings['request_timeout'] = min(settings.get('request_timeout') or wait_s, left)
 
 
 class LazyCompaction(OpenAICompaction):
@@ -731,14 +768,22 @@ async def _compact(s: Session, messages: list[ModelMessage], request_context: Mo
 	plain = redact(_plain(([s.checkpoint] if s.checkpoint else []) + messages[s.covered : cut]), s.repl.secrets)
 	# bu-pi: 12k output tokens, 120 s, low effort; a cache write for a one-off prompt is never read
 	inherited = (request_context.model_settings or {}).items()
-	dropped = ('tool_choice', 'parallel_tool_calls', 'cache', 'openai_context_management')
+	dropped = (
+		'tool_choice',
+		'parallel_tool_calls',
+		'cache',
+		'openai_context_management',
+		'request_timeout',
+		'first_event_timeout',
+	)
 	settings = {k: v for k, v in inherited if k not in dropped}
-	settings |= {'max_tokens': 12_000, 'request_timeout': 120}
+	settings['max_tokens'] = 12_000
+	model = request_context.model
+	_deadlines(s, settings, model, 120)
 	for key in ('thinking', 'openai_reasoning_effort'):
 		if settings.get(key) and settings[key] != 'none':
 			settings[key] = 'low'
 	prompt = f'<conversation>\n{json.dumps(plain, ensure_ascii=False)}\n</conversation>\n\n{SUMMARY_PROMPT}'
-	model = request_context.model
 	response = await model_request(
 		StreamedRequest(model) if isinstance(model, OpenAIResponsesModel) else model,  # as StreamResponses
 		[ModelRequest(parts=[UserPromptPart(prompt)], instructions=SUMMARY_SYSTEM)],
