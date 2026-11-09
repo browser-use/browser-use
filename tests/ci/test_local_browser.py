@@ -743,6 +743,33 @@ async def test_downloads_land_in_the_workspace_after_a_reattach(chrome_binary, t
 	assert [p.name for p in (tmp_path / 'downloads').iterdir()] == ['after.txt']
 
 
+async def test_a_download_in_the_agents_second_tab_reports_its_progress(chrome_binary, tmp_path):
+	"""RC local-1: Browser.setDownloadBehavior went to the daemon's tab session, and Chrome then sends Browser.download*
+	only for that tab's downloads. A download in the agent's second new_tab() never reported done, so stop() waited
+	DOWNLOADS_TIMEOUT_S (300 s) and warned that the finished file was lost."""
+	link = 'data:text/html,<a id=a href="data:text/plain,hello" download="second.txt">x</a>'
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
+	browser._downloads_dir = tmp_path / 'downloads'  # what Agent.run sets
+	await browser.start()
+	try:
+		assert browser.name
+		target = browser_mod._daemon_cdp(browser.name, 'Target.createTarget', url=link)['targetId']
+		session = browser_mod._daemon_cdp(browser.name, 'Target.attachToTarget', targetId=target, flatten=True)['sessionId']
+		browser_mod._daemon_request(browser.name, {'meta': 'set_session', 'session_id': session, 'target_id': target})
+		await asyncio.sleep(1)  # as new_tab() then wait_for_load()
+		browser_mod._daemon_cdp(browser.name, 'Runtime.evaluate', expression='document.getElementById("a").click()')
+		events, deadline = [], time.monotonic() + 10
+		while time.monotonic() < deadline and not any(
+			e['method'] == 'Browser.downloadProgress' and e['params'].get('state') == 'completed' for e in events
+		):
+			await asyncio.sleep(0.2)
+			events += browser_mod._daemon_request(browser.name, {'meta': 'drain_events'})['events']
+		assert 'Browser.downloadWillBegin' in {e['method'] for e in events}
+		assert any(e['method'] == 'Browser.downloadProgress' and e['params'].get('state') == 'completed' for e in events)
+	finally:
+		await browser.stop()
+
+
 async def test_two_fresh_browsers_run_side_by_side(chrome_binary):
 	from browser_harness import _ipc as ipc
 

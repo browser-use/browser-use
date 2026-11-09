@@ -656,6 +656,7 @@ class Browser:
 		# where stop() copies a cloud browser's downloads when not told: the workspace/downloads of the last Agent that
 		# ran on it (keep_alive leaves the stop, and so the copy, to a later browser.stop())
 		self._downloads_dir: Path | None = None
+		self._downloads_session: str | None = None  # the browser-level CDP session that set where downloads go
 		_install_cleanup()  # here too: the main thread, when start() runs on another
 
 	async def start(self) -> dict[str, str]:
@@ -719,8 +720,17 @@ class Browser:
 		Saved as <guid> and renamed once finished (utils.name_download): with 'allow' a repeated name overwrote the
 		earlier file. The REPL worker renames what finishes during a run, _finish_downloads what finishes after it."""
 		downloads.mkdir(parents=True, exist_ok=True)
+		cdp, params = self._cdp(), {'behavior': 'allowAndName', 'downloadPath': str(downloads), 'eventsEnabled': True}
 		try:
-			self._cdp()('Browser.setDownloadBehavior', behavior='allowAndName', downloadPath=str(downloads), eventsEnabled=True)
+			# On a browser session: the daemon sends other calls on its tab's session, and Chrome then reports
+			# Browser.download* only for that tab, so a download in the agent's second new_tab() stayed 'inProgress'
+			# and stop() waited DOWNLOADS_TIMEOUT_S. One session per daemon: each one would repeat every event.
+			with contextlib.suppress(RuntimeError):  # - the daemon that attached it is gone, and the setting with it
+				if self._downloads_session:
+					cdp('Browser.setDownloadBehavior', self._downloads_session, **params)
+					return
+			self._downloads_session = cdp('Target.attachToBrowserTarget')['sessionId']
+			cdp('Browser.setDownloadBehavior', self._downloads_session, **params)
 		except Exception as e:  # - downloads then go where Chrome puts them
 			logger.warning('Could not send downloads to %s: %s', downloads, e)
 
@@ -1062,7 +1072,7 @@ class Browser:
 
 	async def _finish_downloads(self) -> int:
 		"""Wait, up to DOWNLOADS_TIMEOUT_S, for downloads still running, which the stop would lose (cloud: never listed;
-		local: a .crdownload). Their state: the REPL workers' logs, then the daemon's Browser.downloadProgress events
+		local: a .crdownload). Their state: the REPL workers' logs, then the daemon's download progress events
 		since. Returns how many downloads of the session completed."""
 		for log in list(self._download_lines):  # what a worker logged after its run's note_downloads, before it closed
 			self.note_downloads(log)
@@ -1079,7 +1089,7 @@ class Browser:
 						continue
 					if method in ('Browser.downloadWillBegin', 'Page.downloadWillBegin'):  # began after the worker closed
 						names.setdefault(p['guid'], p.get('suggestedFilename'))
-					if method == 'Browser.downloadProgress':
+					if method in ('Browser.downloadProgress', 'Page.downloadProgress'):  # a tab may send only Page's
 						state[p['guid']] = p.get('state')
 					# finished after the worker closed: only this read saw the event, so no one else renames it
 					if method in ('Browser.downloadProgress', 'Page.downloadProgress') and p.get('state') == 'completed':

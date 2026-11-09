@@ -855,6 +855,31 @@ async def test_stop_waits_for_a_running_download_and_its_cloud_listing(cloud, mo
 	assert sorted(p.name for p in files) == ['a.pdf', 'b.zip'] and stops(cloud) == ['/browsers/b1']
 
 
+async def test_a_download_that_sends_only_page_events_never_holds_the_stop(monkeypatch, tmp_path):
+	"""RC local-1: a tab whose session never got Browser.setDownloadBehavior (Browser('chrome') on yours, a tab another
+	client attached) sends only Page.download* events. Their completion was never counted, so stop() waited
+	DOWNLOADS_TIMEOUT_S (300 s) and warned that the finished files were lost."""
+	from browser_use.repl import worker
+
+	def begin(guid):
+		return {
+			'method': 'Page.downloadWillBegin',
+			'params': {'guid': guid, 'url': f'https://h/{guid}', 'suggestedFilename': guid},
+		}
+
+	def done(guid):
+		return {'method': 'Page.downloadProgress', 'params': {'guid': guid, 'state': 'completed'}}
+
+	monkeypatch.setattr(worker, 'STATE', tmp_path)
+	worker.CellStats().observe([begin('a'), done('a'), begin('b')])  # b finishes after the REPL worker closed
+	monkeypatch.setattr(browser_mod, '_daemon_request', lambda name, req: {'events': [done('b')]})
+	monkeypatch.setattr(browser_mod, 'DOWNLOADS_TIMEOUT_S', 0)
+	browser = Browser('chromium')
+	browser._downloads_dir = tmp_path / 'downloads'
+	browser.note_downloads(tmp_path / 'downloads.jsonl')
+	assert await browser._finish_downloads() == 2
+
+
 async def test_a_cancelled_run_never_waits_for_a_running_download(cloud, monkeypatch, tmp_path):
 	"""Review: task.cancel() / Ctrl-C with a download still running held the stop (and cloud billing) for
 	DOWNLOADS_TIMEOUT_S, waiting for progress that would never be looked at."""
