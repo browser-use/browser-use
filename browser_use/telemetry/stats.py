@@ -330,6 +330,11 @@ def checked_methods(counts: Counter) -> Counter:
 	return out
 
 
+def is_internal() -> bool:
+	"""BROWSER_USE_TELEMETRY_INTERNAL: our own evals and tests, on every event they send."""
+	return os.getenv('BROWSER_USE_TELEMETRY_INTERNAL', '').strip().lower()[:1] in ('t', 'y', '1')
+
+
 def scrub_cli_event(payload: dict) -> dict:
 	"""A browser-harness event as the browser-use CLI sends it: without the piped code, its output, the helper
 	arguments and error text; helper names are kept as counts."""
@@ -342,5 +347,6 @@ def scrub_cli_event(payload: dict) -> dict:
 	clean['helper_errors'] = sum(1 for s in steps if s.get('error')) if steps else None
 	if 'cdp_url' in clean:
 		clean['cdp_url'] = cdp_category(clean['cdp_url'])  # a cloud browser's CDP hostname drives it
+	clean['is_internal'] = is_internal()
 	clean['schema_version'] = 2
 	return {**payload, 'properties': clean}

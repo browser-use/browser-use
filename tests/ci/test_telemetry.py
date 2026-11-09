@@ -531,6 +531,15 @@ def test_browser_use_cli_scrubs_what_browser_harness_sends(monkeypatch):
 	assert payload['properties']['helper_counts'] == {'js': 1}
 
 
+@pytest.mark.parametrize('internal', ['1', ''])
+def test_cli_event_is_marked_internal_like_the_agent_event(monkeypatch, internal):
+	"""Release smoke 11-09: BROWSER_USE_TELEMETRY_INTERNAL marked our evals' and tests' agent_event, never their
+	cli_event: CLI and MCP usage from our own CI and agents could not be told apart from users'."""
+	monkeypatch.setenv('BROWSER_USE_TELEMETRY_INTERNAL', internal)
+	props = scrub_cli_event({'event': 'cli_event', 'properties': {'command': 'script'}})['properties']
+	assert props['is_internal'] is bool(internal)
+
+
 @pytest.mark.parametrize('value, sends', [('n', False), ('disable', False), ('on', False), ('0', False), ('yes', True)])
 def test_cli_opt_out_values_match_the_library(monkeypatch, value, sends):
 	"""TELEMETRY.md: any value not starting with t, y or 1 turns it off. browser-harness alone sent with n, disable."""

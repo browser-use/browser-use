@@ -633,7 +633,7 @@ class Agent:
 
 	def _config(self, max_steps: int, timeout: float) -> dict[str, Any]:
 		"""The run's configuration fields (TELEMETRY.md): counts, bools, enums and names, never values or paths."""
-		from browser_use.telemetry.stats import cdp_category, host, model_id, provider_name
+		from browser_use.telemetry.stats import cdp_category, host, is_internal, model_id, provider_name
 
 		schema = self.output_model_schema
 		fields = getattr(schema, 'model_fields', None)
@@ -667,7 +667,7 @@ class Agent:
 			'cloud_timeout_min': browser.timeout if browser.use_cloud else None,
 			'live_view': bool(browser.live_view),
 			'domain_restrictions': bool(browser.domains),
-			'is_internal': os.getenv('BROWSER_USE_TELEMETRY_INTERNAL', '').strip().lower()[:1] in ('t', 'y', '1'),
+			'is_internal': is_internal(),
 			'web_search': self.web_search,
 			'use_vision': self.use_vision,
 			'highlight_actions': self.highlight_actions,
