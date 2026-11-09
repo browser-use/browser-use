@@ -52,7 +52,7 @@ Agent(
     mode=None,                   # default: 'ultrafast' on bu-fast / bu-ultrafast, else 'default'; 'ultrafast' = accessibility-tree helpers
     workspace=None,              # the agent's files; default a temp dir
 )
-await agent.run(max_steps=100, timeout=1700)  # max_steps >= 3; timeout in seconds for the agent loop
+await agent.run(max_steps=100, timeout=1700)  # max_steps >= 1; timeout in seconds for the agent loop
 agent.add_new_task('next task')                # the next run() continues the same conversation
 ```
 
@@ -70,7 +70,7 @@ ChatOpenAI('gpt-6-luna')                           # OPENAI_API_KEY; Responses A
 ChatOpenAI('my-model', base_url='http://localhost:8000/v1', api_key='x')  # any OpenAI-compatible server
 ChatAnthropic('claude-haiku-5-5')                  # ANTHROPIC_API_KEY
 ChatGoogle('gemini-3.5-flash')                     # GOOGLE_API_KEY
-Agent(task, llm='groq:llama-3.3-70b-versatile')    # any Pydantic AI model string, or a Pydantic AI Model
+Agent(task, llm='groq:llama-3.3-70b-versatile')    # any Pydantic AI model string (groq: pip install 'pydantic-ai-slim[groq]'), or a Pydantic AI Model
 ```
 
 ## Browser

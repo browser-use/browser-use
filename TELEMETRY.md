@@ -38,7 +38,8 @@ written.
 
 Every field is a number, a bool, an enum, a hostname, or a name chosen by browser-use, the developer, Python or an
 installed package (model id, helper, tool, module, exception class, CDP method), or a list or map of those. Names are
-cut at 64 characters. Times are integer milliseconds unless the name ends in `_seconds`.
+cut at 64 characters. Times are integer milliseconds unless the name ends in `_seconds`, except `timeout_s`
+(seconds), `cloud_timeout_min` (minutes) and `tel_build_us` (microseconds).
 
 | group | fields |
 |---|---|
