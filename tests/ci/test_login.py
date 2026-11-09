@@ -145,7 +145,7 @@ def test_missing_key_names_the_one_command(store):
 	from browser_use.auth import browser_use_api_key
 	from browser_use.exceptions import MissingAPIKeyError
 
-	with pytest.raises(MissingAPIKeyError, match='Run `browser-use login`'):
+	with pytest.raises(MissingAPIKeyError, match='BROWSER_USE_API_KEY'):
 		browser_use_api_key()
 	# piped CLI code: browser-harness's own message names `browser-harness auth login`, not on PATH for uv tool installs
 	result = _cli(stdin='start_remote_daemon("browser-use-tests-login")\n')

@@ -9,8 +9,8 @@ class MissingAPIKeyError(RuntimeError):
 			super().__init__(f'{what} needs a Browser Use API key. {reason}')
 			return
 		super().__init__(
-			f'{what} needs a Browser Use API key. Run `browser-use login` (opens your browser; the key it stores '
-			'works for the library, the CLI, the MCP server and browser-harness), or set BROWSER_USE_API_KEY. No key: '
+			f'{what} needs a Browser Use API key. Get one at https://cloud.browser-use.com/new-api-key and set '
+			'BROWSER_USE_API_KEY (or run `browser-use login`). No key: '
 			"use a local browser and your own model: Agent(task, llm=ChatOpenAI(...), browser=Browser('chromium'))."
 		)
 

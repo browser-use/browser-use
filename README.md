@@ -103,13 +103,13 @@ Python 3.11 or newer. With uv, or pip in a venv:
 ```bash
 uv init --python 3.12 my-agent && cd my-agent
 uv add browser-use
-uv run browser-use login    # opens your browser; one key runs the default model, the cloud browser, the CLI and MCP
+export BROWSER_USE_API_KEY=bu_...    # get one at https://cloud.browser-use.com/new-api-key
 ```
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install browser-use
-browser-use login
+export BROWSER_USE_API_KEY=bu_...
 ```
 
 ```python
@@ -119,7 +119,7 @@ result = Agent('Find the number of stars of the browser-use repo').run_sync()
 print(result.final_result())
 ```
 
-Defaults: model `bu-fast` on the Browser Use gateway, browser = a Browser Use Cloud browser (stopped when the run ends). No login? Set `BROWSER_USE_API_KEY` instead. Over SSH: `browser-use login --device-code`.
+Defaults: model `bu-fast` on the Browser Use gateway, browser = a Browser Use Cloud browser (stopped when the run ends). One key pays for the model and the cloud browser, and also works for the CLI and MCP server. A `.env` file works too.
 
 **Local browser, your model:**
 

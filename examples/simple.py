@@ -1,7 +1,7 @@
 """
 Setup:
 1. uv init --python 3.12 my-agent && cd my-agent && uv add browser-use
-2. uv run browser-use login   (opens your browser; or export BROWSER_USE_API_KEY=...)
+2. export BROWSER_USE_API_KEY=bu_...   (get one at https://cloud.browser-use.com/new-api-key)
 
 Runs on the default model (bu-fast) in a Browser Use Cloud browser. For a local browser and your own model:
     Agent(task, llm=ChatOpenAI('gpt-6-luna'), browser=Browser('chromium'))   # or Browser('chrome'): your open Chrome
