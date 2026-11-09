@@ -310,5 +310,29 @@ llm = ChatOpenAI(
 
 Use the `/v1` base URL (not `/v1/chat/completions`). Pass catalog model ids as-is (no `openai/` prefix). The default `deepseek-v4-flash` model is text-only — set `use_vision=False` on the agent unless you pick a vision-capable model. List available models with `GET https://api.pzero.studio/v1/models` (no auth required).
 
+### TeamoRouter
+```python
+import os
+
+llm = ChatOpenAI(
+    model="deepseek-v4-flash",
+    base_url="https://api.teamorouter.com/v1",
+    api_key=os.environ["TEAMOROUTER_API_KEY"],
+)
+```
+**Env:** `TEAMOROUTER_API_KEY`, which you can get at https://teamorouter.com
+
+One key covers DeepSeek, Qwen, Kimi, GLM, GPT, Gemini and Claude models. List model ids with `GET https://api.teamorouter.com/v1/models`. `deepseek-v4-flash` is text-only, so set `use_vision=False` on the agent unless you pick a vision-capable model.
+
+For Claude, use the Anthropic-compatible endpoint with `ChatAnthropic` (no `/v1` suffix):
+```python
+llm = ChatAnthropic(
+    model="claude-sonnet-4-6",
+    base_url="https://api.teamorouter.com",
+    api_key=os.environ["TEAMOROUTER_API_KEY"],
+)
+```
+See [examples/models/teamorouter.py](https://github.com/browser-use/browser-use/tree/main/examples/models/teamorouter.py).
+
 ### LangChain
 See example at [examples/models/langchain](https://github.com/browser-use/browser-use/tree/main/examples/models/langchain).
