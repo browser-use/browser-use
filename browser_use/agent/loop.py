@@ -159,7 +159,8 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	Browser helpers are synchronous (do not await them); variables survive calls; the last expression is printed. Cell deadline
 	applies; checkpoint small batches before it. screenshot() returns native images.
 	"""
-	started, t0, repl = time.monotonic(), now(), ctx.deps.repl  # python is sequential (one cell at a time, as bu-pi): this cell starts now
+	# python is sequential (one cell at a time, as bu-pi): this cell starts now
+	started, t0, repl = time.monotonic(), now(), ctx.deps.repl
 	left = ctx.deps.delivery_at() - (started - ctx.deps.started)  # a cell never runs into the delivery turn's time
 	if left <= 0:  # a later call of the same response, after an earlier one used the time up
 		return [NO_TIME]
