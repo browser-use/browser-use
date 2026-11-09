@@ -1036,3 +1036,63 @@ async def test_a_custom_tool_returning_an_object_pydantic_cannot_serialize_does_
 	result = await run(build_agent(model, tools=tools.functions), 'task', session, 'function:x')
 	assert (result.status, result.error) == ('completed', None)
 	assert 'Response(status=ok, rows=3)' in str(seen[1][-1].parts[0].content)
+
+
+@pytest.mark.parametrize('secrets', [None, {'pw': 'hunter2-value'}])
+async def test_a_custom_tool_returning_a_value_that_contains_itself_does_not_end_the_run(tmp_path, secrets):
+	"""A tree with parent links (a dict or dataclass that reaches itself) raised ValueError 'Circular reference
+	detected', which is no PydanticSerializationError: the run ended with it. The model gets its str()."""
+	from browser_use import Tools
+
+	tools = Tools()
+
+	@tools.action('Read the tree')
+	def tree() -> object:
+		node: dict = {'name': 'root'}
+		node['parent'] = node
+		return node
+
+	model, seen = script(('tree', {}), ('finish', {'result': 'ok', 'success': True}))
+	result = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=FakeRepl(tmp_path, secrets)), 'function:x')
+	assert (result.status, result.error) == ('completed', None)
+	assert "'name': 'root'" in str(seen[1][-1].parts[0].content)
+
+
+class _FailingEval(FakeRepl):
+	async def call(self, op, code, timeout):
+		if op == 'eval':
+			return {'output': '', 'error': "NameError: name 'rows' is not defined", 'images': [], 'value': None}
+		return await super().call(op, code, timeout)
+
+
+@pytest.mark.parametrize('miss', ['expression_error', 'empty_reply'])
+async def test_failed_deliveries_spread_over_a_long_run_do_not_end_it(tmp_path, miss):
+	"""Pydantic AI's output retry budget is one count for the whole run, never reset (it was 5): six misses spread over
+	30 steps (a finish_from_repl expression error, or a reply with no text and no call, as thinking models send) ended
+	the run with "Exceeded maximum output retries (5)" though every step between them worked."""
+	calls = []
+
+	def fn(messages, info: AgentInfo):
+		calls.append(messages)
+		n = len(calls)
+		if n > 30:
+			return ModelResponse(parts=[ToolCallPart('finish', {'result': 'the answer', 'success': True})])
+		if n % 5:
+			return ModelResponse(parts=[ToolCallPart('python', {'code': f'step{n}'})])
+		if miss == 'empty_reply':
+			return ModelResponse(parts=[])
+		return ModelResponse(parts=[ToolCallPart('finish_from_repl', {'expression': 'rows'})])
+
+	session = Session(repl=_FailingEval(tmp_path, pad=10), max_steps=100)
+	result = await run(build_agent(FunctionModel(fn)), 'task', session, 'function:x')
+	assert (result.status, result.output, result.error) == ('completed', 'the answer', None)
+
+
+async def test_an_empty_structured_result_on_the_last_request_is_delivered(tmp_path):
+	"""The empty-result repair needs a request after it. On the repair after the delivery-only turn (the model ran python
+	on the delivery turn) nothing can follow: refused there, the run ended max_steps with output '' and lost the
+	model's answer, which 54d87367b delivered."""
+	model, seen = script(('python', {'code': 'step1'}), ('python', {'code': 'step2'}), ('finish', {'result': {'authors': []}}))
+	session = Session(repl=FakeRepl(tmp_path, pad=10), max_steps=2)
+	result = await run(build_agent(model, output_type=_Authors), 'task', session, 'function:x')
+	assert (len(seen), result.status, result.output) == (3, 'completed', _Authors(authors=[]))

@@ -234,8 +234,10 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 	if not s.checked_delivery:
 		problem = None
 		# '...', '' (a one-character answer like '7' is fine); a structured result with no value in it: Sonnet 5.5 sent
-		# finish({"authors": []}, success=False) with 34 authors in the REPL
-		if not re.search(r'[^\W_]', text) or (not isinstance(value, str) and _holds_nothing(json.loads(text))):
+		# finish({"authors": []}, success=False) with 34 authors in the REPL. Not on the run's last request (the repair
+		# after the delivery-only turn): nothing can follow it, and the refused result was lost (status max_steps, '')
+		empty = not isinstance(value, str) and ctx.run_step <= s.max_steps and _holds_nothing(json.loads(text))
+		if not re.search(r'[^\W_]', text) or empty:
 			problem = f'The result {text[:20]!r} is a placeholder, not the answer.'
 			s.rec.retry('delivery_placeholder')
 		else:
@@ -511,8 +513,11 @@ def _sendable(result: Any) -> Any:
 	client object) ended the run with PydanticSerializationError; MIGRATING promises the model sees any value: its str()."""
 	try:
 		tool_return_ta.dump_json(result)
-	except PydanticSerializationError:
-		return to_jsonable_python(result, fallback=str, bytes_mode='base64')
+	except (PydanticSerializationError, ValueError):  # ValueError: a value that contains itself (a parent link)
+		try:
+			return to_jsonable_python(result, fallback=str, bytes_mode='base64')
+		except ValueError:
+			return str(result)
 	return result
 
 
@@ -1130,7 +1135,10 @@ def build_agent(
 		# 'tools' is the budget Pydantic AI gives a tool name that does not exist, and that name's count never resets:
 		# two such calls ended DeepSeek bub2-007 at step 140. bu-pi answers "Tool X not found" and goes on (max_steps
 		# bounds it). python and Tools get the same budget (TOOL_RETRIES).
-		retries={'tools': TOOL_RETRIES, 'output': 5},
+		# 'output' is one budget for the whole run, never reset: six failed deliveries spread over a long run (an
+		# expression error, a schema slip, a thinking-only reply, a refused split delivery counts two) ended it with
+		# "Exceeded maximum output retries (5)". bu-pi has no such cap; max_steps and the timeout bound a run.
+		retries={'tools': TOOL_RETRIES, 'output': TOOL_RETRIES},
 		capabilities=capabilities,
 	)
 
