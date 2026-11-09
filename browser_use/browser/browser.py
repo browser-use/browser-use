@@ -39,7 +39,7 @@ from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
 from browser_use.exceptions import BrowserConfigError, removed
-from browser_use.utils import urlopen_keyed
+from browser_use.utils import file_names, name_download, urlopen_keyed
 
 logger = logging.getLogger(__name__)
 load_env()  # 0.x read .env on import; credentials below resolve from it
@@ -201,7 +201,6 @@ DOWNLOADS_TIMEOUT_S = 300  # all download passes before a stop (and one after); 
 _LIVE: set[Browser] = set()  # browsers this process owns that still need stopping
 _POOL = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='browser-use-cloud')  # joined at exit
 _atexit_installed = _signals_installed = False
-MAX_NAME_BYTES = 255  # a file name, on every common filesystem
 
 
 class _Default(str):
@@ -238,13 +237,7 @@ def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
 		raise TimeoutError('download deadline passed')
 	with urllib.request.urlopen(url, timeout=min(30.0, left)) as r:  # the timeout bounds each read
 		dest.mkdir(parents=True, exist_ok=True)
-		stem, suffix = Path(name).stem, Path(name).suffix
-		if len(suffix.encode()) > 32:  # not an extension: part of a long name
-			stem, suffix = name, ''
-		for i in range(10_000):
-			tail = suffix if i == 0 else f' ({i}){suffix}'
-			room = MAX_NAME_BYTES - len(tail.encode())  # a long name is shortened, never dropped
-			path = dest / (stem.encode()[:room].decode(errors='ignore') + tail)
+		for path in file_names(dest, name):
 			try:
 				f = open(path, 'xb')  # - exclusive create: two sessions never write the same file
 				break
@@ -722,10 +715,12 @@ class Browser:
 			logger.debug('Could not close the launch tab: %s', e)
 
 	def _send_downloads(self, downloads: Path) -> None:
-		"""Downloads of a Chrome this Browser launched land in downloads (workspace/downloads), not the real ~/Downloads."""
+		"""Downloads of a Chrome this Browser launched land in downloads (workspace/downloads), not the real ~/Downloads.
+		Saved as <guid> and renamed once finished (utils.name_download): with 'allow' a repeated name overwrote the
+		earlier file. The REPL worker renames what finishes during a run, _finish_downloads what finishes after it."""
 		downloads.mkdir(parents=True, exist_ok=True)
 		try:
-			self._cdp()('Browser.setDownloadBehavior', behavior='allow', downloadPath=str(downloads), eventsEnabled=True)
+			self._cdp()('Browser.setDownloadBehavior', behavior='allowAndName', downloadPath=str(downloads), eventsEnabled=True)
 		except Exception as e:  # - downloads then go where Chrome puts them
 			logger.warning('Could not send downloads to %s: %s', downloads, e)
 
@@ -1073,13 +1068,24 @@ class Browser:
 			self.note_downloads(log)
 		state: dict[str, str | None] = {r['guid']: 'inProgress' for r in self._download_records if r.get('guid')}
 		state |= {r['done']: r.get('state') for r in self._download_records if r.get('done')}
+		names = {r['guid']: r.get('name') for r in self._download_records if r.get('guid')}
 		deadline, waiting = time.monotonic() + DOWNLOADS_TIMEOUT_S, False
 		try:
 			while True:
 				r = await asyncio.to_thread(_daemon_request, self._daemon_name(), {'meta': 'drain_events'})
 				for e in r.get('events', []):
-					if e.get('method') == 'Browser.downloadProgress' and (p := e.get('params') or {}).get('guid'):
+					method, p = e.get('method'), e.get('params') or {}
+					if not p.get('guid'):
+						continue
+					if method in ('Browser.downloadWillBegin', 'Page.downloadWillBegin'):  # began after the worker closed
+						names.setdefault(p['guid'], p.get('suggestedFilename'))
+					if method == 'Browser.downloadProgress':
 						state[p['guid']] = p.get('state')
+					# finished after the worker closed: only this read saw the event, so no one else renames it
+					if method in ('Browser.downloadProgress', 'Page.downloadProgress') and p.get('state') == 'completed':
+						path = Path(p['filePath']) if p.get('filePath') else (self._downloads_dir or Path()) / p['guid']
+						if self._local is not None and path.name == p['guid']:  # a cloud browser's files are remote
+							name_download(path, names.get(p['guid']))
 				if not (running := sum(s == 'inProgress' for s in state.values())):
 					break
 				if time.monotonic() > deadline:

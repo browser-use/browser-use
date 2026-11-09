@@ -1,10 +1,14 @@
 import logging
+import os
 import urllib.request
+from collections.abc import Iterator
 from functools import cache
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 logger = logging.getLogger(__name__)
+MAX_NAME_BYTES = 255  # a file name, on every common filesystem
 FD_LIMIT = 10240  # ~3 fds per live Agent (model connection, REPL socket, worker pipe): thousands of concurrent Agents
 
 
@@ -76,6 +80,45 @@ def get_install_source() -> str:
 		return (dist.read_text('INSTALLER') or '').strip().lower()[:20] or 'unknown'
 	except Exception:
 		return 'unknown'
+
+
+def file_names(dest: Path, name: str) -> Iterator[Path]:
+	"""Paths in dest for a file called name: 'report.csv', then 'report (1).csv', 'report (2).csv', ... A long name is
+	shortened, never dropped."""
+	stem, suffix = Path(name).stem, Path(name).suffix
+	if len(suffix.encode()) > 32:  # not an extension: part of a long name
+		stem, suffix = name, ''
+	for i in range(10_000):
+		tail = suffix if i == 0 else f' ({i}){suffix}'
+		room = MAX_NAME_BYTES - len(tail.encode())
+		yield dest / (stem.encode()[:room].decode(errors='ignore') + tail)
+
+
+def name_download(path: Path, name: str | None) -> Path | None:
+	"""Give a download Chrome saved as <dir>/<guid> (Browser.setDownloadBehavior allowAndName) its suggested name, never
+	over another file: a repeated name is 'invoice (1).txt', as cloud copies are named. With behavior 'allow' Chrome
+	wrote a second invoice.txt over the first. Returns the new path; None when path is gone (already named)."""
+	base = Path(str(name or '')).name.strip()
+	if base in ('', '.', '..', path.name):  # no name to give: it keeps its guid
+		return path if path.exists() else None
+	for dest in file_names(path.parent, base):
+		try:
+			os.link(path, dest)  # - fails if dest exists: never overwrites, even when two names are taken at once
+		except FileExistsError:
+			continue
+		except FileNotFoundError:
+			return None
+		except OSError:  # a filesystem without hard links
+			if dest.exists():
+				continue
+			try:
+				path.rename(dest)
+			except FileNotFoundError:
+				return None
+			return dest
+		path.unlink(missing_ok=True)
+		return dest
+	return None
 
 
 if not TYPE_CHECKING:  # pyright would accept any name imported from here

@@ -54,6 +54,7 @@ from browser_use.repl.session import (
 	secret_forms,
 )
 from browser_use.telemetry.stats import error_class, host
+from browser_use.utils import name_download
 
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
@@ -138,6 +139,7 @@ NAVIGATING = ('Page.navigate', 'Target.createTarget')
 STAT_EVENTS = {'BrowserUse.captchaSolverStarted': 'captcha_started'}
 NET_ERROR = re.compile(r'net::(ERR_[A-Z0-9_]{1,40})')  # Page.navigate's errorText: Chrome's net error names
 DOWNLOAD_EVENTS = ('Browser.downloadWillBegin', 'Page.downloadWillBegin')  # cloud browsers send both for one download
+PROGRESS_EVENTS = ('Browser.downloadProgress', 'Page.downloadProgress')
 
 
 class CellStats:
@@ -151,6 +153,7 @@ class CellStats:
 		self.navigated = False
 		self.downloads: set[str | None] = set()  # guids seen: one download_started per download, whichever events announce it
 		self.started: list[str] = []  # names of downloads that started since the last cell output
+		self.names: dict[str, str | None] = {}  # guid -> suggested file name: a finished download is renamed to it
 		self.seen: set[int] = set()  # hashes of URLs this worker saw (loop detection); never leave this process
 		self.json_pages: set[str] = set()  # top-frame JSON pages, without query: a cloud browser saves each as a download
 		self.take()
@@ -218,6 +221,8 @@ class CellStats:
 					guid = params.get('guid')
 					key = None if guid is not None and guid in self.downloads else 'download_started'
 					self.downloads.add(guid)
+					if guid:
+						self.names.setdefault(guid, params.get('suggestedFilename'))
 				if key:
 					_log_download({'name': params.get('suggestedFilename'), 'url': params.get('url'), 'guid': guid})
 					url = str(params.get('url') or '')  # the copy's URL: the page's + '.json', ' (n)' for a repeat
@@ -225,12 +230,36 @@ class CellStats:
 					with self.lock:
 						if not copy:  # the model never downloaded a page it only opened (Browser.json_page_copies)
 							self.started.append(str(params.get('suggestedFilename') or params.get('url')))
-			elif method == 'Browser.downloadProgress' and params.get('state') in ('completed', 'canceled'):
-				_log_download({'done': params.get('guid'), 'state': params['state']})  # Browser.stop() waits for the rest
+			elif method in PROGRESS_EVENTS and params.get('state') in ('completed', 'canceled'):
+				if method == 'Browser.downloadProgress':  # Browser.stop() waits for the rest
+					_log_download({'done': params.get('guid'), 'state': params['state']})
+				if params['state'] == 'completed':  # either event: a tab another client attached sends only Page's
+					self.name_download(params)
 			elif method == 'Page.frameNavigated' and _json_page(params):
 				_log_download({'json_page': params['frame'].get('url')})
 			if key:
 				self.count('events', key)
+
+	def name_download(self, params: dict) -> None:
+		"""A Chrome Browser launched saves each download as downloads/<guid> (Browser._send_downloads): give it its own
+		name now, so the cell that downloaded it finds it by that name. A cloud browser's files are not on this machine.
+		Only the reader that drained the completed event renames it (Browser._finish_downloads after this worker)."""
+		guid = str(params.get('guid') or '')
+		if not guid or os.environ.get('BU_REMOTE_BROWSER') == '1':
+			return
+		path = Path(params['filePath']) if params.get('filePath') else STATE.absolute().parent / 'downloads' / guid
+		if path.name != guid:  # Chrome named it itself (behavior 'allow', a browser this worker did not launch)
+			return
+		with self.lock:
+			name = self.names.get(guid)
+		if name is None:  # announced to an earlier worker of this REPL (a reset): its log has the name
+			with contextlib.suppress(OSError):
+				for line in (STATE / 'downloads.jsonl').read_text(encoding='utf-8').splitlines():
+					with contextlib.suppress(ValueError, AttributeError):
+						if (r := json.loads(line)).get('guid') == guid:
+							name = r.get('name')
+		with contextlib.suppress(OSError):  # - a file that cannot be renamed keeps its guid name, never lost
+			name_download(path, name)
 
 	def take(self) -> dict:
 		with self.lock:
@@ -824,7 +853,9 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	if os.environ.get('BU_MODE') != 'ultrafast':
 		# One reader of the daemon's events, so solver events are never lost; wait_for_network_idle() reads through it.
 		events = EventPump(helpers._send, captcha.observe)
-		if cloud:  # only our cloud browsers send solver events; elsewhere the daemon is read when the agent asks
+		# Our cloud browsers send solver events, and a Chrome Browser launched names each finished download from its
+		# events (CellStats.name_download): read continuously. The user's Chrome is read when the agent asks.
+		if cloud or os.environ.get('BU_OWN_BROWSER') == '1':
 			events.start()
 		captcha.pump = events.pump
 		helpers.drain_events = ns['drain_events'] = events.drain_events

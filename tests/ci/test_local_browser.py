@@ -596,6 +596,112 @@ async def test_downloads_lists_the_files_a_launched_browser_finished(chrome_bina
 	assert 'before []' in output and "after [{'name': 'report.txt', 'size': 5}]" in output, output
 
 
+@pytest.mark.parametrize('mode', ['default', 'ultrafast'])
+async def test_two_downloads_with_one_name_both_survive(chrome_binary, tmp_path, mode):
+	"""Customer task (retest 3, bu-fast, Browser('chromium')): 'download the January and the February invoice'. Both
+	were served as invoice.txt and Chrome wrote the second over the first: January was lost, downloads() listed one
+	file. Now the later one is 'invoice (1).txt', as cloud copies are named, and is there by that name within the cell
+	that downloaded it."""
+	import http.server
+
+	class Invoices(http.server.BaseHTTPRequestHandler):
+		def do_GET(self):
+			if self.path.startswith('/invoice'):
+				body = f'invoice for month {self.path[-1]}'.encode()
+				headers = {'Content-Disposition': 'attachment; filename="invoice.txt"'}
+			else:
+				body, headers = b'<a href="/invoice?m=1">Jan</a><a href="/invoice?m=2">Feb</a>', {'Content-Type': 'text/html'}
+			self.send_response(200)
+			for k, v in {**headers, 'Content-Length': str(len(body))}.items():
+				self.send_header(k, v)
+			self.end_headers()
+			self.wfile.write(body)
+
+		def log_message(self, *args):
+			pass
+
+	server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Invoices)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	page = f'http://127.0.0.1:{server.server_address[1]}/'
+	code = (
+		f"new_tab('{page}'); wait_for_load(); import os, time\n"
+		'for i in range(2):\n'
+		'    js(f"document.links[{i}].click()")\n'
+		'    t = time.time()\n'
+		'    while len(downloads()) <= i and time.time() - t < 10: time.sleep(0.1)\n'
+		'time.sleep(0.5)\n'
+		"print('files', {n: open(f'downloads/{n}').read() for n in sorted(os.listdir('downloads'))})"
+	)
+	model, seen = script(('python', {'code': code}), ('finish', {'success': True, 'result': 'ok'}))
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
+	try:
+		result = await Agent('t', model, browser=browser, workspace=tmp_path, mode=mode).run()
+	finally:
+		server.shutdown()
+	assert result.final_result() == 'ok', result.error
+	expected = {'invoice (1).txt': 'invoice for month 2', 'invoice.txt': 'invoice for month 1'}  # sorted(os.listdir())
+	output = str(seen[1][-1].parts[0].content)
+	assert f'files {expected}' in output, output
+	assert {p.name: p.read_text() for p in result.downloads} == expected
+
+
+async def test_a_download_that_finishes_after_the_run_is_named_at_the_stop(chrome_binary, tmp_path):
+	"""The worker is closed when a download still running at the end of a run finishes: Browser.stop() waits for it
+	and names it, so result.downloads lists slow.bin, not a guid."""
+	import http.server
+
+	class Slow(http.server.BaseHTTPRequestHandler):
+		def do_GET(self):
+			if self.path == '/f':
+				self.send_response(200)
+				self.send_header('Content-Disposition', 'attachment; filename="slow.bin"')
+				self.send_header('Content-Length', '30000')
+				self.end_headers()
+				for _ in range(15):
+					self.wfile.write(b'x' * 2000)
+					self.wfile.flush()
+					time.sleep(0.2)
+			else:
+				self.send_response(200)
+				self.send_header('Content-Type', 'text/html')
+				self.end_headers()
+				self.wfile.write(b'<a id=a href="/f">slow</a>')
+
+		def log_message(self, *args):
+			pass
+
+	server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Slow)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	code = (
+		f"new_tab('http://127.0.0.1:{server.server_address[1]}/'); wait_for_load(); js('document.getElementById(\"a\").click()')"
+	)
+	model, _ = script(('python', {'code': code}), ('finish', {'success': True, 'result': 'ok'}))
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
+	try:
+		result = await Agent('t', model, browser=browser, workspace=tmp_path).run()
+	finally:
+		server.shutdown()
+	assert result.final_result() == 'ok', result.error
+	assert [(p.name, p.stat().st_size) for p in result.downloads] == [('slow.bin', 30000)]
+
+
+def test_name_download_never_overwrites_and_keeps_the_file_in_its_dir(tmp_path):
+	from browser_use.utils import name_download
+
+	(tmp_path / 'a.txt').write_text('first')
+	for guid, name, expected in [
+		('g1', 'a.txt', 'a (1).txt'),
+		('g2', '../../a.txt', 'a (2).txt'),
+		('g3', '..', 'g3'),
+		('g4', None, 'g4'),
+	]:
+		(tmp_path / guid).write_text(guid)
+		assert name_download(tmp_path / guid, name) == tmp_path / expected
+		assert (tmp_path / expected).read_text() == guid
+	assert (tmp_path / 'a.txt').read_text() == 'first'
+	assert name_download(tmp_path / 'gone', 'b.txt') is None and not (tmp_path / 'b.txt').exists()
+
+
 def test_the_prompt_says_where_downloads_land_and_never_to_move_them(tmp_path):
 	"""C12: the prompt told the model to call Browser.setDownloadBehavior; it picked /tmp or cwd, and files missed
 	workspace/downloads. Only a Chrome the Browser launched gets the downloads/ line: Browser('chrome') saves to yours."""
@@ -624,14 +730,17 @@ async def test_downloads_land_in_the_workspace_after_a_reattach(chrome_binary, t
 		await browser.reattach()
 		target = browser_mod._daemon_cdp(browser.name, 'Target.createTarget', url=link)['targetId']
 		session = browser_mod._daemon_cdp(browser.name, 'Target.attachToTarget', targetId=target, flatten=True)['sessionId']
+		browser_mod._daemon_cdp(browser.name, 'Page.enable', session_id=session)  # as on the tab the daemon attaches
 		await asyncio.sleep(1)
 		browser_mod._daemon_cdp(
 			browser.name, 'Runtime.evaluate', expression='document.getElementById("a").click()', session_id=session
 		)
 		await asyncio.sleep(2)
-		assert (tmp_path / 'downloads' / 'after.txt').read_text() == 'hello'
+		# in the workspace; saved as its guid until an events reader names it (no Agent here: the stop below)
+		assert [p.read_text() for p in (tmp_path / 'downloads').iterdir()] == ['hello']
 	finally:
 		await browser.stop()
+	assert [p.name for p in (tmp_path / 'downloads').iterdir()] == ['after.txt']
 
 
 async def test_two_fresh_browsers_run_side_by_side(chrome_binary):
