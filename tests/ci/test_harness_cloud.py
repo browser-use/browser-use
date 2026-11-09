@@ -227,6 +227,52 @@ def _recorded(name: str, browser_id: str):
 	return harness_cloud
 
 
+def test_a_socket_path_too_long_for_the_os_is_one_line_before_a_cloud_browser_is_created(monkeypatch, tmp_path):
+	"""Live: with a long HOME (socket path over macOS's 104 bytes) `start_remote_daemon()` in the CLI created and billed a
+	cloud browser, then failed with a traceback ending "RuntimeError: stopped remote browser <id>"; local calls printed
+	"fatal: AF_UNIX path too long". Neither named the path or the fix, which Browser() already does."""
+	from browser_harness import _ipc as ipc
+	from browser_harness import admin
+
+	from browser_use import harness_cloud
+
+	if sys.platform == 'win32':
+		pytest.skip('Windows uses TCP loopback')
+	long_dir = tmp_path / ('a' * 120)
+	monkeypatch.setattr(ipc, '_sock_path', lambda name: long_dir / f'bu-{name}.sock')
+	created = []
+	monkeypatch.setattr(admin, 'start_remote_daemon', lambda *a, **k: created.append(a))
+	monkeypatch.setattr(admin, 'ensure_daemon', lambda *a, **k: created.append(a))
+	ns: dict = {}
+	harness_cloud.install(ns)
+	for call in (lambda: ns['start_remote_daemon'](_name('long')), lambda: ns['ensure_daemon']()):
+		with pytest.raises(harness_cloud.CloudBrowserError, match=r'socket path is \d+ bytes.*BH_RUNTIME_DIR') as raised:
+			call()
+		assert str(long_dir) in str(raised.value)
+	assert created == []
+
+
+def test_stopping_a_cloud_browser_twice_is_a_no_op_and_an_unknown_name_is_one_line():
+	"""Live: a second stop_remote_daemon(name) after a successful stop (the skill says to stop when done; the agent cannot
+	tell a timeout from a stop) raised a 20-line traceback ending in "daemon 'x' is unavailable for required clean
+	shutdown", exit 1. So did a name nothing started."""
+	from browser_harness import admin
+
+	name = _name('twice')
+	harness_cloud = _recorded(name, '')  # what a successful stop leaves
+	ns: dict = {}
+	harness_cloud.install(ns)
+	try:
+		assert not admin.daemon_alive(name)
+		ns['stop_remote_daemon'](name)
+		assert harness_cloud._recorded_id(name) == ''
+		harness_cloud.forget(name)
+		with pytest.raises(harness_cloud.CloudBrowserError, match=f'No cloud browser {name!r} is running here'):
+			ns['stop_remote_daemon'](name)
+	finally:
+		harness_cloud.forget(name)
+
+
 def test_a_new_start_under_a_name_stops_the_browser_still_recorded_there_first(fake_cloud, monkeypatch):
 	"""Astra r1-3: the new browser's id overwrote the only record of the old one, which billed until its timeout."""
 	from browser_harness import admin
@@ -477,6 +523,32 @@ async def test_mcp_a_cancelled_call_lets_go_of_the_lock_and_a_queued_one_never_r
 		assert ran == ['hung', 'next']
 	finally:
 		release.set()
+
+
+async def test_mcp_a_local_browser_that_cannot_attach_is_one_tool_error_naming_the_reason(monkeypatch):
+	"""Live: with no local Chrome to attach, browser_screenshot raised out of the handler (the client got a JSON-RPC
+	error, not a tool result the model reads) and browser_exec, even of `print(1+1)`, returned a 14-line traceback of
+	browser-harness internals ending in "didn't come up -- check <log file>": the reason was only in that log."""
+	from browser_harness import admin
+	from mcp import types
+
+	from browser_use import harness_cloud
+	from browser_use.mcp import cli_mcp
+
+	def no_chrome(*args, **kwargs):
+		raise RuntimeError(f"daemon {admin.NAME} didn't come up -- check /tmp/bu-{admin.NAME}.log")
+
+	monkeypatch.setattr(harness_cloud, 'ensure_daemon', no_chrome)
+	reason = 'fatal: chrome-not-running: no supported Chromium-family browser is running -- start Chrome, then retry'
+	monkeypatch.setattr(admin, '_log_tail', lambda name=None: reason)
+	mcp = cli_mcp.CLIMCPServer()
+	handler = mcp.server._request_handlers['tools/call'].handler
+	for name, arguments in (('browser_exec', {'code': 'print(1 + 1)'}), ('browser_screenshot', {})):
+		r = await handler(None, types.CallToolRequestParams(name=name, arguments=arguments))
+		text = r.content[0].text  # type: ignore[union-attr]
+		assert r.is_error and 'Traceback' not in text and len(text.strip().splitlines()) == 1, (name, text)
+		assert 'chrome-not-running: no supported Chromium-family browser is running' in text, (name, text)
+		assert 'start_remote_daemon()' in text, (name, text)  # the way out when there is no local browser
 
 
 def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):

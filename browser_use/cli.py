@@ -381,6 +381,16 @@ def _patch_browser_harness_cli_text() -> None:
 	telemetry.run_telemetry_cli = run_telemetry_cli
 	fix_snap = run.run_doctor_fix_snap  # its text named `browser-harness --doctor`
 	run.run_doctor_fix_snap = lambda: _normalize_captured_cli_output(lambda _argv: fix_snap(), [])
+	from browser_harness import macos
+
+	if not getattr(macos.run_cli, '__bu_rebranded__', False):  # its answers said to run `browser-harness mac-approve`
+		mac_approve = macos.run_cli
+
+		def run_mac_approve(argv: list[str]) -> int:
+			return _normalize_captured_cli_output(mac_approve, argv)  # one line at the end: nothing to stream
+
+		run_mac_approve.__bu_rebranded__ = True  # type: ignore[attr-defined]
+		macos.run_cli = run_mac_approve
 
 
 _delegated_to_harness = False
@@ -406,7 +416,25 @@ def _guard_cloud_browsers(run, code: str | None) -> None:
 		vars(run)['ensure_daemon'] = skip_pre_run_attach
 
 
+class _HarnessStderr:
+	"""sys.stderr while browser-harness runs piped code. Its own lines ("browser-harness: ...", the macOS Allow-popup
+	hint `run browser-harness mac-approve`) named a command `uv tool install browser-use` does not put on PATH."""
+
+	def __init__(self, wrapped):
+		self._wrapped = wrapped
+
+	def write(self, text):
+		if text.startswith('browser-harness: '):  # not the cell's own output
+			text = _as_browser_use_cli_text(text)
+		return self._wrapped.write(text)
+
+	def __getattr__(self, name):
+		return getattr(self._wrapped, name)
+
+
 def _run_browser_harness(code: str | None = None) -> int | None:
+	import os
+
 	from browser_harness import run
 
 	from browser_use.browser.browser import _name_daemon_files
@@ -414,6 +442,9 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	global _delegated_to_harness
 
 	_name_daemon_files()  # with BH_RUNTIME_DIR set, every BU_NAME would otherwise share one bu.sock
+	# browser-harness's daily "agents: run `browser-harness --update -y`": browser-use pins it exactly, so that command
+	# is not on PATH (uv tool install) or upgrades it past the pin (a venv). It updates with browser-use (--update).
+	os.environ['BH_UPDATE_CHECK'] = '0'
 	_set_harness_client_env()
 	_scrub_harness_telemetry()
 	_patch_browser_harness_cli_text()
@@ -431,7 +462,11 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 			print('usage: browser-use doctor [--fix-snap]', file=sys.stderr)
 			sys.exit(2)
 	_delegated_to_harness = True
-	run.main()
+	stderr, sys.stderr = sys.stderr, _HarnessStderr(sys.stderr)
+	try:
+		run.main()
+	finally:
+		sys.stderr = stderr
 	return None
 
 

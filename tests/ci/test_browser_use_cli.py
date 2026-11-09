@@ -190,3 +190,79 @@ def test_first_run_text_gives_the_readmes_agent_prompt(monkeypatch, capsys):
 	readme = (ROOT / 'README.md').read_text(encoding='utf-8')
 	assert ' '.join(pasted.split()) in re.findall(r'```text\n(.+?)\n```', readme, re.S)
 	assert 'prerelease' not in printed and 'docs.browser-use.com' in printed
+
+
+def test_piped_code_never_tells_the_agent_to_update_browser_harness(tmp_path):
+	"""Live: once browser-harness has a newer release on PyPI, every piped call printed (daily) `[browser-harness] agents:
+	run browser-harness --update -y`. browser-use pins browser-harness exactly: that command is not on PATH for
+	`uv tool install browser-use`, and in a venv it upgrades browser-harness past the pin. Updates come with browser-use."""
+	import json
+	import time
+
+	(tmp_path / 'version-cache.json').write_text(json.dumps({'tag': '99.0.0', 'fetched_at': time.time()}))
+	env = {k: v for k, v in os.environ.items() if not k.startswith(('BH_', 'BU_'))}
+	env.update(BH_HOME=str(tmp_path), BU_NAME=f'update-test-{os.getpid()}', BU_CDP_URL='http://127.0.0.1:1')
+	env.update(PYTHONPATH=str(ROOT), ANONYMIZED_TELEMETRY='false')
+	r = subprocess.run(
+		[sys.executable, '-m', 'browser_use.cli'],
+		input='print("ran")\nif False: start_remote_daemon()',  # a cloud call anywhere in the code: no local attach first
+		cwd=ROOT,
+		env=env,
+		capture_output=True,
+		text=True,
+		timeout=60,
+	)
+	assert 'update available' not in r.stderr and '--update' not in r.stderr, r.stderr
+	assert (r.returncode, r.stdout) == (0, 'ran\n'), r.stderr
+
+
+def test_browser_harness_hints_name_commands_this_install_has(monkeypatch, capsys):
+	"""Live: piped code printed browser-harness's own lines, e.g. its macOS Allow-popup hint `run BU_NAME=x
+	browser-harness mac-approve in another shell`. `uv tool install browser-use` puts no browser-harness on PATH, so the
+	agent's next command failed; `browser-use mac-approve` is the same helper. The cell's own output is left alone."""
+	from browser_harness import run
+
+	from browser_use import cli
+
+	def harness_main():
+		print('browser-harness: Chrome is asking "Allow remote debugging?" — run `BU_NAME=w browser-harness mac-approve` '
+			'in another shell or click Allow to continue.', file=sys.stderr)  # fmt: skip
+		print('browser-harness: fatal: see ~/.config/browser-harness/tmp/bu-w.log', file=sys.stderr)
+		print('cell output names browser-harness', file=sys.stderr)
+
+	monkeypatch.setattr(run, 'main', harness_main)
+	monkeypatch.setattr(sys, 'argv', ['browser-use'])
+	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
+	stderr = sys.stderr
+	cli._run_browser_harness('print(1)')
+	assert sys.stderr is stderr
+	assert capsys.readouterr().err.splitlines() == [
+		'browser-use: Chrome is asking "Allow remote debugging?" — run `BU_NAME=w browser-use mac-approve` in another '
+		'shell or click Allow to continue.',
+		'browser-use: fatal: see ~/.config/browser-harness/tmp/bu-w.log',
+		'cell output names browser-harness',
+	]
+
+
+def test_mac_approve_names_browser_use(monkeypatch, capsys):
+	"""Live: `browser-use mac-approve --help` printed `usage: browser-harness mac-approve`, and its setup / not-found
+	answers said to run `browser-harness mac-approve` again: not on PATH for `uv tool install browser-use`."""
+	import pytest
+	from browser_harness import macos
+
+	from browser_use import cli
+
+	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
+	monkeypatch.setattr(
+		macos,
+		'approve_remote_debugging',
+		lambda: ('not-found', 'retry the browser command and run `browser-harness mac-approve` when the prompt appears'),
+	)
+	for argv, code, out in (
+		(['mac-approve', '--help'], 2, 'usage: browser-use mac-approve\n'),
+		(['mac-approve'], 1, 'not-found: retry the browser command and run `browser-use mac-approve` when the prompt appears\n'),
+	):
+		monkeypatch.setattr(sys, 'argv', ['browser-use', *argv])
+		with pytest.raises(SystemExit) as exited:
+			cli.main()
+		assert exited.value.code == code and capsys.readouterr().out == out
