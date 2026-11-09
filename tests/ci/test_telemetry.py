@@ -470,6 +470,29 @@ def test_a_custom_endpoint_sends_the_provider_name_not_its_base_url_and_a_local_
 	assert_absent(props, 'zqtenant', 'zqaccount', 'zqsecret', 'zqjane', 'ckpt')
 
 
+def test_an_api_key_passed_as_the_model_name_is_sent_as_other():
+	"""Privacy red team: ChatOpenAI(os.environ['OPENAI_API_KEY']) (the key where the model goes) sent the key's first 64
+	characters as model, on the PreflightError event the bad model produced. Real model ids are kept."""
+	from browser_use import ChatOpenAI
+	from browser_use.telemetry.stats import model_id
+	from browser_use.telemetry.views import AgentTelemetryEvent
+
+	key = 'sk-proj-' + 'Zq7' * 30
+	agent = Agent('t', llm=ChatOpenAI(key, api_key='sk-test'))
+	agent._build()
+	props = AgentTelemetryEvent('1.0', 'pip', **agent._config(10, 60)).properties
+	assert props['model'] == 'other'
+	assert_absent(props, 'Zq7Zq7')
+	keys = ('sk-ant-api03-' + 'a1B2' * 20, 'AIzaSyD' + 'x9' * 16, 'AQ.' + 'Ab3' * 20, 'bu_' + 'k8' * 20, 'xai-' + 'Q1' * 20)
+	keys += ('openai:sk-' + 'w' * 20, 'hf_' + 'abc' * 10, 'gsk_' + 'z' * 20, 'eyJhbGciOiJIUzI1NiJ9.e30.x', 'A1b2' * 10)
+	assert [model_id(k) for k in keys] == ['other'] * len(keys)
+	assert scrub_cli_event({'properties': {'model': key}})['properties']['model'] == 'other'
+	kept = ('bu-fast', 'gpt-6-luna', 'openai/gpt-5', 'claude-opus-5', 'gemini-3-flash-preview', 'Llama-3-8B', 'grok-5')
+	kept += ('ft:gpt-4o-mini-2024-07-18:acme:support:9xYz12Ab', 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo')
+	kept += ('accounts/fireworks/models/llama-v3p1-70b-instruct', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0')
+	assert [model_id(k) for k in kept] == list(kept)
+
+
 def test_a_download_extension_is_sent_only_when_it_is_a_common_file_type():
 	"""Privacy red team: a downloaded file's name is the site's, and 'Statement.Jane Doe 2026' sent 'jane doe '."""
 	from browser_use.telemetry.stats import download_ext
