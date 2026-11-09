@@ -1402,3 +1402,21 @@ def test_headers_raise_until_the_daemon_sends_them():
 	authenticated cdp_url passed /json/version, then failed inside ensure_daemon with a bare 401/403."""
 	with pytest.raises(TypeError, match='WebSocket handshake'):
 		Browser(cdp_url='https://example.invalid', headers={'Authorization': 'AWS4-HMAC-SHA256 x'})
+
+
+@pytest.mark.parametrize('url', ['http://127.0.0.1:{port}', 'ws://127.0.0.1:{port}/devtools/browser/x?token=s3cret'])
+async def test_a_cdp_url_nothing_answers_on_names_the_cdp_url(url, tmp_path):
+	"""Live: Browser(cdp_url=...) with no browser there failed with a bare '<urlopen error [Errno 61] Connection
+	refused>' (http), or browser-harness's 'If you use Browser Use cloud, verify auth and get a fresh URL via
+	start_remote_daemon()' (ws), which is not what a cdp_url user runs. The error names the cdp_url and its fix; a
+	token in the URL is never echoed."""
+	import socket
+
+	with socket.socket() as s:
+		s.bind(('127.0.0.1', 0))
+		port = s.getsockname()[1]
+	model, _ = script()
+	result = await Agent('t', model, browser=Browser(cdp_url=url.format(port=port)), workspace=tmp_path).run()
+	assert result.status == 'error', result
+	assert 'cdp_url' in (result.error or '') and f'127.0.0.1:{port}' in result.error, result.error
+	assert 'start_remote_daemon' not in result.error and 's3cret' not in result.error, result.error

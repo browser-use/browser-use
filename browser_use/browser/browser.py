@@ -293,6 +293,17 @@ def _ws_url(cdp_url: str) -> str:
 		return json.load(r)['webSocketDebuggerUrl']
 
 
+def _unreachable(cdp_url: str, cause: object) -> RuntimeError:
+	"""Browser(cdp_url=...) found no browser: name the endpoint (scheme, host and port only: the path or query may hold a
+	token) and what to check. browser-harness's own text points cloud users to start_remote_daemon()."""
+	u = urllib.parse.urlsplit(cdp_url)
+	cause = re.sub(r' -- remote browser WebSocket connection failed\..*', '', str(cause), flags=re.S).removeprefix('fatal: ')
+	return RuntimeError(
+		f'Browser(cdp_url=...) could not connect to a browser at {u.scheme}://{u.netloc.rpartition("@")[2]}: {cause}. '
+		'Is the browser running with --remote-debugging-port, and is the URL current?'
+	)
+
+
 def _daemon_request(name: str, request: dict, timeout: float = 30) -> dict:
 	from browser_harness import _ipc as ipc
 
@@ -737,6 +748,8 @@ class Browser:
 				raise RuntimeError(
 					f'the local browser exited (code {proc.returncode}): it crashed, was killed or closed'
 				) from None
+			if self.cdp_url and 'CDP WS handshake failed' in str(sys.exc_info()[1]):
+				raise _unreachable(self.cdp_url, sys.exc_info()[1]) from None
 			raise
 
 	async def _stopped(self) -> None:
@@ -785,7 +798,10 @@ class Browser:
 		_LIVE.add(self)
 		try:
 			if self.cdp_url:
-				ws = await asyncio.to_thread(_ws_url, self.cdp_url)
+				try:
+					ws = await asyncio.to_thread(_ws_url, self.cdp_url)
+				except (OSError, ValueError, KeyError) as e:  # URLError is an OSError
+					raise _unreachable(self.cdp_url, getattr(e, 'reason', None) or e) from None
 			elif self.use_cloud:
 				ws = await self._start_cloud()
 			else:  # 'chromium', or 'chrome' with a profile: a browser of our own
