@@ -276,7 +276,9 @@ class Agent:
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
 		self.web_search, self.max_context_chars, self.highlight_actions = web_search, max_context_chars, highlight_actions
 		self._search: WebSearch | None = None  # set by _build when search() is on
-		self._workspace = Path(workspace).resolve() if workspace else None  # default: made on first use (workspace)
+		# As given, made absolute, symlinks kept: on macOS resolve() turned tempfile's /var/... into /private/var/..., and
+		# result.downloads[0].relative_to(workspace) raised ValueError. Default: made on first use (workspace).
+		self._workspace = Path(workspace).expanduser().absolute() if workspace else None
 		self._agent: Any = None
 		self._gateway: ChatBrowserUse | None = None  # set by _build when the model runs on the Browser Use gateway
 		self._preflighted = False
@@ -297,7 +299,7 @@ class Agent:
 		(the result's files, screenshots, cell output): the caller deletes it (MIGRATING.md). Not deleted on close():
 		delivered files and links in the result point into it."""
 		if self._workspace is None:
-			self._workspace = Path(tempfile.mkdtemp(prefix='browser-use-')).resolve()
+			self._workspace = Path(tempfile.mkdtemp(prefix='browser-use-')).absolute()
 		return self._workspace
 
 	def __getattr__(self, name: str) -> Any:

@@ -231,10 +231,25 @@ def test_an_agent_that_never_runs_leaves_no_temp_workspace(monkeypatch, tmp_path
 		Agent('t', llm)
 	assert list(tmp_path.iterdir()) == []
 	agent = Agent('t', llm)
-	assert agent.workspace == agent.workspace and agent.workspace.is_dir() and agent.workspace.parent == tmp_path.resolve()
+	assert agent.workspace == agent.workspace and agent.workspace.is_dir() and agent.workspace.parent == tmp_path
 	assert len(list(tmp_path.iterdir())) == 1
 	custom = tmp_path / 'mine'
-	assert Agent('t', llm, workspace=custom).workspace == custom.resolve() and not custom.exists()  # made by run()
+	assert Agent('t', llm, workspace=custom).workspace == custom and not custom.exists()  # made by run()
+
+
+def test_the_workspace_keeps_the_path_as_given(tmp_path, monkeypatch):
+	"""Examples run: on macOS tempfile.mkdtemp() returns /var/... (a symlink to /private/var), Agent resolved it, and
+	result.downloads[0].relative_to(workspace) raised ValueError. The workspace is the path as given, made absolute."""
+	import tempfile
+
+	from browser_use import ChatOpenAI
+
+	(tmp_path / 'real').mkdir()
+	(tmp_path / 'link').symlink_to(tmp_path / 'real', target_is_directory=True)
+	llm = ChatOpenAI('gpt-6-luna', api_key='x')
+	assert Agent('t', llm, workspace=tmp_path / 'link' / 'ws').workspace == tmp_path / 'link' / 'ws'
+	monkeypatch.setattr(tempfile, 'tempdir', str(tmp_path / 'link'))
+	assert Agent('t', llm).workspace.parent == tmp_path / 'link'
 
 
 def test_reasoning_on_a_chat_backend_warns_instead_of_silently_doing_nothing(monkeypatch, caplog):
