@@ -281,9 +281,9 @@ def test_a_runtime_dir_other_users_can_write_is_refused_and_the_cloud_marker_is_
 	assert created == []
 	monkeypatch.setattr(os, 'getuid', getuid)  # now a private dir of our own
 	name = _name('private')
-	harness_cloud._marker(name).write_text('')  # 0644, as an older version wrote it
 	old = os.umask(0o022)
 	try:
+		harness_cloud._marker(name).write_text('')  # 0644, as an older version wrote it
 		ns['start_remote_daemon'](name)
 	finally:
 		os.umask(old)

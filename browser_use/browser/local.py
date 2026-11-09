@@ -229,7 +229,7 @@ def _snap_error(path: str) -> str:
 	return (
 		f'{path} is Snap Chromium, which cannot open DevTools for a browser it did not start itself. Install Google '
 		'Chrome from https://www.google.com/chrome/ (the .deb) and pass executable_path=... or set BH_CHROME_PATH; '
-		'`browser-harness doctor --fix-snap` shows the steps.'
+		'`browser-use doctor --fix-snap` shows the steps.'
 	)
 
 

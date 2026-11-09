@@ -164,17 +164,41 @@ def test_ctrl_c_during_device_login_cancels_without_a_traceback(store, auth_serv
 		stderr=subprocess.PIPE,
 		text=True,
 	)
+	watchdog = threading.Timer(30, proc.kill)  # a CLI that never prints the wait line ends the read below with EOF
+	watchdog.start()
 	try:
 		assert proc.stdout is not None
 		for line in proc.stdout:
 			if line.startswith('Waiting for login'):
 				break
+		watchdog.cancel()
 		proc.send_signal(signal.SIGINT)
 		out, err = proc.communicate(timeout=30)
 	finally:
 		proc.kill()  # never leave it polling the fake server
 	assert proc.returncode == 130, err
 	assert err.strip() == 'Login cancelled.' and 'Signed in' not in out
+	assert not store.exists()
+
+
+def test_ctrl_c_at_the_api_key_prompt_cancels_without_a_traceback(store, monkeypatch, capsys):
+	"""Ctrl-C at `login --api-key-stdin`'s hidden key prompt, or during its key check, printed a KeyboardInterrupt
+	traceback: only the approval wait was covered."""
+	from browser_use import cli
+
+	for var in ('BH_CLIENT', 'BH_CLIENT_VERSION', 'BH_DEVICE_NAME'):
+		monkeypatch.delenv(var, raising=False)  # restored after the test; the command sets them
+
+	def interrupted():
+		raise KeyboardInterrupt
+
+	monkeypatch.setattr(cli, '_read_api_key_stdin', interrupted)
+	try:
+		code = cli._run_login_command(['--api-key-stdin'])
+	except KeyboardInterrupt:
+		pytest.fail('KeyboardInterrupt escaped `login --api-key-stdin` (a traceback for the user)')
+	assert code == 130
+	assert capsys.readouterr().err.strip() == 'Login cancelled.'
 	assert not store.exists()
 
 
