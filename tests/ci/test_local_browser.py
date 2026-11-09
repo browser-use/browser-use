@@ -702,6 +702,37 @@ def test_name_download_never_overwrites_and_keeps_the_file_in_its_dir(tmp_path):
 	assert name_download(tmp_path / 'gone', 'b.txt') is None and not (tmp_path / 'b.txt').exists()
 
 
+def test_name_download_without_hard_links_never_lets_two_downloads_take_one_name(tmp_path, monkeypatch):
+	"""Review: on a filesystem without hard links the fallback checked dest.exists() and then moved; a second download
+	of the same name landing in between was replaced (Unix rename overwrites)."""
+	import os
+
+	from browser_use.utils import name_download
+
+	def no_links(src, dst):
+		raise OSError(1, 'Operation not permitted')
+
+	moves, raced = {n: getattr(os, n) for n in ('rename', 'replace')}, []
+
+	def move_after_a_racer(name):
+		def move(src, dst):
+			if not raced:  # the other download finishes between our free-name check and our move
+				raced.append(None)
+				raced[0] = name_download(tmp_path / 'g2', 'invoice.txt')
+			return moves[name](src, dst)
+
+		return move
+
+	monkeypatch.setattr(os, 'link', no_links)
+	for name in moves:
+		monkeypatch.setattr(os, name, move_after_a_racer(name))
+	(tmp_path / 'g1').write_text('first')
+	(tmp_path / 'g2').write_text('second')
+	mine = name_download(tmp_path / 'g1', 'invoice.txt')
+	assert mine and raced[0] and mine != raced[0]
+	assert sorted(p.read_text() for p in tmp_path.iterdir()) == ['first', 'second']
+
+
 def test_the_prompt_says_where_downloads_land_and_never_to_move_them(tmp_path):
 	"""C12: the prompt told the model to call Browser.setDownloadBehavior; it picked /tmp or cwd, and files missed
 	workspace/downloads. Only a Chrome the Browser launched gets the downloads/ line: Browser('chrome') saves to yours."""

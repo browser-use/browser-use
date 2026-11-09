@@ -340,6 +340,9 @@ def test_a_corrupt_key_store_is_named_and_login_or_logout_repairs_it(store, monk
 		browser_use_api_key()
 	result = _cli('login', '--api-key-stdin', stdin=FAKE_KEY)
 	assert result.returncode == 0, result.stderr
+	# review: the second corrupt store replaced the first backup, which may hold the only copy of a key
+	assert store.with_name('auth.json.corrupt').read_text().startswith('{"browser_use"')
+	assert store.with_name('auth.json.corrupt.2').read_text() == '["a list, not an object"]'
 
 	store.write_text('not json')
 	result = _cli('logout')

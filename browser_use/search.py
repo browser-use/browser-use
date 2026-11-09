@@ -6,6 +6,7 @@ here: the API key never enters the worker. Request, response and errors as Brows
 
 from __future__ import annotations
 
+import http.client
 import json
 import math
 import re
@@ -110,9 +111,12 @@ class WebSearch:
 			urlopen_keyed(urllib.request.Request(self.url, b'{}', headers, method='POST'), SEARCH_TIMEOUT_S).close()
 		except urllib.error.HTTPError as e:
 			if e.code in (401, 402, 403, 404):
-				detail = self._clean(e.read().decode('utf-8', 'replace')[:300].strip())
+				try:
+					detail = self._clean(e.read().decode('utf-8', 'replace')[:300].strip())
+				except (OSError, http.client.HTTPException):  # the body broke off: the status alone is the answer
+					detail = e.reason
 				return f'Agent(web_search=True): Browser Use web search at {self.url} answered HTTP {e.code}: {detail}'
-		except OSError:
+		except (OSError, http.client.HTTPException):  # BadStatusLine, IncompleteRead are not OSError
 			pass
 		return None
 

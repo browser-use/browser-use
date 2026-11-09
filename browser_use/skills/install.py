@@ -161,15 +161,17 @@ def handle(argv: list[str]) -> int:
 			print(f'Error: {exc}', file=sys.stderr)
 			return 1
 
-		for output_path in output_paths:
+		failed = False
+		for output_path in output_paths:  # one unwritable agent dir must not skip the others
 			try:
 				output_path.parent.mkdir(parents=True, exist_ok=True)
 				output_path.write_text(text, encoding='utf-8')
 			except OSError as exc:
 				print(f'Error: cannot write {output_path}: {exc.strerror}', file=sys.stderr)
-				return 1
+				failed = True
+				continue
 			print(f'Installed Browser Use skill to {output_path}')
-		return 0
+		return 1 if failed else 0
 
 	parser.print_help()
 	return 1

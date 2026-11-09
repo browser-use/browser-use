@@ -88,7 +88,10 @@ def set_aside_corrupt_store() -> str | None:
 	path = corrupt_store_path()
 	if path is None:
 		return None
-	backup = path.with_name(path.name + '.corrupt')
+	backup, n = path.with_name(path.name + '.corrupt'), 1
+	while backup.exists():  # an earlier corrupt store may hold the only copy of a key: keep it
+		n += 1
+		backup = path.with_name(f'{path.name}.corrupt.{n}')
 	os.replace(path, backup)
 	return f'The key store {path} was corrupt (not a valid JSON object); moved it to {backup}.'
 
