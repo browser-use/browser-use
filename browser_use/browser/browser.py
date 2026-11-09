@@ -409,12 +409,34 @@ def _name_daemon_files() -> None:
 		ipc.BH_RUNTIME_DIR_SHARED = ipc.BH_TMP_DIR_SHARED = True
 
 
+def _check_runtime_dir() -> None:
+	"""The daemon's socket (its only lock on POSIX), pid file and our .cloud marker live in browser-harness's runtime
+	dir, its log and screenshots in its tmp dir. browser-harness makes a dir it creates 0700 but uses one that already
+	exists as is, so another user's /tmp/bh could unlink the socket and serve a fake daemon (every CDP command,
+	type_secret's text, the pid _kill_daemon kills). Refuse a dir not owned by this user or writable by others."""
+	from browser_harness import _ipc as ipc
+
+	if sys.platform == 'win32':  # TCP loopback with a token there
+		return
+	for var, path in (('BH_RUNTIME_DIR', ipc._RUNTIME), ('BH_TMP_DIR', ipc._TMP)):
+		st = os.stat(path)
+		if st.st_uid != os.getuid() or st.st_mode & 0o022:
+			who = 'owned by another user' if st.st_uid != os.getuid() else 'writable by other users'
+			raise RuntimeError(
+				f'The browser-harness dir {path} is {who} (mode {st.st_mode & 0o7777:o}), who could take over its daemon. '
+				f'Use a dir only you can write to: chmod 700 {path}, or set {var} to a new path such as ~/.bh.'
+			)
+		if os.environ.get(var):  # child daemons and workers use this checked path, never a symlink swapped after it
+			os.environ[var] = str(path)
+
+
 def _check_socket_path(name: str) -> None:
 	"""The daemon listens on an AF_UNIX socket, whose path the OS caps (macOS 104 bytes, Linux 108). A longer one (a
 	long BH_HOME, XDG_CONFIG_HOME or TMPDIR) failed inside the daemon with "AF_UNIX path too long", naming nothing; on
 	cloud it read as a stopped remote browser. Raise before anything starts, naming the path and the fix."""
 	from browser_harness import _ipc as ipc
 
+	_check_runtime_dir()
 	if sys.platform == 'win32':  # TCP loopback there
 		return
 	path = str(ipc._sock_path(name))
@@ -422,7 +444,7 @@ def _check_socket_path(name: str) -> None:
 	if len(path.encode()) > limit:
 		raise RuntimeError(
 			f'The browser-harness socket path is {len(path.encode())} bytes, over the {limit}-byte limit of this OS: '
-			f'{path}. Set BH_RUNTIME_DIR to a short directory (e.g. /tmp/bh), or shorten BH_HOME / XDG_CONFIG_HOME / TMPDIR.'
+			f'{path}. Set BH_RUNTIME_DIR to a short directory only you can write to (e.g. ~/.bh), or shorten BH_HOME / XDG_CONFIG_HOME / TMPDIR.'
 		)
 
 
@@ -812,6 +834,7 @@ class Browser:
 		from browser_harness import admin
 
 		if self.kind == 'chrome' and self.chrome_profile is None:
+			_check_runtime_dir()  # before anything connects to the default daemon's socket in it
 			await asyncio.to_thread(_check_one_chrome)
 			# Bounded: without a wait, browser-harness waits forever on Chrome's "Allow remote debugging?" prompt, and
 			# run(timeout=) only starts counting after the browser started. BH_TAB_MARKER=0: browser-harness's default

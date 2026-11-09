@@ -64,6 +64,7 @@ from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
 from browser_use.ax import AX_PROMPT
 from browser_use.llm import model_ref, skip_responses_transform
+from browser_use.logging_config import printable
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SECRET_PLACEHOLDER, redact_forms, secret_forms
 from browser_use.search import parse_usd
@@ -179,7 +180,8 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 		text = f'{text}\nError: {r["error"]}'.strip()
 	line = redact(next((x for x in code.splitlines() if x.strip()), ''), ctx.deps.repl.secrets)  # live progress (0.x 'Step N')
 	error = (r['error'] or '').strip().splitlines()  # already redacted by Repl.call
-	logger.info(f'step {ctx.run_step}: {line[:120]}' + (f' -> {error[-1][:200]}' if error else ''))
+	# the page controls the error text (a JS exception's message), the model the code: no terminal escapes from either
+	logger.info(printable(f'step {ctx.run_step}: {line[:120]}' + (f' -> {error[-1][:200]}' if error else '')))
 	if ctx.deps.after_tool:
 		await ctx.deps.after_tool('python', {'code': code}, r)
 	if r['images'] and not ctx.deps.vision:
