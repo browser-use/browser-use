@@ -429,7 +429,8 @@ class StreamedRequest(WrapperModel):
 		"""bub2-010 (gpt-6-luna, 1 of 5 streamed compactions): the next request got 400 invalid_encrypted_content on the
 		compaction item and the run ended. The messages still hold the history that item replaced, so the request goes
 		out again without it and the server compacts that history again; never more often than there are such items, and
-		once for the gateway's 400, which does not say which item."""
+		once for the gateway's 400, which does not say which item. A reasoning item OpenAI names so (live, one changed
+		character: the run ended) is left out the same way: the request loses that turn's reasoning, not the run."""
 		guessed = False
 		while True:
 			try:
@@ -438,8 +439,14 @@ class StreamedRequest(WrapperModel):
 				if not (item := _unreadable_compaction(e, messages, guessed)):
 					raise
 				guessed = guessed or e.provider_error_code != 'invalid_encrypted_content'
-				logger.warning(f'{self.model_name} could not read compaction item {item}; sending the history it replaced')
-				messages = [_without_part(m, item) if isinstance(m, ModelResponse) else m for m in messages]
+				what = 'reasoning item' if item.startswith('rs_') else 'compaction item'
+				logger.warning(f'{self.model_name} could not read {what} {item}; sending the request without it')
+				if item.startswith('rs_'):  # in place: the run's history, which every later request sends, too
+					for m in messages:
+						if isinstance(m, ModelResponse):
+							m.parts = _without_part(m, item).parts
+				else:  # the history keeps it: the next compaction item supersedes it
+					messages = [_without_part(m, item) if isinstance(m, ModelResponse) else m for m in messages]
 
 	async def _request(self, messages: Any, model_settings: Any, model_request_parameters: Any) -> ModelResponse:
 		terminal: list[Any] = []
@@ -497,15 +504,16 @@ def _unreadable_compaction(error: ModelAPIError, messages: Sequence[ModelMessage
 	publicError), so there it is the newest item, the only one a request carries, once (`guessed`: already tried)."""
 	sent = [p.id for m in messages if isinstance(m, ModelResponse) for p in m.parts if isinstance(p, CompactionPart)]
 	if error.provider_error_code == 'invalid_encrypted_content':
-		ids = re.findall(r'\bcmp_\w+', error.body if isinstance(error.body, str) else json.dumps(error.body, default=str))
-		return next((i for i in ids if i in sent), None)
+		ids = re.findall(r'\b(?:cmp|rs)_\w+', error.body if isinstance(error.body, str) else json.dumps(error.body, default=str))
+		thoughts = {p.id for m in messages if isinstance(m, ModelResponse) for p in m.parts if isinstance(p, ThinkingPart)}
+		return next((i for i in ids if i in sent or i in thoughts), None)
 	if error.provider_error_code == 'invalid_request' and getattr(error, 'status_code', None) == 400 and sent and not guessed:
 		return sent[-1]
 	return None
 
 
 def _without_part(message: ModelResponse, item: str) -> ModelResponse:
-	parts = [p for p in message.parts if not (isinstance(p, CompactionPart) and p.id == item)]
+	parts = [p for p in message.parts if not (isinstance(p, (CompactionPart, ThinkingPart)) and p.id == item)]
 	return message if len(parts) == len(message.parts) else replace(message, parts=parts)
 
 

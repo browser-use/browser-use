@@ -164,7 +164,8 @@ def responses_server():
 	slowly with pace=(s after response.created, s after each later event). The response
 	carries browser_use{resolved_model, service_tier, charge_usd} as the gateway's does. A non-streamed request gets
 	what the gateway answers one past its 300 s window: HTTP 200, status failed, request_timeout. A compaction item sent
-	back must be one a response carried (encrypted_content included), its id without 'unreadable', else OpenAI's 400."""
+	back must be one a response carried (encrypted_content included), its id without 'unreadable', else OpenAI's 400; a
+	reasoning item too."""
 	requests, replies, issued = [], [], {}
 
 	class Handler(BaseHTTPRequestHandler):
@@ -174,6 +175,8 @@ def responses_server():
 			bad = gateway_violations(body) if self.path == '/v1/responses' else ['path']
 			sealed = [i for i in body['input'] if isinstance(body['input'], list) and i.get('type') == 'compaction']
 			rejected = [i['id'] for i in sealed if issued.get(i['id']) != i['encrypted_content'] or 'unreadable' in i['id']]
+			items = body['input'] if isinstance(body['input'], list) else []
+			rejected += [i['id'] for i in items if i.get('type') == 'reasoning' and 'unreadable' in i['id']]
 			if bad:
 				status, reply = 400, {'error': {'code': 'stateful_request', 'message': '; '.join(bad)}}
 			elif rejected:
@@ -550,6 +553,25 @@ async def test_a_compaction_item_the_provider_cannot_read_is_dropped_and_the_his
 	retries = [json.dumps(body['input']) for _, body in requests[5:7]]  # each unreadable item dropped once, newest first
 	assert 'cmp_unreadable_4' not in retries[0] and 'cmp_unreadable_2' in retries[0]
 	assert 'cmp_unreadable' not in retries[1] and 'TASK-TEXT' in retries[1]
+
+
+async def test_a_reasoning_item_the_provider_cannot_read_is_left_out_of_every_later_request(responses_server, tmp_path):
+	"""Live (longrun b3, api.openai.com): one changed character in a reasoning item's encrypted_content got 400
+	invalid_encrypted_content naming the rs_ item, and the run ended at step 2. The request goes out again without that
+	item (only its reasoning is lost), and so does every later one: one 400 per unreadable item, not per step."""
+	url, requests, replies = responses_server
+	replies += [
+		[reasoning('unreadable_1'), call('python', {'code': 'print(1)'}, 1)],
+		[reasoning(2), call('python', {'code': 'print(2)'}, 2)],
+	]
+	from pydantic_ai.providers.openai import OpenAIProvider
+
+	model = OpenAIResponsesModel('gpt-6-luna', provider=OpenAIProvider(base_url=url, api_key='fake-test-key'))
+	result = await run(build_agent(model, reasoning_effort=None), 'TASK-TEXT', Session(repl=Repl(tmp_path)), 'openai:gpt-6-luna')
+	assert (result.status, result.output, len(requests)) == ('completed', 'ok', 4), result.error
+	sent = [json.dumps(body['input']) for _, body in requests]
+	assert 'rs_unreadable_1' in sent[1] and not any('rs_unreadable_1' in b for b in sent[2:])
+	assert 'call_1' in sent[3] and 'rs_2' in sent[3]  # the rest of the history is kept
 
 
 GATEWAY_REJECTED = (400, {'error': {'message': 'The model rejected this request. Check the input, tools and output limits.',
