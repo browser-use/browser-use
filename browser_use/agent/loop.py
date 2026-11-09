@@ -423,8 +423,8 @@ class BrowserLoop(AbstractCapability[Session]):
 		s, model = ctx.deps, request_context.model
 		if isinstance(error, ModelRequestTimeout):  # a new request step: the delivery turn when its time has come
 			s.rec.retry('model_timeout')
-			logger.warning(f'{error.model_name}: no answer within {error.timeout:g} s; asking again')
-			raise ModelRetry(f'The model request got no answer within {error.timeout:g} s.')
+			logger.warning(f'{error.model_name}: no answer within {error.timeout:.1f} s; asking again')
+			raise ModelRetry(f'The model request got no answer within {error.timeout:.1f} s.')
 		if s.provider_retried or not isinstance(error, ModelAPIError):
 			raise error
 		retries = (request_context.model_settings or {}).get('max_retries')  # the SDK's retries for this request, if set
