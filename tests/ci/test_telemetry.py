@@ -1659,3 +1659,38 @@ def test_a_forked_childs_first_run_and_first_event_are_not_wiped(posthog):
 	assert _in_forked_child(marks) == 0, "the forked child's run got no crash marker"
 	assert _in_forked_child(sends) == 0
 	assert str(uuid.UUID(event_id)) in {e['uuid'] for e in posthog.events(1)}, "the forked child's first event was dropped"
+
+
+def test_an_exit_with_no_queued_event_still_hands_the_outbox_to_the_exit_sender(posthog, monkeypatch):
+	"""PR 6357 review: the exit handler returned when nothing was queued, so the outbox an earlier process left waited for
+	the next process even though this one's thread had started (a run killed before its event was queued)."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	spawned = []
+	monkeypatch.setattr(service.subprocess, 'Popen', lambda *a, **k: spawned.append(a[0]))
+	t = posthog.telemetry
+	box = posthog.config / 'telemetry' / 'outbox'
+	box.mkdir(parents=True)
+	old = box / f'{uuid.uuid4().hex}.gz'
+	old.write_bytes(t._body([t._event(Job('agent_event', lambda s, k: {'model': 'old'}))]))
+	t._at_exit()
+	assert len(spawned) == 1 and spawned[0][-1] == str(old)
+
+
+def test_an_event_the_exit_handler_could_not_write_is_still_written_by_the_thread(posthog, monkeypatch):
+	"""PR 6357 review: every queued event counted as handed to the exit sender, also one whose outbox write failed; the
+	thread, whose send then failed, skipped its own outbox write and the event was lost."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	monkeypatch.setattr(service.subprocess, 'Popen', lambda *a, **k: None)
+	t = posthog.telemetry
+	job = Job('agent_event', lambda s, k: {'model': 'own'})
+	t._pending[job.run_id] = job
+	write = t._to_outbox
+	monkeypatch.setattr(t, '_to_outbox', lambda data, name: None)  # a failed write at exit
+	t._at_exit()
+	monkeypatch.setattr(t, '_to_outbox', write)
+	t._send(job)  # the thread, mid-send as the process exits
+	assert [p.name for p in (posthog.config / 'telemetry' / 'outbox').iterdir()] == [f'{job.run_id}.gz']
