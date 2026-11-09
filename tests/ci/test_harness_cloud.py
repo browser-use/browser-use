@@ -479,6 +479,32 @@ async def test_mcp_a_cancelled_call_lets_go_of_the_lock_and_a_queued_one_never_r
 		release.set()
 
 
+async def test_mcp_a_local_browser_that_cannot_attach_is_one_tool_error_naming_the_reason(monkeypatch):
+	"""Live: with no local Chrome to attach, browser_screenshot raised out of the handler (the client got a JSON-RPC
+	error, not a tool result the model reads) and browser_exec, even of `print(1+1)`, returned a 14-line traceback of
+	browser-harness internals ending in "didn't come up -- check <log file>": the reason was only in that log."""
+	from browser_harness import admin
+	from mcp import types
+
+	from browser_use import harness_cloud
+	from browser_use.mcp import cli_mcp
+
+	def no_chrome(*args, **kwargs):
+		raise RuntimeError(f"daemon {admin.NAME} didn't come up -- check /tmp/bu-{admin.NAME}.log")
+
+	monkeypatch.setattr(harness_cloud, 'ensure_daemon', no_chrome)
+	reason = 'fatal: chrome-not-running: no supported Chromium-family browser is running -- start Chrome, then retry'
+	monkeypatch.setattr(admin, '_log_tail', lambda name=None: reason)
+	mcp = cli_mcp.CLIMCPServer()
+	handler = mcp.server._request_handlers['tools/call'].handler
+	for name, arguments in (('browser_exec', {'code': 'print(1 + 1)'}), ('browser_screenshot', {})):
+		r = await handler(None, types.CallToolRequestParams(name=name, arguments=arguments))
+		text = r.content[0].text  # type: ignore[union-attr]
+		assert r.is_error and 'Traceback' not in text and len(text.strip().splitlines()) == 1, (name, text)
+		assert 'chrome-not-running: no supported Chromium-family browser is running' in text, (name, text)
+		assert 'start_remote_daemon()' in text, (name, text)  # the way out when there is no local browser
+
+
 def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
 	"""M29: print() from a thread the model's code started landed on stdout and broke the client's JSON-RPC parsing."""
 	import json

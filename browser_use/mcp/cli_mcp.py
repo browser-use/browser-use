@@ -281,8 +281,8 @@ class CLIMCPServer:
 					)
 				try:
 					png = await self._locked(self._screenshot, bool(arguments.get('full', False)), max_dim)
-				except CloudBrowserError as e:
-					return types.CallToolResult(content=[types.TextContent(type='text', text=f'Error: {e}')], is_error=True)
+				except Exception as e:  # a tool result the model reads, never a JSON-RPC error
+					return types.CallToolResult(content=[types.TextContent(type='text', text=self._error(e))], is_error=True)
 				content: list[types.ContentBlock] = [types.ImageContent(type='image', data=png, mime_type='image/png')]
 				return types.CallToolResult(content=content)
 			if name == 'browser_login':
@@ -364,15 +364,34 @@ class CLIMCPServer:
 				ns = self._ensure_namespace()
 				if connect:
 					self._ensure_daemon(code)
+			except Exception as e:  # attaching the browser, before any of the code ran: one line, not harness internals
+				print(self._error(e), file=buffer)
+				return buffer.getvalue(), failed
+			try:
 				exec(code, ns)
 				failed = False
-			except CloudAuthRequired:  # its own message names `browser-harness auth login`, not this server's tool
-				print(LOGIN_HINT, file=buffer)
-			except CloudBrowserError as e:
-				print(f'Error: {e}', file=buffer)
-			except BaseException:
-				traceback.print_exc(file=buffer)
+			except BaseException as e:
+				if isinstance(e, CloudAuthRequired | CloudBrowserError):
+					print(self._error(e), file=buffer)
+				else:
+					traceback.print_exc(file=buffer)
 		return buffer.getvalue(), failed
+
+	def _error(self, e: Exception) -> str:
+		"""One line for a failure to reach the browser. browser-harness's "daemon <name> didn't come up -- check <log>"
+		named only a log file the model cannot read: its last line is the reason (browser-harness reads it the same way)."""
+		if isinstance(e, CloudAuthRequired):  # its own message names `browser-harness auth login`, not this server's tool
+			return LOGIN_HINT
+		if isinstance(e, CloudBrowserError):
+			return f'Error: {e}'
+		from browser_harness import admin
+
+		text = str(e) or type(e).__name__
+		if " didn't come up -- check " in text and (reason := admin._log_tail(admin.NAME)):
+			text = f'{text.partition(" -- check ")[0]}: {reason.removeprefix("fatal: ")}'
+		if self._browser is None and not self._cloud_started:
+			text += '. No local Chrome to use? Start a cloud browser: start_remote_daemon()'
+		return f'Error: {text}'
 
 	def _sign_in(self, force: bool, wait: float = LOGIN_WAIT_SECONDS) -> str:
 		"""Start (or keep waiting on) one browser login. The key never appears in the result."""
